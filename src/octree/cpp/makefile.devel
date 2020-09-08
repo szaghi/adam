@@ -1,0 +1,77 @@
+MACHINE = galileo
+ENABLE_CUDA = 1
+TARGET = miniamr
+OPENMP = -qopenmp
+OPENMP = 
+ifeq ($(ENABLE_CUDA),1)
+    NVCCFLAGS = -arch=sm_35
+    CUDACXXFLAGS = -DUSE_CUDA
+    #CUDALDFLAGS = -L/cineca/prod/compilers/cuda/9.0/none/lib64 -lcudart 
+    #CUDAINCLUDE = -I/cineca/prod/compilers/cuda/9.0/none/include
+    CUDALDFLAGS = -L/cineca/prod/compilers/cuda/8.0.61/none/lib64 -lcudart 
+    CUDAINCLUDE = -I/cineca/prod/compilers/cuda/8.0.61/none/include
+    CUDA_PATH = /cineca/prod/compilers/cuda/8.0.61/none/
+    OPENMP = 
+else
+    NVCCFLAGS = 
+    CUDACXXFLAGS = 
+    CUDALDFLAGS = 
+    CUDALDFLAGS =
+    CUDAINCLUDE =
+endif
+#CMD="g++ -O3 -std=c++11"
+#CMD="g++ -g -O0 -C -std=c++11"
+CXX = icpc
+CXXFLAGS = -g -O0 -C -std=c++11 $(CUDACXXFLAGS)
+CXXFLAGS = -O2 -std=c++11 -g $(OPENMP) $(CUDACXXFLAGS)
+CXXFLAGS = -O3 -std=c++11 -g $(OPENMP) $(CUDACXXFLAGS)
+LD = ifort $(CUDALDFLAGS)
+
+ifeq ($(MACHINE),marconi)
+	INCLUDEFLAGS = -I/cineca/prod/build/libraries/cgal/4.10/intel--pe-xe-2017--binary/BA_WORK/cgal-4.10/Polyhedron_IO/include/ -I/cineca/prod/opt/libraries/cgal/4.10/intel--pe-xe-2017--binary/include -I/cineca/prod/build/libraries/cgal/4.10/intel--pe-xe-2017--binary/BA_WORK/cgal-4.10/Kernel_23/include/CGAL
+	LDFLAGS = VTKFortran_C_interfaces/VTKFortran_C_interfaces.o -L VTKFortran/static -l vtkfortran -L/cineca/prod/opt/libraries/cgal/4.10/intel--pe-xe-2017--binary/lib64 -lCGAL -L/cineca/prod/opt/libraries/boost/1.61.0/intelmpi--2017--binary/lib -lboost_thread -lboost_system -cxxlib -lboost_chrono -lboost_date_time -lboost_atomic -I /cineca/prod/build/libraries/cgal/4.10/intel--pe-xe-2017--binary/BA_WORK/cgal-4.10/Polyhedron_IO/include/ -I/cineca/prod/opt/libraries/cgal/4.10/intel--pe-xe-2017--binary/include -nofor-main $(OPENMP)
+endif
+ifeq ($(MACHINE),galileo)
+	INCLUDEFLAGS = -I/galileo/home/userinternal/fsalvado/CODE/miniamr/dep/cgal/4.10/cgal-releases-CGAL-4.10/include/CGAL/Polyhedron_IO/include/ -I/galileo/home/userinternal/fsalvado/CODE/miniamr/dep/cgal/4.10/INSTALL_cgal-releases-CGAL-4.10/include/ -I/galileo/home/userinternal/fsalvado/CODE/miniamr/dep/cgal/4.10/cgal-releases-CGAL-4.10/include/CGAL/Kernel_23/include/CGAL -I/cineca/prod/opt/libraries/boost/1.61.0/intelmpi--2017--binary/include $(CUDAINCLUDE)
+	LDFLAGS = ../dep/VTKFortran_C_interfaces/VTKFortran_C_interfaces.o -L ../dep/VTKFortran/static -l vtkfortran -L/galileo/home/userinternal/fsalvado/CODE/miniamr/dep/cgal/4.10/INSTALL_cgal-releases-CGAL-4.10/lib64 -lCGAL -L/cineca/prod/opt/libraries/boost/1.61.0/intelmpi--2017--binary/lib -lboost_thread -lboost_system -cxxlib -lboost_chrono -lboost_date_time -lboost_atomic -nofor-main $(OPENMP)
+endif
+
+.PHONY: default all clean cleandata
+
+default: $(TARGET)
+all: default
+
+SRCS    = $(filter-out $(wildcard *.hipref.cpp), $(wildcard *.cpp))
+OBJECTS = $(patsubst %.cpp, %.o, $(SRCS))
+ifeq ($(ENABLE_CUDA),1)
+    CUDA_OBJECTS = $(patsubst %.cu, %.o, $(wildcard *.cu))
+else ifeq ($(ENABLE_CUDA),2)
+    CUDA_OBJECTS = $(patsubst %.hipref.cpp, %.o, $(wildcard *.hipref.cpp))
+else
+    CUDA_OBJECTS = 
+endif
+HEADERS = $(wildcard *.h)
+
+debAlloc.o: debAlloc.c
+	icc -c -DDEBUG_MEMORY debAlloc.c
+
+%.o: %.cpp makefile $(HEADERS)
+	$(CXX) $(CXXFLAGS) $(INCLUDEFLAGS) -c $< -o $@
+
+%.o: %.cu makefile $(HEADERS)
+	nvcc $(NVCCFLAGS) $(CUDACXXFLAGS) $(CXXFLAGS) $(INCLUDEFLAGS) -c $< -o $@
+
+%.o: %.hipref.cpp makefile $(HEADERS)
+	nvcc $(NVCCFLAGS) $(CUDACXXFLAGS) $(CXXFLAGS) $(INCLUDEFLAGS) -c $< -o $@
+
+.PRECIOUS: $(TARGET) $(OBJECTS) $(CUDA_OBJECTS)
+
+$(TARGET): $(OBJECTS) $(CUDA_OBJECTS) debAlloc.o
+	$(LD) $(OBJECTS) $(CUDA_OBJECTS) debAlloc.o $(LDFLAGS) $(INCLUDEFLAGS) -o $@
+
+clean:
+	-rm -f *.o
+	-rm -f $(TARGET)
+
+cleandata:
+	-rm -f *.vtr *.vtm output.tar
