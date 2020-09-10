@@ -1,0 +1,12 @@
+[submodule "src/list/flist"]
+	path = src/list/flist
+	url = https://github.com/jacobwilliams/flist
+[submodule "src/list/single-linked-list"]
+	path = src/list/single-linked-list
+	url = git@github.com:szaghi/single-linked-list.git
+[submodule "src/hash_table/HASTY"]
+	path = src/hash_table/HASTY
+	url = git@github.com:szaghi/HASTY.git
+[submodule "src/morton/MORTIF"]
+	path = src/morton/MORTIF
+	url = git@github.com:szaghi/MORTIF.git
