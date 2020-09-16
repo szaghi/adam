@@ -8,6 +8,7 @@ use PENF, only : I4P
 implicit none
 private
 public :: dictionary_object
+public :: key_iterator_interface
 
 type :: dictionary_object
    !< Dictionary class definition.

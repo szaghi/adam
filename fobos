@@ -1,6 +1,7 @@
 [modes]
 modes = tests-gnu tests-gnu-debug
-        tests-nvf
+        tests-intel tests-intel-debug
+        tests-nvf tests-nvf-debug
 
 [common-variables]
 $CSTATIC_GNU = -cpp -c
@@ -8,6 +9,7 @@ $CSTATIC_INT = -cpp -c
 $CSTATIC_NVF = -cpp -c
 $DEBUG_GNU   = -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fcheck=all -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan -std=f2008 -fall-intrinsics
 $DEBUG_INT   = -O0 -debug all -check all -warn all -extend-source 132 -traceback -gen-interfaces#-fpe-all=0 -fp-stack-check -fstack-protector-all -ftrapuv -no-ftz -std08
+$DEBUG_NVF   = -O0 -g -C
 $OPTIMIZE    = -O2
 $EXDIRS      = references/ PENF/src/tests/
 
@@ -21,8 +23,21 @@ build_dir = ./exe/
 template  = template-static-gnu-debug
 build_dir = ./exe/
 
+# Intel
+[tests-intel]
+template  = template-static-intel
+build_dir = ./exe/
+
+[tests-intel-debug]
+template  = template-static-intel-debug
+build_dir = ./exe/
+
 # NVFortran
 [tests-nvf]
+template  = template-static-nvf
+build_dir = ./exe/
+
+[tests-nvf-debug]
 template  = template-static-nvf
 build_dir = ./exe/
 
@@ -53,10 +68,49 @@ quiet        = False
 log          = True
 jobs         = 2
 
+# Intel
+[template-static-intel]
+compiler     = intel
+cflags       = $CSTATIC_INT $OPTIMIZE
+exclude_dirs = $EXDIRS
+mod_dir      = ./mod/
+obj_dir      = ./obj/
+src          = ./src/
+colors       = True
+quiet        = False
+log          = True
+jobs         = 2
+
+[template-static-intel-debug]
+compiler     = intel
+cflags       = $CSTATIC_INT $DEBUG_INT
+lflags       = $DEBUG_INT
+exclude_dirs = $EXDIRS
+mod_dir      = ./mod/
+obj_dir      = ./obj/
+src          = ./src/
+colors       = True
+quiet        = False
+log          = True
+jobs         = 2
+
 # NVFortran
 [template-static-nvf]
 compiler     = nvfortran
 cflags       = $CSTATIC_NVF $OPTIMIZE
+exclude_dirs = $EXDIRS
+mod_dir      = ./mod/
+obj_dir      = ./obj/
+src          = ./src/
+colors       = True
+quiet        = False
+log          = True
+jobs         = 2
+
+[template-static-nvf-debug]
+compiler     = nvfortran
+cflags       = $CSTATIC_NVF $DEBUG_NVF
+lflags       = $DEBUG_NVF
 exclude_dirs = $EXDIRS
 mod_dir      = ./mod/
 obj_dir      = ./obj/
