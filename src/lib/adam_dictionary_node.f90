@@ -6,20 +6,22 @@ use PENF, only : I4P
 
 implicit none
 private
+public :: KEY_LEN
 public :: destroy_dictionary_node
 public :: dictionary_node_object
 
 integer(I4P), parameter :: KEY_LEN = 50 !< Length of dictionary node's key.
 
 type :: dictionary_node_object
-!< Dictionary node class definition.
+   !< Dictionary node class definition.
    character(len=KEY_LEN),                public :: key=''           !< The key.
    integer(I4P),                          public :: content=0_I4P    !< The content.
    type(dictionary_node_object), pointer, public :: next=>null()     !< The next node in the dictionary.
    type(dictionary_node_object), pointer, public :: previous=>null() !< The previous node in the dictionary.
    contains
       ! public methods
-      procedure, pass(self) :: destroy !< Destroy dictionary node.
+      procedure, pass(self) :: destroy    !< Destroy dictionary node.
+      procedure, pass(self) :: initialize !< Initialize dictionary node with key/content pair.
       ! operators
       generic :: assignment(=) => dictionary_node_assign_dictionary_node      !< Overload `=`.
       procedure, pass(lhs), private :: dictionary_node_assign_dictionary_node !< Operator `=`.
@@ -48,6 +50,16 @@ contains
 
    self = fresh
    endsubroutine destroy
+
+   elemental subroutine initialize(self, key, content)
+   !< Initialize dictionary node with key/content pair.
+   class(dictionary_node_object), intent(inout) :: self    !< Dictionary node.
+   character(len=*),              intent(in)    :: key     !< The key.
+   integer(I4P),                  intent(in)    :: content !< The content.
+
+   self%key = key
+   self%content = content
+   endsubroutine initialize
 
    ! operators
    ! =
