@@ -1,6 +1,6 @@
-!< AMRFLUX, dictionary node class definition.
-module amrflux_dictionary_node_object
-!< AMRFLUX, dictionary node class definition.
+!< ADAM, dictionary node class definition.
+module adam_dictionary_node_object
+!< ADAM, dictionary node class definition.
 
 use PENF, only : I4P
 
@@ -59,4 +59,4 @@ contains
    lhs%key = rhs%key
    lhs%content = rhs%content
    endsubroutine dictionary_node_assign_dictionary_node
-endmodule amrflux_dictionary_node_object
+endmodule adam_dictionary_node_object
