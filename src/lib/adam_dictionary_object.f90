@@ -3,12 +3,12 @@ module adam_dictionary_object
 !< ADAM, dictionary class definition.
 
 use adam_dictionary_node_object, only : KEY_LEN, destroy_dictionary_node, dictionary_node_object
-use PENF, only : I4P
+use PENF, only : I4P, I8P
 
 implicit none
 private
 public :: dictionary_object
-public :: key_iterator_interface
+public :: iterator_interface
 
 type :: dictionary_object
    !< Dictionary class definition.
@@ -29,24 +29,11 @@ type :: dictionary_object
       procedure, pass(self), private :: add_key           !< Add key to keys list.
       procedure, pass(self), private :: remove_by_pointer !< Remove node from dictionary, given pointer to it.
       procedure, pass(self), private :: remove_key        !< Remove key to keys list.
-      procedure, pass(self), private :: traverse_iterator !< Traverse dictionary from head to tail calling the iterator procedure.
       ! operators
       ! generic :: assignment(=) => dictionary_assign_dictionary      !< Overload `=`.
       ! procedure, pass(lhs), private :: dictionary_assign_dictionary !< Operator `=`.
 endtype dictionary_object
 
-! public interfaces
-abstract interface
-  subroutine key_iterator_interface(key, content, done)
-  !< Iterator procedure for traversing all nodes in a dictionary by keys.
-   import :: I4P
-  character(len=*),  intent(in)  :: key     !< The key.
-  integer(I4P),      intent(in)  :: content !< The content.
-  logical,           intent(out) :: done    !< Flag to set to true to stop traversing.
-  end subroutine key_iterator_interface
-endinterface
-
-! private interfaces
 abstract interface
    subroutine iterator_interface(node, done)
    !< Iterator procedure for traversing all nodes in a dictionary.
@@ -64,7 +51,7 @@ contains
    !< @note If a node with the same key is already in the dictionary, it is removed and the new one will replace it.
    class(dictionary_object), intent(inout) :: self    !< The dictionary.
    character(len=*),         intent(in)    :: key     !< The key.
-   integer(I4P),             intent(in)    :: content !< The content.
+   integer(I8P),             intent(in)    :: content !< The content.
    type(dictionary_node_object), pointer   :: p       !< Pointer to scan the dictionary.
 
    ! if the node is already there, then remove it
@@ -105,10 +92,9 @@ contains
    class(dictionary_object), intent(in)  :: self    !< The dictionary.
    character(len=*),         intent(in)  :: key     !< The key.
    logical                               :: has_key !< Check result.
-   type(dictionary_node_object), pointer :: p       !< Pointer to scan the dictionary.
 
    has_key = .false.
-   call self%traverse_iterator(iterator=key_iterator_search)
+   call self%traverse(iterator=key_iterator_search)
    contains
       subroutine key_iterator_search(node, done)
       !< Iterator procedure for searching a key.
@@ -124,7 +110,7 @@ contains
    !< Sentinel while-loop on nodes returning the key/content pair (for dictionary looping).
    class(dictionary_object), intent(in)            :: self      !< The dictionary.
    character(len=*),         intent(out), optional :: key       !< The key.
-   integer(I4P),             intent(out), optional :: content   !< The content.
+   integer(I8P),             intent(out), optional :: content   !< The content.
    logical                                         :: again     !< Sentinel flag to contine the loop.
    type(dictionary_node_object), pointer, save     :: p=>null() !< Pointer to current node.
 
@@ -155,7 +141,7 @@ contains
    type(dictionary_node_object), pointer :: p    !< Pointer to node queried.
 
    p => null()
-   call self%traverse_iterator(iterator=key_iterator_search)
+   call self%traverse(iterator=key_iterator_search)
    contains
       subroutine key_iterator_search(node, done)
       !< Iterator procedure for searching a key.
@@ -179,18 +165,22 @@ contains
 
    subroutine traverse(self, iterator)
    !< Traverse dictionary from head to tail calling the iterator procedure.
-   class(dictionary_object), intent(in) :: self     !< The dictionary.
-   procedure(key_iterator_interface)    :: iterator !< The (key) iterator procedure to call for each node.
+   class(dictionary_object), intent(in)  :: self     !< The dictionary.
+   procedure(iterator_interface)         :: iterator !< The iterator procedure to call for each node.
+   type(dictionary_node_object), pointer :: p        !< Pointer to scan the dictionary.
+   logical                               :: done     !< Flag to set to true to stop traversing.
 
-   call self%traverse_iterator(key_iterator_wrapper)
-   contains
-      subroutine key_iterator_wrapper(node, done)
-      !< Wrapper for calling the user-specified key_iterator procedure.
-      type(dictionary_node_object), pointer, intent(in)  :: node !< The dictionary node.
-      logical,                               intent(out) :: done !< Flag to set to true to stop traversing.
-
-      call iterator(key=node%key, content=node%content, done=done)
-      endsubroutine key_iterator_wrapper
+   done = .false.
+   p => self%head
+   do
+     if (associated(p)) then
+       call iterator(node=p, done=done)
+       if (done) exit
+       p => p%next
+     else
+       exit
+     endif
+   enddo
    endsubroutine traverse
 
    ! private methods
@@ -240,24 +230,4 @@ contains
 
    !< @TODO to be implemented
    endsubroutine remove_key
-
-   subroutine traverse_iterator(self, iterator)
-   !< Traverse dictionary from head to tail calling the iterator procedure.
-   class(dictionary_object), intent(in)  :: self     !< The dictionary.
-   procedure(iterator_interface)         :: iterator !< The iterator procedure to call for each node.
-   type(dictionary_node_object), pointer :: p        !< Pointer to scan the dictionary.
-   logical                               :: done     !< Flag to set to true to stop traversing.
-
-   done = .false.
-   p => self%head
-   do
-     if (associated(p)) then
-       call iterator(node=p, done=done)
-       if (done) exit
-       p => p%next
-     else
-       exit
-     endif
-   enddo
-   endsubroutine traverse_iterator
 endmodule adam_dictionary_object

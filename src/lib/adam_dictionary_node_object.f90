@@ -2,7 +2,7 @@
 module adam_dictionary_node_object
 !< ADAM, dictionary node class definition.
 
-use PENF, only : I4P
+use PENF, only : I4P, I8P
 
 implicit none
 private
@@ -15,7 +15,7 @@ integer(I4P), parameter :: KEY_LEN = 50 !< Length of dictionary node's key.
 type :: dictionary_node_object
    !< Dictionary node class definition.
    character(len=KEY_LEN),                public :: key=''           !< The key.
-   integer(I4P),                          public :: content=0_I4P    !< The content.
+   integer(I8P),                          public :: content=0_I8P    !< The content.
    type(dictionary_node_object), pointer, public :: next=>null()     !< The next node in the dictionary.
    type(dictionary_node_object), pointer, public :: previous=>null() !< The previous node in the dictionary.
    contains
@@ -55,7 +55,7 @@ contains
    !< Initialize dictionary node with key/content pair.
    class(dictionary_node_object), intent(inout) :: self    !< Dictionary node.
    character(len=*),              intent(in)    :: key     !< The key.
-   integer(I4P),                  intent(in)    :: content !< The content.
+   integer(I8P),                  intent(in)    :: content !< The content.
 
    self%key = key
    self%content = content
