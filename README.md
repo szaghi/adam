@@ -1,6 +1,6 @@
-# AMR flow solver
+# ADAM
 
-> a compressible, finite difference, structured, cartesian, adaptive mesh refinement, immersed boundary fluid dynamic solver tailored for high performance GPU computing
+> ADAM, a compressible, finite difference, structured, cartesian, adaptive mesh refinement, immersed boundary fluid dynamic solver tailored for high performance GPU computing
 
 by Francesco Salvadore, Andrea di Mascio and Stefano Zaghi
 
@@ -13,4 +13,3 @@ by Francesco Salvadore, Andrea di Mascio and Stefano Zaghi
 + exploit Adaptive Mesh Refinement (AMR) to accurate simulate complex geometries;
 + exploit Immersed Boundary (IB) techiniques to easy handle complex moving geometries;
 + ready for very High Performance Computing (HPC) by means of GPU parallel paradigm exploitation, i.e. CUDA programming;
-
