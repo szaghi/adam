@@ -4,7 +4,7 @@ module adam_hash_table_object
 
 use adam_dictionary_node_object, only : KEY_LEN, destroy_dictionary_node, dictionary_node_object
 use adam_dictionary_object, only : dictionary_object, iterator_interface, len
-use PENF, only : I1P, I4P, I8P
+use PENF, only : I1P, I4P, I8P, R8P
 
 implicit none
 private
@@ -18,6 +18,7 @@ type :: hash_table_object
    integer(I4P)                         :: buckets_number=0_I4P    !< Number of buckets used.
    integer(I4P)                         :: nodes_number=0_I4P      !< Number of nodes actually stored, namely the hash table length.
    character(len=KEY_LEN), allocatable  :: keys(:,:)               !< Minimum and maximum key values actually stored.
+   real(R8P)                            :: max_load=0.7_R8P        !< Maximum load of hash table bucket.
    logical                              :: is_initialized_=.false. !< Initialization status.
    contains
       ! public methods
@@ -26,6 +27,7 @@ type :: hash_table_object
       procedure, pass(self) :: hash         !< Hash the key.
       procedure, pass(self) :: has_key      !< Check if the key is present in the hash table.
       procedure, pass(self) :: initialize   !< Initialize the hash table.
+      procedure, pass(self) :: node         !< Return a pointer to a node.
       procedure, pass(self) :: node_content !< Return node's content, given the key.
       procedure, pass(self) :: remove_node  !< Remove a node from the hash table, given the key.
       procedure, pass(self) :: traverse     !< Traverse hash table calling the iterator procedure.
@@ -82,7 +84,7 @@ contains
    integer(I4P)                         :: bucket !< Bucket index corresponding to the key.
 
    bucket = 0
-   if (self%is_initialized_) bucket = abs(mod(murmurhash3(key=key), self%buckets_number))
+   if (self%is_initialized_) bucket = abs(mod(murmurhash3(key=key), self%buckets_number)) + 1
    endfunction hash
 
    subroutine initialize(self, buckets_number)
@@ -96,6 +98,16 @@ contains
    allocate(self%keys(1:2,1:self%buckets_number))
    self%is_initialized_ = .true.
    endsubroutine initialize
+
+   function node(self, key) result(p)
+   !< Return a pointer to a node in the dictionary.
+   class(hash_table_object), intent(in)  :: self !< The hash table.
+   character(len=*),         intent(in)  :: key  !< The key.
+   type(dictionary_node_object), pointer :: p    !< Pointer to node queried.
+
+   p => null()
+   if (self%is_initialized_) p => self%bucket(self%hash(key=key))%node(key=key)
+   endfunction node
 
    function node_content(self, key) result(content)
    !< Return node's content, given the key.
@@ -113,9 +125,9 @@ contains
 
    subroutine remove_node(self, key)
    !< Remove a node from the hash table, given the key.
-   class(hash_table_object), intent(inout) :: self          !< The hash table.
-   character(len=*),         intent(in)    :: key           !< The key.
-   integer(I4P)                            :: b             !< Bucket index, namely hashed key.
+   class(hash_table_object), intent(inout) :: self !< The hash table.
+   character(len=*),         intent(in)    :: key  !< The key.
+   integer(I4P)                            :: b    !< Bucket index, namely hashed key.
 
    if (self%is_initialized_) then
       b = self%hash(key=key)

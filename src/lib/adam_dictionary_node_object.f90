@@ -2,6 +2,7 @@
 module adam_dictionary_node_object
 !< ADAM, dictionary node class definition.
 
+use MORTIF, only : morton3D
 use PENF, only : I4P, I8P, str, cton
 
 implicit none
@@ -16,13 +17,15 @@ integer(I4P), parameter :: KEY_LEN = 49 !< Length of dictionary node's key.
 type :: dictionary_node_object
    !< Dictionary node class definition.
    character(len=KEY_LEN),                public :: key=''           !< The key.
+   integer(I8P),                          public :: morton=0_I8P     !< The Morton code.
    integer(I8P),                          public :: content=0_I8P    !< The content.
    type(dictionary_node_object), pointer, public :: next=>null()     !< The next node in the dictionary.
    type(dictionary_node_object), pointer, public :: previous=>null() !< The previous node in the dictionary.
    contains
       ! public methods
-      procedure, pass(self) :: destroy    !< Destroy dictionary node.
-      procedure, pass(self) :: initialize !< Initialize dictionary node with key/content pair.
+      procedure, pass(self) :: compute_morton !< Compute Morton code.
+      procedure, pass(self) :: destroy        !< Destroy dictionary node.
+      procedure, pass(self) :: initialize     !< Initialize dictionary node with key/content pair.
       ! operators
       generic :: assignment(=) => dictionary_node_assign_dictionary_node      !< Overload `=`.
       procedure, pass(lhs), private :: dictionary_node_assign_dictionary_node !< Operator `=`.
@@ -56,21 +59,34 @@ contains
 
    subroutine key_int(key, l, tijk, bijk)
    !< Return key in string format.
-   character(len=*), intent(in)  :: key     !< The key.
-   integer(I4P),     intent(out) :: l       !< Refinementl level.
-   integer(I4P),     intent(out) :: tijk(3) !< Tree coordinates into the forest.
-   integer(I4P),     intent(out) :: bijk(3) !< Block coordinates into the tree.
+   character(len=*), intent(in)            :: key     !< The key.
+   integer(I4P),     intent(out), optional :: l       !< Refinementl level.
+   integer(I4P),     intent(out), optional :: tijk(3) !< Tree coordinates into the forest.
+   integer(I4P),     intent(out), optional :: bijk(3) !< Block coordinates into the tree.
 
-   l       = cton(key(1 :7 ), 1_I4P)
-   tijk(1) = cton(key(8 :14), 1_I4P)
-   tijk(2) = cton(key(15:21), 1_I4P)
-   tijk(3) = cton(key(22:28), 1_I4P)
-   bijk(1) = cton(key(29:35), 1_I4P)
-   bijk(2) = cton(key(36:42), 1_I4P)
-   bijk(3) = cton(key(43:49), 1_I4P)
+   if (present(l)) l = cton(key(1:7), 1_I4P)
+   if (present(tijk)) then
+      tijk(1) = cton(key(8 :14), 1_I4P)
+      tijk(2) = cton(key(15:21), 1_I4P)
+      tijk(3) = cton(key(22:28), 1_I4P)
+   endif
+   if (present(bijk)) then
+      bijk(1) = cton(key(29:35), 1_I4P)
+      bijk(2) = cton(key(36:42), 1_I4P)
+      bijk(3) = cton(key(43:49), 1_I4P)
+   endif
    endsubroutine key_int
 
    ! public methods
+   subroutine compute_morton(self)
+   !< Compute Morton code.
+   class(dictionary_node_object), intent(inout) :: self    !< Dictionary node.
+   integer(I4P)                                 :: bijk(3) !< Block coordinates into the tree.
+
+   call key_int(key=self%key, bijk=bijk)
+   self%morton = morton3D(i=bijk(1), j=bijk(2), k=bijk(3))
+   endsubroutine compute_morton
+
    elemental subroutine destroy(self)
    !< Destroy dictionary node.
    class(dictionary_node_object), intent(inout) :: self  !< Dictionary node.
@@ -79,7 +95,7 @@ contains
    self = fresh
    endsubroutine destroy
 
-   pure subroutine initialize(self, key, content)
+   subroutine initialize(self, key, content)
    !< Initialize dictionary node with key/content pair.
    class(dictionary_node_object), intent(inout) :: self    !< Dictionary node.
    character(len=*),              intent(in)    :: key     !< The key.
@@ -87,6 +103,7 @@ contains
 
    self%key = key
    self%content = content
+   call self%compute_morton
    endsubroutine initialize
 
    ! operators

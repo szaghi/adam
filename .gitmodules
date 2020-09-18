@@ -13,3 +13,6 @@
 [submodule "src/third_party/PENF"]
 	path = src/third_party/PENF
 	url = https://github.com/szaghi/PENF
+[submodule "src/third_party/MORTIF"]
+	path = src/third_party/MORTIF
+	url = git@github.com:szaghi/MORTIF.git

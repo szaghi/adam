@@ -7,12 +7,14 @@ use PENF, only : FI8P, I8P, FI4P, I4P, str
 
 implicit none
 
-type(hash_table_object) :: hash_table                !< Hash table.
-character(len=KEY_LEN)  :: key                       !< Hash table node key.
-integer(I8P)            :: content                   !< Hash table node content.
-character(len=KEY_LEN)  :: keys(6)                   !< Hash table node keys.
-integer(I8P)            :: max_content               !< Maximum content value.
-integer(I4P)            :: b, k, l, tijk(3), bijk(3) !< Counter.
+type(hash_table_object)               :: hash_table                !< Hash table.
+type(dictionary_node_object), pointer :: dictionary_node           !< Pointer to node.
+character(len=KEY_LEN)                :: key                       !< Hash table node key.
+integer(I8P)                          :: content                   !< Hash table node content.
+character(len=KEY_LEN)                :: keys(6)                   !< Hash table node keys.
+integer(I8P)                          :: max_content               !< Maximum content value.
+integer(I4P)                          :: b, k, l, tijk(3), bijk(3) !< Counter.
+integer(I4P)                          :: i, j                      !< Counter.
 
 print '(A)', 'initialize hash table'
 call hash_table%initialize
@@ -77,6 +79,23 @@ print '(A)', 'loop into hash table'
 do b=1, hash_table%buckets_number
    do while(hash_table%bucket(b)%loop(key=key, content=content))
       print '(A,'//FI8P//')', ' node: "'//key//'" =', content
+   enddo
+enddo
+
+print '(A)', 'destroy hash table'
+call hash_table%destroy
+print '(A)', 're-initialize hash table'
+call hash_table%initialize
+
+do k=1, 21
+   do j=1, 21
+      do i=1, 21
+         key = key_str(l=0, tijk=[0,0,0], bijk=[i,j,k])
+         call hash_table%add_node(key=key, content=int(i+j+k, I8P))
+         dictionary_node => hash_table%node(key=key)
+         if (associated(dictionary_node)) &
+         print '(A)', 'ijk: '//trim(str([i,j,k]))//' morton: '//trim(str(dictionary_node%morton))
+      enddo
    enddo
 enddo
 
