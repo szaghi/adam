@@ -1,5 +1,5 @@
 !< ADAM, test dictionary class.
-program adam_text_dictionary_object
+program adam_test_dictionary_object
 !< ADAM, test dictionary class.
 
 use adam_objects
@@ -51,4 +51,4 @@ contains
    max_content = max(max_content, node%content)
    done = .false.
    endsubroutine iterator_max
-endprogram adam_text_dictionary_object
+endprogram adam_test_dictionary_object

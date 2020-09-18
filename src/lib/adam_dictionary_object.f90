@@ -9,6 +9,7 @@ implicit none
 private
 public :: dictionary_object
 public :: iterator_interface
+public :: len
 
 type :: dictionary_object
    !< Dictionary class definition.
@@ -43,7 +44,21 @@ abstract interface
    endsubroutine iterator_interface
 endinterface
 
+interface len
+  !< Overload `len` builtin for accepting a [[dictionary]].
+  module procedure dictionary_len
+endinterface
+
 contains
+   ! public non TBP
+   elemental function dictionary_len(self) result(length)
+   !< Return the number of nodes of the dictionary, namely the dictionary length.
+   type(dictionary_object), intent(in) :: self   !< The dictionary.
+   integer(I4P)                        :: length !< The dictionary length.
+
+   length = self%nodes_number
+   endfunction dictionary_len
+
    ! public methods
    subroutine add_node(self, key, content)
    !< Add a node pointer to the dictionary.
