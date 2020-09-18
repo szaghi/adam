@@ -3,7 +3,7 @@ module adam_dictionary_object
 !< ADAM, dictionary class definition.
 
 use adam_dictionary_node_object, only : KEY_LEN, destroy_dictionary_node, dictionary_node_object
-use PENF, only : I4P, I8P
+use PENF, only : I4P, I8P, str
 
 implicit none
 private
@@ -16,7 +16,6 @@ type :: dictionary_object
    type(dictionary_node_object), pointer :: head=>null()    !< The first node in the dictionary.
    type(dictionary_node_object), pointer :: tail=>null()    !< The last node in the dictionary.
    integer(I4P)                          :: nodes_number=0  !< Number of nodes in the dictionary.
-   character(len=KEY_LEN)                :: keys(2)=['',''] !< Minimum and maximum key values actually stored.
    contains
       ! public methods
       procedure, pass(self) :: add_node    !< Add a node pointer to the dictionary.
@@ -27,9 +26,7 @@ type :: dictionary_object
       procedure, pass(self) :: remove_node !< Remove a node from the dictionary, given the key.
       procedure, pass(self) :: traverse    !< Traverse dictionary from head to tail calling the iterator procedure.
       ! private methods
-      procedure, pass(self), private :: add_key           !< Add key to keys list.
       procedure, pass(self), private :: remove_by_pointer !< Remove node from dictionary, given pointer to it.
-      procedure, pass(self), private :: remove_key        !< Remove key to keys list.
       ! operators
       ! generic :: assignment(=) => dictionary_assign_dictionary      !< Overload `=`.
       ! procedure, pass(lhs), private :: dictionary_assign_dictionary !< Operator `=`.
@@ -86,7 +83,7 @@ contains
 
    call p%initialize(key=key, content=content) ! fill the new node with provided contents
 
-   call self%add_key(key=p%key)
+   ! call self%add_key(key=p%key)
 
    self%nodes_number = self%nodes_number + 1
    endsubroutine add_node
@@ -99,7 +96,6 @@ contains
    self%head => null()
    self%tail => null()
    self%nodes_number = 0
-   self%keys = ['','']
    endsubroutine destroy
 
    function has_key(self, key)
@@ -199,14 +195,6 @@ contains
    endsubroutine traverse
 
    ! private methods
-   pure subroutine add_key(self, key)
-   !< Add key to keys list.
-   class(dictionary_object), intent(inout) :: self !< The dictionary.
-   character(len=*),         intent(in)    :: key  !< The key.
-
-   !< @TODO to be implemented
-   endsubroutine add_key
-
    subroutine remove_by_pointer(self, p)
    !< Remove node from dictionary, given pointer to it.
    class(dictionary_object),              intent(inout) :: self         !< The dictionary.
@@ -215,7 +203,7 @@ contains
    logical                                              :: has_previous !< Check if dictionary node has a previous item.
 
    if (associated(p)) then
-     call self%remove_key(key=p%key)
+     ! call self%remove_key(key=p%key)
      call p%destroy ! destroy the node contents
      has_next     = associated(p%next)
      has_previous = associated(p%previous)
@@ -237,12 +225,4 @@ contains
      self%nodes_number = self%nodes_number - 1
    endif
    endsubroutine remove_by_pointer
-
-   subroutine remove_key(self, key)
-   !< Remove key to keys list.
-   class(dictionary_object), intent(inout) :: self !< The dictionary.
-   character(len=*),         intent(in)    :: key  !< The key.
-
-   !< @TODO to be implemented
-   endsubroutine remove_key
 endmodule adam_dictionary_object

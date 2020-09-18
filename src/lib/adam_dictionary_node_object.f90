@@ -2,15 +2,16 @@
 module adam_dictionary_node_object
 !< ADAM, dictionary node class definition.
 
-use PENF, only : I4P, I8P
+use PENF, only : I4P, I8P, str, cton
 
 implicit none
 private
 public :: KEY_LEN
 public :: destroy_dictionary_node
+public :: key_str, key_int
 public :: dictionary_node_object
 
-integer(I4P), parameter :: KEY_LEN = 50 !< Length of dictionary node's key.
+integer(I4P), parameter :: KEY_LEN = 49 !< Length of dictionary node's key.
 
 type :: dictionary_node_object
    !< Dictionary node class definition.
@@ -28,19 +29,46 @@ type :: dictionary_node_object
 endtype dictionary_node_object
 
 contains
-  ! public non TBP
-  recursive subroutine destroy_dictionary_node(node)
-  !< Destroy dictionary node and its subsequent ones.
-  type(dictionary_node_object), pointer, intent(inout) :: node !< The node.
+   ! public non TBP
+   recursive subroutine destroy_dictionary_node(node)
+   !< Destroy dictionary node and its subsequent ones.
+   type(dictionary_node_object), pointer, intent(inout) :: node !< The node.
 
-  if (associated(node)) then
-    call node%destroy
-    call destroy_dictionary_node(node=node%next)
-    node%previous => null()
-    deallocate(node)
-    node => null()
-  endif
-  endsubroutine destroy_dictionary_node
+   if (associated(node)) then
+      call node%destroy
+      call destroy_dictionary_node(node=node%next)
+      node%previous => null()
+      deallocate(node)
+      node => null()
+   endif
+   endsubroutine destroy_dictionary_node
+
+   pure function key_str(l, tijk, bijk) result(key)
+   !< Return key in string format.
+   integer(I4P), intent(in) :: l       !< Refinementl level.
+   integer(I4P), intent(in) :: tijk(3) !< Tree coordinates into the forest.
+   integer(I4P), intent(in) :: bijk(3) !< Block coordinates into the tree.
+   character(len=KEY_LEN)   :: key     !< The key.
+
+   key = trim(str('(I7)',l))//trim(str('(I7)',tijk(1)))//trim(str('(I7)',tijk(2)))//trim(str('(I7)',tijk(3)))//&
+                              trim(str('(I7)',bijk(1)))//trim(str('(I7)',bijk(2)))//trim(str('(I7)',bijk(3)))
+   endfunction key_str
+
+   subroutine key_int(key, l, tijk, bijk)
+   !< Return key in string format.
+   character(len=*), intent(in)  :: key     !< The key.
+   integer(I4P),     intent(out) :: l       !< Refinementl level.
+   integer(I4P),     intent(out) :: tijk(3) !< Tree coordinates into the forest.
+   integer(I4P),     intent(out) :: bijk(3) !< Block coordinates into the tree.
+
+   l       = cton(key(1 :7 ), 1_I4P)
+   tijk(1) = cton(key(8 :14), 1_I4P)
+   tijk(2) = cton(key(15:21), 1_I4P)
+   tijk(3) = cton(key(22:28), 1_I4P)
+   bijk(1) = cton(key(29:35), 1_I4P)
+   bijk(2) = cton(key(36:42), 1_I4P)
+   bijk(3) = cton(key(43:49), 1_I4P)
+   endsubroutine key_int
 
    ! public methods
    elemental subroutine destroy(self)
@@ -51,7 +79,7 @@ contains
    self = fresh
    endsubroutine destroy
 
-   elemental subroutine initialize(self, key, content)
+   pure subroutine initialize(self, key, content)
    !< Initialize dictionary node with key/content pair.
    class(dictionary_node_object), intent(inout) :: self    !< Dictionary node.
    character(len=*),              intent(in)    :: key     !< The key.
