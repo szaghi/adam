@@ -4,6 +4,7 @@ module adam_objects
 
 use adam_dictionary_node_object , only : KEY_LEN, destroy_dictionary_node, dictionary_node_object
 use adam_dictionary_object, only : dictionary_object, iterator_interface
+use adam_hash_table_object, only : hash_table_object
 
 implicit none
 private
@@ -12,4 +13,5 @@ public :: destroy_dictionary_node
 public :: dictionary_node_object
 public :: dictionary_object
 public :: iterator_interface
+public :: hash_table_object
 endmodule adam_objects
