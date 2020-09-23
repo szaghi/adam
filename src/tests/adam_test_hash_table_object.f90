@@ -86,14 +86,27 @@ enddo
 
 print '(A)', 'destroy hash table'
 call hash_table%destroy
-print '(A)', 're-initialize hash table'
-call hash_table%initialize
+print '(A)', 're-initialize hash table with 8 nodes'
+call hash_table%initialize(nodes_number=2*2*2)
 
-do k=1, 21
-   do j=1, 21
-      do i=1, 21
+do k=1, 2
+   do j=1, 2
+      do i=1, 2
          key = key_str(l=0, tijk=[0,0,0], bijk=[i,j,k])
          call hash_table%add_node(key=key, content=int(i+j+k, I8P))
+         dictionary_node => hash_table%node(key=key)
+         if (associated(dictionary_node)) &
+         print '(A)', 'ijk: '//trim(str([i,j,k]))//' morton: '//trim(str(dictionary_node%morton))
+      enddo
+   enddo
+enddo
+print '(A)', 'resize hash table for 27 nodes'
+call hash_table%resize(nodes_number=3*3*3)
+do k=1, 3
+   do j=1, 3
+      do i=1, 3
+         key = key_str(l=0, tijk=[0,0,0], bijk=[i,j,k])
+         if (i==3.or.j==3.or.k==3) call hash_table%add_node(key=key, content=int(i+j+k, I8P))
          dictionary_node => hash_table%node(key=key)
          if (associated(dictionary_node)) &
          print '(A)', 'ijk: '//trim(str([i,j,k]))//' morton: '//trim(str(dictionary_node%morton))
