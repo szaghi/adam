@@ -11,26 +11,29 @@ private
 public :: hash_table_object
 
 integer(I4P), parameter :: HT_BUCKETS_NUMBER_DEF = 9973_I4P !< Default number of buckets of hash table.
+real(R8P),    parameter :: HT_MAX_LOAD = 0.9_R8P            !< Maximum load of hash table buckets.
 
 type :: hash_table_object
    !< Hash table class definition.
    type(dictionary_object), allocatable :: bucket(:)               !< Hash table buckets.
+   integer(I8P), allocatable            :: keys(:,:)               !< Minimum and maximum key values actually stored.
    integer(I4P)                         :: buckets_number=0_I4P    !< Number of buckets used.
    integer(I4P)                         :: nodes_number=0_I4P      !< Number of nodes actually stored, namely the hash table length.
-   character(len=KEY_LEN), allocatable  :: keys(:,:)               !< Minimum and maximum key values actually stored.
-   real(R8P)                            :: max_load=0.7_R8P        !< Maximum load of hash table bucket.
+   real(R8P)                            :: max_load=HT_MAX_LOAD    !< Maximum load of hash table buckets.
    logical                              :: is_initialized_=.false. !< Initialization status.
    contains
       ! public methods
-      procedure, pass(self) :: add_node     !< Add a node pointer to the hash table.
-      procedure, pass(self) :: destroy      !< Destroy the hash table.
-      procedure, pass(self) :: hash         !< Hash the key.
-      procedure, pass(self) :: has_key      !< Check if the key is present in the hash table.
-      procedure, pass(self) :: initialize   !< Initialize the hash table.
-      procedure, pass(self) :: node         !< Return a pointer to a node.
-      procedure, pass(self) :: node_content !< Return node's content, given the key.
-      procedure, pass(self) :: remove_node  !< Remove a node from the hash table, given the key.
-      procedure, pass(self) :: traverse     !< Traverse hash table calling the iterator procedure.
+      procedure, pass(self) :: add_node             !< Add a node pointer to the hash table.
+      procedure, pass(self) :: prime_buckets_number !< Return the buckets number as the nearest prime number given nodes number.
+      procedure, pass(self) :: destroy              !< Destroy the hash table.
+      procedure, pass(self) :: hash                 !< Hash the key.
+      procedure, pass(self) :: has_key              !< Check if the key is present in the hash table.
+      procedure, pass(self) :: initialize           !< Initialize the hash table.
+      procedure, pass(self) :: node                 !< Return a pointer to a node.
+      procedure, pass(self) :: node_content         !< Return node's content, given the key.
+      procedure, pass(self) :: remove_node          !< Remove a node from the hash table, given the key.
+      procedure, pass(self) :: resize               !< Resize the hash table.
+      procedure, pass(self) :: traverse             !< Traverse hash table calling the iterator procedure.
 endtype hash_table_object
 
 contains
@@ -51,6 +54,31 @@ contains
    ! self%keys(1:2, b) = self%bucket(b)%keys()
    endsubroutine add_node
 
+   elemental function prime_buckets_number(self, nodes_number) result(buckets_number)
+   !< Return the buckets number as the nearest prime number given nodes number.
+   !<
+   !< @note The balanced buckets number is computing considering the hash table load defined in `self` and using the
+   !< Sieve of Eratoshenes for findining the nearest prime number.
+   class(hash_table_object), intent(in) :: self           !< The hash_table.
+   integer(I4P),             intent(in) :: nodes_number   !< Nodes number to be stored in the hash table.
+   integer(I4P)                         :: buckets_number !< Well balanced, prime buckets number.
+   logical, allocatable                 :: is_prime(:)    !< List of prime numbers up to buckets number.
+   integer(I4P)                         :: b              !< Counter.
+
+   buckets_number = int((2._R8P - self%max_load) * nodes_number, I4P)
+   allocate(is_prime(buckets_number))
+   is_prime = .true.
+   is_prime(1) = .false.
+   do b=2, int(sqrt(real(buckets_number, R8P)), I4P)
+      if (is_prime(b)) is_prime(b*b:buckets_number:b) = .false.
+   enddo
+   b = buckets_number
+   do while(.not.is_prime(b))
+      b = b - 1
+   enddo
+   buckets_number = b
+   endfunction prime_buckets_number
+
    subroutine destroy(self)
    !< Destroy the hash table.
    class(hash_table_object), intent(inout) :: self !< The hash table.
@@ -62,9 +90,11 @@ contains
       enddo
       deallocate(self%bucket)
    endif
+   if (allocated(self%keys)) deallocate(self%keys)
    self%buckets_number = 0_I4P
    self%nodes_number = 0_I4P
-   if (allocated(self%keys)) deallocate(self%keys)
+   self%max_load = HT_MAX_LOAD
+   self%is_initialized_ = .false.
    endsubroutine destroy
 
    function has_key(self, key)
@@ -87,13 +117,20 @@ contains
    if (self%is_initialized_) bucket = abs(mod(murmurhash3(key=key), self%buckets_number)) + 1
    endfunction hash
 
-   subroutine initialize(self, buckets_number)
+   subroutine initialize(self, max_load, nodes_number, buckets_number)
    !< Initialize the hash table.
    class(hash_table_object), intent(inout)        :: self           !< The hash table.
+   real(R8P),                intent(in), optional :: max_load       !< Maximum load of hash table buckets.
+   integer(I4P),             intent(in), optional :: nodes_number   !< Nodes number to be stored in the hash table.
    integer(I4P),             intent(in), optional :: buckets_number !< Number of buckets for initialize the hash table.
 
    call self%destroy
-   self%buckets_number = HT_BUCKETS_NUMBER_DEF ; if (present(buckets_number)) self%buckets_number = buckets_number
+   if (present(max_load)) self%max_load = max_load
+   if (present(nodes_number)) then
+      self%buckets_number = self%prime_buckets_number(nodes_number=nodes_number)
+   else
+      self%buckets_number = HT_BUCKETS_NUMBER_DEF ; if (present(buckets_number)) self%buckets_number = buckets_number
+   endif
    allocate(self%bucket(1:self%buckets_number))
    allocate(self%keys(1:2,1:self%buckets_number))
    self%is_initialized_ = .true.
@@ -136,6 +173,34 @@ contains
       ! self%keys(1:2, b) = self%bucket(b)%keys()
    endif
    endsubroutine remove_node
+
+   subroutine resize(self, nodes_number)
+   !< Resize the hash table.
+   class(hash_table_object), intent(inout) :: self         !< The hash table.
+   integer(I4P),             intent(in)    :: nodes_number !< Nodes number to be stored in the hash table.
+   type(hash_table_object)                 :: swap         !< Temporary (swap) hash table.
+   character(len=KEY_LEN)                  :: key          !< Hash table node key.
+   integer(I8P)                            :: content      !< Hash table node content.
+   integer(I4P)                            :: b            !< Counter.
+
+   if (self%is_initialized_) then
+      if (self%nodes_number > int((2._R8P-self%max_load)*nodes_number, I4P)) return ! new size too small, cannot previous nodes
+      call swap%initialize(max_load=self%max_load, nodes_number=nodes_number)
+      do b=1, self%buckets_number
+         do while(self%bucket(b)%loop(key=key, content=content))
+            call swap%add_node(key=key, content=content)
+         enddo
+      enddo
+      call move_alloc(from=swap%bucket, to=self%bucket)
+      call move_alloc(from=swap%keys, to=self%keys)
+      self%buckets_number  = swap%buckets_number
+      self%nodes_number    = swap%nodes_number
+      self%max_load        = swap%max_load
+      self%is_initialized_ = swap%is_initialized_
+   else
+      call self%initialize(nodes_number=nodes_number)
+   endif
+   endsubroutine resize
 
    subroutine traverse(self, iterator)
    !< Traverse hash table calling the iterator procedure.

@@ -19,6 +19,8 @@ integer(I4P)                          :: i, j                      !< Counter.
 print '(A)', 'initialize hash table'
 call hash_table%initialize
 
+print '(A,'//FI4P//')', 'testing buckets number calculation for 10**7 nodes: ', hash_table%prime_buckets_number(nodes_number=10**7)
+
 print '(A)', 'prepare keys'
 keys(1) = key_str(l=4,  tijk=[3,5,6     ], bijk=[1023,34054,35667])
 keys(2) = key_str(l=3,  tijk=[25,5,9    ], bijk=[13,3454,30567   ])
@@ -84,14 +86,27 @@ enddo
 
 print '(A)', 'destroy hash table'
 call hash_table%destroy
-print '(A)', 're-initialize hash table'
-call hash_table%initialize
+print '(A)', 're-initialize hash table with 8 nodes'
+call hash_table%initialize(nodes_number=2*2*2)
 
-do k=1, 21
-   do j=1, 21
-      do i=1, 21
+do k=1, 2
+   do j=1, 2
+      do i=1, 2
          key = key_str(l=0, tijk=[0,0,0], bijk=[i,j,k])
          call hash_table%add_node(key=key, content=int(i+j+k, I8P))
+         dictionary_node => hash_table%node(key=key)
+         if (associated(dictionary_node)) &
+         print '(A)', 'ijk: '//trim(str([i,j,k]))//' morton: '//trim(str(dictionary_node%morton))
+      enddo
+   enddo
+enddo
+print '(A)', 'resize hash table for 27 nodes'
+call hash_table%resize(nodes_number=3*3*3)
+do k=1, 3
+   do j=1, 3
+      do i=1, 3
+         key = key_str(l=0, tijk=[0,0,0], bijk=[i,j,k])
+         if (i==3.or.j==3.or.k==3) call hash_table%add_node(key=key, content=int(i+j+k, I8P))
          dictionary_node => hash_table%node(key=key)
          if (associated(dictionary_node)) &
          print '(A)', 'ijk: '//trim(str([i,j,k]))//' morton: '//trim(str(dictionary_node%morton))

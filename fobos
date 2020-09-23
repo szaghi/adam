@@ -11,7 +11,7 @@ $DEBUG_GNU   = -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -
 $DEBUG_INT   = -O0 -debug all -check all -warn all -extend-source 132 -traceback -gen-interfaces#-fpe-all=0 -fp-stack-check -fstack-protector-all -ftrapuv -no-ftz -std08
 $DEBUG_NVF   = -O0 -g -C
 $OPTIMIZE    = -O2
-$EXDIRS      = references/ MORTIF/src/tests/ PENF/src/tests/
+$EXDIRS      = references/ MORTIF/src/tests/ MORTIF/src/third_party/ PENF/src/tests/
 
 # main modes
 # GNU
