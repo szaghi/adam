@@ -19,6 +19,8 @@ integer(I4P)                          :: i, j                      !< Counter.
 print '(A)', 'initialize hash table'
 call hash_table%initialize
 
+print '(A,'//FI4P//')', 'testing buckets number calculation for 10**7 nodes: ', hash_table%prime_buckets_number(nodes_number=10**7)
+
 print '(A)', 'prepare keys'
 keys(1) = key_str(l=4,  tijk=[3,5,6     ], bijk=[1023,34054,35667])
 keys(2) = key_str(l=3,  tijk=[25,5,9    ], bijk=[13,3454,30567   ])
