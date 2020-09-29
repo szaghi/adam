@@ -65,7 +65,7 @@ contains
    logical, allocatable                 :: is_prime(:)    !< List of prime numbers up to buckets number.
    integer(I4P)                         :: b              !< Counter.
 
-   buckets_number = int((2._R8P - self%max_load) * nodes_number, I4P)
+   buckets_number = int((1._R8P / self%max_load) * nodes_number, I4P)
    allocate(is_prime(buckets_number))
    is_prime = .true.
    is_prime(1) = .false.
@@ -174,17 +174,19 @@ contains
    endif
    endsubroutine remove_node
 
-   subroutine resize(self, nodes_number)
+   subroutine resize(self, nodes_number, max_load)
    !< Resize the hash table.
-   class(hash_table_object), intent(inout) :: self         !< The hash table.
-   integer(I4P),             intent(in)    :: nodes_number !< Nodes number to be stored in the hash table.
-   type(hash_table_object)                 :: swap         !< Temporary (swap) hash table.
-   character(len=KEY_LEN)                  :: key          !< Hash table node key.
-   integer(I8P)                            :: content      !< Hash table node content.
-   integer(I4P)                            :: b            !< Counter.
+   class(hash_table_object), intent(inout)        :: self         !< The hash table.
+   integer(I4P),             intent(in)           :: nodes_number !< Nodes number to be stored in the hash table.
+   real(R8P),                intent(in), optional :: max_load     !< Maximum load of hash table buckets.
+   type(hash_table_object)                        :: swap         !< Temporary (swap) hash table.
+   character(len=KEY_LEN)                         :: key          !< Hash table node key.
+   integer(I8P)                                   :: content      !< Hash table node content.
+   integer(I4P)                                   :: b            !< Counter.
 
    if (self%is_initialized_) then
-      if (self%nodes_number > int((2._R8P-self%max_load)*nodes_number, I4P)) return ! new size too small, cannot previous nodes
+      if (present(max_load)) self%max_load = max_load
+      if (self%nodes_number > int((1._R8P/self%max_load)*nodes_number, I4P)) return ! new size too small, cannot previous nodes
       call swap%initialize(max_load=self%max_load, nodes_number=nodes_number)
       do b=1, self%buckets_number
          do while(self%bucket(b)%loop(key=key, content=content))

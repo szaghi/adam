@@ -96,7 +96,7 @@ do k=1, 2
          call hash_table%add_node(key=key, content=int(i+j+k, I8P))
          dictionary_node => hash_table%node(key=key)
          if (associated(dictionary_node)) &
-         print '(A)', 'ijk: '//trim(str([i,j,k]))//' morton: '//trim(str(dictionary_node%morton))
+         print '(A)', 'ijk: '//trim(str([i,j,k]))//' morton: '//trim(str(dictionary_node%code))
       enddo
    enddo
 enddo
@@ -109,7 +109,7 @@ do k=1, 3
          if (i==3.or.j==3.or.k==3) call hash_table%add_node(key=key, content=int(i+j+k, I8P))
          dictionary_node => hash_table%node(key=key)
          if (associated(dictionary_node)) &
-         print '(A)', 'ijk: '//trim(str([i,j,k]))//' morton: '//trim(str(dictionary_node%morton))
+         print '(A)', 'ijk: '//trim(str([i,j,k]))//' morton: '//trim(str(dictionary_node%code))
       enddo
    enddo
 enddo

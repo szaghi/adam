@@ -2,7 +2,7 @@
 module adam_dictionary_node_object
 !< ADAM, dictionary node class definition.
 
-use MORTIF, only : morton3D
+use MORTIF, only : morton3D, morton2D
 use PENF, only : I4P, I8P, str, cton
 
 implicit none
@@ -17,15 +17,15 @@ integer(I4P), parameter :: KEY_LEN = 49 !< Length of dictionary node's key.
 type :: dictionary_node_object
    !< Dictionary node class definition.
    character(len=KEY_LEN),                public :: key=''           !< The key.
-   integer(I8P),                          public :: morton=0_I8P     !< The Morton code.
+   integer(I8P),                          public :: code=-1_I8P      !< The Morton code.
    integer(I8P),                          public :: content=0_I8P    !< The content.
    type(dictionary_node_object), pointer, public :: next=>null()     !< The next node in the dictionary.
    type(dictionary_node_object), pointer, public :: previous=>null() !< The previous node in the dictionary.
    contains
       ! public methods
-      procedure, pass(self) :: compute_morton !< Compute Morton code.
-      procedure, pass(self) :: destroy        !< Destroy dictionary node.
-      procedure, pass(self) :: initialize     !< Initialize dictionary node with key/content pair.
+      procedure, pass(self) :: compute_morton_code !< Compute Morton code.
+      procedure, pass(self) :: destroy             !< Destroy dictionary node.
+      procedure, pass(self) :: initialize          !< Initialize dictionary node with key/content pair.
       ! operators
       generic :: assignment(=) => dictionary_node_assign_dictionary_node      !< Overload `=`.
       procedure, pass(lhs), private :: dictionary_node_assign_dictionary_node !< Operator `=`.
@@ -78,14 +78,21 @@ contains
    endsubroutine key_int
 
    ! public methods
-   subroutine compute_morton(self)
+   subroutine compute_morton_code(self, ratio)
    !< Compute Morton code.
-   class(dictionary_node_object), intent(inout) :: self    !< Dictionary node.
-   integer(I4P)                                 :: bijk(3) !< Block coordinates into the tree.
+   class(dictionary_node_object), intent(inout)        :: self    !< Dictionary node.
+   integer(I4P),                  intent(in), optional :: ratio   !< Refinement ratio.
+   integer(I4P)                                        :: bijk(3) !< Block coordinates into the tree.
+   integer(I4P)                                        :: ratio_  !< Refinement ratio, local variable.
 
+   ratio_ = 8_I4P ; if (present(ratio)) ratio_ = ratio
    call key_int(key=self%key, bijk=bijk)
-   self%morton = morton3D(i=bijk(1), j=bijk(2), k=bijk(3))
-   endsubroutine compute_morton
+   if (   ratio_==8_I8P) then
+      self%code = morton3D(i=bijk(1), j=bijk(2), k=bijk(3))
+   elseif(ratio_==4_I8P) then
+      self%code = morton2D(i=bijk(1), j=bijk(2))
+   endif
+   endsubroutine compute_morton_code
 
    elemental subroutine destroy(self)
    !< Destroy dictionary node.
@@ -95,15 +102,21 @@ contains
    self = fresh
    endsubroutine destroy
 
-   subroutine initialize(self, key, content)
+   subroutine initialize(self, content, key, code, ratio)
    !< Initialize dictionary node with key/content pair.
-   class(dictionary_node_object), intent(inout) :: self    !< Dictionary node.
-   character(len=*),              intent(in)    :: key     !< The key.
-   integer(I8P),                  intent(in)    :: content !< The content.
+   class(dictionary_node_object), intent(inout)        :: self    !< Dictionary node.
+   integer(I8P),                  intent(in)           :: content !< The content.
+   character(len=*),              intent(in), optional :: key     !< The key.
+   integer(I8P),                  intent(in), optional :: code    !< The Morton code.
+   integer(I4P),                  intent(in), optional :: ratio   !< Refinement ratio.
 
-   self%key = key
    self%content = content
-   call self%compute_morton
+   if (present(key)) then
+      self%key = key
+      call self%compute_morton_code(ratio=ratio)
+   elseif (present(code)) then
+      ! @TODO to be implemented
+   endif
    endsubroutine initialize
 
    ! operators
@@ -114,6 +127,7 @@ contains
    type(dictionary_node_object),  intent(in)    :: rhs !< Right hand side.
 
    lhs%key = rhs%key
+   lhs%code = rhs%code
    lhs%content = rhs%content
    endsubroutine dictionary_node_assign_dictionary_node
 endmodule adam_dictionary_node_object
