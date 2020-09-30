@@ -72,8 +72,9 @@ use PENF, only : I1P, I4P, I8P, R8P
 
 implicit none
 private
-public :: morton_to_coordinates2D, morton_to_coordinates3D
-public :: coordinates2D_to_morton, coordinates3D_to_morton
+! public :: morton_to_coordinates2D, morton_to_coordinates3D
+! public :: coordinates2D_to_morton, coordinates3D_to_morton
+public :: morton_to_coordinates, coordinates_to_morton
 public :: child
 public :: child_local
 public :: first_at_level
@@ -83,70 +84,15 @@ public :: parent
 public :: path
 public :: siblings
 
+interface morton_to_coordinates
+  module procedure morton_to_coordinates2D, morton_to_coordinates3D
+endinterface
+interface coordinates_to_morton
+  module procedure coordinates2D_to_morton, coordinates3D_to_morton
+endinterface
+
 contains
    ! public procedures
-   function morton_to_coordinates2D(code, ratio) result(ijl)
-   !< Return the ijkl coordinates given Morton code.
-   integer(I8P), intent(in)  :: code     !< Morton code.
-   integer(I4P), intent(in)  :: ratio    !< Refinement ratio.
-   integer(I4P)              :: ijl(3)   !< IJL coordinates.
-   integer(I4P)              :: ij(2)    !< IJ local coordinates.
-   integer(I8P), allocatable :: path_(:) !< Path from code to root.
-   integer(I4P)              :: p        !< Counter.
-   integer(I8P)              :: c        !< Counter.
-
-   ijl = 0_I4P
-   ijl(3) = level(code=code, ratio=ratio)
-   path_ = path(code=code, ratio=ratio)
-   do p=1, size(path_, dim=1)
-      c = path_(p)
-      call demorton2D(code=child_local(code=c, ratio=ratio), i=ij(1), j=ij(2))
-      ijl(1) = ijl(1) + ij(1) * 2**(p-1)
-      ijl(2) = ijl(2) + ij(2) * 2**(p-1)
-   enddo
-   endfunction morton_to_coordinates2D
-
-   function morton_to_coordinates3D(code, ratio) result(ijkl)
-   !< Return the ijkl coordinates given Morton code.
-   integer(I8P), intent(in)  :: code     !< Morton code.
-   integer(I4P), intent(in)  :: ratio    !< Refinement ratio.
-   integer(I4P)              :: ijkl(4)  !< IJKL coordinates.
-   integer(I4P)              :: ijk(3)   !< IJK local coordinates.
-   integer(I8P), allocatable :: path_(:) !< Path from code to root.
-   integer(I4P)              :: p        !< Counter.
-   integer(I8P)              :: c        !< Counter.
-
-   ijkl = 0_I4P
-   ijkl(4) = level(code=code, ratio=ratio)
-   path_ = path(code=code, ratio=ratio)
-   do p=1, size(path_, dim=1)
-      c = path_(p)
-      call demorton3D(code=child_local(code=c, ratio=ratio), i=ijk(1), j=ijk(2), k=ijk(3))
-      ijkl(1) = ijkl(1) + ijk(1) * 2**(p-1)
-      ijkl(2) = ijkl(2) + ijk(2) * 2**(p-1)
-      ijkl(3) = ijkl(3) + ijk(3) * 2**(p-1)
-   enddo
-   endfunction morton_to_coordinates3D
-
-   function coordinates2D_to_morton(ijl, ratio) result(code)
-   !< Return the Morton code given ijkl coordinates.
-   integer(I4P), intent(in)  :: ijl(3) !< IJL coordinates.
-   integer(I4P), intent(in)  :: ratio  !< Refinement ratio.
-   integer(I8P)              :: code   !< Morton code.
-
-   code = first_at_level(level=ijl(3), ratio=ratio) + morton2D(i=ijl(1), j=ijl(2))
-   endfunction coordinates2D_to_morton
-
-   function coordinates3D_to_morton(ijkl, ratio) result(code)
-   !< Return the Morton code given ijkl coordinates.
-   integer(I4P), intent(in)  :: ijkl(4) !< IJKL coordinates.
-   integer(I4P), intent(in)  :: ratio   !< Refinement ratio.
-   integer(I8P)              :: code    !< Morton code.
-
-   code = first_at_level(level=ijkl(4), ratio=ratio) + morton3D(i=ijkl(1), j=ijkl(2), k=ijkl(3))
-   endfunction coordinates3D_to_morton
-
-   ! pure/elemental procedures
    elemental function child(code, i, ratio)
    !< Return the i-th child given Morton code.
    integer(I8P), intent(in) :: code  !< Morton code.
@@ -253,4 +199,79 @@ contains
       endif
    enddo
    endfunction siblings
+
+   ! private procedures
+   subroutine morton_to_coordinates2D(code, ratio, i, j, l)
+   !< Return the ijkl coordinates given Morton code.
+   integer(I8P), intent(in)  :: code     !< Morton code.
+   integer(I4P), intent(in)  :: ratio    !< Refinement ratio.
+   integer(I4P), intent(out) :: i        !< I coordinate.
+   integer(I4P), intent(out) :: j        !< J coordinate.
+   integer(I4P), intent(out) :: l        !< L coordinate.
+   integer(I4P)              :: ij(2)    !< IJ local coordinates.
+   integer(I8P), allocatable :: path_(:) !< Path from code to root.
+   integer(I4P)              :: p        !< Counter.
+   integer(I8P)              :: c        !< Counter.
+
+   i = 0_I4P
+   j = 0_I4P
+   l = level(code=code, ratio=ratio)
+   path_ = path(code=code, ratio=ratio)
+   do p=1, size(path_, dim=1)
+      c = path_(p)
+      call demorton2D(code=child_local(code=c, ratio=ratio), i=ij(1), j=ij(2))
+      i = i + ij(1) * 2**(p-1)
+      j = j + ij(2) * 2**(p-1)
+   enddo
+   endsubroutine morton_to_coordinates2D
+
+   subroutine morton_to_coordinates3D(code, ratio, i, j, k, l)
+   !< Return the ijkl coordinates given Morton code.
+   integer(I8P), intent(in)  :: code     !< Morton code.
+   integer(I4P), intent(in)  :: ratio    !< Refinement ratio.
+   integer(I4P), intent(out) :: i        !< I coordinate.
+   integer(I4P), intent(out) :: j        !< J coordinate.
+   integer(I4P), intent(out) :: k        !< K coordinate.
+   integer(I4P), intent(out) :: l        !< L coordinate.
+   integer(I4P)              :: ijk(3)   !< IJK local coordinates.
+   integer(I8P), allocatable :: path_(:) !< Path from code to root.
+   integer(I4P)              :: p        !< Counter.
+   integer(I8P)              :: c        !< Counter.
+
+   i = 0_I4P
+   j = 0_I4P
+   k = 0_I4P
+   l = level(code=code, ratio=ratio)
+   path_ = path(code=code, ratio=ratio)
+   do p=1, size(path_, dim=1)
+      c = path_(p)
+      call demorton3D(code=child_local(code=c, ratio=ratio), i=ijk(1), j=ijk(2), k=ijk(3))
+      i = i + ijk(1) * 2**(p-1)
+      j = j + ijk(2) * 2**(p-1)
+      k = k + ijk(3) * 2**(p-1)
+   enddo
+   endsubroutine morton_to_coordinates3D
+
+   function coordinates2D_to_morton(i, j, l, ratio) result(code)
+   !< Return the Morton code given ijl coordinates.
+   integer(I4P), intent(in)  :: i     !< I coordinate.
+   integer(I4P), intent(in)  :: j     !< J coordinate.
+   integer(I4P), intent(in)  :: l     !< L coordinate.
+   integer(I4P), intent(in)  :: ratio !< Refinement ratio.
+   integer(I8P)              :: code  !< Morton code.
+
+   code = first_at_level(level=l, ratio=ratio) + morton2D(i=i, j=j)
+   endfunction coordinates2D_to_morton
+
+   function coordinates3D_to_morton(i, j, k, l, ratio) result(code)
+   !< Return the Morton code given ijkl coordinates.
+   integer(I4P), intent(in)  :: i     !< I coordinate.
+   integer(I4P), intent(in)  :: j     !< J coordinate.
+   integer(I4P), intent(in)  :: k     !< K coordinate.
+   integer(I4P), intent(in)  :: l     !< L coordinate.
+   integer(I4P), intent(in)  :: ratio !< Refinement ratio.
+   integer(I8P)              :: code  !< Morton code.
+
+   code = first_at_level(level=l, ratio=ratio) + morton3D(i=i, j=j, k=k)
+   endfunction coordinates3D_to_morton
 endmodule adam_tree_topology

@@ -18,14 +18,18 @@ do l=1, 17
 enddo
 print '(A)', 'from Morton code to coordinates and viceversa:'
 do c=0, 83, 4
-   coord = morton_to_coordinates2D(code=c  , ratio=4_I4P)
-   print '(A,I3,A,3(I3,1X),A,I3)', 'c=', c  , ' i,j,l=', coord, ' c-check=', coordinates2D_to_morton(ijl=coord, ratio=4_I4P)
-   coord = morton_to_coordinates2D(code=c+1, ratio=4_I4P)
-   print '(A,I3,A,3(I3,1X),A,I3)', 'c=', c+1, ' i,j,l=', coord, ' c-check=', coordinates2D_to_morton(ijl=coord, ratio=4_I4P)
-   coord = morton_to_coordinates2D(code=c+2, ratio=4_I4P)
-   print '(A,I3,A,3(I3,1X),A,I3)', 'c=', c+2, ' i,j,l=', coord, ' c-check=', coordinates2D_to_morton(ijl=coord, ratio=4_I4P)
-   coord = morton_to_coordinates2D(code=c+3, ratio=4_I4P)
-   print '(A,I3,A,3(I3,1X),A,I3)', 'c=', c+3, ' i,j,l=', coord, ' c-check=', coordinates2D_to_morton(ijl=coord, ratio=4_I4P)
+   call morton_to_coordinates(code=c  , ratio=4_I4P, i=coord(1), j=coord(2), l=coord(3))
+   print '(A,I3,A,3(I3,1X),A,I3)', 'c=', c  , ' i,j,l=', coord, ' c-check=', &
+         coordinates_to_morton(i=coord(1), j=coord(2), l=coord(3), ratio=4_I4P)
+   call morton_to_coordinates(code=c+1, ratio=4_I4P, i=coord(1), j=coord(2), l=coord(3))
+   print '(A,I3,A,3(I3,1X),A,I3)', 'c=', c+1, ' i,j,l=', coord, ' c-check=', &
+         coordinates_to_morton(i=coord(1), j=coord(2), l=coord(3), ratio=4_I4P)
+   call morton_to_coordinates(code=c+2, ratio=4_I4P, i=coord(1), j=coord(2), l=coord(3))
+   print '(A,I3,A,3(I3,1X),A,I3)', 'c=', c+2, ' i,j,l=', coord, ' c-check=', &
+         coordinates_to_morton(i=coord(1), j=coord(2), l=coord(3), ratio=4_I4P)
+   call morton_to_coordinates(code=c+3, ratio=4_I4P, i=coord(1), j=coord(2), l=coord(3))
+   print '(A,I3,A,3(I3,1X),A,I3)', 'c=', c+3, ' i,j,l=', coord, ' c-check=', &
+         coordinates_to_morton(i=coord(1), j=coord(2), l=coord(3), ratio=4_I4P)
    print*, ''
 enddo
 print '(A)', 'parent computation given Morton code'

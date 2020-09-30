@@ -2,7 +2,8 @@
 module adam_dictionary_node_object
 !< ADAM, dictionary node class definition.
 
-use MORTIF, only : morton3D, morton2D
+use adam_tree_topology
+! use MORTIF, only : morton3D, morton2D
 use PENF, only : I4P, I8P, str, cton
 
 implicit none
@@ -82,15 +83,15 @@ contains
    !< Compute Morton code.
    class(dictionary_node_object), intent(inout)        :: self    !< Dictionary node.
    integer(I4P),                  intent(in), optional :: ratio   !< Refinement ratio.
-   integer(I4P)                                        :: bijk(3) !< Block coordinates into the tree.
+   integer(I4P)                                        :: ijkl(4) !< IJKL coordinates.
    integer(I4P)                                        :: ratio_  !< Refinement ratio, local variable.
 
    ratio_ = 8_I4P ; if (present(ratio)) ratio_ = ratio
-   call key_int(key=self%key, bijk=bijk)
+   call key_int(key=self%key, l=ijkl(4), bijk=ijkl(1:3))
    if (   ratio_==8_I8P) then
-      self%code = morton3D(i=bijk(1), j=bijk(2), k=bijk(3))
+      self%code = coordinates_to_morton(i=ijkl(1), j=ijkl(2), k=ijkl(3), l=ijkl(4), ratio=ratio_)
    elseif(ratio_==4_I8P) then
-      self%code = morton2D(i=bijk(1), j=bijk(2))
+      self%code = coordinates_to_morton(i=ijkl(1), j=ijkl(2), l=ijkl(4), ratio=ratio_)
    endif
    endsubroutine compute_morton_code
 
