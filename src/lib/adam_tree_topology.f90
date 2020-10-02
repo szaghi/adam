@@ -17,7 +17,7 @@ module adam_tree_topology
 !<          5  |  34   45  |  38   39  |  50   51  |  54   55  |
 !<        2----|     8     |     9     |    12     |    13     |
 !<          4  |  32   33  |  36   37  |  48   49  |  52   53  |
-!<    0--------|-----------|-----------O-----------|-----------|
+!<    0--------|-----------|--------- -1 ----------|-----------|
 !<          3  |  10   11  |  14   15  |  26   27  |  30   31  |
 !<        1----|     2     |     3     |     6     |     7     |
 !<          2  |  8    9   |  12   13  |  24   25  |  28   29  |
@@ -48,7 +48,7 @@ module adam_tree_topology
 !<          5  |  54   55  |  58   59  |  70   71  |  74   75  |
 !<        2----|    12     |    13     |    16     |    17     |
 !<          4  |  52   53  |  56   57  |  68   69  |  72   73  |
-!<    0--------|-----------|-----------O-----------|-----------|
+!<    0--------|-----------|--------- -1 ----------|-----------|
 !<          3  |  30   31  |  34   35  |  46   47  |  50   51  |
 !<        1----|     6     |     7     |    10     |    11     |
 !<          2  |  28   29  |  32   33  |  44   45  |  48   49  |
@@ -66,6 +66,7 @@ module adam_tree_topology
 !< the refinement level L and the spatial coordinatates IJ.
 !< Sometimes it is convenient to use the representation where level L is not encoded into the Morton order, but the conversion is as
 !< as adding the offset of previous level, namely using the funcion `first_at_level`.
+!< Note that the ancestor node has Morton code -1, it is the ancestor of all nodes, it is **Adam**.
 
 use MORTIF, only : morton2D, morton3D, demorton2D, demorton3D
 use PENF, only : I1P, I4P, I8P, R8P
@@ -87,6 +88,7 @@ public :: siblings
 interface morton_to_coordinates
   module procedure morton_to_coordinates2D, morton_to_coordinates3D
 endinterface
+
 interface coordinates_to_morton
   module procedure coordinates2D_to_morton, coordinates3D_to_morton
 endinterface

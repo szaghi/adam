@@ -1,0 +1,166 @@
+!< ADAM, test tree class.
+program adam_test_tree_object
+!< ADAM, test tree class.
+
+use adam_objects
+use PENF, only : I8P, I4P, str
+
+implicit none
+
+type(tree_object)               :: tree        !< Tree.
+type(tree_node_object), pointer :: tree_node   !< Pointer to node.
+integer(I8P)                    :: code        !< Tree node code.
+integer(I8P)                    :: offset      !< Tree node code offset.
+integer(I8P)                    :: content     !< Tree node content.
+integer(I4P)                    :: level       !< Level of node.
+integer(I8P)                    :: parent      !< Parent of code.
+integer(I8P)                    :: child       !< (First) Child of code.
+integer(I8P)                    :: siblings(7) !< Siblings of code.
+integer(I8P), allocatable       :: path(:)     !< Path from node to parent of first level.
+integer(I4P)                    :: child_local !< Local child-numbering of code.
+integer(I8P)                    :: max_content !< Maximum content value.
+integer(I4P)                    :: l, i, j, k  !< Counter.
+
+print '(A)', 'initialize tree'
+call tree%initialize
+print '(A)', 'testing buckets number calculation for 10**7 nodes: '//trim(str(tree%prime_buckets_number(nodes_number=10**7)))
+print '(A)', 'hash codes'
+do code=0_I8P, 83_I8P
+   print '(A)', 'code "'//trim(str(code))//'" hashed in bucket: '//trim(str(tree%hash(code=code)))
+enddo
+
+print*, ''
+print '(A)', 'add nodes to the tree'
+do code=0_I8P, 83_I8P
+   call tree%add_node(code=code, content=code)
+enddo
+print '(A)', 'tree nodes number:', trim(str(tree%nodes_number))
+print '(A)', 'loop into tree'
+do while(tree%loop(node=tree_node))
+   print '(A)', ' code: '//trim(str(tree_node%code))//' content: '//trim(str(tree_node%content))
+enddo
+print '(A)', 'tree global nodes codes min/max: '//trim(str(minval(tree%code(1,:))))//'/'//trim(str(maxval(tree%code(2,:))))
+
+print*, ''
+max_content = 0
+call tree%traverse(iterator=iterator_max)
+print '(A)', 'maximum content value = '//trim(str(max_content))
+
+print '(A)', 'Remove code "7" hashed in bucket: '//trim(str(tree%hash(code=7_I8P)))
+call tree%remove_node(code=7_I8P)
+print '(A)', 'tree nodes number:'//trim(str(tree%nodes_number))
+print '(A,L1)', 'tree has code "7"?', tree%has_code(code=7_I8P)
+print '(A)', 'loop into tree'
+do while(tree%loop(code=code, content=content))
+   print '(A)', ' code: '//trim(str(code))//' content: '//trim(str(content))
+enddo
+
+print*, ''
+print '(A)', 'destroy tree'
+call tree%destroy
+print '(A)', 'tree nodes number:'//trim(str(tree%nodes_number))
+print '(A)', 're-initialize tree'
+call tree%initialize
+print '(A)', 'Add key "8" hashed in bucket: '//trim(str(tree%hash(code=8_I8P)))
+call tree%add_node(code=8_I8P, content=8_I8P)
+print '(A)', 'tree nodes number:'//trim(str(tree%nodes_number))
+print '(A)', 'loop into tree'
+do while(tree%loop(code=code, content=content))
+   print '(A)', ' code: '//trim(str(code))//' content: '//trim(str(content))
+enddo
+
+print*, ''
+print '(A)', 'destroy tree'
+call tree%destroy
+print '(A)', 're-initialize tree'
+call tree%initialize(nodes_number=2*2*2+100)
+do k=0, 1
+   do j=0, 1
+      do i=0, 1
+         code = tree%coordinates_to_morton(l=2, i=i, j=j, k=k)
+         call tree%add_node(code=code, content=int(i+j+k, I8P))
+         tree_node => tree%node(code=code)
+         if (associated(tree_node)) &
+         print '(A)', 'code: '//trim(str(tree_node%code))//' content: '//trim(str(tree_node%content))
+      enddo
+   enddo
+enddo
+print '(A)', 'resize tree'
+call tree%resize(nodes_number=3*3*3+100)
+do k=0, 2
+   do j=0, 2
+      do i=0, 2
+         code = tree%coordinates_to_morton(l=2, i=i, j=j, k=k)
+         if (i==2.or.j==2.or.k==2) call tree%add_node(code=code, content=int(i+j+k, I8P))
+         tree_node => tree%node(code=code)
+         if (associated(tree_node)) &
+         print '(A)', 'code: '//trim(str(tree_node%code))//' content: '//trim(str(tree_node%content))
+      enddo
+   enddo
+enddo
+
+print*, ''
+print '(A)', 'test Morton ordering'
+call tree%destroy
+call tree%initialize(ratio=8_I4P)
+print*, ''
+print '(A)', 'first/last at levels:'
+do l=1, 17
+   print '(A)', 'l: '//trim(str(l))//' first: '//trim(str(tree%first_at_level(level=l)))//&
+                                     ' last: '//trim(str(tree%last_at_level(level=l)))
+enddo
+print*, ''
+print '(A)', 'from Morton code to coordinates and viceversa:'
+do code=0, tree%last_at_level(level=2), tree%ratio
+   do offset=0, tree%ratio-1
+      call tree%morton_to_coordinates(code=code+offset, i=i, j=j, k=k, l=l)
+      print '(A)', 'code:'//trim(str(code+offset))//' i,j,k,l: '//trim(str([i,j,k,l]))//' c-check: '//&
+                   trim(str(tree%coordinates_to_morton(i=i, j=j, k=k, l=l)))
+   enddo
+   print*, ''
+enddo
+print '(A)', 'add ancestor node to the tree, Morton code -1'
+call tree%add_node(code=-1_I8P, content=-1_I8P)
+print '(A)', 'loop in tree'
+do while(tree%loop(node=tree_node))
+   call print_node(tree_node)
+enddo
+print*, ''
+do l=1, 2
+   print '(A)', 'create children of level '//trim(str(l))
+   call tree%refine(force_all=.true.)
+   print '(A)', 'loop in tree'
+   do while(tree%loop(node=tree_node))
+      call print_node(tree_node)
+   enddo
+   print*, ''
+enddo
+
+contains
+   subroutine iterator_max(node, done)
+   !< Iterator that computes the max of contents.
+   type(tree_node_object), pointer, intent(in)  :: node !< Actual node pointer in the dictionary.
+   logical,                         intent(out) :: done !< Flag to set to true to stop traversing.
+
+   max_content = max(max_content, node%content)
+   done = .false.
+   endsubroutine iterator_max
+
+   subroutine print_node(node)
+   !< Print node data.
+   type(tree_node_object), intent(in) :: node !< Tree node.
+
+   code = node%code
+   content = node%content
+   level = tree%level(code=code)
+   child = tree%child(code=code, i=0)
+   child_local = tree%child_local(code=code)
+   parent = tree%parent(code=code)
+   siblings = tree%siblings(code=code)
+   path = tree%path(code=code)
+   print '(A)', 'code: '//trim(str(code))//' content: '//trim(str(content))//            &
+                ' level: '//trim(str(level))//' parent: '//trim(str(parent))//           &
+                ' child: '//trim(str(child))//' child_local: '//trim(str(child_local))// &
+                ' siblings: '//trim(str(siblings))//' path: '//trim(str(path))
+   endsubroutine print_node
+endprogram adam_test_tree_object
