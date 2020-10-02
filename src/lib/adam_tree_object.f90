@@ -353,7 +353,6 @@ contains
    !< Refine nodes.
    class(tree_object), intent(inout)        :: self           !< The tree.
    logical,            intent(in), optional :: force_all      !< Force all nodes to be refined.
-   type(tree_node_object), pointer          :: node           !< Pointer to current node.
    integer(I8P)                             :: refined_number !< Number of nodes to be refined.
    integer(I8P)                             :: n              !< Counter.
    integer(I4P)                             :: i              !< Counter.
