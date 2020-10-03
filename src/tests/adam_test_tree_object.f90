@@ -12,12 +12,6 @@ type(tree_node_object), pointer :: tree_node   !< Pointer to node.
 integer(I8P)                    :: code        !< Tree node code.
 integer(I8P)                    :: offset      !< Tree node code offset.
 integer(I8P)                    :: content     !< Tree node content.
-integer(I4P)                    :: level       !< Level of node.
-integer(I8P)                    :: parent      !< Parent of code.
-integer(I8P)                    :: child       !< (First) Child of code.
-integer(I8P)                    :: siblings(7) !< Siblings of code.
-integer(I8P), allocatable       :: path(:)     !< Path from node to parent of first level.
-integer(I4P)                    :: child_local !< Local child-numbering of code.
 integer(I8P)                    :: max_content !< Maximum content value.
 integer(I4P)                    :: l, i, j, k  !< Counter.
 
@@ -123,7 +117,7 @@ print '(A)', 'add ancestor node to the tree, Morton code -1'
 call tree%add_node(code=-1_I8P, content=-1_I8P)
 print '(A)', 'loop in tree'
 do while(tree%loop(node=tree_node))
-   call print_node(tree_node)
+   call tree%print_code_topology(code=tree_node%code)
 enddo
 print*, ''
 do l=1, 2
@@ -131,7 +125,7 @@ do l=1, 2
    call tree%refine(force_all=.true.)
    print '(A)', 'loop in tree'
    do while(tree%loop(node=tree_node))
-      call print_node(tree_node)
+      call tree%print_code_topology(code=tree_node%code)
    enddo
    print*, ''
 enddo
@@ -145,22 +139,4 @@ contains
    max_content = max(max_content, node%content)
    done = .false.
    endsubroutine iterator_max
-
-   subroutine print_node(node)
-   !< Print node data.
-   type(tree_node_object), intent(in) :: node !< Tree node.
-
-   code = node%code
-   content = node%content
-   level = tree%level(code=code)
-   child = tree%child(code=code, i=0)
-   child_local = tree%child_local(code=code)
-   parent = tree%parent(code=code)
-   siblings = tree%siblings(code=code)
-   path = tree%path(code=code)
-   print '(A)', 'code: '//trim(str(code))//' content: '//trim(str(content))//            &
-                ' level: '//trim(str(level))//' parent: '//trim(str(parent))//           &
-                ' child: '//trim(str(child))//' child_local: '//trim(str(child_local))// &
-                ' siblings: '//trim(str(siblings))//' path: '//trim(str(path))
-   endsubroutine print_node
 endprogram adam_test_tree_object

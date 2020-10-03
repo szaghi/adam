@@ -107,7 +107,7 @@ module adam_tree_object
 use adam_tree_node_object, only : destroy_tree_node, tree_node_object, TO_BE_REFINED
 use adam_tree_bucket_object, only : tree_bucket_object, iterator_interface, len
 use MORTIF, only : morton2D, morton3D, demorton2D, demorton3D
-use PENF, only : I1P, I4P, I8P, R8P
+use PENF, only : I1P, I4P, I8P, R8P, str
 
 implicit none
 private
@@ -124,6 +124,7 @@ type :: tree_object
    integer(I4P)                          :: nodes_number=0_I4P      !< Number of nodes actually stored, namely the tree length.
    real(R8P)                             :: max_load=TREE_MAX_LOAD  !< Maximum load of tree buckets.
    integer(I4P)                          :: ratio=8_I4P             !< Refinement ratio.
+   integer(I4P)                          :: max_level=12_I4P        !< Maximum refinement level.
    logical                               :: is_initialized_=.false. !< Initialization status.
    integer(I8P), allocatable             :: to_refine(:)            !< List of nodes to be refined.
    ! type(tree_bucket_object)              :: to_derefine             !< List of node to be derefined.
@@ -151,11 +152,15 @@ type :: tree_object
                                morton_to_coordinates2D !< Return the space-level coordinates given Morton code.
       procedure, pass(self) :: child                !< Return the i-th child given Morton code.
       procedure, pass(self) :: child_local          !< Return the child index in the local numbering.
+      procedure, pass(self) :: finest_at_level      !< Return the finest node code at given level.
       procedure, pass(self) :: first_at_level       !< Return the first node code at given level.
       procedure, pass(self) :: last_at_level        !< Return the last node code at given level.
       procedure, pass(self) :: level                !< Return the refinement level given the code.
+      procedure, pass(self) :: lower                !< Return true if code is lower than other.
+      procedure, pass(self) :: greater              !< Return true if code is greater than other.
       procedure, pass(self) :: parent               !< Return the parent given Morton code.
       procedure, pass(self) :: path                 !< Return the path codes, the list of codes from given node to root.
+      procedure, pass(self) :: print_code_topology  !< Print all code topology data.
       procedure, pass(self) :: siblings             !< Return the siblings Morton code given Morton code.
       ! private methods
       procedure, pass(self), private :: coordinates3D_to_morton !< Return the Morton code given ijkl coordinates.
@@ -206,6 +211,7 @@ contains
    self%nodes_number = 0_I4P
    self%max_load = TREE_MAX_LOAD
    self%ratio = 8_I4P
+   self%max_level = 12_I4P
    self%is_initialized_ = .false.
    if (allocated(self%to_refine)) deallocate(self%to_refine)
    endsubroutine destroy
@@ -278,13 +284,14 @@ contains
    if (self%is_initialized_) bucket = int(mod(code, int(self%buckets_number, I8P)), I4P) + 2
    endfunction hash
 
-   subroutine initialize(self, max_load, nodes_number, buckets_number, ratio)
+   subroutine initialize(self, max_load, nodes_number, buckets_number, ratio, max_level)
    !< Initialize the tree.
    class(tree_object), intent(inout)        :: self           !< The tree.
    real(R8P),          intent(in), optional :: max_load       !< Maximum load of tree buckets.
    integer(I4P),       intent(in), optional :: nodes_number   !< Nodes number to be stored in the tree.
    integer(I4P),       intent(in), optional :: buckets_number !< Number of buckets for initialize the tree.
    integer(I4P),       intent(in), optional :: ratio          !< Refinement ratio.
+   integer(I4P),       intent(in), optional :: max_level      !< Maximum refinement level.
 
    call self%destroy
    if (present(max_load)) self%max_load = max_load
@@ -297,6 +304,7 @@ contains
    allocate(self%code(1:2,1:self%buckets_number))
    self%code = 0_I8P
    if (present(ratio)) self%ratio = ratio
+   if (present(max_level)) self%max_level = max_level
    self%is_initialized_ = .true.
    endsubroutine initialize
 
@@ -444,6 +452,25 @@ contains
    if (code>0) child = int(code + self%ratio - ((code + self%ratio)/self%ratio)*self%ratio, I4P)
    endfunction child_local
 
+   elemental function finest_at_level(self, code, level) result(finest)
+   !< Return the inest node code at given level, namely the last child at a given level.
+   class(tree_object), intent(in) :: self       !< The hash_table.
+   integer(I8P),       intent(in) :: code       !< Morton code.
+   integer(I4P),       intent(in) :: level      !< Refinement level.
+   integer(I8P)                   :: finest     !< Finest Morton code.
+   integer(I4P)                   :: code_level !< Level of the given code.
+   integer(I4P)                   :: l          !< Counter.
+
+   finest = code
+   code_level = self%level(code=code)
+   if (code_level<level) then
+      finest = code
+      do l=code_level+1, level
+         finest = self%child(code=finest, i=self%ratio-1)
+      enddo
+   endif
+   endfunction finest_at_level
+
    elemental function first_at_level(self, level) result(code)
    !< Return the first node code at given level.
    class(tree_object), intent(in) :: self  !< The hash_table.
@@ -487,6 +514,26 @@ contains
    endif
    endfunction level
 
+   elemental function lower(self, lhs, rhs) result(res)
+   !< Return true if code is lower than other.
+   class(tree_object), intent(in) :: self !< The hash_table.
+   integer(I8P),       intent(in) :: lhs  !< Left hand side of code comparison.
+   integer(I8P),       intent(in) :: rhs  !< Right hand side of code comparison.
+   logical                        :: res  !< Comparison result.
+
+   res = self%finest_at_level(code=lhs, level=self%max_level) < self%finest_at_level(code=rhs, level=self%max_level)
+   endfunction lower
+
+   elemental function greater(self, lhs, rhs) result(res)
+   !< Return true if code is greater than other.
+   class(tree_object), intent(in) :: self !< The hash_table.
+   integer(I8P),       intent(in) :: lhs  !< Left hand side of code comparison.
+   integer(I8P),       intent(in) :: rhs  !< Right hand side of code comparison.
+   logical                        :: res  !< Comparison result.
+
+   res = self%finest_at_level(code=lhs, level=self%max_level) > self%finest_at_level(code=rhs, level=self%max_level)
+   endfunction greater
+
    elemental function parent(self, code)
    !< Return the parent given Morton code.
    class(tree_object), intent(in) :: self   !< The hash_table.
@@ -519,6 +566,35 @@ contains
       c = self%parent(code=c)
    enddo
    endfunction path
+
+   subroutine print_code_topology(self, code)
+   !< Print all code topology data.
+   class(tree_object), intent(in) :: self                   !< The hash_table.
+   integer(I8P),       intent(in) :: code                   !< Morton code.
+   integer(I4P)                   :: level                  !< Level of node.
+   integer(I8P)                   :: parent                 !< Parent of code.
+   integer(I8P)                   :: child                  !< (First) Child of code.
+   integer(I4P)                   :: child_local            !< Local child-numbering of code.
+   integer(I8P)                   :: finest                 !< Finest Morton code.
+   integer(I8P)                   :: siblings(self%ratio-1) !< Siblings of code.
+   integer(I8P), allocatable      :: path(:)                !< Path from node to parent of first level.
+
+   level = self%level(code=code)
+   child = self%child(code=code, i=0)
+   child_local = self%child_local(code=code)
+   finest = self%finest_at_level(code=code, level=self%max_level)
+   parent = self%parent(code=code)
+   siblings = self%siblings(code=code)
+   path = self%path(code=code)
+   print '(A)', ' code: '//trim(str(code))//               &
+                ' level: '//trim(str(level))//             &
+                ' parent: '//trim(str(parent))//           &
+                ' child: '//trim(str(child))//             &
+                ' child_local: '//trim(str(child_local))// &
+                ' finest: '//trim(str(finest))//           &
+                ' siblings: '//trim(str(siblings))//       &
+                ' path: '//trim(str(path))
+   endsubroutine print_code_topology
 
    pure function siblings(self, code)
    !< Return the siblings Morton code given Morton code.
@@ -560,9 +636,11 @@ contains
    self%to_refine = -1_I8P
    n = 0_I8P
    do while(self%loop(node=node))
-      if (node%refinement_needed==TO_BE_REFINED.or.force_all_) then
-         n = n + 1
-         self%to_refine(n) = node%code
+      if (self%level(code=node%code)+1<=self%max_level) then
+         if (node%refinement_needed==TO_BE_REFINED.or.force_all_) then
+            n = n + 1
+            self%to_refine(n) = node%code
+         endif
       endif
    enddo
    refined_number = n
