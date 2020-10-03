@@ -131,6 +131,7 @@ type :: tree_object
    contains
       ! public methods
       procedure, pass(self) :: add_node             !< Add a node pointer to the tree.
+      procedure, pass(self) :: codes                !< Return the list of (sorted) codes actually stored in the tree.
       procedure, pass(self) :: destroy              !< Destroy the tree.
       procedure, pass(self) :: loop                 !< Sentinel while-loop on nodes returning the code/content pair.
       procedure, pass(self) :: hash                 !< Hash the key.
@@ -150,18 +151,18 @@ type :: tree_object
       generic               :: morton_to_coordinates => &
                                morton_to_coordinates3D, &
                                morton_to_coordinates2D !< Return the space-level coordinates given Morton code.
-      procedure, pass(self) :: child                !< Return the i-th child given Morton code.
-      procedure, pass(self) :: child_local          !< Return the child index in the local numbering.
-      procedure, pass(self) :: finest_at_level      !< Return the finest node code at given level.
-      procedure, pass(self) :: first_at_level       !< Return the first node code at given level.
-      procedure, pass(self) :: last_at_level        !< Return the last node code at given level.
-      procedure, pass(self) :: level                !< Return the refinement level given the code.
-      procedure, pass(self) :: lower                !< Return true if code is lower than other.
-      procedure, pass(self) :: greater              !< Return true if code is greater than other.
-      procedure, pass(self) :: parent               !< Return the parent given Morton code.
-      procedure, pass(self) :: path                 !< Return the path codes, the list of codes from given node to root.
-      procedure, pass(self) :: print_code_topology  !< Print all code topology data.
-      procedure, pass(self) :: siblings             !< Return the siblings Morton code given Morton code.
+      procedure, pass(self) :: child                   !< Return the i-th child given Morton code.
+      procedure, pass(self) :: child_local             !< Return the child index in the local numbering.
+      procedure, pass(self) :: finest_at_level         !< Return the finest node code at given level.
+      procedure, pass(self) :: first_at_level          !< Return the first node code at given level.
+      procedure, pass(self) :: last_at_level           !< Return the last node code at given level.
+      procedure, pass(self) :: level                   !< Return the refinement level given the code.
+      procedure, pass(self) :: lower                   !< Return true if code is lower than other.
+      procedure, pass(self) :: greater                 !< Return true if code is greater than other.
+      procedure, pass(self) :: parent                  !< Return the parent given Morton code.
+      procedure, pass(self) :: path                    !< Return the path codes, the list of codes from given node to root.
+      procedure, pass(self) :: print_code_topology     !< Print all code topology data.
+      procedure, pass(self) :: siblings                !< Return the siblings Morton code given Morton code.
       ! private methods
       procedure, pass(self), private :: coordinates3D_to_morton !< Return the Morton code given ijkl coordinates.
       procedure, pass(self), private :: coordinates2D_to_morton !< Return the Morton code given ijl coordinates.
@@ -194,6 +195,84 @@ contains
    self%nodes_number = self%nodes_number + 1
    self%code(1:2, b) = self%bucket(b)%code
    endsubroutine add_node
+
+   function codes(self)
+   !< Return the list of (sorted) codes actually stored in the tree.
+   class(tree_object), intent(in) :: self     !< The tree.
+   integer(I8P), allocatable      :: codes(:) !< List of codes.
+   integer(I8P)                   :: code     !< Counter.
+   integer(I8P)                   :: c        !< Counter.
+   integer(I8P), allocatable      :: work(:)  !< Working memory for sorting codes list.
+
+   allocate(codes(self%nodes_number))
+   allocate(work((self%nodes_number+1)/2))
+   c = 0
+   do while(self%loop(code=code))
+      c = c + 1
+      codes(c) = code
+   enddo
+   call mergesort(array=codes)
+
+   contains
+      recursive subroutine mergesort(array)
+      !< Sort input array by means of mergesort algorithm.
+      integer(I8P), intent(inout) :: array(:) !< Array to be sorted.
+      integer(I8P)                :: half     !< Half size counter.
+
+      half = (size(array) + 1) / 2
+      if (size(array) < 2) then
+         continue
+      else if (size(array) == 2) then
+         ! if (array(1) > array(2)) call swap_element(array(1), array(2))
+         if (self%greater(array(1), array(2))) call swap_element(array(1), array(2))
+      else
+         call mergesort(array( : half))
+         call mergesort(array(half + 1 :))
+         ! if (array(half) > array(half + 1)) then
+         if (self%greater(array(half), array(half + 1))) then
+            work(1 : half) = array(1 : half)
+            call merge_array(work(1 : half), array(half + 1:), array)
+         endif
+      endif
+      endsubroutine mergesort
+
+      subroutine merge_array(A, B, C)
+      !< Merge arrays A/B in C.
+      integer(I8P), target, intent(in)    :: A(:), B(:) !< Input arrays.
+      integer(I8P), target, intent(inout) :: C(:)       !< Output array.
+      integer(I8P)                        :: i, j, k    !< Counter.
+
+      if (size(A) + size(B) > size(C)) stop
+
+      i = 1 ; j = 1
+      do k = 1, size(C)
+         if (i <= size(A) .and. j <= size(B)) then
+            ! if (A(i) <= B(j)) then
+            if (self%lower(A(i), B(j))) then
+               C(k) = A(i)
+               i = i + 1
+            else
+               C(k) = B(j)
+               j = j + 1
+            endif
+         else if (i <= size(A)) then
+            C(k) = A(i)
+            i = i + 1
+         else if (j <= size(B)) then
+            C(k) = B(j)
+            j = j + 1
+         endif
+      enddo
+      endsubroutine merge_array
+
+      subroutine swap_element(x, y)
+      !< Swap array element.
+      integer(I8P), intent(inout) :: x, y !< Array element to be swaped.
+      integer(I8P)                :: tmp  !< Temporary memory.
+
+      tmp = x ; x = y ; y = tmp
+      endsubroutine swap_element
+   endfunction codes
 
    subroutine destroy(self)
    !< Destroy the tree.
