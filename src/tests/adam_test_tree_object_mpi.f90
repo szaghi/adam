@@ -87,7 +87,17 @@ if (myrank==0) then
    enddo
    print*, ''
 endif
-call MPI_BARRIER(MPI_COMM_WORLD, error)
+
+call MPI_BCAST(nodes_for_mpi, 1, MPI_INTEGER8, 0, MPI_COMM_WORLD, error)
+if (myrank/=0) then
+   allocate(codes(nodes_for_mpi))
+   print '(A)', 'myrank: '//trim(str(myrank))//' nodes for each process: '//trim(str(nodes_for_mpi))
+endif
+call MPI_SCATTER(codes, int(nodes_for_mpi,I4P), MPI_INTEGER8, codes, int(nodes_for_mpi,I4P), MPI_INTEGER8, 0, MPI_COMM_WORLD, error)
+if (myrank/=0) then
+   print '(A)', 'myrank: '//trim(str(myrank))//' my codes: '//trim(str(codes))
+endif
+
 call MPI_FINALIZE(error)
 
 endprogram adam_test_tree_object_mpi
