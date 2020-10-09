@@ -13,8 +13,9 @@ public :: tree_node_object
 public :: TO_BE_REFINED, TO_BE_DEREFINED
 
 ! integer(I4P), parameter :: KEY_LEN = 49 !< Length of tree node's key.
-integer(I4P), parameter :: TO_BE_REFINED=1_I4P   !< Flag for node to be refined.
-integer(I4P), parameter :: TO_BE_DEREFINED=2_I4P !< Flag for node to be derefined.
+integer(I4P), parameter :: TO_BE_REFINED=1_I4P    !< Flag for node to be refined.
+integer(I4P), parameter :: TO_BE_DEREFINED=-1_I4P !< Flag for node to be derefined.
+integer(I4P), parameter :: TO_NOT_TOUCH=0_I4P     !< Flag for node to be untouched.
 
 type :: tree_node_object
    !< Tree node class definition.

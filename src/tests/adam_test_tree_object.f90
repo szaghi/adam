@@ -117,7 +117,7 @@ print '(A)', 'add ancestor node to the tree, Morton code -1'
 call tree%add_node(code=-1_I8P, content=-1_I8P)
 print '(A)', 'loop in tree'
 do while(tree%loop(node=tree_node))
-   call tree%print_code_topology(code=tree_node%code)
+   call tree%print_code_topology(code=tree_node%code, whole=.true.)
 enddo
 print*, ''
 do l=1, 2
@@ -125,11 +125,17 @@ do l=1, 2
    call tree%refine(force_all=.true.)
    print '(A)', 'loop in tree'
    do while(tree%loop(node=tree_node))
-      call tree%print_code_topology(code=tree_node%code)
+      call tree%print_code_topology(code=tree_node%code, whole=.true.)
    enddo
    print*, ''
 enddo
-
+print*, ''
+print '(A)', 'first common parent'
+print '(A)', 'codes: 23, 7  first common parent: '//trim(str(tree%first_common_parent(code1=23_I8P, code2=7_I8P )))
+print '(A)', 'codes: 7, 23  first common parent: '//trim(str(tree%first_common_parent(code1=7_I8P,  code2=23_I8P)))
+print '(A)', 'codes: 29, 23 first common parent: '//trim(str(tree%first_common_parent(code1=29_I8P, code2=23_I8P)))
+print '(A)', 'codes: 13, 14 first common parent: '//trim(str(tree%first_common_parent(code1=13_I8P, code2=14_I8P)))
+print '(A)', 'codes: 48, 54 first common parent: '//trim(str(tree%first_common_parent(code1=48_I8P, code2=54_I8P)))
 contains
    subroutine iterator_max(node, done)
    !< Iterator that computes the max of contents.

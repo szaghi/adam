@@ -113,8 +113,12 @@ implicit none
 private
 public :: tree_object
 
+! tree defaults
 integer(I4P), parameter :: TREE_BUCKETS_NUMBER_DEF = 9973_I4P !< Default number of buckets of hash table.
 real(R8P),    parameter :: TREE_MAX_LOAD = 0.9_R8P            !< Maximum load of hash table buckets.
+! nodes types
+integer(I4P), parameter :: STANDARD_NODE = 0_I4P           !< Standard node type.
+integer(I4P), parameter :: BOUNDARY_CONDITION_NODE = 1_I4P !< Boundary condition node type.
 
 type :: tree_object
    !< Tree class definition.
@@ -143,6 +147,7 @@ type :: tree_object
       procedure, pass(self) :: refine               !< Refine nodes.
       procedure, pass(self) :: remove_node          !< Remove a node from the tree, given the key.
       procedure, pass(self) :: resize               !< Resize the tree.
+      procedure, pass(self) :: sanitize             !< Sanitize the tree.
       procedure, pass(self) :: traverse             !< Traverse tree calling the iterator procedure.
       ! Morton ordering methods
       generic               :: coordinates_to_morton => &
@@ -153,13 +158,17 @@ type :: tree_object
                                morton_to_coordinates2D !< Return the space-level coordinates given Morton code.
       procedure, pass(self) :: child                   !< Return the i-th child given Morton code.
       procedure, pass(self) :: child_local             !< Return the child index in the local numbering.
+      procedure, pass(self) :: children                !< Return the children list given Morton code.
       procedure, pass(self) :: finest_at_level         !< Return the finest node code at given level.
       procedure, pass(self) :: first_at_level          !< Return the first node code at given level.
+      procedure, pass(self) :: first_common_parent     !< Return the first common parent given two codes.
       procedure, pass(self) :: last_at_level           !< Return the last node code at given level.
       procedure, pass(self) :: level                   !< Return the refinement level given the code.
       procedure, pass(self) :: lower                   !< Return true if code is lower than other.
+      procedure, pass(self) :: get_neighbor            !< Return the neighbor in a given face of given Morton code.
       procedure, pass(self) :: greater                 !< Return true if code is greater than other.
       procedure, pass(self) :: parent                  !< Return the parent given Morton code.
+      procedure, pass(self) :: parent_at_level         !< Return the parent given Morton code at given level.
       procedure, pass(self) :: path                    !< Return the path codes, the list of codes from given node to root.
       procedure, pass(self) :: print_code_topology     !< Print all code topology data.
       procedure, pass(self) :: siblings                !< Return the siblings Morton code given Morton code.
@@ -416,7 +425,7 @@ contains
    !<
    !< @note The balanced buckets number is computing considering the tree load defined in `self` and using the
    !< Sieve of Eratoshenes for findining the nearest prime number.
-   class(tree_object), intent(in) :: self           !< The hash_table.
+   class(tree_object), intent(in) :: self           !< The tree.
    integer(I4P),       intent(in) :: nodes_number   !< Nodes number to be stored in the tree.
    integer(I4P)                   :: buckets_number !< Well balanced, prime buckets number.
    logical, allocatable           :: is_prime(:)    !< List of prime numbers up to buckets number.
@@ -497,9 +506,113 @@ contains
    endif
    endsubroutine resize
 
+   subroutine sanitize(self, to_derefine, iterations_number)
+   !< Sanitize the tree.
+   class(tree_object),        intent(inout)        :: self                !< The tree.
+   integer(I8P), allocatable, intent(out)          :: to_derefine(:)      !<
+   integer(I4P),              intent(in), optional :: iterations_number   !< Sanitazie iterations number.
+   !integer(I4P)                                    :: iterations_number_  !< Sanitazie iterations number.
+   !logical                                         :: is_santize_complete !< Flag for finishing sanitize.
+   !integer(I8P), allocatable                       :: codes_analyzed(:)   !<
+
+   !iterations_number_ = MAX_SANITIZE_ITERATIONS_NUMBER ; if (present(iterations_number)) iterations_number_ = iterations_number
+
+   !!< @TODO remove check on max level in update_to_refine
+   !min_max_check_loop : do while(self%loop(node=node))
+   !   new_level = self%level(code=node%code) + node%refinement_needed
+   !   if ((new_level > self%max_level).or.(new_level < 0)) then
+   !      node%refinement_needed = TO_NOT_TOUCH
+   !   endif
+   !enddo min_max_check_loop
+
+   !sanitize_loop : do s=1, iterations_number
+   !   is_sanitize_complete = .true.
+
+   !   ! check for the sanity of derefinement
+   !   to_derefine = []
+   !   codes_analyzed = []
+   !   derefine_loop : do while(self%loop(node=node))
+   !      ! check if I want to be derefined and I have not been analyzed yet
+   !      if (node%refinement_needed == TO_BE_DEREFINED).and.(findloc(codes_analyzed, node%code)==0) then
+   !         ! check sibling for derefinement
+   !         can_be_derefined = .true.
+   !         code = node%code
+   !         siblings = self%siblings(code=node%code)
+   !         sibs_loop : do s=1, self%ratio -1
+   !            if (.not.self%has_code(code=siblings(s))) then
+   !               can_be_derefined = .false.
+   !               exit sibs_loop
+   !            endif
+   !            !sib => self%node(code=siblings(s))
+   !            if (self%node(code=siblings(s))%refinement_needed /= TO_BE_DEREFINED) then
+   !               can_be_derefined = .false.
+   !               exit sibs_loop
+   !            endif
+   !         enddo sibs_loop
+   !         if (can_be_derefined) then
+   !            to_derefine = [to_derefine, [code, siblings]]
+   !            codes_analyzed = [codes_analyzed, [code, siblings]]
+   !         else
+   !            is_sanitize_complete = .false.
+   !            node%refinement_needed == TO_BE_NOT_TOUCH
+   !            do s=1, self%ratio -1
+   !               if (self%has_code(code=siblings(s))) then
+   !                  ! codes_analyzed = [codes_analyzed, siblings(s)]
+   !                  if (self%node(code=siblings(s))%refinement_needed == TO_BE_DEREFINED) then
+   !                     ! due some of your siblings you cannot be derefined, you need to be altered
+   !                     self%node(code=siblings(s))%refinement_needed = TO_BE_NOT_TOUCH
+   !                  endif
+   !               endif
+   !            enddo
+   !         endif
+   !      endif
+   !   enddo derefine_loop
+
+   !   ! check for the sanity of refinement
+   !   do while(self%loop(node=node))
+   !      new_level = self%level(code=node%code) + node%refinement_needed
+   !      ! @TODO implement find neightbours method
+   !      do f=1, faces
+   !         neighbours = self%neighbours(code=node%code, face=faces(f))
+   !         if (neighbour_type /= PHYS) then
+   !            if (neighbour_type == MORE_REFINED) then
+   !               do n=1, size(neighbours)
+   !                  ! check level
+   !                  new_level_n = self%level(code=neighbours(n)%code) + neighbours(n)%refinement_needed
+   !                  if (new_level_n > new_level + 1) then
+   !                     ! a neighbour want to be refined 2 levels more than me, I have to refine more too
+   !                     is_sanitize_complete = .false.
+   !                     node%refinement_nedeed = min(node%refinement_nedeed+1, 1)
+   !                     exit
+   !                  endif
+   !               enddo
+   !            endif
+   !         endif
+   !      enddo
+
+   !      if (node%refinement_nedeed > 1) then
+   !         print '(A)',  'CANNOT REFINE TWICE IN A ROW. SOMETHING WENT TERRIBLY WRONG. EXIT!'
+   !         stop
+   !      endif
+
+   !      new_level = self%level(code=node%code) + node%refinement_needed
+   !      if (new_level > self%max_level) then
+   !         print '(A)',  'CANNOT REFINE MORE. SOMETHING WENT TERRIBLY WRONG. EXIT!'
+   !         stop
+   !      endif
+   !   enddo
+   !   if (is_sanitize_complete) exit sanitize_loop
+   !enddo sanitize_loop
+
+   !if (.not.is_santize_complete) then
+   !   print '(A)',  'SANITZE CANNOT BE COMPLETED. SOMETHING WENT TERRIBLY WRONG. EXIT!'
+   !   stop
+   !endif
+   endsubroutine sanitize
+
    subroutine traverse(self, iterator)
    !< Traverse tree calling the iterator procedure.
-   class(tree_object), intent(in) :: self     !< The hash_table.
+   class(tree_object), intent(in) :: self     !< The tree.
    procedure(iterator_interface)  :: iterator !< The (key) iterator procedure to call for each node.
    integer(I4P)                   :: b        !< Counter.
 
@@ -513,7 +626,7 @@ contains
    ! Morton ordering methods
    elemental function child(self, code, i)
    !< Return the i-th child given Morton code.
-   class(tree_object), intent(in) :: self  !< The hash_table.
+   class(tree_object), intent(in) :: self  !< The tree.
    integer(I8P),       intent(in) :: code  !< Morton code.
    integer(I4P),       intent(in) :: i     !< Child index [0, ratio-1].
    integer(I8P)                   :: child !< Child Morton code.
@@ -523,7 +636,7 @@ contains
 
    elemental function child_local(self, code) result(child)
    !< Return the child index in the local numbering.
-   class(tree_object), intent(in) :: self  !< The hash_table.
+   class(tree_object), intent(in) :: self  !< The tree.
    integer(I8P),       intent(in) :: code  !< Morton code.
    integer(I8P)                   :: child !< Child Morton code.
 
@@ -531,9 +644,33 @@ contains
    if (code>0) child = int(code + self%ratio - ((code + self%ratio)/self%ratio)*self%ratio, I4P)
    endfunction child_local
 
+   pure function children(self, code)
+   !< Return the children given Morton code.
+   class(tree_object), intent(in) :: self        !< The tree.
+   integer(I8P),       intent(in) :: code        !< Morton code.
+   integer(I8P), allocatable      :: children(:) !< Children Morton code.
+
+   select case(self%ratio)
+   case(4_I4P)
+      children = [self%child(code=code, i=0), &
+                  self%child(code=code, i=1), &
+                  self%child(code=code, i=2), &
+                  self%child(code=code, i=3)]
+   case(8_I4P)
+      children = [self%child(code=code, i=0), &
+                  self%child(code=code, i=1), &
+                  self%child(code=code, i=2), &
+                  self%child(code=code, i=3), &
+                  self%child(code=code, i=4), &
+                  self%child(code=code, i=5), &
+                  self%child(code=code, i=6), &
+                  self%child(code=code, i=7)]
+   endselect
+   endfunction children
+
    elemental function finest_at_level(self, code, level) result(finest)
    !< Return the inest node code at given level, namely the last child at a given level.
-   class(tree_object), intent(in) :: self       !< The hash_table.
+   class(tree_object), intent(in) :: self       !< The tree.
    integer(I8P),       intent(in) :: code       !< Morton code.
    integer(I4P),       intent(in) :: level      !< Refinement level.
    integer(I8P)                   :: finest     !< Finest Morton code.
@@ -552,7 +689,7 @@ contains
 
    elemental function first_at_level(self, level) result(code)
    !< Return the first node code at given level.
-   class(tree_object), intent(in) :: self  !< The hash_table.
+   class(tree_object), intent(in) :: self  !< The tree.
    integer(I4P),       intent(in) :: level !< Refinement level.
    integer(I8P)                   :: code  !< Morton code.
    integer(I4P)                   :: l     !< Counter.
@@ -565,9 +702,40 @@ contains
    endif
    endfunction first_at_level
 
+   elemental function first_common_parent(self, code1, code2) result(fc_parent)
+   !< Return the first common parent given two codes.
+   class(tree_object), intent(in) :: self         !< The tree.
+   integer(I8P),       intent(in) :: code1, code2 !< Morton codes.
+   integer(I8P)                   :: fc_parent    !< First common parent.
+   integer(I4P)                   :: level(2)     !< Levels of two codes.
+   integer(I8P)                   :: parent(2)    !< Parents of two codes.
+   logical                        :: is_found     !< Flag for searching exit.
+
+   parent(1) = self%parent(code=code1)
+   parent(2) = self%parent(code=code2)
+   level(1) = self%level(code=parent(1))
+   level(2) = self%level(code=parent(2))
+   if     (level(1)>level(2)) then
+      do while(self%level(code=parent(1))==level(2))
+         parent(1) = self%parent(code=parent(1))
+      enddo
+   elseif (level(1)<level(2)) then
+      do while(self%level(code=parent(2))==level(1))
+         parent(2) = self%parent(code=parent(2))
+      enddo
+   endif
+   is_found = parent(1) == parent(2)
+   do while(.not.is_found)
+      parent(1) = self%parent(code=parent(1))
+      parent(2) = self%parent(code=parent(2))
+      is_found = parent(1) == parent(2)
+   enddo
+   fc_parent = parent(1)
+   endfunction first_common_parent
+
    elemental function last_at_level(self, level) result(code)
    !< Return the last node code at given level.
-   class(tree_object), intent(in) :: self  !< The hash_table.
+   class(tree_object), intent(in) :: self  !< The tree.
    integer(I4P),       intent(in) :: level !< Refinement level.
    integer(I8P)                   :: code  !< Morton code.
 
@@ -576,7 +744,7 @@ contains
 
    elemental function level(self, code)
    !< Return the refinement level given the code.
-   class(tree_object), intent(in) :: self  !< The hash_table.
+   class(tree_object), intent(in) :: self  !< The tree.
    integer(I8P),       intent(in) :: code  !< Morton code.
    integer(I4P)                   :: level !< Refinement level.
    integer(I8P)                   :: c     !< Counter.
@@ -595,7 +763,7 @@ contains
 
    elemental function lower(self, lhs, rhs) result(res)
    !< Return true if code is lower than other.
-   class(tree_object), intent(in) :: self !< The hash_table.
+   class(tree_object), intent(in) :: self !< The tree.
    integer(I8P),       intent(in) :: lhs  !< Left hand side of code comparison.
    integer(I8P),       intent(in) :: rhs  !< Right hand side of code comparison.
    logical                        :: res  !< Comparison result.
@@ -603,9 +771,227 @@ contains
    res = self%finest_at_level(code=lhs, level=self%max_level) < self%finest_at_level(code=rhs, level=self%max_level)
    endfunction lower
 
+   subroutine get_neighbor(self, code, face, neighbor, neighbor_type)
+   !< Return the neighbor in a given face of given Morton code.
+   !<
+   !< We define *direct neighbor* the neighbor of given code in the given face at the same level of the given code
+   !< either if it exists or not.
+   class(tree_object), intent(in)               :: self                   !< The tree.
+   integer(I8P),       intent(in)               :: code                   !< Morton code.
+   integer(I4P),       intent(in)               :: face                   !< Face queried.
+   integer(I8P),       intent(out), allocatable :: neighbor(:)            !< Neighbors codes list, [1] or [ratio/2].
+   integer(I4P),       intent(out)              :: neighbor_type          !< Type of neighbor.
+   integer(I8P)                                 :: direct_neighbor        !< Morton code of direct neighbor.
+   integer(I8P)                                 :: direct_neighbor_parent !< Morton code of direct neighbor parent.
+   integer(I4P)                                 :: i_dn(4)                !< I coordinate of direct neighbor, or its 4 children.
+   integer(I4P)                                 :: j_dn(4)                !< J coordinate of direct neighbor, or its 4 children.
+   integer(I4P)                                 :: k_dn(4)                !< K coordinate of direct neighbor, or its 4 children.
+   integer(I4P)                                 :: l_dn                   !< L coordinate of direct neighbor.
+   integer(I4P)                                 :: i_dn_offset            !< I coordinate offset of direct neighbor l+1.
+   integer(I4P)                                 :: j_dn_offset            !< J coordinate offset of direct neighbor l+1.
+   integer(I4P)                                 :: k_dn_offset            !< K coordinate offset of direct neighbor l+1.
+
+   ! compute coordinates of code
+   select case(self%ratio)
+   case(4_I4P)
+      call self%morton_to_coordinates(code=code, i=i_dn(1), j=j_dn(1), k=k_dn(1), l=l_dn)
+   case(8_I4P)
+      call self%morton_to_coordinates(code=code, i=i_dn(1), j=j_dn(1), l=l_dn)
+   endselect
+
+   ! compute coordinates of direct neighbor and check if it falls outside the ancestor, in case
+   ! it is a boundary condition node
+   select case(face)
+   case(1_I4P)
+      i_dn(1) = i_dn(1) - 1
+      if (i_dn(1) < 0) then
+         neighbor_type = BOUNDARY_CONDITION_NODE
+         return
+      endif
+   case(2_I4P)
+      i_dn(1) = i_dn(1) + 1
+      if (i_dn(1) > 2**l_dn - 1) then
+         neighbor_type = BOUNDARY_CONDITION_NODE
+         return
+      endif
+   case(3_I4P)
+      j_dn(1) = j_dn(1) - 1
+      if (j_dn(1) < 0) then
+         neighbor_type = BOUNDARY_CONDITION_NODE
+         return
+      endif
+   case(4_I4P)
+      j_dn(1) = j_dn(1) + 1
+      if (j_dn(1) > 2**l_dn - 1) then
+         neighbor_type = BOUNDARY_CONDITION_NODE
+         return
+      endif
+   case(5_I4P)
+      k_dn(1) = k_dn(1) - 1
+      if (k_dn(1) < 0) then
+         neighbor_type = BOUNDARY_CONDITION_NODE
+         return
+      endif
+   case(6_I4P)
+      k_dn(1) = k_dn(1) + 1
+      if (k_dn(1) > 2**l_dn - 1) then
+         neighbor_type = BOUNDARY_CONDITION_NODE
+         return
+      endif
+   endselect
+
+   ! compute direct neighbor code
+   select case(self%ratio)
+   case(4_I4P)
+      direct_neighbor = self%coordinates_to_morton(i=i_dn(1), j=j_dn(1), k=k_dn(1), l=l_dn)
+   case(8_I4P)
+      direct_neighbor = self%coordinates_to_morton(i=i_dn(1), j=j_dn(1), l=l_dn)
+   endselect
+
+   ! check if direct neighbor is a sibling
+   if (findloc(array=self%siblings(code=code), value=direct_neighbor, dim=1)>0) then
+      ! direct neighbor is a sibling, thus surely exist and it is unique, return it
+      neighbor = [direct_neighbor]
+      neighbor_type = STANDARD_NODE
+      return
+   endif
+
+   ! direct neighbor is not a sibling, check if it exists
+   if (self%has_code(code=direct_neighbor)) then
+      neighbor = [direct_neighbor]
+      neighbor_type = STANDARD_NODE
+      return
+   endif
+
+   ! direct neighbor does not exist, check if its parent exists
+   direct_neighbor_parent = self%parent(code=direct_neighbor)
+   if (self%has_code(code=direct_neighbor_parent)) then
+      neighbor = [direct_neighbor_parent]
+      neighbor_type = STANDARD_NODE
+      return
+   endif
+
+   ! direct neighbor parent does not exist, its children must exist or 2-1 rule has been broken
+   ! using ijk coordinates at level l one can find the ijk coordinates of neighbor at level l+1
+   l_dn = l_dn + 1
+   i_dn_offset = (i_dn(1) - 1) * 2 + 1
+   j_dn_offset = (j_dn(1) - 1) * 2 + 1
+   k_dn_offset = (k_dn(1) - 1) * 2 + 1
+   select case(face)
+   case(1_I4P)
+      i_dn(1) = i_dn_offset + 2
+      j_dn(1) = j_dn_offset + 1
+      k_dn(1) = k_dn_offset + 1
+
+      i_dn(2) = i_dn_offset + 2
+      j_dn(2) = j_dn_offset + 2
+      k_dn(2) = k_dn_offset + 1
+
+      i_dn(3) = i_dn_offset + 2
+      j_dn(3) = j_dn_offset + 1
+      k_dn(3) = k_dn_offset + 2
+
+      i_dn(4) = i_dn_offset + 2
+      j_dn(4) = j_dn_offset + 2
+      k_dn(4) = k_dn_offset + 2
+   case(2_I4P)
+      i_dn(1) = i_dn_offset + 1
+      j_dn(1) = j_dn_offset + 1
+      k_dn(1) = k_dn_offset + 1
+
+      i_dn(2) = i_dn_offset + 1
+      j_dn(2) = j_dn_offset + 2
+      k_dn(2) = k_dn_offset + 1
+
+      i_dn(3) = i_dn_offset + 1
+      j_dn(3) = j_dn_offset + 1
+      k_dn(3) = k_dn_offset + 2
+
+      i_dn(4) = i_dn_offset + 1
+      j_dn(4) = j_dn_offset + 2
+      k_dn(4) = k_dn_offset + 2
+   case(3_I4P)
+      i_dn(1) = i_dn_offset + 1
+      j_dn(1) = j_dn_offset + 2
+      k_dn(1) = k_dn_offset + 1
+
+      i_dn(2) = i_dn_offset + 2
+      j_dn(2) = j_dn_offset + 2
+      k_dn(2) = k_dn_offset + 1
+
+      i_dn(3) = i_dn_offset + 1
+      j_dn(3) = j_dn_offset + 2
+      k_dn(3) = k_dn_offset + 2
+
+      i_dn(4) = i_dn_offset + 2
+      j_dn(4) = j_dn_offset + 2
+      k_dn(4) = k_dn_offset + 2
+   case(4_I4P)
+      i_dn(1) = i_dn_offset + 1
+      j_dn(1) = j_dn_offset + 1
+      k_dn(1) = k_dn_offset + 1
+
+      i_dn(2) = i_dn_offset + 2
+      j_dn(2) = j_dn_offset + 1
+      k_dn(2) = k_dn_offset + 1
+
+      i_dn(3) = i_dn_offset + 1
+      j_dn(3) = j_dn_offset + 1
+      k_dn(3) = k_dn_offset + 2
+
+      i_dn(4) = i_dn_offset + 2
+      j_dn(4) = j_dn_offset + 1
+      k_dn(4) = k_dn_offset + 2
+   case(5_I4P)
+      i_dn(1) = i_dn_offset + 1
+      j_dn(1) = j_dn_offset + 1
+      k_dn(1) = k_dn_offset + 2
+
+      i_dn(2) = i_dn_offset + 2
+      j_dn(2) = j_dn_offset + 1
+      k_dn(2) = k_dn_offset + 2
+
+      i_dn(3) = i_dn_offset + 1
+      j_dn(3) = j_dn_offset + 2
+      k_dn(3) = k_dn_offset + 2
+
+      i_dn(4) = i_dn_offset + 2
+      j_dn(4) = j_dn_offset + 2
+      k_dn(4) = k_dn_offset + 2
+   case(6_I4P)
+      i_dn(1) = i_dn_offset + 1
+      j_dn(1) = j_dn_offset + 1
+      k_dn(1) = k_dn_offset + 1
+
+      i_dn(2) = i_dn_offset + 2
+      j_dn(2) = j_dn_offset + 1
+      k_dn(2) = k_dn_offset + 1
+
+      i_dn(3) = i_dn_offset + 1
+      j_dn(3) = j_dn_offset + 2
+      k_dn(3) = k_dn_offset + 1
+
+      i_dn(4) = i_dn_offset + 2
+      j_dn(4) = j_dn_offset + 2
+      k_dn(4) = k_dn_offset + 1
+   endselect
+   select case(self%ratio)
+   case(4_I4P)
+      neighbor = [self%coordinates_to_morton(i=i_dn(1), j=j_dn(1), l=l_dn), &
+                  self%coordinates_to_morton(i=i_dn(2), j=j_dn(2), l=l_dn)]
+      neighbor_type = STANDARD_NODE
+   case(8_I4P)
+      neighbor = [self%coordinates_to_morton(i=i_dn(1), j=j_dn(1), k=k_dn(1), l=l_dn), &
+                  self%coordinates_to_morton(i=i_dn(2), j=j_dn(2), k=k_dn(2), l=l_dn), &
+                  self%coordinates_to_morton(i=i_dn(3), j=j_dn(3), k=k_dn(3), l=l_dn), &
+                  self%coordinates_to_morton(i=i_dn(4), j=j_dn(4), k=k_dn(4), l=l_dn)]
+      neighbor_type = STANDARD_NODE
+   endselect
+   endsubroutine get_neighbor
+
    elemental function greater(self, lhs, rhs) result(res)
    !< Return true if code is greater than other.
-   class(tree_object), intent(in) :: self !< The hash_table.
+   class(tree_object), intent(in) :: self !< The tree.
    integer(I8P),       intent(in) :: lhs  !< Left hand side of code comparison.
    integer(I8P),       intent(in) :: rhs  !< Right hand side of code comparison.
    logical                        :: res  !< Comparison result.
@@ -615,21 +1001,32 @@ contains
 
    elemental function parent(self, code)
    !< Return the parent given Morton code.
-   class(tree_object), intent(in) :: self   !< The hash_table.
+   class(tree_object), intent(in) :: self   !< The tree.
    integer(I8P),       intent(in) :: code   !< Morton code.
    integer(I8P)                   :: parent !< Parent Morton code.
 
-   if (code==-1) then
-      parent = -1 ! ancestor of all has not parent
-   else
-      parent = 0
-      if (code>self%ratio) parent = int(real(code - self%ratio) / self%ratio, kind=I8P)
-   endif
+   parent = -1 ! ancestor of all has not parent
+   if (code>self%ratio-1) parent = int(real(code - self%ratio) / self%ratio, kind=I8P)
    endfunction parent
+
+   elemental function parent_at_level(self, code, level) result(parent)
+   !< Return the parent given Morton code at a given level.
+   class(tree_object), intent(in) :: self     !< The tree.
+   integer(I8P),       intent(in) :: code     !< Morton code.
+   integer(I4P),       intent(in) :: level    !< Refinement level.
+   integer(I8P)                   :: parent   !< Parent Morton code.
+   integer(I8P), allocatable      :: path_(:) !< Parent Morton code.
+
+   parent = -1_I8P ! ancestor of all nodes
+   if (level>=1) then
+      path_ = self%path(code=code)
+      parent = path_(size(path_) - level + 1)
+   endif
+   endfunction parent_at_level
 
    pure function path(self, code)
    !< Return the path codes, the list of codes from given node to root.
-   class(tree_object), intent(in) :: self    !< The hash_table.
+   class(tree_object), intent(in) :: self    !< The tree.
    integer(I8P),       intent(in) :: code    !< Morton code.
    integer(I8P), allocatable      :: path(:) !< Path codes from node to root.
    integer(I8P), allocatable      :: temp(:) !< Temporary path list.
@@ -646,38 +1043,93 @@ contains
    enddo
    endfunction path
 
-   subroutine print_code_topology(self, code)
+   subroutine print_code_topology(self, code,  &
+                                  level,       &
+                                  parent,      &
+                                  parents,     &
+                                  path,        &
+                                  child,       &
+                                  child_local, &
+                                  finest,      &
+                                  siblings,    &
+                                  neighbor,    &
+                                  whole)
    !< Print all code topology data.
-   class(tree_object), intent(in) :: self                   !< The hash_table.
-   integer(I8P),       intent(in) :: code                   !< Morton code.
-   integer(I4P)                   :: level                  !< Level of node.
-   integer(I8P)                   :: parent                 !< Parent of code.
-   integer(I8P)                   :: child                  !< (First) Child of code.
-   integer(I4P)                   :: child_local            !< Local child-numbering of code.
-   integer(I8P)                   :: finest                 !< Finest Morton code.
-   integer(I8P)                   :: siblings(self%ratio-1) !< Siblings of code.
-   integer(I8P), allocatable      :: path(:)                !< Path from node to parent of first level.
+   class(tree_object), intent(in)           :: self          !< The tree.
+   integer(I8P),       intent(in)           :: code          !< Morton code.
+   logical,            intent(in), optional :: level         !< Level of node.
+   logical,            intent(in), optional :: parent        !< Parent of code.
+   logical,            intent(in), optional :: parents       !< Parents list.
+   logical,            intent(in), optional :: path          !< Path from node to parent of first level.
+   logical,            intent(in), optional :: child         !< (First) Child of code.
+   logical,            intent(in), optional :: child_local   !< Local child-numbering of code.
+   logical,            intent(in), optional :: finest        !< Finest Morton code.
+   logical,            intent(in), optional :: siblings      !< Siblings of code.
+   logical,            intent(in), optional :: neighbor      !< Neighbor of code.
+   logical,            intent(in), optional :: whole         !< Whole topology data.
+   logical                                  :: level_        !< Level of node, local var.
+   logical                                  :: parent_       !< Parent of code, local var.
+   logical                                  :: child_        !< (First) Child of code, local var.
+   logical                                  :: child_local_  !< Local child-numbering of code, local var.
+   logical                                  :: finest_       !< Finest Morton code, local var.
+   logical                                  :: siblings_     !< Siblings of code, local var.
+   logical                                  :: path_         !< Path from node to parent of first level, local var.
+   logical                                  :: parents_      !< Parents list, local var.
+   logical                                  :: neighbor_     !< Neighbor of code, local var.
+   logical                                  :: whole_        !< Whole topology data, local var.
+   character(:), allocatable                :: topology      !< Topology string.
+   character(:), allocatable                :: parents_str   !< Parents string list.
+   character(:), allocatable                :: neighbors_str !< Neighbors string.
+   integer(I8P), allocatable                :: neighbors(:)  !< Neighbor of code.
+   integer(I4P)                             :: neighbor_type !< Type of neighbor.
+   integer(I4P)                             :: f, l          !< Counter.
 
-   level = self%level(code=code)
-   child = self%child(code=code, i=0)
-   child_local = self%child_local(code=code)
-   finest = self%finest_at_level(code=code, level=self%max_level)
-   parent = self%parent(code=code)
-   siblings = self%siblings(code=code)
-   path = self%path(code=code)
-   print '(A)', ' code: '//trim(str(code))//               &
-                ' level: '//trim(str(level))//             &
-                ' parent: '//trim(str(parent))//           &
-                ' child: '//trim(str(child))//             &
-                ' child_local: '//trim(str(child_local))// &
-                ' finest: '//trim(str(finest))//           &
-                ' siblings: '//trim(str(siblings))//       &
-                ' path: '//trim(str(path))
+   level_       = .false. ; if (present(level      ))  level_       = level
+   parent_      = .false. ; if (present(parent     ))  parent_      = parent
+   child_       = .false. ; if (present(child      ))  child_       = child
+   child_local_ = .false. ; if (present(child_local))  child_local_ = child_local
+   finest_      = .false. ; if (present(finest     ))  finest_      = finest
+   siblings_    = .false. ; if (present(siblings   ))  siblings_    = siblings
+   path_        = .false. ; if (present(path       ))  path_        = path
+   parents_     = .false. ; if (present(parents    ))  parents_     = parents
+   neighbor_    = .false. ; if (present(neighbor   ))  neighbor_    = neighbor
+   whole_       = .false. ; if (present(whole      ))  whole_       = whole
+
+   parents_str = ''
+   do l=self%level(code=code)-1, 0, -1
+      parents_str = parents_str//' pal_'//trim(str(l,.true.))//' '//trim(str(self%parent_at_level(code=code, level=l),.true.))
+   enddo
+
+   neighbors_str = ''
+   do f=1, 6
+      if (self%ratio==4_I4P.and.f>4) exit
+      call self%get_neighbor(code=code, neighbor=neighbors, face=f, neighbor_type=neighbor_type)
+      if (allocated(neighbors)) then
+         neighbors_str = neighbors_str//' f_'//trim(str(f,.true.))//' '//trim(str(neighbors,.true.))//&
+                         ' type-'//trim(str(neighbor_type,.true.))
+      else
+         neighbors_str = neighbors_str//' f-'//trim(str(f,.true.))//' type_'//trim(str(neighbor_type,.true.))
+      endif
+   enddo
+
+   topology = ' code: '//trim(str(code))
+   if (level_.or.whole_      ) topology = topology//' level: '//trim(str(self%level(code=code),.true.))
+   if (parent_.or.whole_     ) topology = topology//' parent: '//trim(str(self%parent(code=code),.true.))
+   if (parents_.or.whole_    ) topology = topology//' parents: '//parents_str
+   if (path_.or.whole_       ) topology = topology//' path: '//trim(str(self%path(code=code),.true.))
+   if (child_.or.whole_      ) topology = topology//' child: '//trim(str(self%child(code=code, i=0),.true.))
+   if (child_local_.or.whole_) topology = topology//' child_local: '//trim(str(self%child_local(code=code),.true.))
+   if (finest_.or.whole_     ) topology = topology//' finest: '//trim(str(self%finest_at_level(code=code, &
+                                                                                               level=self%max_level),.true.))
+   if (siblings_.or.whole_   ) topology = topology//' siblings: '//trim(str(self%siblings(code=code),.true.))
+   if (neighbor_.or.whole_   ) topology = topology//' neighbor: '//neighbors_str
+
+   print '(A)', topology
    endsubroutine print_code_topology
 
    pure function siblings(self, code)
    !< Return the siblings Morton code given Morton code.
-   class(tree_object), intent(in) :: self                     !< The hash_table.
+   class(tree_object), intent(in) :: self                     !< The tree.
    integer(I8P),       intent(in) :: code                     !< Morton code.
    integer(I8P)                   :: siblings(1:self%ratio-1) !< Siblings Morton codes [1:ratio-1].
    integer(I4P)                   :: local                    !< Local child code [0,ratio].
