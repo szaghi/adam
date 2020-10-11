@@ -794,9 +794,9 @@ contains
    ! compute coordinates of code
    select case(self%ratio)
    case(4_I4P)
-      call self%morton_to_coordinates(code=code, i=i_dn(1), j=j_dn(1), k=k_dn(1), l=l_dn)
-   case(8_I4P)
       call self%morton_to_coordinates(code=code, i=i_dn(1), j=j_dn(1), l=l_dn)
+   case(8_I4P)
+      call self%morton_to_coordinates(code=code, i=i_dn(1), j=j_dn(1), k=k_dn(1), l=l_dn)
    endselect
 
    ! compute coordinates of direct neighbor and check if it falls outside the ancestor, in case
@@ -843,9 +843,9 @@ contains
    ! compute direct neighbor code
    select case(self%ratio)
    case(4_I4P)
-      direct_neighbor = self%coordinates_to_morton(i=i_dn(1), j=j_dn(1), k=k_dn(1), l=l_dn)
-   case(8_I4P)
       direct_neighbor = self%coordinates_to_morton(i=i_dn(1), j=j_dn(1), l=l_dn)
+   case(8_I4P)
+      direct_neighbor = self%coordinates_to_morton(i=i_dn(1), j=j_dn(1), k=k_dn(1), l=l_dn)
    endselect
 
    ! check if direct neighbor is a sibling
