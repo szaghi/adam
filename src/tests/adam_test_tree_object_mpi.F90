@@ -3,7 +3,9 @@ program adam_test_tree_object_mpi
 !< ADAM, test tree class.
 
 use adam_objects
+#ifdef _MPI_
 use MPI
+#endif
 use PENF, only : I8P, I4P, str
 
 implicit none
@@ -18,9 +20,11 @@ integer(I4P)                    :: mpi_number    !< Number of MPI processes.
 integer(I8P)                    :: nodes_for_mpi !< Number of nodes for each MPI process.
 integer(I4P)                    :: l, n, p       !< Counter.
 
+#ifdef _MPI_
 call MPI_INIT(error)
 call MPI_COMM_RANK(MPI_COMM_WORLD, myrank, error)
 call MPI_COMM_SIZE(MPI_COMM_WORLD, mpi_number, error)
+#endif
 
 if (myrank==0) then
    print '(A)', 'initialize tree'
@@ -88,16 +92,22 @@ if (myrank==0) then
    print*, ''
 endif
 
+#ifdef _MPI_
 call MPI_BCAST(nodes_for_mpi, 1, MPI_INTEGER8, 0, MPI_COMM_WORLD, error)
+#endif
 if (myrank/=0) then
    allocate(codes(nodes_for_mpi))
    print '(A)', 'myrank: '//trim(str(myrank))//' nodes for each process: '//trim(str(nodes_for_mpi))
 endif
+#ifdef _MPI_
 call MPI_SCATTER(codes, int(nodes_for_mpi,I4P), MPI_INTEGER8, codes, int(nodes_for_mpi,I4P), MPI_INTEGER8, 0, MPI_COMM_WORLD, error)
+#endif
 if (myrank/=0) then
    print '(A)', 'myrank: '//trim(str(myrank))//' my codes: '//trim(str(codes))
 endif
 
+#ifdef _MPI_
 call MPI_FINALIZE(error)
+#endif
 
 endprogram adam_test_tree_object_mpi

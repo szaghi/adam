@@ -104,7 +104,7 @@ module adam_tree_object
 !<  |/                                                    X
 !<  o------------------------------------------------------------------->
 
-use adam_tree_node_object, only : destroy_tree_node, tree_node_object, TO_BE_REFINED
+use adam_tree_node_object, only : destroy_tree_node, tree_node_object, TO_BE_REFINED, TO_BE_DEREFINED, TO_NOT_TOUCH
 use adam_tree_bucket_object, only : tree_bucket_object, iterator_interface, len
 use MORTIF, only : morton2D, morton3D, demorton2D, demorton3D
 use PENF, only : I1P, I4P, I8P, R8P, str
@@ -114,11 +114,13 @@ private
 public :: tree_object
 
 ! tree defaults
-integer(I4P), parameter :: TREE_BUCKETS_NUMBER_DEF = 9973_I4P !< Default number of buckets of hash table.
-real(R8P),    parameter :: TREE_MAX_LOAD = 0.9_R8P            !< Maximum load of hash table buckets.
+integer(I4P), parameter :: TREE_BUCKETS_NUMBER_DEF = 9973_I4P    !< Default number of buckets of hash table.
+real(R8P),    parameter :: TREE_MAX_LOAD = 0.9_R8P               !< Maximum load of hash table buckets.
+integer(I4P), parameter :: TREE_MAX_SANITIZE_ITERATIONS = 10_I4P !< Default number of tree sanitize iterations.
 ! nodes types
 integer(I4P), parameter :: STANDARD_NODE = 0_I4P           !< Standard node type.
-integer(I4P), parameter :: BOUNDARY_CONDITION_NODE = 1_I4P !< Boundary condition node type.
+integer(I4P), parameter :: MORE_REFINED_NODE = 1_I4P       !< More refined node type.
+integer(I4P), parameter :: BOUNDARY_CONDITION_NODE = 2_I4P !< Boundary condition node type.
 
 type :: tree_object
    !< Tree class definition.
@@ -508,106 +510,119 @@ contains
 
    subroutine sanitize(self, to_derefine, iterations_number)
    !< Sanitize the tree.
-   class(tree_object),        intent(inout)        :: self                !< The tree.
-   integer(I8P), allocatable, intent(out)          :: to_derefine(:)      !<
-   integer(I4P),              intent(in), optional :: iterations_number   !< Sanitazie iterations number.
-   !integer(I4P)                                    :: iterations_number_  !< Sanitazie iterations number.
-   !logical                                         :: is_santize_complete !< Flag for finishing sanitize.
-   !integer(I8P), allocatable                       :: codes_analyzed(:)   !<
+   class(tree_object),        intent(inout)        :: self                 !< The tree.
+   integer(I8P), allocatable, intent(out)          :: to_derefine(:)       !< List of nodes to be derefined.
+   integer(I4P),              intent(in), optional :: iterations_number    !< Sanitazie iterations number.
+   integer(I4P)                                    :: iterations_number_   !< Sanitazie iterations number.
+   type(tree_node_object), pointer                 :: node                 !< Pointer to node.
+   type(tree_node_object), pointer                 :: sibling              !< Pointer to node sibling.
+   integer(I8P)                                    :: code                 !< Code.
+   integer(I8P), allocatable                       :: siblings(:)          !< List of code siblings.
+   integer(I8P), allocatable                       :: neighbor(:)          !< List of code neighbors.
+   type(tree_node_object), pointer                 :: neigh                !< Pointer to node neighbor.
+   integer(I4P)                                    :: neighbor_type        !< Neighbors type.
+   logical                                         :: is_sanitize_complete !< Flag for finishing sanitize.
+   logical                                         :: can_be_derefined     !< Flag for checking derefinement possibility.
+   integer(I8P), allocatable                       :: codes_analyzed(:)    !< List of codes analyzed.
+   integer(I4P)                                    :: new_level            !< New level counter.
+   integer(I4P)                                    :: new_level_n          !< Neighbor new level counter.
+   integer(I4P)                                    :: s, sib, f, n         !< Counter.
 
-   !iterations_number_ = MAX_SANITIZE_ITERATIONS_NUMBER ; if (present(iterations_number)) iterations_number_ = iterations_number
+   iterations_number_ = TREE_MAX_SANITIZE_ITERATIONS ; if (present(iterations_number)) iterations_number_ = iterations_number
 
-   !!< @TODO remove check on max level in update_to_refine
-   !min_max_check_loop : do while(self%loop(node=node))
-   !   new_level = self%level(code=node%code) + node%refinement_needed
-   !   if ((new_level > self%max_level).or.(new_level < 0)) then
-   !      node%refinement_needed = TO_NOT_TOUCH
-   !   endif
-   !enddo min_max_check_loop
+   !< @TODO remove check on max level in update_to_refine
+   min_max_check_loop : do while(self%loop(node=node))
+      new_level = self%level(code=node%code) + node%refinement_needed
+      if ((new_level > self%max_level).or.(new_level < 0)) then
+         node%refinement_needed = TO_NOT_TOUCH
+      endif
+   enddo min_max_check_loop
 
-   !sanitize_loop : do s=1, iterations_number
-   !   is_sanitize_complete = .true.
+   sanitize_loop : do s=1, iterations_number
+      is_sanitize_complete = .true.
 
-   !   ! check for the sanity of derefinement
-   !   to_derefine = []
-   !   codes_analyzed = []
-   !   derefine_loop : do while(self%loop(node=node))
-   !      ! check if I want to be derefined and I have not been analyzed yet
-   !      if (node%refinement_needed == TO_BE_DEREFINED).and.(findloc(codes_analyzed, node%code)==0) then
-   !         ! check sibling for derefinement
-   !         can_be_derefined = .true.
-   !         code = node%code
-   !         siblings = self%siblings(code=node%code)
-   !         sibs_loop : do s=1, self%ratio -1
-   !            if (.not.self%has_code(code=siblings(s))) then
-   !               can_be_derefined = .false.
-   !               exit sibs_loop
-   !            endif
-   !            !sib => self%node(code=siblings(s))
-   !            if (self%node(code=siblings(s))%refinement_needed /= TO_BE_DEREFINED) then
-   !               can_be_derefined = .false.
-   !               exit sibs_loop
-   !            endif
-   !         enddo sibs_loop
-   !         if (can_be_derefined) then
-   !            to_derefine = [to_derefine, [code, siblings]]
-   !            codes_analyzed = [codes_analyzed, [code, siblings]]
-   !         else
-   !            is_sanitize_complete = .false.
-   !            node%refinement_needed == TO_BE_NOT_TOUCH
-   !            do s=1, self%ratio -1
-   !               if (self%has_code(code=siblings(s))) then
-   !                  ! codes_analyzed = [codes_analyzed, siblings(s)]
-   !                  if (self%node(code=siblings(s))%refinement_needed == TO_BE_DEREFINED) then
-   !                     ! due some of your siblings you cannot be derefined, you need to be altered
-   !                     self%node(code=siblings(s))%refinement_needed = TO_BE_NOT_TOUCH
-   !                  endif
-   !               endif
-   !            enddo
-   !         endif
-   !      endif
-   !   enddo derefine_loop
+      ! check for the sanity of derefinement
+      to_derefine = [-2_I8P] ! initialize list with no-sense code
+      codes_analyzed = [-2_I8P] ! initialize list with no-sense code
+      derefine_loop : do while(self%loop(node=node))
+         ! check if I want to be derefined and I have not been analyzed yet
+         if ((node%refinement_needed == TO_BE_DEREFINED).and.(findloc(codes_analyzed, node%code, dim=1)==0)) then
+            ! check sibling for derefinement
+            can_be_derefined = .true.
+            code = node%code
+            siblings = self%siblings(code=code)
+            sibs_check_loop : do sib=1, self%ratio -1
+               if (.not.self%has_code(code=siblings(sib))) then
+                  can_be_derefined = .false.
+                  exit sibs_check_loop
+               endif
+               sibling => self%node(code=siblings(sib))
+               if (sibling%refinement_needed /= TO_BE_DEREFINED) then
+                  can_be_derefined = .false.
+                  exit sibs_check_loop
+               endif
+            enddo sibs_check_loop
+            if (can_be_derefined) then
+               to_derefine = [to_derefine, [code], siblings]
+               codes_analyzed = [codes_analyzed, [code], siblings]
+            else
+               is_sanitize_complete = .false.
+               node%refinement_needed = TO_NOT_TOUCH
+               codes_analyzed = [codes_analyzed, [code]] ! check with Francesco
+               do sib=1, self%ratio -1
+                  if (self%has_code(code=siblings(sib))) then
+                     codes_analyzed = [codes_analyzed, [siblings(sib)]] ! check with Francesco
+                     sibling => self%node(code=siblings(sib))
+                     if (sibling%refinement_needed == TO_BE_DEREFINED) then
+                        ! due some of your siblings you cannot be derefined, you need to be altered
+                        sibling%refinement_needed = TO_NOT_TOUCH
+                     endif
+                  endif
+               enddo
+            endif
+         endif
+      enddo derefine_loop
 
-   !   ! check for the sanity of refinement
-   !   do while(self%loop(node=node))
-   !      new_level = self%level(code=node%code) + node%refinement_needed
-   !      ! @TODO implement find neightbours method
-   !      do f=1, faces
-   !         neighbours = self%neighbours(code=node%code, face=faces(f))
-   !         if (neighbour_type /= PHYS) then
-   !            if (neighbour_type == MORE_REFINED) then
-   !               do n=1, size(neighbours)
-   !                  ! check level
-   !                  new_level_n = self%level(code=neighbours(n)%code) + neighbours(n)%refinement_needed
-   !                  if (new_level_n > new_level + 1) then
-   !                     ! a neighbour want to be refined 2 levels more than me, I have to refine more too
-   !                     is_sanitize_complete = .false.
-   !                     node%refinement_nedeed = min(node%refinement_nedeed+1, 1)
-   !                     exit
-   !                  endif
-   !               enddo
-   !            endif
-   !         endif
-   !      enddo
+     ! check for the sanity of refinement
+     do while(self%loop(node=node))
+        new_level = self%level(code=node%code) + node%refinement_needed
+        do f=1, 6
+           call self%get_neighbor(code=node%code, face=f, neighbor=neighbor, neighbor_type=neighbor_type)
+           if (neighbor_type /= BOUNDARY_CONDITION_NODE) then
+              if (neighbor_type == MORE_REFINED_NODE) then
+                 do n=1, size(neighbor, dim=1)
+                    ! check level
+                    neigh => self%node(code=neighbor(n))
+                    new_level_n = self%level(code=neighbor(n)) + neigh%refinement_needed
+                    if (new_level_n > new_level + 1) then
+                       ! a neighbour want to be refined 2 levels more than me, I have to refine more too
+                       is_sanitize_complete = .false.
+                       node%refinement_needed = min(node%refinement_needed+1, 1)
+                       exit
+                    endif
+                 enddo
+              endif
+           endif
+        enddo
 
-   !      if (node%refinement_nedeed > 1) then
-   !         print '(A)',  'CANNOT REFINE TWICE IN A ROW. SOMETHING WENT TERRIBLY WRONG. EXIT!'
-   !         stop
-   !      endif
+        if (node%refinement_needed > 1) then
+           print '(A)',  'CANNOT REFINE TWICE IN A ROW. SOMETHING WENT TERRIBLY WRONG. EXIT!'
+           stop
+        endif
 
-   !      new_level = self%level(code=node%code) + node%refinement_needed
-   !      if (new_level > self%max_level) then
-   !         print '(A)',  'CANNOT REFINE MORE. SOMETHING WENT TERRIBLY WRONG. EXIT!'
-   !         stop
-   !      endif
-   !   enddo
-   !   if (is_sanitize_complete) exit sanitize_loop
-   !enddo sanitize_loop
+        new_level = self%level(code=node%code) + node%refinement_needed
+        if (new_level > self%max_level) then
+           print '(A)',  'CANNOT REFINE MORE. SOMETHING WENT TERRIBLY WRONG. EXIT!'
+           stop
+        endif
+     enddo
+     if (is_sanitize_complete) exit sanitize_loop
+   enddo sanitize_loop
 
-   !if (.not.is_santize_complete) then
-   !   print '(A)',  'SANITZE CANNOT BE COMPLETED. SOMETHING WENT TERRIBLY WRONG. EXIT!'
-   !   stop
-   !endif
+   if (.not.is_sanitize_complete) then
+      print '(A)',  'SANITZE CANNOT BE COMPLETED. SOMETHING WENT TERRIBLY WRONG. EXIT!'
+      stop
+   endif
    endsubroutine sanitize
 
    subroutine traverse(self, iterator)
@@ -979,13 +994,13 @@ contains
    case(4_I4P)
       neighbor = [self%coordinates_to_morton(i=i_dn(1), j=j_dn(1), l=l_dn), &
                   self%coordinates_to_morton(i=i_dn(2), j=j_dn(2), l=l_dn)]
-      neighbor_type = STANDARD_NODE
+      neighbor_type = MORE_REFINED_NODE
    case(8_I4P)
       neighbor = [self%coordinates_to_morton(i=i_dn(1), j=j_dn(1), k=k_dn(1), l=l_dn), &
                   self%coordinates_to_morton(i=i_dn(2), j=j_dn(2), k=k_dn(2), l=l_dn), &
                   self%coordinates_to_morton(i=i_dn(3), j=j_dn(3), k=k_dn(3), l=l_dn), &
                   self%coordinates_to_morton(i=i_dn(4), j=j_dn(4), k=k_dn(4), l=l_dn)]
-      neighbor_type = STANDARD_NODE
+      neighbor_type = MORE_REFINED_NODE
    endselect
    endsubroutine get_neighbor
 
