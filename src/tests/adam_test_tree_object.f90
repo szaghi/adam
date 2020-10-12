@@ -4,6 +4,7 @@ program adam_test_tree_object
 
 use adam_objects
 use PENF, only : I8P, I4P, str
+use vtk_fortran, only : vtk_file
 
 implicit none
 
