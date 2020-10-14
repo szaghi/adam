@@ -58,7 +58,7 @@ contains
    endfunction tree_bucket_len
 
    ! public methods
-   subroutine add_node(self, code, content, finest_code, refinement_needed)
+   subroutine add_node(self, code, content, finest_code, refinement_needed, myrank, block_index)
    !< Add a node pointer to the tree bucket.
    !<
    !< @note If a node with the same code is already in the tree bucket, it is removed and the new one will replace it.
@@ -67,6 +67,8 @@ contains
    integer(I8P),              intent(in)           :: content           !< The content.
    integer(I8P),              intent(in), optional :: finest_code       !< The finest Morton code.
    integer(I4P),              intent(in), optional :: refinement_needed !< Flag for refinement/derefinement algorithm.
+   integer(I4P),              intent(in), optional :: myrank            !< MPI rank process.
+   integer(I8P),              intent(in), optional :: block_index       !< Block index in the field array.
    type(tree_node_object), pointer                 :: p                 !< Pointer to scan the tree bucket.
 
    ! if the node is already there, then remove it
@@ -84,7 +86,8 @@ contains
    end if
    self%tail => p
 
-   call p%initialize(code=code, content=content, finest_code=finest_code, refinement_needed=refinement_needed)
+   call p%initialize(code=code, content=content, finest_code=finest_code, refinement_needed=refinement_needed, &
+                     myrank=myrank, block_index=block_index)
 
    call self%add_code(code=p%code)
 

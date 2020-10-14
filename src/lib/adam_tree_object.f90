@@ -133,7 +133,8 @@ type :: tree_object
    integer(I4P)                          :: max_level=12_I4P        !< Maximum refinement level.
    logical                               :: is_initialized_=.false. !< Initialization status.
    integer(I8P), allocatable             :: to_refine(:)            !< List of nodes to be refined.
-   ! type(tree_bucket_object)              :: to_derefine             !< List of node to be derefined.
+   integer(I8P)                          :: last_block_index=0_I8P  !< Last block index in the field array.
+   integer(I8P), allocatable             :: to_derefine(:)          !< List of node to be derefined.
    contains
       ! public methods
       procedure, pass(self) :: add_node             !< Add a node pointer to the tree.
@@ -184,27 +185,35 @@ endtype tree_object
 
 contains
    ! public methods
-   subroutine add_node(self, code, content, finest_code, refinement_needed, max_load, nodes_number, buckets_number, ratio)
+   subroutine add_node(self, code, content, finest_code, refinement_needed, myrank, block_index, update_last_block_index, &
+                       max_load, nodes_number, buckets_number, ratio)
    !< Add a node pointer to the tree.
    !<
    !< @note If a node with the same key is already in the tree, it is removed and the new one will replace it.
-   class(tree_object), intent(inout)        :: self              !< The tree.
-   integer(I8P),       intent(in)           :: code              !< The Morton code.
-   integer(I8P),       intent(in)           :: content           !< The content.
-   integer(I8P),       intent(in), optional :: finest_code       !< The finest Morton code.
-   integer(I4P),       intent(in), optional :: refinement_needed !< Flag for refinement/derefinement algorithm.
-   real(R8P),          intent(in), optional :: max_load          !< Maximum load of tree buckets.
-   integer(I4P),       intent(in), optional :: nodes_number      !< Nodes number to be stored in the tree.
-   integer(I4P),       intent(in), optional :: buckets_number    !< Number of buckets for initialize the tree.
-   integer(I4P),       intent(in), optional :: ratio             !< Refinement ratio.
-   integer(I4P)                             :: b                 !< Bucket index, namely hashed key.
+   class(tree_object), intent(inout)        :: self                     !< The tree.
+   integer(I8P),       intent(in)           :: code                     !< The Morton code.
+   integer(I8P),       intent(in)           :: content                  !< The content.
+   integer(I8P),       intent(in), optional :: finest_code              !< The finest Morton code.
+   integer(I4P),       intent(in), optional :: refinement_needed        !< Flag for refinement/derefinement algorithm.
+   integer(I4P),       intent(in), optional :: myrank                   !< MPI rank process.
+   integer(I8P),       intent(in), optional :: block_index              !< Block index in the field array.
+   logical,            intent(in), optional :: update_last_block_index  !< Update or not last block index.
+   real(R8P),          intent(in), optional :: max_load                 !< Maximum load of tree buckets.
+   integer(I4P),       intent(in), optional :: nodes_number             !< Nodes number to be stored in the tree.
+   integer(I4P),       intent(in), optional :: buckets_number           !< Number of buckets for initialize the tree.
+   integer(I4P),       intent(in), optional :: ratio                    !< Refinement ratio.
+   logical                                  :: update_last_block_index_ !< Update or not last block index, local var.
+   integer(I4P)                             :: b                        !< Bucket index, namely hashed key.
 
    if (.not.self%is_initialized_) &
       call self%initialize(max_load=max_load, nodes_number=nodes_number, buckets_number=buckets_number, ratio=ratio)
    b = self%hash(code=code)
-   call self%bucket(b)%add_node(code=code, content=content, finest_code=finest_code, refinement_needed=refinement_needed)
+   call self%bucket(b)%add_node(code=code, content=content, finest_code=finest_code, refinement_needed=refinement_needed, &
+                                myrank=myrank, block_index=block_index)
    self%nodes_number = self%nodes_number + 1
    self%code(1:2, b) = self%bucket(b)%code
+   update_last_block_index_ = .true. ; if (present(update_last_block_index)) update_last_block_index_ = update_last_block_index
+   if (update_last_block_index_) self%last_block_index = self%last_block_index + 1
    endsubroutine add_node
 
    function codes(self)
@@ -285,6 +294,23 @@ contains
       endsubroutine swap_element
    endfunction codes
 
+   subroutine derefine(self)
+   !< Derefine nodes.
+   class(tree_object), intent(inout) :: self           !< The tree.
+   type(tree_node_object), pointer   :: first_child    !< Pointer to first child node.
+   integer(I8P)                      :: n              !< Counter.
+   integer(I4P)                      :: i              !< Counter.
+
+   do n=1, size(self%to_derefine, dim=1), self%ratio
+      first_child => self%node(code=self%to_derefine(n))
+      call self%add_node(code=self%parent(code=first_child%code), content=n, myrank=first_child%myrank, &
+                                          block_index=first_child%block_index, update_last_block_index=.false.)
+      do i=0, self%ratio - 1
+         call self%remove_node(code=self%to_derefine(n+i))
+      enddo
+   enddo
+   endsubroutine derefine
+
    subroutine destroy(self)
    !< Destroy the tree.
    class(tree_object), intent(inout) :: self !< The tree.
@@ -302,6 +328,7 @@ contains
    self%max_load = TREE_MAX_LOAD
    self%ratio = 8_I4P
    self%max_level = 12_I4P
+   self%last_block_index = 0_I8P
    self%is_initialized_ = .false.
    if (allocated(self%to_refine)) deallocate(self%to_refine)
    endsubroutine destroy
@@ -374,14 +401,15 @@ contains
    if (self%is_initialized_) bucket = int(mod(code, int(self%buckets_number, I8P)), I4P) + 2
    endfunction hash
 
-   subroutine initialize(self, max_load, nodes_number, buckets_number, ratio, max_level)
+   subroutine initialize(self, max_load, nodes_number, buckets_number, ratio, max_level, last_block_index)
    !< Initialize the tree.
-   class(tree_object), intent(inout)        :: self           !< The tree.
-   real(R8P),          intent(in), optional :: max_load       !< Maximum load of tree buckets.
-   integer(I4P),       intent(in), optional :: nodes_number   !< Nodes number to be stored in the tree.
-   integer(I4P),       intent(in), optional :: buckets_number !< Number of buckets for initialize the tree.
-   integer(I4P),       intent(in), optional :: ratio          !< Refinement ratio.
-   integer(I4P),       intent(in), optional :: max_level      !< Maximum refinement level.
+   class(tree_object), intent(inout)        :: self             !< The tree.
+   real(R8P),          intent(in), optional :: max_load         !< Maximum load of tree buckets.
+   integer(I4P),       intent(in), optional :: nodes_number     !< Nodes number to be stored in the tree.
+   integer(I4P),       intent(in), optional :: buckets_number   !< Number of buckets for initialize the tree.
+   integer(I4P),       intent(in), optional :: ratio            !< Refinement ratio.
+   integer(I4P),       intent(in), optional :: max_level        !< Maximum refinement level.
+   integer(I8P),       intent(in), optional :: last_block_index !< Last block index in the field array.
 
    call self%destroy
    if (present(max_load)) self%max_load = max_load
@@ -395,6 +423,7 @@ contains
    self%code = 0_I8P
    if (present(ratio)) self%ratio = ratio
    if (present(max_level)) self%max_level = max_level
+   if (present(last_block_index)) self%last_block_index = last_block_index
    self%is_initialized_ = .true.
    endsubroutine initialize
 
@@ -447,20 +476,32 @@ contains
    buckets_number = b
    endfunction prime_buckets_number
 
-   subroutine refine(self, force_all)
+   subroutine refine(self, block_to_refine, block_refined, force_all)
    !< Refine nodes.
-   class(tree_object), intent(inout)        :: self           !< The tree.
-   logical,            intent(in), optional :: force_all      !< Force all nodes to be refined.
-   integer(I8P)                             :: refined_number !< Number of nodes to be refined.
-   integer(I8P)                             :: n              !< Counter.
-   integer(I4P)                             :: i              !< Counter.
+   class(tree_object),        intent(inout)        :: self                !< The tree.
+   integer(I8P), allocatable, intent(out)          :: block_to_refine(:)  !< List of field blocks to be refined.
+   integer(I8P), allocatable, intent(out)          :: block_refined(:)    !< List of field refined blocks.
+   logical,                   intent(in), optional :: force_all           !< Force all nodes to be refined.
+   type(tree_node_object), pointer                 :: parent              !< Pointer to parent node.
+   integer(I8P)                                    :: refined_number      !< Number of nodes to be refined.
+   integer(I8P)                                    :: n                   !< Counter.
+   integer(I4P)                                    :: i                   !< Counter.
 
    call self%update_to_refine(refined_number=refined_number, force_all=force_all)
+   allocate(block_to_refine(refined_number))
+   allocate(block_refined(self%ratio*refined_number))
    do n=1, refined_number
-      do i=0, self%ratio-1
-         call self%add_node(code=self%child(code=self%to_refine(n), i=i), content=n)
+      parent => self%node(code=self%to_refine(n))
+      block_to_refine(n) = parent%block_index
+      call self%add_node(code=self%child(code=parent%code, i=0), content=n, myrank=parent%myrank, &
+                         block_index=parent%block_index, update_last_block_index=.false.)
+      block_refined((n-1)*self%ratio+1) = parent%block_index
+      do i=1, self%ratio-1
+         block_refined((n-1)*self%ratio+1+i) = self%last_block_index + 1
+         call self%add_node(code=self%child(code=parent%code, i=i), content=n, myrank=parent%myrank, &
+                            block_index=self%last_block_index+1)
       enddo
-      call self%remove_node(code=self%to_refine(n))
+      call self%remove_node(code=parent%code)
    enddo
    endsubroutine refine
 
@@ -508,10 +549,9 @@ contains
    endif
    endsubroutine resize
 
-   subroutine sanitize(self, to_derefine, iterations_number)
+   subroutine sanitize(self, iterations_number)
    !< Sanitize the tree.
    class(tree_object),        intent(inout)        :: self                 !< The tree.
-   integer(I8P), allocatable, intent(out)          :: to_derefine(:)       !< List of nodes to be derefined.
    integer(I4P),              intent(in), optional :: iterations_number    !< Sanitazie iterations number.
    integer(I4P)                                    :: iterations_number_   !< Sanitazie iterations number.
    type(tree_node_object), pointer                 :: node                 !< Pointer to node.
@@ -538,70 +578,73 @@ contains
       endif
    enddo min_max_check_loop
 
-   sanitize_loop : do s=1, iterations_number
+   sanitize_loop : do s=1, iterations_number_
       is_sanitize_complete = .true.
 
       ! check for the sanity of derefinement
-      to_derefine = [-2_I8P] ! initialize list with no-sense code
-      codes_analyzed = [-2_I8P] ! initialize list with no-sense code
+      if (allocated(self%to_derefine)) deallocate(self%to_derefine) ; allocate(self%to_derefine(0))
+      if (allocated(codes_analyzed))   deallocate(codes_analyzed)   ; allocate(codes_analyzed(0))
       derefine_loop : do while(self%loop(node=node))
          ! check if I want to be derefined and I have not been analyzed yet
-         if ((node%refinement_needed == TO_BE_DEREFINED).and.(findloc(codes_analyzed, node%code, dim=1)==0)) then
-            ! check sibling for derefinement
-            can_be_derefined = .true.
-            code = node%code
-            siblings = self%siblings(code=code)
-            sibs_check_loop : do sib=1, self%ratio -1
-               if (.not.self%has_code(code=siblings(sib))) then
-                  can_be_derefined = .false.
-                  exit sibs_check_loop
-               endif
-               sibling => self%node(code=siblings(sib))
-               if (sibling%refinement_needed /= TO_BE_DEREFINED) then
-                  can_be_derefined = .false.
-                  exit sibs_check_loop
-               endif
-            enddo sibs_check_loop
-            if (can_be_derefined) then
-               to_derefine = [to_derefine, [code], siblings]
-               codes_analyzed = [codes_analyzed, [code], siblings]
-            else
-               is_sanitize_complete = .false.
-               node%refinement_needed = TO_NOT_TOUCH
-               codes_analyzed = [codes_analyzed, [code]] ! check with Francesco
-               do sib=1, self%ratio -1
-                  if (self%has_code(code=siblings(sib))) then
-                     codes_analyzed = [codes_analyzed, [siblings(sib)]] ! check with Francesco
-                     sibling => self%node(code=siblings(sib))
-                     if (sibling%refinement_needed == TO_BE_DEREFINED) then
-                        ! due some of your siblings you cannot be derefined, you need to be altered
-                        sibling%refinement_needed = TO_NOT_TOUCH
-                     endif
+         if (node%refinement_needed == TO_BE_DEREFINED) then
+            if (findloc(codes_analyzed, node%code, dim=1)==0) then ! avoid to re-analyze already confirmed siblingsi to derefine
+               ! check sibling for derefinement
+               can_be_derefined = .true.
+               code = node%code
+               siblings = self%siblings(code=code)
+               sibs_check_loop : do sib=1, self%ratio -1
+                  if (.not.self%has_code(code=siblings(sib))) then
+                     can_be_derefined = .false.
+                     exit sibs_check_loop
                   endif
-               enddo
+                  sibling => self%node(code=siblings(sib))
+                  if (sibling%refinement_needed /= TO_BE_DEREFINED) then
+                     can_be_derefined = .false.
+                     exit sibs_check_loop
+                  endif
+               enddo sibs_check_loop
+               if (can_be_derefined) then
+                  self%to_derefine = [self%to_derefine, [code], siblings]
+                  codes_analyzed = [codes_analyzed, [code], siblings]
+               else
+                  is_sanitize_complete = .false.
+                  node%refinement_needed = TO_NOT_TOUCH
+                  do sib=1, self%ratio -1
+                     if (self%has_code(code=siblings(sib))) then
+                        sibling => self%node(code=siblings(sib))
+                        if (sibling%refinement_needed == TO_BE_DEREFINED) then
+                           ! due some of your siblings you cannot be derefined, you need to be altered
+                           sibling%refinement_needed = TO_NOT_TOUCH
+                        endif
+                     endif
+                  enddo
+               endif
             endif
          endif
       enddo derefine_loop
 
-     ! check for the sanity of refinement
+     ! check for the sanity of refinement (2:1 rule)
      do while(self%loop(node=node))
         new_level = self%level(code=node%code) + node%refinement_needed
         do f=1, 6
            call self%get_neighbor(code=node%code, face=f, neighbor=neighbor, neighbor_type=neighbor_type)
            if (neighbor_type /= BOUNDARY_CONDITION_NODE) then
-              if (neighbor_type == MORE_REFINED_NODE) then
-                 do n=1, size(neighbor, dim=1)
-                    ! check level
-                    neigh => self%node(code=neighbor(n))
-                    new_level_n = self%level(code=neighbor(n)) + neigh%refinement_needed
-                    if (new_level_n > new_level + 1) then
-                       ! a neighbour want to be refined 2 levels more than me, I have to refine more too
-                       is_sanitize_complete = .false.
-                       node%refinement_needed = min(node%refinement_needed+1, 1)
-                       exit
+              do n=1, size(neighbor, dim=1)
+                 ! check level
+                 neigh => self%node(code=neighbor(n))
+                 new_level_n = self%level(code=neighbor(n)) + neigh%refinement_needed
+                 if (new_level_n > new_level + 1) then
+                    ! a neighbour want to be refined 2 levels more than me, I have to refine more too
+                    is_sanitize_complete = .false.
+                    if     (new_level_n - new_level == 3) then ! node want to derefine, but it must be refined
+                       node%refinement_needed = 1
+                    elseif (new_level_n - new_level == 2) then
+                       node%refinement_needed = node%refinement_needed + 1
                     endif
-                 enddo
-              endif
+                    ! node%refinement_needed = min(node%refinement_needed+1, 1) ! new_level = new_level_n - 1
+                    exit
+                 endif
+              enddo
            endif
         enddo
 
@@ -863,13 +906,13 @@ contains
       direct_neighbor = self%coordinates_to_morton(i=i_dn(1), j=j_dn(1), k=k_dn(1), l=l_dn)
    endselect
 
-   ! check if direct neighbor is a sibling
-   if (findloc(array=self%siblings(code=code), value=direct_neighbor, dim=1)>0) then
-      ! direct neighbor is a sibling, thus surely exist and it is unique, return it
-      neighbor = [direct_neighbor]
-      neighbor_type = STANDARD_NODE
-      return
-   endif
+   ! ! check if direct neighbor is a sibling
+   ! if (findloc(array=self%siblings(code=code), value=direct_neighbor, dim=1)>0) then
+   !    ! direct neighbor is a sibling, thus surely exist and it is unique, return it
+   !    neighbor = [direct_neighbor]
+   !    neighbor_type = STANDARD_NODE
+   !    return
+   ! endif
 
    ! direct neighbor is not a sibling, check if it exists
    if (self%has_code(code=direct_neighbor)) then
@@ -1059,6 +1102,7 @@ contains
    endfunction path
 
    subroutine print_code_topology(self, code,  &
+                                  coordinates, &
                                   level,       &
                                   parent,      &
                                   parents,     &
@@ -1068,10 +1112,12 @@ contains
                                   finest,      &
                                   siblings,    &
                                   neighbor,    &
+                                  block_index, &
                                   whole)
    !< Print all code topology data.
    class(tree_object), intent(in)           :: self          !< The tree.
    integer(I8P),       intent(in)           :: code          !< Morton code.
+   logical,            intent(in), optional :: coordinates   !< Coordinates.
    logical,            intent(in), optional :: level         !< Level of node.
    logical,            intent(in), optional :: parent        !< Parent of code.
    logical,            intent(in), optional :: parents       !< Parents list.
@@ -1081,7 +1127,9 @@ contains
    logical,            intent(in), optional :: finest        !< Finest Morton code.
    logical,            intent(in), optional :: siblings      !< Siblings of code.
    logical,            intent(in), optional :: neighbor      !< Neighbor of code.
+   logical,            intent(in), optional :: block_index   !< Block index in the field array.
    logical,            intent(in), optional :: whole         !< Whole topology data.
+   logical                                  :: coordinates_  !< Coordinates, local var.
    logical                                  :: level_        !< Level of node, local var.
    logical                                  :: parent_       !< Parent of code, local var.
    logical                                  :: child_        !< (First) Child of code, local var.
@@ -1091,14 +1139,18 @@ contains
    logical                                  :: path_         !< Path from node to parent of first level, local var.
    logical                                  :: parents_      !< Parents list, local var.
    logical                                  :: neighbor_     !< Neighbor of code, local var.
+   logical                                  :: block_index_  !< Block index in the field array.
    logical                                  :: whole_        !< Whole topology data, local var.
    character(:), allocatable                :: topology      !< Topology string.
    character(:), allocatable                :: parents_str   !< Parents string list.
    character(:), allocatable                :: neighbors_str !< Neighbors string.
    integer(I8P), allocatable                :: neighbors(:)  !< Neighbor of code.
    integer(I4P)                             :: neighbor_type !< Type of neighbor.
-   integer(I4P)                             :: f, l          !< Counter.
+   type(tree_node_object), pointer          :: node          !< Node pointer.
+   integer(I4P)                             :: f             !< Counter.
+   integer(I4P)                             :: i, j, k, l    !< Counter.
 
+   coordinates_ = .false. ; if (present(coordinates))  coordinates_ = coordinates
    level_       = .false. ; if (present(level      ))  level_       = level
    parent_      = .false. ; if (present(parent     ))  parent_      = parent
    child_       = .false. ; if (present(child      ))  child_       = child
@@ -1108,7 +1160,10 @@ contains
    path_        = .false. ; if (present(path       ))  path_        = path
    parents_     = .false. ; if (present(parents    ))  parents_     = parents
    neighbor_    = .false. ; if (present(neighbor   ))  neighbor_    = neighbor
+   block_index_ = .false. ; if (present(block_index))  block_index_ = block_index
    whole_       = .false. ; if (present(whole      ))  whole_       = whole
+
+   node => self%node(code=code)
 
    parents_str = ''
    do l=self%level(code=code)-1, 0, -1
@@ -1127,7 +1182,9 @@ contains
       endif
    enddo
 
+   call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
    topology = ' code: '//trim(str(code))
+   if (coordinates_.or.whole_) topology = topology//' coordinates: '//trim(str([i,j,k,l],.true.))
    if (level_.or.whole_      ) topology = topology//' level: '//trim(str(self%level(code=code),.true.))
    if (parent_.or.whole_     ) topology = topology//' parent: '//trim(str(self%parent(code=code),.true.))
    if (parents_.or.whole_    ) topology = topology//' parents: '//parents_str
@@ -1138,6 +1195,7 @@ contains
                                                                                                level=self%max_level),.true.))
    if (siblings_.or.whole_   ) topology = topology//' siblings: '//trim(str(self%siblings(code=code),.true.))
    if (neighbor_.or.whole_   ) topology = topology//' neighbor: '//neighbors_str
+   if (block_index_.or.whole_) topology = topology//' block_index: '//trim(str(node%block_index,.true.))
 
    print '(A)', topology
    endsubroutine print_code_topology
@@ -1179,7 +1237,7 @@ contains
    force_all_ = .false. ; if (present(force_all)) force_all_ = force_all
    if (allocated(self%to_refine)) deallocate(self%to_refine)
    allocate(self%to_refine(1:self%nodes_number))
-   self%to_refine = -1_I8P
+   self%to_refine = -2_I8P
    n = 0_I8P
    do while(self%loop(node=node))
       if (self%level(code=node%code)+1<=self%max_level) then

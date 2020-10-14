@@ -2,6 +2,7 @@
 module adam_objects
 !< ADAM, objects classes.
 
+use adam_field_object
 use adam_tree_node_object
 use adam_tree_bucket_object
 use adam_tree_object
@@ -11,6 +12,7 @@ private
 ! public :: KEY_LEN
 public :: destroy_tree_node
 ! public :: key_str, key_int
+public :: field_object
 public :: tree_node_object, TO_BE_REFINED, TO_BE_DEREFINED
 public :: tree_bucket_object, len
 public :: iterator_interface

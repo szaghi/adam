@@ -20,10 +20,12 @@ integer(I4P), parameter :: TO_NOT_TOUCH=0_I4P     !< Flag for node to be untouch
 type :: tree_node_object
    !< Tree node class definition.
    ! character(len=KEY_LEN),          public :: key=''                  !< The key.
-   integer(I8P),                    public :: code=0_I8P              !< The Morton code.
+   integer(I8P),                    public :: code=-2_I8P             !< The Morton code.
    integer(I8P),                    public :: finest_code=0_I8P       !< The Morton code.
    integer(I8P),                    public :: content=0_I8P           !< The content.
    integer(I4P),                    public :: refinement_needed=0_I4P !< Flag for refinement/derefinement algorithm.
+   integer(I4P),                    public :: myrank=0_I4P            !< MPI rank process.
+   integer(I8P),                    public :: block_index=1_I8P       !< Block index in the field array.
    type(tree_node_object), pointer, public :: next=>null()            !< The next node in the tree.
    type(tree_node_object), pointer, public :: previous=>null()        !< The previous node in the tree.
    contains
@@ -124,18 +126,23 @@ contains
    self = fresh
    endsubroutine destroy
 
-   subroutine initialize(self, code, content, finest_code, refinement_needed)
+   subroutine initialize(self, code, content, finest_code, refinement_needed, myrank, block_index)
    !< Initialize tree node with key/content pair.
    class(tree_node_object), intent(inout)        :: self              !< Tree node.
    integer(I8P),            intent(in)           :: code              !< The Morton code.
    integer(I8P),            intent(in)           :: content           !< The content.
    integer(I8P),            intent(in), optional :: finest_code       !< The finest Morton code.
    integer(I4P),            intent(in), optional :: refinement_needed !< Flag for refinement/derefinement algorithm.
+   integer(I4P),            intent(in), optional :: myrank            !< MPI rank process.
+   integer(I8P),            intent(in), optional :: block_index       !< Block index in the field array.
 
+   call self%destroy
    self%code = code
    self%content = content
-   self%finest_code=0_I8P       ; if (present(finest_code))       self%finest_code       = finest_code
-   self%refinement_needed=0_I4P ; if (present(refinement_needed)) self%refinement_needed = refinement_needed
+   if (present(finest_code      )) self%finest_code       = finest_code
+   if (present(refinement_needed)) self%refinement_needed = refinement_needed
+   if (present(myrank           )) self%myrank            = myrank
+   if (present(block_index      )) self%block_index       = block_index
    endsubroutine initialize
 
    ! operators
@@ -149,5 +156,7 @@ contains
    lhs%finest_code = rhs%finest_code
    lhs%content = rhs%content
    lhs%refinement_needed = rhs%refinement_needed
+   lhs%myrank = rhs%myrank
+   lhs%block_index = rhs%block_index
    endsubroutine tree_node_assign_tree_node
 endmodule adam_tree_node_object

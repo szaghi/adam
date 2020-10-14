@@ -23,6 +23,8 @@ $EXDIRS      = references/
                PENF/src/tests/
                StringiFor/src/tests/
                StringiFor/src/third_party/
+               VecFor/src/tests/
+               VecFor/src/third_party/
                VTKFortran/src/tests/
                VTKFortran/src/third_party/
 
@@ -112,6 +114,7 @@ jobs         = 2
 compiler     = nvfortran
 cflags       = $CSTATIC_NVF $OPTIMIZE
 exclude_dirs = $EXDIRS
+preproc      = -D_NVF
 mod_dir      = ./mod/
 obj_dir      = ./obj/
 src          = ./src/
@@ -125,6 +128,7 @@ compiler     = nvfortran
 cflags       = $CSTATIC_NVF $DEBUG_NVF
 lflags       = $DEBUG_NVF
 exclude_dirs = $EXDIRS
+preproc      = -D_NVF
 mod_dir      = ./mod/
 obj_dir      = ./obj/
 src          = ./src/
