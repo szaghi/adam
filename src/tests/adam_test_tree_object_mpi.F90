@@ -10,15 +10,17 @@ use PENF, only : I8P, I4P, str
 
 implicit none
 
-type(tree_object)               :: tree          !< Tree.
-type(tree_node_object), pointer :: tree_node     !< Pointer to node.
-integer(I8P)                    :: code          !< Tree node code.
-integer(I8P), allocatable       :: codes(:)      !< Tree node codes list.
-integer(I4P)                    :: error         !< Error traping flag.
-integer(I4P)                    :: myrank        !< Rank of current process.
-integer(I4P)                    :: mpi_number    !< Number of MPI processes.
-integer(I8P)                    :: nodes_for_mpi !< Number of nodes for each MPI process.
-integer(I4P)                    :: l, n, p       !< Counter.
+type(tree_object)               :: tree               !< Tree.
+type(tree_node_object), pointer :: tree_node          !< Pointer to node.
+integer(I8P)                    :: code               !< Tree node code.
+integer(I8P), allocatable       :: codes(:)           !< Tree node codes list.
+integer(I8P), allocatable       :: block_to_refine(:) !< List of field blocks to be refined.
+integer(I8P), allocatable       :: block_refined(:)   !< List of field refined blocks.
+integer(I4P)                    :: error              !< Error traping flag.
+integer(I4P)                    :: myrank             !< Rank of current process.
+integer(I4P)                    :: mpi_number         !< Number of MPI processes.
+integer(I8P)                    :: nodes_for_mpi      !< Number of nodes for each MPI process.
+integer(I4P)                    :: l, n, p            !< Counter.
 
 #ifdef _MPI_
 call MPI_INIT(error)
@@ -42,13 +44,11 @@ if (myrank==0) then
    print*, ''
 
    print '(A)', 'test uniform refinement'
-   print '(A)', 'add ancestor node to the tree, Morton code -1'
-   call tree%add_node(code=-1_I8P, content=-1_I8P)
    do l=1, 3
       ! third level should not be done because max refinement level has been set to 2
       ! the level 2 should be printed twice
       print '(A)', 'create children of level '//trim(str(l))
-      call tree%refine(force_all=.true.)
+      call tree%refine(force_all=.true., block_to_refine=block_to_refine, block_refined=block_refined)
       print '(A)', 'loop in tree'
       do while(tree%loop(code=code))
          call tree%print_code_topology(code=code)
@@ -58,15 +58,13 @@ if (myrank==0) then
 
    print '(A)', 'test non uniform refinement'
    call tree%initialize(ratio=8_I4P, max_level=2_I4P)
-   print '(A)', 'add ancestor node to the tree, Morton code -1'
-   call tree%add_node(code=-1_I8P, content=-1_I8P)
    print '(A)', 'create children of level 1'
-   call tree%refine(force_all=.true.)
+   call tree%refine(force_all=.true., block_to_refine=block_to_refine, block_refined=block_refined)
    print '(A)', 'refine nodes 2, 3, 7'
    tree_node => tree%node(code=2_I8P) ; tree_node%refinement_needed = TO_BE_REFINED
    tree_node => tree%node(code=3_I8P) ; tree_node%refinement_needed = TO_BE_REFINED
    tree_node => tree%node(code=7_I8P) ; tree_node%refinement_needed = TO_BE_REFINED
-   call tree%refine()
+   call tree%refine(block_to_refine=block_to_refine, block_refined=block_refined)
    print '(A)', 'loop in tree'
    do while(tree%loop(code=code))
       call tree%print_code_topology(code=code)

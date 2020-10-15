@@ -23,7 +23,7 @@ type :: tree_bucket_object
       procedure, pass(self) :: add_node    !< Add a node pointer to the tree bucket.
       procedure, pass(self) :: destroy     !< Destroy the tree bucket.
       procedure, pass(self) :: has_code    !< Check if the code is present in the tree bucket.
-      procedure, pass(self) :: loop        !< Sentinel while-loop on nodes returning the code/content pair.
+      procedure, pass(self) :: loop        !< Sentinel while-loop on nodes returning the code.
       procedure, pass(self) :: node        !< Return a pointer to a node.
       procedure, pass(self) :: remove_node !< Remove a node from the tree bucket, given the code.
       procedure, pass(self) :: traverse    !< Traverse tree bucket from head to tail calling the iterator procedure.
@@ -58,14 +58,12 @@ contains
    endfunction tree_bucket_len
 
    ! public methods
-   subroutine add_node(self, code, content, finest_code, refinement_needed, myrank, block_index)
+   subroutine add_node(self, code, refinement_needed, myrank, block_index)
    !< Add a node pointer to the tree bucket.
    !<
    !< @note If a node with the same code is already in the tree bucket, it is removed and the new one will replace it.
    class(tree_bucket_object), intent(inout)        :: self              !< The tree bucket.
    integer(I8P),              intent(in)           :: code              !< The Morton code.
-   integer(I8P),              intent(in)           :: content           !< The content.
-   integer(I8P),              intent(in), optional :: finest_code       !< The finest Morton code.
    integer(I4P),              intent(in), optional :: refinement_needed !< Flag for refinement/derefinement algorithm.
    integer(I4P),              intent(in), optional :: myrank            !< MPI rank process.
    integer(I8P),              intent(in), optional :: block_index       !< Block index in the field array.
@@ -86,8 +84,7 @@ contains
    end if
    self%tail => p
 
-   call p%initialize(code=code, content=content, finest_code=finest_code, refinement_needed=refinement_needed, &
-                     myrank=myrank, block_index=block_index)
+   call p%initialize(code=code, refinement_needed=refinement_needed, myrank=myrank, block_index=block_index)
 
    call self%add_code(code=p%code)
 
@@ -123,26 +120,22 @@ contains
       endsubroutine code_iterator_search
    endfunction has_code
 
-   function loop(self, code, content) result(again)
-   !< Sentinel while-loop on nodes returning the code/content pair (for tree bucket looping).
+   function loop(self, code) result(again)
+   !< Sentinel while-loop on nodes returning the code (for tree bucket looping).
    class(tree_bucket_object), intent(in)            :: self      !< The tree bucket.
    integer(I8P),              intent(out), optional :: code      !< The Morton code.
-   integer(I8P),              intent(out), optional :: content   !< The content.
    logical                                          :: again     !< Sentinel flag to contine the loop.
    type(tree_node_object), pointer, save            :: p=>null() !< Pointer to current node.
 
    again = .false.
-   if (present(content)) content = 0
    if (self%nodes_number>0) then
       if (.not.associated(p)) then
          p => self%head
          if (present(code)) code = p%code
-         if (present(content)) content = p%content
          again = .true.
       elseif (associated(p%next)) then
          p => p%next
          if (present(code)) code = p%code
-         if (present(content)) content = p%content
          again = .true.
       else
          p => null()

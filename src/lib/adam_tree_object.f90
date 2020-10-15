@@ -131,21 +131,19 @@ type :: tree_object
    real(R8P)                             :: max_load=TREE_MAX_LOAD  !< Maximum load of tree buckets.
    integer(I4P)                          :: ratio=8_I4P             !< Refinement ratio.
    integer(I4P)                          :: max_level=12_I4P        !< Maximum refinement level.
-   logical                               :: is_initialized_=.false. !< Initialization status.
    integer(I8P), allocatable             :: to_refine(:)            !< List of nodes to be refined.
-   integer(I8P)                          :: last_block_index=0_I8P  !< Last block index in the field array.
    integer(I8P), allocatable             :: to_derefine(:)          !< List of node to be derefined.
+   integer(I8P)                          :: last_block_index=0_I8P  !< Last block index in the field array.
+   logical                               :: is_initialized_=.false. !< Initialization status.
    contains
       ! public methods
-      procedure, pass(self) :: add_node             !< Add a node pointer to the tree.
       procedure, pass(self) :: codes                !< Return the list of (sorted) codes actually stored in the tree.
       procedure, pass(self) :: destroy              !< Destroy the tree.
-      procedure, pass(self) :: loop                 !< Sentinel while-loop on nodes returning the code/content pair.
+      procedure, pass(self) :: loop                 !< Sentinel while-loop on nodes returning the code.
       procedure, pass(self) :: hash                 !< Hash the key.
       procedure, pass(self) :: has_code             !< Check if the code is present in the tree.
       procedure, pass(self) :: initialize           !< Initialize the tree.
       procedure, pass(self) :: node                 !< Return a pointer to a node.
-      procedure, pass(self) :: node_content         !< Return node's content, given the key.
       procedure, pass(self) :: prime_buckets_number !< Return the buckets number as the nearest prime number given nodes number.
       procedure, pass(self) :: refine               !< Refine nodes.
       procedure, pass(self) :: remove_node          !< Remove a node from the tree, given the key.
@@ -176,6 +174,7 @@ type :: tree_object
       procedure, pass(self) :: print_code_topology     !< Print all code topology data.
       procedure, pass(self) :: siblings                !< Return the siblings Morton code given Morton code.
       ! private methods
+      procedure, pass(self), private :: add_node                !< Add a node pointer to the tree.
       procedure, pass(self), private :: coordinates3D_to_morton !< Return the Morton code given ijkl coordinates.
       procedure, pass(self), private :: coordinates2D_to_morton !< Return the Morton code given ijl coordinates.
       procedure, pass(self), private :: morton_to_coordinates3D !< Return the ijkl coordinates given Morton code.
@@ -185,36 +184,6 @@ endtype tree_object
 
 contains
    ! public methods
-   subroutine add_node(self, code, content, finest_code, refinement_needed, myrank, block_index, update_last_block_index, &
-                       max_load, nodes_number, buckets_number, ratio)
-   !< Add a node pointer to the tree.
-   !<
-   !< @note If a node with the same key is already in the tree, it is removed and the new one will replace it.
-   class(tree_object), intent(inout)        :: self                     !< The tree.
-   integer(I8P),       intent(in)           :: code                     !< The Morton code.
-   integer(I8P),       intent(in)           :: content                  !< The content.
-   integer(I8P),       intent(in), optional :: finest_code              !< The finest Morton code.
-   integer(I4P),       intent(in), optional :: refinement_needed        !< Flag for refinement/derefinement algorithm.
-   integer(I4P),       intent(in), optional :: myrank                   !< MPI rank process.
-   integer(I8P),       intent(in), optional :: block_index              !< Block index in the field array.
-   logical,            intent(in), optional :: update_last_block_index  !< Update or not last block index.
-   real(R8P),          intent(in), optional :: max_load                 !< Maximum load of tree buckets.
-   integer(I4P),       intent(in), optional :: nodes_number             !< Nodes number to be stored in the tree.
-   integer(I4P),       intent(in), optional :: buckets_number           !< Number of buckets for initialize the tree.
-   integer(I4P),       intent(in), optional :: ratio                    !< Refinement ratio.
-   logical                                  :: update_last_block_index_ !< Update or not last block index, local var.
-   integer(I4P)                             :: b                        !< Bucket index, namely hashed key.
-
-   if (.not.self%is_initialized_) &
-      call self%initialize(max_load=max_load, nodes_number=nodes_number, buckets_number=buckets_number, ratio=ratio)
-   b = self%hash(code=code)
-   call self%bucket(b)%add_node(code=code, content=content, finest_code=finest_code, refinement_needed=refinement_needed, &
-                                myrank=myrank, block_index=block_index)
-   self%nodes_number = self%nodes_number + 1
-   self%code(1:2, b) = self%bucket(b)%code
-   update_last_block_index_ = .true. ; if (present(update_last_block_index)) update_last_block_index_ = update_last_block_index
-   if (update_last_block_index_) self%last_block_index = self%last_block_index + 1
-   endsubroutine add_node
 
    function codes(self)
    !< Return the list of (sorted) codes actually stored in the tree.
@@ -303,7 +272,7 @@ contains
 
    do n=1, size(self%to_derefine, dim=1), self%ratio
       first_child => self%node(code=self%to_derefine(n))
-      call self%add_node(code=self%parent(code=first_child%code), content=n, myrank=first_child%myrank, &
+      call self%add_node(code=self%parent(code=first_child%code), myrank=first_child%myrank, &
                                           block_index=first_child%block_index, update_last_block_index=.false.)
       do i=0, self%ratio - 1
          call self%remove_node(code=self%to_derefine(n+i))
@@ -331,17 +300,17 @@ contains
    self%last_block_index = 0_I8P
    self%is_initialized_ = .false.
    if (allocated(self%to_refine)) deallocate(self%to_refine)
+   if (allocated(self%to_derefine)) deallocate(self%to_derefine)
    endsubroutine destroy
 
-   function loop(self, code, content, node) result(again)
-   !< Sentinel while-loop on nodes returning the code/content pair (for tree looping).
-   class(tree_object),     intent(in)                      :: self      !< The tree bucket.
-   integer(I8P),           intent(out), optional           :: code      !< The Morton code.
-   integer(I8P),           intent(out), optional           :: content   !< The content.
-   type(tree_node_object), intent(out), optional, pointer  :: node      !< Pointer to current node.
-   logical                                                 :: again     !< Sentinel flag to contine the loop.
-   integer(I4P), save                                      :: b=1_I4P   !< Bucket counter.
-   type(tree_node_object), pointer, save                   :: p=>null() !< Pointer to current node.
+   function loop(self, code, node) result(again)
+   !< Sentinel while-loop on nodes returning the code (for tree looping).
+   class(tree_object),     intent(in)                     :: self      !< The tree bucket.
+   integer(I8P),           intent(out), optional          :: code      !< The Morton code.
+   type(tree_node_object), intent(out), optional, pointer :: node      !< Pointer to current node.
+   logical                                                :: again     !< Sentinel flag to contine the loop.
+   integer(I4P), save                                     :: b=1_I4P   !< Bucket counter.
+   type(tree_node_object), pointer, save                  :: p=>null() !< Pointer to current node.
 
    again = .false.
    if (self%nodes_number>0) then
@@ -356,14 +325,12 @@ contains
                if (.not.associated(p)) then
                   p => self%bucket(b)%head
                   if (present(code)) code = p%code
-                  if (present(content)) content = p%content
                   if (present(node)) node => p
                   again = .true.
                   return
                elseif (associated(p%next)) then
                   p => p%next
                   if (present(code)) code = p%code
-                  if (present(content)) content = p%content
                   if (present(node)) node => p
                   again = .true.
                   return
@@ -397,11 +364,10 @@ contains
    integer(I4P)                   :: bucket !< Bucket index corresponding to the key.
 
    bucket = 0
-   ! if (self%is_initialized_) bucket = abs(mod(murmurhash3(key=key), self%buckets_number)) + 1
    if (self%is_initialized_) bucket = int(mod(code, int(self%buckets_number, I8P)), I4P) + 2
    endfunction hash
 
-   subroutine initialize(self, max_load, nodes_number, buckets_number, ratio, max_level, last_block_index)
+   subroutine initialize(self, max_load, nodes_number, buckets_number, ratio, max_level, add_adam)
    !< Initialize the tree.
    class(tree_object), intent(inout)        :: self             !< The tree.
    real(R8P),          intent(in), optional :: max_load         !< Maximum load of tree buckets.
@@ -409,8 +375,10 @@ contains
    integer(I4P),       intent(in), optional :: buckets_number   !< Number of buckets for initialize the tree.
    integer(I4P),       intent(in), optional :: ratio            !< Refinement ratio.
    integer(I4P),       intent(in), optional :: max_level        !< Maximum refinement level.
-   integer(I8P),       intent(in), optional :: last_block_index !< Last block index in the field array.
+   logical,            intent(in), optional :: add_adam         !< Add ADAM node, the ancestor of all nodes.
+   logical                                  :: add_adam_        !< Add ADAM node, the ancestor of all nodes, local var.
 
+   add_adam_ = .true. ; if (present(add_adam)) add_adam_ = add_adam
    call self%destroy
    if (present(max_load)) self%max_load = max_load
    if (present(nodes_number)) then
@@ -423,8 +391,9 @@ contains
    self%code = 0_I8P
    if (present(ratio)) self%ratio = ratio
    if (present(max_level)) self%max_level = max_level
-   if (present(last_block_index)) self%last_block_index = last_block_index
    self%is_initialized_ = .true.
+   ! add ADAM node, the ancestor of all nodes
+   if (add_adam_) call self%add_node(code=-1_I8P) ! TODO add myrank and other members
    endsubroutine initialize
 
    function node(self, code) result(p)
@@ -436,20 +405,6 @@ contains
    p => null()
    if (self%is_initialized_) p => self%bucket(self%hash(code=code))%node(code=code)
    endfunction node
-
-   function node_content(self, code) result(content)
-   !< Return node's content, given the code.
-   class(tree_object), intent(in)  :: self    !< The tree.
-   integer(I8P),       intent(in)  :: code    !< The Morton code.
-   integer(I8P)                    :: content !< Content pointer of the queried node.
-   type(tree_node_object), pointer :: p       !< Pointer to current node.
-
-   content = 0
-   if (self%is_initialized_) then
-      p => self%bucket(self%hash(code=code))%node(code=code)
-      if (associated(p)) content = p%content
-   endif
-   endfunction node_content
 
    elemental function prime_buckets_number(self, nodes_number) result(buckets_number)
    !< Return the buckets number as the nearest prime number given nodes number.
@@ -493,12 +448,12 @@ contains
    do n=1, refined_number
       parent => self%node(code=self%to_refine(n))
       block_to_refine(n) = parent%block_index
-      call self%add_node(code=self%child(code=parent%code, i=0), content=n, myrank=parent%myrank, &
+      call self%add_node(code=self%child(code=parent%code, i=0), myrank=parent%myrank, &
                          block_index=parent%block_index, update_last_block_index=.false.)
       block_refined((n-1)*self%ratio+1) = parent%block_index
       do i=1, self%ratio-1
          block_refined((n-1)*self%ratio+1+i) = self%last_block_index + 1
-         call self%add_node(code=self%child(code=parent%code, i=i), content=n, myrank=parent%myrank, &
+         call self%add_node(code=self%child(code=parent%code, i=i), myrank=parent%myrank, &
                             block_index=self%last_block_index+1)
       enddo
       call self%remove_node(code=parent%code)
@@ -519,33 +474,32 @@ contains
    endif
    endsubroutine remove_node
 
-   subroutine resize(self, nodes_number, max_load, ratio)
+   subroutine resize(self, nodes_number, max_load)
    !< Resize the tree.
    class(tree_object), intent(inout)        :: self         !< The tree.
    integer(I4P),       intent(in)           :: nodes_number !< Nodes number to be stored in the tree.
    real(R8P),          intent(in), optional :: max_load     !< Maximum load of tree buckets.
-   integer(I4P),       intent(in), optional :: ratio        !< Refinement ratio.
    type(tree_object)                        :: swap         !< Temporary (swap) tree.
-   integer(I8P)                             :: code         !< The Morton code.
-   integer(I8P)                             :: content      !< Tree node content.
+   type(tree_node_object), pointer          :: node         !< Pointer to node.
    integer(I4P)                             :: b            !< Counter.
 
    if (self%is_initialized_) then
       if (present(max_load)) self%max_load = max_load
       if (self%nodes_number > int((1._R8P/self%max_load)*nodes_number, I4P)) return ! new size too small, cannot previous nodes
-      call swap%initialize(max_load=self%max_load, nodes_number=nodes_number)
-      do b=1, self%buckets_number
-         do while(self%bucket(b)%loop(code=code, content=content))
-            call swap%add_node(code=code, content=content)
-         enddo
+      call swap%initialize(max_load=self%max_load, nodes_number=nodes_number, ratio=self%ratio, add_adam=.false.)
+      do while(self%loop(node=node)) ! re-hash all codes
+         call swap%add_node(code=node%code,                           &
+                            refinement_needed=node%refinement_needed, &
+                            myrank=node%myrank,                       &
+                            block_index=node%block_index)
       enddo
       call move_alloc(from=swap%bucket, to=self%bucket)
       call move_alloc(from=swap%code, to=self%code)
-      self%buckets_number  = swap%buckets_number
-      self%nodes_number    = swap%nodes_number
-      self%is_initialized_ = swap%is_initialized_
+      self%buckets_number = swap%buckets_number
+      self%nodes_number   = swap%nodes_number
    else
-      call self%initialize(nodes_number=nodes_number, max_load=max_load, ratio=ratio)
+      print '(A)', 'ERROR: tree is not initialized, cannot be resized'
+      stop
    endif
    endsubroutine resize
 
@@ -570,7 +524,6 @@ contains
 
    iterations_number_ = TREE_MAX_SANITIZE_ITERATIONS ; if (present(iterations_number)) iterations_number_ = iterations_number
 
-   !< @TODO remove check on max level in update_to_refine
    min_max_check_loop : do while(self%loop(node=node))
       new_level = self%level(code=node%code) + node%refinement_needed
       if ((new_level > self%max_level).or.(new_level < 0)) then
@@ -906,14 +859,6 @@ contains
       direct_neighbor = self%coordinates_to_morton(i=i_dn(1), j=j_dn(1), k=k_dn(1), l=l_dn)
    endselect
 
-   ! ! check if direct neighbor is a sibling
-   ! if (findloc(array=self%siblings(code=code), value=direct_neighbor, dim=1)>0) then
-   !    ! direct neighbor is a sibling, thus surely exist and it is unique, return it
-   !    neighbor = [direct_neighbor]
-   !    neighbor_type = STANDARD_NODE
-   !    return
-   ! endif
-
    ! direct neighbor is not a sibling, check if it exists
    if (self%has_code(code=direct_neighbor)) then
       neighbor = [direct_neighbor]
@@ -1225,6 +1170,31 @@ contains
    endfunction siblings
 
    ! private methods
+   subroutine add_node(self, code, refinement_needed, myrank, block_index, update_last_block_index)
+   !< Add a node pointer to the tree.
+   !<
+   !< @note If a node with the same key is already in the tree, it is removed and the new one will replace it.
+   class(tree_object), intent(inout)        :: self                     !< The tree.
+   integer(I8P),       intent(in)           :: code                     !< The Morton code.
+   integer(I4P),       intent(in), optional :: refinement_needed        !< Flag for refinement/derefinement algorithm.
+   integer(I4P),       intent(in), optional :: myrank                   !< MPI rank process.
+   integer(I8P),       intent(in), optional :: block_index              !< Block index in the field array.
+   logical,            intent(in), optional :: update_last_block_index  !< Update or not last block index.
+   logical                                  :: update_last_block_index_ !< Update or not last block index, local var.
+   integer(I4P)                             :: b                        !< Bucket index, namely hashed key.
+
+   if (.not.self%is_initialized_) then
+      print '(A)', 'ERROR: cannot add a node a non initialized tree'
+   endif
+   b = self%hash(code=code)
+   call self%bucket(b)%add_node(code=code, refinement_needed=refinement_needed, &
+                                myrank=myrank, block_index=block_index)
+   self%nodes_number = self%nodes_number + 1
+   self%code(1:2, b) = self%bucket(b)%code
+   update_last_block_index_ = .true. ; if (present(update_last_block_index)) update_last_block_index_ = update_last_block_index
+   if (update_last_block_index_) self%last_block_index = self%last_block_index + 1
+   endsubroutine add_node
+
    subroutine update_to_refine(self, refined_number, force_all)
    !< List of nodes to be refined.
    class(tree_object), intent(inout)        :: self           !< The tree.
@@ -1240,11 +1210,9 @@ contains
    self%to_refine = -2_I8P
    n = 0_I8P
    do while(self%loop(node=node))
-      if (self%level(code=node%code)+1<=self%max_level) then
-         if (node%refinement_needed==TO_BE_REFINED.or.force_all_) then
-            n = n + 1
-            self%to_refine(n) = node%code
-         endif
+      if (node%refinement_needed==TO_BE_REFINED.or.force_all_) then
+         n = n + 1
+         self%to_refine(n) = node%code
       endif
    enddo
    refined_number = n
@@ -1323,82 +1291,4 @@ contains
 
    code = self%first_at_level(level=l) + morton3D(i=i, j=j, k=k)
    endfunction coordinates3D_to_morton
-
-   ! private non TBP
-   pure function murmurhash3(key) result(hash)
-   !< MurMurHash v3, implementation taken by https://github.com/jannisteunissen/murmur3-fortran/blob/master/m_murmur3.f90.
-   character(len=*), intent(in) :: key                    !< The key.
-   integer(I4P)                 :: hash                   !< The hash.
-   integer(I4P)                 :: klen                   !< The key length.
-   integer(I4P), parameter      :: seed=42                !< Rondomizing seed.
-   integer(I4P)                 :: i, i0, n, nblocks      !< Counters.
-   integer(I4P)                 :: h1, k1                 !< Counters.
-   integer(I4P), parameter      :: c1        = -862048943 !< 0xcc9e2d51.
-   integer(I4P), parameter      :: c2        = 461845907  !< 0x1b873593.
-   integer(I4P), parameter      :: shifts(3) = [0, 8, 16] !< Shift offsets.
-
-   klen=len(key)
-   h1      = seed
-   ! nblocks = shiftr(klen, 2)    ! nblocks/4
-   nblocks = ishft(klen, -2)    ! nblocks/4
-
-   ! body
-   do i = 1, nblocks
-      k1 = transfer(key(i*4-3:i*4), k1)
-
-      k1 = k1 * c1
-      k1 = rotl32(k1,15_I1P)
-      k1 = k1 * c2
-
-      h1 = ieor(h1, k1)
-      h1 = rotl32(h1,13_I1P)
-      h1 = h1 * 5 - 430675100  ! 0xe6546b64
-   end do
-
-   ! tail
-   k1 = 0
-   i  = iand(klen, 3)
-   i0 = 4 * nblocks
-
-   do n = i, 1, -1
-      ! k1 = ieor(k1, shiftl(iachar(key(i0+n:i0+n)), shifts(n)))
-      k1 = ieor(k1, ishft(iachar(key(i0+n:i0+n)), shifts(n)))
-   end do
-
-   ! Check if the above loop was executed
-   if (i >= 1) then
-      k1 = k1 * c1
-      k1 = rotl32(k1,15_I1P)
-      k1 = k1 * c2
-      h1 = ieor(h1, k1)
-   end if
-
-   ! finalization
-   h1 = ieor(h1, klen)
-   h1 = fmix32(h1)
-   hash = h1
-   contains
-      pure function rotl32(x, r)
-      integer(I4P), intent(in) :: x
-      integer(I1P), intent(in) :: r
-      integer(I4P)             :: rotl32
-      ! rotl32 = ior(shiftl(x, r), shiftr(x, (32 - r)))
-      rotl32 = ior(ishft(x, r), ishft(x, -(32 - r)))
-      endfunction rotl32
-
-      pure function fmix32(h_in) result(h)
-      !< Finalization mix - force all bits of a hash block to avalanche.
-      integer(I4P), intent(in) :: h_in
-      integer(I4P)             :: h
-      h = h_in
-      ! h = ieor(h, shiftr(h, 16))
-      h = ieor(h, ishft(h, -16))
-      h = h * (-2048144789) !0x85ebca6b
-      ! h = ieor(h, shiftr(h, 13))
-      h = ieor(h, ishft(h, -13))
-      h = h * (-1028477387) !0xc2b2ae35
-      ! h = ieor(h, shiftr(h, 16))
-      h = ieor(h, ishft(h, -16))
-      endfunction fmix32
-   endfunction murmurhash3
 endmodule adam_tree_object

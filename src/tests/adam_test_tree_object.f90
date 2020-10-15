@@ -8,13 +8,15 @@ use vtk_fortran, only : vtk_file
 
 implicit none
 
-type(tree_object)               :: tree        !< Tree.
-type(tree_node_object), pointer :: tree_node   !< Pointer to node.
-integer(I8P)                    :: code        !< Tree node code.
-integer(I8P)                    :: offset      !< Tree node code offset.
-integer(I8P)                    :: content     !< Tree node content.
-integer(I8P)                    :: max_content !< Maximum content value.
-integer(I4P)                    :: l, i, j, k  !< Counter.
+type(tree_object)               :: tree               !< Tree.
+type(tree_node_object), pointer :: tree_node          !< Pointer to node.
+integer(I8P), allocatable       :: block_to_refine(:) !< List of field blocks to be refined.
+integer(I8P), allocatable       :: block_refined(:)   !< List of field refined blocks.
+integer(I8P)                    :: code               !< Tree node code.
+integer(I8P)                    :: offset             !< Tree node code offset.
+integer(I8P)                    :: content            !< Tree node content.
+integer(I8P)                    :: max_code           !< Maximum code value.
+integer(I4P)                    :: l, i, j, k         !< Counter.
 
 print '(A)', 'initialize tree'
 call tree%initialize
@@ -26,28 +28,27 @@ enddo
 
 print*, ''
 print '(A)', 'add nodes to the tree'
-do code=0_I8P, 83_I8P
-   call tree%add_node(code=code, content=code)
-enddo
+call tree%refine(force_all=.true., block_to_refine=block_to_refine, block_refined=block_refined)
+call tree%refine(force_all=.true., block_to_refine=block_to_refine, block_refined=block_refined)
 print '(A)', 'tree nodes number:', trim(str(tree%nodes_number))
 print '(A)', 'loop into tree'
 do while(tree%loop(node=tree_node))
-   print '(A)', ' code: '//trim(str(tree_node%code))//' content: '//trim(str(tree_node%content))
+   print '(A)', ' code: '//trim(str(tree_node%code))
 enddo
 print '(A)', 'tree global nodes codes min/max: '//trim(str(minval(tree%code(1,:))))//'/'//trim(str(maxval(tree%code(2,:))))
 
 print*, ''
-max_content = 0
+max_code = 0
 call tree%traverse(iterator=iterator_max)
-print '(A)', 'maximum content value = '//trim(str(max_content))
+print '(A)', 'maximum code value = '//trim(str(max_code))
 
 print '(A)', 'Remove code "7" hashed in bucket: '//trim(str(tree%hash(code=7_I8P)))
 call tree%remove_node(code=7_I8P)
 print '(A)', 'tree nodes number:'//trim(str(tree%nodes_number))
 print '(A,L1)', 'tree has code "7"?', tree%has_code(code=7_I8P)
 print '(A)', 'loop into tree'
-do while(tree%loop(code=code, content=content))
-   print '(A)', ' code: '//trim(str(code))//' content: '//trim(str(content))
+do while(tree%loop(code=code))
+   print '(A)', ' code: '//trim(str(code))
 enddo
 
 print*, ''
@@ -56,42 +57,24 @@ call tree%destroy
 print '(A)', 'tree nodes number:'//trim(str(tree%nodes_number))
 print '(A)', 're-initialize tree'
 call tree%initialize
-print '(A)', 'Add key "8" hashed in bucket: '//trim(str(tree%hash(code=8_I8P)))
-call tree%add_node(code=8_I8P, content=8_I8P)
 print '(A)', 'tree nodes number:'//trim(str(tree%nodes_number))
 print '(A)', 'loop into tree'
-do while(tree%loop(code=code, content=content))
-   print '(A)', ' code: '//trim(str(code))//' content: '//trim(str(content))
+do while(tree%loop(code=code))
+   print '(A)', ' code: '//trim(str(code))
 enddo
 
 print*, ''
 print '(A)', 'destroy tree'
 call tree%destroy
 print '(A)', 're-initialize tree'
-call tree%initialize(nodes_number=2*2*2+100)
-do k=0, 1
-   do j=0, 1
-      do i=0, 1
-         code = tree%coordinates_to_morton(l=2, i=i, j=j, k=k)
-         call tree%add_node(code=code, content=int(i+j+k, I8P))
-         tree_node => tree%node(code=code)
-         if (associated(tree_node)) &
-         print '(A)', 'code: '//trim(str(tree_node%code))//' content: '//trim(str(tree_node%content))
-      enddo
-   enddo
-enddo
+call tree%initialize(nodes_number=100)
+call tree%refine(force_all=.true., block_to_refine=block_to_refine, block_refined=block_refined)
+call tree%refine(force_all=.true., block_to_refine=block_to_refine, block_refined=block_refined)
 print '(A)', 'resize tree'
-call tree%resize(nodes_number=3*3*3+100)
-do k=0, 2
-   do j=0, 2
-      do i=0, 2
-         code = tree%coordinates_to_morton(l=2, i=i, j=j, k=k)
-         if (i==2.or.j==2.or.k==2) call tree%add_node(code=code, content=int(i+j+k, I8P))
-         tree_node => tree%node(code=code)
-         if (associated(tree_node)) &
-         print '(A)', 'code: '//trim(str(tree_node%code))//' content: '//trim(str(tree_node%content))
-      enddo
-   enddo
+call tree%resize(nodes_number=500)
+print '(A)', 'loop into tree'
+do while(tree%loop(code=code))
+   print '(A)', ' code: '//trim(str(code))
 enddo
 
 print*, ''
@@ -114,8 +97,6 @@ do code=0, tree%last_at_level(level=2), tree%ratio
    enddo
    print*, ''
 enddo
-print '(A)', 'add ancestor node to the tree, Morton code -1'
-call tree%add_node(code=-1_I8P, content=-1_I8P)
 print '(A)', 'loop in tree'
 do while(tree%loop(node=tree_node))
    call tree%print_code_topology(code=tree_node%code, whole=.true.)
@@ -123,7 +104,7 @@ enddo
 print*, ''
 do l=1, 2
    print '(A)', 'create children of level '//trim(str(l))
-   call tree%refine(force_all=.true.)
+   call tree%refine(force_all=.true., block_to_refine=block_to_refine, block_refined=block_refined)
    print '(A)', 'loop in tree'
    do while(tree%loop(node=tree_node))
       call tree%print_code_topology(code=tree_node%code, whole=.true.)
@@ -143,7 +124,7 @@ contains
    type(tree_node_object), pointer, intent(in)  :: node !< Actual node pointer in the dictionary.
    logical,                         intent(out) :: done !< Flag to set to true to stop traversing.
 
-   max_content = max(max_content, node%content)
+   max_code = max(max_code, node%code)
    done = .false.
    endsubroutine iterator_max
 endprogram adam_test_tree_object
