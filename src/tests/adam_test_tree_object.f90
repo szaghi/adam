@@ -11,7 +11,7 @@ implicit none
 type(tree_object)               :: tree               !< Tree.
 type(tree_node_object), pointer :: tree_node          !< Pointer to node.
 integer(I8P), allocatable       :: block_to_refine(:) !< List of field blocks to be refined.
-integer(I8P), allocatable       :: block_refined(:)   !< List of field refined blocks.
+integer(I8P), allocatable       :: block_refined(:,:) !< List of field refined blocks with Morton code.
 integer(I8P)                    :: code               !< Tree node code.
 integer(I8P)                    :: offset             !< Tree node code offset.
 integer(I8P)                    :: content            !< Tree node content.

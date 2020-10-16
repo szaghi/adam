@@ -15,7 +15,7 @@ type(tree_node_object), pointer :: tree_node          !< Pointer to node.
 integer(I8P)                    :: code               !< Tree node code.
 integer(I8P), allocatable       :: codes(:)           !< Tree node codes list.
 integer(I8P), allocatable       :: block_to_refine(:) !< List of field blocks to be refined.
-integer(I8P), allocatable       :: block_refined(:)   !< List of field refined blocks.
+integer(I8P), allocatable       :: block_refined(:,:) !< List of field refined blocks with Morton code.
 integer(I4P)                    :: error              !< Error traping flag.
 integer(I4P)                    :: myrank             !< Rank of current process.
 integer(I4P)                    :: mpi_number         !< Number of MPI processes.

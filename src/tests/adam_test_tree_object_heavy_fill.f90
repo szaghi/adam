@@ -12,7 +12,7 @@ type(tree_node_object), pointer :: node               !< Pointer to node.
 integer(I8P)                    :: code               !< Tree node code.
 integer(I4P)                    :: level              !< Refinement level counter.
 integer(I8P), allocatable       :: block_to_refine(:) !< List of field blocks to be refined.
-integer(I8P), allocatable       :: block_refined(:)   !< List of field refined blocks.
+integer(I8P), allocatable       :: block_refined(:,:) !< List of field refined blocks with Morton code.
 integer(I8P)                    :: timing(0:2)        !< Tic toc timing.
 
 print '(A)', 'initialize tree'

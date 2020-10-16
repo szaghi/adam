@@ -12,7 +12,7 @@ type(tree_node_object), pointer :: node               !< Pointer to node.
 type(field_object)              :: field              !< Field.
 integer(I8P)                    :: code               !< Counter.
 integer(I8P), allocatable       :: block_to_refine(:) !< List of field blocks to be refined.
-integer(I8P), allocatable       :: block_refined(:)   !< List of field refined blocks.
+integer(I8P), allocatable       :: block_refined(:,:) !< List of field refined blocks with Morton code.
 real(R8P)                       :: emin(3), emax(3)
 
 print '(A)', 'initialize'
@@ -40,7 +40,7 @@ print*, ''
 print '(A)', 'blocks index to refine'
 print '(A)', trim(str(block_to_refine))
 print '(A)', 'blocks index refined'
-print '(A)', trim(str(block_refined))
+print '(A)', trim(str(block_refined(2,:)))
 print*, ''
 print '(A)', 'refine level 1'
 node => tree%node(code=3_I8P)
@@ -56,7 +56,7 @@ print*, ''
 print '(A)', 'blocks index to refine'
 print '(A)', trim(str(block_to_refine))
 print '(A)', 'blocks refined'
-print '(A)', trim(str(block_refined))
+print '(A)', trim(str(block_refined(2,:)))
 print*, ''
 print '(A)', 'refine index level 2'
 node => tree%node(code=37_I8P)
@@ -72,6 +72,7 @@ print*, ''
 print '(A)', 'blocks index to refine'
 print '(A)', trim(str(block_to_refine))
 print '(A)', 'blocks index refined'
-print '(A)', trim(str(block_refined))
+print '(A)', trim(str(block_refined(2,:)))
+
 call field%save_vtk(basename='adam')
 endprogram adam_test_field_object

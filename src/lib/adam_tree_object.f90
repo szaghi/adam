@@ -435,7 +435,7 @@ contains
    !< Refine nodes.
    class(tree_object),        intent(inout)        :: self                !< The tree.
    integer(I8P), allocatable, intent(out)          :: block_to_refine(:)  !< List of field blocks to be refined.
-   integer(I8P), allocatable, intent(out)          :: block_refined(:)    !< List of field refined blocks.
+   integer(I8P), allocatable, intent(out)          :: block_refined(:,:)  !< List of field refined blocks with Morton code.
    logical,                   intent(in), optional :: force_all           !< Force all nodes to be refined.
    type(tree_node_object), pointer                 :: parent              !< Pointer to parent node.
    integer(I8P)                                    :: refined_number      !< Number of nodes to be refined.
@@ -444,15 +444,17 @@ contains
 
    call self%update_to_refine(refined_number=refined_number, force_all=force_all)
    allocate(block_to_refine(refined_number))
-   allocate(block_refined(self%ratio*refined_number))
+   allocate(block_refined(2, self%ratio*refined_number))
    do n=1, refined_number
       parent => self%node(code=self%to_refine(n))
       block_to_refine(n) = parent%block_index
       call self%add_node(code=self%child(code=parent%code, i=0), myrank=parent%myrank, &
                          block_index=parent%block_index, update_last_block_index=.false.)
-      block_refined((n-1)*self%ratio+1) = parent%block_index
+      block_refined(1, (n-1)*self%ratio+1) = self%child(code=parent%code, i=0)
+      block_refined(2, (n-1)*self%ratio+1) = parent%block_index
       do i=1, self%ratio-1
-         block_refined((n-1)*self%ratio+1+i) = self%last_block_index + 1
+         block_refined(1, (n-1)*self%ratio+1+i) = self%child(code=parent%code, i=i)
+         block_refined(2, (n-1)*self%ratio+1+i) = self%last_block_index + 1
          call self%add_node(code=self%child(code=parent%code, i=i), myrank=parent%myrank, &
                             block_index=self%last_block_index+1)
       enddo
