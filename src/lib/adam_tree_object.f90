@@ -104,7 +104,7 @@ module adam_tree_object
 !<  |/                                                    X
 !<  o------------------------------------------------------------------->
 
-use adam_tree_node_object, only : destroy_tree_node, tree_node_object, TO_BE_REFINED, TO_BE_DEREFINED, TO_NOT_TOUCH
+use adam_tree_node_object, only : destroy_tree_node, tree_node_object, NODE_TO_BE_REFINED, NODE_TO_BE_DEREFINED, NODE_TO_NOT_TOUCH
 use adam_tree_bucket_object, only : tree_bucket_object, iterator_interface, len
 use MORTIF, only : morton2D, morton3D, demorton2D, demorton3D
 use PENF, only : I1P, I4P, I8P, R8P, str
@@ -137,19 +137,20 @@ type :: tree_object
    logical                               :: is_initialized_=.false. !< Initialization status.
    contains
       ! public methods
-      procedure, pass(self) :: codes                !< Return the list of (sorted) codes actually stored in the tree.
-      procedure, pass(self) :: destroy              !< Destroy the tree.
-      procedure, pass(self) :: loop                 !< Sentinel while-loop on nodes returning the code.
-      procedure, pass(self) :: hash                 !< Hash the key.
-      procedure, pass(self) :: has_code             !< Check if the code is present in the tree.
-      procedure, pass(self) :: initialize           !< Initialize the tree.
-      procedure, pass(self) :: node                 !< Return a pointer to a node.
-      procedure, pass(self) :: prime_buckets_number !< Return the buckets number as the nearest prime number given nodes number.
-      procedure, pass(self) :: refine               !< Refine nodes.
-      procedure, pass(self) :: remove_node          !< Remove a node from the tree, given the key.
-      procedure, pass(self) :: resize               !< Resize the tree.
-      procedure, pass(self) :: sanitize             !< Sanitize the tree.
-      procedure, pass(self) :: traverse             !< Traverse tree calling the iterator procedure.
+      procedure, pass(self) :: adapt                        !< Adapt tree accordingly to refine/derefine necessity.
+      procedure, pass(self) :: codes                        !< Return the list of (sorted) codes actually stored in the tree.
+      procedure, pass(self) :: destroy                      !< Destroy the tree.
+      procedure, pass(self) :: loop                         !< Sentinel while-loop on nodes returning the code.
+      procedure, pass(self) :: hash                         !< Hash the key.
+      procedure, pass(self) :: has_code                     !< Check if the code is present in the tree.
+      procedure, pass(self) :: initialize                   !< Initialize the tree.
+      procedure, pass(self) :: mark_all_nodes_to_be_refined !< Mark all nodes to be refined.
+      procedure, pass(self) :: node                         !< Return a pointer to a node.
+      procedure, pass(self) :: prime_buckets_number         !< Return the buckets number as nearest prime number given nodes number.
+      procedure, pass(self) :: remove_node                  !< Remove a node from the tree, given the key.
+      procedure, pass(self) :: resize                       !< Resize the tree.
+      procedure, pass(self) :: sanitize                     !< Sanitize the tree.
+      procedure, pass(self) :: traverse                     !< Traverse tree calling the iterator procedure.
       ! Morton ordering methods
       generic               :: coordinates_to_morton => &
                                coordinates3D_to_morton, &
@@ -157,6 +158,7 @@ type :: tree_object
       generic               :: morton_to_coordinates => &
                                morton_to_coordinates3D, &
                                morton_to_coordinates2D !< Return the space-level coordinates given Morton code.
+      procedure, pass(self) :: all_siblings            !< Return all siblings Morton code given Morton code.
       procedure, pass(self) :: child                   !< Return the i-th child given Morton code.
       procedure, pass(self) :: child_local             !< Return the child index in the local numbering.
       procedure, pass(self) :: children                !< Return the children list given Morton code.
@@ -177,13 +179,26 @@ type :: tree_object
       procedure, pass(self), private :: add_node                !< Add a node pointer to the tree.
       procedure, pass(self), private :: coordinates3D_to_morton !< Return the Morton code given ijkl coordinates.
       procedure, pass(self), private :: coordinates2D_to_morton !< Return the Morton code given ijl coordinates.
+      procedure, pass(self), private :: derefine                !< Derefine nodes.
       procedure, pass(self), private :: morton_to_coordinates3D !< Return the ijkl coordinates given Morton code.
       procedure, pass(self), private :: morton_to_coordinates2D !< Return the ijkl coordinates given Morton code.
-      procedure, pass(self), private :: update_to_refine        !< Update list of nodes to be refined.
+      procedure, pass(self), private :: refine                  !< Refine nodes.
 endtype tree_object
 
 contains
    ! public methods
+   subroutine adapt(self, block_to_refine, block_refined, block_to_derefine, block_derefined)
+   !< Adapt tree accordingly to refine/derefine necessity.
+   class(tree_object),        intent(inout) :: self                 !< The tree.
+   integer(I8P), allocatable, intent(out)   :: block_to_refine(:)   !< List of field blocks to be refined.
+   integer(I8P), allocatable, intent(out)   :: block_refined(:,:)   !< List of field refined blocks with Morton code.
+   integer(I8P), allocatable, intent(out)   :: block_to_derefine(:) !< List of field blocks to be derefined.
+   integer(I8P), allocatable, intent(out)   :: block_derefined(:,:) !< List of field derefined blocks with Morton code.
+
+   call self%sanitize
+   call self%refine(  block_to_refine=block_to_refine,     block_refined=block_refined    )
+   call self%derefine(block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+   endsubroutine adapt
 
    function codes(self)
    !< Return the list of (sorted) codes actually stored in the tree.
@@ -262,23 +277,6 @@ contains
       tmp = x ; x = y ; y = tmp
       endsubroutine swap_element
    endfunction codes
-
-   subroutine derefine(self)
-   !< Derefine nodes.
-   class(tree_object), intent(inout) :: self           !< The tree.
-   type(tree_node_object), pointer   :: first_child    !< Pointer to first child node.
-   integer(I8P)                      :: n              !< Counter.
-   integer(I4P)                      :: i              !< Counter.
-
-   do n=1, size(self%to_derefine, dim=1), self%ratio
-      first_child => self%node(code=self%to_derefine(n))
-      call self%add_node(code=self%parent(code=first_child%code), myrank=first_child%myrank, &
-                                          block_index=first_child%block_index, update_last_block_index=.false.)
-      do i=0, self%ratio - 1
-         call self%remove_node(code=self%to_derefine(n+i))
-      enddo
-   enddo
-   endsubroutine derefine
 
    subroutine destroy(self)
    !< Destroy the tree.
@@ -396,6 +394,16 @@ contains
    if (add_adam_) call self%add_node(code=-1_I8P) ! TODO add myrank and other members
    endsubroutine initialize
 
+   subroutine mark_all_nodes_to_be_refined(self)
+   !< Mark all nodes to be refined.
+   class(tree_object), intent(inout) :: self !< The tree.
+   type(tree_node_object), pointer   :: node !< Pointer to current node.
+
+   do while(self%loop(node=node))
+      node%refinement_needed = NODE_TO_BE_REFINED
+   enddo
+   endsubroutine mark_all_nodes_to_be_refined
+
    function node(self, code) result(p)
    !< Return a pointer to a node in the tree.
    class(tree_object), intent(in)  :: self !< The tree.
@@ -430,37 +438,6 @@ contains
    enddo
    buckets_number = b
    endfunction prime_buckets_number
-
-   subroutine refine(self, block_to_refine, block_refined, force_all)
-   !< Refine nodes.
-   class(tree_object),        intent(inout)        :: self                !< The tree.
-   integer(I8P), allocatable, intent(out)          :: block_to_refine(:)  !< List of field blocks to be refined.
-   integer(I8P), allocatable, intent(out)          :: block_refined(:,:)  !< List of field refined blocks with Morton code.
-   logical,                   intent(in), optional :: force_all           !< Force all nodes to be refined.
-   type(tree_node_object), pointer                 :: parent              !< Pointer to parent node.
-   integer(I8P)                                    :: refined_number      !< Number of nodes to be refined.
-   integer(I8P)                                    :: n                   !< Counter.
-   integer(I4P)                                    :: i                   !< Counter.
-
-   call self%update_to_refine(refined_number=refined_number, force_all=force_all)
-   allocate(block_to_refine(refined_number))
-   allocate(block_refined(2, self%ratio*refined_number))
-   do n=1, refined_number
-      parent => self%node(code=self%to_refine(n))
-      block_to_refine(n) = parent%block_index
-      call self%add_node(code=self%child(code=parent%code, i=0), myrank=parent%myrank, &
-                         block_index=parent%block_index, update_last_block_index=.false.)
-      block_refined(1, (n-1)*self%ratio+1) = self%child(code=parent%code, i=0)
-      block_refined(2, (n-1)*self%ratio+1) = parent%block_index
-      do i=1, self%ratio-1
-         block_refined(1, (n-1)*self%ratio+1+i) = self%child(code=parent%code, i=i)
-         block_refined(2, (n-1)*self%ratio+1+i) = self%last_block_index + 1
-         call self%add_node(code=self%child(code=parent%code, i=i), myrank=parent%myrank, &
-                            block_index=self%last_block_index+1)
-      enddo
-      call self%remove_node(code=parent%code)
-   enddo
-   endsubroutine refine
 
    subroutine remove_node(self, code)
    !< Remove a node from the tree, given the code.
@@ -513,7 +490,8 @@ contains
    type(tree_node_object), pointer                 :: node                 !< Pointer to node.
    type(tree_node_object), pointer                 :: sibling              !< Pointer to node sibling.
    integer(I8P)                                    :: code                 !< Code.
-   integer(I8P), allocatable                       :: siblings(:)          !< List of code siblings.
+   integer(I8P), allocatable                       :: siblings(:)          !< List of code siblings, excluded the quering code.
+   integer(I8P), allocatable                       :: all_siblings(:)      !< List of code siblings, included the quering code.
    integer(I8P), allocatable                       :: neighbor(:)          !< List of code neighbors.
    type(tree_node_object), pointer                 :: neigh                !< Pointer to node neighbor.
    integer(I4P)                                    :: neighbor_type        !< Neighbors type.
@@ -529,7 +507,7 @@ contains
    min_max_check_loop : do while(self%loop(node=node))
       new_level = self%level(code=node%code) + node%refinement_needed
       if ((new_level > self%max_level).or.(new_level < 0)) then
-         node%refinement_needed = TO_NOT_TOUCH
+         node%refinement_needed = NODE_TO_NOT_TOUCH
       endif
    enddo min_max_check_loop
 
@@ -541,7 +519,7 @@ contains
       if (allocated(codes_analyzed))   deallocate(codes_analyzed)   ; allocate(codes_analyzed(0))
       derefine_loop : do while(self%loop(node=node))
          ! check if I want to be derefined and I have not been analyzed yet
-         if (node%refinement_needed == TO_BE_DEREFINED) then
+         if (node%refinement_needed == NODE_TO_BE_DEREFINED) then
             if (findloc(codes_analyzed, node%code, dim=1)==0) then ! avoid to re-analyze already confirmed siblingsi to derefine
                ! check sibling for derefinement
                can_be_derefined = .true.
@@ -553,23 +531,24 @@ contains
                      exit sibs_check_loop
                   endif
                   sibling => self%node(code=siblings(sib))
-                  if (sibling%refinement_needed /= TO_BE_DEREFINED) then
+                  if (sibling%refinement_needed /= NODE_TO_BE_DEREFINED) then
                      can_be_derefined = .false.
                      exit sibs_check_loop
                   endif
                enddo sibs_check_loop
-               if (can_be_derefined) then
-                  self%to_derefine = [self%to_derefine, [code], siblings]
-                  codes_analyzed = [codes_analyzed, [code], siblings]
+               if (can_be_derefined) then ! TODO implement siglings all ordered
+                  all_siblings = self%all_siblings(code=code)
+                  self%to_derefine = [self%to_derefine, all_siblings]
+                  codes_analyzed = [codes_analyzed, all_siblings]
                else
                   is_sanitize_complete = .false.
-                  node%refinement_needed = TO_NOT_TOUCH
+                  node%refinement_needed = NODE_TO_NOT_TOUCH
                   do sib=1, self%ratio -1
                      if (self%has_code(code=siblings(sib))) then
                         sibling => self%node(code=siblings(sib))
-                        if (sibling%refinement_needed == TO_BE_DEREFINED) then
+                        if (sibling%refinement_needed == NODE_TO_BE_DEREFINED) then
                            ! due some of your siblings you cannot be derefined, you need to be altered
-                           sibling%refinement_needed = TO_NOT_TOUCH
+                           sibling%refinement_needed = NODE_TO_NOT_TOUCH
                         endif
                      endif
                   enddo
@@ -596,7 +575,6 @@ contains
                     elseif (new_level_n - new_level == 2) then
                        node%refinement_needed = node%refinement_needed + 1
                     endif
-                    ! node%refinement_needed = min(node%refinement_needed+1, 1) ! new_level = new_level_n - 1
                     exit
                  endif
               enddo
@@ -621,6 +599,12 @@ contains
       print '(A)',  'SANITZE CANNOT BE COMPLETED. SOMETHING WENT TERRIBLY WRONG. EXIT!'
       stop
    endif
+
+   ! update to_refine list
+   if (allocated(self%to_refine)) deallocate(self%to_refine) ; allocate(self%to_refine(0))
+   do while(self%loop(node=node))
+      if (node%refinement_needed==NODE_TO_BE_REFINED) self%to_refine = [self%to_refine, [node%code]]
+   enddo
    endsubroutine sanitize
 
    subroutine traverse(self, iterator)
@@ -637,6 +621,28 @@ contains
    endsubroutine traverse
 
    ! Morton ordering methods
+   pure function all_siblings(self, code) result(siblings)
+   !< Return all siblings Morton code given Morton code (included into the list).
+   class(tree_object), intent(in) :: self                   !< The tree.
+   integer(I8P),       intent(in) :: code                   !< Morton code.
+   integer(I8P)                   :: siblings(1:self%ratio) !< Siblings Morton codes [1:ratio].
+   integer(I4P)                   :: local                  !< Local child code [0,ratio-1].
+   integer(I4P)                   :: start                  !< Start code in the sibblings.
+   integer(I4P)                   :: l, s                   !< Counter.
+
+   if (code==-1) then
+      siblings = -1_I8P ! anceestor of all has not siblings
+   else
+      local = self%child_local(code=code)
+      start = code - local + 1
+      s = 0
+      do l=0, self%ratio - 1
+         s = s + 1
+         siblings(s) = start + l - 1
+      enddo
+   endif
+   endfunction all_siblings
+
    elemental function child(self, code, i)
    !< Return the i-th child given Morton code.
    class(tree_object), intent(in) :: self  !< The tree.
@@ -1152,8 +1158,8 @@ contains
    class(tree_object), intent(in) :: self                     !< The tree.
    integer(I8P),       intent(in) :: code                     !< Morton code.
    integer(I8P)                   :: siblings(1:self%ratio-1) !< Siblings Morton codes [1:ratio-1].
-   integer(I4P)                   :: local                    !< Local child code [0,ratio].
-   integer(I4P)                   :: start                    !<
+   integer(I4P)                   :: local                    !< Local child code [0,ratio-1].
+   integer(I4P)                   :: start                    !< Start code in the sibblings.
    integer(I4P)                   :: l, s                     !< Counter.
 
    if (code==-1) then
@@ -1197,28 +1203,60 @@ contains
    if (update_last_block_index_) self%last_block_index = self%last_block_index + 1
    endsubroutine add_node
 
-   subroutine update_to_refine(self, refined_number, force_all)
-   !< List of nodes to be refined.
-   class(tree_object), intent(inout)        :: self           !< The tree.
-   integer(I8P),       intent(out)          :: refined_number !< Number of nodes to be refined.
-   logical,            intent(in), optional :: force_all      !< Force all nodes to be refined.
-   logical                                  :: force_all_     !< Force all nodes to be refined, local var.
-   type(tree_node_object), pointer          :: node           !< Pointer to current node.
-   integer(I8P)                             :: n              !< Counter.
+   function coordinates2D_to_morton(self, i, j, l) result(code)
+   !< Return the Morton code given ijl coordinates.
+   class(tree_object), intent(in) :: self  !< The tree.
+   integer(I4P),       intent(in) :: i     !< I coordinate.
+   integer(I4P),       intent(in) :: j     !< J coordinate.
+   integer(I4P),       intent(in) :: l     !< L coordinate.
+   integer(I8P)                   :: code  !< Morton code.
 
-   force_all_ = .false. ; if (present(force_all)) force_all_ = force_all
-   if (allocated(self%to_refine)) deallocate(self%to_refine)
-   allocate(self%to_refine(1:self%nodes_number))
-   self%to_refine = -2_I8P
-   n = 0_I8P
-   do while(self%loop(node=node))
-      if (node%refinement_needed==TO_BE_REFINED.or.force_all_) then
-         n = n + 1
-         self%to_refine(n) = node%code
-      endif
-   enddo
-   refined_number = n
-   endsubroutine update_to_refine
+   code = self%first_at_level(level=l) + morton2D(i=i, j=j)
+   endfunction coordinates2D_to_morton
+
+   function coordinates3D_to_morton(self, i, j, k, l) result(code)
+   !< Return the Morton code given ijkl coordinates.
+   class(tree_object), intent(in) :: self  !< The tree.
+   integer(I4P),       intent(in) :: i     !< I coordinate.
+   integer(I4P),       intent(in) :: j     !< J coordinate.
+   integer(I4P),       intent(in) :: k     !< K coordinate.
+   integer(I4P),       intent(in) :: l     !< L coordinate.
+   integer(I8P)                   :: code  !< Morton code.
+
+   code = self%first_at_level(level=l) + morton3D(i=i, j=j, k=k)
+   endfunction coordinates3D_to_morton
+
+   subroutine derefine(self, block_to_derefine, block_derefined)
+   !< Derefine nodes.
+   class(tree_object), intent(inout)      :: self                 !< The tree.
+   integer(I8P), allocatable, intent(out) :: block_to_derefine(:) !< List of field blocks to be derefined.
+   integer(I8P), allocatable, intent(out) :: block_derefined(:,:) !< List of field derefined blocks with Morton code.
+   type(tree_node_object), pointer        :: first_child          !< Pointer to first child node.
+   type(tree_node_object), pointer        :: node                 !< Pointer to node.
+   integer(I8P)                           :: derefined_number     !< Number of derefined blocks.
+   integer(I8P)                           :: n                    !< Counter.
+   integer(I4P)                           :: i                    !< Counter.
+
+   derefined_number = size(self%to_derefine, dim=1)
+   allocate(block_to_derefine(derefined_number))
+   allocate(block_derefined(2, derefined_number/self%ratio))
+   if (allocated(self%to_derefine)) then
+      do n=1, size(self%to_derefine, dim=1), self%ratio
+         first_child => self%node(code=self%to_derefine(n))
+         block_derefined(1,n) = self%parent(code=first_child%code)
+         block_derefined(2,n) = first_child%block_index
+         call self%add_node(code=self%parent(code=first_child%code),              &
+                                             myrank=first_child%myrank,           &
+                                             block_index=first_child%block_index, &
+                                             update_last_block_index=.false.)
+         do i=0, self%ratio - 1
+            node => self%node(code=self%to_derefine(n+i))
+            block_to_derefine(n+i) = node%block_index
+            call self%remove_node(code=self%to_derefine(n+i))
+         enddo
+      enddo
+   endif
+   endsubroutine derefine
 
    subroutine morton_to_coordinates2D(self, code, i, j, l)
    !< Return the ijkl coordinates given Morton code.
@@ -1271,26 +1309,33 @@ contains
    enddo
    endsubroutine morton_to_coordinates3D
 
-   function coordinates2D_to_morton(self, i, j, l) result(code)
-   !< Return the Morton code given ijl coordinates.
-   class(tree_object), intent(in) :: self  !< The tree.
-   integer(I4P),       intent(in) :: i     !< I coordinate.
-   integer(I4P),       intent(in) :: j     !< J coordinate.
-   integer(I4P),       intent(in) :: l     !< L coordinate.
-   integer(I8P)                   :: code  !< Morton code.
+   subroutine refine(self, block_to_refine, block_refined)
+   !< Refine nodes.
+   class(tree_object),        intent(inout) :: self                !< The tree.
+   integer(I8P), allocatable, intent(out)   :: block_to_refine(:)  !< List of field blocks to be refined.
+   integer(I8P), allocatable, intent(out)   :: block_refined(:,:)  !< List of field refined blocks with Morton code.
+   type(tree_node_object), pointer          :: parent              !< Pointer to parent node.
+   integer(I8P)                             :: refined_number      !< Number of nodes to be refined.
+   integer(I8P)                             :: n                   !< Counter.
+   integer(I4P)                             :: i                   !< Counter.
 
-   code = self%first_at_level(level=l) + morton2D(i=i, j=j)
-   endfunction coordinates2D_to_morton
-
-   function coordinates3D_to_morton(self, i, j, k, l) result(code)
-   !< Return the Morton code given ijkl coordinates.
-   class(tree_object), intent(in) :: self  !< The tree.
-   integer(I4P),       intent(in) :: i     !< I coordinate.
-   integer(I4P),       intent(in) :: j     !< J coordinate.
-   integer(I4P),       intent(in) :: k     !< K coordinate.
-   integer(I4P),       intent(in) :: l     !< L coordinate.
-   integer(I8P)                   :: code  !< Morton code.
-
-   code = self%first_at_level(level=l) + morton3D(i=i, j=j, k=k)
-   endfunction coordinates3D_to_morton
+   refined_number = size(self%to_refine, dim=1)
+   allocate(block_to_refine(refined_number))
+   allocate(block_refined(2, self%ratio*refined_number))
+   do n=1, refined_number
+      parent => self%node(code=self%to_refine(n))
+      block_to_refine(n) = parent%block_index
+      call self%add_node(code=self%child(code=parent%code, i=0), myrank=parent%myrank, &
+                         block_index=parent%block_index, update_last_block_index=.false.)
+      block_refined(1, (n-1)*self%ratio+1) = self%child(code=parent%code, i=0)
+      block_refined(2, (n-1)*self%ratio+1) = parent%block_index
+      do i=1, self%ratio-1
+         block_refined(1, (n-1)*self%ratio+1+i) = self%child(code=parent%code, i=i)
+         block_refined(2, (n-1)*self%ratio+1+i) = self%last_block_index + 1
+         call self%add_node(code=self%child(code=parent%code, i=i), myrank=parent%myrank, &
+                            block_index=self%last_block_index+1)
+      enddo
+      call self%remove_node(code=parent%code)
+   enddo
+   endsubroutine refine
 endmodule adam_tree_object

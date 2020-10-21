@@ -8,15 +8,17 @@ use vtk_fortran, only : vtk_file
 
 implicit none
 
-type(tree_object)               :: tree               !< Tree.
-type(tree_node_object), pointer :: tree_node          !< Pointer to node.
-integer(I8P), allocatable       :: block_to_refine(:) !< List of field blocks to be refined.
-integer(I8P), allocatable       :: block_refined(:,:) !< List of field refined blocks with Morton code.
-integer(I8P)                    :: code               !< Tree node code.
-integer(I8P)                    :: offset             !< Tree node code offset.
-integer(I8P)                    :: content            !< Tree node content.
-integer(I8P)                    :: max_code           !< Maximum code value.
-integer(I4P)                    :: l, i, j, k         !< Counter.
+type(tree_object)               :: tree                 !< Tree.
+type(tree_node_object), pointer :: tree_node            !< Pointer to node.
+integer(I8P), allocatable       :: block_to_refine(:)   !< List of field blocks to be refined.
+integer(I8P), allocatable       :: block_refined(:,:)   !< List of field refined blocks with Morton code.
+integer(I8P), allocatable       :: block_to_derefine(:) !< List of field blocks to be derefined.
+integer(I8P), allocatable       :: block_derefined(:,:) !< List of field derefined blocks with Morton code.
+integer(I8P)                    :: code                 !< Tree node code.
+integer(I8P)                    :: offset               !< Tree node code offset.
+integer(I8P)                    :: content              !< Tree node content.
+integer(I8P)                    :: max_code             !< Maximum code value.
+integer(I4P)                    :: l, i, j, k           !< Counter.
 
 print '(A)', 'initialize tree'
 call tree%initialize
@@ -28,8 +30,12 @@ enddo
 
 print*, ''
 print '(A)', 'add nodes to the tree'
-call tree%refine(force_all=.true., block_to_refine=block_to_refine, block_refined=block_refined)
-call tree%refine(force_all=.true., block_to_refine=block_to_refine, block_refined=block_refined)
+call tree%mark_all_nodes_to_be_refined
+call tree%adapt(block_to_refine=block_to_refine, block_refined=block_refined, &
+                block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+call tree%mark_all_nodes_to_be_refined
+call tree%adapt(block_to_refine=block_to_refine, block_refined=block_refined, &
+                block_to_derefine=block_to_derefine, block_derefined=block_derefined)
 print '(A)', 'tree nodes number:', trim(str(tree%nodes_number))
 print '(A)', 'loop into tree'
 do while(tree%loop(node=tree_node))
@@ -68,8 +74,12 @@ print '(A)', 'destroy tree'
 call tree%destroy
 print '(A)', 're-initialize tree'
 call tree%initialize(nodes_number=100)
-call tree%refine(force_all=.true., block_to_refine=block_to_refine, block_refined=block_refined)
-call tree%refine(force_all=.true., block_to_refine=block_to_refine, block_refined=block_refined)
+call tree%mark_all_nodes_to_be_refined
+call tree%adapt(block_to_refine=block_to_refine, block_refined=block_refined, &
+                block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+call tree%mark_all_nodes_to_be_refined
+call tree%adapt(block_to_refine=block_to_refine, block_refined=block_refined, &
+                block_to_derefine=block_to_derefine, block_derefined=block_derefined)
 print '(A)', 'resize tree'
 call tree%resize(nodes_number=500)
 print '(A)', 'loop into tree'
@@ -104,7 +114,9 @@ enddo
 print*, ''
 do l=1, 2
    print '(A)', 'create children of level '//trim(str(l))
-   call tree%refine(force_all=.true., block_to_refine=block_to_refine, block_refined=block_refined)
+   call tree%mark_all_nodes_to_be_refined
+   call tree%adapt(block_to_refine=block_to_refine, block_refined=block_refined, &
+                   block_to_derefine=block_to_derefine, block_derefined=block_derefined)
    print '(A)', 'loop in tree'
    do while(tree%loop(node=tree_node))
       call tree%print_code_topology(code=tree_node%code, whole=.true.)

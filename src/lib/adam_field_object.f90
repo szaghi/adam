@@ -64,7 +64,6 @@ module adam_field_object
 !<```
 
 use PENF, only : I8P, I4P, R8P, str
-use vtk_fortran, only : vtK_file, vtm_file
 
 implicit none
 private
@@ -92,15 +91,104 @@ type :: field_object
    real(R8P),    allocatable :: u(:,:,:,:)          !< Field cell centered variables [ni+gc12,nj+gc34,nk+gc56,nv,nb]
    contains
       ! public methods
+      procedure, pass(self) :: adapt       !< Adapt field accordingly to refine/derefine necessity.
       procedure, pass(self) :: compute_xyz !< Compute grids coordinates from grids extents emin/emax.
       procedure, pass(self) :: destroy     !< Destroy the field.
       procedure, pass(self) :: initialize  !< Initialize the field.
-      procedure, pass(self) :: refine      !< Refine blocks.
-      procedure, pass(self) :: save_vtk    !< Save field in VTK files.
+      ! private methods
+      procedure, pass(self), private :: derefine !< Derefine blocks.
+      procedure, pass(self), private :: refine   !< Refine blocks.
 endtype field_object
 
 contains
    ! public methods
+   subroutine adapt(self, ratio, block_to_refine, block_refined, block_to_derefine, block_derefined)
+   !< Adapt field accordingly to refine/derefine necessity.
+   class(field_object),       intent(inout) :: self                 !< The field.
+   integer(I4P),              intent(in)    :: ratio                !< Refinement ratio.
+   integer(I8P), allocatable, intent(in)    :: block_to_refine(:)   !< List of field blocks to be refined.
+   integer(I8P), allocatable, intent(in)    :: block_refined(:,:)   !< List of field refined blocks with Morton code.
+   integer(I8P), allocatable, intent(in)    :: block_to_derefine(:) !< List of field blocks to be derefined.
+   integer(I8P), allocatable, intent(in)    :: block_derefined(:,:) !< List of field derefined blocks with Morton code.
+
+   call self%refine(  ratio=ratio, block_to_refine=block_to_refine,     block_refined=block_refined    )
+   call self%derefine(ratio=ratio, block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+   endsubroutine adapt
+
+   elemental subroutine compute_xyz(self, b)
+   !< Compute grids coordinates from grids extents emin/emax of b-th block.
+   class(field_object), intent(inout) :: self       !< The field.
+   integer(I4P),        intent(in)    :: b          !< Block index.
+   real(R8P)                          :: dx, dy, dz !< Space deltas.
+   integer(I4P)                       :: i, j, k    !< Counter.
+
+   associate(emin=>self%emin, emax=>self%emax, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
+             gc1=>self%gc1, gc2=>self%gc2, gc3=>self%gc3,  gc4=>self%gc4, gc5=>self%gc5, gc6=>self%gc6)
+      dx = (emax(1,b) - emin(1,b)) / ni
+      dy = (emax(2,b) - emin(2,b)) / nj
+      dz = (emax(3,b) - emin(3,b)) / nk
+      do i=0-gc1, ni+gc2
+         self%x(i,b) = emin(1,b) + i * dx
+      enddo
+      do j=0-gc3, nj+gc4
+         self%y(j,b) = emin(2,b) + j * dy
+      enddo
+      do k=0-gc5, nk+gc6
+         self%z(k,b) = emin(3,b) + k * dz
+      enddo
+   endassociate
+   endsubroutine compute_xyz
+
+   pure subroutine derefine(self, ratio, block_to_derefine, block_derefined)
+   !< Derefine blocks.
+   class(field_object),       intent(inout) :: self                 !< The field.
+   integer(I4P),              intent(in)    :: ratio                !< Refinement ratio.
+   integer(I8P), allocatable, intent(in)    :: block_to_derefine(:) !< List of blocks to be derefined.
+   integer(I8P), allocatable, intent(in)    :: block_derefined(:,:) !< List of derefined blocks with Morton code.
+   real(R8P)                                :: dx, dy, dz           !< Space deltas.
+   integer(I4P)                             :: b, i, j, k           !< Spatial counter.
+   integer(I4P)                             :: ib, ic, ii           !< Counter.
+   integer(I4P)                             :: ic1, ic2, ic3, ic4   !< Counter.
+   integer(I4P)                             :: ic5, ic6, ic7, ic8   !< Counter.
+
+   do b=1, size(block_derefined, dim=2)
+      ib = block_derefined(2,b)
+
+      ic1 = block_to_derefine((b-1)*ratio+1)
+      ic2 = block_to_derefine((b-1)*ratio+2)
+      ic3 = block_to_derefine((b-1)*ratio+3)
+      ic4 = block_to_derefine((b-1)*ratio+4)
+      ic5 = block_to_derefine((b-1)*ratio+5)
+      ic6 = block_to_derefine((b-1)*ratio+6)
+      ic7 = block_to_derefine((b-1)*ratio+7)
+      ic8 = block_to_derefine((b-1)*ratio+8)
+
+      self%u(:,:,:,ib) = block_derefined(1,b) ; self%code(ib) = block_derefined(1,b)
+
+   enddo
+
+   do b=1, size(block_derefined, dim=2)
+      ib = block_derefined(2,b)
+
+      ic1 = block_to_derefine((b-1)*ratio+1)
+
+      dx = self%emax(1,ic1) - self%emin(1,ic1)
+      dy = self%emax(2,ic1) - self%emin(2,ic1)
+      dz = self%emax(3,ic1) - self%emin(3,ic1)
+
+      self%emin(1,ib) = self%emin(1,ic1)
+      self%emin(2,ib) = self%emin(2,ic1)
+      self%emin(3,ib) = self%emin(3,ic1)
+
+      self%emax(1,ib) = self%emin(1,ic1) + 2 * dx
+      self%emax(2,ib) = self%emin(2,ic1) + 2 * dy
+      self%emax(3,ib) = self%emin(3,ic1) + 2 * dz
+
+      call self%compute_xyz(b=ib)
+
+   enddo
+   endsubroutine derefine
+
    elemental subroutine destroy(self)
    !< Destroy field.
    class(field_object), intent(inout) :: self !< The field.
@@ -247,66 +335,4 @@ contains
       enddo
    enddo
    endsubroutine refine
-
-   elemental subroutine compute_xyz(self, b)
-   !< Compute grids coordinates from grids extents emin/emax of b-th block.
-   class(field_object), intent(inout) :: self       !< The field.
-   integer(I4P),        intent(in)    :: b          !< Block index.
-   real(R8P)                          :: dx, dy, dz !< Space deltas.
-   integer(I4P)                       :: i, j, k    !< Counter.
-
-   associate(emin=>self%emin, emax=>self%emax, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
-             gc1=>self%gc1, gc2=>self%gc2, gc3=>self%gc3,  gc4=>self%gc4, gc5=>self%gc5, gc6=>self%gc6)
-      dx = (emax(1,b) - emin(1,b)) / ni
-      dy = (emax(2,b) - emin(2,b)) / nj
-      dz = (emax(3,b) - emin(3,b)) / nk
-      do i=0-gc1, ni+gc2
-         self%x(i,b) = emin(1,b) + i * dx
-      enddo
-      do j=0-gc3, nj+gc4
-         self%y(j,b) = emin(2,b) + j * dy
-      enddo
-      do k=0-gc5, nk+gc6
-         self%z(k,b) = emin(3,b) + k * dz
-      enddo
-   endassociate
-   endsubroutine compute_xyz
-
-   subroutine save_vtk(self, basename)
-   !< Save field in VTK files.
-   class(field_object), intent(in) :: self      !< The field.
-   character(*),        intent(in) :: basename  !< Base name of output files.
-   integer(I4P)                    :: error     !< Error trapping flag.
-   character(:), allocatable       :: filenames !< File names list.
-   type(vtk_file)                  :: vtk       !< VTK file handler.
-   type(vtm_file)                  :: vtm       !< VTM file handler.
-   integer(I4P)                    :: b         !< Counter.
-
-   associate(emin=>self%emin, emax=>self%emax, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
-             gc1=>self%gc1, gc2=>self%gc2, gc3=>self%gc3,  gc4=>self%gc4, gc5=>self%gc5, gc6=>self%gc6)
-      filenames = ''
-      do b=1, self%blocks_number
-         filenames = filenames//trim(basename)//'-block-'//trim(str(b,.true.))//'.vtr '
-         error = vtk%initialize(format='raw', filename=trim(basename)//'-block-'//trim(str(b,.true.))//'.vtr', &
-                                mesh_topology='RectilinearGrid',                                               &
-                                nx1=0, nx2=ni, ny1=0, ny2=nj, nz1=0, nz2=nk)
-         error = vtk%xml_writer%write_fielddata(action='open')
-         error = vtk%xml_writer%write_fielddata(data_name='Morton', x=self%code(b))
-         error = vtk%xml_writer%write_fielddata(action='close')
-         error = vtk%xml_writer%write_piece(nx1=0, nx2=ni, ny1=0, ny2=nj, nz1=0, nz2=nk)
-         error = vtk%xml_writer%write_geo(x=self%x(0:ni,b), &
-                                          y=self%y(0:nj,b), &
-                                          z=self%z(0:nk,b))
-         error = vtk%xml_writer%write_dataarray(location='cell', action='open')
-         error = vtk%xml_writer%write_dataarray(data_name='u', x=[self%u(1:ni,1:nj,1:nk,b)])
-         error = vtk%xml_writer%write_dataarray(location='cell', action='close')
-         error = vtk%xml_writer%write_piece()
-         error = vtk%finalize()
-      enddo
-
-      error = vtm%initialize(filename=trim(basename)//'.vtm')
-      error = vtm%write_block(filenames=trim(filenames), name='adam')
-      error = vtm%finalize()
-   endassociate
-   endsubroutine save_vtk
 endmodule adam_field_object
