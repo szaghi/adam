@@ -14,10 +14,10 @@ public :: len
 
 type :: tree_bucket_object
    !< tree bucket class definition.
-   type(tree_node_object), pointer :: head=>null()    !< The first node in the tree bucket.
-   type(tree_node_object), pointer :: tail=>null()    !< The last node in the tree bucket.
-   integer(I4P)                    :: nodes_number=0  !< Number of nodes in the tree bucket.
-   integer(I8P)                    :: code(1:2)=[0,0] !< Minimum and maximum unique code values actually stored.
+   type(tree_node_object), pointer :: head=>null()              !< The first node in the tree bucket.
+   type(tree_node_object), pointer :: tail=>null()              !< The last node in the tree bucket.
+   integer(I4P)                    :: nodes_number=0            !< Number of nodes in the tree bucket.
+   integer(I8P)                    :: code(1:2)=[-2_I8P,-2_I8P] !< Minimum and maximum unique code values actually stored.
    contains
       ! public methods
       procedure, pass(self) :: add_node    !< Add a node pointer to the tree bucket.
@@ -28,9 +28,8 @@ type :: tree_bucket_object
       procedure, pass(self) :: remove_node !< Remove a node from the tree bucket, given the code.
       procedure, pass(self) :: traverse    !< Traverse tree bucket from head to tail calling the iterator procedure.
       ! private methods
-      procedure, pass(self), private :: add_code          !< Add a code to codes list.
       procedure, pass(self), private :: remove_by_pointer !< Remove node from tree bucket, given pointer to it.
-      procedure, pass(self), private :: remove_code       !< Remove a code from codes list.
+      procedure, pass(self), private :: update_code       !< Update minimum and maximum unique code values.
 endtype tree_bucket_object
 
 abstract interface
@@ -86,7 +85,7 @@ contains
 
    call p%initialize(code=code, refinement_needed=refinement_needed, myrank=myrank, block_index=block_index)
 
-   call self%add_code(code=p%code)
+   call self%update_code
 
    self%nodes_number = self%nodes_number + 1
    endsubroutine add_node
@@ -170,7 +169,10 @@ contains
    type(tree_node_object), pointer          :: p    !< Pointer to scan the tree bucket.
 
    p => self%node(code=code)
-   if (associated(p)) call self%remove_by_pointer(p=p)
+   if (associated(p)) then
+      call self%remove_by_pointer(p=p)
+      call self%update_code
+   endif
    endsubroutine remove_node
 
    subroutine traverse(self, iterator)
@@ -194,15 +196,6 @@ contains
    endsubroutine traverse
 
    ! private methods
-   pure subroutine add_code(self, code)
-   !< Add a code to minimum and maximum unique code values.
-   class(tree_bucket_object), intent(inout) :: self !< The tree bucket.
-   integer(I8P),              intent(in)    :: code !< The Morton code.
-
-   self%code(1) = min(self%code(1), code) ; if (self%code(1)==0) self%code(1) = code
-   self%code(2) = max(self%code(2), code)
-   endsubroutine add_code
-
    subroutine remove_by_pointer(self, p)
    !< Remove node from tree bucket, given pointer to it.
    class(tree_bucket_object),       intent(inout) :: self         !< The tree bucket.
@@ -211,7 +204,6 @@ contains
    logical                                        :: has_previous !< Check if tree bucket node has a previous item.
 
    if (associated(p)) then
-     call self%remove_code(code=p%code)
      call p%destroy ! destroy the node contents
      has_next     = associated(p%next)
      has_previous = associated(p%previous)
@@ -234,36 +226,22 @@ contains
    endif
    endsubroutine remove_by_pointer
 
-   subroutine remove_code(self, code)
-   !< Remove a code to minimum and maximum unique code values.
+   subroutine update_code(self)
+   !< Update minimum and maximum unique code values.
    class(tree_bucket_object), intent(inout) :: self !< The tree bucket.
-   integer(I8P),              intent(in)    :: code !< The Morton code.
-   type(tree_node_object), pointer          :: p    !< Pointer to scan the tree bucket.
 
-   if (self%nodes_number==1) then
-      self%code = 0
-   elseif (self%nodes_number>=2) then
-      p => null()
-      if (self%code(1)==code) then
-         call self%traverse(iterator=code_iterator_search)
-         if (associated(p)) then
-            if (associated(p%next)) self%code(1) = p%next%code
-         endif
-      elseif (self%code(2)==code) then
-         call self%traverse(iterator=code_iterator_search)
-         if (associated(p)) then
-            if (associated(p%previous)) self%code(2) = p%previous%code
-         endif
-      endif
-   endif
+   self%code(1) =  huge(1_I8P)
+   self%code(2) = -huge(1_I8P)
+   call self%traverse(iterator=iterator_min_max)
    contains
-     subroutine code_iterator_search(node, done)
-     !< Iterator procedure for searching a code.
-     type(tree_node_object), pointer, intent(in)  :: node !< Actual node pointer in the tree bucket.
-     logical,                         intent(out) :: done !< Flag to set to true to stop traversing.
+      subroutine iterator_min_max(node, done)
+      !< Iterator that computes the min/max of codes.
+      type(tree_node_object), pointer, intent(in)  :: node !< Actual node pointer in the tree bucket.
+      logical,                         intent(out) :: done !< Flag to set to true to stop traversing.
 
-     done = node%code==code
-     if (done) p => node
-     endsubroutine code_iterator_search
-   endsubroutine remove_code
+      self%code(1) = min(self%code(1), node%code)
+      self%code(2) = max(self%code(2), node%code)
+      done = .false.
+      endsubroutine iterator_min_max
+   endsubroutine update_code
 endmodule adam_tree_bucket_object
