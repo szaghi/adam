@@ -31,7 +31,7 @@ enddo
 print*, ''
 
 print '(A)', 'refine level 0'
-call tree%mark_all_nodes_to_be_refined
+call tree%mark_all_nodes(mark=NODE_TO_BE_REFINED)
 call tree%adapt(block_to_refine=block_to_refine, block_refined=block_refined, &
                 block_to_derefine=block_to_derefine, block_derefined=block_derefined)
 print*, ''

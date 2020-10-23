@@ -50,7 +50,7 @@ if (myrank==0) then
       ! third level should not be done because max refinement level has been set to 2
       ! the level 2 should be printed twice
       print '(A)', 'create children of level '//trim(str(l))
-      call tree%mark_all_nodes_to_be_refined
+      call tree%mark_all_nodes(mark=NODE_TO_BE_REFINED)
       call tree%adapt(block_to_refine=block_to_refine, block_refined=block_refined, &
                       block_to_derefine=block_to_derefine, block_derefined=block_derefined)
       print '(A)', 'loop in tree'
@@ -63,7 +63,7 @@ if (myrank==0) then
    print '(A)', 'test non uniform refinement'
    call tree%initialize(ratio=8_I4P, max_level=2_I4P)
    print '(A)', 'create children of level 1'
-   call tree%mark_all_nodes_to_be_refined
+   call tree%mark_all_nodes(mark=NODE_TO_BE_REFINED)
    call tree%adapt(block_to_refine=block_to_refine, block_refined=block_refined, &
                    block_to_derefine=block_to_derefine, block_derefined=block_derefined)
    print '(A)', 'refine nodes 2, 3, 7'

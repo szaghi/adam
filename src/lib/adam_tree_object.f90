@@ -114,7 +114,7 @@ private
 public :: tree_object
 
 ! tree defaults
-integer(I4P), parameter :: TREE_BUCKETS_NUMBER_DEF = 9973_I4P    !< Default number of buckets of hash table.
+integer(I8P), parameter :: TREE_BUCKETS_NUMBER_DEF = 9973_I8P    !< Default number of buckets of hash table.
 real(R8P),    parameter :: TREE_MAX_LOAD = 0.9_R8P               !< Maximum load of hash table buckets.
 integer(I4P), parameter :: TREE_MAX_SANITIZE_ITERATIONS = 10_I4P !< Default number of tree sanitize iterations.
 ! nodes types
@@ -126,7 +126,7 @@ type :: tree_object
    !< Tree class definition.
    type(tree_bucket_object), allocatable :: bucket(:)               !< Tree buckets.
    integer(I8P), allocatable             :: code(:,:)               !< Min and max code values actually stored [2,buckets_number].
-   integer(I4P)                          :: buckets_number=0_I4P    !< Number of buckets used.
+   integer(I8P)                          :: buckets_number=0_I8P    !< Number of buckets used.
    integer(I4P)                          :: nodes_number=0_I4P      !< Number of nodes actually stored, namely the tree length.
    real(R8P)                             :: max_load=TREE_MAX_LOAD  !< Maximum load of tree buckets.
    integer(I4P)                          :: ratio=8_I4P             !< Refinement ratio.
@@ -137,20 +137,20 @@ type :: tree_object
    logical                               :: is_initialized_=.false. !< Initialization status.
    contains
       ! public methods
-      procedure, pass(self) :: adapt                        !< Adapt tree accordingly to refine/derefine necessity.
-      procedure, pass(self) :: codes                        !< Return the list of (sorted) codes actually stored in the tree.
-      procedure, pass(self) :: destroy                      !< Destroy the tree.
-      procedure, pass(self) :: loop                         !< Sentinel while-loop on nodes returning the code.
-      procedure, pass(self) :: hash                         !< Hash the key.
-      procedure, pass(self) :: has_code                     !< Check if the code is present in the tree.
-      procedure, pass(self) :: initialize                   !< Initialize the tree.
-      procedure, pass(self) :: mark_all_nodes_to_be_refined !< Mark all nodes to be refined.
-      procedure, pass(self) :: node                         !< Return a pointer to a node.
-      procedure, pass(self) :: prime_buckets_number         !< Return the buckets number as nearest prime number given nodes number.
-      procedure, pass(self) :: remove_node                  !< Remove a node from the tree, given the key.
-      procedure, pass(self) :: resize                       !< Resize the tree.
-      procedure, pass(self) :: sanitize                     !< Sanitize the tree.
-      procedure, pass(self) :: traverse                     !< Traverse tree calling the iterator procedure.
+      procedure, pass(self) :: adapt                !< Adapt tree accordingly to refine/derefine necessity.
+      procedure, pass(self) :: codes                !< Return the list of (sorted) codes actually stored in the tree.
+      procedure, pass(self) :: destroy              !< Destroy the tree.
+      procedure, pass(self) :: loop                 !< Sentinel while-loop on nodes returning the code.
+      procedure, pass(self) :: hash                 !< Hash the key.
+      procedure, pass(self) :: has_code             !< Check if the code is present in the tree.
+      procedure, pass(self) :: initialize           !< Initialize the tree.
+      procedure, pass(self) :: mark_all_nodes       !< Mark all nodes to be refined, derefined....
+      procedure, pass(self) :: node                 !< Return a pointer to a node.
+      procedure, pass(self) :: prime_buckets_number !< Return the buckets number as nearest prime number given nodes number.
+      procedure, pass(self) :: remove_node          !< Remove a node from the tree, given the key.
+      procedure, pass(self) :: resize               !< Resize the tree.
+      procedure, pass(self) :: sanitize             !< Sanitize the tree.
+      procedure, pass(self) :: traverse             !< Traverse tree calling the iterator procedure.
       ! Morton ordering methods
       generic               :: coordinates_to_morton => &
                                coordinates3D_to_morton, &
@@ -284,13 +284,13 @@ contains
    integer(I4P)                      :: b    !< Counter.
 
    if (allocated(self%bucket)) then
-      do b=1, size(self%bucket, dim=1)
+      do b=lbound(self%bucket, dim=1), ubound(self%bucket, dim=1)
         call self%bucket(b)%destroy
       enddo
       deallocate(self%bucket)
    endif
    if (allocated(self%code)) deallocate(self%code)
-   self%buckets_number = 0_I4P
+   self%buckets_number = 0_I8P
    self%nodes_number = 0_I4P
    self%max_load = TREE_MAX_LOAD
    self%ratio = 8_I4P
@@ -360,17 +360,19 @@ contains
    class(tree_object), intent(in) :: self   !< The tree.
    integer(I8P),       intent(in) :: code   !< The Morton code.
    integer(I4P)                   :: bucket !< Bucket index corresponding to the key.
+   ! integer(I8P)                   :: nb     !< Buckets number promoted to I8P integer.
 
-   bucket = 0
-   if (self%is_initialized_) bucket = int(mod(code, int(self%buckets_number, I8P)), I4P) + 2
+   ! nb = int(self%buckets_number, I8P)
+   ! bucket = int(code - ((code + 1_I8P) / nb) * nb, I4P)
+   bucket = modulo(code, int(self%buckets_number, I8P)) + 1
    endfunction hash
 
    subroutine initialize(self, max_load, nodes_number, buckets_number, ratio, max_level, add_adam)
    !< Initialize the tree.
    class(tree_object), intent(inout)        :: self             !< The tree.
    real(R8P),          intent(in), optional :: max_load         !< Maximum load of tree buckets.
-   integer(I4P),       intent(in), optional :: nodes_number     !< Nodes number to be stored in the tree.
-   integer(I4P),       intent(in), optional :: buckets_number   !< Number of buckets for initialize the tree.
+   integer(I8P),       intent(in), optional :: nodes_number     !< Nodes number to be stored in the tree.
+   integer(I8P),       intent(in), optional :: buckets_number   !< Number of buckets for initialize the tree.
    integer(I4P),       intent(in), optional :: ratio            !< Refinement ratio.
    integer(I4P),       intent(in), optional :: max_level        !< Maximum refinement level.
    logical,            intent(in), optional :: add_adam         !< Add ADAM node, the ancestor of all nodes.
@@ -394,15 +396,16 @@ contains
    if (add_adam_) call self%add_node(code=-1_I8P) ! TODO add myrank and other members
    endsubroutine initialize
 
-   subroutine mark_all_nodes_to_be_refined(self)
+   subroutine mark_all_nodes(self, mark)
    !< Mark all nodes to be refined.
    class(tree_object), intent(inout) :: self !< The tree.
+   integer(I4P),       intent(in)    :: mark !< Mark to be imposed [NODE_TO_REFINED,...]
    type(tree_node_object), pointer   :: node !< Pointer to current node.
 
    do while(self%loop(node=node))
-      node%refinement_needed = NODE_TO_BE_REFINED
+      node%refinement_needed = mark
    enddo
-   endsubroutine mark_all_nodes_to_be_refined
+   endsubroutine mark_all_nodes
 
    function node(self, code) result(p)
    !< Return a pointer to a node in the tree.
@@ -420,16 +423,16 @@ contains
    !< @note The balanced buckets number is computing considering the tree load defined in `self` and using the
    !< Sieve of Eratoshenes for findining the nearest prime number.
    class(tree_object), intent(in) :: self           !< The tree.
-   integer(I4P),       intent(in) :: nodes_number   !< Nodes number to be stored in the tree.
-   integer(I4P)                   :: buckets_number !< Well balanced, prime buckets number.
+   integer(I8P),       intent(in) :: nodes_number   !< Nodes number to be stored in the tree.
+   integer(I8P)                   :: buckets_number !< Well balanced, prime buckets number.
    logical, allocatable           :: is_prime(:)    !< List of prime numbers up to buckets number.
-   integer(I4P)                   :: b              !< Counter.
+   integer(I8P)                   :: b              !< Counter.
 
-   buckets_number = int((1._R8P / self%max_load) * nodes_number, I4P)
+   buckets_number = int((1._R8P / self%max_load) * nodes_number)
    allocate(is_prime(buckets_number))
    is_prime = .true.
    is_prime(1) = .false.
-   do b=2, int(sqrt(real(buckets_number, R8P)), I4P)
+   do b=2, int(sqrt(real(buckets_number, R8P)))
       if (is_prime(b)) is_prime(b*b:buckets_number:b) = .false.
    enddo
    b = buckets_number
@@ -446,17 +449,19 @@ contains
    integer(I4P)                      :: b    !< Bucket index, namely hashed key.
 
    if (self%is_initialized_) then
-      b = self%hash(code=code)
-      call self%bucket(b)%remove_node(code=code)
-      self%nodes_number = self%nodes_number - 1
-      self%code(1:2, b) = self%bucket(b)%code
+      if (self%has_code(code=code)) then
+         b = self%hash(code=code)
+         call self%bucket(b)%remove_node(code=code)
+         self%nodes_number = self%nodes_number - 1
+         self%code(1:2, b) = self%bucket(b)%code
+      endif
    endif
    endsubroutine remove_node
 
    subroutine resize(self, nodes_number, max_load)
    !< Resize the tree.
    class(tree_object), intent(inout)        :: self         !< The tree.
-   integer(I4P),       intent(in)           :: nodes_number !< Nodes number to be stored in the tree.
+   integer(I8P),       intent(in)           :: nodes_number !< Nodes number to be stored in the tree.
    real(R8P),          intent(in), optional :: max_load     !< Maximum load of tree buckets.
    type(tree_object)                        :: swap         !< Temporary (swap) tree.
    type(tree_node_object), pointer          :: node         !< Pointer to node.
@@ -501,6 +506,7 @@ contains
    integer(I4P)                                    :: new_level            !< New level counter.
    integer(I4P)                                    :: new_level_n          !< Neighbor new level counter.
    integer(I4P)                                    :: s, sib, f, n         !< Counter.
+   integer(I4P)                                    :: ii, jj, kk, ll       !< Counter.
 
    iterations_number_ = TREE_MAX_SANITIZE_ITERATIONS ; if (present(iterations_number)) iterations_number_ = iterations_number
 
@@ -536,7 +542,7 @@ contains
                      exit sibs_check_loop
                   endif
                enddo sibs_check_loop
-               if (can_be_derefined) then ! TODO implement siglings all ordered
+               if (can_be_derefined) then
                   all_siblings = self%all_siblings(code=code)
                   self%to_derefine = [self%to_derefine, all_siblings]
                   codes_analyzed = [codes_analyzed, all_siblings]
@@ -558,12 +564,12 @@ contains
       enddo derefine_loop
 
      ! check for the sanity of refinement (2:1 rule)
-     do while(self%loop(node=node))
+     refine_loop : do while(self%loop(node=node))
         new_level = self%level(code=node%code) + node%refinement_needed
-        do f=1, 6
+        face_loop : do f=1, 6
            call self%get_neighbor(code=node%code, face=f, neighbor=neighbor, neighbor_type=neighbor_type)
            if (neighbor_type /= BOUNDARY_CONDITION_NODE) then
-              do n=1, size(neighbor, dim=1)
+              neighbor_loop : do n=1, size(neighbor, dim=1)
                  ! check level
                  neigh => self%node(code=neighbor(n))
                  new_level_n = self%level(code=neighbor(n)) + neigh%refinement_needed
@@ -574,15 +580,21 @@ contains
                        node%refinement_needed = 1
                     elseif (new_level_n - new_level == 2) then
                        node%refinement_needed = node%refinement_needed + 1
+                    else
+                       print '(A)',  'SOMETHING WENT TERRIBLY WRONG. EXIT!'
+                       print '(A)',  'REFINEMENT NEEDED '//trim(str(node%refinement_needed,.true.))
+                       print '(A)',  'SANITIZE ITERATIONS '//trim(str(s,.true.))
+                       stop
                     endif
-                    exit
+                    new_level = self%level(code=node%code) + node%refinement_needed
                  endif
-              enddo
+              enddo neighbor_loop
            endif
-        enddo
+        enddo face_loop
 
         if (node%refinement_needed > 1) then
            print '(A)',  'CANNOT REFINE TWICE IN A ROW. SOMETHING WENT TERRIBLY WRONG. EXIT!'
+           print '(A)',  'SANITIZE ITERATIONS '//trim(str(s,.true.))
            stop
         endif
 
@@ -591,7 +603,7 @@ contains
            print '(A)',  'CANNOT REFINE MORE. SOMETHING WENT TERRIBLY WRONG. EXIT!'
            stop
         endif
-     enddo
+     enddo refine_loop
      if (is_sanitize_complete) exit sanitize_loop
    enddo sanitize_loop
 
@@ -611,10 +623,10 @@ contains
    !< Traverse tree calling the iterator procedure.
    class(tree_object), intent(in) :: self     !< The tree.
    procedure(iterator_interface)  :: iterator !< The (key) iterator procedure to call for each node.
-   integer(I4P)                   :: b        !< Counter.
+   integer(I8P)                   :: b        !< Counter.
 
    if (self%is_initialized_) then
-      do b=1, self%buckets_number
+      do b=1_I8P, self%buckets_number
          call self%bucket(b)%traverse(iterator)
       enddo
    endif
@@ -1017,7 +1029,7 @@ contains
    integer(I8P)                   :: parent !< Parent Morton code.
 
    parent = -1 ! ancestor of all has not parent
-   if (code>self%ratio-1) parent = int(real(code - self%ratio) / self%ratio, kind=I8P)
+   if (code>self%ratio-1) parent = (code - self%ratio) / self%ratio
    endfunction parent
 
    elemental function parent_at_level(self, code, level) result(parent)
@@ -1194,10 +1206,11 @@ contains
    if (.not.self%is_initialized_) then
       print '(A)', 'ERROR: cannot add a node a non initialized tree'
    endif
+   ! if the code is not already in the tree update the nodes number otherwise not
+   if (.not.self%has_code(code=code)) self%nodes_number = self%nodes_number + 1
    b = self%hash(code=code)
    call self%bucket(b)%add_node(code=code, refinement_needed=refinement_needed, &
                                 myrank=myrank, block_index=block_index)
-   self%nodes_number = self%nodes_number + 1
    self%code(1:2, b) = self%bucket(b)%code
    update_last_block_index_ = .true. ; if (present(update_last_block_index)) update_last_block_index_ = update_last_block_index
    if (update_last_block_index_) self%last_block_index = self%last_block_index + 1
@@ -1228,14 +1241,14 @@ contains
 
    subroutine derefine(self, block_to_derefine, block_derefined)
    !< Derefine nodes.
-   class(tree_object), intent(inout)      :: self                 !< The tree.
-   integer(I8P), allocatable, intent(out) :: block_to_derefine(:) !< List of field blocks to be derefined.
-   integer(I8P), allocatable, intent(out) :: block_derefined(:,:) !< List of field derefined blocks with Morton code.
-   type(tree_node_object), pointer        :: first_child          !< Pointer to first child node.
-   type(tree_node_object), pointer        :: node                 !< Pointer to node.
-   integer(I8P)                           :: derefined_number     !< Number of derefined blocks.
-   integer(I8P)                           :: n                    !< Counter.
-   integer(I4P)                           :: i                    !< Counter.
+   class(tree_object),        intent(inout) :: self                 !< The tree.
+   integer(I8P), allocatable, intent(out)   :: block_to_derefine(:) !< List of field blocks to be derefined.
+   integer(I8P), allocatable, intent(out)   :: block_derefined(:,:) !< List of field derefined blocks with Morton code.
+   type(tree_node_object), pointer          :: first_child          !< Pointer to first child node.
+   type(tree_node_object), pointer          :: node                 !< Pointer to node.
+   integer(I8P)                             :: derefined_number     !< Number of derefined blocks.
+   integer(I8P)                             :: n                    !< Counter.
+   integer(I4P)                             :: i                    !< Counter.
 
    derefined_number = size(self%to_derefine, dim=1)
    allocate(block_to_derefine(derefined_number))
@@ -1243,8 +1256,8 @@ contains
    if (allocated(self%to_derefine)) then
       do n=1, size(self%to_derefine, dim=1), self%ratio
          first_child => self%node(code=self%to_derefine(n))
-         block_derefined(1,n) = self%parent(code=first_child%code)
-         block_derefined(2,n) = first_child%block_index
+         block_derefined(1,(n-1)/self%ratio+1) = self%parent(code=first_child%code)
+         block_derefined(2,(n-1)/self%ratio+1) = first_child%block_index
          call self%add_node(code=self%parent(code=first_child%code),              &
                                              myrank=first_child%myrank,           &
                                              block_index=first_child%block_index, &
