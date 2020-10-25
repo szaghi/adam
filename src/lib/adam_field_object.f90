@@ -214,7 +214,7 @@ contains
    real(R8P)                       :: delta    !< Maximum cell delta admissible.
 
    if (abs(distance) < epsilon(0._R8P)) then
-      delta = 0.01_R8P
+      delta = 0.005_R8P
    else
       delta = huge(0._R8P)
    endif

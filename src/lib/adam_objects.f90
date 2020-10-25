@@ -79,28 +79,30 @@ contains
       endfunction sphere_distance
    endsubroutine mark_sphere_nodes
 
-   subroutine field_save_vtk(tree, field, basename)
+   subroutine field_save_vtk(tree, field, basename, directory)
    !< Save field in VTK files.
-   type(tree_object),  intent(in)  :: tree     !< The tree.
-   type(field_object), intent(in)  :: field    !< The field.
-   character(*),       intent(in)  :: basename !< Base name of output files.
-   integer(I4P)                    :: error    !< Error trapping flag.
-   type(vtk_file)                  :: vtk      !< VTK file handler.
-   type(vtm_file)                  :: vtm      !< VTM file handler.
-   type(tree_node_object), pointer :: node     !< Pointer to node.
-   integer(I4P)                    :: b, l     !< Counter.
+   type(tree_object),  intent(in)           :: tree       !< The tree.
+   type(field_object), intent(in)           :: field      !< The field.
+   character(*),       intent(in)           :: basename   !< Base name of output files.
+   character(*),       intent(in), optional :: directory  !< Directory name of output files.
+   character(:), allocatable                :: directory_ !< Directory name of output files, local var.
+   integer(I4P)                             :: error      !< Error trapping flag.
+   type(vtk_file)                           :: vtk        !< VTK file handler.
+   type(vtm_file)                           :: vtm        !< VTM file handler.
+   type(tree_node_object), pointer          :: node       !< Pointer to node.
+   integer(I4P)                             :: b, l       !< Counter.
+   integer(I4P)                             :: max_level  !< Maximum level.
 
-   error = vtm%initialize(filename=trim(basename)//'.vtm')
-
+   directory_ = '' ; if (present(directory)) directory_ = trim(directory)
    associate(emin=>field%emin, emax=>field%emax, ni=>field%ni, nj=>field%nj, nk=>field%nk, &
              gc1=>field%gc1, gc2=>field%gc2, gc3=>field%gc3,  gc4=>field%gc4, gc5=>field%gc5, gc6=>field%gc6)
-      do while(tree%loop(node=node))
+
+      max_level = 0_I4P
+      vtk_loop : do while(tree%loop(node=node))
          b = node%block_index
-         l = tree%level(code=node%code)
-         error = vtm%write_block(filenames=trim(basename)//'-block-'//trim(str(b,.true.))//'.vtr', &
-                                 name='block-'//trim(str(b,.true.)))
-         error = vtk%initialize(format='raw', filename=trim(basename)//'-block-'//trim(str(b,.true.))//'.vtr', &
-                                mesh_topology='RectilinearGrid',                                               &
+         max_level = max(max_level, tree%level(code=node%code))
+         error = vtk%initialize(format='raw', filename=directory_//trim(basename)//'-block-'//trim(str(b,.true.))//'.vtr', &
+                                mesh_topology='RectilinearGrid',                                                           &
                                 nx1=0, nx2=ni, ny1=0, ny2=nj, nz1=0, nz2=nk)
          error = vtk%xml_writer%write_fielddata(action='open')
          error = vtk%xml_writer%write_fielddata(data_name='Morton', x=field%code(b))
@@ -114,9 +116,18 @@ contains
          error = vtk%xml_writer%write_dataarray(location='cell', action='close')
          error = vtk%xml_writer%write_piece()
          error = vtk%finalize()
-      enddo
-   endassociate
+      enddo vtk_loop
 
-   error = vtm%finalize()
+      error = vtm%initialize(filename=directory_//trim(basename)//'.vtm', scratch_units_number=max_level)
+      vtm_group_loop : do l=1, max_level
+         error = vtm%write_block(scratch=l, action='open', name='level-'//trim(str(l,.true.)))
+      enddo vtm_group_loop
+      vtm_filenames_loop : do while(tree%loop(node=node))
+         b = node%block_index
+         l = tree%level(code=node%code)
+         error = vtm%write_block(scratch=l, action='write', filename=trim(basename)//'-block-'//trim(str(b,.true.))//'.vtr')
+      enddo vtm_filenames_loop
+      error = vtm%finalize()
+   endassociate
    endsubroutine field_save_vtk
 endmodule adam_objects
