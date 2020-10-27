@@ -1,5 +1,6 @@
 [modes]
 modes = tests-gnu tests-gnu-debug
+        tests-gnu-mpi tests-gnu-debug-mpi
         tests-intel tests-intel-debug
         tests-nvf tests-nvf-debug
 
@@ -36,6 +37,14 @@ build_dir = ./exe/
 
 [tests-gnu-debug]
 template  = template-static-gnu-debug
+build_dir = ./exe/
+
+[tests-gnu-mpi]
+template  = template-static-gnu-mpi
+build_dir = ./exe/
+
+[tests-gnu-debug-mpi]
+template  = template-static-gnu-debug-mpi
 build_dir = ./exe/
 
 # Intel
@@ -79,6 +88,35 @@ mod_dir      = ./mod/
 obj_dir      = ./obj/
 src          = ./src/
 colors       = True
+quiet        = False
+log          = True
+jobs         = 2
+
+[template-static-gnu-mpi]
+compiler     = gnu
+mpi          = True
+cflags       = $CSTATIC_GNU $OPTIMIZE
+exclude_dirs = $EXDIRS
+mod_dir      = ./mod/
+obj_dir      = ./obj/
+src          = ./src/
+colors       = True
+preproc      = -D_MPI_
+quiet        = False
+log          = True
+jobs         = 2
+
+[template-static-gnu-debug-mpi]
+compiler     = gnu
+mpi          = True
+cflags       = $CSTATIC_GNU $DEBUG_GNU
+lflags       = $DEBUG_GNU
+exclude_dirs = $EXDIRS
+mod_dir      = ./mod/
+obj_dir      = ./obj/
+src          = ./src/
+colors       = True
+preproc      = -D_MPI_
 quiet        = False
 log          = True
 jobs         = 2

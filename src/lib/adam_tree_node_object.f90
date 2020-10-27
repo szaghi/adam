@@ -20,7 +20,9 @@ type :: tree_node_object
    integer(I8P),                    public :: code=-2_I8P             !< The Morton code.
    integer(I4P),                    public :: refinement_needed=0_I4P !< Flag for refinement/derefinement algorithm.
    integer(I4P),                    public :: myrank=0_I4P            !< MPI rank process.
+   integer(I4P),                    public :: myrank_new=-1_I4P       !< New MPI rank process.
    integer(I8P),                    public :: block_index=1_I8P       !< Block index in the field array.
+   integer(I8P),                    public :: block_index_new=0_I8P   !< New block index in the field array.
    type(tree_node_object), pointer, public :: next=>null()            !< The next node in the tree.
    type(tree_node_object), pointer, public :: previous=>null()        !< The previous node in the tree.
    contains
@@ -81,6 +83,8 @@ contains
    lhs%code = rhs%code
    lhs%refinement_needed = rhs%refinement_needed
    lhs%myrank = rhs%myrank
+   lhs%myrank_new = rhs%myrank_new
    lhs%block_index = rhs%block_index
+   lhs%block_index_new = rhs%block_index_new
    endsubroutine tree_node_assign_tree_node
 endmodule adam_tree_node_object

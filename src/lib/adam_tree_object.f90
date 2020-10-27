@@ -131,6 +131,7 @@ type :: tree_object
    real(R8P)                             :: max_load=TREE_MAX_LOAD  !< Maximum load of tree buckets.
    integer(I4P)                          :: ratio=8_I4P             !< Refinement ratio.
    integer(I4P)                          :: max_level=12_I4P        !< Maximum refinement level.
+   integer(I4P)                          :: procs_number=1_I4P      !< Number of processes.
    integer(I8P), allocatable             :: to_refine(:)            !< List of nodes to be refined.
    integer(I8P), allocatable             :: to_derefine(:)          !< List of node to be derefined.
    integer(I8P)                          :: last_block_index=0_I8P  !< Last block index in the field array.
@@ -147,6 +148,7 @@ type :: tree_object
       procedure, pass(self) :: mark_all_nodes       !< Mark all nodes to be refined, derefined....
       procedure, pass(self) :: node                 !< Return a pointer to a node.
       procedure, pass(self) :: prime_buckets_number !< Return the buckets number as nearest prime number given nodes number.
+      procedure, pass(self) :: redistribute         !< Redistribute nodes to processes.
       procedure, pass(self) :: remove_node          !< Remove a node from the tree, given the key.
       procedure, pass(self) :: resize               !< Resize the tree.
       procedure, pass(self) :: sanitize             !< Sanitize the tree.
@@ -441,6 +443,92 @@ contains
    enddo
    buckets_number = b
    endfunction prime_buckets_number
+
+   subroutine redistribute(self)
+   !< Redistribute nodes to processes.
+   !<
+   !< The nodes are distributed among all process exploiting the Morton ordering spatiality. Simply, the sorted list of codes are
+   !< splitted in chunk of `nodes_number/procs_number` balancing the workload. However, the algorithm checks if the splits fall
+   !< among siblings that cannot be splitted: if this scenario happens the siblings are placed in the same process for preserving
+   !< the spatiality. The algorithm is sophisticated enough to place the siblings alternatively to the *left* or *right* process
+   !< accordingly to where the split falls, namely to the *right* if the split falls in the first half of siblings or to the *left*
+   !< if it falls in the second half.
+   class(tree_object), intent(inout) :: self            !< The tree.
+   integer(I8P), allocatable         :: codes(:)        !< List of (sorted) codes.
+   type(tree_node_object), pointer   :: node            !< Pointer to current node.
+   integer(I4P)                      :: p               !< Processes counter.
+   integer(I4P)                      :: cl              !< Local child counter.
+   integer(I8P)                      :: c               !< Codes counter.
+   integer(I8P)                      :: block_index_new !< New block index counter.
+   integer(I8P)                      :: my_codes_number !< Number of codes for each process for a balanced workload.
+   integer(I4P)                      :: child_local     !< Local numbering.
+
+   codes = self%codes() ! sorted list of codes
+   my_codes_number = nint(real(size(codes, dim=1),R8P) / self%procs_number)
+   ! initialize process rank and my codes number
+   p = 0_I4P
+   block_index_new = 1_I8P
+   ! loop over all codes
+   c = 1
+   do while(c<=size(codes, dim=1))
+      if (block_index_new > my_codes_number.and.p < self%procs_number-1) then ! I would like to split...
+         if (can_split()) then
+            ! I am lucky, the split does not separate siblings
+            p = p + 1_I4P
+            block_index_new = 1_I8P
+            node => self%node(code=codes(c))
+            node%myrank_new = p
+            node%block_index_new = block_index_new
+         else
+            ! I am not lucky, the split would separate siblings
+            child_local = self%child_local(code=codes(c))
+            if (child_local > self%ratio/2 -1) then
+               ! the split falls in the second half of siblings list, place all nodes in the current process
+               do cl=child_local, self%ratio-1
+                  node => self%node(code=codes(c+cl-child_local))
+                  node%myrank_new = p
+                  node%block_index_new = block_index_new
+                  block_index_new = block_index_new + 1
+               enddo
+            else
+               ! the split falls in the first half of siblings list, place all nodes in the next process
+               p = p + 1_I4P
+               block_index_new = 1_I8P
+               do cl=0, self%ratio-1
+                  node => self%node(code=codes(c+cl-child_local))
+                  node%myrank_new = p
+                  node%block_index_new = block_index_new
+                  block_index_new = block_index_new + 1
+               enddo
+            endif
+            ! update codes counter skipping all current siblings
+            c = c + self%ratio - 1 - child_local
+         endif
+      else ! no split, keeping to place nodes in the current process
+         block_index_new = block_index_new + 1
+         node => self%node(code=codes(c))
+         node%myrank_new = p
+         node%block_index_new = block_index_new
+      endif
+      c = c + 1
+   enddo
+   contains
+      function can_split()
+      !< Return true if the split can be done.
+      !<
+      !< The split is not allowed if all siblings exist and the previous code in the ordered list is one of my siblings.
+      logical                   :: can_split   !< Result of test.
+      integer(I8P), allocatable :: siblings(:) !< List of siblings
+      integer(I4P)              :: s           !< Counter.
+
+      can_split = .true.
+      if (c==1_I8P) return
+      siblings = self%siblings(code=codes(c))
+      if (all([(self%has_code(code=siblings(s)), s=1,self%ratio-1)])) then ! if all siblings exist
+         can_split = .not.(findloc(siblings, codes(c-1),dim=1) > 0) ! if my predecessor is a sibling the split is not allowed
+      endif
+      endfunction can_split
+   endsubroutine redistribute
 
    subroutine remove_node(self, code)
    !< Remove a node from the tree, given the code.

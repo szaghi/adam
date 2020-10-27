@@ -6,12 +6,13 @@ use adam_objects
 #ifdef _MPI_
 use MPI
 #endif
-use PENF, only : I8P, I4P, str
+use PENF, only : R8P, I8P, I4P, str
 
 implicit none
 
 type(tree_object)               :: tree                 !< Tree.
-type(tree_node_object), pointer :: tree_node            !< Pointer to node.
+type(tree_node_object), pointer :: node                 !< Pointer to node.
+type(field_object)              :: field                !< Field.
 integer(I8P)                    :: code                 !< Tree node code.
 integer(I8P), allocatable       :: codes(:)             !< Tree node codes list.
 integer(I8P), allocatable       :: block_to_refine(:)   !< List of field blocks to be refined.
@@ -22,94 +23,105 @@ integer(I4P)                    :: error                !< Error traping flag.
 integer(I4P)                    :: myrank               !< Rank of current process.
 integer(I4P)                    :: mpi_number           !< Number of MPI processes.
 integer(I8P)                    :: nodes_for_mpi        !< Number of nodes for each MPI process.
-integer(I4P)                    :: l, n, p              !< Counter.
+integer(I4P)                    :: l, n, p, t           !< Counter.
 
 #ifdef _MPI_
 call MPI_INIT(error)
 call MPI_COMM_RANK(MPI_COMM_WORLD, myrank, error)
 call MPI_COMM_SIZE(MPI_COMM_WORLD, mpi_number, error)
+tree%procs_number = mpi_number
 #endif
 
-if (myrank==0) then
-   print '(A)', 'initialize tree'
-   call tree%initialize(ratio=8_I4P, max_level=2_I4P)
-   print*, ''
-   print '(A)', 'test codes comparison'
-   print '(A,L1)', '2  < 3  (T): ', tree%lower(2_I8P, 3_I8P)
-   print '(A,L1)', '2  > 3  (F): ', tree%greater(2_I8P, 3_I8P)
-   print '(A,L1)', '3  < 2  (F): ', tree%lower(3_I8P, 2_I8P)
-   print '(A,L1)', '3  > 2  (T): ', tree%greater(3_I8P, 2_I8P)
-   print '(A,L1)', '2  < 22 (F): ', tree%lower(2_I8P, 22_I8P)
-   print '(A,L1)', '2  > 22 (T): ', tree%greater(2_I8P, 22_I8P)
-   print '(A,L1)', '22 < 2  (T): ', tree%lower(22_I8P, 2_I8P)
-   print '(A,L1)', '22 > 2  (F): ', tree%greater(22_I8P, 2_I8P)
-   print*, ''
+! if (myrank==0) then
+   ! print '(A)', 'initialize tree'
+   call tree%initialize
+   call field%initialize(nb=190000, emin=[0._R8P,0._R8P,0._R8P], emax=[1._R8P,1._R8P,1._R8P])
+   ! print*, ''
+   ! print '(A)', 'test codes comparison'
+   ! print '(A,L1)', '2  < 3  (T): ', tree%lower(2_I8P, 3_I8P)
+   ! print '(A,L1)', '2  > 3  (F): ', tree%greater(2_I8P, 3_I8P)
+   ! print '(A,L1)', '3  < 2  (F): ', tree%lower(3_I8P, 2_I8P)
+   ! print '(A,L1)', '3  > 2  (T): ', tree%greater(3_I8P, 2_I8P)
+   ! print '(A,L1)', '2  < 22 (F): ', tree%lower(2_I8P, 22_I8P)
+   ! print '(A,L1)', '2  > 22 (T): ', tree%greater(2_I8P, 22_I8P)
+   ! print '(A,L1)', '22 < 2  (T): ', tree%lower(22_I8P, 2_I8P)
+   ! print '(A,L1)', '22 > 2  (F): ', tree%greater(22_I8P, 2_I8P)
+   ! print*, ''
 
-   print '(A)', 'test uniform refinement'
-   do l=1, 3
-      ! third level should not be done because max refinement level has been set to 2
-      ! the level 2 should be printed twice
-      print '(A)', 'create children of level '//trim(str(l))
+   do l=1, 2
+      ! print '(A)', 'create children of level '//trim(str(l))
       call tree%mark_all_nodes(mark=NODE_TO_BE_REFINED)
       call tree%adapt(block_to_refine=block_to_refine, block_refined=block_refined, &
                       block_to_derefine=block_to_derefine, block_derefined=block_derefined)
-      print '(A)', 'loop in tree'
-      do while(tree%loop(code=code))
-         call tree%print_code_topology(code=code)
-      enddo
+      call field%adapt(ratio=tree%ratio, block_to_refine=block_to_refine, block_refined=block_refined, &
+                       block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+      call tree%redistribute
+      ! print '(A)', '  codes: '//trim(str(tree%codes(),.true.))
+      ! if (myrank==0) then
+      !    do while(tree%loop(node=node))
+      !       print '(A)', '  code: '//trim(str(node%code,.true.))// &
+      !                    '  myrank: '//trim(str(node%myrank,.true.))// &
+      !                    '  myrank_new: '//trim(str(node%myrank_new,.true.))
+      !    enddo
+      ! endif
+
+      ! node => tree%node(code=6_I8P)
+      ! node%refinement_needed = NODE_TO_BE_REFINED
+      ! call tree%adapt(block_to_refine=block_to_refine, block_refined=block_refined, &
+      !                 block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+      ! call field%adapt(ratio=tree%ratio, block_to_refine=block_to_refine, block_refined=block_refined, &
+      !                  block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+      ! call tree%redistribute
+      ! if (myrank==0) then
+      !    print '(A)', ''
+      !    print '(A)', ''
+      !    print '(A)', '  codes: '//trim(str(tree%codes(),.true.))
+      !    do while(tree%loop(node=node))
+      !       print '(A)', '  code: '//trim(str(node%code,.true.))// &
+      !                    '  myrank: '//trim(str(node%myrank,.true.))// &
+      !                    '  myrank_new: '//trim(str(node%myrank_new,.true.))
+      !    enddo
+      ! endif
+
+   enddo
+
+   ! print '(A)', 'sphere tracking'
+   do t=1,3
       print*, ''
+      print '(A)', '  track iteration '//trim(str(t, .true.))
+      call mark_sphere_nodes(tree=tree, field=field, center=[0.2_R8P,0.5_R8P,0.5_R8P], radius=0.1_R8P)
+      call tree%adapt(block_to_refine=block_to_refine, block_refined=block_refined, &
+                      block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+      ! print '(A)', '  nodes refined n. '//trim(str(size(block_refined(1,:), dim=1),.true.))
+      ! print '(A)', '  nodes derefined n. '//trim(str(size(block_derefined(1,:), dim=1),.true.))
+      call field%adapt(ratio=tree%ratio, block_to_refine=block_to_refine, block_refined=block_refined, &
+                       block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+      call tree%redistribute
+      ! print '(A)', '  codes: '//trim(str(tree%codes(),.true.))
+      if (t==3.and.myrank==0) then
+         do while(tree%loop(node=node))
+            print '(A)', '  code: '//trim(str(node%code,.true.))// &
+                         '  myrank: '//trim(str(node%myrank,.true.))// &
+                         '  myrank_new: '//trim(str(node%myrank_new,.true.))
+         enddo
+      endif
    enddo
 
-   print '(A)', 'test non uniform refinement'
-   call tree%initialize(ratio=8_I4P, max_level=2_I4P)
-   print '(A)', 'create children of level 1'
-   call tree%mark_all_nodes(mark=NODE_TO_BE_REFINED)
-   call tree%adapt(block_to_refine=block_to_refine, block_refined=block_refined, &
-                   block_to_derefine=block_to_derefine, block_derefined=block_derefined)
-   print '(A)', 'refine nodes 2, 3, 7'
-   tree_node => tree%node(code=2_I8P) ; tree_node%refinement_needed = NODE_TO_BE_REFINED
-   tree_node => tree%node(code=3_I8P) ; tree_node%refinement_needed = NODE_TO_BE_REFINED
-   tree_node => tree%node(code=7_I8P) ; tree_node%refinement_needed = NODE_TO_BE_REFINED
-   call tree%adapt(block_to_refine=block_to_refine, block_refined=block_refined, &
-                   block_to_derefine=block_to_derefine, block_derefined=block_derefined)
-   print '(A)', 'loop in tree'
-   do while(tree%loop(code=code))
-      call tree%print_code_topology(code=code)
-   enddo
-   print*, ''
-   codes = tree%codes()
-   print '(A)', 'list of sorted codes actually stored'
-   do code=1, size(codes, dim=1)
-      print*, codes(code)
-   enddo
-   print*, ''
+! endif
 
-   print '(A)', 'test MPI load balancing'
-   print '(A)', 'MPI processes number: '//trim(str(mpi_number))
-   print '(A)', 'distribute nodes to other processes'
-   nodes_for_mpi = tree%nodes_number / mpi_number
-   p = 0
-   do n=1, tree%nodes_number, nodes_for_mpi
-      if (n+nodes_for_mpi-1<=tree%nodes_number) &
-      print '(A)', 'rank: '//trim(str(p))//' codes: '//trim(str(codes(n:n+nodes_for_mpi-1)))
-      p = p + 1
-   enddo
-   print*, ''
-endif
-
-#ifdef _MPI_
-call MPI_BCAST(nodes_for_mpi, 1, MPI_INTEGER8, 0, MPI_COMM_WORLD, error)
-#endif
-if (myrank/=0) then
-   allocate(codes(nodes_for_mpi))
-   print '(A)', 'myrank: '//trim(str(myrank))//' nodes for each process: '//trim(str(nodes_for_mpi))
-endif
-#ifdef _MPI_
-call MPI_SCATTER(codes, int(nodes_for_mpi,I4P), MPI_INTEGER8, codes, int(nodes_for_mpi,I4P), MPI_INTEGER8, 0, MPI_COMM_WORLD, error)
-#endif
-if (myrank/=0) then
-   print '(A)', 'myrank: '//trim(str(myrank))//' my codes: '//trim(str(codes))
-endif
+! #ifdef _MPI_
+! call MPI_BCAST(nodes_for_mpi, 1, MPI_INTEGER8, 0, MPI_COMM_WORLD, error)
+! #endif
+! if (myrank/=0) then
+!    allocate(codes(nodes_for_mpi))
+!    print '(A)', 'myrank: '//trim(str(myrank))//' nodes for each process: '//trim(str(nodes_for_mpi))
+! endif
+! #ifdef _MPI_
+! call MPI_SCATTER(codes, int(nodes_for_mpi,I4P), MPI_INTEGER8, codes, int(nodes_for_mpi,I4P), MPI_INTEGER8, 0, MPI_COMM_WORLD, error)
+! #endif
+! if (myrank/=0) then
+!    print '(A)', 'myrank: '//trim(str(myrank))//' my codes: '//trim(str(codes))
+! endif
 
 #ifdef _MPI_
 call MPI_FINALIZE(error)
