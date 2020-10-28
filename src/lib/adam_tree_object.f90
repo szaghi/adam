@@ -108,6 +108,9 @@ use adam_tree_node_object, only : destroy_tree_node, tree_node_object, NODE_TO_B
 use adam_tree_bucket_object, only : tree_bucket_object, iterator_interface, len
 use MORTIF, only : morton2D, morton3D, demorton2D, demorton3D
 use PENF, only : I1P, I4P, I8P, R8P, str
+#ifdef _MPI_
+use MPI
+#endif
 
 implicit none
 private
@@ -132,6 +135,14 @@ type :: tree_object
    integer(I4P)                          :: ratio=8_I4P             !< Refinement ratio.
    integer(I4P)                          :: max_level=12_I4P        !< Maximum refinement level.
    integer(I4P)                          :: procs_number=1_I4P      !< Number of processes.
+   integer(I4P)                          :: myrank=0_I4P            !< MPI rank process.
+   integer(I4P), allocatable             :: comm_map_n_send(:)      !< Communication map, number of blocks to send [procs_number].
+   integer(I4P), allocatable             :: comm_map_n_recv(:)      !< Communication map, number of blocks to recv [procs_number].
+   integer(I4P), allocatable             :: comm_map_send_ptr(:)    !< Communication map, pointers in list to send [procs_number+1].
+   integer(I4P), allocatable             :: comm_map_recv_ptr(:)    !< Communication map, pointers in list to recv [procs_number+1].
+   integer(I8P), allocatable             :: comm_map_send(:)        !< Communication map, blocks to send [sum(comm_map_n_send)].
+   integer(I8P), allocatable             :: comm_map_recv(:)        !< Communication map, blocks to receive [sum(comm_map_n_recv)].
+   integer(I8P), allocatable             :: local_map(:,:)          !< Local map, list block index changes of my nodes.
    integer(I8P), allocatable             :: to_refine(:)            !< List of nodes to be refined.
    integer(I8P), allocatable             :: to_derefine(:)          !< List of node to be derefined.
    integer(I8P)                          :: last_block_index=0_I8P  !< Last block index in the field array.
@@ -145,6 +156,7 @@ type :: tree_object
       procedure, pass(self) :: hash                 !< Hash the key.
       procedure, pass(self) :: has_code             !< Check if the code is present in the tree.
       procedure, pass(self) :: initialize           !< Initialize the tree.
+      procedure, pass(self) :: make_comm_maps       !< Make communication maps.
       procedure, pass(self) :: mark_all_nodes       !< Mark all nodes to be refined, derefined....
       procedure, pass(self) :: node                 !< Return a pointer to a node.
       procedure, pass(self) :: prime_buckets_number !< Return the buckets number as nearest prime number given nodes number.
@@ -297,6 +309,15 @@ contains
    self%max_load = TREE_MAX_LOAD
    self%ratio = 8_I4P
    self%max_level = 12_I4P
+   self%procs_number = 1_I4P
+   self%myrank = 0_I4P
+   if (allocated(self%comm_map_n_send)) deallocate(self%comm_map_n_send)
+   if (allocated(self%comm_map_n_recv)) deallocate(self%comm_map_n_recv)
+   if (allocated(self%comm_map_send_ptr)) deallocate(self%comm_map_send_ptr)
+   if (allocated(self%comm_map_recv_ptr)) deallocate(self%comm_map_recv_ptr)
+   if (allocated(self%comm_map_send)) deallocate(self%comm_map_send)
+   if (allocated(self%comm_map_recv)) deallocate(self%comm_map_recv)
+   if (allocated(self%local_map)) deallocate(self%local_map)
    self%last_block_index = 0_I8P
    self%is_initialized_ = .false.
    if (allocated(self%to_refine)) deallocate(self%to_refine)
@@ -371,17 +392,23 @@ contains
 
    subroutine initialize(self, max_load, nodes_number, buckets_number, ratio, max_level, add_adam)
    !< Initialize the tree.
-   class(tree_object), intent(inout)        :: self             !< The tree.
-   real(R8P),          intent(in), optional :: max_load         !< Maximum load of tree buckets.
-   integer(I8P),       intent(in), optional :: nodes_number     !< Nodes number to be stored in the tree.
-   integer(I8P),       intent(in), optional :: buckets_number   !< Number of buckets for initialize the tree.
-   integer(I4P),       intent(in), optional :: ratio            !< Refinement ratio.
-   integer(I4P),       intent(in), optional :: max_level        !< Maximum refinement level.
-   logical,            intent(in), optional :: add_adam         !< Add ADAM node, the ancestor of all nodes.
-   logical                                  :: add_adam_        !< Add ADAM node, the ancestor of all nodes, local var.
+   class(tree_object), intent(inout)        :: self           !< The tree.
+   real(R8P),          intent(in), optional :: max_load       !< Maximum load of tree buckets.
+   integer(I8P),       intent(in), optional :: nodes_number   !< Nodes number to be stored in the tree.
+   integer(I8P),       intent(in), optional :: buckets_number !< Number of buckets for initialize the tree.
+   integer(I4P),       intent(in), optional :: ratio          !< Refinement ratio.
+   integer(I4P),       intent(in), optional :: max_level      !< Maximum refinement level.
+   logical,            intent(in), optional :: add_adam       !< Add ADAM node, the ancestor of all nodes.
+   logical                                  :: add_adam_      !< Add ADAM node, the ancestor of all nodes, local var.
+   integer(I4P)                             :: error          !< Error traping flag.
 
    add_adam_ = .true. ; if (present(add_adam)) add_adam_ = add_adam
    call self%destroy
+#ifdef _MPI_
+   ! MPI_INIT must be already called
+   call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, error)
+   call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, error)
+#endif
    if (present(max_load)) self%max_load = max_load
    if (present(nodes_number)) then
       self%buckets_number = self%prime_buckets_number(nodes_number=nodes_number)
@@ -393,10 +420,137 @@ contains
    self%code = 0_I8P
    if (present(ratio)) self%ratio = ratio
    if (present(max_level)) self%max_level = max_level
+   allocate(self%comm_map_n_send(0:self%procs_number-1))
+   allocate(self%comm_map_n_recv(0:self%procs_number-1))
+   allocate(self%comm_map_send_ptr(0:self%procs_number))
+   allocate(self%comm_map_recv_ptr(0:self%procs_number))
+   self%comm_map_n_send = 0_I4P
+   self%comm_map_n_recv = 0_I4P
+   self%comm_map_send_ptr = 0_I4P
+   self%comm_map_recv_ptr = 0_I4P
    self%is_initialized_ = .true.
    ! add ADAM node, the ancestor of all nodes
-   if (add_adam_) call self%add_node(code=-1_I8P) ! TODO add myrank and other members
+   if (add_adam_) call self%add_node(code=-1_I8P)
    endsubroutine initialize
+
+   subroutine make_comm_maps(self)
+   !< Make communication maps.
+   class(tree_object), intent(inout) :: self                 !< The tree.
+   type(tree_node_object), pointer   :: node                 !< Pointer to current node.
+   integer(I8P), allocatable         :: codes(:)             !< List of (sorted) codes.
+   integer(I4P), allocatable         :: comm_map_send_ctr(:) !< Communication map, counters in list to send [procs_number+1].
+   integer(I4P), allocatable         :: comm_map_recv_ctr(:) !< Communication map, counters in list to recv [procs_number+1].
+   integer(I8P)                      :: mynodes_number       !< Number of my nodes.
+   integer(I4P)                      :: n_send               !< Number of blocks that I have to send.
+   integer(I4P)                      :: n_recv               !< Number of blocks that I have to receive.
+   integer(I8P)                      :: c, l                 !< Counter.
+   integer(I4P)                      :: p                    !< Counter.
+
+   ! initialize communication maps
+   self%comm_map_n_send = 0_I4P
+   self%comm_map_n_recv = 0_I4P
+   if (allocated(self%comm_map_send)) deallocate(self%comm_map_send)
+   if (allocated(self%comm_map_recv)) deallocate(self%comm_map_recv)
+   if (allocated(self%local_map    )) deallocate(self%local_map    )
+
+   ! compute the number of blocks to send/receive
+   mynodes_number = 0_I8P
+   do while(self%loop(node=node))
+      if (node%myrank==self%myrank) mynodes_number = mynodes_number + 1_I8P
+      if     (is_node_to_send(n=node)) then
+         ! I have this node that must be sent to node%myrank_new
+         self%comm_map_n_send(node%myrank_new) = self%comm_map_n_send(node%myrank_new) + 1
+      elseif (is_node_to_receive(n=node)) then
+         ! node%rank has this node that must be sent to me
+         self%comm_map_n_recv(node%myrank) = self%comm_map_n_recv(node%myrank) + 1
+      endif
+   enddo
+   n_send = sum(self%comm_map_n_send, dim=1)
+   n_recv = sum(self%comm_map_n_recv, dim=1)
+
+   allocate(self%local_map(mynodes_number-n_send,2))
+
+   ! allocate communications maps
+   if (n_send>0_I4P) then
+      allocate(self%comm_map_send(n_send))
+      self%comm_map_send = 0_I8P
+   endif
+   if (n_recv>0_I4P) then
+      allocate(self%comm_map_recv(n_recv))
+      self%comm_map_recv = 0_I8P
+   endif
+
+   ! compute communication maps pointers/counters
+   self%comm_map_send_ptr = 0_I4P
+   self%comm_map_recv_ptr = 0_I4P
+   do p=1, self%procs_number
+      self%comm_map_send_ptr(p) = self%comm_map_send_ptr(p-1) + self%comm_map_n_send(p-1)
+      self%comm_map_recv_ptr(p) = self%comm_map_recv_ptr(p-1) + self%comm_map_n_recv(p-1)
+   enddo
+   comm_map_send_ctr = self%comm_map_send_ptr
+   comm_map_recv_ctr = self%comm_map_recv_ptr
+
+   ! populate communication maps
+   codes = self%codes() ! sorted list of Morton codes
+   ! send map
+   if (n_send>0_I4P) then
+      do c=1, size(codes, dim=1) ! sort blocks in Morton order
+         node => self%node(code=codes(c))
+         if (is_node_to_send(n=node)) then
+            ! self%comm_map_send(comm_map_send_ctr(node%myrank_new)+1) = codes(c)
+            self%comm_map_send(comm_map_send_ctr(node%myrank_new)+1) = node%block_index
+            comm_map_send_ctr(node%myrank_new) = comm_map_send_ctr(node%myrank_new) + 1
+         endif
+      enddo
+   endif
+   ! receive map
+   if (n_recv>0_I4P) then
+      do c=1, size(codes, dim=1) ! sort blocks in Morton order
+         node => self%node(code=codes(c))
+         if (is_node_to_receive(n=node)) then
+            ! self%comm_map_recv(comm_map_recv_ctr(node%myrank)+1) = codes(c)
+            self%comm_map_recv(comm_map_recv_ctr(node%myrank)+1) = node%block_index_new
+            comm_map_recv_ctr(node%myrank) = comm_map_recv_ctr(node%myrank) + 1
+         endif
+      enddo
+   endif
+   ! local maps
+   if (mynodes_number - n_send > 0_I4P) then
+      l = 0
+      do c=1, size(codes, dim=1) ! sort blocks in Morton order
+         node => self%node(code=codes(c))
+         if (is_node_to_keep(n=node)) then
+            l = l + 1
+            self%local_map(l,1) = node%block_index_new
+            self%local_map(l,2) = node%block_index
+         endif
+      enddo
+   endif
+   contains
+      function is_node_to_keep(n)
+      !< Check if node `n` must be kept.
+      type(tree_node_object), intent(in), pointer :: n               !< Pointer to current node.
+      logical                                     :: is_node_to_keep !< Check result.
+
+      is_node_to_keep = ((self%myrank == n%myrank).and.(n%myrank == n%myrank_new))
+      endfunction is_node_to_keep
+
+      function is_node_to_send(n)
+      !< Check if node `n` must be sent.
+      type(tree_node_object), intent(in), pointer :: n               !< Pointer to current node.
+      logical                                     :: is_node_to_send !< Check result.
+
+      is_node_to_send = ((self%myrank == n%myrank).and.(n%myrank /= n%myrank_new))
+      endfunction is_node_to_send
+
+      function is_node_to_receive(n)
+      !< Check if node `n` must be received.
+      type(tree_node_object), intent(in), pointer :: n                  !< Pointer to current node.
+      logical                                     :: is_node_to_receive !< Check result.
+
+      is_node_to_receive = ((self%myrank == n%myrank_new).and.(n%myrank /= n%myrank_new))
+      endfunction is_node_to_receive
+   endsubroutine make_comm_maps
 
    subroutine mark_all_nodes(self, mark)
    !< Mark all nodes to be refined.
@@ -467,7 +621,7 @@ contains
    my_codes_number = nint(real(size(codes, dim=1),R8P) / self%procs_number)
    ! initialize process rank and my codes number
    p = 0_I4P
-   block_index_new = 1_I8P
+   block_index_new = 0_I8P
    ! loop over all codes
    c = 1
    do while(c<=size(codes, dim=1))
@@ -485,10 +639,10 @@ contains
             if (child_local > self%ratio/2 -1) then
                ! the split falls in the second half of siblings list, place all nodes in the current process
                do cl=child_local, self%ratio-1
+                  block_index_new = block_index_new + 1
                   node => self%node(code=codes(c+cl-child_local))
                   node%myrank_new = p
                   node%block_index_new = block_index_new
-                  block_index_new = block_index_new + 1
                enddo
             else
                ! the split falls in the first half of siblings list, place all nodes in the next process
@@ -512,6 +666,7 @@ contains
       endif
       c = c + 1
    enddo
+   call self%make_comm_maps
    contains
       function can_split()
       !< Return true if the split can be done.

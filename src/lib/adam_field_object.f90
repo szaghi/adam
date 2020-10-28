@@ -64,12 +64,15 @@ module adam_field_object
 !<```
 
 use PENF, only : I8P, I4P, R8P, str
+use MPI
 
 implicit none
 private
 public :: field_object
 
 type :: field_object
+   integer(I4P)              :: myrank=0_I4P        !< MPI rank process.
+   integer(I4P)              :: procs_number=1_I4P  !< Number of processes.
    integer(I4P)              :: ni=4_I4P            !< Number of cells in i direction.
    integer(I4P)              :: nj=4_I4P            !< Number of cells in j direction.
    integer(I4P)              :: nk=4_I4P            !< Number of cells in k direction.
@@ -83,9 +86,10 @@ type :: field_object
    integer(I4P)              :: nv=1_I4P            !< Number of field variables.
    integer(I4P)              :: blocks_number=0_I4P !< Number of blocks actually stored.
    integer(I8P), allocatable :: code(:)             !< Morton codes [nb].
-   real(R8P),    allocatable :: emin(:,:)           !< Coordinates of minimum abscissa of each block [3,nb]
-   real(R8P),    allocatable :: emax(:,:)           !< Coordinates of maximum abscissa of each block [3,nb]
-   real(R8P),    allocatable :: u(:,:,:,:)          !< Field cell centered variables [ni+gc12,nj+gc34,nk+gc56,nv,nb]
+   real(R8P),    allocatable :: emin(:,:)           !< Coordinates of minimum abscissa of each block [3,nb].
+   real(R8P),    allocatable :: emax(:,:)           !< Coordinates of maximum abscissa of each block [3,nb].
+   real(R8P),    allocatable :: u(:,:,:,:)          !< Field cell centered variables [ni+gc12,nj+gc34,nk+gc56,nv,nb].
+   real(R8P),    allocatable :: u_new(:,:,:,:)      !< Field cell centered variables [ni+gc12,nj+gc34,nk+gc56,nv,nb].
    contains
       ! public methods
       procedure, pass(self) :: adapt          !< Adapt field accordingly to refine/derefine necessity.
@@ -93,6 +97,7 @@ type :: field_object
       procedure, pass(self) :: destroy        !< Destroy the field.
       procedure, pass(self) :: initialize     !< Initialize the field.
       procedure, pass(self) :: max_cell_delta !< Return the maximum cell delta given a comparison distance.
+      procedure, pass(self) :: redistribute   !< Redistribute blocks to processes.
       ! private methods
       procedure, pass(self), private :: derefine !< Derefine blocks.
       procedure, pass(self), private :: refine   !< Refine blocks.
@@ -158,7 +163,7 @@ contains
    self = fresh
    endsubroutine destroy
 
-   pure subroutine initialize(self, ni, nj, nk, gc, nv, nb, emin, emax)
+   subroutine initialize(self, ni, nj, nk, gc, nv, nb, emin, emax)
    !< Initialize field.
    class(field_object), intent(inout)        :: self    !< The field.
    integer(I4P),        intent(in), optional :: ni      !< Number of cells in X direction.
@@ -169,8 +174,14 @@ contains
    integer(I4P),        intent(in), optional :: nb      !< Number of all blocks that can be stored.
    real(R8P),           intent(in), optional :: emin(3) !< Coordinates of minium abscissa.
    real(R8P),           intent(in), optional :: emax(3) !< Coordinates of maxium abscissa.
+   integer(I4P)                              :: error   !< Error traping flag.
 
    call self%destroy
+#ifdef _MPI_
+   ! MPI_INIT must be already called
+   call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, error)
+   call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, error)
+#endif
    if (present(ni)) self%ni  = ni
    if (present(nj)) self%nj  = nj
    if (present(nk)) self%nk  = nk
@@ -200,9 +211,12 @@ contains
          self%emax(:,1) = 1._R8P
       endif
 
-      allocate(self%u(1-self%gc1:self%ni+self%gc2, & ! TODO add nv rank
+      allocate(self%u(1-self%gc1:self%ni+self%gc2, &
                       1-self%gc3:self%nj+self%gc4, &
                       1-self%gc5:self%nk+self%gc6, 1:self%nb))
+      allocate(self%u_new(1-self%gc1:self%ni+self%gc2, &
+                          1-self%gc3:self%nj+self%gc4, &
+                          1-self%gc5:self%nk+self%gc6, 1:self%nb))
       self%u = 0._R8P
    endif
    endsubroutine initialize
@@ -219,6 +233,82 @@ contains
       delta = huge(0._R8P)
    endif
    endfunction max_cell_delta
+
+   subroutine redistribute(self, comm_map_send, comm_map_recv, comm_map_send_ptr, comm_map_recv_ptr, local_map)
+   !< Redistribute blocks to processes.
+   class(field_object),       intent(inout) :: self                   !< The field.
+   integer(I8P), allocatable, intent(in)    :: comm_map_send(:)       !< Comm map, blocks to send [sum(comm_map_n_send)].
+   integer(I8P), allocatable, intent(in)    :: comm_map_recv(:)       !< Comm map, blocks to receive [sum(comm_map_n_recv)].
+   integer(I4P), allocatable, intent(in)    :: comm_map_send_ptr(:)   !< Comm map, pointers in list to send [procs_number+1].
+   integer(I4P), allocatable, intent(in)    :: comm_map_recv_ptr(:)   !< Comm map, pointers in list to recv [procs_number+1].
+   integer(I8P), allocatable                :: local_map(:,:)         !< Local map, list block index changes of my blocks.
+   real(R8P),    allocatable                :: send_buffer(:)         !< Send buffer of field cell centered variables.
+   real(R8P),    allocatable                :: recv_buffer(:)         !< Recv buffer of field cell centered variables.
+   integer(I8P)                             :: block_weight           !< Single block weight.
+   integer(I8P)                             :: send_size, send_offset !< Total size of send buffer.
+   integer(I8P)                             :: recv_size, recv_offset !< Total size of recv buffer.
+   integer(I4P)                             :: b, bi, p               !< Counter.
+   integer(I4P)                             :: ptr_start, ptr_end     !< Counter.
+   integer(I4P)                             :: n_recv, n_send         !< Counter.
+   integer(I4P)                             :: error                  !< Error traping flag.
+   integer(I4P), allocatable                :: req_recv(:)            !< MPI request receive flags.
+
+   allocate(req_recv(0:self%procs_number-1))
+   req_recv = MPI_REQUEST_NULL
+
+   block_weight = (self%ni+self%gc1+self%gc2) * (self%nj+self%gc3+self%gc4) * (self%nk+self%gc5+self%gc6) * 1_I8P
+   send_size = 0_I8P ; if (allocated(comm_map_send)) send_size = size(comm_map_send, dim=1) * block_weight
+   recv_size = 0_I8P ; if (allocated(comm_map_recv)) recv_size = size(comm_map_recv, dim=1) * block_weight
+   if (send_size > 0_I8P) allocate(send_buffer(send_size))
+   if (recv_size > 0_I8P) allocate(recv_buffer(recv_size))
+
+   if (send_size > 0_I8P) then
+      send_offset = 1
+      do b=1, size(comm_map_send, dim=1)
+         bi = comm_map_send(b)
+         send_buffer(send_offset:send_offset + block_weight - 1) = reshape(self%u(:,:,:,bi),[block_weight])
+         send_offset = send_offset + block_weight
+      enddo
+   endif
+
+   do p=0, self%procs_number - 1_I4P
+      ptr_start = comm_map_recv_ptr(p)   * block_weight + 1
+      ptr_end   = comm_map_recv_ptr(p+1) * block_weight
+      n_recv    = ptr_end - ptr_start + 1
+      if (n_recv > 0) then
+         call MPI_IRECV(recv_buffer(ptr_start), n_recv, MPI_REAL8, p, 100, &
+                        MPI_COMM_WORLD, req_recv(p), error)
+      endif
+   enddo
+
+   do p=0, self%procs_number - 1_I4P
+      ptr_start = comm_map_send_ptr(p)   * block_weight + 1
+      ptr_end   = comm_map_send_ptr(p+1) * block_weight
+      n_send    = ptr_end - ptr_start + 1
+      if (n_send > 0) then
+         call MPI_SEND(send_buffer(ptr_start), n_send, MPI_REAL8, p, 100, &
+                       MPI_COMM_WORLD, error)
+      endif
+   enddo
+
+   call MPI_WAITALL(self%procs_number, req_recv, MPI_STATUSES_IGNORE, error)
+
+   if (recv_size > 0_I8P) then
+      recv_offset = 1
+      do b=1, size(comm_map_recv, dim=1)
+          bi = comm_map_recv(b)
+          self%u_new(:,:,:,bi) = reshape(recv_buffer(recv_offset:recv_offset + block_weight -1),[self%gc1+self%ni+self%gc2, &
+                                                                                                 self%gc3+self%nj+self%gc4, &
+                                                                                                 self%gc5+self%nk+self%gc6])
+          recv_offset = recv_offset + block_weight
+      enddo
+   endif
+
+   do b=1, size(local_map, dim=1)
+      self%u_new(:,:,:,local_map(b,1)) = self%u(:,:,:,local_map(b,2))
+   enddo
+   self%u = self%u_new
+   endsubroutine redistribute
 
    ! privatec methods
    pure subroutine derefine(self, ratio, block_to_derefine, block_derefined)
@@ -338,6 +428,8 @@ contains
    class(field_object), intent(inout) :: lhs !< Left hand side.
    type(field_object),  intent(in)    :: rhs !< Right hand side.
 
+   lhs%myrank        = rhs%myrank
+   lhs%procs_number  = rhs%procs_number
    lhs%ni            = rhs%ni
    lhs%nj            = rhs%nj
    lhs%nk            = rhs%nk
@@ -370,6 +462,11 @@ contains
       lhs%u = rhs%u
    else
       if (allocated(lhs%u)) deallocate(lhs%u)
+   endif
+   if (allocated(rhs%u_new)) then
+      lhs%u_new = rhs%u_new
+   else
+      if (allocated(lhs%u_new)) deallocate(lhs%u_new)
    endif
    endsubroutine field_assign_field
 endmodule adam_field_object

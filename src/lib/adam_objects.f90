@@ -36,7 +36,7 @@ contains
    real(R8P)                                :: distance(0:8)   !< Distances between block and sphere.
    real(R8P)                                :: max_cell_delta  !< Max cell delta.
 
-   threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
+   threshold_ = 2200000000000_R8P ; if (present(threshold)) threshold_ = threshold
    do while(tree%loop(node=node))
       block_center = (field%emax(:,node%block_index) + field%emin(:,node%block_index)) / 2._R8P
       block_diagonal = sqrt((field%emax(1,node%block_index) - field%emin(1,node%block_index))**2 + &
@@ -91,6 +91,7 @@ contains
    type(vtm_file)                           :: vtm        !< VTM file handler.
    type(tree_node_object), pointer          :: node       !< Pointer to node.
    integer(I4P)                             :: b, l       !< Counter.
+   integer(I4P)                             :: i,j,k      !< Counter.
    integer(I4P)                             :: max_level  !< Maximum level.
 
    directory_ = '' ; if (present(directory)) directory_ = trim(directory)
@@ -113,6 +114,7 @@ contains
                                           z=field%compute_xyz(b, axis='z'))
          error = vtk%xml_writer%write_dataarray(location='cell', action='open')
          error = vtk%xml_writer%write_dataarray(data_name='u', x=[field%u(1:ni,1:nj,1:nk,b)])
+         error = vtk%xml_writer%write_dataarray(data_name='myrn', x=[(((node%myrank_new, k=1,nk),j=1,nj),i=1,ni)])
          error = vtk%xml_writer%write_dataarray(location='cell', action='close')
          error = vtk%xml_writer%write_piece()
          error = vtk%finalize()
