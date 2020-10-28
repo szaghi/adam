@@ -36,14 +36,36 @@ contains
    real(R8P)                                :: distance(0:8)   !< Distances between block and sphere.
    real(R8P)                                :: max_cell_delta  !< Max cell delta.
 
+   real(R8P)                          :: dx, dy, dz    !< Domain delta space.
+   real(R8P)                          :: dxl, dyl, dzl !< Local delta space.
+   real(R8P)                          :: emin(3), emax(3)
+   integer(I4P)                       :: i, j, k, l, b !< Counter.
+
+   dx = field%domain_emax(1) - field%domain_emin(1)
+   dy = field%domain_emax(2) - field%domain_emin(2)
+   dz = field%domain_emax(3) - field%domain_emin(3)
+
    threshold_ = 2200000000000_R8P ; if (present(threshold)) threshold_ = threshold
    do while(tree%loop(node=node))
-      block_center = (field%emax(:,node%block_index) + field%emin(:,node%block_index)) / 2._R8P
-      block_diagonal = sqrt((field%emax(1,node%block_index) - field%emin(1,node%block_index))**2 + &
-                            (field%emax(2,node%block_index) - field%emin(2,node%block_index))**2 + &
-                            (field%emax(3,node%block_index) - field%emin(3,node%block_index))**2)
+      ! block_center = (field%emax(:,node%block_index) + field%emin(:,node%block_index)) / 2._R8P
+      ! block_diagonal = sqrt((field%emax(1,node%block_index) - field%emin(1,node%block_index))**2 + &
+      !                       (field%emax(2,node%block_index) - field%emin(2,node%block_index))**2 + &
+      !                       (field%emax(3,node%block_index) - field%emin(3,node%block_index))**2)
 
-      associate (emin=>field%emin(:,node%block_index), emax=>field%emax(:,node%block_index), &
+      call tree%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
+      dxl = dx / 2**l
+      dyl = dy / 2**l
+      dzl = dz / 2**l
+      emin(1) = i * dxl ; emax(1) = emin(1) + dxl
+      emin(2) = j * dyl ; emax(2) = emin(2) + dyl
+      emin(3) = k * dzl ; emax(3) = emin(3) + dzl
+      block_center = (emax(:) + emin(:)) / 2._R8P
+      block_diagonal = sqrt((emax(1) - emin(1))**2 + &
+                            (emax(2) - emin(2))**2 + &
+                            (emax(3) - emin(3))**2)
+
+      ! associate (emin=>field%emin(:,node%block_index), emax=>field%emax(:,node%block_index), &
+      associate (&
                  ni=>field%ni, nj=>field%nj, nk=>field%nk)
       distance(0) = sphere_distance(point=block_center)
       distance(1) = sphere_distance(point=[emin(1), emin(2), emin(3)])
@@ -102,34 +124,42 @@ contains
       vtk_loop : do while(tree%loop(node=node))
          b = node%block_index
          max_level = max(max_level, tree%level(code=node%code))
-         error = vtk%initialize(format='raw', filename=directory_//trim(basename)//'-block-'//trim(str(b,.true.))//'.vtr', &
-                                mesh_topology='RectilinearGrid',                                                           &
-                                nx1=0, nx2=ni, ny1=0, ny2=nj, nz1=0, nz2=nk)
-         error = vtk%xml_writer%write_fielddata(action='open')
-         error = vtk%xml_writer%write_fielddata(data_name='Morton', x=field%code(b))
-         error = vtk%xml_writer%write_fielddata(action='close')
-         error = vtk%xml_writer%write_piece(nx1=0, nx2=ni, ny1=0, ny2=nj, nz1=0, nz2=nk)
-         error = vtk%xml_writer%write_geo(x=field%compute_xyz(b, axis='x'), &
-                                          y=field%compute_xyz(b, axis='y'), &
-                                          z=field%compute_xyz(b, axis='z'))
-         error = vtk%xml_writer%write_dataarray(location='cell', action='open')
-         error = vtk%xml_writer%write_dataarray(data_name='u', x=[field%u(1:ni,1:nj,1:nk,b)])
-         error = vtk%xml_writer%write_dataarray(data_name='myrn', x=[(((node%myrank_new, k=1,nk),j=1,nj),i=1,ni)])
-         error = vtk%xml_writer%write_dataarray(location='cell', action='close')
-         error = vtk%xml_writer%write_piece()
-         error = vtk%finalize()
+         ! only the process having node can save VTR file
+         if (field%myrank == node%myrank) then
+            error = vtk%initialize(format='raw', filename=directory_//trim(basename)//'-block-'//trim(str(b,.true.))//&
+                                                          '-proc-'//trim(str(node%myrank,.true.))//'.vtr',            &
+                                   mesh_topology='RectilinearGrid',                                                           &
+                                   nx1=0, nx2=ni, ny1=0, ny2=nj, nz1=0, nz2=nk)
+            error = vtk%xml_writer%write_fielddata(action='open')
+            error = vtk%xml_writer%write_fielddata(data_name='Morton', x=field%code(b))
+            error = vtk%xml_writer%write_fielddata(action='close')
+            error = vtk%xml_writer%write_piece(nx1=0, nx2=ni, ny1=0, ny2=nj, nz1=0, nz2=nk)
+            error = vtk%xml_writer%write_geo(x=field%compute_xyz(b, axis='x'), &
+                                             y=field%compute_xyz(b, axis='y'), &
+                                             z=field%compute_xyz(b, axis='z'))
+            error = vtk%xml_writer%write_dataarray(location='cell', action='open')
+            error = vtk%xml_writer%write_dataarray(data_name='u', x=[field%u(1:ni,1:nj,1:nk,b)])
+            error = vtk%xml_writer%write_dataarray(data_name='myrn', x=[(((node%myrank_new, k=1,nk),j=1,nj),i=1,ni)])
+            error = vtk%xml_writer%write_dataarray(location='cell', action='close')
+            error = vtk%xml_writer%write_piece()
+            error = vtk%finalize()
+         endif
       enddo vtk_loop
 
-      error = vtm%initialize(filename=directory_//trim(basename)//'.vtm', scratch_units_number=max_level)
-      vtm_group_loop : do l=1, max_level
-         error = vtm%write_block(scratch=l, action='open', name='level-'//trim(str(l,.true.)))
-      enddo vtm_group_loop
-      vtm_filenames_loop : do while(tree%loop(node=node))
-         b = node%block_index
-         l = tree%level(code=node%code)
-         error = vtm%write_block(scratch=l, action='write', filename=trim(basename)//'-block-'//trim(str(b,.true.))//'.vtr')
-      enddo vtm_filenames_loop
-      error = vtm%finalize()
+      ! only myrank == 0 save VTM file
+      if (tree%myrank == 0_I4P) then
+         error = vtm%initialize(filename=directory_//trim(basename)//'.vtm', scratch_units_number=max_level)
+         vtm_group_loop : do l=1, max_level
+            error = vtm%write_block(scratch=l, action='open', name='level-'//trim(str(l,.true.)))
+         enddo vtm_group_loop
+         vtm_filenames_loop : do while(tree%loop(node=node))
+            b = node%block_index
+            l = tree%level(code=node%code)
+            error = vtm%write_block(scratch=l, action='write', filename=trim(basename)//'-block-'//trim(str(b,.true.))//&
+                                                                        '-proc-'//trim(str(node%myrank,.true.))//'.vtr')
+         enddo vtm_filenames_loop
+         error = vtm%finalize()
+      endif
    endassociate
    endsubroutine field_save_vtk
 endmodule adam_objects
