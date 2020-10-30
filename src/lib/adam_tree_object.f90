@@ -104,10 +104,11 @@ module adam_tree_object
 !<  |/                                                    X
 !<  o------------------------------------------------------------------->
 
-use adam_tree_node_object, only : destroy_tree_node, tree_node_object, NODE_TO_BE_REFINED, NODE_TO_BE_DEREFINED, NODE_TO_NOT_TOUCH
-use adam_tree_bucket_object, only : tree_bucket_object, iterator_interface, len
-use MORTIF, only : morton2D, morton3D, demorton2D, demorton3D
-use PENF, only : I1P, I4P, I8P, R8P, str
+use adam_parameters
+use adam_tree_node_object
+use adam_tree_bucket_object
+use MORTIF
+use PENF
 #ifdef _MPI_
 use MPI
 #endif
@@ -116,28 +117,34 @@ implicit none
 private
 public :: tree_object
 
-! tree defaults
+! tree node parameters
+integer(I4P), parameter :: NODE_STANDARD = 0_I4P           !< Standard node type.
+integer(I4P), parameter :: NODE_MORE_REFINED = 1_I4P       !< More refined node type.
+integer(I4P), parameter :: NODE_BOUNDARY_CONDITION = 2_I4P !< Boundary condition node type.
+! tree parameters
 integer(I8P), parameter :: TREE_BUCKETS_NUMBER_DEF = 9973_I8P    !< Default number of buckets of hash table.
 real(R8P),    parameter :: TREE_MAX_LOAD = 0.9_R8P               !< Maximum load of hash table buckets.
 integer(I4P), parameter :: TREE_MAX_SANITIZE_ITERATIONS = 10_I4P !< Default number of tree sanitize iterations.
-! nodes types
-integer(I4P), parameter :: STANDARD_NODE = 0_I4P           !< Standard node type.
-integer(I4P), parameter :: MORE_REFINED_NODE = 1_I4P       !< More refined node type.
-integer(I4P), parameter :: BOUNDARY_CONDITION_NODE = 2_I4P !< Boundary condition node type.
 
 type :: tree_object
    !< Tree class definition.
+   ! tree data
    type(tree_bucket_object), allocatable :: bucket(:)               !< Tree buckets.
-   integer(I8P), allocatable             :: code(:,:)               !< Min and max code values actually stored [2,buckets_number].
    integer(I8P)                          :: buckets_number=0_I8P    !< Number of buckets used.
    integer(I4P)                          :: nodes_number=0_I4P      !< Number of nodes actually stored, namely the tree length.
    real(R8P)                             :: max_load=TREE_MAX_LOAD  !< Maximum load of tree buckets.
    integer(I4P)                          :: ratio=8_I4P             !< Refinement ratio.
    integer(I4P)                          :: max_level=12_I4P        !< Maximum refinement level.
-   integer(I8P), allocatable             :: to_refine(:)            !< List of nodes to be refined.
-   integer(I8P), allocatable             :: to_derefine(:)          !< List of node to be derefined.
-   integer(I8P)                          :: last_block_index=0_I8P  !< Last block index in the field array.
    logical                               :: is_initialized_=.false. !< Initialization status.
+   ! AMR data
+   integer(I8P)              :: last_block_index=0_I8P !< Last block index in the field array.
+   integer(I8P), allocatable :: node_to_refine(:)      !< List of nodes to be refined.
+   integer(I8P), allocatable :: node_to_derefine(:)    !< List of nodes to be derefined.
+   integer(I4P), allocatable :: block_to_refine(:)     !< List of field blocks to be refined.
+   integer(I4P), allocatable :: block_refined(:,:)     !< List of field refined blocks with Morton code.
+   integer(I4P), allocatable :: block_to_derefine(:)   !< List of field blocks to be derefined.
+   integer(I4P), allocatable :: block_derefined(:,:)   !< List of field derefined blocks with Morton code.
+   integer(I4P), allocatable :: block_coordinates(:,:) !< Block coordinates of redistributed blocks [4,blocks_number].
    ! MPI data
    integer(I4P)              :: procs_number=1_I4P   !< MPI Number of processes.
    integer(I4P)              :: myrank=0_I4P         !< MPI rank process.
@@ -198,21 +205,20 @@ type :: tree_object
       procedure, pass(self), private :: morton_to_coordinates3D !< Return the ijkl coordinates given Morton code.
       procedure, pass(self), private :: morton_to_coordinates2D !< Return the ijkl coordinates given Morton code.
       procedure, pass(self), private :: refine                  !< Refine nodes.
+      ! operators
+      generic :: assignment(=) => tree_assign_tree      !< Overload `=`.
+      procedure, pass(lhs), private :: tree_assign_tree !< Operator `=`.
 endtype tree_object
 
 contains
    ! public methods
-   subroutine adapt(self, block_to_refine, block_refined, block_to_derefine, block_derefined)
+   subroutine adapt(self)
    !< Adapt tree accordingly to refine/derefine necessity.
-   class(tree_object),        intent(inout) :: self                 !< The tree.
-   integer(I8P), allocatable, intent(out)   :: block_to_refine(:)   !< List of field blocks to be refined.
-   integer(I8P), allocatable, intent(out)   :: block_refined(:,:)   !< List of field refined blocks with Morton code.
-   integer(I8P), allocatable, intent(out)   :: block_to_derefine(:) !< List of field blocks to be derefined.
-   integer(I8P), allocatable, intent(out)   :: block_derefined(:,:) !< List of field derefined blocks with Morton code.
+   class(tree_object), intent(inout) :: self !< The tree.
 
    call self%sanitize
-   call self%refine(  block_to_refine=block_to_refine,     block_refined=block_refined    )
-   call self%derefine(block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+   call self%refine
+   call self%derefine
    endsubroutine adapt
 
    function codes(self)
@@ -295,35 +301,10 @@ contains
 
    subroutine destroy(self)
    !< Destroy the tree.
-   class(tree_object), intent(inout) :: self !< The tree.
-   integer(I4P)                      :: b    !< Counter.
+   class(tree_object), intent(inout) :: self  !< The tree.
+   type(tree_object)                 :: fresh !< Fresh tree.
 
-   if (allocated(self%bucket)) then
-      do b=lbound(self%bucket, dim=1), ubound(self%bucket, dim=1)
-        call self%bucket(b)%destroy
-      enddo
-      deallocate(self%bucket)
-   endif
-   if (allocated(self%code)) deallocate(self%code)
-   self%buckets_number = 0_I8P
-   self%nodes_number = 0_I4P
-   self%max_load = TREE_MAX_LOAD
-   self%ratio = 8_I4P
-   self%max_level = 12_I4P
-   if (allocated(self%to_refine)) deallocate(self%to_refine)
-   if (allocated(self%to_derefine)) deallocate(self%to_derefine)
-   self%last_block_index = 0_I8P
-   self%is_initialized_ = .false.
-   ! MPI data
-   self%procs_number = 1_I4P
-   self%myrank = 0_I4P
-   if (allocated(self%comm_map_n_send)) deallocate(self%comm_map_n_send)
-   if (allocated(self%comm_map_n_recv)) deallocate(self%comm_map_n_recv)
-   if (allocated(self%comm_map_send_ptr)) deallocate(self%comm_map_send_ptr)
-   if (allocated(self%comm_map_recv_ptr)) deallocate(self%comm_map_recv_ptr)
-   if (allocated(self%comm_map_send)) deallocate(self%comm_map_send)
-   if (allocated(self%comm_map_recv)) deallocate(self%comm_map_recv)
-   if (allocated(self%local_map)) deallocate(self%local_map)
+   self = fresh
    endsubroutine destroy
 
    function loop(self, code, node) result(again)
@@ -385,10 +366,7 @@ contains
    class(tree_object), intent(in) :: self   !< The tree.
    integer(I8P),       intent(in) :: code   !< The Morton code.
    integer(I4P)                   :: bucket !< Bucket index corresponding to the key.
-   ! integer(I8P)                   :: nb     !< Buckets number promoted to I8P integer.
 
-   ! nb = int(self%buckets_number, I8P)
-   ! bucket = int(code - ((code + 1_I8P) / nb) * nb, I4P)
    bucket = modulo(code, int(self%buckets_number, I8P)) + 1
    endfunction hash
 
@@ -404,8 +382,9 @@ contains
    logical                                  :: add_adam_      !< Add ADAM node, the ancestor of all nodes, local var.
    integer(I4P)                             :: error          !< Error traping flag.
 
-   add_adam_ = .true. ; if (present(add_adam)) add_adam_ = add_adam
    call self%destroy
+   add_adam_ = .true. ; if (present(add_adam)) add_adam_ = add_adam
+   ! tree data
    if (present(max_load)) self%max_load = max_load
    if (present(nodes_number)) then
       self%buckets_number = self%prime_buckets_number(nodes_number=nodes_number)
@@ -413,13 +392,20 @@ contains
       self%buckets_number = TREE_BUCKETS_NUMBER_DEF ; if (present(buckets_number)) self%buckets_number = buckets_number
    endif
    allocate(self%bucket(1:self%buckets_number))
-   allocate(self%code(1:2,1:self%buckets_number))
-   self%code = 0_I8P
-   if (present(ratio)) self%ratio = ratio
+   if (present(ratio)) then
+      if (ratio==8_I8P.or.ratio==4_I8P) then
+         self%ratio = ratio
+      else
+         write(unit_error, '(A)') 'ADAM-ERROR: tree ratio must be 8 o 4'
+#ifdef _MPI_
+   call MPI_FINALIZE(error)
+#endif
+        stop
+      endif
+   endif
    if (present(max_level)) self%max_level = max_level
    self%is_initialized_ = .true.
-   ! add ADAM node, the ancestor of all nodes
-   if (add_adam_) call self%add_node(code=-1_I8P)
+   if (add_adam_) call self%add_node(code=-1_I8P) ! add ADAM node, the ancestor of all nodes
    ! MPI data
 #ifdef _MPI_
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, error)
@@ -437,20 +423,12 @@ contains
 
    subroutine make_comm_local_maps(self)
    !< Make communication/local maps.
-! ------------------------------------------------------------------
-! ------------------------------------------------------------------
-!
-! blocchi da mandare   - block_index
-! block_index_send     = [ 17, 511, 92, 3, 54, 56, 11, 12]      (variabile)
-!                           |   |       |  ||       |
-! block_index_send_ptr = [  0,  1,  3,  4,  4, 6, (8)]          (n_proc+1)
-!
-! blocchi da ricevere  - nuovi block_index
-! block_index_recv     =  [ 23, 4, 51, 69, 145, 2, 72, 16, 6]   (variabile)
-!                           |       |  ||          |       |
-! block_index_recv_ptr = [  0,  2,  3,  3,  6, 8, (9)]          (n_proc+1)
-!
-! ------------------------------------------------------------------
+   !<```comm_map_send     = [ 17, 511, 92, 3, 54, 56, 11, 12...] (block index).
+   !<                          |   |       |  ||       |
+   !<   comm_map_send_ptr = [  0,  1,  3,  4,  4, 6, (8)]        (pointer to comm_map_send)
+   !<   comm_map_recv     = [ 23, 4, 51, 69, 145, 2, 72, 16, 6]  (block index).
+   !<                         |       |  ||          |       |
+   !<   comm_map_recv_prt = [ 0,  2,  3,  3,  6, 8, (9)]         (pointer to comm_map_recv)```
    class(tree_object), intent(inout) :: self                 !< The tree.
    type(tree_node_object), pointer   :: node                 !< Pointer to current node.
    integer(I8P), allocatable         :: codes(:)             !< List of (sorted) codes.
@@ -613,7 +591,7 @@ contains
    buckets_number = b
    endfunction prime_buckets_number
 
-   subroutine redistribute(self, coordinates)
+   subroutine redistribute(self)
    !< Redistribute nodes to processes.
    !<
    !< The nodes are distributed among all process exploiting the Morton ordering spatiality. Simply, the sorted list of codes are
@@ -623,7 +601,6 @@ contains
    !< accordingly to where the split falls, namely to the *right* if the split falls in the first half of siblings or to the *left*
    !< if it falls in the second half.
    class(tree_object),        intent(inout) :: self             !< The tree.
-   integer(I4P), allocatable, intent(out)   :: coordinates(:,:) !< Coordinates (ijkl,nb) of redistributed nodes.
    integer(I8P), allocatable                :: codes(:)         !< List of (sorted) codes.
    type(tree_node_object), pointer          :: node             !< Pointer to current node.
    integer(I4P)                             :: p                !< Processes counter.
@@ -688,33 +665,24 @@ contains
    enddo
    ! create communication/local maps
    call self%make_comm_local_maps
-      print*, 'cazzo albero sfogliato '//trim(str(self%nodes_number,.true.)), self%has_code(code=29_I8P)
-      print*, 'cazzo codes '//trim(str(self%codes(),.true.))
-      ! do while(self%loop(node=node))
-      ! node => self%node(code=29_I8P)
-      !    ! if (node%myrank == 0.and.node%myrank_new==1) &
-      !    ! if (node%code>=28_I8P.and.node%code<=31_I8P) &
-      !    print*, 'cazzo code, myrank, myrank_new, block, block_index '//&
-      !            trim(str(node%code,.true.))//', '//&
-      !            trim(str(node%myrank,.true.))//', '//&
-      !            trim(str(node%myrank_new,.true.))//', '//&
-      !            trim(str(node%block_index,.true.))//', '//&
-      !            trim(str(node%block_index_new,.true.))
-      ! enddo
-   call MPI_BARRIER(MPI_COMM_WORLD, error)
    ! update tree status and compute coordinates of redistributed nodes
    n_keep = 0_I8P ; if (allocated(self%local_map    )) n_keep = size(self%local_map,     dim=1)
    n_recv = 0_I8P ; if (allocated(self%comm_map_recv)) n_recv = size(self%comm_map_recv, dim=1)
-   allocate(coordinates(n_keep + n_recv, 4))
+   if (allocated(self%block_coordinates)) deallocate(self%block_coordinates) ; allocate(coordinates(n_keep + n_recv, 4))
    do while(self%loop(node=node))
       node%myrank = node%myrank_new
       node%block_index = node%block_index_new
       if (node%myrank == self%myrank) then
-         call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
-         coordinates(node%block_index, 1) = i
-         coordinates(node%block_index, 2) = j
-         coordinates(node%block_index, 3) = k
-         coordinates(node%block_index, 4) = l
+         select case(self%ratio)
+         case(4_I4P)
+            call self%morton_to_coordinates(code=node%code, i=i, j=j, l=l)
+         case(8_I4P)
+            call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
+         endselect
+         self%coordinates(node%block_index, 1) = i
+         self%coordinates(node%block_index, 2) = j
+         self%coordinates(node%block_index, 3) = k
+         self%coordinates(node%block_index, 4) = l
       endif
    enddo
    contains
@@ -746,7 +714,6 @@ contains
          b = self%hash(code=code)
          call self%bucket(b)%remove_node(code=code)
          self%nodes_number = self%nodes_number - 1
-         self%code(1:2, b) = self%bucket(b)%code
       endif
    endif
    endsubroutine remove_node
@@ -771,7 +738,6 @@ contains
                             block_index=node%block_index)
       enddo
       call move_alloc(from=swap%bucket, to=self%bucket)
-      call move_alloc(from=swap%code, to=self%code)
       self%buckets_number = swap%buckets_number
       self%nodes_number   = swap%nodes_number
    else
@@ -814,7 +780,7 @@ contains
       is_sanitize_complete = .true.
 
       ! check for the sanity of derefinement
-      if (allocated(self%to_derefine)) deallocate(self%to_derefine) ; allocate(self%to_derefine(0))
+      if (allocated(self%node_to_derefine)) deallocate(self%node_to_derefine) ; allocate(self%node_to_derefine(0))
       if (allocated(codes_analyzed))   deallocate(codes_analyzed)   ; allocate(codes_analyzed(0))
       derefine_loop : do while(self%loop(node=node))
          ! check if I want to be derefined and I have not been analyzed yet
@@ -837,7 +803,7 @@ contains
                enddo sibs_check_loop
                if (can_be_derefined) then
                   all_siblings = self%all_siblings(code=code)
-                  self%to_derefine = [self%to_derefine, all_siblings]
+                  self%node_to_derefine = [self%node_to_derefine, all_siblings]
                   codes_analyzed = [codes_analyzed, all_siblings]
                else
                   is_sanitize_complete = .false.
@@ -861,7 +827,7 @@ contains
         new_level = self%level(code=node%code) + node%refinement_needed
         face_loop : do f=1, 6
            call self%get_neighbor(code=node%code, face=f, neighbor=neighbor, neighbor_type=neighbor_type)
-           if (neighbor_type /= BOUNDARY_CONDITION_NODE) then
+           if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
               neighbor_loop : do n=1, size(neighbor, dim=1)
                  ! check level
                  neigh => self%node(code=neighbor(n))
@@ -906,9 +872,9 @@ contains
    endif
 
    ! update to_refine list
-   if (allocated(self%to_refine)) deallocate(self%to_refine) ; allocate(self%to_refine(0))
+   if (allocated(self%node_to_refine)) deallocate(self%node_to_refine) ; allocate(self%node_to_refine(0))
    do while(self%loop(node=node))
-      if (node%refinement_needed==NODE_TO_BE_REFINED) self%to_refine = [self%to_refine, [node%code]]
+      if (node%refinement_needed==NODE_TO_BE_REFINED) self%node_to_refine = [self%node_to_refine, [node%code]]
    enddo
    endsubroutine sanitize
 
@@ -1129,37 +1095,37 @@ contains
    case(1_I4P)
       i_dn(1) = i_dn(1) - 1
       if (i_dn(1) < 0) then
-         neighbor_type = BOUNDARY_CONDITION_NODE
+         neighbor_type = NODE_BOUNDARY_CONDITION
          return
       endif
    case(2_I4P)
       i_dn(1) = i_dn(1) + 1
       if (i_dn(1) > 2**l_dn - 1) then
-         neighbor_type = BOUNDARY_CONDITION_NODE
+         neighbor_type = NODE_BOUNDARY_CONDITION
          return
       endif
    case(3_I4P)
       j_dn(1) = j_dn(1) - 1
       if (j_dn(1) < 0) then
-         neighbor_type = BOUNDARY_CONDITION_NODE
+         neighbor_type = NODE_BOUNDARY_CONDITION
          return
       endif
    case(4_I4P)
       j_dn(1) = j_dn(1) + 1
       if (j_dn(1) > 2**l_dn - 1) then
-         neighbor_type = BOUNDARY_CONDITION_NODE
+         neighbor_type = NODE_BOUNDARY_CONDITION
          return
       endif
    case(5_I4P)
       k_dn(1) = k_dn(1) - 1
       if (k_dn(1) < 0) then
-         neighbor_type = BOUNDARY_CONDITION_NODE
+         neighbor_type = NODE_BOUNDARY_CONDITION
          return
       endif
    case(6_I4P)
       k_dn(1) = k_dn(1) + 1
       if (k_dn(1) > 2**l_dn - 1) then
-         neighbor_type = BOUNDARY_CONDITION_NODE
+         neighbor_type = NODE_BOUNDARY_CONDITION
          return
       endif
    endselect
@@ -1175,7 +1141,7 @@ contains
    ! direct neighbor is not a sibling, check if it exists
    if (self%has_code(code=direct_neighbor)) then
       neighbor = [direct_neighbor]
-      neighbor_type = STANDARD_NODE
+      neighbor_type = NODE_STANDARD
       return
    endif
 
@@ -1183,7 +1149,7 @@ contains
    direct_neighbor_parent = self%parent(code=direct_neighbor)
    if (self%has_code(code=direct_neighbor_parent)) then
       neighbor = [direct_neighbor_parent]
-      neighbor_type = STANDARD_NODE
+      neighbor_type = NODE_STANDARD
       return
    endif
 
@@ -1295,13 +1261,13 @@ contains
    case(4_I4P)
       neighbor = [self%coordinates_to_morton(i=i_dn(1), j=j_dn(1), l=l_dn), &
                   self%coordinates_to_morton(i=i_dn(2), j=j_dn(2), l=l_dn)]
-      neighbor_type = MORE_REFINED_NODE
+      neighbor_type = NODE_MORE_REFINED
    case(8_I4P)
       neighbor = [self%coordinates_to_morton(i=i_dn(1), j=j_dn(1), k=k_dn(1), l=l_dn), &
                   self%coordinates_to_morton(i=i_dn(2), j=j_dn(2), k=k_dn(2), l=l_dn), &
                   self%coordinates_to_morton(i=i_dn(3), j=j_dn(3), k=k_dn(3), l=l_dn), &
                   self%coordinates_to_morton(i=i_dn(4), j=j_dn(4), k=k_dn(4), l=l_dn)]
-      neighbor_type = MORE_REFINED_NODE
+      neighbor_type = NODE_MORE_REFINED
    endselect
    endsubroutine get_neighbor
 
@@ -1440,7 +1406,12 @@ contains
       endif
    enddo
 
-   call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
+   select case(self%ratio)
+   case(4_I4P)
+      call self%morton_to_coordinates(code=node%code, i=i, j=j, l=l)
+   case(8_I4P)
+      call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
+   endselect
    topology = ' code: '//trim(str(code))
    if (coordinates_.or.whole_) topology = topology//' coordinates: '//trim(str([i,j,k,l],.true.))
    if (level_.or.whole_      ) topology = topology//' level: '//trim(str(self%level(code=code),.true.))
@@ -1504,7 +1475,6 @@ contains
    b = self%hash(code=code)
    call self%bucket(b)%add_node(code=code, refinement_needed=refinement_needed, &
                                 myrank=myrank, block_index=block_index)
-   self%code(1:2, b) = self%bucket(b)%code
    update_last_block_index_ = .true. ; if (present(update_last_block_index)) update_last_block_index_ = update_last_block_index
    if (update_last_block_index_) self%last_block_index = self%last_block_index + 1
    endsubroutine add_node
@@ -1532,33 +1502,33 @@ contains
    code = self%first_at_level(level=l) + morton3D(i=i, j=j, k=k)
    endfunction coordinates3D_to_morton
 
-   subroutine derefine(self, block_to_derefine, block_derefined)
+   subroutine derefine(self)
    !< Derefine nodes.
-   class(tree_object),        intent(inout) :: self                 !< The tree.
-   integer(I8P), allocatable, intent(out)   :: block_to_derefine(:) !< List of field blocks to be derefined.
-   integer(I8P), allocatable, intent(out)   :: block_derefined(:,:) !< List of field derefined blocks with Morton code.
-   type(tree_node_object), pointer          :: first_child          !< Pointer to first child node.
-   type(tree_node_object), pointer          :: node                 !< Pointer to node.
-   integer(I8P)                             :: derefined_number     !< Number of derefined blocks.
-   integer(I8P)                             :: n                    !< Counter.
-   integer(I4P)                             :: i                    !< Counter.
+   class(tree_object), intent(inout) :: self             !< The tree.
+   type(tree_node_object), pointer   :: first_child      !< Pointer to first child node.
+   type(tree_node_object), pointer   :: node             !< Pointer to node.
+   integer(I8P)                      :: derefined_number !< Number of derefined blocks.
+   integer(I8P)                      :: n                !< Counter.
+   integer(I4P)                      :: i                !< Counter.
 
-   derefined_number = size(self%to_derefine, dim=1)
-   allocate(block_to_derefine(derefined_number))
-   allocate(block_derefined(2, derefined_number/self%ratio))
-   if (allocated(self%to_derefine)) then
-      do n=1, size(self%to_derefine, dim=1), self%ratio
-         first_child => self%node(code=self%to_derefine(n))
-         block_derefined(1,(n-1)/self%ratio+1) = self%parent(code=first_child%code)
-         block_derefined(2,(n-1)/self%ratio+1) = first_child%block_index
+   derefined_number = size(self%node_to_derefine, dim=1)
+   if (allocated(self%block_to_derefine)) deallocate(self%block_to_derefine)
+   allocate(self%block_to_derefine(derefined_number))
+   if (allocated(self%block_derefined)) deallocate(self%block_derefined)
+   allocate(self%block_derefined(2, derefined_number/self%ratio))
+   if (allocated(self%node_to_derefine)) then
+      do n=1, size(self%node_to_derefine, dim=1), self%ratio
+         first_child => self%node(code=self%node_to_derefine(n))
+         self%block_derefined(1,(n-1)/self%ratio+1) = self%parent(code=first_child%code)
+         self%block_derefined(2,(n-1)/self%ratio+1) = first_child%block_index
          call self%add_node(code=self%parent(code=first_child%code),              &
                                              myrank=first_child%myrank,           &
                                              block_index=first_child%block_index, &
                                              update_last_block_index=.false.)
          do i=0, self%ratio - 1
-            node => self%node(code=self%to_derefine(n+i))
-            block_to_derefine(n+i) = node%block_index
-            call self%remove_node(code=self%to_derefine(n+i))
+            node => self%node(code=self%node_to_derefine(n+i))
+            self%block_to_derefine(n+i) = node%block_index
+            call self%remove_node(code=self%node_to_derefine(n+i))
          enddo
       enddo
    endif
@@ -1615,33 +1585,133 @@ contains
    enddo
    endsubroutine morton_to_coordinates3D
 
-   subroutine refine(self, block_to_refine, block_refined)
+   subroutine refine(self)
    !< Refine nodes.
-   class(tree_object),        intent(inout) :: self                !< The tree.
-   integer(I8P), allocatable, intent(out)   :: block_to_refine(:)  !< List of field blocks to be refined.
-   integer(I8P), allocatable, intent(out)   :: block_refined(:,:)  !< List of field refined blocks with Morton code.
-   type(tree_node_object), pointer          :: parent              !< Pointer to parent node.
-   integer(I8P)                             :: refined_number      !< Number of nodes to be refined.
-   integer(I8P)                             :: n                   !< Counter.
-   integer(I4P)                             :: i                   !< Counter.
+   class(tree_object), intent(inout) :: self           !< The tree.
+   type(tree_node_object), pointer   :: parent         !< Pointer to parent node.
+   integer(I8P)                      :: refined_number !< Number of nodes to be refined.
+   integer(I8P)                      :: n              !< Counter.
+   integer(I4P)                      :: i              !< Counter.
 
-   refined_number = size(self%to_refine, dim=1)
-   allocate(block_to_refine(refined_number))
-   allocate(block_refined(2, self%ratio*refined_number))
+   refined_number = size(self%node_to_refine, dim=1)
+   if (allocated(self%block_to_refine)) deallocate(self%block_to_refine) ; allocate(self%block_to_refine(refined_number))
+   if (allocated(self%block_refined)) deallocate(self%block_refined) ; allocate(self%block_refined(2, self%ratio*refined_number))
    do n=1, refined_number
-      parent => self%node(code=self%to_refine(n))
-      block_to_refine(n) = parent%block_index
+      parent => self%node(code=self%node_to_refine(n))
+      self%block_to_refine(n) = parent%block_index
       call self%add_node(code=self%child(code=parent%code, i=0), myrank=parent%myrank, &
                          block_index=parent%block_index, update_last_block_index=.false.)
-      block_refined(1, (n-1)*self%ratio+1) = self%child(code=parent%code, i=0)
-      block_refined(2, (n-1)*self%ratio+1) = parent%block_index
+      self%block_refined(1, (n-1)*self%ratio+1) = self%child(code=parent%code, i=0)
+      self%block_refined(2, (n-1)*self%ratio+1) = parent%block_index
       do i=1, self%ratio-1
-         block_refined(1, (n-1)*self%ratio+1+i) = self%child(code=parent%code, i=i)
-         block_refined(2, (n-1)*self%ratio+1+i) = self%last_block_index + 1
+         self%block_refined(1, (n-1)*self%ratio+1+i) = self%child(code=parent%code, i=i)
+         self%block_refined(2, (n-1)*self%ratio+1+i) = self%last_block_index + 1
          call self%add_node(code=self%child(code=parent%code, i=i), myrank=parent%myrank, &
                             block_index=self%last_block_index+1)
       enddo
       call self%remove_node(code=parent%code)
    enddo
    endsubroutine refine
+
+   ! operators
+   ! =
+   pure subroutine tree_assign_tree(lhs, rhs)
+   !< Operator `=`.
+   class(tree_object), intent(inout) :: lhs !< Left hand side.
+   type(tree_object),  intent(in)    :: rhs !< Right hand side.
+   integer(I4P)                      :: b   !< Counter.
+
+   ! tree data
+   if (allocated(rhs%bucket)) then
+      lhs%bucket = rhs%bucket
+   else
+      if (allocated(lhs%bucket)) then
+         do b=lbound(lhs%bucket, dim=1), ubound(lhs%bucket, dim=1)
+            call lhs%bucket(b)%destroy
+         enddo
+         deallocate(lhs%bucket)
+      endif
+   endif
+   lhs%buckets_number = rhs%buckets_number
+   lhs%nodes_number = rhs%nodes_number
+   lhs%max_load = rhs%max_load
+   lhs%ratio = rhs%ratio
+   lhs%max_level = rhs%max_level
+   lhs%is_initialized_ = rhs%is_initialized_
+   ! AMR data
+   lhs%last_block_index = rhs%last_block_index
+   if (allocated(rhs%node_to_refine)) then
+      lhs%node_to_refine = rhs%node_to_refine
+   else
+      deallocate(lhs%node_to_refine)
+   endif
+   if (allocated(rhs%node_to_derefine)) then
+      lhs%node_to_derefine = rhs%node_to_derefine
+   else
+      deallocate(lhs%node_to_derefine)
+   endif
+   if (allocated(rhs%block_to_refine)) then
+      lhs%block_to_refine = rhs%block_to_refine
+   else
+      deallocate(lhs%block_to_refine)
+   endif
+   if (allocated(rhs%block_refined)) then
+      lhs%block_refined = rhs%block_refined
+   else
+      deallocate(lhs%block_refined)
+   endif
+   if (allocated(rhs%block_to_derefine)) then
+      lhs%block_to_derefine = rhs%block_to_derefine
+   else
+      deallocate(lhs%block_to_derefine)
+   endif
+   if (allocated(rhs%block_derefined)) then
+      lhs%block_derefined = rhs%block_derefined
+   else
+      deallocate(lhs%block_derefined)
+   endif
+   if (allocated(rhs%block_coordinates)) then
+      lhs%block_coordinates = rhs%block_coordinates
+   else
+      deallocate(lhs%block_coordinates)
+   endif
+   ! MPI data
+   lhs%procs_number = rhs%procs_number
+   lhs%myrank = rhs%myrank
+   if (allocated(rhs%comm_map_n_send)) then
+      lhs%comm_map_n_send = rhs%comm_map_n_send
+   else
+      deallocate(lhs%comm_map_n_send)
+   endif
+   if (allocated(rhs%comm_map_n_recv)) then
+      lhs%comm_map_n_recv = rhs%comm_map_n_recv
+   else
+      deallocate(lhs%comm_map_n_recv)
+   endif
+   if (allocated(rhs%comm_map_send_ptr)) then
+      lhs%comm_map_send_ptr = rhs%comm_map_send_ptr
+   else
+      deallocate(lhs%comm_map_send_ptr)
+   endif
+   if (allocated(rhs%comm_map_recv_ptr)) then
+      lhs%comm_map_recv_ptr = rhs%comm_map_recv_ptr
+   else
+      deallocate(lhs%comm_map_recv_ptr)
+   endif
+   if (allocated(rhs%comm_map_send)) then
+      lhs%comm_map_send = rhs%comm_map_send
+   else
+      deallocate(lhs%comm_map_send)
+   endif
+   if (allocated(rhs%comm_map_recv)) then
+      lhs%comm_map_recv = rhs%comm_map_recv
+   else
+      deallocate(lhs%comm_map_recv)
+   endif
+   if (allocated(rhs%local_map)) then
+      lhs%local_map = rhs%local_map
+   else
+      deallocate(lhs%local_map)
+   endif
+   endsubroutine tree_assign_tree
 endmodule adam_tree_object

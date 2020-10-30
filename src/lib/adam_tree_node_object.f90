@@ -2,15 +2,18 @@
 module adam_tree_node_object
 !< ADAM, tree node class definition.
 
-use PENF, only : I4P, I8P!, str, cton
+use adam_parameters
+use PENF, only : I4P, I8P
 
 implicit none
 private
 public :: destroy_tree_node
 public :: tree_node_object
-public :: NODE_TO_BE_REFINED, NODE_TO_BE_DEREFINED, NODE_TO_NOT_TOUCH
+public :: NODE_TO_BE_REFINED,   &
+          NODE_TO_BE_DEREFINED, &
+          NODE_TO_NOT_TOUCH
 
-! integer(I4P), parameter :: KEY_LEN = 49 !< Length of tree node's key.
+! tree node global parameters
 integer(I4P), parameter :: NODE_TO_BE_REFINED=1_I4P    !< Flag for node to be refined.
 integer(I4P), parameter :: NODE_TO_BE_DEREFINED=-1_I4P !< Flag for node to be derefined.
 integer(I4P), parameter :: NODE_TO_NOT_TOUCH=0_I4P     !< Flag for node to be untouched.

@@ -63,7 +63,8 @@ module adam_field_object
 !<         1    2    3    4    5
 !<```
 
-use PENF, only : I8P, I4P, R8P, str
+use adam_paramters
+use PENF
 #ifdef _MPI_
 use MPI
 #endif
@@ -73,6 +74,7 @@ private
 public :: field_object
 
 type :: field_object
+   ! grid data
    integer(I4P)              :: ni=4_I4P                !< Number of cells in i direction.
    integer(I4P)              :: nj=4_I4P                !< Number of cells in j direction.
    integer(I4P)              :: nk=4_I4P                !< Number of cells in k direction.
@@ -87,6 +89,9 @@ type :: field_object
    integer(I4P)              :: nb=0_I4P                !< Number of all blocks that can be stored.
    integer(I4P)              :: blocks_number=0_I4P     !< Number of blocks actually stored.
    integer(I8P), allocatable :: code(:)                 !< Morton codes [nb].
+   integer(I8P), allocatable :: block_to_refine(:)      !< Morton codes of blocks to be refined.
+   integer(I8P), allocatable :: block_to_not_touch(:)   !< Morton codes of blocks to not touch.
+   integer(I8P), allocatable :: block_to_derefine(:)    !< Morton codes of blocks to be drefined.
    integer(I4P), allocatable :: coordinates(:,:)        !< Coordinates IJKL for each block [nb,4].
    real(R8P)                 :: domain_emin(3)          !< Coordinates of minimum abscissa of whole domain [3].
    real(R8P)                 :: domain_emax(3)          !< Coordinates of maximum abscissa of whole domain [3].
@@ -96,8 +101,9 @@ type :: field_object
    real(R8P),    allocatable :: u_new(:,:,:,:)          !< Field cell centered variables, buffer memory.
    logical                   :: is_initialized_=.false. !< Initialization status.
    ! MPI data
-   integer(I4P) :: myrank=0_I4P       !< MPI rank process.
-   integer(I4P) :: procs_number=1_I4P !< Number of processes.
+   integer(I4P)              :: myrank=0_I4P       !< MPI rank process.
+   integer(I4P)              :: procs_number=1_I4P !< Number of processes.
+   integer(I4P), allocatable :: blocks_numbers(:)  !< Number of blocks actually stored in all processes.
    contains
       ! public methods
       procedure, pass(self) :: adapt             !< Adapt field accordingly to refine/derefine necessity.
@@ -130,7 +136,27 @@ contains
    call self%derefine(ratio=ratio, block_to_derefine=block_to_derefine, block_derefined=block_derefined)
    endsubroutine adapt
 
-   pure subroutine compute_emin_emax(self)
+   subroutine collect_all_marks(self, blocks_to_refine, blocks_to_not_touch, blocks_to_derefine)
+   !< Collect all marks of all blocks of all processes.
+   class(field_object), intent(inout)     :: self                !< The tree.
+   integer(I8P), allocatable, intent(out) :: blocks_to_refine(:)
+   integer(I8P), allocatable, intent(out) :: blocks_to_not_touch(:)
+   integer(I8P), allocatable, intent(out) :: blocks_to_derefine(:)
+
+#ifdef _MPI_
+   allocate(blocks_to_refine(sum(self%blocks_numbers, dim=1)))
+   allocate(blocks_to_not_touch(sum(self%blocks_numbers, dim=1)))
+   allocate(blocks_to_derefine(sum(self%blocks_numbers, dim=1)))
+   call MPI_ALLGATHERV(self%block_to_refine, self%blocks_number, MPI_INTEGER8, blocks_to_refine, &
+                       [0,self%blocks_numbers(:self%procs_number-2)], MPI_INTEGER8, MPI_COMM_WORLD, error)
+   call MPI_ALLGATHERV(self%block_to_not_tocuh, self%blocks_number, MPI_INTEGER8, blocks_to_not_tocuh, &
+                       [0,self%blocks_numbers(:self%procs_number-2)], MPI_INTEGER8, MPI_COMM_WORLD, error)
+   call MPI_ALLGATHERV(self%block_to_derefine, self%blocks_number, MPI_INTEGER8, blocks_to_derefine, &
+                       [0,self%blocks_numbers(:self%procs_number-2)], MPI_INTEGER8, MPI_COMM_WORLD, error)
+#endif
+   endsubroutine collect_all_marks
+
+   subroutine compute_emin_emax(self)
    !< Compute emin/emax of each block.
    class(field_object), intent(inout) :: self          !< The field.
    real(R8P)                          :: dx, dy, dz    !< Domain delta space.
@@ -151,6 +177,11 @@ contains
       self%emin(1,b) = i * dxl ; self%emax(1,b) = self%emin(1,b) + dxl
       self%emin(2,b) = j * dyl ; self%emax(2,b) = self%emin(2,b) + dyl
       self%emin(3,b) = k * dzl ; self%emax(3,b) = self%emin(3,b) + dzl
+      if (self%code(b) == 8_I8P) then
+      print*, 'cazzo ooo b '//trim(str(b,.true.))//' '//trim(str([i,j,k,l],.true.))
+      print*, 'cazzo ooo b '//trim(str(b,.true.))//' '//trim(str(self%emin(:,b),.true.))
+      print*, 'cazzo ooo b '//trim(str(b,.true.))//' '//trim(str(self%emax(:,b),.true.))
+      endif
    enddo
    endsubroutine compute_emin_emax
 
@@ -261,8 +292,25 @@ contains
 #ifdef _MPI_
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, error)
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, error)
+   allocate(self%blocks_numbers(0:self%procs_number-1))
 #endif
    endsubroutine initialize
+
+   subroutine mark_block(self, mark, b)
+   !< Mark block to be refined/derefined/untouched.
+   class(field_object), intent(inout) :: self !< The tree.
+   integer(I4P),        intent(in)    :: mark !< Mark to be imposed [NODE_TO_REFINED,...]
+   integer(I4P),        intent(in)    :: b    !< Block index.
+
+   select case(mark)
+   case(NODE_TO_BE_REFINED)
+      self%block_to_refine(b) = self%code(b)
+   case(NODE_TO_NOT_TOUCH)
+      self%block_to_not_touch(b) = self%code(b)
+   case(NODE_TO_BE_DEREFINED)
+      self%block_to_derefine(b) = self%code(b)
+   endselect
+   endsubroutine mark_block
 
    function max_cell_delta(self, distance) result(delta)
    !< Return the maximum cell delta given a comparison distance.
@@ -298,7 +346,9 @@ contains
    integer(I4P), allocatable                :: req_recv(:)            !< MPI request receive flags.
 
    allocate(req_recv(0:self%procs_number-1))
+#ifdef _MPI_
    req_recv = MPI_REQUEST_NULL
+#endif
 
    send_size = 0_I8P ; if (allocated(comm_map_send)) send_size = size(comm_map_send, dim=1) * self%block_weight
    recv_size = 0_I8P ; if (allocated(comm_map_recv)) recv_size = size(comm_map_recv, dim=1) * self%block_weight
@@ -315,16 +365,15 @@ contains
       enddo
    endif
 
-   call MPI_BARRIER(MPI_COMM_WORLD, error)
-   print*, 'cazzooooooooooooooooooooooooooooooooooooooooooooooooooooooooo'
    do p=0, self%procs_number - 1_I4P
       ptr_start = comm_map_recv_ptr(p)   * self%block_weight + 1
       ptr_end   = comm_map_recv_ptr(p+1) * self%block_weight
       n_recv    = ptr_end - ptr_start + 1
-      print*, 'cazzo recv ', n_recv, ' da ', p
       if (n_recv > 0) then
+#ifdef _MPI_
          call MPI_IRECV(recv_buffer(ptr_start), n_recv, MPI_REAL8, p, 100, &
                         MPI_COMM_WORLD, req_recv(p), error)
+#endif
       endif
    enddo
 
@@ -332,16 +381,17 @@ contains
       ptr_start = comm_map_send_ptr(p)   * self%block_weight + 1
       ptr_end   = comm_map_send_ptr(p+1) * self%block_weight
       n_send    = ptr_end - ptr_start + 1
-      print*, 'cazzo send ', n_send, ' a ', p
       if (n_send > 0) then
+#ifdef _MPI_
          call MPI_SEND(send_buffer(ptr_start), n_send, MPI_REAL8, p, 100, &
                        MPI_COMM_WORLD, error)
+#endif
       endif
    enddo
 
-   print*, ' cazzo prima wait'
+#ifdef _MPI_
    call MPI_WAITALL(self%procs_number, req_recv, MPI_STATUSES_IGNORE, error)
-   print*, ' cazzo dopo wait'
+#endif
 
    if (recv_size > 0_I8P) then
       recv_offset = 1
@@ -361,6 +411,12 @@ contains
    self%blocks_number = n_keep  + recv_size / self%block_weight
    self%coordinates(1:self%blocks_number,:) = coordinates
    call self%compute_emin_emax
+   self%block_to_refine    = [(-2_I8P,b=1,self%blocks_number)]
+   self%block_to_not_touch = [(-2_I8P,b=1,self%blocks_number)]
+   self%block_to_derefine  = [(-2_I8P,b=1,self%blocks_number)]
+#ifdef _MPI_
+   call MPI_ALLGATHER(self%blocks_number, 1, MPI_INTEGER, self%blocks_numbers, 1, MPI_INTEGER, MPI_COMM_WORLD, error)
+#endif
    endsubroutine redistribute
 
    ! privatec methods
@@ -501,6 +557,24 @@ contains
       if (allocated(lhs%code)) deallocate(lhs%code)
    endif
 
+   if (allocated(rhs%block_to_refine)) then
+      lhs%block_to_refine = rhs%block_to_refine
+   else
+      if (allocated(lhs%block_to_refine)) deallocate(lhs%block_to_refine)
+   endif
+
+   if (allocated(rhs%block_to_not_touch)) then
+      lhs%block_to_not_touch = rhs%block_to_not_touch
+   else
+      if (allocated(lhs%block_to_not_touch)) deallocate(lhs%block_to_not_touch)
+   endif
+
+   if (allocated(rhs%block_to_derefine)) then
+      lhs%block_to_derefine = rhs%block_to_derefine
+   else
+      if (allocated(lhs%block_to_derefine)) deallocate(lhs%block_to_derefine)
+   endif
+
    if (allocated(rhs%coordinates)) then
       lhs%coordinates = rhs%coordinates
    else
@@ -538,5 +612,11 @@ contains
    ! MPI data
    lhs%myrank        = rhs%myrank
    lhs%procs_number  = rhs%procs_number
+   if (allocated(rhs%blocks_numbers)) then
+      lhs%blocks_numbers = rhs%blocks_numbers
+   else
+      if (allocated(lhs%blocks_numbers)) deallocate(lhs%blocks_numbers)
+   endif
+
    endsubroutine field_assign_field
 endmodule adam_field_object
