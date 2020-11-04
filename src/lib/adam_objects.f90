@@ -36,42 +36,14 @@ contains
    real(R8P)                                :: distance(0:8)   !< Distances between block and sphere.
    real(R8P)                                :: max_cell_delta  !< Max cell delta.
 
-   ! real(R8P)                          :: dx, dy, dz    !< Domain delta space.
-   ! real(R8P)                          :: dxl, dyl, dzl !< Local delta space.
-   ! real(R8P)                          :: emin(3), emax(3)
-   integer(I4P)                       :: i, j, k, l, b !< Counter.
-
-   ! dx = field%domain_emax(1) - field%domain_emin(1)
-   ! dy = field%domain_emax(2) - field%domain_emin(2)
-   ! dz = field%domain_emax(3) - field%domain_emin(3)
-
-   threshold_ = 2200000000000_R8P ; if (present(threshold)) threshold_ = threshold
+   threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
    do while(tree%loop(node=node))
-      if (node%code==8_I8P) then
-      print*, 'cazzo code:'//trim(str(node%code,.true.))//' ',trim(str(field%emin(:,node%block_index) ,.true.))
-      print*, 'cazzo code:'//trim(str(node%code,.true.))//' ',trim(str(field%emax(:,node%block_index) ,.true.))
-      call tree%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
-      print*, 'cazzo code:'//trim(str(node%code,.true.))//' ',trim(str([i,j,k,l] ,.true.))
-      print*, 'cazzo code:'//trim(str(node%code,.true.))//' ',trim(str(node%block_index ,.true.))
-      endif
+      if (tree%myrank /= node%myrank) cycle ! mark only my nodes
       block_center = (field%emax(:,node%block_index) + field%emin(:,node%block_index)) / 2._R8P
       block_diagonal = sqrt((field%emax(1,node%block_index) - field%emin(1,node%block_index))**2 + &
                             (field%emax(2,node%block_index) - field%emin(2,node%block_index))**2 + &
                             (field%emax(3,node%block_index) - field%emin(3,node%block_index))**2)
 
-      ! call tree%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
-      ! dxl = dx / 2**l
-      ! dyl = dy / 2**l
-      ! dzl = dz / 2**l
-      ! emin(1) = i * dxl ; emax(1) = emin(1) + dxl
-      ! emin(2) = j * dyl ; emax(2) = emin(2) + dyl
-      ! emin(3) = k * dzl ; emax(3) = emin(3) + dzl
-      ! block_center = (emax(:) + emin(:)) / 2._R8P
-      ! block_diagonal = sqrt((emax(1) - emin(1))**2 + &
-      !                       (emax(2) - emin(2))**2 + &
-      !                       (emax(3) - emin(3))**2)
-
-      ! associate (&
       associate (emin=>field%emin(:,node%block_index), emax=>field%emax(:,node%block_index), &
                  ni=>field%ni, nj=>field%nj, nk=>field%nk)
       distance(0) = sphere_distance(point=block_center)
@@ -96,6 +68,7 @@ contains
       endif
       endassociate
    enddo
+   call tree%mpi_exchange
    contains
       pure function sphere_distance(point)
       !< Return the distance from a point to the sphere surface, with sign.

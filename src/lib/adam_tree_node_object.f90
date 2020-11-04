@@ -2,7 +2,6 @@
 module adam_tree_node_object
 !< ADAM, tree node class definition.
 
-use adam_parameters
 use PENF, only : I4P, I8P
 
 implicit none

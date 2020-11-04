@@ -30,30 +30,88 @@ call MPI_INIT(error)
 call MPI_COMM_RANK(MPI_COMM_WORLD, myrank, error)
 #endif
 
-   if (myrank==0) &
    print '(A)', 'initialize tree'
    call tree%initialize
-   call field%initialize(nb=20, emin=[0._R8P,0._R8P,0._R8P], emax=[1._R8P,1._R8P,1._R8P])
+   call field%initialize(nb=5000, emin=[0._R8P,0._R8P,0._R8P], emax=[1._R8P,1._R8P,1._R8P])
 
-   do l=1, 1
-      if (myrank==0) &
+   do l=1, 2
       print '(A)', 'create children of level '//trim(str(l))
       call tree%mark_all_nodes(mark=NODE_TO_BE_REFINED)
-      call tree%adapt(block_to_refine=block_to_refine, block_refined=block_refined, &
-                      block_to_derefine=block_to_derefine, block_derefined=block_derefined)
-      call field%adapt(ratio=tree%ratio, block_to_refine=block_to_refine, block_refined=block_refined, &
-                       block_to_derefine=block_to_derefine, block_derefined=block_derefined)
-      call tree%redistribute(coordinates=coordinates)
+      call tree%adapt
+      call field%adapt(ratio=tree%ratio,                                                       &
+                       block_to_refine=tree%block_to_refine, block_refined=tree%block_refined, &
+                       block_to_derefine=tree%block_to_derefine, block_derefined=tree%block_derefined)
+      call tree%mpi_redistribute
+      do p=0, tree%procs_number-1
+         print '(A)', '    send to:  '//trim(str(p,.true.))//' n.:'//trim(str(tree%comm_map_n_send(p),.true.))
+
+      enddo
+      if (allocated(tree%comm_map_send)) &
+      print '(A)', '       sent:  '//trim(str(tree%comm_map_send,.true.))
+      do p=0, tree%procs_number-1
+         print '(A)', '    recv from:'//trim(str(p,.true.))//' n.:'//trim(str(tree%comm_map_n_recv(p),.true.))
+      enddo
+      if (allocated(tree%comm_map_recv)) &
+      print '(A)', '       recv:  '//trim(str(tree%comm_map_recv,.true.))
+      if (allocated(tree%local_map)) &
+      print '(A)', '    keep n.:'//trim(str(size(tree%local_map(:,1),dim=1),.true.))
+
+      print '(A)', '    field redistribute'
       call field%redistribute(comm_map_send=tree%comm_map_send,        &
                               comm_map_recv=tree%comm_map_recv,        &
                               comm_map_send_ptr=tree%comm_map_send_ptr,&
                               comm_map_recv_ptr=tree%comm_map_recv_ptr,&
                               local_map=tree%local_map,                &
-                              coordinates=coordinates)
+                              coordinates=tree%block_coordinates)
+      print '(A)', '    my codes: '//trim(str(tree%codes(only_mine=.true.),.true.))
    enddo
 
-   node = tree%node(code=6_I8P)
-   node%refinement_needed = NODE_TO_BE_REFINED
+   ! print '(A)', ' my nodes number: '//trim(str(tree%my_nodes_number,.true.))
+   ! if (myrank==0) then
+   !    node => tree%node(code=12_I8P)
+   !    node%refinement_needed = NODE_TO_BE_REFINED
+   ! else
+   !    node => tree%node(code=60_I8P)
+   !    node%refinement_needed = NODE_TO_BE_REFINED
+   ! endif
+   ! print '(A)', ' before MPI exchange'
+   ! node => tree%node(code=12_I8P)
+   ! print '(A)', ' code: '//trim(str(node%code,.true.))//' ref needed:'//trim(str(node%refinement_needed,.true.))
+   ! node => tree%node(code=60_I8P)
+   ! print '(A)', ' code: '//trim(str(node%code,.true.))//' ref needed:'//trim(str(node%refinement_needed,.true.))
+   ! call tree%mpi_exchange
+   ! print '(A)', ' after MPI exchange'
+   ! node => tree%node(code=12_I8P)
+   ! print '(A)', ' code: '//trim(str(node%code,.true.))//' ref needed:'//trim(str(node%refinement_needed,.true.))
+   ! node => tree%node(code=60_I8P)
+   ! print '(A)', ' code: '//trim(str(node%code,.true.))//' ref needed:'//trim(str(node%refinement_needed,.true.))
+   !    call tree%adapt
+   !    call field%adapt(ratio=tree%ratio,                                                       &
+   !                     block_to_refine=tree%block_to_refine, block_refined=tree%block_refined, &
+   !                     block_to_derefine=tree%block_to_derefine, block_derefined=tree%block_derefined)
+   !    call tree%mpi_redistribute
+   !    do p=0, tree%procs_number-1
+   !       print '(A)', '    send to:  '//trim(str(p,.true.))//' n.:'//trim(str(tree%comm_map_n_send(p),.true.))
+
+   !    enddo
+   !    if (allocated(tree%comm_map_send)) &
+   !    print '(A)', '       sent:  '//trim(str(tree%comm_map_send,.true.))
+   !    do p=0, tree%procs_number-1
+   !       print '(A)', '    recv from:'//trim(str(p,.true.))//' n.:'//trim(str(tree%comm_map_n_recv(p),.true.))
+   !    enddo
+   !    if (allocated(tree%comm_map_recv)) &
+   !    print '(A)', '       recv:  '//trim(str(tree%comm_map_recv,.true.))
+   !    if (allocated(tree%local_map)) &
+   !    print '(A)', '    keep n.:'//trim(str(size(tree%local_map(:,1),dim=1),.true.))
+
+   !    print '(A)', '    field redistribute'
+   !    call field%redistribute(comm_map_send=tree%comm_map_send,        &
+   !                            comm_map_recv=tree%comm_map_recv,        &
+   !                            comm_map_send_ptr=tree%comm_map_send_ptr,&
+   !                            comm_map_recv_ptr=tree%comm_map_recv_ptr,&
+   !                            local_map=tree%local_map,                &
+   !                            coordinates=tree%block_coordinates)
+   !    print '(A)', '    my codes: '//trim(str(tree%codes(only_mine=.true.),.true.))
 
       ! do code=32_I8P, 39_I8P
       !    node => tree%node(code=code)
@@ -91,34 +149,44 @@ call MPI_COMM_RANK(MPI_COMM_WORLD, myrank, error)
 ! call MPI_FINALIZE(error)
 ! stop
 
-   ! if (myrank==0) &
-   ! print '(A)', 'sphere tracking'
-   ! do t=1,3
-   !    ! if (myrank==0) &
-   !    print '(A)', '  track iteration '//trim(str(t, .true.))//repeat('-',30)
-   !    call mark_sphere_nodes(tree=tree, field=field, center=[0.5_R8P,0.5_R8P,0.5_R8P], radius=0.2_R8P)
-   !    call tree%adapt(block_to_refine=block_to_refine, block_refined=block_refined, &
-   !                    block_to_derefine=block_to_derefine, block_derefined=block_derefined)
-   !    call field%adapt(ratio=tree%ratio, block_to_refine=block_to_refine, block_refined=block_refined, &
-   !                     block_to_derefine=block_to_derefine, block_derefined=block_derefined)
-   !    call tree%redistribute(coordinates=coordinates)
-   !    call field%redistribute(comm_map_send=tree%comm_map_send, &
-   !                            comm_map_recv=tree%comm_map_recv, &
-   !                            comm_map_send_ptr=tree%comm_map_send_ptr,&
-   !                            comm_map_recv_ptr=tree%comm_map_recv_ptr,&
-   !                            local_map=tree%local_map,                &
-   !                            coordinates=coordinates)
-   !    do p=0, tree%procs_number-1
-   !       print '(A)', 'send to:  '//trim(str(p,.true.))//' n.:'// trim(str(tree%comm_map_n_send(p),.true.))
-   !    enddo
-   !    do p=0, tree%procs_number-1
-   !       print '(A)', 'recv from:'//trim(str(p,.true.))//' n.:'// trim(str(tree%comm_map_n_recv(p),.true.))
-   !    enddo
-   !    if (allocated(tree%local_map)) &
-   !    print '(A)', 'keep n.:'//trim(str(size(tree%local_map(:,1),dim=1),.true.))
+   print '(A)', 'sphere tracking'
+   do t=1,2
+      print '(A)', '  track iteration '//trim(str(t, .true.))//repeat('-',30)
+      call mark_sphere_nodes(tree=tree, field=field, center=[0.5_R8P,0.5_R8P,0.5_R8P], radius=0.2_R8P)
+      print '(A)', '    tree adapt'
+      call tree%adapt
+      print '(A)', '    field adapt'
+      call field%adapt(ratio=tree%ratio,                         &
+                       block_to_refine=tree%block_to_refine,     &
+                       block_refined=tree%block_refined,         &
+                       block_to_derefine=tree%block_to_derefine, &
+                       block_derefined=tree%block_derefined)
+      print '(A)', '    tree redistribute'
+      call tree%mpi_redistribute
+      do p=0, tree%procs_number-1
+         print '(A)', '    send to:  '//trim(str(p,.true.))//' n.:'//trim(str(tree%comm_map_n_send(p),.true.))
 
-   ! enddo
-   !    call field_save_vtk(tree=tree, field=field, basename='sphere-t-'//trim(strz(t,3)), directory='sphere/')
+      enddo
+      if (allocated(tree%comm_map_send)) &
+      print '(A)', '       sent:  '//trim(str(tree%comm_map_send,.true.))
+      do p=0, tree%procs_number-1
+         print '(A)', '    recv from:'//trim(str(p,.true.))//' n.:'//trim(str(tree%comm_map_n_recv(p),.true.))
+      enddo
+      if (allocated(tree%comm_map_recv)) &
+      print '(A)', '       recv:  '//trim(str(tree%comm_map_recv,.true.))
+      if (allocated(tree%local_map)) &
+      print '(A)', '    keep n.:'//trim(str(size(tree%local_map(:,1),dim=1),.true.))
+
+      print '(A)', '    field redistribute'
+      call field%redistribute(comm_map_send=tree%comm_map_send,         &
+                              comm_map_recv=tree%comm_map_recv,         &
+                              comm_map_send_ptr=tree%comm_map_send_ptr, &
+                              comm_map_recv_ptr=tree%comm_map_recv_ptr, &
+                              local_map=tree%local_map,                 &
+                              coordinates=tree%block_coordinates)
+      print '(A)', '    my codes: '//trim(str(tree%codes(only_mine=.true.),.true.))
+   enddo
+      call field_save_vtk(tree=tree, field=field, basename='sphere-t-'//trim(strz(t,3)), directory='sphere/')
 
 #ifdef _MPI_
 call MPI_FINALIZE(error)

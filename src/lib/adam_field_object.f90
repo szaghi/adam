@@ -63,7 +63,6 @@ module adam_field_object
 !<         1    2    3    4    5
 !<```
 
-use adam_paramters
 use PENF
 #ifdef _MPI_
 use MPI
@@ -75,6 +74,8 @@ public :: field_object
 
 type :: field_object
    ! grid data
+   real(R8P)                 :: domain_emin(3)          !< Coordinates of minimum abscissa of whole domain.
+   real(R8P)                 :: domain_emax(3)          !< Coordinates of maximum abscissa of whole domain.
    integer(I4P)              :: ni=4_I4P                !< Number of cells in i direction.
    integer(I4P)              :: nj=4_I4P                !< Number of cells in j direction.
    integer(I4P)              :: nk=4_I4P                !< Number of cells in k direction.
@@ -89,12 +90,7 @@ type :: field_object
    integer(I4P)              :: nb=0_I4P                !< Number of all blocks that can be stored.
    integer(I4P)              :: blocks_number=0_I4P     !< Number of blocks actually stored.
    integer(I8P), allocatable :: code(:)                 !< Morton codes [nb].
-   integer(I8P), allocatable :: block_to_refine(:)      !< Morton codes of blocks to be refined.
-   integer(I8P), allocatable :: block_to_not_touch(:)   !< Morton codes of blocks to not touch.
-   integer(I8P), allocatable :: block_to_derefine(:)    !< Morton codes of blocks to be drefined.
    integer(I4P), allocatable :: coordinates(:,:)        !< Coordinates IJKL for each block [nb,4].
-   real(R8P)                 :: domain_emin(3)          !< Coordinates of minimum abscissa of whole domain [3].
-   real(R8P)                 :: domain_emax(3)          !< Coordinates of maximum abscissa of whole domain [3].
    real(R8P),    allocatable :: emin(:,:)               !< Coordinates of minimum abscissa of each block [3,nb].
    real(R8P),    allocatable :: emax(:,:)               !< Coordinates of maximum abscissa of each block [3,nb].
    real(R8P),    allocatable :: u(:,:,:,:)              !< Field cell centered variables [ni+gc12,nj+gc34,nk+gc56,nv,nb].
@@ -127,7 +123,7 @@ contains
    !< Adapt field accordingly to refine/derefine necessity.
    class(field_object),       intent(inout) :: self                 !< The field.
    integer(I4P),              intent(in)    :: ratio                !< Refinement ratio.
-   integer(I8P), allocatable, intent(in)    :: block_to_refine(:)   !< List of field blocks to be refined.
+   integer(I8P), allocatable, intent(in)    :: block_to_refine(:,:) !< List of field blocks to be refined.
    integer(I8P), allocatable, intent(in)    :: block_refined(:,:)   !< List of field refined blocks with Morton code.
    integer(I8P), allocatable, intent(in)    :: block_to_derefine(:) !< List of field blocks to be derefined.
    integer(I8P), allocatable, intent(in)    :: block_derefined(:,:) !< List of field derefined blocks with Morton code.
@@ -136,25 +132,25 @@ contains
    call self%derefine(ratio=ratio, block_to_derefine=block_to_derefine, block_derefined=block_derefined)
    endsubroutine adapt
 
-   subroutine collect_all_marks(self, blocks_to_refine, blocks_to_not_touch, blocks_to_derefine)
-   !< Collect all marks of all blocks of all processes.
-   class(field_object), intent(inout)     :: self                !< The tree.
-   integer(I8P), allocatable, intent(out) :: blocks_to_refine(:)
-   integer(I8P), allocatable, intent(out) :: blocks_to_not_touch(:)
-   integer(I8P), allocatable, intent(out) :: blocks_to_derefine(:)
+   !subroutine collect_all_marks(self, blocks_to_refine, blocks_to_not_touch, blocks_to_derefine)
+   !!< Collect all marks of all blocks of all processes.
+   !class(field_object), intent(inout)     :: self                !< The tree.
+   !integer(I8P), allocatable, intent(out) :: blocks_to_refine(:)
+   !integer(I8P), allocatable, intent(out) :: blocks_to_not_touch(:)
+   !integer(I8P), allocatable, intent(out) :: blocks_to_derefine(:)
 
-#ifdef _MPI_
-   allocate(blocks_to_refine(sum(self%blocks_numbers, dim=1)))
-   allocate(blocks_to_not_touch(sum(self%blocks_numbers, dim=1)))
-   allocate(blocks_to_derefine(sum(self%blocks_numbers, dim=1)))
-   call MPI_ALLGATHERV(self%block_to_refine, self%blocks_number, MPI_INTEGER8, blocks_to_refine, &
-                       [0,self%blocks_numbers(:self%procs_number-2)], MPI_INTEGER8, MPI_COMM_WORLD, error)
-   call MPI_ALLGATHERV(self%block_to_not_tocuh, self%blocks_number, MPI_INTEGER8, blocks_to_not_tocuh, &
-                       [0,self%blocks_numbers(:self%procs_number-2)], MPI_INTEGER8, MPI_COMM_WORLD, error)
-   call MPI_ALLGATHERV(self%block_to_derefine, self%blocks_number, MPI_INTEGER8, blocks_to_derefine, &
-                       [0,self%blocks_numbers(:self%procs_number-2)], MPI_INTEGER8, MPI_COMM_WORLD, error)
-#endif
-   endsubroutine collect_all_marks
+!#ifdef _MPI_
+   !allocate(blocks_to_refine(sum(self%blocks_numbers, dim=1)))
+   !allocate(blocks_to_not_touch(sum(self%blocks_numbers, dim=1)))
+   !allocate(blocks_to_derefine(sum(self%blocks_numbers, dim=1)))
+   !call MPI_ALLGATHERV(self%block_to_refine, self%blocks_number, MPI_INTEGER8, blocks_to_refine, &
+   !                    [0,self%blocks_numbers(:self%procs_number-2)], MPI_INTEGER8, MPI_COMM_WORLD, error)
+   !call MPI_ALLGATHERV(self%block_to_not_tocuh, self%blocks_number, MPI_INTEGER8, blocks_to_not_tocuh, &
+   !                    [0,self%blocks_numbers(:self%procs_number-2)], MPI_INTEGER8, MPI_COMM_WORLD, error)
+   !call MPI_ALLGATHERV(self%block_to_derefine, self%blocks_number, MPI_INTEGER8, blocks_to_derefine, &
+   !                    [0,self%blocks_numbers(:self%procs_number-2)], MPI_INTEGER8, MPI_COMM_WORLD, error)
+!#endif
+   !endsubroutine collect_all_marks
 
    subroutine compute_emin_emax(self)
    !< Compute emin/emax of each block.
@@ -177,11 +173,6 @@ contains
       self%emin(1,b) = i * dxl ; self%emax(1,b) = self%emin(1,b) + dxl
       self%emin(2,b) = j * dyl ; self%emax(2,b) = self%emin(2,b) + dyl
       self%emin(3,b) = k * dzl ; self%emax(3,b) = self%emin(3,b) + dzl
-      if (self%code(b) == 8_I8P) then
-      print*, 'cazzo ooo b '//trim(str(b,.true.))//' '//trim(str([i,j,k,l],.true.))
-      print*, 'cazzo ooo b '//trim(str(b,.true.))//' '//trim(str(self%emin(:,b),.true.))
-      print*, 'cazzo ooo b '//trim(str(b,.true.))//' '//trim(str(self%emax(:,b),.true.))
-      endif
    enddo
    endsubroutine compute_emin_emax
 
@@ -241,6 +232,17 @@ contains
    integer(I4P)                              :: error   !< Error traping flag.
 
    call self%destroy
+   ! grid data
+   if (present(emin)) then
+      self%domain_emin = emin
+   else
+      self%domain_emin = 0._R8P
+   endif
+   if (present(emax)) then
+      self%domain_emax = emax
+   else
+      self%domain_emax = 1._R8P
+   endif
    if (present(ni)) self%ni  = ni
    if (present(nj)) self%nj  = nj
    if (present(nk)) self%nk  = nk
@@ -251,33 +253,22 @@ contains
    if (present(gc)) self%gc5 = gc(5)
    if (present(gc)) self%gc6 = gc(6)
    if (present(nv)) self%nv  = nv
+   self%block_weight = (self%gc1+self%ni+self%gc2)* &
+                       (self%gc3+self%nj+self%gc4)* &
+                       (self%gc5+self%nk+self%gc6)*self%nv
    if (present(nb)) self%nb  = nb
    if (nb>0) then
-      self%block_weight = (self%gc1+self%ni+self%gc2)* &
-                          (self%gc3+self%nj+self%gc4)* &
-                          (self%gc5+self%nk+self%gc6)*self%nv
 
       allocate(self%code(nb))
-      allocate(self%coordinates(nb,4))
       self%code    = -2_I8P
       self%code(1) = -1_I8P ! first block is assumed to be ADAM
 
+      allocate(self%coordinates(nb,4))
+
       allocate(self%emin(3,nb))
       allocate(self%emax(3,nb))
-      if (present(emin)) then
-         self%domain_emin = emin
-         self%emin(:,1) = emin
-      else
-         self%domain_emin = 0._R8P
-         self%emin(:,1) = 0._R8P
-      endif
-      if (present(emax)) then
-         self%domain_emax = emax
-         self%emax(:,1) = emax
-      else
-         self%domain_emax = 1._R8P
-         self%emax(:,1) = 1._R8P
-      endif
+      self%emin(:,1) = self%domain_emin
+      self%emax(:,1) = self%domain_emax
 
       allocate(self%u(1-self%gc1:self%ni+self%gc2, &
                       1-self%gc3:self%nj+self%gc4, &
@@ -286,6 +277,7 @@ contains
                           1-self%gc3:self%nj+self%gc4, &
                           1-self%gc5:self%nk+self%gc6, 1:self%nb))
       self%u = 0._R8P
+      self%u_new = 0._R8P
    endif
    self%is_initialized_ = .true.
    ! MPI data
@@ -296,21 +288,21 @@ contains
 #endif
    endsubroutine initialize
 
-   subroutine mark_block(self, mark, b)
-   !< Mark block to be refined/derefined/untouched.
-   class(field_object), intent(inout) :: self !< The tree.
-   integer(I4P),        intent(in)    :: mark !< Mark to be imposed [NODE_TO_REFINED,...]
-   integer(I4P),        intent(in)    :: b    !< Block index.
+   !subroutine mark_block(self, mark, b)
+   !!< Mark block to be refined/derefined/untouched.
+   !class(field_object), intent(inout) :: self !< The tree.
+   !integer(I4P),        intent(in)    :: mark !< Mark to be imposed [NODE_TO_REFINED,...]
+   !integer(I4P),        intent(in)    :: b    !< Block index.
 
-   select case(mark)
-   case(NODE_TO_BE_REFINED)
-      self%block_to_refine(b) = self%code(b)
-   case(NODE_TO_NOT_TOUCH)
-      self%block_to_not_touch(b) = self%code(b)
-   case(NODE_TO_BE_DEREFINED)
-      self%block_to_derefine(b) = self%code(b)
-   endselect
-   endsubroutine mark_block
+   !select case(mark)
+   !case(NODE_TO_BE_REFINED)
+   !   self%block_to_refine(b) = self%code(b)
+   !case(NODE_TO_NOT_TOUCH)
+   !   self%block_to_not_touch(b) = self%code(b)
+   !case(NODE_TO_BE_DEREFINED)
+   !   self%block_to_derefine(b) = self%code(b)
+   !endselect
+   !endsubroutine mark_block
 
    function max_cell_delta(self, distance) result(delta)
    !< Return the maximum cell delta given a comparison distance.
@@ -411,12 +403,12 @@ contains
    self%blocks_number = n_keep  + recv_size / self%block_weight
    self%coordinates(1:self%blocks_number,:) = coordinates
    call self%compute_emin_emax
-   self%block_to_refine    = [(-2_I8P,b=1,self%blocks_number)]
-   self%block_to_not_touch = [(-2_I8P,b=1,self%blocks_number)]
-   self%block_to_derefine  = [(-2_I8P,b=1,self%blocks_number)]
-#ifdef _MPI_
-   call MPI_ALLGATHER(self%blocks_number, 1, MPI_INTEGER, self%blocks_numbers, 1, MPI_INTEGER, MPI_COMM_WORLD, error)
-#endif
+   ! self%block_to_refine    = [(-2_I8P,b=1,self%blocks_number)]
+   ! self%block_to_not_touch = [(-2_I8P,b=1,self%blocks_number)]
+   ! self%block_to_derefine  = [(-2_I8P,b=1,self%blocks_number)]
+! #ifdef _MPI_
+   ! call MPI_ALLGATHER(self%blocks_number, 1, MPI_INTEGER, self%blocks_numbers, 1, MPI_INTEGER, MPI_COMM_WORLD, error)
+! #endif
    endsubroutine redistribute
 
    ! privatec methods
@@ -469,19 +461,19 @@ contains
 
    pure subroutine refine(self, ratio, block_to_refine, block_refined)
    !< Refine blocks.
-   class(field_object),       intent(inout) :: self               !< The field.
-   integer(I4P),              intent(in)    :: ratio              !< Refinement ratio.
-   integer(I8P), allocatable, intent(in)    :: block_to_refine(:) !< List of blocks to be refined.
-   integer(I8P), allocatable, intent(in)    :: block_refined(:,:) !< List of refined blocks with Morton code.
-   real(R8P)                                :: dx, dy, dz         !< Space deltas.
-   integer(I4P)                             :: b, i, j, k         !< Spatial counter.
-   integer(I4P)                             :: ib, ic, ii         !< Counter.
-   integer(I4P)                             :: ic1, ic2, ic3, ic4 !< Counter.
-   integer(I4P)                             :: ic5, ic6, ic7, ic8 !< Counter.
+   class(field_object),       intent(inout) :: self                 !< The field.
+   integer(I4P),              intent(in)    :: ratio                !< Refinement ratio.
+   integer(I8P), allocatable, intent(in)    :: block_to_refine(:,:) !< List of blocks to be refined.
+   integer(I8P), allocatable, intent(in)    :: block_refined(:,:)   !< List of refined blocks with Morton code.
+   real(R8P)                                :: dx, dy, dz           !< Space deltas.
+   integer(I4P)                             :: b, i, j, k           !< Spatial counter.
+   integer(I4P)                             :: ib, ic, ii           !< Counter.
+   integer(I4P)                             :: ic1, ic2, ic3, ic4   !< Counter.
+   integer(I4P)                             :: ic5, ic6, ic7, ic8   !< Counter.
 
-   self%blocks_number = maxval(block_refined(2,:))
-   do b=1, size(block_to_refine, dim=1)
-      ib = block_to_refine(b)
+   do b=1, size(block_to_refine, dim=2)
+      if (self%myrank /= block_to_refine(2,b)) cycle
+      ib = block_to_refine(1,b)
 
       ic1 = block_refined(2,(b-1)*ratio+1)
       ic2 = block_refined(2,(b-1)*ratio+2)
@@ -502,8 +494,9 @@ contains
       self%u(:,:,:,ic8) = block_refined(1,(b-1)*ratio+8) ; self%code(ic8) = block_refined(1,(b-1)*ratio+8)
    enddo
 
-   do b=1, size(block_to_refine, dim=1)
-      ib = block_to_refine(b)
+   do b=1, size(block_to_refine, dim=2)
+      if (self%myrank /= block_to_refine(2,b)) cycle
+      ib = block_to_refine(1,b)
 
       dx = self%emax(1,ib) - self%emin(1,ib)
       dy = self%emax(2,ib) - self%emin(2,ib)
@@ -557,23 +550,23 @@ contains
       if (allocated(lhs%code)) deallocate(lhs%code)
    endif
 
-   if (allocated(rhs%block_to_refine)) then
-      lhs%block_to_refine = rhs%block_to_refine
-   else
-      if (allocated(lhs%block_to_refine)) deallocate(lhs%block_to_refine)
-   endif
+   ! if (allocated(rhs%block_to_refine)) then
+   !    lhs%block_to_refine = rhs%block_to_refine
+   ! else
+   !    if (allocated(lhs%block_to_refine)) deallocate(lhs%block_to_refine)
+   ! endif
 
-   if (allocated(rhs%block_to_not_touch)) then
-      lhs%block_to_not_touch = rhs%block_to_not_touch
-   else
-      if (allocated(lhs%block_to_not_touch)) deallocate(lhs%block_to_not_touch)
-   endif
+   ! if (allocated(rhs%block_to_not_touch)) then
+   !    lhs%block_to_not_touch = rhs%block_to_not_touch
+   ! else
+   !    if (allocated(lhs%block_to_not_touch)) deallocate(lhs%block_to_not_touch)
+   ! endif
 
-   if (allocated(rhs%block_to_derefine)) then
-      lhs%block_to_derefine = rhs%block_to_derefine
-   else
-      if (allocated(lhs%block_to_derefine)) deallocate(lhs%block_to_derefine)
-   endif
+   ! if (allocated(rhs%block_to_derefine)) then
+   !    lhs%block_to_derefine = rhs%block_to_derefine
+   ! else
+   !    if (allocated(lhs%block_to_derefine)) deallocate(lhs%block_to_derefine)
+   ! endif
 
    if (allocated(rhs%coordinates)) then
       lhs%coordinates = rhs%coordinates
