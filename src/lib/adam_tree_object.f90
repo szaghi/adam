@@ -146,16 +146,19 @@ type :: tree_object
    integer(I8P), allocatable :: block_derefined(:,:)   !< List of field derefined blocks with Morton code.
    integer(I4P), allocatable :: block_coordinates(:,:) !< Block coordinates of redistributed blocks [4,blocks_number].
    ! MPI data
-   integer(I4P)              :: procs_number=1_I4P    !< MPI Number of processes.
-   integer(I4P)              :: myrank=0_I4P          !< MPI rank process.
-   integer(I4P)              :: my_nodes_number=0_I4P !< Number of my nodes actually stored, namely the tree length.
-   integer(I4P), allocatable :: comm_map_n_send(:)    !< Communication map, number of blocks to send [procs_number].
-   integer(I4P), allocatable :: comm_map_n_recv(:)    !< Communication map, number of blocks to recv [procs_number].
-   integer(I4P), allocatable :: comm_map_send_ptr(:)  !< Communication map, pointers in list to send [procs_number+1].
-   integer(I4P), allocatable :: comm_map_recv_ptr(:)  !< Communication map, pointers in list to recv [procs_number+1].
-   integer(I8P), allocatable :: comm_map_send(:)      !< Communication map, blocks to send [sum(comm_map_n_send)].
-   integer(I8P), allocatable :: comm_map_recv(:)      !< Communication map, blocks to receive [sum(comm_map_n_recv)].
-   integer(I8P), allocatable :: local_map(:,:)        !< Local map, list block index changes of my nodes.
+   integer(I4P)              :: procs_number=1_I4P      !< MPI Number of processes.
+   integer(I4P)              :: myrank=0_I4P            !< MPI rank process.
+   integer(I4P)              :: my_nodes_number=0_I4P   !< Number of my nodes, keep_nodes_number + recv_nodes_number.
+   integer(I4P)              :: send_nodes_number=0_I4P !< Number of nodes to be sent.
+   integer(I4P)              :: recv_nodes_number=0_I4P !< Number of nodes to be received.
+   integer(I4P)              :: keep_nodes_number=0_I4P !< Number of nodes to be keept.
+   integer(I4P), allocatable :: comm_map_n_send(:)      !< Communication map, number of blocks to send [procs_number].
+   integer(I4P), allocatable :: comm_map_n_recv(:)      !< Communication map, number of blocks to recv [procs_number].
+   integer(I4P), allocatable :: comm_map_send_ptr(:)    !< Communication map, pointers in list to send [procs_number+1].
+   integer(I4P), allocatable :: comm_map_recv_ptr(:)    !< Communication map, pointers in list to recv [procs_number+1].
+   integer(I8P), allocatable :: comm_map_send(:)        !< Communication map, blocks to send [sum(comm_map_n_send)].
+   integer(I8P), allocatable :: comm_map_recv(:)        !< Communication map, blocks to receive [sum(comm_map_n_recv)].
+   integer(I8P), allocatable :: local_map(:,:)          !< Local map, list block index changes of my nodes.
    contains
       ! public methods
       procedure, pass(self) :: adapt                !< Adapt tree accordingly to refine/derefine necessity.
@@ -170,6 +173,7 @@ type :: tree_object
       procedure, pass(self) :: mpi_exchange         !< Exchange nodes data between MPI processes, tree update.
       procedure, pass(self) :: mpi_redistribute     !< Redistribute nodes to MPI processes, load balancing.
       procedure, pass(self) :: node                 !< Return a pointer to a node.
+      procedure, pass(self) :: print_mpi_stats      !< Print MPI stats.
       procedure, pass(self) :: prime_buckets_number !< Return the buckets number as nearest prime number given nodes number.
       procedure, pass(self) :: remove_node          !< Remove a node from the tree, given the key.
       procedure, pass(self) :: resize               !< Resize the tree.
@@ -218,6 +222,9 @@ contains
    !< Adapt tree accordingly to refine/derefine necessity.
    class(tree_object), intent(inout) :: self !< The tree.
 
+#ifdef _MPI_
+   call self%mpi_exchange
+#endif
    call self%sanitize
    call self%refine
    call self%derefine
@@ -386,7 +393,9 @@ contains
    integer(I4P),       intent(in), optional :: max_level      !< Maximum refinement level.
    logical,            intent(in), optional :: add_adam       !< Add ADAM node, the ancestor of all nodes.
    logical                                  :: add_adam_      !< Add ADAM node, the ancestor of all nodes, local var.
+#ifdef _MPI_
    integer(I4P)                             :: error          !< Error traping flag.
+#endif
 
    call self%destroy
    add_adam_ = .true. ; if (present(add_adam)) add_adam_ = add_adam
@@ -425,6 +434,7 @@ contains
    self%comm_map_n_recv = 0_I4P
    self%comm_map_send_ptr = 0_I4P
    self%comm_map_recv_ptr = 0_I4P
+   call self%mpi_redistribute
    endsubroutine initialize
 
    subroutine make_comm_local_maps(self)
@@ -571,8 +581,10 @@ contains
    integer(I8P), allocatable         :: recv_buffer(:) !< Recv buffer nodes data.
    integer(I4P), allocatable         :: recv_count(:)  !< Number of nodes that are received from each process.
    integer(I4P), allocatable         :: disp_count(:)  !< Displacement of nodes that are received from each process.
-   integer(I4P)                      :: error          !< Error traping flag.
    integer(I8P)                      :: n, p           !< Counter.
+#ifdef _MPI_
+   integer(I4P)                      :: error          !< Error traping flag.
+#endif
 
    allocate(send_buffer(self%my_nodes_number * 2)) ! [Morton code, refinement_needed]
    allocate(recv_buffer(self%nodes_number    * 2)) ! [Morton code, refinement_needed]
@@ -628,7 +640,6 @@ contains
    integer(I4P)                      :: child_local      !< Local numbering.
    integer(I8P)                      :: n_keep           !< Number of keept nodes.
    integer(I8P)                      :: n_recv           !< Number of nodes that I have to receive.
-   integer(I4P)                      :: error
 
    codes = self%codes() ! sorted list of codes
    my_codes_number = nint(real(size(codes, dim=1),R8P) / self%procs_number)
@@ -729,6 +740,30 @@ contains
    if (self%is_initialized_) p => self%bucket(self%hash(code=code))%node(code=code)
    endfunction node
 
+   subroutine print_mpi_stats(self)
+   !< Print MPI stats.
+   class(tree_object), intent(in) :: self !< The tree.
+   integer(I4P)                   :: p    !< Counter.
+
+   do p=0, self%procs_number-1
+      print '(A)', ' myrank: '//trim(str(self%myrank,.true.))//&
+                   ' send to: '//trim(str(p,.true.))//' blocks n.: '//trim(str(self%comm_map_n_send(p),.true.))
+   enddo
+   if (allocated(self%comm_map_send)) &
+      print '(A)', ' myrank: '//trim(str(self%myrank,.true.))//&
+                   ' blocks sent: '//trim(str(self%comm_map_send,.true.))
+   do p=0, self%procs_number-1
+      print '(A)', ' myrank: '//trim(str(self%myrank,.true.))//&
+                   ' recv from: '//trim(str(p,.true.))//' blocks n.: '//trim(str(self%comm_map_n_recv(p),.true.))
+   enddo
+   if (allocated(self%comm_map_recv)) &
+      print '(A)', ' myrank: '//trim(str(self%myrank,.true.))//&
+                   ' blocks recv:  '//trim(str(self%comm_map_recv,.true.))
+   if (allocated(self%local_map)) &
+      print '(A)', ' myrank: '//trim(str(self%myrank,.true.))//&
+                   ' blocks kept n.: '//trim(str(size(self%local_map(:,1),dim=1),.true.))
+   endsubroutine print_mpi_stats
+
    elemental function prime_buckets_number(self, nodes_number) result(buckets_number)
    !< Return the buckets number as the nearest prime number given nodes number.
    !<
@@ -776,7 +811,6 @@ contains
    real(R8P),          intent(in), optional :: max_load     !< Maximum load of tree buckets.
    type(tree_object)                        :: swap         !< Temporary (swap) tree.
    type(tree_node_object), pointer          :: node         !< Pointer to node.
-   integer(I4P)                             :: b            !< Counter.
 
    if (self%is_initialized_) then
       if (present(max_load)) self%max_load = max_load
@@ -816,7 +850,6 @@ contains
    integer(I4P)                                    :: new_level            !< New level counter.
    integer(I4P)                                    :: new_level_n          !< Neighbor new level counter.
    integer(I4P)                                    :: s, sib, f, n         !< Counter.
-   integer(I4P)                                    :: ii, jj, kk, ll       !< Counter.
 
    iterations_number_ = TREE_MAX_SANITIZE_ITERATIONS ; if (present(iterations_number)) iterations_number_ = iterations_number
 
@@ -1731,6 +1764,9 @@ contains
    lhs%procs_number = rhs%procs_number
    lhs%myrank = rhs%myrank
    lhs%my_nodes_number = rhs%my_nodes_number
+   lhs%send_nodes_number = rhs%send_nodes_number
+   lhs%recv_nodes_number = rhs%recv_nodes_number
+   lhs%keep_nodes_number = rhs%keep_nodes_number
    if (allocated(rhs%comm_map_n_send)) then
       lhs%comm_map_n_send = rhs%comm_map_n_send
    else

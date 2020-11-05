@@ -10,7 +10,6 @@ implicit none
 type(tree_bucket_object)        :: tree_bucket       !< Tree bucket.
 type(tree_node_object), pointer :: tree_node=>null() !< Tree bucket node pointer.
 integer(I8P)                    :: code              !< Tree node code.
-integer(I8P)                    :: content           !< Tree bucket node content.
 integer(I8P)                    :: max_code          !< Maximum code value.
 
 print '(A)', 'initialize tree bucket'

@@ -1,14 +1,14 @@
-!< ADAM, objects classes.
+!< ADAM, objects and procedurs.
 module adam_objects
-!< ADAM, objects classes.
+!< ADAM, objects and procedurs.
 
 use adam_field_object
 use adam_tree_node_object
 use adam_tree_bucket_object
 use adam_tree_object
-use PENF, only : R8P, I4P, I8P, str
-use stringifor, only : string
-use vtk_fortran, only : vtK_file, vtm_file
+use PENF
+use stringifor
+use vtk_fortran
 
 implicit none
 private
@@ -68,7 +68,6 @@ contains
       endif
       endassociate
    enddo
-   call tree%mpi_exchange
    contains
       pure function sphere_distance(point)
       !< Return the distance from a point to the sphere surface, with sign.
@@ -101,30 +100,28 @@ contains
              gc1=>field%gc1, gc2=>field%gc2, gc3=>field%gc3,  gc4=>field%gc4, gc5=>field%gc5, gc6=>field%gc6)
 
       max_level = 0_I4P
-      vtk_loop : do while(tree%loop(node=node))
+      vtr_loop : do while(tree%loop(node=node))
+         if (field%myrank /= node%myrank) cycle ! only the process having node can save VTR file
          b = node%block_index
          max_level = max(max_level, tree%level(code=node%code))
-         ! only the process having node can save VTR file
-         if (field%myrank == node%myrank) then
-            error = vtk%initialize(format='raw', filename=directory_//trim(basename)//'-block-'//trim(str(b,.true.))//&
-                                                          '-proc-'//trim(str(node%myrank,.true.))//'.vtr',            &
-                                   mesh_topology='RectilinearGrid',                                                   &
-                                   nx1=0, nx2=ni, ny1=0, ny2=nj, nz1=0, nz2=nk)
-            error = vtk%xml_writer%write_fielddata(action='open')
-            error = vtk%xml_writer%write_fielddata(data_name='Morton', x=field%code(b))
-            error = vtk%xml_writer%write_fielddata(action='close')
-            error = vtk%xml_writer%write_piece(nx1=0, nx2=ni, ny1=0, ny2=nj, nz1=0, nz2=nk)
-            error = vtk%xml_writer%write_geo(x=field%compute_xyz(b, axis='x'), &
-                                             y=field%compute_xyz(b, axis='y'), &
-                                             z=field%compute_xyz(b, axis='z'))
-            error = vtk%xml_writer%write_dataarray(location='cell', action='open')
-            error = vtk%xml_writer%write_dataarray(data_name='u', x=[field%u(1:ni,1:nj,1:nk,b)])
-            error = vtk%xml_writer%write_dataarray(data_name='myrn', x=[(((node%myrank_new, k=1,nk),j=1,nj),i=1,ni)])
-            error = vtk%xml_writer%write_dataarray(location='cell', action='close')
-            error = vtk%xml_writer%write_piece()
-            error = vtk%finalize()
-         endif
-      enddo vtk_loop
+         error = vtk%initialize(format='raw', filename=directory_//trim(basename)//'-block-'//trim(str(b,.true.))//&
+                                                       '-proc-'//trim(str(node%myrank,.true.))//'.vtr',            &
+                                mesh_topology='RectilinearGrid',                                                   &
+                                nx1=0, nx2=ni, ny1=0, ny2=nj, nz1=0, nz2=nk)
+         error = vtk%xml_writer%write_fielddata(action='open')
+         error = vtk%xml_writer%write_fielddata(data_name='Morton', x=field%code(b))
+         error = vtk%xml_writer%write_fielddata(action='close')
+         error = vtk%xml_writer%write_piece(nx1=0, nx2=ni, ny1=0, ny2=nj, nz1=0, nz2=nk)
+         error = vtk%xml_writer%write_geo(x=field%compute_xyz(b, axis='x'), &
+                                          y=field%compute_xyz(b, axis='y'), &
+                                          z=field%compute_xyz(b, axis='z'))
+         error = vtk%xml_writer%write_dataarray(location='cell', action='open')
+         error = vtk%xml_writer%write_dataarray(data_name='u', x=[field%u(1:ni,1:nj,1:nk,b)])
+         error = vtk%xml_writer%write_dataarray(data_name='myrn', x=[(((node%myrank_new, k=1,nk),j=1,nj),i=1,ni)])
+         error = vtk%xml_writer%write_dataarray(location='cell', action='close')
+         error = vtk%xml_writer%write_piece()
+         error = vtk%finalize()
+      enddo vtr_loop
 
       ! only myrank == 0 save VTM file
       if (tree%myrank == 0_I4P) then

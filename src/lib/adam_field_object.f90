@@ -132,26 +132,6 @@ contains
    call self%derefine(ratio=ratio, block_to_derefine=block_to_derefine, block_derefined=block_derefined)
    endsubroutine adapt
 
-   !subroutine collect_all_marks(self, blocks_to_refine, blocks_to_not_touch, blocks_to_derefine)
-   !!< Collect all marks of all blocks of all processes.
-   !class(field_object), intent(inout)     :: self                !< The tree.
-   !integer(I8P), allocatable, intent(out) :: blocks_to_refine(:)
-   !integer(I8P), allocatable, intent(out) :: blocks_to_not_touch(:)
-   !integer(I8P), allocatable, intent(out) :: blocks_to_derefine(:)
-
-!#ifdef _MPI_
-   !allocate(blocks_to_refine(sum(self%blocks_numbers, dim=1)))
-   !allocate(blocks_to_not_touch(sum(self%blocks_numbers, dim=1)))
-   !allocate(blocks_to_derefine(sum(self%blocks_numbers, dim=1)))
-   !call MPI_ALLGATHERV(self%block_to_refine, self%blocks_number, MPI_INTEGER8, blocks_to_refine, &
-   !                    [0,self%blocks_numbers(:self%procs_number-2)], MPI_INTEGER8, MPI_COMM_WORLD, error)
-   !call MPI_ALLGATHERV(self%block_to_not_tocuh, self%blocks_number, MPI_INTEGER8, blocks_to_not_tocuh, &
-   !                    [0,self%blocks_numbers(:self%procs_number-2)], MPI_INTEGER8, MPI_COMM_WORLD, error)
-   !call MPI_ALLGATHERV(self%block_to_derefine, self%blocks_number, MPI_INTEGER8, blocks_to_derefine, &
-   !                    [0,self%blocks_numbers(:self%procs_number-2)], MPI_INTEGER8, MPI_COMM_WORLD, error)
-!#endif
-   !endsubroutine collect_all_marks
-
    subroutine compute_emin_emax(self)
    !< Compute emin/emax of each block.
    class(field_object), intent(inout) :: self          !< The field.
@@ -229,7 +209,9 @@ contains
    integer(I4P),        intent(in), optional :: nb      !< Number of all blocks that can be stored.
    real(R8P),           intent(in), optional :: emin(3) !< Coordinates of minium abscissa.
    real(R8P),           intent(in), optional :: emax(3) !< Coordinates of maxium abscissa.
+#ifdef _MPI_
    integer(I4P)                              :: error   !< Error traping flag.
+#endif
 
    call self%destroy
    ! grid data
@@ -288,22 +270,6 @@ contains
 #endif
    endsubroutine initialize
 
-   !subroutine mark_block(self, mark, b)
-   !!< Mark block to be refined/derefined/untouched.
-   !class(field_object), intent(inout) :: self !< The tree.
-   !integer(I4P),        intent(in)    :: mark !< Mark to be imposed [NODE_TO_REFINED,...]
-   !integer(I4P),        intent(in)    :: b    !< Block index.
-
-   !select case(mark)
-   !case(NODE_TO_BE_REFINED)
-   !   self%block_to_refine(b) = self%code(b)
-   !case(NODE_TO_NOT_TOUCH)
-   !   self%block_to_not_touch(b) = self%code(b)
-   !case(NODE_TO_BE_DEREFINED)
-   !   self%block_to_derefine(b) = self%code(b)
-   !endselect
-   !endsubroutine mark_block
-
    function max_cell_delta(self, distance) result(delta)
    !< Return the maximum cell delta given a comparison distance.
    class(field_object), intent(in) :: self     !< The field.
@@ -334,11 +300,11 @@ contains
    integer(I4P)                             :: b, bi, p               !< Counter.
    integer(I4P)                             :: ptr_start, ptr_end     !< Counter.
    integer(I4P)                             :: n_recv, n_send         !< Counter.
-   integer(I4P)                             :: error                  !< Error traping flag.
+#ifdef _MPI_
    integer(I4P), allocatable                :: req_recv(:)            !< MPI request receive flags.
+   integer(I4P)                             :: error                  !< Error traping flag.
 
    allocate(req_recv(0:self%procs_number-1))
-#ifdef _MPI_
    req_recv = MPI_REQUEST_NULL
 #endif
 
@@ -403,12 +369,6 @@ contains
    self%blocks_number = n_keep  + recv_size / self%block_weight
    self%coordinates(1:self%blocks_number,:) = coordinates
    call self%compute_emin_emax
-   ! self%block_to_refine    = [(-2_I8P,b=1,self%blocks_number)]
-   ! self%block_to_not_touch = [(-2_I8P,b=1,self%blocks_number)]
-   ! self%block_to_derefine  = [(-2_I8P,b=1,self%blocks_number)]
-! #ifdef _MPI_
-   ! call MPI_ALLGATHER(self%blocks_number, 1, MPI_INTEGER, self%blocks_numbers, 1, MPI_INTEGER, MPI_COMM_WORLD, error)
-! #endif
    endsubroutine redistribute
 
    ! privatec methods
@@ -419,8 +379,7 @@ contains
    integer(I8P), allocatable, intent(in)    :: block_to_derefine(:) !< List of blocks to be derefined.
    integer(I8P), allocatable, intent(in)    :: block_derefined(:,:) !< List of derefined blocks with Morton code.
    real(R8P)                                :: dx, dy, dz           !< Space deltas.
-   integer(I4P)                             :: b, i, j, k           !< Spatial counter.
-   integer(I4P)                             :: ib, ic, ii           !< Counter.
+   integer(I4P)                             :: b, ib                !< Counter.
    integer(I4P)                             :: ic1, ic2, ic3, ic4   !< Counter.
    integer(I4P)                             :: ic5, ic6, ic7, ic8   !< Counter.
 

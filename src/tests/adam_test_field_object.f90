@@ -3,19 +3,15 @@ program adam_test_field_object
 !< ADAM, test field class.
 
 use adam_objects
-use PENF, only : R8P, I8P, I4P, str
+use PENF
 
 implicit none
 
-type(tree_object)               :: tree                 !< The tree.
-type(tree_node_object), pointer :: node                 !< Pointer to node.
-type(field_object)              :: field                !< Field.
-integer(I8P), allocatable       :: block_to_refine(:)   !< List of field blocks to be refined.
-integer(I8P), allocatable       :: block_refined(:,:)   !< List of field refined blocks with Morton code.
-integer(I8P), allocatable       :: block_to_derefine(:) !< List of field blocks to be derefined.
-integer(I8P), allocatable       :: block_derefined(:,:) !< List of field derefined blocks with Morton code.
-real(R8P)                       :: emin(3), emax(3)     !< Domain extents.
-integer(I4P)                    :: c                    !< Counter.
+type(tree_object)               :: tree             !< The tree.
+type(tree_node_object), pointer :: node             !< Pointer to node.
+type(field_object)              :: field            !< Field.
+real(R8P)                       :: emin(3), emax(3) !< Domain extents.
+integer(I4P)                    :: c                !< Counter.
 
 print '(A)', 'initialize'
 call tree%initialize
@@ -32,15 +28,15 @@ print*, ''
 
 print '(A)', 'refine level 0'
 call tree%mark_all_nodes(mark=NODE_TO_BE_REFINED)
-call tree%adapt(block_to_refine=block_to_refine, block_refined=block_refined, &
-                block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+call tree%adapt
 print*, ''
 print '(A)', 'blocks index to refine'
-print '(A)', trim(str(block_to_refine))
+print '(A)', trim(str(tree%block_to_refine(1,:), .true.))
 print '(A)', 'blocks index refined'
-print '(A)', trim(str(block_refined(2,:)))
-call field%adapt(ratio=tree%ratio, block_to_refine=block_to_refine, block_refined=block_refined, &
-                 block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+print '(A)', trim(str(tree%block_refined(2,:), .true.))
+call field%adapt(ratio=tree%ratio,                                                       &
+                 block_to_refine=tree%block_to_refine, block_refined=tree%block_refined, &
+                 block_to_derefine=tree%block_to_derefine, block_derefined=tree%block_derefined)
 print '(A)', 'loop in tree'
 do while(tree%loop(node=node))
    call tree%print_code_topology(code=node%code, block_index=.true., coordinates=.true.)
@@ -50,15 +46,15 @@ print*, ''
 print '(A)', 'refine level 1'
 node => tree%node(code=3_I8P)
 node%refinement_needed = NODE_TO_BE_REFINED
-call tree%adapt(block_to_refine=block_to_refine, block_refined=block_refined, &
-                block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+call tree%adapt
 print*, ''
 print '(A)', 'blocks index to refine'
-print '(A)', trim(str(block_to_refine))
+print '(A)', trim(str(tree%block_to_refine(1,:),.true.))
 print '(A)', 'blocks refined'
-print '(A)', trim(str(block_refined(2,:)))
-call field%adapt(ratio=tree%ratio, block_to_refine=block_to_refine, block_refined=block_refined, &
-                 block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+print '(A)', trim(str(tree%block_refined(2,:),.true.))
+call field%adapt(ratio=tree%ratio,                                                       &
+                 block_to_refine=tree%block_to_refine, block_refined=tree%block_refined, &
+                 block_to_derefine=tree%block_to_derefine, block_derefined=tree%block_derefined)
 print '(A)', 'loop in tree'
 do while(tree%loop(node=node))
    call tree%print_code_topology(code=node%code, block_index=.true., coordinates=.true.)
@@ -67,16 +63,16 @@ print*, ''
 print '(A)', 'refine index level 2'
 node => tree%node(code=37_I8P)
 node%refinement_needed = NODE_TO_BE_REFINED
-call tree%adapt(block_to_refine=block_to_refine, block_refined=block_refined, &
-                block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+call tree%adapt
 print*, ''
 
 print '(A)', 'blocks index to refine'
-print '(A)', trim(str(block_to_refine))
+print '(A)', trim(str(tree%block_to_refine(1,:),.true.))
 print '(A)', 'blocks index refined'
-print '(A)', trim(str(block_refined(2,:)))
-call field%adapt(ratio=tree%ratio, block_to_refine=block_to_refine, block_refined=block_refined, &
-                 block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+print '(A)', trim(str(tree%block_refined(2,:), .true.))
+call field%adapt(ratio=tree%ratio,                                                       &
+                 block_to_refine=tree%block_to_refine, block_refined=tree%block_refined, &
+                 block_to_derefine=tree%block_to_derefine, block_derefined=tree%block_derefined)
 print '(A)', 'loop in tree'
 do while(tree%loop(node=node))
    call tree%print_code_topology(code=node%code, block_index=.true., coordinates=.true.)
@@ -86,15 +82,15 @@ print*, ''
 print '(A)', 'refine index level 3'
 node => tree%node(code=307_I8P)
 node%refinement_needed = NODE_TO_BE_REFINED
-call tree%adapt(block_to_refine=block_to_refine, block_refined=block_refined, &
-                block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+call tree%adapt
 print*, ''
 print '(A)', 'blocks index to refine'
-print '(A)', trim(str(block_to_refine))
+print '(A)', trim(str(tree%block_to_refine(1,:),.true.))
 print '(A)', 'blocks index refined'
-print '(A)', trim(str(block_refined(2,:)))
-call field%adapt(ratio=tree%ratio, block_to_refine=block_to_refine, block_refined=block_refined, &
-                 block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+print '(A)', trim(str(tree%block_refined(2,:), .true.))
+call field%adapt(ratio=tree%ratio,                                                       &
+                 block_to_refine=tree%block_to_refine, block_refined=tree%block_refined, &
+                 block_to_derefine=tree%block_to_derefine, block_derefined=tree%block_derefined)
 print '(A)', 'loop in tree'
 do while(tree%loop(node=node))
    call tree%print_code_topology(code=node%code, block_index=.true., coordinates=.true.)
@@ -108,15 +104,15 @@ do c=0, tree%ratio-1
    node => tree%node(code=2464_I8P+c)
    node%refinement_needed = NODE_TO_BE_DEREFINED
 enddo
-call tree%adapt(block_to_refine=block_to_refine, block_refined=block_refined, &
-                block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+call tree%adapt
 print*, ''
 print '(A)', 'blocks index to derefine'
-print '(A)', trim(str(block_to_derefine))
+print '(A)', trim(str(tree%block_to_derefine(:), .true.))
 print '(A)', 'blocks index derefined'
-print '(A)', trim(str(block_derefined(2,:)))
-call field%adapt(ratio=tree%ratio, block_to_refine=block_to_refine, block_refined=block_refined, &
-                 block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+print '(A)', trim(str(tree%block_derefined(2,:), .true.))
+call field%adapt(ratio=tree%ratio,                                                       &
+                 block_to_refine=tree%block_to_refine, block_refined=tree%block_refined, &
+                 block_to_derefine=tree%block_to_derefine, block_derefined=tree%block_derefined)
 print '(A)', 'loop in tree'
 do while(tree%loop(node=node))
    call tree%print_code_topology(code=node%code, block_index=.true., coordinates=.true.)
