@@ -62,7 +62,7 @@ contains
       call self%tree%import_refinements_needed(refinements_needed_all=self%field%refinements_needed_all, &
                                                disp_count=self%field%disp_count)
    endif
-   if (is_marked_by_field_) then
+   if (is_marked_by_tree_) then
       call self%tree%mpi_gather_refinements_needed
    endif
    call self%tree%adapt
@@ -96,33 +96,30 @@ contains
                          max_load, nodes_number, buckets_number, ratio, max_level, add_adam, &
                          nv, nb)
    !< Initialize ADAM.
-   class(adam_object), intent(inout)        :: self               !< ADAM.
+   class(adam_object), intent(inout)        :: self           !< ADAM.
    ! grid options
-   integer(I4P),       intent(in), optional :: ni                 !< Number of cells in X direction.
-   integer(I4P),       intent(in), optional :: nj                 !< Number of cells in Y direction.
-   integer(I4P),       intent(in), optional :: nk                 !< Number of cells in Z direction.
-   integer(I4P),       intent(in), optional :: gc(6)              !< Number of ghost cells in each direction.
-   real(R8P),          intent(in), optional :: emin(3)            !< Coordinates of minium abscissa.
-   real(R8P),          intent(in), optional :: emax(3)            !< Coordinates of maxium abscissa.
+   integer(I4P),       intent(in), optional :: ni             !< Number of cells in X direction.
+   integer(I4P),       intent(in), optional :: nj             !< Number of cells in Y direction.
+   integer(I4P),       intent(in), optional :: nk             !< Number of cells in Z direction.
+   integer(I4P),       intent(in), optional :: gc(6)          !< Number of ghost cells in each direction.
+   real(R8P),          intent(in), optional :: emin(3)        !< Coordinates of minium abscissa.
+   real(R8P),          intent(in), optional :: emax(3)        !< Coordinates of maxium abscissa.
    ! tree options
-   real(R8P),          intent(in), optional :: max_load           !< Maximum load of tree buckets.
-   integer(I8P),       intent(in), optional :: nodes_number       !< Nodes number to be stored in the tree.
-   integer(I8P),       intent(in), optional :: buckets_number     !< Number of buckets for initialize the tree.
-   integer(I4P),       intent(in), optional :: ratio              !< Refinement ratio.
-   integer(I4P),       intent(in), optional :: max_level          !< Maximum refinement level.
-   logical,            intent(in), optional :: add_adam           !< Add ADAM node, the ancestor of all nodes.
+   real(R8P),          intent(in), optional :: max_load       !< Maximum load of tree buckets.
+   integer(I8P),       intent(in), optional :: nodes_number   !< Nodes number to be stored in the tree.
+   integer(I8P),       intent(in), optional :: buckets_number !< Number of buckets for initialize the tree.
+   integer(I4P),       intent(in), optional :: ratio          !< Refinement ratio.
+   integer(I4P),       intent(in), optional :: max_level      !< Maximum refinement level.
+   logical,            intent(in), optional :: add_adam       !< Add ADAM node, the ancestor of all nodes.
    ! field options
-   integer(I4P),       intent(in), optional :: nv                 !< Number of field variables.
-   integer(I4P),       intent(in), optional :: nb                 !< Number of all blocks that can be stored in field.
-#ifdef _MPI_
-   logical                                  :: is_mpi_initialized !< Flag to check if MPI has been initialized.
-#endif
+   integer(I4P),       intent(in), optional :: nv             !< Number of field variables.
+   integer(I4P),       intent(in), optional :: nb             !< Number of all blocks that can be stored in field.
 
+#ifdef _MPI_
+   call MPI_INIT(self%error)
+#endif
    call self%destroy
 #ifdef _MPI_
-   ! call MPI_INITIALIZED(is_mpi_initialized, self%error)
-   ! if (.not.is_mpi_initialized) call MPI_INIT(self%error)
-   call MPI_INIT(self%error)
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
 #endif
