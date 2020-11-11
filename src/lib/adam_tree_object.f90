@@ -167,6 +167,7 @@ type :: tree_object
       procedure, pass(self) :: loop                 !< Sentinel while-loop on nodes returning the code.
       procedure, pass(self) :: hash                 !< Hash the key.
       procedure, pass(self) :: has_code             !< Check if the code is present in the tree.
+      procedure, pass(self) :: import_refinements   !< Import refinements needed status changed externally.
       procedure, pass(self) :: initialize           !< Initialize the tree.
       procedure, pass(self) :: make_comm_local_maps !< Make communication/local maps.
       procedure, pass(self) :: mark_all_nodes       !< Mark all nodes to be refined, derefined....
@@ -223,7 +224,7 @@ contains
    class(tree_object), intent(inout) :: self !< The tree.
 
 #ifdef _MPI_
-   call self%mpi_exchange
+   ! call self%mpi_exchange
 #endif
    call self%sanitize
    call self%refine
@@ -382,6 +383,22 @@ contains
 
    bucket = modulo(code, int(self%buckets_number, I8P)) + 1
    endfunction hash
+
+   subroutine import_refinements(self, refinements_needed_all, disp_count)
+   !< Import refinements needed status changed externally.
+   class(tree_object),        intent(inout) :: self                      !< The tree.
+   integer(I4P), allocatable, intent(in)    :: refinements_needed_all(:) !< Refinements needed of all blocks.
+   integer(I4P), allocatable, intent(in)    :: disp_count(:)             !< Displacement of blocks that are received from process.
+   type(tree_node_object), pointer          :: node                      !< Pointer to current node.
+   integer(I8P)                             :: b                         !< Counter.
+   integer(I4P)                             :: myrank                    !< Counter.
+
+   do while(self%loop(node=node))
+      myrank = node%myrank
+      b = node%block_index
+      node%refinement_needed = refinements_needed_all(disp_count(myrank)+b)
+   enddo
+   endsubroutine import_refinements
 
    subroutine initialize(self, max_load, nodes_number, buckets_number, ratio, max_level, add_adam)
    !< Initialize the tree.

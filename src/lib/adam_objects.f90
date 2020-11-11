@@ -9,6 +9,8 @@ use adam_tree_object
 use PENF
 use stringifor
 use vtk_fortran
+use HDF5
+use MPI
 
 implicit none
 private
@@ -20,6 +22,7 @@ public :: iterator_interface
 public :: tree_object
 public :: mark_sphere_nodes
 public :: field_save_vtk
+public :: save_hdf5
 
 contains
    subroutine mark_sphere_nodes(tree, field, center, radius, threshold)
@@ -45,7 +48,7 @@ contains
                             (field%emax(3,node%block_index) - field%emin(3,node%block_index))**2)
 
       associate (emin=>field%emin(:,node%block_index), emax=>field%emax(:,node%block_index), &
-                 ni=>field%ni, nj=>field%nj, nk=>field%nk)
+                 ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk)
       distance(0) = sphere_distance(point=block_center)
       distance(1) = sphere_distance(point=[emin(1), emin(2), emin(3)])
       distance(2) = sphere_distance(point=[emax(1), emin(2), emin(3)])
@@ -92,12 +95,13 @@ contains
    type(vtm_file)                           :: vtm        !< VTM file handler.
    type(tree_node_object), pointer          :: node       !< Pointer to node.
    integer(I4P)                             :: b, l       !< Counter.
-   integer(I4P)                             :: i,j,k      !< Counter.
+   integer(I4P)                             :: i, j, k    !< Counter.
    integer(I4P)                             :: max_level  !< Maximum level.
 
    directory_ = '' ; if (present(directory)) directory_ = trim(directory)
-   associate(emin=>field%emin, emax=>field%emax, ni=>field%ni, nj=>field%nj, nk=>field%nk, &
-             gc1=>field%gc1, gc2=>field%gc2, gc3=>field%gc3,  gc4=>field%gc4, gc5=>field%gc5, gc6=>field%gc6)
+   associate(emin=>field%emin, emax=>field%emax, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, &
+             gc1=>field%grid%gc1, gc2=>field%grid%gc2, gc3=>field%grid%gc3, &
+             gc4=>field%grid%gc4, gc5=>field%grid%gc5, gc6=>field%grid%gc6)
 
       max_level = 0_I4P
       vtr_loop : do while(tree%loop(node=node))
@@ -139,4 +143,88 @@ contains
       endif
    endassociate
    endsubroutine field_save_vtk
+
+   subroutine save_hdf5(tree, field, basename, directory)
+   !< Save ADAM data in HDF5 format.
+   type(tree_object),  intent(in)           :: tree             !< The tree.
+   type(field_object), intent(in)           :: field            !< The field.
+   character(*),       intent(in)           :: basename         !< Base name of output files.
+   character(*),       intent(in), optional :: directory        !< Directory name of output files.
+   character(:), allocatable                :: directory_       !< Directory name of output files, local var.
+   type(tree_node_object), pointer          :: node             !< Pointer to node.
+   real(R8P)                                :: emin(3), emax(3) !< Minimum/maximum abscissa of current block.
+   integer(I4P)                             :: error            !< Error trapping flag.
+   integer(I4P)                             :: b                !< Counter.
+   integer(I4P)                             :: xdmf             !< XDMF file handler.
+   character(len=:), allocatable            :: h5_file_name     !< H5 Dataset name.
+   character(len=:), allocatable            :: h5_dset_name     !< H5 Dataset name.
+   integer(HID_T)                           :: h5_file_id       !< H5 File identifier.
+   integer(HID_T)                           :: h5_dspace_id     !< H5 Dataspace identifier.
+   integer(HID_T)                           :: h5_dset_id       !< H5 Dataset identifier.
+   real(R8P)                                :: dxl, dyl, dzl    !< Local delta space.
+   integer(I4P)                             :: i, j, k, l       !< Counter.
+
+   associate(grid=>field%grid, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk)
+   ! save H5 file (one for each process)
+   ! open fortran interface
+   call h5open_f(error)
+   ! create a new file using default properties
+   h5_file_name = trim(basename)//trim(str(field%myrank,.true.))//'.h5'
+   call h5fcreate_f(h5_file_name, H5F_ACC_TRUNC_F, h5_file_id, error)
+   ! create the dataspace
+   call h5screate_simple_f(3_I4P, [int(ni,I8P),int(nj,I8P),int(nk,I8P)], h5_dspace_id, error)
+   ! save all blocks in process
+   do b=1, field%blocks_number
+      h5_dset_name = 'u-'//trim(str(field%myrank,.true.))//'-'//trim(str(b,.true.))
+      call h5dcreate_f(h5_file_id, h5_dset_name, H5T_NATIVE_DOUBLE, h5_dspace_id, h5_dset_id, error)
+      call h5dwrite_f(h5_dset_id, H5T_NATIVE_DOUBLE, field%u(1:ni,1:nj,1:nk,b), [int(ni,I8P),int(nj,I8P),int(nk,I8P)], error)
+      call h5dclose_f(h5_dset_id, error)
+   enddo
+   ! terminate access to the data space
+   call h5sclose_f(h5_dspace_id, error)
+   ! close the file
+   call h5fclose_f(h5_file_id, error)
+   ! close FORTRAN interface
+   call h5close_f(error)
+
+   ! save XDMF file (only master process does)
+   if (tree%myrank == 0_I4P) then
+      open(newunit=xdmf, file=trim(basename)//'.xdmf')
+      write(xdmf, '(A)') '<?xml version="1.0" encoding="utf-8"?>'
+      write(xdmf, '(A)') '<Xdmf xmlns:xi="http://www.w3.org/2001/XInclude" Version="3.0">'
+      write(xdmf, '(A)') '  <Domain>'
+      write(xdmf, '(A)') '    <Grid Name="ADAM" GridType="Collection">'
+      do while(tree%loop(node=node))
+         b = node%block_index
+         h5_file_name = trim(basename)//trim(str(node%myrank,.true.))//'.h5'
+         h5_dset_name = 'u-'//trim(str(node%myrank,.true.))//'-'//trim(str(b,.true.))
+         call tree%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
+         call grid%compute_emin_emax(coordinates=[i,j,k,l], emin=emin, emax=emax)
+         dxl = grid%dxyz(emin=emin, emax=emax, axis='x')
+         dyl = grid%dxyz(emin=emin, emax=emax, axis='y')
+         dzl = grid%dxyz(emin=emin, emax=emax, axis='z')
+
+         write(xdmf, '(A)') '      <Grid Name="'//trim(str(node%code))//'">'
+         write(xdmf, '(A)') '        <Geometry Origin="" Type="ORIGIN_DXDYDZ">'
+         write(xdmf, '(A)') '          <DataItem DataType="Float" Dimensions="3" Format="XML" Precision="8">'// &
+                                        trim(str([emin(3),emin(2),emin(1)],separator=' '))//'</DataItem>'
+         write(xdmf, '(A)') '          <DataItem DataType="Float" Dimensions="3" Format="XML" Precision="8">'// &
+                                        trim(str([dxl,dyl,dzl],separator=' '))//'</DataItem>'
+         write(xdmf, '(A)') '        </Geometry>'
+         write(xdmf, '(A)') '        <Topology Dimensions="'//trim(str([ni+1,nj+1,nk+1],separator=' '))// &
+                                      '" Type="3DCoRectMesh"/>'
+         write(xdmf, '(A)') '        <Attribute Center="Cell" ElementCell="" ElementDegree="0" ElementFamily=""'// &
+                                      ' ItemType="" Name="u" Type="Scalar"> '
+         write(xdmf, '(A)') '          <DataItem DataType="Float" Dimensions="'//trim(str([ni+1,nj+1,nk+1],separator=' '))// &
+                                        '" Format="HDF" Precision="8">'//h5_file_name//':'//h5_dset_name//'</DataItem>'
+         write(xdmf, '(A)') '        </Attribute>'
+         write(xdmf, '(A)') '      </Grid>'
+      enddo
+      write(xdmf, '(A)') '    </Grid>'
+      write(xdmf, '(A)') '  </Domain>'
+      write(xdmf, '(A)') '</Xdmf>'
+      close(xdmf)
+   endif
+   endassociate
+   endsubroutine save_hdf5
 endmodule adam_objects

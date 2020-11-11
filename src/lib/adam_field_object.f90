@@ -63,6 +63,8 @@ module adam_field_object
 !<         1    2    3    4    5
 !<```
 
+use adam_grid_object
+use adam_tree_node_object
 use PENF
 #ifdef _MPI_
 use MPI
@@ -73,42 +75,35 @@ private
 public :: field_object
 
 type :: field_object
-   ! grid data
-   real(R8P)                 :: domain_emin(3)          !< Coordinates of minimum abscissa of whole domain.
-   real(R8P)                 :: domain_emax(3)          !< Coordinates of maximum abscissa of whole domain.
-   integer(I4P)              :: ni=4_I4P                !< Number of cells in i direction.
-   integer(I4P)              :: nj=4_I4P                !< Number of cells in j direction.
-   integer(I4P)              :: nk=4_I4P                !< Number of cells in k direction.
-   integer(I4P)              :: gc1=0_I4P               !< Number of ghost cells in i- direction for boundary conditions.
-   integer(I4P)              :: gc2=0_I4P               !< Number of ghost cells in i+ direction for boundary conditions.
-   integer(I4P)              :: gc3=0_I4P               !< Number of ghost cells in j- direction for boundary conditions.
-   integer(I4P)              :: gc4=0_I4P               !< Number of ghost cells in j+ direction for boundary conditions.
-   integer(I4P)              :: gc5=0_I4P               !< Number of ghost cells in k- direction for boundary conditions.
-   integer(I4P)              :: gc6=0_I4P               !< Number of ghost cells in k+ direction for boundary conditions.
-   integer(I4P)              :: nv=1_I4P                !< Number of field variables.
-   integer(I4P)              :: block_weight=0_I4P      !< Block weight, `cells_number * variables_number`.
-   integer(I4P)              :: nb=0_I4P                !< Number of all blocks that can be stored.
-   integer(I4P)              :: blocks_number=0_I4P     !< Number of blocks actually stored.
-   integer(I8P), allocatable :: code(:)                 !< Morton codes [nb].
-   integer(I4P), allocatable :: coordinates(:,:)        !< Coordinates IJKL for each block [nb,4].
-   real(R8P),    allocatable :: emin(:,:)               !< Coordinates of minimum abscissa of each block [3,nb].
-   real(R8P),    allocatable :: emax(:,:)               !< Coordinates of maximum abscissa of each block [3,nb].
-   real(R8P),    allocatable :: u(:,:,:,:)              !< Field cell centered variables [ni+gc12,nj+gc34,nk+gc56,nv,nb].
-   real(R8P),    allocatable :: u_new(:,:,:,:)          !< Field cell centered variables, buffer memory.
-   logical                   :: is_initialized_=.false. !< Initialization status.
+   !< Field class definition.
+   ! type(grid_object), pointer :: grid                    !< Grid data.
+   type(grid_object)          :: grid                    !< Grid data.
+   integer(I4P)               :: nv=1_I4P                !< Number of field variables.
+   integer(I4P)               :: block_weight=0_I4P      !< Block weight, `cells_number * variables_number`.
+   integer(I4P)               :: nb=0_I4P                !< Number of all blocks that can be stored.
+   integer(I4P)               :: blocks_number=0_I4P     !< Number of blocks actually stored.
+   integer(I8P), allocatable  :: code(:)                 !< Morton codes [nb].
+   integer(I4P), allocatable  :: coordinates(:,:)        !< Coordinates IJKL for each block [nb,4].
+   real(R8P),    allocatable  :: emin(:,:)               !< Coordinates of minimum abscissa of each block [3,nb].
+   real(R8P),    allocatable  :: emax(:,:)               !< Coordinates of maximum abscissa of each block [3,nb].
+   real(R8P),    allocatable  :: u(:,:,:,:)              !< Field cell centered variables [ni+gc12,nj+gc34,nk+gc56,nv,nb].
+   real(R8P),    allocatable  :: u_new(:,:,:,:)          !< Field cell centered variables, buffer memory.
+   logical                    :: is_initialized_=.false. !< Initialization status.
    ! MPI data
-   integer(I4P)              :: myrank=0_I4P       !< MPI rank process.
-   integer(I4P)              :: procs_number=1_I4P !< Number of processes.
-   integer(I4P), allocatable :: blocks_numbers(:)  !< Number of blocks actually stored in all processes.
+   integer(I4P)               :: myrank=0_I4P       !< MPI rank process.
+   integer(I4P)               :: procs_number=1_I4P !< Number of processes.
+   integer(I4P), allocatable  :: blocks_numbers(:)  !< Number of blocks actually stored in all processes.
    contains
       ! public methods
-      procedure, pass(self) :: adapt             !< Adapt field accordingly to refine/derefine necessity.
-      procedure, pass(self) :: compute_emin_emax !< Compute emin/emax of each block.
-      procedure, pass(self) :: compute_xyz       !< Compute grids coordinates from grids extents emin/emax.
-      procedure, pass(self) :: destroy           !< Destroy the field.
-      procedure, pass(self) :: initialize        !< Initialize the field.
-      procedure, pass(self) :: max_cell_delta    !< Return the maximum cell delta given a comparison distance.
-      procedure, pass(self) :: redistribute      !< Redistribute blocks to processes.
+      procedure, pass(self) :: adapt                         !< Adapt field accordingly to refine/derefine necessity.
+      procedure, pass(self) :: compute_emin_emax             !< Compute emin/emax of each block.
+      procedure, pass(self) :: compute_xyz                   !< Compute grids coordinates from grids extents emin/emax.
+      procedure, pass(self) :: destroy                       !< Destroy the field.
+      procedure, pass(self) :: initialize                    !< Initialize the field.
+      procedure, pass(self) :: mark_sphere                   !< Mark blocks to be refined/derefined by sphere distance.
+      procedure, pass(self) :: max_cell_delta                !< Return the maximum cell delta given a comparison distance.
+      procedure, pass(self) :: mpi_refinements_needed_gather !< Gather blocks refinement needed status between MPI processes.
+      procedure, pass(self) :: redistribute                  !< Redistribute blocks to processes.
       ! private methods
       procedure, pass(self), private :: derefine !< Derefine blocks.
       procedure, pass(self), private :: refine   !< Refine blocks.
@@ -139,9 +134,9 @@ contains
    real(R8P)                          :: dxl, dyl, dzl !< Local delta space.
    integer(I4P)                       :: i, j, k, l, b !< Counter.
 
-   dx = self%domain_emax(1) - self%domain_emin(1)
-   dy = self%domain_emax(2) - self%domain_emin(2)
-   dz = self%domain_emax(3) - self%domain_emin(3)
+   dx = self%grid%domain_emax(1) - self%grid%domain_emin(1)
+   dy = self%grid%domain_emax(2) - self%grid%domain_emin(2)
+   dz = self%grid%domain_emax(3) - self%grid%domain_emin(3)
    do b=1, self%blocks_number
       i = self%coordinates(b,1)
       j = self%coordinates(b,2)
@@ -165,8 +160,8 @@ contains
    real(R8P)                       :: dxyz   !< Space delta.
    integer(I4P)                    :: i      !< Counter.
 
-   associate(emin=>self%emin, emax=>self%emax, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
-             gc1=>self%gc1, gc2=>self%gc2, gc3=>self%gc3,  gc4=>self%gc4, gc5=>self%gc5, gc6=>self%gc6)
+   associate(emin=>self%emin, emax=>self%emax, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, &
+             gc1=>self%grid%gc1, gc2=>self%grid%gc2, gc3=>self%grid%gc3, gc4=>self%grid%gc4, gc5=>self%grid%gc5, gc6=>self%grid%gc6)
       select case(axis)
       case('x')
          allocate(xyz(0:ni))
@@ -215,29 +210,30 @@ contains
 
    call self%destroy
    ! grid data
-   if (present(emin)) then
-      self%domain_emin = emin
-   else
-      self%domain_emin = 0._R8P
-   endif
-   if (present(emax)) then
-      self%domain_emax = emax
-   else
-      self%domain_emax = 1._R8P
-   endif
-   if (present(ni)) self%ni  = ni
-   if (present(nj)) self%nj  = nj
-   if (present(nk)) self%nk  = nk
-   if (present(gc)) self%gc1 = gc(1)
-   if (present(gc)) self%gc2 = gc(2)
-   if (present(gc)) self%gc3 = gc(3)
-   if (present(gc)) self%gc4 = gc(4)
-   if (present(gc)) self%gc5 = gc(5)
-   if (present(gc)) self%gc6 = gc(6)
+   call self%grid%initialize(ni=ni, nj=nj, nk=nk, gc=gc, emin=emin, emax=emax)
+   ! if (present(emin)) then
+   !    self%domain_emin = emin
+   ! else
+   !    self%domain_emin = 0._R8P
+   ! endif
+   ! if (present(emax)) then
+   !    self%domain_emax = emax
+   ! else
+   !    self%domain_emax = 1._R8P
+   ! endif
+   ! if (present(ni)) self%ni  = ni
+   ! if (present(nj)) self%nj  = nj
+   ! if (present(nk)) self%nk  = nk
+   ! if (present(gc)) self%gc1 = gc(1)
+   ! if (present(gc)) self%gc2 = gc(2)
+   ! if (present(gc)) self%gc3 = gc(3)
+   ! if (present(gc)) self%gc4 = gc(4)
+   ! if (present(gc)) self%gc5 = gc(5)
+   ! if (present(gc)) self%gc6 = gc(6)
    if (present(nv)) self%nv  = nv
-   self%block_weight = (self%gc1+self%ni+self%gc2)* &
-                       (self%gc3+self%nj+self%gc4)* &
-                       (self%gc5+self%nk+self%gc6)*self%nv
+   self%block_weight = (self%grid%gc1+self%grid%ni+self%grid%gc2)* &
+                       (self%grid%gc3+self%grid%nj+self%grid%gc4)* &
+                       (self%grid%gc5+self%grid%nk+self%grid%gc6)*self%nv
    if (present(nb)) self%nb  = nb
    if (nb>0) then
 
@@ -249,15 +245,15 @@ contains
 
       allocate(self%emin(3,nb))
       allocate(self%emax(3,nb))
-      self%emin(:,1) = self%domain_emin
-      self%emax(:,1) = self%domain_emax
+      self%emin(:,1) = self%grid%domain_emin
+      self%emax(:,1) = self%grid%domain_emax
 
-      allocate(self%u(1-self%gc1:self%ni+self%gc2, &
-                      1-self%gc3:self%nj+self%gc4, &
-                      1-self%gc5:self%nk+self%gc6, 1:self%nb))
-      allocate(self%u_new(1-self%gc1:self%ni+self%gc2, &
-                          1-self%gc3:self%nj+self%gc4, &
-                          1-self%gc5:self%nk+self%gc6, 1:self%nb))
+      allocate(self%u(1-self%grid%gc1:self%grid%ni+self%grid%gc2, &
+                      1-self%grid%gc3:self%grid%nj+self%grid%gc4, &
+                      1-self%grid%gc5:self%grid%nk+self%grid%gc6, 1:self%nb))
+      allocate(self%u_new(1-self%grid%gc1:self%grid%ni+self%grid%gc2, &
+                          1-self%grid%gc3:self%grid%nj+self%grid%gc4, &
+                          1-self%grid%gc5:self%grid%nk+self%grid%gc6, 1:self%nb))
       self%u = 0._R8P
       self%u_new = 0._R8P
    endif
@@ -270,6 +266,65 @@ contains
 #endif
    endsubroutine initialize
 
+   subroutine mark_sphere(self, center, radius, refinements_needed, threshold)
+   !< Mark blocks to be refined/derefined by sphere distance.
+   class(field_object),       intent(in)           :: self                  !< The field.
+   real(R8P),                 intent(in)           :: center(3)             !< Sphere center coordinates [x,y,z].
+   real(R8P),                 intent(in)           :: radius                !< Sphere radius.
+   integer(I4P), allocatable, intent(out)          :: refinements_needed(:) !< Refinements needed of my blocks.
+   real(R8P),                 intent(in), optional :: threshold             !< Threshold for sphere proximity.
+   real(R8P)                                       :: threshold_            !< Threshold for sphere proximity, local var.
+   real(R8P)                                       :: block_center(3)       !< block center coordinates.
+   real(R8P)                                       :: block_diagonal        !< block diagonal.
+   real(R8P)                                       :: distance(0:8)         !< Distances between block and sphere.
+   real(R8P)                                       :: max_cell_delta        !< Max cell delta.
+   integer(I4P)                                    :: b                     !< Counter.
+
+   allocate(refinements_needed(self%blocks_number))
+   threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
+   do b=1, self%blocks_number
+      block_center = (self%emax(:,b) + self%emin(:,b)) / 2._R8P
+      block_diagonal = sqrt((self%emax(1,b) - self%emin(1,b))**2 + &
+                            (self%emax(2,b) - self%emin(2,b))**2 + &
+                            (self%emax(3,b) - self%emin(3,b))**2)
+
+      associate (emin=>self%emin(:,b), emax=>self%emax(:,b), ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
+      distance(0) = sphere_distance(point=block_center)
+      distance(1) = sphere_distance(point=[emin(1), emin(2), emin(3)])
+      distance(2) = sphere_distance(point=[emax(1), emin(2), emin(3)])
+      distance(3) = sphere_distance(point=[emin(1), emax(2), emin(3)])
+      distance(4) = sphere_distance(point=[emax(1), emax(2), emin(3)])
+      distance(5) = sphere_distance(point=[emin(1), emin(2), emax(3)])
+      distance(6) = sphere_distance(point=[emax(1), emin(2), emax(3)])
+      distance(7) = sphere_distance(point=[emin(1), emax(2), emax(3)])
+      distance(8) = sphere_distance(point=[emax(1), emax(2), emax(3)])
+      if (maxval(distance(0:8),dim=1)*minval(distance(0:8),dim=1) < 0._R8P) then
+         distance(0) = 0._R8P
+      endif
+
+      max_cell_delta = self%max_cell_delta(distance=distance(0))
+
+      if (block_diagonal/min(ni,nj,nk) > max_cell_delta) then
+         refinements_needed(b) = NODE_TO_BE_REFINED
+      elseif (block_diagonal/min(ni,nj,nk) * threshold_ < max_cell_delta) then
+         refinements_needed(b) = NODE_TO_BE_DEREFINED
+      else
+         refinements_needed(b) = NODE_TO_NOT_TOUCH
+      endif
+      endassociate
+   enddo
+   contains
+      pure function sphere_distance(point)
+      !< Return the distance from a point to the sphere surface, with sign.
+      real(R8P), intent(in) :: point(3)        !< Point coordinates.
+      real(R8P)             :: sphere_distance !< Distance from sphere surface.
+
+      sphere_distance = sqrt((center(1) - point(1))**2 + &
+                             (center(2) - point(2))**2 + &
+                             (center(3) - point(3))**2) - radius
+      endfunction sphere_distance
+   endsubroutine mark_sphere
+
    function max_cell_delta(self, distance) result(delta)
    !< Return the maximum cell delta given a comparison distance.
    class(field_object), intent(in) :: self     !< The field.
@@ -277,11 +332,44 @@ contains
    real(R8P)                       :: delta    !< Maximum cell delta admissible.
 
    if (abs(distance) < epsilon(0._R8P)) then
+      ! delta = 0.001_R8P
       delta = 0.005_R8P
    else
       delta = huge(0._R8P)
    endif
    endfunction max_cell_delta
+
+   subroutine mpi_refinements_needed_gather(self, refinements_needed, refinements_needed_all, disp_count)
+   !< Gather blocks refinement needed status between MPI processes.
+   class(field_object),       intent(inout) :: self                      !< The field.
+   integer(I4P),              intent(in)    :: refinements_needed(:)     !< Refinements needed of my blocks.
+   integer(I4P), allocatable, intent(out)   :: refinements_needed_all(:) !< Refinements needed of all blocks.
+   integer(I4P), allocatable, intent(out)   :: disp_count(:)             !< Displacement of blocks that are received from process.
+   integer(I4P), allocatable                :: recv_count(:)             !< Number of blocks that are received from process.
+   integer(I8P)                             :: p                         !< Counter.
+#ifdef _MPI_
+   integer(I4P)                             :: error                     !< Error traping flag.
+#endif
+
+   ! computing received blocks
+   allocate(recv_count(0:self%procs_number - 1))
+   call MPI_ALLGATHER(self%blocks_number, 1_I4P, MPI_INTEGER, &
+                      recv_count, 1_I4P, MPI_INTEGER, MPI_COMM_WORLD, error)
+
+   allocate(refinements_needed_all(sum(recv_count, dim=1)))
+
+   ! computing displacement counts
+   allocate(disp_count(0:self%procs_number - 1))
+   disp_count = 0_I4P
+   do p=1, self%procs_number - 1
+      disp_count(p) = disp_count(p-1) + recv_count(p-1)
+   enddo
+
+#ifdef _MPI_
+   call MPI_ALLGATHERV(refinements_needed, self%blocks_number, MPI_INTEGER, &
+                       refinements_needed_all, recv_count, disp_count, MPI_INTEGER, MPI_COMM_WORLD, error)
+#endif
+   endsubroutine mpi_refinements_needed_gather
 
    subroutine redistribute(self, comm_map_send, comm_map_recv, comm_map_send_ptr, comm_map_recv_ptr, local_map, coordinates)
    !< Redistribute blocks to processes.
@@ -355,9 +443,10 @@ contains
       recv_offset = 1
       do b=1, size(comm_map_recv, dim=1)
           bi = comm_map_recv(b)
-          self%u_new(:,:,:,bi) = reshape(recv_buffer(recv_offset:recv_offset + self%block_weight -1),[self%gc1+self%ni+self%gc2, &
-                                                                                                      self%gc3+self%nj+self%gc4, &
-                                                                                                      self%gc5+self%nk+self%gc6])
+          self%u_new(:,:,:,bi) = reshape(recv_buffer(recv_offset:recv_offset + self%block_weight -1),&
+                                         [self%grid%gc1+self%grid%ni+self%grid%gc2, &
+                                          self%grid%gc3+self%grid%nj+self%grid%gc4, &
+                                          self%grid%gc5+self%grid%nk+self%grid%gc6])
           recv_offset = recv_offset + self%block_weight
       enddo
    endif
@@ -489,77 +578,52 @@ contains
    class(field_object), intent(inout) :: lhs !< Left hand side.
    type(field_object),  intent(in)    :: rhs !< Right hand side.
 
-   lhs%ni            = rhs%ni
-   lhs%nj            = rhs%nj
-   lhs%nk            = rhs%nk
-   lhs%gc1           = rhs%gc1
-   lhs%gc2           = rhs%gc2
-   lhs%gc3           = rhs%gc3
-   lhs%gc4           = rhs%gc4
-   lhs%gc5           = rhs%gc5
-   lhs%gc6           = rhs%gc6
+   ! lhs%domain_emin = rhs%domain_emin
+   ! lhs%domain_emax = rhs%domain_emax
+   ! lhs%ni            = rhs%ni
+   ! lhs%nj            = rhs%nj
+   ! lhs%nk            = rhs%nk
+   ! lhs%gc1           = rhs%gc1
+   ! lhs%gc2           = rhs%gc2
+   ! lhs%gc3           = rhs%gc3
+   ! lhs%gc4           = rhs%gc4
+   ! lhs%gc5           = rhs%gc5
+   ! lhs%gc6           = rhs%gc6
+   lhs%grid          = rhs%grid
    lhs%nv            = rhs%nv
    lhs%block_weight  = rhs%block_weight
    lhs%nb            = rhs%nb
    lhs%blocks_number = rhs%blocks_number
-
    if (allocated(rhs%code)) then
       lhs%code = rhs%code
    else
       if (allocated(lhs%code)) deallocate(lhs%code)
    endif
-
-   ! if (allocated(rhs%block_to_refine)) then
-   !    lhs%block_to_refine = rhs%block_to_refine
-   ! else
-   !    if (allocated(lhs%block_to_refine)) deallocate(lhs%block_to_refine)
-   ! endif
-
-   ! if (allocated(rhs%block_to_not_touch)) then
-   !    lhs%block_to_not_touch = rhs%block_to_not_touch
-   ! else
-   !    if (allocated(lhs%block_to_not_touch)) deallocate(lhs%block_to_not_touch)
-   ! endif
-
-   ! if (allocated(rhs%block_to_derefine)) then
-   !    lhs%block_to_derefine = rhs%block_to_derefine
-   ! else
-   !    if (allocated(lhs%block_to_derefine)) deallocate(lhs%block_to_derefine)
-   ! endif
-
    if (allocated(rhs%coordinates)) then
       lhs%coordinates = rhs%coordinates
    else
       if (allocated(lhs%coordinates)) deallocate(lhs%coordinates)
    endif
-
-   lhs%domain_emin = rhs%domain_emin
-   lhs%domain_emax = rhs%domain_emax
-
    if (allocated(rhs%emin)) then
       lhs%emin = rhs%emin
    else
       if (allocated(lhs%emin)) deallocate(lhs%emin)
    endif
-
    if (allocated(rhs%emax)) then
       lhs%emax = rhs%emax
    else
       if (allocated(lhs%emax)) deallocate(lhs%emax)
    endif
-
    if (allocated(rhs%u)) then
       lhs%u = rhs%u
    else
       if (allocated(lhs%u)) deallocate(lhs%u)
    endif
-
    if (allocated(rhs%u_new)) then
       lhs%u_new = rhs%u_new
    else
       if (allocated(lhs%u_new)) deallocate(lhs%u_new)
    endif
-
    lhs%is_initialized_ = rhs%is_initialized_
    ! MPI data
    lhs%myrank        = rhs%myrank
@@ -569,6 +633,5 @@ contains
    else
       if (allocated(lhs%blocks_numbers)) deallocate(lhs%blocks_numbers)
    endif
-
    endsubroutine field_assign_field
 endmodule adam_field_object

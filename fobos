@@ -105,6 +105,15 @@ preproc      = -D_MPI_
 quiet        = False
 log          = True
 jobs         = 2
+lib_dir      = /opt/HDF5/bin/1.12.0/lib
+include      = /opt/HDF5/bin/1.12.0/include
+libs         = /opt/HDF5/bin/1.12.0/lib/libhdf5hl_fortran.a
+               /opt/HDF5/bin/1.12.0/lib/libhdf5_hl.a
+               /opt/HDF5/bin/1.12.0/lib/libhdf5_fortran.a
+               /opt/HDF5/bin/1.12.0/lib/libhdf5.a
+               /opt/zlib/bin/1.2.11/lib/libz.a
+               /opt/szip/bin/2.1.1/lib/libsz.a
+ext_libs     = dl m
 
 [template-static-gnu-debug-mpi]
 compiler     = gnu
@@ -120,6 +129,15 @@ preproc      = -D_MPI_
 quiet        = False
 log          = True
 jobs         = 2
+lib_dir      = /opt/HDF5/bin/1.12.0/lib
+include      = /opt/HDF5/bin/1.12.0/include
+libs         = /opt/HDF5/bin/1.12.0/lib/libhdf5hl_fortran.a
+               /opt/HDF5/bin/1.12.0/lib/libhdf5_hl.a
+               /opt/HDF5/bin/1.12.0/lib/libhdf5_fortran.a
+               /opt/HDF5/bin/1.12.0/lib/libhdf5.a
+               /opt/zlib/bin/1.2.11/lib/libz.a
+               /opt/szip/bin/2.1.1/lib/libsz.a
+ext_libs     = dl m
 
 # Intel
 [template-static-intel]
