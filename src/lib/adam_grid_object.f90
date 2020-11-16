@@ -23,11 +23,9 @@ type :: grid_object
    integer(I4P) :: gc6=0_I4P      !< Number of ghost cells in k+ direction for boundary conditions.
    contains
       ! public methods
-      procedure, pass(self) :: compute_emin_emax !< Compute emin/emax of a block.
-      procedure, pass(self) :: dxyz              !< Return space deltas.
-      procedure, pass(self) :: xyz               !< Return grids coordinates.
-      procedure, pass(self) :: destroy           !< Destroy the field.
-      procedure, pass(self) :: initialize        !< Initialize the field.
+      procedure, pass(self) :: compute_metrics !< Compute metrics of a block.
+      procedure, pass(self) :: destroy         !< Destroy the field.
+      procedure, pass(self) :: initialize      !< Initialize the field.
       ! operators
       generic :: assignment(=) => grid_assign_grid      !< Overload `=`.
       procedure, pass(lhs), private :: grid_assign_grid !< Operator `=`.
@@ -35,78 +33,75 @@ endtype grid_object
 
 contains
    ! public methods
-   subroutine compute_emin_emax(self, coordinates, emin, emax)
-   !< Compute emin/emax of a block.
-   class(grid_object), intent(in)  :: self           !< The field.
-   integer(I4P),       intent(in)  :: coordinates(4) !< Block coordinates.
-   real(R8P),          intent(out) :: emin(3)        !< Coordinates of minimum abscissa of block.
-   real(R8P),          intent(out) :: emax(3)        !< Coordinates of maximum abscissa of block.
-   real(R8P)                       :: dx, dy, dz     !< Domain delta space.
-   real(R8P)                       :: dxl, dyl, dzl  !< Local delta space.
-   integer(I4P)                    :: i, j, k, l     !< Counter.
+   subroutine compute_metrics(self, coordinates,      &
+                              dx, dy, dz,             &
+                              emin, emax,             &
+                              x_node, y_node, z_node, &
+                              x_cell, y_cell, z_cell)
+   !< Compute metrics of a block.
+   class(grid_object), intent(in)            :: self                                 !< The field.
+   integer(I4P),       intent(in)            :: coordinates(4)                       !< Block coordinates.
+   real(R8P),          intent(out), optional :: dx, dy, dz                           !< Space steps.
+   real(R8P),          intent(out), optional :: emin(3), emax(3)                     !< Min/max abscissa of block.
+   real(R8P),          intent(out), optional :: x_node(0-self%gc1:self%ni+self%gc2)  !< X coordinates.
+   real(R8P),          intent(out), optional :: y_node(0-self%gc3:self%nj+self%gc4)  !< Y coordinates.
+   real(R8P),          intent(out), optional :: z_node(0-self%gc5:self%nk+self%gc6)  !< Z coordinates.
+   real(R8P),          intent(out), optional :: x_cell(1-self%gc1:self%ni+self%gc2)  !< X coordinates.
+   real(R8P),          intent(out), optional :: y_cell(1-self%gc3:self%nj+self%gc4)  !< Y coordinates.
+   real(R8P),          intent(out), optional :: z_cell(1-self%gc5:self%nk+self%gc6)  !< Z coordinates.
+   real(R8P)                                 :: emin_(3), emax_(3)                   !< Min/max abscissa of block, local var.
+   real(R8P)                                 :: x_node_(0-self%gc1:self%ni+self%gc2) !< X coordinates, local var.
+   real(R8P)                                 :: y_node_(0-self%gc3:self%nj+self%gc4) !< Y coordinates, local var.
+   real(R8P)                                 :: z_node_(0-self%gc5:self%nk+self%gc6) !< Z coordinates, local var.
+   real(R8P)                                 :: x_cell_(1-self%gc1:self%ni+self%gc2) !< X coordinates, local var.
+   real(R8P)                                 :: y_cell_(1-self%gc3:self%nj+self%gc4) !< Y coordinates, local var.
+   real(R8P)                                 :: z_cell_(1-self%gc5:self%nk+self%gc6) !< Z coordinates, local var.
+   real(R8P)                                 :: dx_, dy_, dz_                        !< Space steps, local var.
+   integer(I4P)                              :: i, j, k, l                           !< Counter.
 
-   dx = self%domain_emax(1) - self%domain_emin(1)
-   dy = self%domain_emax(2) - self%domain_emin(2)
-   dz = self%domain_emax(3) - self%domain_emin(3)
    i = coordinates(1)
    j = coordinates(2)
    k = coordinates(3)
    l = coordinates(4)
-   dxl = dx / 2**l
-   dyl = dy / 2**l
-   dzl = dz / 2**l
-   emin(1) = i * dxl ; emax(1) = emin(1) + dxl
-   emin(2) = j * dyl ; emax(2) = emin(2) + dyl
-   emin(3) = k * dzl ; emax(3) = emin(3) + dzl
-   endsubroutine compute_emin_emax
-
-   pure function dxyz(self, emin, emax, axis)
-   !< Return space deltas.
-   class(grid_object), intent(in) :: self    !< The field.
-   real(R8P),          intent(in) :: emin(3) !< Coordinates of minimum abscissa of block.
-   real(R8P),          intent(in) :: emax(3) !< Coordinates of maximum abscissa of block.
-   character(1),       intent(in) :: axis    !< Axis direction queried ['x','y','z'].
-   real(R8P), allocatable         :: dxyz    !< Grid delta space.
-
-   select case(axis)
-   case('x')
-      dxyz = (emax(1) - emin(1)) / self%ni
-   case('y')
-      dxyz = (emax(2) - emin(2)) / self%nj
-   case('z')
-      dxyz = (emax(3) - emin(3)) / self%nk
-   endselect
-   endfunction dxyz
-
-   pure function xyz(self, emin, emax, axis)
-      !< Return grids coordinates
-   class(grid_object), intent(in) :: self    !< The field.
-   real(R8P),          intent(in) :: emin(3) !< Coordinates of minimum abscissa of block.
-   real(R8P),          intent(in) :: emax(3) !< Coordinates of maximum abscissa of block.
-   character(1),       intent(in) :: axis    !< Axis direction queried ['x','y','z'].
-   real(R8P), allocatable         :: xyz(:)  !< Grid coordinates.
-   real(R8P)                      :: dxyz    !< Space delta.
-   integer(I4P)                   :: i       !< Counter.
-
-   dxyz = self%dxyz(emin=emin, emax=emax, axis=axis)
-   select case(axis)
-   case('x')
-      allocate(xyz(0:self%ni))
-      do i=0, self%ni
-         xyz(i) = emin(1) + i * dxyz
-      enddo
-   case('y')
-      allocate(xyz(0:self%nj))
-      do i=0, self%nj
-         xyz(i) = emin(2) + i * dxyz
-      enddo
-   case('z')
-      allocate(xyz(0:self%nk))
-      do i=0, self%nk
-         xyz(i) = emin(3) + i * dxyz
-      enddo
-   endselect
-   endfunction xyz
+   dx_ = (self%domain_emax(1) - self%domain_emin(1)) / 2**l
+   dy_ = (self%domain_emax(2) - self%domain_emin(2)) / 2**l
+   dz_ = (self%domain_emax(3) - self%domain_emin(3)) / 2**l
+   emin_(1) = i * dx_ ; emax_(1) = emin_(1) + dx_
+   emin_(2) = j * dy_ ; emax_(2) = emin_(2) + dy_
+   emin_(3) = k * dz_ ; emax_(3) = emin_(3) + dz_
+   dx_ = dx_ / self%ni
+   dy_ = dy_ / self%nj
+   dz_ = dz_ / self%nk
+   do i=0-self%gc1, self%ni+self%gc2
+      x_node_(i) = emin_(1) + i * dx_
+   enddo
+   do j=0-self%gc3, self%nj+self%gc4
+      y_node_(j) = emin_(2) + j * dy_
+   enddo
+   do k=0-self%gc5, self%nk+self%gc6
+      z_node_(k) = emin_(3) + k * dz_
+   enddo
+   do i=1-self%gc1, self%ni+self%gc2
+      x_cell_(i) = x_node_(i-1) + dx_ * 0.5_R8P
+   enddo
+   do j=1-self%gc3, self%nj+self%gc4
+      y_cell_(j) = y_node_(j-1) + dy_ * 0.5_R8P
+   enddo
+   do k=1-self%gc5, self%nk+self%gc6
+      z_cell_(k) = z_node_(k-1) + dz_ * 0.5_R8P
+   enddo
+   if (present(dx)) dx = dx_
+   if (present(dy)) dy = dy_
+   if (present(dz)) dz = dz_
+   if (present(emin)) emin = emin_
+   if (present(emax)) emax = emax_
+   if (present(x_node)) x_node = x_node_
+   if (present(y_node)) y_node = y_node_
+   if (present(z_node)) z_node = z_node_
+   if (present(x_cell)) x_cell = x_cell_
+   if (present(y_cell)) y_cell = y_cell_
+   if (present(z_cell)) z_cell = z_cell_
+   endsubroutine compute_metrics
 
    elemental subroutine destroy(self)
    !< Destroy field.

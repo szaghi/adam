@@ -171,6 +171,8 @@ type :: tree_object
       procedure, pass(self) :: hash                 !< Hash the key.
       procedure, pass(self) :: has_code             !< Check if the code is present in the tree.
       procedure, pass(self) :: initialize           !< Initialize the tree.
+      procedure, pass(self) :: max_cell_delta       !< Return the maximum cell delta given a comparison distance.
+      procedure, pass(self) :: mark_sphere          !< Mark nodes to be refined/derefined by sphere distance.
       procedure, pass(self) :: mark_all_nodes       !< Mark all nodes to be refined, derefined....
       procedure, pass(self) :: node                 !< Return a pointer to a node.
       procedure, pass(self) :: prime_buckets_number !< Return the buckets number as nearest prime number given nodes number.
@@ -441,6 +443,20 @@ contains
    call self%mpi_redistribute
    endsubroutine initialize
 
+   function max_cell_delta(self, distance) result(delta)
+   !< Return the maximum cell delta given a comparison distance.
+   class(tree_object), intent(in) :: self     !< The field.
+   real(R8P),          intent(in) :: distance !< Comparison distance.
+   real(R8P)                      :: delta    !< Maximum cell delta admissible.
+
+   if (abs(distance) < epsilon(0._R8P)) then
+      ! delta = 0.001_R8P
+      delta = 0.005_R8P
+   else
+      delta = huge(0._R8P)
+   endif
+   endfunction max_cell_delta
+
    subroutine mark_all_nodes(self, mark)
    !< Mark all nodes to be refined.
    class(tree_object), intent(inout) :: self !< The tree.
@@ -451,6 +467,67 @@ contains
       node%refinement_needed = mark
    enddo
    endsubroutine mark_all_nodes
+
+   subroutine mark_sphere(self, center, radius, threshold)
+   !< Mark all nodes inside a sphere to be refined.
+   class(tree_object), intent(inout)        :: self             !< The tree.
+   real(R8P),          intent(in)           :: center(3)        !< Sphere center coordinates [x,y,z].
+   real(R8P),          intent(in)           :: radius           !< Sphere radius.
+   real(R8P),          intent(in), optional :: threshold        !< Threshold for sphere proximity.
+   real(R8P)                                :: threshold_       !< Threshold for sphere proximity, local var.
+   type(tree_node_object), pointer          :: node             !< Pointer to current node.
+   real(R8P)                                :: block_center(3)  !< block center coordinates.
+   real(R8P)                                :: block_diagonal   !< block diagonal.
+   real(R8P)                                :: distance(0:8)    !< Distances between block and sphere.
+   real(R8P)                                :: max_cell_delta   !< Max cell delta.
+   integer(I4P)                             :: i,j,k,l          !< Counter.
+   real(R8P)                                :: emin(3), emax(3) !< Node extents.
+
+   threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
+   do while(self%loop(node=node))
+      call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
+      call self%grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax)
+      block_center = (emax + emin) / 2._R8P
+      block_diagonal = sqrt((emax(1) - emin(1))**2 + &
+                            (emax(2) - emin(2))**2 + &
+                            (emax(3) - emin(3))**2)
+
+      associate (ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
+      distance(0) = sphere_distance(point=block_center)
+      distance(1) = sphere_distance(point=[emin(1), emin(2), emin(3)])
+      distance(2) = sphere_distance(point=[emax(1), emin(2), emin(3)])
+      distance(3) = sphere_distance(point=[emin(1), emax(2), emin(3)])
+      distance(4) = sphere_distance(point=[emax(1), emax(2), emin(3)])
+      distance(5) = sphere_distance(point=[emin(1), emin(2), emax(3)])
+      distance(6) = sphere_distance(point=[emax(1), emin(2), emax(3)])
+      distance(7) = sphere_distance(point=[emin(1), emax(2), emax(3)])
+      distance(8) = sphere_distance(point=[emax(1), emax(2), emax(3)])
+      if (maxval(distance(0:8),dim=1)*minval(distance(0:8),dim=1) < 0._R8P) then
+         distance(0) = 0._R8P
+      endif
+
+      max_cell_delta = self%max_cell_delta(distance=distance(0))
+
+      ! max_cell_delta = min(max_cell_delta, 0.15_R8P)
+
+      if (block_diagonal/min(ni,nj,nk) > max_cell_delta) then
+         node%refinement_needed = TO_BE_REFINED
+      elseif (block_diagonal/min(ni,nj,nk) * threshold_ < max_cell_delta) then
+         node%refinement_needed = TO_BE_DEREFINED
+      endif
+      endassociate
+   enddo
+   contains
+      pure function sphere_distance(point)
+      !< Return the distance from a point to the sphere surface, with sign.
+      real(R8P), intent(in) :: point(3)        !< Point coordinates.
+      real(R8P)             :: sphere_distance !< Distance from sphere surface.
+
+      sphere_distance = sqrt((center(1) - point(1))**2 + &
+                             (center(2) - point(2))**2 + &
+                             (center(3) - point(3))**2) - radius
+      endfunction sphere_distance
+   endsubroutine mark_sphere
 
    function node(self, code) result(p)
    !< Return a pointer to a node in the tree.
@@ -956,6 +1033,11 @@ contains
       endif
       c = c + 1
    enddo
+
+   do while(self%loop(node=node))
+   print* , 'cazzo ', node%code, trim(str([node%myrank, node%myrank_new])), trim(str([node%block_index, node%block_index_new ]))
+   enddo
+
    ! create communication/local maps
    call self%make_comm_local_maps
    ! update tree status and compute coordinates of redistributed nodes

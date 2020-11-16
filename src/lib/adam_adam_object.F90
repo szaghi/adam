@@ -35,6 +35,7 @@ type :: adam_object
       procedure, pass(self) :: destroy          !< Destroy ADAM.
       procedure, pass(self) :: finalize         !< Finalize ADAM.
       procedure, pass(self) :: initialize       !< Initialize ADAM.
+      procedure, pass(self) :: mark_sphere      !< Mark all nodes inside a sphere to be refined.
       procedure, pass(self) :: mpi_redistribute !< Redistribute nodes/blocks to processes, load balancing.
       procedure, pass(self) :: save_hdf5        !< Save ADAM in HDF5 format.
       procedure, pass(self) :: save_vtk         !< Save ADAM in VTK  format.
@@ -45,17 +46,20 @@ endtype adam_object
 
 contains
    ! public methods
-   subroutine amr_update(self, is_marked_by_field, is_marked_by_tree, is_grid_changed)
+   subroutine amr_update(self, is_marked_by_field, is_marked_by_tree, do_mpi_redistribute, is_grid_changed)
    !< Update AMR status.
-   class(adam_object), intent(inout)         :: self                      !< ADAM.
-   logical,            intent(in),  optional :: is_marked_by_field        !< Flag to check if marker is field.
-   logical,            intent(in),  optional :: is_marked_by_tree         !< Flag to check if marker is tree.
-   logical,            intent(out), optional :: is_grid_changed           !< Flag to check if grid is changed.
-   logical                                   :: is_marked_by_field_       !< Flag to check if marker is field, local var.
-   logical                                   :: is_marked_by_tree_        !< Flag to check if marker is tree, local var.
+   class(adam_object), intent(inout)         :: self                 !< ADAM.
+   logical,            intent(in),  optional :: is_marked_by_field   !< Flag to check if marker is field.
+   logical,            intent(in),  optional :: is_marked_by_tree    !< Flag to check if marker is tree.
+   logical,            intent(in),  optional :: do_mpi_redistribute  !< Flag to activate MPI redistribute.
+   logical,            intent(out), optional :: is_grid_changed      !< Flag to check if grid is changed.
+   logical                                   :: is_marked_by_field_  !< Flag to check if marker is field, local var.
+   logical                                   :: is_marked_by_tree_   !< Flag to check if marker is tree, local var.
+   logical                                   :: do_mpi_redistribute_ !< Flag to activate MPI redistribute, local var.
 
-   is_marked_by_field_ = .false. ; if (present(is_marked_by_field)) is_marked_by_field_ = is_marked_by_field
-   is_marked_by_tree_  = .false. ; if (present(is_marked_by_tree )) is_marked_by_tree_  = is_marked_by_tree
+   is_marked_by_field_  = .false. ; if (present(is_marked_by_field  )) is_marked_by_field_  = is_marked_by_field
+   is_marked_by_tree_   = .false. ; if (present(is_marked_by_tree   )) is_marked_by_tree_   = is_marked_by_tree
+   do_mpi_redistribute_ = .true.  ; if (present(do_mpi_redistribute )) do_mpi_redistribute_ = do_mpi_redistribute
 
    if (is_marked_by_field_) then
       call self%field%mpi_gather_refinements_needed
@@ -71,6 +75,8 @@ contains
                          block_to_derefine=self%tree%block_to_derefine, block_derefined=self%tree%block_derefined)
    if (present(is_grid_changed)) &
       is_grid_changed = (size(self%tree%node_to_refine, dim=1)>0_I4P).or.(size(self%tree%node_to_derefine, dim=1)>0_I4P)
+
+   if (do_mpi_redistribute_) call self%mpi_redistribute
    endsubroutine amr_update
 
    subroutine destroy(self)
@@ -127,9 +133,10 @@ contains
    call self%tree%initialize(grid=self%grid, max_load=max_load, nodes_number=nodes_number, buckets_number=buckets_number, &
                              ratio=ratio, max_level=max_level, add_adam=add_adam)
    call self%field%initialize(grid=self%grid, nv=nv, nb=nb)
+   call self%amr_update
    endsubroutine initialize
 
-   subroutine mark_sphere_nodes(self, center, radius, threshold)
+   subroutine mark_sphere(self, center, radius, threshold)
    !< Mark all nodes inside a sphere to be refined.
    class(adam_object), intent(inout)        :: self            !< ADAM.
    real(R8P),          intent(in)           :: center(3)       !< Sphere center coordinates [x,y,z].
@@ -167,6 +174,8 @@ contains
 
       max_cell_delta = self%field%max_cell_delta(distance=distance(0))
 
+      max_cell_delta = min(max_cell_delta, 0.15_R8P)
+
       if (block_diagonal/min(ni,nj,nk) > max_cell_delta) then
          node%refinement_needed = TO_BE_REFINED
       elseif (block_diagonal/min(ni,nj,nk) * threshold_ < max_cell_delta) then
@@ -184,7 +193,7 @@ contains
                              (center(2) - point(2))**2 + &
                              (center(3) - point(3))**2) - radius
       endfunction sphere_distance
-   endsubroutine mark_sphere_nodes
+   endsubroutine mark_sphere
 
    subroutine mpi_redistribute(self)
    !< Redistribute nodes/blocks to processes, load balancing.
@@ -201,49 +210,53 @@ contains
 
    subroutine save_hdf5(self, basename, directory)
    !< Save ADAM in HDF5 format.
-   class(adam_object), intent(in)           :: self             !< ADAM.
-   character(*),       intent(in)           :: basename         !< Base name of output files.
-   character(*),       intent(in), optional :: directory        !< Directory name of output files.
-   character(:), allocatable                :: directory_       !< Directory name of output files, local var.
-   type(tree_node_object), pointer          :: node             !< Pointer to node.
-   real(R8P)                                :: emin(3), emax(3) !< Minimum/maximum abscissa of current block.
-   integer(I4P)                             :: error            !< Error trapping flag.
-   integer(I4P)                             :: b                !< Counter.
-   integer(I4P)                             :: xdmf             !< XDMF file handler.
-   character(len=:), allocatable            :: h5_file_name     !< H5 Dataset name.
-   character(len=:), allocatable            :: h5_dset_name     !< H5 Dataset name.
-   integer(HID_T)                           :: h5_file_id       !< H5 File identifier.
-   integer(HID_T)                           :: h5_dspace_id     !< H5 Dataspace identifier.
-   integer(HID_T)                           :: h5_dset_id       !< H5 Dataset identifier.
-   real(R8P)                                :: dxl, dyl, dzl    !< Local delta space.
-   integer(I4P)                             :: i, j, k, l       !< Counter.
+   class(adam_object), intent(inout)        :: self         !< ADAM.
+   character(*),       intent(in)           :: basename     !< Base name of output files.
+   character(*),       intent(in), optional :: directory    !< Directory name of output files.
+   character(:), allocatable                :: directory_   !< Directory name of output files, local var.
+   type(tree_node_object), pointer          :: node         !< Pointer to node.
+   real(R8P)                                :: emin(3)      !< Minimum abscissa of current block.
+   integer(I4P)                             :: b            !< Counter.
+   integer(I4P)                             :: xdmf         !< XDMF file handler.
+   character(len=:), allocatable            :: h5_file_name !< H5 Dataset name.
+   character(len=:), allocatable            :: h5_dset_name !< H5 Dataset name.
+   integer(HID_T)                           :: h5_file_id   !< H5 File identifier.
+   integer(HID_T)                           :: h5_dspace_id !< H5 Dataspace identifier.
+   integer(HID_T)                           :: h5_dset_id   !< H5 Dataset identifier.
+   real(R8P)                                :: dx, dy, dz   !< Space steps.
+   character(len=:), allocatable            :: grid_dims    !< Grid dimensions.
+   integer(I4P)                             :: i, j, k, l   !< Counter.
 
    directory_ = '' ; if (present(directory)) directory_ = trim(directory)
    associate(grid=>self%grid, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
    ! save H5 file (one for each process)
    ! open fortran interface
-   call h5open_f(error)
+   call h5open_f(self%error)
    ! create a new file using default properties
-   h5_file_name = directory_//trim(basename)//trim(str(self%myrank,.true.))//'.h5'
-   call h5fcreate_f(h5_file_name, H5F_ACC_TRUNC_F, h5_file_id, error)
-   ! create the dataspace
-   call h5screate_simple_f(3_I4P, [int(ni,I8P),int(nj,I8P),int(nk,I8P)], h5_dspace_id, error)
+   h5_file_name = directory_//trim(basename)//'-proc'//trim(strz(self%myrank,6))//'.h5'
+   call h5fcreate_f(h5_file_name, H5F_ACC_TRUNC_F, h5_file_id, self%error)
+
+   ! create the dataspace for 3D fields
+   call h5screate_simple_f(3_I4P, [int(ni,I8P),int(nj,I8P),int(nk,I8P)], h5_dspace_id, self%error)
    ! save all blocks in process
    do b=1, self%field%blocks_number
       h5_dset_name = 'u-'//trim(str(self%myrank,.true.))//'-'//trim(str(b,.true.))
-      call h5dcreate_f(h5_file_id, h5_dset_name, H5T_NATIVE_DOUBLE, h5_dspace_id, h5_dset_id, error)
-      call h5dwrite_f(h5_dset_id, H5T_NATIVE_DOUBLE, self%field%u(1:ni,1:nj,1:nk,b), [int(ni,I8P),int(nj,I8P),int(nk,I8P)], error)
-      call h5dclose_f(h5_dset_id, error)
+      call h5dcreate_f(h5_file_id, h5_dset_name, H5T_NATIVE_DOUBLE, h5_dspace_id, h5_dset_id, self%error)
+      call h5dwrite_f(h5_dset_id, H5T_NATIVE_DOUBLE, self%field%u(1:ni,1:nj,1:nk,b), &
+                      [int(ni,I8P),int(nj,I8P),int(nk,I8P)], self%error)
+      call h5dclose_f(h5_dset_id, self%error)
    enddo
    ! terminate access to the data space
-   call h5sclose_f(h5_dspace_id, error)
+   call h5sclose_f(h5_dspace_id, self%error)
+
    ! close the file
-   call h5fclose_f(h5_file_id, error)
+   call h5fclose_f(h5_file_id, self%error)
    ! close FORTRAN interface
-   call h5close_f(error)
+   call h5close_f(self%error)
 
    ! save XDMF file (only master process does)
    if (self%myrank == 0_I4P) then
+      grid_dims = trim(str([ni+1,nj+1,nk+1],separator=' '))
       open(newunit=xdmf, file=directory_//trim(basename)//'.xdmf')
       write(xdmf, '(A)') '<?xml version="1.0" encoding="utf-8"?>'
       write(xdmf, '(A)') '<Xdmf xmlns:xi="http://www.w3.org/2001/XInclude" Version="3.0">'
@@ -251,28 +264,38 @@ contains
       write(xdmf, '(A)') '    <Grid Name="ADAM" GridType="Collection">'
       do while(self%tree%loop(node=node))
          b = node%block_index
-         h5_file_name = trim(basename)//trim(str(node%myrank,.true.))//'.h5'
-         h5_dset_name = 'u-'//trim(str(node%myrank,.true.))//'-'//trim(str(b,.true.))
+         h5_file_name = trim(basename)//'-proc'//trim(strz(node%myrank,6))//'.h5'
          call self%tree%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
-         call grid%compute_emin_emax(coordinates=[i,j,k,l], emin=emin, emax=emax)
-         dxl = grid%dxyz(emin=emin, emax=emax, axis='x')
-         dyl = grid%dxyz(emin=emin, emax=emax, axis='y')
-         dzl = grid%dxyz(emin=emin, emax=emax, axis='z')
-
+         call grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, dx=dx, dy=dy, dz=dz)
          write(xdmf, '(A)') '      <Grid Name="'//trim(str(node%code))//'">'
+
          write(xdmf, '(A)') '        <Geometry Origin="" Type="ORIGIN_DXDYDZ">'
          write(xdmf, '(A)') '          <DataItem DataType="Float" Dimensions="3" Format="XML" Precision="8">'// &
                                         trim(str([emin(3),emin(2),emin(1)],separator=' '))//'</DataItem>'
          write(xdmf, '(A)') '          <DataItem DataType="Float" Dimensions="3" Format="XML" Precision="8">'// &
-                                        trim(str([dxl,dyl,dzl],separator=' '))//'</DataItem>'
+                                        trim(str([dx,dy,dz],separator=' '))//'</DataItem>'
          write(xdmf, '(A)') '        </Geometry>'
-         write(xdmf, '(A)') '        <Topology Dimensions="'//trim(str([ni+1,nj+1,nk+1],separator=' '))// &
-                                      '" Type="3DCoRectMesh"/>'
-         write(xdmf, '(A)') '        <Attribute Center="Cell" ElementCell="" ElementDegree="0" ElementFamily=""'// &
-                                      ' ItemType="" Name="u" Type="Scalar"> '
-         write(xdmf, '(A)') '          <DataItem DataType="Float" Dimensions="'//trim(str([ni+1,nj+1,nk+1],separator=' '))// &
-                                        '" Format="HDF" Precision="8">'//h5_file_name//':'//h5_dset_name//'</DataItem>'
+         write(xdmf, '(A)') '        <Topology Dimensions="'//grid_dims//'" Type="3DCoRectMesh"/>'
+
+         h5_dset_name = 'u-'//trim(str(node%myrank,.true.))//'-'//trim(str(b,.true.))
+         write(xdmf, '(A)') '        <Attribute Name="u" Center="Cell" ElementDegree="0" Type="Scalar">'
+         write(xdmf, '(A)') '          <DataItem DataType="Float" Dimensions="'//grid_dims//'" Format="HDF" Precision="8">'// &
+                                       h5_file_name//':'//h5_dset_name//'</DataItem>'
          write(xdmf, '(A)') '        </Attribute>'
+
+         write(xdmf, '(A)') '        <Attribute Name="Morton" Center="Grid">'
+         write(xdmf, '(A)') '          <DataItem Dimensions="1" Format="XML" DataType="Int">'//trim(str(node%code))//'</DataItem>'
+         write(xdmf, '(A)') '        </Attribute>'
+
+         write(xdmf, '(A)') '        <Attribute Name="block-index" Center="Grid">'
+         write(xdmf, '(A)') '          <DataItem Dimensions="1" Format="XML" DataType="Int">'//trim(str(node%block_index))//&
+                                       '</DataItem>'
+         write(xdmf, '(A)') '        </Attribute>'
+
+         write(xdmf, '(A)') '        <Attribute Name="myrank" Center="Grid">'
+         write(xdmf, '(A)') '          <DataItem Dimensions="1" Format="XML" DataType="Int">'//trim(str(node%myrank))//'</DataItem>'
+         write(xdmf, '(A)') '        </Attribute>'
+
          write(xdmf, '(A)') '      </Grid>'
       enddo
       write(xdmf, '(A)') '    </Grid>'
@@ -285,57 +308,56 @@ contains
 
    subroutine save_vtk(self, basename, directory)
    !< Save ADAM in VTK files.
-   class(adam_object), intent(in)           :: self       !< ADAM.
-   character(*),       intent(in)           :: basename   !< Base name of output files.
-   character(*),       intent(in), optional :: directory  !< Directory name of output files.
-   character(:), allocatable                :: directory_ !< Directory name of output files, local var.
-   integer(I4P)                             :: error      !< Error trapping flag.
-   type(vtk_file)                           :: vtk        !< VTK file handler.
-   type(vtm_file)                           :: vtm        !< VTM file handler.
-   type(tree_node_object), pointer          :: node       !< Pointer to node.
-   integer(I4P)                             :: b, l       !< Counter.
-   integer(I4P)                             :: i, j, k    !< Counter.
-   integer(I4P)                             :: max_level  !< Maximum level.
+   class(adam_object), intent(inout)        :: self                                          !< ADAM.
+   character(*),       intent(in)           :: basename                                      !< Base name of output files.
+   character(*),       intent(in), optional :: directory                                     !< Output directory name.
+   character(:), allocatable                :: directory_                                    !< Output directory name, local var.
+   type(vtk_file)                           :: vtk                                           !< VTK file handler.
+   type(vtm_file)                           :: vtm                                           !< VTM file handler.
+   type(tree_node_object), pointer          :: node                                          !< Pointer to node.
+   integer(I4P)                             :: b, l                                          !< Counter.
+   integer(I4P)                             :: i, j, k                                       !< Counter.
+   integer(I4P)                             :: max_level                                     !< Maximum level.
+   real(R8P)                                :: x(0-self%grid%gc1:self%grid%ni+self%grid%gc2) !< X coordinates.
+   real(R8P)                                :: y(0-self%grid%gc3:self%grid%nj+self%grid%gc4) !< Y coordinates.
+   real(R8P)                                :: z(0-self%grid%gc5:self%grid%nk+self%grid%gc6) !< Z coordinates.
 
    directory_ = '' ; if (present(directory)) directory_ = trim(directory)
    associate(emin=>self%field%emin, emax=>self%field%emax, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
       max_level = 0_I4P
-      vtr_loop : do while(self%tree%loop(node=node))
-         if (self%myrank /= node%myrank) cycle ! only the process having node can save VTR file
-         b = node%block_index
-         max_level = max(max_level, self%tree%level(code=node%code))
-         error = vtk%initialize(format='raw', filename=directory_//trim(basename)//'-block-'//trim(str(b,.true.))//&
-                                                       '-proc-'//trim(str(node%myrank,.true.))//'.vtr',            &
-                                mesh_topology='RectilinearGrid',                                                   &
-                                nx1=0, nx2=ni, ny1=0, ny2=nj, nz1=0, nz2=nk)
-         error = vtk%xml_writer%write_fielddata(action='open')
-         error = vtk%xml_writer%write_fielddata(data_name='Morton', x=self%field%code(b))
-         error = vtk%xml_writer%write_fielddata(action='close')
-         error = vtk%xml_writer%write_piece(nx1=0, nx2=ni, ny1=0, ny2=nj, nz1=0, nz2=nk)
-         error = vtk%xml_writer%write_geo(x=self%field%compute_xyz(b, axis='x'), &
-                                          y=self%field%compute_xyz(b, axis='y'), &
-                                          z=self%field%compute_xyz(b, axis='z'))
-         error = vtk%xml_writer%write_dataarray(location='cell', action='open')
-         error = vtk%xml_writer%write_dataarray(data_name='u', x=[self%field%u(1:ni,1:nj,1:nk,b)])
-         error = vtk%xml_writer%write_dataarray(data_name='myrn', x=[(((node%myrank_new, k=1,nk),j=1,nj),i=1,ni)])
-         error = vtk%xml_writer%write_dataarray(location='cell', action='close')
-         error = vtk%xml_writer%write_piece()
-         error = vtk%finalize()
+      vtr_loop : do b=1, self%field%blocks_number
+         call self%grid%compute_metrics(coordinates=self%field%coordinates(b,:), x_node=x, y_node=y, z_node=z)
+         max_level = max(max_level, self%field%coordinates(b,4))
+         self%error = vtk%initialize(format='raw', filename=directory_//trim(basename)//'-block-'//trim(str(b,.true.))//&
+                                                            '-proc-'//trim(str(self%myrank,.true.))//'.vtr',            &
+                                     mesh_topology='RectilinearGrid',                                                   &
+                                     nx1=0, nx2=ni, ny1=0, ny2=nj, nz1=0, nz2=nk)
+         self%error = vtk%xml_writer%write_fielddata(action='open')
+         self%error = vtk%xml_writer%write_fielddata(data_name='Morton', x=self%field%code(b))
+         self%error = vtk%xml_writer%write_fielddata(data_name='myrank', x=self%myrank)
+         self%error = vtk%xml_writer%write_fielddata(action='close')
+         self%error = vtk%xml_writer%write_piece(nx1=0, nx2=ni, ny1=0, ny2=nj, nz1=0, nz2=nk)
+         self%error = vtk%xml_writer%write_geo(x=x(0:ni), y=y(0:nj), z=z(0:nk))
+         self%error = vtk%xml_writer%write_dataarray(location='cell', action='open')
+         self%error = vtk%xml_writer%write_dataarray(data_name='u', x=[self%field%u(1:ni,1:nj,1:nk,b)])
+         self%error = vtk%xml_writer%write_dataarray(location='cell', action='close')
+         self%error = vtk%xml_writer%write_piece()
+         self%error = vtk%finalize()
       enddo vtr_loop
 
       ! save VTM file (only master process does)
       if (self%myrank == 0_I4P) then
-         error = vtm%initialize(filename=directory_//trim(basename)//'.vtm', scratch_units_number=max_level)
+         self%error = vtm%initialize(filename=directory_//trim(basename)//'.vtm', scratch_units_number=max_level)
          vtm_group_loop : do l=1, max_level
-            error = vtm%write_block(scratch=l, action='open', name='level-'//trim(str(l,.true.)))
+            self%error = vtm%write_block(scratch=l, action='open', name='level-'//trim(str(l,.true.)))
          enddo vtm_group_loop
          vtm_filenames_loop : do while(self%tree%loop(node=node))
             b = node%block_index
             l = self%tree%level(code=node%code)
-            error = vtm%write_block(scratch=l, action='write', filename=trim(basename)//'-block-'//trim(str(b,.true.))//&
-                                                                        '-proc-'//trim(str(node%myrank,.true.))//'.vtr')
+            self%error = vtm%write_block(scratch=l, action='write', filename=trim(basename)//'-block-'//trim(str(b,.true.))//&
+                                                                             '-proc-'//trim(str(node%myrank,.true.))//'.vtr')
          enddo vtm_filenames_loop
-         error = vtm%finalize()
+         self%error = vtm%finalize()
       endif
    endassociate
    endsubroutine save_vtk

@@ -85,8 +85,15 @@ type :: field_object
    integer(I4P), allocatable  :: coordinates(:,:)        !< Coordinates IJKL for each block [nb,4].
    real(R8P),    allocatable  :: emin(:,:)               !< Coordinates of minimum abscissa of each block [3,nb].
    real(R8P),    allocatable  :: emax(:,:)               !< Coordinates of maximum abscissa of each block [3,nb].
+   real(R8P),    allocatable  :: x_node(:,:)             !< X coordinates of [0-gc1:ni+gc2,nb].
+   real(R8P),    allocatable  :: y_node(:,:)             !< Y coordinates of [0-gc3:nj+gc4,nb].
+   real(R8P),    allocatable  :: z_node(:,:)             !< Z coordinates of [0-gc5:nk+gc6,nb].
+   real(R8P),    allocatable  :: x_cell(:,:)             !< X coordinates of [1-gc1:ni+gc2,nb].
+   real(R8P),    allocatable  :: y_cell(:,:)             !< Y coordinates of [1-gc3:nj+gc4,nb].
+   real(R8P),    allocatable  :: z_cell(:,:)             !< Z coordinates of [1-gc5:nk+gc6,nb].
    real(R8P),    allocatable  :: u(:,:,:,:)              !< Field cell centered variables [ni+gc12,nj+gc34,nk+gc56,nv,nb].
    real(R8P),    allocatable  :: u_new(:,:,:,:)          !< Field cell centered variables, buffer memory.
+   real(R8P),    allocatable  :: u_s(:,:,:,:,:)
    logical                    :: is_initialized_=.false. !< Initialization status.
    ! MPI data
    integer(I4P)               :: myrank=0_I4P              !< MPI rank process.
@@ -98,14 +105,17 @@ type :: field_object
    contains
       ! public methods
       procedure, pass(self) :: adapt                         !< Adapt field accordingly to refine/derefine necessity.
-      procedure, pass(self) :: compute_emin_emax             !< Compute emin/emax of each block.
-      procedure, pass(self) :: compute_xyz                   !< Compute grids coordinates from grids extents emin/emax.
+      procedure, pass(self) :: compute_metrics               !< Compute metrics of each block.
       procedure, pass(self) :: destroy                       !< Destroy the field.
       procedure, pass(self) :: initialize                    !< Initialize the field.
+      procedure, pass(self) :: mark_by_u_value               !< Mark blocks to be refined/derefined by a `u` value.
       procedure, pass(self) :: mark_sphere                   !< Mark blocks to be refined/derefined by sphere distance.
       procedure, pass(self) :: max_cell_delta                !< Return the maximum cell delta given a comparison distance.
       procedure, pass(self) :: mpi_gather_refinements_needed !< Gather blocks refinement needed status between MPI processes.
       procedure, pass(self) :: mpi_redistribute              !< Redistribute blocks to processes.
+      procedure, pass(self) :: rk_integrate                  !< Runge Kutta integration of field.
+      procedure, pass(self) :: residuals                     !< Compute residuals of field.
+      procedure, pass(self) :: set_initial_conditions        !< Set initial conditions of field.
       ! private methods
       procedure, pass(self), private :: derefine !< Derefine blocks.
       procedure, pass(self), private :: refine   !< Refine blocks.
@@ -129,63 +139,18 @@ contains
    call self%derefine(ratio=ratio, block_to_derefine=block_to_derefine, block_derefined=block_derefined)
    endsubroutine adapt
 
-   subroutine compute_emin_emax(self)
-   !< Compute emin/emax of each block.
-   class(field_object), intent(inout) :: self          !< The field.
-   real(R8P)                          :: dx, dy, dz    !< Domain delta space.
-   real(R8P)                          :: dxl, dyl, dzl !< Local delta space.
-   integer(I4P)                       :: i, j, k, l, b !< Counter.
+   subroutine compute_metrics(self)
+   !< Compute metrics of each block.
+   class(field_object), intent(inout) :: self !< The field.
+   integer(I4P)                       :: b    !< Counter.
 
-   dx = self%grid%domain_emax(1) - self%grid%domain_emin(1)
-   dy = self%grid%domain_emax(2) - self%grid%domain_emin(2)
-   dz = self%grid%domain_emax(3) - self%grid%domain_emin(3)
    do b=1, self%blocks_number
-      i = self%coordinates(b,1)
-      j = self%coordinates(b,2)
-      k = self%coordinates(b,3)
-      l = self%coordinates(b,4)
-      dxl = dx / 2**l
-      dyl = dy / 2**l
-      dzl = dz / 2**l
-      self%emin(1,b) = i * dxl ; self%emax(1,b) = self%emin(1,b) + dxl
-      self%emin(2,b) = j * dyl ; self%emax(2,b) = self%emin(2,b) + dyl
-      self%emin(3,b) = k * dzl ; self%emax(3,b) = self%emin(3,b) + dzl
+      call self%grid%compute_metrics(coordinates=self%coordinates(b,:),                                         &
+                                     emin=self%emin(:,b), emax=self%emax(:,b),                                  &
+                                     x_node=self%x_node(:,b), y_node=self%y_node(:,b), z_node=self%z_node(:,b), &
+                                     x_cell=self%x_cell(:,b), y_cell=self%y_cell(:,b), z_cell=self%z_cell(:,b))
    enddo
-   endsubroutine compute_emin_emax
-
-   pure function compute_xyz(self, b, axis) result(xyz)
-   !< Compute grids coordinates from grids extents emin/emax of b-th block.
-   class(field_object), intent(in) :: self   !< The field.
-   integer(I4P),        intent(in) :: b      !< Block index.
-   character(1),        intent(in) :: axis   !< Axis direction queried ['x','y','z'].
-   real(R8P), allocatable          :: xyz(:) !< Grid coordinates.
-   real(R8P)                       :: dxyz   !< Space delta.
-   integer(I4P)                    :: i      !< Counter.
-
-   associate(emin=>self%emin, emax=>self%emax, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, &
-             gc1=>self%grid%gc1, gc2=>self%grid%gc2, gc3=>self%grid%gc3, gc4=>self%grid%gc4, gc5=>self%grid%gc5, gc6=>self%grid%gc6)
-      select case(axis)
-      case('x')
-         allocate(xyz(0:ni))
-         dxyz = (emax(1,b) - emin(1,b)) / ni
-         do i=0, ni
-            xyz(i) = emin(1,b) + i * dxyz
-         enddo
-      case('y')
-         allocate(xyz(0:nj))
-         dxyz = (emax(2,b) - emin(2,b)) / nj
-         do i=0, nj
-            xyz(i) = emin(2,b) + i * dxyz
-         enddo
-      case('z')
-         allocate(xyz(0:nk))
-         dxyz = (emax(3,b) - emin(3,b)) / nk
-         do i=0, nk
-            xyz(i) = emin(3,b) + i * dxyz
-         enddo
-      endselect
-   endassociate
-   endfunction compute_xyz
+   endsubroutine compute_metrics
 
    subroutine destroy(self)
    !< Destroy field.
@@ -212,16 +177,22 @@ contains
                        (self%grid%gc3+self%grid%nj+self%grid%gc4)* &
                        (self%grid%gc5+self%grid%nk+self%grid%gc6)*self%nv
    if (present(nb)) self%nb  = nb
-   if (nb>0) then
+   if (self%nb>0) then
 
-      allocate(self%code(nb))
+      allocate(self%code(self%nb))
       self%code    = -2_I8P
       self%code(1) = -1_I8P ! first block is assumed to be ADAM
 
-      allocate(self%coordinates(nb,4))
+      allocate(self%coordinates(self%nb,4))
 
-      allocate(self%emin(3,nb))
-      allocate(self%emax(3,nb))
+      allocate(self%emin(3,self%nb))
+      allocate(self%emax(3,self%nb))
+      allocate(self%x_cell(1-self%grid%gc1:self%grid%ni+self%grid%gc2,self%nb))
+      allocate(self%y_cell(1-self%grid%gc3:self%grid%nj+self%grid%gc4,self%nb))
+      allocate(self%z_cell(1-self%grid%gc5:self%grid%nk+self%grid%gc6,self%nb))
+      allocate(self%x_node(0-self%grid%gc1:self%grid%ni+self%grid%gc2,self%nb))
+      allocate(self%y_node(0-self%grid%gc3:self%grid%nj+self%grid%gc4,self%nb))
+      allocate(self%z_node(0-self%grid%gc5:self%grid%nk+self%grid%gc6,self%nb))
       self%emin(:,1) = self%grid%domain_emin
       self%emax(:,1) = self%grid%domain_emax
 
@@ -231,6 +202,9 @@ contains
       allocate(self%u_new(1-self%grid%gc1:self%grid%ni+self%grid%gc2, &
                           1-self%grid%gc3:self%grid%nj+self%grid%gc4, &
                           1-self%grid%gc5:self%grid%nk+self%grid%gc6, 1:self%nb))
+      allocate(self%u_s(1-self%grid%gc1:self%grid%ni+self%grid%gc2, &
+                        1-self%grid%gc3:self%grid%nj+self%grid%gc4, &
+                        1-self%grid%gc5:self%grid%nk+self%grid%gc6, 1:self%nb, 1:3))
       self%u = 0._R8P
       self%u_new = 0._R8P
    endif
@@ -242,6 +216,37 @@ contains
    allocate(self%blocks_numbers(0:self%procs_number-1))
 #endif
    endsubroutine initialize
+
+   subroutine mark_by_u_value(self, u_value, threshold)
+   !< Mark blocks to be refined/derefined by a `u` value.
+   class(field_object),       intent(inout)        :: self            !< The field.
+   real(R8P),                 intent(in)           :: u_value         !< `u` value to be tracked.
+   real(R8P),                 intent(in), optional :: threshold       !< Threshold for sphere proximity.
+   real(R8P)                                       :: threshold_      !< Threshold for sphere proximity, local var.
+   real(R8P)                                       :: u_mean          !< `u` mean value of block.
+   integer(I4P)                                    :: b               !< Counter.
+
+   threshold_ = 1.5_R8P ; if (present(threshold)) threshold_ = threshold
+   if (allocated(self%refinements_needed)) deallocate(self%refinements_needed)
+   allocate(self%refinements_needed(self%blocks_number))
+   do b=1, self%blocks_number
+
+      associate (ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
+         u_mean = sum(self%u(1:ni,1:nj,1:nk,b)) / (ni*nj*nk)
+         ! u_mean = maxval(self%u(1:ni,1:nj,1:nk,b))
+      endassociate
+
+      if (abs(u_mean - u_value) < 0.05) then
+      ! if ((u_mean - u_value) > 0.47) then
+         self%refinements_needed(b) = TO_BE_REFINED
+      elseif (abs(u_mean - u_value) * threshold_ > 0.05) then
+      ! elseif ((u_mean - u_value) * threshold_ < 0.47) then
+         self%refinements_needed(b) = TO_BE_DEREFINED
+      else
+         self%refinements_needed(b) = TO_NOT_TOUCH
+      endif
+   enddo
+   endsubroutine mark_by_u_value
 
    subroutine mark_sphere(self, center, radius, threshold)
    !< Mark blocks to be refined/derefined by sphere distance.
@@ -432,8 +437,108 @@ contains
    self%u = self%u_new
    self%blocks_number = n_keep  + recv_size / self%block_weight
    self%coordinates(1:self%blocks_number,:) = coordinates
-   call self%compute_emin_emax
+   call self%compute_metrics
    endsubroutine mpi_redistribute
+
+   subroutine set_initial_conditions(self)
+   !< Set initial conditions of field.
+   class(field_object), intent(inout) :: self    !< The field.
+   integer(I4P)                       :: b       !< Counter.
+   integer(I4P)                       :: i, j, k !< Counter.
+   real(R8P)                          :: a       !< Gaussian amplitude.
+   real(R8P)                          :: sigma_x !< Gaussian x variance.
+   real(R8P)                          :: sigma_y !< Gaussian y variance.
+   real(R8P)                          :: sigma_z !< Gaussian z variance.
+   real(R8P)                          :: x_0     !< Gaussian x center.
+   real(R8P)                          :: y_0     !< Gaussian y center.
+   real(R8P)                          :: z_0     !< Gaussian z center.
+
+   a = 1.0_R8P
+   x_0 = (self%grid%domain_emax(1) - self%grid%domain_emin(1)) / 2.0_R8P
+   y_0 = (self%grid%domain_emax(2) - self%grid%domain_emin(2)) / 2.0_R8P
+   z_0 = (self%grid%domain_emax(3) - self%grid%domain_emin(3)) / 2.0_R8P
+   sigma_x = 0.2_R8P
+   sigma_y = 0.2_R8P
+   sigma_z = 0.2_R8P
+   associate(blocks_number=>self%blocks_number,                             &
+             u=>self%u,                                                     &
+             ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk,          &
+             x_cell=>self%x_cell, y_cell=>self%y_cell, z_cell=>self%z_cell)
+   do b=1, blocks_number
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               u(i,j,k,b) = a * exp(-((x_cell(i,b) - x_0)**2/(2 * sigma_x**2)+&
+                                      (y_cell(j,b) - y_0)**2/(2 * sigma_y**2)+&
+                                      (z_cell(k,b) - z_0)**2/(2 * sigma_z**2)))
+            enddo
+         enddo
+      enddo
+   enddo
+   endassociate
+   endsubroutine set_initial_conditions
+
+   subroutine rk_integrate(self, t, Dt)
+   !< Runge Kutta integration of field.
+   class(field_object), intent(inout) :: self                        !< The field.
+   real(R8P),           intent(in)    :: t
+   real(R8P),           intent(in)    :: Dt
+   real(R8P), parameter               :: beta(3) = [1._R8P/6._R8P, &
+                                                    1._R8P/6._R8P, &
+                                                    2._R8P/3._R8P]   !< RK beta coefficients.
+   real(R8P), parameter               :: alph(3,3) = reshape([0._R8P, 1._R8P, 0.25_R8P, &
+                                                              0._R8P, 0._R8P, 0.25_R8P, &
+                                                              0._R8P, 0._R8P,0._R8P], [3,3]) !< RK alpha coefficients.
+   real(R8P), parameter               :: gamm(3) = [0._R8P, &
+                                                    1._R8P, &
+                                                    0._R8P]   !< RK gamma coefficients.
+   integer(I4P)                       :: s, ss
+
+   do s=1, 3
+      self%u_s(:,:,:,1:self%blocks_number,s) = self%u(:,:,:,1:self%blocks_number)
+      do ss=1, s - 1
+         self%u_s(:,:,:,1:self%blocks_number,s) = self%u_s(:,:,:,1:self%blocks_number,s ) + &
+                                                 (self%u_s(:,:,:,1:self%blocks_number,ss) * (Dt * alph(s, ss)))
+      enddo
+      call self%residuals(s=s, t=t + gamm(s) * Dt)
+   enddo
+   do s=1, 3
+      self%u(:,:,:,1:self%blocks_number) = self%u(:,:,:,1:self%blocks_number) + &
+                                           self%u_s(:,:,:,1:self%blocks_number,s) * Dt * beta(s)
+   enddo
+   endsubroutine rk_integrate
+
+   subroutine residuals(self, s, t)
+   !< Compute residuals of field.
+   class(field_object), intent(inout) :: self !< The field.
+   integer(I4P),        intent(in)    :: s
+   real(R8P),           intent(in)    :: t
+   integer(I4P)                       :: b, i, j, k
+   integer(I4P)                       :: im, jm, km
+   integer(I4P)                       :: ip, jp, kp
+
+   self%u_new(:,:,:,1:self%blocks_number) = 0._R8P
+   do b=1, self%blocks_number
+   do k=1, self%grid%nk
+   do j=1, self%grid%nj
+   do i=1, self%grid%ni
+      kp = min(self%grid%nk, k+1)
+      km = max(1, k-1)
+      jp = min(self%grid%nj, j+1)
+      jm = max(1, j-1)
+      ip = min(self%grid%ni, i+1)
+      im = max(1, i-1)
+      self%u_new(i,j,k,b) = self%u_s(ip,j, k, b,s) + self%u_s(im,j, k, b,s) + &
+                            self%u_s(i, jp,k, b,s) + self%u_s(i, jm,k, b,s) + &
+                            self%u_s(i, j, kp,b,s) + self%u_s(i, j, km,b,s) - &
+                   6._R8P * self%u_s(i, j, k, b,s)
+
+   enddo
+   enddo
+   enddo
+   enddo
+   self%u_s(:,:,:,1:self%blocks_number,s) = self%u_new(:,:,:,1:self%blocks_number)
+   endsubroutine residuals
 
    ! private methods
    pure subroutine derefine(self, ratio, block_to_derefine, block_derefined)
@@ -446,7 +551,10 @@ contains
    integer(I4P)                             :: b, ib                !< Counter.
    integer(I4P)                             :: ic1, ic2, ic3, ic4   !< Counter.
    integer(I4P)                             :: ic5, ic6, ic7, ic8   !< Counter.
+   integer(I4P)                             :: iii, jjj, kkk        !< Counter.
+   integer(I4P)                             :: i, j, k              !< Counter.
 
+   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, u_new=>self%u_new)
    if (allocated(block_derefined)) then
       do b=1, size(block_derefined, dim=2)
          ib = block_derefined(2,b)
@@ -460,7 +568,59 @@ contains
          ic7 = block_to_derefine((b-1)*ratio+7)
          ic8 = block_to_derefine((b-1)*ratio+8)
 
-         self%u(:,:,:,ib) = block_derefined(1,b) ; self%code(ib) = block_derefined(1,b)
+         do k=1, nk/2
+            do j=1, nj/2
+               do i=1, ni/2
+                  kkk = (k - 1) * 2 + 1
+                  jjj = (j - 1) * 2 + 1
+                  iii = (i - 1) * 2 + 1
+
+                  u_new(i,     j,     k     ,ib) = (self%u(iii,jjj,  kkk,  ic1) + self%u(iii+1,jjj,  kkk,  ic1) + &
+                                                    self%u(iii,jjj+1,kkk,  ic1) + self%u(iii+1,jjj+1,kkk,  ic1) + &
+                                                    self%u(iii,jjj,  kkk+1,ic1) + self%u(iii+1,jjj,  kkk+1,ic1) + &
+                                                    self%u(iii,jjj+1,kkk+1,ic1) + self%u(iii+1,jjj+1,kkk+1,ic1)) / 8._R8P
+
+                  u_new(i+ni/2,j,     k     ,ib) = (self%u(iii,jjj,  kkk,  ic2) + self%u(iii+1,jjj,  kkk,  ic2) + &
+                                                    self%u(iii,jjj+1,kkk,  ic2) + self%u(iii+1,jjj+1,kkk,  ic2) + &
+                                                    self%u(iii,jjj,  kkk+1,ic2) + self%u(iii+1,jjj,  kkk+1,ic2) + &
+                                                    self%u(iii,jjj+1,kkk+1,ic2) + self%u(iii+1,jjj+1,kkk+1,ic2)) / 8._R8P
+
+                  u_new(i,     j+nj/2,k     ,ib) = (self%u(iii,jjj,  kkk,  ic3) + self%u(iii+1,jjj,  kkk,  ic3) + &
+                                                    self%u(iii,jjj+1,kkk,  ic3) + self%u(iii+1,jjj+1,kkk,  ic3) + &
+                                                    self%u(iii,jjj,  kkk+1,ic3) + self%u(iii+1,jjj,  kkk+1,ic3) + &
+                                                    self%u(iii,jjj+1,kkk+1,ic3) + self%u(iii+1,jjj+1,kkk+1,ic3)) / 8._R8P
+
+                  u_new(i+ni/2,j+nj/2,k     ,ib) = (self%u(iii,jjj,  kkk,  ic4) + self%u(iii+1,jjj,  kkk,  ic4) + &
+                                                    self%u(iii,jjj+1,kkk,  ic4) + self%u(iii+1,jjj+1,kkk,  ic4) + &
+                                                    self%u(iii,jjj,  kkk+1,ic4) + self%u(iii+1,jjj,  kkk+1,ic4) + &
+                                                    self%u(iii,jjj+1,kkk+1,ic4) + self%u(iii+1,jjj+1,kkk+1,ic4)) / 8._R8P
+
+                  u_new(i,     j,     k+nk/2,ib) = (self%u(iii,jjj,  kkk,  ic5) + self%u(iii+1,jjj,  kkk,  ic5) + &
+                                                    self%u(iii,jjj+1,kkk,  ic5) + self%u(iii+1,jjj+1,kkk,  ic5) + &
+                                                    self%u(iii,jjj,  kkk+1,ic5) + self%u(iii+1,jjj,  kkk+1,ic5) + &
+                                                    self%u(iii,jjj+1,kkk+1,ic5) + self%u(iii+1,jjj+1,kkk+1,ic5)) / 8._R8P
+
+                  u_new(i+ni/2,j,     k+nk/2,ib) = (self%u(iii,jjj,  kkk,  ic6) + self%u(iii+1,jjj,  kkk,  ic6) + &
+                                                    self%u(iii,jjj+1,kkk,  ic6) + self%u(iii+1,jjj+1,kkk,  ic6) + &
+                                                    self%u(iii,jjj,  kkk+1,ic6) + self%u(iii+1,jjj,  kkk+1,ic6) + &
+                                                    self%u(iii,jjj+1,kkk+1,ic6) + self%u(iii+1,jjj+1,kkk+1,ic6)) / 8._R8P
+
+                  u_new(i,     j+nj/2,k+nk/2,ib) = (self%u(iii,jjj,  kkk,  ic7) + self%u(iii+1,jjj,  kkk,  ic7) + &
+                                                    self%u(iii,jjj+1,kkk,  ic7) + self%u(iii+1,jjj+1,kkk,  ic7) + &
+                                                    self%u(iii,jjj,  kkk+1,ic7) + self%u(iii+1,jjj,  kkk+1,ic7) + &
+                                                    self%u(iii,jjj+1,kkk+1,ic7) + self%u(iii+1,jjj+1,kkk+1,ic7)) / 8._R8P
+
+                  u_new(i+ni/2,j+nj/2,k+nk/2,ib) = (self%u(iii,jjj,  kkk,  ic8) + self%u(iii+1,jjj,  kkk,  ic8) + &
+                                                    self%u(iii,jjj+1,kkk,  ic8) + self%u(iii+1,jjj+1,kkk,  ic8) + &
+                                                    self%u(iii,jjj,  kkk+1,ic8) + self%u(iii+1,jjj,  kkk+1,ic8) + &
+                                                    self%u(iii,jjj+1,kkk+1,ic8) + self%u(iii+1,jjj+1,kkk+1,ic8)) / 8._R8P
+               enddo
+            enddo
+         enddo
+
+         self%u(1:ni,1:nj,1:nk,ib) = u_new(1:ni,1:nj,1:nk,ib)
+
+         self%code(ib) = block_derefined(1,b)
 
       enddo
 
@@ -482,9 +642,10 @@ contains
          self%emax(3,ib) = self%emin(3,ic1) + 2 * dz
       enddo
    endif
+   endassociate
    endsubroutine derefine
 
-   pure subroutine refine(self, ratio, block_to_refine, block_refined)
+   subroutine refine(self, ratio, block_to_refine, block_refined)
    !< Refine blocks.
    class(field_object),       intent(inout) :: self                 !< The field.
    integer(I4P),              intent(in)    :: ratio                !< Refinement ratio.
@@ -493,13 +654,17 @@ contains
    real(R8P)                                :: dx, dy, dz           !< Space deltas.
    integer(I4P)                             :: b, i, j, k           !< Spatial counter.
    integer(I4P)                             :: ib, ic, ii           !< Counter.
+   integer(I4P)                             :: iii, jjj, kkk        !< Counter.
    integer(I4P)                             :: ic1, ic2, ic3, ic4   !< Counter.
    integer(I4P)                             :: ic5, ic6, ic7, ic8   !< Counter.
 
+   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
    if (allocated(block_to_refine)) then
       do b=1, size(block_to_refine, dim=2)
          if (self%myrank /= block_to_refine(2,b)) cycle
          ib = block_to_refine(1,b)
+
+         self%u_new(:,:,:,ib) = self%u(:,:,:,ib)
 
          ic1 = block_refined(2,(b-1)*ratio+1)
          ic2 = block_refined(2,(b-1)*ratio+2)
@@ -510,14 +675,33 @@ contains
          ic7 = block_refined(2,(b-1)*ratio+7)
          ic8 = block_refined(2,(b-1)*ratio+8)
 
-         self%u(:,:,:,ic1) = block_refined(1,(b-1)*ratio+1) ; self%code(ic1) = block_refined(1,(b-1)*ratio+1)
-         self%u(:,:,:,ic2) = block_refined(1,(b-1)*ratio+2) ; self%code(ic2) = block_refined(1,(b-1)*ratio+2)
-         self%u(:,:,:,ic3) = block_refined(1,(b-1)*ratio+3) ; self%code(ic3) = block_refined(1,(b-1)*ratio+3)
-         self%u(:,:,:,ic4) = block_refined(1,(b-1)*ratio+4) ; self%code(ic4) = block_refined(1,(b-1)*ratio+4)
-         self%u(:,:,:,ic5) = block_refined(1,(b-1)*ratio+5) ; self%code(ic5) = block_refined(1,(b-1)*ratio+5)
-         self%u(:,:,:,ic6) = block_refined(1,(b-1)*ratio+6) ; self%code(ic6) = block_refined(1,(b-1)*ratio+6)
-         self%u(:,:,:,ic7) = block_refined(1,(b-1)*ratio+7) ; self%code(ic7) = block_refined(1,(b-1)*ratio+7)
-         self%u(:,:,:,ic8) = block_refined(1,(b-1)*ratio+8) ; self%code(ic8) = block_refined(1,(b-1)*ratio+8)
+         do k=1,nk
+            do j=1,nj
+               do i=1,ni
+                  kkk = (k - 1) / 2 + 1
+                  jjj = (j - 1) / 2 + 1
+                  iii = (i - 1) / 2 + 1
+                  self%u(i,j,k,ic1) = self%u_new(iii,     jjj,     kkk,     ib)
+                  self%u(i,j,k,ic2) = self%u_new(iii+ni/2,jjj,     kkk,     ib)
+                  self%u(i,j,k,ic3) = self%u_new(iii,     jjj+nj/2,kkk,     ib)
+                  self%u(i,j,k,ic4) = self%u_new(iii+ni/2,jjj+nj/2,kkk,     ib)
+                  self%u(i,j,k,ic5) = self%u_new(iii,     jjj,     kkk+nk/2,ib)
+                  self%u(i,j,k,ic6) = self%u_new(iii+ni/2,jjj,     kkk+nk/2,ib)
+                  self%u(i,j,k,ic7) = self%u_new(iii,     jjj+nj/2,kkk+nk/2,ib)
+                  self%u(i,j,k,ic8) = self%u_new(iii+ni/2,jjj+nj/2,kkk+nk/2,ib)
+               enddo
+            enddo
+         enddo
+
+         self%code(ic1) = block_refined(1,(b-1)*ratio+1)
+         self%code(ic2) = block_refined(1,(b-1)*ratio+2)
+         self%code(ic3) = block_refined(1,(b-1)*ratio+3)
+         self%code(ic4) = block_refined(1,(b-1)*ratio+4)
+         self%code(ic5) = block_refined(1,(b-1)*ratio+5)
+         self%code(ic6) = block_refined(1,(b-1)*ratio+6)
+         self%code(ic7) = block_refined(1,(b-1)*ratio+7)
+         self%code(ic8) = block_refined(1,(b-1)*ratio+8)
+
       enddo
 
       do b=1, size(block_to_refine, dim=2)
@@ -548,6 +732,7 @@ contains
          enddo
       enddo
    endif
+   endassociate
    endsubroutine refine
 
    ! operators
@@ -581,6 +766,36 @@ contains
       lhs%emax = rhs%emax
    else
       if (allocated(lhs%emax)) deallocate(lhs%emax)
+   endif
+   if (allocated(rhs%x_cell)) then
+      lhs%x_cell = rhs%x_cell
+   else
+      if (allocated(lhs%x_cell)) deallocate(lhs%x_cell)
+   endif
+   if (allocated(rhs%y_cell)) then
+      lhs%y_cell = rhs%y_cell
+   else
+      if (allocated(lhs%y_cell)) deallocate(lhs%y_cell)
+   endif
+   if (allocated(rhs%z_cell)) then
+      lhs%z_cell = rhs%z_cell
+   else
+      if (allocated(lhs%z_cell)) deallocate(lhs%z_cell)
+   endif
+   if (allocated(rhs%x_node)) then
+      lhs%x_node = rhs%x_node
+   else
+      if (allocated(lhs%x_node)) deallocate(lhs%x_node)
+   endif
+   if (allocated(rhs%y_node)) then
+      lhs%y_node = rhs%y_node
+   else
+      if (allocated(lhs%y_node)) deallocate(lhs%y_node)
+   endif
+   if (allocated(rhs%z_node)) then
+      lhs%z_node = rhs%z_node
+   else
+      if (allocated(lhs%z_node)) deallocate(lhs%z_node)
    endif
    if (allocated(rhs%u)) then
       lhs%u = rhs%u
