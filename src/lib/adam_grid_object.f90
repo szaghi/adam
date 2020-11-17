@@ -12,9 +12,9 @@ type :: grid_object
    !< Grid class definition.
    real(R8P)    :: domain_emin(3) !< Coordinates of minimum abscissa of whole domain.
    real(R8P)    :: domain_emax(3) !< Coordinates of maximum abscissa of whole domain.
-   integer(I4P) :: ni=4_I4P       !< Number of cells in i direction.
-   integer(I4P) :: nj=4_I4P       !< Number of cells in j direction.
-   integer(I4P) :: nk=4_I4P       !< Number of cells in k direction.
+   integer(I4P) :: ni=2_I4P       !< Number of cells in i direction.
+   integer(I4P) :: nj=2_I4P       !< Number of cells in j direction.
+   integer(I4P) :: nk=2_I4P       !< Number of cells in k direction.
    integer(I4P) :: gc1=0_I4P      !< Number of ghost cells in i- direction for boundary conditions.
    integer(I4P) :: gc2=0_I4P      !< Number of ghost cells in i+ direction for boundary conditions.
    integer(I4P) :: gc3=0_I4P      !< Number of ghost cells in j- direction for boundary conditions.

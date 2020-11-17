@@ -140,6 +140,8 @@ type :: tree_object
    integer(I4P)                          :: max_level=12_I4P        !< Maximum refinement level.
    logical                               :: is_initialized_=.false. !< Initialization status.
    ! AMR data
+   integer(I8P)              :: n_my_derefine=0_I8P    !< Number of my nodes to be derefined.
+   integer(I8P)              :: n_my_refine=0_I8P      !< Number of my nodes to be refined.
    integer(I8P)              :: last_block_index=0_I8P !< Last block index in the field array.
    integer(I8P), allocatable :: node_to_refine(:)      !< List of nodes to be refined.
    integer(I8P), allocatable :: node_to_derefine(:)    !< List of nodes to be derefined.
@@ -639,8 +641,9 @@ contains
       is_sanitize_complete = .true.
 
       ! check for the sanity of derefinement
+      self%n_my_derefine = 0
       if (allocated(self%node_to_derefine)) deallocate(self%node_to_derefine) ; allocate(self%node_to_derefine(0))
-      if (allocated(codes_analyzed))   deallocate(codes_analyzed)   ; allocate(codes_analyzed(0))
+      if (allocated(codes_analyzed)) deallocate(codes_analyzed) ; allocate(codes_analyzed(0))
       derefine_loop : do while(self%loop(node=node))
          ! check if I want to be derefined and I have not been analyzed yet
          if (node%refinement_needed == TO_BE_DEREFINED) then
@@ -664,6 +667,7 @@ contains
                   all_siblings = self%all_siblings(code=code)
                   self%node_to_derefine = [self%node_to_derefine, all_siblings]
                   codes_analyzed = [codes_analyzed, all_siblings]
+                  if (self%myrank==node%myrank) self%n_my_derefine = self%n_my_derefine + 8
                else
                   is_sanitize_complete = .false.
                   node%refinement_needed = TO_NOT_TOUCH
@@ -731,9 +735,13 @@ contains
    endif
 
    ! update to_refine list
+   self%n_my_refine = 0
    if (allocated(self%node_to_refine)) deallocate(self%node_to_refine) ; allocate(self%node_to_refine(0))
    do while(self%loop(node=node))
-      if (node%refinement_needed==TO_BE_REFINED) self%node_to_refine = [self%node_to_refine, [node%code]]
+      if (node%refinement_needed==TO_BE_REFINED) then
+         self%node_to_refine = [self%node_to_refine, [node%code]]
+         if (self%myrank==node%myrank) self%n_my_refine = self%n_my_refine + 1
+      endif
    enddo
    endsubroutine sanitize
 
@@ -1034,16 +1042,12 @@ contains
       c = c + 1
    enddo
 
-   do while(self%loop(node=node))
-   print* , 'cazzo ', node%code, trim(str([node%myrank, node%myrank_new])), trim(str([node%block_index, node%block_index_new ]))
-   enddo
-
    ! create communication/local maps
    call self%make_comm_local_maps
    ! update tree status and compute coordinates of redistributed nodes
    n_keep = 0_I8P ; if (allocated(self%local_map    )) n_keep = size(self%local_map,     dim=1)
    n_recv = 0_I8P ; if (allocated(self%comm_map_recv)) n_recv = size(self%comm_map_recv, dim=1)
-   if (allocated(self%block_coordinates)) deallocate(self%block_coordinates) ; allocate(self%block_coordinates(n_keep + n_recv, 4))
+   if (allocated(self%block_coordinates)) deallocate(self%block_coordinates) ; allocate(self%block_coordinates(4, n_keep + n_recv))
    do while(self%loop(node=node))
       node%myrank = node%myrank_new
       node%block_index = node%block_index_new
@@ -1054,10 +1058,10 @@ contains
          case(8_I4P)
             call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
          endselect
-         self%block_coordinates(node%block_index, 1) = i
-         self%block_coordinates(node%block_index, 2) = j
-         self%block_coordinates(node%block_index, 3) = k
-         self%block_coordinates(node%block_index, 4) = l
+         self%block_coordinates(1, node%block_index) = i
+         self%block_coordinates(2, node%block_index) = j
+         self%block_coordinates(3, node%block_index) = k
+         self%block_coordinates(4, node%block_index) = l
       endif
    enddo
    contains
@@ -1695,6 +1699,7 @@ contains
    type(tree_node_object), pointer   :: first_child      !< Pointer to first child node.
    type(tree_node_object), pointer   :: node             !< Pointer to node.
    integer(I8P)                      :: derefined_number !< Number of derefined blocks.
+   integer(I8P)                      :: mn               !< Counter.
    integer(I8P)                      :: n                !< Counter.
    integer(I4P)                      :: i                !< Counter.
 
@@ -1702,24 +1707,28 @@ contains
    if (allocated(self%block_derefined)) deallocate(self%block_derefined)
    derefined_number = size(self%node_to_derefine, dim=1)
    if (derefined_number>0) then
-      allocate(self%block_to_derefine(derefined_number))
-      allocate(self%block_derefined(2, derefined_number/self%ratio))
-      if (allocated(self%node_to_derefine)) then
-         do n=1, size(self%node_to_derefine, dim=1), self%ratio
-            first_child => self%node(code=self%node_to_derefine(n))
-            self%block_derefined(1,(n-1)/self%ratio+1) = self%parent(code=first_child%code)
-            self%block_derefined(2,(n-1)/self%ratio+1) = first_child%block_index
-            call self%add_node(code=self%parent(code=first_child%code),              &
-                                                myrank=first_child%myrank,           &
-                                                block_index=first_child%block_index, &
-                                                update_last_block_index=.false.)
-            do i=0, self%ratio - 1
-               node => self%node(code=self%node_to_derefine(n+i))
-               self%block_to_derefine(n+i) = node%block_index
-               call self%remove_node(code=self%node_to_derefine(n+i))
-            enddo
+      allocate(self%block_to_derefine(self%n_my_derefine))
+      allocate(self%block_derefined(2, self%n_my_derefine/self%ratio))
+      mn = -7
+      do n=1, derefined_number, self%ratio
+         first_child => self%node(code=self%node_to_derefine(n))
+         if (self%myrank == first_child%myrank) then
+            mn = mn + 8
+            self%block_derefined(1,(mn-1)/self%ratio+1) = self%parent(code=first_child%code)
+            self%block_derefined(2,(mn-1)/self%ratio+1) = first_child%block_index
+         endif
+         call self%add_node(code=self%parent(code=first_child%code),              &
+                                             myrank=first_child%myrank,           &
+                                             block_index=first_child%block_index, &
+                                             update_last_block_index=.false.)
+         do i=0, self%ratio - 1
+            node => self%node(code=self%node_to_derefine(n+i))
+            if (self%myrank == node%myrank) then
+               self%block_to_derefine(mn+i) = node%block_index
+            endif
+            call self%remove_node(code=self%node_to_derefine(n+i))
          enddo
-      endif
+      enddo
    endif
    endsubroutine derefine
 
@@ -1779,6 +1788,7 @@ contains
    class(tree_object), intent(inout) :: self           !< The tree.
    type(tree_node_object), pointer   :: parent         !< Pointer to parent node.
    integer(I8P)                      :: refined_number !< Number of nodes to be refined.
+   integer(I8P)                      :: mn             !< Counter.
    integer(I8P)                      :: n              !< Counter.
    integer(I4P)                      :: i              !< Counter.
 
@@ -1786,19 +1796,27 @@ contains
    if (allocated(self%block_refined)) deallocate(self%block_refined)
    refined_number = size(self%node_to_refine, dim=1)
    if (refined_number>0) then
-      allocate(self%block_to_refine(2, refined_number))
-      allocate(self%block_refined(2, self%ratio*refined_number))
+      allocate(self%block_to_refine(2, self%n_my_refine))
+      allocate(self%block_refined(2, self%ratio*self%n_my_refine))
+      mn = 0
       do n=1, refined_number
          parent => self%node(code=self%node_to_refine(n))
-         self%block_to_refine(1,n) = parent%block_index
-         self%block_to_refine(2,n) = parent%myrank
+         if (parent%myrank == self%myrank) then
+            mn = mn + 1
+            self%block_to_refine(1,mn) = parent%block_index
+            self%block_to_refine(2,mn) = parent%myrank
+         endif
          call self%add_node(code=self%child(code=parent%code, i=0), myrank=parent%myrank, &
                             block_index=parent%block_index, update_last_block_index=.false.)
-         self%block_refined(1, (n-1)*self%ratio+1) = self%child(code=parent%code, i=0)
-         self%block_refined(2, (n-1)*self%ratio+1) = parent%block_index
+         if (parent%myrank == self%myrank) then
+            self%block_refined(1, (mn-1)*self%ratio+1) = self%child(code=parent%code, i=0)
+            self%block_refined(2, (mn-1)*self%ratio+1) = parent%block_index
+         endif
          do i=1, self%ratio-1
-            self%block_refined(1, (n-1)*self%ratio+1+i) = self%child(code=parent%code, i=i)
-            self%block_refined(2, (n-1)*self%ratio+1+i) = self%last_block_index + 1
+            if (parent%myrank == self%myrank) then
+               self%block_refined(1, (mn-1)*self%ratio+1+i) = self%child(code=parent%code, i=i)
+               self%block_refined(2, (mn-1)*self%ratio+1+i) = self%last_block_index + 1
+            endif
             call self%add_node(code=self%child(code=parent%code, i=i), myrank=parent%myrank, &
                                block_index=self%last_block_index+1)
          enddo
@@ -1834,6 +1852,8 @@ contains
    lhs%max_level = rhs%max_level
    lhs%is_initialized_ = rhs%is_initialized_
    ! AMR data
+   lhs%n_my_derefine    = rhs%n_my_derefine
+   lhs%n_my_refine      = rhs%n_my_refine
    lhs%last_block_index = rhs%last_block_index
    if (allocated(rhs%node_to_refine)) then
       lhs%node_to_refine = rhs%node_to_refine

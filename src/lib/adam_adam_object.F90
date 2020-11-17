@@ -46,12 +46,13 @@ endtype adam_object
 
 contains
    ! public methods
-   subroutine amr_update(self, is_marked_by_field, is_marked_by_tree, do_mpi_redistribute, is_grid_changed)
+   subroutine amr_update(self, is_marked_by_field, is_marked_by_tree, do_mpi_redistribute, print_mpi_stats, is_grid_changed)
    !< Update AMR status.
    class(adam_object), intent(inout)         :: self                 !< ADAM.
    logical,            intent(in),  optional :: is_marked_by_field   !< Flag to check if marker is field.
    logical,            intent(in),  optional :: is_marked_by_tree    !< Flag to check if marker is tree.
    logical,            intent(in),  optional :: do_mpi_redistribute  !< Flag to activate MPI redistribute.
+   logical,            intent(in),  optional :: print_mpi_stats      !< Flag to activate MPI statistics print.
    logical,            intent(out), optional :: is_grid_changed      !< Flag to check if grid is changed.
    logical                                   :: is_marked_by_field_  !< Flag to check if marker is field, local var.
    logical                                   :: is_marked_by_tree_   !< Flag to check if marker is tree, local var.
@@ -76,7 +77,7 @@ contains
    if (present(is_grid_changed)) &
       is_grid_changed = (size(self%tree%node_to_refine, dim=1)>0_I4P).or.(size(self%tree%node_to_derefine, dim=1)>0_I4P)
 
-   if (do_mpi_redistribute_) call self%mpi_redistribute
+   if (do_mpi_redistribute_) call self%mpi_redistribute(print_mpi_stats=print_mpi_stats)
    endsubroutine amr_update
 
    subroutine destroy(self)
@@ -195,11 +196,15 @@ contains
       endfunction sphere_distance
    endsubroutine mark_sphere
 
-   subroutine mpi_redistribute(self)
+   subroutine mpi_redistribute(self, print_mpi_stats)
    !< Redistribute nodes/blocks to processes, load balancing.
-   class(adam_object), intent(inout) :: self !< ADAM.
+   class(adam_object), intent(inout)         :: self             !< ADAM.
+   logical,            intent(in),  optional :: print_mpi_stats  !< Flag to activate MPI statistics print.
+   logical                                   :: print_mpi_stats_ !< Flag to activate MPI statistics print, local var.
 
+   print_mpi_stats_ = .false. ; if (present(print_mpi_stats)) print_mpi_stats_ = print_mpi_stats
    call self%tree%mpi_redistribute
+   if (print_mpi_stats_) call self%tree%mpi_print_stats
    call self%field%mpi_redistribute(comm_map_send=self%tree%comm_map_send,         &
                                     comm_map_recv=self%tree%comm_map_recv,         &
                                     comm_map_send_ptr=self%tree%comm_map_send_ptr, &

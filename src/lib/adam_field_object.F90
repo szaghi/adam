@@ -76,6 +76,8 @@ public :: field_object
 
 type :: field_object
    !< Field class definition.
+   logical                    :: special=.false.
+
    type(grid_object), pointer :: grid=>null()            !< Grid data.
    integer(I4P)               :: nv=1_I4P                !< Number of field variables.
    integer(I4P)               :: block_weight=0_I4P      !< Block weight, `cells_number * variables_number`.
@@ -145,7 +147,7 @@ contains
    integer(I4P)                       :: b    !< Counter.
 
    do b=1, self%blocks_number
-      call self%grid%compute_metrics(coordinates=self%coordinates(b,:),                                         &
+      call self%grid%compute_metrics(coordinates=self%coordinates(:,b),                                         &
                                      emin=self%emin(:,b), emax=self%emax(:,b),                                  &
                                      x_node=self%x_node(:,b), y_node=self%y_node(:,b), z_node=self%z_node(:,b), &
                                      x_cell=self%x_cell(:,b), y_cell=self%y_cell(:,b), z_cell=self%z_cell(:,b))
@@ -183,7 +185,7 @@ contains
       self%code    = -2_I8P
       self%code(1) = -1_I8P ! first block is assumed to be ADAM
 
-      allocate(self%coordinates(self%nb,4))
+      allocate(self%coordinates(4, self%nb))
 
       allocate(self%emin(3,self%nb))
       allocate(self%emax(3,self%nb))
@@ -358,7 +360,7 @@ contains
    integer(I8P), allocatable, intent(in)    :: comm_map_recv(:)       !< Comm map, blocks to receive [sum(comm_map_n_recv)].
    integer(I4P), allocatable, intent(in)    :: comm_map_send_ptr(:)   !< Comm map, pointers in list to send [procs_number+1].
    integer(I4P), allocatable, intent(in)    :: comm_map_recv_ptr(:)   !< Comm map, pointers in list to recv [procs_number+1].
-   integer(I4P), allocatable, intent(in)    :: coordinates(:,:)       !< Coordinates (ijkl,nb) of redistributed nodes.
+   integer(I4P), allocatable, intent(in)    :: coordinates(:,:)       !< Coordinates of redistributed nodes [nb, ijkl].
    integer(I8P), allocatable                :: local_map(:,:)         !< Local map, list block index changes of my blocks.
    real(R8P),    allocatable                :: send_buffer(:)         !< Send buffer of field cell centered variables.
    real(R8P),    allocatable                :: recv_buffer(:)         !< Recv buffer of field cell centered variables.
@@ -419,6 +421,7 @@ contains
    call MPI_WAITALL(self%procs_number, req_recv, MPI_STATUSES_IGNORE, error)
 #endif
 
+   if (self%special) self%u_new = -300._R8P
    if (recv_size > 0_I8P) then
       recv_offset = 1
       do b=1, size(comm_map_recv, dim=1)
@@ -427,16 +430,18 @@ contains
                                          [self%grid%gc1+self%grid%ni+self%grid%gc2, &
                                           self%grid%gc3+self%grid%nj+self%grid%gc4, &
                                           self%grid%gc5+self%grid%nk+self%grid%gc6])
+          if (self%special) self%u_new(:,:,:,bi) = -200._R8P
           recv_offset = recv_offset + self%block_weight
       enddo
    endif
 
    do b=1, n_keep
       self%u_new(:,:,:,local_map(b,1)) = self%u(:,:,:,local_map(b,2))
+      if (self%special) self%u_new(:,:,:,local_map(b,1)) = -100._R8P
    enddo
    self%u = self%u_new
    self%blocks_number = n_keep  + recv_size / self%block_weight
-   self%coordinates(1:self%blocks_number,:) = coordinates
+   self%coordinates(:, 1:self%blocks_number) = coordinates
    call self%compute_metrics
    endsubroutine mpi_redistribute
 
@@ -541,7 +546,7 @@ contains
    endsubroutine residuals
 
    ! private methods
-   pure subroutine derefine(self, ratio, block_to_derefine, block_derefined)
+   subroutine derefine(self, ratio, block_to_derefine, block_derefined)
    !< Derefine blocks.
    class(field_object),       intent(inout) :: self                 !< The field.
    integer(I4P),              intent(in)    :: ratio                !< Refinement ratio.
