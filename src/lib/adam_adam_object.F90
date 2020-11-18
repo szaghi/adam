@@ -22,19 +22,21 @@ public :: adam_object
 
 type :: adam_object
    !< ADAM class definition.
-   type(grid_object)  :: grid        !< The grid.
-   type(tree_object)  :: tree        !< The tree.
-   type(field_object) :: field       !< The field.
-   integer(I4P)       :: error=0_I4P !< Error traping flag.
+   type(grid_object)      :: grid        !< The grid.
+   type(tree_object)      :: tree        !< The tree.
+   type(field_object)     :: field       !< The field.
+   integer(I4P)           :: error=0_I4P !< Error traping flag.
    ! MPI data
-   integer(I4P) :: procs_number=1_I4P !< MPI Number of processes.
-   integer(I4P) :: myrank=0_I4P       !< MPI rank process.
+   logical      :: is_tree_in_sync=.true. !< Tree MPI sync status, check if all MPI processes have identical tree.
+   integer(I4P) :: procs_number=1_I4P     !< MPI Number of processes.
+   integer(I4P) :: myrank=0_I4P           !< MPI rank process.
    contains
       ! public methods
       procedure, pass(self) :: amr_update       !< Update AMR status.
       procedure, pass(self) :: destroy          !< Destroy ADAM.
       procedure, pass(self) :: finalize         !< Finalize ADAM.
       procedure, pass(self) :: initialize       !< Initialize ADAM.
+      procedure, pass(self) :: mark_all         !< Mark all nodes/blocks to be refined, derefined, ecc.
       procedure, pass(self) :: mark_sphere      !< Mark all nodes inside a sphere to be refined.
       procedure, pass(self) :: mpi_redistribute !< Redistribute nodes/blocks to processes, load balancing.
       procedure, pass(self) :: save_hdf5        !< Save ADAM in HDF5 format.
@@ -137,63 +139,36 @@ contains
    call self%amr_update
    endsubroutine initialize
 
-   subroutine mark_sphere(self, center, radius, threshold)
+   subroutine mark_all(self, by, mark)
+   !< Mark all nodes/blocks to be refined, derefined, ecc.
+   class(adam_object), intent(inout) :: self !< ADAM.
+   character(*),       intent(in)    :: by   !< Mark by 'tree' or 'field'.
+   integer(I4P),       intent(in)    :: mark !< Mark to be imposed [TO_BE_REFINED,...].
+
+   select case(trim(adjustl(by)))
+   case('tree')
+      call self%tree%mark_all_nodes(mark=mark)
+   case('field')
+      call self%field%mark_all_blocks(mark=mark)
+      self%is_tree_in_sync = .false.
+   endselect
+   endsubroutine mark_all
+
+   subroutine mark_sphere(self, by, center, radius, threshold)
    !< Mark all nodes inside a sphere to be refined.
-   class(adam_object), intent(inout)        :: self            !< ADAM.
-   real(R8P),          intent(in)           :: center(3)       !< Sphere center coordinates [x,y,z].
-   real(R8P),          intent(in)           :: radius          !< Sphere radius.
-   real(R8P),          intent(in), optional :: threshold       !< Threshold for sphere proximity.
-   real(R8P)                                :: threshold_      !< Threshold for sphere proximity, local var.
-   type(tree_node_object), pointer          :: node            !< Pointer to current node.
-   real(R8P)                                :: block_center(3) !< block center coordinates.
-   real(R8P)                                :: block_diagonal  !< block diagonal.
-   real(R8P)                                :: distance(0:8)   !< Distances between block and sphere.
-   real(R8P)                                :: max_cell_delta  !< Max cell delta.
+   class(adam_object), intent(inout)        :: self      !< ADAM.
+   character(*),       intent(in)           :: by        !< Mark by 'tree' or 'field'.
+   real(R8P),          intent(in)           :: center(3) !< Sphere center coordinates [x,y,z].
+   real(R8P),          intent(in)           :: radius    !< Sphere radius.
+   real(R8P),          intent(in), optional :: threshold !< Threshold for sphere proximity.
 
-   threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
-   do while(self%tree%loop(node=node))
-      if (self%myrank /= node%myrank) cycle ! mark only my nodes
-      block_center = (self%field%emax(:,node%block_index) + self%field%emin(:,node%block_index)) / 2._R8P
-      block_diagonal = sqrt((self%field%emax(1,node%block_index) - self%field%emin(1,node%block_index))**2 + &
-                            (self%field%emax(2,node%block_index) - self%field%emin(2,node%block_index))**2 + &
-                            (self%field%emax(3,node%block_index) - self%field%emin(3,node%block_index))**2)
-
-      associate (emin=>self%field%emin(:,node%block_index), emax=>self%field%emax(:,node%block_index), &
-                 ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk)
-      distance(0) = sphere_distance(point=block_center)
-      distance(1) = sphere_distance(point=[emin(1), emin(2), emin(3)])
-      distance(2) = sphere_distance(point=[emax(1), emin(2), emin(3)])
-      distance(3) = sphere_distance(point=[emin(1), emax(2), emin(3)])
-      distance(4) = sphere_distance(point=[emax(1), emax(2), emin(3)])
-      distance(5) = sphere_distance(point=[emin(1), emin(2), emax(3)])
-      distance(6) = sphere_distance(point=[emax(1), emin(2), emax(3)])
-      distance(7) = sphere_distance(point=[emin(1), emax(2), emax(3)])
-      distance(8) = sphere_distance(point=[emax(1), emax(2), emax(3)])
-      if (maxval(distance(0:8),dim=1)*minval(distance(0:8),dim=1) < 0._R8P) then
-         distance(0) = 0._R8P
-      endif
-
-      max_cell_delta = self%field%max_cell_delta(distance=distance(0))
-
-      max_cell_delta = min(max_cell_delta, 0.15_R8P)
-
-      if (block_diagonal/min(ni,nj,nk) > max_cell_delta) then
-         node%refinement_needed = TO_BE_REFINED
-      elseif (block_diagonal/min(ni,nj,nk) * threshold_ < max_cell_delta) then
-         node%refinement_needed = TO_BE_DEREFINED
-      endif
-      endassociate
-   enddo
-   contains
-      pure function sphere_distance(point)
-      !< Return the distance from a point to the sphere surface, with sign.
-      real(R8P), intent(in) :: point(3)        !< Point coordinates.
-      real(R8P)             :: sphere_distance !< Distance from sphere surface.
-
-      sphere_distance = sqrt((center(1) - point(1))**2 + &
-                             (center(2) - point(2))**2 + &
-                             (center(3) - point(3))**2) - radius
-      endfunction sphere_distance
+   select case(trim(adjustl(by)))
+   case('tree')
+      call self%tree%mark_sphere(center=center, radius=radius, threshold=threshold)
+   case('field')
+      call self%field%mark_sphere(center=center, radius=radius, threshold=threshold)
+      self%is_tree_in_sync = .false.
+   endselect
    endsubroutine mark_sphere
 
    subroutine mpi_redistribute(self, print_mpi_stats)
@@ -374,11 +349,12 @@ contains
    class(adam_object), intent(inout) :: lhs !< Left hand side.
    type(adam_object),  intent(in)    :: rhs !< Right hand side.
 
-   lhs%grid         = rhs%grid
-   lhs%tree         = rhs%tree
-   lhs%field        = rhs%field
-   lhs%error        = rhs%error
-   lhs%procs_number = rhs%procs_number
-   lhs%myrank       = rhs%myrank
+   lhs%grid            = rhs%grid
+   lhs%tree            = rhs%tree
+   lhs%field           = rhs%field
+   lhs%error           = rhs%error
+   lhs%is_tree_in_sync = rhs%is_tree_in_sync
+   lhs%procs_number    = rhs%procs_number
+   lhs%myrank          = rhs%myrank
    endsubroutine adam_assign_adam
 endmodule adam_adam_object

@@ -3,20 +3,24 @@ program adam_test_adam_object_mpi
 !< ADAM, test ADAM class in MPI env.
 
 use adam_adam_object
+use adam_field_gpu_object
 use adam_parameters
 use adam_tree_node_object
 use PENF
 
 implicit none
 
-type(adam_object) :: adam            !< ADAM.
-type(tree_node_object), pointer :: node            !< ADAM.
-integer(I4P)      :: l, t, st        !< Counter.
-logical           :: is_grid_changed !< Flag to check grid changes.
-real(R8P)         :: time            !< Time.
+type(adam_object)               :: adam            !< ADAM.
+type(field_gpu_object)          :: field_gpu       !< GPU field.
+type(tree_node_object), pointer :: node            !< Tree node.
+integer(I4P)                    :: l, t            !< Counter.
+logical                         :: is_grid_changed !< Flag to check grid changes.
+real(R8P)                       :: time            !< Time.
+integer(I8P)                    :: timing(0:2)     !< Tic toc timing.
 
 print '(A)', 'initialize ADAM'
-call adam%initialize(max_level=6, emin=[0._R8P,0._R8P,0._R8P], emax=[1._R8P,1._R8P,1._R8P], nb=500000)
+call adam%initialize(max_level=6, emin=[0._R8P,0._R8P,0._R8P], emax=[1._R8P,1._R8P,1._R8P], nb=100)
+call field_gpu%initialize(field_cpu=adam%field)
 
 do l=1, 2
    print '(A)', 'refine ADAM at level '//trim(str(l))
@@ -30,21 +34,18 @@ print '(A)', 'set initial conditions'
 call adam%field%set_initial_conditions
 call adam%save_hdf5(basename='sphere-initial')
 
+call field_gpu%copy_cpu_gpu
 time = 0._R8P
+call system_clock(timing(1))
 do t=1, 25
-   ! if (mod(t,1)==0) call adam%save_hdf5(basename='sphere-'//trim(strz(t,9)))
    if (mod(t,1)==0) print '(A)', 'track iteration '//trim(str(t, .true.))
-   ! call adam%field%rk_integrate(t=time, Dt=0.1_R8P)
-   ! sub_iteration_loop : do st=1, 10
-      call adam%save_hdf5(basename='sphere-'//trim(strz(t,9)))
-      ! call adam%field%mark_by_u_value(u_value=0.5_R8P)
-      call adam%field%mark_sphere(center=[0.2_R8P+t*0.05_R8P,0.5_R8P,0.5_R8P], radius=0.1_R8P)
-      call adam%amr_update(is_marked_by_field=.true.)
-      ! if (.not.is_grid_changed) exit sub_iteration_loop
-   ! enddo sub_iteration_loop
+   call field_gpu%rk_integrate(t=time, Dt=0.1_R8P)
+   call field_gpu%copy_gpu_cpu
+   call adam%save_hdf5(basename='sphere-'//trim(strz(t,9)))
    time = time + 0.1_R8P
 enddo
-call adam%save_hdf5(basename='sphere-'//trim(strz(t,9)))
+call system_clock(timing(2), timing(0))
+print '(A, F8.3)', 'timing: ', real(timing(2) - timing(1))/ timing(0)
 
 print '(A)', 'finalize ADAM'
 call adam%finalize

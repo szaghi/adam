@@ -104,6 +104,16 @@ type :: field_object
    integer(I4P), allocatable  :: refinements_needed(:)     !< Refinements needed of my blocks.
    integer(I4P), allocatable  :: refinements_needed_all(:) !< Refinements needed of all blocks.
    integer(I4P), allocatable  :: disp_count(:)             !< Displacement of blocks that are received from process.
+   ! RK data
+   real(R8P) :: alph(3,3) = reshape([0._R8P, 1._R8P, 0.25_R8P, &
+                                     0._R8P, 0._R8P, 0.25_R8P, &
+                                     0._R8P, 0._R8P,0._R8P], [3,3]) !< RK alpha coefficients.
+   real(R8P) :: beta(3) = [1._R8P/6._R8P, &
+                           1._R8P/6._R8P, &
+                           2._R8P/3._R8P]                           !< RK beta coefficients.
+   real(R8P) :: gamm(3) = [0._R8P, &
+                           1._R8P, &
+                           0._R8P]                                  !< RK gamma coefficients.
    contains
       ! public methods
       procedure, pass(self) :: adapt                         !< Adapt field accordingly to refine/derefine necessity.
@@ -111,6 +121,7 @@ type :: field_object
       procedure, pass(self) :: destroy                       !< Destroy the field.
       procedure, pass(self) :: initialize                    !< Initialize the field.
       procedure, pass(self) :: mark_by_u_value               !< Mark blocks to be refined/derefined by a `u` value.
+      procedure, pass(self) :: mark_all_blocks               !< Mark all blocks to be refined, derefined, ecc.
       procedure, pass(self) :: mark_sphere                   !< Mark blocks to be refined/derefined by sphere distance.
       procedure, pass(self) :: max_cell_delta                !< Return the maximum cell delta given a comparison distance.
       procedure, pass(self) :: mpi_gather_refinements_needed !< Gather blocks refinement needed status between MPI processes.
@@ -261,7 +272,7 @@ contains
    real(R8P)                                       :: block_diagonal  !< block diagonal.
    real(R8P)                                       :: distance(0:8)   !< Distances between block and sphere.
    real(R8P)                                       :: max_cell_delta  !< Max cell delta.
-   integer(I4P)                                    :: b               !< Counter.
+   integer(I8P)                                    :: b               !< Counter.
 
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
    if (allocated(self%refinements_needed)) deallocate(self%refinements_needed)
@@ -308,6 +319,19 @@ contains
                              (center(3) - point(3))**2) - radius
       endfunction sphere_distance
    endsubroutine mark_sphere
+
+   subroutine mark_all_blocks(self, mark)
+   !< Mark all blocks to be refined, derefined, ecc.
+   class(field_object), intent(inout) :: self !< The tree.
+   integer(I4P),        intent(in)    :: mark !< Mark to be imposed [TO_BE_REFINED,...].
+   integer(I8P)                       :: b    !< Counter.
+
+   if (allocated(self%refinements_needed)) deallocate(self%refinements_needed)
+   allocate(self%refinements_needed(self%blocks_number))
+   do b=1, self%blocks_number
+      self%refinements_needed(b) = mark
+   enddo
+   endsubroutine mark_all_blocks
 
    function max_cell_delta(self, distance) result(delta)
    !< Return the maximum cell delta given a comparison distance.
@@ -485,20 +509,12 @@ contains
 
    subroutine rk_integrate(self, t, Dt)
    !< Runge Kutta integration of field.
-   class(field_object), intent(inout) :: self                        !< The field.
+   class(field_object), intent(inout) :: self  !< The field.
    real(R8P),           intent(in)    :: t
    real(R8P),           intent(in)    :: Dt
-   real(R8P), parameter               :: beta(3) = [1._R8P/6._R8P, &
-                                                    1._R8P/6._R8P, &
-                                                    2._R8P/3._R8P]   !< RK beta coefficients.
-   real(R8P), parameter               :: alph(3,3) = reshape([0._R8P, 1._R8P, 0.25_R8P, &
-                                                              0._R8P, 0._R8P, 0.25_R8P, &
-                                                              0._R8P, 0._R8P,0._R8P], [3,3]) !< RK alpha coefficients.
-   real(R8P), parameter               :: gamm(3) = [0._R8P, &
-                                                    1._R8P, &
-                                                    0._R8P]   !< RK gamma coefficients.
    integer(I4P)                       :: s, ss
 
+   associate(alph=>self%alph, beta=>self%beta, gamm=>self%gamm)
    do s=1, 3
       self%u_s(:,:,:,1:self%blocks_number,s) = self%u(:,:,:,1:self%blocks_number)
       do ss=1, s - 1
@@ -511,6 +527,7 @@ contains
       self%u(:,:,:,1:self%blocks_number) = self%u(:,:,:,1:self%blocks_number) + &
                                            self%u_s(:,:,:,1:self%blocks_number,s) * Dt * beta(s)
    enddo
+   endassociate
    endsubroutine rk_integrate
 
    subroutine residuals(self, s, t)
@@ -821,5 +838,9 @@ contains
    else
       if (allocated(lhs%blocks_numbers)) deallocate(lhs%blocks_numbers)
    endif
+   ! RK data
+   lhs%alph = rhs%alph
+   lhs%beta = rhs%beta
+   lhs%gamm = rhs%gamm
    endsubroutine field_assign_field
 endmodule adam_field_object

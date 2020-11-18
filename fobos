@@ -3,11 +3,15 @@ modes = tests-gnu tests-gnu-debug
         tests-gnu-mpi tests-gnu-debug-mpi
         tests-intel tests-intel-debug
         tests-nvf tests-nvf-debug
+        tests-nvf-mpi tests-nvf-debug-mpi
+        tests-nvf-debug-mpi-cuda
 
 [common-variables]
 $CSTATIC_GNU = -cpp -c -fno-range-check
 $CSTATIC_INT = -cpp -c
 $CSTATIC_NVF = -cpp -c
+$CSTATIC_CUDA_NVF = -cpp -c -Mcuda=cc75,cuda11.0
+$LSTATIC_CUDA_NVF = -Mcuda=cc75,cuda11.0
 $DEBUG_GNU   = -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fcheck=all -fno-range-check -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan -std=f2008 -fall-intrinsics
 $DEBUG_INT   = -O0 -debug all -check all -warn all -extend-source 132 -traceback -gen-interfaces#-fpe-all=0 -fp-stack-check -fstack-protector-all -ftrapuv -no-ftz -std08
 $DEBUG_NVF   = -O0 -g -C
@@ -65,6 +69,18 @@ build_dir = ./exe/
 template  = template-static-nvf
 build_dir = ./exe/
 
+[tests-nvf-mpi]
+template  = template-static-nvf-mpi
+build_dir = ./exe/
+
+[tests-nvf-debug-mpi]
+template  = template-static-nvf-debug-mpi
+build_dir = ./exe/
+
+[tests-nvf-debug-mpi-cuda]
+template  = template-static-nvf-debug-mpi-cuda
+build_dir = ./exe/
+
 # templates
 # GNU
 [template-static-gnu]
@@ -105,12 +121,12 @@ preproc      = -D_MPI_
 quiet        = False
 log          = True
 jobs         = 2
-lib_dir      = /opt/HDF5/bin/1.12.0/lib
-include      = /opt/HDF5/bin/1.12.0/include
-libs         = /opt/HDF5/bin/1.12.0/lib/libhdf5hl_fortran.a
-               /opt/HDF5/bin/1.12.0/lib/libhdf5_hl.a
-               /opt/HDF5/bin/1.12.0/lib/libhdf5_fortran.a
-               /opt/HDF5/bin/1.12.0/lib/libhdf5.a
+lib_dir      = /opt/HDF5/bin/1.12.0/openmpi/4.0.5/gnu/10.0.1/lib
+include      = /opt/HDF5/bin/1.12.0/openmpi/4.0.5/gnu/10.0.1/include
+libs         = /opt/HDF5/bin/1.12.0/openmpi/4.0.5/gnu/10.0.1/lib/libhdf5hl_fortran.a
+               /opt/HDF5/bin/1.12.0/openmpi/4.0.5/gnu/10.0.1/lib/libhdf5_hl.a
+               /opt/HDF5/bin/1.12.0/openmpi/4.0.5/gnu/10.0.1/lib/libhdf5_fortran.a
+               /opt/HDF5/bin/1.12.0/openmpi/4.0.5/gnu/10.0.1/lib/libhdf5.a
                /opt/zlib/bin/1.2.11/lib/libz.a
                /opt/szip/bin/2.1.1/lib/libsz.a
 ext_libs     = dl m
@@ -129,12 +145,12 @@ preproc      = -D_MPI_
 quiet        = False
 log          = True
 jobs         = 2
-lib_dir      = /opt/HDF5/bin/1.12.0/lib
-include      = /opt/HDF5/bin/1.12.0/include
-libs         = /opt/HDF5/bin/1.12.0/lib/libhdf5hl_fortran.a
-               /opt/HDF5/bin/1.12.0/lib/libhdf5_hl.a
-               /opt/HDF5/bin/1.12.0/lib/libhdf5_fortran.a
-               /opt/HDF5/bin/1.12.0/lib/libhdf5.a
+lib_dir      = /opt/HDF5/bin/1.12.0/openmpi/4.0.5/gnu/10.0.1/lib
+include      = /opt/HDF5/bin/1.12.0/openmpi/4.0.5/gnu/10.0.1/include
+libs         = /opt/HDF5/bin/1.12.0/openmpi/4.0.5/gnu/10.0.1/lib/libhdf5hl_fortran.a
+               /opt/HDF5/bin/1.12.0/openmpi/4.0.5/gnu/10.0.1/lib/libhdf5_hl.a
+               /opt/HDF5/bin/1.12.0/openmpi/4.0.5/gnu/10.0.1/lib/libhdf5_fortran.a
+               /opt/HDF5/bin/1.12.0/openmpi/4.0.5/gnu/10.0.1/lib/libhdf5.a
                /opt/zlib/bin/1.2.11/lib/libz.a
                /opt/szip/bin/2.1.1/lib/libsz.a
 ext_libs     = dl m
@@ -192,6 +208,78 @@ colors       = True
 quiet        = False
 log          = True
 jobs         = 2
+
+[template-static-nvf-mpi]
+compiler     = nvfortran
+mpi          = True
+cflags       = $CSTATIC_NVF $OPTIMIZE
+exclude_dirs = $EXDIRS
+preproc      = -D_NVF -D_MPI_
+mod_dir      = ./mod/
+obj_dir      = ./obj/
+src          = ./src/
+colors       = True
+quiet        = False
+log          = True
+jobs         = 2
+lib_dir      = /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib
+include      = /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/include
+libs         = /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib/libhdf5hl_fortran.a
+               /opt/HDF5/bin/1.12.0/lib/openmpi/3.1.5/nvidia/20.7/libhdf5_hl.a
+               /opt/HDF5/bin/1.12.0/lib/openmpi/3.1.5/nvidia/20.7/libhdf5_fortran.a
+               /opt/HDF5/bin/1.12.0/lib/openmpi/3.1.5/nvidia/20.7/libhdf5.a
+               /opt/zlib/bin/1.2.11/lib/libz.a
+               /opt/szip/bin/2.1.1/lib/libsz.a
+ext_libs     = dl m
+
+[template-static-nvf-debug-mpi]
+compiler     = nvfortran
+mpi          = True
+cflags       = $CSTATIC_NVF $DEBUG_NVF
+lflags       = $DEBUG_NVF
+exclude_dirs = $EXDIRS
+preproc      = -D_NVF -D_MPI_
+mod_dir      = ./mod/
+obj_dir      = ./obj/
+src          = ./src/
+colors       = True
+quiet        = False
+log          = True
+jobs         = 2
+lib_dir      = /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib
+include      = /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/include
+libs         = /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib/libhdf5hl_fortran.a
+               /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib/libhdf5_hl.a
+               /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib/libhdf5_fortran.a
+               /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib/libhdf5.a
+               /opt/zlib/bin/1.2.11/lib/libz.a
+               /opt/szip/bin/2.1.1/lib/libsz.a
+ext_libs     = dl m
+
+[template-static-nvf-debug-mpi-cuda]
+compiler     = nvfortran
+mpi          = True
+cflags       = $CSTATIC_CUDA_NVF $DEBUG_NVF
+lflags       = $LSTATIC_CUDA_NVF $DEBUG_NVF
+exclude_dirs = $EXDIRS
+preproc      = -D_NVF -D_MPI_
+mod_dir      = ./mod/
+obj_dir      = ./obj/
+src          = ./src/
+colors       = True
+quiet        = False
+log          = True
+jobs         = 2
+lib_dir      = /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib
+include      = /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/include
+libs         = /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib/libhdf5hl_fortran.a
+               /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib/libhdf5_hl.a
+               /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib/libhdf5_fortran.a
+               /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib/libhdf5.a
+               /opt/zlib/bin/1.2.11/lib/libz.a
+               /opt/szip/bin/2.1.1/lib/libsz.a
+ext_libs     = dl m
+
 
 # rules
 [rule-makedoc]

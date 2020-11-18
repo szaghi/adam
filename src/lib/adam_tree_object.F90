@@ -174,8 +174,8 @@ type :: tree_object
       procedure, pass(self) :: has_code             !< Check if the code is present in the tree.
       procedure, pass(self) :: initialize           !< Initialize the tree.
       procedure, pass(self) :: max_cell_delta       !< Return the maximum cell delta given a comparison distance.
+      procedure, pass(self) :: mark_all_nodes       !< Mark all nodes to be refined, derefined, ecc.
       procedure, pass(self) :: mark_sphere          !< Mark nodes to be refined/derefined by sphere distance.
-      procedure, pass(self) :: mark_all_nodes       !< Mark all nodes to be refined, derefined....
       procedure, pass(self) :: node                 !< Return a pointer to a node.
       procedure, pass(self) :: prime_buckets_number !< Return the buckets number as nearest prime number given nodes number.
       procedure, pass(self) :: resize               !< Resize the tree.
@@ -460,9 +460,9 @@ contains
    endfunction max_cell_delta
 
    subroutine mark_all_nodes(self, mark)
-   !< Mark all nodes to be refined.
+   !< Mark all nodes to be refined, derefined, ecc.
    class(tree_object), intent(inout) :: self !< The tree.
-   integer(I4P),       intent(in)    :: mark !< Mark to be imposed [TO_BE_REFINED,...]
+   integer(I4P),       intent(in)    :: mark !< Mark to be imposed [TO_BE_REFINED,...].
    type(tree_node_object), pointer   :: node !< Pointer to current node.
 
    do while(self%loop(node=node))
@@ -509,8 +509,6 @@ contains
       endif
 
       max_cell_delta = self%max_cell_delta(distance=distance(0))
-
-      ! max_cell_delta = min(max_cell_delta, 0.15_R8P)
 
       if (block_diagonal/min(ni,nj,nk) > max_cell_delta) then
          node%refinement_needed = TO_BE_REFINED
