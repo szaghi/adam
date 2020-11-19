@@ -76,8 +76,6 @@ public :: field_object
 
 type :: field_object
    !< Field class definition.
-   logical                    :: special=.false.
-
    type(grid_object), pointer :: grid=>null()            !< Grid data.
    integer(I4P)               :: nv=1_I4P                !< Number of field variables.
    integer(I4P)               :: block_weight=0_I4P      !< Block weight, `cells_number * variables_number`.
@@ -423,8 +421,7 @@ contains
       n_recv    = ptr_end - ptr_start + 1
       if (n_recv > 0) then
 #ifdef _MPI_
-         call MPI_IRECV(recv_buffer(ptr_start), n_recv, MPI_REAL8, p, 100, &
-                        MPI_COMM_WORLD, req_recv(p), error)
+         call MPI_IRECV(recv_buffer(ptr_start), n_recv, MPI_REAL8, p, 100, MPI_COMM_WORLD, req_recv(p), error)
 #endif
       endif
    enddo
@@ -435,8 +432,7 @@ contains
       n_send    = ptr_end - ptr_start + 1
       if (n_send > 0) then
 #ifdef _MPI_
-         call MPI_SEND(send_buffer(ptr_start), n_send, MPI_REAL8, p, 100, &
-                       MPI_COMM_WORLD, error)
+         call MPI_SEND(send_buffer(ptr_start), n_send, MPI_REAL8, p, 100, MPI_COMM_WORLD, error)
 #endif
       endif
    enddo
@@ -445,7 +441,6 @@ contains
    call MPI_WAITALL(self%procs_number, req_recv, MPI_STATUSES_IGNORE, error)
 #endif
 
-   if (self%special) self%u_new = -300._R8P
    if (recv_size > 0_I8P) then
       recv_offset = 1
       do b=1, size(comm_map_recv, dim=1)
@@ -454,14 +449,12 @@ contains
                                          [self%grid%gc1+self%grid%ni+self%grid%gc2, &
                                           self%grid%gc3+self%grid%nj+self%grid%gc4, &
                                           self%grid%gc5+self%grid%nk+self%grid%gc6])
-          if (self%special) self%u_new(:,:,:,bi) = -200._R8P
           recv_offset = recv_offset + self%block_weight
       enddo
    endif
 
    do b=1, n_keep
       self%u_new(:,:,:,local_map(b,1)) = self%u(:,:,:,local_map(b,2))
-      if (self%special) self%u_new(:,:,:,local_map(b,1)) = -100._R8P
    enddo
    self%u = self%u_new
    self%blocks_number = n_keep  + recv_size / self%block_weight

@@ -2,12 +2,16 @@
 program adam_test_tree_object
 !< ADAM, test tree class.
 
-use adam_objects
+use adam_grid_object
+use adam_parameters
+use adam_tree_object
+use adam_tree_node_object
 use PENF, only : I8P, I4P, str
 use vtk_fortran, only : vtk_file
 
 implicit none
 
+type(grid_object)               :: grid               !< The grid.
 type(tree_object)               :: tree               !< Tree.
 type(tree_node_object), pointer :: tree_node          !< Pointer to node.
 integer(I8P)                    :: code               !< Tree node code.
@@ -16,7 +20,22 @@ integer(I8P)                    :: min_code, max_code !< Minimum and maximum cod
 integer(I4P)                    :: l, i, j, k         !< Counter.
 
 print '(A)', 'initialize tree'
-call tree%initialize(buckets_number=85_I8P)
+call grid%initialize
+call tree%initialize(grid=grid, buckets_number=85_I8P)
+
+call tree%mark_all_nodes(mark=TO_BE_REFINED)
+call tree%adapt
+tree_node => tree%node(code=1_I8P)
+tree_node%refinement_needed = TO_BE_REFINED
+call tree%adapt
+do while(tree%loop(node=tree_node))
+   call tree%print_code_topology(code=tree_node%code, &
+                                 level=.true.,    &
+                                 neighbor=.true., &
+                                 coordinates=.true.)
+enddo
+stop
+
 print '(A)', 'testing buckets number calculation for 10**7 nodes: '//trim(str(tree%prime_buckets_number(nodes_number=10_I8P**7)))
 print '(A)', 'hash codes'
 do code=-1_I8P, 83_I8P
@@ -25,9 +44,9 @@ enddo
 
 print*, ''
 print '(A)', 'add nodes to the tree'
-call tree%mark_all_nodes(mark=NODE_TO_BE_REFINED)
+call tree%mark_all_nodes(mark=TO_BE_REFINED)
 call tree%adapt
-call tree%mark_all_nodes(mark=NODE_TO_BE_REFINED)
+call tree%mark_all_nodes(mark=TO_BE_REFINED)
 call tree%adapt
 print '(A)', 'tree nodes number:', trim(str(tree%nodes_number))
 print '(A)', 'loop into tree'
@@ -59,7 +78,7 @@ print '(A)', 'destroy tree'
 call tree%destroy
 print '(A)', 'tree nodes number:'//trim(str(tree%nodes_number))
 print '(A)', 're-initialize tree'
-call tree%initialize
+call tree%initialize(grid=grid)
 print '(A)', 'tree nodes number:'//trim(str(tree%nodes_number))
 print '(A)', 'loop into tree'
 do while(tree%loop(code=code))
@@ -70,10 +89,10 @@ print*, ''
 print '(A)', 'destroy tree'
 call tree%destroy
 print '(A)', 're-initialize tree'
-call tree%initialize(nodes_number=100_I8P)
-call tree%mark_all_nodes(mark=NODE_TO_BE_REFINED)
+call tree%initialize(grid=grid, nodes_number=100_I8P)
+call tree%mark_all_nodes(mark=TO_BE_REFINED)
 call tree%adapt
-call tree%mark_all_nodes(mark=NODE_TO_BE_REFINED)
+call tree%mark_all_nodes(mark=TO_BE_REFINED)
 call tree%adapt
 print '(A)', 'resize tree'
 call tree%resize(nodes_number=500_I8P)
@@ -85,7 +104,7 @@ enddo
 print*, ''
 print '(A)', 'test Morton ordering'
 call tree%destroy
-call tree%initialize(ratio=8_I4P)
+call tree%initialize(grid=grid, ratio=8_I4P)
 print*, ''
 print '(A)', 'first/last at levels:'
 do l=1, 17
@@ -109,7 +128,7 @@ enddo
 print*, ''
 do l=1, 2
    print '(A)', 'create children of level '//trim(str(l))
-   call tree%mark_all_nodes(mark=NODE_TO_BE_REFINED)
+   call tree%mark_all_nodes(mark=TO_BE_REFINED)
    call tree%adapt
    print '(A)', 'loop in tree'
    do while(tree%loop(node=tree_node))

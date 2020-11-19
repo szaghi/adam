@@ -2,11 +2,16 @@
 program adam_test_field_object
 !< ADAM, test field class.
 
-use adam_objects
+use adam_field_object
+use adam_grid_object
+use adam_parameters
+use adam_tree_object
+use adam_tree_node_object
 use PENF
 
 implicit none
 
+type(grid_object)               :: grid             !< The grid.
 type(tree_object)               :: tree             !< The tree.
 type(tree_node_object), pointer :: node             !< Pointer to node.
 type(field_object)              :: field            !< Field.
@@ -14,11 +19,11 @@ real(R8P)                       :: emin(3), emax(3) !< Domain extents.
 integer(I4P)                    :: c                !< Counter.
 
 print '(A)', 'initialize'
-call tree%initialize
-
 emin = 0._R8P
 emax = 1._R8P
-call field%initialize(nb=100, emin=emin, emax=emax)
+call grid%initialize(emin=emin, emax=emax)
+call tree%initialize(grid=grid)
+call field%initialize(grid=grid, nb=100)
 
 print '(A)', 'loop in tree'
 do while(tree%loop(node=node))
@@ -27,7 +32,7 @@ enddo
 print*, ''
 
 print '(A)', 'refine level 0'
-call tree%mark_all_nodes(mark=NODE_TO_BE_REFINED)
+call tree%mark_all_nodes(mark=TO_BE_REFINED)
 call tree%adapt
 print*, ''
 print '(A)', 'blocks index to refine'
@@ -45,7 +50,7 @@ print*, ''
 
 print '(A)', 'refine level 1'
 node => tree%node(code=3_I8P)
-node%refinement_needed = NODE_TO_BE_REFINED
+node%refinement_needed = TO_BE_REFINED
 call tree%adapt
 print*, ''
 print '(A)', 'blocks index to refine'
@@ -62,7 +67,7 @@ enddo
 print*, ''
 print '(A)', 'refine index level 2'
 node => tree%node(code=37_I8P)
-node%refinement_needed = NODE_TO_BE_REFINED
+node%refinement_needed = TO_BE_REFINED
 call tree%adapt
 print*, ''
 
@@ -81,7 +86,7 @@ print*, ''
 
 print '(A)', 'refine index level 3'
 node => tree%node(code=307_I8P)
-node%refinement_needed = NODE_TO_BE_REFINED
+node%refinement_needed = TO_BE_REFINED
 call tree%adapt
 print*, ''
 print '(A)', 'blocks index to refine'
@@ -96,13 +101,12 @@ do while(tree%loop(node=node))
    call tree%print_code_topology(code=node%code, block_index=.true., coordinates=.true.)
 enddo
 print*, ''
-call field_save_vtk(tree=tree, field=field, basename='adam-finest')
 
 print*, ''
 print '(A)', 'derefine octants 2464-2471'
 do c=0, tree%ratio-1
    node => tree%node(code=2464_I8P+c)
-   node%refinement_needed = NODE_TO_BE_DEREFINED
+   node%refinement_needed = TO_BE_DEREFINED
 enddo
 call tree%adapt
 print*, ''
@@ -118,6 +122,4 @@ do while(tree%loop(node=node))
    call tree%print_code_topology(code=node%code, block_index=.true., coordinates=.true.)
 enddo
 print*, ''
-
-call field_save_vtk(tree=tree, field=field, basename='adam-derefined')
 endprogram adam_test_field_object

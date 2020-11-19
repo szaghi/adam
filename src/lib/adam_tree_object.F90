@@ -75,7 +75,7 @@ module adam_tree_object
 !<  ^
 !< /|\Z
 !<  |
-!<  |                            *----------*----------*
+!<  |                            G----------*----------H
 !<  |                           /|         /|         /|
 !<  |                          / |        / |        / |
 !<  |                         /  |       /  |       /  |
@@ -85,11 +85,11 @@ module adam_tree_object
 !<  |                     *----------*----------*    / |
 !<  |                    /|   /  |  /|   /  |  /|   /  |
 !<  |                   / |  /   | / |  /   | / |  /   |
-!<  |                  /  | /    */--|-/----*/--|-/----*
+!<  |                  /  | /    E/--|-/----*/--|-/----F
 !<  |         2 <-----/---|/--+ //   |/    //   |/  +---------> 3
 !<  |                /    *-----/----*-----/----*    /
 !<  |    4 <--------/--+ /|   //    /|   //   +------------> 5
-!<  |              *----------*----------*    / |  /
+!<  |              C----------*----------D    / |  /
 !<  |              |   /  | / |   /  | / |   /  | /
 !<  |              |  /   |/  |  /   |/  |  /   |/
 !<  |              | /    *---|-/----*---|-/----*
@@ -99,10 +99,33 @@ module adam_tree_object
 !<  |              |  /       |  /       |  /
 !<  |   _ Y        | /        | /        | /
 !<  |   /|         |/         |/         |/
-!<  |  /           *----------*----------*
+!<  |  /           A----------*----------B
 !<  | /
 !<  |/                                                    X
 !<  o------------------------------------------------------------------->
+!<
+!< Edges numeration:
+!<  AC = fec-7
+!<  BD = fec-8
+!<  EG = fec-9
+!<  FH = fec-10
+!<  AE = fec-11
+!<  BF = fec-12
+!<  CG = fec-13
+!<  DH = fec-14
+!<  AB = fec-15
+!<  EF = fec-16
+!<  CD = fec-17
+!<  GH = fec-18
+!< Corners numeration:
+!<  A  = fec-19
+!<  B  = fec-20
+!<  E  = fec-21
+!<  F  = fec-22
+!<  C  = fec-23
+!<  D  = fec-24
+!<  G  = fec-25
+!<  H  = fec-26
 
 use adam_grid_object
 use adam_parameters
@@ -120,8 +143,9 @@ private
 public :: tree_object
 
 ! tree node parameters
-integer(I4P), parameter :: NODE_STANDARD = 0_I4P           !< Standard node type.
-integer(I4P), parameter :: NODE_MORE_REFINED = 1_I4P       !< More refined node type.
+integer(I4P), parameter :: NODE_LESS_REFINED = -1_I4P      !< More refined node type.
+integer(I4P), parameter :: NODE_STANDARD     =  0_I4P      !< Standard node type.
+integer(I4P), parameter :: NODE_MORE_REFINED =  1_I4P      !< More refined node type.
 integer(I4P), parameter :: NODE_BOUNDARY_CONDITION = 2_I4P !< Boundary condition node type.
 ! tree parameters
 integer(I8P), parameter :: TREE_BUCKETS_NUMBER_DEF = 9973_I8P    !< Default number of buckets of hash table.
@@ -167,6 +191,7 @@ type :: tree_object
    contains
       ! public methods
       procedure, pass(self) :: adapt                !< Adapt tree accordingly to refine/derefine necessity.
+      procedure, pass(self) :: add_node             !< Add a node pointer to the tree.
       procedure, pass(self) :: codes                !< Return the list of (sorted) codes actually stored in the tree.
       procedure, pass(self) :: destroy              !< Destroy the tree.
       procedure, pass(self) :: loop                 !< Sentinel while-loop on nodes returning the code.
@@ -178,6 +203,7 @@ type :: tree_object
       procedure, pass(self) :: mark_sphere          !< Mark nodes to be refined/derefined by sphere distance.
       procedure, pass(self) :: node                 !< Return a pointer to a node.
       procedure, pass(self) :: prime_buckets_number !< Return the buckets number as nearest prime number given nodes number.
+      procedure, pass(self) :: remove_node          !< Remove a node from the tree, given the key.
       procedure, pass(self) :: resize               !< Resize the tree.
       procedure, pass(self) :: sanitize             !< Sanitize the tree.
       procedure, pass(self) :: traverse             !< Traverse tree calling the iterator procedure.
@@ -205,6 +231,7 @@ type :: tree_object
       procedure, pass(self) :: level                   !< Return the refinement level given the code.
       procedure, pass(self) :: lower                   !< Return true if code is lower than other.
       procedure, pass(self) :: get_neighbor            !< Return the neighbor in a given face of given Morton code.
+      procedure, pass(self) :: get_neighbor_all        !< Return the neighbor in a given face/edge/corner of given Morton code.
       procedure, pass(self) :: greater                 !< Return true if code is greater than other.
       procedure, pass(self) :: parent                  !< Return the parent given Morton code.
       procedure, pass(self) :: parent_at_level         !< Return the parent given Morton code at given level.
@@ -212,14 +239,12 @@ type :: tree_object
       procedure, pass(self) :: print_code_topology     !< Print all code topology data.
       procedure, pass(self) :: siblings                !< Return the siblings Morton code given Morton code.
       ! private methods
-      procedure, pass(self), private :: add_node                !< Add a node pointer to the tree.
       procedure, pass(self), private :: coordinates3D_to_morton !< Return the Morton code given ijkl coordinates.
       procedure, pass(self), private :: coordinates2D_to_morton !< Return the Morton code given ijl coordinates.
       procedure, pass(self), private :: derefine                !< Derefine nodes.
       procedure, pass(self), private :: morton_to_coordinates3D !< Return the ijkl coordinates given Morton code.
       procedure, pass(self), private :: morton_to_coordinates2D !< Return the ijkl coordinates given Morton code.
       procedure, pass(self), private :: refine                  !< Refine nodes.
-      procedure, pass(self), private :: remove_node             !< Remove a node from the tree, given the key.
       ! operators
       generic :: assignment(=) => tree_assign_tree      !< Overload `=`.
       procedure, pass(lhs), private :: tree_assign_tree !< Operator `=`.
@@ -686,8 +711,8 @@ contains
      ! check for the sanity of refinement (2:1 rule)
      refine_loop : do while(self%loop(node=node))
         new_level = self%level(code=node%code) + node%refinement_needed
-        face_loop : do f=1, 6
-           call self%get_neighbor(code=node%code, face=f, neighbor=neighbor, neighbor_type=neighbor_type)
+        face_loop : do f=1, 26
+           call self%get_neighbor_all(code=node%code, face=f, neighbor=neighbor, neighbor_type=neighbor_type)
            if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
               neighbor_loop : do n=1, size(neighbor, dim=1)
                  ! check level
@@ -1338,7 +1363,7 @@ contains
    direct_neighbor_parent = self%parent(code=direct_neighbor)
    if (self%has_code(code=direct_neighbor_parent)) then
       neighbor = [direct_neighbor_parent]
-      neighbor_type = NODE_STANDARD
+      neighbor_type = NODE_LESS_REFINED
       return
    endif
 
@@ -1460,6 +1485,161 @@ contains
    endselect
    endsubroutine get_neighbor
 
+   subroutine get_neighbor_all(self, code, face, neighbor, neighbor_type)
+   !< Return the neighbor in a given face/edge/corner of given Morton code.
+   !<
+   !< The direction `fec` is organized as: faces=[1,6], edges=[7,18], corners=[19,26].
+   !<
+   !< We define *direct neighbor* the neighbor of given code in the given face at the same level of the given code
+   !< either if it exists or not.
+   class(tree_object), intent(in)               :: self                        !< The tree.
+   integer(I8P),       intent(in)               :: code                        !< Morton code.
+   integer(I4P),       intent(in)               :: face                        !< Face queried.
+   integer(I8P),       intent(out), allocatable :: neighbor(:)                 !< Neighbors codes list, [1] or [ratio/2].
+   integer(I4P),       intent(out)              :: neighbor_type               !< Type of neighbor.
+   integer(I8P)                                 :: direct_neighbor             !< Morton code of direct neighbor.
+   integer(I8P)                                 :: direct_neighbor_parent      !< Morton code of direct neighbor parent.
+   integer(I8P)                                 :: direct_neighbor_first_child !< Morton code of direct neighbor first child.
+   integer(I4P)                                 :: i, j, k, l                  !< Counter.
+   integer(I4P)                                 :: delta(3)                    !< Counter.
+   integer(I4P)                                 :: ijk(3)                      !< Counter.
+   integer(I4P)                                 :: ijkmin(3), ijkmax(3)        !< Counter.
+
+   ! compute coordinates of code
+   select case(self%ratio)
+   case(4_I4P)
+      call self%morton_to_coordinates(code=code, i=i, j=j, l=l)
+   case(8_I4P)
+      call self%morton_to_coordinates(code=code, i=i, j=j, k=k, l=l)
+   endselect
+
+   ! compute coordinates of direct neighbor and check if it falls outside the ancestor, in case
+   ! it is a boundary condition node
+   select case(face)
+   case(1_I4P)
+      delta =   [-1,  0,  0]
+   case(2_I4P)
+      delta =   [ 1,  0,  0]
+   case(3_I4P)
+      delta =   [ 0, -1,  0]
+   case(4_I4P)
+      delta =   [ 0,  1,  0]
+   case(5_I4P)
+      delta =   [ 0,  0, -1]
+   case(6_I4P)
+      delta =   [ 0,  0,  1]
+
+   case(7_I4P)
+      delta =   [-1, -1, 0]
+   case(8_I4P)
+      delta =   [ 1, -1, 0]
+   case(9_I4P)
+      delta =   [-1,  1, 0]
+   case(10_I4P)
+      delta =   [ 1,  1, 0]
+
+   case(11_I4P)
+      delta =   [-1, 0, -1]
+   case(12_I4P)
+      delta =   [ 1, 0, -1]
+   case(13_I4P)
+      delta =   [-1, 0,  1]
+   case(14_I4P)
+      delta =   [ 1, 0,  1]
+
+   case(15_I4P)
+      delta =   [0, -1, -1]
+   case(16_I4P)
+      delta =   [0,  1, -1]
+   case(17_I4P)
+      delta =   [0, -1,  1]
+   case(18_I4P)
+      delta =   [0,  1,  1]
+
+   case(19_I4P)
+      delta =   [-1, -1, -1]
+   case(20_I4P)
+      delta =   [ 1, -1, -1]
+   case(21_I4P)
+      delta =   [-1,  1, -1]
+   case(22_I4P)
+      delta =   [ 1,  1, -1]
+   case(23_I4P)
+      delta =   [-1, -1,  1]
+   case(24_I4P)
+      delta =   [ 1, -1,  1]
+   case(25_I4P)
+      delta =   [-1,  1,  1]
+   case(26_I4P)
+      delta =   [ 1,  1,  1]
+   endselect
+   ijk = [i, j, k] + delta
+
+   do i=1, 3
+      if (ijk(i)<0.or.ijk(i)>2**l - 1) then
+         neighbor_type = NODE_BOUNDARY_CONDITION
+         return
+      endif
+   enddo
+
+   ! compute direct neighbor code
+   select case(self%ratio)
+   case(4_I4P)
+      direct_neighbor = self%coordinates_to_morton(i=ijk(1), j=ijk(2), l=l)
+   case(8_I4P)
+      direct_neighbor = self%coordinates_to_morton(i=ijk(1), j=ijk(2), k=ijk(3), l=l)
+   endselect
+
+   ! direct neighbor is not a sibling, check if it exists
+   if (self%has_code(code=direct_neighbor)) then
+      neighbor = [direct_neighbor]
+      neighbor_type = NODE_STANDARD
+      return
+   endif
+
+   ! direct neighbor does not exist, check if its parent exists
+   direct_neighbor_parent = self%parent(code=direct_neighbor)
+   if (self%has_code(code=direct_neighbor_parent)) then
+      neighbor = [direct_neighbor_parent]
+      neighbor_type = NODE_LESS_REFINED
+      return
+   endif
+
+   ! direct neighbor parent does not exist, check its children
+   ! using ijk coordinates at level l one can find the ijk coordinates of neighbor at level l+1
+   delta = -delta ! thats magic
+   ! direct_neighbor_first_child = self%child(code=direct_neighbor, i=0)
+   ! if (self%has_code(code=direct_neighbor_first_child)) then
+      allocate(neighbor(0))
+      ! build the ratio/2 indexes of the children of direct_neighbor that are face-to-face with node
+      do i=1, 3
+         if     (delta(i)==1) then
+            ijkmin(i) = 1
+            ijkmax(i) = 1
+         elseif (delta(i)==-1) then
+            ijkmin(i) = 0
+            ijkmax(i) = 0
+         elseif (delta(i)==0) then
+            ijkmin(i) = 0
+            ijkmax(i) = 1
+         endif
+      enddo
+      ! in ijkmin/ijkmax there are the ratio/2 deltas in binary notation that select the ratio/2 children of
+      ! my interest
+      do k=ijkmin(3), ijkmax(3)
+         do j=ijkmin(2), ijkmax(2)
+            do i=ijkmin(1), ijkmax(1)
+               ! the first child (global) Morton code of direct neighbor has been already computed thus the other
+               ! Morton codes are simply computed adding the local numeration to the first child code
+               neighbor = [neighbor, [self%child(code=direct_neighbor, i=i + 2*j + 4*k)]]
+            enddo
+         enddo
+      enddo
+      neighbor_type = NODE_MORE_REFINED
+      return
+   ! endif
+   endsubroutine get_neighbor_all
+
    elemental function greater(self, lhs, rhs) result(res)
    !< Return true if code is greater than other.
    class(tree_object), intent(in) :: self !< The tree.
@@ -1476,7 +1656,7 @@ contains
    integer(I8P),       intent(in) :: code   !< Morton code.
    integer(I8P)                   :: parent !< Parent Morton code.
 
-   parent = -1 ! ancestor of all has not parent
+   parent = -2_I8P ! ancestor of all has not parent
    if (code>self%ratio-1) parent = (code - self%ratio) / self%ratio
    endfunction parent
 
@@ -1488,7 +1668,7 @@ contains
    integer(I8P)                   :: parent   !< Parent Morton code.
    integer(I8P), allocatable      :: path_(:) !< Parent Morton code.
 
-   parent = -1_I8P ! ancestor of all nodes
+   parent = -2_I8P ! ancestor of all nodes
    if (level>=1) then
       path_ = self%path(code=code)
       parent = path_(size(path_) - level + 1)
@@ -1586,7 +1766,8 @@ contains
    neighbors_str = ''
    do f=1, 6
       if (self%ratio==4_I4P.and.f>4) exit
-      call self%get_neighbor(code=code, neighbor=neighbors, face=f, neighbor_type=neighbor_type)
+      ! call self%get_neighbor(code=code, neighbor=neighbors, face=f, neighbor_type=neighbor_type)
+      call self%get_neighbor_all(code=code, neighbor=neighbors, face=f, neighbor_type=neighbor_type)
       if (allocated(neighbors)) then
          neighbors_str = neighbors_str//' f_'//trim(str(f,.true.))//' '//trim(str(neighbors,.true.))//&
                          ' type-'//trim(str(neighbor_type,.true.))

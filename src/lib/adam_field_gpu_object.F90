@@ -16,7 +16,7 @@ public :: field_gpu_object
 type :: field_gpu_object
    !< GPU Field class definition.
    type(field_object), pointer :: field_cpu=>null() !< Pointer to CPU field data.
-   integer(I4P)                :: error=0_I4P !< Error traping flag.
+   integer(I4P)                :: error=0_I4P       !< Error traping flag.
    ! GPU data.
    real(R8P), allocatable, device :: u_gpu(:,:,:,:)      !< Field cell centered variables [ni+gc12,nj+gc34,nk+gc56,nv,nb].
    real(R8P), allocatable, device :: u_work_gpu(:,:,:,:) !< Field working buffer.

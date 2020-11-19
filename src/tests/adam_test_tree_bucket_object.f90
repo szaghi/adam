@@ -2,7 +2,8 @@
 program adam_test_tree_bucket_object
 !< ADAM, test tree bucket class.
 
-use adam_objects
+use adam_tree_bucket_object
+use adam_tree_node_object
 use PENF, only : I8P, str
 
 implicit none

@@ -4,19 +4,16 @@ program adam_test_adam_object_mpi
 
 use adam_adam_object
 use adam_field_gpu_object
-use adam_parameters
-use adam_tree_node_object
 use PENF
 
 implicit none
 
-type(adam_object)               :: adam            !< ADAM.
-type(field_gpu_object)          :: field_gpu       !< GPU field.
-type(tree_node_object), pointer :: node            !< Tree node.
-integer(I4P)                    :: l, t            !< Counter.
-logical                         :: is_grid_changed !< Flag to check grid changes.
-real(R8P)                       :: time            !< Time.
-integer(I8P)                    :: timing(0:2)     !< Tic toc timing.
+type(adam_object)      :: adam            !< ADAM.
+type(field_gpu_object) :: field_gpu       !< GPU field.
+integer(I4P)           :: l, t            !< Counter.
+logical                :: is_grid_changed !< Flag to check grid changes.
+real(R8P)              :: time            !< Time.
+integer(I8P)           :: timing(0:2)     !< Tic toc timing.
 
 print '(A)', 'initialize ADAM'
 call adam%initialize(max_level=6, emin=[0._R8P,0._R8P,0._R8P], emax=[1._R8P,1._R8P,1._R8P], nb=100)

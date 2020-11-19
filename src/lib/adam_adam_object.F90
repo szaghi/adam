@@ -27,17 +27,14 @@ type :: adam_object
    type(field_object)     :: field       !< The field.
    integer(I4P)           :: error=0_I4P !< Error traping flag.
    ! MPI data
-   logical      :: is_tree_in_sync=.true. !< Tree MPI sync status, check if all MPI processes have identical tree.
-   integer(I4P) :: procs_number=1_I4P     !< MPI Number of processes.
-   integer(I4P) :: myrank=0_I4P           !< MPI rank process.
+   integer(I4P) :: procs_number=1_I4P !< MPI Number of processes.
+   integer(I4P) :: myrank=0_I4P       !< MPI rank process.
    contains
       ! public methods
       procedure, pass(self) :: amr_update       !< Update AMR status.
       procedure, pass(self) :: destroy          !< Destroy ADAM.
       procedure, pass(self) :: finalize         !< Finalize ADAM.
       procedure, pass(self) :: initialize       !< Initialize ADAM.
-      procedure, pass(self) :: mark_all         !< Mark all nodes/blocks to be refined, derefined, ecc.
-      procedure, pass(self) :: mark_sphere      !< Mark all nodes inside a sphere to be refined.
       procedure, pass(self) :: mpi_redistribute !< Redistribute nodes/blocks to processes, load balancing.
       procedure, pass(self) :: save_hdf5        !< Save ADAM in HDF5 format.
       procedure, pass(self) :: save_vtk         !< Save ADAM in VTK  format.
@@ -138,38 +135,6 @@ contains
    call self%field%initialize(grid=self%grid, nv=nv, nb=nb)
    call self%amr_update
    endsubroutine initialize
-
-   subroutine mark_all(self, by, mark)
-   !< Mark all nodes/blocks to be refined, derefined, ecc.
-   class(adam_object), intent(inout) :: self !< ADAM.
-   character(*),       intent(in)    :: by   !< Mark by 'tree' or 'field'.
-   integer(I4P),       intent(in)    :: mark !< Mark to be imposed [TO_BE_REFINED,...].
-
-   select case(trim(adjustl(by)))
-   case('tree')
-      call self%tree%mark_all_nodes(mark=mark)
-   case('field')
-      call self%field%mark_all_blocks(mark=mark)
-      self%is_tree_in_sync = .false.
-   endselect
-   endsubroutine mark_all
-
-   subroutine mark_sphere(self, by, center, radius, threshold)
-   !< Mark all nodes inside a sphere to be refined.
-   class(adam_object), intent(inout)        :: self      !< ADAM.
-   character(*),       intent(in)           :: by        !< Mark by 'tree' or 'field'.
-   real(R8P),          intent(in)           :: center(3) !< Sphere center coordinates [x,y,z].
-   real(R8P),          intent(in)           :: radius    !< Sphere radius.
-   real(R8P),          intent(in), optional :: threshold !< Threshold for sphere proximity.
-
-   select case(trim(adjustl(by)))
-   case('tree')
-      call self%tree%mark_sphere(center=center, radius=radius, threshold=threshold)
-   case('field')
-      call self%field%mark_sphere(center=center, radius=radius, threshold=threshold)
-      self%is_tree_in_sync = .false.
-   endselect
-   endsubroutine mark_sphere
 
    subroutine mpi_redistribute(self, print_mpi_stats)
    !< Redistribute nodes/blocks to processes, load balancing.
@@ -353,7 +318,6 @@ contains
    lhs%tree            = rhs%tree
    lhs%field           = rhs%field
    lhs%error           = rhs%error
-   lhs%is_tree_in_sync = rhs%is_tree_in_sync
    lhs%procs_number    = rhs%procs_number
    lhs%myrank          = rhs%myrank
    endsubroutine adam_assign_adam
