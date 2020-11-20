@@ -188,6 +188,7 @@ type :: tree_object
    integer(I8P), allocatable :: comm_map_send(:)        !< Communication map, blocks to send [sum(comm_map_n_send)].
    integer(I8P), allocatable :: comm_map_recv(:)        !< Communication map, blocks to receive [sum(comm_map_n_recv)].
    integer(I8P), allocatable :: local_map(:,:)          !< Local map, list block index changes of my nodes.
+   integer(I8P), allocatable :: local_map_ghost(:,:)    !< Local map for ghost cells updating.
    contains
       ! public methods
       procedure, pass(self) :: adapt                !< Adapt tree accordingly to refine/derefine necessity.
@@ -210,6 +211,7 @@ type :: tree_object
       ! MPI methods
       procedure, pass(self) :: import_refinements_needed     !< Import refinements needed status changed externally.
       procedure, pass(self) :: make_comm_local_maps          !< Make communication/local maps.
+      procedure, pass(self) :: make_comm_local_maps_ghost    !< Make communication/local maps of ghost cells.
       procedure, pass(self) :: mpi_gather_refinements_needed !< Gather refinements needed status between MPI processes.
       procedure, pass(self) :: mpi_print_stats               !< Print MPI stats.
       procedure, pass(self) :: mpi_redistribute              !< Redistribute nodes to MPI processes, load balancing.
@@ -923,6 +925,58 @@ contains
       endfunction is_node_to_receive
    endsubroutine make_comm_local_maps
 
+   subroutine make_comm_local_maps_ghost(self)
+   !< Make communication/local maps of ghost cells.
+   class(tree_object), intent(inout) :: self          !< The tree.
+   type(tree_node_object), pointer   :: node          !< Pointer to current node.
+   integer(I8P), allocatable         :: neighbor(:)   !< List of code neighbors.
+   type(tree_node_object), pointer   :: neigh         !< Pointer to node neighbor.
+   integer(I4P)                      :: neighbor_type !< Neighbors type.
+   integer(I4P)                      :: my_fec_number !< Number of faces/edges/corners ghost cells locally exchanged.
+   integer(I4P)                      :: fec, mf, n    !< Counter.
+
+   if (allocated(self%local_map_ghost)) deallocate(self%local_map_ghost)
+   my_fec_number = 0
+   do while(self%loop(node=node))
+      if (self%myrank == node%myrank) then
+         do fec=1, 26
+            call self%get_neighbor_all(code=node%code, face=fec, neighbor=neighbor, neighbor_type=neighbor_type)
+            if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
+               do n=1, size(neighbor, dim=1)
+                  neigh => self%node(code=neighbor(n))
+                  if (self%myrank == neigh%myrank) then
+                     my_fec_number = my_fec_number + 1
+                  endif
+               enddo
+            endif
+         enddo
+      endif
+   enddo
+   if (my_fec_number>0) then
+      allocate(self%local_map_ghost(1:my_fec_number, 1:4))
+      mf = 0
+      do while(self%loop(node=node))
+         if (self%myrank == node%myrank) then
+            do fec=1, 26
+               call self%get_neighbor_all(code=node%code, face=fec, neighbor=neighbor, neighbor_type=neighbor_type)
+               if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
+                  do n=1, size(neighbor, dim=1)
+                     neigh => self%node(code=neighbor(n))
+                     if (self%myrank == neigh%myrank) then
+                        mf = mf + 1
+                        self%local_map_ghost(mf, 1) = node%block_index
+                        self%local_map_ghost(mf, 2) = neigh%block_index
+                        self%local_map_ghost(mf, 3) = fec
+                        self%local_map_ghost(mf, 4) = mod(n, size(neighbor, dim=1))
+                     endif
+                  enddo
+               endif
+            enddo
+         endif
+      enddo
+   endif
+   endsubroutine make_comm_local_maps_ghost
+
    subroutine mpi_gather_refinements_needed(self)
    !< Gather refinements needed status between MPI processes.
    class(tree_object), intent(inout) :: self           !< The tree.
@@ -1087,6 +1141,9 @@ contains
          self%block_coordinates(4, node%block_index) = l
       endif
    enddo
+
+   ! create local_maps_ghost for ghost cells updating
+   call self%make_comm_local_maps_ghost
    contains
       function can_split()
       !< Return true if the split can be done.
@@ -1766,7 +1823,6 @@ contains
    neighbors_str = ''
    do f=1, 6
       if (self%ratio==4_I4P.and.f>4) exit
-      ! call self%get_neighbor(code=code, neighbor=neighbors, face=f, neighbor_type=neighbor_type)
       call self%get_neighbor_all(code=code, neighbor=neighbors, face=f, neighbor_type=neighbor_type)
       if (allocated(neighbors)) then
          neighbors_str = neighbors_str//' f_'//trim(str(f,.true.))//' '//trim(str(neighbors,.true.))//&

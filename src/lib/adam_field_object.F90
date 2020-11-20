@@ -93,8 +93,8 @@ type :: field_object
    real(R8P),    allocatable  :: z_cell(:,:)             !< Z coordinates of [1-gc5:nk+gc6,nb].
    real(R8P),    allocatable  :: u(:,:,:,:)              !< Field cell centered variables [ni+gc12,nj+gc34,nk+gc56,nv,nb].
    real(R8P),    allocatable  :: u_new(:,:,:,:)          !< Field cell centered variables, buffer memory.
-   real(R8P),    allocatable  :: u_s(:,:,:,:,:)
-   logical                    :: is_initialized_=.false. !< Initialization status.
+   real(R8P),    allocatable  :: u_s(:,:,:,:,:)          !< RK field stages.
+   integer(I8P), allocatable  :: local_map_ghost(:,:)    !< Local map for ghost cells updating.
    ! MPI data
    integer(I4P)               :: myrank=0_I4P              !< MPI rank process.
    integer(I4P)               :: procs_number=1_I4P        !< Number of processes.
@@ -127,6 +127,7 @@ type :: field_object
       procedure, pass(self) :: rk_integrate                  !< Runge Kutta integration of field.
       procedure, pass(self) :: residuals                     !< Compute residuals of field.
       procedure, pass(self) :: set_initial_conditions        !< Set initial conditions of field.
+      procedure, pass(self) :: update_ghost                  !< Update ghost cells.
       ! private methods
       procedure, pass(self), private :: derefine !< Derefine blocks.
       procedure, pass(self), private :: refine   !< Refine blocks.
@@ -219,7 +220,6 @@ contains
       self%u = 0._R8P
       self%u_new = 0._R8P
    endif
-   self%is_initialized_ = .true.
    ! MPI data
 #ifdef _MPI_
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, error)
@@ -375,7 +375,8 @@ contains
 #endif
    endsubroutine mpi_gather_refinements_needed
 
-   subroutine mpi_redistribute(self, comm_map_send, comm_map_recv, comm_map_send_ptr, comm_map_recv_ptr, local_map, coordinates)
+   subroutine mpi_redistribute(self, comm_map_send, comm_map_recv, comm_map_send_ptr, comm_map_recv_ptr, local_map, coordinates, &
+                               local_map_ghost)
    !< Redistribute blocks to processes.
    class(field_object),       intent(inout) :: self                   !< The field.
    integer(I8P), allocatable, intent(in)    :: comm_map_send(:)       !< Comm map, blocks to send [sum(comm_map_n_send)].
@@ -383,6 +384,7 @@ contains
    integer(I4P), allocatable, intent(in)    :: comm_map_send_ptr(:)   !< Comm map, pointers in list to send [procs_number+1].
    integer(I4P), allocatable, intent(in)    :: comm_map_recv_ptr(:)   !< Comm map, pointers in list to recv [procs_number+1].
    integer(I4P), allocatable, intent(in)    :: coordinates(:,:)       !< Coordinates of redistributed nodes [nb, ijkl].
+   integer(I8P), allocatable, intent(in)    :: local_map_ghost(:,:)   !< Local map for ghost cells updating.
    integer(I8P), allocatable                :: local_map(:,:)         !< Local map, list block index changes of my blocks.
    real(R8P),    allocatable                :: send_buffer(:)         !< Send buffer of field cell centered variables.
    real(R8P),    allocatable                :: recv_buffer(:)         !< Recv buffer of field cell centered variables.
@@ -460,7 +462,68 @@ contains
    self%blocks_number = n_keep  + recv_size / self%block_weight
    self%coordinates(:, 1:self%blocks_number) = coordinates
    call self%compute_metrics
+
+   if (allocated(local_map_ghost)) self%local_map_ghost = local_map_ghost
    endsubroutine mpi_redistribute
+
+   subroutine rk_integrate(self, t, Dt)
+   !< Runge Kutta integration of field.
+   class(field_object), intent(inout) :: self  !< The field.
+   real(R8P),           intent(in)    :: t
+   real(R8P),           intent(in)    :: Dt
+   integer(I4P)                       :: s, ss
+
+   associate(alph=>self%alph, beta=>self%beta, gamm=>self%gamm)
+   do s=1, 3
+      self%u_s(:,:,:,1:self%blocks_number,s) = self%u(:,:,:,1:self%blocks_number)
+      do ss=1, s - 1
+         self%u_s(:,:,:,1:self%blocks_number,s) = self%u_s(:,:,:,1:self%blocks_number,s ) + &
+                                                 (self%u_s(:,:,:,1:self%blocks_number,ss) * (Dt * alph(s, ss)))
+      enddo
+      call self%residuals(s=s, t=t + gamm(s) * Dt)
+   enddo
+   do s=1, 3
+      self%u(:,:,:,1:self%blocks_number) = self%u(:,:,:,1:self%blocks_number) + &
+                                           self%u_s(:,:,:,1:self%blocks_number,s) * Dt * beta(s)
+   enddo
+   endassociate
+   endsubroutine rk_integrate
+
+   subroutine residuals(self, s, t)
+   !< Compute residuals of field.
+   class(field_object), intent(inout) :: self !< The field.
+   integer(I4P),        intent(in)    :: s
+   real(R8P),           intent(in)    :: t
+   integer(I4P)                       :: b, i, j, k
+   integer(I4P)                       :: im, jm, km
+   integer(I4P)                       :: ip, jp, kp
+
+   call self%update_ghost
+   self%u_new(:,:,:,1:self%blocks_number) = 0._R8P
+   do b=1, self%blocks_number
+   do k=1, self%grid%nk
+   do j=1, self%grid%nj
+   do i=1, self%grid%ni
+      ! kp = min(self%grid%nk, k+1)
+      ! km = max(1, k-1)
+      ! jp = min(self%grid%nj, j+1)
+      ! jm = max(1, j-1)
+      ! ip = min(self%grid%ni, i+1)
+      ! im = max(1, i-1)
+      ! self%u_new(i,j,k,b) = self%u_s(ip,j, k, b,s) + self%u_s(im,j, k, b,s) + &
+      !                       self%u_s(i, jp,k, b,s) + self%u_s(i, jm,k, b,s) + &
+      !                       self%u_s(i, j, kp,b,s) + self%u_s(i, j, km,b,s) - &
+      !              6._R8P * self%u_s(i, j, k, b,s)
+      self%u_new(i,j,k,b) = self%u_s(i+1,j,  k,  b,s) + self%u_s(i-1,j,  k,  b,s) + &
+                            self%u_s(i,  j+1,k,  b,s) + self%u_s(i,  j-1,k,  b,s) + &
+                            self%u_s(i,  j,  k+1,b,s) + self%u_s(i,  j,  k-1,b,s) - &
+                   6._R8P * self%u_s(i,  j,  k,  b,s)
+   enddo
+   enddo
+   enddo
+   enddo
+   self%u_s(:,:,:,1:self%blocks_number,s) = self%u_new(:,:,:,1:self%blocks_number)
+   endsubroutine residuals
 
    subroutine set_initial_conditions(self)
    !< Set initial conditions of field.
@@ -500,60 +563,73 @@ contains
    endassociate
    endsubroutine set_initial_conditions
 
-   subroutine rk_integrate(self, t, Dt)
-   !< Runge Kutta integration of field.
-   class(field_object), intent(inout) :: self  !< The field.
-   real(R8P),           intent(in)    :: t
-   real(R8P),           intent(in)    :: Dt
-   integer(I4P)                       :: s, ss
+   subroutine update_ghost(self)
+   !< Update ghost cells.
+   class(field_object), intent(inout) :: self           !< The field.
+   integer(I4P)                       :: i, j, k, mf    !< Counter.
+   integer(I4P)                       :: fec            !< Direction where ghost cells are updated, faces/edges/corners.
+   integer(I4P)                       :: portion        !< Portion of fec updated (0=>whole fec).
+   integer(I4P)                       :: portion_cur    !< Current portion of fec updated (0=>whole fec).
+   integer(I4P)                       :: b_recv         !< Index of receiving block.
+   integer(I4P)                       :: b_send         !< Index of sending block.
+   integer(I4P)                       :: delta(3)       !< Neighbor delta of current fec.
+   integer(I4P)                       :: nijk(3)        !< Ni, Nj , Nk stored in array.
+   integer(I4P)                       :: ijkmin(3)      !< Lower limit of ijk indexes.
+   integer(I4P)                       :: ijkmax(3)      !< Upper limit of ijk indexes.
+   integer(I4P)                       :: ijkdelta(3)    !< Delta offset for ghost-inner cells mapping.
+   integer(I4P)                       :: gcl(3), gcr(3) !< Ghost cell.
 
-   associate(alph=>self%alph, beta=>self%beta, gamm=>self%gamm)
-   do s=1, 3
-      self%u_s(:,:,:,1:self%blocks_number,s) = self%u(:,:,:,1:self%blocks_number)
-      do ss=1, s - 1
-         self%u_s(:,:,:,1:self%blocks_number,s) = self%u_s(:,:,:,1:self%blocks_number,s ) + &
-                                                 (self%u_s(:,:,:,1:self%blocks_number,ss) * (Dt * alph(s, ss)))
+   associate(blocks_number=>self%blocks_number,                             &
+             u=>self%u,                                                     &
+             ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk,          &
+             gc1=>self%grid%gc1, gc2=>self%grid%gc2, gc3=>self%grid%gc3,    &
+             gc4=>self%grid%gc4, gc5=>self%grid%gc5, gc6=>self%grid%gc6)
+
+   nijk = [ni, nj, nk]
+   gcl = [gc1, gc3, gc5]
+   gcr = [gc2, gc4, gc6]
+   do mf=1, size(self%local_map_ghost, dim=1)
+      b_recv  = self%local_map_ghost(mf, 1)
+      b_send  = self%local_map_ghost(mf, 2)
+      fec     = self%local_map_ghost(mf, 3)
+      portion = self%local_map_ghost(mf, 4)
+      delta = delta_neighbor(1:3, fec)
+      do i=1, 3
+         if     (delta(i)==1) then
+            ijkmin(i) = nijk(i) + 1
+            ijkmax(i) = nijk(i) + gcr(i)
+            ijkdelta(i) = -nijk(i)
+         elseif (delta(i)==-1) then
+            ijkmin(i) = 1 - gcl(i)
+            ijkmax(i) = 0
+            ijkdelta(i) = nijk(i)
+         elseif (delta(i)==0) then
+            if (portion==0) then
+               ijkmin(i) = 1
+               ijkmax(i) = nijk(i)
+            else
+               if (portion>0) then
+                  portion_cur = mod(portion-1, 2)
+                  portion = -portion
+               else
+                  portion_cur = (-portion-1) / 2
+               endif
+               ijkmin(i) = portion_cur * nijk(i) / 2 + 1
+               ijkmax(i) = ijkmin(i) + nijk(i) / 2
+            endif
+            ijkdelta(i) = 0
+         endif
       enddo
-      call self%residuals(s=s, t=t + gamm(s) * Dt)
-   enddo
-   do s=1, 3
-      self%u(:,:,:,1:self%blocks_number) = self%u(:,:,:,1:self%blocks_number) + &
-                                           self%u_s(:,:,:,1:self%blocks_number,s) * Dt * beta(s)
+      do k=ijkmin(3), ijkmax(3)
+         do j=ijkmin(2), ijkmax(2)
+            do i=ijkmin(1), ijkmax(1)
+               u(i,j,k,b_recv) = u(i+ijkdelta(1),j+ijkdelta(2),k+ijkdelta(3),b_send)
+            enddo
+         enddo
+      enddo
    enddo
    endassociate
-   endsubroutine rk_integrate
-
-   subroutine residuals(self, s, t)
-   !< Compute residuals of field.
-   class(field_object), intent(inout) :: self !< The field.
-   integer(I4P),        intent(in)    :: s
-   real(R8P),           intent(in)    :: t
-   integer(I4P)                       :: b, i, j, k
-   integer(I4P)                       :: im, jm, km
-   integer(I4P)                       :: ip, jp, kp
-
-   self%u_new(:,:,:,1:self%blocks_number) = 0._R8P
-   do b=1, self%blocks_number
-   do k=1, self%grid%nk
-   do j=1, self%grid%nj
-   do i=1, self%grid%ni
-      kp = min(self%grid%nk, k+1)
-      km = max(1, k-1)
-      jp = min(self%grid%nj, j+1)
-      jm = max(1, j-1)
-      ip = min(self%grid%ni, i+1)
-      im = max(1, i-1)
-      self%u_new(i,j,k,b) = self%u_s(ip,j, k, b,s) + self%u_s(im,j, k, b,s) + &
-                            self%u_s(i, jp,k, b,s) + self%u_s(i, jm,k, b,s) + &
-                            self%u_s(i, j, kp,b,s) + self%u_s(i, j, km,b,s) - &
-                   6._R8P * self%u_s(i, j, k, b,s)
-
-   enddo
-   enddo
-   enddo
-   enddo
-   self%u_s(:,:,:,1:self%blocks_number,s) = self%u_new(:,:,:,1:self%blocks_number)
-   endsubroutine residuals
+   endsubroutine update_ghost
 
    ! private methods
    subroutine derefine(self, ratio, block_to_derefine, block_derefined)
@@ -822,7 +898,11 @@ contains
    else
       if (allocated(lhs%u_new)) deallocate(lhs%u_new)
    endif
-   lhs%is_initialized_ = rhs%is_initialized_
+   if (allocated(rhs%local_map_ghost)) then
+      lhs%local_map_ghost = rhs%local_map_ghost
+   else
+      if (allocated(lhs%local_map_ghost)) deallocate(lhs%local_map_ghost)
+   endif
    ! MPI data
    lhs%myrank        = rhs%myrank
    lhs%procs_number  = rhs%procs_number

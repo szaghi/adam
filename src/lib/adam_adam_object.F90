@@ -150,7 +150,8 @@ contains
                                     comm_map_send_ptr=self%tree%comm_map_send_ptr, &
                                     comm_map_recv_ptr=self%tree%comm_map_recv_ptr, &
                                     local_map=self%tree%local_map,                 &
-                                    coordinates=self%tree%block_coordinates)
+                                    coordinates=self%tree%block_coordinates,       &
+                                    local_map_ghost=self%tree%local_map_ghost)
    endsubroutine mpi_redistribute
 
    subroutine save_hdf5(self, basename, directory)
