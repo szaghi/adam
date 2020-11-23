@@ -269,23 +269,26 @@ contains
    real(R8P)                                :: z(0-self%grid%gc5:self%grid%nk+self%grid%gc6) !< Z coordinates.
 
    directory_ = '' ; if (present(directory)) directory_ = trim(directory)
-   associate(emin=>self%field%emin, emax=>self%field%emax, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
+   associate(emin=>self%field%emin, emax=>self%field%emax,               &
+             ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk,       &
+             gc1=>self%grid%gc1, gc2=>self%grid%gc2, gc3=>self%grid%gc3, &
+             gc4=>self%grid%gc4, gc5=>self%grid%gc5, gc6=>self%grid%gc6)
       max_level = 0_I4P
       vtr_loop : do b=1, self%field%blocks_number
          call self%grid%compute_metrics(coordinates=self%field%coordinates(b,:), x_node=x, y_node=y, z_node=z)
-         max_level = max(max_level, self%field%coordinates(b,4))
+         max_level = max(max_level, self%field%coordinates(4,b))
          self%error = vtk%initialize(format='raw', filename=directory_//trim(basename)//'-block-'//trim(str(b,.true.))//&
                                                             '-proc-'//trim(str(self%myrank,.true.))//'.vtr',            &
                                      mesh_topology='RectilinearGrid',                                                   &
-                                     nx1=0, nx2=ni, ny1=0, ny2=nj, nz1=0, nz2=nk)
+                                     nx1=0-gc1, nx2=ni+gc2, ny1=0-gc3, ny2=nj+gc4, nz1=0-gc5, nz2=nk+gc6)
          self%error = vtk%xml_writer%write_fielddata(action='open')
          self%error = vtk%xml_writer%write_fielddata(data_name='Morton', x=self%field%code(b))
          self%error = vtk%xml_writer%write_fielddata(data_name='myrank', x=self%myrank)
          self%error = vtk%xml_writer%write_fielddata(action='close')
-         self%error = vtk%xml_writer%write_piece(nx1=0, nx2=ni, ny1=0, ny2=nj, nz1=0, nz2=nk)
-         self%error = vtk%xml_writer%write_geo(x=x(0:ni), y=y(0:nj), z=z(0:nk))
+         self%error = vtk%xml_writer%write_piece(nx1=0-gc1, nx2=ni+gc2, ny1=0-gc3, ny2=nj+gc4, nz1=0-gc5, nz2=nk+gc6)
+         self%error = vtk%xml_writer%write_geo(x=x(0-gc1:ni+gc2), y=y(0-gc3:nj+gc4), z=z(0-gc5:nk+gc6))
          self%error = vtk%xml_writer%write_dataarray(location='cell', action='open')
-         self%error = vtk%xml_writer%write_dataarray(data_name='u', x=[self%field%u(1:ni,1:nj,1:nk,b)])
+         self%error = vtk%xml_writer%write_dataarray(data_name='u', x=[self%field%u(1-gc1:ni+gc2,1-gc3:nj+gc4,1-gc5:nk+gc6,b)])
          self%error = vtk%xml_writer%write_dataarray(location='cell', action='close')
          self%error = vtk%xml_writer%write_piece()
          self%error = vtk%finalize()

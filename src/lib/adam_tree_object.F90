@@ -968,6 +968,7 @@ contains
                         self%local_map_ghost(mf, 2) = neigh%block_index
                         self%local_map_ghost(mf, 3) = fec
                         self%local_map_ghost(mf, 4) = mod(n, size(neighbor, dim=1))
+                        if (neighbor_type==NODE_LESS_REFINED) self%local_map_ghost(mf, 4) = -self%local_map_ghost(mf, 4)
                      endif
                   enddo
                endif
@@ -1310,7 +1311,7 @@ contains
    integer(I4P)                   :: level !< Refinement level.
    integer(I8P)                   :: c     !< Counter.
 
-   if (code==-1) then
+   if (code<=-1) then
       level = 0 ! ancestor of all has level 0
    else
       level = 1
