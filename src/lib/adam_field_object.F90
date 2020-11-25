@@ -102,6 +102,8 @@ type :: field_object
    integer(I4P), allocatable  :: refinements_needed(:)     !< Refinements needed of my blocks.
    integer(I4P), allocatable  :: refinements_needed_all(:) !< Refinements needed of all blocks.
    integer(I4P), allocatable  :: disp_count(:)             !< Displacement of blocks that are received from process.
+   real(R8P), allocatable     :: send_buffer_ghost(:)      !< Send buffer of ghost cells.
+   real(R8P), allocatable     :: recv_buffer_ghost(:)      !< Receive buffer of ghost cells.
    ! RK data
    real(R8P) :: alph(3,3) = reshape([0._R8P, 1._R8P, 0.25_R8P, &
                                      0._R8P, 0._R8P, 0.25_R8P, &
@@ -150,6 +152,20 @@ contains
    call self%refine(  ratio=ratio, block_to_refine=block_to_refine,     block_refined=block_refined    )
    call self%derefine(ratio=ratio, block_to_derefine=block_to_derefine, block_derefined=block_derefined)
    endsubroutine adapt
+
+   subroutine blocks_reoder(self, inner_outer_block_map)
+   !< Reoder blocks indexes in field.
+   class(field_object), intent(inout) :: self                     !< The field.
+   integer(I4P),        intent(in)    :: inner_outer_block_map(:) !< Inner/outer blocks map.
+   integer(I4P)                       :: b                        !< Counter.
+
+   do b=1, self%blocks_number
+      self%u_new(:,:,:,b) = self%u(:,:,:,inner_outer_block_map(b))
+   enddo
+   do b=1, self%blocks_number
+      self%u(:,:,:,b) = self%u_new(:,:,:,b)
+   enddo
+   endsubroutine blocks_reoder
 
    subroutine compute_metrics(self)
    !< Compute metrics of each block.
@@ -339,7 +355,7 @@ contains
 
    if (abs(distance) < epsilon(0._R8P)) then
       ! delta = 0.001_R8P
-      delta = 0.005_R8P
+      delta = 0.001_R8P
    else
       delta = huge(0._R8P)
    endif
@@ -505,7 +521,7 @@ contains
    integer(I4P)                       :: im, jm, km
    integer(I4P)                       :: ip, jp, kp
 
-   call self%update_ghost(s=s)
+   ! call self%update_ghost(s=s)
    self%u_new(:,:,:,1:self%blocks_number) = 0._R8P
    do b=1, self%blocks_number
    do k=1, self%grid%nk
@@ -809,7 +825,6 @@ contains
    real(R8P)                                :: dx, dy, dz           !< Space deltas.
    integer(I4P)                             :: b, i, j, k           !< Spatial counter.
    integer(I4P)                             :: ib, ic, ii, ic_local !< Counter.
-   ! integer(I4P)                             :: iii, jjj, kkk        !< Counter.
    integer(I4P)                             :: i_fine, j_fine, k_fine !< Counter.
    integer(I4P)                             :: i_delta, j_delta, k_delta!< Counter.
    integer(I4P)                             :: ic1, ic2, ic3, ic4   !< Counter.
@@ -824,33 +839,6 @@ contains
          ib = block_to_refine(1,b)
 
          self%u_new(:,:,:,ib) = self%u(:,:,:,ib)
-
-         ! ic1 = block_refined(2,(b-1)*ratio+1)
-         ! ic2 = block_refined(2,(b-1)*ratio+2)
-         ! ic3 = block_refined(2,(b-1)*ratio+3)
-         ! ic4 = block_refined(2,(b-1)*ratio+4)
-         ! ic5 = block_refined(2,(b-1)*ratio+5)
-         ! ic6 = block_refined(2,(b-1)*ratio+6)
-         ! ic7 = block_refined(2,(b-1)*ratio+7)
-         ! ic8 = block_refined(2,(b-1)*ratio+8)
-
-         ! do k=1,nk
-         !    do j=1,nj
-         !       do i=1,ni
-         !          kkk = (k - 1) / 2 + 1
-         !          jjj = (j - 1) / 2 + 1
-         !          iii = (i - 1) / 2 + 1
-         !          self%u(i,j,k,ic1) = self%u_new(iii,     jjj,     kkk,     ib)
-         !          self%u(i,j,k,ic2) = self%u_new(iii+ni/2,jjj,     kkk,     ib)
-         !          self%u(i,j,k,ic3) = self%u_new(iii,     jjj+nj/2,kkk,     ib)
-         !          self%u(i,j,k,ic4) = self%u_new(iii+ni/2,jjj+nj/2,kkk,     ib)
-         !          self%u(i,j,k,ic5) = self%u_new(iii,     jjj,     kkk+nk/2,ib)
-         !          self%u(i,j,k,ic6) = self%u_new(iii+ni/2,jjj,     kkk+nk/2,ib)
-         !          self%u(i,j,k,ic7) = self%u_new(iii,     jjj+nj/2,kkk+nk/2,ib)
-         !          self%u(i,j,k,ic8) = self%u_new(iii+ni/2,jjj+nj/2,kkk+nk/2,ib)
-         !       enddo
-         !    enddo
-         ! enddo
 
          do ic_local=1, 8
             ic = block_refined(2,(b-1)*ratio+ic_local)

@@ -181,6 +181,7 @@ type :: tree_object
    integer(I4P)              :: send_nodes_number=0_I4P !< Number of nodes to be sent.
    integer(I4P)              :: recv_nodes_number=0_I4P !< Number of nodes to be received.
    integer(I4P)              :: keep_nodes_number=0_I4P !< Number of nodes to be keept.
+   integer(I4P), allocatable :: inner_outer_block_map(:)!< Inner/outer blocks map.
    integer(I4P), allocatable :: comm_map_n_send(:)      !< Communication map, number of blocks to send [procs_number].
    integer(I4P), allocatable :: comm_map_n_recv(:)      !< Communication map, number of blocks to recv [procs_number].
    integer(I4P), allocatable :: comm_map_send_ptr(:)    !< Communication map, pointers in list to send [procs_number+1].
@@ -188,6 +189,11 @@ type :: tree_object
    integer(I8P), allocatable :: comm_map_send(:)        !< Communication map, blocks to send [sum(comm_map_n_send)].
    integer(I8P), allocatable :: comm_map_recv(:)        !< Communication map, blocks to receive [sum(comm_map_n_recv)].
    integer(I8P), allocatable :: local_map(:,:)          !< Local map, list block index changes of my nodes.
+
+   integer(I4P), allocatable :: comm_map_n_send_ghost(:)      !< Communication map, number of blocks to send [procs_number].
+   integer(I4P), allocatable :: comm_map_n_recv_ghost(:)      !< Communication map, number of blocks to recv [procs_number].
+   integer(I4P), allocatable :: comm_map_send_ptr_ghost(:)    !< Communication map, pointers in list to send [procs_number+1].
+   integer(I4P), allocatable :: comm_map_recv_ptr_ghost(:)    !< Communication map, pointers in list to recv [procs_number+1].
    integer(I8P), allocatable :: local_map_ghost(:,:)    !< Local map for ghost cells updating.
    contains
       ! public methods
@@ -925,6 +931,58 @@ contains
       endfunction is_node_to_receive
    endsubroutine make_comm_local_maps
 
+   subroutine blocks_reoder(self)
+   !< Reoder blocks indexes in field.
+   class(tree_object), intent(inout) :: self                !< The tree.
+   integer(I4P)                      :: outer_blocks_number !< Number of outer blocks where I need fecs.
+   integer(I4P)                      :: inner_blocks_number !< Number of inner blocks where I need fecs.
+   logical                           :: is_inner_block      !< Flag to check if a neighbor block is inner or not.
+   integer(I8P), allocatable         :: neighbor(:)         !< List of code neighbors.
+   type(tree_node_object), pointer   :: neigh               !< Pointer to node neighbor.
+   integer(I4P)                      :: neighbor_type       !< Neighbors type.
+   integer(I4P), allocatable         :: inner_block_map(:)  !< Inner blocks map.
+   integer(I4P), allocatable         :: outer_block_map(:)  !< Outer blocks map.
+   integer(I4P)                      :: fec, n              !< Counter.
+
+   outer_blocks_number = 0
+   inner_blocks_number = 0
+   allocate(inner_block_map(self%my_nodes_number))
+   allocate(outer_block_map(self%my_nodes_number))
+   if (allocated(self%inner_outer_block_map)) deallocate(self%inner_outer_block_map)
+   allocate(self%inner_outer_block_map(self%my_nodes_number))
+   do while(self%loop(node=node))
+      if (self%myrank == node%myrank) then
+         is_inner_block = .true.
+         do fec=1, 26
+            call self%get_neighbor_all(code=node%code, face=fec, neighbor=neighbor, neighbor_type=neighbor_type)
+            if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
+               do n=1, size(neighbor, dim=1)
+                  neigh => self%node(code=neighbor(n))
+                  if (self%myrank /= neigh%myrank) is_inner_block = .false.
+               enddo
+            endif
+         enddo
+         if (is_inner_block) then
+            inner_blocks_number = inner_blocks_number + 1
+            inner_block_map(inner_blocks_number) = node%block_index
+            node%block_index_new = inner_blocks_number
+         else
+            outer_blocks_number = outer_blocks_number + 1
+            outer_block_map(outer_blocks_number) = node%block_index
+            node%block_index_new = outer_blocks_number
+         endif
+      endif
+   enddo
+   self%inner_outer_block_map(1:inner_blocks_number ) = inner_block_map(1:inner_blocks_number)
+   self%inner_outer_block_map(inner_blocks_number+1:) = outer_block_map(1:outer_blocks_number)
+   do while(self%loop(node=node))
+      if (self%myrank == node%myrank) then
+         node%block_index = node%block_index_new
+      endif
+   enddo
+   call self%mpi_gather_refinements_needed(node_member='block_index')
+   endsubroutine blocks_reoder
+
    subroutine make_comm_local_maps_ghost(self)
    !< Make communication/local maps of ghost cells.
    class(tree_object), intent(inout) :: self             !< The tree.
@@ -934,60 +992,167 @@ contains
    integer(I4P)                      :: neighbor_type    !< Neighbors type.
    integer(I4P)                      :: neighbor_portion !< Neighbors portion.
    integer(I4P)                      :: my_fec_number    !< Number of faces/edges/corners ghost cells locally exchanged.
+   integer(I4P)                      :: recv_fec_number  !< Number of faces/edges/corners ghost cells externally received.
+   integer(I4P)                      :: send_fec_number  !< Number of faces/edges/corners ghost cells externally sent.
+   integer(I4P)                      :: send_
    integer(I4P)                      :: fec, mf, n       !< Counter.
+   integer(I4P), allocatable         :: comm_map_send_ctr_ghost(:) !< Communication map, counters in list to send [procs_number+1].
+   integer(I4P), allocatable         :: comm_map_recv_ctr_ghost(:) !< Communication map, counters in list to recv [procs_number+1].
 
    if (allocated(self%local_map_ghost)) deallocate(self%local_map_ghost)
    my_fec_number = 0
+   recv_fec_number = 0
+   send_fec_number = 0
    do while(self%loop(node=node))
-      if (self%myrank == node%myrank) then
-         do fec=1, 26
-            call self%get_neighbor_all(code=node%code, face=fec, neighbor=neighbor, neighbor_type=neighbor_type)
-            if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
-               do n=1, size(neighbor, dim=1)
-                  neigh => self%node(code=neighbor(n))
-                  if (self%myrank == neigh%myrank) then
-                     my_fec_number = my_fec_number + 1
-                  endif
-               enddo
-            endif
-         enddo
-      endif
-   enddo
-   if (my_fec_number>0) then
-      allocate(self%local_map_ghost(1:my_fec_number, 1:4))
-      mf = 0
-      do while(self%loop(node=node))
-         if (self%myrank == node%myrank) then
-            do fec=1, 26
-               call self%get_neighbor_all(code=node%code, face=fec, neighbor=neighbor, &
-                                          neighbor_type=neighbor_type, neighbor_portion=neighbor_portion)
-               if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
-                  do n=1, size(neighbor, dim=1)
-                     neigh => self%node(code=neighbor(n))
-                     if (self%myrank == neigh%myrank) then
-                        mf = mf + 1
-                        self%local_map_ghost(mf, 1) = node%block_index
-                        self%local_map_ghost(mf, 2) = neigh%block_index
-                        self%local_map_ghost(mf, 3) = fec
-                        if     (neighbor_type==NODE_STANDARD) then
-                           self%local_map_ghost(mf, 4) = 0
-                        elseif (neighbor_type==NODE_MORE_REFINED) then
-                           self%local_map_ghost(mf, 4) = n
-                        elseif (neighbor_type==NODE_LESS_REFINED) then
-                           self%local_map_ghost(mf, 4) = -neighbor_portion
-                        endif
-                     endif
-                  enddo
+      do fec=1, 26
+         call self%get_neighbor_all(code=node%code, face=fec, neighbor=neighbor, neighbor_type=neighbor_type)
+         if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
+            do n=1, size(neighbor, dim=1)
+               neigh => self%node(code=neighbor(n))
+               if     ((self%myrank == neigh%myrank).and.(self%myrank == node%myrank)) then
+                  my_fec_number = my_fec_number + 1
+               elseif ((self%myrank /= neigh%myrank).and.(self%myrank == node%myrank)) then
+                  recv_fec_number = recv_fec_number + 1
+                  ! recv_ghosts_number = recv_ghosts_number + fec_weight(fec)
+                  ! comm_map_n_recv_ghost(neigh%myrank) = comm_map_n_recv_ghost(neigh%myrank) + fec_weight(fec)
+               else   ((self%myrank == neigh%myrank).and.(self%myrank /= node%myrank)) then
+                  send_fec_number = send_fec_number + 1
+                  ! send_ghosts_number = send_ghosts_number + fec_weight(fec)
+                  ! comm_map_n_send_ghost(node%myrank) = comm_map_n_send_ghost(node%myrank) + fec_weight(fec)
                endif
             enddo
          endif
       enddo
-   endif
+   enddo
+   ! populate maps
+   if (send_fec_number>0) allocate(self%comm_map_send_ghost(1:send_fec_number,1:4))
+   if (recv_fec_number>0) allocate(self%comm_map_recv_ghost(1:recv_fec_number,1:4))
+   if (my_fec_number>0) allocate(self%local_map_ghost(1:my_fec_number, 1:4))
+   sf = 0
+   rf = 0
+   mf = 0
+   do while(self%loop(node=node))
+      do fec=1, 26
+         call self%get_neighbor_all(code=node%code, face=fec, neighbor=neighbor, &
+                                    neighbor_type=neighbor_type, neighbor_portion=neighbor_portion)
+         if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
+            do n=1, size(neighbor, dim=1)
+               neigh => self%node(code=neighbor(n))
+               if     ((self%myrank == neigh%myrank).and.(self%myrank == node%myrank)) then
+                  mf = mf + 1
+                  self%local_map_ghost(mf, 1) = node%block_index
+                  self%local_map_ghost(mf, 2) = neigh%block_index
+                  self%local_map_ghost(mf, 3) = fec
+                  if     (neighbor_type==NODE_STANDARD) then
+                     self%local_map_ghost(mf, 4) = 0
+                  elseif (neighbor_type==NODE_MORE_REFINED) then
+                     self%local_map_ghost(mf, 4) = n
+                  elseif (neighbor_type==NODE_LESS_REFINED) then
+                     self%local_map_ghost(mf, 4) = -neighbor_portion
+                  endif
+               elseif ((self%myrank /= neigh%myrank).and.(self%myrank == node%myrank)) then
+                  sf = sf + 1
+                  self%comm_map_recv_ghost(sf, 1) = node%block_index
+                  self%comm_map_recv_ghost(sf, 2) = neigh%block_index
+                  self%comm_map_send_ghost(sf, 3) = neigh%myrank
+                  self%comm_map_send_ghost(sf, 4) = fec
+                  if     (neighbor_type==NODE_STANDARD) then
+                     self%comm_map_send_ghost(sf, 5) = 0
+                  elseif (neighbor_type==NODE_MORE_REFINED) then
+                     self%comm_map_send_ghost(sf, 5) = n
+                  elseif (neighbor_type==NODE_LESS_REFINED) then
+                     self%comm_map_send_ghost(sf, 5) = -neighbor_portion
+                  endif
+               else   ((self%myrank == neigh%myrank).and.(self%myrank /= node%myrank)) then
+                  rf = rf + 1
+                  self%comm_map_recv_ghost(rf, 1) = node%block_index
+                  self%comm_map_recv_ghost(rf, 2) = neigh%block_index
+                  self%comm_map_send_ghost(rf, 3) = node%myrank
+                  self%comm_map_recv_ghost(rf, 4) = fec
+                  if     (neighbor_type==NODE_STANDARD) then
+                     self%comm_map_recv_ghost(rf, 5) = 0
+                  elseif (neighbor_type==NODE_MORE_REFINED) then
+                     self%comm_map_recv_ghost(rf, 5) = n
+                  elseif (neighbor_type==NODE_LESS_REFINED) then
+                     self%comm_map_recv_ghost(rf, 5) = -neighbor_portion
+                  endif
+               endif
+            enddo
+         endif
+      enddo
+   enddo
+
+   ! self%comm_map_send_ptr_ghost = 0_I4P
+   ! self%comm_map_recv_ptr_ghost = 0_I4P
+   ! do p=1, self%procs_number
+   !    self%comm_map_send_ptr_ghost(p) = self%comm_map_send_ptr_ghost(p-1) + self%comm_map_n_send_ghost(p-1)
+   !    self%comm_map_recv_ptr_ghost(p) = self%comm_map_recv_ptr_ghost(p-1) + self%comm_map_n_recv_ghost(p-1)
+   ! enddo
+   ! comm_map_send_ctr_ghost = self%comm_map_send_ptr_ghost
+   ! comm_map_recv_ctr_ghost = self%comm_map_recv_ptr_ghost
+
+   ! do fec=1, send_fec_number
+   !    send_rank   = fec_info(fec, 1)
+   !    fec_type    = fec_info(fec, 2)
+   !    block_index = fec_info(fec, 3)
+   !    portion     = fec_info(fec, 4)
+   !    do k=kmin(fec), kmax(fec)
+   !    do j=jmin(fec), jmax(fec)
+   !    do i=imin(fec), imax(fec)
+   !    self%comm_map_send_ghost(comm_map_send_ctr_ghost(send_rank)+1) = self%u(i,j,k,block_index)
+   !         comm_map_send_ctr_ghost(send_rank) = comm_map_send_ctr_ghost(send_rank) + 1
+   !    enddo
+   !    enddo
+   !    enddo
+   ! enddo
+
+   ! do p=0, self%procs_number - 1_I4P
+   !    ptr_start = comm_map_recv_ptr_ghost(p)   + 1
+   !    ptr_end   = comm_map_recv_ptr_ghost(p+1)
+   !    n_recv    = ptr_end - ptr_start + 1
+   !    if (n_recv > 0) then
+! #ifdef _MPI_
+   !       call MPI_IRECV(recv_buffer_ghost(ptr_start), n_recv, MPI_REAL8, p, 100, MPI_COMM_WORLD, req_send_recv(p), error)
+! #endif
+   !    endif
+   ! enddo
+
+   ! do p=0, self%procs_number - 1_I4P
+   !    ptr_start = comm_map_send_ptr_ghost(p)   + 1
+   !    ptr_end   = comm_map_send_ptr_ghost(p+1)
+   !    n_send    = ptr_end - ptr_start + 1
+   !    if (n_send > 0) then
+! #ifdef _MPI_
+   !       call MPI_ISEND(send_buffer_ghost(ptr_start), n_send, MPI_REAL8, p, 100, MPI_COMM_WORLD, &
+   !                      req_send_recv(p+self%procs_number), error)
+! #endif
+   !    endif
+   ! enddo
+
+! #ifdef _MPI_
+   ! call MPI_WAITALL(self%procs_number * 2, req_send_recv, MPI_STATUSES_IGNORE, error)
+! #endif
+
+   ! do fec=1, recv_fec_number
+   !    recv_rank   = fec_info(fec, 1)
+   !    fec_type    = fec_info(fec, 2)
+   !    block_index = fec_info(fec, 3)
+   !    portion     = fec_info(fec, 4)
+   !    do k=kmin(fec), kmax(fec)
+   !    do j=jmin(fec), jmax(fec)
+   !    do i=imin(fec), imax(fec)
+   !    self%u(i,j,k,block_index) = self%comm_map_recv_ghost(comm_map_send_ctr_ghost(send_rank)+1) =
+   !         comm_map_recv_ctr_ghost(send_rank) = comm_map_recv_ctr_ghost(send_rank) + 1
+   !    enddo
+   !    enddo
+   !    enddo
+   ! enddo
    endsubroutine make_comm_local_maps_ghost
 
-   subroutine mpi_gather_refinements_needed(self)
+   subroutine mpi_gather_refinements_needed(self, node_member)
    !< Gather refinements needed status between MPI processes.
    class(tree_object), intent(inout) :: self           !< The tree.
+   character(*),       intent(in)    :: node_member    !< Node member to be shared.
    type(tree_node_object), pointer   :: node           !< Pointer to current node.
    integer(I8P), allocatable         :: send_buffer(:) !< Send buffer nodes data.
    integer(I8P), allocatable         :: recv_buffer(:) !< Recv buffer nodes data.
@@ -1008,8 +1173,15 @@ contains
    do while(self%loop(node=node))
       recv_count(node%myrank) = recv_count(node%myrank) + 2
       if (self%myrank == node%myrank) then
-         n = n + 1 ; send_buffer(n) = node%code
-         n = n + 1 ; send_buffer(n) = node%refinement_needed - 100_I8P ! shift to negative for resolving conflicts with Morton code
+         n = n + 1
+         send_buffer(n) = node%code
+         n = n + 1
+         select case(trim(node_member))
+         case('refinement_needed')
+            send_buffer(n) = node%refinement_needed
+         case('block_index')
+            send_buffer(n) = node%block_index
+         endselect
       endif
    enddo
    ! computing displacement counts
@@ -1024,10 +1196,14 @@ contains
 #endif
 
    ! update nodes data
-   do while(self%loop(node=node))
-      if (self%myrank == node%myrank) cycle ! my nodes are already updated
-      n = findloc(recv_buffer, node%code, dim=1) + 1
-      node%refinement_needed = int(recv_buffer(n) + 100_I8P, I4P)
+   do n=1, self%nodes_number*2, 2
+      node => self%node(code=recv_buffer(n))
+      select case(trim(node_member))
+      case('refinement_needed')
+         node%refinement_needed = int(recv_buffer(n+1), I4P)
+      case('block_index')
+         node%block_index = recv_buffer(n+1)
+      endselect
    enddo
    endsubroutine mpi_gather_refinements_needed
 
@@ -1149,9 +1325,6 @@ contains
          self%block_coordinates(4, node%block_index) = l
       endif
    enddo
-
-   ! create local_maps_ghost for ghost cells updating
-   call self%make_comm_local_maps_ghost
    contains
       function can_split()
       !< Return true if the split can be done.

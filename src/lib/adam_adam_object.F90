@@ -62,7 +62,7 @@ contains
    do_mpi_redistribute_ = .true.  ; if (present(do_mpi_redistribute )) do_mpi_redistribute_ = do_mpi_redistribute
 
    if (is_marked_by_field_) then
-      call self%field%mpi_gather_refinements_needed
+      call self%field%mpi_gather_refinements_needed(node_member='refinement_needed')
       call self%tree%import_refinements_needed(refinements_needed_all=self%field%refinements_needed_all, &
                                                disp_count=self%field%disp_count)
    endif
@@ -72,7 +72,7 @@ contains
 
    if (self%tree%nodes_number > 1) then
       self%field%u_s(:,:,:,1:self%field%blocks_number,1) = self%field%u(:,:,:,1:self%field%blocks_number)
-      call self%field%update_ghost(s=1)
+      ! call self%field%update_ghost(s=1)
       self%field%u(:,:,:,1:self%field%blocks_number) = self%field%u_s(:,:,:,1:self%field%blocks_number,1)
    endif
 
@@ -84,6 +84,12 @@ contains
       is_grid_changed = (size(self%tree%node_to_refine, dim=1)>0_I4P).or.(size(self%tree%node_to_derefine, dim=1)>0_I4P)
 
    if (do_mpi_redistribute_) call self%mpi_redistribute(print_mpi_stats=print_mpi_stats)
+
+   call self%tree%blocks_reorder
+   call self%field%blocks_reorder(inner_outer_block_map=self%tree%inner_outer_block_map)
+
+   ! create local_maps_ghost for ghost cells updating
+   call self%tree%make_comm_local_maps_ghost
    endsubroutine amr_update
 
    subroutine destroy(self)
