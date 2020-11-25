@@ -473,6 +473,13 @@ contains
    real(R8P),           intent(in)    :: Dt
    integer(I4P)                       :: s, ss
 
+   ! ! cancellare cazzoooooo
+   ! self%u_s(:,:,:,1:self%blocks_number,1) = self%u(:,:,:,1:self%blocks_number)
+   ! call self%update_ghost(s=1)
+   ! self%u(:,:,:,1:self%blocks_number) = self%u_s(:,:,:,1:self%blocks_number,1)
+   ! return
+   ! ! cancellare cazzoooooo
+
    associate(alph=>self%alph, beta=>self%beta, gamm=>self%gamm)
    do s=1, 3
       self%u_s(:,:,:,1:self%blocks_number,s) = self%u(:,:,:,1:self%blocks_number)
@@ -548,15 +555,17 @@ contains
    associate(blocks_number=>self%blocks_number,                             &
              u=>self%u,                                                     &
              ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk,          &
+             gc1=>self%grid%gc1, gc2=>self%grid%gc2, gc3=>self%grid%gc3,    &
+             gc4=>self%grid%gc4, gc5=>self%grid%gc5, gc6=>self%grid%gc6,    &
              x_cell=>self%x_cell, y_cell=>self%y_cell, z_cell=>self%z_cell)
    do b=1, blocks_number
-      do k=1, nk
-         do j=1, nj
-            do i=1, ni
+      do k=1-gc5, nk+gc6
+         do j=1-gc3, nj+gc4
+            do i=1-gc1, ni+gc2
                u(i,j,k,b) = a * exp(-((x_cell(i,b) - x_0)**2/(2 * sigma_x**2)+&
                                       (y_cell(j,b) - y_0)**2/(2 * sigma_y**2)+&
                                       (z_cell(k,b) - z_0)**2/(2 * sigma_z**2)))
-               u(i,j,k,b) = self%code(b)
+               ! u(i,j,k,b) = self%code(b)
             enddo
          enddo
       enddo
@@ -579,6 +588,8 @@ contains
    integer(I4P)                       :: nijk(3)        !< Ni, Nj , Nk stored in array.
    integer(I4P)                       :: ijkmin(3)      !< Lower limit of ijk indexes.
    integer(I4P)                       :: ijkmax(3)      !< Upper limit of ijk indexes.
+   integer(I4P)                       :: ijkmin_c(3)    !< Lower limit of ijk indexes.
+   integer(I4P)                       :: ijkmax_c(3)    !< Upper limit of ijk indexes.
    integer(I4P)                       :: ijkdelta(3)    !< Delta offset for ghost-inner cells mapping same refinement.
    integer(I4P)                       :: ijkdelta_f(3)  !< Delta offset for ghost-inner cells mapping from finer.
    integer(I4P)                       :: ijkdelta_c(3)  !< Delta offset for ghost-inner cells mapping from coarser.
@@ -603,14 +614,20 @@ contains
             ijkmin(i) = nijk(i) + 1
             ijkmax(i) = nijk(i) + gcr(i)
             ijkdelta(i) = -nijk(i)
-            ijkdelta_f(i) = -1 -2 * nijk(i)
+            ijkdelta_f(i) = -1 - 2 * nijk(i)
+
             ijkdelta_c(i) = nijk(i) - 1
+            ijkmin_c(i) = 1
+            ijkmax_c(i) = gcl(i) / 2
          elseif (delta(i)==-1) then
             ijkmin(i) = 1 - gcl(i)
             ijkmax(i) = 0
             ijkdelta(i) = nijk(i)
             ijkdelta_f(i) = -1 + nijk(i)
+
             ijkdelta_c(i) = -1 - 2 * nijk(i)
+            ijkmin_c(i) = nijk(i) - gcr(i) / 2 + 1
+            ijkmax_c(i) = nijk(i)
          elseif (delta(i)==0) then
             if (portion==0) then
                ijkmin(i) = 1
@@ -623,7 +640,10 @@ contains
             endif
             ijkdelta(i) = 0
             ijkdelta_f(i) = -2 * ijkmin(i) + 1
+
             ijkdelta_c(i) = ijkdelta_f(i)
+            ijkmin_c(i) = ijkmin(i)
+            ijkmax_c(i) = ijkmax(i)
          endif
       enddo
       portion = self%local_map_ghost(mf, 4)
@@ -644,12 +664,6 @@ contains
                   kkk = 2 * k + ijkdelta_f(3)
                   jjj = 2 * j + ijkdelta_f(2)
                   iii = 2 * i + ijkdelta_f(1)
-                  ! print* , 'cazzo delta ',delta
-                  ! print* , 'cazzo ijkmin ',ijkmin
-                  ! print* , 'cazzo ijkmax ',ijkmax
-                  ! print* , 'cazzo ijkdelta_f ', ijkdelta_f
-                  ! print* , 'cazzo ijk ', i,j,k
-                  ! print* , 'cazzo iii,jjj,kkk ', iii,jjj,kkk
                   u_s(i,j,k,b_recv,s) = (u_s(iii,jjj,  kkk,  b_send,s) + u_s(iii+1,jjj,  kkk,  b_send,s) + &
                                          u_s(iii,jjj+1,kkk,  b_send,s) + u_s(iii+1,jjj+1,kkk,  b_send,s) + &
                                          u_s(iii,jjj,  kkk+1,b_send,s) + u_s(iii+1,jjj,  kkk+1,b_send,s) + &
@@ -659,13 +673,12 @@ contains
          enddo
       else
          ! receiving from a block coarser than me
-         do k=ijkmin(3), ijkmax(3)
-            do j=ijkmin(2), ijkmax(2)
-               do i=ijkmin(1), ijkmax(1)
+         do k=ijkmin_c(3), ijkmax_c(3)
+            do j=ijkmin_c(2), ijkmax_c(2)
+               do i=ijkmin_c(1), ijkmax_c(1)
                   kkk = 2 * k + ijkdelta_c(3)
                   jjj = 2 * j + ijkdelta_c(2)
                   iii = 2 * i + ijkdelta_c(1)
-
                   u_s(iii,  jjj,  kkk  ,b_recv,s) = u_s(i,j,k,b_send,s)
                   u_s(iii+1,jjj,  kkk  ,b_recv,s) = u_s(i,j,k,b_send,s)
                   u_s(iii,  jjj+1,kkk  ,b_recv,s) = u_s(i,j,k,b_send,s)
@@ -795,18 +808,113 @@ contains
    integer(I8P), allocatable, intent(in)    :: block_refined(:,:)   !< List of refined blocks with Morton code.
    real(R8P)                                :: dx, dy, dz           !< Space deltas.
    integer(I4P)                             :: b, i, j, k           !< Spatial counter.
-   integer(I4P)                             :: ib, ic, ii           !< Counter.
-   integer(I4P)                             :: iii, jjj, kkk        !< Counter.
+   integer(I4P)                             :: ib, ic, ii, ic_local !< Counter.
+   ! integer(I4P)                             :: iii, jjj, kkk        !< Counter.
+   integer(I4P)                             :: i_fine, j_fine, k_fine !< Counter.
+   integer(I4P)                             :: i_delta, j_delta, k_delta!< Counter.
    integer(I4P)                             :: ic1, ic2, ic3, ic4   !< Counter.
    integer(I4P)                             :: ic5, ic6, ic7, ic8   !< Counter.
 
-   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
+   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk,       &
+             gc1=>self%grid%gc1, gc2=>self%grid%gc2, gc3=>self%grid%gc3, &
+             gc4=>self%grid%gc4, gc5=>self%grid%gc5, gc6=>self%grid%gc6)
    if (allocated(block_to_refine)) then
       do b=1, size(block_to_refine, dim=2)
          if (self%myrank /= block_to_refine(2,b)) cycle
          ib = block_to_refine(1,b)
 
          self%u_new(:,:,:,ib) = self%u(:,:,:,ib)
+
+         ! ic1 = block_refined(2,(b-1)*ratio+1)
+         ! ic2 = block_refined(2,(b-1)*ratio+2)
+         ! ic3 = block_refined(2,(b-1)*ratio+3)
+         ! ic4 = block_refined(2,(b-1)*ratio+4)
+         ! ic5 = block_refined(2,(b-1)*ratio+5)
+         ! ic6 = block_refined(2,(b-1)*ratio+6)
+         ! ic7 = block_refined(2,(b-1)*ratio+7)
+         ! ic8 = block_refined(2,(b-1)*ratio+8)
+
+         ! do k=1,nk
+         !    do j=1,nj
+         !       do i=1,ni
+         !          kkk = (k - 1) / 2 + 1
+         !          jjj = (j - 1) / 2 + 1
+         !          iii = (i - 1) / 2 + 1
+         !          self%u(i,j,k,ic1) = self%u_new(iii,     jjj,     kkk,     ib)
+         !          self%u(i,j,k,ic2) = self%u_new(iii+ni/2,jjj,     kkk,     ib)
+         !          self%u(i,j,k,ic3) = self%u_new(iii,     jjj+nj/2,kkk,     ib)
+         !          self%u(i,j,k,ic4) = self%u_new(iii+ni/2,jjj+nj/2,kkk,     ib)
+         !          self%u(i,j,k,ic5) = self%u_new(iii,     jjj,     kkk+nk/2,ib)
+         !          self%u(i,j,k,ic6) = self%u_new(iii+ni/2,jjj,     kkk+nk/2,ib)
+         !          self%u(i,j,k,ic7) = self%u_new(iii,     jjj+nj/2,kkk+nk/2,ib)
+         !          self%u(i,j,k,ic8) = self%u_new(iii+ni/2,jjj+nj/2,kkk+nk/2,ib)
+         !       enddo
+         !    enddo
+         ! enddo
+
+         do ic_local=1, 8
+            ic = block_refined(2,(b-1)*ratio+ic_local)
+            ic1 = mod(ic_local - 1, 2)
+            ic2 = mod((ic_local - 1)/2, 2)
+            ic3 = mod((ic_local - 1)/4, 2)
+            do k=1+nk/2*ic3,nk/2+nk/2*ic3
+               do j=1+nj/2*ic2,nj/2+nj/2*ic2
+                  do i=1+ni/2*ic1,ni/2+ni/2*ic1
+                     k_fine = mod(k - 1, nk/2) * 2 + 1
+                     j_fine = mod(j - 1, nj/2) * 2 + 1
+                     i_fine = mod(i - 1, ni/2) * 2 + 1
+                     self%u(i_fine:i_fine+1,j_fine:j_fine+1,k_fine:k_fine+1,ic) = 0._R8P
+                     do k_delta=0,1
+                     do j_delta=0,1
+                     do i_delta=0,1
+                     self%u(i_fine,  j_fine,  k_fine,  ic) = self%u(i_fine,j_fine,k_fine,ic) + &
+                                                             (0.25_R8P + i_delta * 0.5_R8P) *   &
+                                                             (0.25_R8P + j_delta * 0.5_R8P) *   &
+                                                             (0.25_R8P + k_delta * 0.5_R8P) *   &
+                                                             self%u_new(i+i_delta-1, j+j_delta-1, k+k_delta-1,ib)
+                     self%u(i_fine+1,j_fine,  k_fine,  ic) = self%u(i_fine+1,j_fine,k_fine,ic) + &
+                                                             (0.75_R8P - i_delta * 0.5_R8P) *     &
+                                                             (0.25_R8P + j_delta * 0.5_R8P) *     &
+                                                             (0.25_R8P + k_delta * 0.5_R8P) *     &
+                                                             self%u_new(i+i_delta,   j+j_delta-1, k+k_delta-1,ib)
+                     self%u(i_fine,  j_fine+1,k_fine,  ic) = self%u(i_fine,j_fine+1,k_fine,ic) + &
+                                                             (0.25_R8P + i_delta * 0.5_R8P) *     &
+                                                             (0.75_R8P - j_delta * 0.5_R8P) *     &
+                                                             (0.25_R8P + k_delta * 0.5_R8P) *     &
+                                                             self%u_new(i+i_delta-1, j+j_delta  , k+k_delta-1,ib)
+                     self%u(i_fine+1,j_fine+1,k_fine,  ic) = self%u(i_fine+1,j_fine+1,k_fine,ic) + &
+                                                             (0.75_R8P - i_delta * 0.5_R8P) *       &
+                                                             (0.75_R8P - j_delta * 0.5_R8P) *       &
+                                                             (0.25_R8P + k_delta * 0.5_R8P) *       &
+                                                             self%u_new(i+i_delta,   j+j_delta  , k+k_delta-1,ib)
+                     self%u(i_fine,  j_fine,  k_fine+1,ic) = self%u(i_fine,j_fine,k_fine+1,ic) + &
+                                                             (0.25_R8P + i_delta * 0.5_R8P) *     &
+                                                             (0.25_R8P + j_delta * 0.5_R8P) *     &
+                                                             (0.75_R8P - k_delta * 0.5_R8P) *     &
+                                                             self%u_new(i+i_delta-1, j+j_delta-1, k+k_delta  ,ib)
+                     self%u(i_fine+1,j_fine,  k_fine+1,ic) = self%u(i_fine+1,j_fine,k_fine+1,ic) + &
+                                                             (0.75_R8P - i_delta * 0.5_R8P) *       &
+                                                             (0.25_R8P + j_delta * 0.5_R8P) *       &
+                                                             (0.75_R8P - k_delta * 0.5_R8P) *       &
+                                                             self%u_new(i+i_delta,   j+j_delta-1, k+k_delta  ,ib)
+                     self%u(i_fine,  j_fine+1,k_fine+1,ic) = self%u(i_fine,j_fine+1,k_fine+1,ic) + &
+                                                             (0.25_R8P + i_delta * 0.5_R8P) *       &
+                                                             (0.75_R8P - j_delta * 0.5_R8P) *       &
+                                                             (0.75_R8P - k_delta * 0.5_R8P) *       &
+                                                             self%u_new(i+i_delta-1, j+j_delta  , k+k_delta  ,ib)
+                     self%u(i_fine+1,j_fine+1,k_fine+1,ic) = self%u(i_fine+1,j_fine+1,k_fine+1,ic) + &
+                                                             (0.75_R8P - i_delta * 0.5_R8P) *         &
+                                                             (0.75_R8P - j_delta * 0.5_R8P) *         &
+                                                             (0.75_R8P - k_delta * 0.5_R8P) *         &
+                                                             self%u_new(i+i_delta,   j+j_delta  , k+k_delta  ,ib)
+
+                     enddo
+                     enddo
+                     enddo
+                  enddo
+               enddo
+            enddo
+         enddo
 
          ic1 = block_refined(2,(b-1)*ratio+1)
          ic2 = block_refined(2,(b-1)*ratio+2)
@@ -816,25 +924,6 @@ contains
          ic6 = block_refined(2,(b-1)*ratio+6)
          ic7 = block_refined(2,(b-1)*ratio+7)
          ic8 = block_refined(2,(b-1)*ratio+8)
-
-         do k=1,nk
-            do j=1,nj
-               do i=1,ni
-                  kkk = (k - 1) / 2 + 1
-                  jjj = (j - 1) / 2 + 1
-                  iii = (i - 1) / 2 + 1
-                  self%u(i,j,k,ic1) = self%u_new(iii,     jjj,     kkk,     ib)
-                  self%u(i,j,k,ic2) = self%u_new(iii+ni/2,jjj,     kkk,     ib)
-                  self%u(i,j,k,ic3) = self%u_new(iii,     jjj+nj/2,kkk,     ib)
-                  self%u(i,j,k,ic4) = self%u_new(iii+ni/2,jjj+nj/2,kkk,     ib)
-                  self%u(i,j,k,ic5) = self%u_new(iii,     jjj,     kkk+nk/2,ib)
-                  self%u(i,j,k,ic6) = self%u_new(iii+ni/2,jjj,     kkk+nk/2,ib)
-                  self%u(i,j,k,ic7) = self%u_new(iii,     jjj+nj/2,kkk+nk/2,ib)
-                  self%u(i,j,k,ic8) = self%u_new(iii+ni/2,jjj+nj/2,kkk+nk/2,ib)
-               enddo
-            enddo
-         enddo
-
          self%code(ic1) = block_refined(1,(b-1)*ratio+1)
          self%code(ic2) = block_refined(1,(b-1)*ratio+2)
          self%code(ic3) = block_refined(1,(b-1)*ratio+3)
@@ -843,36 +932,35 @@ contains
          self%code(ic6) = block_refined(1,(b-1)*ratio+6)
          self%code(ic7) = block_refined(1,(b-1)*ratio+7)
          self%code(ic8) = block_refined(1,(b-1)*ratio+8)
-
       enddo
 
-      do b=1, size(block_to_refine, dim=2)
-         if (self%myrank /= block_to_refine(2,b)) cycle
-         ib = block_to_refine(1,b)
+      ! do b=1, size(block_to_refine, dim=2)
+      !    if (self%myrank /= block_to_refine(2,b)) cycle
+      !    ib = block_to_refine(1,b)
 
-         dx = self%emax(1,ib) - self%emin(1,ib)
-         dy = self%emax(2,ib) - self%emin(2,ib)
-         dz = self%emax(3,ib) - self%emin(3,ib)
+      !    dx = self%emax(1,ib) - self%emin(1,ib)
+      !    dy = self%emax(2,ib) - self%emin(2,ib)
+      !    dz = self%emax(3,ib) - self%emin(3,ib)
 
-         ii = 1
-         do k=0, 1
-            do j=0, 1
-               do i=0, 1
-                  ic = block_refined(2,(b-1)*ratio + ii)
+      !    ii = 1
+      !    do k=0, 1
+      !       do j=0, 1
+      !          do i=0, 1
+      !             ic = block_refined(2,(b-1)*ratio + ii)
 
-                  self%emin(1,ic) = self%emin(1,ib) + i * dx/2
-                  self%emin(2,ic) = self%emin(2,ib) + j * dy/2
-                  self%emin(3,ic) = self%emin(3,ib) + k * dz/2
+      !             self%emin(1,ic) = self%emin(1,ib) + i * dx/2
+      !             self%emin(2,ic) = self%emin(2,ib) + j * dy/2
+      !             self%emin(3,ic) = self%emin(3,ib) + k * dz/2
 
-                  self%emax(1,ic) = self%emin(1,ic) + dx/2
-                  self%emax(2,ic) = self%emin(2,ic) + dy/2
-                  self%emax(3,ic) = self%emin(3,ic) + dz/2
+      !             self%emax(1,ic) = self%emin(1,ic) + dx/2
+      !             self%emax(2,ic) = self%emin(2,ic) + dy/2
+      !             self%emax(3,ic) = self%emin(3,ic) + dz/2
 
-                  ii = ii + 1
-               enddo
-            enddo
-         enddo
-      enddo
+      !             ii = ii + 1
+      !          enddo
+      !       enddo
+      !    enddo
+      ! enddo
    endif
    endassociate
    endsubroutine refine

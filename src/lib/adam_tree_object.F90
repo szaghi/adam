@@ -927,13 +927,14 @@ contains
 
    subroutine make_comm_local_maps_ghost(self)
    !< Make communication/local maps of ghost cells.
-   class(tree_object), intent(inout) :: self          !< The tree.
-   type(tree_node_object), pointer   :: node          !< Pointer to current node.
-   integer(I8P), allocatable         :: neighbor(:)   !< List of code neighbors.
-   type(tree_node_object), pointer   :: neigh         !< Pointer to node neighbor.
-   integer(I4P)                      :: neighbor_type !< Neighbors type.
-   integer(I4P)                      :: my_fec_number !< Number of faces/edges/corners ghost cells locally exchanged.
-   integer(I4P)                      :: fec, mf, n    !< Counter.
+   class(tree_object), intent(inout) :: self             !< The tree.
+   type(tree_node_object), pointer   :: node             !< Pointer to current node.
+   integer(I8P), allocatable         :: neighbor(:)      !< List of code neighbors.
+   type(tree_node_object), pointer   :: neigh            !< Pointer to node neighbor.
+   integer(I4P)                      :: neighbor_type    !< Neighbors type.
+   integer(I4P)                      :: neighbor_portion !< Neighbors portion.
+   integer(I4P)                      :: my_fec_number    !< Number of faces/edges/corners ghost cells locally exchanged.
+   integer(I4P)                      :: fec, mf, n       !< Counter.
 
    if (allocated(self%local_map_ghost)) deallocate(self%local_map_ghost)
    my_fec_number = 0
@@ -958,7 +959,8 @@ contains
       do while(self%loop(node=node))
          if (self%myrank == node%myrank) then
             do fec=1, 26
-               call self%get_neighbor_all(code=node%code, face=fec, neighbor=neighbor, neighbor_type=neighbor_type)
+               call self%get_neighbor_all(code=node%code, face=fec, neighbor=neighbor, &
+                                          neighbor_type=neighbor_type, neighbor_portion=neighbor_portion)
                if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
                   do n=1, size(neighbor, dim=1)
                      neigh => self%node(code=neighbor(n))
@@ -967,8 +969,13 @@ contains
                         self%local_map_ghost(mf, 1) = node%block_index
                         self%local_map_ghost(mf, 2) = neigh%block_index
                         self%local_map_ghost(mf, 3) = fec
-                        self%local_map_ghost(mf, 4) = mod(n, size(neighbor, dim=1))
-                        if (neighbor_type==NODE_LESS_REFINED) self%local_map_ghost(mf, 4) = -self%local_map_ghost(mf, 4)
+                        if     (neighbor_type==NODE_STANDARD) then
+                           self%local_map_ghost(mf, 4) = 0
+                        elseif (neighbor_type==NODE_MORE_REFINED) then
+                           self%local_map_ghost(mf, 4) = n
+                        elseif (neighbor_type==NODE_LESS_REFINED) then
+                           self%local_map_ghost(mf, 4) = -neighbor_portion
+                        endif
                      endif
                   enddo
                endif
@@ -1543,7 +1550,7 @@ contains
    endselect
    endsubroutine get_neighbor
 
-   subroutine get_neighbor_all(self, code, face, neighbor, neighbor_type)
+   subroutine get_neighbor_all(self, code, face, neighbor, neighbor_type, neighbor_portion)
    !< Return the neighbor in a given face/edge/corner of given Morton code.
    !<
    !< The direction `fec` is organized as: faces=[1,6], edges=[7,18], corners=[19,26].
@@ -1555,6 +1562,7 @@ contains
    integer(I4P),       intent(in)               :: face                        !< Face queried.
    integer(I8P),       intent(out), allocatable :: neighbor(:)                 !< Neighbors codes list, [1] or [ratio/2].
    integer(I4P),       intent(out)              :: neighbor_type               !< Type of neighbor.
+   integer(I4P),       intent(out), optional    :: neighbor_portion            !< Neighbors portion.
    integer(I8P)                                 :: direct_neighbor             !< Morton code of direct neighbor.
    integer(I8P)                                 :: direct_neighbor_parent      !< Morton code of direct neighbor parent.
    integer(I8P)                                 :: direct_neighbor_first_child !< Morton code of direct neighbor first child.
@@ -1562,6 +1570,8 @@ contains
    integer(I4P)                                 :: delta(3)                    !< Counter.
    integer(I4P)                                 :: ijk(3)                      !< Counter.
    integer(I4P)                                 :: ijkmin(3), ijkmax(3)        !< Counter.
+
+   if (present(neighbor_portion)) neighbor_portion = 1
 
    ! compute coordinates of code
    select case(self%ratio)
@@ -1658,44 +1668,70 @@ contains
    ! direct neighbor does not exist, check if its parent exists
    direct_neighbor_parent = self%parent(code=direct_neighbor)
    if (self%has_code(code=direct_neighbor_parent)) then
+      ! parent exists
       neighbor = [direct_neighbor_parent]
       neighbor_type = NODE_LESS_REFINED
+      if (present(neighbor_portion)) then
+         ! searching the portion of parent that matches me
+         delta = -delta ! thats magic
+         ! build the ratio/2 indexes of the children of direct_neighbor that are face-to-face with node
+         do i=1, 3
+            if     (delta(i)==1) then
+               ijkmin(i) = 1
+               ijkmax(i) = 1
+            elseif (delta(i)==-1) then
+               ijkmin(i) = 0
+               ijkmax(i) = 0
+            elseif (delta(i)==0) then
+               ijkmin(i) = 0
+               ijkmax(i) = 1
+            endif
+         enddo
+         ! in ijkmin/ijkmax there are the ratio/2 deltas in binary notation that select the ratio/2 children of
+         ! my interest
+         neighbor_portion = 0
+         portion_loop : do k=ijkmin(3), ijkmax(3)
+            do j=ijkmin(2), ijkmax(2)
+               do i=ijkmin(1), ijkmax(1)
+                  neighbor_portion = neighbor_portion + 1
+                  if (i + 2*j + 4*k == self%child_local(code=direct_neighbor)) exit portion_loop
+               enddo
+            enddo
+         enddo portion_loop
+      endif
       return
    endif
 
    ! direct neighbor parent does not exist, check its children
    ! using ijk coordinates at level l one can find the ijk coordinates of neighbor at level l+1
    delta = -delta ! thats magic
-   ! direct_neighbor_first_child = self%child(code=direct_neighbor, i=0)
-   ! if (self%has_code(code=direct_neighbor_first_child)) then
-      allocate(neighbor(0))
-      ! build the ratio/2 indexes of the children of direct_neighbor that are face-to-face with node
-      do i=1, 3
-         if     (delta(i)==1) then
-            ijkmin(i) = 1
-            ijkmax(i) = 1
-         elseif (delta(i)==-1) then
-            ijkmin(i) = 0
-            ijkmax(i) = 0
-         elseif (delta(i)==0) then
-            ijkmin(i) = 0
-            ijkmax(i) = 1
-         endif
-      enddo
-      ! in ijkmin/ijkmax there are the ratio/2 deltas in binary notation that select the ratio/2 children of
-      ! my interest
-      do k=ijkmin(3), ijkmax(3)
-         do j=ijkmin(2), ijkmax(2)
-            do i=ijkmin(1), ijkmax(1)
-               ! the first child (global) Morton code of direct neighbor has been already computed thus the other
-               ! Morton codes are simply computed adding the local numeration to the first child code
-               neighbor = [neighbor, [self%child(code=direct_neighbor, i=i + 2*j + 4*k)]]
-            enddo
+   allocate(neighbor(0))
+   ! build the ratio/2 indexes of the children of direct_neighbor that are face-to-face with node
+   do i=1, 3
+      if     (delta(i)==1) then
+         ijkmin(i) = 1
+         ijkmax(i) = 1
+      elseif (delta(i)==-1) then
+         ijkmin(i) = 0
+         ijkmax(i) = 0
+      elseif (delta(i)==0) then
+         ijkmin(i) = 0
+         ijkmax(i) = 1
+      endif
+   enddo
+   ! in ijkmin/ijkmax there are the ratio/2 deltas in binary notation that select the ratio/2 children of
+   ! my interest
+   do k=ijkmin(3), ijkmax(3)
+      do j=ijkmin(2), ijkmax(2)
+         do i=ijkmin(1), ijkmax(1)
+            ! the first child (global) Morton code of direct neighbor has been already computed thus the other
+            ! Morton codes are simply computed adding the local numeration to the first child code
+            neighbor = [neighbor, [self%child(code=direct_neighbor, i=i + 2*j + 4*k)]]
          enddo
       enddo
-      neighbor_type = NODE_MORE_REFINED
-      return
-   ! endif
+   enddo
+   neighbor_type = NODE_MORE_REFINED
+   return
    endsubroutine get_neighbor_all
 
    elemental function greater(self, lhs, rhs) result(res)

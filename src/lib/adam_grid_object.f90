@@ -15,12 +15,12 @@ type :: grid_object
    integer(I4P) :: ni=4_I4P       !< Number of cells in i direction.
    integer(I4P) :: nj=4_I4P       !< Number of cells in j direction.
    integer(I4P) :: nk=4_I4P       !< Number of cells in k direction.
-   integer(I4P) :: gc1=1_I4P      !< Number of ghost cells in i- direction for boundary conditions.
-   integer(I4P) :: gc2=1_I4P      !< Number of ghost cells in i+ direction for boundary conditions.
-   integer(I4P) :: gc3=1_I4P      !< Number of ghost cells in j- direction for boundary conditions.
-   integer(I4P) :: gc4=1_I4P      !< Number of ghost cells in j+ direction for boundary conditions.
-   integer(I4P) :: gc5=1_I4P      !< Number of ghost cells in k- direction for boundary conditions.
-   integer(I4P) :: gc6=1_I4P      !< Number of ghost cells in k+ direction for boundary conditions.
+   integer(I4P) :: gc1=2_I4P      !< Number of ghost cells in i- direction for boundary conditions.
+   integer(I4P) :: gc2=2_I4P      !< Number of ghost cells in i+ direction for boundary conditions.
+   integer(I4P) :: gc3=2_I4P      !< Number of ghost cells in j- direction for boundary conditions.
+   integer(I4P) :: gc4=2_I4P      !< Number of ghost cells in j+ direction for boundary conditions.
+   integer(I4P) :: gc5=2_I4P      !< Number of ghost cells in k- direction for boundary conditions.
+   integer(I4P) :: gc6=2_I4P      !< Number of ghost cells in k+ direction for boundary conditions.
    contains
       ! public methods
       procedure, pass(self) :: compute_metrics !< Compute metrics of a block.
