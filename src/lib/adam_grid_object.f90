@@ -2,6 +2,7 @@
 module adam_grid_object
 !< ADAM, grid class definition.
 
+use adam_parameters
 use PENF
 
 implicit none
@@ -10,22 +11,24 @@ public :: grid_object
 
 type :: grid_object
    !< Grid class definition.
-   real(R8P)    :: domain_emin(3) !< Coordinates of minimum abscissa of whole domain.
-   real(R8P)    :: domain_emax(3) !< Coordinates of maximum abscissa of whole domain.
-   integer(I4P) :: ni=4_I4P       !< Number of cells in i direction.
-   integer(I4P) :: nj=4_I4P       !< Number of cells in j direction.
-   integer(I4P) :: nk=4_I4P       !< Number of cells in k direction.
-   integer(I4P) :: gc1=2_I4P      !< Number of ghost cells in i- direction for boundary conditions.
-   integer(I4P) :: gc2=2_I4P      !< Number of ghost cells in i+ direction for boundary conditions.
-   integer(I4P) :: gc3=2_I4P      !< Number of ghost cells in j- direction for boundary conditions.
-   integer(I4P) :: gc4=2_I4P      !< Number of ghost cells in j+ direction for boundary conditions.
-   integer(I4P) :: gc5=2_I4P      !< Number of ghost cells in k- direction for boundary conditions.
-   integer(I4P) :: gc6=2_I4P      !< Number of ghost cells in k+ direction for boundary conditions.
+   real(R8P)    :: domain_emin(3)            !< Coordinates of minimum abscissa of whole domain.
+   real(R8P)    :: domain_emax(3)            !< Coordinates of maximum abscissa of whole domain.
+   integer(I4P) :: ni=4_I4P                  !< Number of cells in i direction.
+   integer(I4P) :: nj=4_I4P                  !< Number of cells in j direction.
+   integer(I4P) :: nk=4_I4P                  !< Number of cells in k direction.
+   integer(I4P) :: gc1=2_I4P                 !< Number of ghost cells in i- direction for boundary conditions.
+   integer(I4P) :: gc2=2_I4P                 !< Number of ghost cells in i+ direction for boundary conditions.
+   integer(I4P) :: gc3=2_I4P                 !< Number of ghost cells in j- direction for boundary conditions.
+   integer(I4P) :: gc4=2_I4P                 !< Number of ghost cells in j+ direction for boundary conditions.
+   integer(I4P) :: gc5=2_I4P                 !< Number of ghost cells in k- direction for boundary conditions.
+   integer(I4P) :: gc6=2_I4P                 !< Number of ghost cells in k+ direction for boundary conditions.
+   integer(I4P) :: weight_neighbor(26)=0_I8P !< Weight of neighbors (cells number).
    contains
       ! public methods
-      procedure, pass(self) :: compute_metrics !< Compute metrics of a block.
-      procedure, pass(self) :: destroy         !< Destroy the field.
-      procedure, pass(self) :: initialize      !< Initialize the field.
+      procedure, pass(self) :: compute_metrics         !< Compute metrics of a block.
+      procedure, pass(self) :: compute_weight_neighbor !< Compute weight of neighbors.
+      procedure, pass(self) :: destroy                 !< Destroy the field.
+      procedure, pass(self) :: initialize              !< Initialize the field.
       ! operators
       generic :: assignment(=) => grid_assign_grid      !< Overload `=`.
       procedure, pass(lhs), private :: grid_assign_grid !< Operator `=`.
@@ -39,7 +42,7 @@ contains
                               x_node, y_node, z_node, &
                               x_cell, y_cell, z_cell)
    !< Compute metrics of a block.
-   class(grid_object), intent(in)            :: self                                 !< The field.
+   class(grid_object), intent(in)            :: self                                 !< The grid.
    integer(I4P),       intent(in)            :: coordinates(4)                       !< Block coordinates.
    real(R8P),          intent(out), optional :: dx, dy, dz                           !< Space steps.
    real(R8P),          intent(out), optional :: emin(3), emax(3)                     !< Min/max abscissa of block.
@@ -103,17 +106,36 @@ contains
    if (present(z_cell)) z_cell = z_cell_
    endsubroutine compute_metrics
 
+   subroutine compute_weight_neighbor(self)
+   !< Compute weight of neighbors.
+   class(grid_object), intent(inout) :: self    !< The grid.
+   integer(I4P)                      :: nijk(3) !< Ni, nj, nk in array.
+   integer(I4P)                      :: gc(3)   !< Ghost cell in array.
+   integer(I4P)                      :: fec     !< Counter.
+   integer(I4P)                      :: i       !< Counter.
+
+   self%weight_neighbor = 1_I4P
+   nijk = [self%ni, self%nj, self%nk]
+   gc   = [self%gc1, self%gc3, self%gc5]
+   do fec=1, 26
+      do i=1, 3
+         self%weight_neighbor(fec) = self%weight_neighbor(fec) * (  abs(delta_neighbor(i,fec))  * gc(i) + &
+                                                                 (1-abs(delta_neighbor(i,fec))) * nijk(i))
+      enddo
+   enddo
+   endsubroutine compute_weight_neighbor
+
    elemental subroutine destroy(self)
    !< Destroy field.
-   class(grid_object), intent(inout) :: self  !< The field.
-   type(grid_object)                 :: fresh !< Fresh field.
+   class(grid_object), intent(inout) :: self  !< The grid.
+   type(grid_object)                 :: fresh !< Fresh grid.
 
    self = fresh
    endsubroutine destroy
 
    subroutine initialize(self, ni, nj, nk, gc, emin, emax)
    !< Initialize field.
-   class(grid_object), intent(inout)        :: self    !< The field.
+   class(grid_object), intent(inout)        :: self    !< The grid.
    integer(I4P),       intent(in), optional :: ni      !< Number of cells in X direction.
    integer(I4P),       intent(in), optional :: nj      !< Number of cells in Y direction.
    integer(I4P),       intent(in), optional :: nk      !< Number of cells in Z direction.
@@ -142,6 +164,7 @@ contains
    if (present(gc)) self%gc4 = gc(4)
    if (present(gc)) self%gc5 = gc(5)
    if (present(gc)) self%gc6 = gc(6)
+   call self%compute_weight_neighbor
    endsubroutine initialize
 
    ! operators

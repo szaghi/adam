@@ -62,17 +62,17 @@ contains
    do_mpi_redistribute_ = .true.  ; if (present(do_mpi_redistribute )) do_mpi_redistribute_ = do_mpi_redistribute
 
    if (is_marked_by_field_) then
-      call self%field%mpi_gather_refinements_needed(node_member='refinement_needed')
+      call self%field%mpi_gather_refinements_needed
       call self%tree%import_refinements_needed(refinements_needed_all=self%field%refinements_needed_all, &
                                                disp_count=self%field%disp_count)
    endif
    if (is_marked_by_tree_) then
-      call self%tree%mpi_gather_refinements_needed
+      call self%tree%mpi_gather_refinements_needed(node_member='refinement_needed')
    endif
 
    if (self%tree%nodes_number > 1) then
       self%field%u_s(:,:,:,1:self%field%blocks_number,1) = self%field%u(:,:,:,1:self%field%blocks_number)
-      ! call self%field%update_ghost(s=1)
+      call self%field%update_ghost(s=1)
       self%field%u(:,:,:,1:self%field%blocks_number) = self%field%u_s(:,:,:,1:self%field%blocks_number,1)
    endif
 
@@ -85,11 +85,18 @@ contains
 
    if (do_mpi_redistribute_) call self%mpi_redistribute(print_mpi_stats=print_mpi_stats)
 
-   call self%tree%blocks_reorder
-   call self%field%blocks_reorder(inner_outer_block_map=self%tree%inner_outer_block_map)
+   ! call self%tree%blocks_reorder
+   ! call self%field%blocks_reorder(inner_outer_block_map=self%tree%inner_outer_block_map)
 
-   ! create local_maps_ghost for ghost cells updating
+   ! create local and communication maps for ghost cells updating
    call self%tree%make_comm_local_maps_ghost
+   call self%field%prepare_comm_local_ghost(local_map_ghost        = self%tree%local_map_ghost,         &
+                                            comm_map_n_send_ghost  = self%tree%comm_map_n_send_ghost,   &
+                                            comm_map_n_recv_ghost  = self%tree%comm_map_n_recv_ghost,   &
+                                            comm_map_send_ptr_ghost= self%tree%comm_map_send_ptr_ghost, &
+                                            comm_map_recv_ptr_ghost= self%tree%comm_map_recv_ptr_ghost, &
+                                            comm_map_send_ghost    = self%tree%comm_map_send_ghost,     &
+                                            comm_map_recv_ghost    = self%tree%comm_map_recv_ghost)
    endsubroutine amr_update
 
    subroutine destroy(self)
@@ -163,8 +170,7 @@ contains
                                     comm_map_send_ptr=self%tree%comm_map_send_ptr, &
                                     comm_map_recv_ptr=self%tree%comm_map_recv_ptr, &
                                     local_map=self%tree%local_map,                 &
-                                    coordinates=self%tree%block_coordinates,       &
-                                    local_map_ghost=self%tree%local_map_ghost)
+                                    coordinates=self%tree%block_coordinates)
    endsubroutine mpi_redistribute
 
    subroutine save_hdf5(self, basename, directory)

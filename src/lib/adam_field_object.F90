@@ -96,14 +96,21 @@ type :: field_object
    real(R8P),    allocatable  :: u_s(:,:,:,:,:)          !< RK field stages.
    integer(I8P), allocatable  :: local_map_ghost(:,:)    !< Local map for ghost cells updating.
    ! MPI data
-   integer(I4P)               :: myrank=0_I4P              !< MPI rank process.
-   integer(I4P)               :: procs_number=1_I4P        !< Number of processes.
-   integer(I4P), allocatable  :: blocks_numbers(:)         !< Number of blocks actually stored in all processes.
-   integer(I4P), allocatable  :: refinements_needed(:)     !< Refinements needed of my blocks.
-   integer(I4P), allocatable  :: refinements_needed_all(:) !< Refinements needed of all blocks.
-   integer(I4P), allocatable  :: disp_count(:)             !< Displacement of blocks that are received from process.
-   real(R8P), allocatable     :: send_buffer_ghost(:)      !< Send buffer of ghost cells.
-   real(R8P), allocatable     :: recv_buffer_ghost(:)      !< Receive buffer of ghost cells.
+   integer(I4P)              :: myrank=0_I4P              !< MPI rank process.
+   integer(I4P)              :: procs_number=1_I4P        !< Number of processes.
+   integer(I4P), allocatable :: blocks_numbers(:)         !< Number of blocks actually stored in all processes.
+   integer(I4P), allocatable :: refinements_needed(:)     !< Refinements needed of my blocks.
+   integer(I4P), allocatable :: refinements_needed_all(:) !< Refinements needed of all blocks.
+   integer(I4P), allocatable :: disp_count(:)             !< Displacement of blocks that are received from process.
+
+   integer(I4P), allocatable :: comm_map_n_send_ghost(:)   !< Communication map, number of blocks to send [procs_number].
+   integer(I4P), allocatable :: comm_map_n_recv_ghost(:)   !< Communication map, number of blocks to recv [procs_number].
+   integer(I4P), allocatable :: comm_map_send_ptr_ghost(:) !< Communication map, pointers in list to send [procs_number+1].
+   integer(I4P), allocatable :: comm_map_recv_ptr_ghost(:) !< Communication map, pointers in list to recv [procs_number+1].
+   integer(I4P), allocatable :: comm_map_send_ghost(:,:)   !< Communication map, `fec` information [fec_number, 5].
+   integer(I4P), allocatable :: comm_map_recv_ghost(:,:)   !< Communication map, `fec` information [fec_number, 5].
+   real(R8P), allocatable    :: send_buffer_ghost(:)       !< Send buffer of ghost cells.
+   real(R8P), allocatable    :: recv_buffer_ghost(:)       !< Receive buffer of ghost cells.
    ! RK data
    real(R8P) :: alph(3,3) = reshape([0._R8P, 1._R8P, 0.25_R8P, &
                                      0._R8P, 0._R8P, 0.25_R8P, &
@@ -117,6 +124,7 @@ type :: field_object
    contains
       ! public methods
       procedure, pass(self) :: adapt                         !< Adapt field accordingly to refine/derefine necessity.
+      procedure, pass(self) :: blocks_reorder                !< Reorder blocks indexes in field.
       procedure, pass(self) :: compute_metrics               !< Compute metrics of each block.
       procedure, pass(self) :: destroy                       !< Destroy the field.
       procedure, pass(self) :: initialize                    !< Initialize the field.
@@ -126,10 +134,12 @@ type :: field_object
       procedure, pass(self) :: max_cell_delta                !< Return the maximum cell delta given a comparison distance.
       procedure, pass(self) :: mpi_gather_refinements_needed !< Gather blocks refinement needed status between MPI processes.
       procedure, pass(self) :: mpi_redistribute              !< Redistribute blocks to processes.
+      procedure, pass(self) :: prepare_comm_local_ghost      !< Prepare communication and local maps/buffers for ghosts update.
       procedure, pass(self) :: rk_integrate                  !< Runge Kutta integration of field.
       procedure, pass(self) :: residuals                     !< Compute residuals of field.
       procedure, pass(self) :: set_initial_conditions        !< Set initial conditions of field.
       procedure, pass(self) :: update_ghost                  !< Update ghost cells.
+      procedure, pass(self) :: update_ghost_mpi              !< Update ghost cells within other processes.
       ! private methods
       procedure, pass(self), private :: derefine !< Derefine blocks.
       procedure, pass(self), private :: refine   !< Refine blocks.
@@ -153,7 +163,7 @@ contains
    call self%derefine(ratio=ratio, block_to_derefine=block_to_derefine, block_derefined=block_derefined)
    endsubroutine adapt
 
-   subroutine blocks_reoder(self, inner_outer_block_map)
+   subroutine blocks_reorder(self, inner_outer_block_map)
    !< Reoder blocks indexes in field.
    class(field_object), intent(inout) :: self                     !< The field.
    integer(I4P),        intent(in)    :: inner_outer_block_map(:) !< Inner/outer blocks map.
@@ -165,7 +175,7 @@ contains
    do b=1, self%blocks_number
       self%u(:,:,:,b) = self%u_new(:,:,:,b)
    enddo
-   endsubroutine blocks_reoder
+   endsubroutine blocks_reorder
 
    subroutine compute_metrics(self)
    !< Compute metrics of each block.
@@ -391,17 +401,16 @@ contains
 #endif
    endsubroutine mpi_gather_refinements_needed
 
-   subroutine mpi_redistribute(self, comm_map_send, comm_map_recv, comm_map_send_ptr, comm_map_recv_ptr, local_map, coordinates, &
-                               local_map_ghost)
+   subroutine mpi_redistribute(self, comm_map_send, comm_map_recv, comm_map_send_ptr, comm_map_recv_ptr, local_map, coordinates)
    !< Redistribute blocks to processes.
+   !< @TODO: Morton codes are not yet redistributed, must be fixed.
    class(field_object),       intent(inout) :: self                   !< The field.
    integer(I8P), allocatable, intent(in)    :: comm_map_send(:)       !< Comm map, blocks to send [sum(comm_map_n_send)].
    integer(I8P), allocatable, intent(in)    :: comm_map_recv(:)       !< Comm map, blocks to receive [sum(comm_map_n_recv)].
    integer(I4P), allocatable, intent(in)    :: comm_map_send_ptr(:)   !< Comm map, pointers in list to send [procs_number+1].
    integer(I4P), allocatable, intent(in)    :: comm_map_recv_ptr(:)   !< Comm map, pointers in list to recv [procs_number+1].
    integer(I4P), allocatable, intent(in)    :: coordinates(:,:)       !< Coordinates of redistributed nodes [nb, ijkl].
-   integer(I8P), allocatable, intent(in)    :: local_map_ghost(:,:)   !< Local map for ghost cells updating.
-   integer(I8P), allocatable                :: local_map(:,:)         !< Local map, list block index changes of my blocks.
+   integer(I8P), allocatable, intent(in)    :: local_map(:,:)         !< Local map, list block index changes of my blocks.
    real(R8P),    allocatable                :: send_buffer(:)         !< Send buffer of field cell centered variables.
    real(R8P),    allocatable                :: recv_buffer(:)         !< Recv buffer of field cell centered variables.
    integer(I8P)                             :: send_size, send_offset !< Total size of send buffer.
@@ -478,9 +487,51 @@ contains
    self%blocks_number = n_keep  + recv_size / self%block_weight
    self%coordinates(:, 1:self%blocks_number) = coordinates
    call self%compute_metrics
-
-   if (allocated(local_map_ghost)) self%local_map_ghost = local_map_ghost
    endsubroutine mpi_redistribute
+
+   subroutine prepare_comm_local_ghost(self,                    &
+                                       local_map_ghost,         &
+                                       comm_map_n_send_ghost  , &
+                                       comm_map_n_recv_ghost  , &
+                                       comm_map_send_ptr_ghost, &
+                                       comm_map_recv_ptr_ghost, &
+                                       comm_map_send_ghost    , &
+                                       comm_map_recv_ghost)
+   !< Prepare communication and local maps for ghosts update and send/receive buffer.
+   class(field_object),       intent(inout) :: self                       !< The field.
+   integer(I8P), allocatable, intent(in)    :: local_map_ghost(:,:)       !< Local map for ghost cells updating.
+   integer(I4P), allocatable, intent(in)    :: comm_map_n_send_ghost(:)   !< Communication map, number of ghost celss to send.
+   integer(I4P), allocatable, intent(in)    :: comm_map_n_recv_ghost(:)   !< Communication map, number of ghost celss to recv.
+   integer(I4P), allocatable, intent(in)    :: comm_map_send_ptr_ghost(:) !< Communication map, pointers in list to send.
+   integer(I4P), allocatable, intent(in)    :: comm_map_recv_ptr_ghost(:) !< Communication map, pointers in list to recv.
+   integer(I4P), allocatable, intent(in)    :: comm_map_send_ghost(:,:)   !< Communication map, `fec` information.
+   integer(I4P), allocatable, intent(in)    :: comm_map_recv_ghost(:,:)   !< Communication map, `fec` information.
+   integer(I4P)                             :: n_recv, n_send             !< Counter.
+
+   if (allocated(self%local_map_ghost        )) deallocate(self%local_map_ghost        )
+   if (allocated(self%comm_map_n_send_ghost  )) deallocate(self%comm_map_n_send_ghost  )
+   if (allocated(self%comm_map_n_recv_ghost  )) deallocate(self%comm_map_n_recv_ghost  )
+   if (allocated(self%comm_map_send_ptr_ghost)) deallocate(self%comm_map_send_ptr_ghost)
+   if (allocated(self%comm_map_recv_ptr_ghost)) deallocate(self%comm_map_recv_ptr_ghost)
+   if (allocated(self%comm_map_send_ghost    )) deallocate(self%comm_map_send_ghost    )
+   if (allocated(self%comm_map_recv_ghost    )) deallocate(self%comm_map_recv_ghost    )
+   if (allocated(self%send_buffer_ghost      )) deallocate(self%send_buffer_ghost      )
+   if (allocated(self%recv_buffer_ghost      )) deallocate(self%recv_buffer_ghost      )
+
+   if (allocated(local_map_ghost        )) self%local_map_ghost         = local_map_ghost
+   if (allocated(comm_map_n_send_ghost  )) self%comm_map_n_send_ghost   = comm_map_n_send_ghost
+   if (allocated(comm_map_n_recv_ghost  )) self%comm_map_n_recv_ghost   = comm_map_n_recv_ghost
+   if (allocated(comm_map_send_ptr_ghost)) self%comm_map_send_ptr_ghost = comm_map_send_ptr_ghost
+   if (allocated(comm_map_recv_ptr_ghost)) self%comm_map_recv_ptr_ghost = comm_map_recv_ptr_ghost
+   if (allocated(comm_map_send_ghost    )) self%comm_map_send_ghost     = comm_map_send_ghost
+   if (allocated(comm_map_recv_ghost    )) self%comm_map_recv_ghost     = comm_map_recv_ghost
+
+   n_send = 0_I8P ; if (allocated(self%comm_map_n_send_ghost)) n_send = sum(self%comm_map_n_send_ghost, dim=1)
+   n_recv = 0_I8P ; if (allocated(self%comm_map_n_recv_ghost)) n_recv = sum(self%comm_map_n_recv_ghost, dim=1)
+   if (n_send > 0_I8P) allocate(self%send_buffer_ghost(n_send))
+   if (n_recv > 0_I8P) allocate(self%recv_buffer_ghost(n_recv))
+   print*, 'cazzo ', n_send, n_recv
+   endsubroutine prepare_comm_local_ghost
 
    subroutine rk_integrate(self, t, Dt)
    !< Runge Kutta integration of field.
@@ -521,7 +572,7 @@ contains
    integer(I4P)                       :: im, jm, km
    integer(I4P)                       :: ip, jp, kp
 
-   ! call self%update_ghost(s=s)
+   call self%update_ghost(s=s)
    self%u_new(:,:,:,1:self%blocks_number) = 0._R8P
    do b=1, self%blocks_number
    do k=1, self%grid%nk
@@ -582,6 +633,7 @@ contains
                                       (y_cell(j,b) - y_0)**2/(2 * sigma_y**2)+&
                                       (z_cell(k,b) - z_0)**2/(2 * sigma_z**2)))
                ! u(i,j,k,b) = self%code(b)
+               ! u(i,j,k,b) = b + 100 * self%myrank
             enddo
          enddo
       enddo
@@ -611,6 +663,7 @@ contains
    integer(I4P)                       :: ijkdelta_c(3)  !< Delta offset for ghost-inner cells mapping from coarser.
    integer(I4P)                       :: gcl(3), gcr(3) !< Ghost cell.
 
+   if (.not.allocated(self%local_map_ghost)) return
    associate(blocks_number=>self%blocks_number,                             &
              u_s=>self%u_s,                                                 &
              ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk,          &
@@ -709,7 +762,205 @@ contains
       endif
    enddo
    endassociate
+   call self%update_ghost_mpi(s=s)
    endsubroutine update_ghost
+
+   subroutine update_ghost_mpi(self, s)
+   !< Update ghost cells within other processes.
+   class(field_object), intent(inout) :: self                       !< The field.
+   integer(I4P),        intent(in)    :: s                          !< Stage.
+   integer(I4P)                       :: i, j, k                    !< Counter.
+   integer(I4P)                       :: fec, mf, rf, sf, n, p      !< Counter.
+   integer(I4P), allocatable          :: comm_map_send_ctr_ghost(:) !< Communication map, counters in list to send [procs_number+1].
+   integer(I4P), allocatable          :: comm_map_recv_ctr_ghost(:) !< Communication map, counters in list to recv [procs_number+1].
+   integer(I4P)                       :: portion                    !< Portion of fec updated (0=>whole fec).
+   integer(I4P)                       :: portion_cur                !< Current portion of fec updated (0=>whole fec).
+   integer(I4P)                       :: b_recv                     !< Index of receiving block.
+   integer(I4P)                       :: b_send                     !< Index of sending block.
+   integer(I4P)                       :: delta(3)                   !< Neighbor delta of current fec.
+   integer(I4P)                       :: nijk(3)                    !< Ni, Nj , Nk stored in array.
+   integer(I4P)                       :: ijkmin(3)                  !< Lower limit of ijk indexes.
+   integer(I4P)                       :: ijkmax(3)                  !< Upper limit of ijk indexes.
+   integer(I4P)                       :: ijkmin_c(3)                !< Lower limit of ijk indexes.
+   integer(I4P)                       :: ijkmax_c(3)                !< Upper limit of ijk indexes.
+   integer(I4P)                       :: ijkdelta(3)                !< Delta offset for ghost-inner cells mapping same refinement.
+   integer(I4P)                       :: ijkdelta_f(3)              !< Delta offset for ghost-inner cells mapping from finer.
+   integer(I4P)                       :: ijkdelta_c(3)              !< Delta offset for ghost-inner cells mapping from coarser.
+   integer(I4P)                       :: gcl(3), gcr(3)             !< Ghost cell.
+   integer(I4P)                       :: ptr_start, ptr_end         !< Counter.
+   integer(I4P)                       :: n_recv, n_send             !< Counter.
+   integer(I4P)                       :: recv_rank                  !< Rank of receiving block.
+   integer(I4P)                       :: send_rank                  !< Rank of sending block.
+#ifdef _MPI_
+   integer(I4P), allocatable          :: req_send_recv(:)           !< MPI request receive flags.
+   integer(I4P)                       :: error                      !< Error traping flag.
+
+   allocate(req_send_recv(0:self%procs_number*2-1))
+   req_send_recv = MPI_REQUEST_NULL
+#endif
+
+   if ((.not.allocated(self%comm_map_recv_ghost)).and.&
+       (.not.allocated(self%comm_map_send_ghost))) return
+   associate(u_s=>self%u_s,                                              &
+             ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk,       &
+             gc1=>self%grid%gc1, gc2=>self%grid%gc2, gc3=>self%grid%gc3, &
+             gc4=>self%grid%gc4, gc5=>self%grid%gc5, gc6=>self%grid%gc6)
+   nijk = [ni, nj, nk]
+   gcl = [gc1, gc3, gc5]
+   gcr = [gc2, gc4, gc6]
+
+   comm_map_send_ctr_ghost = self%comm_map_send_ptr_ghost
+   comm_map_recv_ctr_ghost = self%comm_map_recv_ptr_ghost
+
+   ! populate send buffer
+   do sf=1, size(self%comm_map_send_ghost, dim=1)
+      ! b_ghost   =     comm_map_send_ghost(sf, 1) ! block-index
+      b_send    =     self%comm_map_send_ghost(sf, 2) ! neighbor-block-index of block
+      send_rank =     self%comm_map_send_ghost(sf, 3)
+      fec       =     self%comm_map_send_ghost(sf, 4)
+      portion   = abs(self%comm_map_send_ghost(sf, 5))
+      delta = delta_neighbor(1:3, fec)
+      do i=1, 3
+         if     (delta(i)==1) then
+            ijkmin(i) = nijk(i) + 1
+            ijkmax(i) = nijk(i) + gcr(i)
+            ijkdelta(i) = -nijk(i)
+            ijkdelta_f(i) = -1 - 2 * nijk(i)
+
+            ijkdelta_c(i) = nijk(i) - 1
+            ijkmin_c(i) = 1
+            ijkmax_c(i) = gcl(i) / 2
+         elseif (delta(i)==-1) then
+            ijkmin(i) = 1 - gcl(i)
+            ijkmax(i) = 0
+            ijkdelta(i) = nijk(i)
+            ijkdelta_f(i) = -1 + nijk(i)
+
+            ijkdelta_c(i) = -1 - 2 * nijk(i)
+            ijkmin_c(i) = nijk(i) - gcr(i) / 2 + 1
+            ijkmax_c(i) = nijk(i)
+         elseif (delta(i)==0) then
+            if (portion==0) then
+               ijkmin(i) = 1
+               ijkmax(i) = nijk(i)
+            else
+               portion_cur = mod(portion-1, 2)
+               portion = 2 * portion_cur + (portion - 1) / 2 + 1
+               ijkmin(i) = portion_cur * nijk(i) / 2 + 1
+               ijkmax(i) = ijkmin(i) + nijk(i) / 2 - 1
+            endif
+            ijkdelta(i) = 0
+            ijkdelta_f(i) = -2 * ijkmin(i) + 1
+
+            ijkdelta_c(i) = ijkdelta_f(i)
+            ijkmin_c(i) = ijkmin(i)
+            ijkmax_c(i) = ijkmax(i)
+         endif
+      enddo
+      portion = self%comm_map_send_ghost(sf, 5)
+      if (portion==0_I4P) then
+         do k=ijkmin(3), ijkmax(3)
+            do j=ijkmin(2), ijkmax(2)
+               do i=ijkmin(1), ijkmax(1)
+                  self%send_buffer_ghost(comm_map_send_ctr_ghost(send_rank)+1) = &
+                     u_s(i+ijkdelta(1),j+ijkdelta(2),k+ijkdelta(3),b_send,s)
+                  comm_map_send_ctr_ghost(send_rank) = comm_map_send_ctr_ghost(send_rank) + 1
+               enddo
+            enddo
+         enddo
+      else
+      endif
+   enddo
+
+   ! receive
+   do p=0, self%procs_number - 1_I4P
+      ptr_start = self%comm_map_recv_ptr_ghost(p) + 1
+      ptr_end   = self%comm_map_recv_ptr_ghost(p+1)
+      n_recv    = ptr_end - ptr_start + 1
+      if (n_recv > 0) then
+#ifdef _MPI_
+         call MPI_IRECV(self%recv_buffer_ghost(ptr_start), n_recv, MPI_REAL8, p, 100, MPI_COMM_WORLD, req_send_recv(p), error)
+#endif
+      endif
+   enddo
+
+   ! send
+   do p=0, self%procs_number - 1_I4P
+      ptr_start = self%comm_map_send_ptr_ghost(p) + 1
+      ptr_end   = self%comm_map_send_ptr_ghost(p+1)
+      n_send    = ptr_end - ptr_start + 1
+      if (n_send > 0) then
+#ifdef _MPI_
+         call MPI_ISEND(self%send_buffer_ghost(ptr_start), n_send, MPI_REAL8, p, 100, MPI_COMM_WORLD, &
+                        req_send_recv(p+self%procs_number), error)
+#endif
+      endif
+   enddo
+
+#ifdef _MPI_
+   call MPI_WAITALL(self%procs_number * 2, req_send_recv, MPI_STATUSES_IGNORE, error)
+#endif
+
+   ! retrive from receive buffer
+   do rf=1, size(self%comm_map_recv_ghost, dim=1)
+      b_recv    =     self%comm_map_recv_ghost(rf, 1) ! block-index
+      ! b_recv    =     comm_map_recv_ghost(rf, 2) ! neighbor-block-index of block
+      recv_rank =     self%comm_map_recv_ghost(rf, 3)
+      fec       =     self%comm_map_recv_ghost(rf, 4)
+      portion   = abs(self%comm_map_recv_ghost(rf, 5))
+      delta = delta_neighbor(1:3, fec)
+      do i=1, 3
+         if     (delta(i)==1) then
+            ijkmin(i) = nijk(i) + 1
+            ijkmax(i) = nijk(i) + gcr(i)
+            ijkdelta(i) = -nijk(i)
+            ijkdelta_f(i) = -1 - 2 * nijk(i)
+
+            ijkdelta_c(i) = nijk(i) - 1
+            ijkmin_c(i) = 1
+            ijkmax_c(i) = gcl(i) / 2
+         elseif (delta(i)==-1) then
+            ijkmin(i) = 1 - gcl(i)
+            ijkmax(i) = 0
+            ijkdelta(i) = nijk(i)
+            ijkdelta_f(i) = -1 + nijk(i)
+
+            ijkdelta_c(i) = -1 - 2 * nijk(i)
+            ijkmin_c(i) = nijk(i) - gcr(i) / 2 + 1
+            ijkmax_c(i) = nijk(i)
+         elseif (delta(i)==0) then
+            if (portion==0) then
+               ijkmin(i) = 1
+               ijkmax(i) = nijk(i)
+            else
+               portion_cur = mod(portion-1, 2)
+               portion = 2 * portion_cur + (portion - 1) / 2 + 1
+               ijkmin(i) = portion_cur * nijk(i) / 2 + 1
+               ijkmax(i) = ijkmin(i) + nijk(i) / 2 - 1
+            endif
+            ijkdelta(i) = 0
+            ijkdelta_f(i) = -2 * ijkmin(i) + 1
+
+            ijkdelta_c(i) = ijkdelta_f(i)
+            ijkmin_c(i) = ijkmin(i)
+            ijkmax_c(i) = ijkmax(i)
+         endif
+      enddo
+      portion = self%comm_map_send_ghost(rf, 5)
+      if (portion==0_I4P) then
+         do k=ijkmin(3), ijkmax(3)
+            do j=ijkmin(2), ijkmax(2)
+               do i=ijkmin(1), ijkmax(1)
+                  u_s(i,j,k,b_recv,s) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                  comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+               enddo
+            enddo
+         enddo
+      else
+      endif
+   enddo
+   endassociate
+   endsubroutine update_ghost_mpi
 
    ! private methods
    subroutine derefine(self, ratio, block_to_derefine, block_derefined)
