@@ -986,7 +986,43 @@ contains
                enddo
             enddo
          enddo
+      elseif (portion>0_I4P) then
+         ! receiving from a block finer than me
+         do k=ijkmin(3), ijkmax(3)
+            do j=ijkmin(2), ijkmax(2)
+               do i=ijkmin(1), ijkmax(1)
+                  u_s(i,j,k,b_recv,s) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                  comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+               enddo
+            enddo
+         enddo
       else
+         ! receiving from a block coarser than me
+         do k=ijkmin_c(3), ijkmax_c(3)
+            do j=ijkmin_c(2), ijkmax_c(2)
+               do i=ijkmin_c(1), ijkmax_c(1)
+                  kkk = 2 * k + ijkdelta_c(3)
+                  jjj = 2 * j + ijkdelta_c(2)
+                  iii = 2 * i + ijkdelta_c(1)
+                  u_s(iii,  jjj,  kkk  ,b_recv,s) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                  comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                  u_s(iii+1,jjj,  kkk  ,b_recv,s) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                  comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                  u_s(iii,  jjj+1,kkk  ,b_recv,s) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                  comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                  u_s(iii+1,jjj+1,kkk  ,b_recv,s) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                  comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                  u_s(iii,  jjj,  kkk+1,b_recv,s) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                  comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                  u_s(iii+1,jjj,  kkk+1,b_recv,s) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                  comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                  u_s(iii,  jjj+1,kkk+1,b_recv,s) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                  comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                  u_s(iii+1,jjj+1,kkk+1,b_recv,s) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                  comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+               enddo
+            enddo
+         enddo
       endif
    enddo
    endassociate
