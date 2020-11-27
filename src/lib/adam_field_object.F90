@@ -625,14 +625,17 @@ contains
              gc4=>self%grid%gc4, gc5=>self%grid%gc5, gc6=>self%grid%gc6,    &
              x_cell=>self%x_cell, y_cell=>self%y_cell, z_cell=>self%z_cell)
    do b=1, blocks_number
-      do k=1-gc5, nk+gc6
-         do j=1-gc3, nj+gc4
-            do i=1-gc1, ni+gc2
+      !do k=1-gc5, nk+gc6
+      !   do j=1-gc3, nj+gc4
+      !      do i=1-gc1, ni+gc2
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
                u(i,j,k,b) = a * exp(-((x_cell(i,b) - x_0)**2/(2 * sigma_x**2)+&
-                                      (y_cell(j,b) - y_0)**2/(2 * sigma_y**2)+&
-                                      (z_cell(k,b) - z_0)**2/(2 * sigma_z**2)))
+                                      (y_cell(j,b) - y_0)**2/(2 * sigma_y**2))) ! +&
+                                      !(z_cell(k,b) - z_0)**2/(2 * sigma_z**2)))
                ! u(i,j,k,b) = self%code(b)
-               u(i,j,k,b) = b + 100 * self%myrank
+               !u(i,j,k,b) = b + 100 * self%myrank
             enddo
          enddo
       enddo
@@ -642,25 +645,26 @@ contains
 
    subroutine update_ghost(self, s)
    !< Update ghost cells.
-   class(field_object), intent(inout) :: self           !< The field.
-   integer(I4P),        intent(in)    :: s              !< Stage.
-   integer(I4P)                       :: i, j, k, mf    !< Counter.
-   integer(I4P)                       :: iii, jjj, kkk  !< Counter.
-   integer(I4P)                       :: fec            !< Direction where ghost cells are updated, faces/edges/corners.
-   integer(I4P)                       :: portion        !< Portion of fec updated (0=>whole fec).
-   integer(I4P)                       :: portion_cur    !< Current portion of fec updated (0=>whole fec).
-   integer(I4P)                       :: b_recv         !< Index of receiving block.
-   integer(I4P)                       :: b_send         !< Index of sending block.
-   integer(I4P)                       :: delta(3)       !< Neighbor delta of current fec.
-   integer(I4P)                       :: nijk(3)        !< Ni, Nj , Nk stored in array.
-   integer(I4P)                       :: ijkmin(3)      !< Lower limit of ijk indexes.
-   integer(I4P)                       :: ijkmax(3)      !< Upper limit of ijk indexes.
-   integer(I4P)                       :: ijkmin_c(3)    !< Lower limit of ijk indexes.
-   integer(I4P)                       :: ijkmax_c(3)    !< Upper limit of ijk indexes.
-   integer(I4P)                       :: ijkdelta(3)    !< Delta offset for ghost-inner cells mapping same refinement.
-   integer(I4P)                       :: ijkdelta_f(3)  !< Delta offset for ghost-inner cells mapping from finer.
-   integer(I4P)                       :: ijkdelta_c(3)  !< Delta offset for ghost-inner cells mapping from coarser.
-   integer(I4P)                       :: gcl(3), gcr(3) !< Ghost cell.
+   class(field_object), intent(inout) :: self             !< The field.
+   integer(I4P),        intent(in)    :: s                !< Stage.
+   integer(I4P)                       :: i, j, k, mf      !< Counter.
+   integer(I4P)                       :: iii, jjj, kkk    !< Counter.
+   integer(I4P)                       :: fec              !< Direction where ghost cells are updated, faces/edges/corners.
+   integer(I4P)                       :: portion          !< Portion of fec updated (0=>whole fec).
+   integer(I4P)                       :: portion_cur      !< Current portion of fec updated (0=>whole fec).
+   integer(I4P)                       :: b_recv           !< Index of receiving block.
+   integer(I4P)                       :: b_send           !< Index of sending block.
+   integer(I4P)                       :: delta(3)         !< Neighbor delta of current fec.
+   integer(I4P)                       :: nijk(3)          !< Ni, Nj , Nk stored in array.
+   integer(I4P)                       :: ijkmin(3)        !< Lower limit of ijk indexes.
+   integer(I4P)                       :: ijkmax(3)        !< Upper limit of ijk indexes.
+   integer(I4P)                       :: ijkmin_c(3)      !< Lower limit of ijk indexes.
+   integer(I4P)                       :: ijkmax_c(3)      !< Upper limit of ijk indexes.
+   integer(I4P)                       :: ijkdelta(3)      !< Delta offset for ghost-inner cells mapping same refinement.
+   integer(I4P)                       :: ijkdelta_f(3)    !< Delta offset for ghost-inner cells mapping from finer.
+   integer(I4P)                       :: ijkdelta_c(3)    !< Delta offset for ghost-inner cells mapping from coarser.
+   integer(I4P)                       :: gcl(3), gcr(3)   !< Ghost cell.
+   integer(I4P)                       :: portion_array(3) !< Portion array binary useful for less refined case.
 
    if (.not.allocated(self%local_map_ghost)) return
    associate(blocks_number=>self%blocks_number,                             &
@@ -676,6 +680,9 @@ contains
       b_send  = self%local_map_ghost(mf, 2)
       fec     = self%local_map_ghost(mf, 3)
       portion = abs(self%local_map_ghost(mf, 4))
+      portion_array(1) = mod(portion-1,2)
+      portion_array(2) = mod((portion-1)/2,2)
+      portion_array(3) = mod((portion-1)/4,2)
       delta = delta_neighbor(1:3, fec)
       do i=1, 3
          if     (delta(i)==1) then
@@ -684,18 +691,18 @@ contains
             ijkdelta(i) = -nijk(i)
             ijkdelta_f(i) = -1 - 2 * nijk(i)
 
-            ijkdelta_c(i) = nijk(i) - 1
-            ijkmin_c(i) = 1
-            ijkmax_c(i) = gcl(i) / 2
+            ijkmin_c(i) = nijk(i) / 2 * portion_array(i) + 1
+            ijkmax_c(i) = ijkmin_c(i) + gcr(i) / 2 - 1
+            ijkdelta_c(i) = - nijk(i) * portion_array(i) + nijk(i) - 1
          elseif (delta(i)==-1) then
             ijkmin(i) = 1 - gcl(i)
             ijkmax(i) = 0
             ijkdelta(i) = nijk(i)
             ijkdelta_f(i) = -1 + nijk(i)
 
-            ijkdelta_c(i) = -1 - 2 * nijk(i)
-            ijkmin_c(i) = nijk(i) - gcr(i) / 2 + 1
-            ijkmax_c(i) = nijk(i)
+            ijkmin_c(i) = nijk(i) / 2 + nijk(i) / 2 * portion_array(i) + 1 - gcr(i) / 2
+            ijkmax_c(i) = ijkmin_c(i) + gcr(i) / 2 - 1
+            ijkdelta_c(i) = - nijk(i) -  nijk(i) * portion_array(i) - 1
          elseif (delta(i)==0) then
             if (portion==0) then
                ijkmin(i) = 1
@@ -709,11 +716,11 @@ contains
             ijkdelta(i) = 0
             ijkdelta_f(i) = -2 * ijkmin(i) + 1
 
-            ijkdelta_c(i) = ijkdelta_f(i)
-            ijkmin_c(i) = ijkmin(i)
-            ijkmax_c(i) = ijkmax(i)
+            ijkmin_c(i) = nijk(i) / 2 * portion_array(i) + 1
+            ijkmax_c(i) = ijkmin_c(i) + nijk(i) / 2 - 1
+            ijkdelta_c(i) = - nijk(i) * portion_array(i) - 1
          endif
-      enddo
+      enddo 
       portion = self%local_map_ghost(mf, 4)
       if     (portion==0) then
          ! receiving from a block with the same refinement
@@ -787,6 +794,7 @@ contains
    integer(I4P)                       :: ijkdelta_f(3)              !< Delta offset for ghost-inner cells mapping from finer.
    integer(I4P)                       :: ijkdelta_c(3)              !< Delta offset for ghost-inner cells mapping from coarser.
    integer(I4P)                       :: gcl(3), gcr(3)             !< Ghost cell.
+   integer(I4P)                       :: portion_array(3)           !< Portion array binary useful for less refined case.
    integer(I4P)                       :: ptr_start, ptr_end         !< Counter.
    integer(I4P)                       :: n_recv, n_send             !< Counter.
    integer(I4P)                       :: recv_rank                  !< Rank of receiving block.
@@ -823,7 +831,10 @@ contains
       send_rank =     self%comm_map_send_ghost(sf, 3)
       fec       =     self%comm_map_send_ghost(sf, 4)
       portion   = abs(self%comm_map_send_ghost(sf, 5))
-      delta     = delta_neighbor(1:3, fec)
+      portion_array(1) = mod(portion-1,2)
+      portion_array(2) = mod((portion-1)/2,2)
+      portion_array(3) = mod((portion-1)/4,2)
+      delta = delta_neighbor(1:3, fec)
       do i=1, 3
          if     (delta(i)==1) then
             ijkmin(i) = nijk(i) + 1
@@ -831,18 +842,18 @@ contains
             ijkdelta(i) = -nijk(i)
             ijkdelta_f(i) = -1 - 2 * nijk(i)
 
-            ijkdelta_c(i) = nijk(i) - 1
-            ijkmin_c(i) = 1
-            ijkmax_c(i) = gcl(i) / 2
+            ijkmin_c(i) = nijk(i) / 2 * portion_array(i) + 1
+            ijkmax_c(i) = ijkmin_c(i) + gcr(i) / 2 - 1
+            ijkdelta_c(i) = - nijk(i) * portion_array(i) + nijk(i) - 1
          elseif (delta(i)==-1) then
             ijkmin(i) = 1 - gcl(i)
             ijkmax(i) = 0
             ijkdelta(i) = nijk(i)
             ijkdelta_f(i) = -1 + nijk(i)
 
-            ijkdelta_c(i) = -1 - 2 * nijk(i)
-            ijkmin_c(i) = nijk(i) - gcr(i) / 2 + 1
-            ijkmax_c(i) = nijk(i)
+            ijkmin_c(i) = nijk(i) / 2 + nijk(i) / 2 * portion_array(i) + 1 - gcr(i) / 2
+            ijkmax_c(i) = ijkmin_c(i) + gcr(i) / 2 - 1
+            ijkdelta_c(i) = - nijk(i) -  nijk(i) * portion_array(i) - 1
          elseif (delta(i)==0) then
             if (portion==0) then
                ijkmin(i) = 1
@@ -856,11 +867,11 @@ contains
             ijkdelta(i) = 0
             ijkdelta_f(i) = -2 * ijkmin(i) + 1
 
-            ijkdelta_c(i) = ijkdelta_f(i)
-            ijkmin_c(i) = ijkmin(i)
-            ijkmax_c(i) = ijkmax(i)
+            ijkmin_c(i) = nijk(i) / 2 * portion_array(i) + 1
+            ijkmax_c(i) = ijkmin_c(i) + nijk(i) / 2 - 1
+            ijkdelta_c(i) = - nijk(i) * portion_array(i) - 1
          endif
-      enddo
+      enddo 
       portion = self%comm_map_send_ghost(sf, 5)
       if (portion==0_I4P) then
          ! sending to a block at my level
@@ -945,6 +956,9 @@ contains
       recv_rank =     self%comm_map_recv_ghost(rf, 3)
       fec       =     self%comm_map_recv_ghost(rf, 4)
       portion   = abs(self%comm_map_recv_ghost(rf, 5))
+      portion_array(1) = mod(portion-1,2)
+      portion_array(2) = mod((portion-1)/2,2)
+      portion_array(3) = mod((portion-1)/4,2)
       delta = delta_neighbor(1:3, fec)
       do i=1, 3
          if     (delta(i)==1) then
@@ -953,18 +967,18 @@ contains
             ijkdelta(i) = -nijk(i)
             ijkdelta_f(i) = -1 - 2 * nijk(i)
 
-            ijkdelta_c(i) = nijk(i) - 1
-            ijkmin_c(i) = 1
-            ijkmax_c(i) = gcl(i) / 2
+            ijkmin_c(i) = nijk(i) / 2 * portion_array(i) + 1
+            ijkmax_c(i) = ijkmin_c(i) + gcr(i) / 2 - 1
+            ijkdelta_c(i) = - nijk(i) * portion_array(i) + nijk(i) - 1
          elseif (delta(i)==-1) then
             ijkmin(i) = 1 - gcl(i)
             ijkmax(i) = 0
             ijkdelta(i) = nijk(i)
             ijkdelta_f(i) = -1 + nijk(i)
 
-            ijkdelta_c(i) = -1 - 2 * nijk(i)
-            ijkmin_c(i) = nijk(i) - gcr(i) / 2 + 1
-            ijkmax_c(i) = nijk(i)
+            ijkmin_c(i) = nijk(i) / 2 + nijk(i) / 2 * portion_array(i) + 1 - gcr(i) / 2
+            ijkmax_c(i) = ijkmin_c(i) + gcr(i) / 2 - 1
+            ijkdelta_c(i) = - nijk(i) -  nijk(i) * portion_array(i) - 1
          elseif (delta(i)==0) then
             if (portion==0) then
                ijkmin(i) = 1
@@ -978,11 +992,11 @@ contains
             ijkdelta(i) = 0
             ijkdelta_f(i) = -2 * ijkmin(i) + 1
 
-            ijkdelta_c(i) = ijkdelta_f(i)
-            ijkmin_c(i) = ijkmin(i)
-            ijkmax_c(i) = ijkmax(i)
+            ijkmin_c(i) = nijk(i) / 2 * portion_array(i) + 1
+            ijkmax_c(i) = ijkmin_c(i) + nijk(i) / 2 - 1
+            ijkdelta_c(i) = - nijk(i) * portion_array(i) - 1
          endif
-      enddo
+      enddo 
       portion = self%comm_map_recv_ghost(rf, 5)
       if (portion==0_I4P) then
          do k=ijkmin(3), ijkmax(3)

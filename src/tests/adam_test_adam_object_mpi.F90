@@ -37,7 +37,7 @@ node => adam%tree%node(code=1_I8P)
 node%refinement_needed = TO_BE_REFINED
 call adam%amr_update
 call adam%field%set_initial_conditions
-call adam%field%rk_integrate(t=t*0.1_R8P, Dt=0._R8P)
+!call adam%field%rk_integrate(t=t*0.1_R8P, Dt=0._R8P)
 adam%field%u_s(:,:,:,1:adam%field%blocks_number,1) = adam%field%u(:,:,:,1:adam%field%blocks_number)
 call adam%field%update_ghost(s=1)
 adam%field%u(:,:,:,1:adam%field%blocks_number) = adam%field%u_s(:,:,:,1:adam%field%blocks_number,1)

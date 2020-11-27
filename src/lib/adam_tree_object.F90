@@ -1714,6 +1714,8 @@ contains
    integer(I4P)                                 :: delta(3)                    !< Counter.
    integer(I4P)                                 :: ijk(3)                      !< Counter.
    integer(I4P)                                 :: ijkmin(3), ijkmax(3)        !< Counter.
+   integer(I4P)                                 :: cl, cl_neighbor             !< Counter.
+   integer(I4P)                                 :: cl_array(3)                 !< Counter.
 
    if (present(neighbor_portion)) neighbor_portion = 1
 
@@ -1812,37 +1814,54 @@ contains
    ! direct neighbor does not exist, check if its parent exists
    direct_neighbor_parent = self%parent(code=direct_neighbor)
    if (self%has_code(code=direct_neighbor_parent)) then
-      ! parent exists
+
+      !WRONG! parent exists
+      !WRONGneighbor = [direct_neighbor_parent]
+      !WRONGneighbor_type = NODE_LESS_REFINED
+      !WRONGif (present(neighbor_portion)) then
+      !WRONG   ! searching the portion of parent that matches me
+      !WRONG   delta = -delta ! thats magic
+      !WRONG   ! build the ratio/2 indexes of the children of direct_neighbor that are face-to-face with node
+      !WRONG   do i=1, 3
+      !WRONG      if     (delta(i)==1) then
+      !WRONG         ijkmin(i) = 1
+      !WRONG         ijkmax(i) = 1
+      !WRONG      elseif (delta(i)==-1) then
+      !WRONG         ijkmin(i) = 0
+      !WRONG         ijkmax(i) = 0
+      !WRONG      elseif (delta(i)==0) then
+      !WRONG         ijkmin(i) = 0
+      !WRONG         ijkmax(i) = 1
+      !WRONG      endif
+      !WRONG   enddo
+      !WRONG   ! in ijkmin/ijkmax there are the ratio/2 deltas in binary notation that select the ratio/2 children of
+      !WRONG   ! my interest
+      !WRONG   neighbor_portion = 0
+      !WRONG   portion_loop : do k=ijkmin(3), ijkmax(3)
+      !WRONG      do j=ijkmin(2), ijkmax(2)
+      !WRONG         do i=ijkmin(1), ijkmax(1)
+      !WRONG            neighbor_portion = neighbor_portion + 1
+      !WRONG            if (i + 2*j + 4*k == self%child_local(code=direct_neighbor)) exit portion_loop
+      !WRONG         enddo
+      !WRONG      enddo
+      !WRONG   enddo portion_loop
+      !WRONGendif
+
       neighbor = [direct_neighbor_parent]
       neighbor_type = NODE_LESS_REFINED
       if (present(neighbor_portion)) then
-         ! searching the portion of parent that matches me
-         delta = -delta ! thats magic
-         ! build the ratio/2 indexes of the children of direct_neighbor that are face-to-face with node
-         do i=1, 3
-            if     (delta(i)==1) then
-               ijkmin(i) = 1
-               ijkmax(i) = 1
-            elseif (delta(i)==-1) then
-               ijkmin(i) = 0
-               ijkmax(i) = 0
-            elseif (delta(i)==0) then
-               ijkmin(i) = 0
-               ijkmax(i) = 1
-            endif
-         enddo
-         ! in ijkmin/ijkmax there are the ratio/2 deltas in binary notation that select the ratio/2 children of
-         ! my interest
-         neighbor_portion = 0
-         portion_loop : do k=ijkmin(3), ijkmax(3)
-            do j=ijkmin(2), ijkmax(2)
-               do i=ijkmin(1), ijkmax(1)
-                  neighbor_portion = neighbor_portion + 1
-                  if (i + 2*j + 4*k == self%child_local(code=direct_neighbor)) exit portion_loop
-               enddo
-            enddo
-         enddo portion_loop
+          cl = self%child_local(code=code)
+          cl_array(1) = mod(cl,2)
+          cl_array(2) = mod(cl/2,2)
+          cl_array(3) = mod(cl/4,2)
+
+          cl_array = cl_array + delta + 2 ! add 2 to avoid negative numbers (ineffective when doing mod 2)
+          cl_array = mod(cl_array,2)
+          cl_neighbor = cl_array(1) + cl_array(2)*2 + cl_array(3)*4
+
+          neighbor_portion = cl_neighbor + 1 ! return 1 to 8 subpart of parent which would have been the same-level direct neighbor
       endif
+
       return
    endif
 
