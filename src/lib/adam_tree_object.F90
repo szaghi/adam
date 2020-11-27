@@ -1029,21 +1029,25 @@ contains
                   recv_fec_number = recv_fec_number + 1
                   if (neighbor_type==NODE_MORE_REFINED) then
                      self%comm_map_n_recv_ghost(neigh%myrank) = self%comm_map_n_recv_ghost(neigh%myrank) + &
-                                                                self%grid%weight_neighbor(fec) / weight_reduction
+                                                                self%grid%weight_neighbor(fec)/ weight_reduction 
+                     print*,'casco make recv ',self%myrank,neighbor_type,self%grid%weight_neighbor(fec)/weight_reduction
                   else
                      self%comm_map_n_recv_ghost(neigh%myrank) = self%comm_map_n_recv_ghost(neigh%myrank) + &
                                                                 self%grid%weight_neighbor(fec)
+                     print*,'casco make recv ',self%myrank,neighbor_type,self%grid%weight_neighbor(fec)
                   endif
                elseif ((self%myrank == neigh%myrank).and.(self%myrank /= node%myrank)) then
                   ! when sending to same or more refined than me the size of the message is full, when sending to less
                   ! refined the message is an averaged portion (reduced size)
                   send_fec_number = send_fec_number + 1
-                  if (neighbor_type==NODE_LESS_REFINED) then
+                  if (neighbor_type==NODE_MORE_REFINED) then
                      self%comm_map_n_send_ghost(node%myrank) = self%comm_map_n_send_ghost(node%myrank) + &
-                                                               self%grid%weight_neighbor(fec) / weight_reduction
+                                                               self%grid%weight_neighbor(fec)/ weight_reduction 
+                     print*,'casco make send ',self%myrank,neighbor_type,self%grid%weight_neighbor(fec)/weight_reduction
                   else
                      self%comm_map_n_send_ghost(node%myrank) = self%comm_map_n_send_ghost(node%myrank) + &
                                                                self%grid%weight_neighbor(fec)
+                     print*,'casco make send ',self%myrank,neighbor_type,self%grid%weight_neighbor(fec)
                   endif
                endif
             enddo
@@ -1051,9 +1055,9 @@ contains
       enddo
    enddo
    ! populate maps
+   if (my_fec_number>0  ) allocate(self%local_map_ghost(    1:my_fec_number,  1:4))
    if (send_fec_number>0) allocate(self%comm_map_send_ghost(1:send_fec_number,1:5))
    if (recv_fec_number>0) allocate(self%comm_map_recv_ghost(1:recv_fec_number,1:5))
-   if (my_fec_number>0  ) allocate(self%local_map_ghost(    1:my_fec_number,  1:4))
    sf = 0
    rf = 0
    mf = 0

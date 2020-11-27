@@ -530,7 +530,6 @@ contains
    n_recv = 0_I8P ; if (allocated(self%comm_map_n_recv_ghost)) n_recv = sum(self%comm_map_n_recv_ghost, dim=1)
    if (n_send > 0_I8P) allocate(self%send_buffer_ghost(n_send))
    if (n_recv > 0_I8P) allocate(self%recv_buffer_ghost(n_recv))
-   print*, 'cazzo ', n_send, n_recv
    endsubroutine prepare_comm_local_ghost
 
    subroutine rk_integrate(self, t, Dt)
@@ -540,12 +539,12 @@ contains
    real(R8P),           intent(in)    :: Dt
    integer(I4P)                       :: s, ss
 
-   ! ! cancellare cazzoooooo
+   ! ! cancellare casco
    ! self%u_s(:,:,:,1:self%blocks_number,1) = self%u(:,:,:,1:self%blocks_number)
    ! call self%update_ghost(s=1)
    ! self%u(:,:,:,1:self%blocks_number) = self%u_s(:,:,:,1:self%blocks_number,1)
    ! return
-   ! ! cancellare cazzoooooo
+   ! ! cancellare casco
 
    associate(alph=>self%alph, beta=>self%beta, gamm=>self%gamm)
    do s=1, 3
@@ -633,7 +632,7 @@ contains
                                       (y_cell(j,b) - y_0)**2/(2 * sigma_y**2)+&
                                       (z_cell(k,b) - z_0)**2/(2 * sigma_z**2)))
                ! u(i,j,k,b) = self%code(b)
-               ! u(i,j,k,b) = b + 100 * self%myrank
+               u(i,j,k,b) = b + 100 * self%myrank
             enddo
          enddo
       enddo
@@ -770,6 +769,7 @@ contains
    class(field_object), intent(inout) :: self                       !< The field.
    integer(I4P),        intent(in)    :: s                          !< Stage.
    integer(I4P)                       :: i, j, k                    !< Counter.
+   integer(I4P)                       :: iii, jjj, kkk              !< Counter.
    integer(I4P)                       :: fec, mf, rf, sf, n, p      !< Counter.
    integer(I4P), allocatable          :: comm_map_send_ctr_ghost(:) !< Communication map, counters in list to send [procs_number+1].
    integer(I4P), allocatable          :: comm_map_recv_ctr_ghost(:) !< Communication map, counters in list to recv [procs_number+1].
@@ -812,6 +812,10 @@ contains
    comm_map_send_ctr_ghost = self%comm_map_send_ptr_ghost
    comm_map_recv_ctr_ghost = self%comm_map_recv_ptr_ghost
 
+   call MPI_BARRIER(MPI_COMM_WORLD, error)
+   print*,'casco prima mpi :',self%myrank,' - recv: ',self%comm_map_recv_ptr_ghost(:), size(self%recv_buffer_ghost)
+   print*,'casco prima mpi :',self%myrank,' - send: ',self%comm_map_send_ptr_ghost(:), size(self%send_buffer_ghost)
+
    ! populate send buffer
    do sf=1, size(self%comm_map_send_ghost, dim=1)
       ! b_ghost   =     comm_map_send_ghost(sf, 1) ! block-index
@@ -819,7 +823,7 @@ contains
       send_rank =     self%comm_map_send_ghost(sf, 3)
       fec       =     self%comm_map_send_ghost(sf, 4)
       portion   = abs(self%comm_map_send_ghost(sf, 5))
-      delta = delta_neighbor(1:3, fec)
+      delta     = delta_neighbor(1:3, fec)
       do i=1, 3
          if     (delta(i)==1) then
             ijkmin(i) = nijk(i) + 1
@@ -869,15 +873,15 @@ contains
                enddo
             enddo
          enddo
-      elseif (portion>0) then
+      elseif (portion<0_I4P) then ! Beware! This is < 0 because the reference is the receiver
          ! sending to a block finer than me
          do k=ijkmin_c(3), ijkmax_c(3)
             do j=ijkmin_c(2), ijkmax_c(2)
                do i=ijkmin_c(1), ijkmax_c(1)
                   do n=1,8
-                  self%send_buffer_ghost(comm_map_send_ctr_ghost(send_rank)+1) = &
-                     u_s(i,j,k,b_send,s)
-                  comm_map_send_ctr_ghost(send_rank) = comm_map_send_ctr_ghost(send_rank) + 1
+                     self%send_buffer_ghost(comm_map_send_ctr_ghost(send_rank)+1) = &
+                        u_s(i,j,k,b_send,s)
+                     comm_map_send_ctr_ghost(send_rank) = comm_map_send_ctr_ghost(send_rank) + 1
                   enddo
                enddo
             enddo
@@ -931,6 +935,9 @@ contains
    call MPI_WAITALL(self%procs_number * 2, req_send_recv, MPI_STATUSES_IGNORE, error)
 #endif
 
+   call MPI_BARRIER(MPI_COMM_WORLD, error)
+   print*,'casco mpi fatto'
+
    ! retrive from receive buffer
    do rf=1, size(self%comm_map_recv_ghost, dim=1)
       b_recv    =     self%comm_map_recv_ghost(rf, 1) ! block-index
@@ -976,11 +983,12 @@ contains
             ijkmax_c(i) = ijkmax(i)
          endif
       enddo
-      portion = self%comm_map_send_ghost(rf, 5)
+      portion = self%comm_map_recv_ghost(rf, 5)
       if (portion==0_I4P) then
          do k=ijkmin(3), ijkmax(3)
             do j=ijkmin(2), ijkmax(2)
                do i=ijkmin(1), ijkmax(1)
+                  !RIMETTERE SENZA u_s(i,j,k,b_recv,s) = -5000.d0
                   u_s(i,j,k,b_recv,s) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                   comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
                enddo
@@ -992,6 +1000,7 @@ contains
             do j=ijkmin(2), ijkmax(2)
                do i=ijkmin(1), ijkmax(1)
                   u_s(i,j,k,b_recv,s) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                  !RIMETTERE SENZAu_s(i,j,k,b_recv,s) = -10000. ! self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                   comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
                enddo
             enddo

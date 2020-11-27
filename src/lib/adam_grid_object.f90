@@ -22,7 +22,7 @@ type :: grid_object
    integer(I4P) :: gc4=2_I4P                 !< Number of ghost cells in j+ direction for boundary conditions.
    integer(I4P) :: gc5=2_I4P                 !< Number of ghost cells in k- direction for boundary conditions.
    integer(I4P) :: gc6=2_I4P                 !< Number of ghost cells in k+ direction for boundary conditions.
-   integer(I4P) :: weight_neighbor(26)=0_I8P !< Weight of neighbors (cells number).
+   integer(I4P) :: weight_neighbor(26)=0_I4P !< Weight of neighbors (cells number).
    contains
       ! public methods
       procedure, pass(self) :: compute_metrics         !< Compute metrics of a block.
