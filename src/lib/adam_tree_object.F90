@@ -853,11 +853,7 @@ contains
          endif
       endif
    enddo
-   print*, 'cazzo inner-outer ', self%my_nodes_number, self%inner_blocks_number, self%inner_outer_block_map
    call self%mpi_gather_nodes_data(node_member='block_index')
-   do while(self%loop(node=node))
-      print*, 'cazzo block indexes ', node%code, node%block_index, node%block_index_new
-   enddo
    endsubroutine blocks_reorder
 
    subroutine import_refinements_needed(self, refinements_needed_all, disp_count)

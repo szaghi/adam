@@ -172,30 +172,23 @@ contains
    integer(I4P),        intent(in)    :: inner_outer_block_map(:) !< Inner/outer blocks map.
    integer(I4P),        intent(in)    :: inner_blocks_number      !< Number of inner blocks where I need fecs.
    integer(I4P), allocatable          :: coordinates_new(:,:)     !< Temporary coordinates array.
-   real(R8P),    allocatable          :: emin_new(:,:)            !< Coordinates of minimum abscissa of each block [3,nb].
-   real(R8P),    allocatable          :: emax_new(:,:)            !< Coordinates of maximum abscissa of each block [3,nb].
    integer(I8P), allocatable          :: code_new(:)              !< Temporary Morton codes.
    integer(I4P)                       :: b                        !< Counter.
 
    allocate(coordinates_new(4,self%blocks_number))
-   allocate(emin_new(3,self%blocks_number))
-   allocate(emax_new(3,self%blocks_number))
    allocate(code_new(self%blocks_number))
    do b=1, self%blocks_number
       self%u_new(:,:,:,b) = self%u(:,:,:,inner_outer_block_map(b))
       coordinates_new(:,b) = self%coordinates(:,inner_outer_block_map(b))
-      emin_new(:,b) = self%emin(:,inner_outer_block_map(b))
-      emax_new(:,b) = self%emax(:,inner_outer_block_map(b))
       code_new(b) = self%code(inner_outer_block_map(b))
    enddo
    do b=1, self%blocks_number
       self%u(:,:,:,b) = self%u_new(:,:,:,b)
       self%coordinates(:,b) = coordinates_new(:,b)
-      self%emin(:,b) = emin_new(:,b)
-      self%emax(:,b) = emax_new(:,b)
       self%code(b) = code_new(b)
    enddo
    self%inner_blocks_number = inner_blocks_number
+   call self%compute_metrics
    endsubroutine blocks_reorder
 
    subroutine compute_metrics(self)
@@ -567,17 +560,17 @@ contains
          self%u_s(1:ni,1:nj,1:nk,1:self%blocks_number,s) = self%u_s(1:ni,1:nj,1:nk,1:self%blocks_number,s ) + &
                                                           (self%u_s(1:ni,1:nj,1:nk,1:self%blocks_number,ss) * (Dt * alph(s, ss)))
       enddo
-      call self%update_ghost(s=s)
-      call self%update_ghost_mpi(s=s)
-      call self%residuals(s=s, t=t + gamm(s) * Dt, block_start=1, block_end=self%blocks_number, &
-                          residual=residual)
       ! call self%update_ghost(s=s)
-      ! call self%update_ghost_mpi(s=s, step=1)
-      ! call self%update_ghost_mpi(s=s, step=2)
-      ! call self%residuals(s=s, t=t + gamm(s) * Dt, block_start=1, block_end=self%inner_blocks_number)
-      ! call self%update_ghost_mpi(s=s, step=3)
-      ! call self%residuals(s=s, t=t + gamm(s) * Dt, block_start=self%inner_blocks_number+1, block_end=self%blocks_number, &
+      ! call self%update_ghost_mpi(s=s)
+      ! call self%residuals(s=s, t=t + gamm(s) * Dt, block_start=1, block_end=self%blocks_number, &
       !                     residual=residual)
+      call self%update_ghost(s=s)
+      call self%update_ghost_mpi(s=s, step=1)
+      call self%update_ghost_mpi(s=s, step=2)
+      call self%residuals(s=s, t=t + gamm(s) * Dt, block_start=1, block_end=self%inner_blocks_number)
+      call self%update_ghost_mpi(s=s, step=3)
+      call self%residuals(s=s, t=t + gamm(s) * Dt, block_start=self%inner_blocks_number+1, block_end=self%blocks_number, &
+                          residual=residual)
    enddo
    do s=1, 3
       self%u(1:ni,1:nj,1:nk,1:self%blocks_number) = self%u(1:ni,1:nj,1:nk,1:self%blocks_number) + &
@@ -619,22 +612,15 @@ contains
                                             1:self%grid%nj, &
                                             1:self%grid%nk, &
                                             b,s)) / self%grid%ni / self%grid%nj / self%grid%nk
-      if (s==1) call save_block_residual(b=b, res=sum(self%u_s(1:self%grid%ni, &
-                                                        1:self%grid%nj, &
-                                                        1:self%grid%nk, &
-                                                        b,s)) / self%grid%ni / self%grid%nj / self%grid%nk)
-
+      ! if (s==1) call save_block_residual(b=b, res=sum(self%u_s(1:self%grid%ni, &
+      !                                                   1:self%grid%nj, &
+      !                                                   1:self%grid%nk, &
+      !                                                   b,s)) / self%grid%ni / self%grid%nj / self%grid%nk)
       enddo
       residual = residual
-      ! residual = sum(self%u_s(1:self%grid%ni, &
-      !                         1:self%grid%nj, &
-      !                         1:self%grid%nk, &
-      !                         1:self%blocks_number,s)) / self%grid%ni / self%grid%nj / self%grid%nk / self%blocks_number
 #ifdef _MPI_
       call MPI_ALLREDUCE(MPI_IN_PLACE, residual, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%error)
 #endif
-      print*, 'cazzo all ', residual
-      ! residual = residual / self%procs_number
    endif
    contains
       subroutine save_block_residual(b, res)

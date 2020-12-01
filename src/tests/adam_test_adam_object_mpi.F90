@@ -11,7 +11,7 @@ implicit none
 
 type(adam_object)               :: adam            !< ADAM.
 type(tree_node_object), pointer :: node            !< Node tree.
-integer(I4P)                    :: l, t, st        !< Counter.
+integer(I4P)                    :: l, t, st, b     !< Counter.
 logical                         :: is_grid_changed !< Flag to check grid changes.
 integer(I8P)                    :: timing(0:2)     !< Tic toc timing.
 real(R8P)                       :: residual        !< Global residual.
@@ -22,12 +22,22 @@ call adam%initialize(max_level=8, emin=[0._R8P,0._R8P,0._R8P], emax=[1._R8P,1._R
 do l=1, 2
    print '(A)', 'refine ADAM at level '//trim(str(l))
    call adam%tree%mark_all_nodes(mark=TO_BE_REFINED)
-   ! call adam%amr_update(do_blocks_reorder=.false.)
    call adam%amr_update
 enddo
 print '(A)', 'set initial conditions'
+
+! print*, 'Reorder as tree saw'
+! do while(adam%tree%loop(node=node))
+!    print*, 'code,block,proc: ', node%code, node%block_index, node%myrank
+! enddo
+! print*, 'Reorder as field saw'
+! do b=1, adam%field%blocks_number
+!    print*, 'code,block,proc: ', adam%field%code(b), b, adam%field%myrank
+! enddo
+! call adam%finalize
+
 call adam%field%set_initial_conditions
-! call adam%save_hdf5(basename='sphere-'//trim(strz(0,9)))
+call adam%save_hdf5(basename='sphere-'//trim(strz(0,9)))
 
 ! do t=1, 3
 !    print '(A)', 'track iteration '//trim(str(t, .true.))
@@ -42,7 +52,8 @@ call adam%field%set_initial_conditions
 ! enddo
 
 call system_clock(timing(1))
-do t=1, 1
+do t=1, 4
+   call adam%save_hdf5(basename='sphere-'//trim(strz(t,9)))
    call adam%field%rk_integrate(t=t*0.1_R8P, Dt=0.1_R8P, residual=residual)
    print '(A)', 'integrate iteration: '//trim(str(t, .true.))//' global residual: '//trim(str(residual))
 enddo
