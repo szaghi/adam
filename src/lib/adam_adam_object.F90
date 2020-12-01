@@ -31,13 +31,18 @@ type :: adam_object
    integer(I4P) :: myrank=0_I4P       !< MPI rank process.
    contains
       ! public methods
-      procedure, pass(self) :: amr_update       !< Update AMR status.
-      procedure, pass(self) :: destroy          !< Destroy ADAM.
-      procedure, pass(self) :: finalize         !< Finalize ADAM.
-      procedure, pass(self) :: initialize       !< Initialize ADAM.
-      procedure, pass(self) :: mpi_redistribute !< Redistribute nodes/blocks to processes, load balancing.
-      procedure, pass(self) :: save_hdf5        !< Save ADAM in HDF5 format.
-      procedure, pass(self) :: save_vtk         !< Save ADAM in VTK  format.
+      procedure, pass(self) :: adapt                        !< Adapt tree/field accordingly to refine/derefine necessity.
+      procedure, pass(self) :: amr_update                   !< Update AMR status.
+      procedure, pass(self) :: blocks_reorder               !< Reorder blocks (for asyncrhonous MPI)
+      procedure, pass(self) :: destroy                      !< Destroy ADAM.
+      procedure, pass(self) :: finalize                     !< Finalize ADAM.
+      procedure, pass(self) :: initialize                   !< Initialize ADAM.
+      procedure, pass(self) :: make_comm_local_maps_ghost   !< Make communication/local maps of ghost cells.
+      procedure, pass(self) :: mpi_gather_refinement_needed !< Gather refinement needed.
+      procedure, pass(self) :: mpi_redistribute             !< Redistribute nodes/blocks to processes, load balancing.
+      procedure, pass(self) :: save_hdf5                    !< Save ADAM in HDF5 format.
+      procedure, pass(self) :: save_vtk                     !< Save ADAM in VTK  format.
+      procedure, pass(self) :: update_ghost                 !< Update ghost cells.
       ! operators
       generic :: assignment(=) => adam_assign_adam      !< Overload `=`.
       procedure, pass(lhs), private :: adam_assign_adam !< Operator `=`.
@@ -45,59 +50,56 @@ endtype adam_object
 
 contains
    ! public methods
-   subroutine amr_update(self, is_marked_by_field, is_marked_by_tree, do_mpi_redistribute, print_mpi_stats, is_grid_changed)
-   !< Update AMR status.
-   class(adam_object), intent(inout)         :: self                 !< ADAM.
-   logical,            intent(in),  optional :: is_marked_by_field   !< Flag to check if marker is field.
-   logical,            intent(in),  optional :: is_marked_by_tree    !< Flag to check if marker is tree.
-   logical,            intent(in),  optional :: do_mpi_redistribute  !< Flag to activate MPI redistribute.
-   logical,            intent(in),  optional :: print_mpi_stats      !< Flag to activate MPI statistics print.
-   logical,            intent(out), optional :: is_grid_changed      !< Flag to check if grid is changed.
-   logical                                   :: is_marked_by_field_  !< Flag to check if marker is field, local var.
-   logical                                   :: is_marked_by_tree_   !< Flag to check if marker is tree, local var.
-   logical                                   :: do_mpi_redistribute_ !< Flag to activate MPI redistribute, local var.
-
-   is_marked_by_field_  = .false. ; if (present(is_marked_by_field  )) is_marked_by_field_  = is_marked_by_field
-   is_marked_by_tree_   = .false. ; if (present(is_marked_by_tree   )) is_marked_by_tree_   = is_marked_by_tree
-   do_mpi_redistribute_ = .true.  ; if (present(do_mpi_redistribute )) do_mpi_redistribute_ = do_mpi_redistribute
-
-   if (is_marked_by_field_) then
-      call self%field%mpi_gather_refinements_needed
-      call self%tree%import_refinements_needed(refinements_needed_all=self%field%refinements_needed_all, &
-                                               disp_count=self%field%disp_count)
-   endif
-   if (is_marked_by_tree_) then
-      call self%tree%mpi_gather_refinements_needed(node_member='refinement_needed')
-   endif
-
-   if (self%tree%nodes_number > 1) then
-      self%field%u_s(:,:,:,1:self%field%blocks_number,1) = self%field%u(:,:,:,1:self%field%blocks_number)
-      call self%field%update_ghost(s=1)
-      self%field%u(:,:,:,1:self%field%blocks_number) = self%field%u_s(:,:,:,1:self%field%blocks_number,1)
-   endif
+   subroutine adapt(self)
+   !< Adapt tree/field accordingly to refine/derefine necessity.
+   class(adam_object), intent(inout) :: self !< ADAM.
 
    call self%tree%adapt
    call self%field%adapt(ratio=self%tree%ratio,                                                            &
                          block_to_refine=self%tree%block_to_refine, block_refined=self%tree%block_refined, &
                          block_to_derefine=self%tree%block_to_derefine, block_derefined=self%tree%block_derefined)
-   if (present(is_grid_changed)) &
-      is_grid_changed = (size(self%tree%node_to_refine, dim=1)>0_I4P).or.(size(self%tree%node_to_derefine, dim=1)>0_I4P)
+   endsubroutine adapt
+
+   subroutine amr_update(self, is_marked_by_field, is_marked_by_tree, do_mpi_redistribute, do_blocks_reorder, &
+                         print_mpi_stats, is_grid_changed)
+   !< Update AMR status.
+   class(adam_object), intent(inout)         :: self                 !< ADAM.
+   logical,            intent(in),  optional :: is_marked_by_field   !< Flag to check if marker is field.
+   logical,            intent(in),  optional :: is_marked_by_tree    !< Flag to check if marker is tree.
+   logical,            intent(in),  optional :: do_mpi_redistribute  !< Flag to activate MPI redistribute.
+   logical,            intent(in),  optional :: do_blocks_reorder    !< Flag to activate blocks reorder.
+   logical,            intent(in),  optional :: print_mpi_stats      !< Flag to activate MPI statistics print.
+   logical,            intent(out), optional :: is_grid_changed      !< Flag to check if grid is changed.
+   logical                                   :: do_mpi_redistribute_ !< Flag to activate MPI redistribute, local var.
+   logical                                   :: do_blocks_reorder_   !< Flag to activate blocks reorder, local var.
+
+   do_mpi_redistribute_ = .true.  ; if (present(do_mpi_redistribute )) do_mpi_redistribute_ = do_mpi_redistribute
+   do_blocks_reorder_ = .true.  ; if (present(do_blocks_reorder)) do_blocks_reorder_ = do_blocks_reorder
+
+   call self%mpi_gather_refinement_needed(is_marked_by_field=is_marked_by_field, is_marked_by_tree=is_marked_by_tree)
+
+   call self%update_ghost
+
+   call self%adapt
+
+   if (present(is_grid_changed)) is_grid_changed = (size(self%tree%node_to_refine,   dim=1)>0_I4P).or.&
+                                                   (size(self%tree%node_to_derefine, dim=1)>0_I4P)
 
    if (do_mpi_redistribute_) call self%mpi_redistribute(print_mpi_stats=print_mpi_stats)
 
-   ! call self%tree%blocks_reorder
-   ! call self%field%blocks_reorder(inner_outer_block_map=self%tree%inner_outer_block_map)
+   if (do_blocks_reorder_) call self%blocks_reorder
 
-   ! create local and communication maps for ghost cells updating
-   call self%tree%make_comm_local_maps_ghost
-   call self%field%prepare_comm_local_ghost(local_map_ghost        = self%tree%local_map_ghost,         &
-                                            comm_map_n_send_ghost  = self%tree%comm_map_n_send_ghost,   &
-                                            comm_map_n_recv_ghost  = self%tree%comm_map_n_recv_ghost,   &
-                                            comm_map_send_ptr_ghost= self%tree%comm_map_send_ptr_ghost, &
-                                            comm_map_recv_ptr_ghost= self%tree%comm_map_recv_ptr_ghost, &
-                                            comm_map_send_ghost    = self%tree%comm_map_send_ghost,     &
-                                            comm_map_recv_ghost    = self%tree%comm_map_recv_ghost)
+   call self%make_comm_local_maps_ghost
    endsubroutine amr_update
+
+   subroutine blocks_reorder(self)
+   !< Reorder blocks (for asyncrhonous MPI)
+   class(adam_object), intent(inout) :: self !< ADAM.
+
+   call self%tree%blocks_reorder
+   call self%field%blocks_reorder(inner_outer_block_map=self%tree%inner_outer_block_map, &
+                                  inner_blocks_number=self%tree%inner_blocks_number)
+   endsubroutine blocks_reorder
 
    subroutine destroy(self)
    !< Destroy ADAM.
@@ -156,6 +158,42 @@ contains
    call self%amr_update
    endsubroutine initialize
 
+   subroutine make_comm_local_maps_ghost(self)
+   !< Make communication/local maps of ghost cells.
+   class(adam_object), intent(inout) :: self !< ADAM.
+
+   call self%tree%make_comm_local_maps_ghost
+   call self%field%prepare_comm_local_ghost(local_map_ghost         = self%tree%local_map_ghost,         &
+                                            comm_map_n_send_ghost   = self%tree%comm_map_n_send_ghost,   &
+                                            comm_map_n_recv_ghost   = self%tree%comm_map_n_recv_ghost,   &
+                                            comm_map_send_ptr_ghost = self%tree%comm_map_send_ptr_ghost, &
+                                            comm_map_recv_ptr_ghost = self%tree%comm_map_recv_ptr_ghost, &
+                                            comm_map_send_ghost     = self%tree%comm_map_send_ghost,     &
+                                            comm_map_recv_ghost     = self%tree%comm_map_recv_ghost)
+   endsubroutine make_comm_local_maps_ghost
+
+   subroutine mpi_gather_refinement_needed(self, is_marked_by_field, is_marked_by_tree)
+   !< Gather refinement needed.
+   class(adam_object), intent(inout)         :: self                !< ADAM.
+   logical,            intent(in),  optional :: is_marked_by_field  !< Flag to check if marker is field.
+   logical,            intent(in),  optional :: is_marked_by_tree   !< Flag to check if marker is tree.
+   logical                                   :: is_marked_by_field_ !< Flag to check if marker is field, local var.
+   logical                                   :: is_marked_by_tree_  !< Flag to check if marker is tree, local var.
+
+   is_marked_by_field_  = .false. ; if (present(is_marked_by_field  )) is_marked_by_field_  = is_marked_by_field
+   is_marked_by_tree_   = .false. ; if (present(is_marked_by_tree   )) is_marked_by_tree_   = is_marked_by_tree
+
+   if (is_marked_by_field_) then
+      call self%field%mpi_gather_refinements_needed
+      call self%tree%import_refinements_needed(refinements_needed_all=self%field%refinements_needed_all, &
+                                               disp_count=self%field%disp_count)
+   endif
+
+   if (is_marked_by_tree_) then
+      call self%tree%mpi_gather_nodes_data(node_member='refinement_needed')
+   endif
+   endsubroutine mpi_gather_refinement_needed
+
    subroutine mpi_redistribute(self, print_mpi_stats)
    !< Redistribute nodes/blocks to processes, load balancing.
    class(adam_object), intent(inout)         :: self             !< ADAM.
@@ -170,7 +208,8 @@ contains
                                     comm_map_send_ptr=self%tree%comm_map_send_ptr, &
                                     comm_map_recv_ptr=self%tree%comm_map_recv_ptr, &
                                     local_map=self%tree%local_map,                 &
-                                    coordinates=self%tree%block_coordinates)
+                                    coordinates=self%tree%block_coordinates,       &
+                                    code=self%tree%block_code)
    endsubroutine mpi_redistribute
 
    subroutine save_hdf5(self, basename, directory)
@@ -271,12 +310,14 @@ contains
    endassociate
    endsubroutine save_hdf5
 
-   subroutine save_vtk(self, basename, directory)
+   subroutine save_vtk(self, basename, directory, with_ghost)
    !< Save ADAM in VTK files.
    class(adam_object), intent(inout)        :: self                                          !< ADAM.
    character(*),       intent(in)           :: basename                                      !< Base name of output files.
    character(*),       intent(in), optional :: directory                                     !< Output directory name.
+   logical,            intent(in), optional :: with_ghost                                    !< Flag to save ghost cells.
    character(:), allocatable                :: directory_                                    !< Output directory name, local var.
+   logical                                  :: with_ghost_                                   !< Flag to save ghost cells, local var.
    type(vtk_file)                           :: vtk                                           !< VTK file handler.
    type(vtm_file)                           :: vtm                                           !< VTM file handler.
    type(tree_node_object), pointer          :: node                                          !< Pointer to node.
@@ -288,6 +329,7 @@ contains
    real(R8P)                                :: z(0-self%grid%gc5:self%grid%nk+self%grid%gc6) !< Z coordinates.
 
    directory_ = '' ; if (present(directory)) directory_ = trim(directory)
+   with_ghost_ = .false. ; if (present(with_ghost)) with_ghost_ = with_ghost
    associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk,       &
              gc1=>self%grid%gc1, gc2=>self%grid%gc2, gc3=>self%grid%gc3, &
              gc4=>self%grid%gc4, gc5=>self%grid%gc5, gc6=>self%grid%gc6)
@@ -328,6 +370,17 @@ contains
       endif
    endassociate
    endsubroutine save_vtk
+
+   subroutine update_ghost(self)
+   !< Update ghost cells.
+   class(adam_object), intent(inout) :: self !< ADAM.
+
+   if (self%tree%nodes_number > 1) then
+      self%field%u_s(:,:,:,1:self%field%blocks_number,1) = self%field%u(:,:,:,1:self%field%blocks_number)
+      call self%field%update_ghost(s=1)
+      self%field%u(:,:,:,1:self%field%blocks_number) = self%field%u_s(:,:,:,1:self%field%blocks_number,1)
+   endif
+   endsubroutine update_ghost
 
    ! operators
    ! =
