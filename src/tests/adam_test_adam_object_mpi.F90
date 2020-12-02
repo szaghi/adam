@@ -24,8 +24,8 @@ do l=1, 4
    call adam%tree%mark_all_nodes(mark=TO_BE_REFINED)
    call adam%amr_update(do_blocks_reorder=.false.)
 enddo
-print '(A)', 'set initial conditions'
 
+print '(A)', 'set initial conditions'
 call adam%field%set_initial_conditions
 
 do t=1, 2

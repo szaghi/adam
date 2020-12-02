@@ -36,7 +36,6 @@ type :: field_gpu_object
       procedure, pass(self) :: copy_cpu_gpu !< Copy data from CPU to GPU.
       procedure, pass(self) :: copy_gpu_cpu !< Copy data from GPU to CPU.
       procedure, pass(self) :: rk_integrate !< Runge Kutta integration of field.
-      ! procedure, pass(self) :: residuals    !< Compute residuals of field.
 endtype field_gpu_object
 
 contains
@@ -113,24 +112,26 @@ contains
                          Dt=Dt,                                      &
                          alph=self%alph_gpu,                         &
                          beta=self%beta_gpu,                         &
-                         gamm=self%field_cpu%gamm)
+                         gamm=self%field_cpu%gamm,                   &
+                         local_map_ghost=self%field_cpu%local_map_ghost)
    endsubroutine rk_integrate
 
-   subroutine rk_integrate_gpu(u, u_work, u_s, alph, beta, gamm, blocks_number, ni, nj, nk, t, Dt)
-   real(R8P),    intent(inout), device :: u(:,:,:,:)        !< Field cell centered variables.
-   real(R8P),    intent(inout), device :: u_work(:,:,:,:)   !< Field working buffer.
-   real(R8P),    intent(inout), device :: u_s(:,:,:,:,:)    !< RK field stages.
-   real(R8P),    intent(in),    device :: alph(:,:)         !< RK alpha coefficients.
-   real(R8P),    intent(in),    device :: beta(:)           !< RK beta coefficients.
-   real(R8P),    intent(in)            :: gamm(:)           !< RK gamma coefficients.
-   integer(I4P), intent(in)            :: blocks_number     !< Number of blocks actually stored.
-   integer(I4P), intent(in)            :: ni                !< Number of cell in I direction.
-   integer(I4P), intent(in)            :: nj                !< Number of cell in J direction.
-   integer(I4P), intent(in)            :: nk                !< Number of cell in K direction.
-   real(R8P),    intent(in)            :: t                 !< Time.
-   real(R8P),    intent(in)            :: Dt                !< Time step.
-   integer(I4P)                        :: i, j, k, b, s, ss !< Counter.
-   integer(I4P)                        :: iercuda           !< Error trapping flag for CUDAFortran.
+   subroutine rk_integrate_gpu(u, u_work, u_s, alph, beta, gamm, blocks_number, ni, nj, nk, t, Dt, local_map_ghost)
+   real(R8P),    intent(inout), device   :: u(:,:,:,:)           !< Field cell centered variables.
+   real(R8P),    intent(inout), device   :: u_work(:,:,:,:)      !< Field working buffer.
+   real(R8P),    intent(inout), device   :: u_s(:,:,:,:,:)       !< RK field stages.
+   real(R8P),    intent(in),    device   :: alph(:,:)            !< RK alpha coefficients.
+   real(R8P),    intent(in),    device   :: beta(:)              !< RK beta coefficients.
+   real(R8P),    intent(in)              :: gamm(:)              !< RK gamma coefficients.
+   integer(I4P), intent(in)              :: blocks_number        !< Number of blocks actually stored.
+   integer(I4P), intent(in)              :: ni                   !< Number of cell in I direction.
+   integer(I4P), intent(in)              :: nj                   !< Number of cell in J direction.
+   integer(I4P), intent(in)              :: nk                   !< Number of cell in K direction.
+   real(R8P),    intent(in)              :: t                    !< Time.
+   real(R8P),    intent(in)              :: Dt                   !< Time step.
+   integer(I8P), intent(in), allocatable :: local_map_ghost(:,:) !< Local map for ghost cells updating.
+   integer(I4P)                          :: i, j, k, b, s, ss    !< Counter.
+   integer(I4P)                          :: iercuda              !< Error trapping flag for CUDAFortran.
 
    do s=1, 3
       !$cuf kernel do(4) <<<*,*>>>
@@ -158,7 +159,10 @@ contains
          enddo
          !@cuf iercuda=cudaDeviceSynchronize()
       enddo
-      call residuals_gpu(u_work=u_work, u_s=u_s, blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, s=s, t=t + gamm(s) * Dt)
+      call update_ghost_gpu(local_map_ghost=local_map_ghost, u_s=u_s, s=s)
+      ! call self%update_ghost_mpi_gpu(s=s)
+      call compute_residuals_gpu(u_work=u_work, u_s=u_s, block_start=1, block_end=blocks_number, &
+                                 ni=ni, nj=nj, nk=nk, s=s, t=t + gamm(s) * Dt)
    enddo
    do s=1, 3
       !$cuf kernel do(4) <<<*,*>>>
@@ -175,22 +179,23 @@ contains
    enddo
    endsubroutine rk_integrate_gpu
 
-   subroutine residuals_gpu(u_work, u_s, blocks_number, ni, nj, nk, s, t)
-   real(R8P),    intent(inout), device :: u_work(:,:,:,:)   !< Field working buffer.
-   real(R8P),    intent(inout), device :: u_s(:,:,:,:,:)    !< RK field stages.
-   integer(I4P), intent(in)            :: blocks_number     !< Number of blocks actually stored.
-   integer(I4P), intent(in)            :: ni                !< Number of cell in I direction.
-   integer(I4P), intent(in)            :: nj                !< Number of cell in J direction.
-   integer(I4P), intent(in)            :: nk                !< Number of cell in K direction.
-   integer(I4P), intent(in)            :: s                 !< Working stage.
-   real(R8P),    intent(in)            :: t                 !< Time.
-   integer(I4P)                        :: b, i, j, k        !< Counter.
-   integer(I4P)                        :: im, jm, km        !< Counter for fake bc.
-   integer(I4P)                        :: ip, jp, kp        !< Counter for fake bc.
-   integer(I4P)                        :: iercuda           !< Error trapping flag for CUDAFortran.
+   subroutine compute_residuals_gpu(u_work, u_s, block_start, block_end, ni, nj, nk, s, t)
+   real(R8P),    intent(inout), device :: u_work(:,:,:,:) !< Field working buffer.
+   real(R8P),    intent(inout), device :: u_s(:,:,:,:,:)  !< RK field stages.
+   integer(I4P), intent(in)            :: block_start     !< Index of block to start residuals computation.
+   integer(I4P), intent(in)            :: block_end       !< Index of block to end   residuals computation.
+   integer(I4P), intent(in)            :: ni              !< Number of cell in I direction.
+   integer(I4P), intent(in)            :: nj              !< Number of cell in J direction.
+   integer(I4P), intent(in)            :: nk              !< Number of cell in K direction.
+   integer(I4P), intent(in)            :: s               !< Working stage.
+   real(R8P),    intent(in)            :: t               !< Time.
+   integer(I4P)                        :: b, i, j, k      !< Counter.
+   integer(I4P)                        :: im, jm, km      !< Counter for fake bc.
+   integer(I4P)                        :: ip, jp, kp      !< Counter for fake bc.
+   integer(I4P)                        :: iercuda         !< Error trapping flag for CUDAFortran.
 
    !$cuf kernel do(4) <<<*,*>>>
-   do b=1, blocks_number
+   do b=block_start, block_end
       do k=1, nk
          do j=1, nj
             do i=1, ni
@@ -211,7 +216,7 @@ contains
    enddo
    !@cuf iercuda=cudaDeviceSynchronize()
    !$cuf kernel do(4) <<<*,*>>>
-   do b=1, blocks_number
+   do b=block_start, block_end
       do k=1, nk
          do j=1, nj
             do i=1, ni
@@ -221,5 +226,76 @@ contains
       enddo
    enddo
    !@cuf iercuda=cudaDeviceSynchronize()
-   endsubroutine residuals_gpu
+   endsubroutine compute_residuals_gpu
+
+   subroutine update_ghost_gpu(local_map_ghost, u_s, s)
+   !< Update ghost cells.
+   integer(I8P), intent(in), allocatable :: local_map_ghost(:,:) !< Local map for ghost cells updating.
+   real(R8P),    intent(inout), device   :: u_s(:,:,:,:,:) !< RK field stages.
+   integer(I4P), intent(in)              :: s              !< Stage.
+   integer(I4P)                          :: i, j, k, mf    !< Counter.
+   integer(I4P)                          :: iii, jjj, kkk  !< Counter.
+   integer(I4P)                          :: fec            !< Direction where ghost cells are updated, faces/edges/corners.
+   integer(I4P)                          :: portion        !< Portion of fec updated (0=>whole fec).
+   integer(I4P)                          :: b_recv         !< Index of receiving block.
+   integer(I4P)                          :: b_send         !< Index of sending block.
+   integer(I4P)                          :: ijkmin(3)      !< Lower limit of ijk indexes.
+   integer(I4P)                          :: ijkmax(3)      !< Upper limit of ijk indexes.
+   integer(I4P)                          :: ijkdelta(3)    !< Delta offset for ghost-inner cells mapping same refinement.
+
+   if (.not.allocated(local_map_ghost)) return
+   do mf=1, size(local_map_ghost, dim=1)
+      b_recv   = local_map_ghost(mf, 1)
+      b_send   = local_map_ghost(mf, 2)
+      fec      = local_map_ghost(mf, 3)
+      portion  = local_map_ghost(mf, 4)
+      ijkmin   = local_map_ghost(mf, 5:7)
+      ijkmax   = local_map_ghost(mf, 8:10)
+      ijkdelta = local_map_ghost(mf, 11:13)
+      if     (portion==0) then
+         ! receiving from a block with the same refinement
+         do k=ijkmin(3), ijkmax(3)
+            do j=ijkmin(2), ijkmax(2)
+               do i=ijkmin(1), ijkmax(1)
+                  ! u_s(i,j,k,b_recv,s) = u_s(i+ijkdelta(1),j+ijkdelta(2),k+ijkdelta(3),b_send,s)
+               enddo
+            enddo
+         enddo
+      elseif (portion>0) then
+         ! receiving from a block finer than me
+         do k=ijkmin(3), ijkmax(3)
+            do j=ijkmin(2), ijkmax(2)
+               do i=ijkmin(1), ijkmax(1)
+                  kkk = 2 * k + ijkdelta(3)
+                  jjj = 2 * j + ijkdelta(2)
+                  iii = 2 * i + ijkdelta(1)
+                  ! u_s(i,j,k,b_recv,s) = (u_s(iii,jjj,  kkk,  b_send,s) + u_s(iii+1,jjj,  kkk,  b_send,s) + &
+                  !                        u_s(iii,jjj+1,kkk,  b_send,s) + u_s(iii+1,jjj+1,kkk,  b_send,s) + &
+                  !                        u_s(iii,jjj,  kkk+1,b_send,s) + u_s(iii+1,jjj,  kkk+1,b_send,s) + &
+                  !                        u_s(iii,jjj+1,kkk+1,b_send,s) + u_s(iii+1,jjj+1,kkk+1,b_send,s)) / 8._R8P
+               enddo
+            enddo
+         enddo
+      else
+         ! receiving from a block coarser than me
+         do k=ijkmin(3), ijkmax(3)
+            do j=ijkmin(2), ijkmax(2)
+               do i=ijkmin(1), ijkmax(1)
+                  kkk = 2 * k + ijkdelta(3)
+                  jjj = 2 * j + ijkdelta(2)
+                  iii = 2 * i + ijkdelta(1)
+                  ! u_s(iii,  jjj,  kkk  ,b_recv,s) = u_s(i,j,k,b_send,s)
+                  ! u_s(iii+1,jjj,  kkk  ,b_recv,s) = u_s(i,j,k,b_send,s)
+                  ! u_s(iii,  jjj+1,kkk  ,b_recv,s) = u_s(i,j,k,b_send,s)
+                  ! u_s(iii+1,jjj+1,kkk  ,b_recv,s) = u_s(i,j,k,b_send,s)
+                  ! u_s(iii,  jjj,  kkk+1,b_recv,s) = u_s(i,j,k,b_send,s)
+                  ! u_s(iii+1,jjj,  kkk+1,b_recv,s) = u_s(i,j,k,b_send,s)
+                  ! u_s(iii,  jjj+1,kkk+1,b_recv,s) = u_s(i,j,k,b_send,s)
+                  ! u_s(iii+1,jjj+1,kkk+1,b_recv,s) = u_s(i,j,k,b_send,s)
+               enddo
+            enddo
+         enddo
+      endif
+   enddo
+   endsubroutine update_ghost_gpu
 endmodule adam_field_gpu_object

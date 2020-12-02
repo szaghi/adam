@@ -3,6 +3,7 @@ program adam_test_adam_object_mpi
 !< ADAM, test ADAM class in MPI env.
 
 use adam_adam_object
+use adam_parameters
 use adam_field_gpu_object
 use PENF
 
@@ -21,15 +22,13 @@ call field_gpu%initialize(field_cpu=adam%field)
 
 do l=1, 2
    print '(A)', 'refine ADAM at level '//trim(str(l))
-   call adam%mark_all(by='tree', mark=TO_BE_REFINED)
-   call adam%amr_update(do_mpi_redistribute=.false.) ! no need to pass is_marked_by_tree=.true.
-                                                     ! because the marks are the same in all processes
+   call adam%tree%mark_all_nodes(mark=TO_BE_REFINED)
+   call adam%amr_update(do_blocks_reorder=.false.)
 enddo
-print '(A)', 'redistribute ADAM nodes/blocks between processes, load balancing'
-call adam%mpi_redistribute(print_mpi_stats=.false.)
+
 print '(A)', 'set initial conditions'
 call adam%field%set_initial_conditions
-call adam%save_hdf5(basename='sphere-initial')
+call adam%save_hdf5(basename='sphere-'//trim(strz(0,9)))
 
 call field_gpu%copy_cpu_gpu
 time = 0._R8P
