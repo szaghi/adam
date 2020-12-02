@@ -378,6 +378,7 @@ contains
    if (self%tree%nodes_number > 1) then
       self%field%u_s(:,:,:,1:self%field%blocks_number,1) = self%field%u(:,:,:,1:self%field%blocks_number)
       call self%field%update_ghost(s=1)
+      call self%field%update_ghost_mpi(s=1)
       self%field%u(:,:,:,1:self%field%blocks_number) = self%field%u_s(:,:,:,1:self%field%blocks_number,1)
    endif
    endsubroutine update_ghost
