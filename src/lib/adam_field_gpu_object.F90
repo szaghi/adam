@@ -18,14 +18,17 @@ type :: field_gpu_object
    type(field_object), pointer :: field_cpu=>null() !< Pointer to CPU field data.
    integer(I4P)                :: error=0_I4P       !< Error traping flag.
    ! GPU data.
-   real(R8P), allocatable, device :: u_gpu(:,:,:,:)      !< Field cell centered variables [ni+gc12,nj+gc34,nk+gc56,nv,nb].
-   real(R8P), allocatable, device :: u_work_gpu(:,:,:,:) !< Field working buffer.
-   real(R8P), allocatable, device :: u_s_gpu(:,:,:,:,:)  !< RK field stages.
+   ! RK data, related to field equations
    real(R8P), allocatable, device :: alph_gpu(:,:)       !< RK alpha coefficients.
    real(R8P), allocatable, device :: beta_gpu(:)         !< RK beta  coefficients.
    real(R8P), allocatable, device :: gamm_gpu(:)         !< RK gamma coefficients.
+   ! field equations data
+   real(R8P), allocatable, device :: u_gpu(     :,:,:,:  ) !< Field cell centered variables [ni+gc12,nj+gc34,nk+gc56,nv,nb].
+   real(R8P), allocatable, device :: u_work_gpu(:,:,:,:  ) !< Field working buffer.
+   real(R8P), allocatable, device :: u_s_gpu(   :,:,:,:,:) !< RK field stages.
    ! MPI data
-   integer(I4P) :: mydev=0_I4P !< My GPU rank.
+   integer(I4P) :: mydev=0_I4P      !< My GPU rank.
+   integer(I4P) :: local_comm=0_I4P !< Local communicator.
    contains
       ! public methods
       procedure, pass(self) :: allocate_gpu !< Allocate GPU data.
@@ -42,14 +45,13 @@ contains
    !< Initialize field.
    class(field_gpu_object), intent(inout)      :: self       !< The field.
    type(field_object),      intent(in), target :: field_cpu  !< CPU field data.
-   integer(I4P)                                :: local_comm !< Local communicator.
 
    self%field_cpu => field_cpu
 #ifdef _MPI_
-   call MPI_COMM_SPLIT_TYPE(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, local_comm, self%error)
-   call MPI_COMM_RANK(local_comm, self%mydev,self%error)
+   call MPI_COMM_SPLIT_TYPE(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, self%local_comm, self%error)
+   call MPI_COMM_RANK(self%local_comm, self%mydev,self%error)
 #endif
-   self%error = cudaSetDevice(self%mydev)
+   self%error = CudaSetDevice(self%mydev)
    write(*,*) "MPI rank ", self%field_cpu%myrank, " using GPU ", self%mydev
    call self%allocate_gpu
    endsubroutine initialize
@@ -59,20 +61,19 @@ contains
    class(field_gpu_object), intent(inout) :: self !< The field.
 
    associate(grid=>self%field_cpu%grid)
-      if (allocated(self%u_gpu   )) deallocate(self%u_gpu   )
+      if (allocated(self%u_gpu)) deallocate(self%u_gpu)
       allocate(self%u_gpu(1-grid%gc1:grid%ni+grid%gc2, &
                           1-grid%gc3:grid%nj+grid%gc4, &
                           1-grid%gc5:grid%nk+grid%gc6, 1:self%field_cpu%nb))
-      if (allocated(self%u_work_gpu )) deallocate(self%u_work_gpu )
+      if (allocated(self%u_work_gpu)) deallocate(self%u_work_gpu)
       allocate(self%u_work_gpu(1-grid%gc1:grid%ni+grid%gc2, &
                                1-grid%gc3:grid%nj+grid%gc4, &
                                1-grid%gc5:grid%nk+grid%gc6, 1:self%field_cpu%nb))
-      if (allocated(self%u_s_gpu )) deallocate(self%u_s_gpu )
+      if (allocated(self%u_s_gpu)) deallocate(self%u_s_gpu)
       allocate(self%u_s_gpu(1-grid%gc1:grid%ni+grid%gc2, &
                             1-grid%gc3:grid%nj+grid%gc4, &
                             1-grid%gc5:grid%nk+grid%gc6, 1:self%field_cpu%nb, 1:3))
    endassociate
-
    if (allocated(self%alph_gpu)) deallocate(self%alph_gpu) ; allocate(self%alph_gpu(3,3))
    if (allocated(self%beta_gpu)) deallocate(self%beta_gpu) ; allocate(self%beta_gpu(3))
    if (allocated(self%gamm_gpu)) deallocate(self%gamm_gpu) ; allocate(self%gamm_gpu(3))
