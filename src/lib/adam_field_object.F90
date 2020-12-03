@@ -144,10 +144,11 @@ type :: field_object
       procedure, pass(self) :: compute_residuals             !< Compute residuals of field.
       procedure, pass(self) :: set_initial_conditions        !< Set initial conditions of field.
       procedure, pass(self) :: update_ghost                  !< Update ghost cells.
-      procedure, pass(self) :: update_ghost_mpi              !< Update ghost cells within other processes.
       ! private methods
-      procedure, pass(self), private :: derefine !< Derefine blocks.
-      procedure, pass(self), private :: refine   !< Refine blocks.
+      procedure, pass(self), private :: derefine           !< Derefine blocks.
+      procedure, pass(self), private :: refine             !< Refine blocks.
+      procedure, pass(self), private :: update_ghost_local !< Update (local) ghost cells.
+      procedure, pass(self), private :: update_ghost_mpi   !< Update ghost cells within other processes.
       ! operators
       generic :: assignment(=) => field_assign_field      !< Overload `=`.
       procedure, pass(lhs), private :: field_assign_field !< Operator `=`.
@@ -568,17 +569,15 @@ contains
                                                 (u_s(1:ni,1:nj,1:nk,1:blocks_number,ss) * (Dt * alph(s, ss)))
       enddo
       if (do_ghost_syncro_) then
-         call self%update_ghost(s=s)
-         call self%update_ghost_mpi(s=s)
+         call self%update_ghost(q=self%u_s(:,:,:,:,s))
          call self%compute_residuals(s=s, t=t + gamm(s) * Dt, &
                                      block_start=1, block_end=blocks_number)
       else
-         call self%update_ghost(s=s)
-         call self%update_ghost_mpi(s=s, step=1)
-         call self%update_ghost_mpi(s=s, step=2)
+         call self%update_ghost(q=self%u_s(:,:,:,:,s), step=1)
+         call self%update_ghost(q=self%u_s(:,:,:,:,s), step=2)
          call self%compute_residuals(s=s, t=t + gamm(s) * Dt, &
                                      block_start=1, block_end=inner_blocks_number)
-         call self%update_ghost_mpi(s=s, step=3)
+         call self%update_ghost(q=self%u_s(:,:,:,:,s), step=3)
          call self%compute_residuals(s=s, t=t + gamm(s) * Dt, &
                                      block_start=inner_blocks_number+1, block_end=blocks_number)
       endif
@@ -663,22 +662,45 @@ contains
    endassociate
    endsubroutine set_initial_conditions
 
-   subroutine update_ghost(self, s)
+   subroutine update_ghost(self, q, step)
    !< Update ghost cells.
-   class(field_object), intent(inout) :: self          !< The field.
-   integer(I4P),        intent(in)    :: s             !< Stage.
-   integer(I4P)                       :: i, j, k, mf   !< Counter.
-   integer(I4P)                       :: iii, jjj, kkk !< Counter.
-   integer(I4P)                       :: fec           !< Direction where ghost cells are updated, faces/edges/corners.
-   integer(I4P)                       :: portion       !< Portion of fec updated (0=>whole fec).
-   integer(I4P)                       :: b_recv        !< Index of receiving block.
-   integer(I4P)                       :: b_send        !< Index of sending block.
-   integer(I4P)                       :: ijkmin(3)     !< Lower limit of ijk indexes.
-   integer(I4P)                       :: ijkmax(3)     !< Upper limit of ijk indexes.
-   integer(I4P)                       :: ijkdelta(3)   !< Delta offset for ghost-inner cells mapping same refinement.
+   !< If not specified all steps are perfermod, syncronous computation
+   class(field_object), intent(inout)        :: self                   !< The field.
+   real(R8P),           intent(inout)        :: q(1-self%grid%gc1:,&
+                                                  1-self%grid%gc3:,&
+                                                  1-self%grid%gc5:,1:) !< Field component to be updated.
+   integer(I4P),        intent(in), optional :: step                   !< Step to be perfordmed in asyncronous computations.
+   logical                                   :: do_local_update        !< Flag for triggering local update.
+
+   ! perform local update if step is not speficied or if first step is selected
+   do_local_update = .false.
+   if (.not.present(step)) then
+      do_local_update = .true.
+   else
+      if (step==1) do_local_update = .true.
+   endif
+
+   if (do_local_update) call self%update_ghost_local(q=q)
+                        call self%update_ghost_mpi(  q=q, step=step)
+   endsubroutine update_ghost
+
+   subroutine update_ghost_local(self, q)
+   !< Update (local) ghost cells, rank 4.
+   class(field_object), intent(inout) :: self                    !< The field.
+   real(R8P),           intent(inout) :: q(1-self%grid%gc1:,&
+                                           1-self%grid%gc3:,&
+                                           1-self%grid%gc5:,1:)  !< Field component to be updated.
+   integer(I4P)                       :: i, j, k, mf             !< Counter.
+   integer(I4P)                       :: iii, jjj, kkk           !< Counter.
+   integer(I4P)                       :: fec                     !< Direction where ghost cells are updated, faces/edges/corners.
+   integer(I4P)                       :: portion                 !< Portion of fec updated (0=>whole fec).
+   integer(I4P)                       :: b_recv                  !< Index of receiving block.
+   integer(I4P)                       :: b_send                  !< Index of sending block.
+   integer(I4P)                       :: ijkmin(3)               !< Lower limit of ijk indexes.
+   integer(I4P)                       :: ijkmax(3)               !< Upper limit of ijk indexes.
+   integer(I4P)                       :: ijkdelta(3)             !< Delta offset for ghost-inner cells mapping same refinement.
 
    if (.not.allocated(self%local_map_ghost)) return
-   associate(u_s=>self%u_s)
    do mf=1, size(self%local_map_ghost, dim=1)
       b_recv   = self%local_map_ghost(mf, 1)
       b_send   = self%local_map_ghost(mf, 2)
@@ -692,7 +714,7 @@ contains
          do k=ijkmin(3), ijkmax(3)
             do j=ijkmin(2), ijkmax(2)
                do i=ijkmin(1), ijkmax(1)
-                  u_s(i,j,k,b_recv,s) = u_s(i+ijkdelta(1),j+ijkdelta(2),k+ijkdelta(3),b_send,s)
+                  q(i,j,k,b_recv) = q(i+ijkdelta(1),j+ijkdelta(2),k+ijkdelta(3),b_send)
                enddo
             enddo
          enddo
@@ -704,10 +726,10 @@ contains
                   kkk = 2 * k + ijkdelta(3)
                   jjj = 2 * j + ijkdelta(2)
                   iii = 2 * i + ijkdelta(1)
-                  u_s(i,j,k,b_recv,s) = (u_s(iii,jjj,  kkk,  b_send,s) + u_s(iii+1,jjj,  kkk,  b_send,s) + &
-                                         u_s(iii,jjj+1,kkk,  b_send,s) + u_s(iii+1,jjj+1,kkk,  b_send,s) + &
-                                         u_s(iii,jjj,  kkk+1,b_send,s) + u_s(iii+1,jjj,  kkk+1,b_send,s) + &
-                                         u_s(iii,jjj+1,kkk+1,b_send,s) + u_s(iii+1,jjj+1,kkk+1,b_send,s)) / 8._R8P
+                  q(i,j,k,b_recv) = (q(iii,jjj,  kkk,  b_send) + q(iii+1,jjj,  kkk,  b_send) + &
+                                     q(iii,jjj+1,kkk,  b_send) + q(iii+1,jjj+1,kkk,  b_send) + &
+                                     q(iii,jjj,  kkk+1,b_send) + q(iii+1,jjj,  kkk+1,b_send) + &
+                                     q(iii,jjj+1,kkk+1,b_send) + q(iii+1,jjj+1,kkk+1,b_send)) / 8._R8P
                enddo
             enddo
          enddo
@@ -719,28 +741,29 @@ contains
                   kkk = 2 * k + ijkdelta(3)
                   jjj = 2 * j + ijkdelta(2)
                   iii = 2 * i + ijkdelta(1)
-                  u_s(iii,  jjj,  kkk  ,b_recv,s) = u_s(i,j,k,b_send,s)
-                  u_s(iii+1,jjj,  kkk  ,b_recv,s) = u_s(i,j,k,b_send,s)
-                  u_s(iii,  jjj+1,kkk  ,b_recv,s) = u_s(i,j,k,b_send,s)
-                  u_s(iii+1,jjj+1,kkk  ,b_recv,s) = u_s(i,j,k,b_send,s)
-                  u_s(iii,  jjj,  kkk+1,b_recv,s) = u_s(i,j,k,b_send,s)
-                  u_s(iii+1,jjj,  kkk+1,b_recv,s) = u_s(i,j,k,b_send,s)
-                  u_s(iii,  jjj+1,kkk+1,b_recv,s) = u_s(i,j,k,b_send,s)
-                  u_s(iii+1,jjj+1,kkk+1,b_recv,s) = u_s(i,j,k,b_send,s)
+                  q(iii,  jjj,  kkk  ,b_recv) = q(i,j,k,b_send)
+                  q(iii+1,jjj,  kkk  ,b_recv) = q(i,j,k,b_send)
+                  q(iii,  jjj+1,kkk  ,b_recv) = q(i,j,k,b_send)
+                  q(iii+1,jjj+1,kkk  ,b_recv) = q(i,j,k,b_send)
+                  q(iii,  jjj,  kkk+1,b_recv) = q(i,j,k,b_send)
+                  q(iii+1,jjj,  kkk+1,b_recv) = q(i,j,k,b_send)
+                  q(iii,  jjj+1,kkk+1,b_recv) = q(i,j,k,b_send)
+                  q(iii+1,jjj+1,kkk+1,b_recv) = q(i,j,k,b_send)
                enddo
             enddo
          enddo
       endif
    enddo
-   endassociate
-   endsubroutine update_ghost
+   endsubroutine update_ghost_local
 
-   subroutine update_ghost_mpi(self, s, step)
+   subroutine update_ghost_mpi(self, q, step)
    !< Update ghost cells within other processes.
    class(field_object), intent(inout)        :: self                       !< The field.
-   integer(I4P),        intent(in)           :: s                          !< Stage.
-   integer(I4P),        intent(in), optional :: step                       !< Step to be perfordmed.
-   logical                                   :: steps(3)                   !< Steps to be performed.
+   real(R8P),           intent(inout)        :: q(1-self%grid%gc1:,&
+                                                  1-self%grid%gc3:,&
+                                                  1-self%grid%gc5:,1:)     !< Field component to be updated.
+   integer(I4P),        intent(in), optional :: step                       !< Step to be perfordmed in asyncronous computations.
+   logical                                   :: do_step(3)                 !< Steps to be performed in asyncronous computations.
    integer(I4P)                              :: i, j, k                    !< Counter.
    integer(I4P)                              :: iii, jjj, kkk              !< Counter.
    integer(I4P)                              :: fec, mf, rf, sf, n, p      !< Counter.
@@ -758,22 +781,19 @@ contains
    integer(I4P)                              :: recv_rank                  !< Rank of receiving block.
    integer(I4P)                              :: send_rank                  !< Rank of sending block.
 
-   associate(u_s=>self%u_s)
+   if ((.not.allocated(self%comm_map_recv_ghost)).and.&
+       (.not.allocated(self%comm_map_send_ghost))) return
 
-   steps = .true.
+   do_step = .true.
    if (present(step)) then
-      steps = .false.
-      steps(step) = .true.
+      do_step = .false.
+      do_step(step) = .true.
    endif
 
-   if (steps(1)) then
+   if (do_step(1)) then
 #ifdef _MPI_
       self%req_send_recv = MPI_REQUEST_NULL
 #endif
-
-      if ((.not.allocated(self%comm_map_recv_ghost)).and.&
-          (.not.allocated(self%comm_map_send_ghost))) return
-
       comm_map_send_ctr_ghost = self%comm_map_send_ptr_ghost
 
       ! populate send buffer
@@ -792,7 +812,7 @@ contains
                do j=ijkmin(2), ijkmax(2)
                   do i=ijkmin(1), ijkmax(1)
                      self%send_buffer_ghost(comm_map_send_ctr_ghost(send_rank)+1) = &
-                        u_s(i+ijkdelta(1),j+ijkdelta(2),k+ijkdelta(3),b_send,s)
+                        q(i+ijkdelta(1),j+ijkdelta(2),k+ijkdelta(3),b_send)
                      comm_map_send_ctr_ghost(send_rank) = comm_map_send_ctr_ghost(send_rank) + 1
                   enddo
                enddo
@@ -804,7 +824,7 @@ contains
                   do i=ijkmin(1), ijkmax(1)
                      do n=1,8
                         self%send_buffer_ghost(comm_map_send_ctr_ghost(send_rank)+1) = &
-                           u_s(i,j,k,b_send,s)
+                           q(i,j,k,b_send)
                         comm_map_send_ctr_ghost(send_rank) = comm_map_send_ctr_ghost(send_rank) + 1
                      enddo
                   enddo
@@ -818,11 +838,11 @@ contains
                      kkk = 2 * k + ijkdelta(3)
                      jjj = 2 * j + ijkdelta(2)
                      iii = 2 * i + ijkdelta(1)
-                     self%send_buffer_ghost(comm_map_send_ctr_ghost(send_rank)+1) =        &
-                        (u_s(iii,jjj,  kkk,  b_send,s) + u_s(iii+1,jjj,  kkk,  b_send,s) + &
-                         u_s(iii,jjj+1,kkk,  b_send,s) + u_s(iii+1,jjj+1,kkk,  b_send,s) + &
-                         u_s(iii,jjj,  kkk+1,b_send,s) + u_s(iii+1,jjj,  kkk+1,b_send,s) + &
-                         u_s(iii,jjj+1,kkk+1,b_send,s) + u_s(iii+1,jjj+1,kkk+1,b_send,s)) / 8._R8P
+                     self%send_buffer_ghost(comm_map_send_ctr_ghost(send_rank)+1) = &
+                        (q(iii,jjj,  kkk,  b_send) + q(iii+1,jjj,  kkk,  b_send) +  &
+                         q(iii,jjj+1,kkk,  b_send) + q(iii+1,jjj+1,kkk,  b_send) +  &
+                         q(iii,jjj,  kkk+1,b_send) + q(iii+1,jjj,  kkk+1,b_send) +  &
+                         q(iii,jjj+1,kkk+1,b_send) + q(iii+1,jjj+1,kkk+1,b_send)) / 8._R8P
                      comm_map_send_ctr_ghost(send_rank) = comm_map_send_ctr_ghost(send_rank) + 1
                   enddo
                enddo
@@ -831,7 +851,7 @@ contains
       enddo
    endif
 
-   if (steps(2)) then
+   if (do_step(2)) then
       ! receive
       do p=0, self%procs_number - 1_I4P
          ptr_start = self%comm_map_recv_ptr_ghost(p) + 1
@@ -859,7 +879,7 @@ contains
       enddo
    endif
 
-   if (steps(3)) then
+   if (do_step(3)) then
       comm_map_recv_ctr_ghost = self%comm_map_recv_ptr_ghost
 #ifdef _MPI_
       call MPI_WAITALL(self%procs_number * 2, self%req_send_recv, MPI_STATUSES_IGNORE, self%error)
@@ -881,7 +901,7 @@ contains
             do k=ijkmin(3), ijkmax(3)
                do j=ijkmin(2), ijkmax(2)
                   do i=ijkmin(1), ijkmax(1)
-                     u_s(i,j,k,b_recv,s) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                     q(i,j,k,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                      comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
                   enddo
                enddo
@@ -891,7 +911,7 @@ contains
             do k=ijkmin(3), ijkmax(3)
                do j=ijkmin(2), ijkmax(2)
                   do i=ijkmin(1), ijkmax(1)
-                     u_s(i,j,k,b_recv,s) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                     q(i,j,k,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                      comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
                   enddo
                enddo
@@ -904,21 +924,21 @@ contains
                      kkk = 2 * k + ijkdelta(3)
                      jjj = 2 * j + ijkdelta(2)
                      iii = 2 * i + ijkdelta(1)
-                     u_s(iii,  jjj,  kkk  ,b_recv,s) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                     q(iii,  jjj,  kkk  ,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                      comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
-                     u_s(iii+1,jjj,  kkk  ,b_recv,s) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                     q(iii+1,jjj,  kkk  ,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                      comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
-                     u_s(iii,  jjj+1,kkk  ,b_recv,s) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                     q(iii,  jjj+1,kkk  ,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                      comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
-                     u_s(iii+1,jjj+1,kkk  ,b_recv,s) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                     q(iii+1,jjj+1,kkk  ,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                      comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
-                     u_s(iii,  jjj,  kkk+1,b_recv,s) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                     q(iii,  jjj,  kkk+1,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                      comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
-                     u_s(iii+1,jjj,  kkk+1,b_recv,s) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                     q(iii+1,jjj,  kkk+1,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                      comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
-                     u_s(iii,  jjj+1,kkk+1,b_recv,s) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                     q(iii,  jjj+1,kkk+1,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                      comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
-                     u_s(iii+1,jjj+1,kkk+1,b_recv,s) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                     q(iii+1,jjj+1,kkk+1,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                      comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
                   enddo
                enddo
@@ -926,8 +946,6 @@ contains
          endif
       enddo
    endif
-
-   endassociate
    endsubroutine update_ghost_mpi
 
    ! private methods
