@@ -212,26 +212,39 @@ contains
                                     code=self%tree%block_code)
    endsubroutine mpi_redistribute
 
-   subroutine save_hdf5(self, basename, directory)
+   subroutine save_hdf5(self, basename, directory, with_ghost)
    !< Save ADAM in HDF5 format.
-   class(adam_object), intent(inout)        :: self         !< ADAM.
-   character(*),       intent(in)           :: basename     !< Base name of output files.
-   character(*),       intent(in), optional :: directory    !< Directory name of output files.
-   character(:), allocatable                :: directory_   !< Directory name of output files, local var.
-   type(tree_node_object), pointer          :: node         !< Pointer to node.
-   real(R8P)                                :: emin(3)      !< Minimum abscissa of current block.
-   integer(I4P)                             :: b            !< Counter.
-   integer(I4P)                             :: xdmf         !< XDMF file handler.
-   character(len=:), allocatable            :: h5_file_name !< H5 Dataset name.
-   character(len=:), allocatable            :: h5_dset_name !< H5 Dataset name.
-   integer(HID_T)                           :: h5_file_id   !< H5 File identifier.
-   integer(HID_T)                           :: h5_dspace_id !< H5 Dataspace identifier.
-   integer(HID_T)                           :: h5_dset_id   !< H5 Dataset identifier.
-   real(R8P)                                :: dx, dy, dz   !< Space steps.
-   character(len=:), allocatable            :: grid_dims    !< Grid dimensions.
-   integer(I4P)                             :: i, j, k, l   !< Counter.
+   class(adam_object), intent(inout)        :: self          !< ADAM.
+   character(*),       intent(in)           :: basename      !< Base name of output files.
+   character(*),       intent(in), optional :: directory     !< Directory name of output files.
+   logical,            intent(in), optional :: with_ghost    !< Flag to save ghost cells.
+   character(:), allocatable                :: directory_    !< Directory name of output files, local var.
+   logical                                  :: with_ghost_   !< Flag to save ghost cells, local var.
+   type(tree_node_object), pointer          :: node          !< Pointer to node.
+   real(R8P)                                :: emin(3)       !< Minimum abscissa of current block.
+   integer(I4P)                             :: b             !< Counter.
+   integer(I4P)                             :: xdmf          !< XDMF file handler.
+   character(len=:), allocatable            :: h5_file_name  !< H5 Dataset name.
+   character(len=:), allocatable            :: h5_dset_name  !< H5 Dataset name.
+   integer(HID_T)                           :: h5_file_id    !< H5 File identifier.
+   integer(HID_T)                           :: h5_dspace_id  !< H5 Dataspace identifier.
+   integer(HID_T)                           :: h5_dset_id    !< H5 Dataset identifier.
+   real(R8P)                                :: dx, dy, dz    !< Space steps.
+   character(len=:), allocatable            :: grid_dims     !< Grid dimensions.
+   integer(I4P)                             :: gci, gcj, gck !< Ghost cells saved.
+   integer(I4P)                             :: i, j, k, l    !< Counter.
 
    directory_ = '' ; if (present(directory)) directory_ = trim(directory)
+   with_ghost_ = .false. ; if (present(with_ghost)) with_ghost_ = with_ghost
+   if (with_ghost_) then
+      gci = self%grid%gci
+      gcj = self%grid%gcj
+      gck = self%grid%gck
+   else
+      gci = 0_I4P
+      gcj = 0_I4P
+      gck = 0_I4P
+   endif
    associate(grid=>self%grid, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
    ! save H5 file (one for each process)
    ! open fortran interface
@@ -241,13 +254,13 @@ contains
    call h5fcreate_f(h5_file_name, H5F_ACC_TRUNC_F, h5_file_id, self%error)
 
    ! create the dataspace for 3D fields
-   call h5screate_simple_f(3_I4P, [int(ni,I8P),int(nj,I8P),int(nk,I8P)], h5_dspace_id, self%error)
+   call h5screate_simple_f(3_I4P, [int(ni+2*gci,I8P),int(nj+2*gcj,I8P),int(nk+2*gck,I8P)], h5_dspace_id, self%error)
    ! save all blocks in process
    do b=1, self%field%blocks_number
       h5_dset_name = 'u-'//trim(str(self%myrank,.true.))//'-'//trim(str(b,.true.))
       call h5dcreate_f(h5_file_id, h5_dset_name, H5T_NATIVE_DOUBLE, h5_dspace_id, h5_dset_id, self%error)
-      call h5dwrite_f(h5_dset_id, H5T_NATIVE_DOUBLE, self%field%u(1:ni,1:nj,1:nk,b), &
-                      [int(ni,I8P),int(nj,I8P),int(nk,I8P)], self%error)
+      call h5dwrite_f(h5_dset_id, H5T_NATIVE_DOUBLE, self%field%u(1-gci:ni+gci,1-gcj:nj+gcj,1-gck:nk+gck,b), &
+                      [int(ni+2*gci,I8P),int(nj+2*gcj,I8P),int(nk+2*gck,I8P)], self%error)
       call h5dclose_f(h5_dset_id, self%error)
    enddo
    ! terminate access to the data space
@@ -260,7 +273,7 @@ contains
 
    ! save XDMF file (only master process does)
    if (self%myrank == 0_I4P) then
-      grid_dims = trim(str([ni+1,nj+1,nk+1],separator=' '))
+      grid_dims = trim(str([ni+2*gci+1,nj+2*gcj+1,nk+2*gck+1],separator=' '))
       open(newunit=xdmf, file=directory_//trim(basename)//'.xdmf')
       write(xdmf, '(A)') '<?xml version="1.0" encoding="utf-8"?>'
       write(xdmf, '(A)') '<Xdmf xmlns:xi="http://www.w3.org/2001/XInclude" Version="3.0">'
@@ -275,9 +288,9 @@ contains
 
          write(xdmf, '(A)') '        <Geometry Origin="" Type="ORIGIN_DXDYDZ">'
          write(xdmf, '(A)') '          <DataItem DataType="Float" Dimensions="3" Format="XML" Precision="8">'// &
-                                        trim(str([emin(3),emin(2),emin(1)],separator=' '))//'</DataItem>'
+                                        trim(str([emin(3)-gck*dz,emin(2)-gcj*dy,emin(1)-gci*dx],separator=' '))//'</DataItem>'
          write(xdmf, '(A)') '          <DataItem DataType="Float" Dimensions="3" Format="XML" Precision="8">'// &
-                                        trim(str([dx,dy,dz],separator=' '))//'</DataItem>'
+                                        trim(str([dz,dy,dx],separator=' '))//'</DataItem>'
          write(xdmf, '(A)') '        </Geometry>'
          write(xdmf, '(A)') '        <Topology Dimensions="'//grid_dims//'" Type="3DCoRectMesh"/>'
 
@@ -324,14 +337,23 @@ contains
    integer(I4P)                             :: b, l                                          !< Counter.
    integer(I4P)                             :: i, j, k                                       !< Counter.
    integer(I4P)                             :: max_level                                     !< Maximum level.
+   integer(I4P)                             :: gci, gcj, gck                                 !< Ghost cells saved.
    real(R8P)                                :: x(0-self%grid%gci:self%grid%ni+self%grid%gci) !< X coordinates.
    real(R8P)                                :: y(0-self%grid%gcj:self%grid%nj+self%grid%gcj) !< Y coordinates.
    real(R8P)                                :: z(0-self%grid%gck:self%grid%nk+self%grid%gck) !< Z coordinates.
 
    directory_ = '' ; if (present(directory)) directory_ = trim(directory)
    with_ghost_ = .false. ; if (present(with_ghost)) with_ghost_ = with_ghost
-   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, &
-             gci=>self%grid%gci, gcj=>self%grid%gcj, gck=>self%grid%gck)
+   if (with_ghost_) then
+      gci = self%grid%gci
+      gcj = self%grid%gcj
+      gck = self%grid%gck
+   else
+      gci = 0_I4P
+      gcj = 0_I4P
+      gck = 0_I4P
+   endif
+   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
       max_level = 0_I4P
       vtr_loop : do b=1, self%field%blocks_number
          call self%grid%compute_metrics(coordinates=self%field%coordinates(:,b), x_node=x, y_node=y, z_node=z)
