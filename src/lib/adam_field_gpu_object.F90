@@ -29,6 +29,8 @@ type :: field_gpu_object
    ! MPI data
    integer(I4P) :: mydev=0_I4P      !< My GPU rank.
    integer(I4P) :: local_comm=0_I4P !< Local communicator.
+   real(R8P), allocatable, device :: send_buffer_ghost_gpu(:) !< Send buffer of ghost cells.
+   real(R8P), allocatable, device :: recv_buffer_ghost_gpu(:) !< Receive buffer of ghost cells.
    contains
       ! public methods
       procedure, pass(self) :: allocate_gpu !< Allocate GPU data.
@@ -86,6 +88,7 @@ contains
    self%alph_gpu = self%field_cpu%alph
    self%beta_gpu = self%field_cpu%beta
    self%gamm_gpu = self%field_cpu%gamm
+   ! TODO send/recv buffer must allocated here
    endsubroutine copy_cpu_gpu
 
    subroutine copy_gpu_cpu(self)
@@ -101,37 +104,52 @@ contains
    real(R8P),               intent(in)    :: t     !< Time.
    real(R8P),               intent(in)    :: Dt    !< Time step.
 
-   call rk_integrate_gpu(u=self%u_gpu,                               &
-                         u_work=self%u_work_gpu,                     &
-                         u_s=self%u_s_gpu,                           &
-                         blocks_number=self%field_cpu%blocks_number, &
-                         ni=self%field_cpu%grid%ni,                  &
-                         nj=self%field_cpu%grid%nj,                  &
-                         nk=self%field_cpu%grid%nk,                  &
-                         t=t,                                        &
-                         Dt=Dt,                                      &
-                         alph=self%alph_gpu,                         &
-                         beta=self%beta_gpu,                         &
-                         gamm=self%field_cpu%gamm,                   &
-                         local_map_ghost=self%field_cpu%local_map_ghost)
+   call rk_integrate_gpu(u=self%u_gpu,                                                   &
+                         u_work=self%u_work_gpu,                                         &
+                         u_s=self%u_s_gpu,                                               &
+                         blocks_number=self%field_cpu%blocks_number,                     &
+                         ni=self%field_cpu%grid%ni,                                      &
+                         nj=self%field_cpu%grid%nj,                                      &
+                         nk=self%field_cpu%grid%nk,                                      &
+                         t=t,                                                            &
+                         Dt=Dt,                                                          &
+                         alph=self%alph_gpu,                                             &
+                         beta=self%beta_gpu,                                             &
+                         gamm=self%field_cpu%gamm,                                       &
+                         local_map_ghost=self%field_cpu%local_map_ghost,                 &
+                         comm_map_recv_ptr_ghost=self%field_cpu%comm_map_recv_ptr_ghost, &
+                         comm_map_send_ptr_ghost=self%field_cpu%comm_map_send_ptr_ghost, &
+                         comm_map_recv_ghost=self%field_cpu%comm_map_recv_ghost,         &
+                         comm_map_send_ghost=self%field_cpu%comm_map_send_ghost,         &
+                         recv_buffer_ghost_gpu=self%recv_buffer_ghost_gpu,               &
+                         send_buffer_ghost_gpu=self%send_buffer_ghost_gpu)
    endsubroutine rk_integrate
 
-   subroutine rk_integrate_gpu(u, u_work, u_s, alph, beta, gamm, blocks_number, ni, nj, nk, t, Dt, local_map_ghost)
-   real(R8P),    intent(inout), device   :: u(:,:,:,:)           !< Field cell centered variables.
-   real(R8P),    intent(inout), device   :: u_work(:,:,:,:)      !< Field working buffer.
-   real(R8P),    intent(inout), device   :: u_s(:,:,:,:,:)       !< RK field stages.
-   real(R8P),    intent(in),    device   :: alph(:,:)            !< RK alpha coefficients.
-   real(R8P),    intent(in),    device   :: beta(:)              !< RK beta coefficients.
-   real(R8P),    intent(in)              :: gamm(:)              !< RK gamma coefficients.
-   integer(I4P), intent(in)              :: blocks_number        !< Number of blocks actually stored.
-   integer(I4P), intent(in)              :: ni                   !< Number of cell in I direction.
-   integer(I4P), intent(in)              :: nj                   !< Number of cell in J direction.
-   integer(I4P), intent(in)              :: nk                   !< Number of cell in K direction.
-   real(R8P),    intent(in)              :: t                    !< Time.
-   real(R8P),    intent(in)              :: Dt                   !< Time step.
-   integer(I8P), intent(in), allocatable :: local_map_ghost(:,:) !< Local map for ghost cells updating.
-   integer(I4P)                          :: i, j, k, b, s, ss    !< Counter.
-   integer(I4P)                          :: iercuda              !< Error trapping flag for CUDAFortran.
+   subroutine rk_integrate_gpu(u, u_work, u_s, alph, beta, gamm, blocks_number, ni, nj, nk, t, Dt, &
+                               local_map_ghost, comm_map_recv_ptr_ghost, comm_map_send_ptr_ghost,  &
+                               comm_map_recv_ghost, comm_map_send_ghost,                           &
+                               recv_buffer_ghost_gpu, send_buffer_ghost_gpu)
+   real(R8P),    intent(inout), device   :: u(:,:,:,:)                 !< Field cell centered variables.
+   real(R8P),    intent(inout), device   :: u_work(:,:,:,:)            !< Field working buffer.
+   real(R8P),    intent(inout), device   :: u_s(:,:,:,:,:)             !< RK field stages.
+   real(R8P),    intent(in),    device   :: alph(:,:)                  !< RK alpha coefficients.
+   real(R8P),    intent(in),    device   :: beta(:)                    !< RK beta coefficients.
+   real(R8P),    intent(in)              :: gamm(:)                    !< RK gamma coefficients.
+   integer(I4P), intent(in)              :: blocks_number              !< Number of blocks actually stored.
+   integer(I4P), intent(in)              :: ni                         !< Number of cell in I direction.
+   integer(I4P), intent(in)              :: nj                         !< Number of cell in J direction.
+   integer(I4P), intent(in)              :: nk                         !< Number of cell in K direction.
+   real(R8P),    intent(in)              :: t                          !< Time.
+   real(R8P),    intent(in)              :: Dt                         !< Time step.
+   integer(I8P), intent(in), allocatable :: local_map_ghost(:,:)       !< Local map for ghost cells updating.
+   integer(I4P), intent(in), allocatable :: comm_map_send_ptr_ghost(:) !< Communication map, pointers in list to send.
+   integer(I4P), intent(in), allocatable :: comm_map_recv_ptr_ghost(:) !< Communication map, pointers in list to recv.
+   integer(I8P), intent(in), allocatable :: comm_map_recv_ghost(:,:)   !< Communication map, `fec` information.
+   integer(I8P), intent(in), allocatable :: comm_map_send_ghost(:,:)   !< Communication map, `fec` information.
+   real(R8P),    intent(inout), device   :: recv_buffer_ghost_gpu(:)   !< Receive buffer of ghost cells.
+   real(R8P),    intent(inout), device   :: send_buffer_ghost_gpu(:)   !< Send buffer of ghost cells.
+   integer(I4P)                          :: i, j, k, b, s, ss          !< Counter.
+   integer(I4P)                          :: iercuda                    !< Error trapping flag for CUDAFortran.
 
    do s=1, 3
       !$cuf kernel do(4) <<<*,*>>>
@@ -160,7 +178,13 @@ contains
          !@cuf iercuda=cudaDeviceSynchronize()
       enddo
       call update_ghost_gpu(local_map_ghost=local_map_ghost, u_s=u_s, s=s)
-      ! call self%update_ghost_mpi_gpu(s=s)
+      call update_ghost_mpi_gpu(comm_map_recv_ptr_ghost=comm_map_recv_ptr_ghost, &
+                                comm_map_send_ptr_ghost=comm_map_send_ptr_ghost, &
+                                comm_map_recv_ghost=comm_map_recv_ghost,         &
+                                comm_map_send_ghost=comm_map_send_ghost,         &
+                                recv_buffer_ghost_gpu=recv_buffer_ghost_gpu,     &
+                                send_buffer_ghost_gpu=send_buffer_ghost_gpu,     &
+                                u_s=u_s, s=s)
       call compute_residuals_gpu(u_work=u_work, u_s=u_s, block_start=1, block_end=blocks_number, &
                                  ni=ni, nj=nj, nk=nk, s=s, t=t + gamm(s) * Dt)
    enddo
@@ -231,71 +255,321 @@ contains
    subroutine update_ghost_gpu(local_map_ghost, u_s, s)
    !< Update ghost cells.
    integer(I8P), intent(in), allocatable :: local_map_ghost(:,:) !< Local map for ghost cells updating.
-   real(R8P),    intent(inout), device   :: u_s(:,:,:,:,:) !< RK field stages.
-   integer(I4P), intent(in)              :: s              !< Stage.
-   integer(I4P)                          :: i, j, k, mf    !< Counter.
-   integer(I4P)                          :: iii, jjj, kkk  !< Counter.
-   integer(I4P)                          :: fec            !< Direction where ghost cells are updated, faces/edges/corners.
-   integer(I4P)                          :: portion        !< Portion of fec updated (0=>whole fec).
-   integer(I4P)                          :: b_recv         !< Index of receiving block.
-   integer(I4P)                          :: b_send         !< Index of sending block.
-   integer(I4P)                          :: ijkmin(3)      !< Lower limit of ijk indexes.
-   integer(I4P)                          :: ijkmax(3)      !< Upper limit of ijk indexes.
-   integer(I4P)                          :: ijkdelta(3)    !< Delta offset for ghost-inner cells mapping same refinement.
+   real(R8P),    intent(inout), device   :: u_s(:,:,:,:,:)       !< RK field stages.
+   integer(I4P), intent(in)              :: s                    !< Stage.
+   integer(I4P)                          :: i, j, k, mf          !< Counter.
+   integer(I4P)                          :: iii, jjj, kkk        !< Counter.
+   integer(I4P)                          :: fec                  !< Direction where ghost cells are updated, faces/edges/corners.
+   integer(I4P)                          :: portion              !< Portion of fec updated (0=>whole fec).
+   integer(I4P)                          :: b_recv               !< Index of receiving block.
+   integer(I4P)                          :: b_send               !< Index of sending block.
+   integer(I4P)                          :: imin                 !< Lower limit of i indexes.
+   integer(I4P)                          :: jmin                 !< Lower limit of j indexes.
+   integer(I4P)                          :: kmin                 !< Lower limit of j indexes.
+   integer(I4P)                          :: imax                 !< Upper limit of i indexes.
+   integer(I4P)                          :: jmax                 !< Upper limit of j indexes.
+   integer(I4P)                          :: kmax                 !< Upper limit of k indexes.
+   integer(I4P)                          :: idelta               !< Delta offset for ghost-inner cells of i indexes.
+   integer(I4P)                          :: jdelta               !< Delta offset for ghost-inner cells of j indexes.
+   integer(I4P)                          :: kdelta               !< Delta offset for ghost-inner cells of k indexes.
+   integer(I4P)                          :: iercuda              !< Error trapping flag for CUDAFortran.
 
    if (.not.allocated(local_map_ghost)) return
    do mf=1, size(local_map_ghost, dim=1)
-      b_recv   = local_map_ghost(mf, 1)
-      b_send   = local_map_ghost(mf, 2)
-      fec      = local_map_ghost(mf, 3)
-      portion  = local_map_ghost(mf, 4)
-      ijkmin   = local_map_ghost(mf, 5:7)
-      ijkmax   = local_map_ghost(mf, 8:10)
-      ijkdelta = local_map_ghost(mf, 11:13)
+      b_recv  = local_map_ghost(mf, 1 )
+      b_send  = local_map_ghost(mf, 2 )
+      fec     = local_map_ghost(mf, 3 )
+      portion = local_map_ghost(mf, 4 )
+      imin    = local_map_ghost(mf, 5 )
+      jmin    = local_map_ghost(mf, 6 )
+      kmin    = local_map_ghost(mf, 7 )
+      imax    = local_map_ghost(mf, 8 )
+      jmax    = local_map_ghost(mf, 9 )
+      kmax    = local_map_ghost(mf, 10)
+      idelta  = local_map_ghost(mf, 11)
+      jdelta  = local_map_ghost(mf, 12)
+      kdelta  = local_map_ghost(mf, 13)
       if     (portion==0) then
          ! receiving from a block with the same refinement
-         do k=ijkmin(3), ijkmax(3)
-            do j=ijkmin(2), ijkmax(2)
-               do i=ijkmin(1), ijkmax(1)
-                  ! u_s(i,j,k,b_recv,s) = u_s(i+ijkdelta(1),j+ijkdelta(2),k+ijkdelta(3),b_send,s)
+         !$cuf kernel do(3) <<<*,*>>>
+         do k=kmin, kmax
+            do j=jmin, jmax
+               do i=imin, imax
+                  u_s(i,j,k,b_recv,s) = u_s(i+idelta,j+jdelta,k+kdelta,b_send,s)
                enddo
             enddo
          enddo
+         !@cuf iercuda=cudaDeviceSynchronize()
       elseif (portion>0) then
          ! receiving from a block finer than me
-         do k=ijkmin(3), ijkmax(3)
-            do j=ijkmin(2), ijkmax(2)
-               do i=ijkmin(1), ijkmax(1)
-                  kkk = 2 * k + ijkdelta(3)
-                  jjj = 2 * j + ijkdelta(2)
-                  iii = 2 * i + ijkdelta(1)
-                  ! u_s(i,j,k,b_recv,s) = (u_s(iii,jjj,  kkk,  b_send,s) + u_s(iii+1,jjj,  kkk,  b_send,s) + &
-                  !                        u_s(iii,jjj+1,kkk,  b_send,s) + u_s(iii+1,jjj+1,kkk,  b_send,s) + &
-                  !                        u_s(iii,jjj,  kkk+1,b_send,s) + u_s(iii+1,jjj,  kkk+1,b_send,s) + &
-                  !                        u_s(iii,jjj+1,kkk+1,b_send,s) + u_s(iii+1,jjj+1,kkk+1,b_send,s)) / 8._R8P
+         !$cuf kernel do(3) <<<*,*>>>
+         do k=kmin, kmax
+            do j=jmin, jmax
+               do i=imin, imax
+                  kkk = 2 * k + kdelta
+                  jjj = 2 * j + jdelta
+                  iii = 2 * i + idelta
+                  u_s(i,j,k,b_recv,s) = (u_s(iii,jjj,  kkk,  b_send,s) + u_s(iii+1,jjj,  kkk,  b_send,s) + &
+                                         u_s(iii,jjj+1,kkk,  b_send,s) + u_s(iii+1,jjj+1,kkk,  b_send,s) + &
+                                         u_s(iii,jjj,  kkk+1,b_send,s) + u_s(iii+1,jjj,  kkk+1,b_send,s) + &
+                                         u_s(iii,jjj+1,kkk+1,b_send,s) + u_s(iii+1,jjj+1,kkk+1,b_send,s)) / 8._R8P
                enddo
             enddo
          enddo
+         !@cuf iercuda=cudaDeviceSynchronize()
       else
          ! receiving from a block coarser than me
-         do k=ijkmin(3), ijkmax(3)
-            do j=ijkmin(2), ijkmax(2)
-               do i=ijkmin(1), ijkmax(1)
-                  kkk = 2 * k + ijkdelta(3)
-                  jjj = 2 * j + ijkdelta(2)
-                  iii = 2 * i + ijkdelta(1)
-                  ! u_s(iii,  jjj,  kkk  ,b_recv,s) = u_s(i,j,k,b_send,s)
-                  ! u_s(iii+1,jjj,  kkk  ,b_recv,s) = u_s(i,j,k,b_send,s)
-                  ! u_s(iii,  jjj+1,kkk  ,b_recv,s) = u_s(i,j,k,b_send,s)
-                  ! u_s(iii+1,jjj+1,kkk  ,b_recv,s) = u_s(i,j,k,b_send,s)
-                  ! u_s(iii,  jjj,  kkk+1,b_recv,s) = u_s(i,j,k,b_send,s)
-                  ! u_s(iii+1,jjj,  kkk+1,b_recv,s) = u_s(i,j,k,b_send,s)
-                  ! u_s(iii,  jjj+1,kkk+1,b_recv,s) = u_s(i,j,k,b_send,s)
-                  ! u_s(iii+1,jjj+1,kkk+1,b_recv,s) = u_s(i,j,k,b_send,s)
+         !$cuf kernel do(3) <<<*,*>>>
+         do k=kmin, kmax
+            do j=jmin, jmax
+               do i=imin, imax
+                  kkk = 2 * k + kdelta
+                  jjj = 2 * j + jdelta
+                  iii = 2 * i + idelta
+                  u_s(iii,  jjj,  kkk  ,b_recv,s) = u_s(i,j,k,b_send,s)
+                  u_s(iii+1,jjj,  kkk  ,b_recv,s) = u_s(i,j,k,b_send,s)
+                  u_s(iii,  jjj+1,kkk  ,b_recv,s) = u_s(i,j,k,b_send,s)
+                  u_s(iii+1,jjj+1,kkk  ,b_recv,s) = u_s(i,j,k,b_send,s)
+                  u_s(iii,  jjj,  kkk+1,b_recv,s) = u_s(i,j,k,b_send,s)
+                  u_s(iii+1,jjj,  kkk+1,b_recv,s) = u_s(i,j,k,b_send,s)
+                  u_s(iii,  jjj+1,kkk+1,b_recv,s) = u_s(i,j,k,b_send,s)
+                  u_s(iii+1,jjj+1,kkk+1,b_recv,s) = u_s(i,j,k,b_send,s)
                enddo
             enddo
          enddo
+         !@cuf iercuda=cudaDeviceSynchronize()
       endif
    enddo
    endsubroutine update_ghost_gpu
+
+   subroutine update_ghost_mpi_gpu(comm_map_recv_ptr_ghost, comm_map_send_ptr_ghost, &
+                                   comm_map_recv_ghost, comm_map_send_ghost,         &
+                                   recv_buffer_ghost_gpu, send_buffer_ghost_gpu,     &
+                                   u_s, s, step)
+   !< Update ghost cells within other processes.
+   integer(I4P), allocatable, intent(in)            :: comm_map_send_ptr_ghost(:) !< Communication map, pointers in list to send.
+   integer(I4P), allocatable, intent(in)            :: comm_map_recv_ptr_ghost(:) !< Communication map, pointers in list to recv.
+   integer(I8P), allocatable, intent(in)            :: comm_map_recv_ghost(:,:)   !< Communication map, `fec` information.
+   integer(I8P), allocatable, intent(in)            :: comm_map_send_ghost(:,:)   !< Communication map, `fec` information.
+   real(R8P),                 intent(inout), device :: recv_buffer_ghost_gpu(:)   !< Receive buffer of ghost cells.
+   real(R8P),                 intent(inout), device :: send_buffer_ghost_gpu(:)   !< Send buffer of ghost cells.
+   real(R8P),                 intent(inout), device :: u_s(:,:,:,:,:)             !< RK field stages.
+   integer(I4P),              intent(in)            :: s                          !< Stage.
+   integer(I4P),              intent(in), optional  :: step                       !< Step to be perfordmed.
+   logical                                          :: steps(3)                   !< Steps to be performed.
+   integer(I4P)                                     :: i, j, k                    !< Counter.
+   integer(I4P)                                     :: iii, jjj, kkk              !< Counter.
+   integer(I4P)                                     :: fec, mf, rf, sf, n, p      !< Counter.
+   integer(I4P), allocatable, device                :: comm_map_send_ctr_ghost(:) !< Communication map, counters to send.
+   integer(I4P), allocatable, device                :: comm_map_recv_ctr_ghost(:) !< Communication map, counters to recv.
+   integer(I4P)                                     :: portion                    !< Portion of fec updated (0=>whole fec).
+   integer(I4P)                                     :: b_recv                     !< Index of receiving block.
+   integer(I4P)                                     :: b_send                     !< Index of sending block.
+   integer(I4P)                                     :: imin                       !< Lower limit of i indexes.
+   integer(I4P)                                     :: jmin                       !< Lower limit of j indexes.
+   integer(I4P)                                     :: kmin                       !< Lower limit of j indexes.
+   integer(I4P)                                     :: imax                       !< Upper limit of i indexes.
+   integer(I4P)                                     :: jmax                       !< Upper limit of j indexes.
+   integer(I4P)                                     :: kmax                       !< Upper limit of k indexes.
+   integer(I4P)                                     :: idelta                     !< Delta offset for ghost-inner cells of i indexes.
+   integer(I4P)                                     :: jdelta                     !< Delta offset for ghost-inner cells of j indexes.
+   integer(I4P)                                     :: kdelta                     !< Delta offset for ghost-inner cells of k indexes.
+   integer(I4P)                                     :: ptr_start, ptr_end         !< Counter.
+   integer(I4P)                                     :: n_recv, n_send             !< Counter.
+   integer(I4P)                                     :: recv_rank                  !< Rank of receiving block.
+   integer(I4P)                                     :: send_rank                  !< Rank of sending block.
+   integer(I4P)                                     :: error                      !< Error traping flag.
+   integer(I4P), allocatable                        :: req_send_recv(:)           !< MPI request receive flags.
+   integer(I4P)                                     :: iercuda                    !< Error trapping flag for CUDAFortran.
+
+   steps = .true.
+
+   if (present(step)) then
+      steps = .false.
+      steps(step) = .true.
+   endif
+
+   if (steps(1)) then
+! #ifdef _MPI_
+!       allocate(req_send_recv(0:procs_number*2-1))
+!       req_send_recv = MPI_REQUEST_NULL
+! #endif
+
+      if ((.not.allocated(comm_map_recv_ghost)).and.(.not.allocated(comm_map_send_ghost))) return
+
+      comm_map_send_ctr_ghost = comm_map_send_ptr_ghost
+
+      ! populate send buffer
+      do sf=1, size(comm_map_send_ghost, dim=1)
+         b_send    = comm_map_send_ghost(sf, 2 ) ! neighbor-block-index of block
+         send_rank = comm_map_send_ghost(sf, 3 )
+         fec       = comm_map_send_ghost(sf, 4 )
+         portion   = comm_map_send_ghost(sf, 5 )
+         imin      = comm_map_send_ghost(sf, 6 )
+         jmin      = comm_map_send_ghost(sf, 7 )
+         kmin      = comm_map_send_ghost(sf, 8 )
+         imax      = comm_map_send_ghost(sf, 9 )
+         jmax      = comm_map_send_ghost(sf, 10)
+         kmax      = comm_map_send_ghost(sf, 11)
+         idelta    = comm_map_send_ghost(sf, 12)
+         jdelta    = comm_map_send_ghost(sf, 13)
+         kdelta    = comm_map_send_ghost(sf, 14)
+         if (portion==0_I4P) then
+            ! sending to a block at my level
+            !$cuf kernel do(3) <<<*,*>>>
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     send_buffer_ghost_gpu(comm_map_send_ctr_ghost(send_rank)+1) = u_s(i+idelta,j+jdelta,k+kdelta,b_send,s)
+                     comm_map_send_ctr_ghost(send_rank) = comm_map_send_ctr_ghost(send_rank) + 1
+                  enddo
+               enddo
+            enddo
+            !@cuf iercuda=cudaDeviceSynchronize()
+         elseif (portion<0_I4P) then ! Beware! This is < 0 because the reference is the receiver
+            ! sending to a block finer than me
+            !$cuf kernel do(3) <<<*,*>>>
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     do n=1,8
+                        send_buffer_ghost_gpu(comm_map_send_ctr_ghost(send_rank)+1) = u_s(i,j,k,b_send,s)
+                        comm_map_send_ctr_ghost(send_rank) = comm_map_send_ctr_ghost(send_rank) + 1
+                     enddo
+                  enddo
+               enddo
+            enddo
+            !@cuf iercuda=cudaDeviceSynchronize()
+         else
+            ! sending to a block coarser than me, loop is over the coarser grid
+            !$cuf kernel do(3) <<<*,*>>>
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     kkk = 2 * k + kdelta
+                     jjj = 2 * j + jdelta
+                     iii = 2 * i + idelta
+                     send_buffer_ghost_gpu(comm_map_send_ctr_ghost(send_rank)+1) =         &
+                        (u_s(iii,jjj,  kkk,  b_send,s) + u_s(iii+1,jjj,  kkk,  b_send,s) + &
+                         u_s(iii,jjj+1,kkk,  b_send,s) + u_s(iii+1,jjj+1,kkk,  b_send,s) + &
+                         u_s(iii,jjj,  kkk+1,b_send,s) + u_s(iii+1,jjj,  kkk+1,b_send,s) + &
+                         u_s(iii,jjj+1,kkk+1,b_send,s) + u_s(iii+1,jjj+1,kkk+1,b_send,s)) / 8._R8P
+                     comm_map_send_ctr_ghost(send_rank) = comm_map_send_ctr_ghost(send_rank) + 1
+                  enddo
+               enddo
+            enddo
+            !@cuf iercuda=cudaDeviceSynchronize()
+         endif
+      enddo
+   endif
+
+   if (steps(2)) then
+      ! receive
+      ! do p=0, self%procs_number - 1_I4P
+      !    ptr_start = comm_map_recv_ptr_ghost(p) + 1
+      !    ptr_end   = comm_map_recv_ptr_ghost(p+1)
+      !    n_recv    = ptr_end - ptr_start + 1
+      !    if (n_recv > 0) then
+! #ifdef _MPI_
+      !       call MPI_IRECV(recv_buffer_ghost_gpu(ptr_start), n_recv, MPI_REAL8, p, 100, MPI_COMM_WORLD, &
+      !                      req_send_recv(p), error)
+! #endif
+      !    endif
+      ! enddo
+
+      ! send
+      ! do p=0, self%procs_number - 1_I4P
+      !    ptr_start = comm_map_send_ptr_ghost(p) + 1
+      !    ptr_end   = comm_map_send_ptr_ghost(p+1)
+      !    n_send    = ptr_end - ptr_start + 1
+      !    if (n_send > 0) then
+! #ifdef _MPI_
+      !       call MPI_ISEND(send_buffer_ghost_gpu(ptr_start), n_send, MPI_REAL8, p, 100, MPI_COMM_WORLD, &
+      !                      req_send_recv(p+procs_number), error)
+! #endif
+      !    endif
+      ! enddo
+   endif
+
+   if (steps(3)) then
+
+      comm_map_recv_ctr_ghost = comm_map_recv_ptr_ghost
+
+! #ifdef _MPI_
+!       call MPI_WAITALL(procs_number * 2, req_send_recv, MPI_STATUSES_IGNORE, error)
+! #endif
+
+!       call MPI_BARRIER(MPI_COMM_WORLD, error)
+
+      ! retrive from receive buffer
+      do rf=1, size(comm_map_recv_ghost, dim=1)
+         b_recv    = comm_map_recv_ghost(rf, 1 ) ! block-index
+         recv_rank = comm_map_recv_ghost(rf, 3 )
+         fec       = comm_map_recv_ghost(rf, 4 )
+         portion   = comm_map_recv_ghost(rf, 5 )
+         imin      = comm_map_recv_ghost(rf, 6 )
+         jmin      = comm_map_recv_ghost(rf, 7 )
+         kmin      = comm_map_recv_ghost(rf, 8 )
+         imax      = comm_map_recv_ghost(rf, 9 )
+         jmax      = comm_map_recv_ghost(rf, 10)
+         kmax      = comm_map_recv_ghost(rf, 11)
+         idelta    = comm_map_recv_ghost(rf, 12)
+         jdelta    = comm_map_recv_ghost(rf, 13)
+         kdelta    = comm_map_recv_ghost(rf, 14)
+         if (portion==0_I4P) then
+            !$cuf kernel do(3) <<<*,*>>>
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     u_s(i,j,k,b_recv,s) = recv_buffer_ghost_gpu(comm_map_recv_ctr_ghost(recv_rank)+1)
+                     comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                  enddo
+               enddo
+            enddo
+            !@cuf iercuda=cudaDeviceSynchronize()
+         elseif (portion>0_I4P) then
+            ! receiving from a block finer than me
+            !$cuf kernel do(3) <<<*,*>>>
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     u_s(i,j,k,b_recv,s) = recv_buffer_ghost_gpu(comm_map_recv_ctr_ghost(recv_rank)+1)
+                     comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                  enddo
+               enddo
+            enddo
+            !@cuf iercuda=cudaDeviceSynchronize()
+         else
+            ! receiving from a block coarser than me
+            !$cuf kernel do(3) <<<*,*>>>
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     kkk = 2 * k + kdelta
+                     jjj = 2 * j + jdelta
+                     iii = 2 * i + idelta
+                     u_s(iii,  jjj,  kkk  ,b_recv,s) = recv_buffer_ghost_gpu(comm_map_recv_ctr_ghost(recv_rank)+1)
+                     comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                     u_s(iii+1,jjj,  kkk  ,b_recv,s) = recv_buffer_ghost_gpu(comm_map_recv_ctr_ghost(recv_rank)+1)
+                     comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                     u_s(iii,  jjj+1,kkk  ,b_recv,s) = recv_buffer_ghost_gpu(comm_map_recv_ctr_ghost(recv_rank)+1)
+                     comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                     u_s(iii+1,jjj+1,kkk  ,b_recv,s) = recv_buffer_ghost_gpu(comm_map_recv_ctr_ghost(recv_rank)+1)
+                     comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                     u_s(iii,  jjj,  kkk+1,b_recv,s) = recv_buffer_ghost_gpu(comm_map_recv_ctr_ghost(recv_rank)+1)
+                     comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                     u_s(iii+1,jjj,  kkk+1,b_recv,s) = recv_buffer_ghost_gpu(comm_map_recv_ctr_ghost(recv_rank)+1)
+                     comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                     u_s(iii,  jjj+1,kkk+1,b_recv,s) = recv_buffer_ghost_gpu(comm_map_recv_ctr_ghost(recv_rank)+1)
+                     comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                     u_s(iii+1,jjj+1,kkk+1,b_recv,s) = recv_buffer_ghost_gpu(comm_map_recv_ctr_ghost(recv_rank)+1)
+                     comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                  enddo
+               enddo
+            enddo
+            !@cuf iercuda=cudaDeviceSynchronize()
+         endif
+      enddo
+   endif
+   endsubroutine update_ghost_mpi_gpu
 endmodule adam_field_gpu_object
