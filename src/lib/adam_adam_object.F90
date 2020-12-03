@@ -22,11 +22,11 @@ public :: adam_object
 
 type :: adam_object
    !< ADAM class definition.
-   type(grid_object)      :: grid        !< The grid.
-   type(tree_object)      :: tree        !< The tree.
-   type(field_object)     :: field       !< The field.
-   integer(I4P)           :: error=0_I4P !< Error traping flag.
+   type(grid_object)  :: grid  !< The grid.
+   type(tree_object)  :: tree  !< The tree.
+   type(field_object) :: field !< The field.
    ! MPI data
+   integer(I4P) :: error=0_I4P        !< Error traping flag.
    integer(I4P) :: procs_number=1_I4P !< MPI Number of processes.
    integer(I4P) :: myrank=0_I4P       !< MPI rank process.
    contains
@@ -324,15 +324,14 @@ contains
    integer(I4P)                             :: b, l                                          !< Counter.
    integer(I4P)                             :: i, j, k                                       !< Counter.
    integer(I4P)                             :: max_level                                     !< Maximum level.
-   real(R8P)                                :: x(0-self%grid%gc1:self%grid%ni+self%grid%gc2) !< X coordinates.
-   real(R8P)                                :: y(0-self%grid%gc3:self%grid%nj+self%grid%gc4) !< Y coordinates.
-   real(R8P)                                :: z(0-self%grid%gc5:self%grid%nk+self%grid%gc6) !< Z coordinates.
+   real(R8P)                                :: x(0-self%grid%gci:self%grid%ni+self%grid%gci) !< X coordinates.
+   real(R8P)                                :: y(0-self%grid%gcj:self%grid%nj+self%grid%gcj) !< Y coordinates.
+   real(R8P)                                :: z(0-self%grid%gck:self%grid%nk+self%grid%gck) !< Z coordinates.
 
    directory_ = '' ; if (present(directory)) directory_ = trim(directory)
    with_ghost_ = .false. ; if (present(with_ghost)) with_ghost_ = with_ghost
-   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk,       &
-             gc1=>self%grid%gc1, gc2=>self%grid%gc2, gc3=>self%grid%gc3, &
-             gc4=>self%grid%gc4, gc5=>self%grid%gc5, gc6=>self%grid%gc6)
+   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, &
+             gci=>self%grid%gci, gcj=>self%grid%gcj, gck=>self%grid%gck)
       max_level = 0_I4P
       vtr_loop : do b=1, self%field%blocks_number
          call self%grid%compute_metrics(coordinates=self%field%coordinates(:,b), x_node=x, y_node=y, z_node=z)
@@ -340,15 +339,15 @@ contains
          self%error = vtk%initialize(format='raw', filename=directory_//trim(basename)//'-block-'//trim(str(b,.true.))//&
                                                             '-proc-'//trim(str(self%myrank,.true.))//'.vtr',            &
                                      mesh_topology='RectilinearGrid',                                                   &
-                                     nx1=0-gc1, nx2=ni+gc2, ny1=0-gc3, ny2=nj+gc4, nz1=0-gc5, nz2=nk+gc6)
+                                     nx1=0-gci, nx2=ni+gci, ny1=0-gcj, ny2=nj+gcj, nz1=0-gck, nz2=nk+gck)
          self%error = vtk%xml_writer%write_fielddata(action='open')
          self%error = vtk%xml_writer%write_fielddata(data_name='Morton', x=self%field%code(b))
          self%error = vtk%xml_writer%write_fielddata(data_name='myrank', x=self%myrank)
          self%error = vtk%xml_writer%write_fielddata(action='close')
-         self%error = vtk%xml_writer%write_piece(nx1=0-gc1, nx2=ni+gc2, ny1=0-gc3, ny2=nj+gc4, nz1=0-gc5, nz2=nk+gc6)
-         self%error = vtk%xml_writer%write_geo(x=x(0-gc1:ni+gc2), y=y(0-gc3:nj+gc4), z=z(0-gc5:nk+gc6))
+         self%error = vtk%xml_writer%write_piece(nx1=0-gci, nx2=ni+gci, ny1=0-gcj, ny2=nj+gcj, nz1=0-gck, nz2=nk+gck)
+         self%error = vtk%xml_writer%write_geo(x=x(0-gci:ni+gci), y=y(0-gcj:nj+gcj), z=z(0-gck:nk+gck))
          self%error = vtk%xml_writer%write_dataarray(location='cell', action='open')
-         self%error = vtk%xml_writer%write_dataarray(data_name='u', x=[self%field%u(1-gc1:ni+gc2,1-gc3:nj+gc4,1-gc5:nk+gc6,b)])
+         self%error = vtk%xml_writer%write_dataarray(data_name='u', x=[self%field%u(1-gci:ni+gci,1-gcj:nj+gcj,1-gck:nk+gck,b)])
          self%error = vtk%xml_writer%write_dataarray(location='cell', action='close')
          self%error = vtk%xml_writer%write_piece()
          self%error = vtk%finalize()
@@ -385,11 +384,11 @@ contains
    class(adam_object), intent(inout) :: lhs !< Left hand side.
    type(adam_object),  intent(in)    :: rhs !< Right hand side.
 
-   lhs%grid            = rhs%grid
-   lhs%tree            = rhs%tree
-   lhs%field           = rhs%field
-   lhs%error           = rhs%error
-   lhs%procs_number    = rhs%procs_number
-   lhs%myrank          = rhs%myrank
+   lhs%grid         = rhs%grid
+   lhs%tree         = rhs%tree
+   lhs%field        = rhs%field
+   lhs%error        = rhs%error
+   lhs%procs_number = rhs%procs_number
+   lhs%myrank       = rhs%myrank
    endsubroutine adam_assign_adam
 endmodule adam_adam_object

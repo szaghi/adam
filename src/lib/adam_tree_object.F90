@@ -1142,16 +1142,14 @@ contains
       integer(I4P)              :: ijkdelta(3)            !< Delta offset for ghost-inner cells mapping same refinement.
       integer(I4P)              :: delta(3)               !< Neighbor delta of current fec.
       integer(I4P)              :: nijk(3)                !< Ni, Nj , Nk stored in array.
-      integer(I4P)              :: gcl(3), gcr(3)         !< Ghost cell.
+      integer(I4P)              :: gcijk(3)               !< Ghost cell.
       integer(I4P)              :: portion_array(3)       !< Portion array binary useful for less refined case.
       integer(I4P)              :: i                      !< Counter.
 
-      associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk,          &
-                gc1=>self%grid%gc1, gc2=>self%grid%gc2, gc3=>self%grid%gc3,    &
-                gc4=>self%grid%gc4, gc5=>self%grid%gc5, gc6=>self%grid%gc6)
+      associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, &
+                gci=>self%grid%gci, gcj=>self%grid%gcj, gck=>self%grid%gck)
       nijk = [ni, nj, nk]
-      gcl = [gc1, gc3, gc5]
-      gcr = [gc2, gc4, gc6]
+      gcijk = [gci, gcj, gck]
 
       abs_portion = abs(portion)
       delta = delta_neighbor(1:3, fec)
@@ -1160,10 +1158,10 @@ contains
          do i=1, 3
             if     (delta(i)==1) then
                ijkmin(i) = nijk(i) + 1
-               ijkmax(i) = nijk(i) + gcr(i)
+               ijkmax(i) = nijk(i) + gcijk(i)
                ijkdelta(i) = -nijk(i)
             elseif (delta(i)==-1) then
-               ijkmin(i) = 1 - gcl(i)
+               ijkmin(i) = 1 - gcijk(i)
                ijkmax(i) = 0
                ijkdelta(i) = nijk(i)
             elseif (delta(i)==0) then
@@ -1176,10 +1174,10 @@ contains
          do i=1, 3
             if     (delta(i)==1) then
                ijkmin(i) = nijk(i) + 1
-               ijkmax(i) = nijk(i) + gcr(i)
+               ijkmax(i) = nijk(i) + gcijk(i)
                ijkdelta(i) = -1 - 2 * nijk(i)
             elseif (delta(i)==-1) then
-               ijkmin(i) = 1 - gcl(i)
+               ijkmin(i) = 1 - gcijk(i)
                ijkmax(i) = 0
                ijkdelta(i) = -1 + nijk(i)
             elseif (delta(i)==0) then
@@ -1197,11 +1195,11 @@ contains
          do i=1, 3
             if     (delta(i)==1) then
                ijkmin(i) = nijk(i) / 2 * portion_array(i) + 1
-               ijkmax(i) = ijkmin(i) + gcr(i) / 2 - 1
+               ijkmax(i) = ijkmin(i) + gcijk(i) / 2 - 1
                ijkdelta(i) = - nijk(i) * portion_array(i) + nijk(i) - 1
             elseif (delta(i)==-1) then
-               ijkmin(i) = nijk(i) / 2 + nijk(i) / 2 * portion_array(i) + 1 - gcr(i) / 2
-               ijkmax(i) = ijkmin(i) + gcr(i) / 2 - 1
+               ijkmin(i) = nijk(i) / 2 + nijk(i) / 2 * portion_array(i) + 1 - gcijk(i) / 2
+               ijkmax(i) = ijkmin(i) + gcijk(i) / 2 - 1
                ijkdelta(i) = - nijk(i) -  nijk(i) * portion_array(i) - 1
             elseif (delta(i)==0) then
                ijkmin(i) = nijk(i) / 2 * portion_array(i) + 1
@@ -2419,6 +2417,11 @@ contains
    else
       if (allocated(lhs%block_coordinates)) deallocate(lhs%block_coordinates)
    endif
+   if (allocated(rhs%block_code)) then
+      lhs%block_code = rhs%block_code
+   else
+      if (allocated(lhs%block_code)) deallocate(lhs%block_code)
+   endif
    if (allocated(rhs%local_map)) then
       lhs%local_map = rhs%local_map
    else
@@ -2437,6 +2440,7 @@ contains
    lhs%send_nodes_number = rhs%send_nodes_number
    lhs%recv_nodes_number = rhs%recv_nodes_number
    lhs%keep_nodes_number = rhs%keep_nodes_number
+   lhs%inner_blocks_number = rhs%inner_blocks_number
    if (allocated(rhs%inner_outer_block_map)) then
       lhs%inner_outer_block_map = rhs%inner_outer_block_map
    else

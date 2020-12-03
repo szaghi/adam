@@ -86,15 +86,15 @@ type :: field_object
    integer(I4P), allocatable  :: coordinates(:,:)     !< Coordinates IJKL for each block [nb,4].
    real(R8P),    allocatable  :: emin(:,:)            !< Coordinates of minimum abscissa of each block [3,nb].
    real(R8P),    allocatable  :: emax(:,:)            !< Coordinates of maximum abscissa of each block [3,nb].
-   real(R8P),    allocatable  :: x_node(:,:)          !< X coordinates of [0-gc1:ni+gc2,nb].
-   real(R8P),    allocatable  :: y_node(:,:)          !< Y coordinates of [0-gc3:nj+gc4,nb].
-   real(R8P),    allocatable  :: z_node(:,:)          !< Z coordinates of [0-gc5:nk+gc6,nb].
-   real(R8P),    allocatable  :: x_cell(:,:)          !< X coordinates of [1-gc1:ni+gc2,nb].
-   real(R8P),    allocatable  :: y_cell(:,:)          !< Y coordinates of [1-gc3:nj+gc4,nb].
-   real(R8P),    allocatable  :: z_cell(:,:)          !< Z coordinates of [1-gc5:nk+gc6,nb].
+   real(R8P),    allocatable  :: x_node(:,:)          !< X coordinates of [0-gci:ni+gci,nb].
+   real(R8P),    allocatable  :: y_node(:,:)          !< Y coordinates of [0-gcj:nj+gcj,nb].
+   real(R8P),    allocatable  :: z_node(:,:)          !< Z coordinates of [0-gck:nk+gck,nb].
+   real(R8P),    allocatable  :: x_cell(:,:)          !< X coordinates of [1-gci:ni+gci,nb].
+   real(R8P),    allocatable  :: y_cell(:,:)          !< Y coordinates of [1-gcj:nj+gcj,nb].
+   real(R8P),    allocatable  :: z_cell(:,:)          !< Z coordinates of [1-gck:nk+gck,nb].
    integer(I8P), allocatable  :: local_map_ghost(:,:) !< Local map for ghost cells updating.
    ! MPI data, unrelated to field equations
-   integer(I4P)              :: error                      !< Error traping flag.
+   integer(I4P)              :: error=0_I4P                !< Error traping flag.
    integer(I4P)              :: myrank=0_I4P               !< MPI rank process.
    integer(I4P)              :: procs_number=1_I4P         !< Number of processes.
    integer(I4P), allocatable :: blocks_numbers(:)          !< Number of blocks actually stored in all processes.
@@ -123,7 +123,7 @@ type :: field_object
                            1._R8P, &
                            0._R8P]                                  !< RK gamma coefficients.
    ! field equations data
-   real(R8P), allocatable  :: u(     :,:,:,:  ) !< Field cell centered variables [ni+gc12,nj+gc34,nk+gc56,nv,nb].
+   real(R8P), allocatable  :: u(     :,:,:,:  ) !< Field cell centered variables [ni+2gci,nj+2gcj,nk+2gck,nv,nb].
    real(R8P), allocatable  :: u_work(:,:,:,:  ) !< Field cell centered variables, buffer memory.
    real(R8P), allocatable  :: u_s(   :,:,:,:,:) !< RK field stages.
    contains
@@ -225,9 +225,9 @@ contains
    call self%destroy
    self%grid => grid
    if (present(nv)) self%nv  = nv
-   self%block_weight = (self%grid%gc1+self%grid%ni+self%grid%gc2)* &
-                       (self%grid%gc3+self%grid%nj+self%grid%gc4)* &
-                       (self%grid%gc5+self%grid%nk+self%grid%gc6)*self%nv
+   self%block_weight = (self%grid%gci+self%grid%ni+self%grid%gci)* &
+                       (self%grid%gcj+self%grid%nj+self%grid%gcj)* &
+                       (self%grid%gck+self%grid%nk+self%grid%gck)*self%nv
    if (present(nb)) self%nb  = nb
    if (self%nb>0) then
 
@@ -239,24 +239,24 @@ contains
 
       allocate(self%emin(3,self%nb))
       allocate(self%emax(3,self%nb))
-      allocate(self%x_cell(1-self%grid%gc1:self%grid%ni+self%grid%gc2,self%nb))
-      allocate(self%y_cell(1-self%grid%gc3:self%grid%nj+self%grid%gc4,self%nb))
-      allocate(self%z_cell(1-self%grid%gc5:self%grid%nk+self%grid%gc6,self%nb))
-      allocate(self%x_node(0-self%grid%gc1:self%grid%ni+self%grid%gc2,self%nb))
-      allocate(self%y_node(0-self%grid%gc3:self%grid%nj+self%grid%gc4,self%nb))
-      allocate(self%z_node(0-self%grid%gc5:self%grid%nk+self%grid%gc6,self%nb))
+      allocate(self%x_cell(1-self%grid%gci:self%grid%ni+self%grid%gci,self%nb))
+      allocate(self%y_cell(1-self%grid%gcj:self%grid%nj+self%grid%gcj,self%nb))
+      allocate(self%z_cell(1-self%grid%gck:self%grid%nk+self%grid%gck,self%nb))
+      allocate(self%x_node(0-self%grid%gci:self%grid%ni+self%grid%gci,self%nb))
+      allocate(self%y_node(0-self%grid%gcj:self%grid%nj+self%grid%gcj,self%nb))
+      allocate(self%z_node(0-self%grid%gck:self%grid%nk+self%grid%gck,self%nb))
       self%emin(:,1) = self%grid%domain_emin
       self%emax(:,1) = self%grid%domain_emax
 
-      allocate(self%u(1-self%grid%gc1:self%grid%ni+self%grid%gc2, &
-                      1-self%grid%gc3:self%grid%nj+self%grid%gc4, &
-                      1-self%grid%gc5:self%grid%nk+self%grid%gc6, 1:self%nb))
-      allocate(self%u_work(1-self%grid%gc1:self%grid%ni+self%grid%gc2, &
-                           1-self%grid%gc3:self%grid%nj+self%grid%gc4, &
-                           1-self%grid%gc5:self%grid%nk+self%grid%gc6, 1:self%nb))
-      allocate(self%u_s(1-self%grid%gc1:self%grid%ni+self%grid%gc2, &
-                        1-self%grid%gc3:self%grid%nj+self%grid%gc4, &
-                        1-self%grid%gc5:self%grid%nk+self%grid%gc6, 1:self%nb, 1:3))
+      allocate(self%u(1-self%grid%gci:self%grid%ni+self%grid%gci, &
+                      1-self%grid%gcj:self%grid%nj+self%grid%gcj, &
+                      1-self%grid%gck:self%grid%nk+self%grid%gck, 1:self%nb))
+      allocate(self%u_work(1-self%grid%gci:self%grid%ni+self%grid%gci, &
+                           1-self%grid%gcj:self%grid%nj+self%grid%gcj, &
+                           1-self%grid%gck:self%grid%nk+self%grid%gck, 1:self%nb))
+      allocate(self%u_s(1-self%grid%gci:self%grid%ni+self%grid%gci, &
+                        1-self%grid%gcj:self%grid%nj+self%grid%gcj, &
+                        1-self%grid%gck:self%grid%nk+self%grid%gck, 1:self%nb, 1:3))
       self%u = 0._R8P
       self%u_work = 0._R8P
    endif
@@ -486,9 +486,9 @@ contains
       do b=1, size(comm_map_recv, dim=1)
           bi = comm_map_recv(b)
           self%u_work(:,:,:,bi) = reshape(recv_buffer(recv_offset:recv_offset + self%block_weight -1),&
-                                          [self%grid%gc1+self%grid%ni+self%grid%gc2,                  &
-                                           self%grid%gc3+self%grid%nj+self%grid%gc4,                  &
-                                           self%grid%gc5+self%grid%nk+self%grid%gc6])
+                                          [self%grid%gci+self%grid%ni+self%grid%gci,                  &
+                                           self%grid%gcj+self%grid%nj+self%grid%gcj,                  &
+                                           self%grid%gck+self%grid%nk+self%grid%gck])
           recv_offset = recv_offset + self%block_weight
       enddo
    endif
@@ -645,13 +645,12 @@ contains
    associate(blocks_number=>self%blocks_number,                             &
              u=>self%u,                                                     &
              ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk,          &
-             gc1=>self%grid%gc1, gc2=>self%grid%gc2, gc3=>self%grid%gc3,    &
-             gc4=>self%grid%gc4, gc5=>self%grid%gc5, gc6=>self%grid%gc6,    &
+             gci=>self%grid%gci, gcj=>self%grid%gcj, gck=>self%grid%gck,    &
              x_cell=>self%x_cell, y_cell=>self%y_cell, z_cell=>self%z_cell)
    do b=1, blocks_number
-      do k=1-gc5, nk+gc6
-         do j=1-gc3, nj+gc4
-            do i=1-gc1, ni+gc2
+      do k=1-gck, nk+gck
+         do j=1-gcj, nj+gcj
+            do i=1-gci, ni+gci
                u(i,j,k,b) = a * exp(-((x_cell(i,b) - x_0)**2/(2 * sigma_x**2)+&
                                       (y_cell(j,b) - y_0)**2/(2 * sigma_y**2)+&
                                       (z_cell(k,b) - z_0)**2/(2 * sigma_z**2)))
@@ -666,9 +665,9 @@ contains
    !< Update ghost cells.
    !< If not specified all steps are perfermod, syncronous computation
    class(field_object), intent(inout)        :: self                   !< The field.
-   real(R8P),           intent(inout)        :: q(1-self%grid%gc1:,&
-                                                  1-self%grid%gc3:,&
-                                                  1-self%grid%gc5:,1:) !< Field component to be updated.
+   real(R8P),           intent(inout)        :: q(1-self%grid%gci:,&
+                                                  1-self%grid%gcj:,&
+                                                  1-self%grid%gck:,1:) !< Field component to be updated.
    integer(I4P),        intent(in), optional :: step                   !< Step to be perfordmed in asyncronous computations.
    logical                                   :: do_local_update        !< Flag for triggering local update.
 
@@ -687,9 +686,9 @@ contains
    subroutine update_ghost_local(self, q)
    !< Update (local) ghost cells, rank 4.
    class(field_object), intent(inout) :: self                    !< The field.
-   real(R8P),           intent(inout) :: q(1-self%grid%gc1:,&
-                                           1-self%grid%gc3:,&
-                                           1-self%grid%gc5:,1:)  !< Field component to be updated.
+   real(R8P),           intent(inout) :: q(1-self%grid%gci:,&
+                                           1-self%grid%gcj:,&
+                                           1-self%grid%gck:,1:)  !< Field component to be updated.
    integer(I4P)                       :: i, j, k, mf             !< Counter.
    integer(I4P)                       :: iii, jjj, kkk           !< Counter.
    integer(I4P)                       :: fec                     !< Direction where ghost cells are updated, faces/edges/corners.
@@ -759,9 +758,9 @@ contains
    subroutine update_ghost_mpi(self, q, step)
    !< Update ghost cells within other processes.
    class(field_object), intent(inout)        :: self                       !< The field.
-   real(R8P),           intent(inout)        :: q(1-self%grid%gc1:,&
-                                                  1-self%grid%gc3:,&
-                                                  1-self%grid%gc5:,1:)     !< Field component to be updated.
+   real(R8P),           intent(inout)        :: q(1-self%grid%gci:,&
+                                                  1-self%grid%gcj:,&
+                                                  1-self%grid%gck:,1:)     !< Field component to be updated.
    integer(I4P),        intent(in), optional :: step                       !< Step to be perfordmed in asyncronous computations.
    logical                                   :: do_step(3)                 !< Steps to be performed in asyncronous computations.
    integer(I4P)                              :: i, j, k                    !< Counter.
@@ -1067,9 +1066,8 @@ contains
    integer(I4P)                             :: ic1, ic2, ic3, ic4        !< Counter.
    integer(I4P)                             :: ic5, ic6, ic7, ic8        !< Counter.
 
-   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk,       &
-             gc1=>self%grid%gc1, gc2=>self%grid%gc2, gc3=>self%grid%gc3, &
-             gc4=>self%grid%gc4, gc5=>self%grid%gc5, gc6=>self%grid%gc6)
+   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, &
+             gci=>self%grid%gci, gcj=>self%grid%gcj, gck=>self%grid%gck)
    if (allocated(block_to_refine)) then
       do b=1, size(block_to_refine, dim=2)
          if (self%myrank /= block_to_refine(2,b)) cycle
@@ -1252,6 +1250,83 @@ contains
    else
       if (allocated(lhs%z_node)) deallocate(lhs%z_node)
    endif
+   if (allocated(rhs%local_map_ghost)) then
+      lhs%local_map_ghost = rhs%local_map_ghost
+   else
+      if (allocated(lhs%local_map_ghost)) deallocate(lhs%local_map_ghost)
+   endif
+   ! MPI data, unrelated to field equations
+   lhs%error        = rhs%error
+   lhs%myrank       = rhs%myrank
+   lhs%procs_number = rhs%procs_number
+   if (allocated(rhs%blocks_numbers)) then
+      lhs%blocks_numbers = rhs%blocks_numbers
+   else
+      if (allocated(lhs%blocks_numbers)) deallocate(lhs%blocks_numbers)
+   endif
+   if (allocated(rhs%refinements_needed)) then
+      lhs%refinements_needed = rhs%refinements_needed
+   else
+      if (allocated(lhs%refinements_needed)) deallocate(lhs%refinements_needed)
+   endif
+   if (allocated(rhs%refinements_needed_all)) then
+      lhs%refinements_needed_all = rhs%refinements_needed_all
+   else
+      if (allocated(lhs%refinements_needed_all)) deallocate(lhs%refinements_needed_all)
+   endif
+   if (allocated(rhs%disp_count)) then
+      lhs%disp_count = rhs%disp_count
+   else
+      if (allocated(lhs%disp_count)) deallocate(lhs%disp_count)
+   endif
+   lhs%inner_blocks_number = rhs%inner_blocks_number
+   if (allocated(rhs%req_send_recv)) then
+      lhs%req_send_recv = rhs%req_send_recv
+   else
+      if (allocated(lhs%req_send_recv)) deallocate(lhs%req_send_recv)
+   endif
+   if (allocated(rhs%comm_map_n_send_ghost)) then
+      lhs%comm_map_n_send_ghost = rhs%comm_map_n_send_ghost
+   else
+      if (allocated(lhs%comm_map_n_send_ghost)) deallocate(lhs%comm_map_n_send_ghost)
+   endif
+   if (allocated(rhs%comm_map_n_recv_ghost)) then
+      lhs%comm_map_n_recv_ghost = rhs%comm_map_n_recv_ghost
+   else
+      if (allocated(lhs%comm_map_n_recv_ghost)) deallocate(lhs%comm_map_n_recv_ghost)
+   endif
+   if (allocated(rhs%comm_map_send_ptr_ghost)) then
+      lhs%comm_map_send_ptr_ghost = rhs%comm_map_send_ptr_ghost
+   else
+      if (allocated(lhs%comm_map_send_ptr_ghost)) deallocate(lhs%comm_map_send_ptr_ghost)
+   endif
+   if (allocated(rhs%comm_map_recv_ptr_ghost)) then
+      lhs%comm_map_recv_ptr_ghost = rhs%comm_map_recv_ptr_ghost
+   else
+      if (allocated(lhs%comm_map_recv_ptr_ghost)) deallocate(lhs%comm_map_recv_ptr_ghost)
+   endif
+   if (allocated(rhs%comm_map_send_ghost)) then
+      lhs%comm_map_send_ghost = rhs%comm_map_send_ghost
+   else
+      if (allocated(lhs%comm_map_send_ghost)) deallocate(lhs%comm_map_send_ghost)
+   endif
+   if (allocated(rhs%comm_map_recv_ghost)) then
+      lhs%comm_map_recv_ghost = rhs%comm_map_recv_ghost
+   else
+      if (allocated(lhs%comm_map_recv_ghost)) deallocate(lhs%comm_map_recv_ghost)
+   endif
+   ! MPI data, related to field equations
+   if (allocated(rhs%send_buffer_ghost)) then
+      lhs%send_buffer_ghost = rhs%send_buffer_ghost
+   else
+      if (allocated(lhs%send_buffer_ghost)) deallocate(lhs%send_buffer_ghost)
+   endif
+   if (allocated(rhs%recv_buffer_ghost)) then
+      lhs%recv_buffer_ghost = rhs%recv_buffer_ghost
+   else
+      if (allocated(lhs%recv_buffer_ghost)) deallocate(lhs%recv_buffer_ghost)
+   endif
+   ! field equations data
    if (allocated(rhs%u)) then
       lhs%u = rhs%u
    else
@@ -1262,20 +1337,12 @@ contains
    else
       if (allocated(lhs%u_work)) deallocate(lhs%u_work)
    endif
-   if (allocated(rhs%local_map_ghost)) then
-      lhs%local_map_ghost = rhs%local_map_ghost
+   if (allocated(rhs%u_s)) then
+      lhs%u_s = rhs%u_s
    else
-      if (allocated(lhs%local_map_ghost)) deallocate(lhs%local_map_ghost)
+      if (allocated(lhs%u_s)) deallocate(lhs%u_s)
    endif
-   ! MPI data
-   lhs%myrank        = rhs%myrank
-   lhs%procs_number  = rhs%procs_number
-   if (allocated(rhs%blocks_numbers)) then
-      lhs%blocks_numbers = rhs%blocks_numbers
-   else
-      if (allocated(lhs%blocks_numbers)) deallocate(lhs%blocks_numbers)
-   endif
-   ! RK data
+   ! RK data, related to field equations
    lhs%alph = rhs%alph
    lhs%beta = rhs%beta
    lhs%gamm = rhs%gamm

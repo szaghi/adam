@@ -23,7 +23,7 @@ type :: field_gpu_object
    real(R8P), allocatable, device :: beta_gpu(:)         !< RK beta  coefficients.
    real(R8P), allocatable, device :: gamm_gpu(:)         !< RK gamma coefficients.
    ! field equations data
-   real(R8P), allocatable, device :: u_gpu(     :,:,:,:  ) !< Field cell centered variables [ni+gc12,nj+gc34,nk+gc56,nv,nb].
+   real(R8P), allocatable, device :: u_gpu(     :,:,:,:  ) !< Field cell centered variables [ni+2gci,nj+2gcj,nk+2gck,nv,nb].
    real(R8P), allocatable, device :: u_work_gpu(:,:,:,:  ) !< Field working buffer.
    real(R8P), allocatable, device :: u_s_gpu(   :,:,:,:,:) !< RK field stages.
    ! MPI data
@@ -63,17 +63,17 @@ contains
 
    associate(grid=>self%field_cpu%grid)
       if (allocated(self%u_gpu)) deallocate(self%u_gpu)
-      allocate(self%u_gpu(1-grid%gc1:grid%ni+grid%gc2, &
-                          1-grid%gc3:grid%nj+grid%gc4, &
-                          1-grid%gc5:grid%nk+grid%gc6, 1:self%field_cpu%nb))
+      allocate(self%u_gpu(1-grid%gci:grid%ni+grid%gci, &
+                          1-grid%gcj:grid%nj+grid%gcj, &
+                          1-grid%gck:grid%nk+grid%gck, 1:self%field_cpu%nb))
       if (allocated(self%u_work_gpu)) deallocate(self%u_work_gpu)
-      allocate(self%u_work_gpu(1-grid%gc1:grid%ni+grid%gc2, &
-                               1-grid%gc3:grid%nj+grid%gc4, &
-                               1-grid%gc5:grid%nk+grid%gc6, 1:self%field_cpu%nb))
+      allocate(self%u_work_gpu(1-grid%gci:grid%ni+grid%gci, &
+                               1-grid%gcj:grid%nj+grid%gcj, &
+                               1-grid%gck:grid%nk+grid%gck, 1:self%field_cpu%nb))
       if (allocated(self%u_s_gpu)) deallocate(self%u_s_gpu)
-      allocate(self%u_s_gpu(1-grid%gc1:grid%ni+grid%gc2, &
-                            1-grid%gc3:grid%nj+grid%gc4, &
-                            1-grid%gc5:grid%nk+grid%gc6, 1:self%field_cpu%nb, 1:3))
+      allocate(self%u_s_gpu(1-grid%gci:grid%ni+grid%gci, &
+                            1-grid%gcj:grid%nj+grid%gcj, &
+                            1-grid%gck:grid%nk+grid%gck, 1:self%field_cpu%nb, 1:3))
    endassociate
    if (allocated(self%alph_gpu)) deallocate(self%alph_gpu) ; allocate(self%alph_gpu(3,3))
    if (allocated(self%beta_gpu)) deallocate(self%beta_gpu) ; allocate(self%beta_gpu(3))
