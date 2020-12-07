@@ -21,6 +21,9 @@ $EXDIRS      = references/
                BeFoR64/src/third_party/
                FACE/src/tests/
                FACE/src/third_party/
+               FOSSIL/src/app/
+               FOSSIL/src/tests/
+               FOSSIL/src/third_party/
                FoXy/src/tests/
                FoXy/src/third_party/
                MORTIF/src/tests/

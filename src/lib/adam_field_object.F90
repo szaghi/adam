@@ -126,6 +126,7 @@ type :: field_object
    real(R8P), allocatable  :: u(     :,:,:,:  ) !< Field cell centered variables [ni+2gci,nj+2gcj,nk+2gck,nv,nb].
    real(R8P), allocatable  :: u_work(:,:,:,:  ) !< Field cell centered variables, buffer memory.
    real(R8P), allocatable  :: u_s(   :,:,:,:,:) !< RK field stages.
+   real(R8P), allocatable  :: ls(    :,:,:,:  ) !< Level set field [ni+2gci,nj+2gcj,nk+2gck,nv,nb].
    contains
       ! public methods
       procedure, pass(self) :: adapt                         !< Adapt field accordingly to refine/derefine necessity.

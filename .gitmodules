@@ -34,3 +34,6 @@
 [submodule "src/third_party/VecFor"]
 	path = src/third_party/VecFor
 	url = https://github.com/szaghi/VecFor
+[submodule "src/third_party/FOSSIL"]
+	path = src/third_party/FOSSIL
+	url = git@github.com:szaghi/FOSSIL.git

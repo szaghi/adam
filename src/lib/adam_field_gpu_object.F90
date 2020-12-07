@@ -421,6 +421,7 @@ contains
                do j=jmin, jmax
                   do i=imin, imax
                      send_buffer_ghost_gpu(comm_map_send_ctr_ghost(send_rank)+1) = u_s(i+idelta,j+jdelta,k+kdelta,b_send,s)
+                     ! num_send_atomic_temp = atomicAdd(comm_map_send_ctr_ghost(send_rank), 1)
                      comm_map_send_ctr_ghost(send_rank) = comm_map_send_ctr_ghost(send_rank) + 1
                   enddo
                enddo

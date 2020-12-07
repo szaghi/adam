@@ -212,30 +212,36 @@ contains
                                     code=self%tree%block_code)
    endsubroutine mpi_redistribute
 
-   subroutine save_hdf5(self, basename, directory, with_ghost)
+   subroutine save_hdf5(self, basename, directory, with_ghost, with_cell_morton, with_ls)
    !< Save ADAM in HDF5 format.
-   class(adam_object), intent(inout)        :: self          !< ADAM.
-   character(*),       intent(in)           :: basename      !< Base name of output files.
-   character(*),       intent(in), optional :: directory     !< Directory name of output files.
-   logical,            intent(in), optional :: with_ghost    !< Flag to save ghost cells.
-   character(:), allocatable                :: directory_    !< Directory name of output files, local var.
-   logical                                  :: with_ghost_   !< Flag to save ghost cells, local var.
-   type(tree_node_object), pointer          :: node          !< Pointer to node.
-   real(R8P)                                :: emin(3)       !< Minimum abscissa of current block.
-   integer(I4P)                             :: b             !< Counter.
-   integer(I4P)                             :: xdmf          !< XDMF file handler.
-   character(len=:), allocatable            :: h5_file_name  !< H5 Dataset name.
-   character(len=:), allocatable            :: h5_dset_name  !< H5 Dataset name.
-   integer(HID_T)                           :: h5_file_id    !< H5 File identifier.
-   integer(HID_T)                           :: h5_dspace_id  !< H5 Dataspace identifier.
-   integer(HID_T)                           :: h5_dset_id    !< H5 Dataset identifier.
-   real(R8P)                                :: dx, dy, dz    !< Space steps.
-   character(len=:), allocatable            :: grid_dims     !< Grid dimensions.
-   integer(I4P)                             :: gci, gcj, gck !< Ghost cells saved.
-   integer(I4P)                             :: i, j, k, l    !< Counter.
+   class(adam_object), intent(inout)        :: self              !< ADAM.
+   character(*),       intent(in)           :: basename          !< Base name of output files.
+   character(*),       intent(in), optional :: directory         !< Directory name of output files.
+   logical,            intent(in), optional :: with_ghost        !< Flag to save ghost cells.
+   logical,            intent(in), optional :: with_cell_morton  !< Flag to save Morton code also in cells.
+   logical,            intent(in), optional :: with_ls           !< Flag to save level set field.
+   character(:), allocatable                :: directory_        !< Directory name of output files, local var.
+   logical                                  :: with_ghost_       !< Flag to save ghost cells, local var.
+   logical                                  :: with_cell_morton_ !< Flag to save Morton code also in cells, local var.
+   logical                                  :: with_ls_          !< Flag to save level set field, local var.
+   type(tree_node_object), pointer          :: node              !< Pointer to node.
+   real(R8P)                                :: emin(3)           !< Minimum abscissa of current block.
+   integer(I4P)                             :: b                 !< Counter.
+   integer(I4P)                             :: xdmf              !< XDMF file handler.
+   character(len=:), allocatable            :: h5_file_name      !< H5 Dataset name.
+   character(len=:), allocatable            :: h5_dset_name      !< H5 Dataset name.
+   integer(HID_T)                           :: h5_file_id        !< H5 File identifier.
+   integer(HID_T)                           :: h5_dspace_id      !< H5 Dataspace identifier.
+   integer(HID_T)                           :: h5_dset_id        !< H5 Dataset identifier.
+   real(R8P)                                :: dx, dy, dz        !< Space steps.
+   character(len=:), allocatable            :: grid_dims         !< Grid dimensions.
+   integer(I4P)                             :: gci, gcj, gck     !< Ghost cells saved.
+   integer(I4P)                             :: i, j, k, l        !< Counter.
 
    directory_ = '' ; if (present(directory)) directory_ = trim(directory)
    with_ghost_ = .false. ; if (present(with_ghost)) with_ghost_ = with_ghost
+   with_cell_morton_ = .false. ; if (present(with_cell_morton)) with_cell_morton_ = with_cell_morton
+   with_ls_ = .false. ; if (present(with_ls)) with_ls_ = with_ls.and.allocated(self%field%ls)
    if (with_ghost_) then
       gci = self%grid%gci
       gcj = self%grid%gcj
@@ -262,6 +268,24 @@ contains
       call h5dwrite_f(h5_dset_id, H5T_NATIVE_DOUBLE, self%field%u(1-gci:ni+gci,1-gcj:nj+gcj,1-gck:nk+gck,b), &
                       [int(ni+2*gci,I8P),int(nj+2*gcj,I8P),int(nk+2*gck,I8P)], self%error)
       call h5dclose_f(h5_dset_id, self%error)
+
+      if (with_cell_morton_) then
+         h5_dset_name = 'morton-'//trim(str(self%myrank,.true.))//'-'//trim(str(b,.true.))
+         call h5dcreate_f(h5_file_id, h5_dset_name, H5T_NATIVE_DOUBLE, h5_dspace_id, h5_dset_id, self%error)
+         call h5dwrite_f(h5_dset_id, H5T_NATIVE_DOUBLE, &
+                         reshape([(real(self%field%code(b),R8P),i=1,(ni+2*gci)*(nj+2*gcj)*(nk+2*gck))], &
+                                 [ni+2*gci,nj+2*gcj,nk+2*gck]),                              &
+                         [int(ni+2*gci,I8P),int(nj+2*gcj,I8P),int(nk+2*gck,I8P)], self%error)
+         call h5dclose_f(h5_dset_id, self%error)
+      endif
+
+      if (with_ls_) then
+         h5_dset_name = 'level-set-'//trim(str(self%myrank,.true.))//'-'//trim(str(b,.true.))
+         call h5dcreate_f(h5_file_id, h5_dset_name, H5T_NATIVE_DOUBLE, h5_dspace_id, h5_dset_id, self%error)
+         call h5dwrite_f(h5_dset_id, H5T_NATIVE_DOUBLE, self%field%ls(1-gci:ni+gci,1-gcj:nj+gcj,1-gck:nk+gck,b), &
+                         [int(ni+2*gci,I8P),int(nj+2*gcj,I8P),int(nk+2*gck,I8P)], self%error)
+         call h5dclose_f(h5_dset_id, self%error)
+      endif
    enddo
    ! terminate access to the data space
    call h5sclose_f(h5_dspace_id, self%error)
@@ -299,6 +323,22 @@ contains
          write(xdmf, '(A)') '          <DataItem DataType="Float" Dimensions="'//grid_dims//'" Format="HDF" Precision="8">'// &
                                        h5_file_name//':'//h5_dset_name//'</DataItem>'
          write(xdmf, '(A)') '        </Attribute>'
+
+         if (with_cell_morton_) then
+            h5_dset_name = 'morton-'//trim(str(node%myrank,.true.))//'-'//trim(str(b,.true.))
+            write(xdmf, '(A)') '        <Attribute Name="morton" Center="Cell" ElementDegree="0" Type="Scalar">'
+            write(xdmf, '(A)') '          <DataItem DataType="Float" Dimensions="'//grid_dims//'" Format="HDF" Precision="8">'// &
+                                          h5_file_name//':'//h5_dset_name//'</DataItem>'
+            write(xdmf, '(A)') '        </Attribute>'
+         endif
+
+         if (with_ls_) then
+            h5_dset_name = 'level-set-'//trim(str(node%myrank,.true.))//'-'//trim(str(b,.true.))
+            write(xdmf, '(A)') '        <Attribute Name="level-set" Center="Cell" ElementDegree="0" Type="Scalar">'
+            write(xdmf, '(A)') '          <DataItem DataType="Float" Dimensions="'//grid_dims//'" Format="HDF" Precision="8">'// &
+                                          h5_file_name//':'//h5_dset_name//'</DataItem>'
+            write(xdmf, '(A)') '        </Attribute>'
+         endif
 
          write(xdmf, '(A)') '        <Attribute Name="Morton" Center="Grid">'
          write(xdmf, '(A)') '          <DataItem Dimensions="1" Format="XML" DataType="Int">'//trim(str(node%code))//'</DataItem>'
