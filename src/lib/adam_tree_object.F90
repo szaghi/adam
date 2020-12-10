@@ -131,10 +131,10 @@ use adam_grid_object
 use adam_parameters
 use adam_tree_node_object
 use adam_tree_bucket_object
-use FOSSIL
+! use FOSSIL
 use MORTIF
 use PENF
-use VecFor
+! use VecFor
 #ifdef _MPI_
 use MPI
 #endif
@@ -203,16 +203,16 @@ type :: tree_object
    integer(I8P), allocatable :: comm_map_send_ghost(:,:)   !< Communication map, `fec` information [fec_number, 5].
    integer(I8P), allocatable :: comm_map_recv_ghost(:,:)   !< Communication map, `fec` information [fec_number, 5].
    ! STL surfaces data
-   type(surface_stl_object)  :: surface_stl !< STL surface.
+   ! type(surface_stl_object)  :: surface_stl !< STL surface.
    contains
       ! public methods
       procedure, pass(self) :: adapt                        !< Adapt tree accordingly to refine/derefine necessity.
       procedure, pass(self) :: add_node                     !< Add a node pointer to the tree.
       procedure, pass(self) :: blocks_reorder               !< Reorder blocks indexes in field.
       procedure, pass(self) :: codes                        !< Return the list of (sorted) codes actually stored in the tree.
-      procedure, pass(self) :: compute_surface_stl_distance !< Compute signed distance of nodes from a STL surface.
+      ! procedure, pass(self) :: compute_surface_stl_distance !< Compute signed distance of nodes from a STL surface.
       procedure, pass(self) :: destroy                      !< Destroy the tree.
-      procedure, pass(self) :: load_surface_stl             !< Load surface from STL file.
+      ! procedure, pass(self) :: load_surface_stl             !< Load surface from STL file.
       procedure, pass(self) :: loop                         !< Sentinel while-loop on nodes returning the code.
       procedure, pass(self) :: hash                         !< Hash the key.
       procedure, pass(self) :: has_code                     !< Check if the code is present in the tree.
@@ -220,7 +220,7 @@ type :: tree_object
       procedure, pass(self) :: max_cell_delta               !< Return the maximum cell delta given a comparison distance.
       procedure, pass(self) :: mark_all_nodes               !< Mark all nodes to be refined, derefined, ecc.
       procedure, pass(self) :: mark_sphere                  !< Mark nodes to be refined/derefined by sphere distance.
-      procedure, pass(self) :: mark_surface_stl             !< Mark all nodes inside a surface defined by STL triangulation.
+      ! procedure, pass(self) :: mark_surface_stl             !< Mark all nodes inside a surface defined by STL triangulation.
       procedure, pass(self) :: node                         !< Return a pointer to a node.
       procedure, pass(self) :: prime_buckets_number         !< Return the buckets number as nearest prime number given nodes number.
       procedure, pass(self) :: remove_node                  !< Remove a node from the tree, given the key.
@@ -364,86 +364,86 @@ contains
       endsubroutine swap_element
    endfunction codes
 
-   subroutine compute_surface_stl_distance(self, surface_stl, from_cell, cell_distance)
-   !< Compute signed distance of blocks/cells from a STL surface.
-   !<
-   !< Distance from blocks are computed for all blocks, there is not need to exchange data between processes.
-   !< On the contrary, distance from cells is computed only for my blocks, each process must pass the distance
-   !< to each field.
-   class(tree_object),       intent(inout)         :: self                   !< The tree.
-   type(surface_stl_object), intent(in)            :: surface_stl            !< STL surface.
-   logical,                  intent(in),  optional :: from_cell              !< Distance from cells instead of blocks.
-   real(R8P), allocatable,   intent(out), optional :: cell_distance(:,:,:,:) !< Distance from cells.
-   logical                                         :: from_cell_             !< Distance from cells instead of blocks, local var.
-   type(tree_node_object), pointer                 :: node                   !< Pointer to current node.
-   real(R8P)                                       :: block_center(3)        !< block center coordinates.
-   real(R8P)                                       :: distance(0:8)          !< Distances between block and sphere.
-   integer(I4P)                                    :: i,j,k,l                !< Counter.
-   real(R8P)                                       :: emin(3), emax(3)       !< Node extents.
-   type(vector_R8P)                                :: point(0:8)             !< Vector point coordinates.
-   real(R8P), allocatable                          :: x_cell(:)              !< X cell coordinates.
-   real(R8P), allocatable                          :: y_cell(:)              !< Y cell coordinates.
-   real(R8P), allocatable                          :: z_cell(:)              !< Z cell coordinates.
+   !subroutine compute_surface_stl_distance(self, surface_stl, from_cell, cell_distance)
+   !!< Compute signed distance of blocks/cells from a STL surface.
+   !!<
+   !!< Distance from blocks are computed for all blocks, there is not need to exchange data between processes.
+   !!< On the contrary, distance from cells is computed only for my blocks, each process must pass the distance
+   !!< to each field.
+   !class(tree_object),       intent(inout)         :: self                   !< The tree.
+   !type(surface_stl_object), intent(in)            :: surface_stl            !< STL surface.
+   !logical,                  intent(in),  optional :: from_cell              !< Distance from cells instead of blocks.
+   !real(R8P), allocatable,   intent(out), optional :: cell_distance(:,:,:,:) !< Distance from cells.
+   !logical                                         :: from_cell_             !< Distance from cells instead of blocks, local var.
+   !type(tree_node_object), pointer                 :: node                   !< Pointer to current node.
+   !real(R8P)                                       :: block_center(3)        !< block center coordinates.
+   !real(R8P)                                       :: distance(0:8)          !< Distances between block and sphere.
+   !integer(I4P)                                    :: i,j,k,l                !< Counter.
+   !real(R8P)                                       :: emin(3), emax(3)       !< Node extents.
+   !type(vector_R8P)                                :: point(0:8)             !< Vector point coordinates.
+   !real(R8P), allocatable                          :: x_cell(:)              !< X cell coordinates.
+   !real(R8P), allocatable                          :: y_cell(:)              !< Y cell coordinates.
+   !real(R8P), allocatable                          :: z_cell(:)              !< Z cell coordinates.
 
-   from_cell_ = .false. ; if (present(from_cell)) from_cell_ = from_cell
-   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, gci=>self%grid%gci, gcj=>self%grid%gcj, gck=>self%grid%gck)
-   if (from_cell_.and.present(cell_distance)) then
-      ! compute distance from cell, distance from blocks must be already computed
-      allocate(cell_distance(1-gci:ni+gci, 1-gcj:nj+gcj, 1-gck:nk+gck, 1:self%my_nodes_number))
-      ! cell_distance = huge(0._R8P)
-      cell_distance = 10._R8P
-      allocate(x_cell(1-gci:ni+gci))
-      allocate(y_cell(1-gcj:nj+gcj))
-      allocate(z_cell(1-gck:nk+gck))
-      do while(self%loop(node=node))
-         if (node%myrank==self%myrank) then
-            if (node%surface_stl_distance<epsilon(0._R8P)) then
-               ! compute cell distance only in blocks where is STL surface
-               call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
-               call self%grid%compute_metrics(coordinates=[i,j,k,l], x_cell=x_cell, y_cell=y_cell, z_cell=z_cell)
-               do k=1-gck, nk+gck
-                  do j=1-gcj, nj+gcj
-                     do i=1-gci, ni+gci
-                        point(0) = x_cell(i) * ex_R8P + y_cell(j) * ey_R8P + z_cell(k) * ez_R8P
-                        cell_distance(i,j,k,node%block_index) = surface_stl%distance(point=point(0),   &
-                                                                                     is_signed=.true., &
-                                                                                     sign_algorithm='ray_intersections')
-                     enddo
-                  enddo
-               enddo
-            endif
-         endif
-      enddo
-   else
-      do while(self%loop(node=node))
-         if (node%surface_stl_distance<huge(0._R8P)/2._R8P) cycle ! distance already computed for this node
-         call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
-         call self%grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax)
-         block_center = (emax + emin) / 2._R8P
-         point(0) = block_center(1) * ex_R8P +  block_center(2) * ey_R8P + block_center(3) * ez_R8P
-         point(1) =         emin(1) * ex_R8P +          emin(2) * ey_R8P +         emin(3) * ez_R8P
-         point(2) =         emax(1) * ex_R8P +          emin(2) * ey_R8P +         emin(3) * ez_R8P
-         point(3) =         emin(1) * ex_R8P +          emax(2) * ey_R8P +         emin(3) * ez_R8P
-         point(4) =         emax(1) * ex_R8P +          emax(2) * ey_R8P +         emin(3) * ez_R8P
-         point(5) =         emin(1) * ex_R8P +          emin(2) * ey_R8P +         emax(3) * ez_R8P
-         point(6) =         emax(1) * ex_R8P +          emin(2) * ey_R8P +         emax(3) * ez_R8P
-         point(7) =         emin(1) * ex_R8P +          emax(2) * ey_R8P +         emax(3) * ez_R8P
-         point(8) =         emax(1) * ex_R8P +          emax(2) * ey_R8P +         emax(3) * ez_R8P
-         distance(0) = surface_stl%distance(point=point(0), is_signed=.true., sign_algorithm='ray_intersections')
-         distance(1) = surface_stl%distance(point=point(1), is_signed=.true., sign_algorithm='ray_intersections')
-         distance(2) = surface_stl%distance(point=point(2), is_signed=.true., sign_algorithm='ray_intersections')
-         distance(3) = surface_stl%distance(point=point(3), is_signed=.true., sign_algorithm='ray_intersections')
-         distance(4) = surface_stl%distance(point=point(4), is_signed=.true., sign_algorithm='ray_intersections')
-         distance(5) = surface_stl%distance(point=point(5), is_signed=.true., sign_algorithm='ray_intersections')
-         distance(6) = surface_stl%distance(point=point(6), is_signed=.true., sign_algorithm='ray_intersections')
-         distance(7) = surface_stl%distance(point=point(7), is_signed=.true., sign_algorithm='ray_intersections')
-         distance(8) = surface_stl%distance(point=point(8), is_signed=.true., sign_algorithm='ray_intersections')
-         if (maxval(distance(0:8),dim=1)*minval(distance(0:8),dim=1) < 0._R8P) distance(0) = 0._R8P
-         node%surface_stl_distance = distance(0)
-      enddo
-   endif
-   endassociate
-   endsubroutine compute_surface_stl_distance
+   !from_cell_ = .false. ; if (present(from_cell)) from_cell_ = from_cell
+   !associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, gci=>self%grid%gci, gcj=>self%grid%gcj, gck=>self%grid%gck)
+   !if (from_cell_.and.present(cell_distance)) then
+   !   ! compute distance from cell, distance from blocks must be already computed
+   !   allocate(cell_distance(1-gci:ni+gci, 1-gcj:nj+gcj, 1-gck:nk+gck, 1:self%my_nodes_number))
+   !   ! cell_distance = huge(0._R8P)
+   !   cell_distance = 10._R8P
+   !   allocate(x_cell(1-gci:ni+gci))
+   !   allocate(y_cell(1-gcj:nj+gcj))
+   !   allocate(z_cell(1-gck:nk+gck))
+   !   do while(self%loop(node=node))
+   !      if (node%myrank==self%myrank) then
+   !         if (node%surface_stl_distance<epsilon(0._R8P)) then
+   !            ! compute cell distance only in blocks where is STL surface
+   !            call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
+   !            call self%grid%compute_metrics(coordinates=[i,j,k,l], x_cell=x_cell, y_cell=y_cell, z_cell=z_cell)
+   !            do k=1-gck, nk+gck
+   !               do j=1-gcj, nj+gcj
+   !                  do i=1-gci, ni+gci
+   !                     point(0) = x_cell(i) * ex_R8P + y_cell(j) * ey_R8P + z_cell(k) * ez_R8P
+   !                     cell_distance(i,j,k,node%block_index) = surface_stl%distance(point=point(0),   &
+   !                                                                                  is_signed=.true., &
+   !                                                                                  sign_algorithm='ray_intersections')
+   !                  enddo
+   !               enddo
+   !            enddo
+   !         endif
+   !      endif
+   !   enddo
+   !else
+   !   do while(self%loop(node=node))
+   !      if (node%surface_stl_distance<huge(0._R8P)/2._R8P) cycle ! distance already computed for this node
+   !      call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
+   !      call self%grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax)
+   !      block_center = (emax + emin) / 2._R8P
+   !      point(0) = block_center(1) * ex_R8P +  block_center(2) * ey_R8P + block_center(3) * ez_R8P
+   !      point(1) =         emin(1) * ex_R8P +          emin(2) * ey_R8P +         emin(3) * ez_R8P
+   !      point(2) =         emax(1) * ex_R8P +          emin(2) * ey_R8P +         emin(3) * ez_R8P
+   !      point(3) =         emin(1) * ex_R8P +          emax(2) * ey_R8P +         emin(3) * ez_R8P
+   !      point(4) =         emax(1) * ex_R8P +          emax(2) * ey_R8P +         emin(3) * ez_R8P
+   !      point(5) =         emin(1) * ex_R8P +          emin(2) * ey_R8P +         emax(3) * ez_R8P
+   !      point(6) =         emax(1) * ex_R8P +          emin(2) * ey_R8P +         emax(3) * ez_R8P
+   !      point(7) =         emin(1) * ex_R8P +          emax(2) * ey_R8P +         emax(3) * ez_R8P
+   !      point(8) =         emax(1) * ex_R8P +          emax(2) * ey_R8P +         emax(3) * ez_R8P
+   !      distance(0) = surface_stl%distance(point=point(0), is_signed=.true., sign_algorithm='ray_intersections')
+   !      distance(1) = surface_stl%distance(point=point(1), is_signed=.true., sign_algorithm='ray_intersections')
+   !      distance(2) = surface_stl%distance(point=point(2), is_signed=.true., sign_algorithm='ray_intersections')
+   !      distance(3) = surface_stl%distance(point=point(3), is_signed=.true., sign_algorithm='ray_intersections')
+   !      distance(4) = surface_stl%distance(point=point(4), is_signed=.true., sign_algorithm='ray_intersections')
+   !      distance(5) = surface_stl%distance(point=point(5), is_signed=.true., sign_algorithm='ray_intersections')
+   !      distance(6) = surface_stl%distance(point=point(6), is_signed=.true., sign_algorithm='ray_intersections')
+   !      distance(7) = surface_stl%distance(point=point(7), is_signed=.true., sign_algorithm='ray_intersections')
+   !      distance(8) = surface_stl%distance(point=point(8), is_signed=.true., sign_algorithm='ray_intersections')
+   !      if (maxval(distance(0:8),dim=1)*minval(distance(0:8),dim=1) < 0._R8P) distance(0) = 0._R8P
+   !      node%surface_stl_distance = distance(0)
+   !   enddo
+   !endif
+   !endassociate
+   !endsubroutine compute_surface_stl_distance
 
    subroutine destroy(self)
    !< Destroy the tree.
@@ -453,19 +453,19 @@ contains
    self = fresh
    endsubroutine destroy
 
-   subroutine load_surface_stl(self, file_name)
-   !< Load surface from STL file and compute signed distance of nodes from it.
-   class(tree_object), intent(inout) :: self      !< The tree.
-   character(*),       intent(in)    :: file_name !< STL file name.
-   type(file_stl_object)             :: file_stl  !< STL file handler.
+   !subroutine load_surface_stl(self, file_name)
+   !!< Load surface from STL file and compute signed distance of nodes from it.
+   !class(tree_object), intent(inout) :: self      !< The tree.
+   !character(*),       intent(in)    :: file_name !< STL file name.
+   !type(file_stl_object)             :: file_stl  !< STL file handler.
 
-   print '(A)', 'ADAM: load STL file: '//trim(adjustl(file_name))
-   call file_stl%load_from_file(facet=self%surface_stl%facet, file_name=trim(adjustl(file_name)), guess_format=.true.)
-   call self%surface_stl%analize(aabb_refinement_levels=3)
-   call self%surface_stl%sanitize
-   print '(A)', 'ADAM: compute distance from STL surface'
-   call self%compute_surface_stl_distance(surface_stl=self%surface_stl)
-   endsubroutine load_surface_stl
+   !print '(A)', 'ADAM: load STL file: '//trim(adjustl(file_name))
+   !call file_stl%load_from_file(facet=self%surface_stl%facet, file_name=trim(adjustl(file_name)), guess_format=.true.)
+   !call self%surface_stl%analize(aabb_refinement_levels=3)
+   !call self%surface_stl%sanitize
+   !print '(A)', 'ADAM: compute distance from STL surface'
+   !call self%compute_surface_stl_distance(surface_stl=self%surface_stl)
+   !endsubroutine load_surface_stl
 
    function loop(self, code, node) result(again)
    !< Sentinel while-loop on nodes returning the code (for tree looping).
@@ -672,35 +672,35 @@ contains
       endfunction sphere_distance
    endsubroutine mark_sphere
 
-   subroutine mark_surface_stl(self, surface_stl, threshold)
-   !< Mark all nodes inside a surface defined by STL triangulation.
-   class(tree_object),       intent(inout)        :: self             !< The tree.
-   type(surface_stl_object), intent(in)           :: surface_stl      !< STL surface.
-   real(R8P),                intent(in), optional :: threshold        !< Threshold for sphere proximity.
-   real(R8P)                                      :: threshold_       !< Threshold for sphere proximity, local var.
-   type(tree_node_object), pointer                :: node             !< Pointer to current node.
-   real(R8P)                                      :: block_diagonal   !< block diagonal.
-   real(R8P)                                      :: max_cell_delta   !< Max cell delta.
-   integer(I4P)                                   :: i,j,k,l          !< Counter.
-   real(R8P)                                      :: emin(3), emax(3) !< Node extents.
+   !subroutine mark_surface_stl(self, surface_stl, threshold)
+   !!< Mark all nodes inside a surface defined by STL triangulation.
+   !class(tree_object),       intent(inout)        :: self             !< The tree.
+   !type(surface_stl_object), intent(in)           :: surface_stl      !< STL surface.
+   !real(R8P),                intent(in), optional :: threshold        !< Threshold for sphere proximity.
+   !real(R8P)                                      :: threshold_       !< Threshold for sphere proximity, local var.
+   !type(tree_node_object), pointer                :: node             !< Pointer to current node.
+   !real(R8P)                                      :: block_diagonal   !< block diagonal.
+   !real(R8P)                                      :: max_cell_delta   !< Max cell delta.
+   !integer(I4P)                                   :: i,j,k,l          !< Counter.
+   !real(R8P)                                      :: emin(3), emax(3) !< Node extents.
 
-   threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
-   do while(self%loop(node=node))
-      call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
-      call self%grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax)
-      block_diagonal = sqrt((emax(1) - emin(1))**2 + &
-                            (emax(2) - emin(2))**2 + &
-                            (emax(3) - emin(3))**2)
-      associate (ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
-         max_cell_delta = self%max_cell_delta(distance=node%surface_stl_distance)
-         if (block_diagonal/min(ni,nj,nk) > max_cell_delta) then
-            node%refinement_needed = TO_BE_REFINED
-         elseif (block_diagonal/min(ni,nj,nk) * threshold_ < max_cell_delta) then
-            node%refinement_needed = TO_BE_DEREFINED
-         endif
-      endassociate
-   enddo
-   endsubroutine mark_surface_stl
+   !threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
+   !do while(self%loop(node=node))
+   !   call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
+   !   call self%grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax)
+   !   block_diagonal = sqrt((emax(1) - emin(1))**2 + &
+   !                         (emax(2) - emin(2))**2 + &
+   !                         (emax(3) - emin(3))**2)
+   !   associate (ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
+   !      max_cell_delta = self%max_cell_delta(distance=node%surface_stl_distance)
+   !      if (block_diagonal/min(ni,nj,nk) > max_cell_delta) then
+   !         node%refinement_needed = TO_BE_REFINED
+   !      elseif (block_diagonal/min(ni,nj,nk) * threshold_ < max_cell_delta) then
+   !         node%refinement_needed = TO_BE_DEREFINED
+   !      endif
+   !   endassociate
+   !enddo
+   !endsubroutine mark_surface_stl
 
    function node(self, code) result(p)
    !< Return a pointer to a node in the tree.
@@ -1131,17 +1131,19 @@ contains
 
    subroutine make_comm_local_maps_ghost(self)
    !< Make communication/local maps of ghost cells.
-   class(tree_object), intent(inout) :: self                  !< The tree.
-   type(tree_node_object), pointer   :: node                  !< Pointer to current node.
-   integer(I8P), allocatable         :: neighbor(:)           !< List of code neighbors.
-   type(tree_node_object), pointer   :: neigh                 !< Pointer to node neighbor.
-   integer(I4P)                      :: neighbor_type         !< Neighbors type.
-   integer(I4P)                      :: neighbor_portion      !< Neighbors portion.
-   integer(I4P)                      :: my_fec_number         !< Number of faces/edges/corners ghost cells locally exchanged.
-   integer(I4P)                      :: recv_fec_number       !< Number of faces/edges/corners ghost cells externally received.
-   integer(I4P)                      :: send_fec_number       !< Number of faces/edges/corners ghost cells externally sent.
-   integer(I4P)                      :: fec, mf, rf, sf, n, p !< Counter.
-   integer(I4P)                      :: weight_reduction      !< Neighbor weight reduction for send/recv at different level.
+   class(tree_object), intent(inout) :: self                       !< The tree.
+   type(tree_node_object), pointer   :: node                       !< Pointer to current node.
+   integer(I8P), allocatable         :: neighbor(:)                !< List of code neighbors.
+   type(tree_node_object), pointer   :: neigh                      !< Pointer to node neighbor.
+   integer(I4P)                      :: neighbor_type              !< Neighbors type.
+   integer(I4P)                      :: neighbor_portion           !< Neighbors portion.
+   integer(I4P)                      :: my_fec_number              !< Number of faces/edges/corners ghost cells locally exchanged.
+   integer(I4P)                      :: recv_fec_number            !< Number of faces/edges/corners ghost cells externally received.
+   integer(I4P)                      :: send_fec_number            !< Number of faces/edges/corners ghost cells externally sent.
+   integer(I4P)                      :: fec, mf, rf, sf, n, p      !< Counter.
+   integer(I4P)                      :: weight_reduction           !< Neighbor weight reduction for send/recv at different level.
+   integer(I4P), allocatable         :: comm_map_send_ctr_ghost(:) !< Communication map, counters to send.
+   integer(I4P), allocatable         :: comm_map_recv_ctr_ghost(:) !< Communication map, counters to recv.
 
    if (allocated(self%local_map_ghost    )) deallocate(self%local_map_ghost    )
    if (allocated(self%comm_map_send_ghost)) deallocate(self%comm_map_send_ghost)
@@ -1191,15 +1193,26 @@ contains
          endif
       enddo
    enddo
+   ! create pointer for each process in the send/recv buffers
+   self%comm_map_send_ptr_ghost = 0_I4P
+   self%comm_map_recv_ptr_ghost = 0_I4P
+   do p=1, self%procs_number
+      self%comm_map_send_ptr_ghost(p) = self%comm_map_send_ptr_ghost(p-1) + self%comm_map_n_send_ghost(p-1)
+      self%comm_map_recv_ptr_ghost(p) = self%comm_map_recv_ptr_ghost(p-1) + self%comm_map_n_recv_ghost(p-1)
+   enddo
+   ! create counter
+   comm_map_send_ctr_ghost = self%comm_map_send_ptr_ghost
+   comm_map_recv_ctr_ghost = self%comm_map_recv_ptr_ghost
    ! populate maps
    if (my_fec_number>0  ) allocate(self%local_map_ghost(    1:my_fec_number,  1:13))
-   if (send_fec_number>0) allocate(self%comm_map_send_ghost(1:send_fec_number,1:14))
-   if (recv_fec_number>0) allocate(self%comm_map_recv_ghost(1:recv_fec_number,1:14))
+   if (send_fec_number>0) allocate(self%comm_map_send_ghost(1:send_fec_number,1:15))
+   if (recv_fec_number>0) allocate(self%comm_map_recv_ghost(1:recv_fec_number,1:15))
    sf = 0
    rf = 0
    mf = 0
    do while(self%loop(node=node))
       do fec=1, 26
+         weight_reduction = 2 ** count(delta_neighbor(:, fec)==0_I4P, dim=1)
          call self%get_neighbor_all(code=node%code, face=fec, neighbor=neighbor, &
                                     neighbor_type=neighbor_type, neighbor_portion=neighbor_portion)
          if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
@@ -1221,31 +1234,45 @@ contains
                                                  ijk_min_max_delta=self%local_map_ghost(mf, 5:))
                elseif ((self%myrank /= neigh%myrank).and.(self%myrank == node%myrank)) then
                   rf = rf + 1
+                  self%comm_map_recv_ghost(rf, 15) = comm_map_recv_ctr_ghost(neigh%myrank)
                   self%comm_map_recv_ghost(rf, 1) = node%block_index
                   self%comm_map_recv_ghost(rf, 2) = neigh%block_index
                   self%comm_map_recv_ghost(rf, 3) = neigh%myrank
                   self%comm_map_recv_ghost(rf, 4) = fec
                   if     (neighbor_type==NODE_STANDARD) then
                      self%comm_map_recv_ghost(rf, 5) = 0
+                     comm_map_recv_ctr_ghost(neigh%myrank) = comm_map_recv_ctr_ghost(neigh%myrank) + &
+                                                             self%grid%weight_neighbor(fec)
                   elseif (neighbor_type==NODE_MORE_REFINED) then
                      self%comm_map_recv_ghost(rf, 5) = n
+                     comm_map_recv_ctr_ghost(neigh%myrank) = comm_map_recv_ctr_ghost(neigh%myrank) + &
+                                                             self%grid%weight_neighbor(fec) / weight_reduction
                   elseif (neighbor_type==NODE_LESS_REFINED) then
                      self%comm_map_recv_ghost(rf, 5) = -neighbor_portion
+                     comm_map_recv_ctr_ghost(neigh%myrank) = comm_map_recv_ctr_ghost(neigh%myrank) + &
+                                                             self%grid%weight_neighbor(fec)
                   endif
                   call compute_ijk_min_max_delta(fec=fec, portion=self%comm_map_recv_ghost(rf, 5), &
                                                  ijk_min_max_delta=self%comm_map_recv_ghost(rf, 6:))
                elseif ((self%myrank == neigh%myrank).and.(self%myrank /= node%myrank)) then
                   sf = sf + 1
+                  self%comm_map_send_ghost(sf, 15) = comm_map_send_ctr_ghost(node%myrank)
                   self%comm_map_send_ghost(sf, 1) = node%block_index
                   self%comm_map_send_ghost(sf, 2) = neigh%block_index
                   self%comm_map_send_ghost(sf, 3) = node%myrank
                   self%comm_map_send_ghost(sf, 4) = fec
                   if     (neighbor_type==NODE_STANDARD) then
                      self%comm_map_send_ghost(sf, 5) = 0
+                     comm_map_send_ctr_ghost(node%myrank) = comm_map_send_ctr_ghost(node%myrank) + &
+                                                            self%grid%weight_neighbor(fec)
                   elseif (neighbor_type==NODE_MORE_REFINED) then
                      self%comm_map_send_ghost(sf, 5) = n
+                     comm_map_send_ctr_ghost(node%myrank) = comm_map_send_ctr_ghost(node%myrank) + &
+                                                            self%grid%weight_neighbor(fec) / weight_reduction
                   elseif (neighbor_type==NODE_LESS_REFINED) then
                      self%comm_map_send_ghost(sf, 5) = -neighbor_portion
+                     comm_map_send_ctr_ghost(node%myrank) = comm_map_send_ctr_ghost(node%myrank) + &
+                                                            self%grid%weight_neighbor(fec)
                   endif
                   call compute_ijk_min_max_delta(fec=fec, portion=self%comm_map_send_ghost(sf, 5), &
                                                  ijk_min_max_delta=self%comm_map_send_ghost(sf, 6:))
@@ -1253,13 +1280,6 @@ contains
             enddo
          endif
       enddo
-   enddo
-
-   self%comm_map_send_ptr_ghost = 0_I4P
-   self%comm_map_recv_ptr_ghost = 0_I4P
-   do p=1, self%procs_number
-      self%comm_map_send_ptr_ghost(p) = self%comm_map_send_ptr_ghost(p-1) + self%comm_map_n_send_ghost(p-1)
-      self%comm_map_recv_ptr_ghost(p) = self%comm_map_recv_ptr_ghost(p-1) + self%comm_map_n_recv_ghost(p-1)
    enddo
    contains
       subroutine compute_ijk_min_max_delta(fec, portion, ijk_min_max_delta)
