@@ -649,9 +649,12 @@ contains
              gci=>self%grid%gci, gcj=>self%grid%gcj, gck=>self%grid%gck,    &
              x_cell=>self%x_cell, y_cell=>self%y_cell, z_cell=>self%z_cell)
    do b=1, blocks_number
-      do k=1-gck, nk+gck
-         do j=1-gcj, nj+gcj
-            do i=1-gci, ni+gci
+      !do k=1-gck, nk+gck
+      !   do j=1-gcj, nj+gcj
+      !      do i=1-gci, ni+gci
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
                u(i,j,k,b) = a * exp(-((x_cell(i,b) - x_0)**2/(2 * sigma_x**2)+&
                                       (y_cell(j,b) - y_0)**2/(2 * sigma_y**2)+&
                                       (z_cell(k,b) - z_0)**2/(2 * sigma_z**2)))
@@ -885,7 +888,7 @@ contains
       call MPI_WAITALL(self%procs_number * 2, self%req_send_recv, MPI_STATUSES_IGNORE, self%error)
 #endif
 
-      call MPI_BARRIER(MPI_COMM_WORLD, self%error)
+!debug      call MPI_BARRIER(MPI_COMM_WORLD, self%error)
 
       ! retrive from receive buffer
       do rf=1, size(self%comm_map_recv_ghost, dim=1)

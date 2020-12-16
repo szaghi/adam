@@ -1540,6 +1540,8 @@ contains
          self%block_code(node%block_index) = node%code
       endif
    enddo
+
+   self%last_block_index = n_keep + n_recv
    contains
       function can_split()
       !< Return true if the split can be done.
@@ -2336,17 +2338,24 @@ contains
    logical,            intent(in), optional :: update_last_block_index  !< Update or not last block index.
    logical                                  :: update_last_block_index_ !< Update or not last block index, local var.
    integer(I4P)                             :: b                        !< Bucket index, namely hashed key.
+   integer(I4P)                             :: myrank_                  !< MPI rank process, local variable.
 
    if (.not.self%is_initialized_) then
       print '(A)', 'ERROR: cannot add a node a non initialized tree'
    endif
+
+   myrank_ = 0; if(present(myrank)) myrank_ = myrank
+
    ! if the code is not already in the tree update the nodes number otherwise not
    if (.not.self%has_code(code=code)) self%nodes_number = self%nodes_number + 1
    b = self%hash(code=code)
    call self%bucket(b)%add_node(code=code, refinement_needed=refinement_needed, &
-                                myrank=myrank, block_index=block_index)
-   update_last_block_index_ = .true. ; if (present(update_last_block_index)) update_last_block_index_ = update_last_block_index
-   if (update_last_block_index_) self%last_block_index = self%last_block_index + 1
+                                myrank=myrank_, block_index=block_index)
+
+   if(self%myrank == myrank_) then
+       update_last_block_index_ = .true. ; if (present(update_last_block_index)) update_last_block_index_ = update_last_block_index
+       if (update_last_block_index_) self%last_block_index = self%last_block_index + 1
+   endif
    endsubroutine add_node
 
    function coordinates2D_to_morton(self, i, j, l) result(code)
@@ -2477,6 +2486,9 @@ contains
    if (refined_number>0) then
       allocate(self%block_to_refine(2, self%n_my_refine))
       allocate(self%block_refined(2, self%ratio*self%n_my_refine))
+
+      self%block_refined = -100
+
       mn = 0
       do n=1, refined_number
          parent => self%node(code=self%node_to_refine(n))
@@ -2490,11 +2502,17 @@ contains
          if (parent%myrank == self%myrank) then
             self%block_refined(1, (mn-1)*self%ratio+1) = self%child(code=parent%code, i=0)
             self%block_refined(2, (mn-1)*self%ratio+1) = parent%block_index
+            if(parent%block_index > 40000) then
+                print*,'Argggggggg error: ',parent%block_index, n, refined_number
+            endif
          endif
          do i=1, self%ratio-1
             if (parent%myrank == self%myrank) then
                self%block_refined(1, (mn-1)*self%ratio+1+i) = self%child(code=parent%code, i=i)
                self%block_refined(2, (mn-1)*self%ratio+1+i) = self%last_block_index + 1
+               if( self%last_block_index + 1 > 40000) then
+                   print*,'BBBArggggggggg error: ',self%last_block_index + 1, n, refined_number
+               endif
             endif
             call self%add_node(code=self%child(code=parent%code, i=i), myrank=parent%myrank, &
                                block_index=self%last_block_index+1)

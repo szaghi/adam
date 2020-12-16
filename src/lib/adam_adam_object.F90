@@ -76,20 +76,29 @@ contains
    do_mpi_redistribute_ = .true.  ; if (present(do_mpi_redistribute )) do_mpi_redistribute_ = do_mpi_redistribute
    do_blocks_reorder_ = .true.  ; if (present(do_blocks_reorder)) do_blocks_reorder_ = do_blocks_reorder
 
+   print*,'amr_update cazzo 1'
+
    call self%mpi_gather_refinement_needed(is_marked_by_field=is_marked_by_field, is_marked_by_tree=is_marked_by_tree)
+   print*,'amr_update cazzo 2'
 
    call self%update_ghost
 
+   print*,'amr_update cazzo 3'
    call self%adapt
 
+   print*,'amr_update cazzo 4'
    if (present(is_grid_changed)) is_grid_changed = (size(self%tree%node_to_refine,   dim=1)>0_I4P).or.&
                                                    (size(self%tree%node_to_derefine, dim=1)>0_I4P)
 
+   print*,'amr_update cazzo 5'
    if (do_mpi_redistribute_) call self%mpi_redistribute(print_mpi_stats=print_mpi_stats)
 
+   print*,'amr_update cazzo 6'
    if (do_blocks_reorder_) call self%blocks_reorder
+   print*,'amr_update cazzo 7'
 
    call self%make_comm_local_maps_ghost
+   print*,'amr_update cazzo 8'
    endsubroutine amr_update
 
    subroutine blocks_reorder(self)

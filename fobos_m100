@@ -258,7 +258,8 @@ ext_libs     = dl m
 
 [template-static-nvf-debug-mpi-cuda]
 compiler     = custom
-fc           = mpipgifort
+fc           = mpif90
+#fc           = mpipgifort
 modsw        = -module=
 mpi          = True
 cflags       = $CSTATIC_CUDA_NVF $DEBUG_NVF -c
