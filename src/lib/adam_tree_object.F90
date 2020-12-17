@@ -131,10 +131,10 @@ use adam_grid_object
 use adam_parameters
 use adam_tree_node_object
 use adam_tree_bucket_object
-! use FOSSIL
+use FOSSIL
 use MORTIF
 use PENF
-! use VecFor
+use VecFor
 #ifdef _MPI_
 use MPI
 #endif
@@ -203,16 +203,15 @@ type :: tree_object
    integer(I8P), allocatable :: comm_map_send_ghost(:,:)   !< Communication map, `fec` information [fec_number, 5].
    integer(I8P), allocatable :: comm_map_recv_ghost(:,:)   !< Communication map, `fec` information [fec_number, 5].
    ! STL surfaces data
-   ! type(surface_stl_object)  :: surface_stl !< STL surface.
+   type(surface_stl_object)  :: surface_stl !< STL surface.
    contains
       ! public methods
       procedure, pass(self) :: adapt                        !< Adapt tree accordingly to refine/derefine necessity.
-      procedure, pass(self) :: add_node                     !< Add a node pointer to the tree.
       procedure, pass(self) :: blocks_reorder               !< Reorder blocks indexes in field.
       procedure, pass(self) :: codes                        !< Return the list of (sorted) codes actually stored in the tree.
-      ! procedure, pass(self) :: compute_surface_stl_distance !< Compute signed distance of nodes from a STL surface.
+      procedure, pass(self) :: compute_surface_stl_distance !< Compute signed distance of nodes from a STL surface.
       procedure, pass(self) :: destroy                      !< Destroy the tree.
-      ! procedure, pass(self) :: load_surface_stl             !< Load surface from STL file.
+      procedure, pass(self) :: load_surface_stl             !< Load surface from STL file.
       procedure, pass(self) :: loop                         !< Sentinel while-loop on nodes returning the code.
       procedure, pass(self) :: hash                         !< Hash the key.
       procedure, pass(self) :: has_code                     !< Check if the code is present in the tree.
@@ -220,20 +219,18 @@ type :: tree_object
       procedure, pass(self) :: max_cell_delta               !< Return the maximum cell delta given a comparison distance.
       procedure, pass(self) :: mark_all_nodes               !< Mark all nodes to be refined, derefined, ecc.
       procedure, pass(self) :: mark_sphere                  !< Mark nodes to be refined/derefined by sphere distance.
-      ! procedure, pass(self) :: mark_surface_stl             !< Mark all nodes inside a surface defined by STL triangulation.
+      procedure, pass(self) :: mark_surface_stl             !< Mark all nodes inside a surface defined by STL triangulation.
       procedure, pass(self) :: node                         !< Return a pointer to a node.
       procedure, pass(self) :: prime_buckets_number         !< Return the buckets number as nearest prime number given nodes number.
-      procedure, pass(self) :: remove_node                  !< Remove a node from the tree, given the key.
       procedure, pass(self) :: resize                       !< Resize the tree.
-      procedure, pass(self) :: sanitize                     !< Sanitize the tree.
       procedure, pass(self) :: traverse                     !< Traverse tree calling the iterator procedure.
       ! MPI methods
-      procedure, pass(self) :: import_refinements_needed     !< Import refinements needed status changed externally.
-      procedure, pass(self) :: make_comm_local_maps          !< Make communication/local maps.
-      procedure, pass(self) :: make_comm_local_maps_ghost    !< Make communication/local maps of ghost cells.
-      procedure, pass(self) :: mpi_gather_nodes_data         !< Gather nodes data between MPI processes.
-      procedure, pass(self) :: mpi_print_stats               !< Print MPI stats.
-      procedure, pass(self) :: mpi_redistribute              !< Redistribute nodes to MPI processes, load balancing.
+      procedure, pass(self) :: import_refinements_needed  !< Import refinements needed status changed externally.
+      procedure, pass(self) :: make_comm_local_maps       !< Make communication/local maps.
+      procedure, pass(self) :: make_comm_local_maps_ghost !< Make communication/local maps of ghost cells.
+      procedure, pass(self) :: mpi_gather_nodes_data      !< Gather nodes data between MPI processes.
+      procedure, pass(self) :: mpi_print_stats            !< Print MPI stats.
+      procedure, pass(self) :: mpi_redistribute           !< Redistribute nodes to MPI processes, load balancing.
       ! Morton ordering methods
       generic               :: coordinates_to_morton => &
                                coordinates3D_to_morton, &
@@ -260,12 +257,15 @@ type :: tree_object
       procedure, pass(self) :: print_code_topology     !< Print all code topology data.
       procedure, pass(self) :: siblings                !< Return the siblings Morton code given Morton code.
       ! private methods
+      procedure, pass(self), private :: add_node                !< Add a node pointer to the tree.
       procedure, pass(self), private :: coordinates3D_to_morton !< Return the Morton code given ijkl coordinates.
       procedure, pass(self), private :: coordinates2D_to_morton !< Return the Morton code given ijl coordinates.
       procedure, pass(self), private :: derefine                !< Derefine nodes.
       procedure, pass(self), private :: morton_to_coordinates3D !< Return the ijkl coordinates given Morton code.
       procedure, pass(self), private :: morton_to_coordinates2D !< Return the ijkl coordinates given Morton code.
       procedure, pass(self), private :: refine                  !< Refine nodes.
+      procedure, pass(self), private :: remove_node             !< Remove a node from the tree, given the key.
+      procedure, pass(self), private :: sanitize                !< Sanitize the tree.
       ! operators
       generic :: assignment(=) => tree_assign_tree      !< Overload `=`.
       procedure, pass(lhs), private :: tree_assign_tree !< Operator `=`.
@@ -364,86 +364,86 @@ contains
       endsubroutine swap_element
    endfunction codes
 
-   !subroutine compute_surface_stl_distance(self, surface_stl, from_cell, cell_distance)
-   !!< Compute signed distance of blocks/cells from a STL surface.
-   !!<
-   !!< Distance from blocks are computed for all blocks, there is not need to exchange data between processes.
-   !!< On the contrary, distance from cells is computed only for my blocks, each process must pass the distance
-   !!< to each field.
-   !class(tree_object),       intent(inout)         :: self                   !< The tree.
-   !type(surface_stl_object), intent(in)            :: surface_stl            !< STL surface.
-   !logical,                  intent(in),  optional :: from_cell              !< Distance from cells instead of blocks.
-   !real(R8P), allocatable,   intent(out), optional :: cell_distance(:,:,:,:) !< Distance from cells.
-   !logical                                         :: from_cell_             !< Distance from cells instead of blocks, local var.
-   !type(tree_node_object), pointer                 :: node                   !< Pointer to current node.
-   !real(R8P)                                       :: block_center(3)        !< block center coordinates.
-   !real(R8P)                                       :: distance(0:8)          !< Distances between block and sphere.
-   !integer(I4P)                                    :: i,j,k,l                !< Counter.
-   !real(R8P)                                       :: emin(3), emax(3)       !< Node extents.
-   !type(vector_R8P)                                :: point(0:8)             !< Vector point coordinates.
-   !real(R8P), allocatable                          :: x_cell(:)              !< X cell coordinates.
-   !real(R8P), allocatable                          :: y_cell(:)              !< Y cell coordinates.
-   !real(R8P), allocatable                          :: z_cell(:)              !< Z cell coordinates.
+   subroutine compute_surface_stl_distance(self, surface_stl, from_cell, cell_distance)
+   !< Compute signed distance of blocks/cells from a STL surface.
+   !<
+   !< Distance from blocks are computed for all blocks, there is not need to exchange data between processes.
+   !< On the contrary, distance from cells is computed only for my blocks, each process must pass the distance
+   !< to each field.
+   class(tree_object),       intent(inout)         :: self                   !< The tree.
+   type(surface_stl_object), intent(in)            :: surface_stl            !< STL surface.
+   logical,                  intent(in),  optional :: from_cell              !< Distance from cells instead of blocks.
+   real(R8P), allocatable,   intent(out), optional :: cell_distance(:,:,:,:) !< Distance from cells.
+   logical                                         :: from_cell_             !< Distance from cells instead of blocks, local var.
+   type(tree_node_object), pointer                 :: node                   !< Pointer to current node.
+   real(R8P)                                       :: block_center(3)        !< block center coordinates.
+   real(R8P)                                       :: distance(0:8)          !< Distances between block and sphere.
+   integer(I4P)                                    :: i,j,k,l                !< Counter.
+   real(R8P)                                       :: emin(3), emax(3)       !< Node extents.
+   type(vector_R8P)                                :: point(0:8)             !< Vector point coordinates.
+   real(R8P), allocatable                          :: x_cell(:)              !< X cell coordinates.
+   real(R8P), allocatable                          :: y_cell(:)              !< Y cell coordinates.
+   real(R8P), allocatable                          :: z_cell(:)              !< Z cell coordinates.
 
-   !from_cell_ = .false. ; if (present(from_cell)) from_cell_ = from_cell
-   !associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, gci=>self%grid%gci, gcj=>self%grid%gcj, gck=>self%grid%gck)
-   !if (from_cell_.and.present(cell_distance)) then
-   !   ! compute distance from cell, distance from blocks must be already computed
-   !   allocate(cell_distance(1-gci:ni+gci, 1-gcj:nj+gcj, 1-gck:nk+gck, 1:self%my_nodes_number))
-   !   ! cell_distance = huge(0._R8P)
-   !   cell_distance = 10._R8P
-   !   allocate(x_cell(1-gci:ni+gci))
-   !   allocate(y_cell(1-gcj:nj+gcj))
-   !   allocate(z_cell(1-gck:nk+gck))
-   !   do while(self%loop(node=node))
-   !      if (node%myrank==self%myrank) then
-   !         if (node%surface_stl_distance<epsilon(0._R8P)) then
-   !            ! compute cell distance only in blocks where is STL surface
-   !            call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
-   !            call self%grid%compute_metrics(coordinates=[i,j,k,l], x_cell=x_cell, y_cell=y_cell, z_cell=z_cell)
-   !            do k=1-gck, nk+gck
-   !               do j=1-gcj, nj+gcj
-   !                  do i=1-gci, ni+gci
-   !                     point(0) = x_cell(i) * ex_R8P + y_cell(j) * ey_R8P + z_cell(k) * ez_R8P
-   !                     cell_distance(i,j,k,node%block_index) = surface_stl%distance(point=point(0),   &
-   !                                                                                  is_signed=.true., &
-   !                                                                                  sign_algorithm='ray_intersections')
-   !                  enddo
-   !               enddo
-   !            enddo
-   !         endif
-   !      endif
-   !   enddo
-   !else
-   !   do while(self%loop(node=node))
-   !      if (node%surface_stl_distance<huge(0._R8P)/2._R8P) cycle ! distance already computed for this node
-   !      call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
-   !      call self%grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax)
-   !      block_center = (emax + emin) / 2._R8P
-   !      point(0) = block_center(1) * ex_R8P +  block_center(2) * ey_R8P + block_center(3) * ez_R8P
-   !      point(1) =         emin(1) * ex_R8P +          emin(2) * ey_R8P +         emin(3) * ez_R8P
-   !      point(2) =         emax(1) * ex_R8P +          emin(2) * ey_R8P +         emin(3) * ez_R8P
-   !      point(3) =         emin(1) * ex_R8P +          emax(2) * ey_R8P +         emin(3) * ez_R8P
-   !      point(4) =         emax(1) * ex_R8P +          emax(2) * ey_R8P +         emin(3) * ez_R8P
-   !      point(5) =         emin(1) * ex_R8P +          emin(2) * ey_R8P +         emax(3) * ez_R8P
-   !      point(6) =         emax(1) * ex_R8P +          emin(2) * ey_R8P +         emax(3) * ez_R8P
-   !      point(7) =         emin(1) * ex_R8P +          emax(2) * ey_R8P +         emax(3) * ez_R8P
-   !      point(8) =         emax(1) * ex_R8P +          emax(2) * ey_R8P +         emax(3) * ez_R8P
-   !      distance(0) = surface_stl%distance(point=point(0), is_signed=.true., sign_algorithm='ray_intersections')
-   !      distance(1) = surface_stl%distance(point=point(1), is_signed=.true., sign_algorithm='ray_intersections')
-   !      distance(2) = surface_stl%distance(point=point(2), is_signed=.true., sign_algorithm='ray_intersections')
-   !      distance(3) = surface_stl%distance(point=point(3), is_signed=.true., sign_algorithm='ray_intersections')
-   !      distance(4) = surface_stl%distance(point=point(4), is_signed=.true., sign_algorithm='ray_intersections')
-   !      distance(5) = surface_stl%distance(point=point(5), is_signed=.true., sign_algorithm='ray_intersections')
-   !      distance(6) = surface_stl%distance(point=point(6), is_signed=.true., sign_algorithm='ray_intersections')
-   !      distance(7) = surface_stl%distance(point=point(7), is_signed=.true., sign_algorithm='ray_intersections')
-   !      distance(8) = surface_stl%distance(point=point(8), is_signed=.true., sign_algorithm='ray_intersections')
-   !      if (maxval(distance(0:8),dim=1)*minval(distance(0:8),dim=1) < 0._R8P) distance(0) = 0._R8P
-   !      node%surface_stl_distance = distance(0)
-   !   enddo
-   !endif
-   !endassociate
-   !endsubroutine compute_surface_stl_distance
+   from_cell_ = .false. ; if (present(from_cell)) from_cell_ = from_cell
+   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, gci=>self%grid%gci, gcj=>self%grid%gcj, gck=>self%grid%gck)
+   if (from_cell_.and.present(cell_distance)) then
+      ! compute distance from cell, distance from blocks must be already computed
+      allocate(cell_distance(1-gci:ni+gci, 1-gcj:nj+gcj, 1-gck:nk+gck, 1:self%my_nodes_number))
+      ! cell_distance = huge(0._R8P)
+      cell_distance = 10._R8P
+      allocate(x_cell(1-gci:ni+gci))
+      allocate(y_cell(1-gcj:nj+gcj))
+      allocate(z_cell(1-gck:nk+gck))
+      do while(self%loop(node=node))
+         if (node%myrank==self%myrank) then
+            if (node%surface_stl_distance<epsilon(0._R8P)) then
+               ! compute cell distance only in blocks where is STL surface
+               call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
+               call self%grid%compute_metrics(coordinates=[i,j,k,l], x_cell=x_cell, y_cell=y_cell, z_cell=z_cell)
+               do k=1-gck, nk+gck
+                  do j=1-gcj, nj+gcj
+                     do i=1-gci, ni+gci
+                        point(0) = x_cell(i) * ex_R8P + y_cell(j) * ey_R8P + z_cell(k) * ez_R8P
+                        cell_distance(i,j,k,node%block_index) = surface_stl%distance(point=point(0),   &
+                                                                                     is_signed=.true., &
+                                                                                     sign_algorithm='ray_intersections')
+                     enddo
+                  enddo
+               enddo
+            endif
+         endif
+      enddo
+   else
+      do while(self%loop(node=node))
+         if (node%surface_stl_distance<huge(0._R8P)/2._R8P) cycle ! distance already computed for this node
+         call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
+         call self%grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax)
+         block_center = (emax + emin) / 2._R8P
+         point(0) = block_center(1) * ex_R8P +  block_center(2) * ey_R8P + block_center(3) * ez_R8P
+         point(1) =         emin(1) * ex_R8P +          emin(2) * ey_R8P +         emin(3) * ez_R8P
+         point(2) =         emax(1) * ex_R8P +          emin(2) * ey_R8P +         emin(3) * ez_R8P
+         point(3) =         emin(1) * ex_R8P +          emax(2) * ey_R8P +         emin(3) * ez_R8P
+         point(4) =         emax(1) * ex_R8P +          emax(2) * ey_R8P +         emin(3) * ez_R8P
+         point(5) =         emin(1) * ex_R8P +          emin(2) * ey_R8P +         emax(3) * ez_R8P
+         point(6) =         emax(1) * ex_R8P +          emin(2) * ey_R8P +         emax(3) * ez_R8P
+         point(7) =         emin(1) * ex_R8P +          emax(2) * ey_R8P +         emax(3) * ez_R8P
+         point(8) =         emax(1) * ex_R8P +          emax(2) * ey_R8P +         emax(3) * ez_R8P
+         distance(0) = surface_stl%distance(point=point(0), is_signed=.true., sign_algorithm='ray_intersections')
+         distance(1) = surface_stl%distance(point=point(1), is_signed=.true., sign_algorithm='ray_intersections')
+         distance(2) = surface_stl%distance(point=point(2), is_signed=.true., sign_algorithm='ray_intersections')
+         distance(3) = surface_stl%distance(point=point(3), is_signed=.true., sign_algorithm='ray_intersections')
+         distance(4) = surface_stl%distance(point=point(4), is_signed=.true., sign_algorithm='ray_intersections')
+         distance(5) = surface_stl%distance(point=point(5), is_signed=.true., sign_algorithm='ray_intersections')
+         distance(6) = surface_stl%distance(point=point(6), is_signed=.true., sign_algorithm='ray_intersections')
+         distance(7) = surface_stl%distance(point=point(7), is_signed=.true., sign_algorithm='ray_intersections')
+         distance(8) = surface_stl%distance(point=point(8), is_signed=.true., sign_algorithm='ray_intersections')
+         if (maxval(distance(0:8),dim=1)*minval(distance(0:8),dim=1) < 0._R8P) distance(0) = 0._R8P
+         node%surface_stl_distance = distance(0)
+      enddo
+   endif
+   endassociate
+   endsubroutine compute_surface_stl_distance
 
    subroutine destroy(self)
    !< Destroy the tree.
@@ -453,19 +453,19 @@ contains
    self = fresh
    endsubroutine destroy
 
-   !subroutine load_surface_stl(self, file_name)
-   !!< Load surface from STL file and compute signed distance of nodes from it.
-   !class(tree_object), intent(inout) :: self      !< The tree.
-   !character(*),       intent(in)    :: file_name !< STL file name.
-   !type(file_stl_object)             :: file_stl  !< STL file handler.
+   subroutine load_surface_stl(self, file_name)
+   !< Load surface from STL file and compute signed distance of nodes from it.
+   class(tree_object), intent(inout) :: self      !< The tree.
+   character(*),       intent(in)    :: file_name !< STL file name.
+   type(file_stl_object)             :: file_stl  !< STL file handler.
 
-   !print '(A)', 'ADAM: load STL file: '//trim(adjustl(file_name))
-   !call file_stl%load_from_file(facet=self%surface_stl%facet, file_name=trim(adjustl(file_name)), guess_format=.true.)
-   !call self%surface_stl%analize(aabb_refinement_levels=3)
-   !call self%surface_stl%sanitize
-   !print '(A)', 'ADAM: compute distance from STL surface'
-   !call self%compute_surface_stl_distance(surface_stl=self%surface_stl)
-   !endsubroutine load_surface_stl
+   print '(A)', 'ADAM: load STL file: '//trim(adjustl(file_name))
+   call file_stl%load_from_file(facet=self%surface_stl%facet, file_name=trim(adjustl(file_name)), guess_format=.true.)
+   call self%surface_stl%analize(aabb_refinement_levels=3)
+   call self%surface_stl%sanitize
+   print '(A)', 'ADAM: compute distance from STL surface'
+   call self%compute_surface_stl_distance(surface_stl=self%surface_stl)
+   endsubroutine load_surface_stl
 
    function loop(self, code, node) result(again)
    !< Sentinel while-loop on nodes returning the code (for tree looping).
@@ -672,35 +672,35 @@ contains
       endfunction sphere_distance
    endsubroutine mark_sphere
 
-   !subroutine mark_surface_stl(self, surface_stl, threshold)
-   !!< Mark all nodes inside a surface defined by STL triangulation.
-   !class(tree_object),       intent(inout)        :: self             !< The tree.
-   !type(surface_stl_object), intent(in)           :: surface_stl      !< STL surface.
-   !real(R8P),                intent(in), optional :: threshold        !< Threshold for sphere proximity.
-   !real(R8P)                                      :: threshold_       !< Threshold for sphere proximity, local var.
-   !type(tree_node_object), pointer                :: node             !< Pointer to current node.
-   !real(R8P)                                      :: block_diagonal   !< block diagonal.
-   !real(R8P)                                      :: max_cell_delta   !< Max cell delta.
-   !integer(I4P)                                   :: i,j,k,l          !< Counter.
-   !real(R8P)                                      :: emin(3), emax(3) !< Node extents.
+   subroutine mark_surface_stl(self, surface_stl, threshold)
+   !< Mark all nodes inside a surface defined by STL triangulation.
+   class(tree_object),       intent(inout)        :: self             !< The tree.
+   type(surface_stl_object), intent(in)           :: surface_stl      !< STL surface.
+   real(R8P),                intent(in), optional :: threshold        !< Threshold for sphere proximity.
+   real(R8P)                                      :: threshold_       !< Threshold for sphere proximity, local var.
+   type(tree_node_object), pointer                :: node             !< Pointer to current node.
+   real(R8P)                                      :: block_diagonal   !< block diagonal.
+   real(R8P)                                      :: max_cell_delta   !< Max cell delta.
+   integer(I4P)                                   :: i,j,k,l          !< Counter.
+   real(R8P)                                      :: emin(3), emax(3) !< Node extents.
 
-   !threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
-   !do while(self%loop(node=node))
-   !   call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
-   !   call self%grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax)
-   !   block_diagonal = sqrt((emax(1) - emin(1))**2 + &
-   !                         (emax(2) - emin(2))**2 + &
-   !                         (emax(3) - emin(3))**2)
-   !   associate (ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
-   !      max_cell_delta = self%max_cell_delta(distance=node%surface_stl_distance)
-   !      if (block_diagonal/min(ni,nj,nk) > max_cell_delta) then
-   !         node%refinement_needed = TO_BE_REFINED
-   !      elseif (block_diagonal/min(ni,nj,nk) * threshold_ < max_cell_delta) then
-   !         node%refinement_needed = TO_BE_DEREFINED
-   !      endif
-   !   endassociate
-   !enddo
-   !endsubroutine mark_surface_stl
+   threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
+   do while(self%loop(node=node))
+      call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
+      call self%grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax)
+      block_diagonal = sqrt((emax(1) - emin(1))**2 + &
+                            (emax(2) - emin(2))**2 + &
+                            (emax(3) - emin(3))**2)
+      associate (ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
+         max_cell_delta = self%max_cell_delta(distance=node%surface_stl_distance)
+         if (block_diagonal/min(ni,nj,nk) > max_cell_delta) then
+            node%refinement_needed = TO_BE_REFINED
+         elseif (block_diagonal/min(ni,nj,nk) * threshold_ < max_cell_delta) then
+            node%refinement_needed = TO_BE_DEREFINED
+         endif
+      endassociate
+   enddo
+   endsubroutine mark_surface_stl
 
    function node(self, code) result(p)
    !< Return a pointer to a node in the tree.
@@ -778,143 +778,6 @@ contains
       stop
    endif
    endsubroutine resize
-
-   subroutine sanitize(self, iterations_number)
-   !< Sanitize the tree.
-   class(tree_object),        intent(inout)        :: self                 !< The tree.
-   integer(I4P),              intent(in), optional :: iterations_number    !< Sanitazie iterations number.
-   integer(I4P)                                    :: iterations_number_   !< Sanitazie iterations number.
-   type(tree_node_object), pointer                 :: node                 !< Pointer to node.
-   type(tree_node_object), pointer                 :: sibling              !< Pointer to node sibling.
-   integer(I8P)                                    :: code                 !< Code.
-   integer(I8P), allocatable                       :: siblings(:)          !< List of code siblings, excluded the quering code.
-   integer(I8P), allocatable                       :: all_siblings(:)      !< List of code siblings, included the quering code.
-   integer(I8P), allocatable                       :: neighbor(:)          !< List of code neighbors.
-   type(tree_node_object), pointer                 :: neigh                !< Pointer to node neighbor.
-   integer(I4P)                                    :: neighbor_type        !< Neighbors type.
-   logical                                         :: is_sanitize_complete !< Flag for finishing sanitize.
-   logical                                         :: can_be_derefined     !< Flag for checking derefinement possibility.
-   integer(I8P), allocatable                       :: codes_analyzed(:)    !< List of codes analyzed.
-   integer(I4P)                                    :: new_level            !< New level counter.
-   integer(I4P)                                    :: new_level_n          !< Neighbor new level counter.
-   integer(I4P)                                    :: s, sib, f, n         !< Counter.
-
-   iterations_number_ = TREE_MAX_SANITIZE_ITERATIONS ; if (present(iterations_number)) iterations_number_ = iterations_number
-
-   min_max_check_loop : do while(self%loop(node=node))
-      new_level = self%level(code=node%code) + node%refinement_needed
-      if ((new_level > self%max_level).or.(new_level < 0)) then
-         node%refinement_needed = TO_NOT_TOUCH
-      endif
-   enddo min_max_check_loop
-
-   sanitize_loop : do s=1, iterations_number_
-      is_sanitize_complete = .true.
-
-      ! check for the sanity of derefinement
-      self%n_my_derefine = 0
-      if (allocated(self%node_to_derefine)) deallocate(self%node_to_derefine) ; allocate(self%node_to_derefine(0))
-      if (allocated(codes_analyzed)) deallocate(codes_analyzed) ; allocate(codes_analyzed(0))
-      derefine_loop : do while(self%loop(node=node))
-         ! check if I want to be derefined and I have not been analyzed yet
-         if (node%refinement_needed == TO_BE_DEREFINED) then
-            if (findloc(codes_analyzed, node%code, dim=1)==0) then ! avoid to re-analyze already confirmed siblingsi to derefine
-               ! check sibling for derefinement
-               can_be_derefined = .true.
-               code = node%code
-               siblings = self%siblings(code=code)
-               sibs_check_loop : do sib=1, self%ratio -1
-                  if (.not.self%has_code(code=siblings(sib))) then
-                     can_be_derefined = .false.
-                     exit sibs_check_loop
-                  endif
-                  sibling => self%node(code=siblings(sib))
-                  if (sibling%refinement_needed /= TO_BE_DEREFINED) then
-                     can_be_derefined = .false.
-                     exit sibs_check_loop
-                  endif
-               enddo sibs_check_loop
-               if (can_be_derefined) then
-                  all_siblings = self%all_siblings(code=code)
-                  self%node_to_derefine = [self%node_to_derefine, all_siblings]
-                  codes_analyzed = [codes_analyzed, all_siblings]
-                  if (self%myrank==node%myrank) self%n_my_derefine = self%n_my_derefine + 8
-               else
-                  is_sanitize_complete = .false.
-                  node%refinement_needed = TO_NOT_TOUCH
-                  do sib=1, self%ratio -1
-                     if (self%has_code(code=siblings(sib))) then
-                        sibling => self%node(code=siblings(sib))
-                        if (sibling%refinement_needed == TO_BE_DEREFINED) then
-                           ! due some of your siblings you cannot be derefined, you need to be altered
-                           sibling%refinement_needed = TO_NOT_TOUCH
-                        endif
-                     endif
-                  enddo
-               endif
-            endif
-         endif
-      enddo derefine_loop
-
-     ! check for the sanity of refinement (2:1 rule)
-     refine_loop : do while(self%loop(node=node))
-        new_level = self%level(code=node%code) + node%refinement_needed
-        face_loop : do f=1, 26
-           call self%get_neighbor_all(code=node%code, face=f, neighbor=neighbor, neighbor_type=neighbor_type)
-           if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
-              neighbor_loop : do n=1, size(neighbor, dim=1)
-                 ! check level
-                 neigh => self%node(code=neighbor(n))
-                 new_level_n = self%level(code=neighbor(n)) + neigh%refinement_needed
-                 if (new_level_n > new_level + 1) then
-                    ! a neighbour want to be refined 2 levels more than me, I have to refine more too
-                    is_sanitize_complete = .false.
-                    if     (new_level_n - new_level == 3) then ! node want to derefine, but it must be refined
-                       node%refinement_needed = 1
-                    elseif (new_level_n - new_level == 2) then
-                       node%refinement_needed = node%refinement_needed + 1
-                    else
-                       print '(A)',  'SOMETHING WENT TERRIBLY WRONG. EXIT!'
-                       print '(A)',  'REFINEMENT NEEDED '//trim(str(node%refinement_needed,.true.))
-                       print '(A)',  'SANITIZE ITERATIONS '//trim(str(s,.true.))
-                       stop
-                    endif
-                    new_level = self%level(code=node%code) + node%refinement_needed
-                 endif
-              enddo neighbor_loop
-           endif
-        enddo face_loop
-
-        if (node%refinement_needed > 1) then
-           print '(A)',  'CANNOT REFINE TWICE IN A ROW. SOMETHING WENT TERRIBLY WRONG. EXIT!'
-           print '(A)',  'SANITIZE ITERATIONS '//trim(str(s,.true.))
-           stop
-        endif
-
-        new_level = self%level(code=node%code) + node%refinement_needed
-        if (new_level > self%max_level) then
-           print '(A)',  'CANNOT REFINE MORE. SOMETHING WENT TERRIBLY WRONG. EXIT!'
-           stop
-        endif
-     enddo refine_loop
-     if (is_sanitize_complete) exit sanitize_loop
-   enddo sanitize_loop
-
-   if (.not.is_sanitize_complete) then
-      print '(A)',  'SANITZE CANNOT BE COMPLETED. SOMETHING WENT TERRIBLY WRONG. EXIT!'
-      stop
-   endif
-
-   ! update to_refine list
-   self%n_my_refine = 0
-   if (allocated(self%node_to_refine)) deallocate(self%node_to_refine) ; allocate(self%node_to_refine(0))
-   do while(self%loop(node=node))
-      if (node%refinement_needed==TO_BE_REFINED) then
-         self%node_to_refine = [self%node_to_refine, [node%code]]
-         if (self%myrank==node%myrank) self%n_my_refine = self%n_my_refine + 1
-      endif
-   enddo
-   endsubroutine sanitize
 
    subroutine traverse(self, iterator)
    !< Traverse tree calling the iterator procedure.
@@ -2352,9 +2215,9 @@ contains
    call self%bucket(b)%add_node(code=code, refinement_needed=refinement_needed, &
                                 myrank=myrank_, block_index=block_index)
 
-   if(self%myrank == myrank_) then
-       update_last_block_index_ = .true. ; if (present(update_last_block_index)) update_last_block_index_ = update_last_block_index
-       if (update_last_block_index_) self%last_block_index = self%last_block_index + 1
+   if (self%myrank == myrank_) then
+      update_last_block_index_ = .true. ; if (present(update_last_block_index)) update_last_block_index_ = update_last_block_index
+      if (update_last_block_index_) self%last_block_index = self%last_block_index + 1
    endif
    endsubroutine add_node
 
@@ -2502,17 +2365,11 @@ contains
          if (parent%myrank == self%myrank) then
             self%block_refined(1, (mn-1)*self%ratio+1) = self%child(code=parent%code, i=0)
             self%block_refined(2, (mn-1)*self%ratio+1) = parent%block_index
-            if(parent%block_index > 40000) then
-                print*,'Argggggggg error: ',parent%block_index, n, refined_number
-            endif
          endif
          do i=1, self%ratio-1
             if (parent%myrank == self%myrank) then
                self%block_refined(1, (mn-1)*self%ratio+1+i) = self%child(code=parent%code, i=i)
                self%block_refined(2, (mn-1)*self%ratio+1+i) = self%last_block_index + 1
-               if( self%last_block_index + 1 > 40000) then
-                   print*,'BBBArggggggggg error: ',self%last_block_index + 1, n, refined_number
-               endif
             endif
             call self%add_node(code=self%child(code=parent%code, i=i), myrank=parent%myrank, &
                                block_index=self%last_block_index+1)
@@ -2521,6 +2378,143 @@ contains
       enddo
    endif
    endsubroutine refine
+
+   subroutine sanitize(self, iterations_number)
+   !< Sanitize the tree.
+   class(tree_object),        intent(inout)        :: self                 !< The tree.
+   integer(I4P),              intent(in), optional :: iterations_number    !< Sanitazie iterations number.
+   integer(I4P)                                    :: iterations_number_   !< Sanitazie iterations number.
+   type(tree_node_object), pointer                 :: node                 !< Pointer to node.
+   type(tree_node_object), pointer                 :: sibling              !< Pointer to node sibling.
+   integer(I8P)                                    :: code                 !< Code.
+   integer(I8P), allocatable                       :: siblings(:)          !< List of code siblings, excluded the quering code.
+   integer(I8P), allocatable                       :: all_siblings(:)      !< List of code siblings, included the quering code.
+   integer(I8P), allocatable                       :: neighbor(:)          !< List of code neighbors.
+   type(tree_node_object), pointer                 :: neigh                !< Pointer to node neighbor.
+   integer(I4P)                                    :: neighbor_type        !< Neighbors type.
+   logical                                         :: is_sanitize_complete !< Flag for finishing sanitize.
+   logical                                         :: can_be_derefined     !< Flag for checking derefinement possibility.
+   integer(I8P), allocatable                       :: codes_analyzed(:)    !< List of codes analyzed.
+   integer(I4P)                                    :: new_level            !< New level counter.
+   integer(I4P)                                    :: new_level_n          !< Neighbor new level counter.
+   integer(I4P)                                    :: s, sib, f, n         !< Counter.
+
+   iterations_number_ = TREE_MAX_SANITIZE_ITERATIONS ; if (present(iterations_number)) iterations_number_ = iterations_number
+
+   min_max_check_loop : do while(self%loop(node=node))
+      new_level = self%level(code=node%code) + node%refinement_needed
+      if ((new_level > self%max_level).or.(new_level < 0)) then
+         node%refinement_needed = TO_NOT_TOUCH
+      endif
+   enddo min_max_check_loop
+
+   sanitize_loop : do s=1, iterations_number_
+      is_sanitize_complete = .true.
+
+      ! check for the sanity of derefinement
+      self%n_my_derefine = 0
+      if (allocated(self%node_to_derefine)) deallocate(self%node_to_derefine) ; allocate(self%node_to_derefine(0))
+      if (allocated(codes_analyzed)) deallocate(codes_analyzed) ; allocate(codes_analyzed(0))
+      derefine_loop : do while(self%loop(node=node))
+         ! check if I want to be derefined and I have not been analyzed yet
+         if (node%refinement_needed == TO_BE_DEREFINED) then
+            if (findloc(codes_analyzed, node%code, dim=1)==0) then ! avoid to re-analyze already confirmed siblingsi to derefine
+               ! check sibling for derefinement
+               can_be_derefined = .true.
+               code = node%code
+               siblings = self%siblings(code=code)
+               sibs_check_loop : do sib=1, self%ratio -1
+                  if (.not.self%has_code(code=siblings(sib))) then
+                     can_be_derefined = .false.
+                     exit sibs_check_loop
+                  endif
+                  sibling => self%node(code=siblings(sib))
+                  if (sibling%refinement_needed /= TO_BE_DEREFINED) then
+                     can_be_derefined = .false.
+                     exit sibs_check_loop
+                  endif
+               enddo sibs_check_loop
+               if (can_be_derefined) then
+                  all_siblings = self%all_siblings(code=code)
+                  self%node_to_derefine = [self%node_to_derefine, all_siblings]
+                  codes_analyzed = [codes_analyzed, all_siblings]
+                  if (self%myrank==node%myrank) self%n_my_derefine = self%n_my_derefine + 8
+               else
+                  is_sanitize_complete = .false.
+                  node%refinement_needed = TO_NOT_TOUCH
+                  do sib=1, self%ratio -1
+                     if (self%has_code(code=siblings(sib))) then
+                        sibling => self%node(code=siblings(sib))
+                        if (sibling%refinement_needed == TO_BE_DEREFINED) then
+                           ! due some of your siblings you cannot be derefined, you need to be altered
+                           sibling%refinement_needed = TO_NOT_TOUCH
+                        endif
+                     endif
+                  enddo
+               endif
+            endif
+         endif
+      enddo derefine_loop
+
+     ! check for the sanity of refinement (2:1 rule)
+     refine_loop : do while(self%loop(node=node))
+        new_level = self%level(code=node%code) + node%refinement_needed
+        face_loop : do f=1, 26
+           call self%get_neighbor_all(code=node%code, face=f, neighbor=neighbor, neighbor_type=neighbor_type)
+           if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
+              neighbor_loop : do n=1, size(neighbor, dim=1)
+                 ! check level
+                 neigh => self%node(code=neighbor(n))
+                 new_level_n = self%level(code=neighbor(n)) + neigh%refinement_needed
+                 if (new_level_n > new_level + 1) then
+                    ! a neighbour want to be refined 2 levels more than me, I have to refine more too
+                    is_sanitize_complete = .false.
+                    if     (new_level_n - new_level == 3) then ! node want to derefine, but it must be refined
+                       node%refinement_needed = 1
+                    elseif (new_level_n - new_level == 2) then
+                       node%refinement_needed = node%refinement_needed + 1
+                    else
+                       print '(A)',  'SOMETHING WENT TERRIBLY WRONG. EXIT!'
+                       print '(A)',  'REFINEMENT NEEDED '//trim(str(node%refinement_needed,.true.))
+                       print '(A)',  'SANITIZE ITERATIONS '//trim(str(s,.true.))
+                       stop
+                    endif
+                    new_level = self%level(code=node%code) + node%refinement_needed
+                 endif
+              enddo neighbor_loop
+           endif
+        enddo face_loop
+
+        if (node%refinement_needed > 1) then
+           print '(A)',  'CANNOT REFINE TWICE IN A ROW. SOMETHING WENT TERRIBLY WRONG. EXIT!'
+           print '(A)',  'SANITIZE ITERATIONS '//trim(str(s,.true.))
+           stop
+        endif
+
+        new_level = self%level(code=node%code) + node%refinement_needed
+        if (new_level > self%max_level) then
+           print '(A)',  'CANNOT REFINE MORE. SOMETHING WENT TERRIBLY WRONG. EXIT!'
+           stop
+        endif
+     enddo refine_loop
+     if (is_sanitize_complete) exit sanitize_loop
+   enddo sanitize_loop
+
+   if (.not.is_sanitize_complete) then
+      print '(A)',  'SANITZE CANNOT BE COMPLETED. SOMETHING WENT TERRIBLY WRONG. EXIT!'
+      stop
+   endif
+
+   ! update to_refine list
+   self%n_my_refine = 0
+   if (allocated(self%node_to_refine)) deallocate(self%node_to_refine) ; allocate(self%node_to_refine(0))
+   do while(self%loop(node=node))
+      if (node%refinement_needed==TO_BE_REFINED) then
+         self%node_to_refine = [self%node_to_refine, [node%code]]
+         if (self%myrank==node%myrank) self%n_my_refine = self%n_my_refine + 1
+      endif
+   enddo
+   endsubroutine sanitize
 
    ! operators
    ! =

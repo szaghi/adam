@@ -69,7 +69,7 @@ template  = template-static-nvf
 build_dir = ./exe/
 
 [tests-nvf-debug]
-template  = template-static-nvf
+template  = template-static-nvf-debug
 build_dir = ./exe/
 
 [tests-nvf-mpi]
