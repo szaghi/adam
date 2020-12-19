@@ -27,13 +27,13 @@ call adam%tree%load_surface_stl(file_name='src/tests/space_shuttle.stl')
 
 do t=1, 1
    print '(A)', 'refine close to STL iteration '//trim(str(t, .true.))
-   sub_iteration_loop : do st=1, 2
+   sub_iteration_loop : do st=1, 1
       call adam%tree%mark_surface_stl(surface_stl=adam%tree%surface_stl)
-      call adam%amr_update(is_grid_changed=is_grid_changed)
+      call adam%amr_update(is_grid_changed=is_grid_changed, is_marked_by_tree=.true.)
       call adam%tree%compute_surface_stl_distance(surface_stl=adam%tree%surface_stl)
       if (.not.is_grid_changed) exit sub_iteration_loop
    enddo sub_iteration_loop
-   call adam%tree%compute_surface_stl_distance(surface_stl=adam%tree%surface_stl, from_cell=.true., cell_distance=adam%field%ls)
+   ! call adam%tree%compute_surface_stl_distance(surface_stl=adam%tree%surface_stl, from_cell=.true., cell_distance=adam%field%ls)
    call adam%save_hdf5(basename='space_shuttle-'//trim(strz(t,9)), with_ls=.true.)
 enddo
 

@@ -76,29 +76,20 @@ contains
    do_mpi_redistribute_ = .true.  ; if (present(do_mpi_redistribute )) do_mpi_redistribute_ = do_mpi_redistribute
    do_blocks_reorder_ = .true.  ; if (present(do_blocks_reorder)) do_blocks_reorder_ = do_blocks_reorder
 
-   print*,'amr_update cazzo 1'
-
    call self%mpi_gather_refinement_needed(is_marked_by_field=is_marked_by_field, is_marked_by_tree=is_marked_by_tree)
-   print*,'amr_update cazzo 2'
 
    call self%update_ghost
 
-   print*,'amr_update cazzo 3'
    call self%adapt
 
-   print*,'amr_update cazzo 4'
    if (present(is_grid_changed)) is_grid_changed = (size(self%tree%node_to_refine,   dim=1)>0_I4P).or.&
                                                    (size(self%tree%node_to_derefine, dim=1)>0_I4P)
 
-   print*,'amr_update cazzo 5'
    if (do_mpi_redistribute_) call self%mpi_redistribute(print_mpi_stats=print_mpi_stats)
 
-   print*,'amr_update cazzo 6'
    if (do_blocks_reorder_) call self%blocks_reorder
-   print*,'amr_update cazzo 7'
 
    call self%make_comm_local_maps_ghost
-   print*,'amr_update cazzo 8'
    endsubroutine amr_update
 
    subroutine blocks_reorder(self)
@@ -245,6 +236,9 @@ contains
    real(R8P)                                :: dx, dy, dz        !< Space steps.
    character(len=:), allocatable            :: grid_dims         !< Grid dimensions.
    integer(I4P)                             :: gci, gcj, gck     !< Ghost cells saved.
+   integer(I8P), allocatable                :: codes(:)          !< Codes list, sorted by level.
+   integer(I8P)                             :: c                 !< Codes counter.
+   integer(I4P)                             :: node_level        !< Node level counter.
    integer(I4P)                             :: i, j, k, l        !< Counter.
 
    directory_ = '' ; if (present(directory)) directory_ = trim(directory)
@@ -312,58 +306,69 @@ contains
       write(xdmf, '(A)') '<Xdmf xmlns:xi="http://www.w3.org/2001/XInclude" Version="3.0">'
       write(xdmf, '(A)') '  <Domain>'
       write(xdmf, '(A)') '    <Grid Name="ADAM" GridType="Collection">'
-      do while(self%tree%loop(node=node))
+      codes = self%tree%codes(sort_by_level=.true.)
+      node_level = self%tree%level(code=codes(1))
+      write(xdmf, '(A)') '      <Grid Name="level-'//trim(str(node_level, .true.))//'" GridType="Collection">'
+      do c=1, size(codes, dim=1)
+         node => self%tree%node(code=codes(c))
+         if (self%tree%level(code=node%code) > node_level) then
+            write(xdmf, '(A)') '      </Grid>'
+            node_level = self%tree%level(code=node%code)
+            write(xdmf, '(A)') '      <Grid Name="level-'//trim(str(node_level, .true.))//'" GridType="Collection">'
+         endif
          b = node%block_index
          h5_file_name = trim(basename)//'-proc'//trim(strz(node%myrank,6))//'.h5'
          call self%tree%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
          call grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, dx=dx, dy=dy, dz=dz)
-         write(xdmf, '(A)') '      <Grid Name="'//trim(str(node%code))//'">'
+         write(xdmf, '(A)') '        <Grid Name="block-'//trim(str(node%code, .true.))//'">'
 
-         write(xdmf, '(A)') '        <Geometry Origin="" Type="ORIGIN_DXDYDZ">'
-         write(xdmf, '(A)') '          <DataItem DataType="Float" Dimensions="3" Format="XML" Precision="8">'// &
+         write(xdmf, '(A)') '          <Geometry Origin="" Type="ORIGIN_DXDYDZ">'
+         write(xdmf, '(A)') '            <DataItem DataType="Float" Dimensions="3" Format="XML" Precision="8">'// &
                                         trim(str([emin(3)-gck*dz,emin(2)-gcj*dy,emin(1)-gci*dx],separator=' '))//'</DataItem>'
-         write(xdmf, '(A)') '          <DataItem DataType="Float" Dimensions="3" Format="XML" Precision="8">'// &
+         write(xdmf, '(A)') '            <DataItem DataType="Float" Dimensions="3" Format="XML" Precision="8">'// &
                                         trim(str([dz,dy,dx],separator=' '))//'</DataItem>'
-         write(xdmf, '(A)') '        </Geometry>'
-         write(xdmf, '(A)') '        <Topology Dimensions="'//grid_dims//'" Type="3DCoRectMesh"/>'
+         write(xdmf, '(A)') '          </Geometry>'
+         write(xdmf, '(A)') '          <Topology Dimensions="'//grid_dims//'" Type="3DCoRectMesh"/>'
 
          h5_dset_name = 'u-'//trim(str(node%myrank,.true.))//'-'//trim(str(b,.true.))
-         write(xdmf, '(A)') '        <Attribute Name="u" Center="Cell" ElementDegree="0" Type="Scalar">'
-         write(xdmf, '(A)') '          <DataItem DataType="Float" Dimensions="'//grid_dims//'" Format="HDF" Precision="8">'// &
+         write(xdmf, '(A)') '          <Attribute Name="u" Center="Cell" ElementDegree="0" Type="Scalar">'
+         write(xdmf, '(A)') '            <DataItem DataType="Float" Dimensions="'//grid_dims//'" Format="HDF" Precision="8">'// &
                                        h5_file_name//':'//h5_dset_name//'</DataItem>'
-         write(xdmf, '(A)') '        </Attribute>'
+         write(xdmf, '(A)') '          </Attribute>'
 
          if (with_cell_morton_) then
             h5_dset_name = 'morton-'//trim(str(node%myrank,.true.))//'-'//trim(str(b,.true.))
-            write(xdmf, '(A)') '        <Attribute Name="morton" Center="Cell" ElementDegree="0" Type="Scalar">'
-            write(xdmf, '(A)') '          <DataItem DataType="Float" Dimensions="'//grid_dims//'" Format="HDF" Precision="8">'// &
+            write(xdmf, '(A)') '          <Attribute Name="morton" Center="Cell" ElementDegree="0" Type="Scalar">'
+            write(xdmf, '(A)') '            <DataItem DataType="Float" Dimensions="'//grid_dims//'" Format="HDF" Precision="8">'// &
                                           h5_file_name//':'//h5_dset_name//'</DataItem>'
-            write(xdmf, '(A)') '        </Attribute>'
+            write(xdmf, '(A)') '          </Attribute>'
          endif
 
          if (with_ls_) then
             h5_dset_name = 'level-set-'//trim(str(node%myrank,.true.))//'-'//trim(str(b,.true.))
-            write(xdmf, '(A)') '        <Attribute Name="level-set" Center="Cell" ElementDegree="0" Type="Scalar">'
-            write(xdmf, '(A)') '          <DataItem DataType="Float" Dimensions="'//grid_dims//'" Format="HDF" Precision="8">'// &
+            write(xdmf, '(A)') '          <Attribute Name="level-set" Center="Cell" ElementDegree="0" Type="Scalar">'
+            write(xdmf, '(A)') '            <DataItem DataType="Float" Dimensions="'//grid_dims//'" Format="HDF" Precision="8">'// &
                                           h5_file_name//':'//h5_dset_name//'</DataItem>'
-            write(xdmf, '(A)') '        </Attribute>'
+            write(xdmf, '(A)') '          </Attribute>'
          endif
 
-         write(xdmf, '(A)') '        <Attribute Name="Morton" Center="Grid">'
-         write(xdmf, '(A)') '          <DataItem Dimensions="1" Format="XML" DataType="Int">'//trim(str(node%code))//'</DataItem>'
-         write(xdmf, '(A)') '        </Attribute>'
+         write(xdmf, '(A)') '          <Attribute Name="Morton" Center="Grid">'
+         write(xdmf, '(A)') '            <DataItem Dimensions="1" Format="XML" DataType="Int">'//trim(str(node%code))//'</DataItem>'
+         write(xdmf, '(A)') '          </Attribute>'
 
-         write(xdmf, '(A)') '        <Attribute Name="block-index" Center="Grid">'
-         write(xdmf, '(A)') '          <DataItem Dimensions="1" Format="XML" DataType="Int">'//trim(str(node%block_index))//&
-                                       '</DataItem>'
-         write(xdmf, '(A)') '        </Attribute>'
+         write(xdmf, '(A)') '          <Attribute Name="block-index" Center="Grid">'
+         write(xdmf, '(A)') '            <DataItem Dimensions="1" Format="XML" DataType="Int">'//trim(str(node%block_index))//&
+                                         '</DataItem>'
+         write(xdmf, '(A)') '          </Attribute>'
 
-         write(xdmf, '(A)') '        <Attribute Name="myrank" Center="Grid">'
-         write(xdmf, '(A)') '          <DataItem Dimensions="1" Format="XML" DataType="Int">'//trim(str(node%myrank))//'</DataItem>'
-         write(xdmf, '(A)') '        </Attribute>'
+         write(xdmf, '(A)') '          <Attribute Name="myrank" Center="Grid">'
+         write(xdmf, '(A)') '            <DataItem Dimensions="1" Format="XML" DataType="Int">'//&
+                                         trim(str(node%myrank))//'</DataItem>'
+         write(xdmf, '(A)') '          </Attribute>'
 
-         write(xdmf, '(A)') '      </Grid>'
+         write(xdmf, '(A)') '        </Grid>'
       enddo
+      write(xdmf, '(A)') '      </Grid>'
       write(xdmf, '(A)') '    </Grid>'
       write(xdmf, '(A)') '  </Domain>'
       write(xdmf, '(A)') '</Xdmf>'

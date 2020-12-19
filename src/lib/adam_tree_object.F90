@@ -245,12 +245,16 @@ type :: tree_object
       procedure, pass(self) :: finest_at_level         !< Return the finest node code at given level.
       procedure, pass(self) :: first_at_level          !< Return the first node code at given level.
       procedure, pass(self) :: first_common_parent     !< Return the first common parent given two codes.
-      procedure, pass(self) :: last_at_level           !< Return the last node code at given level.
-      procedure, pass(self) :: level                   !< Return the refinement level given the code.
-      procedure, pass(self) :: lower                   !< Return true if code is lower than other.
       procedure, pass(self) :: get_neighbor            !< Return the neighbor in a given face of given Morton code.
       procedure, pass(self) :: get_neighbor_all        !< Return the neighbor in a given face/edge/corner of given Morton code.
       procedure, pass(self) :: greater                 !< Return true if code is greater than other.
+      procedure, pass(self) :: is_greater_by_level     !< Return true if code is greater than other, comparing level.
+      procedure, pass(self) :: is_greater_by_pos       !< Return true if code is greater than other, comparing position
+      procedure, pass(self) :: is_lower_by_level       !< Return true if code is lower than other, comparing level.
+      procedure, pass(self) :: is_lower_by_pos         !< Return true if code is lower than other, comparing position.
+      procedure, pass(self) :: last_at_level           !< Return the last node code at given level.
+      procedure, pass(self) :: level                   !< Return the refinement level given the code.
+      procedure, pass(self) :: lower                   !< Return true if code is lower than other.
       procedure, pass(self) :: parent                  !< Return the parent given Morton code.
       procedure, pass(self) :: parent_at_level         !< Return the parent given Morton code at given level.
       procedure, pass(self) :: path                    !< Return the path codes, the list of codes from given node to root.
@@ -271,6 +275,26 @@ type :: tree_object
       procedure, pass(lhs), private :: tree_assign_tree !< Operator `=`.
 endtype tree_object
 
+abstract interface
+   subroutine is_greater_interface(self, lhs, rhs, res)
+   !< Return true if code is greater than other.
+   import :: tree_object, I8P
+   class(tree_object), intent(in)  :: self !< The tree.
+   integer(I8P),       intent(in)  :: lhs  !< Left hand side of code comparison.
+   integer(I8P),       intent(in)  :: rhs  !< Right hand side of code comparison.
+   logical,            intent(out) :: res  !< Comparison result.
+   endsubroutine is_greater_interface
+
+   subroutine is_lower_interface(self, lhs, rhs, res)
+   !< Return true if code is lower than other.
+   import :: tree_object, I8P
+   class(tree_object), intent(in)  :: self !< The tree.
+   integer(I8P),       intent(in)  :: lhs  !< Left hand side of code comparison.
+   integer(I8P),       intent(in)  :: rhs  !< Right hand side of code comparison.
+   logical,            intent(out) :: res  !< Comparison result.
+   endsubroutine is_lower_interface
+endinterface
+
 contains
    ! public methods
    subroutine adapt(self)
@@ -282,17 +306,20 @@ contains
    call self%derefine
    endsubroutine adapt
 
-   function codes(self, only_mine)
+   function codes(self, only_mine, sort_by_level)
    !< Return the list of (sorted) codes actually stored in the tree.
-   class(tree_object), intent(in)           :: self       !< The tree.
-   logical,            intent(in), optional :: only_mine  !< If true return only the nodes of myrank process.
-   integer(I8P), allocatable                :: codes(:)   !< List of codes.
-   logical                                  :: only_mine_ !< If true return only the nodes of myrank process.
-   type(tree_node_object), pointer          :: node       !< Pointer to current node.
-   integer(I8P)                             :: c          !< Counter.
-   integer(I8P), allocatable                :: work(:)    !< Working memory for sorting codes list.
+   class(tree_object), intent(in)           :: self           !< The tree.
+   logical,            intent(in), optional :: only_mine      !< If true return only the nodes of myrank process.
+   logical,            intent(in), optional :: sort_by_level  !< If true sort codes be level instead of position.
+   integer(I8P), allocatable                :: codes(:)       !< List of codes.
+   logical                                  :: only_mine_     !< If true return only the nodes of myrank process.
+   logical                                  :: sort_by_level_ !< If true sort codes be level instead of position.
+   type(tree_node_object), pointer          :: node           !< Pointer to current node.
+   integer(I8P)                             :: c              !< Counter.
+   integer(I8P), allocatable                :: work(:)        !< Working memory for sorting codes list.
 
    only_mine_ = .false. ; if (present(only_mine)) only_mine_ = only_mine
+   sort_by_level_ = .false. ; if (present(sort_by_level)) sort_by_level_ = sort_by_level
    allocate(codes(self%nodes_number))
    c = 0
    do while(self%loop(node=node))
@@ -305,32 +332,46 @@ contains
       call move_alloc(from=work, to=codes)
    endif
    allocate(work((size(codes,dim=1)+1)/2))
-   call mergesort(array=codes)
+   ! sort codes
+   if (sort_by_level_) then
+      call mergesort(array=codes, is_lower=is_lower_by_level, is_greater=is_greater_by_level)
+   else
+      call mergesort(array=codes, is_lower=is_lower_by_pos,   is_greater=is_greater_by_pos  )
+   endif
    contains
-      recursive subroutine mergesort(array)
+      recursive subroutine mergesort(array, is_lower, is_greater)
       !< Sort input array by means of mergesort algorithm.
-      integer(I8P), intent(inout) :: array(:) !< Array to be sorted.
-      integer(I8P)                :: half     !< Half size counter.
+      integer(I8P), intent(inout)     :: array(:)   !< Array to be sorted.
+      procedure(is_lower_interface)   :: is_lower   !< Lower comparison function.
+      procedure(is_greater_interface) :: is_greater !< Greater comparison function.
+      integer(I8P)                    :: half       !< Half size counter.
+      logical                         :: is_great   !< Result of is greater.
 
       half = (size(array) + 1) / 2
       if (size(array) < 2) then
          continue
       else if (size(array) == 2) then
-         if (self%greater(array(1), array(2))) call swap_element(array(1), array(2))
+         ! if (self%greater(array(1), array(2))) call swap_element(array(1), array(2))
+         call is_greater(self=self, lhs=array(1), rhs=array(2), res=is_great)
+         if (is_great) call swap_element(array(1), array(2))
       else
-         call mergesort(array( : half))
-         call mergesort(array(half + 1 :))
-         if (self%greater(array(half), array(half + 1))) then
+         call mergesort(array=array( : half),    is_lower=is_lower, is_greater=is_greater)
+         call mergesort(array=array(half + 1 :), is_lower=is_lower, is_greater=is_greater)
+         ! if (self%greater(array(half), array(half + 1))) then
+         call is_greater(self=self, lhs=array(half), rhs=array(half + 1), res=is_great)
+         if (is_great) then
             work(1 : half) = array(1 : half)
-            call merge_array(work(1 : half), array(half + 1:), array)
+            call merge_array(A=work(1 : half), B=array(half + 1:), C=array, is_lower=is_lower)
          endif
       endif
       endsubroutine mergesort
 
-      subroutine merge_array(A, B, C)
+      subroutine merge_array(A, B, C, is_lower)
       !< Merge arrays A/B in C.
       integer(I8P), target, intent(in)    :: A(:), B(:) !< Input arrays.
       integer(I8P), target, intent(inout) :: C(:)       !< Output array.
+      procedure(is_lower_interface)       :: is_lower   !< Lower comparison function.
+      logical                             :: is_low     !< Result of is greater.
       integer(I8P)                        :: i, j, k    !< Counter.
 
       if (size(A) + size(B) > size(C)) stop
@@ -338,7 +379,9 @@ contains
       i = 1 ; j = 1
       do k = 1, size(C)
          if (i <= size(A) .and. j <= size(B)) then
-            if (self%lower(A(i), B(j))) then
+            ! if (self%lower(A(i), B(j))) then
+            call is_lower(self=self, lhs=A(i), rhs=B(j), res=is_low)
+            if (is_low) then
                C(k) = A(i)
                i = i + 1
             else
@@ -416,30 +459,32 @@ contains
       enddo
    else
       do while(self%loop(node=node))
-         if (node%surface_stl_distance<huge(0._R8P)/2._R8P) cycle ! distance already computed for this node
-         call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
-         call self%grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax)
-         block_center = (emax + emin) / 2._R8P
-         point(0) = block_center(1) * ex_R8P +  block_center(2) * ey_R8P + block_center(3) * ez_R8P
-         point(1) =         emin(1) * ex_R8P +          emin(2) * ey_R8P +         emin(3) * ez_R8P
-         point(2) =         emax(1) * ex_R8P +          emin(2) * ey_R8P +         emin(3) * ez_R8P
-         point(3) =         emin(1) * ex_R8P +          emax(2) * ey_R8P +         emin(3) * ez_R8P
-         point(4) =         emax(1) * ex_R8P +          emax(2) * ey_R8P +         emin(3) * ez_R8P
-         point(5) =         emin(1) * ex_R8P +          emin(2) * ey_R8P +         emax(3) * ez_R8P
-         point(6) =         emax(1) * ex_R8P +          emin(2) * ey_R8P +         emax(3) * ez_R8P
-         point(7) =         emin(1) * ex_R8P +          emax(2) * ey_R8P +         emax(3) * ez_R8P
-         point(8) =         emax(1) * ex_R8P +          emax(2) * ey_R8P +         emax(3) * ez_R8P
-         distance(0) = surface_stl%distance(point=point(0), is_signed=.true., sign_algorithm='ray_intersections')
-         distance(1) = surface_stl%distance(point=point(1), is_signed=.true., sign_algorithm='ray_intersections')
-         distance(2) = surface_stl%distance(point=point(2), is_signed=.true., sign_algorithm='ray_intersections')
-         distance(3) = surface_stl%distance(point=point(3), is_signed=.true., sign_algorithm='ray_intersections')
-         distance(4) = surface_stl%distance(point=point(4), is_signed=.true., sign_algorithm='ray_intersections')
-         distance(5) = surface_stl%distance(point=point(5), is_signed=.true., sign_algorithm='ray_intersections')
-         distance(6) = surface_stl%distance(point=point(6), is_signed=.true., sign_algorithm='ray_intersections')
-         distance(7) = surface_stl%distance(point=point(7), is_signed=.true., sign_algorithm='ray_intersections')
-         distance(8) = surface_stl%distance(point=point(8), is_signed=.true., sign_algorithm='ray_intersections')
-         if (maxval(distance(0:8),dim=1)*minval(distance(0:8),dim=1) < 0._R8P) distance(0) = 0._R8P
-         node%surface_stl_distance = distance(0)
+         if (node%myrank==self%myrank) then
+            if (node%surface_stl_distance<huge(0._R8P)/2._R8P) cycle ! distance already computed for this node
+            call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
+            call self%grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax)
+            block_center = (emax + emin) / 2._R8P
+            point(0) = block_center(1) * ex_R8P +  block_center(2) * ey_R8P + block_center(3) * ez_R8P
+            point(1) =         emin(1) * ex_R8P +          emin(2) * ey_R8P +         emin(3) * ez_R8P
+            point(2) =         emax(1) * ex_R8P +          emin(2) * ey_R8P +         emin(3) * ez_R8P
+            point(3) =         emin(1) * ex_R8P +          emax(2) * ey_R8P +         emin(3) * ez_R8P
+            point(4) =         emax(1) * ex_R8P +          emax(2) * ey_R8P +         emin(3) * ez_R8P
+            point(5) =         emin(1) * ex_R8P +          emin(2) * ey_R8P +         emax(3) * ez_R8P
+            point(6) =         emax(1) * ex_R8P +          emin(2) * ey_R8P +         emax(3) * ez_R8P
+            point(7) =         emin(1) * ex_R8P +          emax(2) * ey_R8P +         emax(3) * ez_R8P
+            point(8) =         emax(1) * ex_R8P +          emax(2) * ey_R8P +         emax(3) * ez_R8P
+            distance(0) = surface_stl%distance(point=point(0), is_signed=.true., sign_algorithm='ray_intersections')
+            distance(1) = surface_stl%distance(point=point(1), is_signed=.true., sign_algorithm='ray_intersections')
+            distance(2) = surface_stl%distance(point=point(2), is_signed=.true., sign_algorithm='ray_intersections')
+            distance(3) = surface_stl%distance(point=point(3), is_signed=.true., sign_algorithm='ray_intersections')
+            distance(4) = surface_stl%distance(point=point(4), is_signed=.true., sign_algorithm='ray_intersections')
+            distance(5) = surface_stl%distance(point=point(5), is_signed=.true., sign_algorithm='ray_intersections')
+            distance(6) = surface_stl%distance(point=point(6), is_signed=.true., sign_algorithm='ray_intersections')
+            distance(7) = surface_stl%distance(point=point(7), is_signed=.true., sign_algorithm='ray_intersections')
+            distance(8) = surface_stl%distance(point=point(8), is_signed=.true., sign_algorithm='ray_intersections')
+            if (maxval(distance(0:8),dim=1)*minval(distance(0:8),dim=1) < 0._R8P) distance(0) = 0._R8P
+            node%surface_stl_distance = distance(0)
+         endif
       enddo
    endif
    endassociate
@@ -686,19 +731,21 @@ contains
 
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
    do while(self%loop(node=node))
-      call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
-      call self%grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax)
-      block_diagonal = sqrt((emax(1) - emin(1))**2 + &
-                            (emax(2) - emin(2))**2 + &
-                            (emax(3) - emin(3))**2)
-      associate (ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
-         max_cell_delta = self%max_cell_delta(distance=node%surface_stl_distance)
-         if (block_diagonal/min(ni,nj,nk) > max_cell_delta) then
-            node%refinement_needed = TO_BE_REFINED
-         elseif (block_diagonal/min(ni,nj,nk) * threshold_ < max_cell_delta) then
-            node%refinement_needed = TO_BE_DEREFINED
-         endif
-      endassociate
+      if (node%myrank==self%myrank) then
+         call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
+         call self%grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax)
+         block_diagonal = sqrt((emax(1) - emin(1))**2 + &
+                               (emax(2) - emin(2))**2 + &
+                               (emax(3) - emin(3))**2)
+         associate (ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
+            max_cell_delta = self%max_cell_delta(distance=node%surface_stl_distance)
+            if (block_diagonal/min(ni,nj,nk) > max_cell_delta) then
+               node%refinement_needed = TO_BE_REFINED
+            elseif (block_diagonal/min(ni,nj,nk) * threshold_ < max_cell_delta) then
+               node%refinement_needed = TO_BE_DEREFINED
+            endif
+         endassociate
+      endif
    enddo
    endsubroutine mark_surface_stl
 
@@ -1555,44 +1602,6 @@ contains
    fc_parent = parent(1)
    endfunction first_common_parent
 
-   elemental function last_at_level(self, level) result(code)
-   !< Return the last node code at given level.
-   class(tree_object), intent(in) :: self  !< The tree.
-   integer(I4P),       intent(in) :: level !< Refinement level.
-   integer(I8P)                   :: code  !< Morton code.
-
-   code = self%first_at_level(level=level) + self%ratio**level - 1
-   endfunction last_at_level
-
-   elemental function level(self, code)
-   !< Return the refinement level given the code.
-   class(tree_object), intent(in) :: self  !< The tree.
-   integer(I8P),       intent(in) :: code  !< Morton code.
-   integer(I4P)                   :: level !< Refinement level.
-   integer(I8P)                   :: c     !< Counter.
-
-   if (code<=-1) then
-      level = 0 ! ancestor of all has level 0
-   else
-      level = 1
-      c = code
-      do while(c>=self%ratio)
-         c = (c - self%ratio) / self%ratio
-         if (c>=0) level = level + 1
-      enddo
-   endif
-   endfunction level
-
-   elemental function lower(self, lhs, rhs) result(res)
-   !< Return true if code is lower than other.
-   class(tree_object), intent(in) :: self !< The tree.
-   integer(I8P),       intent(in) :: lhs  !< Left hand side of code comparison.
-   integer(I8P),       intent(in) :: rhs  !< Right hand side of code comparison.
-   logical                        :: res  !< Comparison result.
-
-   res = self%finest_at_level(code=lhs, level=self%max_level) < self%finest_at_level(code=rhs, level=self%max_level)
-   endfunction lower
-
    subroutine get_neighbor(self, code, face, neighbor, neighbor_type)
    !< Return the neighbor in a given face of given Morton code.
    !<
@@ -2015,6 +2024,84 @@ contains
 
    res = self%finest_at_level(code=lhs, level=self%max_level) > self%finest_at_level(code=rhs, level=self%max_level)
    endfunction greater
+
+   subroutine is_greater_by_level(self, lhs, rhs, res)
+   !< Return true if code is greater than other, comparing level.
+   class(tree_object), intent(in)  :: self !< The tree.
+   integer(I8P),       intent(in)  :: lhs  !< Left hand side of code comparison.
+   integer(I8P),       intent(in)  :: rhs  !< Right hand side of code comparison.
+   logical,            intent(out) :: res  !< Comparison result.
+
+   res = self%level(code=lhs) > self%level(code=rhs)
+   endsubroutine is_greater_by_level
+
+   subroutine is_greater_by_pos(self, lhs, rhs, res)
+   !< Return true if code is greater than other, comparing position.
+   class(tree_object), intent(in)  :: self !< The tree.
+   integer(I8P),       intent(in)  :: lhs  !< Left hand side of code comparison.
+   integer(I8P),       intent(in)  :: rhs  !< Right hand side of code comparison.
+   logical,            intent(out) :: res  !< Comparison result.
+
+   res = self%finest_at_level(code=lhs, level=self%max_level) > self%finest_at_level(code=rhs, level=self%max_level)
+   endsubroutine is_greater_by_pos
+
+   subroutine is_lower_by_level(self, lhs, rhs, res)
+   !< Return true if code is lower than other, comparing level.
+   class(tree_object), intent(in)  :: self !< The tree.
+   integer(I8P),       intent(in)  :: lhs  !< Left hand side of code comparison.
+   integer(I8P),       intent(in)  :: rhs  !< Right hand side of code comparison.
+   logical,            intent(out) :: res  !< Comparison result.
+
+   res = self%level(code=lhs) < self%level(code=rhs)
+   endsubroutine is_lower_by_level
+
+   subroutine is_lower_by_pos(self, lhs, rhs, res)
+   !< Return true if code is lower than other, comparing position.
+   class(tree_object), intent(in)  :: self !< The tree.
+   integer(I8P),       intent(in)  :: lhs  !< Left hand side of code comparison.
+   integer(I8P),       intent(in)  :: rhs  !< Right hand side of code comparison.
+   logical,            intent(out) :: res  !< Comparison result.
+
+   res = self%finest_at_level(code=lhs, level=self%max_level) < self%finest_at_level(code=rhs, level=self%max_level)
+   endsubroutine is_lower_by_pos
+
+   elemental function last_at_level(self, level) result(code)
+   !< Return the last node code at given level.
+   class(tree_object), intent(in) :: self  !< The tree.
+   integer(I4P),       intent(in) :: level !< Refinement level.
+   integer(I8P)                   :: code  !< Morton code.
+
+   code = self%first_at_level(level=level) + self%ratio**level - 1
+   endfunction last_at_level
+
+   elemental function level(self, code)
+   !< Return the refinement level given the code.
+   class(tree_object), intent(in) :: self  !< The tree.
+   integer(I8P),       intent(in) :: code  !< Morton code.
+   integer(I4P)                   :: level !< Refinement level.
+   integer(I8P)                   :: c     !< Counter.
+
+   if (code<=-1) then
+      level = 0 ! ancestor of all has level 0
+   else
+      level = 1
+      c = code
+      do while(c>=self%ratio)
+         c = (c - self%ratio) / self%ratio
+         if (c>=0) level = level + 1
+      enddo
+   endif
+   endfunction level
+
+   elemental function lower(self, lhs, rhs) result(res)
+   !< Return true if code is lower than other.
+   class(tree_object), intent(in) :: self !< The tree.
+   integer(I8P),       intent(in) :: lhs  !< Left hand side of code comparison.
+   integer(I8P),       intent(in) :: rhs  !< Right hand side of code comparison.
+   logical                        :: res  !< Comparison result.
+
+   res = self%finest_at_level(code=lhs, level=self%max_level) < self%finest_at_level(code=rhs, level=self%max_level)
+   endfunction lower
 
    elemental function parent(self, code)
    !< Return the parent given Morton code.
