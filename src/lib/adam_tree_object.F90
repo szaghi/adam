@@ -1812,7 +1812,7 @@ contains
    endselect
    endsubroutine get_neighbor
 
-   subroutine get_neighbor_all(self, code, face, neighbor, neighbor_type, neighbor_portion)
+   subroutine get_neighbor_all(self, code, face, neighbor, neighbor_type, neighbor_portion, neighbor_bc_fec)
    !< Return the neighbor in a given face/edge/corner of given Morton code.
    !<
    !< The direction `fec` is organized as: faces=[1,6], edges=[7,18], corners=[19,26].
@@ -1825,6 +1825,8 @@ contains
    integer(I8P),       intent(out), allocatable :: neighbor(:)                 !< Neighbors codes list, [1] or [ratio/2].
    integer(I4P),       intent(out)              :: neighbor_type               !< Type of neighbor.
    integer(I4P),       intent(out), optional    :: neighbor_portion            !< Neighbors portion.
+   integer(I4P),       intent(out), optional    :: neighbor_bc_fec             !< Neighbors fec for BC.
+   integer(I4P)                                 :: neighbor_bc_fec_            !< Neighbors fec for BC, local variable.
    integer(I8P)                                 :: direct_neighbor             !< Morton code of direct neighbor.
    integer(I8P)                                 :: direct_neighbor_parent      !< Morton code of direct neighbor parent.
    integer(I8P)                                 :: direct_neighbor_first_child !< Morton code of direct neighbor first child.
@@ -1907,12 +1909,23 @@ contains
    endselect
    ijk = [i, j, k] + delta
 
+   neighbor_type = NODE_STANDARD
+   i_bc = 0
    do i=1, 3
       if (ijk(i)<0.or.ijk(i)>2**l - 1) then
-         neighbor_type = NODE_BOUNDARY_CONDITION
-         return
+         i_bc(i) = sign(1, ijk(i))
+         if (.not.self%ijk_periodic(i)) then
+            neighbor_type = NODE_BOUNDARY_CONDITION
+         else
+            ijk(i) = modulo(ijk(i)+2**l, 2**l)
+            i_bc(i) = 0
+         endif
       endif
    enddo
+   if (neighbor_type == NODE_BOUNDARY_CONDITION) then
+      if (present(neighbor_bc_fec)) neighbor_bc_fec = delta_to_fec(i_bc(1),i_bc(2),i_bc(3))
+      return
+   endif
 
    ! compute direct neighbor code
    select case(self%ratio)

@@ -623,6 +623,42 @@ contains
    self%u_s(:,:,:,block_start:block_end,s) = self%u_work(:,:,:,block_start:block_end)
    endsubroutine compute_residuals
 
+   subroutine set_boundary_conditions(self, q)
+   !< Set boundary conditions of field.
+   class(field_object), intent(inout) :: self                   !< The field.
+   real(R8P),           intent(inout) :: q(1-self%grid%gci:,&
+                                           1-self%grid%gcj:,&
+                                           1-self%grid%gck:,1:) !< Field component to be updated.
+   integer(I4P)                       :: b                      !< Counter.
+   integer(I4P)                       :: f                      !< Counter.
+   integer(I4P)                       :: ijkmin(3)              !< Lower limit of ijk indexes.
+   integer(I4P)                       :: ijkmax(3)              !< Upper limit of ijk indexes.
+
+   if (.not.allocated(self%local_map_bc)) return
+   do f=1, size(self%local_map_bc, dim=1) ! loop over all BC fec
+      b      = self%local_map_bc(f, 1)
+      fec    = self%local_map_bc(f, 2)
+      ijkmin = self%local_map_bc(f, 3:5)
+      ijkmax = self%local_map_bc(f, 6:8)
+      ! give face priority over other fec...
+      select case(fec)
+      case(1,7,9,11,13,19,21,23,25)
+         do k=ijkmin(3), ijkmax(3)
+            do j=ijkmin(2), ijkmax(2)
+               do i=ijkmin(1), ijkmax(1)
+                  q(i,j,k,b) = bc-left
+               enddo
+            enddo
+         enddo
+      case(2,8,10,12,14,20,22,24,26)
+      case(3,15,17)
+      case(4,16,18)
+      case(5)
+      case(6)
+      endselect
+   enddo
+   endsubroutine set_boundary_conditions
+
    subroutine set_initial_conditions(self)
    !< Set initial conditions of field.
    class(field_object), intent(inout) :: self    !< The field.
