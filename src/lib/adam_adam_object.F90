@@ -31,18 +31,18 @@ type :: adam_object
    integer(I4P) :: myrank=0_I4P       !< MPI rank process.
    contains
       ! public methods
-      procedure, pass(self) :: adapt                        !< Adapt tree/field accordingly to refine/derefine necessity.
-      procedure, pass(self) :: amr_update                   !< Update AMR status.
-      procedure, pass(self) :: blocks_reorder               !< Reorder blocks (for asyncrhonous MPI)
-      procedure, pass(self) :: destroy                      !< Destroy ADAM.
-      procedure, pass(self) :: finalize                     !< Finalize ADAM.
-      procedure, pass(self) :: initialize                   !< Initialize ADAM.
-      procedure, pass(self) :: make_comm_local_maps_ghost   !< Make communication/local maps of ghost cells.
-      procedure, pass(self) :: mpi_gather_refinement_needed !< Gather refinement needed.
-      procedure, pass(self) :: mpi_redistribute             !< Redistribute nodes/blocks to processes, load balancing.
-      procedure, pass(self) :: save_hdf5                    !< Save ADAM in HDF5 format.
-      procedure, pass(self) :: save_vtk                     !< Save ADAM in VTK  format.
-      procedure, pass(self) :: update_ghost                 !< Update ghost cells.
+      procedure, pass(self) :: adapt                         !< Adapt tree/field accordingly to refine/derefine necessity.
+      procedure, pass(self) :: amr_update                    !< Update AMR status.
+      procedure, pass(self) :: blocks_reorder                !< Reorder blocks (for asyncrhonous MPI)
+      procedure, pass(self) :: destroy                       !< Destroy ADAM.
+      procedure, pass(self) :: finalize                      !< Finalize ADAM.
+      procedure, pass(self) :: initialize                    !< Initialize ADAM.
+      procedure, pass(self) :: make_comm_local_maps_ghost_bc !< Make communication/local maps of ghost cells.
+      procedure, pass(self) :: mpi_gather_refinement_needed  !< Gather refinement needed.
+      procedure, pass(self) :: mpi_redistribute              !< Redistribute nodes/blocks to processes, load balancing.
+      procedure, pass(self) :: save_hdf5                     !< Save ADAM in HDF5 format.
+      procedure, pass(self) :: save_vtk                      !< Save ADAM in VTK  format.
+      procedure, pass(self) :: update_ghost                  !< Update ghost cells.
       ! operators
       generic :: assignment(=) => adam_assign_adam      !< Overload `=`.
       procedure, pass(lhs), private :: adam_assign_adam !< Operator `=`.
@@ -89,7 +89,7 @@ contains
 
    if (do_blocks_reorder_) call self%blocks_reorder
 
-   call self%make_comm_local_maps_ghost
+   call self%make_comm_local_maps_ghost_bc
    endsubroutine amr_update
 
    subroutine blocks_reorder(self)
@@ -120,7 +120,7 @@ contains
    endsubroutine finalize
 
    subroutine initialize(self,                                                               &
-                         ni, nj, nk, gc, emin, emax,                                         &
+                         ni, nj, nk, gc, emin, emax, bc_type,                                &
                          max_load, nodes_number, buckets_number, ratio, max_level, add_adam, &
                          nv, nb)
    !< Initialize ADAM.
@@ -129,9 +129,10 @@ contains
    integer(I4P),       intent(in), optional :: ni             !< Number of cells in X direction.
    integer(I4P),       intent(in), optional :: nj             !< Number of cells in Y direction.
    integer(I4P),       intent(in), optional :: nk             !< Number of cells in Z direction.
-   integer(I4P),       intent(in), optional :: gc(6)          !< Number of ghost cells in each direction.
+   integer(I4P),       intent(in), optional :: gc(3)          !< Number of ghost cells in each direction.
    real(R8P),          intent(in), optional :: emin(3)        !< Coordinates of minium abscissa.
    real(R8P),          intent(in), optional :: emax(3)        !< Coordinates of maxium abscissa.
+   integer(I4P),       intent(in), optional :: bc_type(6)     !< Type of boundary conditions in the 6 faces of grid.
    ! tree options
    real(R8P),          intent(in), optional :: max_load       !< Maximum load of tree buckets.
    integer(I8P),       intent(in), optional :: nodes_number   !< Nodes number to be stored in the tree.
@@ -151,18 +152,19 @@ contains
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
 #endif
-   call self%grid%initialize(ni=ni, nj=nj, nk=nk, gc=gc, emin=emin, emax=emax)
+   call self%grid%initialize(ni=ni, nj=nj, nk=nk, gc=gc, emin=emin, emax=emax, bc_type=bc_type)
    call self%tree%initialize(grid=self%grid, max_load=max_load, nodes_number=nodes_number, buckets_number=buckets_number, &
                              ratio=ratio, max_level=max_level, add_adam=add_adam)
    call self%field%initialize(grid=self%grid, nv=nv, nb=nb)
    call self%amr_update
    endsubroutine initialize
 
-   subroutine make_comm_local_maps_ghost(self)
-   !< Make communication/local maps of ghost cells.
+   subroutine make_comm_local_maps_ghost_bc(self)
+   !< Make communication/local maps of ghost cells and boundary conditions.
    class(adam_object), intent(inout) :: self !< ADAM.
 
    call self%tree%make_comm_local_maps_ghost
+   call self%tree%make_local_maps_bc
    call self%field%prepare_comm_local_ghost(local_map_ghost         = self%tree%local_map_ghost,         &
                                             comm_map_n_send_ghost   = self%tree%comm_map_n_send_ghost,   &
                                             comm_map_n_recv_ghost   = self%tree%comm_map_n_recv_ghost,   &
@@ -170,7 +172,10 @@ contains
                                             comm_map_recv_ptr_ghost = self%tree%comm_map_recv_ptr_ghost, &
                                             comm_map_send_ghost     = self%tree%comm_map_send_ghost,     &
                                             comm_map_recv_ghost     = self%tree%comm_map_recv_ghost)
-   endsubroutine make_comm_local_maps_ghost
+   call self%field%prepare_local_bc(local_map_bc_face = self%tree%local_map_bc_face, &
+                                    local_map_bc_edge = self%tree%local_map_bc_edge, &
+                                    local_map_bc_corner = self%tree%local_map_bc_corner)
+   endsubroutine make_comm_local_maps_ghost_bc
 
    subroutine mpi_gather_refinement_needed(self, is_marked_by_field, is_marked_by_tree)
    !< Gather refinement needed.
@@ -412,9 +417,11 @@ contains
       vtr_loop : do b=1, self%field%blocks_number
          call self%grid%compute_metrics(coordinates=self%field%coordinates(:,b), x_node=x, y_node=y, z_node=z)
          max_level = max(max_level, self%field%coordinates(4,b))
-         self%error = vtk%initialize(format='raw', filename=directory_//trim(basename)//'-block-'//trim(str(b,.true.))//&
-                                                            '-proc-'//trim(str(self%myrank,.true.))//'.vtr',            &
-                                     mesh_topology='RectilinearGrid',                                                   &
+         self%error = vtk%initialize(format='raw', filename=directory_//trim(basename)//                       &
+                                                            '-morton-'//trim(str(self%field%code(b),.true.))// &
+                                                            '-block-'//trim(str(b,.true.))//                   &
+                                                            '-proc-'//trim(str(self%myrank,.true.))//'.vtr',   &
+                                     mesh_topology='RectilinearGrid',                                          &
                                      nx1=0-gci, nx2=ni+gci, ny1=0-gcj, ny2=nj+gcj, nz1=0-gck, nz2=nk+gck)
          self%error = vtk%xml_writer%write_fielddata(action='open')
          self%error = vtk%xml_writer%write_fielddata(data_name='Morton', x=self%field%code(b))
@@ -438,8 +445,10 @@ contains
          vtm_filenames_loop : do while(self%tree%loop(node=node))
             b = node%block_index
             l = self%tree%level(code=node%code)
-            self%error = vtm%write_block(scratch=l, action='write', filename=trim(basename)//'-block-'//trim(str(b,.true.))//&
-                                                                             '-proc-'//trim(str(node%myrank,.true.))//'.vtr')
+            self%error = vtm%write_block(scratch=l, action='write', filename=trim(basename)//                                   &
+                                                                             '-morton-'//trim(str(self%field%code(b),.true.))// &
+                                                                             '-block-'//trim(str(b,.true.))//                   &
+                                                                             '-proc-'//trim(str(self%myrank,.true.))//'.vtr')
          enddo vtm_filenames_loop
          self%error = vtm%finalize()
       endif

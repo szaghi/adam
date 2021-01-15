@@ -73,26 +73,34 @@ use MPI
 implicit none
 private
 public :: field_object
+public :: BC_EXTRAPOLATION
+public :: BC_INFLOW
+
+integer(I4P), parameter :: BC_EXTRAPOLATION = 1_I4P
+integer(I4P), parameter :: BC_INFLOW        = 2_I4P
 
 type :: field_object
    !< Field class definition.
    ! mesh related data, unrelated to field equations
-   type(grid_object), pointer :: grid=>null()         !< Grid data.
-   integer(I4P)               :: nv=1_I4P             !< Number of field variables.
-   integer(I4P)               :: block_weight=0_I4P   !< Block weight, `cells_number * variables_number`.
-   integer(I4P)               :: nb=0_I4P             !< Number of all blocks that can be stored.
-   integer(I4P)               :: blocks_number=0_I4P  !< Number of blocks actually stored.
-   integer(I8P), allocatable  :: code(:)              !< Morton codes [nb].
-   integer(I4P), allocatable  :: coordinates(:,:)     !< Coordinates IJKL for each block [nb,4].
-   real(R8P),    allocatable  :: emin(:,:)            !< Coordinates of minimum abscissa of each block [3,nb].
-   real(R8P),    allocatable  :: emax(:,:)            !< Coordinates of maximum abscissa of each block [3,nb].
-   real(R8P),    allocatable  :: x_node(:,:)          !< X coordinates of [0-gci:ni+gci,nb].
-   real(R8P),    allocatable  :: y_node(:,:)          !< Y coordinates of [0-gcj:nj+gcj,nb].
-   real(R8P),    allocatable  :: z_node(:,:)          !< Z coordinates of [0-gck:nk+gck,nb].
-   real(R8P),    allocatable  :: x_cell(:,:)          !< X coordinates of [1-gci:ni+gci,nb].
-   real(R8P),    allocatable  :: y_cell(:,:)          !< Y coordinates of [1-gcj:nj+gcj,nb].
-   real(R8P),    allocatable  :: z_cell(:,:)          !< Z coordinates of [1-gck:nk+gck,nb].
-   integer(I8P), allocatable  :: local_map_ghost(:,:) !< Local map for ghost cells updating.
+   type(grid_object), pointer :: grid=>null()             !< Grid data.
+   integer(I4P)               :: nv=1_I4P                 !< Number of field variables.
+   integer(I4P)               :: block_weight=0_I4P       !< Block weight, `cells_number * variables_number`.
+   integer(I4P)               :: nb=0_I4P                 !< Number of all blocks that can be stored.
+   integer(I4P)               :: blocks_number=0_I4P      !< Number of blocks actually stored.
+   integer(I8P), allocatable  :: code(:)                  !< Morton codes [nb].
+   integer(I4P), allocatable  :: coordinates(:,:)         !< Coordinates IJKL for each block [nb,4].
+   real(R8P),    allocatable  :: emin(:,:)                !< Coordinates of minimum abscissa of each block [3,nb].
+   real(R8P),    allocatable  :: emax(:,:)                !< Coordinates of maximum abscissa of each block [3,nb].
+   real(R8P),    allocatable  :: x_node(:,:)              !< X coordinates of [0-gci:ni+gci,nb].
+   real(R8P),    allocatable  :: y_node(:,:)              !< Y coordinates of [0-gcj:nj+gcj,nb].
+   real(R8P),    allocatable  :: z_node(:,:)              !< Z coordinates of [0-gck:nk+gck,nb].
+   real(R8P),    allocatable  :: x_cell(:,:)              !< X coordinates of [1-gci:ni+gci,nb].
+   real(R8P),    allocatable  :: y_cell(:,:)              !< Y coordinates of [1-gcj:nj+gcj,nb].
+   real(R8P),    allocatable  :: z_cell(:,:)              !< Z coordinates of [1-gck:nk+gck,nb].
+   integer(I8P), allocatable  :: local_map_ghost(:,:)     !< Local map for ghost cells updating.
+   integer(I8P), allocatable  :: local_map_bc_face(:,:)   !< Local map for face BC ghost cells.
+   integer(I8P), allocatable  :: local_map_bc_edge(:,:)   !< Local map for edge BC ghost cells.
+   integer(I8P), allocatable  :: local_map_bc_corner(:,:) !< Local map for corner BC ghost cells.
    ! MPI data, unrelated to field equations
    integer(I4P)              :: error=0_I4P                !< Error traping flag.
    integer(I4P)              :: myrank=0_I4P               !< MPI rank process.
@@ -135,14 +143,17 @@ type :: field_object
       procedure, pass(self) :: destroy                       !< Destroy the field.
       procedure, pass(self) :: initialize                    !< Initialize the field.
       procedure, pass(self) :: mark_by_u_value               !< Mark blocks to be refined/derefined by a `u` value.
+      procedure, pass(self) :: mark_by_grad_u                !< Mark blocks to be refined/derefined by a `grad(u)` value.
       procedure, pass(self) :: mark_all_blocks               !< Mark all blocks to be refined, derefined, ecc.
       procedure, pass(self) :: mark_sphere                   !< Mark blocks to be refined/derefined by sphere distance.
       procedure, pass(self) :: max_cell_delta                !< Return the maximum cell delta given a comparison distance.
       procedure, pass(self) :: mpi_gather_refinements_needed !< Gather blocks refinement needed status between MPI processes.
       procedure, pass(self) :: mpi_redistribute              !< Redistribute blocks to processes.
       procedure, pass(self) :: prepare_comm_local_ghost      !< Prepare communication and local maps/buffers for ghosts update.
+      procedure, pass(self) :: prepare_local_bc              !< Prepare local maps for boundary conditions.
       procedure, pass(self) :: rk_integrate                  !< Runge Kutta integration of field.
       procedure, pass(self) :: compute_residuals             !< Compute residuals of field.
+      procedure, pass(self) :: set_boundary_conditions       !< Set boundary conditions of field.
       procedure, pass(self) :: set_initial_conditions        !< Set initial conditions of field.
       procedure, pass(self) :: update_ghost                  !< Update ghost cells.
       ! private methods
@@ -300,6 +311,63 @@ contains
       endif
    enddo
    endsubroutine mark_by_u_value
+
+   subroutine mark_by_grad_u(self, threshold)
+   !< Mark blocks to be refined/derefined by a `grad(u)` value.
+   class(field_object), intent(inout)        :: self           !< The field.
+   real(R8P),           intent(in), optional :: threshold      !< Threshold for sphere proximity.
+   real(R8P)                                 :: threshold_     !< Threshold for sphere proximity, local var.
+   real(R8P)                                 :: dx, dy, dz     !< Space steps.
+   real(R8P)                                 :: max_cell_delta !< Maximum cell delta.
+   real(R8P)                                 :: grad_u         !< Value (max) of gradient of u.
+   integer(I4P)                              :: b, i, j, k     !< Counter.
+
+   threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
+   if (allocated(self%refinements_needed)) deallocate(self%refinements_needed)
+   allocate(self%refinements_needed(self%blocks_number))
+   call self%update_ghost(q=self%u)
+   do b=1, self%blocks_number
+      grad_u = 0._R8P
+      call self%grid%compute_metrics(coordinates=self%coordinates(:,b), &
+                                     dx=dx, dy=dy, dz=dz)
+      associate (ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, u=>self%u)
+         do k=1, nk
+            do j=1, nj
+               do i=1, ni
+                  grad_u = max(grad_u, sqrt(((u(i+1,j,k,b) - u(i-1,j,k,b))/(2*dx))**2 + &
+                                            ((u(i,j+1,k,b) - u(i,j-1,k,b))/(2*dy))**2 + &
+                                            ((u(i,j,k+1,b) - u(i,j,k-1,b))/(2*dz))**2))
+
+               enddo
+            enddo
+         enddo
+      endassociate
+
+      max_cell_delta = max_cell_delta_grad(grad=grad_u)
+
+      if (max(dx,dy,dz) > max_cell_delta) then
+         self%refinements_needed(b) = TO_BE_REFINED
+      elseif (max(dx,dy,dz) * threshold_ < max_cell_delta) then
+         self%refinements_needed(b) = TO_BE_DEREFINED
+      else
+         self%refinements_needed(b) = TO_NOT_TOUCH
+      endif
+      if (self%coordinates(1,b)==7.and.self%coordinates(2,b)==6.and.self%coordinates(3,b)==1.and.self%coordinates(4,b)==3) then
+      endif
+   enddo
+   contains
+      function max_cell_delta_grad(grad) result(delta)
+      !< Return the maximum cell delta given a gradient tollerance.
+      real(R8P), intent(in) :: grad  !< Gradient value.
+      real(R8P)             :: delta !< Maximum cell delta admissible.
+
+      if (grad > 9.2_R8P) then
+         delta = 0.004_R8P
+      else
+         delta = 0.08_R8P
+      endif
+      endfunction max_cell_delta_grad
+   endsubroutine mark_by_grad_u
 
    subroutine mark_sphere(self, center, radius, threshold)
    !< Mark blocks to be refined/derefined by sphere distance.
@@ -547,6 +615,22 @@ contains
    if (n_recv > 0_I8P) allocate(self%recv_buffer_ghost(n_recv))
    endsubroutine prepare_comm_local_ghost
 
+   subroutine prepare_local_bc(self, local_map_bc_face, local_map_bc_edge, local_map_bc_corner)
+   !< Prepare local maps of boundary conditions.
+   class(field_object),       intent(inout) :: self                     !< The field.
+   integer(I8P), allocatable, intent(in)    :: local_map_bc_face(:,:)   !< Local map for face BC ghost cells.
+   integer(I8P), allocatable, intent(in)    :: local_map_bc_edge(:,:)   !< Local map for edge BC ghost cells.
+   integer(I8P), allocatable, intent(in)    :: local_map_bc_corner(:,:) !< Local map for corner BC ghost cells.
+
+   if (allocated(self%local_map_bc_face))   deallocate(self%local_map_bc_face)
+   if (allocated(self%local_map_bc_edge))   deallocate(self%local_map_bc_edge)
+   if (allocated(self%local_map_bc_corner)) deallocate(self%local_map_bc_corner)
+
+   if (allocated(local_map_bc_face))   self%local_map_bc_face   = local_map_bc_face
+   if (allocated(local_map_bc_edge))   self%local_map_bc_edge   = local_map_bc_edge
+   if (allocated(local_map_bc_corner)) self%local_map_bc_corner = local_map_bc_corner
+   endsubroutine prepare_local_bc
+
    subroutine rk_integrate(self, t, Dt, do_ghost_syncro, residual)
    !< Runge Kutta integration of field.
    class(field_object), intent(inout)         :: self             !< The field.
@@ -606,16 +690,19 @@ contains
    real(R8P),           intent(in)    :: t           !< Time.
    integer(I4P),        intent(in)    :: block_start !< Index of block to start residuals computation.
    integer(I4P),        intent(in)    :: block_end   !< Index of block to end   residuals computation.
+   real(R8P)                          :: dx, dy, dz  !< Space steps.
    integer(I4P)                       :: b, i, j, k  !< Counter.
 
    do b=block_start, block_end
+      call self%grid%compute_metrics(coordinates=self%coordinates(:,b), &
+                                     dx=dx, dy=dy, dz=dz)
       do k=1, self%grid%nk
          do j=1, self%grid%nj
             do i=1, self%grid%ni
-               self%u_work(i,j,k,b) = self%u_s(i+1,j,  k,  b,s) + self%u_s(i-1,j,  k,  b,s) + &
-                                      self%u_s(i,  j+1,k,  b,s) + self%u_s(i,  j-1,k,  b,s) + &
-                                      self%u_s(i,  j,  k+1,b,s) + self%u_s(i,  j,  k-1,b,s) - &
-                             6._R8P * self%u_s(i,  j,  k,  b,s)
+               ! self%u_work(i,j,k,b) = (self%u_s(i+1,j,  k,  b,s) + self%u_s(i-1,j,  k,  b,s) - 2*self%u_s(i,j,k,b,s))/dx**2 + &
+               !                        (self%u_s(i,  j+1,k,  b,s) + self%u_s(i,  j-1,k,  b,s) - 2*self%u_s(i,j,k,b,s))/dy**2 + &
+               !                        (self%u_s(i,  j,  k+1,b,s) + self%u_s(i,  j,  k-1,b,s) - 2*self%u_s(i,j,k,b,s))/dz**2
+               self%u_work(i,j,k,b) = (self%u_s(i+1,j,k,b,s) - self%u_s(i-1,j,k,b,s))/(2*dx)
             enddo
          enddo
       enddo
@@ -629,34 +716,49 @@ contains
    real(R8P),           intent(inout) :: q(1-self%grid%gci:,&
                                            1-self%grid%gcj:,&
                                            1-self%grid%gck:,1:) !< Field component to be updated.
-   integer(I4P)                       :: b                      !< Counter.
-   integer(I4P)                       :: f                      !< Counter.
-   integer(I4P)                       :: ijkmin(3)              !< Lower limit of ijk indexes.
-   integer(I4P)                       :: ijkmax(3)              !< Upper limit of ijk indexes.
 
-   if (.not.allocated(self%local_map_bc)) return
-   do f=1, size(self%local_map_bc, dim=1) ! loop over all BC fec
-      b      = self%local_map_bc(f, 1)
-      fec    = self%local_map_bc(f, 2)
-      ijkmin = self%local_map_bc(f, 3:5)
-      ijkmax = self%local_map_bc(f, 6:8)
-      ! give face priority over other fec...
-      select case(fec)
-      case(1,7,9,11,13,19,21,23,25)
-         do k=ijkmin(3), ijkmax(3)
-            do j=ijkmin(2), ijkmax(2)
-               do i=ijkmin(1), ijkmax(1)
-                  q(i,j,k,b) = bc-left
+   if (allocated(self%local_map_bc_face))   call set_bc_fec(local_map_bc=self%local_map_bc_face)
+   if (allocated(self%local_map_bc_edge))   call set_bc_fec(local_map_bc=self%local_map_bc_edge)
+   if (allocated(self%local_map_bc_corner)) call set_bc_fec(local_map_bc=self%local_map_bc_corner)
+   contains
+      subroutine set_bc_fec(local_map_bc)
+      integer(I8P), intent(in) :: local_map_bc(:,:) !< Local map for BC ghost cells.
+      integer(I4P)             :: b                 !< Counter.
+      integer(I4P)             :: f, i, j, k        !< Counter.
+      integer(I4P)             :: fec               !< Counter.
+      integer(I4P)             :: ijkmin(3)         !< Lower limit of ijk indexes.
+      integer(I4P)             :: ijkmax(3)         !< Upper limit of ijk indexes.
+      integer(I4P)             :: ijkdelta(3)       !< IJK delta step for extrapolation.
+      integer(I4P)             :: bc_type           !< Boundary condition type.
+
+      do f=1, size(local_map_bc, dim=1)
+         b        = local_map_bc(f, 1)
+         fec      = local_map_bc(f, 2)
+         ijkmin   = local_map_bc(f, 3:5)
+         ijkmax   = local_map_bc(f, 6:8)
+         ijkdelta = local_map_bc(f, 9:11)
+         bc_type  = local_map_bc(f, 12)
+         if (bc_type == BC_EXTRAPOLATION) then
+            do k=ijkmin(3), ijkmax(3), sign(1, ijkmax(3)-ijkmin(3))
+               do j=ijkmin(2), ijkmax(2), sign(1, ijkmax(2)-ijkmin(2))
+                  do i=ijkmin(1), ijkmax(1), sign(1, ijkmax(1)-ijkmin(1))
+                     q(i,j,k,b) = q(i-ijkdelta(1), j-ijkdelta(2), k-ijkdelta(3), b)
+                  enddo
                enddo
             enddo
-         enddo
-      case(2,8,10,12,14,20,22,24,26)
-      case(3,15,17)
-      case(4,16,18)
-      case(5)
-      case(6)
-      endselect
-   enddo
+         elseif (bc_type == BC_INFLOW) then
+            do k=ijkmin(3), ijkmax(3), sign(1, ijkmax(3)-ijkmin(3))
+               do j=ijkmin(2), ijkmax(2), sign(1, ijkmax(2)-ijkmin(2))
+                  do i=ijkmin(1), ijkmax(1), sign(1, ijkmax(1)-ijkmin(1))
+                     ! q(i,j,k,b) = 1._R8P
+                     q(i,j,k,b) = exp(-((self%y_cell(j,b) - 0.5)**2/(2 * 0.2**2)+&
+                                        (self%z_cell(k,b) - 0.5)**2/(2 * 0.2**2)))
+                  enddo
+               enddo
+            enddo
+         endif
+      enddo
+      endsubroutine set_bc_fec
    endsubroutine set_boundary_conditions
 
    subroutine set_initial_conditions(self)
@@ -673,21 +775,21 @@ contains
    real(R8P)                          :: z_0     !< Gaussian z center.
 
    a = 1.0_R8P
-   x_0 = (self%grid%domain_emax(1) - self%grid%domain_emin(1)) / 2.0_R8P
+   x_0 = (self%grid%domain_emax(1) - self%grid%domain_emin(1)) / 5.0_R8P
    y_0 = (self%grid%domain_emax(2) - self%grid%domain_emin(2)) / 2.0_R8P
    z_0 = (self%grid%domain_emax(3) - self%grid%domain_emin(3)) / 2.0_R8P
-   sigma_x = 0.2_R8P
-   sigma_y = 0.2_R8P
-   sigma_z = 0.2_R8P
+   sigma_x = 0.05_R8P
+   sigma_y = 0.05_R8P
+   sigma_z = 0.05_R8P
    associate(blocks_number=>self%blocks_number,                             &
              u=>self%u,                                                     &
              ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk,          &
              gci=>self%grid%gci, gcj=>self%grid%gcj, gck=>self%grid%gck,    &
              x_cell=>self%x_cell, y_cell=>self%y_cell, z_cell=>self%z_cell)
    do b=1, blocks_number
-      !do k=1-gck, nk+gck
-      !   do j=1-gcj, nj+gcj
-      !      do i=1-gci, ni+gci
+      ! do k=1-gck, nk+gck
+      !    do j=1-gcj, nj+gcj
+      !       do i=1-gci, ni+gci
       do k=1, nk
          do j=1, nj
             do i=1, ni
@@ -710,17 +812,22 @@ contains
                                                   1-self%grid%gck:,1:) !< Field component to be updated.
    integer(I4P),        intent(in), optional :: step                   !< Step to be perfordmed in asyncronous computations.
    logical                                   :: do_local_update        !< Flag for triggering local update.
+   logical                                   :: do_set_bc              !< Flag for triggering setting local BC.
 
    ! perform local update if step is not speficied or if first step is selected
    do_local_update = .false.
+   do_set_bc = .false.
    if (.not.present(step)) then
       do_local_update = .true.
+      do_set_bc = .true.
    else
       if (step==1) do_local_update = .true.
+      if (step==3) do_set_bc = .true.
    endif
 
    if (do_local_update) call self%update_ghost_local(q=q)
                         call self%update_ghost_mpi(  q=q, step=step)
+   if (do_set_bc)       call self%set_boundary_conditions(q=q)
    endsubroutine update_ghost
 
    subroutine update_ghost_local(self, q)
@@ -1320,6 +1427,21 @@ contains
       if (allocated(lhs%disp_count)) deallocate(lhs%disp_count)
    endif
    lhs%inner_blocks_number = rhs%inner_blocks_number
+   if (allocated(rhs%local_map_bc_face)) then
+      lhs%local_map_bc_face = rhs%local_map_bc_face
+   else
+      if (allocated(lhs%local_map_bc_face)) deallocate(lhs%local_map_bc_face)
+   endif
+   if (allocated(rhs%local_map_bc_edge)) then
+      lhs%local_map_bc_edge = rhs%local_map_bc_edge
+   else
+      if (allocated(lhs%local_map_bc_edge)) deallocate(lhs%local_map_bc_edge)
+   endif
+   if (allocated(rhs%local_map_bc_corner)) then
+      lhs%local_map_bc_corner = rhs%local_map_bc_corner
+   else
+      if (allocated(lhs%local_map_bc_corner)) deallocate(lhs%local_map_bc_corner)
+   endif
    if (allocated(rhs%req_send_recv)) then
       lhs%req_send_recv = rhs%req_send_recv
    else

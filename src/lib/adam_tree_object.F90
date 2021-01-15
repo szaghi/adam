@@ -166,19 +166,22 @@ type :: tree_object
    integer(I4P)                          :: max_level=12_I4P        !< Maximum refinement level.
    logical                               :: is_initialized_=.false. !< Initialization status.
    ! AMR data
-   integer(I8P)              :: n_my_derefine=0_I8P    !< Number of my nodes to be derefined.
-   integer(I8P)              :: n_my_refine=0_I8P      !< Number of my nodes to be refined.
-   integer(I8P)              :: last_block_index=0_I8P !< Last block index in the field array.
-   integer(I8P), allocatable :: node_to_refine(:)      !< List of nodes to be refined.
-   integer(I8P), allocatable :: node_to_derefine(:)    !< List of nodes to be derefined.
-   integer(I8P), allocatable :: block_to_refine(:,:)   !< List of field blocks to be refined.
-   integer(I8P), allocatable :: block_refined(:,:)     !< List of field refined blocks with Morton code.
-   integer(I8P), allocatable :: block_to_derefine(:)   !< List of field blocks to be derefined.
-   integer(I8P), allocatable :: block_derefined(:,:)   !< List of field derefined blocks with Morton code.
-   integer(I4P), allocatable :: block_coordinates(:,:) !< Block coordinates of redistributed blocks [4,blocks_number].
-   integer(I8P), allocatable :: block_code(:)          !< Block Morton code of redistributed blocks [blocks_number].
-   integer(I8P), allocatable :: local_map(:,:)         !< Local map, list block index changes of my nodes.
-   integer(I8P), allocatable :: local_map_ghost(:,:)   !< Local map for ghost cells updating [fec_number, 4].
+   integer(I8P)              :: n_my_derefine=0_I8P      !< Number of my nodes to be derefined.
+   integer(I8P)              :: n_my_refine=0_I8P        !< Number of my nodes to be refined.
+   integer(I8P)              :: last_block_index=0_I8P   !< Last block index in the field array.
+   integer(I8P), allocatable :: node_to_refine(:)        !< List of nodes to be refined.
+   integer(I8P), allocatable :: node_to_derefine(:)      !< List of nodes to be derefined.
+   integer(I8P), allocatable :: block_to_refine(:,:)     !< List of field blocks to be refined.
+   integer(I8P), allocatable :: block_refined(:,:)       !< List of field refined blocks with Morton code.
+   integer(I8P), allocatable :: block_to_derefine(:)     !< List of field blocks to be derefined.
+   integer(I8P), allocatable :: block_derefined(:,:)     !< List of field derefined blocks with Morton code.
+   integer(I4P), allocatable :: block_coordinates(:,:)   !< Block coordinates of redistributed blocks [4,blocks_number].
+   integer(I8P), allocatable :: block_code(:)            !< Block Morton code of redistributed blocks [blocks_number].
+   integer(I8P), allocatable :: local_map(:,:)           !< Local map, list block index changes of my nodes.
+   integer(I8P), allocatable :: local_map_ghost(:,:)     !< Local map for ghost cells updating [fec_number, 4].
+   integer(I8P), allocatable :: local_map_bc_face(:,:)   !< Local map for face BC ghost cells.
+   integer(I8P), allocatable :: local_map_bc_edge(:,:)   !< Local map for edge BC ghost cells.
+   integer(I8P), allocatable :: local_map_bc_corner(:,:) !< Local map for corner BC ghost cells.
    ! MPI data of nodes
    integer(I4P)              :: error=0_I4P               !< Error traping flag.
    integer(I4P)              :: procs_number=1_I4P        !< MPI Number of processes.
@@ -216,10 +219,11 @@ type :: tree_object
       procedure, pass(self) :: hash                         !< Hash the key.
       procedure, pass(self) :: has_code                     !< Check if the code is present in the tree.
       procedure, pass(self) :: initialize                   !< Initialize the tree.
-      procedure, pass(self) :: max_cell_delta               !< Return the maximum cell delta given a comparison distance.
+      procedure, pass(self) :: make_local_maps_bc           !< Make local maps of boundary conditions.
       procedure, pass(self) :: mark_all_nodes               !< Mark all nodes to be refined, derefined, ecc.
       procedure, pass(self) :: mark_sphere                  !< Mark nodes to be refined/derefined by sphere distance.
       procedure, pass(self) :: mark_surface_stl             !< Mark all nodes inside a surface defined by STL triangulation.
+      procedure, pass(self) :: max_cell_delta               !< Return the maximum cell delta given a comparison distance.
       procedure, pass(self) :: node                         !< Return a pointer to a node.
       procedure, pass(self) :: prime_buckets_number         !< Return the buckets number as nearest prime number given nodes number.
       procedure, pass(self) :: resize                       !< Resize the tree.
@@ -632,6 +636,146 @@ contains
    allocate(self%comm_map_send_ptr_ghost(0:self%procs_number))
    allocate(self%comm_map_recv_ptr_ghost(0:self%procs_number))
    endsubroutine initialize
+
+   subroutine make_local_maps_bc(self)
+   !< Make local maps of boundary conditions.
+   class(tree_object), intent(inout) :: self                  !< The tree.
+   type(tree_node_object), pointer   :: node                  !< Pointer to current node.
+   integer(I8P), allocatable         :: neighbor(:)           !< List of code neighbors.
+   type(tree_node_object), pointer   :: neigh                 !< Pointer to node neighbor.
+   integer(I4P)                      :: neighbor_type         !< Neighbors type.
+   integer(I4P)                      :: neighbor_bc_fec       !< Neighbors fec for BC.
+   integer(I4P)                      :: my_fec_number         !< Number of faces/edges/corners ghost cells locally exchanged.
+   integer(I4P)                      :: fec, mf, rf, sf, n, p !< Counter.
+   integer(I8P)                      :: ijk_min_max_delta(1:9) !< IJK min/max/delta.
+   integer(I4P)                      :: fec_bc_faces_number
+   integer(I4P)                      :: fec_bc_edges_number
+   integer(I4P)                      :: fec_bc_corners_number
+   integer(I4P)                      :: fec_bc_type
+
+   if (allocated(self%local_map_bc_face))   deallocate(self%local_map_bc_face)
+   if (allocated(self%local_map_bc_edge))   deallocate(self%local_map_bc_edge)
+   if (allocated(self%local_map_bc_corner)) deallocate(self%local_map_bc_corner)
+   fec_bc_faces_number = 0_I4P
+   fec_bc_edges_number = 0_I4P
+   fec_bc_corners_number = 0_I4P
+   do while(self%loop(node=node))
+      if (node%myrank==self%myrank) then
+         do fec=1, 26
+            call self%get_neighbor_all(code=node%code,              &
+                                       face=fec,                    &
+                                       neighbor=neighbor,           &
+                                       neighbor_type=neighbor_type, &
+                                       neighbor_bc_fec=neighbor_bc_fec)
+            if (neighbor_type == NODE_BOUNDARY_CONDITION) then
+               if (fec<=6)             fec_bc_faces_number   = fec_bc_faces_number   + 1_I4P
+               if (fec>=7.and.fec<=18) fec_bc_edges_number   = fec_bc_edges_number   + 1_I4P
+               if (fec>=19)            fec_bc_corners_number = fec_bc_corners_number + 1_I4P
+            endif
+         enddo
+      endif
+   enddo
+   if (fec_bc_faces_number > 0.or.fec_bc_edges_number > 0.or.fec_bc_corners_number > 0) then
+      if (fec_bc_faces_number > 0)   allocate(self%local_map_bc_face(fec_bc_faces_number, 12))
+      if (fec_bc_edges_number > 0)   allocate(self%local_map_bc_edge(fec_bc_edges_number, 12))
+      if (fec_bc_corners_number > 0) allocate(self%local_map_bc_corner(fec_bc_corners_number, 12))
+      fec_bc_faces_number = 0_I4P
+      fec_bc_edges_number = 0_I4P
+      fec_bc_corners_number = 0_I4P
+      do while(self%loop(node=node))
+         if (node%myrank==self%myrank) then
+            do fec=1, 26
+               call self%get_neighbor_all(code=node%code,              &
+                                          face=fec,                    &
+                                          neighbor=neighbor,           &
+                                          neighbor_type=neighbor_type, &
+                                          neighbor_bc_fec=neighbor_bc_fec)
+               if (neighbor_type == NODE_BOUNDARY_CONDITION) then
+                  select case(neighbor_bc_fec)
+                  case(1,7,9,11,13,19,21,23,25)
+                     ! BC i min
+                     fec_bc_type = self%grid%bc_type(1)
+                  case(2,8,10,12,14,20,22,24,26)
+                     ! BC i max
+                     fec_bc_type = self%grid%bc_type(2)
+                  case(3,15,17)
+                     ! BC j min
+                     fec_bc_type = self%grid%bc_type(3)
+                  case(4,16,18)
+                     ! BC j max
+                     fec_bc_type = self%grid%bc_type(4)
+                  case(5)
+                     ! BC k min
+                     fec_bc_type = self%grid%bc_type(5)
+                  case(6)
+                     ! BC k max
+                     fec_bc_type = self%grid%bc_type(6)
+                  endselect
+                  call compute_ijk_min_max_delta(fec=fec, neighbor_bc_fec=neighbor_bc_fec, ijk_min_max_delta=ijk_min_max_delta)
+                  if (fec<=6) then
+                     fec_bc_faces_number = fec_bc_faces_number + 1_I4P
+                     self%local_map_bc_face(fec_bc_faces_number,1)    = node%block_index
+                     self%local_map_bc_face(fec_bc_faces_number,2)    = neighbor_bc_fec
+                     self%local_map_bc_face(fec_bc_faces_number,3:11) = ijk_min_max_delta
+                     self%local_map_bc_face(fec_bc_faces_number,12)   = fec_bc_type
+                  endif
+                  if (fec>=7.and.fec<=18) then
+                     fec_bc_edges_number = fec_bc_edges_number + 1_I4P
+                     self%local_map_bc_edge(fec_bc_edges_number,1)    = node%block_index
+                     self%local_map_bc_edge(fec_bc_edges_number,2)    = neighbor_bc_fec
+                     self%local_map_bc_edge(fec_bc_edges_number,3:11) = ijk_min_max_delta
+                     self%local_map_bc_edge(fec_bc_edges_number,12)   = fec_bc_type
+                  endif
+                  if (fec>=19) then
+                     fec_bc_corners_number = fec_bc_corners_number + 1_I4P
+                     self%local_map_bc_corner(fec_bc_corners_number,1)    = node%block_index
+                     self%local_map_bc_corner(fec_bc_corners_number,2)    = neighbor_bc_fec
+                     self%local_map_bc_corner(fec_bc_corners_number,3:11) = ijk_min_max_delta
+                     self%local_map_bc_corner(fec_bc_corners_number,12)   = fec_bc_type
+                  endif
+               endif
+            enddo
+         endif
+      enddo
+   endif
+   contains
+      subroutine compute_ijk_min_max_delta(fec, neighbor_bc_fec, ijk_min_max_delta)
+      !< Compute IJK min/max/delta.
+      integer(I4P), intent(in)  :: fec                    !< Current fec number.
+      integer(I4P)              :: neighbor_bc_fec        !< Neighbors fec for BC.
+      integer(I8P), intent(out) :: ijk_min_max_delta(1:9) !< IJK min/max/delta.
+      integer(I4P)              :: ijkmin(3)              !< Lower limit of ijk indexes.
+      integer(I4P)              :: ijkmax(3)              !< Upper limit of ijk indexes.
+      integer(I4P)              :: ijkdelta(3)            !< Delta offset for ghost-inner cells mapping same refinement.
+      integer(I4P)              :: ijkdelta_global(3)     !< Delta offset for ghost-inner cells mapping same refinement.
+      integer(I4P)              :: nijk(3)                !< Ni, Nj , Nk stored in array.
+      integer(I4P)              :: gcijk(3)               !< Ghost cell.
+      integer(I4P)              :: i                      !< Counter.
+
+      associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, &
+                gci=>self%grid%gci, gcj=>self%grid%gcj, gck=>self%grid%gck)
+         nijk = [ni, nj, nk]
+         gcijk = [gci, gcj, gck]
+
+         ijkdelta = fec_to_delta(1:3, fec)
+         ijkdelta_global = fec_to_delta(1:3, neighbor_bc_fec)
+
+         do i=1, 3
+            if     (ijkdelta(i)==1) then
+               ijkmin(i) = nijk(i) + 1
+               ijkmax(i) = nijk(i) + gcijk(i)
+            elseif (ijkdelta(i)==-1) then
+               ijkmin(i) = 0
+               ijkmax(i) = 1 - gcijk(i)
+            elseif (ijkdelta(i)==0) then
+               ijkmin(i) = 1
+               ijkmax(i) = nijk(i)
+            endif
+         enddo
+         ijk_min_max_delta = [ijkmin, ijkmax, ijkdelta_global]
+      endassociate
+      endsubroutine
+   endsubroutine make_local_maps_bc
 
    function max_cell_delta(self, distance) result(delta)
    !< Return the maximum cell delta given a comparison distance.
@@ -1065,7 +1209,7 @@ contains
    self%comm_map_n_send_ghost = 0
    do while(self%loop(node=node))
       do fec=1, 26
-         weight_reduction = 2 ** count(delta_neighbor(:, fec)==0_I4P, dim=1)
+         weight_reduction = 2 ** count(fec_to_delta(:, fec)==0_I4P, dim=1)
          call self%get_neighbor_all(code=node%code, face=fec, neighbor=neighbor, neighbor_type=neighbor_type)
          if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
             do n=1, size(neighbor, dim=1)
@@ -1079,11 +1223,9 @@ contains
                   if (neighbor_type==NODE_MORE_REFINED) then
                      self%comm_map_n_recv_ghost(neigh%myrank) = self%comm_map_n_recv_ghost(neigh%myrank) + &
                                                                 self%grid%weight_neighbor(fec)/ weight_reduction
-                     ! print*,'casco make recv ',self%myrank,neighbor_type,self%grid%weight_neighbor(fec)/weight_reduction
                   else
                      self%comm_map_n_recv_ghost(neigh%myrank) = self%comm_map_n_recv_ghost(neigh%myrank) + &
                                                                 self%grid%weight_neighbor(fec)
-                     ! print*,'casco make recv ',self%myrank,neighbor_type,self%grid%weight_neighbor(fec)
                   endif
                elseif ((self%myrank == neigh%myrank).and.(self%myrank /= node%myrank)) then
                   ! when sending to same or more refined than me the size of the message is full, when sending to less
@@ -1092,11 +1234,9 @@ contains
                   if (neighbor_type==NODE_MORE_REFINED) then
                      self%comm_map_n_send_ghost(node%myrank) = self%comm_map_n_send_ghost(node%myrank) + &
                                                                self%grid%weight_neighbor(fec)/ weight_reduction
-                     ! print*,'casco make send ',self%myrank,neighbor_type,self%grid%weight_neighbor(fec)/weight_reduction
                   else
                      self%comm_map_n_send_ghost(node%myrank) = self%comm_map_n_send_ghost(node%myrank) + &
                                                                self%grid%weight_neighbor(fec)
-                     ! print*,'casco make send ',self%myrank,neighbor_type,self%grid%weight_neighbor(fec)
                   endif
                endif
             enddo
@@ -1122,7 +1262,7 @@ contains
    mf = 0
    do while(self%loop(node=node))
       do fec=1, 26
-         weight_reduction = 2 ** count(delta_neighbor(:, fec)==0_I4P, dim=1)
+         weight_reduction = 2 ** count(fec_to_delta(:, fec)==0_I4P, dim=1)
          call self%get_neighbor_all(code=node%code, face=fec, neighbor=neighbor, &
                                     neighbor_type=neighbor_type, neighbor_portion=neighbor_portion)
          if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
@@ -1214,7 +1354,7 @@ contains
       gcijk = [gci, gcj, gck]
 
       abs_portion = abs(portion)
-      delta = delta_neighbor(1:3, fec)
+      delta = fec_to_delta(1:3, fec)
 
       if     (portion==0) then
          do i=1, 3
@@ -1563,8 +1703,9 @@ contains
    integer(I8P)                   :: code  !< Morton code.
    integer(I4P)                   :: l     !< Counter.
 
-   code = 0
+   code = -1
    if (level>1) then
+      code = 0
       do l=2, level
          code = self%child(code=code, i=0_I4P)
       enddo
@@ -1826,7 +1967,6 @@ contains
    integer(I4P),       intent(out)              :: neighbor_type               !< Type of neighbor.
    integer(I4P),       intent(out), optional    :: neighbor_portion            !< Neighbors portion.
    integer(I4P),       intent(out), optional    :: neighbor_bc_fec             !< Neighbors fec for BC.
-   integer(I4P)                                 :: neighbor_bc_fec_            !< Neighbors fec for BC, local variable.
    integer(I8P)                                 :: direct_neighbor             !< Morton code of direct neighbor.
    integer(I8P)                                 :: direct_neighbor_parent      !< Morton code of direct neighbor parent.
    integer(I8P)                                 :: direct_neighbor_first_child !< Morton code of direct neighbor first child.
@@ -1836,6 +1976,7 @@ contains
    integer(I4P)                                 :: ijkmin(3), ijkmax(3)        !< Counter.
    integer(I4P)                                 :: cl, cl_neighbor             !< Counter.
    integer(I4P)                                 :: cl_array(3)                 !< Counter.
+   integer(I4P)                                 :: ijk_bc(3)                   !< Counter.
 
    if (present(neighbor_portion)) neighbor_portion = 1
 
@@ -1909,21 +2050,25 @@ contains
    endselect
    ijk = [i, j, k] + delta
 
+   ! initialize ijk of direct neighbor node as a standard node
    neighbor_type = NODE_STANDARD
-   i_bc = 0
+   ijk_bc = 0 ! standard node has ijk_bc = 0; BC node has ijk_bc = +-1
    do i=1, 3
       if (ijk(i)<0.or.ijk(i)>2**l - 1) then
-         i_bc(i) = sign(1, ijk(i))
-         if (.not.self%ijk_periodic(i)) then
-            neighbor_type = NODE_BOUNDARY_CONDITION
+         ! ijk of neighbor node is outside ADAM, it is a BC except for periodic BC that is indeed a standard node
+         ! check for periodic BC
+         if (self%grid%is_ijk_periodic(i)) then
+            ! direction ijk(i) is periodic, preserve the standard node initialization because direct neighbor is a standard node
+            ijk(i) = modulo(ijk(i)+2**l, 2**l) ! ijk of neighbor node set to the direct neighbor in opposite direction
          else
-            ijk(i) = modulo(ijk(i)+2**l, 2**l)
-            i_bc(i) = 0
+            ! direction ijk(i) is not periodic, this is an actual BC
+            ijk_bc(i) = sign(1, ijk(i))
+            neighbor_type = NODE_BOUNDARY_CONDITION
          endif
       endif
    enddo
    if (neighbor_type == NODE_BOUNDARY_CONDITION) then
-      if (present(neighbor_bc_fec)) neighbor_bc_fec = delta_to_fec(i_bc(1),i_bc(2),i_bc(3))
+      if (present(neighbor_bc_fec)) neighbor_bc_fec = delta_to_fec(ijk_bc(1),ijk_bc(2),ijk_bc(3))
       return
    endif
 
@@ -2695,6 +2840,21 @@ contains
       lhs%local_map_ghost = rhs%local_map_ghost
    else
       if (allocated(lhs%local_map_ghost)) deallocate(lhs%local_map_ghost)
+   endif
+   if (allocated(rhs%local_map_bc_face)) then
+      lhs%local_map_bc_face = rhs%local_map_bc_face
+   else
+      if (allocated(lhs%local_map_bc_face)) deallocate(lhs%local_map_bc_face)
+   endif
+   if (allocated(rhs%local_map_bc_edge)) then
+      lhs%local_map_bc_edge = rhs%local_map_bc_edge
+   else
+      if (allocated(lhs%local_map_bc_edge)) deallocate(lhs%local_map_bc_edge)
+   endif
+   if (allocated(rhs%local_map_bc_corner)) then
+      lhs%local_map_bc_corner = rhs%local_map_bc_corner
+   else
+      if (allocated(lhs%local_map_bc_corner)) deallocate(lhs%local_map_bc_corner)
    endif
    ! MPI data of nodes
    lhs%error = rhs%error

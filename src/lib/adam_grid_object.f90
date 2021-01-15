@@ -20,6 +20,8 @@ type :: grid_object
    integer(I4P) :: gcj=2_I4P                             !< Number of ghost cells in j direction for boundary conditions.
    integer(I4P) :: gck=2_I4P                             !< Number of ghost cells in k direction for boundary conditions.
    integer(I4P) :: weight_neighbor(26)=0_I4P             !< Weight of neighbors (cells number).
+   integer(I4P) :: bc_type(6)=0_I4P                      !< Type of boundary conditions in the 6 faces of grid.
+   logical      :: is_ijk_periodic(3)=.false.            !< Flag to indicate if the direction i, j or k is periodic.
    contains
       ! public methods
       procedure, pass(self) :: compute_metrics         !< Compute metrics of a block.
@@ -116,8 +118,8 @@ contains
    gc   = [self%gci, self%gcj, self%gck]
    do fec=1, 26
       do i=1, 3
-         self%weight_neighbor(fec) = self%weight_neighbor(fec) * (  abs(delta_neighbor(i,fec))  * gc(i) + &
-                                                                 (1-abs(delta_neighbor(i,fec))) * nijk(i))
+         self%weight_neighbor(fec) = self%weight_neighbor(fec) * (  abs(fec_to_delta(i,fec))  * gc(i) + &
+                                                                 (1-abs(fec_to_delta(i,fec))) * nijk(i))
       enddo
    enddo
    endsubroutine compute_weight_neighbor
@@ -130,15 +132,16 @@ contains
    self = fresh
    endsubroutine destroy
 
-   subroutine initialize(self, ni, nj, nk, gc, emin, emax)
+   subroutine initialize(self, ni, nj, nk, gc, emin, emax, bc_type)
    !< Initialize field.
-   class(grid_object), intent(inout)        :: self    !< The grid.
-   integer(I4P),       intent(in), optional :: ni      !< Number of cells in X direction.
-   integer(I4P),       intent(in), optional :: nj      !< Number of cells in Y direction.
-   integer(I4P),       intent(in), optional :: nk      !< Number of cells in Z direction.
-   integer(I4P),       intent(in), optional :: gc(3)   !< Number of ghost cells in each direction.
-   real(R8P),          intent(in), optional :: emin(3) !< Coordinates of minium abscissa.
-   real(R8P),          intent(in), optional :: emax(3) !< Coordinates of maxium abscissa.
+   class(grid_object), intent(inout)        :: self               !< The grid.
+   integer(I4P),       intent(in), optional :: ni                 !< Number of cells in X direction.
+   integer(I4P),       intent(in), optional :: nj                 !< Number of cells in Y direction.
+   integer(I4P),       intent(in), optional :: nk                 !< Number of cells in Z direction.
+   integer(I4P),       intent(in), optional :: gc(3)              !< Number of ghost cells in each direction.
+   real(R8P),          intent(in), optional :: emin(3)            !< Coordinates of minium abscissa.
+   real(R8P),          intent(in), optional :: emax(3)            !< Coordinates of maxium abscissa.
+   integer(I4P),       intent(in), optional :: bc_type(6)         !< Type of boundary conditions in the 6 faces of grid.
 
    call self%destroy
    ! grid data
@@ -152,13 +155,19 @@ contains
    else
       self%domain_emax = 1._R8P
    endif
-   if (present(ni)) self%ni  = ni
-   if (present(nj)) self%nj  = nj
-   if (present(nk)) self%nk  = nk
-   if (present(gc)) self%gci = gc(1)
-   if (present(gc)) self%gcj = gc(2)
-   if (present(gc)) self%gck = gc(3)
+   if (present(ni)) self%ni = ni
+   if (present(nj)) self%nj = nj
+   if (present(nk)) self%nk = nk
+   if (present(gc)) then
+      self%gci = gc(1)
+      self%gcj = gc(2)
+      self%gck = gc(3)
+   endif
    call self%compute_weight_neighbor
+   if (present(bc_type)) self%bc_type = bc_type
+   if (any(self%bc_type(1:2)==BC_PERIODIC)) self%is_ijk_periodic(1) = .true.
+   if (any(self%bc_type(3:4)==BC_PERIODIC)) self%is_ijk_periodic(2) = .true.
+   if (any(self%bc_type(5:6)==BC_PERIODIC)) self%is_ijk_periodic(3) = .true.
    endsubroutine initialize
 
    ! operators
@@ -177,5 +186,7 @@ contains
    lhs%gcj             = rhs%gcj
    lhs%gck             = rhs%gck
    lhs%weight_neighbor = rhs%weight_neighbor
+   lhs%bc_type         = rhs%bc_type
+   lhs%is_ijk_periodic = rhs%is_ijk_periodic
    endsubroutine grid_assign_grid
 endmodule adam_grid_object
