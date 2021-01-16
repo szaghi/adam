@@ -2,7 +2,9 @@
 program adam_test_tree_object_mpi
 !< ADAM, test tree class.
 
-use adam_objects
+use adam_tree_object
+use adam_tree_node_object
+use adam_field_object
 use PENF
 #ifdef _MPI_
 use MPI

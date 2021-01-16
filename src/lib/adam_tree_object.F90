@@ -2791,71 +2791,19 @@ contains
    lhs%n_my_derefine    = rhs%n_my_derefine
    lhs%n_my_refine      = rhs%n_my_refine
    lhs%last_block_index = rhs%last_block_index
-   if (allocated(rhs%node_to_refine)) then
-      lhs%node_to_refine = rhs%node_to_refine
-   else
-      if (allocated(lhs%node_to_refine)) deallocate(lhs%node_to_refine)
-   endif
-   if (allocated(rhs%node_to_derefine)) then
-      lhs%node_to_derefine = rhs%node_to_derefine
-   else
-      if (allocated(lhs%node_to_derefine)) deallocate(lhs%node_to_derefine)
-   endif
-   if (allocated(rhs%block_to_refine)) then
-      lhs%block_to_refine = rhs%block_to_refine
-   else
-      if (allocated(lhs%block_to_refine)) deallocate(lhs%block_to_refine)
-   endif
-   if (allocated(rhs%block_refined)) then
-      lhs%block_refined = rhs%block_refined
-   else
-      if (allocated(lhs%block_refined)) deallocate(lhs%block_refined)
-   endif
-   if (allocated(rhs%block_to_derefine)) then
-      lhs%block_to_derefine = rhs%block_to_derefine
-   else
-      if (allocated(lhs%block_to_derefine)) deallocate(lhs%block_to_derefine)
-   endif
-   if (allocated(rhs%block_derefined)) then
-      lhs%block_derefined = rhs%block_derefined
-   else
-      if (allocated(lhs%block_derefined)) deallocate(lhs%block_derefined)
-   endif
-   if (allocated(rhs%block_coordinates)) then
-      lhs%block_coordinates = rhs%block_coordinates
-   else
-      if (allocated(lhs%block_coordinates)) deallocate(lhs%block_coordinates)
-   endif
-   if (allocated(rhs%block_code)) then
-      lhs%block_code = rhs%block_code
-   else
-      if (allocated(lhs%block_code)) deallocate(lhs%block_code)
-   endif
-   if (allocated(rhs%local_map)) then
-      lhs%local_map = rhs%local_map
-   else
-      if (allocated(lhs%local_map)) deallocate(lhs%local_map)
-   endif
-   if (allocated(rhs%local_map_ghost)) then
-      lhs%local_map_ghost = rhs%local_map_ghost
-   else
-      if (allocated(lhs%local_map_ghost)) deallocate(lhs%local_map_ghost)
-   endif
-   if (allocated(rhs%local_map_bc_face)) then
-      lhs%local_map_bc_face = rhs%local_map_bc_face
-   else
-      if (allocated(lhs%local_map_bc_face)) deallocate(lhs%local_map_bc_face)
-   endif
-   if (allocated(rhs%local_map_bc_edge)) then
-      lhs%local_map_bc_edge = rhs%local_map_bc_edge
-   else
-      if (allocated(lhs%local_map_bc_edge)) deallocate(lhs%local_map_bc_edge)
-   endif
-   if (allocated(rhs%local_map_bc_corner)) then
-      lhs%local_map_bc_corner = rhs%local_map_bc_corner
-   else
-      if (allocated(lhs%local_map_bc_corner)) deallocate(lhs%local_map_bc_corner)
-   endif
+   call assign_allocatable(lhs=lhs%node_to_refine, rhs=rhs%node_to_refine)
+   call assign_allocatable(lhs=lhs%node_to_derefine, rhs=rhs%node_to_derefine)
+   call assign_allocatable(lhs=lhs%block_to_refine, rhs=rhs%block_to_refine)
+   call assign_allocatable(lhs=lhs%block_to_derefine, rhs=rhs%block_to_derefine)
+   call assign_allocatable(lhs=lhs%block_refined, rhs=rhs%block_refined)
+   call assign_allocatable(lhs=lhs%block_derefined, rhs=rhs%block_derefined)
+   call assign_allocatable(lhs=lhs%block_coordinates, rhs=rhs%block_coordinates)
+   call assign_allocatable(lhs=lhs%block_code, rhs=rhs%block_code)
+   call assign_allocatable(lhs=lhs%local_map, rhs=rhs%local_map)
+   call assign_allocatable(lhs=lhs%local_map_ghost, rhs=rhs%local_map_ghost)
+   call assign_allocatable(lhs=lhs%local_map_bc_face, rhs=rhs%local_map_bc_face)
+   call assign_allocatable(lhs=lhs%local_map_bc_edge, rhs=rhs%local_map_bc_edge)
+   call assign_allocatable(lhs=lhs%local_map_bc_corner, rhs=rhs%local_map_bc_corner)
    ! MPI data of nodes
    lhs%error = rhs%error
    lhs%procs_number = rhs%procs_number
@@ -2865,71 +2813,19 @@ contains
    lhs%recv_nodes_number = rhs%recv_nodes_number
    lhs%keep_nodes_number = rhs%keep_nodes_number
    lhs%inner_blocks_number = rhs%inner_blocks_number
-   if (allocated(rhs%inner_outer_block_map)) then
-      lhs%inner_outer_block_map = rhs%inner_outer_block_map
-   else
-      if (allocated(lhs%inner_outer_block_map)) deallocate(lhs%inner_outer_block_map)
-   endif
-   if (allocated(rhs%comm_map_n_send)) then
-      lhs%comm_map_n_send = rhs%comm_map_n_send
-   else
-      if (allocated(lhs%comm_map_n_send)) deallocate(lhs%comm_map_n_send)
-   endif
-   if (allocated(rhs%comm_map_n_recv)) then
-      lhs%comm_map_n_recv = rhs%comm_map_n_recv
-   else
-      if (allocated(lhs%comm_map_n_recv)) deallocate(lhs%comm_map_n_recv)
-   endif
-   if (allocated(rhs%comm_map_send_ptr)) then
-      lhs%comm_map_send_ptr = rhs%comm_map_send_ptr
-   else
-      if (allocated(lhs%comm_map_send_ptr)) deallocate(lhs%comm_map_send_ptr)
-   endif
-   if (allocated(rhs%comm_map_recv_ptr)) then
-      lhs%comm_map_recv_ptr = rhs%comm_map_recv_ptr
-   else
-      if (allocated(lhs%comm_map_recv_ptr)) deallocate(lhs%comm_map_recv_ptr)
-   endif
-   if (allocated(rhs%comm_map_send)) then
-      lhs%comm_map_send = rhs%comm_map_send
-   else
-      if (allocated(lhs%comm_map_send)) deallocate(lhs%comm_map_send)
-   endif
-   if (allocated(rhs%comm_map_recv)) then
-      lhs%comm_map_recv = rhs%comm_map_recv
-   else
-      if (allocated(lhs%comm_map_recv)) deallocate(lhs%comm_map_recv)
-   endif
+   call assign_allocatable(lhs=lhs%inner_outer_block_map, rhs=rhs%inner_outer_block_map)
+   call assign_allocatable(lhs=lhs%comm_map_n_send, rhs=rhs%comm_map_n_send)
+   call assign_allocatable(lhs=lhs%comm_map_n_recv, rhs=rhs%comm_map_n_recv)
+   call assign_allocatable(lhs=lhs%comm_map_send_ptr, rhs=rhs%comm_map_send_ptr)
+   call assign_allocatable(lhs=lhs%comm_map_recv_ptr, rhs=rhs%comm_map_recv_ptr)
+   call assign_allocatable(lhs=lhs%comm_map_send, rhs=rhs%comm_map_send)
+   call assign_allocatable(lhs=lhs%comm_map_recv, rhs=rhs%comm_map_recv)
    ! MPI data of ghost cells
-   if (allocated(rhs%comm_map_n_send_ghost)) then
-      lhs%comm_map_n_send_ghost = rhs%comm_map_n_send_ghost
-   else
-      if (allocated(lhs%comm_map_n_send_ghost)) deallocate(lhs%comm_map_n_send_ghost)
-   endif
-   if (allocated(rhs%comm_map_n_recv_ghost)) then
-      lhs%comm_map_n_recv_ghost = rhs%comm_map_n_recv_ghost
-   else
-      if (allocated(lhs%comm_map_n_recv_ghost)) deallocate(lhs%comm_map_n_recv_ghost)
-   endif
-   if (allocated(rhs%comm_map_send_ptr_ghost)) then
-      lhs%comm_map_send_ptr_ghost = rhs%comm_map_send_ptr_ghost
-   else
-      if (allocated(lhs%comm_map_send_ptr_ghost)) deallocate(lhs%comm_map_send_ptr_ghost)
-   endif
-   if (allocated(rhs%comm_map_recv_ptr_ghost)) then
-      lhs%comm_map_recv_ptr_ghost = rhs%comm_map_recv_ptr_ghost
-   else
-      if (allocated(lhs%comm_map_recv_ptr_ghost)) deallocate(lhs%comm_map_recv_ptr_ghost)
-   endif
-   if (allocated(rhs%comm_map_send_ghost)) then
-      lhs%comm_map_send_ghost = rhs%comm_map_send_ghost
-   else
-      if (allocated(lhs%comm_map_send_ghost)) deallocate(lhs%comm_map_send_ghost)
-   endif
-   if (allocated(rhs%comm_map_recv_ghost)) then
-      lhs%comm_map_recv_ghost = rhs%comm_map_recv_ghost
-   else
-      if (allocated(lhs%comm_map_recv_ghost)) deallocate(lhs%comm_map_recv_ghost)
-   endif
+   call assign_allocatable(lhs=lhs%comm_map_n_send_ghost, rhs=rhs%comm_map_n_send_ghost)
+   call assign_allocatable(lhs=lhs%comm_map_n_recv_ghost, rhs=rhs%comm_map_n_recv_ghost)
+   call assign_allocatable(lhs=lhs%comm_map_send_ptr_ghost, rhs=rhs%comm_map_send_ptr_ghost)
+   call assign_allocatable(lhs=lhs%comm_map_recv_ptr_ghost, rhs=rhs%comm_map_recv_ptr_ghost)
+   call assign_allocatable(lhs=lhs%comm_map_send_ghost, rhs=rhs%comm_map_send_ghost)
+   call assign_allocatable(lhs=lhs%comm_map_recv_ghost, rhs=rhs%comm_map_recv_ghost)
    endsubroutine tree_assign_tree
 endmodule adam_tree_object

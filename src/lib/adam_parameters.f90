@@ -12,6 +12,7 @@ public :: TO_BE_REFINED,   &
           TO_NOT_TOUCH
 public :: fec_to_delta
 public :: delta_to_fec
+public :: assign_allocatable
 
 integer(I4P), parameter :: BC_PERIODIC = -1_I4P !< Flag (reserved) for periodical boundary conditions.
 
@@ -75,4 +76,114 @@ integer(I4P), parameter :: delta_to_fec(-1:1,-1:1,-1:1) = reshape([19, & ! -1, -
                                                                    18, & !  0,  1,  1   25
                                                                    26] & !  1,  1,  1   26
                                                                    , [3,3,3]) !< Delta to fec map.
+
+interface assign_allocatable
+   !< Safe assign allocatable arrays, generic interface.
+   module procedure assign_allocatable_I8P_1D !< Safe assign allocatable arrays, I8P 1D type.
+   module procedure assign_allocatable_I8P_2D !< Safe assign allocatable arrays, I8P 2D type.
+   module procedure assign_allocatable_I4P_1D !< Safe assign allocatable arrays, I4P 1D type.
+   module procedure assign_allocatable_I4P_2D !< Safe assign allocatable arrays, I4P 2D type.
+   module procedure assign_allocatable_R8P_1D !< Safe assign allocatable arrays, R8P 1D type.
+   module procedure assign_allocatable_R8P_2D !< Safe assign allocatable arrays, R8P 2D type.
+   module procedure assign_allocatable_R8P_4D !< Safe assign allocatable arrays, R8P 4D type.
+   module procedure assign_allocatable_R8P_5D !< Safe assign allocatable arrays, R8P 5D type.
+endinterface assign_allocatable
+
+contains
+   ! private procedures
+   pure subroutine assign_allocatable_I8P_1D(lhs, rhs)
+   !< Safe assign allocatable arrays, I8P 1D type.
+   integer(I8P), allocatable, intent(inout) :: lhs(:) !< Left hand side.
+   integer(I8P), allocatable, intent(in)    :: rhs(:) !< Right hand side.
+
+   if (allocated(rhs)) then
+      lhs = rhs
+   else
+      if (allocated(lhs)) deallocate(lhs)
+   endif
+   endsubroutine assign_allocatable_I8P_1D
+
+   pure subroutine assign_allocatable_I8P_2D(lhs, rhs)
+   !< Safe assign allocatable arrays, I8P 2D type.
+   integer(I8P), allocatable, intent(inout) :: lhs(:,:) !< Left hand side.
+   integer(I8P), allocatable, intent(in)    :: rhs(:,:) !< Right hand side.
+
+   if (allocated(rhs)) then
+      lhs = rhs
+   else
+      if (allocated(lhs)) deallocate(lhs)
+   endif
+   endsubroutine assign_allocatable_I8P_2D
+
+   pure subroutine assign_allocatable_I4P_1D(lhs, rhs)
+   !< Safe assign allocatable arrays, I4P 1D type.
+   integer(I4P), allocatable, intent(inout) :: lhs(:) !< Left hand side.
+   integer(I4P), allocatable, intent(in)    :: rhs(:) !< Right hand side.
+
+   if (allocated(rhs)) then
+      lhs = rhs
+   else
+      if (allocated(lhs)) deallocate(lhs)
+   endif
+   endsubroutine assign_allocatable_I4P_1D
+
+   pure subroutine assign_allocatable_I4P_2D(lhs, rhs)
+   !< Safe assign allocatable arrays, I4P 2D type.
+   integer(I4P), allocatable, intent(inout) :: lhs(:,:) !< Left hand side.
+   integer(I4P), allocatable, intent(in)    :: rhs(:,:) !< Right hand side.
+
+   if (allocated(rhs)) then
+      lhs = rhs
+   else
+      if (allocated(lhs)) deallocate(lhs)
+   endif
+   endsubroutine assign_allocatable_I4P_2D
+
+   pure subroutine assign_allocatable_R8P_1D(lhs, rhs)
+   !< Safe assign allocatable arrays, R8P 1D type.
+   real(R8P), allocatable, intent(inout) :: lhs(:) !< Left hand side.
+   real(R8P), allocatable, intent(in)    :: rhs(:) !< Right hand side.
+
+   if (allocated(rhs)) then
+      lhs = rhs
+   else
+      if (allocated(lhs)) deallocate(lhs)
+   endif
+   endsubroutine assign_allocatable_R8P_1D
+
+   pure subroutine assign_allocatable_R8P_2D(lhs, rhs)
+   !< Safe assign allocatable arrays, R8P 2D type.
+   real(R8P), allocatable, intent(inout) :: lhs(:,:) !< Left hand side.
+   real(R8P), allocatable, intent(in)    :: rhs(:,:) !< Right hand side.
+
+   if (allocated(rhs)) then
+      lhs = rhs
+   else
+      if (allocated(lhs)) deallocate(lhs)
+   endif
+   endsubroutine assign_allocatable_R8P_2D
+
+   pure subroutine assign_allocatable_R8P_4D(lhs, rhs)
+   !< Safe assign allocatable arrays, R8P 4D type.
+   real(R8P), allocatable, intent(inout) :: lhs(:,:,:,:) !< Left hand side.
+   real(R8P), allocatable, intent(in)    :: rhs(:,:,:,:) !< Right hand side.
+
+   if (allocated(rhs)) then
+      lhs = rhs
+   else
+      if (allocated(lhs)) deallocate(lhs)
+   endif
+   endsubroutine assign_allocatable_R8P_4D
+
+   pure subroutine assign_allocatable_R8P_5D(lhs, rhs)
+   !< Safe assign allocatable arrays, R8P 5D type.
+   real(R8P), allocatable, intent(inout) :: lhs(:,:,:,:,:) !< Left hand side.
+   real(R8P), allocatable, intent(in)    :: rhs(:,:,:,:,:) !< Right hand side.
+
+   if (allocated(rhs)) then
+      lhs = rhs
+   else
+      if (allocated(lhs)) deallocate(lhs)
+   endif
+   endsubroutine assign_allocatable_R8P_5D
 endmodule adam_parameters

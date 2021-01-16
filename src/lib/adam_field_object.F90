@@ -1347,163 +1347,43 @@ contains
    lhs%block_weight  = rhs%block_weight
    lhs%nb            = rhs%nb
    lhs%blocks_number = rhs%blocks_number
-   if (allocated(rhs%code)) then
-      lhs%code = rhs%code
-   else
-      if (allocated(lhs%code)) deallocate(lhs%code)
-   endif
-   if (allocated(rhs%coordinates)) then
-      lhs%coordinates = rhs%coordinates
-   else
-      if (allocated(lhs%coordinates)) deallocate(lhs%coordinates)
-   endif
-   if (allocated(rhs%emin)) then
-      lhs%emin = rhs%emin
-   else
-      if (allocated(lhs%emin)) deallocate(lhs%emin)
-   endif
-   if (allocated(rhs%emax)) then
-      lhs%emax = rhs%emax
-   else
-      if (allocated(lhs%emax)) deallocate(lhs%emax)
-   endif
-   if (allocated(rhs%x_cell)) then
-      lhs%x_cell = rhs%x_cell
-   else
-      if (allocated(lhs%x_cell)) deallocate(lhs%x_cell)
-   endif
-   if (allocated(rhs%y_cell)) then
-      lhs%y_cell = rhs%y_cell
-   else
-      if (allocated(lhs%y_cell)) deallocate(lhs%y_cell)
-   endif
-   if (allocated(rhs%z_cell)) then
-      lhs%z_cell = rhs%z_cell
-   else
-      if (allocated(lhs%z_cell)) deallocate(lhs%z_cell)
-   endif
-   if (allocated(rhs%x_node)) then
-      lhs%x_node = rhs%x_node
-   else
-      if (allocated(lhs%x_node)) deallocate(lhs%x_node)
-   endif
-   if (allocated(rhs%y_node)) then
-      lhs%y_node = rhs%y_node
-   else
-      if (allocated(lhs%y_node)) deallocate(lhs%y_node)
-   endif
-   if (allocated(rhs%z_node)) then
-      lhs%z_node = rhs%z_node
-   else
-      if (allocated(lhs%z_node)) deallocate(lhs%z_node)
-   endif
-   if (allocated(rhs%local_map_ghost)) then
-      lhs%local_map_ghost = rhs%local_map_ghost
-   else
-      if (allocated(lhs%local_map_ghost)) deallocate(lhs%local_map_ghost)
-   endif
+   call assign_allocatable(lhs=lhs%code, rhs=rhs%code)
+   call assign_allocatable(lhs=lhs%coordinates, rhs=rhs%coordinates)
+   call assign_allocatable(lhs=lhs%emin, rhs=rhs%emin)
+   call assign_allocatable(lhs=lhs%emax, rhs=rhs%emax)
+   call assign_allocatable(lhs=lhs%x_cell, rhs=rhs%x_cell)
+   call assign_allocatable(lhs=lhs%y_cell, rhs=rhs%y_cell)
+   call assign_allocatable(lhs=lhs%z_cell, rhs=rhs%z_cell)
+   call assign_allocatable(lhs=lhs%x_node, rhs=rhs%x_node)
+   call assign_allocatable(lhs=lhs%y_node, rhs=rhs%y_node)
+   call assign_allocatable(lhs=lhs%z_node, rhs=rhs%z_node)
+   call assign_allocatable(lhs=lhs%local_map_ghost, rhs=rhs%local_map_ghost)
    ! MPI data, unrelated to field equations
    lhs%error        = rhs%error
    lhs%myrank       = rhs%myrank
    lhs%procs_number = rhs%procs_number
-   if (allocated(rhs%blocks_numbers)) then
-      lhs%blocks_numbers = rhs%blocks_numbers
-   else
-      if (allocated(lhs%blocks_numbers)) deallocate(lhs%blocks_numbers)
-   endif
-   if (allocated(rhs%refinements_needed)) then
-      lhs%refinements_needed = rhs%refinements_needed
-   else
-      if (allocated(lhs%refinements_needed)) deallocate(lhs%refinements_needed)
-   endif
-   if (allocated(rhs%refinements_needed_all)) then
-      lhs%refinements_needed_all = rhs%refinements_needed_all
-   else
-      if (allocated(lhs%refinements_needed_all)) deallocate(lhs%refinements_needed_all)
-   endif
-   if (allocated(rhs%disp_count)) then
-      lhs%disp_count = rhs%disp_count
-   else
-      if (allocated(lhs%disp_count)) deallocate(lhs%disp_count)
-   endif
+   call assign_allocatable(lhs=lhs%blocks_numbers, rhs=rhs%blocks_numbers)
+   call assign_allocatable(lhs=lhs%refinements_needed, rhs=rhs%refinements_needed)
+   call assign_allocatable(lhs=lhs%refinements_needed_all, rhs=rhs%refinements_needed_all)
+   call assign_allocatable(lhs=lhs%disp_count, rhs=rhs%disp_count)
    lhs%inner_blocks_number = rhs%inner_blocks_number
-   if (allocated(rhs%local_map_bc_face)) then
-      lhs%local_map_bc_face = rhs%local_map_bc_face
-   else
-      if (allocated(lhs%local_map_bc_face)) deallocate(lhs%local_map_bc_face)
-   endif
-   if (allocated(rhs%local_map_bc_edge)) then
-      lhs%local_map_bc_edge = rhs%local_map_bc_edge
-   else
-      if (allocated(lhs%local_map_bc_edge)) deallocate(lhs%local_map_bc_edge)
-   endif
-   if (allocated(rhs%local_map_bc_corner)) then
-      lhs%local_map_bc_corner = rhs%local_map_bc_corner
-   else
-      if (allocated(lhs%local_map_bc_corner)) deallocate(lhs%local_map_bc_corner)
-   endif
-   if (allocated(rhs%req_send_recv)) then
-      lhs%req_send_recv = rhs%req_send_recv
-   else
-      if (allocated(lhs%req_send_recv)) deallocate(lhs%req_send_recv)
-   endif
-   if (allocated(rhs%comm_map_n_send_ghost)) then
-      lhs%comm_map_n_send_ghost = rhs%comm_map_n_send_ghost
-   else
-      if (allocated(lhs%comm_map_n_send_ghost)) deallocate(lhs%comm_map_n_send_ghost)
-   endif
-   if (allocated(rhs%comm_map_n_recv_ghost)) then
-      lhs%comm_map_n_recv_ghost = rhs%comm_map_n_recv_ghost
-   else
-      if (allocated(lhs%comm_map_n_recv_ghost)) deallocate(lhs%comm_map_n_recv_ghost)
-   endif
-   if (allocated(rhs%comm_map_send_ptr_ghost)) then
-      lhs%comm_map_send_ptr_ghost = rhs%comm_map_send_ptr_ghost
-   else
-      if (allocated(lhs%comm_map_send_ptr_ghost)) deallocate(lhs%comm_map_send_ptr_ghost)
-   endif
-   if (allocated(rhs%comm_map_recv_ptr_ghost)) then
-      lhs%comm_map_recv_ptr_ghost = rhs%comm_map_recv_ptr_ghost
-   else
-      if (allocated(lhs%comm_map_recv_ptr_ghost)) deallocate(lhs%comm_map_recv_ptr_ghost)
-   endif
-   if (allocated(rhs%comm_map_send_ghost)) then
-      lhs%comm_map_send_ghost = rhs%comm_map_send_ghost
-   else
-      if (allocated(lhs%comm_map_send_ghost)) deallocate(lhs%comm_map_send_ghost)
-   endif
-   if (allocated(rhs%comm_map_recv_ghost)) then
-      lhs%comm_map_recv_ghost = rhs%comm_map_recv_ghost
-   else
-      if (allocated(lhs%comm_map_recv_ghost)) deallocate(lhs%comm_map_recv_ghost)
-   endif
+   call assign_allocatable(lhs=lhs%local_map_bc_face, rhs=rhs%local_map_bc_face)
+   call assign_allocatable(lhs=lhs%local_map_bc_edge, rhs=rhs%local_map_bc_edge)
+   call assign_allocatable(lhs=lhs%local_map_bc_corner, rhs=rhs%local_map_bc_corner)
+   call assign_allocatable(lhs=lhs%req_send_recv, rhs=rhs%req_send_recv)
+   call assign_allocatable(lhs=lhs%comm_map_n_send_ghost, rhs=rhs%comm_map_n_send_ghost)
+   call assign_allocatable(lhs=lhs%comm_map_n_recv_ghost, rhs=rhs%comm_map_n_recv_ghost)
+   call assign_allocatable(lhs=lhs%comm_map_send_ptr_ghost, rhs=rhs%comm_map_send_ptr_ghost)
+   call assign_allocatable(lhs=lhs%comm_map_recv_ptr_ghost, rhs=rhs%comm_map_recv_ptr_ghost)
+   call assign_allocatable(lhs=lhs%comm_map_send_ghost, rhs=rhs%comm_map_send_ghost)
+   call assign_allocatable(lhs=lhs%comm_map_recv_ghost, rhs=rhs%comm_map_recv_ghost)
    ! MPI data, related to field equations
-   if (allocated(rhs%send_buffer_ghost)) then
-      lhs%send_buffer_ghost = rhs%send_buffer_ghost
-   else
-      if (allocated(lhs%send_buffer_ghost)) deallocate(lhs%send_buffer_ghost)
-   endif
-   if (allocated(rhs%recv_buffer_ghost)) then
-      lhs%recv_buffer_ghost = rhs%recv_buffer_ghost
-   else
-      if (allocated(lhs%recv_buffer_ghost)) deallocate(lhs%recv_buffer_ghost)
-   endif
+   call assign_allocatable(lhs=lhs%send_buffer_ghost, rhs=rhs%send_buffer_ghost)
+   call assign_allocatable(lhs=lhs%recv_buffer_ghost, rhs=rhs%recv_buffer_ghost)
    ! field equations data
-   if (allocated(rhs%u)) then
-      lhs%u = rhs%u
-   else
-      if (allocated(lhs%u)) deallocate(lhs%u)
-   endif
-   if (allocated(rhs%u_work)) then
-      lhs%u_work = rhs%u_work
-   else
-      if (allocated(lhs%u_work)) deallocate(lhs%u_work)
-   endif
-   if (allocated(rhs%u_s)) then
-      lhs%u_s = rhs%u_s
-   else
-      if (allocated(lhs%u_s)) deallocate(lhs%u_s)
-   endif
+   call assign_allocatable(lhs=lhs%u, rhs=rhs%u)
+   call assign_allocatable(lhs=lhs%u_work, rhs=rhs%u_work)
+   call assign_allocatable(lhs=lhs%u_s, rhs=rhs%u_s)
    ! RK data, related to field equations
    lhs%alph = rhs%alph
    lhs%beta = rhs%beta

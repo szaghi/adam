@@ -2,7 +2,8 @@
 program adam_test_tree_object_heavy_fill
 !< ADAM, test tree class.
 
-use adam_objects
+use adam_tree_object
+use adam_tree_node_object
 use PENF, only : I8P, I4P, str
 
 implicit none
