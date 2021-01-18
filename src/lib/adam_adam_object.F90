@@ -55,7 +55,7 @@ contains
    class(adam_object), intent(inout) :: self !< ADAM.
 
    call self%tree%adapt
-   call self%field%adapt(ratio=self%tree%ratio,                                                            &
+   call self%field%adapt(q=self%field%u, ratio=self%tree%ratio,                                            &
                          block_to_refine=self%tree%block_to_refine, block_refined=self%tree%block_refined, &
                          block_to_derefine=self%tree%block_to_derefine, block_derefined=self%tree%block_derefined)
    endsubroutine adapt
@@ -97,7 +97,8 @@ contains
    class(adam_object), intent(inout) :: self !< ADAM.
 
    call self%tree%blocks_reorder
-   call self%field%blocks_reorder(inner_outer_block_map=self%tree%inner_outer_block_map, &
+   call self%field%blocks_reorder(q=self%field%u,                                        &
+                                  inner_outer_block_map=self%tree%inner_outer_block_map, &
                                   inner_blocks_number=self%tree%inner_blocks_number)
    endsubroutine blocks_reorder
 
@@ -208,7 +209,8 @@ contains
    print_mpi_stats_ = .false. ; if (present(print_mpi_stats)) print_mpi_stats_ = print_mpi_stats
    call self%tree%mpi_redistribute
    if (print_mpi_stats_) call self%tree%mpi_print_stats
-   call self%field%mpi_redistribute(comm_map_send=self%tree%comm_map_send,         &
+   call self%field%mpi_redistribute(q=self%field%u,                                &
+                                    comm_map_send=self%tree%comm_map_send,         &
                                     comm_map_recv=self%tree%comm_map_recv,         &
                                     comm_map_send_ptr=self%tree%comm_map_send_ptr, &
                                     comm_map_recv_ptr=self%tree%comm_map_recv_ptr, &

@@ -46,8 +46,8 @@ enddo
 ! call adam%amr_update(do_blocks_reorder=.false.)
 ! print*,'n_blocks: ',adam%tree%nodes_number
 ! call adam%update_ghost
-! call adam%save_vtk(basename='sphere-'//trim(strz(t,9)), with_ghost=.true.)
-! call adam%finalize
+call adam%save_vtk(basename='sphere-'//trim(strz(t,9)), with_ghost=.true.)
+call adam%finalize
 
 print*,' BC faces number: ', size(adam%tree%local_map_bc_face, dim=1)
 print*,' BC edges number: ', size(adam%tree%local_map_bc_edge, dim=1)
@@ -79,7 +79,7 @@ do t=1, n_iter
    if (mod(t,1)==0) print '(A)', 'track iteration '//trim(str(t, .true.))
    !GPUcall field_gpu%rk_integrate(t=time, Dt=0.1_R8P)
 
-   call adam%field%mark_by_grad_u
+   call adam%field%mark_by_grad_q(q=adam%field%u)
    call adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false.)
    print*, 'blocks number: ', adam%tree%nodes_number
    ! print*, ' is 577 with us? ', adam%tree%has_code(code=577_I8P)
