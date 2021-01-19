@@ -91,6 +91,7 @@ type :: field_object
    integer(I4P), allocatable  :: coordinates(:,:)         !< Coordinates IJKL for each block [nb,4].
    real(R8P),    allocatable  :: emin(:,:)                !< Coordinates of minimum abscissa of each block [3,nb].
    real(R8P),    allocatable  :: emax(:,:)                !< Coordinates of maximum abscissa of each block [3,nb].
+   real(R8P),    allocatable  :: dxyz(:,:)                !< Space steps of each block [3,nb].
    real(R8P),    allocatable  :: x_node(:,:)              !< X coordinates of [0-gci:ni+gci,nb].
    real(R8P),    allocatable  :: y_node(:,:)              !< Y coordinates of [0-gcj:nj+gcj,nb].
    real(R8P),    allocatable  :: z_node(:,:)              !< Z coordinates of [0-gck:nk+gck,nb].
@@ -118,23 +119,12 @@ type :: field_object
    integer(I8P), allocatable :: comm_map_send_ghost(:,:)   !< Communication map, `fec` information [fec_number, 5].
    integer(I8P), allocatable :: comm_map_recv_ghost(:,:)   !< Communication map, `fec` information [fec_number, 5].
    ! MPI data, related to field equations
-   real(R8P), allocatable    :: send_buffer_ghost(:) !< Send buffer of ghost cells.
-   real(R8P), allocatable    :: recv_buffer_ghost(:) !< Receive buffer of ghost cells.
-   ! RK data, related to field equations
-   real(R8P) :: alph(3,3) = reshape([0._R8P, 1._R8P, 0.25_R8P, &
-                                     0._R8P, 0._R8P, 0.25_R8P, &
-                                     0._R8P, 0._R8P,0._R8P], [3,3]) !< RK alpha coefficients.
-   real(R8P) :: beta(3) = [1._R8P/6._R8P, &
-                           1._R8P/6._R8P, &
-                           2._R8P/3._R8P]                           !< RK beta coefficients.
-   real(R8P) :: gamm(3) = [0._R8P, &
-                           1._R8P, &
-                           0._R8P]                                  !< RK gamma coefficients.
+   real(R8P), allocatable :: send_buffer_ghost(:) !< Send buffer of ghost cells.
+   real(R8P), allocatable :: recv_buffer_ghost(:) !< Receive buffer of ghost cells.
    ! field equations data
-   real(R8P), allocatable  :: q_work(:,:,:,:  ) !< Field components cell centered, working buffer memory.
+   real(R8P), allocatable :: q(     :,:,:,:  ) !< Field cell centered variables [ni+2gci,nj+2gcj,nk+2gck,nv,nb].
+   real(R8P), allocatable :: q_work(:,:,:,:,:) !< Field components cell centered, working buffer memory.
 
-   real(R8P), allocatable  :: u(     :,:,:,:  ) !< Field cell centered variables [ni+2gci,nj+2gcj,nk+2gck,nv,nb].
-   real(R8P), allocatable  :: u_s(   :,:,:,:,:) !< RK field stages.
    real(R8P), allocatable  :: ls(    :,:,:,:  ) !< Level set field [ni+2gci,nj+2gcj,nk+2gck,nv,nb].
    contains
       ! public methods
@@ -143,18 +133,12 @@ type :: field_object
       procedure, pass(self) :: compute_metrics               !< Compute metrics of each block.
       procedure, pass(self) :: destroy                       !< Destroy the field.
       procedure, pass(self) :: initialize                    !< Initialize the field.
-      procedure, pass(self) :: mark_by_u_value               !< Mark blocks to be refined/derefined by a `u` value.
-      procedure, pass(self) :: mark_by_grad_q                !< Mark blocks to be refined/derefined by a `grad(q)` value.
       procedure, pass(self) :: mark_all_blocks               !< Mark all blocks to be refined, derefined, ecc.
       procedure, pass(self) :: mark_sphere                   !< Mark blocks to be refined/derefined by sphere distance.
       procedure, pass(self) :: mpi_gather_refinements_needed !< Gather blocks refinement needed status between MPI processes.
       procedure, pass(self) :: mpi_redistribute              !< Redistribute blocks to processes.
       procedure, pass(self) :: prepare_comm_local_ghost      !< Prepare communication and local maps/buffers for ghosts update.
       procedure, pass(self) :: prepare_local_bc              !< Prepare local maps for boundary conditions.
-      procedure, pass(self) :: rk_integrate                  !< Runge Kutta integration of field.
-      procedure, pass(self) :: compute_residuals             !< Compute residuals of field.
-      procedure, pass(self) :: set_boundary_conditions       !< Set boundary conditions of field.
-      procedure, pass(self) :: set_initial_conditions        !< Set initial conditions of field.
       procedure, pass(self) :: update_ghost                  !< Update ghost cells.
       ! private methods
       procedure, pass(self), private :: derefine           !< Derefine blocks.
@@ -168,28 +152,22 @@ endtype field_object
 
 contains
    ! public methods
-   subroutine adapt(self, q, ratio, block_to_refine, block_refined, block_to_derefine, block_derefined)
+   subroutine adapt(self, ratio, block_to_refine, block_refined, block_to_derefine, block_derefined)
    !< Adapt field accordingly to refine/derefine necessity.
-   class(field_object),       intent(inout) :: self                   !< The field.
-   real(R8P),                 intent(inout) :: q(1-self%grid%gci:,&
-                                                 1-self%grid%gcj:,&
-                                                 1-self%grid%gck:,1:) !< Field component to be updated.
-   integer(I4P),              intent(in)    :: ratio                  !< Refinement ratio.
-   integer(I8P), allocatable, intent(in)    :: block_to_refine(:,:)   !< List of field blocks to be refined.
-   integer(I8P), allocatable, intent(in)    :: block_refined(:,:)     !< List of field refined blocks with Morton code.
-   integer(I8P), allocatable, intent(in)    :: block_to_derefine(:)   !< List of field blocks to be derefined.
-   integer(I8P), allocatable, intent(in)    :: block_derefined(:,:)   !< List of field derefined blocks with Morton code.
+   class(field_object),       intent(inout) :: self                 !< The field.
+   integer(I4P),              intent(in)    :: ratio                !< Refinement ratio.
+   integer(I8P), allocatable, intent(in)    :: block_to_refine(:,:) !< List of field blocks to be refined.
+   integer(I8P), allocatable, intent(in)    :: block_refined(:,:)   !< List of field refined blocks with Morton code.
+   integer(I8P), allocatable, intent(in)    :: block_to_derefine(:) !< List of field blocks to be derefined.
+   integer(I8P), allocatable, intent(in)    :: block_derefined(:,:) !< List of field derefined blocks with Morton code.
 
-   call self%refine(  q=q, ratio=ratio, block_to_refine=block_to_refine,     block_refined=block_refined    )
-   call self%derefine(q=q, ratio=ratio, block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+   call self%refine(  ratio=ratio, block_to_refine=block_to_refine,     block_refined=block_refined    )
+   call self%derefine(ratio=ratio, block_to_derefine=block_to_derefine, block_derefined=block_derefined)
    endsubroutine adapt
 
-   subroutine blocks_reorder(self, q, inner_outer_block_map, inner_blocks_number)
+   subroutine blocks_reorder(self, inner_outer_block_map, inner_blocks_number)
    !< Reorder blocks indexes in field.
    class(field_object), intent(inout) :: self                     !< The field.
-   real(R8P),           intent(inout) :: q(1-self%grid%gci:,&
-                                           1-self%grid%gcj:,&
-                                           1-self%grid%gck:,1:)   !< Field component to be updated.
    integer(I4P),        intent(in)    :: inner_outer_block_map(:) !< Inner/outer blocks map.
    integer(I4P),        intent(in)    :: inner_blocks_number      !< Number of inner blocks where I need fecs.
    integer(I4P), allocatable          :: coordinates_new(:,:)     !< Temporary coordinates array.
@@ -199,12 +177,12 @@ contains
    allocate(coordinates_new(4,self%blocks_number))
    allocate(code_new(self%blocks_number))
    do b=1, self%blocks_number
-      self%q_work(:,:,:,b) = q(:,:,:,inner_outer_block_map(b))
+      self%q_work(:,:,:,b,1) = self%q(:,:,:,inner_outer_block_map(b))
       coordinates_new(:,b) = self%coordinates(:,inner_outer_block_map(b))
       code_new(b) = self%code(inner_outer_block_map(b))
    enddo
    do b=1, self%blocks_number
-      q(:,:,:,b) = self%q_work(:,:,:,b)
+      self%q(:,:,:,b) = self%q_work(:,:,:,b,1)
       self%coordinates(:,b) = coordinates_new(:,b)
       self%code(b) = code_new(b)
    enddo
@@ -220,6 +198,7 @@ contains
    do b=1, self%blocks_number
       call self%grid%compute_metrics(coordinates=self%coordinates(:,b),                                         &
                                      emin=self%emin(:,b), emax=self%emax(:,b),                                  &
+                                     dx=self%dxyz(1,b), dy=self%dxyz(2,b), dz=self%dxyz(3,b),                   &
                                      x_node=self%x_node(:,b), y_node=self%y_node(:,b), z_node=self%z_node(:,b), &
                                      x_cell=self%x_cell(:,b), y_cell=self%y_cell(:,b), z_cell=self%z_cell(:,b))
    enddo
@@ -257,6 +236,7 @@ contains
 
       allocate(self%emin(3,self%nb))
       allocate(self%emax(3,self%nb))
+      allocate(self%dxyz(3,self%nb))
       allocate(self%x_cell(1-self%grid%gci:self%grid%ni+self%grid%gci,self%nb))
       allocate(self%y_cell(1-self%grid%gcj:self%grid%nj+self%grid%gcj,self%nb))
       allocate(self%z_cell(1-self%grid%gck:self%grid%nk+self%grid%gck,self%nb))
@@ -266,16 +246,13 @@ contains
       self%emin(:,1) = self%grid%domain_emin
       self%emax(:,1) = self%grid%domain_emax
 
-      allocate(self%u(1-self%grid%gci:self%grid%ni+self%grid%gci, &
+      allocate(self%q(1-self%grid%gci:self%grid%ni+self%grid%gci, &
                       1-self%grid%gcj:self%grid%nj+self%grid%gcj, &
                       1-self%grid%gck:self%grid%nk+self%grid%gck, 1:self%nb))
       allocate(self%q_work(1-self%grid%gci:self%grid%ni+self%grid%gci, &
                            1-self%grid%gcj:self%grid%nj+self%grid%gcj, &
-                           1-self%grid%gck:self%grid%nk+self%grid%gck, 1:self%nb))
-      allocate(self%u_s(1-self%grid%gci:self%grid%ni+self%grid%gci, &
-                        1-self%grid%gcj:self%grid%nj+self%grid%gcj, &
-                        1-self%grid%gck:self%grid%nk+self%grid%gck, 1:self%nb, 1:3))
-      self%u = 0._R8P
+                           1-self%grid%gck:self%grid%nk+self%grid%gck, 1:self%nb, 1:3))
+      self%q = 0._R8P
       self%q_work = 0._R8P
    endif
    ! MPI data
@@ -286,95 +263,6 @@ contains
    allocate(self%req_send_recv(0:self%procs_number*2-1))
 #endif
    endsubroutine initialize
-
-   subroutine mark_by_u_value(self, u_value, threshold)
-   !< Mark blocks to be refined/derefined by a `u` value.
-   class(field_object), intent(inout)        :: self       !< The field.
-   real(R8P),           intent(in)           :: u_value    !< `u` value to be tracked.
-   real(R8P),           intent(in), optional :: threshold  !< Threshold for sphere proximity.
-   real(R8P)                                 :: threshold_ !< Threshold for sphere proximity, local var.
-   real(R8P)                                 :: u_mean     !< `u` mean value of block.
-   integer(I4P)                              :: b          !< Counter.
-
-   threshold_ = 1.5_R8P ; if (present(threshold)) threshold_ = threshold
-   if (allocated(self%refinements_needed)) deallocate(self%refinements_needed)
-   allocate(self%refinements_needed(self%blocks_number))
-   do b=1, self%blocks_number
-
-      associate (ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
-         u_mean = sum(self%u(1:ni,1:nj,1:nk,b)) / (ni*nj*nk)
-         ! u_mean = maxval(self%u(1:ni,1:nj,1:nk,b))
-      endassociate
-
-      if (abs(u_mean - u_value) < 0.05) then
-      ! if ((u_mean - u_value) > 0.47) then
-         self%refinements_needed(b) = TO_BE_REFINED
-      elseif (abs(u_mean - u_value) * threshold_ > 0.05) then
-      ! elseif ((u_mean - u_value) * threshold_ < 0.47) then
-         self%refinements_needed(b) = TO_BE_DEREFINED
-      else
-         self%refinements_needed(b) = TO_NOT_TOUCH
-      endif
-   enddo
-   endsubroutine mark_by_u_value
-
-   subroutine mark_by_grad_q(self, q, threshold)
-   !< Mark blocks to be refined/derefined by a `grad(q)` value.
-   class(field_object), intent(inout)        :: self                   !< The field.
-   real(R8P),           intent(inout)        :: q(1-self%grid%gci:,&
-                                                  1-self%grid%gcj:,&
-                                                  1-self%grid%gck:,1:) !< Field component to be updated.
-   real(R8P),           intent(in), optional :: threshold              !< Threshold for sphere proximity.
-   real(R8P)                                 :: threshold_             !< Threshold for sphere proximity, local var.
-   real(R8P)                                 :: dx, dy, dz             !< Space steps.
-   real(R8P)                                 :: max_cell_delta         !< Maximum cell delta.
-   real(R8P)                                 :: grad_q                 !< Value (max) of gradient of q.
-   integer(I4P)                              :: b, i, j, k             !< Counter.
-
-   threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
-   if (allocated(self%refinements_needed)) deallocate(self%refinements_needed)
-   allocate(self%refinements_needed(self%blocks_number))
-   call self%update_ghost(q=q)
-   do b=1, self%blocks_number
-      grad_q = 0._R8P
-      call self%grid%compute_metrics(coordinates=self%coordinates(:,b), &
-                                     dx=dx, dy=dy, dz=dz)
-      associate (ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
-         do k=1, nk
-            do j=1, nj
-               do i=1, ni
-                  grad_q = max(grad_q, sqrt(((q(i+1,j,k,b) - q(i-1,j,k,b))/(2*dx))**2 + &
-                                            ((q(i,j+1,k,b) - q(i,j-1,k,b))/(2*dy))**2 + &
-                                            ((q(i,j,k+1,b) - q(i,j,k-1,b))/(2*dz))**2))
-
-               enddo
-            enddo
-         enddo
-      endassociate
-
-      max_cell_delta = max_cell_delta_grad(grad=grad_q)
-
-      if (max(dx,dy,dz) > max_cell_delta) then
-         self%refinements_needed(b) = TO_BE_REFINED
-      elseif (max(dx,dy,dz) * threshold_ < max_cell_delta) then
-         self%refinements_needed(b) = TO_BE_DEREFINED
-      else
-         self%refinements_needed(b) = TO_NOT_TOUCH
-      endif
-   enddo
-   contains
-      function max_cell_delta_grad(grad) result(delta)
-      !< Return the maximum cell delta given a gradient tollerance.
-      real(R8P), intent(in) :: grad  !< Gradient value.
-      real(R8P)             :: delta !< Maximum cell delta admissible.
-
-      if (grad > 9.2_R8P) then
-         delta = 0.004_R8P
-      else
-         delta = 0.08_R8P
-      endif
-      endfunction max_cell_delta_grad
-   endsubroutine mark_by_grad_q
 
    subroutine mark_sphere(self, center, radius, threshold)
    !< Mark blocks to be refined/derefined by sphere distance.
@@ -487,14 +375,11 @@ contains
 #endif
    endsubroutine mpi_gather_refinements_needed
 
-   subroutine mpi_redistribute(self, q, comm_map_send, comm_map_recv, comm_map_send_ptr, comm_map_recv_ptr, &
+   subroutine mpi_redistribute(self, comm_map_send, comm_map_recv, comm_map_send_ptr, comm_map_recv_ptr, &
                                local_map, coordinates, code)
    !< Redistribute blocks to processes.
    !< @TODO: Morton codes are not yet redistributed, must be fixed.
    class(field_object),       intent(inout) :: self                   !< The field.
-   real(R8P),                 intent(inout) :: q(1-self%grid%gci:,&
-                                                 1-self%grid%gcj:,&
-                                                 1-self%grid%gck:,1:) !< Field component to be updated.
    integer(I8P), allocatable, intent(in)    :: comm_map_send(:)       !< Comm map, blocks to send [sum(comm_map_n_send)].
    integer(I8P), allocatable, intent(in)    :: comm_map_recv(:)       !< Comm map, blocks to receive [sum(comm_map_n_recv)].
    integer(I4P), allocatable, intent(in)    :: comm_map_send_ptr(:)   !< Comm map, pointers in list to send [procs_number+1].
@@ -527,7 +412,7 @@ contains
       send_offset = 1
       do b=1, size(comm_map_send, dim=1)
          bi = comm_map_send(b)
-         send_buffer(send_offset:send_offset + self%block_weight - 1) = reshape(q(:,:,:,bi),[self%block_weight])
+         send_buffer(send_offset:send_offset + self%block_weight - 1) = reshape(self%q(:,:,:,bi),[self%block_weight])
          send_offset = send_offset + self%block_weight
       enddo
    endif
@@ -562,19 +447,19 @@ contains
       recv_offset = 1
       do b=1, size(comm_map_recv, dim=1)
           bi = comm_map_recv(b)
-          self%q_work(:,:,:,bi) = reshape(recv_buffer(recv_offset:recv_offset + self%block_weight -1),&
-                                          [self%grid%gci+self%grid%ni+self%grid%gci,                  &
-                                           self%grid%gcj+self%grid%nj+self%grid%gcj,                  &
-                                           self%grid%gck+self%grid%nk+self%grid%gck])
+          self%q_work(:,:,:,bi,1) = reshape(recv_buffer(recv_offset:recv_offset + self%block_weight -1),&
+                                            [self%grid%gci+self%grid%ni+self%grid%gci,                  &
+                                             self%grid%gcj+self%grid%nj+self%grid%gcj,                  &
+                                             self%grid%gck+self%grid%nk+self%grid%gck])
           recv_offset = recv_offset + self%block_weight
       enddo
    endif
 
    do b=1, n_keep
-      self%q_work(:,:,:,local_map(b,1)) = q(:,:,:,local_map(b,2))
+      self%q_work(:,:,:,local_map(b,1),1) = self%q(:,:,:,local_map(b,2))
    enddo
    self%blocks_number = n_keep  + recv_size / self%block_weight
-   q(:,:,:,1:self%blocks_number) = self%q_work(:,:,:,1:self%blocks_number)
+   self%q(:,:,:,1:self%blocks_number) = self%q_work(:,:,:,1:self%blocks_number,1)
    self%coordinates(:, 1:self%blocks_number) = coordinates
    self%code(1:self%blocks_number) = code
    call self%compute_metrics
@@ -623,85 +508,6 @@ contains
    call assign_allocatable(lhs=self%local_map_bc_edge  , rhs=local_map_bc_edge  )
    call assign_allocatable(lhs=self%local_map_bc_corner, rhs=local_map_bc_corner)
    endsubroutine prepare_local_bc
-
-   subroutine rk_integrate(self, t, Dt, do_ghost_syncro, residual)
-   !< Runge Kutta integration of field.
-   class(field_object), intent(inout)         :: self             !< The field.
-   real(R8P),           intent(in)            :: t                !< Time.
-   real(R8P),           intent(in)            :: Dt               !< Time step.
-   logical,             intent(in),  optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
-   real(R8P),           intent(out), optional :: residual         !< Global residual.
-   logical                                    :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
-   integer(I4P)                               :: b, s, ss         !< Counter.
-
-   do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
-   associate(alph=>self%alph, beta=>self%beta, gamm=>self%gamm,    &
-             ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, &
-             blocks_number=>self%blocks_number,                    &
-             inner_blocks_number=>self%inner_blocks_number,        &
-             u=>self%u, u_s=>self%u_s)
-   do s=1, 3
-      u_s(1:ni,1:nj,1:nk,1:blocks_number,s) = u(1:ni,1:nj,1:nk,1:blocks_number)
-      do ss=1, s - 1
-         u_s(1:ni,1:nj,1:nk,1:blocks_number,s) = u_s(1:ni,1:nj,1:nk,1:blocks_number,s ) + &
-                                                (u_s(1:ni,1:nj,1:nk,1:blocks_number,ss) * (Dt * alph(s, ss)))
-      enddo
-      if (do_ghost_syncro_) then
-         call self%update_ghost(q=self%u_s(:,:,:,:,s))
-         call self%compute_residuals(s=s, t=t + gamm(s) * Dt, &
-                                     block_start=1, block_end=blocks_number)
-      else
-         call self%update_ghost(q=self%u_s(:,:,:,:,s), step=1)
-         call self%update_ghost(q=self%u_s(:,:,:,:,s), step=2)
-         call self%compute_residuals(s=s, t=t + gamm(s) * Dt, &
-                                     block_start=1, block_end=inner_blocks_number)
-         call self%update_ghost(q=self%u_s(:,:,:,:,s), step=3)
-         call self%compute_residuals(s=s, t=t + gamm(s) * Dt, &
-                                     block_start=inner_blocks_number+1, block_end=blocks_number)
-      endif
-      if (present(residual).and.s==3) then
-         residual = 0._R8P
-         do b=1, blocks_number
-            residual = residual + sum(u_s(1:ni,1:nj,1:nk,b,s))/ni/nj/nk
-         enddo
-#ifdef _MPI_
-         call MPI_ALLREDUCE(MPI_IN_PLACE, residual, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%error)
-#endif
-      endif
-   enddo
-   do s=1, 3
-      u(1:ni,1:nj,1:nk,1:blocks_number) = u(  1:ni,1:nj,1:nk,1:blocks_number) + &
-                                          u_s(1:ni,1:nj,1:nk,1:blocks_number,s) * Dt * beta(s)
-   enddo
-   endassociate
-   endsubroutine rk_integrate
-
-   subroutine compute_residuals(self, s, t, block_start, block_end)
-   !< Compute residuals of field.
-   class(field_object), intent(inout) :: self        !< The field.
-   integer(I4P),        intent(in)    :: s           !< Current stage.
-   real(R8P),           intent(in)    :: t           !< Time.
-   integer(I4P),        intent(in)    :: block_start !< Index of block to start residuals computation.
-   integer(I4P),        intent(in)    :: block_end   !< Index of block to end   residuals computation.
-   real(R8P)                          :: dx, dy, dz  !< Space steps.
-   integer(I4P)                       :: b, i, j, k  !< Counter.
-
-   do b=block_start, block_end
-      call self%grid%compute_metrics(coordinates=self%coordinates(:,b), &
-                                     dx=dx, dy=dy, dz=dz)
-      do k=1, self%grid%nk
-         do j=1, self%grid%nj
-            do i=1, self%grid%ni
-               ! self%q_work(i,j,k,b) = (self%u_s(i+1,j,  k,  b,s) + self%u_s(i-1,j,  k,  b,s) - 2*self%u_s(i,j,k,b,s))/dx**2 + &
-               !                        (self%u_s(i,  j+1,k,  b,s) + self%u_s(i,  j-1,k,  b,s) - 2*self%u_s(i,j,k,b,s))/dy**2 + &
-               !                        (self%u_s(i,  j,  k+1,b,s) + self%u_s(i,  j,  k-1,b,s) - 2*self%u_s(i,j,k,b,s))/dz**2
-               self%q_work(i,j,k,b) = (self%u_s(i+1,j,k,b,s) - self%u_s(i-1,j,k,b,s))/(2*dx)
-            enddo
-         enddo
-      enddo
-   enddo
-   self%u_s(:,:,:,block_start:block_end,s) = self%q_work(:,:,:,block_start:block_end)
-   endsubroutine compute_residuals
 
    subroutine set_boundary_conditions(self, q)
    !< Set boundary conditions of field.
@@ -775,18 +581,15 @@ contains
    sigma_y = 0.05_R8P
    sigma_z = 0.05_R8P
    associate(blocks_number=>self%blocks_number,                             &
-             u=>self%u,                                                     &
+             q=>self%q,                                                     &
              ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk,          &
              gci=>self%grid%gci, gcj=>self%grid%gcj, gck=>self%grid%gck,    &
              x_cell=>self%x_cell, y_cell=>self%y_cell, z_cell=>self%z_cell)
    do b=1, blocks_number
-      ! do k=1-gck, nk+gck
-      !    do j=1-gcj, nj+gcj
-      !       do i=1-gci, ni+gci
       do k=1, nk
          do j=1, nj
             do i=1, ni
-               u(i,j,k,b) = a * exp(-((x_cell(i,b) - x_0)**2/(2 * sigma_x**2)+&
+               q(i,j,k,b) = a * exp(-((x_cell(i,b) - x_0)**2/(2 * sigma_x**2)+&
                                       (y_cell(j,b) - y_0)**2/(2 * sigma_y**2)+&
                                       (z_cell(k,b) - z_0)**2/(2 * sigma_z**2)))
             enddo
@@ -805,22 +608,17 @@ contains
                                                   1-self%grid%gck:,1:) !< Field component to be updated.
    integer(I4P),        intent(in), optional :: step                   !< Step to be perfordmed in asyncronous computations.
    logical                                   :: do_local_update        !< Flag for triggering local update.
-   logical                                   :: do_set_bc              !< Flag for triggering setting local BC.
 
    ! perform local update if step is not speficied or if first step is selected
    do_local_update = .false.
-   do_set_bc = .false.
    if (.not.present(step)) then
       do_local_update = .true.
-      do_set_bc = .true.
    else
       if (step==1) do_local_update = .true.
-      if (step==3) do_set_bc = .true.
    endif
 
    if (do_local_update) call self%update_ghost_local(q=q)
                         call self%update_ghost_mpi(  q=q, step=step)
-   if (do_set_bc)       call self%set_boundary_conditions(q=q)
    endsubroutine update_ghost
 
    subroutine update_ghost_local(self, q)
@@ -1088,25 +886,22 @@ contains
    endsubroutine update_ghost_mpi
 
    ! private methods
-   subroutine derefine(self, q, ratio, block_to_derefine, block_derefined)
+   subroutine derefine(self, ratio, block_to_derefine, block_derefined)
    !< Derefine blocks.
    !<
    !< Note: blocks number is not updated: mpi redistribute does it. This is dangerous...
-   class(field_object),       intent(inout) :: self                   !< The field.
-   real(R8P),                 intent(inout) :: q(1-self%grid%gci:,&
-                                                 1-self%grid%gcj:,&
-                                                 1-self%grid%gck:,1:) !< Field component to be updated.
-   integer(I4P),              intent(in)    :: ratio                  !< Refinement ratio.
-   integer(I8P), allocatable, intent(in)    :: block_to_derefine(:)   !< List of blocks to be derefined.
-   integer(I8P), allocatable, intent(in)    :: block_derefined(:,:)   !< List of derefined blocks with Morton code.
-   real(R8P)                                :: dx, dy, dz             !< Space deltas.
-   integer(I4P)                             :: b, ib                  !< Counter.
-   integer(I4P)                             :: ic1, ic2, ic3, ic4     !< Counter.
-   integer(I4P)                             :: ic5, ic6, ic7, ic8     !< Counter.
-   integer(I4P)                             :: iii, jjj, kkk          !< Counter.
-   integer(I4P)                             :: i, j, k                !< Counter.
+   class(field_object),       intent(inout) :: self                 !< The field.
+   integer(I4P),              intent(in)    :: ratio                !< Refinement ratio.
+   integer(I8P), allocatable, intent(in)    :: block_to_derefine(:) !< List of blocks to be derefined.
+   integer(I8P), allocatable, intent(in)    :: block_derefined(:,:) !< List of derefined blocks with Morton code.
+   real(R8P)                                :: dx, dy, dz           !< Space deltas.
+   integer(I4P)                             :: b, ib                !< Counter.
+   integer(I4P)                             :: ic1, ic2, ic3, ic4   !< Counter.
+   integer(I4P)                             :: ic5, ic6, ic7, ic8   !< Counter.
+   integer(I4P)                             :: iii, jjj, kkk        !< Counter.
+   integer(I4P)                             :: i, j, k              !< Counter.
 
-   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, q_work=>self%q_work)
+   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, q=>self%q, q_work=>self%q_work)
    if (allocated(block_derefined)) then
       do b=1, size(block_derefined, dim=2)
          ib = block_derefined(2,b)
@@ -1127,84 +922,81 @@ contains
                   jjj = (j - 1) * 2 + 1
                   iii = (i - 1) * 2 + 1
 
-                  q_work(i,     j,     k     ,ib) = (q(iii,jjj,  kkk,  ic1) + q(iii+1,jjj,  kkk,  ic1) + &
-                                                     q(iii,jjj+1,kkk,  ic1) + q(iii+1,jjj+1,kkk,  ic1) + &
-                                                     q(iii,jjj,  kkk+1,ic1) + q(iii+1,jjj,  kkk+1,ic1) + &
-                                                     q(iii,jjj+1,kkk+1,ic1) + q(iii+1,jjj+1,kkk+1,ic1)) / 8._R8P
+                  q_work(i,     j,     k     ,ib,1) = (q(iii,jjj,  kkk,  ic1) + q(iii+1,jjj,  kkk,  ic1) + &
+                                                       q(iii,jjj+1,kkk,  ic1) + q(iii+1,jjj+1,kkk,  ic1) + &
+                                                       q(iii,jjj,  kkk+1,ic1) + q(iii+1,jjj,  kkk+1,ic1) + &
+                                                       q(iii,jjj+1,kkk+1,ic1) + q(iii+1,jjj+1,kkk+1,ic1)) / 8._R8P
 
-                  q_work(i+ni/2,j,     k     ,ib) = (q(iii,jjj,  kkk,  ic2) + q(iii+1,jjj,  kkk,  ic2) + &
-                                                     q(iii,jjj+1,kkk,  ic2) + q(iii+1,jjj+1,kkk,  ic2) + &
-                                                     q(iii,jjj,  kkk+1,ic2) + q(iii+1,jjj,  kkk+1,ic2) + &
-                                                     q(iii,jjj+1,kkk+1,ic2) + q(iii+1,jjj+1,kkk+1,ic2)) / 8._R8P
+                  q_work(i+ni/2,j,     k     ,ib,1) = (q(iii,jjj,  kkk,  ic2) + q(iii+1,jjj,  kkk,  ic2) + &
+                                                       q(iii,jjj+1,kkk,  ic2) + q(iii+1,jjj+1,kkk,  ic2) + &
+                                                       q(iii,jjj,  kkk+1,ic2) + q(iii+1,jjj,  kkk+1,ic2) + &
+                                                       q(iii,jjj+1,kkk+1,ic2) + q(iii+1,jjj+1,kkk+1,ic2)) / 8._R8P
 
-                  q_work(i,     j+nj/2,k     ,ib) = (q(iii,jjj,  kkk,  ic3) + q(iii+1,jjj,  kkk,  ic3) + &
-                                                     q(iii,jjj+1,kkk,  ic3) + q(iii+1,jjj+1,kkk,  ic3) + &
-                                                     q(iii,jjj,  kkk+1,ic3) + q(iii+1,jjj,  kkk+1,ic3) + &
-                                                     q(iii,jjj+1,kkk+1,ic3) + q(iii+1,jjj+1,kkk+1,ic3)) / 8._R8P
+                  q_work(i,     j+nj/2,k     ,ib,1) = (q(iii,jjj,  kkk,  ic3) + q(iii+1,jjj,  kkk,  ic3) + &
+                                                       q(iii,jjj+1,kkk,  ic3) + q(iii+1,jjj+1,kkk,  ic3) + &
+                                                       q(iii,jjj,  kkk+1,ic3) + q(iii+1,jjj,  kkk+1,ic3) + &
+                                                       q(iii,jjj+1,kkk+1,ic3) + q(iii+1,jjj+1,kkk+1,ic3)) / 8._R8P
 
-                  q_work(i+ni/2,j+nj/2,k     ,ib) = (q(iii,jjj,  kkk,  ic4) + q(iii+1,jjj,  kkk,  ic4) + &
-                                                     q(iii,jjj+1,kkk,  ic4) + q(iii+1,jjj+1,kkk,  ic4) + &
-                                                     q(iii,jjj,  kkk+1,ic4) + q(iii+1,jjj,  kkk+1,ic4) + &
-                                                     q(iii,jjj+1,kkk+1,ic4) + q(iii+1,jjj+1,kkk+1,ic4)) / 8._R8P
+                  q_work(i+ni/2,j+nj/2,k     ,ib,1) = (q(iii,jjj,  kkk,  ic4) + q(iii+1,jjj,  kkk,  ic4) + &
+                                                       q(iii,jjj+1,kkk,  ic4) + q(iii+1,jjj+1,kkk,  ic4) + &
+                                                       q(iii,jjj,  kkk+1,ic4) + q(iii+1,jjj,  kkk+1,ic4) + &
+                                                       q(iii,jjj+1,kkk+1,ic4) + q(iii+1,jjj+1,kkk+1,ic4)) / 8._R8P
 
-                  q_work(i,     j,     k+nk/2,ib) = (q(iii,jjj,  kkk,  ic5) + q(iii+1,jjj,  kkk,  ic5) + &
-                                                     q(iii,jjj+1,kkk,  ic5) + q(iii+1,jjj+1,kkk,  ic5) + &
-                                                     q(iii,jjj,  kkk+1,ic5) + q(iii+1,jjj,  kkk+1,ic5) + &
-                                                     q(iii,jjj+1,kkk+1,ic5) + q(iii+1,jjj+1,kkk+1,ic5)) / 8._R8P
+                  q_work(i,     j,     k+nk/2,ib,1) = (q(iii,jjj,  kkk,  ic5) + q(iii+1,jjj,  kkk,  ic5) + &
+                                                       q(iii,jjj+1,kkk,  ic5) + q(iii+1,jjj+1,kkk,  ic5) + &
+                                                       q(iii,jjj,  kkk+1,ic5) + q(iii+1,jjj,  kkk+1,ic5) + &
+                                                       q(iii,jjj+1,kkk+1,ic5) + q(iii+1,jjj+1,kkk+1,ic5)) / 8._R8P
 
-                  q_work(i+ni/2,j,     k+nk/2,ib) = (q(iii,jjj,  kkk,  ic6) + q(iii+1,jjj,  kkk,  ic6) + &
-                                                     q(iii,jjj+1,kkk,  ic6) + q(iii+1,jjj+1,kkk,  ic6) + &
-                                                     q(iii,jjj,  kkk+1,ic6) + q(iii+1,jjj,  kkk+1,ic6) + &
-                                                     q(iii,jjj+1,kkk+1,ic6) + q(iii+1,jjj+1,kkk+1,ic6)) / 8._R8P
+                  q_work(i+ni/2,j,     k+nk/2,ib,1) = (q(iii,jjj,  kkk,  ic6) + q(iii+1,jjj,  kkk,  ic6) + &
+                                                       q(iii,jjj+1,kkk,  ic6) + q(iii+1,jjj+1,kkk,  ic6) + &
+                                                       q(iii,jjj,  kkk+1,ic6) + q(iii+1,jjj,  kkk+1,ic6) + &
+                                                       q(iii,jjj+1,kkk+1,ic6) + q(iii+1,jjj+1,kkk+1,ic6)) / 8._R8P
 
-                  q_work(i,     j+nj/2,k+nk/2,ib) = (q(iii,jjj,  kkk,  ic7) + q(iii+1,jjj,  kkk,  ic7) + &
-                                                     q(iii,jjj+1,kkk,  ic7) + q(iii+1,jjj+1,kkk,  ic7) + &
-                                                     q(iii,jjj,  kkk+1,ic7) + q(iii+1,jjj,  kkk+1,ic7) + &
-                                                     q(iii,jjj+1,kkk+1,ic7) + q(iii+1,jjj+1,kkk+1,ic7)) / 8._R8P
+                  q_work(i,     j+nj/2,k+nk/2,ib,1) = (q(iii,jjj,  kkk,  ic7) + q(iii+1,jjj,  kkk,  ic7) + &
+                                                       q(iii,jjj+1,kkk,  ic7) + q(iii+1,jjj+1,kkk,  ic7) + &
+                                                       q(iii,jjj,  kkk+1,ic7) + q(iii+1,jjj,  kkk+1,ic7) + &
+                                                       q(iii,jjj+1,kkk+1,ic7) + q(iii+1,jjj+1,kkk+1,ic7)) / 8._R8P
 
-                  q_work(i+ni/2,j+nj/2,k+nk/2,ib) = (q(iii,jjj,  kkk,  ic8) + q(iii+1,jjj,  kkk,  ic8) + &
-                                                     q(iii,jjj+1,kkk,  ic8) + q(iii+1,jjj+1,kkk,  ic8) + &
-                                                     q(iii,jjj,  kkk+1,ic8) + q(iii+1,jjj,  kkk+1,ic8) + &
-                                                     q(iii,jjj+1,kkk+1,ic8) + q(iii+1,jjj+1,kkk+1,ic8)) / 8._R8P
+                  q_work(i+ni/2,j+nj/2,k+nk/2,ib,1) = (q(iii,jjj,  kkk,  ic8) + q(iii+1,jjj,  kkk,  ic8) + &
+                                                       q(iii,jjj+1,kkk,  ic8) + q(iii+1,jjj+1,kkk,  ic8) + &
+                                                       q(iii,jjj,  kkk+1,ic8) + q(iii+1,jjj,  kkk+1,ic8) + &
+                                                       q(iii,jjj+1,kkk+1,ic8) + q(iii+1,jjj+1,kkk+1,ic8)) / 8._R8P
                enddo
             enddo
          enddo
 
-         q(1:ni,1:nj,1:nk,ib) = q_work(1:ni,1:nj,1:nk,ib)
+         q(1:ni,1:nj,1:nk,ib) = q_work(1:ni,1:nj,1:nk,ib,1)
 
          self%code(ib) = block_derefined(1,b)
 
       enddo
 
       do b=1, size(block_derefined, dim=2)
-         ib = block_derefined(2,b)
+         ! ib = block_derefined(2,b)
 
-         ic1 = block_to_derefine((b-1)*ratio+1)
+         ! ic1 = block_to_derefine((b-1)*ratio+1)
 
-         dx = self%emax(1,ic1) - self%emin(1,ic1)
-         dy = self%emax(2,ic1) - self%emin(2,ic1)
-         dz = self%emax(3,ic1) - self%emin(3,ic1)
+         ! dx = self%emax(1,ic1) - self%emin(1,ic1)
+         ! dy = self%emax(2,ic1) - self%emin(2,ic1)
+         ! dz = self%emax(3,ic1) - self%emin(3,ic1)
 
-         self%emin(1,ib) = self%emin(1,ic1)
-         self%emin(2,ib) = self%emin(2,ic1)
-         self%emin(3,ib) = self%emin(3,ic1)
+         ! self%emin(1,ib) = self%emin(1,ic1)
+         ! self%emin(2,ib) = self%emin(2,ic1)
+         ! self%emin(3,ib) = self%emin(3,ic1)
 
-         self%emax(1,ib) = self%emin(1,ic1) + 2 * dx
-         self%emax(2,ib) = self%emin(2,ic1) + 2 * dy
-         self%emax(3,ib) = self%emin(3,ic1) + 2 * dz
+         ! self%emax(1,ib) = self%emin(1,ic1) + 2 * dx
+         ! self%emax(2,ib) = self%emin(2,ic1) + 2 * dy
+         ! self%emax(3,ib) = self%emin(3,ic1) + 2 * dz
       enddo
    endif
    endassociate
    endsubroutine derefine
 
-   subroutine refine(self, q, ratio, block_to_refine, block_refined)
+   subroutine refine(self, ratio, block_to_refine, block_refined)
    !< Refine blocks.
    !<
    !< Note: blocks number is not updated: mpi redistribute does it. This is dangerous...
    class(field_object),       intent(inout) :: self                      !< The field.
-   real(R8P),                 intent(inout) :: q(1-self%grid%gci:,&
-                                                 1-self%grid%gcj:,&
-                                                 1-self%grid%gck:,1:)    !< Field component to be updated.
    integer(I4P),              intent(in)    :: ratio                     !< Refinement ratio.
    integer(I8P), allocatable, intent(in)    :: block_to_refine(:,:)      !< List of blocks to be refined.
    integer(I8P), allocatable, intent(in)    :: block_refined(:,:)        !< List of refined blocks with Morton code.
@@ -1216,14 +1008,15 @@ contains
    integer(I4P)                             :: ic1, ic2, ic3, ic4        !< Counter.
    integer(I4P)                             :: ic5, ic6, ic7, ic8        !< Counter.
 
-   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, &
-             gci=>self%grid%gci, gcj=>self%grid%gcj, gck=>self%grid%gck)
+   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk,       &
+             gci=>self%grid%gci, gcj=>self%grid%gcj, gck=>self%grid%gck, &
+             q=>self%q, q_work=>self%q_work)
    if (allocated(block_to_refine)) then
       do b=1, size(block_to_refine, dim=2)
          if (self%myrank /= block_to_refine(2,b)) cycle
          ib = block_to_refine(1,b)
 
-         self%q_work(:,:,:,ib) = q(:,:,:,ib)
+         q_work(:,:,:,ib,1) = q(:,:,:,ib)
 
          do ic_local=1, 8
             ic = block_refined(2,(b-1)*ratio+ic_local)
@@ -1244,43 +1037,42 @@ contains
                                                         (0.25_R8P + i_delta * 0.5_R8P) * &
                                                         (0.25_R8P + j_delta * 0.5_R8P) * &
                                                         (0.25_R8P + k_delta * 0.5_R8P) * &
-                                                        self%q_work(i+i_delta-1, j+j_delta-1, k+k_delta-1,ib)
+                                                        q_work(i+i_delta-1, j+j_delta-1, k+k_delta-1,ib,1)
                      q(i_fine+1,j_fine,  k_fine,  ic) = q(i_fine+1,j_fine,k_fine,ic) +   &
                                                         (0.75_R8P - i_delta * 0.5_R8P) * &
                                                         (0.25_R8P + j_delta * 0.5_R8P) * &
                                                         (0.25_R8P + k_delta * 0.5_R8P) * &
-                                                        self%q_work(i+i_delta,   j+j_delta-1, k+k_delta-1,ib)
+                                                        q_work(i+i_delta,   j+j_delta-1, k+k_delta-1,ib,1)
                      q(i_fine,  j_fine+1,k_fine,  ic) = q(i_fine,j_fine+1,k_fine,ic) +   &
                                                         (0.25_R8P + i_delta * 0.5_R8P) * &
                                                         (0.75_R8P - j_delta * 0.5_R8P) * &
                                                         (0.25_R8P + k_delta * 0.5_R8P) * &
-                                                        self%q_work(i+i_delta-1, j+j_delta  , k+k_delta-1,ib)
+                                                        q_work(i+i_delta-1, j+j_delta  , k+k_delta-1,ib,1)
                      q(i_fine+1,j_fine+1,k_fine,  ic) = q(i_fine+1,j_fine+1,k_fine,ic) + &
                                                         (0.75_R8P - i_delta * 0.5_R8P) * &
                                                         (0.75_R8P - j_delta * 0.5_R8P) * &
                                                         (0.25_R8P + k_delta * 0.5_R8P) * &
-                                                        self%q_work(i+i_delta,   j+j_delta  , k+k_delta-1,ib)
+                                                        q_work(i+i_delta,   j+j_delta  , k+k_delta-1,ib,1)
                      q(i_fine,  j_fine,  k_fine+1,ic) = q(i_fine,j_fine,k_fine+1,ic) +   &
                                                         (0.25_R8P + i_delta * 0.5_R8P) * &
                                                         (0.25_R8P + j_delta * 0.5_R8P) * &
                                                         (0.75_R8P - k_delta * 0.5_R8P) * &
-                                                        self%q_work(i+i_delta-1, j+j_delta-1, k+k_delta  ,ib)
+                                                        q_work(i+i_delta-1, j+j_delta-1, k+k_delta  ,ib,1)
                      q(i_fine+1,j_fine,  k_fine+1,ic) = q(i_fine+1,j_fine,k_fine+1,ic) + &
                                                         (0.75_R8P - i_delta * 0.5_R8P) * &
                                                         (0.25_R8P + j_delta * 0.5_R8P) * &
                                                         (0.75_R8P - k_delta * 0.5_R8P) * &
-                                                        self%q_work(i+i_delta,   j+j_delta-1, k+k_delta  ,ib)
+                                                        q_work(i+i_delta,   j+j_delta-1, k+k_delta  ,ib,1)
                      q(i_fine,  j_fine+1,k_fine+1,ic) = q(i_fine,j_fine+1,k_fine+1,ic) + &
                                                         (0.25_R8P + i_delta * 0.5_R8P) * &
                                                         (0.75_R8P - j_delta * 0.5_R8P) * &
                                                         (0.75_R8P - k_delta * 0.5_R8P) * &
-                                                        self%q_work(i+i_delta-1, j+j_delta  , k+k_delta  ,ib)
+                                                        q_work(i+i_delta-1, j+j_delta  , k+k_delta  ,ib,1)
                      q(i_fine+1,j_fine+1,k_fine+1,ic) = q(i_fine+1,j_fine+1,k_fine+1,ic) + &
                                                         (0.75_R8P - i_delta * 0.5_R8P) *   &
                                                         (0.75_R8P - j_delta * 0.5_R8P) *   &
                                                         (0.75_R8P - k_delta * 0.5_R8P) *   &
-                                                        self%q_work(i+i_delta,   j+j_delta  , k+k_delta  ,ib)
-
+                                                        q_work(i+i_delta,   j+j_delta  , k+k_delta  ,ib,1)
                      enddo
                      enddo
                      enddo
@@ -1307,9 +1099,9 @@ contains
          self%code(ic8) = block_refined(1,(b-1)*ratio+8)
       enddo
 
-       do b=1, size(block_refined, dim=2)
+      do b=1, size(block_refined, dim=2)
 
-       enddo
+      enddo
    endif
    endassociate
    endsubroutine refine
@@ -1330,6 +1122,7 @@ contains
    call assign_allocatable(lhs=lhs%coordinates, rhs=rhs%coordinates)
    call assign_allocatable(lhs=lhs%emin, rhs=rhs%emin)
    call assign_allocatable(lhs=lhs%emax, rhs=rhs%emax)
+   call assign_allocatable(lhs=lhs%dxyz, rhs=rhs%dxyz)
    call assign_allocatable(lhs=lhs%x_cell, rhs=rhs%x_cell)
    call assign_allocatable(lhs=lhs%y_cell, rhs=rhs%y_cell)
    call assign_allocatable(lhs=lhs%z_cell, rhs=rhs%z_cell)
@@ -1360,12 +1153,7 @@ contains
    call assign_allocatable(lhs=lhs%send_buffer_ghost, rhs=rhs%send_buffer_ghost)
    call assign_allocatable(lhs=lhs%recv_buffer_ghost, rhs=rhs%recv_buffer_ghost)
    ! field equations data
-   call assign_allocatable(lhs=lhs%u, rhs=rhs%u)
+   call assign_allocatable(lhs=lhs%q, rhs=rhs%q)
    call assign_allocatable(lhs=lhs%q_work, rhs=rhs%q_work)
-   call assign_allocatable(lhs=lhs%u_s, rhs=rhs%u_s)
-   ! RK data, related to field equations
-   lhs%alph = rhs%alph
-   lhs%beta = rhs%beta
-   lhs%gamm = rhs%gamm
    endsubroutine field_assign_field
 endmodule adam_field_object

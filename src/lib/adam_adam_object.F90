@@ -55,7 +55,7 @@ contains
    class(adam_object), intent(inout) :: self !< ADAM.
 
    call self%tree%adapt
-   call self%field%adapt(q=self%field%u, ratio=self%tree%ratio,                                            &
+   call self%field%adapt(ratio=self%tree%ratio,                                                            &
                          block_to_refine=self%tree%block_to_refine, block_refined=self%tree%block_refined, &
                          block_to_derefine=self%tree%block_to_derefine, block_derefined=self%tree%block_derefined)
    endsubroutine adapt
@@ -63,6 +63,9 @@ contains
    subroutine amr_update(self, is_marked_by_field, is_marked_by_tree, do_mpi_redistribute, do_blocks_reorder, &
                          print_mpi_stats, is_grid_changed)
    !< Update AMR status.
+   !<
+   !< Note: AMR update can be safely called only *after* field%update_ghost has been called for *q* variables, otherwise
+   !< refine is not well done.
    class(adam_object), intent(inout)         :: self                 !< ADAM.
    logical,            intent(in),  optional :: is_marked_by_field   !< Flag to check if marker is field.
    logical,            intent(in),  optional :: is_marked_by_tree    !< Flag to check if marker is tree.
@@ -77,8 +80,6 @@ contains
    do_blocks_reorder_ = .true.  ; if (present(do_blocks_reorder)) do_blocks_reorder_ = do_blocks_reorder
 
    call self%mpi_gather_refinement_needed(is_marked_by_field=is_marked_by_field, is_marked_by_tree=is_marked_by_tree)
-
-   call self%update_ghost
 
    call self%adapt
 
@@ -97,8 +98,7 @@ contains
    class(adam_object), intent(inout) :: self !< ADAM.
 
    call self%tree%blocks_reorder
-   call self%field%blocks_reorder(q=self%field%u,                                        &
-                                  inner_outer_block_map=self%tree%inner_outer_block_map, &
+   call self%field%blocks_reorder(inner_outer_block_map=self%tree%inner_outer_block_map, &
                                   inner_blocks_number=self%tree%inner_blocks_number)
    endsubroutine blocks_reorder
 
@@ -209,8 +209,7 @@ contains
    print_mpi_stats_ = .false. ; if (present(print_mpi_stats)) print_mpi_stats_ = print_mpi_stats
    call self%tree%mpi_redistribute
    if (print_mpi_stats_) call self%tree%mpi_print_stats
-   call self%field%mpi_redistribute(q=self%field%u,                                &
-                                    comm_map_send=self%tree%comm_map_send,         &
+   call self%field%mpi_redistribute(comm_map_send=self%tree%comm_map_send,         &
                                     comm_map_recv=self%tree%comm_map_recv,         &
                                     comm_map_send_ptr=self%tree%comm_map_send_ptr, &
                                     comm_map_recv_ptr=self%tree%comm_map_recv_ptr, &
@@ -219,21 +218,23 @@ contains
                                     code=self%tree%block_code)
    endsubroutine mpi_redistribute
 
-   subroutine save_hdf5(self, basename, directory, with_ghost, with_cell_morton, with_ls)
+   subroutine save_hdf5(self, basename, directory, var_name, with_ghost, with_cell_morton, with_ls)
    !< Save ADAM in HDF5 format.
    class(adam_object), intent(inout)        :: self              !< ADAM.
    character(*),       intent(in)           :: basename          !< Base name of output files.
    character(*),       intent(in), optional :: directory         !< Directory name of output files.
+   character(*),       intent(in), optional :: var_name(:)       !< Variables names.
    logical,            intent(in), optional :: with_ghost        !< Flag to save ghost cells.
    logical,            intent(in), optional :: with_cell_morton  !< Flag to save Morton code also in cells.
    logical,            intent(in), optional :: with_ls           !< Flag to save level set field.
    character(:), allocatable                :: directory_        !< Directory name of output files, local var.
+   character(:), allocatable                :: var_name_(:)      !< Variables names, local var.
    logical                                  :: with_ghost_       !< Flag to save ghost cells, local var.
    logical                                  :: with_cell_morton_ !< Flag to save Morton code also in cells, local var.
    logical                                  :: with_ls_          !< Flag to save level set field, local var.
    type(tree_node_object), pointer          :: node              !< Pointer to node.
    real(R8P)                                :: emin(3)           !< Minimum abscissa of current block.
-   integer(I4P)                             :: b                 !< Counter.
+   integer(I4P)                             :: b, v              !< Counter.
    integer(I4P)                             :: xdmf              !< XDMF file handler.
    character(len=:), allocatable            :: h5_file_name      !< H5 Dataset name.
    character(len=:), allocatable            :: h5_dset_name      !< H5 Dataset name.
@@ -249,6 +250,16 @@ contains
    integer(I4P)                             :: i, j, k, l        !< Counter.
 
    directory_ = '' ; if (present(directory)) directory_ = trim(directory)
+   if (present(var_name)) then
+      allocate(character(len(var_name(1))):: var_name_(self%field%nv))
+      var_name_ = var_name
+   else
+      allocate(character(4):: var_name_(self%field%nv))
+      do v=1, self%field%nv
+         var_name_(v) = 'q-'//trim(strz(v,2))
+      enddo
+   endif
+
    with_ghost_ = .false. ; if (present(with_ghost)) with_ghost_ = with_ghost
    with_cell_morton_ = .false. ; if (present(with_cell_morton)) with_cell_morton_ = with_cell_morton
    with_ls_ = .false. ; if (present(with_ls)) with_ls_ = with_ls.and.allocated(self%field%ls)
@@ -273,11 +284,13 @@ contains
    call h5screate_simple_f(3_I4P, [int(ni+2*gci,I8P),int(nj+2*gcj,I8P),int(nk+2*gck,I8P)], h5_dspace_id, self%error)
    ! save all blocks in process
    do b=1, self%field%blocks_number
-      h5_dset_name = 'u-'//trim(str(self%myrank,.true.))//'-'//trim(str(b,.true.))
-      call h5dcreate_f(h5_file_id, h5_dset_name, H5T_NATIVE_DOUBLE, h5_dspace_id, h5_dset_id, self%error)
-      call h5dwrite_f(h5_dset_id, H5T_NATIVE_DOUBLE, self%field%u(1-gci:ni+gci,1-gcj:nj+gcj,1-gck:nk+gck,b), &
-                      [int(ni+2*gci,I8P),int(nj+2*gcj,I8P),int(nk+2*gck,I8P)], self%error)
-      call h5dclose_f(h5_dset_id, self%error)
+      do v=1, self%field%nv
+         h5_dset_name = trim(var_name_(v))//'-'//trim(str(self%myrank,.true.))//'-'//trim(str(b,.true.))
+         call h5dcreate_f(h5_file_id, h5_dset_name, H5T_NATIVE_DOUBLE, h5_dspace_id, h5_dset_id, self%error)
+         call h5dwrite_f(h5_dset_id, H5T_NATIVE_DOUBLE, self%field%q(1-gci:ni+gci,1-gcj:nj+gcj,1-gck:nk+gck,b), &
+                         [int(ni+2*gci,I8P),int(nj+2*gcj,I8P),int(nk+2*gck,I8P)], self%error)
+         call h5dclose_f(h5_dset_id, self%error)
+      enddo
 
       if (with_cell_morton_) then
          h5_dset_name = 'morton-'//trim(str(self%myrank,.true.))//'-'//trim(str(b,.true.))
@@ -337,11 +350,13 @@ contains
          write(xdmf, '(A)') '          </Geometry>'
          write(xdmf, '(A)') '          <Topology Dimensions="'//grid_dims//'" Type="3DCoRectMesh"/>'
 
-         h5_dset_name = 'u-'//trim(str(node%myrank,.true.))//'-'//trim(str(b,.true.))
-         write(xdmf, '(A)') '          <Attribute Name="u" Center="Cell" ElementDegree="0" Type="Scalar">'
-         write(xdmf, '(A)') '            <DataItem DataType="Float" Dimensions="'//grid_dims//'" Format="HDF" Precision="8">'// &
-                                       h5_file_name//':'//h5_dset_name//'</DataItem>'
-         write(xdmf, '(A)') '          </Attribute>'
+         do v=1, self%field%nv
+            h5_dset_name = trim(var_name_(v))//'-'//trim(str(node%myrank,.true.))//'-'//trim(str(b,.true.))
+            write(xdmf, '(A)') '          <Attribute Name="'//trim(var_name_(v))//'" Center="Cell" ElementDegree="0" Type="Scalar">'
+            write(xdmf, '(A)') '            <DataItem DataType="Float" Dimensions="'//grid_dims//'" Format="HDF" Precision="8">'// &
+                                          h5_file_name//':'//h5_dset_name//'</DataItem>'
+            write(xdmf, '(A)') '          </Attribute>'
+         enddo
 
          if (with_cell_morton_) then
             h5_dset_name = 'morton-'//trim(str(node%myrank,.true.))//'-'//trim(str(b,.true.))
@@ -384,18 +399,20 @@ contains
    endassociate
    endsubroutine save_hdf5
 
-   subroutine save_vtk(self, basename, directory, with_ghost)
+   subroutine save_vtk(self, basename, var_name, directory, with_ghost)
    !< Save ADAM in VTK files.
    class(adam_object), intent(inout)        :: self                                          !< ADAM.
    character(*),       intent(in)           :: basename                                      !< Base name of output files.
    character(*),       intent(in), optional :: directory                                     !< Output directory name.
+   character(*),       intent(in), optional :: var_name(:)                                   !< Variables names.
    logical,            intent(in), optional :: with_ghost                                    !< Flag to save ghost cells.
    character(:), allocatable                :: directory_                                    !< Output directory name, local var.
+   character(:), allocatable                :: var_name_(:)                                  !< Variables names, local var.
    logical                                  :: with_ghost_                                   !< Flag to save ghost cells, local var.
    type(vtk_file)                           :: vtk                                           !< VTK file handler.
    type(vtm_file)                           :: vtm                                           !< VTM file handler.
    type(tree_node_object), pointer          :: node                                          !< Pointer to node.
-   integer(I4P)                             :: b, l                                          !< Counter.
+   integer(I4P)                             :: b, l, v                                       !< Counter.
    integer(I4P)                             :: i, j, k                                       !< Counter.
    integer(I4P)                             :: max_level                                     !< Maximum level.
    integer(I4P)                             :: gci, gcj, gck                                 !< Ghost cells saved.
@@ -404,6 +421,15 @@ contains
    real(R8P)                                :: z(0-self%grid%gck:self%grid%nk+self%grid%gck) !< Z coordinates.
 
    directory_ = '' ; if (present(directory)) directory_ = trim(directory)
+   if (present(var_name)) then
+      allocate(character(len(var_name(1))):: var_name_(self%field%nv))
+      var_name_ = var_name
+   else
+      allocate(character(4):: var_name_(self%field%nv))
+      do v=1, self%field%nv
+         var_name_(v) = 'q-'//trim(strz(v,2))
+      enddo
+   endif
    with_ghost_ = .false. ; if (present(with_ghost)) with_ghost_ = with_ghost
    if (with_ghost_) then
       gci = self%grid%gci
@@ -432,7 +458,10 @@ contains
          self%error = vtk%xml_writer%write_piece(nx1=0-gci, nx2=ni+gci, ny1=0-gcj, ny2=nj+gcj, nz1=0-gck, nz2=nk+gck)
          self%error = vtk%xml_writer%write_geo(x=x(0-gci:ni+gci), y=y(0-gcj:nj+gcj), z=z(0-gck:nk+gck))
          self%error = vtk%xml_writer%write_dataarray(location='cell', action='open')
-         self%error = vtk%xml_writer%write_dataarray(data_name='u', x=[self%field%u(1-gci:ni+gci,1-gcj:nj+gcj,1-gck:nk+gck,b)])
+         do v=1, self%field%nv
+            self%error = vtk%xml_writer%write_dataarray(data_name=trim(var_name_(v)), &
+                                                        x=[self%field%q(1-gci:ni+gci,1-gcj:nj+gcj,1-gck:nk+gck,b)])
+         enddo
          self%error = vtk%xml_writer%write_dataarray(location='cell', action='close')
          self%error = vtk%xml_writer%write_piece()
          self%error = vtk%finalize()
@@ -461,7 +490,7 @@ contains
    !< Update ghost cells.
    class(adam_object), intent(inout) :: self !< ADAM.
 
-   if (self%tree%nodes_number > 1) call self%field%update_ghost(q=self%field%u(:,:,:,:))
+   if (self%tree%nodes_number > 1) call self%field%update_ghost(q=self%field%q(:,:,:,:))
    endsubroutine update_ghost
 
    ! operators

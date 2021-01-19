@@ -3,6 +3,7 @@ program adam_test_adam_object_mpi_cuda
 !< ADAM, test ADAM class in MPI env.
 
 use adam_adam_object
+use adam_equation_laplace_object
 use adam_field_object
 use adam_parameters
 !GPUuse adam_field_gpu_object
@@ -11,14 +12,15 @@ use PENF
 
 implicit none
 
-type(adam_object)      :: adam            !< ADAM.
+type(adam_object)               :: adam            !< ADAM.
+type(equation_laplace_object)   :: laplace         !< Laplace equation.
+type(tree_node_object), pointer :: node            !< Tree node pointer.
+integer(I4P)                    :: l, t            !< Counter.
+logical                         :: is_grid_changed !< Flag to check grid changes.
+real(R8P)                       :: time            !< Time.
+integer(I8P)                    :: timing(0:2)     !< Tic toc timing.
+integer(I4P)                    :: n_iter          !< Number of iterations
 !GPUtype(field_gpu_object) :: field_gpu       !< GPU field.
-integer(I4P)           :: l, t            !< Counter.
-logical                :: is_grid_changed !< Flag to check grid changes.
-real(R8P)              :: time            !< Time.
-integer(I8P)           :: timing(0:2)     !< Tic toc timing.
-integer(I4P)           :: n_iter          !< Number of iterations
-type(tree_node_object), pointer :: node
 
 print '(A)', 'initialize ADAM'
 call adam%initialize(max_level=7,                                              &
@@ -30,12 +32,16 @@ call adam%initialize(max_level=7,                                              &
                               BC_EXTRAPOLATION,BC_EXTRAPOLATION,               &
                               BC_EXTRAPOLATION,BC_EXTRAPOLATION],              &
                      nb=40000, nodes_number=16*40000_I8P)
+
+call laplace%initialize
 !GPUcall field_gpu%initialize(field_cpu=adam%field)
 
 do l=1, 2
    print '(A)', 'refine ADAM at level '//trim(str(l))
    print *, 'blocks_number: ',adam%field%blocks_number
    call adam%tree%mark_all_nodes(mark=TO_BE_REFINED)
+   if (adam%tree%nodes_number > 1) call adam%field%update_ghost(q=adam%field%q(:,:,:,:))
+   call laplace%set_boundary_conditions(field=adam%field, q=adam%field%q)
    call adam%amr_update(do_blocks_reorder=.false., do_mpi_redistribute=.true. )
 enddo
 
@@ -46,16 +52,17 @@ enddo
 ! call adam%amr_update(do_blocks_reorder=.false.)
 ! print*,'n_blocks: ',adam%tree%nodes_number
 ! call adam%update_ghost
-call adam%save_vtk(basename='sphere-'//trim(strz(t,9)), with_ghost=.true.)
-call adam%finalize
+! call adam%save_vtk(basename='sphere-'//trim(strz(t,9)), with_ghost=.true.)
+! call adam%finalize
 
 print*,' BC faces number: ', size(adam%tree%local_map_bc_face, dim=1)
 print*,' BC edges number: ', size(adam%tree%local_map_bc_edge, dim=1)
 print*,' BC corners number: ', size(adam%tree%local_map_bc_corner, dim=1)
 
 print '(A)', 'set initial conditions'
-call adam%field%set_initial_conditions
-!call adam%save_hdf5(basename='sphere-'//trim(strz(0,9)), with_ghost=.false., with_cell_morton=.true.)
+! call adam%field%set_initial_conditions
+call laplace%set_initial_conditions(field=adam%field)
+
 !call adam%save_vtk(basename='sphere-'//trim(strz(0,9)), with_ghost=.true.)
 
 !call field_gpu%copy_cpu_gpu
@@ -79,12 +86,16 @@ do t=1, n_iter
    if (mod(t,1)==0) print '(A)', 'track iteration '//trim(str(t, .true.))
    !GPUcall field_gpu%rk_integrate(t=time, Dt=0.1_R8P)
 
-   call adam%field%mark_by_grad_q(q=adam%field%u)
+   ! call adam%field%mark_by_grad_q
+   call laplace%mark_by_grad_q(field=adam%field)
+   if (adam%tree%nodes_number > 1) call adam%field%update_ghost(q=adam%field%q(:,:,:,:))
+   call laplace%set_boundary_conditions(field=adam%field, q=adam%field%q)
    call adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false.)
    print*, 'blocks number: ', adam%tree%nodes_number
    ! print*, ' is 577 with us? ', adam%tree%has_code(code=577_I8P)
 
-   call adam%field%rk_integrate(t=time, Dt=0.006_R8P)
+   ! call adam%field%rk_integrate(t=time, Dt=0.006_R8P)
+   call laplace%integrate(field=adam%field, t=time, Dt=0.006_R8P)
    !call field_gpu%copy_gpu_cpu
    if (mod(t,1)==0) call adam%save_hdf5(basename='sphere-'//trim(strz(t,9)), with_ghost=.false., with_cell_morton=.true.)
    ! if (t==9.or.t==10) then
