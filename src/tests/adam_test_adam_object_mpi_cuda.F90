@@ -33,15 +33,14 @@ call adam%initialize(max_level=7,                                              &
                               BC_EXTRAPOLATION,BC_EXTRAPOLATION],              &
                      nb=40000, nodes_number=16*40000_I8P)
 
-call laplace%initialize
+call laplace%initialize(field=adam%field)
 !GPUcall field_gpu%initialize(field_cpu=adam%field)
 
 do l=1, 2
    print '(A)', 'refine ADAM at level '//trim(str(l))
    print *, 'blocks_number: ',adam%field%blocks_number
    call adam%tree%mark_all_nodes(mark=TO_BE_REFINED)
-   if (adam%tree%nodes_number > 1) call adam%field%update_ghost(q=adam%field%q(:,:,:,:))
-   call laplace%set_boundary_conditions(field=adam%field, q=adam%field%q)
+   call laplace%update_ghost(field=adam%field, q=adam%field%q)
    call adam%amr_update(do_blocks_reorder=.false., do_mpi_redistribute=.true. )
 enddo
 
@@ -88,8 +87,7 @@ do t=1, n_iter
 
    ! call adam%field%mark_by_grad_q
    call laplace%mark_by_grad_q(field=adam%field)
-   if (adam%tree%nodes_number > 1) call adam%field%update_ghost(q=adam%field%q(:,:,:,:))
-   call laplace%set_boundary_conditions(field=adam%field, q=adam%field%q)
+   call laplace%update_ghost(field=adam%field, q=adam%field%q)
    call adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false.)
    print*, 'blocks number: ', adam%tree%nodes_number
    ! print*, ' is 577 with us? ', adam%tree%has_code(code=577_I8P)

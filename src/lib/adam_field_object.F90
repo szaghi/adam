@@ -122,10 +122,8 @@ type :: field_object
    real(R8P), allocatable :: send_buffer_ghost(:) !< Send buffer of ghost cells.
    real(R8P), allocatable :: recv_buffer_ghost(:) !< Receive buffer of ghost cells.
    ! field equations data
-   real(R8P), allocatable :: q(     :,:,:,:  ) !< Field cell centered variables [ni+2gci,nj+2gcj,nk+2gck,nv,nb].
-   real(R8P), allocatable :: q_work(:,:,:,:,:) !< Field components cell centered, working buffer memory.
-
-   real(R8P), allocatable  :: ls(    :,:,:,:  ) !< Level set field [ni+2gci,nj+2gcj,nk+2gck,nv,nb].
+   real(R8P), allocatable :: q(     :,:,:,:,:) !< Field cell centered variables [ni+2gci,nj+2gcj,nk+2gck,nv,nb].
+   real(R8P), allocatable :: q_work(:,:,:,:,:) !< Field cell centered variables, working buffer memory.
    contains
       ! public methods
       procedure, pass(self) :: adapt                         !< Adapt field accordingly to refine/derefine necessity.
@@ -177,12 +175,12 @@ contains
    allocate(coordinates_new(4,self%blocks_number))
    allocate(code_new(self%blocks_number))
    do b=1, self%blocks_number
-      self%q_work(:,:,:,b,1) = self%q(:,:,:,inner_outer_block_map(b))
+      self%q_work(:,:,:,:,b) = self%q(:,:,:,:,inner_outer_block_map(b))
       coordinates_new(:,b) = self%coordinates(:,inner_outer_block_map(b))
       code_new(b) = self%code(inner_outer_block_map(b))
    enddo
    do b=1, self%blocks_number
-      self%q(:,:,:,b) = self%q_work(:,:,:,b,1)
+      self%q(:,:,:,:,b) = self%q_work(:,:,:,:,b)
       self%coordinates(:,b) = coordinates_new(:,b)
       self%code(b) = code_new(b)
    enddo
@@ -246,12 +244,12 @@ contains
       self%emin(:,1) = self%grid%domain_emin
       self%emax(:,1) = self%grid%domain_emax
 
-      allocate(self%q(1-self%grid%gci:self%grid%ni+self%grid%gci, &
-                      1-self%grid%gcj:self%grid%nj+self%grid%gcj, &
-                      1-self%grid%gck:self%grid%nk+self%grid%gck, 1:self%nb))
+      allocate(     self%q(1-self%grid%gci:self%grid%ni+self%grid%gci, &
+                           1-self%grid%gcj:self%grid%nj+self%grid%gcj, &
+                           1-self%grid%gck:self%grid%nk+self%grid%gck, 1:self%nv, 1:self%nb))
       allocate(self%q_work(1-self%grid%gci:self%grid%ni+self%grid%gci, &
                            1-self%grid%gcj:self%grid%nj+self%grid%gcj, &
-                           1-self%grid%gck:self%grid%nk+self%grid%gck, 1:self%nb, 1:3))
+                           1-self%grid%gck:self%grid%nk+self%grid%gck, 1:self%nv, 1:self%nb))
       self%q = 0._R8P
       self%q_work = 0._R8P
    endif
@@ -412,7 +410,7 @@ contains
       send_offset = 1
       do b=1, size(comm_map_send, dim=1)
          bi = comm_map_send(b)
-         send_buffer(send_offset:send_offset + self%block_weight - 1) = reshape(self%q(:,:,:,bi),[self%block_weight])
+         send_buffer(send_offset:send_offset + self%block_weight - 1) = reshape(self%q(:,:,:,:,bi),[self%block_weight])
          send_offset = send_offset + self%block_weight
       enddo
    endif
@@ -447,19 +445,19 @@ contains
       recv_offset = 1
       do b=1, size(comm_map_recv, dim=1)
           bi = comm_map_recv(b)
-          self%q_work(:,:,:,bi,1) = reshape(recv_buffer(recv_offset:recv_offset + self%block_weight -1),&
+          self%q_work(:,:,:,:,bi) = reshape(recv_buffer(recv_offset:recv_offset + self%block_weight -1),&
                                             [self%grid%gci+self%grid%ni+self%grid%gci,                  &
                                              self%grid%gcj+self%grid%nj+self%grid%gcj,                  &
-                                             self%grid%gck+self%grid%nk+self%grid%gck])
+                                             self%grid%gck+self%grid%nk+self%grid%gck,self%nv])
           recv_offset = recv_offset + self%block_weight
       enddo
    endif
 
    do b=1, n_keep
-      self%q_work(:,:,:,local_map(b,1),1) = self%q(:,:,:,local_map(b,2))
+      self%q_work(:,:,:,:,local_map(b,1)) = self%q(:,:,:,:,local_map(b,2))
    enddo
    self%blocks_number = n_keep  + recv_size / self%block_weight
-   self%q(:,:,:,1:self%blocks_number) = self%q_work(:,:,:,1:self%blocks_number,1)
+   self%q(:,:,:,:,1:self%blocks_number) = self%q_work(:,:,:,:,1:self%blocks_number)
    self%coordinates(:, 1:self%blocks_number) = coordinates
    self%code(1:self%blocks_number) = code
    call self%compute_metrics
@@ -493,8 +491,8 @@ contains
    if (allocated(self%send_buffer_ghost)) deallocate(self%send_buffer_ghost)
    if (allocated(self%recv_buffer_ghost)) deallocate(self%recv_buffer_ghost)
 
-   if (allocated(self%comm_map_n_send_ghost)) allocate(self%send_buffer_ghost(sum(self%comm_map_n_send_ghost, dim=1)))
-   if (allocated(self%comm_map_n_recv_ghost)) allocate(self%recv_buffer_ghost(sum(self%comm_map_n_recv_ghost, dim=1)))
+   if (allocated(self%comm_map_n_send_ghost)) allocate(self%send_buffer_ghost(sum(self%comm_map_n_send_ghost, dim=1)*self%nv))
+   if (allocated(self%comm_map_n_recv_ghost)) allocate(self%recv_buffer_ghost(sum(self%comm_map_n_recv_ghost, dim=1)*self%nv))
    endsubroutine prepare_comm_local_ghost
 
    subroutine prepare_local_bc(self, local_map_bc_face, local_map_bc_edge, local_map_bc_corner)
@@ -509,105 +507,15 @@ contains
    call assign_allocatable(lhs=self%local_map_bc_corner, rhs=local_map_bc_corner)
    endsubroutine prepare_local_bc
 
-   subroutine set_boundary_conditions(self, q)
-   !< Set boundary conditions of field.
-   class(field_object), intent(inout) :: self                   !< The field.
-   real(R8P),           intent(inout) :: q(1-self%grid%gci:,&
-                                           1-self%grid%gcj:,&
-                                           1-self%grid%gck:,1:) !< Field component to be updated.
-
-   if (allocated(self%local_map_bc_face))   call set_bc_fec(local_map_bc=self%local_map_bc_face)
-   if (allocated(self%local_map_bc_edge))   call set_bc_fec(local_map_bc=self%local_map_bc_edge)
-   if (allocated(self%local_map_bc_corner)) call set_bc_fec(local_map_bc=self%local_map_bc_corner)
-   contains
-      subroutine set_bc_fec(local_map_bc)
-      integer(I8P), intent(in) :: local_map_bc(:,:) !< Local map for BC ghost cells.
-      integer(I4P)             :: b                 !< Counter.
-      integer(I4P)             :: f, i, j, k        !< Counter.
-      integer(I4P)             :: fec               !< Counter.
-      integer(I4P)             :: ijkmin(3)         !< Lower limit of ijk indexes.
-      integer(I4P)             :: ijkmax(3)         !< Upper limit of ijk indexes.
-      integer(I4P)             :: ijkdelta(3)       !< IJK delta step for extrapolation.
-      integer(I4P)             :: bc_type           !< Boundary condition type.
-
-      do f=1, size(local_map_bc, dim=1)
-         b        = local_map_bc(f, 1)
-         fec      = local_map_bc(f, 2)
-         ijkmin   = local_map_bc(f, 3:5)
-         ijkmax   = local_map_bc(f, 6:8)
-         ijkdelta = local_map_bc(f, 9:11)
-         bc_type  = local_map_bc(f, 12)
-         if (bc_type == BC_EXTRAPOLATION) then
-            do k=ijkmin(3), ijkmax(3), sign(1, ijkmax(3)-ijkmin(3))
-               do j=ijkmin(2), ijkmax(2), sign(1, ijkmax(2)-ijkmin(2))
-                  do i=ijkmin(1), ijkmax(1), sign(1, ijkmax(1)-ijkmin(1))
-                     q(i,j,k,b) = q(i-ijkdelta(1), j-ijkdelta(2), k-ijkdelta(3), b)
-                  enddo
-               enddo
-            enddo
-         elseif (bc_type == BC_INFLOW) then
-            do k=ijkmin(3), ijkmax(3), sign(1, ijkmax(3)-ijkmin(3))
-               do j=ijkmin(2), ijkmax(2), sign(1, ijkmax(2)-ijkmin(2))
-                  do i=ijkmin(1), ijkmax(1), sign(1, ijkmax(1)-ijkmin(1))
-                     ! q(i,j,k,b) = 1._R8P
-                     q(i,j,k,b) = exp(-((self%y_cell(j,b) - 0.5)**2/(2 * 0.2**2)+&
-                                        (self%z_cell(k,b) - 0.5)**2/(2 * 0.2**2)))
-                  enddo
-               enddo
-            enddo
-         endif
-      enddo
-      endsubroutine set_bc_fec
-   endsubroutine set_boundary_conditions
-
-   subroutine set_initial_conditions(self)
-   !< Set initial conditions of field.
-   class(field_object), intent(inout) :: self    !< The field.
-   integer(I4P)                       :: b       !< Counter.
-   integer(I4P)                       :: i, j, k !< Counter.
-   real(R8P)                          :: a       !< Gaussian amplitude.
-   real(R8P)                          :: sigma_x !< Gaussian x variance.
-   real(R8P)                          :: sigma_y !< Gaussian y variance.
-   real(R8P)                          :: sigma_z !< Gaussian z variance.
-   real(R8P)                          :: x_0     !< Gaussian x center.
-   real(R8P)                          :: y_0     !< Gaussian y center.
-   real(R8P)                          :: z_0     !< Gaussian z center.
-
-   a = 1.0_R8P
-   x_0 = (self%grid%domain_emax(1) - self%grid%domain_emin(1)) / 5.0_R8P
-   y_0 = (self%grid%domain_emax(2) - self%grid%domain_emin(2)) / 2.0_R8P
-   z_0 = (self%grid%domain_emax(3) - self%grid%domain_emin(3)) / 2.0_R8P
-   sigma_x = 0.05_R8P
-   sigma_y = 0.05_R8P
-   sigma_z = 0.05_R8P
-   associate(blocks_number=>self%blocks_number,                             &
-             q=>self%q,                                                     &
-             ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk,          &
-             gci=>self%grid%gci, gcj=>self%grid%gcj, gck=>self%grid%gck,    &
-             x_cell=>self%x_cell, y_cell=>self%y_cell, z_cell=>self%z_cell)
-   do b=1, blocks_number
-      do k=1, nk
-         do j=1, nj
-            do i=1, ni
-               q(i,j,k,b) = a * exp(-((x_cell(i,b) - x_0)**2/(2 * sigma_x**2)+&
-                                      (y_cell(j,b) - y_0)**2/(2 * sigma_y**2)+&
-                                      (z_cell(k,b) - z_0)**2/(2 * sigma_z**2)))
-            enddo
-         enddo
-      enddo
-   enddo
-   endassociate
-   endsubroutine set_initial_conditions
-
    subroutine update_ghost(self, q, step)
    !< Update ghost cells.
    !< If not specified all steps are perfermod, syncronous computation
-   class(field_object), intent(inout)        :: self                   !< The field.
+   class(field_object), intent(inout)        :: self                      !< The field.
    real(R8P),           intent(inout)        :: q(1-self%grid%gci:,&
                                                   1-self%grid%gcj:,&
-                                                  1-self%grid%gck:,1:) !< Field component to be updated.
-   integer(I4P),        intent(in), optional :: step                   !< Step to be perfordmed in asyncronous computations.
-   logical                                   :: do_local_update        !< Flag for triggering local update.
+                                                  1-self%grid%gck:,1:,1:) !< Field component to be updated.
+   integer(I4P),        intent(in), optional :: step                      !< Step to be perfordmed in asyncronous computations.
+   logical                                   :: do_local_update           !< Flag for triggering local update.
 
    ! perform local update if step is not speficied or if first step is selected
    do_local_update = .false.
@@ -623,19 +531,19 @@ contains
 
    subroutine update_ghost_local(self, q)
    !< Update (local) ghost cells, rank 4.
-   class(field_object), intent(inout) :: self                    !< The field.
+   class(field_object), intent(inout) :: self                      !< The field.
    real(R8P),           intent(inout) :: q(1-self%grid%gci:,&
                                            1-self%grid%gcj:,&
-                                           1-self%grid%gck:,1:)  !< Field component to be updated.
-   integer(I4P)                       :: i, j, k, mf             !< Counter.
-   integer(I4P)                       :: iii, jjj, kkk           !< Counter.
-   integer(I4P)                       :: fec                     !< Direction where ghost cells are updated, faces/edges/corners.
-   integer(I4P)                       :: portion                 !< Portion of fec updated (0=>whole fec).
-   integer(I4P)                       :: b_recv                  !< Index of receiving block.
-   integer(I4P)                       :: b_send                  !< Index of sending block.
-   integer(I4P)                       :: ijkmin(3)               !< Lower limit of ijk indexes.
-   integer(I4P)                       :: ijkmax(3)               !< Upper limit of ijk indexes.
-   integer(I4P)                       :: ijkdelta(3)             !< Delta offset for ghost-inner cells mapping same refinement.
+                                           1-self%grid%gck:,1:,1:) !< Field component to be updated.
+   integer(I4P)                       :: i, j, k, mf               !< Counter.
+   integer(I4P)                       :: iii, jjj, kkk             !< Counter.
+   integer(I4P)                       :: fec                       !< Direction where ghost cells are updated, faces/edges/corners.
+   integer(I4P)                       :: portion                   !< Portion of fec updated (0=>whole fec).
+   integer(I4P)                       :: b_recv                    !< Index of receiving block.
+   integer(I4P)                       :: b_send                    !< Index of sending block.
+   integer(I4P)                       :: ijkmin(3)                 !< Lower limit of ijk indexes.
+   integer(I4P)                       :: ijkmax(3)                 !< Upper limit of ijk indexes.
+   integer(I4P)                       :: ijkdelta(3)               !< Delta offset for ghost-inner cells mapping same refinement.
 
    if (.not.allocated(self%local_map_ghost)) return
    do mf=1, size(self%local_map_ghost, dim=1)
@@ -651,7 +559,7 @@ contains
          do k=ijkmin(3), ijkmax(3)
             do j=ijkmin(2), ijkmax(2)
                do i=ijkmin(1), ijkmax(1)
-                  q(i,j,k,b_recv) = q(i+ijkdelta(1),j+ijkdelta(2),k+ijkdelta(3),b_send)
+                  q(i,j,k,:,b_recv) = q(i+ijkdelta(1),j+ijkdelta(2),k+ijkdelta(3),:,b_send)
                enddo
             enddo
          enddo
@@ -663,10 +571,10 @@ contains
                   kkk = 2 * k + ijkdelta(3)
                   jjj = 2 * j + ijkdelta(2)
                   iii = 2 * i + ijkdelta(1)
-                  q(i,j,k,b_recv) = (q(iii,jjj,  kkk,  b_send) + q(iii+1,jjj,  kkk,  b_send) + &
-                                     q(iii,jjj+1,kkk,  b_send) + q(iii+1,jjj+1,kkk,  b_send) + &
-                                     q(iii,jjj,  kkk+1,b_send) + q(iii+1,jjj,  kkk+1,b_send) + &
-                                     q(iii,jjj+1,kkk+1,b_send) + q(iii+1,jjj+1,kkk+1,b_send)) / 8._R8P
+                  q(i,j,k,:,b_recv) = (q(iii,jjj,  kkk,  :,b_send) + q(iii+1,jjj,  kkk,  :,b_send) + &
+                                       q(iii,jjj+1,kkk,  :,b_send) + q(iii+1,jjj+1,kkk,  :,b_send) + &
+                                       q(iii,jjj,  kkk+1,:,b_send) + q(iii+1,jjj,  kkk+1,:,b_send) + &
+                                       q(iii,jjj+1,kkk+1,:,b_send) + q(iii+1,jjj+1,kkk+1,:,b_send)) / 8._R8P
                enddo
             enddo
          enddo
@@ -678,14 +586,14 @@ contains
                   kkk = 2 * k + ijkdelta(3)
                   jjj = 2 * j + ijkdelta(2)
                   iii = 2 * i + ijkdelta(1)
-                  q(iii,  jjj,  kkk  ,b_recv) = q(i,j,k,b_send)
-                  q(iii+1,jjj,  kkk  ,b_recv) = q(i,j,k,b_send)
-                  q(iii,  jjj+1,kkk  ,b_recv) = q(i,j,k,b_send)
-                  q(iii+1,jjj+1,kkk  ,b_recv) = q(i,j,k,b_send)
-                  q(iii,  jjj,  kkk+1,b_recv) = q(i,j,k,b_send)
-                  q(iii+1,jjj,  kkk+1,b_recv) = q(i,j,k,b_send)
-                  q(iii,  jjj+1,kkk+1,b_recv) = q(i,j,k,b_send)
-                  q(iii+1,jjj+1,kkk+1,b_recv) = q(i,j,k,b_send)
+                  q(iii,  jjj,  kkk  ,:,b_recv) = q(i,j,k,:,b_send)
+                  q(iii+1,jjj,  kkk  ,:,b_recv) = q(i,j,k,:,b_send)
+                  q(iii,  jjj+1,kkk  ,:,b_recv) = q(i,j,k,:,b_send)
+                  q(iii+1,jjj+1,kkk  ,:,b_recv) = q(i,j,k,:,b_send)
+                  q(iii,  jjj,  kkk+1,:,b_recv) = q(i,j,k,:,b_send)
+                  q(iii+1,jjj,  kkk+1,:,b_recv) = q(i,j,k,:,b_send)
+                  q(iii,  jjj+1,kkk+1,:,b_recv) = q(i,j,k,:,b_send)
+                  q(iii+1,jjj+1,kkk+1,:,b_recv) = q(i,j,k,:,b_send)
                enddo
             enddo
          enddo
@@ -698,12 +606,12 @@ contains
    class(field_object), intent(inout)        :: self                       !< The field.
    real(R8P),           intent(inout)        :: q(1-self%grid%gci:,&
                                                   1-self%grid%gcj:,&
-                                                  1-self%grid%gck:,1:)     !< Field component to be updated.
+                                                  1-self%grid%gck:,1:,1:)  !< Field component to be updated.
    integer(I4P),        intent(in), optional :: step                       !< Step to be perfordmed in asyncronous computations.
    logical                                   :: do_step(3)                 !< Steps to be performed in asyncronous computations.
    integer(I4P)                              :: i, j, k                    !< Counter.
    integer(I4P)                              :: iii, jjj, kkk              !< Counter.
-   integer(I4P)                              :: fec, mf, rf, sf, n, p      !< Counter.
+   integer(I4P)                              :: fec, mf, rf, sf, n, p, v   !< Counter.
    integer(I4P), allocatable                 :: comm_map_send_ctr_ghost(:) !< Communication map, counters to send [procs_number+1].
    integer(I4P), allocatable                 :: comm_map_recv_ctr_ghost(:) !< Communication map, counters to recv [procs_number+1].
    integer(I4P)                              :: portion                    !< Portion of fec updated (0=>whole fec).
@@ -732,6 +640,7 @@ contains
       self%req_send_recv = MPI_REQUEST_NULL
 #endif
       comm_map_send_ctr_ghost = self%comm_map_send_ptr_ghost
+      comm_map_send_ctr_ghost = comm_map_send_ctr_ghost * self%nv
 
       ! populate send buffer
       do sf=1, size(self%comm_map_send_ghost, dim=1)
@@ -748,9 +657,11 @@ contains
             do k=ijkmin(3), ijkmax(3)
                do j=ijkmin(2), ijkmax(2)
                   do i=ijkmin(1), ijkmax(1)
-                     self%send_buffer_ghost(comm_map_send_ctr_ghost(send_rank)+1) = &
-                        q(i+ijkdelta(1),j+ijkdelta(2),k+ijkdelta(3),b_send)
-                     comm_map_send_ctr_ghost(send_rank) = comm_map_send_ctr_ghost(send_rank) + 1
+                     do v=1,self%nv
+                        self%send_buffer_ghost(comm_map_send_ctr_ghost(send_rank)+1) = &
+                           q(i+ijkdelta(1),j+ijkdelta(2),k+ijkdelta(3),v,b_send)
+                        comm_map_send_ctr_ghost(send_rank) = comm_map_send_ctr_ghost(send_rank) + 1
+                     enddo
                   enddo
                enddo
             enddo
@@ -760,9 +671,11 @@ contains
                do j=ijkmin(2), ijkmax(2)
                   do i=ijkmin(1), ijkmax(1)
                      do n=1,8
-                        self%send_buffer_ghost(comm_map_send_ctr_ghost(send_rank)+1) = &
-                           q(i,j,k,b_send)
-                        comm_map_send_ctr_ghost(send_rank) = comm_map_send_ctr_ghost(send_rank) + 1
+                        do v=1,self%nv
+                           self%send_buffer_ghost(comm_map_send_ctr_ghost(send_rank)+1) = &
+                              q(i,j,k,v,b_send)
+                           comm_map_send_ctr_ghost(send_rank) = comm_map_send_ctr_ghost(send_rank) + 1
+                        enddo
                      enddo
                   enddo
                enddo
@@ -775,12 +688,14 @@ contains
                      kkk = 2 * k + ijkdelta(3)
                      jjj = 2 * j + ijkdelta(2)
                      iii = 2 * i + ijkdelta(1)
-                     self%send_buffer_ghost(comm_map_send_ctr_ghost(send_rank)+1) = &
-                        (q(iii,jjj,  kkk,  b_send) + q(iii+1,jjj,  kkk,  b_send) +  &
-                         q(iii,jjj+1,kkk,  b_send) + q(iii+1,jjj+1,kkk,  b_send) +  &
-                         q(iii,jjj,  kkk+1,b_send) + q(iii+1,jjj,  kkk+1,b_send) +  &
-                         q(iii,jjj+1,kkk+1,b_send) + q(iii+1,jjj+1,kkk+1,b_send)) / 8._R8P
-                     comm_map_send_ctr_ghost(send_rank) = comm_map_send_ctr_ghost(send_rank) + 1
+                     do v=1,self%nv
+                        self%send_buffer_ghost(comm_map_send_ctr_ghost(send_rank)+1) = &
+                           (q(iii,jjj,  kkk,  v,b_send) + q(iii+1,jjj,  kkk,  v,b_send) +  &
+                            q(iii,jjj+1,kkk,  v,b_send) + q(iii+1,jjj+1,kkk,  v,b_send) +  &
+                            q(iii,jjj,  kkk+1,v,b_send) + q(iii+1,jjj,  kkk+1,v,b_send) +  &
+                            q(iii,jjj+1,kkk+1,v,b_send) + q(iii+1,jjj+1,kkk+1,v,b_send)) / 8._R8P
+                        comm_map_send_ctr_ghost(send_rank) = comm_map_send_ctr_ghost(send_rank) + 1
+                     enddo
                   enddo
                enddo
             enddo
@@ -818,6 +733,7 @@ contains
 
    if (do_step(3)) then
       comm_map_recv_ctr_ghost = self%comm_map_recv_ptr_ghost
+      comm_map_recv_ctr_ghost = comm_map_recv_ctr_ghost * self%nv
 #ifdef _MPI_
       call MPI_WAITALL(self%procs_number * 2, self%req_send_recv, MPI_STATUSES_IGNORE, self%error)
 #endif
@@ -838,8 +754,10 @@ contains
             do k=ijkmin(3), ijkmax(3)
                do j=ijkmin(2), ijkmax(2)
                   do i=ijkmin(1), ijkmax(1)
-                     q(i,j,k,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
-                     comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                     do v=1, self%nv
+                        q(i,j,k,v,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                        comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                     enddo
                   enddo
                enddo
             enddo
@@ -848,8 +766,10 @@ contains
             do k=ijkmin(3), ijkmax(3)
                do j=ijkmin(2), ijkmax(2)
                   do i=ijkmin(1), ijkmax(1)
-                     q(i,j,k,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
-                     comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                     do v=1, self%nv
+                        q(i,j,k,v,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                        comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                     enddo
                   enddo
                enddo
             enddo
@@ -861,22 +781,24 @@ contains
                      kkk = 2 * k + ijkdelta(3)
                      jjj = 2 * j + ijkdelta(2)
                      iii = 2 * i + ijkdelta(1)
-                     q(iii,  jjj,  kkk  ,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
-                     comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
-                     q(iii+1,jjj,  kkk  ,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
-                     comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
-                     q(iii,  jjj+1,kkk  ,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
-                     comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
-                     q(iii+1,jjj+1,kkk  ,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
-                     comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
-                     q(iii,  jjj,  kkk+1,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
-                     comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
-                     q(iii+1,jjj,  kkk+1,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
-                     comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
-                     q(iii,  jjj+1,kkk+1,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
-                     comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
-                     q(iii+1,jjj+1,kkk+1,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
-                     comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                     do v=1, self%nv
+                        q(iii,  jjj,  kkk  ,v,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                        comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                        q(iii+1,jjj,  kkk  ,v,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                        comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                        q(iii,  jjj+1,kkk  ,v,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                        comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                        q(iii+1,jjj+1,kkk  ,v,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                        comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                        q(iii,  jjj,  kkk+1,v,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                        comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                        q(iii+1,jjj,  kkk+1,v,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                        comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                        q(iii,  jjj+1,kkk+1,v,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                        comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                        q(iii+1,jjj+1,kkk+1,v,b_recv) = self%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                        comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                     enddo
                   enddo
                enddo
             enddo
@@ -922,71 +844,52 @@ contains
                   jjj = (j - 1) * 2 + 1
                   iii = (i - 1) * 2 + 1
 
-                  q_work(i,     j,     k     ,ib,1) = (q(iii,jjj,  kkk,  ic1) + q(iii+1,jjj,  kkk,  ic1) + &
-                                                       q(iii,jjj+1,kkk,  ic1) + q(iii+1,jjj+1,kkk,  ic1) + &
-                                                       q(iii,jjj,  kkk+1,ic1) + q(iii+1,jjj,  kkk+1,ic1) + &
-                                                       q(iii,jjj+1,kkk+1,ic1) + q(iii+1,jjj+1,kkk+1,ic1)) / 8._R8P
+                  q_work(i,     j,     k     ,:,ib) = (q(iii,jjj,  kkk  ,:,ic1) + q(iii+1,jjj,  kkk  ,:,ic1) + &
+                                                       q(iii,jjj+1,kkk  ,:,ic1) + q(iii+1,jjj+1,kkk  ,:,ic1) + &
+                                                       q(iii,jjj,  kkk+1,:,ic1) + q(iii+1,jjj,  kkk+1,:,ic1) + &
+                                                       q(iii,jjj+1,kkk+1,:,ic1) + q(iii+1,jjj+1,kkk+1,:,ic1)) / 8._R8P
 
-                  q_work(i+ni/2,j,     k     ,ib,1) = (q(iii,jjj,  kkk,  ic2) + q(iii+1,jjj,  kkk,  ic2) + &
-                                                       q(iii,jjj+1,kkk,  ic2) + q(iii+1,jjj+1,kkk,  ic2) + &
-                                                       q(iii,jjj,  kkk+1,ic2) + q(iii+1,jjj,  kkk+1,ic2) + &
-                                                       q(iii,jjj+1,kkk+1,ic2) + q(iii+1,jjj+1,kkk+1,ic2)) / 8._R8P
+                  q_work(i+ni/2,j,     k     ,:,ib) = (q(iii,jjj,  kkk  ,:,ic2) + q(iii+1,jjj,  kkk  ,:,ic2) + &
+                                                       q(iii,jjj+1,kkk  ,:,ic2) + q(iii+1,jjj+1,kkk  ,:,ic2) + &
+                                                       q(iii,jjj,  kkk+1,:,ic2) + q(iii+1,jjj,  kkk+1,:,ic2) + &
+                                                       q(iii,jjj+1,kkk+1,:,ic2) + q(iii+1,jjj+1,kkk+1,:,ic2)) / 8._R8P
 
-                  q_work(i,     j+nj/2,k     ,ib,1) = (q(iii,jjj,  kkk,  ic3) + q(iii+1,jjj,  kkk,  ic3) + &
-                                                       q(iii,jjj+1,kkk,  ic3) + q(iii+1,jjj+1,kkk,  ic3) + &
-                                                       q(iii,jjj,  kkk+1,ic3) + q(iii+1,jjj,  kkk+1,ic3) + &
-                                                       q(iii,jjj+1,kkk+1,ic3) + q(iii+1,jjj+1,kkk+1,ic3)) / 8._R8P
+                  q_work(i,     j+nj/2,k     ,:,ib) = (q(iii,jjj,  kkk  ,:,ic3) + q(iii+1,jjj,  kkk  ,:,ic3) + &
+                                                       q(iii,jjj+1,kkk  ,:,ic3) + q(iii+1,jjj+1,kkk  ,:,ic3) + &
+                                                       q(iii,jjj,  kkk+1,:,ic3) + q(iii+1,jjj,  kkk+1,:,ic3) + &
+                                                       q(iii,jjj+1,kkk+1,:,ic3) + q(iii+1,jjj+1,kkk+1,:,ic3)) / 8._R8P
 
-                  q_work(i+ni/2,j+nj/2,k     ,ib,1) = (q(iii,jjj,  kkk,  ic4) + q(iii+1,jjj,  kkk,  ic4) + &
-                                                       q(iii,jjj+1,kkk,  ic4) + q(iii+1,jjj+1,kkk,  ic4) + &
-                                                       q(iii,jjj,  kkk+1,ic4) + q(iii+1,jjj,  kkk+1,ic4) + &
-                                                       q(iii,jjj+1,kkk+1,ic4) + q(iii+1,jjj+1,kkk+1,ic4)) / 8._R8P
+                  q_work(i+ni/2,j+nj/2,k     ,:,ib) = (q(iii,jjj,  kkk  ,:,ic4) + q(iii+1,jjj,  kkk  ,:,ic4) + &
+                                                       q(iii,jjj+1,kkk  ,:,ic4) + q(iii+1,jjj+1,kkk  ,:,ic4) + &
+                                                       q(iii,jjj,  kkk+1,:,ic4) + q(iii+1,jjj,  kkk+1,:,ic4) + &
+                                                       q(iii,jjj+1,kkk+1,:,ic4) + q(iii+1,jjj+1,kkk+1,:,ic4)) / 8._R8P
 
-                  q_work(i,     j,     k+nk/2,ib,1) = (q(iii,jjj,  kkk,  ic5) + q(iii+1,jjj,  kkk,  ic5) + &
-                                                       q(iii,jjj+1,kkk,  ic5) + q(iii+1,jjj+1,kkk,  ic5) + &
-                                                       q(iii,jjj,  kkk+1,ic5) + q(iii+1,jjj,  kkk+1,ic5) + &
-                                                       q(iii,jjj+1,kkk+1,ic5) + q(iii+1,jjj+1,kkk+1,ic5)) / 8._R8P
+                  q_work(i,     j,     k+nk/2,:,ib) = (q(iii,jjj,  kkk  ,:,ic5) + q(iii+1,jjj,  kkk  ,:,ic5) + &
+                                                       q(iii,jjj+1,kkk  ,:,ic5) + q(iii+1,jjj+1,kkk  ,:,ic5) + &
+                                                       q(iii,jjj,  kkk+1,:,ic5) + q(iii+1,jjj,  kkk+1,:,ic5) + &
+                                                       q(iii,jjj+1,kkk+1,:,ic5) + q(iii+1,jjj+1,kkk+1,:,ic5)) / 8._R8P
 
-                  q_work(i+ni/2,j,     k+nk/2,ib,1) = (q(iii,jjj,  kkk,  ic6) + q(iii+1,jjj,  kkk,  ic6) + &
-                                                       q(iii,jjj+1,kkk,  ic6) + q(iii+1,jjj+1,kkk,  ic6) + &
-                                                       q(iii,jjj,  kkk+1,ic6) + q(iii+1,jjj,  kkk+1,ic6) + &
-                                                       q(iii,jjj+1,kkk+1,ic6) + q(iii+1,jjj+1,kkk+1,ic6)) / 8._R8P
+                  q_work(i+ni/2,j,     k+nk/2,:,ib) = (q(iii,jjj,  kkk  ,:,ic6) + q(iii+1,jjj,  kkk  ,:,ic6) + &
+                                                       q(iii,jjj+1,kkk  ,:,ic6) + q(iii+1,jjj+1,kkk  ,:,ic6) + &
+                                                       q(iii,jjj,  kkk+1,:,ic6) + q(iii+1,jjj,  kkk+1,:,ic6) + &
+                                                       q(iii,jjj+1,kkk+1,:,ic6) + q(iii+1,jjj+1,kkk+1,:,ic6)) / 8._R8P
 
-                  q_work(i,     j+nj/2,k+nk/2,ib,1) = (q(iii,jjj,  kkk,  ic7) + q(iii+1,jjj,  kkk,  ic7) + &
-                                                       q(iii,jjj+1,kkk,  ic7) + q(iii+1,jjj+1,kkk,  ic7) + &
-                                                       q(iii,jjj,  kkk+1,ic7) + q(iii+1,jjj,  kkk+1,ic7) + &
-                                                       q(iii,jjj+1,kkk+1,ic7) + q(iii+1,jjj+1,kkk+1,ic7)) / 8._R8P
+                  q_work(i,     j+nj/2,k+nk/2,:,ib) = (q(iii,jjj,  kkk  ,:,ic7) + q(iii+1,jjj,  kkk  ,:,ic7) + &
+                                                       q(iii,jjj+1,kkk  ,:,ic7) + q(iii+1,jjj+1,kkk  ,:,ic7) + &
+                                                       q(iii,jjj,  kkk+1,:,ic7) + q(iii+1,jjj,  kkk+1,:,ic7) + &
+                                                       q(iii,jjj+1,kkk+1,:,ic7) + q(iii+1,jjj+1,kkk+1,:,ic7)) / 8._R8P
 
-                  q_work(i+ni/2,j+nj/2,k+nk/2,ib,1) = (q(iii,jjj,  kkk,  ic8) + q(iii+1,jjj,  kkk,  ic8) + &
-                                                       q(iii,jjj+1,kkk,  ic8) + q(iii+1,jjj+1,kkk,  ic8) + &
-                                                       q(iii,jjj,  kkk+1,ic8) + q(iii+1,jjj,  kkk+1,ic8) + &
-                                                       q(iii,jjj+1,kkk+1,ic8) + q(iii+1,jjj+1,kkk+1,ic8)) / 8._R8P
+                  q_work(i+ni/2,j+nj/2,k+nk/2,:,ib) = (q(iii,jjj,  kkk  ,:,ic8) + q(iii+1,jjj,  kkk  ,:,ic8) + &
+                                                       q(iii,jjj+1,kkk  ,:,ic8) + q(iii+1,jjj+1,kkk  ,:,ic8) + &
+                                                       q(iii,jjj,  kkk+1,:,ic8) + q(iii+1,jjj,  kkk+1,:,ic8) + &
+                                                       q(iii,jjj+1,kkk+1,:,ic8) + q(iii+1,jjj+1,kkk+1,:,ic8)) / 8._R8P
                enddo
             enddo
          enddo
 
-         q(1:ni,1:nj,1:nk,ib) = q_work(1:ni,1:nj,1:nk,ib,1)
+         q(1:ni,1:nj,1:nk,:,ib) = q_work(1:ni,1:nj,1:nk,:,ib)
 
          self%code(ib) = block_derefined(1,b)
-
-      enddo
-
-      do b=1, size(block_derefined, dim=2)
-         ! ib = block_derefined(2,b)
-
-         ! ic1 = block_to_derefine((b-1)*ratio+1)
-
-         ! dx = self%emax(1,ic1) - self%emin(1,ic1)
-         ! dy = self%emax(2,ic1) - self%emin(2,ic1)
-         ! dz = self%emax(3,ic1) - self%emin(3,ic1)
-
-         ! self%emin(1,ib) = self%emin(1,ic1)
-         ! self%emin(2,ib) = self%emin(2,ic1)
-         ! self%emin(3,ib) = self%emin(3,ic1)
-
-         ! self%emax(1,ib) = self%emin(1,ic1) + 2 * dx
-         ! self%emax(2,ib) = self%emin(2,ic1) + 2 * dy
-         ! self%emax(3,ib) = self%emin(3,ic1) + 2 * dz
       enddo
    endif
    endassociate
@@ -1016,7 +919,7 @@ contains
          if (self%myrank /= block_to_refine(2,b)) cycle
          ib = block_to_refine(1,b)
 
-         q_work(:,:,:,ib,1) = q(:,:,:,ib)
+         q_work(:,:,:,:,ib) = q(:,:,:,:,ib)
 
          do ic_local=1, 8
             ic = block_refined(2,(b-1)*ratio+ic_local)
@@ -1029,50 +932,50 @@ contains
                      k_fine = mod(k - 1, nk/2) * 2 + 1
                      j_fine = mod(j - 1, nj/2) * 2 + 1
                      i_fine = mod(i - 1, ni/2) * 2 + 1
-                     q(i_fine:i_fine+1,j_fine:j_fine+1,k_fine:k_fine+1,ic) = 0._R8P
+                     q(i_fine:i_fine+1,j_fine:j_fine+1,k_fine:k_fine+1,:,ic) = 0._R8P
                      do k_delta=0,1
                      do j_delta=0,1
                      do i_delta=0,1
-                     q(i_fine,  j_fine,  k_fine,  ic) = q(i_fine,j_fine,k_fine,ic) +     &
-                                                        (0.25_R8P + i_delta * 0.5_R8P) * &
-                                                        (0.25_R8P + j_delta * 0.5_R8P) * &
-                                                        (0.25_R8P + k_delta * 0.5_R8P) * &
-                                                        q_work(i+i_delta-1, j+j_delta-1, k+k_delta-1,ib,1)
-                     q(i_fine+1,j_fine,  k_fine,  ic) = q(i_fine+1,j_fine,k_fine,ic) +   &
-                                                        (0.75_R8P - i_delta * 0.5_R8P) * &
-                                                        (0.25_R8P + j_delta * 0.5_R8P) * &
-                                                        (0.25_R8P + k_delta * 0.5_R8P) * &
-                                                        q_work(i+i_delta,   j+j_delta-1, k+k_delta-1,ib,1)
-                     q(i_fine,  j_fine+1,k_fine,  ic) = q(i_fine,j_fine+1,k_fine,ic) +   &
-                                                        (0.25_R8P + i_delta * 0.5_R8P) * &
-                                                        (0.75_R8P - j_delta * 0.5_R8P) * &
-                                                        (0.25_R8P + k_delta * 0.5_R8P) * &
-                                                        q_work(i+i_delta-1, j+j_delta  , k+k_delta-1,ib,1)
-                     q(i_fine+1,j_fine+1,k_fine,  ic) = q(i_fine+1,j_fine+1,k_fine,ic) + &
-                                                        (0.75_R8P - i_delta * 0.5_R8P) * &
-                                                        (0.75_R8P - j_delta * 0.5_R8P) * &
-                                                        (0.25_R8P + k_delta * 0.5_R8P) * &
-                                                        q_work(i+i_delta,   j+j_delta  , k+k_delta-1,ib,1)
-                     q(i_fine,  j_fine,  k_fine+1,ic) = q(i_fine,j_fine,k_fine+1,ic) +   &
-                                                        (0.25_R8P + i_delta * 0.5_R8P) * &
-                                                        (0.25_R8P + j_delta * 0.5_R8P) * &
-                                                        (0.75_R8P - k_delta * 0.5_R8P) * &
-                                                        q_work(i+i_delta-1, j+j_delta-1, k+k_delta  ,ib,1)
-                     q(i_fine+1,j_fine,  k_fine+1,ic) = q(i_fine+1,j_fine,k_fine+1,ic) + &
-                                                        (0.75_R8P - i_delta * 0.5_R8P) * &
-                                                        (0.25_R8P + j_delta * 0.5_R8P) * &
-                                                        (0.75_R8P - k_delta * 0.5_R8P) * &
-                                                        q_work(i+i_delta,   j+j_delta-1, k+k_delta  ,ib,1)
-                     q(i_fine,  j_fine+1,k_fine+1,ic) = q(i_fine,j_fine+1,k_fine+1,ic) + &
-                                                        (0.25_R8P + i_delta * 0.5_R8P) * &
-                                                        (0.75_R8P - j_delta * 0.5_R8P) * &
-                                                        (0.75_R8P - k_delta * 0.5_R8P) * &
-                                                        q_work(i+i_delta-1, j+j_delta  , k+k_delta  ,ib,1)
-                     q(i_fine+1,j_fine+1,k_fine+1,ic) = q(i_fine+1,j_fine+1,k_fine+1,ic) + &
-                                                        (0.75_R8P - i_delta * 0.5_R8P) *   &
-                                                        (0.75_R8P - j_delta * 0.5_R8P) *   &
-                                                        (0.75_R8P - k_delta * 0.5_R8P) *   &
-                                                        q_work(i+i_delta,   j+j_delta  , k+k_delta  ,ib,1)
+                     q(i_fine,  j_fine,  k_fine,  :,ic) = q(i_fine,j_fine,k_fine,:,ic) +   &
+                                                          (0.25_R8P + i_delta * 0.5_R8P) * &
+                                                          (0.25_R8P + j_delta * 0.5_R8P) * &
+                                                          (0.25_R8P + k_delta * 0.5_R8P) * &
+                                                          q_work(i+i_delta-1, j+j_delta-1, k+k_delta-1,:,ib)
+                     q(i_fine+1,j_fine,  k_fine,  :,ic) = q(i_fine+1,j_fine,k_fine,:,ic) + &
+                                                          (0.75_R8P - i_delta * 0.5_R8P) * &
+                                                          (0.25_R8P + j_delta * 0.5_R8P) * &
+                                                          (0.25_R8P + k_delta * 0.5_R8P) * &
+                                                          q_work(i+i_delta,   j+j_delta-1, k+k_delta-1,:,ib)
+                     q(i_fine,  j_fine+1,k_fine,  :,ic) = q(i_fine,j_fine+1,k_fine,:,ic) + &
+                                                          (0.25_R8P + i_delta * 0.5_R8P) * &
+                                                          (0.75_R8P - j_delta * 0.5_R8P) * &
+                                                          (0.25_R8P + k_delta * 0.5_R8P) * &
+                                                          q_work(i+i_delta-1, j+j_delta  , k+k_delta-1,:,ib)
+                     q(i_fine+1,j_fine+1,k_fine,  :,ic) = q(i_fine+1,j_fine+1,k_fine,:,ic) + &
+                                                          (0.75_R8P - i_delta * 0.5_R8P) *   &
+                                                          (0.75_R8P - j_delta * 0.5_R8P) *   &
+                                                          (0.25_R8P + k_delta * 0.5_R8P) *   &
+                                                          q_work(i+i_delta,   j+j_delta  , k+k_delta-1,:,ib)
+                     q(i_fine,  j_fine,  k_fine+1,:,ic) = q(i_fine,j_fine,k_fine+1,:,ic) + &
+                                                          (0.25_R8P + i_delta * 0.5_R8P) * &
+                                                          (0.25_R8P + j_delta * 0.5_R8P) * &
+                                                          (0.75_R8P - k_delta * 0.5_R8P) * &
+                                                          q_work(i+i_delta-1, j+j_delta-1, k+k_delta  ,:,ib)
+                     q(i_fine+1,j_fine,  k_fine+1,:,ic) = q(i_fine+1,j_fine,k_fine+1,:,ic) + &
+                                                          (0.75_R8P - i_delta * 0.5_R8P) *   &
+                                                          (0.25_R8P + j_delta * 0.5_R8P) *   &
+                                                          (0.75_R8P - k_delta * 0.5_R8P) *   &
+                                                          q_work(i+i_delta,   j+j_delta-1, k+k_delta  ,:,ib)
+                     q(i_fine,  j_fine+1,k_fine+1,:,ic) = q(i_fine,j_fine+1,k_fine+1,:,ic) + &
+                                                          (0.25_R8P + i_delta * 0.5_R8P) *   &
+                                                          (0.75_R8P - j_delta * 0.5_R8P) *   &
+                                                          (0.75_R8P - k_delta * 0.5_R8P) *   &
+                                                          q_work(i+i_delta-1, j+j_delta  , k+k_delta  ,:,ib)
+                     q(i_fine+1,j_fine+1,k_fine+1,:,ic) = q(i_fine+1,j_fine+1,k_fine+1,:,ic) + &
+                                                          (0.75_R8P - i_delta * 0.5_R8P) *     &
+                                                          (0.75_R8P - j_delta * 0.5_R8P) *     &
+                                                          (0.75_R8P - k_delta * 0.5_R8P) *     &
+                                                          q_work(i+i_delta,   j+j_delta  , k+k_delta  ,:,ib)
                      enddo
                      enddo
                      enddo
@@ -1097,10 +1000,6 @@ contains
          self%code(ic6) = block_refined(1,(b-1)*ratio+6)
          self%code(ic7) = block_refined(1,(b-1)*ratio+7)
          self%code(ic8) = block_refined(1,(b-1)*ratio+8)
-      enddo
-
-      do b=1, size(block_refined, dim=2)
-
       enddo
    endif
    endassociate
