@@ -1,6 +1,6 @@
-!< ADAM, Laplace equation class definition, CPU backend.
-module adam_equation_laplace_cpu_object
-!< ADAM, Laplace equation class definition, CPU backend.
+!< ADAM, 1D convenction equation class definition, CPU backend.
+module adam_equation_convect1D_cpu_object
+!< ADAM, 1D convenction equation class definition, CPU backend.
 
 use adam_base_cpu_object
 use adam_field_object
@@ -10,15 +10,15 @@ use MPI
 
 implicit none
 private
-public :: equation_laplace_cpu_object
+public :: equation_convect1D_cpu_object
 public :: BC_EXTRAPOLATION
 public :: BC_INFLOW
 
 integer(I4P), parameter :: BC_EXTRAPOLATION = 1_I4P
 integer(I4P), parameter :: BC_INFLOW        = 2_I4P
 
-type :: equation_laplace_cpu_object
-   !< Laplace equation class definition, CPU backend.
+type :: equation_convect1D_cpu_object
+   !< 1D convenction equation class definition, CPU backend.
    type(field_object), pointer :: field=>null() !< The field.
    type(base_cpu_object)       :: base_cpu      !< The base CPU handler.
    ! MPI data, unrelated to field equations
@@ -43,23 +43,23 @@ type :: equation_laplace_cpu_object
       ! operators
       generic :: assignment(=) => eq_assign_eq      !< Overload `=`.
       procedure, pass(lhs), private :: eq_assign_eq !< Operator `=`.
-endtype equation_laplace_cpu_object
+endtype equation_convect1D_cpu_object
 
 contains
    ! public methods
    subroutine destroy(self)
    !< Destroy the equation.
-   class(equation_laplace_cpu_object), intent(inout) :: self  !< The equation.
-   type(equation_laplace_cpu_object)                 :: fresh !< Fresh equation.
+   class(equation_convect1D_cpu_object), intent(inout) :: self  !< The equation.
+   type(equation_convect1D_cpu_object)                 :: fresh !< Fresh equation.
 
    self = fresh
    endsubroutine destroy
 
    subroutine initialize(self, field, ns)
    !< Initialize the equation.
-   class(equation_laplace_cpu_object), intent(inout)        :: self  !< The equation.
-   type(field_object),                 intent(in), target   :: field !< The field.
-   integer(I4P),                       intent(in), optional :: ns    !< Runge-Kutta stages number.
+   class(equation_convect1D_cpu_object), intent(inout)        :: self  !< The equation.
+   type(field_object),                   intent(in), target   :: field !< The field.
+   integer(I4P),                         intent(in), optional :: ns    !< Runge-Kutta stages number.
 
    call self%destroy
    self%field => field
@@ -86,12 +86,12 @@ contains
 
    subroutine mark_by_grad_q(self, threshold)
    !< Mark blocks to be refined/derefined by a `grad(q)` value.
-   class(equation_laplace_cpu_object), intent(inout)        :: self           !< The equation.
-   real(R8P),                          intent(in), optional :: threshold      !< Threshold for sphere proximity.
-   real(R8P)                                                :: threshold_     !< Threshold for sphere proximity, local var.
-   real(R8P)                                                :: max_cell_delta !< Maximum cell delta.
-   real(R8P)                                                :: grad_q         !< Value (max) of gradient of q.
-   integer(I4P)                                             :: b, i, j, k     !< Counter.
+   class(equation_convect1D_cpu_object), intent(inout)        :: self           !< The equation.
+   real(R8P),                            intent(in), optional :: threshold      !< Threshold for sphere proximity.
+   real(R8P)                                                  :: threshold_     !< Threshold for sphere proximity, local var.
+   real(R8P)                                                  :: max_cell_delta !< Maximum cell delta.
+   real(R8P)                                                  :: grad_q         !< Value (max) of gradient of q.
+   integer(I4P)                                               :: b, i, j, k     !< Counter.
 
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
    self%field%refinements_needed = [(TO_NOT_TOUCH,b=1,self%field%blocks_number)]
@@ -137,13 +137,13 @@ contains
 
    subroutine integrate(self, t, Dt, do_ghost_syncro, residual)
    !< Runge Kutta integration of field.
-   class(equation_laplace_cpu_object), intent(inout)         :: self             !< The equation.
-   real(R8P),                          intent(in)            :: t                !< Time.
-   real(R8P),                          intent(in)            :: Dt               !< Time step.
-   logical,                            intent(in),  optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
-   real(R8P),                          intent(out), optional :: residual         !< Global residual.
-   logical                                                   :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
-   integer(I4P)                                              :: b, s, ss         !< Counter.
+   class(equation_convect1D_cpu_object), intent(inout)         :: self             !< The equation.
+   real(R8P),                            intent(in)            :: t                !< Time.
+   real(R8P),                            intent(in)            :: Dt               !< Time step.
+   logical,                              intent(in),  optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
+   real(R8P),                            intent(out), optional :: residual         !< Global residual.
+   logical                                                     :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
+   integer(I4P)                                                :: b, s, ss         !< Counter.
 
    do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
    associate(alph=>self%alph, beta=>self%beta, gamm=>self%gamm,                      &
@@ -184,27 +184,25 @@ contains
 
    subroutine compute_residuals(self, q, t, block_start, block_end)
    !< Compute residuals of equation.
-   class(equation_laplace_cpu_object), intent(in)    :: self                         !< The equation.
-   real(R8P),                          intent(inout) :: q(1-self%field%grid%gci:,&
-                                                          1-self%field%grid%gcj:,&
-                                                          1-self%field%grid%gck:,&
-                                                          1:,1:)                     !< Field component to be updated.
-   real(R8P),                          intent(in)    :: t                            !< Time.
-   integer(I4P),                       intent(in)    :: block_start                  !< Index of block to start residuals comp.
-   integer(I4P),                       intent(in)    :: block_end                    !< Index of block to end   residuals comp.
-   real(R8P)                                         :: q_work(1:self%field%grid%ni,&
-                                                               1:self%field%grid%nj,&
-                                                               1:self%field%grid%nk) !< Field component to be updated, working buffer.
-   integer(I4P)                                      :: b, i, j, k                   !< Counter.
+   class(equation_convect1D_cpu_object), intent(in)    :: self                         !< The equation.
+   real(R8P),                            intent(inout) :: q(1-self%field%grid%gci:,&
+                                                            1-self%field%grid%gcj:,&
+                                                            1-self%field%grid%gck:,&
+                                                            1:,1:)                     !< Field component to be updated.
+   real(R8P),                            intent(in)    :: t                            !< Time.
+   integer(I4P),                         intent(in)    :: block_start                  !< Index of block to start residuals comp.
+   integer(I4P),                         intent(in)    :: block_end                    !< Index of block to end   residuals comp.
+   real(R8P)                                           :: q_work(1:self%field%grid%ni,&
+                                                                 1:self%field%grid%nj,&
+                                                                 1:self%field%grid%nk) !< Field component to be updated, buffer.
+   integer(I4P)                                        :: b, i, j, k                   !< Counter.
 
    associate(ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk, dxyz=>self%field%dxyz)
    do b=block_start, block_end
       do k=1, nk
          do j=1, nj
             do i=1, ni
-               q_work(i,j,k) = (q(i+1,j,  k,  1,b) + q(i-1,j,  k,  1,b) - 2 * q(i,j,k,1,b)) / dxyz(1,b)**2 + &
-                               (q(i,  j+1,k,  1,b) + q(i,  j-1,k,  1,b) - 2 * q(i,j,k,1,b)) / dxyz(2,b)**2 + &
-                               (q(i,  j,  k+1,1,b) + q(i,  j,  k-1,1,b) - 2 * q(i,j,k,1,b)) / dxyz(3,b)**2
+               q_work(i,j,k) = (q(i+1,j,k,1,b) - q(i-1,j,k,1,b)) / (2*dxyz(1,b))
             enddo
          enddo
       enddo
@@ -215,10 +213,10 @@ contains
 
    subroutine set_boundary_conditions(self, q)
    !< Set boundary conditions of equation.
-   class(equation_laplace_cpu_object), intent(in)    :: self                            !< The equation.
-   real(R8P),                          intent(inout) :: q(1-self%field%grid%gci:,&
-                                                          1-self%field%grid%gcj:,&
-                                                          1-self%field%grid%gck:,1:,1:) !< Field component to be updated.
+   class(equation_convect1D_cpu_object), intent(in)    :: self                            !< The equation.
+   real(R8P),                            intent(inout) :: q(1-self%field%grid%gci:,&
+                                                            1-self%field%grid%gcj:,&
+                                                            1-self%field%grid%gck:,1:,1:) !< Field component to be updated.
 
    if (allocated(self%field%local_map_bc_face))   call set_bc_fec(local_map_bc=self%field%local_map_bc_face)
    if (allocated(self%field%local_map_bc_edge))   call set_bc_fec(local_map_bc=self%field%local_map_bc_edge)
@@ -266,16 +264,16 @@ contains
 
    subroutine set_initial_conditions(self)
    !< Set initial conditions of field.
-   class(equation_laplace_cpu_object), intent(inout) :: self    !< The equation.
-   integer(I4P)                                      :: b       !< Counter.
-   integer(I4P)                                      :: i, j, k !< Counter.
-   real(R8P)                                         :: a       !< Gaussian amplitude.
-   real(R8P)                                         :: sigma_x !< Gaussian x variance.
-   real(R8P)                                         :: sigma_y !< Gaussian y variance.
-   real(R8P)                                         :: sigma_z !< Gaussian z variance.
-   real(R8P)                                         :: x_0     !< Gaussian x center.
-   real(R8P)                                         :: y_0     !< Gaussian y center.
-   real(R8P)                                         :: z_0     !< Gaussian z center.
+   class(equation_convect1D_cpu_object), intent(inout) :: self    !< The equation.
+   integer(I4P)                                        :: b       !< Counter.
+   integer(I4P)                                        :: i, j, k !< Counter.
+   real(R8P)                                           :: a       !< Gaussian amplitude.
+   real(R8P)                                           :: sigma_x !< Gaussian x variance.
+   real(R8P)                                           :: sigma_y !< Gaussian y variance.
+   real(R8P)                                           :: sigma_z !< Gaussian z variance.
+   real(R8P)                                           :: x_0     !< Gaussian x center.
+   real(R8P)                                           :: y_0     !< Gaussian y center.
+   real(R8P)                                           :: z_0     !< Gaussian z center.
 
    a = 1.0_R8P
    x_0 = (self%field%grid%domain_emax(1) - self%field%grid%domain_emin(1)) / 5.0_R8P
@@ -306,14 +304,14 @@ contains
    subroutine update_ghost(self, q, step)
    !< Update ghost cells.
    !< If not specified all steps are perfermod, syncronous computation
-   class(equation_laplace_cpu_object), intent(inout)        :: self            !< The equation.
-   real(R8P),                          intent(inout)        :: q(1-self%field%grid%gci:,&
-                                                                 1-self%field%grid%gcj:,&
-                                                                 1-self%field%grid%gck:,&
-                                                                 1:,1:)        !< Field component to be updated.
-   integer(I4P),                       intent(in), optional :: step            !< Step to be perfordmed in asyncronous comp.
-   logical                                                  :: do_local_update !< Flag for triggering local update.
-   logical                                                  :: do_set_bc       !< Flag for triggering setting bc.
+   class(equation_convect1D_cpu_object), intent(inout)        :: self            !< The equation.
+   real(R8P),                            intent(inout)        :: q(1-self%field%grid%gci:,&
+                                                                   1-self%field%grid%gcj:,&
+                                                                   1-self%field%grid%gck:,&
+                                                                   1:,1:)        !< Field component to be updated.
+   integer(I4P),                         intent(in), optional :: step            !< Step to be perfordmed in asyncronous comp.
+   logical                                                    :: do_local_update !< Flag for triggering local update.
+   logical                                                    :: do_set_bc       !< Flag for triggering setting bc.
 
    ! perform local update if step is not speficied or if first step is selected
    do_local_update = .false.
@@ -335,8 +333,8 @@ contains
    ! =
    subroutine eq_assign_eq(lhs, rhs)
    !< Operator `=`.
-   class(equation_laplace_cpu_object), intent(inout) :: lhs !< Left hand side.
-   type(equation_laplace_cpu_object),  intent(in)    :: rhs !< Right hand side.
+   class(equation_convect1D_cpu_object), intent(inout) :: lhs !< Left hand side.
+   type(equation_convect1D_cpu_object),  intent(in)    :: rhs !< Right hand side.
 
    lhs%field => rhs%field
    lhs%base_cpu = rhs%base_cpu
@@ -348,4 +346,4 @@ contains
    call assign_allocatable(lhs=lhs%gamm, rhs=rhs%gamm)
    call assign_allocatable(lhs=lhs%q_s, rhs=rhs%q_s)
    endsubroutine eq_assign_eq
-endmodule adam_equation_laplace_cpu_object
+endmodule adam_equation_convect1D_cpu_object

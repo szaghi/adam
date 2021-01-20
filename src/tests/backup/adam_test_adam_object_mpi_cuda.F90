@@ -3,24 +3,23 @@ program adam_test_adam_object_mpi_cuda
 !< ADAM, test ADAM class in MPI env.
 
 use adam_adam_object
+use adam_equation_convect1D_cpu_object
 use adam_equation_laplace_cpu_object
-! use adam_field_object
 use adam_parameters
-!GPUuse adam_field_gpu_object
-use adam_tree_node_object
 use PENF
 
 implicit none
 
-type(adam_object)                 :: adam            !< ADAM.
-type(equation_laplace_cpu_object) :: laplace         !< Laplace equation.
-type(tree_node_object), pointer   :: node            !< Tree node pointer.
-integer(I4P)                      :: l, t            !< Counter.
-logical                           :: is_grid_changed !< Flag to check grid changes.
-real(R8P)                         :: time            !< Time.
-integer(I8P)                      :: timing(0:2)     !< Tic toc timing.
-integer(I4P)                      :: n_iter          !< Number of iterations.
-integer(I4P)                      :: n_save          !< Frequency of saving output.
+type(adam_object)                   :: adam            !< ADAM.
+type(equation_convect1D_cpu_object) :: convect         !< 1D convection equation.
+type(equation_laplace_cpu_object)   :: laplace         !< Laplace equation.
+type(tree_node_object), pointer     :: node            !< Tree node pointer.
+integer(I4P)                        :: l, t            !< Counter.
+logical                             :: is_grid_changed !< Flag to check grid changes.
+real(R8P)                           :: time            !< Time.
+integer(I8P)                        :: timing(0:2)     !< Tic toc timing.
+integer(I4P)                        :: n_iter          !< Number of iterations.
+integer(I4P)                        :: n_save          !< Frequency of saving output.
 !GPUtype(field_gpu_object) :: field_gpu       !< GPU field.
 
 print '(A)', 'initialize ADAM'
