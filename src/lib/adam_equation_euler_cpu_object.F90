@@ -39,7 +39,10 @@ type :: equation_euler_cpu_object
    !< Where `rho(s)` is the specific density of s-th specie, `rho=sum(rho(s))`, `[u,v,w]` is the velocity
    !< vector and `E` it the total specific internal energy. The auxiliary variables array is arranged as follows:
    !<```
-   !< q_aux(1): rho = sum(rho(s))
+   !< q_aux(1): rho
+   !< q_aux(2): u
+   !< q_aux(2): v
+   !< q_aux(2): w
    !< q_aux(2): p
    !< q_aux(3): g
    !<```
@@ -67,6 +70,7 @@ type :: equation_euler_cpu_object
    integer(I4P) :: myrank=0_I4P !< MPI rank process.
    contains
       ! public methods
+      procedure, pass(self) :: compute_aux             !< Compute auxiliary variables.
       procedure, pass(self) :: destroy                 !< Destroy the equation.
       procedure, pass(self) :: initialize              !< Initialize the equation.
       procedure, pass(self) :: mark_by_grad_rho        !< Mark blocks to be refined/derefined by a `grad(rho)` value.
@@ -74,7 +78,6 @@ type :: equation_euler_cpu_object
       procedure, pass(self) :: compute_residuals       !< Compute residuals of equation.
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation.
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions of equation.
-      procedure, pass(self) :: update_aux              !< Update auxiliary variables.
       procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
       ! operators
       generic :: assignment(=) => eq_assign_eq      !< Overload `=`.
@@ -83,6 +86,41 @@ endtype equation_euler_cpu_object
 
 contains
    ! public methods
+   subroutine compute_aux(self, q)
+   !< Update auxiliary variables.
+   class(equation_euler_cpu_object), intent(inout) :: self         !< The equation.
+   real(R8P),                        intent(in)    :: q(1-self%field%grid%gci:,&
+                                                        1-self%field%grid%gcj:,&
+                                                        1-self%field%grid%gck:,&
+                                                        1:,1:)     !< Field component to be updated.
+   integer(I4P)                                    :: b, i, j, k   !< Counter.
+   real(R8P)                                       :: c(1:self%ns) !< Species concentration.
+   real(R8P)                                       :: velocity_2   !< Square of velocity vector.
+
+   associate(blocks_number=>self%field%blocks_number,                                      &
+             q=>self%field%q,                                                              &
+             ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,       &
+             gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck, &
+             ns=>self%ns, q_aux=>self%q_aux)
+      do b=1, blocks_number
+         do k=1-gci, nk+gci
+            do j=1-gcj, nj+gcj
+               do i=1-gck, ni+gck
+                  q_aux(i,j,k,1,b) = sum(q(i,j,k,:,b))
+                  c(:) = q(i,j,k,:,b) / q_aux(i,j,k,1,b)
+                  q_aux(i,j,k,3,b) = dot_product(c, self%cp0) / dot_product(c, self%cv0)
+                  velocity_2 = (q(i,j,k,ns+1,b)/q_aux(i,j,k,1,b)) ** 2 + &
+                               (q(i,j,k,ns+2,b)/q_aux(i,j,k,1,b)) ** 2 + &
+                               (q(i,j,k,ns+3,b)/q_aux(i,j,k,1,b)) ** 2
+                                         ! (rho*E     -        0.5*rho*velocity^2)                * (g - 1)
+                  q_aux(i,j,k,2,b) = (q(i,j,k,ns+4,b) - 0.5_R8P * q_aux(i,j,k,1,b) * velocity_2 ) * (q_aux(i,j,k,3,b) - 1._R8P)
+               enddo
+            enddo
+         enddo
+      enddo
+   endassociate
+   endsubroutine compute_aux
+
    subroutine destroy(self)
    !< Destroy the equation.
    class(equation_euler_cpu_object), intent(inout) :: self  !< The equation.
@@ -157,7 +195,7 @@ contains
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
    self%field%refinements_needed = [(TO_NOT_TOUCH,b=1,self%field%blocks_number)]
    call self%update_ghost(q=self%field%q)
-   call self%update_aux
+   call self%compute_aux(q=self%field%q)
    associate (ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk, q_aux=>self%q_aux, dxyz=>self%field%dxyz)
    do b=1, self%field%blocks_number
       grad_rho = 0._R8P
@@ -254,23 +292,49 @@ contains
    real(R8P),                        intent(in)    :: t                            !< Time.
    integer(I4P),                     intent(in)    :: block_start                  !< Index of block to start residuals comp.
    integer(I4P),                     intent(in)    :: block_end                    !< Index of block to end   residuals comp.
-   real(R8P)                                       :: q_work(1:self%field%grid%ni,&
-                                                             1:self%field%grid%nj,&
-                                                             1:self%field%grid%nk) !< Field component to be updated, working buffer.
+   real(R8P)                                       :: fluxes_x(0:self%field%grid%ni,&
+                                                               1:self%field%grid%nj,&
+                                                               1:self%field%grid%nk,&
+                                                               1:self%field%nv)    !< Convective fluxes in x direction.
+   real(R8P)                                       :: fluxes_y(1:self%field%grid%ni,&
+                                                               0:self%field%grid%nj,&
+                                                               1:self%field%grid%nk,&
+                                                               1:self%field%nv)    !< Convective fluxes in y direction.
+   real(R8P)                                       :: fluxes_z(1:self%field%grid%ni,&
+                                                               1:self%field%grid%nj,&
+                                                               0:self%field%grid%nk,&
+                                                               1:self%field%nv)    !< Convective fluxes in z direction.
+   real(R8P)                                       :: fluxes  (0:self%field%grid%ni,&
+                                                               0:self%field%grid%nj,&
+                                                               0:self%field%grid%nk,&
+                                                               1:3)                !< 1D Convective fluxes.
    integer(I4P)                                    :: b, i, j, k                   !< Counter.
 
-   associate(ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk, dxyz=>self%field%dxyz)
+   associate(ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,     &
+             gci=>self%field%grid%gci, gcj=>self%field%grid%nj, gck=>self%field%grid%nk, &
+             dxyz=>self%field%dxyz, q_aux=>self%q_aux)
    do b=block_start, block_end
+      ! convective fluxes along x direction
+      do k=1, nk
+         do j=1, nj
+            call compute_fluxes_convective(gc=gci, n=ni,                &
+                                           density  = q_aux(:,j,k,1,b), &
+                                           velocity = q_aux(:,j,k,2,b), &
+                                           pressure = q_aux(:,j,k,2,b), &
+                                           g        = q_aux(:,j,k,3,b), &
+                                           fluxes   = fluxes(:,j,k,:))
+            fluxes_x(:,j,k,1:3) = fluxes(:,j,k,1:3)
+         enddo
+      enddo
       do k=1, nk
          do j=1, nj
             do i=1, ni
-               q_work(i,j,k) = (q(i+1,j,  k,  1,b) + q(i-1,j,  k,  1,b) - 2 * q(i,j,k,1,b)) / dxyz(1,b)**2 + &
-                               (q(i,  j+1,k,  1,b) + q(i,  j-1,k,  1,b) - 2 * q(i,j,k,1,b)) / dxyz(2,b)**2 + &
-                               (q(i,  j,  k+1,1,b) + q(i,  j,  k-1,1,b) - 2 * q(i,j,k,1,b)) / dxyz(3,b)**2
+               q(i,j,k,:,b) = (fluxes_x(i-1,j  ,k  ,:) - fluxes_x(i,j,k,:)) / dxyz(1,b) + &
+                              (fluxes_y(i  ,j-1,k  ,:) - fluxes_y(i,j,k,:)) / dxyz(2,b) + &
+                              (fluxes_z(i  ,j  ,k-1,:) - fluxes_z(i,j,k,:)) / dxyz(3,b)
             enddo
          enddo
       enddo
-      q(1:ni,1:nj,1:nk,1,b) = q_work(1:ni,1:nj,1:nk)
    enddo
    endassociate
    endsubroutine compute_residuals
@@ -346,37 +410,6 @@ contains
    endassociate
    endsubroutine set_initial_conditions
 
-   subroutine update_aux(self)
-   !< Update auxiliary variables.
-   class(equation_euler_cpu_object), intent(inout) :: self         !< The equation.
-   integer(I4P)                                    :: b, i, j, k   !< Counter.
-   real(R8P)                                       :: c(1:self%ns) !< Species concentration.
-   real(R8P)                                       :: velocity_2   !< Square of velocity vector.
-
-   associate(blocks_number=>self%field%blocks_number,                                      &
-             q=>self%field%q,                                                              &
-             ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,       &
-             gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck, &
-             ns=>self%ns, q_aux=>self%q_aux)
-      do b=1, blocks_number
-         do k=1-gci, nk+gci
-            do j=1-gcj, nj+gcj
-               do i=1-gck, ni+gck
-                  q_aux(i,j,k,1,b) = sum(q(i,j,k,:,b))
-                  c(:) = q(i,j,k,:,b) / q_aux(i,j,k,1,b)
-                  q_aux(i,j,k,3,b) = dot_product(c, self%cp0) / dot_product(c, self%cv0)
-                  velocity_2 = (q(i,j,k,ns+1,b)/q_aux(i,j,k,1,b)) ** 2 + &
-                               (q(i,j,k,ns+2,b)/q_aux(i,j,k,1,b)) ** 2 + &
-                               (q(i,j,k,ns+3,b)/q_aux(i,j,k,1,b)) ** 2
-                                         ! (rho*E     -        0.5*rho*velocity^2)                * (g - 1)
-                  q_aux(i,j,k,2,b) = (q(i,j,k,ns+4,b) - 0.5_R8P * q_aux(i,j,k,1,b) * velocity_2 ) * (q_aux(i,j,k,3,b) - 1._R8P)
-               enddo
-            enddo
-         enddo
-      enddo
-   endassociate
-   endsubroutine update_aux
-
    subroutine update_ghost(self, q, step)
    !< Update ghost cells.
    !< If not specified all steps are perfermod, syncronous computation
@@ -428,6 +461,26 @@ contains
    endsubroutine eq_assign_eq
 
    ! non type-bound procedures
+   subroutine compute_fluxes_convective(gc, n, density, velocity, pressure, g, fluxes)
+   !< Compute the conservative fluxes on a slice of cells along a coordinate direction.
+   integer(I4P), intent(in)    :: gc              !< Number of ghost cells used.
+   integer(I4P), intent(in)    :: n               !< Number of cells.
+   real(R8P),    intent(in)    :: density( 1-gc:) !< Density [1-gc:N+gc].
+   real(R8P),    intent(in)    :: velocity(1-gc:) !< Normal velocity [1-gc:N+gc].
+   real(R8P),    intent(in)    :: pressure(1-gc:) !< Pressure [1-gc:N+gc].
+   real(R8P),    intent(in)    ::        g(1-gc:) !< Specific heats ratio [1-gc:N+gc].
+   real(R8P),    intent(inout) :: fluxes(0:,1:)   !< Convective fluxes [0:N,1:3].
+   ! real(R8P),    allocatable   :: qr(:,:,:)       !< Reconstructed variables.
+   integer(I4P)                :: i               !< Counter.
+
+   ! allocate(qr(1:2,0:N+1,:))
+   ! call reconstruct_interfaces_characteristic
+   do i=0, n
+      ! computing normal fluxes solving Riemann problem
+      ! call solver_riemann(state_left=qr(2,i), state_right=qr(1,i+1), fluxes=fluxes(i))
+   enddo
+   endsubroutine compute_fluxes_convective
+
    subroutine riemann_solver(p1, r1, u1, g1, p4, r4, u4, g4, F, lmax)
    !< Solve the Riemann problem between the state $1$ and $4$ using the (local) Lax Friedrichs (Rusanov) solver.
    real(R8P), intent(in)  :: p1      !< Pressure of state 1.
