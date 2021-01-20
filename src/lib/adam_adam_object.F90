@@ -12,9 +12,7 @@ use PENF
 use stringifor
 use vtk_fortran
 use HDF5
-#ifdef _MPI_
 use MPI
-#endif
 
 implicit none
 private
@@ -63,7 +61,7 @@ contains
                          print_mpi_stats, is_grid_changed)
    !< Update AMR status.
    !<
-   !< Note: AMR update can be safely called only *after* field%update_ghost has been called for *q* variables, otherwise
+   !< Note: AMR update can be safely called only *after* update_ghost has been called for *q* variables, otherwise
    !< refine is not well done.
    class(adam_object), intent(inout)         :: self                 !< ADAM.
    logical,            intent(in),  optional :: is_marked_by_field   !< Flag to check if marker is field.
@@ -113,9 +111,7 @@ contains
    !< Finalize ADAM.
    class(adam_object), intent(inout) :: self !< ADAM.
 
-#ifdef _MPI_
    call MPI_FINALIZE(self%error)
-#endif
    stop
    endsubroutine finalize
 
@@ -144,14 +140,10 @@ contains
    integer(I4P),       intent(in), optional :: nv             !< Number of field variables.
    integer(I4P),       intent(in), optional :: nb             !< Number of all blocks that can be stored in field.
 
-#ifdef _MPI_
    call MPI_INIT(self%error)
-#endif
    call self%destroy
-#ifdef _MPI_
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
-#endif
    call self%grid%initialize(ni=ni, nj=nj, nk=nk, gc=gc, emin=emin, emax=emax, bc_type=bc_type)
    call self%tree%initialize(grid=self%grid, max_load=max_load, nodes_number=nodes_number, buckets_number=buckets_number, &
                              ratio=ratio, max_level=max_level, add_adam=add_adam)
@@ -379,16 +371,18 @@ contains
    endassociate
    endsubroutine save_hdf5
 
-   subroutine save_vtk(self, basename, var_name, directory, with_ghost)
+   subroutine save_vtk(self, basename, var_name, directory, with_ghost, with_cell_morton)
    !< Save ADAM in VTK files.
    class(adam_object), intent(inout)        :: self                                          !< ADAM.
    character(*),       intent(in)           :: basename                                      !< Base name of output files.
    character(*),       intent(in), optional :: directory                                     !< Output directory name.
    character(*),       intent(in), optional :: var_name(:)                                   !< Variables names.
    logical,            intent(in), optional :: with_ghost                                    !< Flag to save ghost cells.
+   logical,            intent(in), optional :: with_cell_morton                              !< Flag to save Morton code in cells.
    character(:), allocatable                :: directory_                                    !< Output directory name, local var.
    character(:), allocatable                :: var_name_(:)                                  !< Variables names, local var.
    logical                                  :: with_ghost_                                   !< Flag to save ghost cells, local var.
+   logical                                  :: with_cell_morton_                             !< Flag to save Morton code in cells.
    type(vtk_file)                           :: vtk                                           !< VTK file handler.
    type(vtm_file)                           :: vtm                                           !< VTM file handler.
    type(tree_node_object), pointer          :: node                                          !< Pointer to node.
@@ -411,6 +405,7 @@ contains
       enddo
    endif
    with_ghost_ = .false. ; if (present(with_ghost)) with_ghost_ = with_ghost
+   with_cell_morton_ = .false. ; if (present(with_cell_morton)) with_cell_morton_ = with_cell_morton
    if (with_ghost_) then
       gci = self%grid%gci
       gcj = self%grid%gcj
@@ -442,6 +437,11 @@ contains
             self%error = vtk%xml_writer%write_dataarray(data_name=trim(var_name_(v)), &
                                                         x=[self%field%q(1-gci:ni+gci,1-gcj:nj+gcj,1-gck:nk+gck,v,b)])
          enddo
+         if (with_cell_morton_) then
+            self%error = vtk%xml_writer%write_dataarray(data_name='morton', &
+                                                        x=reshape([(self%field%code(b),i=1,(ni+2*gci)*(nj+2*gcj)*(nk+2*gck))], &
+                                                                  [ni+2*gci,nj+2*gcj,nk+2*gck]))
+         endif
          self%error = vtk%xml_writer%write_dataarray(location='cell', action='close')
          self%error = vtk%xml_writer%write_piece()
          self%error = vtk%finalize()

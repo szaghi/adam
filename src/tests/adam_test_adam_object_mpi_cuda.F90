@@ -3,8 +3,8 @@ program adam_test_adam_object_mpi_cuda
 !< ADAM, test ADAM class in MPI env.
 
 use adam_adam_object
-use adam_equation_laplace_object
-use adam_field_object
+use adam_equation_laplace_cpu_object
+! use adam_field_object
 use adam_parameters
 !GPUuse adam_field_gpu_object
 use adam_tree_node_object
@@ -12,14 +12,15 @@ use PENF
 
 implicit none
 
-type(adam_object)               :: adam            !< ADAM.
-type(equation_laplace_object)   :: laplace         !< Laplace equation.
-type(tree_node_object), pointer :: node            !< Tree node pointer.
-integer(I4P)                    :: l, t            !< Counter.
-logical                         :: is_grid_changed !< Flag to check grid changes.
-real(R8P)                       :: time            !< Time.
-integer(I8P)                    :: timing(0:2)     !< Tic toc timing.
-integer(I4P)                    :: n_iter          !< Number of iterations
+type(adam_object)                 :: adam            !< ADAM.
+type(equation_laplace_cpu_object) :: laplace         !< Laplace equation.
+type(tree_node_object), pointer   :: node            !< Tree node pointer.
+integer(I4P)                      :: l, t            !< Counter.
+logical                           :: is_grid_changed !< Flag to check grid changes.
+real(R8P)                         :: time            !< Time.
+integer(I8P)                      :: timing(0:2)     !< Tic toc timing.
+integer(I4P)                      :: n_iter          !< Number of iterations.
+integer(I4P)                      :: n_save          !< Frequency of saving output.
 !GPUtype(field_gpu_object) :: field_gpu       !< GPU field.
 
 print '(A)', 'initialize ADAM'
@@ -40,29 +41,21 @@ do l=1, 2
    print '(A)', 'refine ADAM at level '//trim(str(l))
    print *, 'blocks_number: ',adam%field%blocks_number
    call adam%tree%mark_all_nodes(mark=TO_BE_REFINED)
-   call laplace%update_ghost(field=adam%field, q=adam%field%q)
-   call adam%amr_update(do_blocks_reorder=.false., do_mpi_redistribute=.true. )
+   call laplace%update_ghost(q=adam%field%q)
+   call adam%amr_update(do_blocks_reorder=.false., do_mpi_redistribute=.true.)
 enddo
-
-! call adam%field%set_initial_conditions
 
 ! node => adam%tree%node(code=0_I8P)
 ! node%refinement_needed = TO_BE_REFINED
 ! call adam%amr_update(do_blocks_reorder=.false.)
 ! print*,'n_blocks: ',adam%tree%nodes_number
-! call adam%update_ghost
-! call adam%save_vtk(basename='sphere-'//trim(strz(t,9)), with_ghost=.true.)
-! call adam%finalize
 
 print*,' BC faces number: ', size(adam%tree%local_map_bc_face, dim=1)
 print*,' BC edges number: ', size(adam%tree%local_map_bc_edge, dim=1)
 print*,' BC corners number: ', size(adam%tree%local_map_bc_corner, dim=1)
 
 print '(A)', 'set initial conditions'
-! call adam%field%set_initial_conditions
-call laplace%set_initial_conditions(field=adam%field)
-
-!call adam%save_vtk(basename='sphere-'//trim(strz(0,9)), with_ghost=.true.)
+call laplace%set_initial_conditions
 
 !call field_gpu%copy_cpu_gpu
 !call update_ghost_gpu_u(local_map_ghost_gpu=field_gpu%local_map_ghost_gpu, u_s=field_gpu%u_gpu)
@@ -74,32 +67,23 @@ call laplace%set_initial_conditions(field=adam%field)
 !                            send_buffer_ghost_gpu=field_gpu%send_buffer_ghost_gpu,     &
 !                            u_s=field_gpu%u_gpu, procs_number=adam%procs_number)
 !GPUcall field_gpu%copy_gpu_cpu
-!call adam%save_hdf5(basename='sphere-'//trim(strz(1,9)), with_ghost=.false., with_cell_morton=.true.)
-!call adam%save_vtk(basename='sphere-'//trim(strz(1,9)), with_ghost=.true.)
-!call adam%finalize
 
 time = 0._R8P
 n_iter = 100
+n_save = 1
 call system_clock(timing(1))
 do t=1, n_iter
    if (mod(t,1)==0) print '(A)', 'track iteration '//trim(str(t, .true.))
    !GPUcall field_gpu%rk_integrate(t=time, Dt=0.1_R8P)
 
-   ! call adam%field%mark_by_grad_q
-   call laplace%mark_by_grad_q(field=adam%field)
-   call laplace%update_ghost(field=adam%field, q=adam%field%q)
+   call laplace%mark_by_grad_q
+   call laplace%update_ghost(q=adam%field%q)
    call adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false.)
    print*, 'blocks number: ', adam%tree%nodes_number
-   ! print*, ' is 577 with us? ', adam%tree%has_code(code=577_I8P)
 
-   ! call adam%field%rk_integrate(t=time, Dt=0.006_R8P)
-   call laplace%integrate(field=adam%field, t=time, Dt=0.006_R8P)
+   call laplace%integrate(t=time, Dt=0.006_R8P)
    !call field_gpu%copy_gpu_cpu
-   if (mod(t,1)==0) call adam%save_hdf5(basename='sphere-'//trim(strz(t,9)), with_ghost=.false., with_cell_morton=.true.)
-   ! if (t==9.or.t==10) then
-   !    call adam%update_ghost
-   !    call adam%save_vtk(basename='sphere-'//trim(strz(t,9)), with_ghost=.true.)
-   ! endif
+   if (mod(t,n_save)==0) call adam%save_hdf5(basename='sphere-'//trim(strz(t,9)), with_ghost=.false., with_cell_morton=.true.)
    time = time + 0.2_R8P
 enddo
 call system_clock(timing(2), timing(0))

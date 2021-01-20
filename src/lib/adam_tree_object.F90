@@ -135,9 +135,7 @@ use FOSSIL
 use MORTIF
 use PENF
 use VecFor
-#ifdef _MPI_
 use MPI
-#endif
 use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
 
 implicit none
@@ -607,20 +605,16 @@ contains
          self%ratio = ratio
       else
          write(stderr, '(A)') 'ADAM-ERROR: tree ratio must be 8 o 4'
-#ifdef _MPI_
-   call MPI_FINALIZE(self%error)
-#endif
-        stop
+         call MPI_FINALIZE(self%error)
+         stop
       endif
    endif
    if (present(max_level)) self%max_level = max_level
    self%is_initialized_ = .true.
    if (add_adam_) call self%add_node(code=-1_I8P) ! add ADAM node, the ancestor of all nodes
    ! MPI data
-#ifdef _MPI_
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
-#endif
    allocate(self%comm_map_n_send(0:self%procs_number-1))
    allocate(self%comm_map_n_recv(0:self%procs_number-1))
    allocate(self%comm_map_send_ptr(0:self%procs_number))
@@ -1453,10 +1447,8 @@ contains
       disp_count(p) = disp_count(p-1) + recv_count(p-1)
    enddo
 
-#ifdef _MPI_
    call MPI_ALLGATHERV(send_buffer, self%my_nodes_number * 2, MPI_INTEGER8, &
                        recv_buffer, recv_count, disp_count, MPI_INTEGER8, MPI_COMM_WORLD, self%error)
-#endif
 
    ! update nodes data
    do n=1, self%nodes_number*2, 2
