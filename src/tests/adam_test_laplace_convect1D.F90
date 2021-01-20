@@ -1,6 +1,6 @@
-!< ADAM, test ADAM class in MPI env.
-program adam_test_adam_object_mpi_cuda
-!< ADAM, test ADAM class in MPI env.
+!< ADAM, test ADAM for Laplace/convective 1D equations.
+program adam_test_laplace_convect1D
+!< ADAM, test ADAM for Laplace/convective 1D equations.
 
 use adam_adam_object
 use adam_equation_convect1D_cpu_object, only : equation_convect1D_cpu_object
@@ -86,4 +86,4 @@ do t=1, n_iter
 enddo
 
 call adam%finalize
-endprogram adam_test_adam_object_mpi_cuda
+endprogram adam_test_laplace_convect1D
