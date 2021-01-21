@@ -47,9 +47,7 @@ contains
 
    call self%destroy
    self%field => field
-#ifdef _MPI_
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
-#endif
    endsubroutine initialize
 
    subroutine update_ghost_local(self, q)
