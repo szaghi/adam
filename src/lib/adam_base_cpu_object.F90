@@ -162,7 +162,6 @@ contains
       self%field%req_send_recv = MPI_REQUEST_NULL
 #endif
       comm_map_send_ctr_ghost = self%field%comm_map_send_ptr_ghost
-      comm_map_send_ctr_ghost = comm_map_send_ctr_ghost * self%field%nv
 
       ! populate send buffer
       do sf=1, size(self%field%comm_map_send_ghost, dim=1)
@@ -255,12 +254,8 @@ contains
 
    if (do_step(3)) then
       comm_map_recv_ctr_ghost = self%field%comm_map_recv_ptr_ghost
-      comm_map_recv_ctr_ghost = comm_map_recv_ctr_ghost * self%field%nv
-#ifdef _MPI_
-      call MPI_WAITALL(self%field%procs_number * 2, self%field%req_send_recv, MPI_STATUSES_IGNORE, self%field%error)
-#endif
 
-!debug      call MPI_BARRIER(MPI_COMM_WORLD, self%field%error)
+      call MPI_WAITALL(self%field%procs_number * 2, self%field%req_send_recv, MPI_STATUSES_IGNORE, self%field%error)
 
       ! retrive from receive buffer
       do rf=1, size(self%field%comm_map_recv_ghost, dim=1)

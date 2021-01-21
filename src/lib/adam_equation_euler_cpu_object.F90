@@ -64,6 +64,8 @@ type :: equation_euler_cpu_object
    real(R8P), allocatable :: cp0(:)           !< Specific heat at constant pressure of initial species.
    real(R8P), allocatable :: cv0(:)           !< Specific heat at constant pressure of initial species.
    real(R8P), allocatable :: q_aux(:,:,:,:,:) !< Auxiliary cell centered variables.
+   real(R8P)              :: dt=0._R8P        !< Maximum time step accordingly to CFL criterion.
+   real(R8P)              :: CFL=0.3_R8P      !< CFL limit.
    ! Runge-Kutta data
    integer(I4P)           :: nrk=3_I4P        !< Runge-Kutta stages number.
    real(R8P), allocatable :: alph(:,:)        !< RK alpha coefficients.
@@ -76,6 +78,7 @@ type :: equation_euler_cpu_object
    contains
       ! public methods
       procedure, pass(self) :: compute_aux             !< Compute auxiliary variables.
+      procedure, pass(self) :: compute_dt              !< Compute maximum time step.
       procedure, pass(self) :: destroy                 !< Destroy the equation.
       procedure, pass(self) :: initialize              !< Initialize the equation.
       procedure, pass(self) :: mark_by_grad_rho        !< Mark blocks to be refined/derefined by a `grad(rho)` value.
@@ -109,25 +112,53 @@ contains
              gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck, &
              ns=>self%ns)
       do b=1, size(q, dim=5)
-         do k=1-gci, nk+gci
+         do k=1-gck, nk+gck
             do j=1-gcj, nj+gcj
-               do i=1-gck, ni+gck
+               do i=1-gci, ni+gci
                   q_aux(i,j,k,ns+1,b) = sum(q(i,j,k,1:ns,b))
                   q_aux(i,j,k,1:ns,b) = q(i,j,k,1:ns,b) / q_aux(i,j,k,ns+1,b)
-                  q_aux(i,j,k,ns+2,b) = q(i,j,k,ns+1,b) / q_aux(i,j,k,1,b)
-                  q_aux(i,j,k,ns+3,b) = q(i,j,k,ns+2,b) / q_aux(i,j,k,1,b)
-                  q_aux(i,j,k,ns+4,b) = q(i,j,k,ns+3,b) / q_aux(i,j,k,1,b)
+                  q_aux(i,j,k,ns+2,b) = q(i,j,k,ns+1,b) / q_aux(i,j,k,ns+1,b)
+                  q_aux(i,j,k,ns+3,b) = q(i,j,k,ns+2,b) / q_aux(i,j,k,ns+1,b)
+                  q_aux(i,j,k,ns+4,b) = q(i,j,k,ns+3,b) / q_aux(i,j,k,ns+1,b)
                   q_aux(i,j,k,ns+5,b) = dot_product(q_aux(i,j,k,1:ns,b), self%cp0) / dot_product(q_aux(i,j,k,1:ns,b), self%cv0)
                   q_aux(i,j,k,ns+6,b) = (q(i,j,k,ns+4,b) - 0.5_R8P * q_aux(i,j,k,ns+1,b) * (q_aux(i,j,k,ns+2,b)**2 +   &
                                                                                             q_aux(i,j,k,ns+3,b)**2 +   &
                                                                                             q_aux(i,j,k,ns+4,b)**2)) * &
-                                        (q_aux(i,j,k,5,b) - 1._R8P)
+                                        (q_aux(i,j,k,ns+5,b) - 1._R8P)
                enddo
             enddo
          enddo
       enddo
    endassociate
    endsubroutine compute_aux
+
+   subroutine compute_dt(self)
+   !< Compute maximum time step accordingly to CFL stabilty criterion.
+   class(equation_euler_cpu_object), intent(inout) :: self       !< The equation.
+   real(R8P)                                       :: umax       !< Maximum speed of waves propagation.
+   integer(I4P)                                    :: b, i, j, k !< Counter.
+
+   associate(blocks_number=>self%field%blocks_number, dxyz=>self%field%dxyz,         &
+             ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk, &
+             ns=>self%ns, q=>self%field%q, q_aux=>self%q_aux, dt=>self%dt, CFL=>self%CFL)
+   call self%compute_aux(q=self%field%q(:,:,:,:,1:blocks_number), q_aux=self%q_aux(:,:,:,:,1:blocks_number))
+   dt = huge(1._R8P)
+   do b=1, self%field%blocks_number
+      umax = 0._R8P
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               umax = max(umax, maxval(abs(q_aux(i,j,k,ns+2:ns+4,b))) + &
+                                a(p=q_aux(i,j,k,ns+6,b), r=q_aux(i,j,k,ns+1,b), g=q_aux(i,j,k,ns+5,b)))
+
+            enddo
+         enddo
+      enddo
+      dt = min(dt, minval(dxyz(:,b)) / umax * CFL)
+   enddo
+   call MPI_ALLREDUCE(MPI_IN_PLACE, dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%error)
+   endassociate
+   endsubroutine compute_dt
 
    subroutine destroy(self)
    !< Destroy the equation.
@@ -150,7 +181,7 @@ contains
    self%field => field
    call self%base_cpu%initialize(field=field)
    if (present(ns)) self%ns = ns
-   if (present(ns)) self%nrk = nrk
+   if (present(nrk)) self%nrk = nrk
    if (self%field%nv - self%ns /= 4) then
       write(stderr, '(A)') 'ADAM-ERROR: field%nv must be euler%ns+4'
       call MPI_FINALIZE(self%error)
@@ -240,16 +271,15 @@ contains
       if (grad > grad_tol) then
          delta = 0.004_R8P
       else
-         delta = 0.08_R8P
+         delta = 0.03_R8P
       endif
       endfunction max_cell_delta_grad
    endsubroutine mark_by_grad_rho
 
-   subroutine integrate(self, t, Dt, do_ghost_syncro, residual)
+   subroutine integrate(self, t, do_ghost_syncro, residual)
    !< Runge Kutta integration of field.
    class(equation_euler_cpu_object), intent(inout)         :: self             !< The equation.
    real(R8P),                        intent(in)            :: t                !< Time.
-   real(R8P),                        intent(in)            :: Dt               !< Time step.
    logical,                          intent(in),  optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
    real(R8P),                        intent(out), optional :: residual         !< Global residual.
    logical                                                 :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
@@ -260,22 +290,22 @@ contains
              ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk, &
              blocks_number=>self%field%blocks_number,                                &
              inner_blocks_number=>self%field%inner_blocks_number,                    &
-             q=>self%field%q, q_s=>self%q_s)
+             q=>self%field%q, q_s=>self%q_s, dt=>self%dt)
    do s=1, self%nrk
       q_s(1:ni,1:nj,1:nk,:,1:blocks_number,s) = q(1:ni,1:nj,1:nk,:,1:blocks_number)
       do ss=1, s - 1
          q_s(1:ni,1:nj,1:nk,:,1:blocks_number,s) = q_s(1:ni,1:nj,1:nk,:,1:blocks_number,s ) + &
-                                                  (q_s(1:ni,1:nj,1:nk,:,1:blocks_number,ss) * (Dt * alph(s, ss)))
+                                                  (q_s(1:ni,1:nj,1:nk,:,1:blocks_number,ss) * (dt * alph(s, ss)))
       enddo
       if (do_ghost_syncro_) then
          call self%update_ghost(q=q_s(:,:,:,:,:,s)) ! all ghosts
-         call self%compute_residuals(q=q_s(:,:,:,:,1:,s), t=t + gamm(s) * Dt)
+         call self%compute_residuals(q=q_s(:,:,:,:,1:,s), t=t + gamm(s) * dt)
       else
          call self%update_ghost(q=q_s(:,:,:,:,:,s), step=1) ! local ghosts
          call self%update_ghost(q=q_s(:,:,:,:,:,s), step=2) ! initialize MPI comms
-         call self%compute_residuals(q=q_s(:,:,:,:,1:inner_blocks_number,s), t=t + gamm(s) * Dt)
+         call self%compute_residuals(q=q_s(:,:,:,:,1:inner_blocks_number,s), t=t + gamm(s) * dt)
          call self%update_ghost(q=q_s(:,:,:,:,:,s), step=3) ! complete MPI comms
-         call self%compute_residuals(q=q_s(:,:,:,:,inner_blocks_number+1:blocks_number,s),t=t+gamm(s)*Dt)
+         call self%compute_residuals(q=q_s(:,:,:,:,inner_blocks_number+1:blocks_number,s),t=t+gamm(s)*dt)
       endif
       if (present(residual).and.s==3) then
          residual = 0._R8P
@@ -287,7 +317,7 @@ contains
    enddo
    do s=1, self%nrk
       q(1:ni,1:nj,1:nk,:,1:blocks_number) =   q(1:ni,1:nj,1:nk,:,1:blocks_number) + &
-                                            q_s(1:ni,1:nj,1:nk,:,1:blocks_number,s) * Dt * beta(s)
+                                            q_s(1:ni,1:nj,1:nk,:,1:blocks_number,s) * dt * beta(s)
    enddo
    endassociate
    endsubroutine integrate
@@ -312,14 +342,10 @@ contains
                                                                1:self%field%grid%nj,&
                                                                0:self%field%grid%nk,&
                                                                1:self%field%nv)    !< Convective fluxes in z direction.
-   real(R8P)                                       :: fluxes  (0:max(self%field%grid%ni,&
-                                                                     self%field%grid%nj,&
-                                                                     self%field%grid%nk),&
-                                                               1:3)                !< 1D Convective fluxes.
    integer(I4P)                                    :: b, i, j, k                   !< Counter.
 
-   associate(ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,     &
-             gci=>self%field%grid%gci, gcj=>self%field%grid%nj, gck=>self%field%grid%nk, &
+   associate(ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,       &
+             gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck, &
              dxyz=>self%field%dxyz, ns=>self%ns, q_aux=>self%q_aux)
    call self%compute_aux(q=q, q_aux=self%q_aux(:,:,:,:,1:size(q,dim=5)))
    do b=1, size(q, dim=5)
@@ -329,15 +355,15 @@ contains
             call compute_fluxes_convective(gc=gci, n=ni,                          &
                                            c         =    q_aux( :,  j,k,1:ns,b), &
                                            rho       =    q_aux( :,  j,k,ns+1,b), &
-                                           un        =    q_aux( :,  j,k,ns+2,b), &
-                                           ut1       =    q_aux( :,  j,k,ns+3,b), &
-                                           ut2       =    q_aux( :,  j,k,ns+4,b), &
+                                           un        =    q_aux( :,  j,k,ns+2,b), & ! u
+                                           ut1       =    q_aux( :,  j,k,ns+3,b), & ! v
+                                           ut2       =    q_aux( :,  j,k,ns+4,b), & ! w
                                            g         =    q_aux( :,  j,k,ns+5,b), &
                                            p         =    q_aux( :,  j,k,ns+6,b), &
                                            f_rho     = fluxes_x(0:ni,j,k,1:ns),   &
-                                           f_rho_un  = fluxes_x(0:ni,j,k,ns+1),   &
-                                           f_rho_ut1 = fluxes_x(0:ni,j,k,ns+2),   &
-                                           f_rho_ut2 = fluxes_x(0:ni,j,k,ns+3),   &
+                                           f_rho_un  = fluxes_x(0:ni,j,k,ns+1),   & ! u
+                                           f_rho_ut1 = fluxes_x(0:ni,j,k,ns+2),   & ! v
+                                           f_rho_ut2 = fluxes_x(0:ni,j,k,ns+3),   & ! w
                                            f_rho_e   = fluxes_x(0:ni,j,k,ns+4))
          enddo
       enddo
@@ -347,34 +373,34 @@ contains
             call compute_fluxes_convective(gc=gcj, n=nj,                          &
                                            c         =    q_aux(i, :,  k,1:ns,b), &
                                            rho       =    q_aux(i, :,  k,ns+1,b), &
-                                           un        =    q_aux(i, :,  k,ns+3,b), &
-                                           ut1       =    q_aux(i, :,  k,ns+2,b), &
-                                           ut2       =    q_aux(i, :,  k,ns+4,b), &
+                                           un        =    q_aux(i, :,  k,ns+3,b), & ! v
+                                           ut1       =    q_aux(i, :,  k,ns+2,b), & ! u
+                                           ut2       =    q_aux(i, :,  k,ns+4,b), & ! w
                                            g         =    q_aux(i, :,  k,ns+5,b), &
                                            p         =    q_aux(i, :,  k,ns+6,b), &
                                            f_rho     = fluxes_y(i,0:nj,k,1:ns),   &
-                                           f_rho_un  = fluxes_y(i,0:nj,k,ns+2),   &
-                                           f_rho_ut1 = fluxes_y(i,0:nj,k,ns+1),   &
-                                           f_rho_ut2 = fluxes_y(i,0:nj,k,ns+3),   &
+                                           f_rho_un  = fluxes_y(i,0:nj,k,ns+2),   & ! v
+                                           f_rho_ut1 = fluxes_y(i,0:nj,k,ns+1),   & ! u
+                                           f_rho_ut2 = fluxes_y(i,0:nj,k,ns+3),   & ! w
                                            f_rho_e   = fluxes_y(i,0:nj,k,ns+4))
          enddo
       enddo
       ! convective fluxes along z direction
       do j=1, nj
          do i=1, ni
-            call compute_fluxes_convective(gc=gcj, n=nj,                          &
+            call compute_fluxes_convective(gc=gck, n=nk,                          &
                                            c         =    q_aux(i,j, :,  1:ns,b), &
                                            rho       =    q_aux(i,j, :,  ns+1,b), &
-                                           un        =    q_aux(i,j, :,  ns+4,b), &
-                                           ut1       =    q_aux(i,j, :,  ns+2,b), &
-                                           ut2       =    q_aux(i,j, :,  ns+3,b), &
+                                           un        =    q_aux(i,j, :,  ns+4,b), & ! w
+                                           ut1       =    q_aux(i,j, :,  ns+2,b), & ! u
+                                           ut2       =    q_aux(i,j, :,  ns+3,b), & ! v
                                            g         =    q_aux(i,j, :,  ns+5,b), &
                                            p         =    q_aux(i,j, :,  ns+6,b), &
-                                           f_rho     = fluxes_y(i,j,0:nk,1:ns),   &
-                                           f_rho_un  = fluxes_y(i,j,0:nk,ns+3),   &
-                                           f_rho_ut1 = fluxes_y(i,j,0:nk,ns+1),   &
-                                           f_rho_ut2 = fluxes_y(i,j,0:nk,ns+2),   &
-                                           f_rho_e   = fluxes_y(i,j,0:nk,ns+4))
+                                           f_rho     = fluxes_z(i,j,0:nk,1:ns),   &
+                                           f_rho_un  = fluxes_z(i,j,0:nk,ns+3),   & ! w
+                                           f_rho_ut1 = fluxes_z(i,j,0:nk,ns+1),   & ! u
+                                           f_rho_ut2 = fluxes_z(i,j,0:nk,ns+2),   & ! v
+                                           f_rho_e   = fluxes_z(i,j,0:nk,ns+4))
          enddo
       enddo
       ! residuals
@@ -384,6 +410,7 @@ contains
                q(i,j,k,:,b) = (fluxes_x(i-1,j  ,k  ,:) - fluxes_x(i,j,k,:)) / dxyz(1,b) + &
                               (fluxes_y(i  ,j-1,k  ,:) - fluxes_y(i,j,k,:)) / dxyz(2,b) + &
                               (fluxes_z(i  ,j  ,k-1,:) - fluxes_z(i,j,k,:)) / dxyz(3,b)
+               ! q(i,j,k,:,b) = (fluxes_x(i-1,j  ,k  ,:) - fluxes_x(i,j,k,:)) / dxyz(1,b)
             enddo
          enddo
       enddo
@@ -423,7 +450,7 @@ contains
             do k=ijkmin(3), ijkmax(3), sign(1, ijkmax(3)-ijkmin(3))
                do j=ijkmin(2), ijkmax(2), sign(1, ijkmax(2)-ijkmin(2))
                   do i=ijkmin(1), ijkmax(1), sign(1, ijkmax(1)-ijkmin(1))
-                     q(i,j,k,1,b) = q(i-ijkdelta(1), j-ijkdelta(2), k-ijkdelta(3), 1, b)
+                     q(i,j,k,:,b) = q(i-ijkdelta(1), j-ijkdelta(2), k-ijkdelta(3), :, b)
                   enddo
                enddo
             enddo
@@ -454,7 +481,19 @@ contains
       do k=1, nk
          do j=1, nj
             do i=1, ni
-               ! q(i,j,k,1,b) =
+               if (x_cell(i,b)<0.5_R8P) then
+                  q(i,j,k,1,b) = 1._R8P
+                  q(i,j,k,2,b) = 0._R8P
+                  q(i,j,k,3,b) = 0._R8P
+                  q(i,j,k,4,b) = 0._R8P
+                  q(i,j,k,5,b) = 1._R8P * E(p=1._R8P, r=1._R8P, u=0._R8P, g=self%cp0(1)/self%cv0(1))
+               else
+                  q(i,j,k,1,b) = 0.125_R8P
+                  q(i,j,k,2,b) = 0._R8P
+                  q(i,j,k,3,b) = 0._R8P
+                  q(i,j,k,4,b) = 0._R8P
+                  q(i,j,k,5,b) = 0.125_R8P * E(p=0.1_R8P, r=0.125_R8P, u=0._R8P, g=self%cp0(1)/self%cv0(1))
+               endif
             enddo
          enddo
       enddo
@@ -535,8 +574,14 @@ contains
    ! real(R8P),    allocatable   :: qr(:,:,:)       !< Reconstructed variables.
    integer(I4P)                :: i               !< Counter.
 
-   ! allocate(qr(1:2,0:N+1,:))
+   ! allocate(pr(1:2,0:N+1))
    ! call reconstruct_interfaces_characteristic
+   ! print*, 'cazzo rho ',  rho
+   ! print*, 'cazzo un  ',  un
+   ! print*, 'cazzo ut1 ',  ut1
+   ! print*, 'cazzo ut2 ',  ut2
+   ! print*, 'cazzo g   ',  g
+   ! print*, 'cazzo p   ',  p
    do i=0, n
       ! computing normal fluxes solving Riemann problem
       call solve_riemann(p1=p(i), r1=rho(i), u1=un(i), g1=g(i), p4=p(i+1), r4=rho(i+1), u4=un(i+1), g4=g(i+1), F=fluxes)

@@ -469,6 +469,8 @@ contains
    if (allocated(self%send_buffer_ghost)) deallocate(self%send_buffer_ghost)
    if (allocated(self%recv_buffer_ghost)) deallocate(self%recv_buffer_ghost)
 
+   if (allocated(self%comm_map_send_ptr_ghost)) self%comm_map_send_ptr_ghost = self%comm_map_send_ptr_ghost * self%nv
+   if (allocated(self%comm_map_recv_ptr_ghost)) self%comm_map_recv_ptr_ghost = self%comm_map_recv_ptr_ghost * self%nv
    if (allocated(self%comm_map_n_send_ghost)) allocate(self%send_buffer_ghost(sum(self%comm_map_n_send_ghost, dim=1)*self%nv))
    if (allocated(self%comm_map_n_recv_ghost)) allocate(self%recv_buffer_ghost(sum(self%comm_map_n_recv_ghost, dim=1)*self%nv))
    endsubroutine prepare_comm_local_ghost
