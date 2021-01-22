@@ -26,7 +26,7 @@ call adam%initialize(max_level=7,                                              &
                               BC_EXTRAPOLATION,BC_EXTRAPOLATION],              &
                      nb=15000, nv=5, nodes_number=16*15000_I8P)
 
-call euler%initialize(field=adam%field, ns=1, CFL=0.5_R8P)
+call euler%initialize(field=adam%field, ns=1, CFL=0.5_R8P, weno_s=2_I4P)
 print '(A)', 'create 2 levels of refinement'
 do l=1, 2
    print '(A)', 'refine ADAM at level '//trim(str(l))

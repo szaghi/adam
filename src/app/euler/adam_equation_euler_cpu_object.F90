@@ -72,6 +72,15 @@ type :: equation_euler_cpu_object
    real(R8P), allocatable :: beta(:)          !< RK beta coefficients.
    real(R8P), allocatable :: gamm(:)          !< RK gamma coefficients.
    real(R8P), allocatable :: q_s(:,:,:,:,:,:) !< RK Field cell centered variables stages.
+   ! WENO data
+   integer(I4P)           :: weno_s=1_I4P    !< Stencil number.
+   real(R8P), allocatable :: weno_c(:,:)     !< Central difference coefficients    [1:2,1:2*S].
+   real(R8P), allocatable :: weno_a(:,:)     !< Optimal weights                    [1:2,0:S-1].
+   real(R8P), allocatable :: weno_p(:,:,:)   !< Polinomials coefficients           [1:2,0:S-1,0:S-1].
+   real(R8P), allocatable :: weno_d(:,:,:)   !< Smoothness indicators coefficients [0:S-1,0:S-1,0:S-1].
+   real(R8P)              :: weno_eps=0._R8P !< Parameter for avoiding divided by zero when computing smoothness indicators.
+   integer(I4P)           :: weno_odd=1_I4P  !< Constant for distinguishing between odd and even number of stencils (mod(S,2)).
+   integer(I4P)           :: weno_exp=0_I4P  !< Exponent for growing the diffusive part of weights.
    ! MPI data, unrelated to field equations
    integer(I4P) :: error=0_I4P  !< Error traping flag.
    integer(I4P) :: myrank=0_I4P !< MPI rank process.
@@ -87,6 +96,13 @@ type :: equation_euler_cpu_object
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation.
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions of equation.
       procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
+      ! private methods
+      procedure, pass(self) :: compute_fluxes_convective !< Compute the conservative fluxes.
+      procedure, pass(self) :: weno_convolution          !< Return WENO convolution of the weighted polynomial recontructions.
+      procedure, pass(self) :: weno_initialize           !< Initialize WENO data.
+      procedure, pass(self) :: weno_polynomials          !< Return WENO polynomials
+      procedure, pass(self) :: weno_reconstructed        !< Return WENO reconstruction of 2S-1 order.
+      procedure, pass(self) :: weno_weights              !< Return WENO weights of the polynomial reconstructions.
       ! operators
       generic :: assignment(=) => eq_assign_eq      !< Overload `=`.
       procedure, pass(lhs), private :: eq_assign_eq !< Operator `=`.
@@ -168,7 +184,7 @@ contains
    self = fresh
    endsubroutine destroy
 
-   subroutine initialize(self, field, ns, nrk, cp0, cv0, CFL)
+   subroutine initialize(self, field, ns, nrk, cp0, cv0, CFL, weno_s)
    !< Initialize the equation.
    class(equation_euler_cpu_object), intent(inout)        :: self   !< The equation.
    type(field_object),               intent(in), target   :: field  !< The field.
@@ -177,6 +193,7 @@ contains
    real(R8P),                        intent(in), optional :: cp0(:) !< Initial specific heats at constant pressure.
    real(R8P),                        intent(in), optional :: cv0(:) !< Initial specific heats at constant volume.
    real(R8P),                        intent(in), optional :: CFL    !< CFL value.
+   integer(I4P),                     intent(in), optional :: weno_s !< Number of WENO stencils.
 
    call self%destroy
    self%field => field
@@ -201,6 +218,8 @@ contains
       self%cv0 = 742.85_R8P
    endif
    if (present(CFL)) self%CFL = CFL
+   if (present(weno_s)) self%weno_s = weno_s
+   call self%weno_initialize
 
    allocate(self%q_aux(1-field%grid%gci:field%grid%ni+field%grid%gci, &
                        1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
@@ -357,55 +376,55 @@ contains
       ! convective fluxes along x direction
       do k=1, nk
          do j=1, nj
-            call compute_fluxes_convective(gc=gci, n=ni,                          &
-                                           c         =    q_aux( :,  j,k,1:ns,b), &
-                                           rho       =    q_aux( :,  j,k,ns+1,b), &
-                                           un        =    q_aux( :,  j,k,ns+2,b), & ! u
-                                           ut1       =    q_aux( :,  j,k,ns+3,b), & ! v
-                                           ut2       =    q_aux( :,  j,k,ns+4,b), & ! w
-                                           g         =    q_aux( :,  j,k,ns+5,b), &
-                                           p         =    q_aux( :,  j,k,ns+6,b), &
-                                           f_rho     = fluxes_x(0:ni,j,k,1:ns),   &
-                                           f_rho_un  = fluxes_x(0:ni,j,k,ns+1),   & ! u
-                                           f_rho_ut1 = fluxes_x(0:ni,j,k,ns+2),   & ! v
-                                           f_rho_ut2 = fluxes_x(0:ni,j,k,ns+3),   & ! w
-                                           f_rho_e   = fluxes_x(0:ni,j,k,ns+4))
+            call self%compute_fluxes_convective(gc=gci, n=ni,                          &
+                                                c         =    q_aux( :,  j,k,1:ns,b), &
+                                                rho       =    q_aux( :,  j,k,ns+1,b), &
+                                                un        =    q_aux( :,  j,k,ns+2,b), & ! u
+                                                ut1       =    q_aux( :,  j,k,ns+3,b), & ! v
+                                                ut2       =    q_aux( :,  j,k,ns+4,b), & ! w
+                                                g         =    q_aux( :,  j,k,ns+5,b), &
+                                                p         =    q_aux( :,  j,k,ns+6,b), &
+                                                f_rho     = fluxes_x(0:ni,j,k,1:ns),   &
+                                                f_rho_un  = fluxes_x(0:ni,j,k,ns+1),   & ! u
+                                                f_rho_ut1 = fluxes_x(0:ni,j,k,ns+2),   & ! v
+                                                f_rho_ut2 = fluxes_x(0:ni,j,k,ns+3),   & ! w
+                                                f_rho_e   = fluxes_x(0:ni,j,k,ns+4))
          enddo
       enddo
       ! convective fluxes along y direction
       do k=1, nk
          do i=1, ni
-            call compute_fluxes_convective(gc=gcj, n=nj,                          &
-                                           c         =    q_aux(i, :,  k,1:ns,b), &
-                                           rho       =    q_aux(i, :,  k,ns+1,b), &
-                                           un        =    q_aux(i, :,  k,ns+3,b), & ! v
-                                           ut1       =    q_aux(i, :,  k,ns+2,b), & ! u
-                                           ut2       =    q_aux(i, :,  k,ns+4,b), & ! w
-                                           g         =    q_aux(i, :,  k,ns+5,b), &
-                                           p         =    q_aux(i, :,  k,ns+6,b), &
-                                           f_rho     = fluxes_y(i,0:nj,k,1:ns),   &
-                                           f_rho_un  = fluxes_y(i,0:nj,k,ns+2),   & ! v
-                                           f_rho_ut1 = fluxes_y(i,0:nj,k,ns+1),   & ! u
-                                           f_rho_ut2 = fluxes_y(i,0:nj,k,ns+3),   & ! w
-                                           f_rho_e   = fluxes_y(i,0:nj,k,ns+4))
+            call self%compute_fluxes_convective(gc=gcj, n=nj,                          &
+                                                c         =    q_aux(i, :,  k,1:ns,b), &
+                                                rho       =    q_aux(i, :,  k,ns+1,b), &
+                                                un        =    q_aux(i, :,  k,ns+3,b), & ! v
+                                                ut1       =    q_aux(i, :,  k,ns+2,b), & ! u
+                                                ut2       =    q_aux(i, :,  k,ns+4,b), & ! w
+                                                g         =    q_aux(i, :,  k,ns+5,b), &
+                                                p         =    q_aux(i, :,  k,ns+6,b), &
+                                                f_rho     = fluxes_y(i,0:nj,k,1:ns),   &
+                                                f_rho_un  = fluxes_y(i,0:nj,k,ns+2),   & ! v
+                                                f_rho_ut1 = fluxes_y(i,0:nj,k,ns+1),   & ! u
+                                                f_rho_ut2 = fluxes_y(i,0:nj,k,ns+3),   & ! w
+                                                f_rho_e   = fluxes_y(i,0:nj,k,ns+4))
          enddo
       enddo
       ! convective fluxes along z direction
       do j=1, nj
          do i=1, ni
-            call compute_fluxes_convective(gc=gck, n=nk,                          &
-                                           c         =    q_aux(i,j, :,  1:ns,b), &
-                                           rho       =    q_aux(i,j, :,  ns+1,b), &
-                                           un        =    q_aux(i,j, :,  ns+4,b), & ! w
-                                           ut1       =    q_aux(i,j, :,  ns+2,b), & ! u
-                                           ut2       =    q_aux(i,j, :,  ns+3,b), & ! v
-                                           g         =    q_aux(i,j, :,  ns+5,b), &
-                                           p         =    q_aux(i,j, :,  ns+6,b), &
-                                           f_rho     = fluxes_z(i,j,0:nk,1:ns),   &
-                                           f_rho_un  = fluxes_z(i,j,0:nk,ns+3),   & ! w
-                                           f_rho_ut1 = fluxes_z(i,j,0:nk,ns+1),   & ! u
-                                           f_rho_ut2 = fluxes_z(i,j,0:nk,ns+2),   & ! v
-                                           f_rho_e   = fluxes_z(i,j,0:nk,ns+4))
+            call self%compute_fluxes_convective(gc=gck, n=nk,                          &
+                                                c         =    q_aux(i,j, :,  1:ns,b), &
+                                                rho       =    q_aux(i,j, :,  ns+1,b), &
+                                                un        =    q_aux(i,j, :,  ns+4,b), & ! w
+                                                ut1       =    q_aux(i,j, :,  ns+2,b), & ! u
+                                                ut2       =    q_aux(i,j, :,  ns+3,b), & ! v
+                                                g         =    q_aux(i,j, :,  ns+5,b), &
+                                                p         =    q_aux(i,j, :,  ns+6,b), &
+                                                f_rho     = fluxes_z(i,j,0:nk,1:ns),   &
+                                                f_rho_un  = fluxes_z(i,j,0:nk,ns+3),   & ! w
+                                                f_rho_ut1 = fluxes_z(i,j,0:nk,ns+1),   & ! u
+                                                f_rho_ut2 = fluxes_z(i,j,0:nk,ns+2),   & ! v
+                                                f_rho_e   = fluxes_z(i,j,0:nk,ns+4))
          enddo
       enddo
       ! residuals
@@ -534,6 +553,325 @@ contains
    if (do_set_bc)       call self%set_boundary_conditions(q=q)
    endsubroutine update_ghost
 
+   ! private methods
+   subroutine compute_fluxes_convective(self, gc, n,         &
+                                        c, rho, un, ut1, ut2, g, p, &
+                                        f_rho, f_rho_un, f_rho_ut1, f_rho_ut2, f_rho_e)
+   !< Compute the conservative fluxes on a slice of cells along a coordinate direction.
+   class(equation_euler_cpu_object), intent(in)    :: self                !< The equation.
+   integer(I4P),                     intent(in)    :: gc                  !< Number of ghost cells used.
+   integer(I4P),                     intent(in)    :: n                   !< Number of cells.
+   real(R8P),                        intent(in)    ::         c(1-gc:,1:) !< Species concentration        [1-gc:n+gc,1:ns].
+   real(R8P),                        intent(in)    ::       rho(1-gc:)    !< Density                      [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::        un(1-gc:)    !< Normal velocity              [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::       ut1(1-gc:)    !< Tangential velocity 1        [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::       ut2(1-gc:)    !< Tangential velocity 2        [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::         g(1-gc:)    !< Specific heats ratio         [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::         p(1-gc:)    !< Pressure                     [1-gc:n+gc].
+   real(R8P),                        intent(inout) ::     f_rho(0:,   1:) !< Flux of mass                 [0:n,1:ns].
+   real(R8P),                        intent(inout) ::  f_rho_un(0:)       !< Flux normal momentums        [0:n].
+   real(R8P),                        intent(inout) :: f_rho_ut1(0:)       !< Flux of tangential1 momentum [0:n].
+   real(R8P),                        intent(inout) :: f_rho_ut2(0:)       !< Flux of tangential2 momentum [0:n].
+   real(R8P),                        intent(inout) ::   f_rho_e(0:)       !< Flux energy                  [0:n].
+   real(R8P)                                       ::   fluxes(3)         !< 1D fluxes.
+   real(R8P)                                       :: qr(1:3,1:2,0:n+1)   !< Reconstructed variables.
+   integer(I4P)                                    :: i                   !< Counter.
+
+   call reconstruct_interfaces
+   do i=0, n
+      ! computing normal fluxes solving Riemann problem
+      call solve_riemann(r1=qr(1,2,i  ), u1=qr(2,2,i  ), p1=qr(3,2,i  ), g1=g(i  ), &
+                         r4=qr(1,1,i+1), u4=qr(2,1,i+1), p4=qr(3,1,i+1), g4=g(i+1), F=fluxes)
+      if (fluxes(1)>0._R8P) then
+             f_rho(i,:) = fluxes(1) * c(i,:)
+          f_rho_un(i)   = fluxes(2)
+         f_rho_ut1(i)   = fluxes(1) * ut1(i)
+         f_rho_ut2(i)   = fluxes(1) * ut2(i)
+           f_rho_e(i)   = fluxes(3) + 0.5_R8P * fluxes(1) * (ut1(i)**2 + ut2(i)**2)
+      else
+             f_rho(i,:) = fluxes(1) * c(i+1,:)
+          f_rho_un(i)   = fluxes(2)
+         f_rho_ut1(i)   = fluxes(1) * ut1(i+1)
+         f_rho_ut2(i)   = fluxes(1) * ut2(i+1)
+           f_rho_e(i)   = fluxes(3) + 0.5_R8P * fluxes(1) * (ut1(i+1)**2 + ut2(i+1)**2)
+      endif
+   enddo
+   contains
+      subroutine reconstruct_interfaces
+      !< The reconstruction is done in pseudo characteristic variables.
+      integer(I4P) :: i, j, f, v            !< Counter.
+      real(R8P)    :: qm(1:3,1:2)           !< Mean primitive variables.
+      real(R8P)    :: Lqm(1:3,1:3,1:2)      !< Left eigenvalues matrix of mean primitive variables.
+      real(R8P)    :: Rqm(1:3,1:3,1:2)      !< Right eigenvalues matrix of mean primitive variables.
+      real(R8P)    :: c(1:3,1:2,1-gc:-1+gc) !< Pseudo characteristic variables.
+      real(R8P)    :: cr(1:3,1:2)           !< Pseudo characteristic variables reconstructed.
+
+      select case(self%weno_s)
+      case(1_I4P)
+         do i=0, n+1
+            qr(:,1,i) = [rho(i),un(i),p(i)]
+            qr(:,2,i) = qr(:,1,i)
+         enddo
+      case(2_I4P,3_I4P)
+      ! compute WENO reconstruction
+         do i=0, n+1
+            ! compute pseudo characteristic variables
+            do f=1, 2
+               if (i==0  .and.f==1) cycle
+               if (i==n+1.and.f==2) cycle
+               qm(:,f) = [0.5_R8P * (rho(i+f-2) + rho(i+f-1)), &
+                          0.5_R8P * ( un(i+f-2) +  un(i+f-1)), &
+                          0.5_R8P * (  p(i+f-2) +   p(i+f-1))]
+            enddo
+            do f=1, 2
+               if (i==0  .and.f==1) cycle
+               if (i==n+1.and.f==2) cycle
+               Lqm(:, :, f) =  left_eigenvectors(q=qm(:,f), g=g(i))
+               Rqm(:, :, f) = right_eigenvectors(q=qm(:,f), g=g(i))
+            enddo
+            do j=i+1-gc, i-1+gc
+               do f=1, 2
+                  if (i==0  .and.f==1) cycle
+                  if (i==n+1.and.f==2) cycle
+                  do v=1, 3
+                     c(v,f,j-i) = dot_product(Lqm(v, :, f), [rho(j), un(j), p(j)])
+                  enddo
+               enddo
+            enddo
+
+            ! compute WENO reconstruction of pseudo charteristic variables
+            do v=1, 3
+               cr(v,:) = self%weno_reconstructed(s=self%weno_s, v=c(v,:,1-self%weno_s:-1+self%weno_s))
+            enddo
+
+            ! trasform back reconstructed pseudo charteristic variables to primitive ones
+            do f=1, 2
+               if (i==0  .and.f==1) cycle
+               if (i==n+1.and.f==2) cycle
+               do v=1, 3
+                  qr(v,f,i) = dot_product(Rqm(v,:,f), cr(:,f))
+               enddo
+            enddo
+         enddo
+      endselect
+      endsubroutine reconstruct_interfaces
+   endsubroutine compute_fluxes_convective
+
+   pure function weno_convolution(self, s, vp, w) result(vr)
+   !< Return WENO convolution of the weighted polynomial recontructions.
+   class(equation_euler_cpu_object), intent(in) :: self          !< The equation.
+   integer(I4P),                     intent(in) :: s             !< Number of stencils used.
+   real(R8P),                        intent(in) :: vp(1:2,0:s-1) !< Polynomial reconstructions.
+   real(R8P),                        intent(in) :: w (1:2,0:s-1) !< Weights of the stencils.
+   real(R8P)                                    :: vr(1:2      ) !< Left and right (1,2) interface value of reconstructed V.
+   integer(I4P)                                 :: k, f          !< Counters.
+
+   vr = 0._R_P
+   do k=0,S-1
+      do f=1,2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
+         vr(f) = vr(f) + w(f,k) * vp(f,k)
+      enddo
+   enddo
+   endfunction weno_convolution
+
+   subroutine weno_initialize(self)
+   !< Initialize WENO data.
+   class(equation_euler_cpu_object), intent(inout) :: self !< The equation.
+
+   if (self%weno_s==1) return
+   ! initialize weno_exp
+   self%weno_exp = self%weno_s
+   if (self%weno_s>4) self%weno_exp = self%weno_s - 1
+   ! computing weno_odd
+   self%weno_odd = mod(self%weno_s,2)
+   self%weno_eps = 0.00000000001_R8P
+   ! allocating variables
+   if (allocated(self%weno_c)) deallocate(self%weno_c) ; allocate(self%weno_c(1:2,1:2*self%weno_s))
+   if (allocated(self%weno_a)) deallocate(self%weno_a) ; allocate(self%weno_a(1:2,0:self%weno_s-1))
+   if (allocated(self%weno_p)) deallocate(self%weno_p) ; allocate(self%weno_p(1:2,0:self%weno_s-1,0:self%weno_s-1))
+   if (allocated(self%weno_d)) deallocate(self%weno_d) ; allocate(self%weno_d(0:self%weno_s-1,0:self%weno_s-1,0:self%weno_s-1))
+   print*, 'cazzo ', self%weno_s, size(self%weno_c)
+   associate(s=>self%weno_s, weno_exp=>self%weno_exp, weno_odd=>self%weno_odd, weno_eps=>self%weno_eps, &
+             weno_c=>self%weno_c, weno_a=>self%weno_a, weno_p=>self%weno_p, weno_d=>self%weno_d)
+   ! inizializing the coefficients
+   select case(s)
+   case(2) ! 3rd order WENO reconstruction
+     ! central difference coefficients
+     ! 1 => left interface (i-1/2)
+     weno_c(1,1) = -1._R8P/12._R8P ! cell -2
+     weno_c(1,2) =  7._R8P/12._R8P ! cell -1
+     weno_c(1,3) =  7._R8P/12._R8P ! cell  0
+     weno_c(1,4) = -1._R8P/12._R8P ! cell  1
+     ! 2 => right interface (i+1/2)
+     weno_c(2,1) = -1._R8P/12._R8P ! cell -1
+     weno_c(2,2) =  7._R8P/12._R8P ! cell  0
+     weno_c(2,3) =  7._R8P/12._R8P ! cell  1
+     weno_c(2,4) = -1._R8P/12._R8P ! cell  2
+
+     ! optimal weights
+     ! 1 => left interface (i-1/2)
+     weno_a(1,0) = 2._R8P/3._R8P ! stencil 0
+     weno_a(1,1) = 1._R8P/3._R8P ! stencil 1
+     ! 2 => right interface (i+1/2)
+     weno_a(2,0) = 1._R8P/3._R8P ! stencil 0
+     weno_a(2,1) = 2._R8P/3._R8P ! stencil 1
+
+     ! polinomials coefficients
+     ! 1 => left interface (i-1/2)
+     !  cell  0               ;    cell  1
+     weno_p(1,0,0) =  0.5_R8P ; weno_p(1,1,0) =  0.5_R8P ! stencil 0
+     weno_p(1,0,1) = -0.5_R8P ; weno_p(1,1,1) =  1.5_R8P ! stencil 1
+     ! 2 => right interface (i+1/2)
+     !  cell  0               ;    cell  1
+     weno_p(2,0,0) =  1.5_R8P ; weno_p(2,1,0) = -0.5_R8P ! stencil 0
+     weno_p(2,0,1) =  0.5_R8P ; weno_p(2,1,1) =  0.5_R8P ! stencil 1
+
+     ! smoothness indicators coefficients
+     ! stencil 0
+     !      i*i             ;       (i-1)*i
+     weno_d(0,0,0) = 1._R8P ; weno_d(1,0,0) =-2._R8P
+     !      /               ;       (i-1)*(i-1)
+     weno_d(0,1,0) = 0._R8P ; weno_d(1,1,0) = 1._R8P
+     ! stencil 1
+     !     (i+1)*(i+1)      ;       (i+1)*i
+     weno_d(0,0,1) = 1._R8P ; weno_d(1,0,1) =-2._R8P
+     !      /               ;        i*i
+     weno_d(0,1,1) = 0._R8P ; weno_d(1,1,1) = 1._R8P
+   case(3) ! 5th order WENO reconstruction
+     ! central difference coefficients
+     ! 1 => left interface (i-1/2)
+     weno_c(1,1) =  1._R8P/60._R8P ! cell -3
+     weno_c(1,2) = -7.5_R8P        ! cell -2
+     weno_c(1,3) = 37._R8P/60._R8P ! cell -1
+     weno_c(1,4) = 37._R8P/60._R8P ! cell  0
+     weno_c(1,5) = -7.5_R8P        ! cell  1
+     weno_c(1,6) =  1._R8P/60._R8P ! cell  2
+     ! 2 => right interface (i+1/2)
+     weno_c(1,1) =  1._R8P/60._R8P ! cell -2
+     weno_c(1,2) = -7.5_R8P        ! cell -1
+     weno_c(1,3) = 37._R8P/60._R8P ! cell  0
+     weno_c(1,4) = 37._R8P/60._R8P ! cell  1
+     weno_c(1,5) = -7.5_R8P        ! cell  2
+     weno_c(1,6) =  1._R8P/60._R8P ! cell  3
+
+     ! optimal weights
+     ! 1 => left interface (i-1/2)
+     weno_a(1,0) = 0.3_R8P ! stencil 0
+     weno_a(1,1) = 0.6_R8P ! stencil 1
+     weno_a(1,2) = 0.1_R8P ! stencil 2
+     ! 2 => right interface (i+1/2)
+     weno_a(2,0) = 0.1_R8P ! stencil 0
+     weno_a(2,1) = 0.6_R8P ! stencil 1
+     weno_a(2,2) = 0.3_R8P ! stencil 2
+
+     ! polinomials coefficients
+     ! 1 => left interface (i-1/2)
+     !  cell  0                     ;    cell  1                     ;    cell  2
+     weno_p(1,0,0) =  1._R8P/3._R8P ; weno_p(1,1,0) =  5._R8P/6._R8P ; weno_p(1,2,0) = -1._R8P/6._R8P ! stencil 0
+     weno_p(1,0,1) = -1._R8P/6._R8P ; weno_p(1,1,1) =  5._R8P/6._R8P ; weno_p(1,2,1) =  1._R8P/3._R8P ! stencil 1
+     weno_p(1,0,2) =  1._R8P/3._R8P ; weno_p(1,1,2) = -7._R8P/6._R8P ; weno_p(1,2,2) = 11._R8P/6._R8P ! stencil 2
+     ! 2 => right interface (i+1/2)
+     !  cell  0                     ;    cell  1                     ;    cell  2
+     weno_p(2,0,0) = 11._R8P/6._R8P ; weno_p(2,1,0) = -7._R8P/6._R8P ; weno_p(2,2,0) =  1._R8P/3._R8P ! stencil 0
+     weno_p(2,0,1) =  1._R8P/3._R8P ; weno_p(2,1,1) =  5._R8P/6._R8P ; weno_p(2,2,1) = -1._R8P/6._R8P ! stencil 1
+     weno_p(2,0,2) = -1._R8P/6._R8P ; weno_p(2,1,2) =  5._R8P/6._R8P ; weno_p(2,2,2) =  1._R8P/3._R8P ! stencil 2
+
+     ! smoothness indicators coefficients
+     ! stencil 0
+     !      i*i                      ;       (i-1)*i                   ;       (i-2)*i
+     weno_d(0,0,0) =  10._R8P/3._R8P ; weno_d(1,0,0) = -31._R8P/3._R8P ; weno_d(2,0,0) =  11._R8P/3._R8P
+     !      /                        ;       (i-1)*(i-1)               ;       (i-2)*(i-1)
+     weno_d(0,1,0) =   0._R8P        ; weno_d(1,1,0) =  25._R8P/3._R8P ; weno_d(2,1,0) = -19._R8P/3._R8P
+     !      /                        ;        /                        ;       (i-2)*(i-2)
+     weno_d(0,2,0) =   0._R8P        ; weno_d(1,2,0) =   0._R8P        ; weno_d(2,2,0) =   4._R8P/3._R8P
+     ! stencil 1
+     !     (i+1)*(i+1)               ;        i*(i+1)                  ;       (i-1)*(i+1)
+     weno_d(0,0,1) =   4._R8P/3._R8P ; weno_d(1,0,1) = -13._R8P/3._R8P ; weno_d(2,0,1) =   5._R8P/3._R8P
+     !      /                        ;        i*i                      ;       (i-1)*i
+     weno_d(0,1,1) =   0._R8P        ; weno_d(1,1,1) =  13._R8P/3._R8P ; weno_d(2,1,1) = -13._R8P/3._R8P
+     !      /                        ;        /                        ;       (i-1)*(i-1)
+     weno_d(0,2,1) =   0._R8P        ; weno_d(1,2,1) =   0._R8P        ; weno_d(2,2,1) =   4._R8P/3._R8P
+     ! stencil 2
+     !     (i+2)*(i+2)               ;       (i+1)*(i+2)               ;        i*(i+2)
+     weno_d(0,0,2) =   4._R8P/3._R8P ; weno_d(1,0,2) = -19._R8P/3._R8P ; weno_d(2,0,2) =  11._R8P/3._R8P
+     !      /                        ;       (i+1)*(i+1)               ;        i*(i+1)
+     weno_d(0,1,2) =   0._R8P        ; weno_d(1,1,2) =  25._R8P/3._R8P ; weno_d(2,1,2) = -31._R8P/3._R8P
+     !      /                        ;        /                        ;        i*i
+     weno_d(0,2,2) =   0._R8P        ; weno_d(1,2,2) =   0._R8P        ; weno_d(2,2,2) =  10._R8P/3._R8P
+   endselect
+   endassociate
+   endsubroutine weno_initialize
+
+   pure function weno_polynomials(self, s, v) result(VP)
+   !< Return WENO polynomials
+   class(equation_euler_cpu_object), intent(in) :: self             !< The equation.
+   integer(I4P), intent(in)                     :: s                !< Number of stencils used.
+   real(R8P),    intent(in)                     :: v (1:2,1-s:-1+s) !< Variable to be reconstructed.
+   real(R8P)                                    :: vp(1:2,0:s-1   ) !< Polynomial reconstructions.
+   integer(I4P)                                 :: s1, s2, f        !< Counters.
+
+   vp = 0._R_P
+   do s1=0,s-1 ! stencil counter
+      do s2=0,s-1 ! cell counter counter
+         do f=1,2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
+            vp(f,s1) = vp(f,s1) + self%weno_p(f,s2,s1) * v(f,-s2+s1)
+         enddo
+      enddo
+   enddo
+   endfunction weno_polynomials
+
+   pure function weno_reconstructed(self, s, v) result(vr)
+   !< Return WENO reconstruction of 2S-1 order.
+   class(equation_euler_cpu_object), intent(in) :: self             !< The equation.
+   integer(I4P),                     intent(in) :: s                !< Number of stencils used.
+   real(R8P),                        intent(in) :: v (1:2,1-s:-1+s) !< Variable to be reconstructed.
+   real(R8P)                                    :: vr(1:2         ) !< Left and right (1,2) interface value of reconstructed V.
+   real(R8P)                                    :: vp(1:2,0:s-1   ) !< Polynomial reconstructions.
+   real(R8P)                                    :: w (1:2,0:s-1   ) !< Weights of the stencils.
+
+   vp = self%weno_polynomials(s=s, v=v)        ! compute the polynomials
+   w = self%weno_weights(s=s, v=v)             ! compute the weights associated to the polynomials
+   vr = self%weno_convolution(s=s, vp=vp, w=w) ! compute the convultion of reconstructing plynomials
+   endfunction weno_reconstructed
+
+   pure function weno_weights(self, s, v) result(w)
+   !< Return WENO weights of the polynomial reconstructions.
+   class(equation_euler_cpu_object), intent(in) :: self                !< The equation.
+   integer(I4P),                     intent(in) :: s                   !< Number of stencils used.
+   real(R8P),                        intent(in) :: v    (1:2,1-s:-1+s) !< Variable to be reconstructed.
+   real(R8P)                                    :: W    (1:2,0:s-1)    !< Weights of the stencils.
+   real(R8P)                                    :: IS   (1:2,0:s-1)    !< Smoothness indicators of the stencils.
+   real(R8P)                                    :: a    (1:2,0:s-1)    !< Alpha coefficients for the weights.
+   real(R8P)                                    :: a_tot(1:2)          !< Summ of the alpha coefficients.
+   integer(I4P)                                 :: s1, s2, s3, f       !< Counters.
+
+   ! compute smoothness indicators
+   do s1=0,S-1 ! stencil counter
+      do f=1,2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
+         IS(f,s1) = 0._R_P
+         do s2=0,S-1
+            do s3=0,S-1
+               IS(f,s1) = IS(f,s1) + self%weno_d(s3,s2,s1) * v(f,s1-s3) * v(f,s1-s2)
+            enddo
+         enddo
+      enddo
+   enddo
+   ! compute alfa coefficients
+   a_tot = 0._R_P
+   do s1=0,S-1
+      do f=1,2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
+         a(f,s1) = self%weno_a(f,s1) * (1._R_P / (self%weno_eps + IS(f,s1))**s)
+         a_tot(f) = a_tot(f) + a(f,s1)
+      enddo
+   enddo
+   ! compute the weights
+   do s1=0,S-1
+      do f=1,2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
+         w(f,s1) = a(f,s1) / a_tot(f)
+      enddo
+   enddo
+   endfunction weno_weights
+
    ! operators
    ! =
    subroutine eq_assign_eq(lhs, rhs)
@@ -557,64 +895,15 @@ contains
    endsubroutine eq_assign_eq
 
    ! non type-bound procedures
-   subroutine compute_fluxes_convective(gc, n,                      &
-                                        c, rho, un, ut1, ut2, g, p, &
-                                        f_rho, f_rho_un, f_rho_ut1, f_rho_ut2, f_rho_e)
-   !< Compute the conservative fluxes on a slice of cells along a coordinate direction.
-   integer(I4P), intent(in)    :: gc                  !< Number of ghost cells used.
-   integer(I4P), intent(in)    :: n                   !< Number of cells.
-   real(R8P),    intent(in)    ::         c(1-gc:,1:) !< Species concentration        [1-gc:n+gc,1:ns].
-   real(R8P),    intent(in)    ::       rho(1-gc:)    !< Density                      [1-gc:n+gc].
-   real(R8P),    intent(in)    ::        un(1-gc:)    !< Normal velocity              [1-gc:n+gc].
-   real(R8P),    intent(in)    ::       ut1(1-gc:)    !< Tangential velocity 1        [1-gc:n+gc].
-   real(R8P),    intent(in)    ::       ut2(1-gc:)    !< Tangential velocity 2        [1-gc:n+gc].
-   real(R8P),    intent(in)    ::         g(1-gc:)    !< Specific heats ratio         [1-gc:n+gc].
-   real(R8P),    intent(in)    ::         p(1-gc:)    !< Pressure                     [1-gc:n+gc].
-   real(R8P),    intent(inout) ::     f_rho(0:,   1:) !< Flux of mass                 [0:n,1:ns].
-   real(R8P),    intent(inout) ::  f_rho_un(0:)       !< Flux normal momentums        [0:n].
-   real(R8P),    intent(inout) :: f_rho_ut1(0:)       !< Flux of tangential1 momentum [0:n].
-   real(R8P),    intent(inout) :: f_rho_ut2(0:)       !< Flux of tangential2 momentum [0:n].
-   real(R8P),    intent(inout) ::   f_rho_e(0:)       !< Flux energy                  [0:n].
-   real(R8P)                   ::   fluxes(3)         !< 1D fluxes.
-   ! real(R8P),    allocatable   :: qr(:,:,:)       !< Reconstructed variables.
-   integer(I4P)                :: i               !< Counter.
-
-   ! allocate(pr(1:2,0:N+1))
-   ! call reconstruct_interfaces_characteristic
-   ! print*, 'cazzo rho ',  rho
-   ! print*, 'cazzo un  ',  un
-   ! print*, 'cazzo ut1 ',  ut1
-   ! print*, 'cazzo ut2 ',  ut2
-   ! print*, 'cazzo g   ',  g
-   ! print*, 'cazzo p   ',  p
-   do i=0, n
-      ! computing normal fluxes solving Riemann problem
-      call solve_riemann(p1=p(i), r1=rho(i), u1=un(i), g1=g(i), p4=p(i+1), r4=rho(i+1), u4=un(i+1), g4=g(i+1), F=fluxes)
-      if (fluxes(1)>0._R8P) then
-             f_rho(i,:) = fluxes(1) * c(i,:)
-          f_rho_un(i)   = fluxes(2)
-         f_rho_ut1(i)   = fluxes(1) * ut1(i)
-         f_rho_ut2(i)   = fluxes(1) * ut2(i)
-           f_rho_e(i)   = fluxes(3) + 0.5_R8P * fluxes(1) * (ut1(i)**2 + ut2(i)**2)
-      else
-             f_rho(i,:) = fluxes(1) * c(i+1,:)
-          f_rho_un(i)   = fluxes(2)
-         f_rho_ut1(i)   = fluxes(1) * ut1(i+1)
-         f_rho_ut2(i)   = fluxes(1) * ut2(i+1)
-           f_rho_e(i)   = fluxes(3) + 0.5_R8P * fluxes(1) * (ut1(i+1)**2 + ut2(i+1)**2)
-      endif
-   enddo
-   endsubroutine compute_fluxes_convective
-
-   subroutine solve_riemann(p1, r1, u1, g1, p4, r4, u4, g4, F)
+   subroutine solve_riemann(r1, u1, p1, g1, r4, u4, p4, g4, F)
    !< Solve the Riemann problem between the state $1$ and $4$ using the (local) Lax Friedrichs (Rusanov) solver.
-   real(R8P), intent(in)  :: p1      !< Pressure of state 1.
    real(R8P), intent(in)  :: r1      !< Density of state 1.
    real(R8P), intent(in)  :: u1      !< Velocity of state 1.
+   real(R8P), intent(in)  :: p1      !< Pressure of state 1.
    real(R8P), intent(in)  :: g1      !< Specific heats ratio of state 1.
-   real(R8P), intent(in)  :: p4      !< Pressure of state 4.
    real(R8P), intent(in)  :: r4      !< Density of state 4.
    real(R8P), intent(in)  :: u4      !< Velocity of state 4.
+   real(R8P), intent(in)  :: p4      !< Pressure of state 4.
    real(R8P), intent(in)  :: g4      !< Specific heats ratio of state 4.
    real(R8P), intent(out) :: F(1:3)  !< Resulting fluxes.
    real(R8P)              :: lmax    !< Maximum wave speed estimation.
@@ -681,6 +970,41 @@ contains
       endif
       endsubroutine compute_inter_states
    endsubroutine solve_riemann
+
+   pure function left_eigenvectors(q, g) result(eig)
+   !< Return the left eigenvectors matrix `L` as `dF/dP = A = R ^ L` `P`` being the primitive variables and `F` the fluxes.
+   !<
+   !< Primitive variables `q` are: density `q(1)`, normal velocity `q(2)`, pressure `q(3)`.
+   real(R8P), intent(in) :: q(3)          !< Primitive variables.
+   real(R8P), intent(in) :: g             !< Specific heats ratio.
+   real(R8P)             :: eig(1:3, 1:3) !< Eigenvectors.
+   real(R8P)             :: gp            !< `g*p`.
+   real(R8P)             :: gp_a          !< `g*p/a`.
+
+   gp = g * q(3)
+   gp_a = gp / a(p=q(3), r=q(1), g=g)
+   eig = 0._R8P
+               eig(1, 1) = 0._R8P    ; eig(1, 2) = -gp_a  ; eig(1, 3) =  1._R8P
+   if (q(1)>0) eig(2, 1) = gp / q(1) ; eig(2, 2) = 0._R8P ; eig(2, 3) = -1._R8P
+               eig(3, 1) = 0._R8P    ; eig(3, 2) =  gp_a  ; eig(3, 3) =  1._R8P
+   endfunction left_eigenvectors
+
+   pure function right_eigenvectors(q, g) result(eig)
+   !< Return the right eigenvectors matrix `R` as `dF/dP = A = R ^ L` `P`` being the primitive variables and `F` the fluxes.
+   !<
+   !< Primitive variables `q` are: density `q(1)`, normal velocity `q(2)`, pressure `q(3)`.
+   real(R8P), intent(in) :: q(3)          !< Primitive variables.
+   real(R8P), intent(in) :: g             !< Specific heats ratio.
+   real(R8P)             :: eig(1:3, 1:3) !< Eigenvectors.
+   real(R8P)             :: gp            !< `g*p`.
+   real(R8P)             :: gp_inv        !< `1/(g*p)`.
+
+   gp = g * q(3)
+   gp_inv = 1._R8P / gp
+   eig(1, 1) =  0.5_R8P * q(1) * gp_inv                   ; eig(1, 2) = q(1) * gp_inv ; eig(1, 3) =  eig(1, 1)
+   eig(2, 1) = -0.5_R8P * a(p=q(3), r=q(1), g=g) * gp_inv ; eig(2, 2) = 0._R8P        ; eig(2, 3) = -eig(2, 1)
+   eig(3, 1) =  0.5_R8P                                   ; eig(3, 2) = 0._R8P        ; eig(3, 3) =  eig(3, 1)
+   endfunction right_eigenvectors
 
    elemental function p(r, a, g) result(pressure)
    !< Return pressure for an ideal calorically perfect gas.
