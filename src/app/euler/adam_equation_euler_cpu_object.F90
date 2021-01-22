@@ -168,7 +168,7 @@ contains
    self = fresh
    endsubroutine destroy
 
-   subroutine initialize(self, field, ns, nrk, cp0, cv0)
+   subroutine initialize(self, field, ns, nrk, cp0, cv0, CFL)
    !< Initialize the equation.
    class(equation_euler_cpu_object), intent(inout)        :: self   !< The equation.
    type(field_object),               intent(in), target   :: field  !< The field.
@@ -176,6 +176,7 @@ contains
    integer(I4P),                     intent(in), optional :: nrk    !< Runge-Kutta stages number.
    real(R8P),                        intent(in), optional :: cp0(:) !< Initial specific heats at constant pressure.
    real(R8P),                        intent(in), optional :: cv0(:) !< Initial specific heats at constant volume.
+   real(R8P),                        intent(in), optional :: CFL    !< CFL value.
 
    call self%destroy
    self%field => field
@@ -199,6 +200,8 @@ contains
       allocate(self%cv0(self%ns))
       self%cv0 = 742.85_R8P
    endif
+   if (present(CFL)) self%CFL = CFL
+
    allocate(self%q_aux(1-field%grid%gci:field%grid%ni+field%grid%gci, &
                        1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
                        1-field%grid%gck:field%grid%nk+field%grid%gck, 1:self%ns+6, 1:field%nb))
@@ -221,10 +224,12 @@ contains
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
    endsubroutine initialize
 
-   subroutine mark_by_grad_rho(self, grad_tol, threshold)
+   subroutine mark_by_grad_rho(self, grad_tol, delta_fine, delta_coarse, threshold)
    !< Mark blocks to be refined/derefined by a `grad(rho)` value.
    class(equation_euler_cpu_object), intent(inout)        :: self           !< The equation.
    real(R8P),                        intent(in)           :: grad_tol       !< Gradiend tolerance value.
+   real(R8P),                        intent(in)           :: delta_fine     !< Maximum cell delta in fine grids.
+   real(R8P),                        intent(in)           :: delta_coarse   !< Minimum cell delta in coarse grids.
    real(R8P),                        intent(in), optional :: threshold      !< Threshold for sphere proximity.
    real(R8P)                                              :: threshold_     !< Threshold for sphere proximity, local var.
    real(R8P)                                              :: max_cell_delta !< Maximum cell delta.
@@ -269,9 +274,9 @@ contains
       real(R8P)             :: delta !< Maximum cell delta admissible.
 
       if (grad > grad_tol) then
-         delta = 0.004_R8P
+         delta = delta_fine
       else
-         delta = 0.03_R8P
+         delta = delta_coarse
       endif
       endfunction max_cell_delta_grad
    endsubroutine mark_by_grad_rho

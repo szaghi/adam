@@ -300,7 +300,8 @@ contains
 
    ! save XDMF file (only master process does)
    if (self%myrank == 0_I4P) then
-      grid_dims = trim(str([ni+2*gci+1,nj+2*gcj+1,nk+2*gck+1],separator=' '))
+      ! grid_dims = trim(str([ni+2*gci+1,nj+2*gcj+1,nk+2*gck+1],separator=' '))
+      grid_dims = trim(str([nk+2*gck+1,nj+2*gcj+1,ni+2*gci+1],separator=' '))
       open(newunit=xdmf, file=directory_//trim(basename)//'.xdmf')
       write(xdmf, '(A)') '<?xml version="1.0" encoding="utf-8"?>'
       write(xdmf, '(A)') '<Xdmf xmlns:xi="http://www.w3.org/2001/XInclude" Version="3.0">'
@@ -325,8 +326,10 @@ contains
          write(xdmf, '(A)') '          <Geometry Origin="" Type="ORIGIN_DXDYDZ">'
          write(xdmf, '(A)') '            <DataItem DataType="Float" Dimensions="3" Format="XML" Precision="8">'// &
                                         trim(str([emin(3)-gck*dz,emin(2)-gcj*dy,emin(1)-gci*dx],separator=' '))//'</DataItem>'
+                                        ! trim(str([emin(1)-gci*dx,emin(2)-gcj*dy,emin(3)-gck*dz],separator=' '))//'</DataItem>'
          write(xdmf, '(A)') '            <DataItem DataType="Float" Dimensions="3" Format="XML" Precision="8">'// &
                                         trim(str([dz,dy,dx],separator=' '))//'</DataItem>'
+                                        ! trim(str([dx,dy,dz],separator=' '))//'</DataItem>'
          write(xdmf, '(A)') '          </Geometry>'
          write(xdmf, '(A)') '          <Topology Dimensions="'//grid_dims//'" Type="3DCoRectMesh"/>'
 

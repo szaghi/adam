@@ -1,14 +1,14 @@
 [submodule "src/list/flist"]
-	path = src/references/list/flist
+	path = references/list/flist
 	url = https://github.com/jacobwilliams/flist
 [submodule "src/list/single-linked-list"]
-	path = src/references/list/single-linked-list
+	path = references/list/single-linked-list
 	url = git@github.com:szaghi/single-linked-list.git
 [submodule "src/hash_table/HASTY"]
-	path = src/references/hash_table/HASTY
+	path = references/hash_table/HASTY
 	url = git@github.com:szaghi/HASTY.git
 [submodule "src/morton/MORTIF"]
-	path = src/references/morton/MORTIF
+	path = references/morton/MORTIF
 	url = git@github.com:szaghi/MORTIF.git
 [submodule "src/third_party/PENF"]
 	path = src/third_party/PENF
