@@ -17,7 +17,7 @@ $LSTATIC_CUDA_NVF = -Mcuda=cc75,cuda11.0
 $DEBUG_GNU   = -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fcheck=all -fno-range-check -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan -std=f2008 -fall-intrinsics
 $DEBUG_INT   = -O0 -debug all -check all -warn all -extend-source 132 -traceback -gen-interfaces#-fpe-all=0 -fp-stack-check -fstack-protector-all -ftrapuv -no-ftz -std08
 $DEBUG_NVF   = -O0 -g -C
-$DEBUG_XLF   = -O0 
+$DEBUG_XLF   = -O0
 $OPTIMIZE    = -O2
 $EXDIRS      = references/
                BeFoR64/src/tests/
@@ -290,8 +290,8 @@ libs         = /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib/libhdf5hl_fort
                /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib/libhdf5_hl.a
                /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib/libhdf5_fortran.a
                /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib/libhdf5.a
-               /cineca/prod/opt/libraries/zlib/1.2.11/gnu--8.4.0/lib/libz.a
-               /cineca/prod/opt/libraries/szip/2.1.1/gnu--8.4.0/lib/libsz.a
+               /opt/zlib/bin/1.2.11/lib/libz.a
+               /opt/szip/bin/2.1.1/lib/libsz.a
 ext_libs     = dl m
 
 [template-static-xlf-mpi]
@@ -307,7 +307,7 @@ preproc      = -D_MPI_
 quiet        = False
 log          = True
 jobs         = 2
-lib_dir      = 
+lib_dir      =
 include      = /m100_work/cin_staff/fsalvado/HDF5_XLF/install_hdf5-1.12.0/include
 libs         = /m100_work/cin_staff/fsalvado/HDF5_XLF/install_hdf5-1.12.0/lib/libhdf5hl_fortran.a
                /m100_work/cin_staff/fsalvado/HDF5_XLF/install_hdf5-1.12.0/lib/libhdf5_hl.a
@@ -331,7 +331,7 @@ preproc      = -D_MPI_
 quiet        = False
 log          = True
 jobs         = 2
-lib_dir      = 
+lib_dir      =
 include      = /m100_work/cin_staff/fsalvado/HDF5_XLF/install_hdf5-1.12.0/include
 libs         = /m100_work/cin_staff/fsalvado/HDF5_XLF/install_hdf5-1.12.0/lib/libhdf5hl_fortran.a
                /m100_work/cin_staff/fsalvado/HDF5_XLF/install_hdf5-1.12.0/lib/libhdf5_hl.a

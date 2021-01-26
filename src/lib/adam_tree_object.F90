@@ -1062,7 +1062,7 @@ contains
    !<   comm_map_recv_prt = [ 0,  2,  3,  3,  6, 8, (9)]         (pointer to comm_map_recv)```
    class(tree_object), intent(inout) :: self                 !< The tree.
    type(tree_node_object), pointer   :: node                 !< Pointer to current node.
-   integer(I8P), allocatable         :: codes(:)             !< List of (sorted) codes.
+   integer(I8P), allocatable         :: codes_sorted(:)      !< List of (sorted) codes.
    integer(I4P), allocatable         :: comm_map_send_ctr(:) !< Communication map, counters in list to send [procs_number+1].
    integer(I4P), allocatable         :: comm_map_recv_ctr(:) !< Communication map, counters in list to recv [procs_number+1].
    integer(I8P)                      :: my_nodes_number      !< Number of my nodes.
@@ -1118,11 +1118,11 @@ contains
    comm_map_recv_ctr = self%comm_map_recv_ptr
 
    ! populate communication maps
-   codes = self%codes() ! sorted list of Morton codes
+   codes_sorted = self%codes() ! sorted list of Morton codes
    ! send map
    if (n_send>0_I4P) then
-      do c=1, size(codes, dim=1) ! sort blocks in Morton order
-         node => self%node(code=codes(c))
+      do c=1, size(codes_sorted, dim=1) ! sort blocks in Morton order
+         node => self%node(code=codes_sorted(c))
          if (is_node_to_send(n=node)) then
             self%comm_map_send(comm_map_send_ctr(node%myrank_new)+1) = node%block_index
             comm_map_send_ctr(node%myrank_new) = comm_map_send_ctr(node%myrank_new) + 1
@@ -1131,8 +1131,8 @@ contains
    endif
    ! receive map
    if (n_recv>0_I4P) then
-      do c=1, size(codes, dim=1) ! sort blocks in Morton order
-         node => self%node(code=codes(c))
+      do c=1, size(codes_sorted, dim=1) ! sort blocks in Morton order
+         node => self%node(code=codes_sorted(c))
          if (is_node_to_receive(n=node)) then
             self%comm_map_recv(comm_map_recv_ctr(node%myrank)+1) = node%block_index_new
             comm_map_recv_ctr(node%myrank) = comm_map_recv_ctr(node%myrank) + 1
@@ -1142,8 +1142,8 @@ contains
    ! local maps
    if (n_keep > 0_I4P) then
       l = 0
-      do c=1, size(codes, dim=1) ! sort blocks in Morton order
-         node => self%node(code=codes(c))
+      do c=1, size(codes_sorted, dim=1) ! sort blocks in Morton order
+         node => self%node(code=codes_sorted(c))
          if (is_node_to_keep(n=node)) then
             l = l + 1
             self%local_map(l,1) = node%block_index_new
@@ -1496,7 +1496,7 @@ contains
    !< accordingly to where the split falls, namely to the *right* if the split falls in the first half of siblings or to the *left*
    !< if it falls in the second half.
    class(tree_object), intent(inout) :: self             !< The tree.
-   integer(I8P), allocatable         :: codes(:)         !< List of (sorted) codes.
+   integer(I8P), allocatable         :: codes_sorted(:)  !< List of (sorted) codes.
    type(tree_node_object), pointer   :: node             !< Pointer to current node.
    integer(I4P)                      :: p                !< Processes counter.
    integer(I4P)                      :: cl               !< Local child counter.
@@ -1508,30 +1508,30 @@ contains
    integer(I8P)                      :: n_keep           !< Number of keept nodes.
    integer(I8P)                      :: n_recv           !< Number of nodes that I have to receive.
 
-   codes = self%codes() ! sorted list of codes
-   my_codes_number = nint(real(size(codes, dim=1),R8P) / self%procs_number)
+   codes_sorted = self%codes() ! sorted list of codes
+   my_codes_number = nint(real(size(codes_sorted, dim=1),R8P) / self%procs_number)
    ! initialize process rank and my codes number
    p = 0_I4P
    block_index_new = 0_I8P
    ! loop over all codes
    c = 1
-   do while(c<=size(codes, dim=1))
+   do while(c<=size(codes_sorted, dim=1))
       if (block_index_new > my_codes_number.and.p < self%procs_number-1) then ! I would like to split...
          if (can_split()) then
             ! I am lucky, the split does not separate siblings
             p = p + 1_I4P
             block_index_new = 1_I8P
-            node => self%node(code=codes(c))
+            node => self%node(code=codes_sorted(c))
             node%myrank_new = p
             node%block_index_new = block_index_new
          else
             ! I am not lucky, the split would separate siblings
-            child_local = self%child_local(code=codes(c))
+            child_local = self%child_local(code=codes_sorted(c))
             if (child_local > self%ratio/2 -1) then
                ! the split falls in the second half of siblings list, place all nodes in the current process
                do cl=child_local, self%ratio-1
                   block_index_new = block_index_new + 1
-                  node => self%node(code=codes(c+cl-child_local))
+                  node => self%node(code=codes_sorted(c+cl-child_local))
                   node%myrank_new = p
                   node%block_index_new = block_index_new
                enddo
@@ -1541,7 +1541,7 @@ contains
                block_index_new = 0_I8P
                do cl=0, self%ratio-1
                   block_index_new = block_index_new + 1
-                  node => self%node(code=codes(c+cl-child_local))
+                  node => self%node(code=codes_sorted(c+cl-child_local))
                   node%myrank_new = p
                   node%block_index_new = block_index_new
                enddo
@@ -1551,7 +1551,7 @@ contains
          endif
       else ! no split, keeping to place nodes in the current process
          block_index_new = block_index_new + 1
-         node => self%node(code=codes(c))
+         node => self%node(code=codes_sorted(c))
          node%myrank_new = p
          node%block_index_new = block_index_new
       endif
@@ -1595,9 +1595,9 @@ contains
 
       can_split = .true.
       if (c==1_I8P) return
-      siblings = self%siblings(code=codes(c))
+      siblings = self%siblings(code=codes_sorted(c))
       if (all([(self%has_code(code=siblings(s)), s=1,self%ratio-1)])) then ! if all siblings exist
-         can_split = .not.(findloc(siblings, codes(c-1),dim=1) > 0) ! if my predecessor is a sibling the split is not allowed
+         can_split = .not.(findloc(siblings, codes_sorted(c-1),dim=1) > 0) ! if my predecessor is a sibling the split is not allowed
       endif
       endfunction can_split
    endsubroutine mpi_redistribute

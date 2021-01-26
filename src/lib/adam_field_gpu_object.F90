@@ -495,7 +495,6 @@ contains
    integer(I4P)                                     :: n_send_recv                        !< Debugging
    integer(I8P), allocatable                        :: comm_map_recv_ghost_gpu_check(:,:) !< Debugging
 
-
    steps = .true.
 
    if (present(step)) then
@@ -737,7 +736,6 @@ contains
 
    integer(I4P)                                     :: n_send_recv                        !< Debugging
    integer(I8P), allocatable                        :: comm_map_recv_ghost_gpu_check(:,:) !< Debugging
-
 
    steps = .true.
 

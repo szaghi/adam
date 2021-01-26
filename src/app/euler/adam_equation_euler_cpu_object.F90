@@ -60,12 +60,15 @@ type :: equation_euler_cpu_object
    type(field_object), pointer :: field=>null() !< The field.
    type(base_cpu_object)       :: base_cpu      !< The base CPU handler.
    ! equation data
-   integer(I4P)           :: ns=1_I4P         !< Number of fluid species.
-   real(R8P), allocatable :: cp0(:)           !< Specific heat at constant pressure of initial species.
-   real(R8P), allocatable :: cv0(:)           !< Specific heat at constant pressure of initial species.
-   real(R8P), allocatable :: q_aux(:,:,:,:,:) !< Auxiliary cell centered variables.
-   real(R8P)              :: dt=0._R8P        !< Maximum time step accordingly to CFL criterion.
-   real(R8P)              :: CFL=0.3_R8P      !< CFL limit.
+   integer(I4P)           :: ns=1_I4P               !< Number of fluid species.
+   real(R8P), allocatable :: cp0(:)                 !< Specific heat at constant pressure of initial species.
+   real(R8P), allocatable :: cv0(:)                 !< Specific heat at constant pressure of initial species.
+   real(R8P), allocatable :: q_aux(:,:,:,:,:)       !< Auxiliary cell centered variables.
+   real(R8P)              :: dt=0._R8P              !< Maximum time step accordingly to CFL criterion.
+   real(R8P)              :: CFL=0.3_R8P            !< CFL limit.
+   logical                :: null_xyz(3)=[.false.,&
+                                          .false.,&
+                                          .false.]  !< Flag triggering 1D/2D simulations.
    ! Runge-Kutta data
    integer(I4P)           :: nrk=3_I4P        !< Runge-Kutta stages number.
    real(R8P), allocatable :: alph(:,:)        !< RK alpha coefficients.
@@ -184,16 +187,17 @@ contains
    self = fresh
    endsubroutine destroy
 
-   subroutine initialize(self, field, ns, nrk, cp0, cv0, CFL, weno_s)
+   subroutine initialize(self, field, ns, nrk, cp0, cv0, CFL, null_xyz, weno_s)
    !< Initialize the equation.
-   class(equation_euler_cpu_object), intent(inout)        :: self   !< The equation.
-   type(field_object),               intent(in), target   :: field  !< The field.
-   integer(I4P),                     intent(in), optional :: ns     !< Species number.
-   integer(I4P),                     intent(in), optional :: nrk    !< Runge-Kutta stages number.
-   real(R8P),                        intent(in), optional :: cp0(:) !< Initial specific heats at constant pressure.
-   real(R8P),                        intent(in), optional :: cv0(:) !< Initial specific heats at constant volume.
-   real(R8P),                        intent(in), optional :: CFL    !< CFL value.
-   integer(I4P),                     intent(in), optional :: weno_s !< Number of WENO stencils.
+   class(equation_euler_cpu_object), intent(inout)        :: self        !< The equation.
+   type(field_object),               intent(in), target   :: field       !< The field.
+   integer(I4P),                     intent(in), optional :: ns          !< Species number.
+   integer(I4P),                     intent(in), optional :: nrk         !< Runge-Kutta stages number.
+   real(R8P),                        intent(in), optional :: cp0(:)      !< Initial specific heats at constant pressure.
+   real(R8P),                        intent(in), optional :: cv0(:)      !< Initial specific heats at constant volume.
+   real(R8P),                        intent(in), optional :: CFL         !< CFL value.
+   logical,                          intent(in), optional :: null_xyz(3) !< Flag triggering 1D/2D simulations.
+   integer(I4P),                     intent(in), optional :: weno_s      !< Number of WENO stencils.
 
    call self%destroy
    self%field => field
@@ -218,6 +222,7 @@ contains
       self%cv0 = 742.85_R8P
    endif
    if (present(CFL)) self%CFL = CFL
+   if (present(null_xyz)) self%null_xyz = null_xyz
    if (present(weno_s)) self%weno_s = weno_s
    call self%weno_initialize
 
@@ -372,61 +377,67 @@ contains
              gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck, &
              dxyz=>self%field%dxyz, ns=>self%ns, q_aux=>self%q_aux)
    call self%compute_aux(q=q, q_aux=self%q_aux(:,:,:,:,1:size(q,dim=5)))
+   fluxes_x = 0._R8P
+   fluxes_y = 0._R8P
+   fluxes_z = 0._R8P
    do b=1, size(q, dim=5)
-      ! convective fluxes along x direction
-      do k=1, nk
+      if (.not.self%null_xyz(1)) then ! convective fluxes along x direction
+         do k=1, nk
+            do j=1, nj
+               call self%compute_fluxes_convective(gc=gci, n=ni,                          &
+                                                   c         =    q_aux( :,  j,k,1:ns,b), &
+                                                   rho       =    q_aux( :,  j,k,ns+1,b), &
+                                                   un        =    q_aux( :,  j,k,ns+2,b), & ! u
+                                                   ut1       =    q_aux( :,  j,k,ns+3,b), & ! v
+                                                   ut2       =    q_aux( :,  j,k,ns+4,b), & ! w
+                                                   g         =    q_aux( :,  j,k,ns+5,b), &
+                                                   p         =    q_aux( :,  j,k,ns+6,b), &
+                                                   f_rho     = fluxes_x(0:ni,j,k,1:ns),   &
+                                                   f_rho_un  = fluxes_x(0:ni,j,k,ns+1),   & ! u
+                                                   f_rho_ut1 = fluxes_x(0:ni,j,k,ns+2),   & ! v
+                                                   f_rho_ut2 = fluxes_x(0:ni,j,k,ns+3),   & ! w
+                                                   f_rho_e   = fluxes_x(0:ni,j,k,ns+4))
+            enddo
+         enddo
+      endif
+      if (.not.self%null_xyz(2)) then ! convective fluxes along y direction
+         do k=1, nk
+            do i=1, ni
+               call self%compute_fluxes_convective(gc=gcj, n=nj,                          &
+                                                   c         =    q_aux(i, :,  k,1:ns,b), &
+                                                   rho       =    q_aux(i, :,  k,ns+1,b), &
+                                                   un        =    q_aux(i, :,  k,ns+3,b), & ! v
+                                                   ut1       =    q_aux(i, :,  k,ns+2,b), & ! u
+                                                   ut2       =    q_aux(i, :,  k,ns+4,b), & ! w
+                                                   g         =    q_aux(i, :,  k,ns+5,b), &
+                                                   p         =    q_aux(i, :,  k,ns+6,b), &
+                                                   f_rho     = fluxes_y(i,0:nj,k,1:ns),   &
+                                                   f_rho_un  = fluxes_y(i,0:nj,k,ns+2),   & ! v
+                                                   f_rho_ut1 = fluxes_y(i,0:nj,k,ns+1),   & ! u
+                                                   f_rho_ut2 = fluxes_y(i,0:nj,k,ns+3),   & ! w
+                                                   f_rho_e   = fluxes_y(i,0:nj,k,ns+4))
+            enddo
+         enddo
+      endif
+      if (.not.self%null_xyz(3)) then ! convective fluxes along z direction
          do j=1, nj
-            call self%compute_fluxes_convective(gc=gci, n=ni,                          &
-                                                c         =    q_aux( :,  j,k,1:ns,b), &
-                                                rho       =    q_aux( :,  j,k,ns+1,b), &
-                                                un        =    q_aux( :,  j,k,ns+2,b), & ! u
-                                                ut1       =    q_aux( :,  j,k,ns+3,b), & ! v
-                                                ut2       =    q_aux( :,  j,k,ns+4,b), & ! w
-                                                g         =    q_aux( :,  j,k,ns+5,b), &
-                                                p         =    q_aux( :,  j,k,ns+6,b), &
-                                                f_rho     = fluxes_x(0:ni,j,k,1:ns),   &
-                                                f_rho_un  = fluxes_x(0:ni,j,k,ns+1),   & ! u
-                                                f_rho_ut1 = fluxes_x(0:ni,j,k,ns+2),   & ! v
-                                                f_rho_ut2 = fluxes_x(0:ni,j,k,ns+3),   & ! w
-                                                f_rho_e   = fluxes_x(0:ni,j,k,ns+4))
+            do i=1, ni
+               call self%compute_fluxes_convective(gc=gck, n=nk,                          &
+                                                   c         =    q_aux(i,j, :,  1:ns,b), &
+                                                   rho       =    q_aux(i,j, :,  ns+1,b), &
+                                                   un        =    q_aux(i,j, :,  ns+4,b), & ! w
+                                                   ut1       =    q_aux(i,j, :,  ns+2,b), & ! u
+                                                   ut2       =    q_aux(i,j, :,  ns+3,b), & ! v
+                                                   g         =    q_aux(i,j, :,  ns+5,b), &
+                                                   p         =    q_aux(i,j, :,  ns+6,b), &
+                                                   f_rho     = fluxes_z(i,j,0:nk,1:ns),   &
+                                                   f_rho_un  = fluxes_z(i,j,0:nk,ns+3),   & ! w
+                                                   f_rho_ut1 = fluxes_z(i,j,0:nk,ns+1),   & ! u
+                                                   f_rho_ut2 = fluxes_z(i,j,0:nk,ns+2),   & ! v
+                                                   f_rho_e   = fluxes_z(i,j,0:nk,ns+4))
+            enddo
          enddo
-      enddo
-      ! convective fluxes along y direction
-      do k=1, nk
-         do i=1, ni
-            call self%compute_fluxes_convective(gc=gcj, n=nj,                          &
-                                                c         =    q_aux(i, :,  k,1:ns,b), &
-                                                rho       =    q_aux(i, :,  k,ns+1,b), &
-                                                un        =    q_aux(i, :,  k,ns+3,b), & ! v
-                                                ut1       =    q_aux(i, :,  k,ns+2,b), & ! u
-                                                ut2       =    q_aux(i, :,  k,ns+4,b), & ! w
-                                                g         =    q_aux(i, :,  k,ns+5,b), &
-                                                p         =    q_aux(i, :,  k,ns+6,b), &
-                                                f_rho     = fluxes_y(i,0:nj,k,1:ns),   &
-                                                f_rho_un  = fluxes_y(i,0:nj,k,ns+2),   & ! v
-                                                f_rho_ut1 = fluxes_y(i,0:nj,k,ns+1),   & ! u
-                                                f_rho_ut2 = fluxes_y(i,0:nj,k,ns+3),   & ! w
-                                                f_rho_e   = fluxes_y(i,0:nj,k,ns+4))
-         enddo
-      enddo
-      ! convective fluxes along z direction
-      do j=1, nj
-         do i=1, ni
-            call self%compute_fluxes_convective(gc=gck, n=nk,                          &
-                                                c         =    q_aux(i,j, :,  1:ns,b), &
-                                                rho       =    q_aux(i,j, :,  ns+1,b), &
-                                                un        =    q_aux(i,j, :,  ns+4,b), & ! w
-                                                ut1       =    q_aux(i,j, :,  ns+2,b), & ! u
-                                                ut2       =    q_aux(i,j, :,  ns+3,b), & ! v
-                                                g         =    q_aux(i,j, :,  ns+5,b), &
-                                                p         =    q_aux(i,j, :,  ns+6,b), &
-                                                f_rho     = fluxes_z(i,j,0:nk,1:ns),   &
-                                                f_rho_un  = fluxes_z(i,j,0:nk,ns+3),   & ! w
-                                                f_rho_ut1 = fluxes_z(i,j,0:nk,ns+1),   & ! u
-                                                f_rho_ut2 = fluxes_z(i,j,0:nk,ns+2),   & ! v
-                                                f_rho_e   = fluxes_z(i,j,0:nk,ns+4))
-         enddo
-      enddo
+      endif
       ! residuals
       do k=1, nk
          do j=1, nj
@@ -434,7 +445,6 @@ contains
                q(i,j,k,:,b) = (fluxes_x(i-1,j  ,k  ,:) - fluxes_x(i,j,k,:)) / dxyz(1,b) + &
                               (fluxes_y(i  ,j-1,k  ,:) - fluxes_y(i,j,k,:)) / dxyz(2,b) + &
                               (fluxes_z(i  ,j  ,k-1,:) - fluxes_z(i,j,k,:)) / dxyz(3,b)
-               ! q(i,j,k,:,b) = (fluxes_x(i-1,j  ,k  ,:) - fluxes_x(i,j,k,:)) / dxyz(1,b)
             enddo
          enddo
       enddo
@@ -885,11 +895,22 @@ contains
    call assign_allocatable(lhs=lhs%cp0, rhs=rhs%cp0)
    call assign_allocatable(lhs=lhs%cv0, rhs=rhs%cv0)
    call assign_allocatable(lhs=lhs%q_aux, rhs=rhs%q_aux)
+   lhs%dt = rhs%dt
+   lhs%CFL = rhs%CFL
+   lhs%null_xyz = rhs%null_xyz
    lhs%nrk = rhs%nrk
    call assign_allocatable(lhs=lhs%alph, rhs=rhs%alph)
    call assign_allocatable(lhs=lhs%beta, rhs=rhs%beta)
    call assign_allocatable(lhs=lhs%gamm, rhs=rhs%gamm)
    call assign_allocatable(lhs=lhs%q_s, rhs=rhs%q_s)
+   lhs%weno_s = rhs%weno_s
+   call assign_allocatable(lhs=lhs%weno_c, rhs=rhs%weno_c)
+   call assign_allocatable(lhs=lhs%weno_a, rhs=rhs%weno_a)
+   call assign_allocatable(lhs=lhs%weno_p, rhs=rhs%weno_p)
+   call assign_allocatable(lhs=lhs%weno_d, rhs=rhs%weno_d)
+   lhs%weno_eps = rhs%weno_eps
+   lhs%weno_odd = rhs%weno_odd
+   lhs%weno_exp = rhs%weno_exp
    lhs%error = rhs%error
    lhs%myrank = rhs%myrank
    endsubroutine eq_assign_eq
