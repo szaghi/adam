@@ -31,6 +31,9 @@ type :: base_gpu_object
    integer(I8P), allocatable, device :: comm_map_send_ghost_gpu(:,:) !< Communication map, `fec` information.
    real(R8P),    allocatable, device :: send_buffer_ghost_gpu(:)     !< Send buffer of ghost cells.
    real(R8P),    allocatable, device :: recv_buffer_ghost_gpu(:)     !< Receive buffer of ghost cells.
+   integer(I8P), allocatable, device :: local_map_bc_face_gpu(:,:)   !< Local map for face BC ghost cells.
+   integer(I8P), allocatable, device :: local_map_bc_edge_gpu(:,:)   !< Local map for edge BC ghost cells.
+   integer(I8P), allocatable, device :: local_map_bc_corner_gpu(:,:) !< Local map for corner BC ghost cells.
    contains
       ! public methods
       procedure, pass(self) :: copy_cpu_gpu           !< Copy data from CPU to GPU.
@@ -68,12 +71,34 @@ contains
    if (allocated(self%comm_map_send_ghost_gpu)) deallocate(self%comm_map_send_ghost_gpu)
    if (allocated(self%send_buffer_ghost_gpu  )) deallocate(self%send_buffer_ghost_gpu  )
    if (allocated(self%recv_buffer_ghost_gpu  )) deallocate(self%recv_buffer_ghost_gpu  )
+   if (allocated(self%local_map_bc_face_gpu  )) deallocate(self%local_map_bc_face_gpu  )
+   if (allocated(self%local_map_bc_corner_gpu)) deallocate(self%local_map_bc_corner_gpu)
+   if (allocated(self%local_map_bc_edge_gpu  )) deallocate(self%local_map_bc_edge_gpu  )
 
-   if (allocated(self%field%local_map_ghost    )) self%local_map_ghost_gpu     = self%field%local_map_ghost
-   if (allocated(self%field%comm_map_recv_ghost)) self%comm_map_recv_ghost_gpu = self%field%comm_map_recv_ghost
-   if (allocated(self%field%comm_map_send_ghost)) self%comm_map_send_ghost_gpu = self%field%comm_map_send_ghost
-   if (allocated(self%field%send_buffer_ghost  )) self%send_buffer_ghost_gpu   = self%field%send_buffer_ghost
-   if (allocated(self%field%recv_buffer_ghost  )) self%recv_buffer_ghost_gpu   = self%field%recv_buffer_ghost
+   if (allocated(self%field%local_map_ghost    )) then
+      self%local_map_ghost_gpu     = self%field%local_map_ghost
+   endif
+   if (allocated(self%field%comm_map_recv_ghost)) then
+      self%comm_map_recv_ghost_gpu = self%field%comm_map_recv_ghost
+   endif
+   if (allocated(self%field%comm_map_send_ghost)) then
+      self%comm_map_send_ghost_gpu = self%field%comm_map_send_ghost
+   endif
+   if (allocated(self%field%send_buffer_ghost  ).and.size(self%field%send_buffer_ghost)>0) then
+      self%send_buffer_ghost_gpu   = self%field%send_buffer_ghost
+   endif
+   if (allocated(self%field%recv_buffer_ghost  ).and.size(self%field%recv_buffer_ghost)>0) then
+      self%recv_buffer_ghost_gpu   = self%field%recv_buffer_ghost
+   endif
+   if (allocated(self%field%local_map_bc_face)) then
+      self%local_map_bc_face_gpu = self%field%local_map_bc_face
+   endif
+   if (allocated(self%field%local_map_bc_corner)) then
+      self%local_map_bc_corner_gpu = self%field%local_map_bc_corner
+   endif
+   if (allocated(self%field%local_map_bc_edge)) then
+      self%local_map_bc_edge_gpu = self%field%local_map_bc_edge
+   endif
    endsubroutine copy_cpu_gpu
 
    subroutine destroy(self)

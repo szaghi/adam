@@ -134,7 +134,7 @@ contains
    self%field%refinements_needed = [(TO_NOT_TOUCH,b=1,self%field%blocks_number)]
    call self%update_ghost_gpu(q_gpu=self%q_gpu)
    associate (gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck, &
-              ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk, q=>self%field%q, dxyz=>self%field%dxyz)
+              ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk, dxyz=>self%field%dxyz)
    do b=1, self%field%blocks_number
       grad_q = gradient_cuf(ni=ni, nj=nj, nk=nk, gci=gci, gcj=gcj, gck=gck, &
                             dx=dxyz(1,b), dy=dxyz(2,b), dz=dxyz(3,b), q_gpu=self%q_gpu(:,:,:,:,b))
@@ -166,17 +166,19 @@ contains
                                                 1-gck:,&
                                                 1:)    !< Field component to be updated.
       real(R8P)                        :: gradient     !< Maximum gradient of q.
+      real(R8P)                        :: grad         !< Current gradient of q.
       integer(I4P)                     :: i, j, k      !< Counter.
       integer(I4P)                     :: iercuda      !< Error trapping flag for CUDAFortran.
 
       gradient = 0._R8P
-      !$cuf kernel do(1) <<<*,*>>>
+      !$cuf kernel do(3) <<<*,*>>>
       do k=1, nk
          do j=1, nj
             do i=1, ni
-               gradient = max(gradient, sqrt(((q_gpu(i+1,j,k,1) - q_gpu(i-1,j,k,1))/(2*dx))**2 + &
-                                             ((q_gpu(i,j+1,k,1) - q_gpu(i,j-1,k,1))/(2*dy))**2 + &
-                                             ((q_gpu(i,j,k+1,1) - q_gpu(i,j,k-1,1))/(2*dz))**2))
+               grad = sqrt(((q_gpu(i+1,j,k,1) - q_gpu(i-1,j,k,1))/(2*dx))**2 + &
+                           ((q_gpu(i,j+1,k,1) - q_gpu(i,j-1,k,1))/(2*dy))**2 + &
+                           ((q_gpu(i,j,k+1,1) - q_gpu(i,j,k-1,1))/(2*dz))**2)
+               gradient = max(gradient, grad)
 
             enddo
          enddo
@@ -234,54 +236,66 @@ contains
    endassociate
    endsubroutine integrate
 
-   subroutine set_boundary_conditions(self, q)
+   subroutine set_boundary_conditions(self, q_gpu)
    !< Set boundary conditions of equation.
-   class(equation_convect1D_gpu_object), intent(in)    :: self                            !< The equation.
-   real(R8P),                            intent(inout) :: q(1-self%field%grid%gci:,&
-                                                            1-self%field%grid%gcj:,&
-                                                            1-self%field%grid%gck:,1:,1:) !< Field component to be updated.
+   class(equation_convect1D_gpu_object), intent(in)            :: self                                !< The equation.
+   real(R8P),                            intent(inout), device :: q_gpu(1-self%field%grid%gci:,&
+                                                                        1-self%field%grid%gcj:,&
+                                                                        1-self%field%grid%gck:,1:,1:) !< Field.
 
-   if (allocated(self%field%local_map_bc_face))   call set_bc_fec(local_map_bc=self%field%local_map_bc_face)
-   if (allocated(self%field%local_map_bc_edge))   call set_bc_fec(local_map_bc=self%field%local_map_bc_edge)
-   if (allocated(self%field%local_map_bc_corner)) call set_bc_fec(local_map_bc=self%field%local_map_bc_corner)
+   if (allocated(self%base_gpu%local_map_bc_face_gpu  )) call set_bc_fec(local_map_bc=self%base_gpu%local_map_bc_face_gpu  )
+   if (allocated(self%base_gpu%local_map_bc_edge_gpu  )) call set_bc_fec(local_map_bc=self%base_gpu%local_map_bc_edge_gpu  )
+   if (allocated(self%base_gpu%local_map_bc_corner_gpu)) call set_bc_fec(local_map_bc=self%base_gpu%local_map_bc_corner_gpu)
    contains
       subroutine set_bc_fec(local_map_bc)
-      integer(I8P), intent(in) :: local_map_bc(:,:) !< Local map for BC ghost cells.
-      integer(I4P)             :: b                 !< Counter.
-      integer(I4P)             :: f, i, j, k        !< Counter.
-      integer(I4P)             :: fec               !< Counter.
-      integer(I4P)             :: ijkmin(3)         !< Lower limit of ijk indexes.
-      integer(I4P)             :: ijkmax(3)         !< Upper limit of ijk indexes.
-      integer(I4P)             :: ijkdelta(3)       !< IJK delta step for extrapolation.
-      integer(I4P)             :: bc_type           !< Boundary condition type.
+      integer(I8P), intent(in),    device :: local_map_bc(:,:) !< Local map for BC ghost cells.
+      integer(I4P)                        :: b                 !< Counter.
+      integer(I4P)                        :: f, i, j, k        !< Counter.
+      integer(I4P)                        :: fec               !< Counter.
+      integer(I4P)                        :: imin              !< Lower limit of ijk indexes.
+      integer(I4P)                        :: jmin              !< Lower limit of ijk indexes.
+      integer(I4P)                        :: kmin              !< Lower limit of ijk indexes.
+      integer(I4P)                        :: imax              !< Upper limit of ijk indexes.
+      integer(I4P)                        :: jmax              !< Upper limit of ijk indexes.
+      integer(I4P)                        :: kmax              !< Upper limit of ijk indexes.
+      integer(I4P)                        :: idelta            !< IJK delta step for extrapolation.
+      integer(I4P)                        :: jdelta            !< IJK delta step for extrapolation.
+      integer(I4P)                        :: kdelta            !< IJK delta step for extrapolation.
+      integer(I4P)                        :: bc_type           !< Boundary condition type.
+      integer(I4P)                        :: iercuda           !< Error trapping flag for CUDAFortran.
 
+      !$cuf kernel do(1) <<<*,*>>>
       do f=1, size(local_map_bc, dim=1)
-         b        = local_map_bc(f, 1)
-         fec      = local_map_bc(f, 2)
-         ijkmin   = local_map_bc(f, 3:5)
-         ijkmax   = local_map_bc(f, 6:8)
-         ijkdelta = local_map_bc(f, 9:11)
-         bc_type  = local_map_bc(f, 12)
+         b       = local_map_bc(f, 1 )
+         fec     = local_map_bc(f, 2 )
+         imin    = local_map_bc(f, 3 )
+         jmin    = local_map_bc(f, 4 )
+         kmin    = local_map_bc(f, 5 )
+         imax    = local_map_bc(f, 6 )
+         jmax    = local_map_bc(f, 7 )
+         kmax    = local_map_bc(f, 8 )
+         idelta  = local_map_bc(f, 9 )
+         jdelta  = local_map_bc(f, 10)
+         kdelta  = local_map_bc(f, 11)
+         bc_type = local_map_bc(f, 12)
          if (bc_type == BC_EXTRAPOLATION) then
-            do k=ijkmin(3), ijkmax(3), sign(1, ijkmax(3)-ijkmin(3))
-               do j=ijkmin(2), ijkmax(2), sign(1, ijkmax(2)-ijkmin(2))
-                  do i=ijkmin(1), ijkmax(1), sign(1, ijkmax(1)-ijkmin(1))
-                     q(i,j,k,1,b) = q(i-ijkdelta(1), j-ijkdelta(2), k-ijkdelta(3), 1, b)
+            do k=kmin, kmax, sign(1, kmax-kmin)
+               do j=jmin, jmax, sign(1, jmax-jmin)
+                  do i=imin, imax, sign(1, imax-imin)
+                     q_gpu(i,j,k,1,b) = q_gpu(i-idelta, j-jdelta, k-kdelta, 1, b)
                   enddo
                enddo
             enddo
          elseif (bc_type == BC_INFLOW) then
-            do k=ijkmin(3), ijkmax(3), sign(1, ijkmax(3)-ijkmin(3))
-               do j=ijkmin(2), ijkmax(2), sign(1, ijkmax(2)-ijkmin(2))
-                  do i=ijkmin(1), ijkmax(1), sign(1, ijkmax(1)-ijkmin(1))
-                     ! q(i,j,k,b) = 1._R8P
-                     q(i,j,k,1,b) = exp(-((self%field%y_cell(j,b) - 0.5)**2/(2 * 0.2**2)+&
-                                          (self%field%z_cell(k,b) - 0.5)**2/(2 * 0.2**2)))
+            do k=kmin, kmax, sign(1, kmax-kmin)
+               do j=jmin, jmax, sign(1, jmax-jmin)
+                  do i=imin, imax, sign(1, imax-imin)
                   enddo
                enddo
             enddo
          endif
       enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
       endsubroutine set_bc_fec
    endsubroutine set_boundary_conditions
 
@@ -349,7 +363,7 @@ contains
 
    if (do_local_update) call self%base_gpu%update_ghost_local_gpu(q_gpu=q_gpu)
                         call self%base_gpu%update_ghost_mpi_gpu(q_gpu=q_gpu, step=step)
-   ! if (do_set_bc)       call self%set_boundary_conditions(q=q)
+   if (do_set_bc)       call self%set_boundary_conditions(q_gpu=q_gpu)
    endsubroutine update_ghost_gpu
 
    ! operators
