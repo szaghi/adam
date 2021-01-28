@@ -4,7 +4,8 @@ module purge ; module load wmlce/1.6.2 gnu/9.3.0 spectrum_mpi/10.3.1--binary
 
 # NVFORTRAN
 module purge ; module load wmlce/1.6.2 hpc-sdk spectrum_mpi/10.3.1--binary
-../FoBiS/src/main/python/FoBiS.py build -verbose -f fobos_m100 -mode tests-nvf-debug-mpi-cuda -t adam_test_adam_object_mpi_cuda.F90
+/m100/home/userinternal/fsalvado/GIT/FoBiS/src/main/python/FoBiS.py build -verbose -f fobos_m100 -mode tests-nvf-debug-mpi-cuda -t src/app/convect1D/adam_convect1D_gpu.F90
+mpirun -gpu -np 4 ../exe/adam_convect1D_gpu
 
 # XLF
 # How to compiler hdf5 1.12.0 with xlf

@@ -192,7 +192,7 @@ contains
       real(R8P)             :: delta !< Maximum cell delta admissible.
 
       if (grad > 9.2_R8P) then
-         delta = 0.004_R8P
+         delta = 0.00015_R8P
       else
          delta = 0.08_R8P
       endif

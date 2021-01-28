@@ -276,13 +276,13 @@ contains
    integer(I4P), intent(in)                         :: gck                          !< Ghost cells number in K direction.
    integer(I4P),              intent(in)            :: nv                           !< Number of variables of q.
    integer(I4P),              intent(in)            :: procs_number                 !< Number of MPI processes.
-   integer(I4P),              intent(inout)         :: req_send_recv(:)             !< MPI request receive flags.
+   integer(I4P), allocatable, intent(inout)         :: req_send_recv(:)             !< MPI request receive flags.
    integer(I4P), allocatable, intent(in)            :: comm_map_send_ptr_ghost(:)   !< Communication map, pointers list to send.
    integer(I4P), allocatable, intent(in)            :: comm_map_recv_ptr_ghost(:)   !< Communication map, pointers list to recv.
    integer(I8P), allocatable, intent(in),    device :: comm_map_recv_ghost_gpu(:,:) !< Communication map, `fec` information.
    integer(I8P), allocatable, intent(in),    device :: comm_map_send_ghost_gpu(:,:) !< Communication map, `fec` information.
-   real(R8P),                 intent(inout), device :: recv_buffer_ghost_gpu(:)     !< Receive buffer of ghost cells.
-   real(R8P),                 intent(inout), device :: send_buffer_ghost_gpu(:)     !< Send buffer of ghost cells.
+   real(R8P),    allocatable, intent(inout), device :: recv_buffer_ghost_gpu(:)     !< Receive buffer of ghost cells.
+   real(R8P),    allocatable, intent(inout), device :: send_buffer_ghost_gpu(:)     !< Send buffer of ghost cells.
    real(R8P),                 intent(inout), device :: q_gpu(1-gci:,&
                                                              1-gcj:,&
                                                              1-gck:,&
