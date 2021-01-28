@@ -471,6 +471,7 @@ contains
          enddo
       enddo
    enddo
+   !@cuf iercuda=cudaDeviceSynchronize()
    endsubroutine compute_residuals_gpu_cuf
 
    subroutine compute_rk_stage_gpu_cuf(ni, nj, nk, gci, gcj, gck, blocks_number, alph_gpu, dt, s, q_gpu, q_s_gpu)
