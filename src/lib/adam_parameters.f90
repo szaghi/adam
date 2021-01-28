@@ -85,6 +85,7 @@ interface assign_allocatable
    module procedure assign_allocatable_I4P_2D !< Safe assign allocatable arrays, I4P 2D type.
    module procedure assign_allocatable_R8P_1D !< Safe assign allocatable arrays, R8P 1D type.
    module procedure assign_allocatable_R8P_2D !< Safe assign allocatable arrays, R8P 2D type.
+   module procedure assign_allocatable_R8P_3D !< Safe assign allocatable arrays, R8P 3D type.
    module procedure assign_allocatable_R8P_4D !< Safe assign allocatable arrays, R8P 4D type.
    module procedure assign_allocatable_R8P_5D !< Safe assign allocatable arrays, R8P 5D type.
    module procedure assign_allocatable_R8P_6D !< Safe assign allocatable arrays, R8P 6D type.
@@ -163,6 +164,18 @@ contains
       if (allocated(lhs)) deallocate(lhs)
    endif
    endsubroutine assign_allocatable_R8P_2D
+
+   pure subroutine assign_allocatable_R8P_3D(lhs, rhs)
+   !< Safe assign allocatable arrays, R8P 3D type.
+   real(R8P), allocatable, intent(inout) :: lhs(:,:,:) !< Left hand side.
+   real(R8P), allocatable, intent(in)    :: rhs(:,:,:) !< Right hand side.
+
+   if (allocated(rhs)) then
+      lhs = rhs
+   else
+      if (allocated(lhs)) deallocate(lhs)
+   endif
+   endsubroutine assign_allocatable_R8P_3D
 
    pure subroutine assign_allocatable_R8P_4D(lhs, rhs)
    !< Safe assign allocatable arrays, R8P 4D type.

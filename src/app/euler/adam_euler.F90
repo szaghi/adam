@@ -26,7 +26,7 @@ call adam%initialize(max_level=7,                                              &
                               BC_EXTRAPOLATION,BC_EXTRAPOLATION],              &
                      nb=15000, nv=5, nodes_number=16*15000_I8P)
 
-call euler%initialize(field=adam%field, ns=1, CFL=0.5_R8P, weno_s=2_I4P)
+call euler%initialize(field=adam%field, ns=1, CFL=0.3_R8P, null_xyz=[.false.,.true.,.true.], weno_s=2_I4P)
 print '(A)', 'create 2 levels of refinement'
 do l=1, 2
    print '(A)', 'refine ADAM at level '//trim(str(l))
@@ -41,7 +41,7 @@ call euler%set_initial_conditions
 print '(A)', 'track initial discontinuity'
 track: do t=1, 10
    if (mod(t,1)==0.and.adam%myrank==0) print '(A)', 'track iteration '//trim(str(t, .true.))
-   call euler%mark_by_grad_rho(grad_tol=2.0_R8P, delta_fine=0.040_R8P, delta_coarse=0.1_R8P)
+   call euler%mark_by_grad_rho(grad_tol=2.5_R8P, delta_fine=0.010_R8P, delta_coarse=0.1_R8P)
    call euler%update_ghost(q=adam%field%q)
    call adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed)
    if (.not.is_grid_changed) exit track
@@ -54,10 +54,10 @@ t = 0
 integration: do
    t = t + 1
    ! adapt grids tracking discontinuities
-   if (mod(t,20)==0) then
+   if (mod(t,10)==0) then
       sub_track: do st=1, 10
          if (adam%myrank==0) print '(A)', '  track discontinuities sub-iteration '//trim(str(st, .true.))
-         call euler%mark_by_grad_rho(grad_tol=2.0_R8P, delta_fine=0.040_R8P, delta_coarse=0.1_R8P)
+         call euler%mark_by_grad_rho(grad_tol=2.5_R8P, delta_fine=0.010_R8P, delta_coarse=0.1_R8P)
          call euler%update_ghost(q=adam%field%q)
          call adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed)
          if (.not.is_grid_changed) exit sub_track

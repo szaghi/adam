@@ -39,11 +39,10 @@ contains
    self = fresh
    endsubroutine destroy
 
-   subroutine initialize(self, field, ns)
+   subroutine initialize(self, field)
    !< Initialize the equation.
-   class(base_cpu_object), intent(inout)        :: self  !< The equation.
-   type(field_object),              intent(in), target   :: field !< The field.
-   integer(I4P),                    intent(in), optional :: ns    !< Runge-Kutta stages number.
+   class(base_cpu_object), intent(inout)      :: self  !< The equation.
+   type(field_object),     intent(in), target :: field !< The field.
 
    call self%destroy
    self%field => field
@@ -158,9 +157,7 @@ contains
    endif
 
    if (do_step(1)) then
-#ifdef _MPI_
       self%field%req_send_recv = MPI_REQUEST_NULL
-#endif
       comm_map_send_ctr_ghost = self%field%comm_map_send_ptr_ghost
 
       ! populate send buffer
@@ -301,18 +298,32 @@ contains
                      do v=1, self%field%nv
                         q(iii,  jjj,  kkk  ,v,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                         comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                     enddo
+                     do v=1, self%field%nv
                         q(iii+1,jjj,  kkk  ,v,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                         comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                     enddo
+                     do v=1, self%field%nv
                         q(iii,  jjj+1,kkk  ,v,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                         comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                     enddo
+                     do v=1, self%field%nv
                         q(iii+1,jjj+1,kkk  ,v,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                         comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                     enddo
+                     do v=1, self%field%nv
                         q(iii,  jjj,  kkk+1,v,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                         comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                     enddo
+                     do v=1, self%field%nv
                         q(iii+1,jjj,  kkk+1,v,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                         comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                     enddo
+                     do v=1, self%field%nv
                         q(iii,  jjj+1,kkk+1,v,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                         comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
+                     enddo
+                     do v=1, self%field%nv
                         q(iii+1,jjj+1,kkk+1,v,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                         comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
                      enddo
