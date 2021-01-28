@@ -949,10 +949,10 @@ contains
    contains
       pure function fluxes(p, r, u, g) result(Fc)
       !< 1D Euler fluxes from primitive variables.
-      real(R8P), intent(IN) :: p       !< Pressure.
-      real(R8P), intent(IN) :: r       !< Density.
-      real(R8P), intent(IN) :: u       !< Velocity.
-      real(R8P), intent(IN) :: g       !< Specific heats ratio.
+      real(R8P), intent(in) :: p       !< Pressure.
+      real(R8P), intent(in) :: r       !< Density.
+      real(R8P), intent(in) :: u       !< Velocity.
+      real(R8P), intent(in) :: g       !< Specific heats ratio.
       real(R8P)             :: Fc(1:3) !< State fluxes.
 
       Fc(1) = r*u
