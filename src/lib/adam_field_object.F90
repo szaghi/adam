@@ -115,7 +115,7 @@ type :: field_object
    real(R8P), allocatable :: send_buffer_ghost(:) !< Send buffer of ghost cells.
    real(R8P), allocatable :: recv_buffer_ghost(:) !< Receive buffer of ghost cells.
    ! field equations data
-   real(R8P), allocatable :: q(     :,:,:,:,:) !< Field cell centered variables [ni+2gci,nj+2gcj,nk+2gck,nv,nb].
+   real(R8P), allocatable :: q(     :,:,:,:,:) !< Field cell centered variables [nv,ni+2gci,nj+2gcj,nk+2gck,nb].
    real(R8P), allocatable :: q_work(:,:,:,:,:) !< Field cell centered variables, working buffer memory.
    contains
       ! public methods
@@ -234,12 +234,14 @@ contains
       self%emin(:,1) = self%grid%domain_emin
       self%emax(:,1) = self%grid%domain_emax
 
-      allocate(     self%q(1-self%grid%gci:self%grid%ni+self%grid%gci, &
+      allocate(     self%q(1:self%nv,                                  &
+                           1-self%grid%gci:self%grid%ni+self%grid%gci, &
                            1-self%grid%gcj:self%grid%nj+self%grid%gcj, &
-                           1-self%grid%gck:self%grid%nk+self%grid%gck, 1:self%nv, 1:self%nb))
-      allocate(self%q_work(1-self%grid%gci:self%grid%ni+self%grid%gci, &
+                           1-self%grid%gck:self%grid%nk+self%grid%gck, 1:self%nb))
+      allocate(self%q_work(1:self%nv,                                  &
+                           1-self%grid%gci:self%grid%ni+self%grid%gci, &
                            1-self%grid%gcj:self%grid%nj+self%grid%gcj, &
-                           1-self%grid%gck:self%grid%nk+self%grid%gck, 1:self%nv, 1:self%nb))
+                           1-self%grid%gck:self%grid%nk+self%grid%gck, 1:self%nb))
       self%q = 0._R8P
       self%q_work = 0._R8P
    endif
@@ -424,9 +426,10 @@ contains
       do b=1, size(comm_map_recv, dim=1)
           bi = comm_map_recv(b)
           self%q_work(:,:,:,:,bi) = reshape(recv_buffer(recv_offset:recv_offset + self%block_weight -1),&
-                                            [self%grid%gci+self%grid%ni+self%grid%gci,                  &
+                                            [self%nv,                                                   &
+                                             self%grid%gci+self%grid%ni+self%grid%gci,                  &
                                              self%grid%gcj+self%grid%nj+self%grid%gcj,                  &
-                                             self%grid%gck+self%grid%nk+self%grid%gck,self%nv])
+                                             self%grid%gck+self%grid%nk+self%grid%gck])
           recv_offset = recv_offset + self%block_weight
       enddo
    endif
@@ -526,50 +529,50 @@ contains
                   jjj = (j - 1) * 2 + 1
                   iii = (i - 1) * 2 + 1
 
-                  q_work(i,     j,     k     ,:,ib) = (q(iii,jjj,  kkk  ,:,ic1) + q(iii+1,jjj,  kkk  ,:,ic1) + &
-                                                       q(iii,jjj+1,kkk  ,:,ic1) + q(iii+1,jjj+1,kkk  ,:,ic1) + &
-                                                       q(iii,jjj,  kkk+1,:,ic1) + q(iii+1,jjj,  kkk+1,:,ic1) + &
-                                                       q(iii,jjj+1,kkk+1,:,ic1) + q(iii+1,jjj+1,kkk+1,:,ic1)) / 8._R8P
+                  q_work(:,i,     j,     k     ,ib) = (q(:,iii,jjj,  kkk  ,ic1) + q(:,iii+1,jjj,  kkk  ,ic1) + &
+                                                       q(:,iii,jjj+1,kkk  ,ic1) + q(:,iii+1,jjj+1,kkk  ,ic1) + &
+                                                       q(:,iii,jjj,  kkk+1,ic1) + q(:,iii+1,jjj,  kkk+1,ic1) + &
+                                                       q(:,iii,jjj+1,kkk+1,ic1) + q(:,iii+1,jjj+1,kkk+1,ic1)) / 8._R8P
 
-                  q_work(i+ni/2,j,     k     ,:,ib) = (q(iii,jjj,  kkk  ,:,ic2) + q(iii+1,jjj,  kkk  ,:,ic2) + &
-                                                       q(iii,jjj+1,kkk  ,:,ic2) + q(iii+1,jjj+1,kkk  ,:,ic2) + &
-                                                       q(iii,jjj,  kkk+1,:,ic2) + q(iii+1,jjj,  kkk+1,:,ic2) + &
-                                                       q(iii,jjj+1,kkk+1,:,ic2) + q(iii+1,jjj+1,kkk+1,:,ic2)) / 8._R8P
+                  q_work(:,i+ni/2,j,     k     ,ib) = (q(:,iii,jjj,  kkk  ,ic2) + q(:,iii+1,jjj,  kkk  ,ic2) + &
+                                                       q(:,iii,jjj+1,kkk  ,ic2) + q(:,iii+1,jjj+1,kkk  ,ic2) + &
+                                                       q(:,iii,jjj,  kkk+1,ic2) + q(:,iii+1,jjj,  kkk+1,ic2) + &
+                                                       q(:,iii,jjj+1,kkk+1,ic2) + q(:,iii+1,jjj+1,kkk+1,ic2)) / 8._R8P
 
-                  q_work(i,     j+nj/2,k     ,:,ib) = (q(iii,jjj,  kkk  ,:,ic3) + q(iii+1,jjj,  kkk  ,:,ic3) + &
-                                                       q(iii,jjj+1,kkk  ,:,ic3) + q(iii+1,jjj+1,kkk  ,:,ic3) + &
-                                                       q(iii,jjj,  kkk+1,:,ic3) + q(iii+1,jjj,  kkk+1,:,ic3) + &
-                                                       q(iii,jjj+1,kkk+1,:,ic3) + q(iii+1,jjj+1,kkk+1,:,ic3)) / 8._R8P
+                  q_work(:,i,     j+nj/2,k     ,ib) = (q(:,iii,jjj,  kkk  ,ic3) + q(:,iii+1,jjj,  kkk  ,ic3) + &
+                                                       q(:,iii,jjj+1,kkk  ,ic3) + q(:,iii+1,jjj+1,kkk  ,ic3) + &
+                                                       q(:,iii,jjj,  kkk+1,ic3) + q(:,iii+1,jjj,  kkk+1,ic3) + &
+                                                       q(:,iii,jjj+1,kkk+1,ic3) + q(:,iii+1,jjj+1,kkk+1,ic3)) / 8._R8P
 
-                  q_work(i+ni/2,j+nj/2,k     ,:,ib) = (q(iii,jjj,  kkk  ,:,ic4) + q(iii+1,jjj,  kkk  ,:,ic4) + &
-                                                       q(iii,jjj+1,kkk  ,:,ic4) + q(iii+1,jjj+1,kkk  ,:,ic4) + &
-                                                       q(iii,jjj,  kkk+1,:,ic4) + q(iii+1,jjj,  kkk+1,:,ic4) + &
-                                                       q(iii,jjj+1,kkk+1,:,ic4) + q(iii+1,jjj+1,kkk+1,:,ic4)) / 8._R8P
+                  q_work(:,i+ni/2,j+nj/2,k     ,ib) = (q(:,iii,jjj,  kkk  ,ic4) + q(:,iii+1,jjj,  kkk  ,ic4) + &
+                                                       q(:,iii,jjj+1,kkk  ,ic4) + q(:,iii+1,jjj+1,kkk  ,ic4) + &
+                                                       q(:,iii,jjj,  kkk+1,ic4) + q(:,iii+1,jjj,  kkk+1,ic4) + &
+                                                       q(:,iii,jjj+1,kkk+1,ic4) + q(:,iii+1,jjj+1,kkk+1,ic4)) / 8._R8P
 
-                  q_work(i,     j,     k+nk/2,:,ib) = (q(iii,jjj,  kkk  ,:,ic5) + q(iii+1,jjj,  kkk  ,:,ic5) + &
-                                                       q(iii,jjj+1,kkk  ,:,ic5) + q(iii+1,jjj+1,kkk  ,:,ic5) + &
-                                                       q(iii,jjj,  kkk+1,:,ic5) + q(iii+1,jjj,  kkk+1,:,ic5) + &
-                                                       q(iii,jjj+1,kkk+1,:,ic5) + q(iii+1,jjj+1,kkk+1,:,ic5)) / 8._R8P
+                  q_work(:,i,     j,     k+nk/2,ib) = (q(:,iii,jjj,  kkk  ,ic5) + q(:,iii+1,jjj,  kkk  ,ic5) + &
+                                                       q(:,iii,jjj+1,kkk  ,ic5) + q(:,iii+1,jjj+1,kkk  ,ic5) + &
+                                                       q(:,iii,jjj,  kkk+1,ic5) + q(:,iii+1,jjj,  kkk+1,ic5) + &
+                                                       q(:,iii,jjj+1,kkk+1,ic5) + q(:,iii+1,jjj+1,kkk+1,ic5)) / 8._R8P
 
-                  q_work(i+ni/2,j,     k+nk/2,:,ib) = (q(iii,jjj,  kkk  ,:,ic6) + q(iii+1,jjj,  kkk  ,:,ic6) + &
-                                                       q(iii,jjj+1,kkk  ,:,ic6) + q(iii+1,jjj+1,kkk  ,:,ic6) + &
-                                                       q(iii,jjj,  kkk+1,:,ic6) + q(iii+1,jjj,  kkk+1,:,ic6) + &
-                                                       q(iii,jjj+1,kkk+1,:,ic6) + q(iii+1,jjj+1,kkk+1,:,ic6)) / 8._R8P
+                  q_work(:,i+ni/2,j,     k+nk/2,ib) = (q(:,iii,jjj,  kkk  ,ic6) + q(:,iii+1,jjj,  kkk  ,ic6) + &
+                                                       q(:,iii,jjj+1,kkk  ,ic6) + q(:,iii+1,jjj+1,kkk  ,ic6) + &
+                                                       q(:,iii,jjj,  kkk+1,ic6) + q(:,iii+1,jjj,  kkk+1,ic6) + &
+                                                       q(:,iii,jjj+1,kkk+1,ic6) + q(:,iii+1,jjj+1,kkk+1,ic6)) / 8._R8P
 
-                  q_work(i,     j+nj/2,k+nk/2,:,ib) = (q(iii,jjj,  kkk  ,:,ic7) + q(iii+1,jjj,  kkk  ,:,ic7) + &
-                                                       q(iii,jjj+1,kkk  ,:,ic7) + q(iii+1,jjj+1,kkk  ,:,ic7) + &
-                                                       q(iii,jjj,  kkk+1,:,ic7) + q(iii+1,jjj,  kkk+1,:,ic7) + &
-                                                       q(iii,jjj+1,kkk+1,:,ic7) + q(iii+1,jjj+1,kkk+1,:,ic7)) / 8._R8P
+                  q_work(:,i,     j+nj/2,k+nk/2,ib) = (q(:,iii,jjj,  kkk  ,ic7) + q(:,iii+1,jjj,  kkk  ,ic7) + &
+                                                       q(:,iii,jjj+1,kkk  ,ic7) + q(:,iii+1,jjj+1,kkk  ,ic7) + &
+                                                       q(:,iii,jjj,  kkk+1,ic7) + q(:,iii+1,jjj,  kkk+1,ic7) + &
+                                                       q(:,iii,jjj+1,kkk+1,ic7) + q(:,iii+1,jjj+1,kkk+1,ic7)) / 8._R8P
 
-                  q_work(i+ni/2,j+nj/2,k+nk/2,:,ib) = (q(iii,jjj,  kkk  ,:,ic8) + q(iii+1,jjj,  kkk  ,:,ic8) + &
-                                                       q(iii,jjj+1,kkk  ,:,ic8) + q(iii+1,jjj+1,kkk  ,:,ic8) + &
-                                                       q(iii,jjj,  kkk+1,:,ic8) + q(iii+1,jjj,  kkk+1,:,ic8) + &
-                                                       q(iii,jjj+1,kkk+1,:,ic8) + q(iii+1,jjj+1,kkk+1,:,ic8)) / 8._R8P
+                  q_work(:,i+ni/2,j+nj/2,k+nk/2,ib) = (q(:,iii,jjj,  kkk  ,ic8) + q(:,iii+1,jjj,  kkk  ,ic8) + &
+                                                       q(:,iii,jjj+1,kkk  ,ic8) + q(:,iii+1,jjj+1,kkk  ,ic8) + &
+                                                       q(:,iii,jjj,  kkk+1,ic8) + q(:,iii+1,jjj,  kkk+1,ic8) + &
+                                                       q(:,iii,jjj+1,kkk+1,ic8) + q(:,iii+1,jjj+1,kkk+1,ic8)) / 8._R8P
                enddo
             enddo
          enddo
 
-         q(1:ni,1:nj,1:nk,:,ib) = q_work(1:ni,1:nj,1:nk,:,ib)
+         q(:,1:ni,1:nj,1:nk,ib) = q_work(:,1:ni,1:nj,1:nk,ib)
 
          self%code(ib) = block_derefined(1,b)
       enddo
@@ -614,50 +617,50 @@ contains
                      k_fine = mod(k - 1, nk/2) * 2 + 1
                      j_fine = mod(j - 1, nj/2) * 2 + 1
                      i_fine = mod(i - 1, ni/2) * 2 + 1
-                     q(i_fine:i_fine+1,j_fine:j_fine+1,k_fine:k_fine+1,:,ic) = 0._R8P
+                     q(:,i_fine:i_fine+1,j_fine:j_fine+1,k_fine:k_fine+1,ic) = 0._R8P
                      do k_delta=0,1
                      do j_delta=0,1
                      do i_delta=0,1
-                     q(i_fine,  j_fine,  k_fine,  :,ic) = q(i_fine,j_fine,k_fine,:,ic) +   &
+                     q(:,i_fine,  j_fine,  k_fine,  ic) = q(:,i_fine,j_fine,k_fine,ic) +   &
                                                           (0.25_R8P + i_delta * 0.5_R8P) * &
                                                           (0.25_R8P + j_delta * 0.5_R8P) * &
                                                           (0.25_R8P + k_delta * 0.5_R8P) * &
-                                                          q_work(i+i_delta-1, j+j_delta-1, k+k_delta-1,:,ib)
-                     q(i_fine+1,j_fine,  k_fine,  :,ic) = q(i_fine+1,j_fine,k_fine,:,ic) + &
+                                                          q_work(:,i+i_delta-1, j+j_delta-1, k+k_delta-1,ib)
+                     q(:,i_fine+1,j_fine,  k_fine,  ic) = q(:,i_fine+1,j_fine,k_fine,ic) + &
                                                           (0.75_R8P - i_delta * 0.5_R8P) * &
                                                           (0.25_R8P + j_delta * 0.5_R8P) * &
                                                           (0.25_R8P + k_delta * 0.5_R8P) * &
-                                                          q_work(i+i_delta,   j+j_delta-1, k+k_delta-1,:,ib)
-                     q(i_fine,  j_fine+1,k_fine,  :,ic) = q(i_fine,j_fine+1,k_fine,:,ic) + &
+                                                          q_work(:,i+i_delta,   j+j_delta-1, k+k_delta-1,ib)
+                     q(:,i_fine,  j_fine+1,k_fine,  ic) = q(:,i_fine,j_fine+1,k_fine,ic) + &
                                                           (0.25_R8P + i_delta * 0.5_R8P) * &
                                                           (0.75_R8P - j_delta * 0.5_R8P) * &
                                                           (0.25_R8P + k_delta * 0.5_R8P) * &
-                                                          q_work(i+i_delta-1, j+j_delta  , k+k_delta-1,:,ib)
-                     q(i_fine+1,j_fine+1,k_fine,  :,ic) = q(i_fine+1,j_fine+1,k_fine,:,ic) + &
+                                                          q_work(:,i+i_delta-1, j+j_delta  , k+k_delta-1,ib)
+                     q(:,i_fine+1,j_fine+1,k_fine,  ic) = q(:,i_fine+1,j_fine+1,k_fine,ic) + &
                                                           (0.75_R8P - i_delta * 0.5_R8P) *   &
                                                           (0.75_R8P - j_delta * 0.5_R8P) *   &
                                                           (0.25_R8P + k_delta * 0.5_R8P) *   &
-                                                          q_work(i+i_delta,   j+j_delta  , k+k_delta-1,:,ib)
-                     q(i_fine,  j_fine,  k_fine+1,:,ic) = q(i_fine,j_fine,k_fine+1,:,ic) + &
+                                                          q_work(:,i+i_delta,   j+j_delta  , k+k_delta-1,ib)
+                     q(:,i_fine,  j_fine,  k_fine+1,ic) = q(:,i_fine,j_fine,k_fine+1,ic) + &
                                                           (0.25_R8P + i_delta * 0.5_R8P) * &
                                                           (0.25_R8P + j_delta * 0.5_R8P) * &
                                                           (0.75_R8P - k_delta * 0.5_R8P) * &
-                                                          q_work(i+i_delta-1, j+j_delta-1, k+k_delta  ,:,ib)
-                     q(i_fine+1,j_fine,  k_fine+1,:,ic) = q(i_fine+1,j_fine,k_fine+1,:,ic) + &
+                                                          q_work(:,i+i_delta-1, j+j_delta-1, k+k_delta  ,ib)
+                     q(:,i_fine+1,j_fine,  k_fine+1,ic) = q(:,i_fine+1,j_fine,k_fine+1,ic) + &
                                                           (0.75_R8P - i_delta * 0.5_R8P) *   &
                                                           (0.25_R8P + j_delta * 0.5_R8P) *   &
                                                           (0.75_R8P - k_delta * 0.5_R8P) *   &
-                                                          q_work(i+i_delta,   j+j_delta-1, k+k_delta  ,:,ib)
-                     q(i_fine,  j_fine+1,k_fine+1,:,ic) = q(i_fine,j_fine+1,k_fine+1,:,ic) + &
+                                                          q_work(:,i+i_delta,   j+j_delta-1, k+k_delta  ,ib)
+                     q(:,i_fine,  j_fine+1,k_fine+1,ic) = q(:,i_fine,j_fine+1,k_fine+1,ic) + &
                                                           (0.25_R8P + i_delta * 0.5_R8P) *   &
                                                           (0.75_R8P - j_delta * 0.5_R8P) *   &
                                                           (0.75_R8P - k_delta * 0.5_R8P) *   &
-                                                          q_work(i+i_delta-1, j+j_delta  , k+k_delta  ,:,ib)
-                     q(i_fine+1,j_fine+1,k_fine+1,:,ic) = q(i_fine+1,j_fine+1,k_fine+1,:,ic) + &
+                                                          q_work(:,i+i_delta-1, j+j_delta  , k+k_delta  ,ib)
+                     q(:,i_fine+1,j_fine+1,k_fine+1,ic) = q(:,i_fine+1,j_fine+1,k_fine+1,ic) + &
                                                           (0.75_R8P - i_delta * 0.5_R8P) *     &
                                                           (0.75_R8P - j_delta * 0.5_R8P) *     &
                                                           (0.75_R8P - k_delta * 0.5_R8P) *     &
-                                                          q_work(i+i_delta,   j+j_delta  , k+k_delta  ,:,ib)
+                                                          q_work(:,i+i_delta,   j+j_delta  , k+k_delta  ,ib)
                      enddo
                      enddo
                      enddo

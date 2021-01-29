@@ -209,16 +209,28 @@ contains
                                     code=self%tree%block_code)
    endsubroutine mpi_redistribute
 
-   subroutine save_hdf5(self, basename, directory, var_name, with_ghost, with_cell_morton)
+   subroutine save_hdf5(self, basename, q, q_aux, q_name, q_aux_name, directory, with_ghost, with_cell_morton)
    !< Save ADAM in HDF5 format.
    class(adam_object), intent(inout)        :: self              !< ADAM.
    character(*),       intent(in)           :: basename          !< Base name of output files.
+   real(R8P),          intent(in)           :: q(1:,              &
+                                                 1-self%grid%gci:,&
+                                                 1-self%grid%gcj:,&
+                                                 1-self%grid%gck:,&
+                                                 1:)             !< Q variables to be saved.
+   real(R8P),          intent(in), optional :: q_aux(1:,              &
+                                                     1-self%grid%gci:,&
+                                                     1-self%grid%gcj:,&
+                                                     1-self%grid%gck:,&
+                                                     1:)         !< Q auxiliary variables to be saved.
+   character(*),       intent(in), optional :: q_name(:)         !< Q variables names.
+   character(*),       intent(in), optional :: q_aux_name(:)     !< Q auxiliary variables names.
    character(*),       intent(in), optional :: directory         !< Directory name of output files.
-   character(*),       intent(in), optional :: var_name(:)       !< Variables names.
    logical,            intent(in), optional :: with_ghost        !< Flag to save ghost cells.
    logical,            intent(in), optional :: with_cell_morton  !< Flag to save Morton code also in cells.
+   character(:), allocatable                :: q_name_(:)        !< Q variables names, local var.
+   character(:), allocatable                :: q_aux_name_(:)    !< Q auxiliary variables names, local var.
    character(:), allocatable                :: directory_        !< Directory name of output files, local var.
-   character(:), allocatable                :: var_name_(:)      !< Variables names, local var.
    logical                                  :: with_ghost_       !< Flag to save ghost cells, local var.
    logical                                  :: with_cell_morton_ !< Flag to save Morton code also in cells, local var.
    type(tree_node_object), pointer          :: node              !< Pointer to node.
@@ -238,17 +250,25 @@ contains
    integer(I4P)                             :: node_level        !< Node level counter.
    integer(I4P)                             :: i, j, k, l        !< Counter.
 
-   directory_ = '' ; if (present(directory)) directory_ = trim(directory)
-   if (present(var_name)) then
-      allocate(character(len(var_name(1))):: var_name_(self%field%nv))
-      var_name_ = var_name
+   if (present(q_name)) then
+      allocate(character(len(q_name(1))):: q_name_(size(q, dim=1)))
+      q_name_ = q_name
    else
-      allocate(character(4):: var_name_(self%field%nv))
-      do v=1, self%field%nv
-         var_name_(v) = 'q-'//trim(strz(v,2))
+      allocate(character(4):: q_name_(size(q, dim=1)))
+      do v=1, size(q, dim=1)
+         q_name_(v) = 'q-'//trim(strz(v,2))
       enddo
    endif
-
+   if (present(q_aux_name).and.present(q_aux)) then
+      allocate(character(len(q_aux_name(1))):: q_aux_name_(size(q_aux, dim=1)))
+      q_aux_name_ = q_aux_name
+   else
+      allocate(character(4):: q_aux_name_(size(q_aux, dim=1)))
+      do v=1, size(q_aux, dim=1)
+         q_aux_name_(v) = 'q_aux-'//trim(strz(v,2))
+      enddo
+   endif
+   directory_ = '' ; if (present(directory)) directory_ = trim(directory)
    with_ghost_ = .false. ; if (present(with_ghost)) with_ghost_ = with_ghost
    with_cell_morton_ = .false. ; if (present(with_cell_morton)) with_cell_morton_ = with_cell_morton
    if (with_ghost_) then
@@ -272,13 +292,22 @@ contains
    call h5screate_simple_f(3_I4P, [int(ni+2*gci,I8P),int(nj+2*gcj,I8P),int(nk+2*gck,I8P)], h5_dspace_id, self%error)
    ! save all blocks in process
    do b=1, self%field%blocks_number
-      do v=1, self%field%nv
-         h5_dset_name = trim(var_name_(v))//'-'//trim(str(self%myrank,.true.))//'-'//trim(str(b,.true.))
+      do v=1, size(q, dim=1)
+         h5_dset_name = trim(q_name_(v))//'-'//trim(str(self%myrank,.true.))//'-'//trim(str(b,.true.))
          call h5dcreate_f(h5_file_id, h5_dset_name, H5T_NATIVE_DOUBLE, h5_dspace_id, h5_dset_id, self%error)
-         call h5dwrite_f(h5_dset_id, H5T_NATIVE_DOUBLE, self%field%q(1-gci:ni+gci,1-gcj:nj+gcj,1-gck:nk+gck,v,b), &
+         call h5dwrite_f(h5_dset_id, H5T_NATIVE_DOUBLE, q(v,1-gci:ni+gci,1-gcj:nj+gcj,1-gck:nk+gck,b), &
                          [int(ni+2*gci,I8P),int(nj+2*gcj,I8P),int(nk+2*gck,I8P)], self%error)
          call h5dclose_f(h5_dset_id, self%error)
       enddo
+      if (present(q_aux)) then
+         do v=1, size(q_aux, dim=1)
+            h5_dset_name = trim(q_aux_name_(v))//'-'//trim(str(self%myrank,.true.))//'-'//trim(str(b,.true.))
+            call h5dcreate_f(h5_file_id, h5_dset_name, H5T_NATIVE_DOUBLE, h5_dspace_id, h5_dset_id, self%error)
+            call h5dwrite_f(h5_dset_id, H5T_NATIVE_DOUBLE, q_aux(v,1-gci:ni+gci,1-gcj:nj+gcj,1-gck:nk+gck,b), &
+                            [int(ni+2*gci,I8P),int(nj+2*gcj,I8P),int(nk+2*gck,I8P)], self%error)
+            call h5dclose_f(h5_dset_id, self%error)
+         enddo
+      endif
 
       if (with_cell_morton_) then
          h5_dset_name = 'morton-'//trim(str(self%myrank,.true.))//'-'//trim(str(b,.true.))
@@ -324,22 +353,31 @@ contains
          write(xdmf, '(A)') '        <Grid Name="block-'//trim(str(node%code, .true.))//'">'
 
          write(xdmf, '(A)') '          <Geometry Origin="" Type="ORIGIN_DXDYDZ">'
-         write(xdmf, '(A)') '            <DataItem DataType="Float" Dimensions="3" Format="XML" Precision="8">'// &
-                                        trim(str([emin(3)-gck*dz,emin(2)-gcj*dy,emin(1)-gci*dx],separator=' '))//'</DataItem>'
-                                        ! trim(str([emin(1)-gci*dx,emin(2)-gcj*dy,emin(3)-gck*dz],separator=' '))//'</DataItem>'
-         write(xdmf, '(A)') '            <DataItem DataType="Float" Dimensions="3" Format="XML" Precision="8">'// &
-                                        trim(str([dz,dy,dx],separator=' '))//'</DataItem>'
-                                        ! trim(str([dx,dy,dz],separator=' '))//'</DataItem>'
+         write(xdmf, '(A)') '            <DataItem DataType="Float" Dimensions="3" Format="XML" Precision="8">'//&
+                            trim(str([emin(3)-gck*dz,emin(2)-gcj*dy,emin(1)-gci*dx],separator=' '))//'</DataItem>'
+         write(xdmf, '(A)') '            <DataItem DataType="Float" Dimensions="3" Format="XML" Precision="8">'//&
+                            trim(str([dz,dy,dx],separator=' '))//'</DataItem>'
          write(xdmf, '(A)') '          </Geometry>'
          write(xdmf, '(A)') '          <Topology Dimensions="'//grid_dims//'" Type="3DCoRectMesh"/>'
 
-         do v=1, self%field%nv
-            h5_dset_name = trim(var_name_(v))//'-'//trim(str(node%myrank,.true.))//'-'//trim(str(b,.true.))
-            write(xdmf, '(A)') '          <Attribute Name="'//trim(var_name_(v))//'" Center="Cell" ElementDegree="0" Type="Scalar">'
-            write(xdmf, '(A)') '            <DataItem DataType="Float" Dimensions="'//grid_dims//'" Format="HDF" Precision="8">'// &
-                                          h5_file_name//':'//h5_dset_name//'</DataItem>'
+         do v=1, size(q, dim=1)
+            h5_dset_name = trim(q_name_(v))//'-'//trim(str(node%myrank,.true.))//'-'//trim(str(b,.true.))
+            write(xdmf, '(A)') '          <Attribute Name="'//trim(q_name_(v))//'" Center="Cell" ElementDegree="0" Type="Scalar">'
+            write(xdmf, '(A)') '            <DataItem DataType="Float" Dimensions="'//grid_dims//'" Format="HDF" Precision="8">'//&
+                               h5_file_name//':'//h5_dset_name//'</DataItem>'
             write(xdmf, '(A)') '          </Attribute>'
          enddo
+         if (present(q_aux)) then
+            do v=1, size(q_aux, dim=1)
+               h5_dset_name = trim(q_aux_name_(v))//'-'//trim(str(node%myrank,.true.))//'-'//trim(str(b,.true.))
+               write(xdmf, '(A)') '          <Attribute Name="'//trim(q_aux_name_(v))//&
+                                  '" Center="Cell" ElementDegree="0" Type="Scalar">'
+               write(xdmf, '(A)') '            <DataItem DataType="Float" Dimensions="'//grid_dims//&
+                                  '" Format="HDF" Precision="8">'//&
+                                  h5_file_name//':'//h5_dset_name//'</DataItem>'
+               write(xdmf, '(A)') '          </Attribute>'
+            enddo
+         endif
 
          if (with_cell_morton_) then
             h5_dset_name = 'morton-'//trim(str(node%myrank,.true.))//'-'//trim(str(b,.true.))
@@ -374,16 +412,28 @@ contains
    endassociate
    endsubroutine save_hdf5
 
-   subroutine save_vtk(self, basename, var_name, directory, with_ghost, with_cell_morton)
+   subroutine save_vtk(self, basename, q, q_aux, q_name, q_aux_name, directory, with_ghost, with_cell_morton)
    !< Save ADAM in VTK files.
    class(adam_object), intent(inout)        :: self                                          !< ADAM.
    character(*),       intent(in)           :: basename                                      !< Base name of output files.
+   real(R8P),          intent(in)           :: q(1:,              &
+                                                 1-self%grid%gci:,&
+                                                 1-self%grid%gcj:,&
+                                                 1-self%grid%gck:,&
+                                                 1:)                                         !< Q variables to be saved.
+   real(R8P),          intent(in), optional :: q_aux(1:,              &
+                                                     1-self%grid%gci:,&
+                                                     1-self%grid%gcj:,&
+                                                     1-self%grid%gck:,&
+                                                     1:)                                     !< Q auxiliary variables to be saved.
    character(*),       intent(in), optional :: directory                                     !< Output directory name.
-   character(*),       intent(in), optional :: var_name(:)                                   !< Variables names.
+   character(*),       intent(in), optional :: q_name(:)                                     !< Variables names.
+   character(*),       intent(in), optional :: q_aux_name(:)                                 !< Q auxiliary variables names.
    logical,            intent(in), optional :: with_ghost                                    !< Flag to save ghost cells.
    logical,            intent(in), optional :: with_cell_morton                              !< Flag to save Morton code in cells.
    character(:), allocatable                :: directory_                                    !< Output directory name, local var.
-   character(:), allocatable                :: var_name_(:)                                  !< Variables names, local var.
+   character(:), allocatable                :: q_name_(:)                                    !< Variables names, local var.
+   character(:), allocatable                :: q_aux_name_(:)                                !< Q auxiliary variables names, l. var.
    logical                                  :: with_ghost_                                   !< Flag to save ghost cells, local var.
    logical                                  :: with_cell_morton_                             !< Flag to save Morton code in cells.
    type(vtk_file)                           :: vtk                                           !< VTK file handler.
@@ -397,16 +447,25 @@ contains
    real(R8P)                                :: y(0-self%grid%gcj:self%grid%nj+self%grid%gcj) !< Y coordinates.
    real(R8P)                                :: z(0-self%grid%gck:self%grid%nk+self%grid%gck) !< Z coordinates.
 
-   directory_ = '' ; if (present(directory)) directory_ = trim(directory)
-   if (present(var_name)) then
-      allocate(character(len(var_name(1))):: var_name_(self%field%nv))
-      var_name_ = var_name
+   if (present(q_name)) then
+      allocate(character(len(q_name(1))):: q_name_(size(q, dim=1)))
+      q_name_ = q_name
    else
-      allocate(character(4):: var_name_(self%field%nv))
-      do v=1, self%field%nv
-         var_name_(v) = 'q-'//trim(strz(v,2))
+      allocate(character(4):: q_name_(size(q, dim=1)))
+      do v=1, size(q, dim=1)
+         q_name_(v) = 'q-'//trim(strz(v,2))
       enddo
    endif
+   if (present(q_aux_name).and.present(q_aux)) then
+      allocate(character(len(q_aux_name(1))):: q_aux_name_(size(q_aux, dim=1)))
+      q_aux_name_ = q_aux_name
+   else
+      allocate(character(4):: q_aux_name_(size(q_aux, dim=1)))
+      do v=1, size(q_aux, dim=1)
+         q_aux_name_(v) = 'q_aux-'//trim(strz(v,2))
+      enddo
+   endif
+   directory_ = '' ; if (present(directory)) directory_ = trim(directory)
    with_ghost_ = .false. ; if (present(with_ghost)) with_ghost_ = with_ghost
    with_cell_morton_ = .false. ; if (present(with_cell_morton)) with_cell_morton_ = with_cell_morton
    if (with_ghost_) then
@@ -436,10 +495,16 @@ contains
          self%error = vtk%xml_writer%write_piece(nx1=0-gci, nx2=ni+gci, ny1=0-gcj, ny2=nj+gcj, nz1=0-gck, nz2=nk+gck)
          self%error = vtk%xml_writer%write_geo(x=x(0-gci:ni+gci), y=y(0-gcj:nj+gcj), z=z(0-gck:nk+gck))
          self%error = vtk%xml_writer%write_dataarray(location='cell', action='open')
-         do v=1, self%field%nv
-            self%error = vtk%xml_writer%write_dataarray(data_name=trim(var_name_(v)), &
-                                                        x=[self%field%q(1-gci:ni+gci,1-gcj:nj+gcj,1-gck:nk+gck,v,b)])
+         do v=1, size(q, dim=1)
+            self%error = vtk%xml_writer%write_dataarray(data_name=trim(q_name_(v)), &
+                                                        x=[q(v,1-gci:ni+gci,1-gcj:nj+gcj,1-gck:nk+gck,b)])
          enddo
+         if (present(q_aux)) then
+            do v=1, size(q_aux, dim=1)
+               self%error = vtk%xml_writer%write_dataarray(data_name=trim(q_aux_name_(v)), &
+                                                           x=[q_aux(v,1-gci:ni+gci,1-gcj:nj+gcj,1-gck:nk+gck,b)])
+            enddo
+         endif
          if (with_cell_morton_) then
             self%error = vtk%xml_writer%write_dataarray(data_name='morton', &
                                                         x=reshape([(self%field%code(b),i=1,(ni+2*gci)*(nj+2*gcj)*(nk+2*gck))], &

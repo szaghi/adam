@@ -127,22 +127,25 @@ contains
 
    subroutine update_ghost_local_gpu(self, q_gpu)
    !< Update (local) ghost cells.
-   class(base_gpu_object), intent(in)            :: self                                !< The base backend.
-   real(R8P),              intent(inout), device :: q_gpu(1-self%field%grid%gci:,&
+   class(base_gpu_object), intent(in)            :: self      !< The base backend.
+   real(R8P),              intent(inout), device :: q_gpu(1:,                    &
+                                                          1-self%field%grid%gci:,&
                                                           1-self%field%grid%gcj:,&
-                                                          1-self%field%grid%gck:,1:,1:) !< Field component to be updated.
+                                                          1-self%field%grid%gck:,&
+                                                          1:) !< Field component to be updated.
    call update_ghost_local_gpu_cuf(local_map_ghost_gpu=self%local_map_ghost_gpu, &
                                    gci=self%field%grid%gci, gcj=self%field%grid%gcj, gck=self%field%grid%gck, q_gpu=q_gpu)
    endsubroutine update_ghost_local_gpu
 
    subroutine update_ghost_mpi_gpu(self, q_gpu, step)
    !< Update ghost cells within other processes.
-   class(base_gpu_object), intent(inout)         :: self                           !< The field.
-   real(R8P),              intent(inout), device :: q_gpu(1-self%field%grid%gci:,&
+   class(base_gpu_object), intent(inout)         :: self      !< The base backend.
+   real(R8P),              intent(inout), device :: q_gpu(1:,                    &
+                                                          1-self%field%grid%gci:,&
                                                           1-self%field%grid%gcj:,&
                                                           1-self%field%grid%gck:,&
-                                                          1:,1:)                   !< Field component to be updated.
-   integer(I4P),           intent(in), optional  :: step                           !< Step to be perfordmed in asyncronous comp.
+                                                          1:) !< Field component to be updated.
+   integer(I4P),           intent(in), optional  :: step      !< Step to be perfordmed in asyncronous comp.
 
    call update_ghost_mpi_gpu_cuf(nv=self%field%nv,                                           &
                                  procs_number=self%field%procs_number,                       &
@@ -182,9 +185,10 @@ contains
    integer(I4P), intent(in)                         :: gcj                      !< Ghost cells number in J direction.
    integer(I4P), intent(in)                         :: gck                      !< Ghost cells number in K direction.
    integer(I8P), intent(in),    device, allocatable :: local_map_ghost_gpu(:,:) !< Local map of ghost cells.
-   real(R8P),    intent(inout), device              :: q_gpu(1-gci:,&
+   real(R8P),    intent(inout), device              :: q_gpu(1:,    &
+                                                             1-gci:,&
                                                              1-gcj:,&
-                                                             1-gck:,1:,1:)      !< Field component to be updated.
+                                                             1-gck:,1:)         !< Field component to be updated.
    integer(I4P)                                     :: i, j, k, mf              !< Counter.
    integer(I4P)                                     :: iii, jjj, kkk            !< Counter.
    integer(I4P)                                     :: fec                      !< Ghost direction, faces/edges/corners.
@@ -223,7 +227,7 @@ contains
          do k=kmin, kmax
             do j=jmin, jmax
                do i=imin, imax
-                  q_gpu(i,j,k,:,b_recv) = q_gpu(i+idelta,j+jdelta,k+kdelta,:,b_send)
+                  q_gpu(:,i,j,k,b_recv) = q_gpu(:,i+idelta,j+jdelta,k+kdelta,b_send)
                enddo
             enddo
          enddo
@@ -235,10 +239,10 @@ contains
                   kkk = 2 * k + kdelta
                   jjj = 2 * j + jdelta
                   iii = 2 * i + idelta
-                  q_gpu(i,j,k,:,b_recv) = (q_gpu(iii,jjj,  kkk,  :,b_send) + q_gpu(iii+1,jjj,  kkk,  :,b_send) + &
-                                           q_gpu(iii,jjj+1,kkk,  :,b_send) + q_gpu(iii+1,jjj+1,kkk,  :,b_send) + &
-                                           q_gpu(iii,jjj,  kkk+1,:,b_send) + q_gpu(iii+1,jjj,  kkk+1,:,b_send) + &
-                                           q_gpu(iii,jjj+1,kkk+1,:,b_send) + q_gpu(iii+1,jjj+1,kkk+1,:,b_send)) / 8._R8P
+                  q_gpu(:,i,j,k,b_recv) = (q_gpu(:,iii,jjj,  kkk,  b_send) + q_gpu(:,iii+1,jjj,  kkk,  b_send) + &
+                                           q_gpu(:,iii,jjj+1,kkk,  b_send) + q_gpu(:,iii+1,jjj+1,kkk,  b_send) + &
+                                           q_gpu(:,iii,jjj,  kkk+1,b_send) + q_gpu(:,iii+1,jjj,  kkk+1,b_send) + &
+                                           q_gpu(:,iii,jjj+1,kkk+1,b_send) + q_gpu(:,iii+1,jjj+1,kkk+1,b_send)) / 8._R8P
                enddo
             enddo
          enddo
@@ -250,14 +254,14 @@ contains
                   kkk = 2 * k + kdelta
                   jjj = 2 * j + jdelta
                   iii = 2 * i + idelta
-                  q_gpu(iii,  jjj,  kkk  ,:,b_recv) = q_gpu(i,j,k,:,b_send)
-                  q_gpu(iii+1,jjj,  kkk  ,:,b_recv) = q_gpu(i,j,k,:,b_send)
-                  q_gpu(iii,  jjj+1,kkk  ,:,b_recv) = q_gpu(i,j,k,:,b_send)
-                  q_gpu(iii+1,jjj+1,kkk  ,:,b_recv) = q_gpu(i,j,k,:,b_send)
-                  q_gpu(iii,  jjj,  kkk+1,:,b_recv) = q_gpu(i,j,k,:,b_send)
-                  q_gpu(iii+1,jjj,  kkk+1,:,b_recv) = q_gpu(i,j,k,:,b_send)
-                  q_gpu(iii,  jjj+1,kkk+1,:,b_recv) = q_gpu(i,j,k,:,b_send)
-                  q_gpu(iii+1,jjj+1,kkk+1,:,b_recv) = q_gpu(i,j,k,:,b_send)
+                  q_gpu(:,iii,  jjj,  kkk  ,b_recv) = q_gpu(:,i,j,k,b_send)
+                  q_gpu(:,iii+1,jjj,  kkk  ,b_recv) = q_gpu(:,i,j,k,b_send)
+                  q_gpu(:,iii,  jjj+1,kkk  ,b_recv) = q_gpu(:,i,j,k,b_send)
+                  q_gpu(:,iii+1,jjj+1,kkk  ,b_recv) = q_gpu(:,i,j,k,b_send)
+                  q_gpu(:,iii,  jjj,  kkk+1,b_recv) = q_gpu(:,i,j,k,b_send)
+                  q_gpu(:,iii+1,jjj,  kkk+1,b_recv) = q_gpu(:,i,j,k,b_send)
+                  q_gpu(:,iii,  jjj+1,kkk+1,b_recv) = q_gpu(:,i,j,k,b_send)
+                  q_gpu(:,iii+1,jjj+1,kkk+1,b_recv) = q_gpu(:,i,j,k,b_send)
                enddo
             enddo
          enddo
@@ -283,10 +287,11 @@ contains
    integer(I8P), allocatable, intent(in),    device :: comm_map_send_ghost_gpu(:,:) !< Communication map, `fec` information.
    real(R8P),    allocatable, intent(inout), device :: recv_buffer_ghost_gpu(:)     !< Receive buffer of ghost cells.
    real(R8P),    allocatable, intent(inout), device :: send_buffer_ghost_gpu(:)     !< Send buffer of ghost cells.
-   real(R8P),                 intent(inout), device :: q_gpu(1-gci:,&
+   real(R8P),                 intent(inout), device :: q_gpu(1:,    &
+                                                             1-gci:,&
                                                              1-gcj:,&
                                                              1-gck:,&
-                                                             1:,1:)                 !< Field component to be updated.
+                                                             1:)                    !< Field component to be updated.
    integer(I4P),              intent(in), optional  :: step                         !< Step to be perfordmed in asyncronous comp.
    logical                                          :: do_step(3)                   !< Steps to be performed in asyncronous comp.
    integer(I4P)                                     :: i, j, k                      !< Counter.
@@ -350,7 +355,7 @@ contains
                do j=jmin, jmax
                   do i=imin, imax
                      do v=1,nv
-                        send_buffer_ghost_gpu(send_ptr + send_ctr) = q_gpu(i+idelta,j+jdelta,k+kdelta,v,b_send)
+                        send_buffer_ghost_gpu(send_ptr + send_ctr) = q_gpu(v,i+idelta,j+jdelta,k+kdelta,b_send)
                         send_ctr = send_ctr + 1
                      enddo
                   enddo
@@ -364,7 +369,7 @@ contains
                   do i=imin, imax
                      do n=1,8
                         do v=1,nv
-                           send_buffer_ghost_gpu(send_ptr + send_ctr) = q_gpu(i,j,k,v,b_send)
+                           send_buffer_ghost_gpu(send_ptr + send_ctr) = q_gpu(v,i,j,k,b_send)
                            send_ctr = send_ctr + 1
                         enddo
                      enddo
@@ -382,10 +387,10 @@ contains
                      iii = 2 * i + idelta
                      do v=1,nv
                         send_buffer_ghost_gpu(send_ptr + send_ctr) =                               &
-                           (q_gpu(iii,jjj,  kkk,  v,b_send) + q_gpu(iii+1,jjj,  kkk,  v,b_send) +  &
-                            q_gpu(iii,jjj+1,kkk,  v,b_send) + q_gpu(iii+1,jjj+1,kkk,  v,b_send) +  &
-                            q_gpu(iii,jjj,  kkk+1,v,b_send) + q_gpu(iii+1,jjj,  kkk+1,v,b_send) +  &
-                            q_gpu(iii,jjj+1,kkk+1,v,b_send) + q_gpu(iii+1,jjj+1,kkk+1,v,b_send)) / 8._R8P
+                           (q_gpu(v,iii,jjj,  kkk,  b_send) + q_gpu(v,iii+1,jjj,  kkk,  b_send) +  &
+                            q_gpu(v,iii,jjj+1,kkk,  b_send) + q_gpu(v,iii+1,jjj+1,kkk,  b_send) +  &
+                            q_gpu(v,iii,jjj,  kkk+1,b_send) + q_gpu(v,iii+1,jjj,  kkk+1,b_send) +  &
+                            q_gpu(v,iii,jjj+1,kkk+1,b_send) + q_gpu(v,iii+1,jjj+1,kkk+1,b_send)) / 8._R8P
                         send_ctr = send_ctr + 1
                      enddo
                   enddo
@@ -446,7 +451,7 @@ contains
                do j=jmin, jmax
                   do i=imin, imax
                      do v=1, nv
-                        q_gpu(i,j,k,v,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr)
+                        q_gpu(v,i,j,k,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr)
                         recv_ctr = recv_ctr + 1
                      enddo
                   enddo
@@ -459,7 +464,7 @@ contains
                do j=jmin, jmax
                   do i=imin, imax
                      do v=1, nv
-                        q_gpu(i,j,k,v,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr)
+                        q_gpu(v,i,j,k,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr)
                         recv_ctr = recv_ctr + 1
                      enddo
                   enddo
@@ -475,28 +480,28 @@ contains
                      jjj = 2 * j + jdelta
                      iii = 2 * i + idelta
                      do v=1, nv
-                        q_gpu(iii,  jjj,  kkk  ,v,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
+                        q_gpu(v,iii,  jjj,  kkk  ,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
                      enddo
                      do v=1, nv
-                        q_gpu(iii+1,jjj,  kkk  ,v,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
+                        q_gpu(v,iii+1,jjj,  kkk  ,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
                      enddo
                      do v=1, nv
-                        q_gpu(iii,  jjj+1,kkk  ,v,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
+                        q_gpu(v,iii,  jjj+1,kkk  ,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
                      enddo
                      do v=1, nv
-                        q_gpu(iii+1,jjj+1,kkk  ,v,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
+                        q_gpu(v,iii+1,jjj+1,kkk  ,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
                      enddo
                      do v=1, nv
-                        q_gpu(iii,  jjj,  kkk+1,v,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
+                        q_gpu(v,iii,  jjj,  kkk+1,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
                      enddo
                      do v=1, nv
-                        q_gpu(iii+1,jjj,  kkk+1,v,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
+                        q_gpu(v,iii+1,jjj,  kkk+1,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
                      enddo
                      do v=1, nv
-                        q_gpu(iii,  jjj+1,kkk+1,v,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
+                        q_gpu(v,iii,  jjj+1,kkk+1,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
                      enddo
                      do v=1, nv
-                        q_gpu(iii+1,jjj+1,kkk+1,v,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
+                        q_gpu(v,iii+1,jjj+1,kkk+1,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
                      enddo
                   enddo
                enddo

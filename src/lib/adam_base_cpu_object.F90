@@ -51,19 +51,20 @@ contains
 
    subroutine update_ghost_local(self, q)
    !< Update (local) ghost cells, rank 4.
-   class(base_cpu_object), intent(inout) :: self                      !< The equation.
-   real(R8P),              intent(inout) :: q(1-self%field%grid%gci:,&
+   class(base_cpu_object), intent(inout) :: self                         !< The equation.
+   real(R8P),              intent(inout) :: q(1:,                    &
+                                              1-self%field%grid%gci:,&
                                               1-self%field%grid%gcj:,&
-                                              1-self%field%grid%gck:,1:,1:) !< Field component to be updated.
-   integer(I4P)                          :: i, j, k, mf               !< Counter.
-   integer(I4P)                          :: iii, jjj, kkk             !< Counter.
-   integer(I4P)                          :: fec                       !< Ghost direction, faces/edges/corners.
-   integer(I4P)                          :: portion                   !< Portion of fec updated (0=>whole fec).
-   integer(I4P)                          :: b_recv                    !< Index of receiving block.
-   integer(I4P)                          :: b_send                    !< Index of sending block.
-   integer(I4P)                          :: ijkmin(3)                 !< Lower limit of ijk indexes.
-   integer(I4P)                          :: ijkmax(3)                 !< Upper limit of ijk indexes.
-   integer(I4P)                          :: ijkdelta(3)               !< Delta offset for ghost-inner cells mapping.
+                                              1-self%field%grid%gck:,1:) !< Field component to be updated.
+   integer(I4P)                          :: i, j, k, mf                  !< Counter.
+   integer(I4P)                          :: iii, jjj, kkk                !< Counter.
+   integer(I4P)                          :: fec                          !< Ghost direction, faces/edges/corners.
+   integer(I4P)                          :: portion                      !< Portion of fec updated (0=>whole fec).
+   integer(I4P)                          :: b_recv                       !< Index of receiving block.
+   integer(I4P)                          :: b_send                       !< Index of sending block.
+   integer(I4P)                          :: ijkmin(3)                    !< Lower limit of ijk indexes.
+   integer(I4P)                          :: ijkmax(3)                    !< Upper limit of ijk indexes.
+   integer(I4P)                          :: ijkdelta(3)                  !< Delta offset for ghost-inner cells mapping.
 
    if (.not.allocated(self%field%local_map_ghost)) return
    do mf=1, size(self%field%local_map_ghost, dim=1)
@@ -79,7 +80,7 @@ contains
          do k=ijkmin(3), ijkmax(3)
             do j=ijkmin(2), ijkmax(2)
                do i=ijkmin(1), ijkmax(1)
-                  q(i,j,k,:,b_recv) = q(i+ijkdelta(1),j+ijkdelta(2),k+ijkdelta(3),:,b_send)
+                  q(:,i,j,k,b_recv) = q(:,i+ijkdelta(1),j+ijkdelta(2),k+ijkdelta(3),b_send)
                enddo
             enddo
          enddo
@@ -91,10 +92,10 @@ contains
                   kkk = 2 * k + ijkdelta(3)
                   jjj = 2 * j + ijkdelta(2)
                   iii = 2 * i + ijkdelta(1)
-                  q(i,j,k,:,b_recv) = (q(iii,jjj,  kkk,  :,b_send) + q(iii+1,jjj,  kkk,  :,b_send) + &
-                                       q(iii,jjj+1,kkk,  :,b_send) + q(iii+1,jjj+1,kkk,  :,b_send) + &
-                                       q(iii,jjj,  kkk+1,:,b_send) + q(iii+1,jjj,  kkk+1,:,b_send) + &
-                                       q(iii,jjj+1,kkk+1,:,b_send) + q(iii+1,jjj+1,kkk+1,:,b_send)) / 8._R8P
+                  q(:,i,j,k,b_recv) = (q(:,iii,jjj,  kkk,  b_send) + q(:,iii+1,jjj,  kkk,  b_send) + &
+                                       q(:,iii,jjj+1,kkk,  b_send) + q(:,iii+1,jjj+1,kkk,  b_send) + &
+                                       q(:,iii,jjj,  kkk+1,b_send) + q(:,iii+1,jjj,  kkk+1,b_send) + &
+                                       q(:,iii,jjj+1,kkk+1,b_send) + q(:,iii+1,jjj+1,kkk+1,b_send)) / 8._R8P
                enddo
             enddo
          enddo
@@ -106,14 +107,14 @@ contains
                   kkk = 2 * k + ijkdelta(3)
                   jjj = 2 * j + ijkdelta(2)
                   iii = 2 * i + ijkdelta(1)
-                  q(iii,  jjj,  kkk  ,:,b_recv) = q(i,j,k,:,b_send)
-                  q(iii+1,jjj,  kkk  ,:,b_recv) = q(i,j,k,:,b_send)
-                  q(iii,  jjj+1,kkk  ,:,b_recv) = q(i,j,k,:,b_send)
-                  q(iii+1,jjj+1,kkk  ,:,b_recv) = q(i,j,k,:,b_send)
-                  q(iii,  jjj,  kkk+1,:,b_recv) = q(i,j,k,:,b_send)
-                  q(iii+1,jjj,  kkk+1,:,b_recv) = q(i,j,k,:,b_send)
-                  q(iii,  jjj+1,kkk+1,:,b_recv) = q(i,j,k,:,b_send)
-                  q(iii+1,jjj+1,kkk+1,:,b_recv) = q(i,j,k,:,b_send)
+                  q(:,iii,  jjj,  kkk  ,b_recv) = q(:,i,j,k,b_send)
+                  q(:,iii+1,jjj,  kkk  ,b_recv) = q(:,i,j,k,b_send)
+                  q(:,iii,  jjj+1,kkk  ,b_recv) = q(:,i,j,k,b_send)
+                  q(:,iii+1,jjj+1,kkk  ,b_recv) = q(:,i,j,k,b_send)
+                  q(:,iii,  jjj,  kkk+1,b_recv) = q(:,i,j,k,b_send)
+                  q(:,iii+1,jjj,  kkk+1,b_recv) = q(:,i,j,k,b_send)
+                  q(:,iii,  jjj+1,kkk+1,b_recv) = q(:,i,j,k,b_send)
+                  q(:,iii+1,jjj+1,kkk+1,b_recv) = q(:,i,j,k,b_send)
                enddo
             enddo
          enddo
@@ -124,10 +125,11 @@ contains
    subroutine update_ghost_mpi(self, q, step)
    !< Update ghost cells within other processes.
    class(base_cpu_object), intent(inout)        :: self                       !< The field.
-   real(R8P),              intent(inout)        :: q(1-self%field%grid%gci:,&
+   real(R8P),              intent(inout)        :: q(1:,                    &
+                                                     1-self%field%grid%gci:,&
                                                      1-self%field%grid%gcj:,&
                                                      1-self%field%grid%gck:,&
-                                                     1:,1:)                   !< Field component to be updated.
+                                                     1:)                      !< Field component to be updated.
    integer(I4P),           intent(in), optional :: step                       !< Step to be perfordmed in asyncronous comp.
    logical                                      :: do_step(3)                 !< Steps to be performed in asyncronous comp.
    integer(I4P)                                 :: i, j, k                    !< Counter.
@@ -177,7 +179,7 @@ contains
                   do i=ijkmin(1), ijkmax(1)
                      do v=1,self%field%nv
                         self%field%send_buffer_ghost(comm_map_send_ctr_ghost(send_rank)+1) = &
-                           q(i+ijkdelta(1),j+ijkdelta(2),k+ijkdelta(3),v,b_send)
+                           q(v,i+ijkdelta(1),j+ijkdelta(2),k+ijkdelta(3),b_send)
                         comm_map_send_ctr_ghost(send_rank) = comm_map_send_ctr_ghost(send_rank) + 1
                      enddo
                   enddo
@@ -191,7 +193,7 @@ contains
                      do n=1,8
                         do v=1,self%field%nv
                            self%field%send_buffer_ghost(comm_map_send_ctr_ghost(send_rank)+1) = &
-                              q(i,j,k,v,b_send)
+                              q(v,i,j,k,b_send)
                            comm_map_send_ctr_ghost(send_rank) = comm_map_send_ctr_ghost(send_rank) + 1
                         enddo
                      enddo
@@ -208,10 +210,10 @@ contains
                      iii = 2 * i + ijkdelta(1)
                      do v=1,self%field%nv
                         self%field%send_buffer_ghost(comm_map_send_ctr_ghost(send_rank)+1) = &
-                           (q(iii,jjj,  kkk,  v,b_send) + q(iii+1,jjj,  kkk,  v,b_send) +  &
-                            q(iii,jjj+1,kkk,  v,b_send) + q(iii+1,jjj+1,kkk,  v,b_send) +  &
-                            q(iii,jjj,  kkk+1,v,b_send) + q(iii+1,jjj,  kkk+1,v,b_send) +  &
-                            q(iii,jjj+1,kkk+1,v,b_send) + q(iii+1,jjj+1,kkk+1,v,b_send)) / 8._R8P
+                           (q(v,iii,jjj,  kkk,  b_send) + q(v,iii+1,jjj,  kkk,  b_send) +  &
+                            q(v,iii,jjj+1,kkk,  b_send) + q(v,iii+1,jjj+1,kkk,  b_send) +  &
+                            q(v,iii,jjj,  kkk+1,b_send) + q(v,iii+1,jjj,  kkk+1,b_send) +  &
+                            q(v,iii,jjj+1,kkk+1,b_send) + q(v,iii+1,jjj+1,kkk+1,b_send)) / 8._R8P
                         comm_map_send_ctr_ghost(send_rank) = comm_map_send_ctr_ghost(send_rank) + 1
                      enddo
                   enddo
@@ -269,7 +271,7 @@ contains
                do j=ijkmin(2), ijkmax(2)
                   do i=ijkmin(1), ijkmax(1)
                      do v=1, self%field%nv
-                        q(i,j,k,v,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                        q(v,i,j,k,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                         comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
                      enddo
                   enddo
@@ -281,7 +283,7 @@ contains
                do j=ijkmin(2), ijkmax(2)
                   do i=ijkmin(1), ijkmax(1)
                      do v=1, self%field%nv
-                        q(i,j,k,v,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                        q(v,i,j,k,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                         comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
                      enddo
                   enddo
@@ -296,35 +298,35 @@ contains
                      jjj = 2 * j + ijkdelta(2)
                      iii = 2 * i + ijkdelta(1)
                      do v=1, self%field%nv
-                        q(iii,  jjj,  kkk  ,v,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                        q(v,iii,  jjj,  kkk  ,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                         comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
                      enddo
                      do v=1, self%field%nv
-                        q(iii+1,jjj,  kkk  ,v,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                        q(v,iii+1,jjj,  kkk  ,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                         comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
                      enddo
                      do v=1, self%field%nv
-                        q(iii,  jjj+1,kkk  ,v,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                        q(v,iii,  jjj+1,kkk  ,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                         comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
                      enddo
                      do v=1, self%field%nv
-                        q(iii+1,jjj+1,kkk  ,v,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                        q(v,iii+1,jjj+1,kkk  ,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                         comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
                      enddo
                      do v=1, self%field%nv
-                        q(iii,  jjj,  kkk+1,v,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                        q(v,iii,  jjj,  kkk+1,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                         comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
                      enddo
                      do v=1, self%field%nv
-                        q(iii+1,jjj,  kkk+1,v,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                        q(v,iii+1,jjj,  kkk+1,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                         comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
                      enddo
                      do v=1, self%field%nv
-                        q(iii,  jjj+1,kkk+1,v,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                        q(v,iii,  jjj+1,kkk+1,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                         comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
                      enddo
                      do v=1, self%field%nv
-                        q(iii+1,jjj+1,kkk+1,v,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
+                        q(v,iii+1,jjj+1,kkk+1,b_recv) = self%field%recv_buffer_ghost(comm_map_recv_ctr_ghost(recv_rank)+1)
                         comm_map_recv_ctr_ghost(recv_rank) = comm_map_recv_ctr_ghost(recv_rank) + 1
                      enddo
                   enddo
