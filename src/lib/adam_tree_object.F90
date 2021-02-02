@@ -130,7 +130,7 @@ module adam_tree_object
 use adam_grid_object
 use adam_parameters
 use adam_tree_node_object
-use adam_tree_bucket_object, only : tree_bucket_object
+use adam_tree_bucket_object, only : tree_bucket_object, iterator_interface
 use FOSSIL
 use MORTIF
 use PENF

@@ -19,14 +19,14 @@ real(R8P)                       :: time_max=0.25_R8P !< Maximum time of integrat
 integer(I4P)                    :: n_save=2          !< Frequency of saving output.
 integer(I8P)                    :: timing(0:2)       !< Tic toc timing.
 
-print '(A)', 'Laplace equation integration'
+print '(A)', 'Euler equation integration'
 call adam%initialize(max_level=7,                                              &
                      emin=[0._R8P,0._R8P,0._R8P], emax=[1._R8P,1._R8P,1._R8P], &
                      ni=100_I4P, nj=2_I4P, nk=2_I4P, gc=[2_I4P,2_I4P,2_I4P],   &
                      bc_type=[BC_EXTRAPOLATION,BC_EXTRAPOLATION,               &
                               BC_EXTRAPOLATION,BC_EXTRAPOLATION,               &
                               BC_EXTRAPOLATION,BC_EXTRAPOLATION],              &
-                     nb=10, nv=5, nodes_number=16*10_I8P)
+                     nb=1, nv=5, nodes_number=11_I8P)
 
 call euler%initialize(field=adam%field, ns=1, CFL=0.3_R8P, null_xyz=[.false.,.true.,.true.], weno_s=2_I4P)
 ! print '(A)', 'create 2 levels of refinement'

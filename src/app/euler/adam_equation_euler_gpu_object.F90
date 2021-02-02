@@ -71,6 +71,7 @@ type :: equation_euler_gpu_object
                                           .false.,&
                                           .false.]  !< Flag triggering 1D/2D simulations.
    real(R8P), allocatable :: q_aux(:,:,:,:,:)       !< Auxiliary cell centered variables.
+   real(R8P), allocatable :: q_t(:,:,:,:,:)         !< Transposed cell centered variables on CPU.
    ! Runge-Kutta data
    integer(I4P)           :: nrk=3_I4P !< Runge-Kutta stages number.
    real(R8P), allocatable :: alph(:,:) !< RK alpha coefficients.
@@ -86,22 +87,24 @@ type :: equation_euler_gpu_object
    integer(I4P)           :: weno_odd=1_I4P  !< Constant for distinguishing between odd and even number of stencils (mod(S,2)).
    integer(I4P)           :: weno_exp=0_I4P  !< Exponent for growing the diffusive part of weights.
    ! cuf data
-   real(R8P), allocatable, device :: cp0_gpu(:)            !< Specific heat at constant pressure of initial species.
-   real(R8P), allocatable, device :: cv0_gpu(:)            !< Specific heat at constant pressure of initial species.
-   real(R8P), allocatable, device :: f_i_gpu(:,:,:,:,:)    !< Fluxes of cell centered variables.
-   real(R8P), allocatable, device :: f_j_gpu(:,:,:,:,:)    !< Fluxes of cell centered variables.
-   real(R8P), allocatable, device :: f_k_gpu(:,:,:,:,:)    !< Fluxes of cell centered variables.
-   real(R8P), allocatable, device :: dxyz_gpu(:,:)         !< Space steps.
-   real(R8P), allocatable, device :: alph_gpu(:,:)         !< RK alpha coefficients.
-   real(R8P), allocatable, device :: beta_gpu(:)           !< RK beta coefficients.
-   real(R8P), allocatable, device :: gamm_gpu(:)           !< RK gamma coefficients.
-   real(R8P), allocatable, device :: q_aux_gpu(:,:,:,:,:)  !< Auxiliary cell centered variables.
-   real(R8P), allocatable, device :: q_gpu(:,:,:,:,:)      !< Field cell centered variables stages.
-   real(R8P), allocatable, device :: q_s_gpu(:,:,:,:,:,:)  !< RK Field cell centered variables stages.
-   real(R8P), allocatable, device :: weno_c_gpu(:,:)       !< Central difference coefficients    [1:2,1:2*S].
-   real(R8P), allocatable, device :: weno_a_gpu(:,:)       !< Optimal weights                    [1:2,0:S-1].
-   real(R8P), allocatable, device :: weno_p_gpu(:,:,:)     !< Polinomials coefficients           [1:2,0:S-1,0:S-1].
-   real(R8P), allocatable, device :: weno_d_gpu(:,:,:)     !< Smoothness indicators coefficients [0:S-1,0:S-1,0:S-1].
+   real(R8P), allocatable, device :: cp0_gpu(:)           !< Specific heat at constant pressure of initial species.
+   real(R8P), allocatable, device :: cv0_gpu(:)           !< Specific heat at constant pressure of initial species.
+   real(R8P), allocatable, device :: f_i_gpu(:,:,:,:,:)   !< Fluxes of cell centered variables, i direction.
+   real(R8P), allocatable, device :: f_j_gpu(:,:,:,:,:)   !< Fluxes of cell centered variables, j direction.
+   real(R8P), allocatable, device :: f_k_gpu(:,:,:,:,:)   !< Fluxes of cell centered variables, k direction.
+   real(R8P), allocatable, device :: f1D_gpu(:,:,:,:,:)   !< Fluxes of cell centered variables, 1D, normal direction.
+   real(R8P), allocatable, device :: dxyz_gpu(:,:)        !< Space steps.
+   real(R8P), allocatable, device :: alph_gpu(:,:)        !< RK alpha coefficients.
+   real(R8P), allocatable, device :: beta_gpu(:)          !< RK beta coefficients.
+   real(R8P), allocatable, device :: gamm_gpu(:)          !< RK gamma coefficients.
+   real(R8P), allocatable, device :: q_aux_gpu(:,:,:,:,:) !< Auxiliary cell centered variables.
+   real(R8P), allocatable, device :: q_gpu(:,:,:,:,:)     !< Field cell centered variables stages.
+   real(R8P), allocatable, device :: q_s_gpu(:,:,:,:,:,:) !< RK Field cell centered variables stages.
+   real(R8P), allocatable, device :: q_t_gpu(:,:,:,:,:)   !< Transposed cell centered variables on GPU.
+   real(R8P), allocatable, device :: weno_c_gpu(:,:)      !< Central difference coefficients    [1:2,1:2*S].
+   real(R8P), allocatable, device :: weno_a_gpu(:,:)      !< Optimal weights                    [1:2,0:S-1].
+   real(R8P), allocatable, device :: weno_p_gpu(:,:,:)    !< Polinomials coefficients           [1:2,0:S-1,0:S-1].
+   real(R8P), allocatable, device :: weno_d_gpu(:,:,:)    !< Smoothness indicators coefficients [0:S-1,0:S-1,0:S-1].
    contains
       ! public methods
       procedure, pass(self) :: compute_aux             !< Compute auxiliary variables.
@@ -119,19 +122,26 @@ type :: equation_euler_gpu_object
       generic :: assignment(=) => eq_assign_eq      !< Overload `=`.
       procedure, pass(lhs), private :: eq_assign_eq !< Operator `=`.
       ! private methods
-      procedure, pass(self) :: weno_initialize  !< Initialize WENO data.
+      procedure, pass(self) :: copy_transpose_gpu_cpu !< Transpose data from GPU to CPU.
+      procedure, pass(self) :: copy_transpose_cpu_gpu !< Transpose data from GPU to CPU.
+      procedure, pass(self) :: weno_initialize        !< Initialize WENO data.
 endtype equation_euler_gpu_object
 
 contains
    ! public methods
-   subroutine compute_aux(self, q_gpu)
+   subroutine compute_aux(self, q_gpu, q_aux_gpu)
    !< Compute auxiliary variables.
-   class(equation_euler_gpu_object), intent(in)         :: self       !< The equation.
-   real(R8P),                        intent(in), device :: q_gpu(1:,                    &
-                                                                 1-self%field%grid%gci:,&
-                                                                 1-self%field%grid%gcj:,&
-                                                                 1-self%field%grid%gck:,&
-                                                                 1:)  !< Conservative variables.
+   class(equation_euler_gpu_object), intent(in)          :: self          !< The equation.
+   real(R8P),                        intent(in),  device :: q_gpu(1:,                    &
+                                                                  1-self%field%grid%gci:,&
+                                                                  1-self%field%grid%gcj:,&
+                                                                  1-self%field%grid%gck:,&
+                                                                  1:)     !< Conservative variables.
+   real(R8P),                        intent(out), device :: q_aux_gpu(1:,                    &
+                                                                      1-self%field%grid%gci:,&
+                                                                      1-self%field%grid%gcj:,&
+                                                                      1-self%field%grid%gck:,&
+                                                                      1:) !< Auxiliary variables.
 
    associate(blocks_number=>self%field%blocks_number,                                      &
              ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,       &
@@ -140,126 +150,30 @@ contains
       call compute_aux_cuf(ni=ni, nj=nj, nk=nk, gci=gci, gcj=gcj, gck=gck, ns=ns, &
                            blocks_number=blocks_number,                           &
                            cp0_gpu=self%cp0_gpu, cv0_gpu=self%cv0_gpu,            &
-                           q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu)
+                           q_gpu=q_gpu, q_aux_gpu=q_aux_gpu)
    endassociate
-   contains
-      subroutine compute_aux_cuf(ni, nj, nk, gci, gcj, gck, ns, blocks_number, cp0_gpu, cv0_gpu, q_gpu, q_aux_gpu)
-      !< Compute auxiliary variables by means of CUF threads.
-      integer(I4P), intent(in)            :: ni            !< Grid cells number in I direction.
-      integer(I4P), intent(in)            :: nj            !< Grid cells number in J direction.
-      integer(I4P), intent(in)            :: nk            !< Grid cells number in K direction.
-      integer(I4P), intent(in)            :: gci           !< Ghost grid cells number in I direction.
-      integer(I4P), intent(in)            :: gcj           !< Ghost grid cells number in J direction.
-      integer(I4P), intent(in)            :: gck           !< Ghost grid cells number in K direction.
-      integer(I4P), intent(in)            :: ns            !< Number of fluid species.
-      integer(I4P), intent(in)            :: blocks_number !< Number of blocks.
-      real(R8P),    intent(in),    device :: cp0_gpu(:)    !< Specific heat at constant pressure of initial species.
-      real(R8P),    intent(in),    device :: cv0_gpu(:)    !< Specific heat at constant pressure of initial species.
-      real(R8P),    intent(in),    device :: q_gpu(1:,    &
-                                                   1-gci:,&
-                                                   1-gcj:,&
-                                                   1-gck:,&
-                                                   1:)     !< Conservative variables.
-      real(R8P),    intent(inout), device :: q_aux_gpu(1:,    &
-                                                       1-gci:,&
-                                                       1-gcj:,&
-                                                       1-gck:,&
-                                                       1:) !< Auxiliary variables.
-      integer(I4P)                        :: b, i, j, k, s !< Counter.
-      real(R8P)                           :: cp, cv        !< Specific heats.
-      integer(I4P)                        :: iercuda       !< Error trapping flag for CUDAFortran.
-
-      !$cuf kernel do(4) <<<*,*>>>
-      do b=1, blocks_number
-         do k=1-gck, nk+gck
-            do j=1-gcj, nj+gcj
-               do i=1-gci, ni+gci
-                  q_aux_gpu(ns+1,i,j,k,b) = 0._R8P
-                  do s=1, ns
-                     q_aux_gpu(ns+1,i,j,k,b) = q_aux_gpu(ns+1,i,j,k,b) + q_gpu(s,i,j,k,b)
-                  enddo
-                  do s=1, ns
-                     q_aux_gpu(s,i,j,k,b) = q_gpu(s,i,j,k,b) / q_aux_gpu(ns+1,i,j,k,b)
-                  enddo
-                  q_aux_gpu(ns+2,i,j,k,b) = q_gpu(ns+1,i,j,k,b) / q_aux_gpu(ns+1,i,j,k,b)
-                  q_aux_gpu(ns+3,i,j,k,b) = q_gpu(ns+2,i,j,k,b) / q_aux_gpu(ns+1,i,j,k,b)
-                  q_aux_gpu(ns+4,i,j,k,b) = q_gpu(ns+3,i,j,k,b) / q_aux_gpu(ns+1,i,j,k,b)
-                  cp = 0._R8P
-                  cv = 0._R8P
-                  do s=1, ns
-                     cp = cp + q_aux_gpu(s,i,j,k,b) * cp0_gpu(s)
-                     cv = cv + q_aux_gpu(s,i,j,k,b) * cv0_gpu(s)
-                  enddo
-                  q_aux_gpu(ns+5,i,j,k,b) = cp / cv
-                  q_aux_gpu(ns+6,i,j,k,b) = (q_gpu(ns+4,i,j,k,b) - 0.5_R8P * q_aux_gpu(ns+1,i,j,k,b) *      &
-                                                                            (q_aux_gpu(ns+2,i,j,k,b)**2 +   &
-                                                                             q_aux_gpu(ns+3,i,j,k,b)**2 +   &
-                                                                             q_aux_gpu(ns+4,i,j,k,b)**2)) * &
-                                            (q_aux_gpu(ns+5,i,j,k,b) - 1._R8P)
-               enddo
-            enddo
-         enddo
-      enddo
-      !@cuf iercuda=cudaDeviceSynchronize()
-      endsubroutine compute_aux_cuf
    endsubroutine compute_aux
 
    subroutine compute_dt(self)
    !< Compute maximum time step accordingly to CFL stabilty criterion.
-   class(equation_euler_gpu_object), intent(inout) :: self       !< The equation.
-   real(R8P)                                       :: umax       !< Maximum speed of waves propagation.
-   integer(I4P)                                    :: b, i, j, k !< Counter.
+   class(equation_euler_gpu_object), intent(inout) :: self !< The equation.
+   real(R8P)                                       :: umax !< Maximum speed of waves propagation.
+   integer(I4P)                                    :: b    !< Counter.
 
    associate(blocks_number=>self%field%blocks_number, dxyz=>self%field%dxyz,               &
              ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,       &
              gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck, &
              ns=>self%ns, q=>self%field%q, dt=>self%dt, CFL=>self%CFL)
-      call self%compute_aux(q_gpu=self%q_gpu)
+      call self%compute_aux(q_gpu=self%q_gpu, q_aux_gpu=self%q_aux_gpu)
       dt = huge(1._R8P)
       do b=1, self%field%blocks_number
-         call compute_umax_cuf(ni=ni, nj=nj, nk=nk, gci=gci, gcj=gcj, gck=gck, ns=ns, &
-                               dx=dxyz(1,b), dy=dxyz(2,b), dz=dxyz(3,b),              &
-                               q_aux_gpu=self%q_aux_gpu(:,:,:,:,b), umax=umax)
+         call compute_umax_cuf(b, ni=ni, nj=nj, nk=nk, gci=gci, gcj=gcj, gck=gck, ns=ns, &
+                               dx=dxyz(1,b), dy=dxyz(2,b), dz=dxyz(3,b),                 &
+                               q_aux_gpu=self%q_aux_gpu, umax=umax)
          dt = min(dt, minval(dxyz(:,b)) / umax * CFL)
       enddo
       call MPI_ALLREDUCE(MPI_IN_PLACE, dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%error)
    endassociate
-   contains
-      subroutine compute_umax_cuf(ni, nj, nk, gci, gcj, gck, ns, dx, dy, dz, q_aux_gpu, umax)
-      !< Compute maximum speed by means of CUF threads.
-      integer(I4P), intent(in)         :: ni                !< Grid cells number in I direction.
-      integer(I4P), intent(in)         :: nj                !< Grid cells number in J direction.
-      integer(I4P), intent(in)         :: nk                !< Grid cells number in K direction.
-      integer(I4P), intent(in)         :: gci               !< Ghost grid cells number in I direction.
-      integer(I4P), intent(in)         :: gcj               !< Ghost grid cells number in J direction.
-      integer(I4P), intent(in)         :: gck               !< Ghost grid cells number in K direction.
-      integer(I4P), intent(in)         :: ns                !< Number of species.
-      real(R8P),    intent(in)         :: dx                !< X space step.
-      real(R8P),    intent(in)         :: dy                !< Y space step.
-      real(R8P),    intent(in)         :: dz                !< Z space step.
-      real(R8P),    intent(in), device :: q_aux_gpu(1:,    &
-                                                    1-gci:,&
-                                                    1-gcj:,&
-                                                    1-gck:) !< Auxiliary varibales.
-      real(R8P),    intent(out)        :: umax              !< Maximum speed.
-      real(R8P)                        :: ss                !< Speed of sound.
-      integer(I4P)                     :: iercuda           !< Error trapping flag for CUDAFortran.
-
-      umax = 0._R8P
-      !$cuf kernel do(3) <<<*,*>>>
-      do k=1, nk
-         do j=1, nj
-            do i=1, ni
-               ss = a(p=q_aux_gpu(ns+6,i,j,k), r=q_aux_gpu(ns+1,i,j,k), g=q_aux_gpu(ns+5,i,j,k))
-               umax = max(umax, abs(q_aux_gpu(ns+2,i,j,k)) + ss, &
-                                abs(q_aux_gpu(ns+3,i,j,k)) + ss, &
-                                abs(q_aux_gpu(ns+4,i,j,k)) + ss)
-
-            enddo
-         enddo
-      enddo
-      !@cuf iercuda=cudaDeviceSynchronize()
-      endsubroutine compute_umax_cuf
    endsubroutine compute_dt
 
    subroutine copy_cpu_gpu(self)
@@ -267,7 +181,7 @@ contains
    class(equation_euler_gpu_object), intent(inout) :: self !< The base backend.
 
    self%dxyz_gpu = self%field%dxyz
-   self%q_gpu = self%field%q
+   call self%copy_transpose_cpu_gpu(q_cpu=self%field%q, q_gpu=self%q_gpu)
    call self%base_gpu%copy_cpu_gpu
    endsubroutine copy_cpu_gpu
 
@@ -276,11 +190,11 @@ contains
    class(equation_euler_gpu_object), intent(inout)        :: self          !< The base backend.
    logical,                          intent(in), optional :: compute_q_aux !< Flag to compute auxiliary variables.
 
-   self%field%q = self%q_gpu
+   call self%copy_transpose_gpu_cpu(nv=self%field%nv, q_gpu=self%q_gpu, q_cpu=self%field%q)
    if (present(compute_q_aux)) then
       if (compute_q_aux) then
-         call self%compute_aux(q_gpu=self%q_gpu)
-         self%q_aux = self%q_aux_gpu
+         call self%compute_aux(q_gpu=self%q_gpu, q_aux_gpu=self%q_aux_gpu)
+         call self%copy_transpose_gpu_cpu(nv=self%ns+6, q_gpu=self%q_aux_gpu, q_cpu=self%q_aux)
       endif
    endif
    endsubroutine copy_gpu_cpu
@@ -331,6 +245,14 @@ contains
    endif
    if (present(CFL)) self%CFL = CFL
    if (present(null_xyz)) self%null_xyz = null_xyz
+   allocate(self%q_aux(1:self%ns+6,                                   &
+                       1-field%grid%gci:field%grid%ni+field%grid%gci, &
+                       1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
+                       1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nb))
+   allocate(self%q_t(1:field%nb,                                    &
+                     1-field%grid%gci:field%grid%ni+field%grid%gci, &
+                     1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
+                     1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nv))
    if (present(weno_s)) self%weno_s = weno_s
    call self%weno_initialize
    allocate(self%alph(self%nrk,self%nrk), self%beta(self%nrk), self%gamm(self%nrk))
@@ -349,31 +271,40 @@ contains
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    ! GPU data
-   allocate(self%f_i_gpu(1:field%nv,                                    &
+   allocate(self%f_i_gpu(1:field%nb,                                    &
                          0-field%grid%gci:field%grid%ni+field%grid%gci, &
                          1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
-                         1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nb))
-   allocate(self%f_j_gpu(1:field%nv,                                    &
+                         1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nv))
+   allocate(self%f_j_gpu(1:field%nb,                                    &
                          1-field%grid%gci:field%grid%ni+field%grid%gci, &
                          0-field%grid%gcj:field%grid%nj+field%grid%gcj, &
-                         1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nb))
-   allocate(self%f_k_gpu(1:field%nv,                                    &
+                         1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nv))
+   allocate(self%f_k_gpu(1:field%nb,                                    &
                          1-field%grid%gci:field%grid%ni+field%grid%gci, &
                          1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
-                         0-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nb))
+                         0-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nv))
+   allocate(self%f1D_gpu(1:3,                                           &
+                         1:field%nb,                                    &
+                         0-field%grid%gci:field%grid%ni+field%grid%gci, &
+                         0-field%grid%gcj:field%grid%nj+field%grid%gcj, &
+                         0-field%grid%gck:field%grid%nk+field%grid%gck))
    allocate(self%dxyz_gpu(1:3, 1:field%nb))
-   allocate(self%q_aux_gpu(1:self%ns+6,                                   &
+   allocate(self%q_aux_gpu(1:field%nb,                                    &
                            1-field%grid%gci:field%grid%ni+field%grid%gci, &
                            1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
-                           1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nb))
-   allocate(self%q_gpu(1:field%nv,                                    &
+                           1-field%grid%gck:field%grid%nk+field%grid%gck, 1:self%ns+6))
+   allocate(self%q_gpu(1:field%nb,                                    &
                        1-field%grid%gci:field%grid%ni+field%grid%gci, &
                        1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
-                       1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nb))
-   allocate(self%q_s_gpu(1:field%nv,                                    &
+                       1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nv))
+   allocate(self%q_s_gpu(1:field%nb,                                    &
                          1-field%grid%gci:field%grid%ni+field%grid%gci, &
                          1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
-                         1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nb, 1:self%nrk))
+                         1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nv, 1:self%nrk))
+   allocate(self%q_t_gpu(1:self%ns+6,                                    &
+                         1-field%grid%gci:field%grid%ni+field%grid%gci, &
+                         1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
+                         1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nb))
    ! copy data that is not variable during the simulation
    self%cp0_gpu    = self%cp0
    self%cv0_gpu    = self%cv0
@@ -404,10 +335,10 @@ contains
    associate (ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,       &
               gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck, &
               blocks_number=>self%field%blocks_number, ns=>self%ns, dxyz=>self%field%dxyz)
-      call self%compute_aux(q_gpu=self%q_gpu)
+      call self%compute_aux(q_gpu=self%q_gpu, q_aux_gpu=self%q_aux_gpu)
       do b=1, blocks_number
-         grad_rho = gradient_cuf(ni=ni, nj=nj, nk=nk, gci=gci, gcj=gcj, gck=gck, ns=ns, &
-                                 dx=dxyz(1,b), dy=dxyz(2,b), dz=dxyz(3,b), q_gpu=self%q_aux_gpu(:,:,:,:,b))
+         grad_rho = gradient_cuf(b=b, ni=ni, nj=nj, nk=nk, gci=gci, gcj=gcj, gck=gck, ns=ns, &
+                                 dx=dxyz(1,b), dy=dxyz(2,b), dz=dxyz(3,b), q_gpu=self%q_aux_gpu)
 
          max_cell_delta = max_cell_delta_grad(grad=grad_rho)
 
@@ -421,8 +352,9 @@ contains
       enddo
    endassociate
    contains
-      function gradient_cuf(ni, nj, nk, gci, gcj, gck, ns, dx, dy, dz, q_gpu) result(gradient)
+      function gradient_cuf(b, ni, nj, nk, gci, gcj, gck, ns, dx, dy, dz, q_gpu) result(gradient)
       !< Gradient done by CUF threads.
+      integer(I4P), intent(in)         :: b            !< Block index.
       integer(I4P), intent(in)         :: ni           !< Grid cells number in I direction.
       integer(I4P), intent(in)         :: nj           !< Grid cells number in J direction.
       integer(I4P), intent(in)         :: nk           !< Grid cells number in K direction.
@@ -436,7 +368,8 @@ contains
       real(R8P),    intent(in), device :: q_gpu(1:,    &
                                                 1-gci:,&
                                                 1-gcj:,&
-                                                1-gck:)!< Field component to which apply gradient.
+                                                1-gck:,&
+                                                1:)    !< Field component to which apply gradient.
       real(R8P)                        :: gradient     !< Maximum gradient of q.
       real(R8P)                        :: grad         !< Current gradient of q.
       integer(I4P)                     :: i, j, k      !< Counter.
@@ -447,9 +380,9 @@ contains
       do k=1, nk
          do j=1, nj
             do i=1, ni
-               grad = sqrt(((q_gpu(ns+1,i+1,j,k) - q_gpu(ns+1,i-1,j,k))/(2*dx))**2 + &
-                           ((q_gpu(ns+1,i,j+1,k) - q_gpu(ns+1,i,j-1,k))/(2*dy))**2 + &
-                           ((q_gpu(ns+1,i,j,k+1) - q_gpu(ns+1,i,j,k-1))/(2*dz))**2)
+               grad = sqrt(((q_gpu(b,i+1,j,k,ns+1) - q_gpu(b,i-1,j,k,ns+1))/(2*dx))**2 + &
+                           ((q_gpu(b,i,j+1,k,ns+1) - q_gpu(b,i,j-1,k,ns+1))/(2*dy))**2 + &
+                           ((q_gpu(b,i,j,k+1,ns+1) - q_gpu(b,i,j,k-1,ns+1))/(2*dz))**2)
                gradient = max(gradient, grad)
 
             enddo
@@ -493,13 +426,15 @@ contains
                                     alph_gpu=alph_gpu, dt=dt, s=s, q_gpu=self%q_gpu, q_s_gpu=self%q_s_gpu)
       if (do_ghost_syncro_) then
          call self%update_ghost_gpu(q_gpu=self%q_s_gpu(:,:,:,:,:,s)) ! all ghosts
-         call self%compute_aux(q_gpu=self%q_s_gpu(:,:,:,:,:,s))
-         call compute_residuals_gpu_cuf(ni=ni, nj=nj, nk=nk, gci=gci, gcj=gcj, gck=gck, blocks_number=blocks_number, &
-                                        ns=ns, dxyz_gpu=self%dxyz_gpu,                                               &
-                                        q_aux_gpu = self%q_aux_gpu,                                                  &
-                                        f_i_gpu   = self%f_i_gpu,                                                    &
-                                        f_j_gpu   = self%f_j_gpu,                                                    &
-                                        f_k_gpu   = self%f_k_gpu,                                                    &
+         call self%compute_aux(q_gpu=self%q_s_gpu(:,:,:,:,:,s), q_aux_gpu=self%q_aux_gpu)
+         call compute_residuals_gpu_cuf(ni=ni, nj=nj, nk=nk, gci=gci, gcj=gcj, gck=gck, blocks_number=blocks_number, ns=ns, &
+                                        null_x=self%null_xyz(1), null_y=self%null_xyz(2), null_z=self%null_xyz(3),          &
+                                        dxyz_gpu=self%dxyz_gpu,                                                             &
+                                        q_aux_gpu = self%q_aux_gpu,                                                         &
+                                        f_i_gpu   = self%f_i_gpu,                                                           &
+                                        f_j_gpu   = self%f_j_gpu,                                                           &
+                                        f_k_gpu   = self%f_k_gpu,                                                           &
+                                        f1D_gpu   = self%f1D_gpu,                                                           &
                                         q_gpu     = self%q_s_gpu(:,:,:,:,:,s))
       else
          ! TODO
@@ -563,7 +498,7 @@ contains
                do j=jmin, jmax, sign(1, jmax-jmin)
                   do i=imin, imax, sign(1, imax-imin)
                      do v=1, nv
-                        q_gpu(v,i,j,k,b) = q_gpu(v, i-idelta, j-jdelta, k-kdelta, b)
+                        q_gpu(b,i,j,k,v) = q_gpu(b, i-idelta, j-jdelta, k-kdelta, v)
                      enddo
                   enddo
                enddo
@@ -668,6 +603,7 @@ contains
    lhs%weno_eps = rhs%weno_eps
    lhs%weno_odd = rhs%weno_odd
    lhs%weno_exp = rhs%weno_exp
+   call assign_allocatable(lhs=lhs%q_aux, rhs=rhs%q_aux )
    call assign_allocatable(lhs=lhs%cp0 ,  rhs=rhs%cp0   )
    call assign_allocatable(lhs=lhs%cv0 ,  rhs=rhs%cv0   )
    call assign_allocatable(lhs=lhs%alph,  rhs=rhs%alph  )
@@ -682,6 +618,7 @@ contains
    call assign_allocatable_gpu(lhs=lhs%f_i_gpu,   rhs=rhs%f_i_gpu   )
    call assign_allocatable_gpu(lhs=lhs%f_j_gpu,   rhs=rhs%f_j_gpu   )
    call assign_allocatable_gpu(lhs=lhs%f_k_gpu,   rhs=rhs%f_k_gpu   )
+   call assign_allocatable_gpu(lhs=lhs%f1D_gpu,   rhs=rhs%f1D_gpu   )
    call assign_allocatable_gpu(lhs=lhs%dxyz_gpu,  rhs=rhs%dxyz_gpu  )
    call assign_allocatable_gpu(lhs=lhs%alph_gpu,  rhs=rhs%alph_gpu  )
    call assign_allocatable_gpu(lhs=lhs%beta_gpu,  rhs=rhs%beta_gpu  )
@@ -696,6 +633,62 @@ contains
    endsubroutine eq_assign_eq
 
    ! private methods
+   subroutine copy_transpose_cpu_gpu(self, q_cpu, q_gpu)
+   !< Copy transposed data from CPU to GPU.
+   class(equation_euler_gpu_object), intent(inout)       :: self          !< The equation.
+   real(R8P),                        intent(in)          :: q_cpu(1:,                    &
+                                                                  1-self%field%grid%gci:,&
+                                                                  1-self%field%grid%gcj:,&
+                                                                  1-self%field%grid%gck:,&
+                                                                  1:)     !< Conservative variables on CPU.
+   real(R8P),                        intent(out), device :: q_gpu(1:,                    &
+                                                                 1-self%field%grid%gci:,&
+                                                                 1-self%field%grid%gcj:,&
+                                                                 1-self%field%grid%gck:,&
+                                                                 1:)      !< Conservative variables on GPU.
+   integer(I4P)                                          :: i, j, k, b, v !< Counter.
+   associate(blocks_number=>self%field%blocks_number,                                      &
+             ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,       &
+             gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck, &
+             nv=>self%field%nv, q_t=>self%q_t)
+      do b=1, blocks_number
+         do k=1, nk
+            do j=1, nj
+               do i=1, ni
+                  do v=1, nv
+                     q_t(b,i,j,k,v) = q_cpu(v,i,j,k,b)
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      q_gpu = q_t
+   endassociate
+   endsubroutine copy_transpose_cpu_gpu
+
+   subroutine copy_transpose_gpu_cpu(self, nv, q_gpu, q_cpu)
+   !< Copy transposed data from GPU to CPU.
+   class(equation_euler_gpu_object), intent(inout)      :: self      !< The equation.
+   integer(I4P),                     intent(in)         :: nv        !< Number of conservative varibales.
+   real(R8P),                        intent(in), device :: q_gpu(1:,                    &
+                                                                 1-self%field%grid%gci:,&
+                                                                 1-self%field%grid%gcj:,&
+                                                                 1-self%field%grid%gck:,&
+                                                                 1:) !< Conservative variables on GPU.
+   real(R8P),                        intent(out)        :: q_cpu(1:,                    &
+                                                                 1-self%field%grid%gci:,&
+                                                                 1-self%field%grid%gcj:,&
+                                                                 1-self%field%grid%gck:,&
+                                                                 1:) !< Conservative variables on CPU.
+   associate(blocks_number=>self%field%blocks_number,                                      &
+             ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,       &
+             gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck)
+      call copy_transpose_gpu_cpu_cuf(ni=ni, nj=nj, nk=nk, gci=gci, gcj=gcj, gck=gck, nv=nv, &
+                                      blocks_number=blocks_number,                           &
+                                      q_gpu=q_gpu, q_t_gpu=self%q_t_gpu, q_cpu=q_cpu)
+   endassociate
+   endsubroutine copy_transpose_gpu_cpu
+
    subroutine weno_initialize(self)
    !< Initialize WENO data.
    class(equation_euler_gpu_object), intent(inout) :: self !< The equation.
@@ -851,13 +844,13 @@ contains
    integer(I4P)                        :: iercuda          !< Error trapping flag for CUDAFortran.
 
    do s=1, nrk
-      !$cuf kernel do(4) <<<*,*>>>
-      do b=1, blocks_number
+      do v=1, nv
+         !$cuf kernel do(4) <<<*,*>>>
          do k=1-gck, nk+gck
             do j=1-gcj, nj+gcj
                do i=1-gci, ni+gci
-                  do v=1, nv
-                     q_gpu(v,i,j,k,b) = q_gpu(v,i,j,k,b) + q_s_gpu(v,i,j,k,b,s) * dt * beta_gpu(s)
+                  do b=1, blocks_number
+                     q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) + q_s_gpu(b,i,j,k,v,s) * dt * beta_gpu(s)
                   enddo
                enddo
             enddo
@@ -867,8 +860,68 @@ contains
    enddo
    endsubroutine advance_q_gpu_cuf
 
-   subroutine compute_residuals_gpu_cuf(ni, nj, nk, gci, gcj, gck, ns, blocks_number, &
-                                        dxyz_gpu, q_aux_gpu, f_i_gpu, f_j_gpu, f_k_gpu, q_gpu)
+   subroutine compute_aux_cuf(ni, nj, nk, gci, gcj, gck, ns, blocks_number, cp0_gpu, cv0_gpu, q_gpu, q_aux_gpu)
+   !< Compute auxiliary variables by means of CUF threads.
+   integer(I4P), intent(in)          :: ni            !< Grid cells number in I direction.
+   integer(I4P), intent(in)          :: nj            !< Grid cells number in J direction.
+   integer(I4P), intent(in)          :: nk            !< Grid cells number in K direction.
+   integer(I4P), intent(in)          :: gci           !< Ghost grid cells number in I direction.
+   integer(I4P), intent(in)          :: gcj           !< Ghost grid cells number in J direction.
+   integer(I4P), intent(in)          :: gck           !< Ghost grid cells number in K direction.
+   integer(I4P), intent(in)          :: ns            !< Number of fluid species.
+   integer(I4P), intent(in)          :: blocks_number !< Number of blocks.
+   real(R8P),    intent(in),  device :: cp0_gpu(:)    !< Specific heat at constant pressure of initial species.
+   real(R8P),    intent(in),  device :: cv0_gpu(:)    !< Specific heat at constant pressure of initial species.
+   real(R8P),    intent(in),  device :: q_gpu(1:,    &
+                                              1-gci:,&
+                                              1-gcj:,&
+                                              1-gck:,&
+                                              1:)     !< Conservative variables.
+   real(R8P),    intent(out), device :: q_aux_gpu(1:,    &
+                                                  1-gci:,&
+                                                  1-gcj:,&
+                                                  1-gck:,&
+                                                  1:) !< Auxiliary variables.
+   integer(I4P)                      :: b, i, j, k, s !< Counter.
+   real(R8P)                         :: cp, cv        !< Specific heats.
+   integer(I4P)                      :: iercuda       !< Error trapping flag for CUDAFortran.
+
+   !$cuf kernel do(4) <<<*,*>>>
+   do k=1-gck, nk+gck
+      do j=1-gcj, nj+gcj
+         do i=1-gci, ni+gci
+            do b=1, blocks_number
+               q_aux_gpu(b,i,j,k,ns+1) = 0._R8P
+               do s=1, ns
+                  q_aux_gpu(b,i,j,k,ns+1) = q_aux_gpu(b,i,j,k,ns+1) + q_gpu(b,i,j,k,s)
+               enddo
+               do s=1, ns
+                  q_aux_gpu(b,i,j,k,s) = q_gpu(b,i,j,k,s) / q_aux_gpu(b,i,j,k,ns+1)
+               enddo
+               q_aux_gpu(b,i,j,k,ns+2) = q_gpu(b,i,j,k,ns+1) / q_aux_gpu(b,i,j,k,ns+1)
+               q_aux_gpu(b,i,j,k,ns+3) = q_gpu(b,i,j,k,ns+2) / q_aux_gpu(b,i,j,k,ns+1)
+               q_aux_gpu(b,i,j,k,ns+4) = q_gpu(b,i,j,k,ns+3) / q_aux_gpu(b,i,j,k,ns+1)
+               cp = 0._R8P
+               cv = 0._R8P
+               do s=1, ns
+                  cp = cp + q_aux_gpu(b,i,j,k,s) * cp0_gpu(s)
+                  cv = cv + q_aux_gpu(b,i,j,k,s) * cv0_gpu(s)
+               enddo
+               q_aux_gpu(b,i,j,k,ns+5) = cp / cv
+               q_aux_gpu(b,i,j,k,ns+6) = (q_gpu(b,i,j,k,ns+4) - 0.5_R8P * q_aux_gpu(b,i,j,k,ns+1) *      &
+                                                                         (q_aux_gpu(b,i,j,k,ns+2)**2 +   &
+                                                                          q_aux_gpu(b,i,j,k,ns+3)**2 +   &
+                                                                          q_aux_gpu(b,i,j,k,ns+4)**2)) * &
+                                         (q_aux_gpu(b,i,j,k,ns+5) - 1._R8P)
+            enddo
+         enddo
+      enddo
+   enddo
+   !@cuf iercuda=cudaDeviceSynchronize()
+   endsubroutine compute_aux_cuf
+
+   subroutine compute_residuals_gpu_cuf(ni, nj, nk, gci, gcj, gck, ns, null_x, null_y, null_z, blocks_number, &
+                                        dxyz_gpu, q_aux_gpu, f_i_gpu, f_j_gpu, f_k_gpu, f1D_gpu, q_gpu)
    !< Compute residuals of equation.
    integer(I4P), intent(in)            :: ni                      !< Grid cells number in I direction.
    integer(I4P), intent(in)            :: nj                      !< Grid cells number in J direction.
@@ -877,6 +930,9 @@ contains
    integer(I4P), intent(in)            :: gcj                     !< Ghost grid cells number in J direction.
    integer(I4P), intent(in)            :: gck                     !< Ghost grid cells number in K direction.
    integer(I4P), intent(in)            :: ns                      !< Number of species.
+   logical,      intent(in)            :: null_x                  !< Nullify x direction.
+   logical,      intent(in)            :: null_y                  !< Nullify y direction.
+   logical,      intent(in)            :: null_z                  !< Nullify z direction.
    integer(I4P), intent(in)            :: blocks_number           !< Number of blocks.
    real(R8P),    intent(in),    device :: dxyz_gpu(1:,1:)         !< Space steps.
    real(R8P),    intent(in),    device :: q_aux_gpu(1:,    &
@@ -884,9 +940,10 @@ contains
                                                     1-gcj:,&
                                                     1-gck:,&
                                                     1:)           !< Auxiliary variables.
-   real(R8P),    intent(inout), device :: f_i_gpu(1:,0:,1:,1:,1:) !< Convective fluxes in x direction.
-   real(R8P),    intent(inout), device :: f_j_gpu(1:,1:,0:,1:,1:) !< Convective fluxes in y direction.
-   real(R8P),    intent(inout), device :: f_k_gpu(1:,1:,1:,0:,1:) !< Convective fluxes in z direction.
+   real(R8P),    intent(inout), device :: f_i_gpu(1:,0:,1:,1:,1:) !< Convective fluxes in i direction.
+   real(R8P),    intent(inout), device :: f_j_gpu(1:,1:,0:,1:,1:) !< Convective fluxes in j direction.
+   real(R8P),    intent(inout), device :: f_k_gpu(1:,1:,1:,0:,1:) !< Convective fluxes in k direction.
+   real(R8P),    intent(inout), device :: f1D_gpu(1:,1:,0:,0:,0:) !< Convective fluxes in normal direction.
    real(R8P),    intent(inout), device :: q_gpu(1:,    &
                                                 1-gci:,&
                                                 1-gcj:,&
@@ -894,112 +951,190 @@ contains
                                                 1:)               !< Conservative variables.
    integer(I4P)                        :: b, i, j, k, s           !< Counter.
    integer(I4P)                        :: iercuda                 !< Error trapping flag for CUDAFortran.
-   integer(I4P), device                :: ns_cuf                  !< Number of species, device buffer.
 
-   ns_cuf = ns
    ! fluxes in i direction
-   !$cuf kernel do(4) <<<*,*>>>
-   do b=1, blocks_number
+   if (.not.null_x) then
+      !$cuf kernel do(4) <<<*,*>>>
       do k=1, nk
          do j=1, nj
             do i=0,ni
-               call solve_riemann(  ns=ns_cuf,                    &
-                                    c1=q_aux_gpu(1:ns,i  ,j,k,b), &
-                                    r1=q_aux_gpu(ns+1,i  ,j,k,b), &
-                                    u1=q_aux_gpu(ns+2,i  ,j,k,b), &
-                                  ut11=q_aux_gpu(ns+3,i  ,j,k,b), &
-                                  ut21=q_aux_gpu(ns+4,i  ,j,k,b), &
-                                    g1=q_aux_gpu(ns+5,i  ,j,k,b), &
-                                    p1=q_aux_gpu(ns+6,i  ,j,k,b), &
-                                    c4=q_aux_gpu(1:ns,i+1,j,k,b), &
-                                    r4=q_aux_gpu(ns+1,i+1,j,k,b), &
-                                    u4=q_aux_gpu(ns+2,i+1,j,k,b), &
-                                  ut14=q_aux_gpu(ns+3,i+1,j,k,b), &
-                                  ut24=q_aux_gpu(ns+4,i+1,j,k,b), &
-                                    g4=q_aux_gpu(ns+5,i+1,j,k,b), &
-                                    p4=q_aux_gpu(ns+6,i+1,j,k,b), &
-                                    f_rho_s=f_i_gpu(1:ns,i,j,k,b),&
-                                    f_rho_u=f_i_gpu(ns+1,i,j,k,b),&
-                                  f_rho_ut1=f_i_gpu(ns+2,i,j,k,b),&
-                                  f_rho_ut2=f_i_gpu(ns+3,i,j,k,b),&
-                                    f_rho_E=f_i_gpu(ns+4,i,j,k,b))
+               do b=1, blocks_number
+                  ! compute 1D normal fluxes
+                  call solve_riemann(r1=q_aux_gpu(b,i  ,j,k,ns+1), &
+                                     u1=q_aux_gpu(b,i  ,j,k,ns+2), &
+                                     g1=q_aux_gpu(b,i  ,j,k,ns+5), &
+                                     p1=q_aux_gpu(b,i  ,j,k,ns+6), &
+                                     r4=q_aux_gpu(b,i+1,j,k,ns+1), &
+                                     u4=q_aux_gpu(b,i+1,j,k,ns+2), &
+                                     g4=q_aux_gpu(b,i+1,j,k,ns+5), &
+                                     p4=q_aux_gpu(b,i+1,j,k,ns+6), &
+                                     f=f1D_gpu(1:3,b,i,j,k))
+                  ! compute 3D fluxes
+                  if (f1D_gpu(1,b,i,j,k)>0._R8P) then
+                     do s=1, ns
+                        f_i_gpu(b,i,j,k,s) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k,s)
+                     enddo
+                     f_i_gpu(b,i,j,k,ns+1) = f1D_gpu(2,b,i,j,k)
+                     f_i_gpu(b,i,j,k,ns+2) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k,ns+3)
+                     f_i_gpu(b,i,j,k,ns+3) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k,ns+4)
+                     f_i_gpu(b,i,j,k,ns+4) = f1D_gpu(3,b,i,j,k) + 0.5_R8P * f1D_gpu(1,b,i,j,k) * &
+                                                                  (q_aux_gpu(b,i,j,k,ns+3)**2 + q_aux_gpu(b,i,j,k,ns+4)**2)
+                  else
+                     do s=1, ns
+                        f_i_gpu(b,i,j,k,s) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i+1,j,k,s)
+                     enddo
+                     f_i_gpu(b,i,j,k,ns+1) = f1D_gpu(2,b,i,j,k)
+                     f_i_gpu(b,i,j,k,ns+2) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i+1,j,k,ns+3)
+                     f_i_gpu(b,i,j,k,ns+3) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i+1,j,k,ns+4)
+                     f_i_gpu(b,i,j,k,ns+4) = f1D_gpu(3,b,i,j,k) + 0.5_R8P * f1D_gpu(1,b,i,j,k) * &
+                                                                  (q_aux_gpu(b,i+1,j,k,ns+3)**2 + q_aux_gpu(b,i+1,j,k,ns+4)**2)
+                  endif
+               enddo
             enddo
          enddo
       enddo
-   enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
+      !@cuf iercuda=cudaDeviceSynchronize()
+   else
+      !$cuf kernel do(5) <<<*,*>>>
+      do s=1, ns + 4
+         do k=1, nk
+            do j=1, nj
+               do i=0,ni
+                  do b=1, blocks_number
+                     f_i_gpu(b,i,j,k,s) = 0._R8P
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
+   endif
+
    ! fluxes in j direction
-   !$cuf kernel do(4) <<<*,*>>>
-   do b=1, blocks_number
+   if (.not.null_y) then
+      !$cuf kernel do(4) <<<*,*>>>
       do k=1, nk
          do j=0, nj
             do i=1,ni
-               call solve_riemann(  ns=ns_cuf,                    &
-                                    c1=q_aux_gpu(1:ns,i,j  ,k,b), &
-                                    r1=q_aux_gpu(ns+1,i,j  ,k,b), &
-                                    u1=q_aux_gpu(ns+3,i,j  ,k,b), &
-                                  ut11=q_aux_gpu(ns+2,i,j  ,k,b), &
-                                  ut21=q_aux_gpu(ns+4,i,j  ,k,b), &
-                                    g1=q_aux_gpu(ns+5,i,j  ,k,b), &
-                                    p1=q_aux_gpu(ns+6,i,j  ,k,b), &
-                                    c4=q_aux_gpu(1:ns,i,j+1,k,b), &
-                                    r4=q_aux_gpu(ns+1,i,j+1,k,b), &
-                                    u4=q_aux_gpu(ns+3,i,j+1,k,b), &
-                                  ut14=q_aux_gpu(ns+2,i,j+1,k,b), &
-                                  ut24=q_aux_gpu(ns+4,i,j+1,k,b), &
-                                    g4=q_aux_gpu(ns+5,i,j+1,k,b), &
-                                    p4=q_aux_gpu(ns+6,i,j+1,k,b), &
-                                    f_rho_s=f_j_gpu(1:ns,i,j,k,b),&
-                                    f_rho_u=f_j_gpu(ns+2,i,j,k,b),&
-                                  f_rho_ut1=f_j_gpu(ns+1,i,j,k,b),&
-                                  f_rho_ut2=f_j_gpu(ns+3,i,j,k,b),&
-                                    f_rho_E=f_j_gpu(ns+4,i,j,k,b))
+               do b=1, blocks_number
+                  ! compute 1D normal fluxes
+                  call solve_riemann(r1=q_aux_gpu(b,i,j  ,k,ns+1), &
+                                     u1=q_aux_gpu(b,i,j  ,k,ns+3), &
+                                     g1=q_aux_gpu(b,i,j  ,k,ns+5), &
+                                     p1=q_aux_gpu(b,i,j  ,k,ns+6), &
+                                     r4=q_aux_gpu(b,i,j+1,k,ns+1), &
+                                     u4=q_aux_gpu(b,i,j+1,k,ns+3), &
+                                     g4=q_aux_gpu(b,i,j+1,k,ns+5), &
+                                     p4=q_aux_gpu(b,i,j+1,k,ns+6), &
+                                     f=f1D_gpu(1:3,b,i,j,k))
+                  ! compute 3D fluxes
+                  if (f1D_gpu(1,b,i,j,k)>0._R8P) then
+                     do s=1, ns
+                        f_j_gpu(b,i,j,k,s) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k,s)
+                     enddo
+                     f_j_gpu(b,i,j,k,ns+1) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k,ns+2)
+                     f_j_gpu(b,i,j,k,ns+2) = f1D_gpu(2,b,i,j,k)
+                     f_j_gpu(b,i,j,k,ns+3) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k,ns+4)
+                     f_j_gpu(b,i,j,k,ns+4) = f1D_gpu(3,b,i,j,k) + 0.5_R8P * f1D_gpu(1,b,i,j,k) * &
+                                                                  (q_aux_gpu(b,i,j,k,ns+2)**2 + q_aux_gpu(b,i,j,k,ns+4)**2)
+                  else
+                     do s=1, ns
+                        f_j_gpu(b,i,j,k,s) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j+1,k,s)
+                     enddo
+                     f_j_gpu(b,i,j,k,ns+1) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j+1,k,ns+2)
+                     f_j_gpu(b,i,j,k,ns+2) = f1D_gpu(2,b,i,j,k)
+                     f_j_gpu(b,i,j,k,ns+3) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j+1,k,ns+4)
+                     f_j_gpu(b,i,j,k,ns+4) = f1D_gpu(3,b,i,j,k) + 0.5_R8P * f1D_gpu(1,b,i,j,k) * &
+                                                                  (q_aux_gpu(b,i,j+1,k,ns+2)**2 + q_aux_gpu(b,i,j+1,k,ns+4)**2)
+                  endif
+               enddo
             enddo
          enddo
       enddo
-   enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
+      !@cuf iercuda=cudaDeviceSynchronize()
+   else
+      !$cuf kernel do(5) <<<*,*>>>
+      do s=1, ns + 4
+         do k=1, nk
+            do j=0, nj
+               do i=1,ni
+                  do b=1, blocks_number
+                     f_j_gpu(b,i,j,k,s) = 0._R8P
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
+   endif
+
    ! fluxes in k direction
-   !$cuf kernel do(4) <<<*,*>>>
-   do b=1, blocks_number
+   if (.not.null_z) then
+      !$cuf kernel do(4) <<<*,*>>>
       do k=0, nk
          do j=1, nj
             do i=1,ni
-               call solve_riemann(  ns=ns_cuf,                    &
-                                    c1=q_aux_gpu(1:ns,i,j,k  ,b), &
-                                    r1=q_aux_gpu(ns+1,i,j,k  ,b), &
-                                    u1=q_aux_gpu(ns+4,i,j,k  ,b), &
-                                  ut11=q_aux_gpu(ns+2,i,j,k  ,b), &
-                                  ut21=q_aux_gpu(ns+3,i,j,k  ,b), &
-                                    g1=q_aux_gpu(ns+5,i,j,k  ,b), &
-                                    p1=q_aux_gpu(ns+6,i,j,k  ,b), &
-                                    c4=q_aux_gpu(1:ns,i,j,k+1,b), &
-                                    r4=q_aux_gpu(ns+1,i,j,k+1,b), &
-                                    u4=q_aux_gpu(ns+4,i,j,k+1,b), &
-                                  ut14=q_aux_gpu(ns+2,i,j,k+1,b), &
-                                  ut24=q_aux_gpu(ns+3,i,j,k+1,b), &
-                                    g4=q_aux_gpu(ns+5,i,j,k+1,b), &
-                                    p4=q_aux_gpu(ns+6,i,j,k+1,b), &
-                                    f_rho_s=f_k_gpu(1:ns,i,j,k,b),&
-                                    f_rho_u=f_k_gpu(ns+3,i,j,k,b),&
-                                  f_rho_ut1=f_k_gpu(ns+1,i,j,k,b),&
-                                  f_rho_ut2=f_k_gpu(ns+2,i,j,k,b),&
-                                    f_rho_E=f_k_gpu(ns+4,i,j,k,b))
+               do b=1, blocks_number
+                  ! compute 1D normal fluxes
+                  call solve_riemann(r1=q_aux_gpu(b,i,j,k  ,ns+1), &
+                                     u1=q_aux_gpu(b,i,j,k  ,ns+4), &
+                                     g1=q_aux_gpu(b,i,j,k  ,ns+5), &
+                                     p1=q_aux_gpu(b,i,j,k  ,ns+6), &
+                                     r4=q_aux_gpu(b,i,j,k+1,ns+1), &
+                                     u4=q_aux_gpu(b,i,j,k+1,ns+4), &
+                                     g4=q_aux_gpu(b,i,j,k+1,ns+5), &
+                                     p4=q_aux_gpu(b,i,j,k+1,ns+6), &
+                                     f=f1D_gpu(1:3,b,i,j,k))
+                  ! compute 3D fluxes
+                  if (f1D_gpu(1,b,i,j,k)>0._R8P) then
+                     do s=1, ns
+                        f_k_gpu(b,i,j,k,s) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k,s)
+                     enddo
+                     f_k_gpu(b,i,j,k,ns+1) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k,ns+2)
+                     f_k_gpu(b,i,j,k,ns+2) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k,ns+3)
+                     f_k_gpu(b,i,j,k,ns+3) = f1D_gpu(2,b,i,j,k)
+                     f_k_gpu(b,i,j,k,ns+4) = f1D_gpu(3,b,i,j,k) + 0.5_R8P * f1D_gpu(1,b,i,j,k) * &
+                                                                  (q_aux_gpu(b,i,j,k,ns+2)**2 + q_aux_gpu(b,i,j,k,ns+3)**2)
+                  else
+                     do s=1, ns
+                        f_k_gpu(b,i,j,k,s) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k+1,s)
+                     enddo
+                     f_k_gpu(b,i,j,k,ns+1) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k+1,ns+2)
+                     f_k_gpu(b,i,j,k,ns+2) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k+1,ns+3)
+                     f_k_gpu(b,i,j,k,ns+3) = f1D_gpu(2,b,i,j,k)
+                     f_k_gpu(b,i,j,k,ns+4) = f1D_gpu(3,b,i,j,k) + 0.5_R8P * f1D_gpu(1,b,i,j,k) * &
+                                                                  (q_aux_gpu(b,i,j,k+1,ns+2)**2 + q_aux_gpu(b,i,j,k+1,ns+3)**2)
+                  endif
+               enddo
             enddo
          enddo
       enddo
-   enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
+      !@cuf iercuda=cudaDeviceSynchronize()
+   else
+      !$cuf kernel do(5) <<<*,*>>>
+      do s=1, ns + 4
+         do k=1, nk
+            do j=1, nj
+               do i=1,ni
+                  do b=1, blocks_number
+                     f_k_gpu(b,i,j,k,s) = 0._R8P
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
+   endif
 
-   !$cuf kernel do(4) <<<*,*>>>
-   do b=1, blocks_number
+   !$cuf kernel do(5) <<<*,*>>>
+   do s=1, ns+4
       do k=1, nk
          do j=1, nj
             do i=1, ni
-               do s=1, ns+4
-                  q_gpu(s,i,j,k,b) = (f_i_gpu(s,i-1,j  ,k  ,b) - f_i_gpu(s,i,j,k,b)) / dxyz_gpu(1,b) + &
-                                     (f_j_gpu(s,i  ,j-1,k  ,b) - f_j_gpu(s,i,j,k,b)) / dxyz_gpu(2,b) + &
-                                     (f_k_gpu(s,i  ,j  ,k-1,b) - f_k_gpu(s,i,j,k,b)) / dxyz_gpu(3,b)
+               do b=1, blocks_number
+                  q_gpu(b,i,j,k,s) = (f_i_gpu(b,i-1,j  ,k  ,s) - f_i_gpu(b,i,j,k,s)) / dxyz_gpu(1,b) + &
+                                     (f_j_gpu(b,i  ,j-1,k  ,s) - f_j_gpu(b,i,j,k,s)) / dxyz_gpu(2,b) + &
+                                     (f_k_gpu(b,i  ,j  ,k-1,s) - f_k_gpu(b,i,j,k,s)) / dxyz_gpu(3,b)
                enddo
             enddo
          enddo
@@ -1034,13 +1169,13 @@ contains
    integer(I4P)                        :: i, j, k, b, v, ss !< Counter.
    integer(I4P)                        :: iercuda           !< Error trapping flag for CUDAFortran.
 
-   !$cuf kernel do(4) <<<*,*>>>
-   do b=1, blocks_number
+   !$cuf kernel do(5) <<<*,*>>>
+   do v=1, nv
       do k=1, nk
          do j=1, nj
             do i=1, ni
-               do v=1, nv
-                  q_s_gpu(v,i,j,k,b,s) = q_gpu(v,i,j,k,b)
+               do b=1, blocks_number
+                  q_s_gpu(b,i,j,k,v,s) = q_gpu(b,i,j,k,v)
                enddo
             enddo
          enddo
@@ -1048,13 +1183,13 @@ contains
    enddo
    !@cuf iercuda=cudaDeviceSynchronize()
    do ss=1, s - 1
-      !$cuf kernel do(4) <<<*,*>>>
-      do b=1, blocks_number
+      !$cuf kernel do(5) <<<*,*>>>
+      do v=1, nv
          do k=1, nk
             do j=1, nj
                do i=1, ni
-                  do v=1, nv
-                     q_s_gpu(v,i,j,k,b,s) = q_s_gpu(v,i,j,k,b,s) + (q_s_gpu(v,i,j,k,b,ss) * (dt * alph_gpu(s, ss)))
+                  do b=1, blocks_number
+                     q_s_gpu(b,i,j,k,v,s) = q_s_gpu(b,i,j,k,v,s) + (q_s_gpu(b,i,j,k,v,ss) * (dt * alph_gpu(s, ss)))
                   enddo
                enddo
             enddo
@@ -1064,33 +1199,103 @@ contains
    enddo
    endsubroutine compute_rk_stage_gpu_cuf
 
-   ! non type-bound procedures
-   attributes(device) subroutine solve_riemann(ns, c1, r1, u1, ut11, ut21, p1, g1, c4, r4, u4, ut14, ut24, p4, g4, &
-                                               f_rho_s, f_rho_u, f_rho_ut1, f_rho_ut2, f_rho_E)
+   subroutine compute_umax_cuf(b, ni, nj, nk, gci, gcj, gck, ns, dx, dy, dz, q_aux_gpu, umax)
+   !< Compute maximum speed by means of CUF threads.
+   integer(I4P), intent(in)         :: b             !< Block index.
+   integer(I4P), intent(in)         :: ni            !< Grid cells number in I direction.
+   integer(I4P), intent(in)         :: nj            !< Grid cells number in J direction.
+   integer(I4P), intent(in)         :: nk            !< Grid cells number in K direction.
+   integer(I4P), intent(in)         :: gci           !< Ghost grid cells number in I direction.
+   integer(I4P), intent(in)         :: gcj           !< Ghost grid cells number in J direction.
+   integer(I4P), intent(in)         :: gck           !< Ghost grid cells number in K direction.
+   integer(I4P), intent(in)         :: ns            !< Number of species.
+   real(R8P),    intent(in)         :: dx            !< X space step.
+   real(R8P),    intent(in)         :: dy            !< Y space step.
+   real(R8P),    intent(in)         :: dz            !< Z space step.
+   real(R8P),    intent(in), device :: q_aux_gpu(1:,    &
+                                                 1-gci:,&
+                                                 1-gcj:,&
+                                                 1-gck:,&
+                                                 1:) !< Auxiliary varibales.
+   real(R8P),    intent(out)        :: umax          !< Maximum speed.
+   real(R8P)                        :: ss            !< Speed of sound.
+   integer(I4P)                     :: i, j, k       !< Counter.
+   integer(I4P)                     :: iercuda       !< Error trapping flag for CUDAFortran.
+
+   umax = 0._R8P
+   !$cuf kernel do(3) <<<*,*>>>
+   do k=1, nk
+      do j=1, nj
+         do i=1, ni
+            ss = a(p=q_aux_gpu(b,i,j,k,ns+6), r=q_aux_gpu(b,i,j,k,ns+1), g=q_aux_gpu(b,i,j,k,ns+5))
+            umax = max(umax, abs(q_aux_gpu(b,i,j,k,ns+2)) + ss, &
+                             abs(q_aux_gpu(b,i,j,k,ns+3)) + ss, &
+                             abs(q_aux_gpu(b,i,j,k,ns+4)) + ss)
+
+         enddo
+      enddo
+   enddo
+   !@cuf iercuda=cudaDeviceSynchronize()
+   endsubroutine compute_umax_cuf
+
+   subroutine copy_transpose_gpu_cpu_cuf(ni, nj, nk, gci, gcj, gck, nv, blocks_number, q_gpu, q_t_gpu, q_cpu)
+   !< Copy transposed data from GPU to CPU by CUF threads.
+   integer(I4P), intent(in)            :: ni            !< Grid cells number in I direction.
+   integer(I4P), intent(in)            :: nj            !< Grid cells number in J direction.
+   integer(I4P), intent(in)            :: nk            !< Grid cells number in K direction.
+   integer(I4P), intent(in)            :: gci           !< Ghost grid cells number in I direction.
+   integer(I4P), intent(in)            :: gcj           !< Ghost grid cells number in J direction.
+   integer(I4P), intent(in)            :: gck           !< Ghost grid cells number in K direction.
+   integer(I4P), intent(in)            :: nv            !< Number of conservative varibales.
+   integer(I4P), intent(in)            :: blocks_number !< Number of blocks.
+   real(R8P),    intent(in), device    :: q_gpu(1:,    &
+                                                1-gci:,&
+                                                1-gcj:,&
+                                                1-gck:,&
+                                                1:)     !< Conservative variables on GPU.
+   real(R8P),    intent(inout), device :: q_t_gpu(1:,    &
+                                                  1-gci:,&
+                                                  1-gcj:,&
+                                                  1-gck:,&
+                                                  1:)   !< Conservative (transposed) variables on GPU.
+   real(R8P),    intent(out)           :: q_cpu(1:,    &
+                                                1-gci:,&
+                                                1-gcj:,&
+                                                1-gck:,&
+                                                1:)     !< Conservative variables on CPU.
+   integer(I4P)                        :: i, j, k, b, v !< Counter.
+   integer(I4P)                        :: iercuda       !< Error trapping flag for CUDAFortran.
+
+   !$cuf kernel do(4) <<<*,*>>>
+   do k=1, nk
+      do j=1, nj
+         do i=1, ni
+            do b=1, blocks_number
+               do v=1, nv
+                  q_t_gpu(v,i,j,k,b) = q_gpu(b,i,j,k,v)
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+   !@cuf iercuda=cudaDeviceSynchronize()
+   q_cpu = q_t_gpu
+   endsubroutine copy_transpose_gpu_cpu_cuf
+
+   ! non type-bound kernel procedures
+   attributes(device) subroutine solve_riemann(r1, u1, p1, g1, r4, u4, p4, g4, f)
    !< Solve the Riemann problem between the state $1$ and $4$ using the (local) Lax Friedrichs (Rusanov) solver.
-   integer(I4P), intent(in)  :: ns            !< Species number.
-   real(R8P),    intent(in)  :: c1(1:ns)      !< Species concentration of state 1.
    real(R8P),    intent(in)  :: r1            !< Density of state 1.
    real(R8P),    intent(in)  :: u1            !< Velocity of state 1.
-   real(R8P),    intent(in)  :: ut11          !< Velocity of state 1, first tangential component.
-   real(R8P),    intent(in)  :: ut21          !< Velocity of state 1, second tangential component.
    real(R8P),    intent(in)  :: p1            !< Pressure of state 1.
    real(R8P),    intent(in)  :: g1            !< Specific heats ratio of state 1.
-   real(R8P),    intent(in)  :: c4(1:ns)      !< Species concentration of state 4.
    real(R8P),    intent(in)  :: r4            !< Density of state 4.
    real(R8P),    intent(in)  :: u4            !< Velocity of state 4.
-   real(R8P),    intent(in)  :: ut14          !< Velocity of state 4, first tangential component.
-   real(R8P),    intent(in)  :: ut24          !< Velocity of state 4, second tangential component.
    real(R8P),    intent(in)  :: p4            !< Pressure of state 4.
    real(R8P),    intent(in)  :: g4            !< Specific heats ratio of state 4.
-   real(R8P),    intent(out) :: f_rho_s(1:ns) !< Fluxes of species.
-   real(R8P),    intent(out) :: f_rho_u       !< Fluxes of normal momentum.
-   real(R8P),    intent(out) :: f_rho_ut1     !< Fluxes of first tangential component of momentum.
-   real(R8P),    intent(out) :: f_rho_ut2     !< Fluxes of first tangential component of momentum.
-   real(R8P),    intent(out) :: f_rho_E       !< Flux of energy.
+   real(R8P),    intent(out) :: f(1:3)        !< Fluxes at interface.
    real(R8P)                 :: F1(1:3)       !< State 1 fluxes.
    real(R8P)                 :: F4(1:3)       !< State 4 fluxes.
-   real(R8P)                 :: f_rho         !< Flux of mass.
    real(R8P)                 :: lmax          !< Maximum wave speed estimation.
    real(R8P)                 :: u             !< Velocity of the intermediate states.
    real(R8P)                 :: S1            !< Maximum wave speed of state 1 and 4.
@@ -1105,25 +1310,9 @@ contains
    F1 = fluxes(p = p1, r = r1, u = u1, g = g1)
    F4 = fluxes(p = p4, r = r4, u = u4, g = g4)
    ! compute the Lax-Friedrichs fluxes approximation
-   f_rho   = 0.5_R8P*(F1(1) + F4(1) - lmax*(r4                        - r1                       ))
-   f_rho_u = 0.5_R8P*(F1(2) + F4(2) - lmax*(r4*u4                     - r1*u1                    ))
-   f_rho_E = 0.5_R8P*(F1(3) + F4(3) - lmax*(r4*E(p=p4,r=r4,u=u4,g=g4) - r1*E(p=p1,r=r1,u=u1,g=g1)))
-   ! compute 3D fluxes
-   if (f_rho>0._R8P) then
-      do s=1, ns
-         f_rho_s(s) = f_rho * c1(s)
-      enddo
-      f_rho_ut1 = f_rho * ut11
-      f_rho_ut2 = f_rho * ut21
-      f_rho_E = f_rho_E + 0.5_R8P * f_rho * (ut11**2 + ut21**2)
-   else
-      do s=1, ns
-         f_rho_s(s) = f_rho * c4(s)
-      enddo
-      f_rho_ut1 = f_rho * ut14
-      f_rho_ut2 = f_rho * ut24
-      f_rho_E = f_rho_E + 0.5_R8P * f_rho * (ut14**2 + ut24**2)
-   endif
+   f(1) = 0.5_R8P*(F1(1) + F4(1) - lmax*(r4                        - r1                       ))
+   f(2) = 0.5_R8P*(F1(2) + F4(2) - lmax*(r4*u4                     - r1*u1                    ))
+   f(3) = 0.5_R8P*(F1(3) + F4(3) - lmax*(r4*E(p=p4,r=r4,u=u4,g=g4) - r1*E(p=p1,r=r1,u=u1,g=g1)))
    endsubroutine solve_riemann
 
    attributes(device) subroutine compute_inter_states(r1, u1, p1, g1, r4, u4, p4, g4, u, S1, S4)

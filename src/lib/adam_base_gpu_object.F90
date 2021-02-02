@@ -209,10 +209,10 @@ contains
    if (.not.allocated(local_map_ghost_gpu)) return
    !$cuf kernel do(1) <<<*,*>>>
    do mf=1, size(local_map_ghost_gpu, dim=1)
-      b_recv  = local_map_ghost_gpu(mf, 1)
-      b_send  = local_map_ghost_gpu(mf, 2)
-      fec     = local_map_ghost_gpu(mf, 3)
-      portion = local_map_ghost_gpu(mf, 4)
+      b_recv  = local_map_ghost_gpu(mf, 1 )
+      b_send  = local_map_ghost_gpu(mf, 2 )
+      fec     = local_map_ghost_gpu(mf, 3 )
+      portion = local_map_ghost_gpu(mf, 4 )
       imin    = local_map_ghost_gpu(mf, 5 )
       jmin    = local_map_ghost_gpu(mf, 6 )
       kmin    = local_map_ghost_gpu(mf, 7 )
@@ -227,7 +227,7 @@ contains
          do k=kmin, kmax
             do j=jmin, jmax
                do i=imin, imax
-                  q_gpu(:,i,j,k,b_recv) = q_gpu(:,i+idelta,j+jdelta,k+kdelta,b_send)
+                  q_gpu(b_recv,i,j,k,:) = q_gpu(b_send,i+idelta,j+jdelta,k+kdelta,:)
                enddo
             enddo
          enddo
@@ -239,10 +239,10 @@ contains
                   kkk = 2 * k + kdelta
                   jjj = 2 * j + jdelta
                   iii = 2 * i + idelta
-                  q_gpu(:,i,j,k,b_recv) = (q_gpu(:,iii,jjj,  kkk,  b_send) + q_gpu(:,iii+1,jjj,  kkk,  b_send) + &
-                                           q_gpu(:,iii,jjj+1,kkk,  b_send) + q_gpu(:,iii+1,jjj+1,kkk,  b_send) + &
-                                           q_gpu(:,iii,jjj,  kkk+1,b_send) + q_gpu(:,iii+1,jjj,  kkk+1,b_send) + &
-                                           q_gpu(:,iii,jjj+1,kkk+1,b_send) + q_gpu(:,iii+1,jjj+1,kkk+1,b_send)) / 8._R8P
+                  q_gpu(b_recv,i,j,k,:) = (q_gpu(b_send,iii,jjj,  kkk,  :) + q_gpu(b_send,iii+1,jjj,  kkk,  :) + &
+                                           q_gpu(b_send,iii,jjj+1,kkk,  :) + q_gpu(b_send,iii+1,jjj+1,kkk,  :) + &
+                                           q_gpu(b_send,iii,jjj,  kkk+1,:) + q_gpu(b_send,iii+1,jjj,  kkk+1,:) + &
+                                           q_gpu(b_send,iii,jjj+1,kkk+1,:) + q_gpu(b_send,iii+1,jjj+1,kkk+1,:)) / 8._R8P
                enddo
             enddo
          enddo
@@ -254,14 +254,14 @@ contains
                   kkk = 2 * k + kdelta
                   jjj = 2 * j + jdelta
                   iii = 2 * i + idelta
-                  q_gpu(:,iii,  jjj,  kkk  ,b_recv) = q_gpu(:,i,j,k,b_send)
-                  q_gpu(:,iii+1,jjj,  kkk  ,b_recv) = q_gpu(:,i,j,k,b_send)
-                  q_gpu(:,iii,  jjj+1,kkk  ,b_recv) = q_gpu(:,i,j,k,b_send)
-                  q_gpu(:,iii+1,jjj+1,kkk  ,b_recv) = q_gpu(:,i,j,k,b_send)
-                  q_gpu(:,iii,  jjj,  kkk+1,b_recv) = q_gpu(:,i,j,k,b_send)
-                  q_gpu(:,iii+1,jjj,  kkk+1,b_recv) = q_gpu(:,i,j,k,b_send)
-                  q_gpu(:,iii,  jjj+1,kkk+1,b_recv) = q_gpu(:,i,j,k,b_send)
-                  q_gpu(:,iii+1,jjj+1,kkk+1,b_recv) = q_gpu(:,i,j,k,b_send)
+                  q_gpu(b_recv,iii,  jjj,  kkk  ,:) = q_gpu(b_send,i,j,k,:)
+                  q_gpu(b_recv,iii+1,jjj,  kkk  ,:) = q_gpu(b_send,i,j,k,:)
+                  q_gpu(b_recv,iii,  jjj+1,kkk  ,:) = q_gpu(b_send,i,j,k,:)
+                  q_gpu(b_recv,iii+1,jjj+1,kkk  ,:) = q_gpu(b_send,i,j,k,:)
+                  q_gpu(b_recv,iii,  jjj,  kkk+1,:) = q_gpu(b_send,i,j,k,:)
+                  q_gpu(b_recv,iii+1,jjj,  kkk+1,:) = q_gpu(b_send,i,j,k,:)
+                  q_gpu(b_recv,iii,  jjj+1,kkk+1,:) = q_gpu(b_send,i,j,k,:)
+                  q_gpu(b_recv,iii+1,jjj+1,kkk+1,:) = q_gpu(b_send,i,j,k,:)
                enddo
             enddo
          enddo
@@ -333,11 +333,10 @@ contains
       ! populate send buffer
       !$cuf kernel do(1) <<<*,*>>>
       do sf=1, size(comm_map_send_ghost_gpu, dim=1)
-         ! b_ghost   =     comm_map_send_ghost(sf, 1) ! block-index
-         b_send    = comm_map_send_ghost_gpu(sf, 2) ! neighbor-block-index of block
-         send_rank = comm_map_send_ghost_gpu(sf, 3)
-         fec       = comm_map_send_ghost_gpu(sf, 4)
-         portion   = comm_map_send_ghost_gpu(sf, 5)
+         b_send    = comm_map_send_ghost_gpu(sf, 2 )
+         send_rank = comm_map_send_ghost_gpu(sf, 3 )
+         fec       = comm_map_send_ghost_gpu(sf, 4 )
+         portion   = comm_map_send_ghost_gpu(sf, 5 )
          imin      = comm_map_send_ghost_gpu(sf, 6 )
          jmin      = comm_map_send_ghost_gpu(sf, 7 )
          kmin      = comm_map_send_ghost_gpu(sf, 8 )
@@ -355,7 +354,7 @@ contains
                do j=jmin, jmax
                   do i=imin, imax
                      do v=1,nv
-                        send_buffer_ghost_gpu(send_ptr + send_ctr) = q_gpu(v,i+idelta,j+jdelta,k+kdelta,b_send)
+                        send_buffer_ghost_gpu(send_ptr + send_ctr) = q_gpu(b_send,i+idelta,j+jdelta,k+kdelta,v)
                         send_ctr = send_ctr + 1
                      enddo
                   enddo
@@ -369,7 +368,7 @@ contains
                   do i=imin, imax
                      do n=1,8
                         do v=1,nv
-                           send_buffer_ghost_gpu(send_ptr + send_ctr) = q_gpu(v,i,j,k,b_send)
+                           send_buffer_ghost_gpu(send_ptr + send_ctr) = q_gpu(b_send,i,j,k,v)
                            send_ctr = send_ctr + 1
                         enddo
                      enddo
@@ -387,10 +386,10 @@ contains
                      iii = 2 * i + idelta
                      do v=1,nv
                         send_buffer_ghost_gpu(send_ptr + send_ctr) =                               &
-                           (q_gpu(v,iii,jjj,  kkk,  b_send) + q_gpu(v,iii+1,jjj,  kkk,  b_send) +  &
-                            q_gpu(v,iii,jjj+1,kkk,  b_send) + q_gpu(v,iii+1,jjj+1,kkk,  b_send) +  &
-                            q_gpu(v,iii,jjj,  kkk+1,b_send) + q_gpu(v,iii+1,jjj,  kkk+1,b_send) +  &
-                            q_gpu(v,iii,jjj+1,kkk+1,b_send) + q_gpu(v,iii+1,jjj+1,kkk+1,b_send)) / 8._R8P
+                           (q_gpu(b_send,iii,jjj,  kkk,  v) + q_gpu(b_send,iii+1,jjj,  kkk,  v) +  &
+                            q_gpu(b_send,iii,jjj+1,kkk,  v) + q_gpu(b_send,iii+1,jjj+1,kkk,  v) +  &
+                            q_gpu(b_send,iii,jjj,  kkk+1,v) + q_gpu(b_send,iii+1,jjj,  kkk+1,v) +  &
+                            q_gpu(b_send,iii,jjj+1,kkk+1,v) + q_gpu(b_send,iii+1,jjj+1,kkk+1,v)) / 8._R8P
                         send_ctr = send_ctr + 1
                      enddo
                   enddo
@@ -431,7 +430,7 @@ contains
       ! retrive from receive buffer
       !$cuf kernel do(1) <<<*,*>>>
       do rf=1, size(comm_map_recv_ghost_gpu, dim=1)
-         b_recv    = comm_map_recv_ghost_gpu(rf, 1 ) ! block-index
+         b_recv    = comm_map_recv_ghost_gpu(rf, 1 )
          recv_rank = comm_map_recv_ghost_gpu(rf, 3 )
          fec       = comm_map_recv_ghost_gpu(rf, 4 )
          portion   = comm_map_recv_ghost_gpu(rf, 5 )
@@ -451,7 +450,7 @@ contains
                do j=jmin, jmax
                   do i=imin, imax
                      do v=1, nv
-                        q_gpu(v,i,j,k,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr)
+                        q_gpu(b_recv,i,j,k,v) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr)
                         recv_ctr = recv_ctr + 1
                      enddo
                   enddo
@@ -464,7 +463,7 @@ contains
                do j=jmin, jmax
                   do i=imin, imax
                      do v=1, nv
-                        q_gpu(v,i,j,k,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr)
+                        q_gpu(b_recv,i,j,k,v) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr)
                         recv_ctr = recv_ctr + 1
                      enddo
                   enddo
@@ -480,28 +479,28 @@ contains
                      jjj = 2 * j + jdelta
                      iii = 2 * i + idelta
                      do v=1, nv
-                        q_gpu(v,iii,  jjj,  kkk  ,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
+                        q_gpu(b_recv,iii,  jjj,  kkk  ,v) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
                      enddo
                      do v=1, nv
-                        q_gpu(v,iii+1,jjj,  kkk  ,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
+                        q_gpu(b_recv,iii+1,jjj,  kkk  ,v) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
                      enddo
                      do v=1, nv
-                        q_gpu(v,iii,  jjj+1,kkk  ,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
+                        q_gpu(b_recv,iii,  jjj+1,kkk  ,v) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
                      enddo
                      do v=1, nv
-                        q_gpu(v,iii+1,jjj+1,kkk  ,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
+                        q_gpu(b_recv,iii+1,jjj+1,kkk  ,v) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
                      enddo
                      do v=1, nv
-                        q_gpu(v,iii,  jjj,  kkk+1,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
+                        q_gpu(b_recv,iii,  jjj,  kkk+1,v) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
                      enddo
                      do v=1, nv
-                        q_gpu(v,iii+1,jjj,  kkk+1,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
+                        q_gpu(b_recv,iii+1,jjj,  kkk+1,v) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
                      enddo
                      do v=1, nv
-                        q_gpu(v,iii,  jjj+1,kkk+1,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
+                        q_gpu(b_recv,iii,  jjj+1,kkk+1,v) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
                      enddo
                      do v=1, nv
-                        q_gpu(v,iii+1,jjj+1,kkk+1,b_recv) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
+                        q_gpu(b_recv,iii+1,jjj+1,kkk+1,v) = recv_buffer_ghost_gpu(recv_ptr + recv_ctr) ; recv_ctr = recv_ctr + 1
                      enddo
                   enddo
                enddo
