@@ -92,7 +92,9 @@ type :: equation_euler_gpu_object
    real(R8P), allocatable, device :: f_i_gpu(:,:,:,:,:)   !< Fluxes of cell centered variables, i direction.
    real(R8P), allocatable, device :: f_j_gpu(:,:,:,:,:)   !< Fluxes of cell centered variables, j direction.
    real(R8P), allocatable, device :: f_k_gpu(:,:,:,:,:)   !< Fluxes of cell centered variables, k direction.
-   real(R8P), allocatable, device :: f1D_gpu(:,:,:,:,:)   !< Fluxes of cell centered variables, 1D, normal direction.
+   real(R8P), allocatable, device :: f_rho_gpu(:,:,:,:)   !< Fluxes of cell centered variables, rho, 1D, normal direction.
+   real(R8P), allocatable, device :: f_rho_u_gpu(:,:,:,:) !< Fluxes of cell centered variables, rho*u, 1D, normal direction.
+   real(R8P), allocatable, device :: f_rho_E_gpu(:,:,:,:) !< Fluxes of cell centered variables, rho*E, 1D, normal direction.
    real(R8P), allocatable, device :: dxyz_gpu(:,:)        !< Space steps.
    real(R8P), allocatable, device :: alph_gpu(:,:)        !< RK alpha coefficients.
    real(R8P), allocatable, device :: beta_gpu(:)          !< RK beta coefficients.
@@ -178,9 +180,17 @@ contains
 
    subroutine copy_cpu_gpu(self)
    !< Copy data from CPU to GPU.
-   class(equation_euler_gpu_object), intent(inout) :: self !< The base backend.
+   class(equation_euler_gpu_object), intent(inout) :: self        !< The base backend.
+   real(R8P), allocatable                          :: dxyz_t(:,:) !< Space steps transposed.
+   integer(I4P)                                    :: i, b        !< Counter.
 
-   self%dxyz_gpu = self%field%dxyz
+   allocate(dxyz_t(1:self%field%nb,3))
+   do b=1, self%field%blocks_number
+      do i=1, 3
+         dxyz_t(b,i) = self%field%dxyz(i,b)
+      enddo
+   enddo
+   self%dxyz_gpu = dxyz_t
    call self%copy_transpose_cpu_gpu(q_cpu=self%field%q, q_gpu=self%q_gpu)
    call self%base_gpu%copy_cpu_gpu
    endsubroutine copy_cpu_gpu
@@ -283,12 +293,19 @@ contains
                          1-field%grid%gci:field%grid%ni+field%grid%gci, &
                          1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
                          0-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nv))
-   allocate(self%f1D_gpu(1:3,                                           &
-                         1:field%nb,                                    &
-                         0-field%grid%gci:field%grid%ni+field%grid%gci, &
-                         0-field%grid%gcj:field%grid%nj+field%grid%gcj, &
-                         0-field%grid%gck:field%grid%nk+field%grid%gck))
-   allocate(self%dxyz_gpu(1:3, 1:field%nb))
+   allocate(self%f_rho_gpu(1:field%nb,                                    &
+                           0-field%grid%gci:field%grid%ni+field%grid%gci, &
+                           0-field%grid%gcj:field%grid%nj+field%grid%gcj, &
+                           0-field%grid%gck:field%grid%nk+field%grid%gck))
+   allocate(self%f_rho_u_gpu(1:field%nb,                                    &
+                             0-field%grid%gci:field%grid%ni+field%grid%gci, &
+                             0-field%grid%gcj:field%grid%nj+field%grid%gcj, &
+                             0-field%grid%gck:field%grid%nk+field%grid%gck))
+   allocate(self%f_rho_E_gpu(1:field%nb,                                    &
+                             0-field%grid%gci:field%grid%ni+field%grid%gci, &
+                             0-field%grid%gcj:field%grid%nj+field%grid%gcj, &
+                             0-field%grid%gck:field%grid%nk+field%grid%gck))
+   allocate(self%dxyz_gpu(1:field%nb, 1:3))
    allocate(self%q_aux_gpu(1:field%nb,                                    &
                            1-field%grid%gci:field%grid%ni+field%grid%gci, &
                            1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
@@ -429,13 +446,17 @@ contains
          call self%compute_aux(q_gpu=self%q_s_gpu(:,:,:,:,:,s), q_aux_gpu=self%q_aux_gpu)
          call compute_residuals_gpu_cuf(ni=ni, nj=nj, nk=nk, gci=gci, gcj=gcj, gck=gck, blocks_number=blocks_number, ns=ns, &
                                         null_x=self%null_xyz(1), null_y=self%null_xyz(2), null_z=self%null_xyz(3),          &
-                                        dxyz_gpu=self%dxyz_gpu,                                                             &
-                                        q_aux_gpu = self%q_aux_gpu,                                                         &
-                                        f_i_gpu   = self%f_i_gpu,                                                           &
-                                        f_j_gpu   = self%f_j_gpu,                                                           &
-                                        f_k_gpu   = self%f_k_gpu,                                                           &
-                                        f1D_gpu   = self%f1D_gpu,                                                           &
-                                        q_gpu     = self%q_s_gpu(:,:,:,:,:,s))
+                                        dx_gpu      = self%dxyz_gpu(:,1),                                                   &
+                                        dy_gpu      = self%dxyz_gpu(:,2),                                                   &
+                                        dz_gpu      = self%dxyz_gpu(:,3),                                                   &
+                                        q_aux_gpu   = self%q_aux_gpu,                                                       &
+                                        f_i_gpu     = self%f_i_gpu,                                                         &
+                                        f_j_gpu     = self%f_j_gpu,                                                         &
+                                        f_k_gpu     = self%f_k_gpu,                                                         &
+                                        f_rho_gpu   = self%f_rho_gpu,                                                       &
+                                        f_rho_u_gpu = self%f_rho_u_gpu,                                                     &
+                                        f_rho_E_gpu = self%f_rho_E_gpu,                                                     &
+                                        q_gpu       = self%q_s_gpu(:,:,:,:,:,s))
       else
          ! TODO
       endif
@@ -613,23 +634,25 @@ contains
    call assign_allocatable(lhs=lhs%weno_a,rhs=rhs%weno_a)
    call assign_allocatable(lhs=lhs%weno_p,rhs=rhs%weno_p)
    call assign_allocatable(lhs=lhs%weno_d,rhs=rhs%weno_d)
-   call assign_allocatable_gpu(lhs=lhs%cp0_gpu,   rhs=rhs%cp0_gpu   )
-   call assign_allocatable_gpu(lhs=lhs%cv0_gpu,   rhs=rhs%cv0_gpu   )
-   call assign_allocatable_gpu(lhs=lhs%f_i_gpu,   rhs=rhs%f_i_gpu   )
-   call assign_allocatable_gpu(lhs=lhs%f_j_gpu,   rhs=rhs%f_j_gpu   )
-   call assign_allocatable_gpu(lhs=lhs%f_k_gpu,   rhs=rhs%f_k_gpu   )
-   call assign_allocatable_gpu(lhs=lhs%f1D_gpu,   rhs=rhs%f1D_gpu   )
-   call assign_allocatable_gpu(lhs=lhs%dxyz_gpu,  rhs=rhs%dxyz_gpu  )
-   call assign_allocatable_gpu(lhs=lhs%alph_gpu,  rhs=rhs%alph_gpu  )
-   call assign_allocatable_gpu(lhs=lhs%beta_gpu,  rhs=rhs%beta_gpu  )
-   call assign_allocatable_gpu(lhs=lhs%gamm_gpu,  rhs=rhs%gamm_gpu  )
-   call assign_allocatable_gpu(lhs=lhs%q_aux_gpu, rhs=rhs%q_aux_gpu )
-   call assign_allocatable_gpu(lhs=lhs%q_gpu,     rhs=rhs%q_gpu     )
-   call assign_allocatable_gpu(lhs=lhs%q_s_gpu,   rhs=rhs%q_s_gpu   )
-   call assign_allocatable_gpu(lhs=lhs%weno_c_gpu,rhs=rhs%weno_c_gpu)
-   call assign_allocatable_gpu(lhs=lhs%weno_a_gpu,rhs=rhs%weno_a_gpu)
-   call assign_allocatable_gpu(lhs=lhs%weno_p_gpu,rhs=rhs%weno_p_gpu)
-   call assign_allocatable_gpu(lhs=lhs%weno_d_gpu,rhs=rhs%weno_d_gpu)
+   call assign_allocatable_gpu(lhs=lhs%cp0_gpu,    rhs=rhs%cp0_gpu    )
+   call assign_allocatable_gpu(lhs=lhs%cv0_gpu,    rhs=rhs%cv0_gpu    )
+   call assign_allocatable_gpu(lhs=lhs%f_i_gpu,    rhs=rhs%f_i_gpu    )
+   call assign_allocatable_gpu(lhs=lhs%f_j_gpu,    rhs=rhs%f_j_gpu    )
+   call assign_allocatable_gpu(lhs=lhs%f_k_gpu,    rhs=rhs%f_k_gpu    )
+   call assign_allocatable_gpu(lhs=lhs%f_rho_gpu,  rhs=rhs%f_rho_gpu  )
+   call assign_allocatable_gpu(lhs=lhs%f_rho_u_gpu,rhs=rhs%f_rho_u_gpu)
+   call assign_allocatable_gpu(lhs=lhs%f_rho_E_gpu,rhs=rhs%f_rho_E_gpu)
+   call assign_allocatable_gpu(lhs=lhs%dxyz_gpu,   rhs=rhs%dxyz_gpu   )
+   call assign_allocatable_gpu(lhs=lhs%alph_gpu,   rhs=rhs%alph_gpu   )
+   call assign_allocatable_gpu(lhs=lhs%beta_gpu,   rhs=rhs%beta_gpu   )
+   call assign_allocatable_gpu(lhs=lhs%gamm_gpu,   rhs=rhs%gamm_gpu   )
+   call assign_allocatable_gpu(lhs=lhs%q_aux_gpu,  rhs=rhs%q_aux_gpu  )
+   call assign_allocatable_gpu(lhs=lhs%q_gpu,      rhs=rhs%q_gpu      )
+   call assign_allocatable_gpu(lhs=lhs%q_s_gpu,    rhs=rhs%q_s_gpu    )
+   call assign_allocatable_gpu(lhs=lhs%weno_c_gpu, rhs=rhs%weno_c_gpu )
+   call assign_allocatable_gpu(lhs=lhs%weno_a_gpu, rhs=rhs%weno_a_gpu )
+   call assign_allocatable_gpu(lhs=lhs%weno_p_gpu, rhs=rhs%weno_p_gpu )
+   call assign_allocatable_gpu(lhs=lhs%weno_d_gpu, rhs=rhs%weno_d_gpu )
    endsubroutine eq_assign_eq
 
    ! private methods
@@ -921,36 +944,41 @@ contains
    endsubroutine compute_aux_cuf
 
    subroutine compute_residuals_gpu_cuf(ni, nj, nk, gci, gcj, gck, ns, null_x, null_y, null_z, blocks_number, &
-                                        dxyz_gpu, q_aux_gpu, f_i_gpu, f_j_gpu, f_k_gpu, f1D_gpu, q_gpu)
+                                        dx_gpu, dy_gpu, dz_gpu, q_aux_gpu,                                    &
+                                        f_i_gpu, f_j_gpu, f_k_gpu, f_rho_gpu, f_rho_u_gpu, f_rho_E_gpu, q_gpu)
    !< Compute residuals of equation.
-   integer(I4P), intent(in)            :: ni                      !< Grid cells number in I direction.
-   integer(I4P), intent(in)            :: nj                      !< Grid cells number in J direction.
-   integer(I4P), intent(in)            :: nk                      !< Grid cells number in K direction.
-   integer(I4P), intent(in)            :: gci                     !< Ghost grid cells number in I direction.
-   integer(I4P), intent(in)            :: gcj                     !< Ghost grid cells number in J direction.
-   integer(I4P), intent(in)            :: gck                     !< Ghost grid cells number in K direction.
-   integer(I4P), intent(in)            :: ns                      !< Number of species.
-   logical,      intent(in)            :: null_x                  !< Nullify x direction.
-   logical,      intent(in)            :: null_y                  !< Nullify y direction.
-   logical,      intent(in)            :: null_z                  !< Nullify z direction.
-   integer(I4P), intent(in)            :: blocks_number           !< Number of blocks.
-   real(R8P),    intent(in),    device :: dxyz_gpu(1:,1:)         !< Space steps.
+   integer(I4P), intent(in)            :: ni                       !< Grid cells number in I direction.
+   integer(I4P), intent(in)            :: nj                       !< Grid cells number in J direction.
+   integer(I4P), intent(in)            :: nk                       !< Grid cells number in K direction.
+   integer(I4P), intent(in)            :: gci                      !< Ghost grid cells number in I direction.
+   integer(I4P), intent(in)            :: gcj                      !< Ghost grid cells number in J direction.
+   integer(I4P), intent(in)            :: gck                      !< Ghost grid cells number in K direction.
+   integer(I4P), intent(in)            :: ns                       !< Number of species.
+   logical,      intent(in)            :: null_x                   !< Nullify x direction.
+   logical,      intent(in)            :: null_y                   !< Nullify y direction.
+   logical,      intent(in)            :: null_z                   !< Nullify z direction.
+   integer(I4P), intent(in)            :: blocks_number            !< Number of blocks.
+   real(R8P),    intent(in),    device :: dx_gpu(1:)               !< X space steps.
+   real(R8P),    intent(in),    device :: dy_gpu(1:)               !< Y space steps.
+   real(R8P),    intent(in),    device :: dz_gpu(1:)               !< Z space steps.
    real(R8P),    intent(in),    device :: q_aux_gpu(1:,    &
                                                     1-gci:,&
                                                     1-gcj:,&
                                                     1-gck:,&
-                                                    1:)           !< Auxiliary variables.
-   real(R8P),    intent(inout), device :: f_i_gpu(1:,0:,1:,1:,1:) !< Convective fluxes in i direction.
-   real(R8P),    intent(inout), device :: f_j_gpu(1:,1:,0:,1:,1:) !< Convective fluxes in j direction.
-   real(R8P),    intent(inout), device :: f_k_gpu(1:,1:,1:,0:,1:) !< Convective fluxes in k direction.
-   real(R8P),    intent(inout), device :: f1D_gpu(1:,1:,0:,0:,0:) !< Convective fluxes in normal direction.
+                                                    1:)            !< Auxiliary variables.
+   real(R8P),    intent(inout), device :: f_i_gpu(1:,0:,1:,1:,1:)  !< Convective fluxes in i direction.
+   real(R8P),    intent(inout), device :: f_j_gpu(1:,1:,0:,1:,1:)  !< Convective fluxes in j direction.
+   real(R8P),    intent(inout), device :: f_k_gpu(1:,1:,1:,0:,1:)  !< Convective fluxes in k direction.
+   real(R8P),    intent(inout), device ::   f_rho_gpu(1:,0:,0:,0:) !< Convective fluxes in normal direction, rho, 1D.
+   real(R8P),    intent(inout), device :: f_rho_u_gpu(1:,0:,0:,0:) !< Convective fluxes in normal direction, rho*u, 1D.
+   real(R8P),    intent(inout), device :: f_rho_E_gpu(1:,0:,0:,0:) !< Convective fluxes in normal direction, rho*E, 1D.
    real(R8P),    intent(inout), device :: q_gpu(1:,    &
                                                 1-gci:,&
                                                 1-gcj:,&
                                                 1-gck:,&
-                                                1:)               !< Conservative variables.
-   integer(I4P)                        :: b, i, j, k, s           !< Counter.
-   integer(I4P)                        :: iercuda                 !< Error trapping flag for CUDAFortran.
+                                                1:)                !< Conservative variables.
+   integer(I4P)                        :: b, i, j, k, s            !< Counter.
+   integer(I4P)                        :: iercuda                  !< Error trapping flag for CUDAFortran.
 
    ! fluxes in i direction
    if (.not.null_x) then
@@ -968,25 +996,27 @@ contains
                                      u4=q_aux_gpu(b,i+1,j,k,ns+2), &
                                      g4=q_aux_gpu(b,i+1,j,k,ns+5), &
                                      p4=q_aux_gpu(b,i+1,j,k,ns+6), &
-                                     f=f1D_gpu(1:3,b,i,j,k))
+                                     f_rho  =  f_rho_gpu(b,i,j,k), &
+                                     f_rho_u=f_rho_u_gpu(b,i,j,k), &
+                                     f_rho_E=f_rho_E_gpu(b,i,j,k))
                   ! compute 3D fluxes
-                  if (f1D_gpu(1,b,i,j,k)>0._R8P) then
+                  if (f_rho_gpu(b,i,j,k)>0._R8P) then
                      do s=1, ns
-                        f_i_gpu(b,i,j,k,s) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k,s)
+                        f_i_gpu(b,i,j,k,s) = f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k,s)
                      enddo
-                     f_i_gpu(b,i,j,k,ns+1) = f1D_gpu(2,b,i,j,k)
-                     f_i_gpu(b,i,j,k,ns+2) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k,ns+3)
-                     f_i_gpu(b,i,j,k,ns+3) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k,ns+4)
-                     f_i_gpu(b,i,j,k,ns+4) = f1D_gpu(3,b,i,j,k) + 0.5_R8P * f1D_gpu(1,b,i,j,k) * &
+                     f_i_gpu(b,i,j,k,ns+1) = f_rho_u_gpu(b,i,j,k)
+                     f_i_gpu(b,i,j,k,ns+2) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k,ns+3)
+                     f_i_gpu(b,i,j,k,ns+3) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k,ns+4)
+                     f_i_gpu(b,i,j,k,ns+4) = f_rho_E_gpu(b,i,j,k) + 0.5_R8P * f_rho_gpu(b,i,j,k) * &
                                                                   (q_aux_gpu(b,i,j,k,ns+3)**2 + q_aux_gpu(b,i,j,k,ns+4)**2)
                   else
                      do s=1, ns
-                        f_i_gpu(b,i,j,k,s) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i+1,j,k,s)
+                        f_i_gpu(b,i,j,k,s) = f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i+1,j,k,s)
                      enddo
-                     f_i_gpu(b,i,j,k,ns+1) = f1D_gpu(2,b,i,j,k)
-                     f_i_gpu(b,i,j,k,ns+2) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i+1,j,k,ns+3)
-                     f_i_gpu(b,i,j,k,ns+3) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i+1,j,k,ns+4)
-                     f_i_gpu(b,i,j,k,ns+4) = f1D_gpu(3,b,i,j,k) + 0.5_R8P * f1D_gpu(1,b,i,j,k) * &
+                     f_i_gpu(b,i,j,k,ns+1) = f_rho_u_gpu(b,i,j,k)
+                     f_i_gpu(b,i,j,k,ns+2) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i+1,j,k,ns+3)
+                     f_i_gpu(b,i,j,k,ns+3) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i+1,j,k,ns+4)
+                     f_i_gpu(b,i,j,k,ns+4) = f_rho_E_gpu(b,i,j,k) + 0.5_R8P * f_rho_gpu(b,i,j,k) * &
                                                                   (q_aux_gpu(b,i+1,j,k,ns+3)**2 + q_aux_gpu(b,i+1,j,k,ns+4)**2)
                   endif
                enddo
@@ -1026,25 +1056,27 @@ contains
                                      u4=q_aux_gpu(b,i,j+1,k,ns+3), &
                                      g4=q_aux_gpu(b,i,j+1,k,ns+5), &
                                      p4=q_aux_gpu(b,i,j+1,k,ns+6), &
-                                     f=f1D_gpu(1:3,b,i,j,k))
+                                     f_rho  =  f_rho_gpu(b,i,j,k), &
+                                     f_rho_u=f_rho_u_gpu(b,i,j,k), &
+                                     f_rho_E=f_rho_E_gpu(b,i,j,k))
                   ! compute 3D fluxes
-                  if (f1D_gpu(1,b,i,j,k)>0._R8P) then
+                  if (f_rho_gpu(b,i,j,k)>0._R8P) then
                      do s=1, ns
-                        f_j_gpu(b,i,j,k,s) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k,s)
+                        f_j_gpu(b,i,j,k,s) = f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k,s)
                      enddo
-                     f_j_gpu(b,i,j,k,ns+1) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k,ns+2)
-                     f_j_gpu(b,i,j,k,ns+2) = f1D_gpu(2,b,i,j,k)
-                     f_j_gpu(b,i,j,k,ns+3) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k,ns+4)
-                     f_j_gpu(b,i,j,k,ns+4) = f1D_gpu(3,b,i,j,k) + 0.5_R8P * f1D_gpu(1,b,i,j,k) * &
+                     f_j_gpu(b,i,j,k,ns+1) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k,ns+2)
+                     f_j_gpu(b,i,j,k,ns+2) = f_rho_u_gpu(b,i,j,k)
+                     f_j_gpu(b,i,j,k,ns+3) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k,ns+4)
+                     f_j_gpu(b,i,j,k,ns+4) = f_rho_E_gpu(b,i,j,k) + 0.5_R8P * f_rho_gpu(b,i,j,k) * &
                                                                   (q_aux_gpu(b,i,j,k,ns+2)**2 + q_aux_gpu(b,i,j,k,ns+4)**2)
                   else
                      do s=1, ns
-                        f_j_gpu(b,i,j,k,s) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j+1,k,s)
+                        f_j_gpu(b,i,j,k,s) = f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j+1,k,s)
                      enddo
-                     f_j_gpu(b,i,j,k,ns+1) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j+1,k,ns+2)
-                     f_j_gpu(b,i,j,k,ns+2) = f1D_gpu(2,b,i,j,k)
-                     f_j_gpu(b,i,j,k,ns+3) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j+1,k,ns+4)
-                     f_j_gpu(b,i,j,k,ns+4) = f1D_gpu(3,b,i,j,k) + 0.5_R8P * f1D_gpu(1,b,i,j,k) * &
+                     f_j_gpu(b,i,j,k,ns+1) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j+1,k,ns+2)
+                     f_j_gpu(b,i,j,k,ns+2) = f_rho_u_gpu(b,i,j,k)
+                     f_j_gpu(b,i,j,k,ns+3) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j+1,k,ns+4)
+                     f_j_gpu(b,i,j,k,ns+4) = f_rho_E_gpu(b,i,j,k) + 0.5_R8P * f_rho_gpu(b,i,j,k) * &
                                                                   (q_aux_gpu(b,i,j+1,k,ns+2)**2 + q_aux_gpu(b,i,j+1,k,ns+4)**2)
                   endif
                enddo
@@ -1084,25 +1116,27 @@ contains
                                      u4=q_aux_gpu(b,i,j,k+1,ns+4), &
                                      g4=q_aux_gpu(b,i,j,k+1,ns+5), &
                                      p4=q_aux_gpu(b,i,j,k+1,ns+6), &
-                                     f=f1D_gpu(1:3,b,i,j,k))
+                                     f_rho  =  f_rho_gpu(b,i,j,k), &
+                                     f_rho_u=f_rho_u_gpu(b,i,j,k), &
+                                     f_rho_E=f_rho_E_gpu(b,i,j,k))
                   ! compute 3D fluxes
-                  if (f1D_gpu(1,b,i,j,k)>0._R8P) then
+                  if (f_rho_gpu(b,i,j,k)>0._R8P) then
                      do s=1, ns
-                        f_k_gpu(b,i,j,k,s) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k,s)
+                        f_k_gpu(b,i,j,k,s) = f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k,s)
                      enddo
-                     f_k_gpu(b,i,j,k,ns+1) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k,ns+2)
-                     f_k_gpu(b,i,j,k,ns+2) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k,ns+3)
-                     f_k_gpu(b,i,j,k,ns+3) = f1D_gpu(2,b,i,j,k)
-                     f_k_gpu(b,i,j,k,ns+4) = f1D_gpu(3,b,i,j,k) + 0.5_R8P * f1D_gpu(1,b,i,j,k) * &
+                     f_k_gpu(b,i,j,k,ns+1) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k,ns+2)
+                     f_k_gpu(b,i,j,k,ns+2) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k,ns+3)
+                     f_k_gpu(b,i,j,k,ns+3) = f_rho_u_gpu(b,i,j,k)
+                     f_k_gpu(b,i,j,k,ns+4) = f_rho_E_gpu(b,i,j,k) + 0.5_R8P * f_rho_gpu(b,i,j,k) * &
                                                                   (q_aux_gpu(b,i,j,k,ns+2)**2 + q_aux_gpu(b,i,j,k,ns+3)**2)
                   else
                      do s=1, ns
-                        f_k_gpu(b,i,j,k,s) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k+1,s)
+                        f_k_gpu(b,i,j,k,s) = f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k+1,s)
                      enddo
-                     f_k_gpu(b,i,j,k,ns+1) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k+1,ns+2)
-                     f_k_gpu(b,i,j,k,ns+2) = f1D_gpu(1,b,i,j,k) * q_aux_gpu(b,i,j,k+1,ns+3)
-                     f_k_gpu(b,i,j,k,ns+3) = f1D_gpu(2,b,i,j,k)
-                     f_k_gpu(b,i,j,k,ns+4) = f1D_gpu(3,b,i,j,k) + 0.5_R8P * f1D_gpu(1,b,i,j,k) * &
+                     f_k_gpu(b,i,j,k,ns+1) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k+1,ns+2)
+                     f_k_gpu(b,i,j,k,ns+2) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k+1,ns+3)
+                     f_k_gpu(b,i,j,k,ns+3) = f_rho_u_gpu(b,i,j,k)
+                     f_k_gpu(b,i,j,k,ns+4) = f_rho_E_gpu(b,i,j,k) + 0.5_R8P * f_rho_gpu(b,i,j,k) * &
                                                                   (q_aux_gpu(b,i,j,k+1,ns+2)**2 + q_aux_gpu(b,i,j,k+1,ns+3)**2)
                   endif
                enddo
@@ -1132,9 +1166,9 @@ contains
          do j=1, nj
             do i=1, ni
                do b=1, blocks_number
-                  q_gpu(b,i,j,k,s) = (f_i_gpu(b,i-1,j  ,k  ,s) - f_i_gpu(b,i,j,k,s)) / dxyz_gpu(1,b) + &
-                                     (f_j_gpu(b,i  ,j-1,k  ,s) - f_j_gpu(b,i,j,k,s)) / dxyz_gpu(2,b) + &
-                                     (f_k_gpu(b,i  ,j  ,k-1,s) - f_k_gpu(b,i,j,k,s)) / dxyz_gpu(3,b)
+                  q_gpu(b,i,j,k,s) = (f_i_gpu(b,i-1,j  ,k  ,s) - f_i_gpu(b,i,j,k,s)) / dx_gpu(b) + &
+                                     (f_j_gpu(b,i  ,j-1,k  ,s) - f_j_gpu(b,i,j,k,s)) / dy_gpu(b) + &
+                                     (f_k_gpu(b,i  ,j  ,k-1,s) - f_k_gpu(b,i,j,k,s)) / dz_gpu(b)
                enddo
             enddo
          enddo
@@ -1283,7 +1317,7 @@ contains
    endsubroutine copy_transpose_gpu_cpu_cuf
 
    ! non type-bound kernel procedures
-   attributes(device) subroutine solve_riemann(r1, u1, p1, g1, r4, u4, p4, g4, f)
+   attributes(device) subroutine solve_riemann(r1, u1, p1, g1, r4, u4, p4, g4, f_rho, f_rho_u, f_rho_E)
    !< Solve the Riemann problem between the state $1$ and $4$ using the (local) Lax Friedrichs (Rusanov) solver.
    real(R8P),    intent(in)  :: r1            !< Density of state 1.
    real(R8P),    intent(in)  :: u1            !< Velocity of state 1.
@@ -1293,7 +1327,9 @@ contains
    real(R8P),    intent(in)  :: u4            !< Velocity of state 4.
    real(R8P),    intent(in)  :: p4            !< Pressure of state 4.
    real(R8P),    intent(in)  :: g4            !< Specific heats ratio of state 4.
-   real(R8P),    intent(out) :: f(1:3)        !< Fluxes at interface.
+   real(R8P),    intent(out) :: f_rho         !< Flux of rho at interface.
+   real(R8P),    intent(out) :: f_rho_u       !< Flux of rho*u at interface.
+   real(R8P),    intent(out) :: f_rho_E       !< Flux of rho*E at interface.
    real(R8P)                 :: F1(1:3)       !< State 1 fluxes.
    real(R8P)                 :: F4(1:3)       !< State 4 fluxes.
    real(R8P)                 :: lmax          !< Maximum wave speed estimation.
@@ -1310,9 +1346,9 @@ contains
    F1 = fluxes(p = p1, r = r1, u = u1, g = g1)
    F4 = fluxes(p = p4, r = r4, u = u4, g = g4)
    ! compute the Lax-Friedrichs fluxes approximation
-   f(1) = 0.5_R8P*(F1(1) + F4(1) - lmax*(r4                        - r1                       ))
-   f(2) = 0.5_R8P*(F1(2) + F4(2) - lmax*(r4*u4                     - r1*u1                    ))
-   f(3) = 0.5_R8P*(F1(3) + F4(3) - lmax*(r4*E(p=p4,r=r4,u=u4,g=g4) - r1*E(p=p1,r=r1,u=u1,g=g1)))
+   f_rho   = 0.5_R8P*(F1(1) + F4(1) - lmax*(r4                        - r1                       ))
+   f_rho_u = 0.5_R8P*(F1(2) + F4(2) - lmax*(r4*u4                     - r1*u1                    ))
+   f_rho_E = 0.5_R8P*(F1(3) + F4(3) - lmax*(r4*E(p=p4,r=r4,u=u4,g=g4) - r1*E(p=p1,r=r1,u=u1,g=g1)))
    endsubroutine solve_riemann
 
    attributes(device) subroutine compute_inter_states(r1, u1, p1, g1, r4, u4, p4, g4, u, S1, S4)
@@ -1428,4 +1464,73 @@ contains
 
    entalpy = g * p / ((g - 1._R_P) * r) + 0.5_R_P * u*u
    endfunction H
+
+   !attributes(device) function weno_polynomials(s, weno_p, v) result(VP)
+   !!< Return WENO polynomials
+   !integer(I4P), intent(in) :: s                       !< Number of stencils used.
+   !real(R8P),    intent(in) :: weno_p(1:2,0:S-1,0:S-1) !< Polinomials coefficients.
+   !real(R8P),    intent(in) ::     v (1:2,1-s:-1+s)    !< Variable to be reconstructed.
+   !real(R8P)                ::     vp(1:2,0:s-1   )    !< Polynomial reconstructions.
+   !integer(I4P)             :: s1, s2, f               !< Counters.
+
+   !vp = 0._R_P
+   !do s1=0,s-1 ! stencil counter
+   !   do s2=0,s-1 ! cell counter counter
+   !      do f=1,2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
+   !         vp(f,s1) = vp(f,s1) + weno_p(f,s2,s1) * v(f,-s2+s1)
+   !      enddo
+   !   enddo
+   !enddo
+   !endfunction weno_polynomials
+
+   !attributes(device) function weno_reconstructed(s, weno_p, v) result(vr)
+   !!< Return WENO reconstruction of 2S-1 order.
+   !integer(I4P), intent(in) :: s                       !< Number of stencils used.
+   !real(R8P),    intent(in) :: weno_p(1:2,0:S-1,0:S-1) !< Polinomials coefficients.
+   !real(R8P),    intent(in) ::     v (1:2,1-s:-1+s)    !< Variable to be reconstructed.
+   !real(R8P)                ::     vr(1:2         )    !< Left and right (1,2) interface value of reconstructed V.
+   !real(R8P)                ::     vp(1:2,0:s-1   )    !< Polynomial reconstructions.
+   !real(R8P)                ::     w (1:2,0:s-1   )    !< Weights of the stencils.
+
+   !vp = weno_polynomials(s=s, v=v)        ! compute the polynomials
+   !w = weno_weights(s=s, v=v)             ! compute the weights associated to the polynomials
+   !vr = weno_convolution(s=s, vp=vp, w=w) ! compute the convultion of reconstructing plynomials
+   !endfunction weno_reconstructed
+
+   !attributes(device) function weno_weights(s, weno_eps, weno_a, weno_d, v) result(w)
+   !!< Return WENO weights of the polynomial reconstructions.
+   !integer(I4P),                     intent(in) :: s                   !< Number of stencils used.
+   !real(R8P),                        intent(in) :: v    (1:2,1-s:-1+s) !< Variable to be reconstructed.
+   !real(R8P)                                    :: W    (1:2,0:s-1)    !< Weights of the stencils.
+   !real(R8P)                                    :: IS   (1:2,0:s-1)    !< Smoothness indicators of the stencils.
+   !real(R8P)                                    :: a    (1:2,0:s-1)    !< Alpha coefficients for the weights.
+   !real(R8P)                                    :: a_tot(1:2)          !< Summ of the alpha coefficients.
+   !integer(I4P)                                 :: s1, s2, s3, f       !< Counters.
+
+   !! compute smoothness indicators
+   !do s1=0,S-1 ! stencil counter
+   !   do f=1,2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
+   !      IS(f,s1) = 0._R_P
+   !      do s2=0,S-1
+   !         do s3=0,S-1
+   !            IS(f,s1) = IS(f,s1) + weno_d(s3,s2,s1) * v(f,s1-s3) * v(f,s1-s2)
+   !         enddo
+   !      enddo
+   !   enddo
+   !enddo
+   !! compute alfa coefficients
+   !a_tot = 0._R_P
+   !do s1=0,S-1
+   !   do f=1,2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
+   !      a(f,s1) = weno_a(f,s1) * (1._R_P / (weno_eps + IS(f,s1))**s)
+   !      a_tot(f) = a_tot(f) + a(f,s1)
+   !   enddo
+   !enddo
+   !! compute the weights
+   !do s1=0,S-1
+   !   do f=1,2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
+   !      w(f,s1) = a(f,s1) / a_tot(f)
+   !   enddo
+   !enddo
+   !endfunction weno_weights
 endmodule adam_equation_euler_gpu_object

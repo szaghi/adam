@@ -1,6 +1,6 @@
-!< ADAM, ADAM for Euler equation.
-program adam_euler
-!< ADAM, ADAM for Euler equation.
+!< ADAM, ADAM for Euler equation, CPU backend.
+program adam_euler_cpu
+!< ADAM, ADAM for Euler equation, CPU backend.
 
 use adam_adam_object
 use adam_equation_euler_cpu_object
@@ -90,4 +90,4 @@ integration: do
 enddo integration
 
 call adam%finalize
-endprogram adam_euler
+endprogram adam_euler_cpu
