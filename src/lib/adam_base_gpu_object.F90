@@ -19,14 +19,16 @@ type :: base_gpu_object
    !< Provide update ghosts methods for GPU backend.
    type(field_object), pointer :: field=>null() !< The field.
    ! MPI data
-   integer(I4P) :: myrank=0_I4P                  !< MPI rank process.
-   integer(I4P) :: procs_number=1_I4P            !< Number of MPI processes.
-   integer(I4P) :: error=0_I4P                   !< Error traping flag.
-   integer(I4P) :: mydev=0_I4P                   !< My GPU rank.
-   integer(I4P) :: local_comm=0_I4P              !< Local communicator.
-   integer(I4P), allocatable :: req_send_recv(:) !< MPI request receive flags.
+   integer(I4P) :: myrank=0_I4P                           !< MPI rank process.
+   integer(I4P) :: procs_number=1_I4P                     !< Number of MPI processes.
+   integer(I4P) :: error=0_I4P                            !< Error traping flag.
+   integer(I4P) :: mydev=0_I4P                            !< My GPU rank.
+   integer(I4P) :: local_comm=0_I4P                       !< Local communicator.
+   integer(I4P), allocatable :: req_send_recv(:)          !< MPI request receive flags.
+   integer(I8P), allocatable :: local_map_ghost_cell(:,:) !< Local map for ghost cells updating, cells order.
    ! GPU data
-   integer(I8P), allocatable, device :: local_map_ghost_gpu(:,:)     !< Local map for ghost cells updating.
+   integer(I8P), allocatable, device :: local_map_ghost_cell_gpu(:,:)!< Local map for ghost cells updating, cells order.
+   integer(I8P), allocatable, device :: local_map_ghost_gpu(:,:)     !< Local map for ghost cells updating, fecs order.
    integer(I8P), allocatable, device :: comm_map_recv_ghost_gpu(:,:) !< Communication map, `fec` information.
    integer(I8P), allocatable, device :: comm_map_send_ghost_gpu(:,:) !< Communication map, `fec` information.
    real(R8P),    allocatable, device :: send_buffer_ghost_gpu(:)     !< Send buffer of ghost cells.
@@ -37,6 +39,7 @@ type :: base_gpu_object
    contains
       ! public methods
       procedure, pass(self) :: copy_cpu_gpu           !< Copy data from CPU to GPU.
+      procedure, pass(self) :: create_maps_cell       !< Create mapps in cells order form the fecs ordered ones.
       procedure, pass(self) :: destroy                !< Destroy the equation.
       procedure, pass(self) :: initialize             !< Initialize the equation.
       procedure, pass(self) :: update_ghost_local_gpu !< Update ghosts locally.
@@ -99,7 +102,130 @@ contains
    if (allocated(self%field%local_map_bc_edge)) then
       self%local_map_bc_edge_gpu = self%field%local_map_bc_edge
    endif
+   call self%create_maps_cell
    endsubroutine copy_cpu_gpu
+
+   subroutine create_maps_cell(self)
+   !< Create maps in cells order form the fecs ordered ones.
+   class(base_gpu_object), intent(inout) :: self          !< The base backend.
+   integer(I4P)                          :: c, f          !< Counter.
+   integer(I4P)                          :: i, j, k       !< Counter.
+   integer(I4P)                          :: iii, jjj, kkk !< Counter.
+   integer(I4P)                          :: ic, jc, kc    !< Counter.
+   integer(I4P)                          :: fec           !< Ghost direction, faces/edges/corners.
+   integer(I4P)                          :: portion       !< Portion of fec updated (0=>whole fec).
+   integer(I4P)                          :: b_recv        !< Index of receiving block.
+   integer(I4P)                          :: b_send        !< Index of sending block.
+   integer(I4P)                          :: imin          !< Lower limit of i indexes.
+   integer(I4P)                          :: jmin          !< Lower limit of j indexes.
+   integer(I4P)                          :: kmin          !< Lower limit of j indexes.
+   integer(I4P)                          :: imax          !< Upper limit of i indexes.
+   integer(I4P)                          :: jmax          !< Upper limit of j indexes.
+   integer(I4P)                          :: kmax          !< Upper limit of k indexes.
+   integer(I4P)                          :: idelta        !< Delta offset for ghost-inner cells of i.
+   integer(I4P)                          :: jdelta        !< Delta offset for ghost-inner cells of j.
+   integer(I4P)                          :: kdelta        !< Delta offset for ghost-inner cells of k.
+
+   if (allocated(self%local_map_ghost_gpu)) then
+      if (allocated(self%local_map_ghost_cell)) deallocate(self%local_map_ghost_cell)
+      c = 0
+      do f=1, size(self%field%local_map_ghost, dim=1)
+         portion = self%field%local_map_ghost(f, 4 )
+         imin    = self%field%local_map_ghost(f, 5 )
+         jmin    = self%field%local_map_ghost(f, 6 )
+         kmin    = self%field%local_map_ghost(f, 7 )
+         imax    = self%field%local_map_ghost(f, 8 )
+         jmax    = self%field%local_map_ghost(f, 9 )
+         kmax    = self%field%local_map_ghost(f, 10)
+         if (portion>=0) then
+            ! receiving from a block with the same refinement or finer than me
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     c = c + 1
+                  enddo
+               enddo
+            enddo
+         else
+            ! receiving from a block coarser than me
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     do kc=0,1 ; do jc=0,1 ; do ic=0,1
+                        c = c + 1
+                     enddo ; enddo ; enddo
+                  enddo
+               enddo
+            enddo
+         endif
+      enddo
+      allocate(self%local_map_ghost_cell(1:c,1:9))
+      c = 0
+      do f=1, size(self%field%local_map_ghost, dim=1)
+         b_recv  = self%field%local_map_ghost(f, 1 )
+         b_send  = self%field%local_map_ghost(f, 2 )
+         portion = self%field%local_map_ghost(f, 4 )
+         imin    = self%field%local_map_ghost(f, 5 )
+         jmin    = self%field%local_map_ghost(f, 6 )
+         kmin    = self%field%local_map_ghost(f, 7 )
+         imax    = self%field%local_map_ghost(f, 8 )
+         jmax    = self%field%local_map_ghost(f, 9 )
+         kmax    = self%field%local_map_ghost(f, 10)
+         idelta  = self%field%local_map_ghost(f, 11)
+         jdelta  = self%field%local_map_ghost(f, 12)
+         kdelta  = self%field%local_map_ghost(f, 13)
+         if     (portion==0) then
+            ! receiving from a block with the same refinement
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     self%local_map_ghost_cell(c,1:2) = [b_send, b_recv]
+                     self%local_map_ghost_cell(c,3:5) = [i+idelta, j+jdelta, k+kdelta]
+                     self%local_map_ghost_cell(c,6:8) = [i, j, k]
+                     self%local_map_ghost_cell(c, 9 ) = 1
+                     c = c + 1
+                  enddo
+               enddo
+            enddo
+         elseif (portion>0) then
+            ! receiving from a block finer than me
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     kkk = 2 * k + kdelta
+                     jjj = 2 * j + jdelta
+                     iii = 2 * i + idelta
+                     self%local_map_ghost_cell(c,1:2) = [b_send, b_recv]
+                     self%local_map_ghost_cell(c,3:5) = [iii, jjj, kkk]
+                     self%local_map_ghost_cell(c,6:8) = [i, j, k]
+                     self%local_map_ghost_cell(c, 9 ) = 8
+                     c = c + 1
+                  enddo
+               enddo
+            enddo
+         else
+            ! receiving from a block coarser than me
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     kkk = 2 * k + kdelta
+                     jjj = 2 * j + jdelta
+                     iii = 2 * i + idelta
+                     do kc=0,1 ; do jc=0,1 ; do ic=0,1
+                        self%local_map_ghost_cell(c,1:2) = [b_send, b_recv]
+                        self%local_map_ghost_cell(c,3:5) = [i, j, k]
+                        self%local_map_ghost_cell(c,6:8) = [iii+ic,  jjj+jc, kkk+kc]
+                        self%local_map_ghost_cell(c, 9 ) = 1
+                        c = c + 1
+                     enddo ; enddo ; enddo
+                  enddo
+               enddo
+            enddo
+         endif
+      enddo
+      self%local_map_ghost_cell_gpu = self%local_map_ghost_cell
+   endif
+   endsubroutine create_maps_cell
 
    subroutine destroy(self)
    !< Destroy base backend.
@@ -133,7 +259,7 @@ contains
                                                           1-self%field%grid%gcj:,&
                                                           1-self%field%grid%gck:,&
                                                           1:) !< Field component to be updated.
-   call update_ghost_local_gpu_cuf(local_map_ghost_gpu=self%local_map_ghost_gpu, &
+   call update_ghost_local_gpu_cuf(local_map_ghost_cell_gpu=self%local_map_ghost_cell_gpu, &
                                    gci=self%field%grid%gci, gcj=self%field%grid%gcj, gck=self%field%grid%gck, q_gpu=q_gpu)
    endsubroutine update_ghost_local_gpu
 
@@ -179,92 +305,49 @@ contains
    endsubroutine base_assign_base
 
    ! non TBP CUF methods
-   subroutine update_ghost_local_gpu_cuf(gci, gcj, gck, local_map_ghost_gpu, q_gpu)
+   subroutine update_ghost_local_gpu_cuf(gci, gcj, gck, local_map_ghost_cell_gpu, q_gpu)
    !< Update (local) ghost cells.
-   integer(I4P), intent(in)                         :: gci                      !< Ghost cells number in I direction.
-   integer(I4P), intent(in)                         :: gcj                      !< Ghost cells number in J direction.
-   integer(I4P), intent(in)                         :: gck                      !< Ghost cells number in K direction.
-   integer(I8P), intent(in),    device, allocatable :: local_map_ghost_gpu(:,:) !< Local map of ghost cells.
+   integer(I4P), intent(in)                         :: gci                           !< Ghost cells number in I direction.
+   integer(I4P), intent(in)                         :: gcj                           !< Ghost cells number in J direction.
+   integer(I4P), intent(in)                         :: gck                           !< Ghost cells number in K direction.
+   integer(I8P), intent(in),    device, allocatable :: local_map_ghost_cell_gpu(:,:) !< Local map of ghost cells.
    real(R8P),    intent(inout), device              :: q_gpu(1:,    &
                                                              1-gci:,&
                                                              1-gcj:,&
-                                                             1-gck:,1:)         !< Field component to be updated.
-   integer(I4P)                                     :: i, j, k, mf              !< Counter.
-   integer(I4P)                                     :: iii, jjj, kkk            !< Counter.
-   integer(I4P)                                     :: fec                      !< Ghost direction, faces/edges/corners.
-   integer(I4P)                                     :: portion                  !< Portion of fec updated (0=>whole fec).
-   integer(I4P)                                     :: b_recv                   !< Index of receiving block.
-   integer(I4P)                                     :: b_send                   !< Index of sending block.
-   integer(I4P)                                     :: imin                     !< Lower limit of i indexes.
-   integer(I4P)                                     :: jmin                     !< Lower limit of j indexes.
-   integer(I4P)                                     :: kmin                     !< Lower limit of j indexes.
-   integer(I4P)                                     :: imax                     !< Upper limit of i indexes.
-   integer(I4P)                                     :: jmax                     !< Upper limit of j indexes.
-   integer(I4P)                                     :: kmax                     !< Upper limit of k indexes.
-   integer(I4P)                                     :: idelta                   !< Delta offset for ghost-inner cells of i.
-   integer(I4P)                                     :: jdelta                   !< Delta offset for ghost-inner cells of j.
-   integer(I4P)                                     :: kdelta                   !< Delta offset for ghost-inner cells of k.
-   integer(I4P)                                     :: iercuda                  !< Error trapping flag for CUDAFortran.
+                                                             1-gck:,1:)              !< Field component to be updated.
+   integer(I4P)                                     :: ic, jc, kc, mf                !< Counter.
+   integer(I4P)                                     :: b_recv                        !< Index of receiving block.
+   integer(I4P)                                     :: b_send                        !< Index of sending block.
+   integer(I4P)                                     :: i_recv                        !< I recv index.
+   integer(I4P)                                     :: j_recv                        !< J recv index.
+   integer(I4P)                                     :: k_recv                        !< K recv index.
+   integer(I4P)                                     :: i_send                        !< I send index.
+   integer(I4P)                                     :: j_send                        !< J send index.
+   integer(I4P)                                     :: k_send                        !< K send index.
+   integer(I4P)                                     :: one_or_eight                  !< Flag triggering 8 cells mean.
+   integer(I4P)                                     :: iercuda                       !< Error trapping flag for CUDAFortran.
 
-   if (.not.allocated(local_map_ghost_gpu)) return
+   if (.not.allocated(local_map_ghost_cell_gpu)) return
    !$cuf kernel do(1) <<<*,*>>>
-   do mf=1, size(local_map_ghost_gpu, dim=1)
-      b_recv  = local_map_ghost_gpu(mf, 1 )
-      b_send  = local_map_ghost_gpu(mf, 2 )
-      fec     = local_map_ghost_gpu(mf, 3 )
-      portion = local_map_ghost_gpu(mf, 4 )
-      imin    = local_map_ghost_gpu(mf, 5 )
-      jmin    = local_map_ghost_gpu(mf, 6 )
-      kmin    = local_map_ghost_gpu(mf, 7 )
-      imax    = local_map_ghost_gpu(mf, 8 )
-      jmax    = local_map_ghost_gpu(mf, 9 )
-      kmax    = local_map_ghost_gpu(mf, 10)
-      idelta  = local_map_ghost_gpu(mf, 11)
-      jdelta  = local_map_ghost_gpu(mf, 12)
-      kdelta  = local_map_ghost_gpu(mf, 13)
-      if     (portion==0) then
-         ! receiving from a block with the same refinement
-         do k=kmin, kmax
-            do j=jmin, jmax
-               do i=imin, imax
-                  q_gpu(b_recv,i,j,k,:) = q_gpu(b_send,i+idelta,j+jdelta,k+kdelta,:)
-               enddo
-            enddo
-         enddo
-      elseif (portion>0) then
-         ! receiving from a block finer than me
-         do k=kmin, kmax
-            do j=jmin, jmax
-               do i=imin, imax
-                  kkk = 2 * k + kdelta
-                  jjj = 2 * j + jdelta
-                  iii = 2 * i + idelta
-                  q_gpu(b_recv,i,j,k,:) = (q_gpu(b_send,iii,jjj,  kkk,  :) + q_gpu(b_send,iii+1,jjj,  kkk,  :) + &
-                                           q_gpu(b_send,iii,jjj+1,kkk,  :) + q_gpu(b_send,iii+1,jjj+1,kkk,  :) + &
-                                           q_gpu(b_send,iii,jjj,  kkk+1,:) + q_gpu(b_send,iii+1,jjj,  kkk+1,:) + &
-                                           q_gpu(b_send,iii,jjj+1,kkk+1,:) + q_gpu(b_send,iii+1,jjj+1,kkk+1,:)) / 8._R8P
-               enddo
-            enddo
-         enddo
+   do mf=1, size(local_map_ghost_cell_gpu, dim=1)
+      b_send       = local_map_ghost_cell_gpu(mf,1)
+      b_recv       = local_map_ghost_cell_gpu(mf,2)
+      i_send       = local_map_ghost_cell_gpu(mf,3)
+      j_send       = local_map_ghost_cell_gpu(mf,4)
+      k_send       = local_map_ghost_cell_gpu(mf,5)
+      i_recv       = local_map_ghost_cell_gpu(mf,6)
+      j_recv       = local_map_ghost_cell_gpu(mf,7)
+      k_recv       = local_map_ghost_cell_gpu(mf,8)
+      one_or_eight = local_map_ghost_cell_gpu(mf,9)
+      if (one_or_eight==1) then
+         q_gpu(b_recv,i_recv, j_recv, k_recv,:) = q_gpu(b_send, i_send,j_send,k_send,:)
       else
-         ! receiving from a block coarser than me
-         do k=kmin, kmax
-            do j=jmin, jmax
-               do i=imin, imax
-                  kkk = 2 * k + kdelta
-                  jjj = 2 * j + jdelta
-                  iii = 2 * i + idelta
-                  q_gpu(b_recv,iii,  jjj,  kkk  ,:) = q_gpu(b_send,i,j,k,:)
-                  q_gpu(b_recv,iii+1,jjj,  kkk  ,:) = q_gpu(b_send,i,j,k,:)
-                  q_gpu(b_recv,iii,  jjj+1,kkk  ,:) = q_gpu(b_send,i,j,k,:)
-                  q_gpu(b_recv,iii+1,jjj+1,kkk  ,:) = q_gpu(b_send,i,j,k,:)
-                  q_gpu(b_recv,iii,  jjj,  kkk+1,:) = q_gpu(b_send,i,j,k,:)
-                  q_gpu(b_recv,iii+1,jjj,  kkk+1,:) = q_gpu(b_send,i,j,k,:)
-                  q_gpu(b_recv,iii,  jjj+1,kkk+1,:) = q_gpu(b_send,i,j,k,:)
-                  q_gpu(b_recv,iii+1,jjj+1,kkk+1,:) = q_gpu(b_send,i,j,k,:)
-               enddo
-            enddo
-         enddo
+         q_gpu(b_recv,i_recv,j_recv,k_recv,:) = 0._R8P
+         do kc=0,1 ; do jc=0,1 ; do ic=0,1
+            q_gpu(b_recv,i_recv,j_recv,k_recv,:) = q_gpu(b_recv,i_recv,   j_recv,   k_recv,   :) + &
+                                                   q_gpu(b_send,i_send+ic,j_send+jc,k_send+kc,:)
+         enddo ; enddo ; enddo
+         q_gpu(b_recv,i_recv,j_recv,k_recv,:) = q_gpu(b_recv,i_recv,j_recv,k_recv,:) * 0.125_R8P
       endif
    enddo
    !@cuf iercuda=cudaDeviceSynchronize()

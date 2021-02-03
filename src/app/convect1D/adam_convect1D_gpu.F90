@@ -37,7 +37,7 @@ do l=1, 2
 enddo
 print '(A)', 'set initial conditions'
 call convect_gpu%set_initial_conditions
-call adam%save_hdf5(basename='convect-'//trim(strz(0,9)), with_ghost=.false., with_cell_morton=.true.)
+call adam%save_hdf5(basename='convect-'//trim(strz(0,9)), q=convect_gpu%field%q, q_name=['T'], with_cell_morton=.true.)
 call convect_gpu%copy_cpu_gpu
 time = 0._R8P
 do t=1, n_iter
@@ -51,7 +51,7 @@ do t=1, n_iter
    call convect_gpu%integrate(t=time, Dt=0.006_R8P)
    if (mod(t,n_save)==0) then
       call convect_gpu%copy_gpu_cpu
-      call adam%save_hdf5(basename='convect-'//trim(strz(t,9)), with_ghost=.false., with_cell_morton=.true.)
+      call adam%save_hdf5(basename='convect-'//trim(strz(t,9)), q=convect_gpu%field%q, q_name=['T'], with_cell_morton=.true.)
    endif
    time = time + 0.2_R8P
 enddo
