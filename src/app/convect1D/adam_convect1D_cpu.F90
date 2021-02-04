@@ -37,16 +37,17 @@ do l=1, 2
 enddo
 print '(A)', 'set initial conditions'
 call convect%set_initial_conditions
-call adam%save_hdf5(basename='convect-'//trim(strz(0,9)), with_ghost=.false., with_cell_morton=.true.)
+call adam%save_hdf5(basename='convect-'//trim(strz(0,9)), q=convect%field%q, q_name=['T'], with_cell_morton=.true.)
 time = 0._R8P
 do t=1, n_iter
    if (mod(t,1)==0.and.adam%myrank==0) print '(A)', 'track iteration '//trim(str(t, .true.))
-   call convect%mark_by_grad_q
+   call convect%mark_by_grad_q(grad_tol=9.2_R8P, delta_fine=0.004_R8P, delta_coarse=0.08_R8P)
    call convect%update_ghost(q=adam%field%q)
+   call adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false.)
    if (mod(t,1)==0.and.adam%myrank==0) print '(A)', 'blocks number: '//trim(str(adam%tree%nodes_number, .true.))
    call convect%integrate(t=time, Dt=0.006_R8P)
    if (mod(t,n_save)==0) then
-      call adam%save_hdf5(basename='convect-'//trim(strz(t,9)), with_ghost=.false., with_cell_morton=.true.)
+      call adam%save_hdf5(basename='convect-'//trim(strz(t,9)), q=convect%field%q, q_name=['T'], with_cell_morton=.true.)
    endif
    time = time + 0.2_R8P
 enddo

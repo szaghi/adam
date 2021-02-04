@@ -51,7 +51,7 @@ call adam%save_hdf5(basename='euler-sod-'//trim(strz(0,9)),           &
                     q=euler%field%q,                                  &
                     q_aux=euler%q_aux,                                &
                     q_name=['rho  ','rho-u','rho-v','rho-w','rho-E'], &
-                    q_aux_name=['r1','r ','u ','v ','w ','g ','p '],  &
+                    q_aux_name=['c1','r ','u ','v ','w ','g ','p '],  &
                     with_cell_morton=.true.)
 
 time = 0._R8P

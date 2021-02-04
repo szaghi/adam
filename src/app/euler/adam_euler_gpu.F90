@@ -54,11 +54,9 @@ call adam%save_hdf5(basename='euler-sod-'//trim(strz(0,9)),           &
                     q=euler%field%q,                                  &
                     q_aux=euler%q_aux,                                &
                     q_name=['rho  ','rho-u','rho-v','rho-w','rho-E'], &
-                    q_aux_name=['r1','r ','u ','v ','w ','g ','p '],  &
+                    q_aux_name=['c1','r ','u ','v ','w ','g ','p '],  &
                     with_cell_morton=.true.)
 
-! call adam%save_hdf5(q=adam%field%q, basename='euler-sod-'//trim(strz(0,9)), with_cell_morton=.true., &
-                    ! q_name=['rho  ','rho-u','rho-v','rho-w','rho-E'])
 time = 0._R8P
 t = 0
 call MPI_BARRIER(MPI_COMM_WORLD, adam%error) ; call system_clock(timing(1))
@@ -94,7 +92,6 @@ integration: do
    endif
    time = time + euler%dt
    if (time>=time_max) exit integration
-                       ! exit integration
 enddo integration
 call MPI_BARRIER(MPI_COMM_WORLD, adam%error) ; call system_clock(timing(2), timing(0))
 print '(A, F8.3)', 'timing: ', real(timing(2) - timing(1))/ timing(0) / t

@@ -71,7 +71,6 @@ type :: equation_euler_gpu_object
                                           .false.,&
                                           .false.]  !< Flag triggering 1D/2D simulations.
    real(R8P), allocatable :: q_aux(:,:,:,:,:)       !< Auxiliary cell centered variables.
-   real(R8P), allocatable :: q_t(:,:,:,:,:)         !< Transposed cell centered variables on CPU.
    ! Runge-Kutta data
    integer(I4P)           :: nrk=3_I4P !< Runge-Kutta stages number.
    real(R8P), allocatable :: alph(:,:) !< RK alpha coefficients.
@@ -102,7 +101,6 @@ type :: equation_euler_gpu_object
    real(R8P), allocatable, device :: q_aux_gpu(:,:,:,:,:) !< Auxiliary cell centered variables.
    real(R8P), allocatable, device :: q_gpu(:,:,:,:,:)     !< Field cell centered variables stages.
    real(R8P), allocatable, device :: q_s_gpu(:,:,:,:,:,:) !< RK Field cell centered variables stages.
-   real(R8P), allocatable, device :: q_t_gpu(:,:,:,:,:)   !< Transposed cell centered variables on GPU.
    real(R8P), allocatable, device :: weno_c_gpu(:,:)      !< Central difference coefficients    [1:2,1:2*S].
    real(R8P), allocatable, device :: weno_a_gpu(:,:)      !< Optimal weights                    [1:2,0:S-1].
    real(R8P), allocatable, device :: weno_p_gpu(:,:,:)    !< Polinomials coefficients           [1:2,0:S-1,0:S-1].
@@ -124,9 +122,7 @@ type :: equation_euler_gpu_object
       generic :: assignment(=) => eq_assign_eq      !< Overload `=`.
       procedure, pass(lhs), private :: eq_assign_eq !< Operator `=`.
       ! private methods
-      procedure, pass(self) :: copy_transpose_gpu_cpu !< Transpose data from GPU to CPU.
-      procedure, pass(self) :: copy_transpose_cpu_gpu !< Transpose data from GPU to CPU.
-      procedure, pass(self) :: weno_initialize        !< Initialize WENO data.
+      procedure, pass(self) :: weno_initialize !< Initialize WENO data.
 endtype equation_euler_gpu_object
 
 contains
@@ -191,7 +187,7 @@ contains
       enddo
    enddo
    self%dxyz_gpu = dxyz_t
-   call self%copy_transpose_cpu_gpu(q_cpu=self%field%q, q_gpu=self%q_gpu)
+   call self%base_gpu%copy_transpose_cpu_gpu(q_cpu=self%field%q, q_gpu=self%q_gpu)
    call self%base_gpu%copy_cpu_gpu
    endsubroutine copy_cpu_gpu
 
@@ -200,11 +196,11 @@ contains
    class(equation_euler_gpu_object), intent(inout)        :: self          !< The base backend.
    logical,                          intent(in), optional :: compute_q_aux !< Flag to compute auxiliary variables.
 
-   call self%copy_transpose_gpu_cpu(nv=self%field%nv, q_gpu=self%q_gpu, q_cpu=self%field%q)
+   call self%base_gpu%copy_transpose_gpu_cpu(nv=self%field%nv, q_gpu=self%q_gpu, q_cpu=self%field%q)
    if (present(compute_q_aux)) then
       if (compute_q_aux) then
          call self%compute_aux(q_gpu=self%q_gpu, q_aux_gpu=self%q_aux_gpu)
-         call self%copy_transpose_gpu_cpu(nv=self%ns+6, q_gpu=self%q_aux_gpu, q_cpu=self%q_aux)
+         call self%base_gpu%copy_transpose_gpu_cpu(nv=self%ns+6, q_gpu=self%q_aux_gpu, q_cpu=self%q_aux)
       endif
    endif
    endsubroutine copy_gpu_cpu
@@ -233,14 +229,13 @@ contains
    ! CPU data
    call self%destroy
    self%field => field
-   call self%base_gpu%initialize(field=field)
    if (present(ns)) self%ns = ns
-   if (present(nrk)) self%nrk = nrk
    if (self%field%nv - self%ns /= 4) then
       write(stderr, '(A)') 'ADAM-ERROR: field%nv must be euler%ns+4'
       call MPI_FINALIZE(self%error)
       stop
    endif
+   call self%base_gpu%initialize(field=field, nv_aux=self%ns+6)
    if (present(cp0)) then
       self%cp0 = cp0
    else
@@ -253,16 +248,13 @@ contains
       allocate(self%cv0(self%ns))
       self%cv0 = 742.85_R8P
    endif
+   if (present(nrk)) self%nrk = nrk
    if (present(CFL)) self%CFL = CFL
    if (present(null_xyz)) self%null_xyz = null_xyz
    allocate(self%q_aux(1:self%ns+6,                                   &
                        1-field%grid%gci:field%grid%ni+field%grid%gci, &
                        1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
                        1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nb))
-   allocate(self%q_t(1:field%nb,                                    &
-                     1-field%grid%gci:field%grid%ni+field%grid%gci, &
-                     1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
-                     1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nv))
    if (present(weno_s)) self%weno_s = weno_s
    call self%weno_initialize
    allocate(self%alph(self%nrk,self%nrk), self%beta(self%nrk), self%gamm(self%nrk))
@@ -318,10 +310,6 @@ contains
                          1-field%grid%gci:field%grid%ni+field%grid%gci, &
                          1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
                          1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nv, 1:self%nrk))
-   allocate(self%q_t_gpu(1:self%ns+6,                                    &
-                         1-field%grid%gci:field%grid%ni+field%grid%gci, &
-                         1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
-                         1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nb))
    ! copy data that is not variable during the simulation
    self%cp0_gpu    = self%cp0
    self%cv0_gpu    = self%cv0
@@ -656,62 +644,6 @@ contains
    endsubroutine eq_assign_eq
 
    ! private methods
-   subroutine copy_transpose_cpu_gpu(self, q_cpu, q_gpu)
-   !< Copy transposed data from CPU to GPU.
-   class(equation_euler_gpu_object), intent(inout)       :: self          !< The equation.
-   real(R8P),                        intent(in)          :: q_cpu(1:,                    &
-                                                                  1-self%field%grid%gci:,&
-                                                                  1-self%field%grid%gcj:,&
-                                                                  1-self%field%grid%gck:,&
-                                                                  1:)     !< Conservative variables on CPU.
-   real(R8P),                        intent(out), device :: q_gpu(1:,                    &
-                                                                 1-self%field%grid%gci:,&
-                                                                 1-self%field%grid%gcj:,&
-                                                                 1-self%field%grid%gck:,&
-                                                                 1:)      !< Conservative variables on GPU.
-   integer(I4P)                                          :: i, j, k, b, v !< Counter.
-   associate(blocks_number=>self%field%blocks_number,                                      &
-             ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,       &
-             gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck, &
-             nv=>self%field%nv, q_t=>self%q_t)
-      do b=1, blocks_number
-         do k=1, nk
-            do j=1, nj
-               do i=1, ni
-                  do v=1, nv
-                     q_t(b,i,j,k,v) = q_cpu(v,i,j,k,b)
-                  enddo
-               enddo
-            enddo
-         enddo
-      enddo
-      q_gpu = q_t
-   endassociate
-   endsubroutine copy_transpose_cpu_gpu
-
-   subroutine copy_transpose_gpu_cpu(self, nv, q_gpu, q_cpu)
-   !< Copy transposed data from GPU to CPU.
-   class(equation_euler_gpu_object), intent(inout)      :: self      !< The equation.
-   integer(I4P),                     intent(in)         :: nv        !< Number of conservative varibales.
-   real(R8P),                        intent(in), device :: q_gpu(1:,                    &
-                                                                 1-self%field%grid%gci:,&
-                                                                 1-self%field%grid%gcj:,&
-                                                                 1-self%field%grid%gck:,&
-                                                                 1:) !< Conservative variables on GPU.
-   real(R8P),                        intent(out)        :: q_cpu(1:,                    &
-                                                                 1-self%field%grid%gci:,&
-                                                                 1-self%field%grid%gcj:,&
-                                                                 1-self%field%grid%gck:,&
-                                                                 1:) !< Conservative variables on CPU.
-   associate(blocks_number=>self%field%blocks_number,                                      &
-             ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,       &
-             gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck)
-      call copy_transpose_gpu_cpu_cuf(ni=ni, nj=nj, nk=nk, gci=gci, gcj=gcj, gck=gck, nv=nv, &
-                                      blocks_number=blocks_number,                           &
-                                      q_gpu=q_gpu, q_t_gpu=self%q_t_gpu, q_cpu=q_cpu)
-   endassociate
-   endsubroutine copy_transpose_gpu_cpu
-
    subroutine weno_initialize(self)
    !< Initialize WENO data.
    class(equation_euler_gpu_object), intent(inout) :: self !< The equation.
@@ -867,8 +799,8 @@ contains
    integer(I4P)                        :: iercuda          !< Error trapping flag for CUDAFortran.
 
    do s=1, nrk
+      !$cuf kernel do(5) <<<*,*>>>
       do v=1, nv
-         !$cuf kernel do(4) <<<*,*>>>
          do k=1-gck, nk+gck
             do j=1-gcj, nj+gcj
                do i=1-gci, ni+gci
@@ -1271,50 +1203,6 @@ contains
    enddo
    !@cuf iercuda=cudaDeviceSynchronize()
    endsubroutine compute_umax_cuf
-
-   subroutine copy_transpose_gpu_cpu_cuf(ni, nj, nk, gci, gcj, gck, nv, blocks_number, q_gpu, q_t_gpu, q_cpu)
-   !< Copy transposed data from GPU to CPU by CUF threads.
-   integer(I4P), intent(in)            :: ni            !< Grid cells number in I direction.
-   integer(I4P), intent(in)            :: nj            !< Grid cells number in J direction.
-   integer(I4P), intent(in)            :: nk            !< Grid cells number in K direction.
-   integer(I4P), intent(in)            :: gci           !< Ghost grid cells number in I direction.
-   integer(I4P), intent(in)            :: gcj           !< Ghost grid cells number in J direction.
-   integer(I4P), intent(in)            :: gck           !< Ghost grid cells number in K direction.
-   integer(I4P), intent(in)            :: nv            !< Number of conservative varibales.
-   integer(I4P), intent(in)            :: blocks_number !< Number of blocks.
-   real(R8P),    intent(in), device    :: q_gpu(1:,    &
-                                                1-gci:,&
-                                                1-gcj:,&
-                                                1-gck:,&
-                                                1:)     !< Conservative variables on GPU.
-   real(R8P),    intent(inout), device :: q_t_gpu(1:,    &
-                                                  1-gci:,&
-                                                  1-gcj:,&
-                                                  1-gck:,&
-                                                  1:)   !< Conservative (transposed) variables on GPU.
-   real(R8P),    intent(out)           :: q_cpu(1:,    &
-                                                1-gci:,&
-                                                1-gcj:,&
-                                                1-gck:,&
-                                                1:)     !< Conservative variables on CPU.
-   integer(I4P)                        :: i, j, k, b, v !< Counter.
-   integer(I4P)                        :: iercuda       !< Error trapping flag for CUDAFortran.
-
-   !$cuf kernel do(4) <<<*,*>>>
-   do k=1, nk
-      do j=1, nj
-         do i=1, ni
-            do b=1, blocks_number
-               do v=1, nv
-                  q_t_gpu(v,i,j,k,b) = q_gpu(b,i,j,k,v)
-               enddo
-            enddo
-         enddo
-      enddo
-   enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
-   q_cpu = q_t_gpu
-   endsubroutine copy_transpose_gpu_cpu_cuf
 
    ! non type-bound kernel procedures
    attributes(device) subroutine solve_riemann(r1, u1, p1, g1, r4, u4, p4, g4, f_rho, f_rho_u, f_rho_E)

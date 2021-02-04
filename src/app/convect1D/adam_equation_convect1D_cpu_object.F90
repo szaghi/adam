@@ -78,15 +78,19 @@ contains
                       1._R8P, &
                       0._R8P]
    endselect
-   allocate(self%q_s(1-field%grid%gci:field%grid%ni+field%grid%gci, &
+   allocate(self%q_s(1:field%nv,                                    &
+                     1-field%grid%gci:field%grid%ni+field%grid%gci, &
                      1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
-                     1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nv, 1:field%nb, 1:self%ns))
+                     1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nb, 1:self%ns))
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
    endsubroutine initialize
 
-   subroutine mark_by_grad_q(self, threshold)
+   subroutine mark_by_grad_q(self, grad_tol, delta_fine, delta_coarse, threshold)
    !< Mark blocks to be refined/derefined by a `grad(q)` value.
    class(equation_convect1D_cpu_object), intent(inout)        :: self           !< The equation.
+   real(R8P),                            intent(in)           :: grad_tol       !< Gradiend tolerance value.
+   real(R8P),                            intent(in)           :: delta_fine     !< Maximum cell delta in fine grids.
+   real(R8P),                            intent(in)           :: delta_coarse   !< Minimum cell delta in coarse grids.
    real(R8P),                            intent(in), optional :: threshold      !< Threshold for sphere proximity.
    real(R8P)                                                  :: threshold_     !< Threshold for sphere proximity, local var.
    real(R8P)                                                  :: max_cell_delta !< Maximum cell delta.
@@ -102,9 +106,9 @@ contains
       do k=1, nk
          do j=1, nj
             do i=1, ni
-               grad_q = max(grad_q, sqrt(((q(i+1,j,k,1,b) - q(i-1,j,k,1,b))/(2*dxyz(1,b)))**2 + &
-                                         ((q(i,j+1,k,1,b) - q(i,j-1,k,1,b))/(2*dxyz(2,b)))**2 + &
-                                         ((q(i,j,k+1,1,b) - q(i,j,k-1,1,b))/(2*dxyz(3,b)))**2))
+               grad_q = max(grad_q, sqrt(((q(1,i+1,j,k,b) - q(1,i-1,j,k,b))/(2*dxyz(1,b)))**2 + &
+                                         ((q(1,i,j+1,k,b) - q(1,i,j-1,k,b))/(2*dxyz(2,b)))**2 + &
+                                         ((q(1,i,j,k+1,b) - q(1,i,j,k-1,b))/(2*dxyz(3,b)))**2))
 
             enddo
          enddo
@@ -127,10 +131,10 @@ contains
       real(R8P), intent(in) :: grad  !< Gradient value.
       real(R8P)             :: delta !< Maximum cell delta admissible.
 
-      if (grad > 9.2_R8P) then
-         delta = 0.004_R8P
+      if (grad > grad_tol) then
+         delta = delta_fine
       else
-         delta = 0.08_R8P
+         delta = delta_coarse
       endif
       endfunction max_cell_delta_grad
    endsubroutine mark_by_grad_q
@@ -152,10 +156,10 @@ contains
              inner_blocks_number=>self%field%inner_blocks_number,                    &
              q=>self%field%q, q_s=>self%q_s)
    do s=1, self%ns
-      q_s(1:ni,1:nj,1:nk,1,1:blocks_number,s) = q(1:ni,1:nj,1:nk,1,1:blocks_number)
+      q_s(1,1:ni,1:nj,1:nk,1:blocks_number,s) = q(1,1:ni,1:nj,1:nk,1:blocks_number)
       do ss=1, s - 1
-         q_s(1:ni,1:nj,1:nk,1,1:blocks_number,s) = q_s(1:ni,1:nj,1:nk,1,1:blocks_number,s ) + &
-                                                  (q_s(1:ni,1:nj,1:nk,1,1:blocks_number,ss) * (Dt * alph(s, ss)))
+         q_s(1,1:ni,1:nj,1:nk,1:blocks_number,s) = q_s(1,1:ni,1:nj,1:nk,1:blocks_number,s ) + &
+                                                  (q_s(1,1:ni,1:nj,1:nk,1:blocks_number,ss) * (Dt * alph(s, ss)))
       enddo
       if (do_ghost_syncro_) then
          call self%update_ghost(q=q_s(:,:,:,:,:,s)) ! all ghosts
@@ -170,14 +174,14 @@ contains
       if (present(residual).and.s==3) then
          residual = 0._R8P
          do b=1, blocks_number
-            residual = residual + sum(q_s(1:ni,1:nj,1:nk,1,b,s))/ni/nj/nk
+            residual = residual + sum(q_s(1,1:ni,1:nj,1:nk,b,s))/ni/nj/nk
          enddo
          call MPI_ALLREDUCE(MPI_IN_PLACE, residual, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%error)
       endif
    enddo
    do s=1, self%ns
-      q(1:ni,1:nj,1:nk,1,1:blocks_number) =   q(1:ni,1:nj,1:nk,1,1:blocks_number) + &
-                                            q_s(1:ni,1:nj,1:nk,1,1:blocks_number,s) * Dt * beta(s)
+      q(1,1:ni,1:nj,1:nk,1:blocks_number) =   q(1,1:ni,1:nj,1:nk,1:blocks_number) + &
+                                            q_s(1,1:ni,1:nj,1:nk,1:blocks_number,s) * Dt * beta(s)
    enddo
    endassociate
    endsubroutine integrate
@@ -185,10 +189,11 @@ contains
    subroutine compute_residuals(self, q, t, block_start, block_end)
    !< Compute residuals of equation.
    class(equation_convect1D_cpu_object), intent(in)    :: self                         !< The equation.
-   real(R8P),                            intent(inout) :: q(1-self%field%grid%gci:,&
+   real(R8P),                            intent(inout) :: q(1:,                    &
+                                                            1-self%field%grid%gci:,&
                                                             1-self%field%grid%gcj:,&
                                                             1-self%field%grid%gck:,&
-                                                            1:,1:)                     !< Field component to be updated.
+                                                            1:)                        !< Field component to be updated.
    real(R8P),                            intent(in)    :: t                            !< Time.
    integer(I4P),                         intent(in)    :: block_start                  !< Index of block to start residuals comp.
    integer(I4P),                         intent(in)    :: block_end                    !< Index of block to end   residuals comp.
@@ -202,21 +207,22 @@ contains
       do k=1, nk
          do j=1, nj
             do i=1, ni
-               q_work(i,j,k) = (q(i+1,j,k,1,b) - q(i-1,j,k,1,b)) / (2*dxyz(1,b))
+               q_work(i,j,k) = (q(1,i+1,j,k,b) - q(1,i-1,j,k,b)) / (2*dxyz(1,b))
             enddo
          enddo
       enddo
-      q(1:ni,1:nj,1:nk,1,b) = q_work(1:ni,1:nj,1:nk)
+      q(1,1:ni,1:nj,1:nk,b) = q_work(1:ni,1:nj,1:nk)
    enddo
    endassociate
    endsubroutine compute_residuals
 
    subroutine set_boundary_conditions(self, q)
    !< Set boundary conditions of equation.
-   class(equation_convect1D_cpu_object), intent(in)    :: self                            !< The equation.
-   real(R8P),                            intent(inout) :: q(1-self%field%grid%gci:,&
+   class(equation_convect1D_cpu_object), intent(in)    :: self                         !< The equation.
+   real(R8P),                            intent(inout) :: q(1:,                    &
+                                                            1-self%field%grid%gci:,&
                                                             1-self%field%grid%gcj:,&
-                                                            1-self%field%grid%gck:,1:,1:) !< Field component to be updated.
+                                                            1-self%field%grid%gck:,1:) !< Field component to be updated.
 
    if (allocated(self%field%local_map_bc_face))   call set_bc_fec(local_map_bc=self%field%local_map_bc_face)
    if (allocated(self%field%local_map_bc_edge))   call set_bc_fec(local_map_bc=self%field%local_map_bc_edge)
@@ -243,7 +249,7 @@ contains
             do k=ijkmin(3), ijkmax(3), sign(1, ijkmax(3)-ijkmin(3))
                do j=ijkmin(2), ijkmax(2), sign(1, ijkmax(2)-ijkmin(2))
                   do i=ijkmin(1), ijkmax(1), sign(1, ijkmax(1)-ijkmin(1))
-                     q(i,j,k,1,b) = q(i-ijkdelta(1), j-ijkdelta(2), k-ijkdelta(3), 1, b)
+                     q(1,i,j,k,b) = q(1, i-ijkdelta(1), j-ijkdelta(2), k-ijkdelta(3), b)
                   enddo
                enddo
             enddo
@@ -251,8 +257,7 @@ contains
             do k=ijkmin(3), ijkmax(3), sign(1, ijkmax(3)-ijkmin(3))
                do j=ijkmin(2), ijkmax(2), sign(1, ijkmax(2)-ijkmin(2))
                   do i=ijkmin(1), ijkmax(1), sign(1, ijkmax(1)-ijkmin(1))
-                     ! q(i,j,k,b) = 1._R8P
-                     q(i,j,k,1,b) = exp(-((self%field%y_cell(j,b) - 0.5)**2/(2 * 0.2**2)+&
+                     q(1,i,j,k,b) = exp(-((self%field%y_cell(j,b) - 0.5)**2/(2 * 0.2**2)+&
                                           (self%field%z_cell(k,b) - 0.5)**2/(2 * 0.2**2)))
                   enddo
                enddo
@@ -291,7 +296,7 @@ contains
       do k=1, nk
          do j=1, nj
             do i=1, ni
-               q(i,j,k,1,b) = a * exp(-((x_cell(i,b) - x_0)**2/(2 * sigma_x**2)+&
+               q(1,i,j,k,b) = a * exp(-((x_cell(i,b) - x_0)**2/(2 * sigma_x**2)+&
                                         (y_cell(j,b) - y_0)**2/(2 * sigma_y**2)+&
                                         (z_cell(k,b) - z_0)**2/(2 * sigma_z**2)))
             enddo
@@ -305,10 +310,11 @@ contains
    !< Update ghost cells.
    !< If not specified all steps are perfermod, syncronous computation
    class(equation_convect1D_cpu_object), intent(inout)        :: self            !< The equation.
-   real(R8P),                            intent(inout)        :: q(1-self%field%grid%gci:,&
+   real(R8P),                            intent(inout)        :: q(1:,                    &
+                                                                   1-self%field%grid%gci:,&
                                                                    1-self%field%grid%gcj:,&
                                                                    1-self%field%grid%gck:,&
-                                                                   1:,1:)        !< Field component to be updated.
+                                                                   1:)           !< Field component to be updated.
    integer(I4P),                         intent(in), optional :: step            !< Step to be perfordmed in asyncronous comp.
    logical                                                    :: do_local_update !< Flag for triggering local update.
    logical                                                    :: do_set_bc       !< Flag for triggering setting bc.

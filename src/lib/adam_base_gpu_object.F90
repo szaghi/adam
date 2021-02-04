@@ -19,14 +19,15 @@ type :: base_gpu_object
    !< Provide update ghosts methods for GPU backend.
    type(field_object), pointer :: field=>null() !< The field.
    ! MPI data
-   integer(I4P) :: myrank=0_I4P                           !< MPI rank process.
-   integer(I4P) :: procs_number=1_I4P                     !< Number of MPI processes.
-   integer(I4P) :: error=0_I4P                            !< Error traping flag.
-   integer(I4P) :: mydev=0_I4P                            !< My GPU rank.
-   integer(I4P) :: local_comm=0_I4P                       !< Local communicator.
-   integer(I4P), allocatable :: req_send_recv(:)          !< MPI request receive flags.
-   integer(I8P), allocatable :: local_map_ghost_cell(:,:) !< Local map for ghost cells updating, cells order.
+   integer(I4P)              :: myrank=0_I4P       !< MPI rank process.
+   integer(I4P)              :: procs_number=1_I4P !< Number of MPI processes.
+   integer(I4P)              :: error=0_I4P        !< Error traping flag.
+   integer(I4P)              :: mydev=0_I4P        !< My GPU rank.
+   integer(I4P)              :: local_comm=0_I4P   !< Local communicator.
+   integer(I4P), allocatable :: req_send_recv(:)   !< MPI request receive flags.
+   real(R8P),    allocatable :: q_t(:,:,:,:,:)     !< Transposed cell centered variables on CPU.
    ! GPU data
+   real(R8P),    allocatable, device :: q_t_gpu(:,:,:,:,:)           !< Transposed cell centered variables on GPU.
    integer(I8P), allocatable, device :: local_map_ghost_cell_gpu(:,:)!< Local map for ghost cells updating, cells order.
    integer(I8P), allocatable, device :: local_map_ghost_gpu(:,:)     !< Local map for ghost cells updating, fecs order.
    integer(I8P), allocatable, device :: comm_map_recv_ghost_gpu(:,:) !< Communication map, `fec` information.
@@ -39,6 +40,8 @@ type :: base_gpu_object
    contains
       ! public methods
       procedure, pass(self) :: copy_cpu_gpu           !< Copy data from CPU to GPU.
+      procedure, pass(self) :: copy_transpose_cpu_gpu !< Transpose data from GPU to CPU.
+      procedure, pass(self) :: copy_transpose_gpu_cpu !< Transpose data from GPU to CPU.
       procedure, pass(self) :: create_maps_cell       !< Create mapps in cells order form the fecs ordered ones.
       procedure, pass(self) :: destroy                !< Destroy the equation.
       procedure, pass(self) :: initialize             !< Initialize the equation.
@@ -107,27 +110,27 @@ contains
 
    subroutine create_maps_cell(self)
    !< Create maps in cells order form the fecs ordered ones.
-   class(base_gpu_object), intent(inout) :: self          !< The base backend.
-   integer(I4P)                          :: c, f          !< Counter.
-   integer(I4P)                          :: i, j, k       !< Counter.
-   integer(I4P)                          :: iii, jjj, kkk !< Counter.
-   integer(I4P)                          :: ic, jc, kc    !< Counter.
-   integer(I4P)                          :: fec           !< Ghost direction, faces/edges/corners.
-   integer(I4P)                          :: portion       !< Portion of fec updated (0=>whole fec).
-   integer(I4P)                          :: b_recv        !< Index of receiving block.
-   integer(I4P)                          :: b_send        !< Index of sending block.
-   integer(I4P)                          :: imin          !< Lower limit of i indexes.
-   integer(I4P)                          :: jmin          !< Lower limit of j indexes.
-   integer(I4P)                          :: kmin          !< Lower limit of j indexes.
-   integer(I4P)                          :: imax          !< Upper limit of i indexes.
-   integer(I4P)                          :: jmax          !< Upper limit of j indexes.
-   integer(I4P)                          :: kmax          !< Upper limit of k indexes.
-   integer(I4P)                          :: idelta        !< Delta offset for ghost-inner cells of i.
-   integer(I4P)                          :: jdelta        !< Delta offset for ghost-inner cells of j.
-   integer(I4P)                          :: kdelta        !< Delta offset for ghost-inner cells of k.
+   class(base_gpu_object), intent(inout) :: self !< The base backend.
+   integer(I8P), allocatable             :: local_map_ghost_cell(:,:) !< Local map ghost cells update, cells order.
+   integer(I4P)                          :: c, f                      !< Counter.
+   integer(I4P)                          :: i, j, k                   !< Counter.
+   integer(I4P)                          :: iii, jjj, kkk             !< Counter.
+   integer(I4P)                          :: ic, jc, kc                !< Counter.
+   integer(I4P)                          :: fec                       !< Ghost direction, faces/edges/corners.
+   integer(I4P)                          :: portion                   !< Portion of fec updated (0=>whole fec).
+   integer(I4P)                          :: b_recv                    !< Index of receiving block.
+   integer(I4P)                          :: b_send                    !< Index of sending block.
+   integer(I4P)                          :: imin                      !< Lower limit of i indexes.
+   integer(I4P)                          :: jmin                      !< Lower limit of j indexes.
+   integer(I4P)                          :: kmin                      !< Lower limit of j indexes.
+   integer(I4P)                          :: imax                      !< Upper limit of i indexes.
+   integer(I4P)                          :: jmax                      !< Upper limit of j indexes.
+   integer(I4P)                          :: kmax                      !< Upper limit of k indexes.
+   integer(I4P)                          :: idelta                    !< Delta offset for ghost-inner cells of i.
+   integer(I4P)                          :: jdelta                    !< Delta offset for ghost-inner cells of j.
+   integer(I4P)                          :: kdelta                    !< Delta offset for ghost-inner cells of k.
 
-   if (allocated(self%local_map_ghost_gpu)) then
-      if (allocated(self%local_map_ghost_cell)) deallocate(self%local_map_ghost_cell)
+   if (allocated(self%field%local_map_ghost)) then
       c = 0
       do f=1, size(self%field%local_map_ghost, dim=1)
          portion = self%field%local_map_ghost(f, 4 )
@@ -159,8 +162,8 @@ contains
             enddo
          endif
       enddo
-      allocate(self%local_map_ghost_cell(1:c,1:9))
-      c = 0
+      allocate(local_map_ghost_cell(1:c,1:9), stat=imin)
+      c = 1
       do f=1, size(self%field%local_map_ghost, dim=1)
          b_recv  = self%field%local_map_ghost(f, 1 )
          b_send  = self%field%local_map_ghost(f, 2 )
@@ -179,10 +182,10 @@ contains
             do k=kmin, kmax
                do j=jmin, jmax
                   do i=imin, imax
-                     self%local_map_ghost_cell(c,1:2) = [b_send, b_recv]
-                     self%local_map_ghost_cell(c,3:5) = [i+idelta, j+jdelta, k+kdelta]
-                     self%local_map_ghost_cell(c,6:8) = [i, j, k]
-                     self%local_map_ghost_cell(c, 9 ) = 1
+                     local_map_ghost_cell(c,1:2) = [b_send, b_recv]
+                     local_map_ghost_cell(c,3:5) = [i+idelta, j+jdelta, k+kdelta]
+                     local_map_ghost_cell(c,6:8) = [i, j, k]
+                     local_map_ghost_cell(c, 9 ) = 1
                      c = c + 1
                   enddo
                enddo
@@ -195,10 +198,10 @@ contains
                      kkk = 2 * k + kdelta
                      jjj = 2 * j + jdelta
                      iii = 2 * i + idelta
-                     self%local_map_ghost_cell(c,1:2) = [b_send, b_recv]
-                     self%local_map_ghost_cell(c,3:5) = [iii, jjj, kkk]
-                     self%local_map_ghost_cell(c,6:8) = [i, j, k]
-                     self%local_map_ghost_cell(c, 9 ) = 8
+                     local_map_ghost_cell(c,1:2) = [b_send, b_recv]
+                     local_map_ghost_cell(c,3:5) = [iii, jjj, kkk]
+                     local_map_ghost_cell(c,6:8) = [i, j, k]
+                     local_map_ghost_cell(c, 9 ) = 8
                      c = c + 1
                   enddo
                enddo
@@ -212,10 +215,10 @@ contains
                      jjj = 2 * j + jdelta
                      iii = 2 * i + idelta
                      do kc=0,1 ; do jc=0,1 ; do ic=0,1
-                        self%local_map_ghost_cell(c,1:2) = [b_send, b_recv]
-                        self%local_map_ghost_cell(c,3:5) = [i, j, k]
-                        self%local_map_ghost_cell(c,6:8) = [iii+ic,  jjj+jc, kkk+kc]
-                        self%local_map_ghost_cell(c, 9 ) = 1
+                        local_map_ghost_cell(c,1:2) = [b_send, b_recv]
+                        local_map_ghost_cell(c,3:5) = [i, j, k]
+                        local_map_ghost_cell(c,6:8) = [iii+ic,  jjj+jc, kkk+kc]
+                        local_map_ghost_cell(c, 9 ) = 1
                         c = c + 1
                      enddo ; enddo ; enddo
                   enddo
@@ -223,7 +226,8 @@ contains
             enddo
          endif
       enddo
-      self%local_map_ghost_cell_gpu = self%local_map_ghost_cell
+      self%local_map_ghost_cell_gpu = local_map_ghost_cell
+      deallocate(local_map_ghost_cell, stat=imin)
    endif
    endsubroutine create_maps_cell
 
@@ -235,19 +239,31 @@ contains
    self = fresh
    endsubroutine destroy
 
-   subroutine initialize(self, field)
+   subroutine initialize(self, field, nv_aux)
    !< Initialize base backend.
-   class(base_gpu_object), intent(inout)      :: self  !< The base backend.
-   type(field_object),     intent(in), target :: field !< The field.
+   class(base_gpu_object), intent(inout)        :: self    !< The base backend.
+   integer(I4P),           intent(in), optional :: nv_aux  !< Number of auxiliary variables.
+   type(field_object),     intent(in), target   :: field   !< The field.
+   integer(I4P)                                 :: nv_aux_ !< Number of auxiliary variables, local variables.
 
    call self%destroy
    self%field => field
+   nv_aux_ = self%field%nv
+   if (present(nv_aux)) nv_aux_ = max(nv_aux_, nv_aux)
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    allocate(self%req_send_recv(0:self%procs_number*2-1))
    call MPI_COMM_SPLIT_TYPE(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, self%local_comm, self%error)
    call MPI_COMM_RANK(self%local_comm, self%mydev,self%error)
    self%error = CudaSetDevice(self%mydev)
+   allocate(self%q_t(1:field%nb,                                    &
+                     1-field%grid%gci:field%grid%ni+field%grid%gci, &
+                     1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
+                     1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nv))
+   allocate(self%q_t_gpu(nv_aux_,                                       &
+                         1-field%grid%gci:field%grid%ni+field%grid%gci, &
+                         1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
+                         1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nb))
    call self%copy_cpu_gpu
    endsubroutine initialize
 
@@ -297,6 +313,8 @@ contains
    lhs%procs_number = rhs%procs_number
    lhs%error = rhs%error
    call assign_allocatable(lhs=lhs%req_send_recv, rhs=rhs%req_send_recv)
+   call assign_allocatable(lhs=lhs%q_t,           rhs=rhs%q_t          )
+   call assign_allocatable_gpu(lhs=lhs%q_t_gpu,                 rhs=rhs%q_t_gpu                )
    call assign_allocatable_gpu(lhs=lhs%local_map_ghost_gpu    , rhs=rhs%local_map_ghost_gpu    )
    call assign_allocatable_gpu(lhs=lhs%comm_map_recv_ghost_gpu, rhs=rhs%comm_map_recv_ghost_gpu)
    call assign_allocatable_gpu(lhs=lhs%comm_map_send_ghost_gpu, rhs=rhs%comm_map_send_ghost_gpu)
@@ -304,7 +322,108 @@ contains
    call assign_allocatable_gpu(lhs=lhs%recv_buffer_ghost_gpu  , rhs=rhs%recv_buffer_ghost_gpu  )
    endsubroutine base_assign_base
 
+   ! private methods
+   subroutine copy_transpose_cpu_gpu(self, q_cpu, q_gpu)
+   !< Copy transposed data from CPU to GPU.
+   class(base_gpu_object), intent(inout)       :: self          !< The equation.
+   real(R8P),              intent(in)          :: q_cpu(1:,                    &
+                                                        1-self%field%grid%gci:,&
+                                                        1-self%field%grid%gcj:,&
+                                                        1-self%field%grid%gck:,&
+                                                        1:)     !< Conservative variables on CPU.
+   real(R8P),              intent(out), device :: q_gpu(1:,                    &
+                                                       1-self%field%grid%gci:,&
+                                                       1-self%field%grid%gcj:,&
+                                                       1-self%field%grid%gck:,&
+                                                       1:)      !< Conservative variables on GPU.
+   integer(I4P)                                :: i, j, k, b, v !< Counter.
+   associate(blocks_number=>self%field%blocks_number,                                      &
+             ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,       &
+             gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck, &
+             nv=>self%field%nv, q_t=>self%q_t)
+      do b=1, blocks_number
+         do k=1-gck, nk+gck
+            do j=1-gcj, nj+gcj
+               do i=1-gci, ni+gci
+                  do v=1, nv
+                     q_t(b,i,j,k,v) = q_cpu(v,i,j,k,b)
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      q_gpu = q_t
+   endassociate
+   endsubroutine copy_transpose_cpu_gpu
+
+   subroutine copy_transpose_gpu_cpu(self, nv, q_gpu, q_cpu)
+   !< Copy transposed data from GPU to CPU.
+   class(base_gpu_object), intent(inout)      :: self      !< The equation.
+   integer(I4P),           intent(in)         :: nv        !< Number of conservative varibales.
+   real(R8P),              intent(in), device :: q_gpu(1:,                    &
+                                                       1-self%field%grid%gci:,&
+                                                       1-self%field%grid%gcj:,&
+                                                       1-self%field%grid%gck:,&
+                                                       1:) !< Conservative variables on GPU.
+   real(R8P),              intent(out)        :: q_cpu(1:,                    &
+                                                       1-self%field%grid%gci:,&
+                                                       1-self%field%grid%gcj:,&
+                                                       1-self%field%grid%gck:,&
+                                                       1:) !< Conservative variables on CPU.
+   associate(blocks_number=>self%field%blocks_number,                                      &
+             ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,       &
+             gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck)
+      call copy_transpose_gpu_cpu_cuf(ni=ni, nj=nj, nk=nk, gci=gci, gcj=gcj, gck=gck, nv=nv, &
+                                      blocks_number=blocks_number,                           &
+                                      q_gpu=q_gpu, q_t_gpu=self%q_t_gpu, q_cpu=q_cpu)
+   endassociate
+   endsubroutine copy_transpose_gpu_cpu
+
    ! non TBP CUF methods
+   subroutine copy_transpose_gpu_cpu_cuf(ni, nj, nk, gci, gcj, gck, nv, blocks_number, q_gpu, q_t_gpu, q_cpu)
+   !< Copy transposed data from GPU to CPU by CUF threads.
+   integer(I4P), intent(in)            :: ni            !< Grid cells number in I direction.
+   integer(I4P), intent(in)            :: nj            !< Grid cells number in J direction.
+   integer(I4P), intent(in)            :: nk            !< Grid cells number in K direction.
+   integer(I4P), intent(in)            :: gci           !< Ghost grid cells number in I direction.
+   integer(I4P), intent(in)            :: gcj           !< Ghost grid cells number in J direction.
+   integer(I4P), intent(in)            :: gck           !< Ghost grid cells number in K direction.
+   integer(I4P), intent(in)            :: nv            !< Number of conservative varibales.
+   integer(I4P), intent(in)            :: blocks_number !< Number of blocks.
+   real(R8P),    intent(in), device    :: q_gpu(1:,    &
+                                                1-gci:,&
+                                                1-gcj:,&
+                                                1-gck:,&
+                                                1:)     !< Conservative variables on GPU.
+   real(R8P),    intent(inout), device :: q_t_gpu(1:,    &
+                                                  1-gci:,&
+                                                  1-gcj:,&
+                                                  1-gck:,&
+                                                  1:)   !< Conservative (transposed) variables on GPU.
+   real(R8P),    intent(out)           :: q_cpu(1:,    &
+                                                1-gci:,&
+                                                1-gcj:,&
+                                                1-gck:,&
+                                                1:)     !< Conservative variables on CPU.
+   integer(I4P)                        :: i, j, k, b, v !< Counter.
+   integer(I4P)                        :: iercuda       !< Error trapping flag for CUDAFortran.
+
+   !$cuf kernel do(4) <<<*,*>>>
+   do k=1-gck, nk+gck
+      do j=1-gcj, nj+gcj
+         do i=1-gci, ni+gci
+            do b=1, blocks_number
+               do v=1, nv
+                  q_t_gpu(v,i,j,k,b) = q_gpu(b,i,j,k,v)
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+   !@cuf iercuda=cudaDeviceSynchronize()
+   q_cpu = q_t_gpu
+   endsubroutine copy_transpose_gpu_cpu_cuf
+
    subroutine update_ghost_local_gpu_cuf(gci, gcj, gck, local_map_ghost_cell_gpu, q_gpu)
    !< Update (local) ghost cells.
    integer(I4P), intent(in)                         :: gci                           !< Ghost cells number in I direction.
@@ -315,7 +434,7 @@ contains
                                                              1-gci:,&
                                                              1-gcj:,&
                                                              1-gck:,1:)              !< Field component to be updated.
-   integer(I4P)                                     :: ic, jc, kc, mf                !< Counter.
+   integer(I4P)                                     :: ic, jc, kc, mf, v             !< Counter.
    integer(I4P)                                     :: b_recv                        !< Index of receiving block.
    integer(I4P)                                     :: b_send                        !< Index of sending block.
    integer(I4P)                                     :: i_recv                        !< I recv index.
@@ -328,27 +447,29 @@ contains
    integer(I4P)                                     :: iercuda                       !< Error trapping flag for CUDAFortran.
 
    if (.not.allocated(local_map_ghost_cell_gpu)) return
-   !$cuf kernel do(1) <<<*,*>>>
-   do mf=1, size(local_map_ghost_cell_gpu, dim=1)
-      b_send       = local_map_ghost_cell_gpu(mf,1)
-      b_recv       = local_map_ghost_cell_gpu(mf,2)
-      i_send       = local_map_ghost_cell_gpu(mf,3)
-      j_send       = local_map_ghost_cell_gpu(mf,4)
-      k_send       = local_map_ghost_cell_gpu(mf,5)
-      i_recv       = local_map_ghost_cell_gpu(mf,6)
-      j_recv       = local_map_ghost_cell_gpu(mf,7)
-      k_recv       = local_map_ghost_cell_gpu(mf,8)
-      one_or_eight = local_map_ghost_cell_gpu(mf,9)
-      if (one_or_eight==1) then
-         q_gpu(b_recv,i_recv, j_recv, k_recv,:) = q_gpu(b_send, i_send,j_send,k_send,:)
-      else
-         q_gpu(b_recv,i_recv,j_recv,k_recv,:) = 0._R8P
-         do kc=0,1 ; do jc=0,1 ; do ic=0,1
-            q_gpu(b_recv,i_recv,j_recv,k_recv,:) = q_gpu(b_recv,i_recv,   j_recv,   k_recv,   :) + &
-                                                   q_gpu(b_send,i_send+ic,j_send+jc,k_send+kc,:)
-         enddo ; enddo ; enddo
-         q_gpu(b_recv,i_recv,j_recv,k_recv,:) = q_gpu(b_recv,i_recv,j_recv,k_recv,:) * 0.125_R8P
-      endif
+   !$cuf kernel do(2) <<<*,*>>>
+   do v=1, size(q_gpu, dim=5)
+      do mf=1, size(local_map_ghost_cell_gpu, dim=1)
+         b_send       = local_map_ghost_cell_gpu(mf,1)
+         b_recv       = local_map_ghost_cell_gpu(mf,2)
+         i_send       = local_map_ghost_cell_gpu(mf,3)
+         j_send       = local_map_ghost_cell_gpu(mf,4)
+         k_send       = local_map_ghost_cell_gpu(mf,5)
+         i_recv       = local_map_ghost_cell_gpu(mf,6)
+         j_recv       = local_map_ghost_cell_gpu(mf,7)
+         k_recv       = local_map_ghost_cell_gpu(mf,8)
+         one_or_eight = local_map_ghost_cell_gpu(mf,9)
+         if (one_or_eight==1) then
+            q_gpu(b_recv,i_recv, j_recv, k_recv,v) = q_gpu(b_send, i_send,j_send,k_send,v)
+         else
+            q_gpu(b_recv,i_recv,j_recv,k_recv,v) = 0._R8P
+            do kc=0,1 ; do jc=0,1 ; do ic=0,1
+               q_gpu(b_recv,i_recv,j_recv,k_recv,v) = q_gpu(b_recv,i_recv,   j_recv,   k_recv,   v) + &
+                                                      q_gpu(b_send,i_send+ic,j_send+jc,k_send+kc,v)
+            enddo ; enddo ; enddo
+            q_gpu(b_recv,i_recv,j_recv,k_recv,v) = q_gpu(b_recv,i_recv,j_recv,k_recv,v) * 0.125_R8P
+         endif
+      enddo
    enddo
    !@cuf iercuda=cudaDeviceSynchronize()
    endsubroutine update_ghost_local_gpu_cuf
@@ -594,6 +715,7 @@ contains
    endif
    endsubroutine update_ghost_mpi_gpu_cuf
 
+   ! assign allocatable interface
    pure subroutine assign_allocatable_I8P_1D_gpu(lhs, rhs)
    !< Safe assign allocatable arrays, I8P 1D type.
    integer(I8P), allocatable, device, intent(inout) :: lhs(:) !< Left hand side.
