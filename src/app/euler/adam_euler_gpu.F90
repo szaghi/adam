@@ -17,7 +17,7 @@ logical                         :: is_grid_changed   !< Flag to check grid chang
 real(R8P)                       :: time              !< Time.
 real(R8P)                       :: time_max=0.25_R8P !< Maximum time of integration.
 integer(I4P)                    :: n_save=10         !< Frequency of saving output.
-integer(I8P)                    :: timing(0:2)       !< Tic toc timing.
+real(R8P)                       :: timing(1:2)       !< Tic toc timing.
 
 print '(A)', 'Euler equation integration'
 call adam%initialize(max_level=7,                                              &
@@ -26,11 +26,11 @@ call adam%initialize(max_level=7,                                              &
                      bc_type=[BC_EXTRAPOLATION,BC_EXTRAPOLATION,               &
                               BC_EXTRAPOLATION,BC_EXTRAPOLATION,               &
                               BC_EXTRAPOLATION,BC_EXTRAPOLATION],              &
-                     nb=1000, nv=5, nodes_number=5000_I8P)
+                     nb=4000, nv=5, nodes_number=50000_I8P)
 
-call euler%initialize(field=adam%field, ns=1, CFL=0.3_R8P, null_xyz=[.false.,.true.,.true.], weno_s=2_I4P)
+call euler%initialize(field=adam%field, ns=1, CFL=0.3_R8P, null_xyz=[.false.,.false.,.false.], weno_s=2_I4P)
  print '(A)', 'create 3 levels of refinement'
- do l=1, 3
+ do l=1, 5
     print '(A)', 'refine ADAM at level '//trim(str(l))
     print *, 'blocks_number: ',adam%field%blocks_number
     call adam%tree%mark_all_nodes(mark=TO_BE_REFINED)
@@ -38,15 +38,6 @@ call euler%initialize(field=adam%field, ns=1, CFL=0.3_R8P, null_xyz=[.false.,.tr
  enddo
 print '(A)', 'set initial conditions'
 call euler%set_initial_conditions
-
-! print '(A)', 'track initial discontinuity'
-! track: do t=1, 10
-!    if (mod(t,1)==0.and.adam%myrank==0) print '(A)', 'track iteration '//trim(str(t, .true.))
-!    call euler%mark_by_grad_rho(grad_tol=2.5_R8P, delta_fine=0.010_R8P, delta_coarse=0.1_R8P)
-!    call euler%update_ghost(q=adam%field%q)
-!    call adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed)
-!    if (.not.is_grid_changed) exit track
-! enddo track
 
 call euler%copy_cpu_gpu
 call euler%copy_gpu_cpu(compute_q_aux=.true.)
@@ -57,9 +48,21 @@ call adam%save_hdf5(basename='euler-sod-'//trim(strz(0,9)),           &
                     q_aux_name=['c1','r ','u ','v ','w ','g ','p '],  &
                     with_cell_morton=.true.)
 
+print '(A)', 'track initial discontinuity'
+track: do t=1, -1
+   if (mod(t,1)==0.and.adam%myrank==0) print '(A)', 'track iteration '//trim(str(t, .true.))
+   call euler%mark_by_grad_rho(grad_tol=0.05_R8P, delta_fine=0.006_R8P, delta_coarse=0.015_R8P)
+   call euler%update_ghost_gpu(q_gpu=euler%q_gpu)
+   call euler%copy_gpu_cpu()
+   call adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed)
+   call euler%copy_cpu_gpu
+   if (.not.is_grid_changed) exit track
+enddo track
+
 time = 0._R8P
 t = 0
-call MPI_BARRIER(MPI_COMM_WORLD, adam%error) ; call system_clock(timing(1))
+!call MPI_BARRIER(MPI_COMM_WORLD, adam%error) ; call system_clock(timing(1))
+call MPI_BARRIER(MPI_COMM_WORLD, adam%error) ; timing(1) = MPI_Wtime()
 integration: do
    t = t + 1
 !    ! adapt grids tracking discontinuities
@@ -91,11 +94,21 @@ integration: do
    !                       with_cell_morton=.true.)
    !endif
    time = time + euler%dt
-   if (time>=time_max) exit integration
-   exit integration
+   if (time>=time_max .or. t > 100) exit integration
+   !exit integration
 enddo integration
-call MPI_BARRIER(MPI_COMM_WORLD, adam%error) ; call system_clock(timing(2), timing(0))
-print '(A, F8.3)', 'timing: ', real(timing(2) - timing(1))/ timing(0) / t
+!call MPI_BARRIER(MPI_COMM_WORLD, adam%error) ; call system_clock(timing(2), timing(0))
+!print '(A, F8.3)', 'timing: ', real(timing(2) - timing(1))/ timing(0) / t
+call MPI_BARRIER(MPI_COMM_WORLD, adam%error) ; timing(2) = MPI_Wtime()
+print '(A, F18.10)', 'timing: ', real(timing(2) - timing(1))/t
+
+!call euler%copy_gpu_cpu(compute_q_aux=.true.)
+!call adam%save_hdf5(basename='euler-sod-'//trim(strz(t,9)),           &
+!                    q=euler%field%q,                                  &
+!                    q_aux=euler%q_aux,                                &
+!                    q_name=['rho  ','rho-u','rho-v','rho-w','rho-E'], &
+!                    q_aux_name=['r1','r ','u ','v ','w ','g ','p '],  &
+!                    with_cell_morton=.true.)
 
 call adam%finalize
 endprogram adam_euler_gpu
