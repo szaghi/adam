@@ -532,33 +532,76 @@ contains
    class(equation_euler_gpu_object), intent(inout) :: self    !< The equation.
    integer(I4P)                                    :: b       !< Counter.
    integer(I4P)                                    :: i, j, k !< Counter.
+   integer(I4P)                                    :: riemdim
+   real(R8P)                                       :: mod_u
 
+   riemdim = 2
    associate(blocks_number=>self%field%blocks_number,                                      &
              q=>self%field%q,                                                              &
              ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,       &
              gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck, &
              x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell)
-   do b=1, blocks_number
-      do k=1, nk
-         do j=1, nj
-            do i=1, ni
-               if (x_cell(i,b)<0.5_R8P) then
-                  q(1,i,j,k,b) = 1._R8P
-                  q(2,i,j,k,b) = 0._R8P
-                  q(3,i,j,k,b) = 0._R8P
-                  q(4,i,j,k,b) = 0._R8P
-                  q(5,i,j,k,b) = 1._R8P * E(p=1._R8P, r=1._R8P, u=0._R8P, g=self%cp0(1)/self%cv0(1))
-               else
-                  q(1,i,j,k,b) = 0.125_R8P
-                  q(2,i,j,k,b) = 0._R8P
-                  q(3,i,j,k,b) = 0._R8P
-                  q(4,i,j,k,b) = 0._R8P
-                  q(5,i,j,k,b) = 0.125_R8P * E(p=0.1_R8P, r=0.125_R8P, u=0._R8P, g=self%cp0(1)/self%cv0(1))
-               endif
+   if(riemdim == 1) then
+      do b=1, blocks_number
+         do k=1, nk
+            do j=1, nj
+               do i=1, ni
+                  if (x_cell(i,b)<0.5_R8P) then
+                     q(1,i,j,k,b) = 1._R8P
+                     q(2,i,j,k,b) = 0._R8P
+                     q(3,i,j,k,b) = 0._R8P
+                     q(4,i,j,k,b) = 0._R8P
+                     q(5,i,j,k,b) = 1._R8P * E(p=1._R8P, r=1._R8P, u=0._R8P, g=self%cp0(1)/self%cv0(1))
+                  else
+                     q(1,i,j,k,b) = 0.125_R8P
+                     q(2,i,j,k,b) = 0._R8P
+                     q(3,i,j,k,b) = 0._R8P
+                     q(4,i,j,k,b) = 0._R8P
+                     q(5,i,j,k,b) = 0.125_R8P * E(p=0.1_R8P, r=0.125_R8P, u=0._R8P, g=self%cp0(1)/self%cv0(1))
+                  endif
+               enddo
             enddo
          enddo
       enddo
-   enddo
+   elseif(riemdim == 2) then
+      do b=1, blocks_number
+         do k=1, nk
+            do j=1, nj
+               do i=1, ni
+                  if (x_cell(i,b)<=0.5_R8P.and.z_cell(j,b)<=0.5_R8P) then
+                     q(1,i,j,k,b) = 0.138_R8P
+                     q(2,i,j,k,b) = q(1,i,j,k,b) * 1.206_R8P
+                     q(3,i,j,k,b) = 0._R8P
+                     q(4,i,j,k,b) = q(1,i,j,k,b) * 1.206_R8P
+                     mod_u        = sqrt((q(2,i,j,k,b)/q(1,i,j,k,b))**2+(q(4,i,j,k,b)/q(1,i,j,k,b))**2)
+                     q(5,i,j,k,b) = q(1,i,j,k,b) * E(p=0.029_R8P, r=q(1,i,j,k,b), u=mod_u, g=self%cp0(1)/self%cv0(1))
+                  elseif (x_cell(i,b)>0.5_R8P.and.z_cell(j,b)<=0.5_R8P) then
+                     q(1,i,j,k,b) = 0.5323_R8P
+                     q(2,i,j,k,b) = 0._R8P
+                     q(3,i,j,k,b) = 0._R8P
+                     q(4,i,j,k,b) = q(1,i,j,k,b) * 1.206_R8P
+                     mod_u        = sqrt((q(2,i,j,k,b)/q(1,i,j,k,b))**2+(q(4,i,j,k,b)/q(1,i,j,k,b))**2)
+                     q(5,i,j,k,b) = q(1,i,j,k,b) * E(p=0.3_R8P, r=q(1,i,j,k,b), u=mod_u, g=self%cp0(1)/self%cv0(1))
+                  elseif (x_cell(i,b)<=0.5_R8P.and.z_cell(j,b)>0.5_R8P) then
+                     q(1,i,j,k,b) = 0.5323_R8P
+                     q(2,i,j,k,b) = q(1,i,j,k,b) * 1.206_R8P
+                     q(3,i,j,k,b) = 0._R8P
+                     q(4,i,j,k,b) = 0._R8P
+                     mod_u        = sqrt((q(2,i,j,k,b)/q(1,i,j,k,b))**2+(q(4,i,j,k,b)/q(1,i,j,k,b))**2)
+                     q(5,i,j,k,b) = q(1,i,j,k,b) * E(p=0.3_R8P, r=q(1,i,j,k,b), u=mod_u, g=self%cp0(1)/self%cv0(1))
+                  else
+                     q(1,i,j,k,b) = 1.5_R8P
+                     q(2,i,j,k,b) = 0._R8P
+                     q(3,i,j,k,b) = 0._R8P
+                     q(4,i,j,k,b) = 0._R8P
+                     mod_u        = sqrt((q(2,i,j,k,b)/q(1,i,j,k,b))**2+(q(4,i,j,k,b)/q(1,i,j,k,b))**2)
+                     q(5,i,j,k,b) = q(1,i,j,k,b) * E(p=1.5_R8P, r=q(1,i,j,k,b), u=mod_u, g=self%cp0(1)/self%cv0(1))
+                  endif
+               enddo
+            enddo
+         enddo
+      enddo
+   endif
    endassociate
    endsubroutine set_initial_conditions
 

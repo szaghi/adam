@@ -262,11 +262,6 @@ contains
    if (present(q_aux_name).and.present(q_aux)) then
       allocate(character(len(q_aux_name(1))):: q_aux_name_(size(q_aux, dim=1)))
       q_aux_name_ = q_aux_name
-   else
-      allocate(character(4):: q_aux_name_(size(q_aux, dim=1)))
-      do v=1, size(q_aux, dim=1)
-         q_aux_name_(v) = 'q_aux-'//trim(strz(v,2))
-      enddo
    endif
    directory_ = '' ; if (present(directory)) directory_ = trim(directory)
    with_ghost_ = .false. ; if (present(with_ghost)) with_ghost_ = with_ghost
@@ -459,11 +454,6 @@ contains
    if (present(q_aux_name).and.present(q_aux)) then
       allocate(character(len(q_aux_name(1))):: q_aux_name_(size(q_aux, dim=1)))
       q_aux_name_ = q_aux_name
-   else
-      allocate(character(4):: q_aux_name_(size(q_aux, dim=1)))
-      do v=1, size(q_aux, dim=1)
-         q_aux_name_(v) = 'q_aux-'//trim(strz(v,2))
-      enddo
    endif
    directory_ = '' ; if (present(directory)) directory_ = trim(directory)
    with_ghost_ = .false. ; if (present(with_ghost)) with_ghost_ = with_ghost

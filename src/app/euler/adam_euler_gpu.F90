@@ -16,26 +16,26 @@ integer(I4P)                    :: l, t, st          !< Counter.
 logical                         :: is_grid_changed   !< Flag to check grid changes.
 real(R8P)                       :: time              !< Time.
 real(R8P)                       :: time_max=0.25_R8P !< Maximum time of integration.
-integer(I4P)                    :: n_save=2          !< Frequency of saving output.
+integer(I4P)                    :: n_save=10         !< Frequency of saving output.
 integer(I8P)                    :: timing(0:2)       !< Tic toc timing.
 
 print '(A)', 'Euler equation integration'
 call adam%initialize(max_level=7,                                              &
                      emin=[0._R8P,0._R8P,0._R8P], emax=[1._R8P,1._R8P,1._R8P], &
-                     ni=100_I4P, nj=2_I4P, nk=2_I4P, gc=[2_I4P,2_I4P,2_I4P],   &
+                     ni=16_I4P, nj=16_I4P, nk=16_I4P, gc=[2_I4P,2_I4P,2_I4P],   &
                      bc_type=[BC_EXTRAPOLATION,BC_EXTRAPOLATION,               &
                               BC_EXTRAPOLATION,BC_EXTRAPOLATION,               &
                               BC_EXTRAPOLATION,BC_EXTRAPOLATION],              &
-                     nb=1, nv=5, nodes_number=11_I8P)
+                     nb=1000, nv=5, nodes_number=5000_I8P)
 
 call euler%initialize(field=adam%field, ns=1, CFL=0.3_R8P, null_xyz=[.false.,.true.,.true.], weno_s=2_I4P)
-! print '(A)', 'create 2 levels of refinement'
-! do l=1, 4
-!    print '(A)', 'refine ADAM at level '//trim(str(l))
-!    print *, 'blocks_number: ',adam%field%blocks_number
-!    call adam%tree%mark_all_nodes(mark=TO_BE_REFINED)
-!    call adam%amr_update(do_blocks_reorder=.false., do_mpi_redistribute=.true.)
-! enddo
+ print '(A)', 'create 3 levels of refinement'
+ do l=1, 3
+    print '(A)', 'refine ADAM at level '//trim(str(l))
+    print *, 'blocks_number: ',adam%field%blocks_number
+    call adam%tree%mark_all_nodes(mark=TO_BE_REFINED)
+    call adam%amr_update(do_blocks_reorder=.false., do_mpi_redistribute=.true.)
+ enddo
 print '(A)', 'set initial conditions'
 call euler%set_initial_conditions
 
@@ -81,17 +81,18 @@ integration: do
       print '(A)',       't:             '//trim(str(t,.true.))
    endif
    call euler%integrate(t=time)
-   if (mod(t,n_save)==0) then
-      call euler%copy_gpu_cpu(compute_q_aux=.true.)
-      call adam%save_hdf5(basename='euler-sod-'//trim(strz(t,9)),           &
-                          q=euler%field%q,                                  &
-                          q_aux=euler%q_aux,                                &
-                          q_name=['rho  ','rho-u','rho-v','rho-w','rho-E'], &
-                          q_aux_name=['r1','r ','u ','v ','w ','g ','p '],  &
-                          with_cell_morton=.true.)
-   endif
+   !if (mod(t,n_save)==0) then
+   !   call euler%copy_gpu_cpu(compute_q_aux=.true.)
+   !   call adam%save_hdf5(basename='euler-sod-'//trim(strz(t,9)),           &
+   !                       q=euler%field%q,                                  &
+   !                       q_aux=euler%q_aux,                                &
+   !                       q_name=['rho  ','rho-u','rho-v','rho-w','rho-E'], &
+   !                       q_aux_name=['r1','r ','u ','v ','w ','g ','p '],  &
+   !                       with_cell_morton=.true.)
+   !endif
    time = time + euler%dt
    if (time>=time_max) exit integration
+   exit integration
 enddo integration
 call MPI_BARRIER(MPI_COMM_WORLD, adam%error) ; call system_clock(timing(2), timing(0))
 print '(A, F8.3)', 'timing: ', real(timing(2) - timing(1))/ timing(0) / t

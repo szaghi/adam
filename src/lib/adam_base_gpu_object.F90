@@ -375,7 +375,7 @@ contains
             enddo
          endif
       enddo
-      allocate(comm_map_send_ghost_cell(1:c*self%field%nv,1:6))
+      allocate(comm_map_recv_ghost_cell(1:c*self%field%nv,1:6))
       c = 1
       do f=1, size(self%field%comm_map_recv_ghost, dim=1)
          b_recv   = self%field%comm_map_recv_ghost(f, 1 )
@@ -428,7 +428,7 @@ contains
          endif
       enddo
       self%comm_map_recv_ghost_cell_gpu = comm_map_recv_ghost_cell
-      deallocate(comm_map_send_ghost_cell)
+      deallocate(comm_map_recv_ghost_cell)
    endif
    endsubroutine create_maps_cell
 
