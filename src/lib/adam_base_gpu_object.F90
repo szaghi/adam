@@ -27,18 +27,19 @@ type :: base_gpu_object
    integer(I4P), allocatable :: req_send_recv(:)   !< MPI request receive flags.
    real(R8P),    allocatable :: q_t(:,:,:,:,:)     !< Transposed cell centered variables on CPU.
    ! GPU data
-   real(R8P),    allocatable, device :: q_t_gpu(:,:,:,:,:)           !< Transposed cell centered variables on GPU.
-   integer(I8P), allocatable, device :: local_map_ghost_cell_gpu(:,:)!< Local map for ghost cells updating, cells order.
-   integer(I8P), allocatable, device :: local_map_ghost_gpu(:,:)     !< Local map for ghost cells updating, fecs order.
-   integer(I8P), allocatable, device :: comm_map_recv_ghost_gpu(:,:) !< Communication map, `fec` information.
-   integer(I8P), allocatable, device :: comm_map_send_ghost_gpu(:,:) !< Communication map, `fec` information.
+   real(R8P),    allocatable, device :: q_t_gpu(:,:,:,:,:)                !< Transposed cell centered variables on GPU.
+   integer(I8P), allocatable, device :: local_map_ghost_cell_gpu(:,:)     !< Local map for ghost cells updating, cells order.
+   integer(I8P), allocatable, device :: local_map_ghost_gpu(:,:)          !< Local map for ghost cells updating, fecs order.
+   integer(I8P), allocatable, device :: comm_map_recv_ghost_gpu(:,:)      !< Communication map, `fec` information.
+   integer(I8P), allocatable, device :: comm_map_send_ghost_gpu(:,:)      !< Communication map, `fec` information.
    integer(I8P), allocatable, device :: comm_map_recv_ghost_cell_gpu(:,:) !< Communication map, `fec` information, cell order.
    integer(I8P), allocatable, device :: comm_map_send_ghost_cell_gpu(:,:) !< Communication map, `fec` information, cell order.
-   real(R8P),    allocatable, device :: send_buffer_ghost_gpu(:)     !< Send buffer of ghost cells.
-   real(R8P),    allocatable, device :: recv_buffer_ghost_gpu(:)     !< Receive buffer of ghost cells.
-   integer(I8P), allocatable, device :: local_map_bc_face_gpu(:,:)   !< Local map for face BC ghost cells.
-   integer(I8P), allocatable, device :: local_map_bc_edge_gpu(:,:)   !< Local map for edge BC ghost cells.
-   integer(I8P), allocatable, device :: local_map_bc_corner_gpu(:,:) !< Local map for corner BC ghost cells.
+   real(R8P),    allocatable, device :: send_buffer_ghost_gpu(:)          !< Send buffer of ghost cells.
+   real(R8P),    allocatable, device :: recv_buffer_ghost_gpu(:)          !< Receive buffer of ghost cells.
+   integer(I8P), allocatable, device :: local_map_bc_face_gpu(:,:)        !< Local map for face BC ghost cells.
+   integer(I8P), allocatable, device :: local_map_bc_edge_gpu(:,:)        !< Local map for edge BC ghost cells.
+   integer(I8P), allocatable, device :: local_map_bc_corner_gpu(:,:)      !< Local map for corner BC ghost cells.
+   integer(I8P), allocatable, device :: local_map_bc_crown_gpu(:,:,:)     !< Local map for face BC ghost cells, "crown" order.
    contains
       ! public methods
       procedure, pass(self) :: copy_cpu_gpu           !< Copy data from CPU to GPU.
@@ -112,10 +113,11 @@ contains
 
    subroutine create_maps_cell(self)
    !< Create maps in cells order form the fecs ordered ones.
-   class(base_gpu_object), intent(inout) :: self !< The base backend.
+   class(base_gpu_object), intent(inout) :: self                          !< The base backend.
    integer(I8P), allocatable             :: local_map_ghost_cell(:,:)     !< Local map ghost cells update, cells order.
    integer(I8P), allocatable             :: comm_map_send_ghost_cell(:,:) !< MPI send map ghost cells update, cells order.
    integer(I8P), allocatable             :: comm_map_recv_ghost_cell(:,:) !< MPI send map ghost cells update, cells order.
+   integer(I8P), allocatable             :: local_map_bc_crown(:,:,:)     !< Local map for face BC ghost cells, "crown" order.
    integer(I4P)                          :: c, f, v, n                    !< Counter.
    integer(I4P)                          :: i, j, k                       !< Counter.
    integer(I4P)                          :: iii, jjj, kkk                 !< Counter.
@@ -135,6 +137,7 @@ contains
    integer(I4P)                          :: kdelta                        !< Delta offset for ghost-inner cells of k.
    integer(I4P)                          :: recv_ptr, recv_ctr            !< Counter.
    integer(I4P)                          :: send_ptr, send_ctr            !< Counter.
+   integer(I4P), allocatable             :: c_crown(:)                    !< Counter.
 
    if (allocated(self%field%local_map_ghost)) then
       c = 0
@@ -430,6 +433,103 @@ contains
       self%comm_map_recv_ghost_cell_gpu = comm_map_recv_ghost_cell
       deallocate(comm_map_recv_ghost_cell)
    endif
+   if (allocated(self%field%local_map_bc_face  ).or.&
+       allocated(self%field%local_map_bc_edge  ).or.&
+       allocated(self%field%local_map_bc_corner)) then
+      c = 0
+      if (allocated(self%field%local_map_bc_face  )) c = c + bc_cells_number(self%field%local_map_bc_face  )
+      if (allocated(self%field%local_map_bc_edge  )) c = c + bc_cells_number(self%field%local_map_bc_edge  )
+      if (allocated(self%field%local_map_bc_corner)) c = c + bc_cells_number(self%field%local_map_bc_corner)
+      allocate(local_map_bc_crown(1:c,1:8,1:self%field%grid%gci))
+      allocate(c_crown(1:self%field%grid%gci))
+      local_map_bc_crown = -1
+      ! c = 1
+      c_crown = 1
+      if (allocated(self%field%local_map_bc_face  )) call populate_local_map_bc_crown(self%field%local_map_bc_face  )
+      if (allocated(self%field%local_map_bc_edge  )) call populate_local_map_bc_crown(self%field%local_map_bc_edge  )
+      if (allocated(self%field%local_map_bc_corner)) call populate_local_map_bc_crown(self%field%local_map_bc_corner)
+      deallocate(c_crown)
+      self%local_map_bc_crown_gpu = local_map_bc_crown
+      deallocate(local_map_bc_crown)
+   endif
+   contains
+      function bc_cells_number(local_map_bc) result(cells_number)
+      !< Return BC cells number.
+      integer(I8P), intent(in) :: local_map_bc(:,:) !< Local map for BC ghost cells.
+      integer(I4P)             :: f, i, j, k        !< Counter.
+      integer(I4P)             :: imin              !< Lower limit of ijk indexes.
+      integer(I4P)             :: jmin              !< Lower limit of ijk indexes.
+      integer(I4P)             :: kmin              !< Lower limit of ijk indexes.
+      integer(I4P)             :: imax              !< Upper limit of ijk indexes.
+      integer(I4P)             :: jmax              !< Upper limit of ijk indexes.
+      integer(I4P)             :: kmax              !< Upper limit of ijk indexes.
+      integer(I4P)             :: cells_number      !< Number of BC cells.
+
+      cells_number = 0
+      do f=1, size(local_map_bc, dim=1)
+         imin    = local_map_bc(f, 3 )
+         jmin    = local_map_bc(f, 4 )
+         kmin    = local_map_bc(f, 5 )
+         imax    = local_map_bc(f, 6 )
+         jmax    = local_map_bc(f, 7 )
+         kmax    = local_map_bc(f, 8 )
+         do k=kmin, kmax, sign(1, kmax-kmin)
+            do j=jmin, jmax, sign(1, jmax-jmin)
+               do i=imin, imax, sign(1, imax-imin)
+                  cells_number = cells_number + 1
+               enddo
+            enddo
+         enddo
+      enddo
+      endfunction bc_cells_number
+
+      subroutine populate_local_map_bc_crown(local_map_bc)
+      !< Populate map of BC cells in crown order.
+      integer(I8P), intent(in) :: local_map_bc(:,:) !< Local map for BC ghost cells.
+      integer(I4P)             :: f, i, j, k, b     !< Counter.
+      integer(I4P)             :: imin              !< Lower limit of ijk indexes.
+      integer(I4P)             :: jmin              !< Lower limit of ijk indexes.
+      integer(I4P)             :: kmin              !< Lower limit of ijk indexes.
+      integer(I4P)             :: imax              !< Upper limit of ijk indexes.
+      integer(I4P)             :: jmax              !< Upper limit of ijk indexes.
+      integer(I4P)             :: kmax              !< Upper limit of ijk indexes.
+      integer(I4P)             :: idelta            !< IJK delta step for extrapolation.
+      integer(I4P)             :: jdelta            !< IJK delta step for extrapolation.
+      integer(I4P)             :: kdelta            !< IJK delta step for extrapolation.
+      integer(I4P)             :: bc_type           !< Boundary condition type.
+      integer(I4P)             :: crown             !< Crown counter.
+
+      do f=1, size(local_map_bc, dim=1)
+         b       = local_map_bc(f, 1 )
+         imin    = local_map_bc(f, 3 )
+         jmin    = local_map_bc(f, 4 )
+         kmin    = local_map_bc(f, 5 )
+         imax    = local_map_bc(f, 6 )
+         jmax    = local_map_bc(f, 7 )
+         kmax    = local_map_bc(f, 8 )
+         idelta  = local_map_bc(f, 9 )
+         jdelta  = local_map_bc(f, 10)
+         kdelta  = local_map_bc(f, 11)
+         bc_type = local_map_bc(f, 12)
+         do k=kmin, kmax, sign(1, kmax-kmin)
+            do j=jmin, jmax, sign(1, jmax-jmin)
+               do i=imin, imax, sign(1, imax-imin)
+                  crown = maxval([abs(i-imin), abs(j-jmin), abs(k-kmin)], mask=[idelta/=0, jdelta/=0, kdelta/=0]) + 1
+                  local_map_bc_crown(c_crown(crown), 1, crown) = b
+                  local_map_bc_crown(c_crown(crown), 2, crown) = i
+                  local_map_bc_crown(c_crown(crown), 3, crown) = j
+                  local_map_bc_crown(c_crown(crown), 4, crown) = k
+                  local_map_bc_crown(c_crown(crown), 5, crown) = idelta
+                  local_map_bc_crown(c_crown(crown), 6, crown) = jdelta
+                  local_map_bc_crown(c_crown(crown), 7, crown) = kdelta
+                  local_map_bc_crown(c_crown(crown), 8, crown) = bc_type
+                  ! c = c + 1
+                  c_crown(crown) = c_crown(crown) + 1
+               enddo
+            enddo
+         enddo
+      enddo
+      endsubroutine populate_local_map_bc_crown
    endsubroutine create_maps_cell
 
    subroutine destroy(self)

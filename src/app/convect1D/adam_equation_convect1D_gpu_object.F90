@@ -252,59 +252,45 @@ contains
                                                                         1-self%field%grid%gcj:,&
                                                                         1-self%field%grid%gck:,1:) !< Field.
 
-   if (allocated(self%base_gpu%local_map_bc_face_gpu  )) call set_bc_fec(local_map_bc=self%base_gpu%local_map_bc_face_gpu  )
-   if (allocated(self%base_gpu%local_map_bc_edge_gpu  )) call set_bc_fec(local_map_bc=self%base_gpu%local_map_bc_edge_gpu  )
-   if (allocated(self%base_gpu%local_map_bc_corner_gpu)) call set_bc_fec(local_map_bc=self%base_gpu%local_map_bc_corner_gpu)
+   if (allocated(self%base_gpu%local_map_bc_crown_gpu)) call set_bc_fec(nv=self%field%nv,       &
+                                                                        gc=self%field%grid%gci, &
+                                                                        local_map_bc=self%base_gpu%local_map_bc_crown_gpu)
    contains
-      subroutine set_bc_fec(local_map_bc)
-      integer(I8P), intent(in),    device :: local_map_bc(:,:) !< Local map for BC ghost cells.
-      integer(I4P)                        :: b                 !< Counter.
-      integer(I4P)                        :: f, i, j, k        !< Counter.
-      integer(I4P)                        :: fec               !< Counter.
-      integer(I4P)                        :: imin              !< Lower limit of ijk indexes.
-      integer(I4P)                        :: jmin              !< Lower limit of ijk indexes.
-      integer(I4P)                        :: kmin              !< Lower limit of ijk indexes.
-      integer(I4P)                        :: imax              !< Upper limit of ijk indexes.
-      integer(I4P)                        :: jmax              !< Upper limit of ijk indexes.
-      integer(I4P)                        :: kmax              !< Upper limit of ijk indexes.
-      integer(I4P)                        :: idelta            !< IJK delta step for extrapolation.
-      integer(I4P)                        :: jdelta            !< IJK delta step for extrapolation.
-      integer(I4P)                        :: kdelta            !< IJK delta step for extrapolation.
-      integer(I4P)                        :: bc_type           !< Boundary condition type.
-      integer(I4P)                        :: iercuda           !< Error trapping flag for CUDAFortran.
+      subroutine set_bc_fec(nv, gc, local_map_bc)
+      integer(I4P), intent(in)         :: nv                !< Number of variables.
+      integer(I4P), intent(in)         :: gc                !< Ghost cells number.
+      integer(I8P), intent(in), device :: local_map_bc(:,:,:) !< Local map for BC ghost cells.
+      integer(I4P)                     :: b                 !< Counter.
+      integer(I4P)                     :: c, i, j, k, v     !< Counter.
+      integer(I4P)                     :: idelta            !< IJK delta step for extrapolation.
+      integer(I4P)                     :: jdelta            !< IJK delta step for extrapolation.
+      integer(I4P)                     :: kdelta            !< IJK delta step for extrapolation.
+      integer(I4P)                     :: bc_type           !< Boundary condition type.
+      integer(I4P)                     :: crown             !< Crown counter.
+      integer(I4P)                     :: iercuda           !< Error trapping flag for CUDAFortran.
 
-      !$cuf kernel do(1) <<<*,*>>>
-      do f=1, size(local_map_bc, dim=1)
-         b       = local_map_bc(f, 1 )
-         fec     = local_map_bc(f, 2 )
-         imin    = local_map_bc(f, 3 )
-         jmin    = local_map_bc(f, 4 )
-         kmin    = local_map_bc(f, 5 )
-         imax    = local_map_bc(f, 6 )
-         jmax    = local_map_bc(f, 7 )
-         kmax    = local_map_bc(f, 8 )
-         idelta  = local_map_bc(f, 9 )
-         jdelta  = local_map_bc(f, 10)
-         kdelta  = local_map_bc(f, 11)
-         bc_type = local_map_bc(f, 12)
-         if (bc_type == BC_EXTRAPOLATION) then
-            do k=kmin, kmax, sign(1, kmax-kmin)
-               do j=jmin, jmax, sign(1, jmax-jmin)
-                  do i=imin, imax, sign(1, imax-imin)
-                     q_gpu(b,i,j,k,1) = q_gpu(b, i-idelta, j-jdelta, k-kdelta, 1)
+      do crown=1, gc
+         !$cuf kernel do(1) <<<*,*>>>
+         do c=1, size(local_map_bc, dim=1)
+            b = local_map_bc(c, 1 ,crown)
+            if (b>0) then
+               i       = local_map_bc(c, 2 ,crown)
+               j       = local_map_bc(c, 3 ,crown)
+               k       = local_map_bc(c, 4 ,crown)
+               idelta  = local_map_bc(c, 5 ,crown)
+               jdelta  = local_map_bc(c, 6 ,crown)
+               kdelta  = local_map_bc(c, 7 ,crown)
+               bc_type = local_map_bc(c, 8 ,crown)
+               if (bc_type == BC_EXTRAPOLATION) then
+                  do v=1, nv
+                     q_gpu(b,i,j,k,v) = q_gpu(b,i-idelta,j-jdelta,k-kdelta,v)
                   enddo
-               enddo
-            enddo
-         elseif (bc_type == BC_INFLOW) then
-            do k=kmin, kmax, sign(1, kmax-kmin)
-               do j=jmin, jmax, sign(1, jmax-jmin)
-                  do i=imin, imax, sign(1, imax-imin)
-                  enddo
-               enddo
-            enddo
-         endif
+               else
+               endif
+            endif
+         enddo
+         !@cuf iercuda=cudaDeviceSynchronize()
       enddo
-      !@cuf iercuda=cudaDeviceSynchronize()
       endsubroutine set_bc_fec
    endsubroutine set_boundary_conditions
 

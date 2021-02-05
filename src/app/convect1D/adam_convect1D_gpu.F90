@@ -38,9 +38,13 @@ enddo
 print '(A)', 'set initial conditions'
 call convect%set_initial_conditions
 print '(A)', 'save initial conditions'
-call adam%save_hdf5(basename='convect-'//trim(strz(0,9)), q=convect%field%q, q_name=['T'], with_cell_morton=.true.)
-print '(A)', 'copy CPU to GPU'
 call convect%copy_cpu_gpu
+call convect%update_ghost_gpu(q_gpu=convect%q_gpu)
+call convect%copy_gpu_cpu
+call adam%save_hdf5(basename='convect-'//trim(strz(0,9)), q=convect%field%q, q_name=['T'], &
+                    with_cell_morton=.true., with_ghost`=.true.)
+call adam%finalize
+print '(A)', 'copy CPU to GPU'
 time = 0._R8P
 do t=1, n_iter
    if (mod(t,1)==0.and.adam%myrank==0) print '(A)', 'track iteration '//trim(str(t, .true.))
