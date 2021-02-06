@@ -78,9 +78,9 @@ contains
                       1._R8P, &
                       0._R8P]
    endselect
-   allocate(self%q_s(1-field%grid%gci:field%grid%ni+field%grid%gci, &
-                     1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
-                     1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nv, 1:field%nb, 1:self%ns))
+   allocate(self%q_s(1-field%grid%ngc:field%grid%ni+field%grid%ngc, &
+                     1-field%grid%ngc:field%grid%nj+field%grid%ngc, &
+                     1-field%grid%ngc:field%grid%nk+field%grid%ngc, 1:field%nv, 1:field%nb, 1:self%ns))
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
    endsubroutine initialize
 
@@ -185,9 +185,9 @@ contains
    subroutine compute_residuals(self, q, t, block_start, block_end)
    !< Compute residuals of equation.
    class(equation_laplace_cpu_object), intent(in)    :: self                         !< The equation.
-   real(R8P),                          intent(inout) :: q(1-self%field%grid%gci:,&
-                                                          1-self%field%grid%gcj:,&
-                                                          1-self%field%grid%gck:,&
+   real(R8P),                          intent(inout) :: q(1-self%field%grid%ngc:,&
+                                                          1-self%field%grid%ngc:,&
+                                                          1-self%field%grid%ngc:,&
                                                           1:,1:)                     !< Field component to be updated.
    real(R8P),                          intent(in)    :: t                            !< Time.
    integer(I4P),                       intent(in)    :: block_start                  !< Index of block to start residuals comp.
@@ -216,9 +216,9 @@ contains
    subroutine set_boundary_conditions(self, q)
    !< Set boundary conditions of equation.
    class(equation_laplace_cpu_object), intent(in)    :: self                            !< The equation.
-   real(R8P),                          intent(inout) :: q(1-self%field%grid%gci:,&
-                                                          1-self%field%grid%gcj:,&
-                                                          1-self%field%grid%gck:,1:,1:) !< Field component to be updated.
+   real(R8P),                          intent(inout) :: q(1-self%field%grid%ngc:,&
+                                                          1-self%field%grid%ngc:,&
+                                                          1-self%field%grid%ngc:,1:,1:) !< Field component to be updated.
 
    if (allocated(self%field%local_map_bc_face))   call set_bc_fec(local_map_bc=self%field%local_map_bc_face)
    if (allocated(self%field%local_map_bc_edge))   call set_bc_fec(local_map_bc=self%field%local_map_bc_edge)
@@ -287,8 +287,7 @@ contains
    associate(blocks_number=>self%field%blocks_number,                                      &
              q=>self%field%q,                                                              &
              ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,       &
-             gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck, &
-             x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell)
+             ngc=>self%field%grid%ngc, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell)
    do b=1, blocks_number
       do k=1, nk
          do j=1, nj
@@ -307,9 +306,9 @@ contains
    !< Update ghost cells.
    !< If not specified all steps are perfermod, syncronous computation
    class(equation_laplace_cpu_object), intent(inout)        :: self            !< The equation.
-   real(R8P),                          intent(inout)        :: q(1-self%field%grid%gci:,&
-                                                                 1-self%field%grid%gcj:,&
-                                                                 1-self%field%grid%gck:,&
+   real(R8P),                          intent(inout)        :: q(1-self%field%grid%ngc:,&
+                                                                 1-self%field%grid%ngc:,&
+                                                                 1-self%field%grid%ngc:,&
                                                                  1:,1:)        !< Field component to be updated.
    integer(I4P),                       intent(in), optional :: step            !< Step to be perfordmed in asyncronous comp.
    logical                                                  :: do_local_update !< Flag for triggering local update.

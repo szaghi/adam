@@ -85,12 +85,12 @@ type :: field_object
    real(R8P),    allocatable  :: emin(:,:)                !< Coordinates of minimum abscissa of each block [3,nb].
    real(R8P),    allocatable  :: emax(:,:)                !< Coordinates of maximum abscissa of each block [3,nb].
    real(R8P),    allocatable  :: dxyz(:,:)                !< Space steps of each block [3,nb].
-   real(R8P),    allocatable  :: x_node(:,:)              !< X coordinates of [0-gci:ni+gci,nb].
-   real(R8P),    allocatable  :: y_node(:,:)              !< Y coordinates of [0-gcj:nj+gcj,nb].
-   real(R8P),    allocatable  :: z_node(:,:)              !< Z coordinates of [0-gck:nk+gck,nb].
-   real(R8P),    allocatable  :: x_cell(:,:)              !< X coordinates of [1-gci:ni+gci,nb].
-   real(R8P),    allocatable  :: y_cell(:,:)              !< Y coordinates of [1-gcj:nj+gcj,nb].
-   real(R8P),    allocatable  :: z_cell(:,:)              !< Z coordinates of [1-gck:nk+gck,nb].
+   real(R8P),    allocatable  :: x_node(:,:)              !< X node coordinates.
+   real(R8P),    allocatable  :: y_node(:,:)              !< Y node coordinates.
+   real(R8P),    allocatable  :: z_node(:,:)              !< Z node coordinates.
+   real(R8P),    allocatable  :: x_cell(:,:)              !< X cell coordinates.
+   real(R8P),    allocatable  :: y_cell(:,:)              !< Y cell coordinates.
+   real(R8P),    allocatable  :: z_cell(:,:)              !< Z cell coordinates.
    integer(I8P), allocatable  :: local_map_ghost(:,:)     !< Local map for ghost cells updating.
    integer(I8P), allocatable  :: local_map_bc_face(:,:)   !< Local map for face BC ghost cells.
    integer(I8P), allocatable  :: local_map_bc_edge(:,:)   !< Local map for edge BC ghost cells.
@@ -115,7 +115,7 @@ type :: field_object
    real(R8P), allocatable :: send_buffer_ghost(:) !< Send buffer of ghost cells.
    real(R8P), allocatable :: recv_buffer_ghost(:) !< Receive buffer of ghost cells.
    ! field equations data
-   real(R8P), allocatable :: q(     :,:,:,:,:) !< Field cell centered variables [nv,ni+2gci,nj+2gcj,nk+2gck,nb].
+   real(R8P), allocatable :: q(     :,:,:,:,:) !< Field cell centered variables.
    real(R8P), allocatable :: q_work(:,:,:,:,:) !< Field cell centered variables, working buffer memory.
    contains
       ! public methods
@@ -210,9 +210,9 @@ contains
    call self%destroy
    self%grid => grid
    if (present(nv)) self%nv  = nv
-   self%block_weight = (self%grid%gci+self%grid%ni+self%grid%gci)* &
-                       (self%grid%gcj+self%grid%nj+self%grid%gcj)* &
-                       (self%grid%gck+self%grid%nk+self%grid%gck)*self%nv
+   self%block_weight = (self%grid%ngc+self%grid%ni+self%grid%ngc)* &
+                       (self%grid%ngc+self%grid%nj+self%grid%ngc)* &
+                       (self%grid%ngc+self%grid%nk+self%grid%ngc)*self%nv
    if (present(nb)) self%nb  = nb
    if (self%nb>0) then
 
@@ -225,23 +225,23 @@ contains
       allocate(self%emin(3,self%nb))
       allocate(self%emax(3,self%nb))
       allocate(self%dxyz(3,self%nb))
-      allocate(self%x_cell(1-self%grid%gci:self%grid%ni+self%grid%gci,self%nb))
-      allocate(self%y_cell(1-self%grid%gcj:self%grid%nj+self%grid%gcj,self%nb))
-      allocate(self%z_cell(1-self%grid%gck:self%grid%nk+self%grid%gck,self%nb))
-      allocate(self%x_node(0-self%grid%gci:self%grid%ni+self%grid%gci,self%nb))
-      allocate(self%y_node(0-self%grid%gcj:self%grid%nj+self%grid%gcj,self%nb))
-      allocate(self%z_node(0-self%grid%gck:self%grid%nk+self%grid%gck,self%nb))
+      allocate(self%x_cell(1-self%grid%ngc:self%grid%ni+self%grid%ngc,self%nb))
+      allocate(self%y_cell(1-self%grid%ngc:self%grid%nj+self%grid%ngc,self%nb))
+      allocate(self%z_cell(1-self%grid%ngc:self%grid%nk+self%grid%ngc,self%nb))
+      allocate(self%x_node(0-self%grid%ngc:self%grid%ni+self%grid%ngc,self%nb))
+      allocate(self%y_node(0-self%grid%ngc:self%grid%nj+self%grid%ngc,self%nb))
+      allocate(self%z_node(0-self%grid%ngc:self%grid%nk+self%grid%ngc,self%nb))
       self%emin(:,1) = self%grid%domain_emin
       self%emax(:,1) = self%grid%domain_emax
 
       allocate(     self%q(1:self%nv,                                  &
-                           1-self%grid%gci:self%grid%ni+self%grid%gci, &
-                           1-self%grid%gcj:self%grid%nj+self%grid%gcj, &
-                           1-self%grid%gck:self%grid%nk+self%grid%gck, 1:self%nb))
+                           1-self%grid%ngc:self%grid%ni+self%grid%ngc, &
+                           1-self%grid%ngc:self%grid%nj+self%grid%ngc, &
+                           1-self%grid%ngc:self%grid%nk+self%grid%ngc, 1:self%nb))
       allocate(self%q_work(1:self%nv,                                  &
-                           1-self%grid%gci:self%grid%ni+self%grid%gci, &
-                           1-self%grid%gcj:self%grid%nj+self%grid%gcj, &
-                           1-self%grid%gck:self%grid%nk+self%grid%gck, 1:self%nb))
+                           1-self%grid%ngc:self%grid%ni+self%grid%ngc, &
+                           1-self%grid%ngc:self%grid%nj+self%grid%ngc, &
+                           1-self%grid%ngc:self%grid%nk+self%grid%ngc, 1:self%nb))
       self%q = 0._R8P
       self%q_work = 0._R8P
    endif
@@ -427,9 +427,9 @@ contains
           bi = comm_map_recv(b)
           self%q_work(:,:,:,:,bi) = reshape(recv_buffer(recv_offset:recv_offset + self%block_weight -1),&
                                             [self%nv,                                                   &
-                                             self%grid%gci+self%grid%ni+self%grid%gci,                  &
-                                             self%grid%gcj+self%grid%nj+self%grid%gcj,                  &
-                                             self%grid%gck+self%grid%nk+self%grid%gck])
+                                             self%grid%ngc+self%grid%ni+self%grid%ngc,                  &
+                                             self%grid%ngc+self%grid%nj+self%grid%ngc,                  &
+                                             self%grid%ngc+self%grid%nk+self%grid%ngc])
           recv_offset = recv_offset + self%block_weight
       enddo
    endif
@@ -596,9 +596,7 @@ contains
    integer(I4P)                             :: ic1, ic2, ic3, ic4        !< Counter.
    integer(I4P)                             :: ic5, ic6, ic7, ic8        !< Counter.
 
-   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk,       &
-             gci=>self%grid%gci, gcj=>self%grid%gcj, gck=>self%grid%gck, &
-             q=>self%q, q_work=>self%q_work)
+   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, q=>self%q, q_work=>self%q_work)
    if (allocated(block_to_refine)) then
       do b=1, size(block_to_refine, dim=2)
          if (self%myrank /= block_to_refine(2,b)) cycle

@@ -20,7 +20,7 @@ integer(I4P)                      :: n_save=1        !< Frequency of saving outp
 print '(A)', 'Laplace equation integration'
 call adam%initialize(max_level=7,                                              &
                      emin=[0._R8P,0._R8P,0._R8P], emax=[1._R8P,1._R8P,1._R8P], &
-                     ni=8_I4P, nj=8_I4P, nk=8_I4P, gc=[2_I4P,2_I4P,2_I4P],     &
+                     ni=8_I4P, nj=8_I4P, nk=8_I4P, ngc=2_I4P,                  &
                      bc_type=[BC_INFLOW,BC_EXTRAPOLATION,                      &
                               BC_EXTRAPOLATION,BC_EXTRAPOLATION,               &
                               BC_EXTRAPOLATION,BC_EXTRAPOLATION],              &
@@ -36,7 +36,7 @@ do l=1, 2
 enddo
 print '(A)', 'set initial conditions'
 call laplace%set_initial_conditions
-call adam%save_hdf5(basename='laplace-'//trim(strz(0,9)), with_ghost=.false., with_cell_morton=.true.)
+call adam%save_hdf5(basename='laplace-'//trim(strz(0,9)), q=laplace%field%q, q_name=['T'], with_cell_morton=.true.)
 time = 0._R8P
 do t=1, n_iter
    if (mod(t,1)==0.and.adam%myrank==0) print '(A)', 'track iteration '//trim(str(t, .true.))
@@ -45,7 +45,8 @@ do t=1, n_iter
    call adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false.)
    if (mod(t,1)==0.and.adam%myrank==0) print '(A)', 'blocks number: '//trim(str(adam%tree%nodes_number, .true.))
    call laplace%integrate(t=time, Dt=0.000001_R8P)
-   if (mod(t,n_save)==0) call adam%save_hdf5(basename='laplace-'//trim(strz(t,9)), with_ghost=.false., with_cell_morton=.true.)
+   if (mod(t,n_save)==0) &
+      call adam%save_hdf5(basename='laplace-'//trim(strz(t,9)), q=laplace%field%q, q_name=['T'], with_cell_morton=.true.)
    time = time + 0.2_R8P
 enddo
 call adam%finalize

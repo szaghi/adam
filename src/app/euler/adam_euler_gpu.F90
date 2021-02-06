@@ -23,7 +23,7 @@ real(R8P)                       :: timing(1:2)       !< Tic toc timing.
 print '(A)', 'Euler equation integration'
 call adam%initialize(max_level=7,                                              &
                      emin=[0._R8P,0._R8P,0._R8P], emax=[1._R8P,1._R8P,1._R8P], &
-                     ni=16_I4P, nj=16_I4P, nk=16_I4P, gc=[2_I4P,2_I4P,2_I4P],   &
+                     ni=16_I4P, nj=16_I4P, nk=16_I4P, ngc=2_I4P,               &
                      bc_type=[BC_EXTRAPOLATION,BC_EXTRAPOLATION,               &
                               BC_EXTRAPOLATION,BC_EXTRAPOLATION,               &
                               BC_EXTRAPOLATION,BC_EXTRAPOLATION],              &

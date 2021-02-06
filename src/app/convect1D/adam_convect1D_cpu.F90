@@ -20,7 +20,7 @@ integer(I4P)                        :: n_save=1        !< Frequency of saving ou
 print '(A)', '1D convection equation integration'
 call adam%initialize(max_level=7,                                              &
                      emin=[0._R8P,0._R8P,0._R8P], emax=[1._R8P,1._R8P,1._R8P], &
-                     ni=8_I4P, nj=8_I4P, nk=8_I4P, gc=[2_I4P,2_I4P,2_I4P],     &
+                     ni=8_I4P, nj=8_I4P, nk=8_I4P, ngc=2_I4P,                  &
                      bc_type=[BC_PERIODIC,BC_PERIODIC,                         &
                               BC_EXTRAPOLATION,BC_EXTRAPOLATION,               &
                               BC_EXTRAPOLATION,BC_EXTRAPOLATION],              &

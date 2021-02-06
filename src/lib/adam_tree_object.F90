@@ -431,24 +431,24 @@ contains
    real(R8P), allocatable                          :: z_cell(:)              !< Z cell coordinates.
 
    from_cell_ = .false. ; if (present(from_cell)) from_cell_ = from_cell
-   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, gci=>self%grid%gci, gcj=>self%grid%gcj, gck=>self%grid%gck)
+   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc)
    if (from_cell_.and.present(cell_distance)) then
       ! compute distance from cell, distance from blocks must be already computed
-      allocate(cell_distance(1-gci:ni+gci, 1-gcj:nj+gcj, 1-gck:nk+gck, 1:self%my_nodes_number))
+      allocate(cell_distance(1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:self%my_nodes_number))
       ! cell_distance = huge(0._R8P)
       cell_distance = 10._R8P
-      allocate(x_cell(1-gci:ni+gci))
-      allocate(y_cell(1-gcj:nj+gcj))
-      allocate(z_cell(1-gck:nk+gck))
+      allocate(x_cell(1-ngc:ni+ngc))
+      allocate(y_cell(1-ngc:nj+ngc))
+      allocate(z_cell(1-ngc:nk+ngc))
       do while(self%loop(node=node))
          if (node%myrank==self%myrank) then
             if (node%surface_stl_distance<epsilon(0._R8P)) then
                ! compute cell distance only in blocks where is STL surface
                call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
                call self%grid%compute_metrics(coordinates=[i,j,k,l], x_cell=x_cell, y_cell=y_cell, z_cell=z_cell)
-               do k=1-gck, nk+gck
-                  do j=1-gcj, nj+gcj
-                     do i=1-gci, ni+gci
+               do k=1-ngc, nk+ngc
+                  do j=1-ngc, nj+ngc
+                     do i=1-ngc, ni+ngc
                         point(0) = x_cell(i) * ex_R8P + y_cell(j) * ey_R8P + z_cell(k) * ez_R8P
                         cell_distance(i,j,k,node%block_index) = surface_stl%distance(point=point(0),   &
                                                                                      is_signed=.true., &
@@ -743,13 +743,10 @@ contains
       integer(I4P)              :: ijkdelta(3)            !< Delta offset for ghost-inner cells mapping same refinement.
       integer(I4P)              :: ijkdelta_global(3)     !< Delta offset for ghost-inner cells mapping same refinement.
       integer(I4P)              :: nijk(3)                !< Ni, Nj , Nk stored in array.
-      integer(I4P)              :: gcijk(3)               !< Ghost cell.
       integer(I4P)              :: i                      !< Counter.
 
-      associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, &
-                gci=>self%grid%gci, gcj=>self%grid%gcj, gck=>self%grid%gck)
+      associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc)
          nijk = [ni, nj, nk]
-         gcijk = [gci, gcj, gck]
 
          ijkdelta = fec_to_delta(1:3, fec)
          ijkdelta_global = fec_to_delta(1:3, neighbor_bc_fec)
@@ -757,10 +754,10 @@ contains
          do i=1, 3
             if     (ijkdelta(i)==1) then
                ijkmin(i) = nijk(i) + 1
-               ijkmax(i) = nijk(i) + gcijk(i)
+               ijkmax(i) = nijk(i) + ngc
             elseif (ijkdelta(i)==-1) then
                ijkmin(i) = 0
-               ijkmax(i) = 1 - gcijk(i)
+               ijkmax(i) = 1 - ngc
             elseif (ijkdelta(i)==0) then
                ijkmin(i) = 1
                ijkmax(i) = nijk(i)
@@ -1338,14 +1335,11 @@ contains
       integer(I4P)              :: ijkdelta(3)            !< Delta offset for ghost-inner cells mapping same refinement.
       integer(I4P)              :: delta(3)               !< Neighbor delta of current fec.
       integer(I4P)              :: nijk(3)                !< Ni, Nj , Nk stored in array.
-      integer(I4P)              :: gcijk(3)               !< Ghost cell.
       integer(I4P)              :: portion_array(3)       !< Portion array binary useful for less refined case.
       integer(I4P)              :: i                      !< Counter.
 
-      associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, &
-                gci=>self%grid%gci, gcj=>self%grid%gcj, gck=>self%grid%gck)
+      associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc)
       nijk = [ni, nj, nk]
-      gcijk = [gci, gcj, gck]
 
       abs_portion = abs(portion)
       delta = fec_to_delta(1:3, fec)
@@ -1354,10 +1348,10 @@ contains
          do i=1, 3
             if     (delta(i)==1) then
                ijkmin(i) = nijk(i) + 1
-               ijkmax(i) = nijk(i) + gcijk(i)
+               ijkmax(i) = nijk(i) + ngc
                ijkdelta(i) = -nijk(i)
             elseif (delta(i)==-1) then
-               ijkmin(i) = 1 - gcijk(i)
+               ijkmin(i) = 1 - ngc
                ijkmax(i) = 0
                ijkdelta(i) = nijk(i)
             elseif (delta(i)==0) then
@@ -1370,10 +1364,10 @@ contains
          do i=1, 3
             if     (delta(i)==1) then
                ijkmin(i) = nijk(i) + 1
-               ijkmax(i) = nijk(i) + gcijk(i)
+               ijkmax(i) = nijk(i) + ngc
                ijkdelta(i) = -1 - 2 * nijk(i)
             elseif (delta(i)==-1) then
-               ijkmin(i) = 1 - gcijk(i)
+               ijkmin(i) = 1 - ngc
                ijkmax(i) = 0
                ijkdelta(i) = -1 + nijk(i)
             elseif (delta(i)==0) then
@@ -1391,11 +1385,11 @@ contains
          do i=1, 3
             if     (delta(i)==1) then
                ijkmin(i) = nijk(i) / 2 * portion_array(i) + 1
-               ijkmax(i) = ijkmin(i) + gcijk(i) / 2 - 1
+               ijkmax(i) = ijkmin(i) + ngc / 2 - 1
                ijkdelta(i) = - nijk(i) * portion_array(i) + nijk(i) - 1
             elseif (delta(i)==-1) then
-               ijkmin(i) = nijk(i) / 2 + nijk(i) / 2 * portion_array(i) + 1 - gcijk(i) / 2
-               ijkmax(i) = ijkmin(i) + gcijk(i) / 2 - 1
+               ijkmin(i) = nijk(i) / 2 + nijk(i) / 2 * portion_array(i) + 1 - ngc / 2
+               ijkmax(i) = ijkmin(i) + ngc / 2 - 1
                ijkdelta(i) = - nijk(i) -  nijk(i) * portion_array(i) - 1
             elseif (delta(i)==0) then
                ijkmin(i) = nijk(i) / 2 * portion_array(i) + 1

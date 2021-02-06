@@ -440,8 +440,8 @@ contains
       if (allocated(self%field%local_map_bc_face  )) c = c + bc_cells_number(self%field%local_map_bc_face  )
       if (allocated(self%field%local_map_bc_edge  )) c = c + bc_cells_number(self%field%local_map_bc_edge  )
       if (allocated(self%field%local_map_bc_corner)) c = c + bc_cells_number(self%field%local_map_bc_corner)
-      allocate(local_map_bc_crown(1:c,1:8,1:self%field%grid%gci))
-      allocate(c_crown(1:self%field%grid%gci))
+      allocate(local_map_bc_crown(1:c,1:8,1:self%field%grid%ngc))
+      allocate(c_crown(1:self%field%grid%ngc))
       local_map_bc_crown = -1
       ! c = 1
       c_crown = 1
@@ -578,13 +578,13 @@ contains
    print '(A,F5.2,A)', ' available device memory ', device_mem_avail, ' Gb'
 
    allocate(self%q_t(1:field%nb,                                    &
-                     1-field%grid%gci:field%grid%ni+field%grid%gci, &
-                     1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
-                     1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nv))
+                     1-field%grid%ngc:field%grid%ni+field%grid%ngc, &
+                     1-field%grid%ngc:field%grid%nj+field%grid%ngc, &
+                     1-field%grid%ngc:field%grid%nk+field%grid%ngc, 1:field%nv))
    allocate(self%q_t_gpu(nv_aux_,                                       &
-                         1-field%grid%gci:field%grid%ni+field%grid%gci, &
-                         1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
-                         1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nb))
+                         1-field%grid%ngc:field%grid%ni+field%grid%ngc, &
+                         1-field%grid%ngc:field%grid%nj+field%grid%ngc, &
+                         1-field%grid%ngc:field%grid%nk+field%grid%ngc, 1:field%nb))
    call self%copy_cpu_gpu
    endsubroutine initialize
 
@@ -592,21 +592,20 @@ contains
    !< Update (local) ghost cells.
    class(base_gpu_object), intent(in)            :: self      !< The base backend.
    real(R8P),              intent(inout), device :: q_gpu(1:,                    &
-                                                          1-self%field%grid%gci:,&
-                                                          1-self%field%grid%gcj:,&
-                                                          1-self%field%grid%gck:,&
+                                                          1-self%field%grid%ngc:,&
+                                                          1-self%field%grid%ngc:,&
+                                                          1-self%field%grid%ngc:,&
                                                           1:) !< Field component to be updated.
-   call update_ghost_local_gpu_cuf(local_map_ghost_cell_gpu=self%local_map_ghost_cell_gpu, &
-                                   gci=self%field%grid%gci, gcj=self%field%grid%gcj, gck=self%field%grid%gck, q_gpu=q_gpu)
+   call update_ghost_local_gpu_cuf(local_map_ghost_cell_gpu=self%local_map_ghost_cell_gpu, ngc=self%field%grid%ngc, q_gpu=q_gpu)
    endsubroutine update_ghost_local_gpu
 
    subroutine update_ghost_mpi_gpu(self, q_gpu, step)
    !< Update ghost cells within other processes.
    class(base_gpu_object), intent(inout)         :: self      !< The base backend.
    real(R8P),              intent(inout), device :: q_gpu(1:,                    &
-                                                          1-self%field%grid%gci:,&
-                                                          1-self%field%grid%gcj:,&
-                                                          1-self%field%grid%gck:,&
+                                                          1-self%field%grid%ngc:,&
+                                                          1-self%field%grid%ngc:,&
+                                                          1-self%field%grid%ngc:,&
                                                           1:) !< Field component to be updated.
    integer(I4P),           intent(in), optional  :: step      !< Step to be perfordmed in asyncronous comp.
 
@@ -621,7 +620,7 @@ contains
                                  ! comm_map_recv_ghost_gpu=self%comm_map_recv_ghost_gpu,       &
                                  recv_buffer_ghost_gpu=self%recv_buffer_ghost_gpu,           &
                                  send_buffer_ghost_gpu=self%send_buffer_ghost_gpu,           &
-                                 gci=self%field%grid%gci, gcj=self%field%grid%gcj, gck=self%field%grid%gck, q_gpu=q_gpu, step=step)
+                                 ngc=self%field%grid%ngc, q_gpu=q_gpu, step=step)
    endsubroutine update_ghost_mpi_gpu
 
    ! operators
@@ -650,24 +649,23 @@ contains
    !< Copy transposed data from CPU to GPU.
    class(base_gpu_object), intent(inout)       :: self          !< The equation.
    real(R8P),              intent(in)          :: q_cpu(1:,                    &
-                                                        1-self%field%grid%gci:,&
-                                                        1-self%field%grid%gcj:,&
-                                                        1-self%field%grid%gck:,&
+                                                        1-self%field%grid%ngc:,&
+                                                        1-self%field%grid%ngc:,&
+                                                        1-self%field%grid%ngc:,&
                                                         1:)     !< Conservative variables on CPU.
    real(R8P),              intent(out), device :: q_gpu(1:,                    &
-                                                       1-self%field%grid%gci:,&
-                                                       1-self%field%grid%gcj:,&
-                                                       1-self%field%grid%gck:,&
+                                                       1-self%field%grid%ngc:,&
+                                                       1-self%field%grid%ngc:,&
+                                                       1-self%field%grid%ngc:,&
                                                        1:)      !< Conservative variables on GPU.
    integer(I4P)                                :: i, j, k, b, v !< Counter.
    associate(blocks_number=>self%field%blocks_number,                                      &
              ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,       &
-             gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck, &
-             nv=>self%field%nv, q_t=>self%q_t)
+             ngc=>self%field%grid%ngc, nv=>self%field%nv, q_t=>self%q_t)
       do b=1, blocks_number
-         do k=1-gck, nk+gck
-            do j=1-gcj, nj+gcj
-               do i=1-gci, ni+gci
+         do k=1-ngc, nk+ngc
+            do j=1-ngc, nj+ngc
+               do i=1-ngc, ni+ngc
                   do v=1, nv
                      q_t(b,i,j,k,v) = q_cpu(v,i,j,k,b)
                   enddo
@@ -684,57 +682,54 @@ contains
    class(base_gpu_object), intent(inout)      :: self      !< The equation.
    integer(I4P),           intent(in)         :: nv        !< Number of conservative varibales.
    real(R8P),              intent(in), device :: q_gpu(1:,                    &
-                                                       1-self%field%grid%gci:,&
-                                                       1-self%field%grid%gcj:,&
-                                                       1-self%field%grid%gck:,&
+                                                       1-self%field%grid%ngc:,&
+                                                       1-self%field%grid%ngc:,&
+                                                       1-self%field%grid%ngc:,&
                                                        1:) !< Conservative variables on GPU.
    real(R8P),              intent(out)        :: q_cpu(1:,                    &
-                                                       1-self%field%grid%gci:,&
-                                                       1-self%field%grid%gcj:,&
-                                                       1-self%field%grid%gck:,&
+                                                       1-self%field%grid%ngc:,&
+                                                       1-self%field%grid%ngc:,&
+                                                       1-self%field%grid%ngc:,&
                                                        1:) !< Conservative variables on CPU.
    associate(blocks_number=>self%field%blocks_number,                                      &
              ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,       &
-             gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck)
-      call copy_transpose_gpu_cpu_cuf(ni=ni, nj=nj, nk=nk, gci=gci, gcj=gcj, gck=gck, nv=nv, &
-                                      blocks_number=blocks_number,                           &
+             ngc=>self%field%grid%ngc)
+      call copy_transpose_gpu_cpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
                                       q_gpu=q_gpu, q_t_gpu=self%q_t_gpu, q_cpu=q_cpu)
    endassociate
    endsubroutine copy_transpose_gpu_cpu
 
    ! non TBP CUF methods
-   subroutine copy_transpose_gpu_cpu_cuf(ni, nj, nk, gci, gcj, gck, nv, blocks_number, q_gpu, q_t_gpu, q_cpu)
+   subroutine copy_transpose_gpu_cpu_cuf(ni, nj, nk, ngc, nv, blocks_number, q_gpu, q_t_gpu, q_cpu)
    !< Copy transposed data from GPU to CPU by CUF threads.
    integer(I4P), intent(in)            :: ni            !< Grid cells number in I direction.
    integer(I4P), intent(in)            :: nj            !< Grid cells number in J direction.
    integer(I4P), intent(in)            :: nk            !< Grid cells number in K direction.
-   integer(I4P), intent(in)            :: gci           !< Ghost grid cells number in I direction.
-   integer(I4P), intent(in)            :: gcj           !< Ghost grid cells number in J direction.
-   integer(I4P), intent(in)            :: gck           !< Ghost grid cells number in K direction.
+   integer(I4P), intent(in)            :: ngc           !< Ghost cells number.
    integer(I4P), intent(in)            :: nv            !< Number of conservative varibales.
    integer(I4P), intent(in)            :: blocks_number !< Number of blocks.
    real(R8P),    intent(in), device    :: q_gpu(1:,    &
-                                                1-gci:,&
-                                                1-gcj:,&
-                                                1-gck:,&
+                                                1-ngc:,&
+                                                1-ngc:,&
+                                                1-ngc:,&
                                                 1:)     !< Conservative variables on GPU.
    real(R8P),    intent(inout), device :: q_t_gpu(1:,    &
-                                                  1-gci:,&
-                                                  1-gcj:,&
-                                                  1-gck:,&
+                                                  1-ngc:,&
+                                                  1-ngc:,&
+                                                  1-ngc:,&
                                                   1:)   !< Conservative (transposed) variables on GPU.
    real(R8P),    intent(out)           :: q_cpu(1:,    &
-                                                1-gci:,&
-                                                1-gcj:,&
-                                                1-gck:,&
+                                                1-ngc:,&
+                                                1-ngc:,&
+                                                1-ngc:,&
                                                 1:)     !< Conservative variables on CPU.
    integer(I4P)                        :: i, j, k, b, v !< Counter.
    integer(I4P)                        :: iercuda       !< Error trapping flag for CUDAFortran.
 
    !$cuf kernel do(4) <<<*,*>>>
-   do k=1-gck, nk+gck
-      do j=1-gcj, nj+gcj
-         do i=1-gci, ni+gci
+   do k=1-ngc, nk+ngc
+      do j=1-ngc, nj+ngc
+         do i=1-ngc, ni+ngc
             do b=1, blocks_number
                do v=1, nv
                   q_t_gpu(v,i,j,k,b) = q_gpu(b,i,j,k,v)
@@ -747,16 +742,14 @@ contains
    q_cpu = q_t_gpu
    endsubroutine copy_transpose_gpu_cpu_cuf
 
-   subroutine update_ghost_local_gpu_cuf(gci, gcj, gck, local_map_ghost_cell_gpu, q_gpu)
+   subroutine update_ghost_local_gpu_cuf(ngc, local_map_ghost_cell_gpu, q_gpu)
    !< Update (local) ghost cells.
-   integer(I4P), intent(in)                         :: gci                           !< Ghost cells number in I direction.
-   integer(I4P), intent(in)                         :: gcj                           !< Ghost cells number in J direction.
-   integer(I4P), intent(in)                         :: gck                           !< Ghost cells number in K direction.
+   integer(I4P), intent(in)                         :: ngc                           !< Ghost cells number.
    integer(I8P), intent(in),    device, allocatable :: local_map_ghost_cell_gpu(:,:) !< Local map of ghost cells.
    real(R8P),    intent(inout), device              :: q_gpu(1:,    &
-                                                             1-gci:,&
-                                                             1-gcj:,&
-                                                             1-gck:,1:)              !< Field component to be updated.
+                                                             1-ngc:,&
+                                                             1-ngc:,&
+                                                             1-ngc:,1:)              !< Field component to be updated.
    integer(I4P)                                     :: ic, jc, kc, mf, v             !< Counter.
    integer(I4P)                                     :: b_recv                        !< Index of receiving block.
    integer(I4P)                                     :: b_send                        !< Index of sending block.
@@ -797,15 +790,13 @@ contains
    !@cuf iercuda=cudaDeviceSynchronize()
    endsubroutine update_ghost_local_gpu_cuf
 
-   subroutine update_ghost_mpi_gpu_cuf(gci, gcj, gck, nv, procs_number, req_send_recv,   &
+   subroutine update_ghost_mpi_gpu_cuf(ngc, nv, procs_number, req_send_recv,   &
                                        comm_map_send_ptr_ghost, comm_map_recv_ptr_ghost, &
                                        ! comm_map_recv_ghost_gpu, comm_map_send_ghost_gpu, &
                                        comm_map_recv_ghost_cell_gpu, comm_map_send_ghost_cell_gpu, &
                                        recv_buffer_ghost_gpu, send_buffer_ghost_gpu , q_gpu, step)
    !< Update ghost cells within other processes.
-   integer(I4P), intent(in)                         :: gci                          !< Ghost cells number in I direction.
-   integer(I4P), intent(in)                         :: gcj                          !< Ghost cells number in J direction.
-   integer(I4P), intent(in)                         :: gck                          !< Ghost cells number in K direction.
+   integer(I4P), intent(in)                         :: ngc                          !< Ghost cells number.
    integer(I4P),              intent(in)            :: nv                           !< Number of variables of q.
    integer(I4P),              intent(in)            :: procs_number                 !< Number of MPI processes.
    integer(I4P), allocatable, intent(inout)         :: req_send_recv(:)             !< MPI request receive flags.
@@ -818,9 +809,9 @@ contains
    real(R8P),    allocatable, intent(inout), device :: recv_buffer_ghost_gpu(:)     !< Receive buffer of ghost cells.
    real(R8P),    allocatable, intent(inout), device :: send_buffer_ghost_gpu(:)     !< Send buffer of ghost cells.
    real(R8P),                 intent(inout), device :: q_gpu(1:,    &
-                                                             1-gci:,&
-                                                             1-gcj:,&
-                                                             1-gck:,&
+                                                             1-ngc:,&
+                                                             1-ngc:,&
+                                                             1-ngc:,&
                                                              1:)                    !< Field component to be updated.
    integer(I4P),              intent(in), optional  :: step                         !< Step to be perfordmed in asyncronous comp.
    logical                                          :: do_step(3)                   !< Steps to be performed in asyncronous comp.

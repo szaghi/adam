@@ -117,25 +117,24 @@ contains
    !< Update auxiliary variables.
    class(equation_euler_cpu_object), intent(in)    :: self       !< The equation.
    real(R8P),                        intent(in)    :: q(1:,                    &
-                                                        1-self%field%grid%gci:,&
-                                                        1-self%field%grid%gcj:,&
-                                                        1-self%field%grid%gck:,&
+                                                        1-self%field%grid%ngc:,&
+                                                        1-self%field%grid%ngc:,&
+                                                        1-self%field%grid%ngc:,&
                                                         1:)      !< Conservative variables.
    real(R8P),                        intent(inout) :: q_aux(1:,                    &
-                                                            1-self%field%grid%gci:,&
-                                                            1-self%field%grid%gcj:,&
-                                                            1-self%field%grid%gck:,&
+                                                            1-self%field%grid%ngc:,&
+                                                            1-self%field%grid%ngc:,&
+                                                            1-self%field%grid%ngc:,&
                                                             1:)  !< Auxiliary variables.
    integer(I4P)                                    :: b, i, j, k !< Counter.
 
    associate(blocks_number=>self%field%blocks_number,                                      &
              ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,       &
-             gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck, &
-             ns=>self%ns)
+             ngc=>self%field%grid%ngc, ns=>self%ns)
       do b=1, size(q, dim=5)
-         do k=1-gck, nk+gck
-            do j=1-gcj, nj+gcj
-               do i=1-gci, ni+gci
+         do k=1-ngc, nk+ngc
+            do j=1-ngc, nj+ngc
+               do i=1-ngc, ni+ngc
                   q_aux(ns+1,i,j,k,b) = sum(q(1:ns,i,j,k,b))
                   q_aux(1:ns,i,j,k,b) = q(1:ns,i,j,k,b) / q_aux(ns+1,i,j,k,b)
                   q_aux(ns+2,i,j,k,b) = q(ns+1,i,j,k,b) / q_aux(ns+1,i,j,k,b)
@@ -229,9 +228,9 @@ contains
    call self%weno_initialize
 
    allocate(self%q_aux(1:self%ns+6,                                   &
-                       1-field%grid%gci:field%grid%ni+field%grid%gci, &
-                       1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
-                       1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nb))
+                       1-field%grid%ngc:field%grid%ni+field%grid%ngc, &
+                       1-field%grid%ngc:field%grid%nj+field%grid%ngc, &
+                       1-field%grid%ngc:field%grid%nk+field%grid%ngc, 1:field%nb))
    allocate(self%alph(self%nrk,self%nrk), self%beta(self%nrk), self%gamm(self%nrk))
    select case(self%nrk)
    case(3_I4P)
@@ -246,9 +245,9 @@ contains
                       0._R8P]
    endselect
    allocate(self%q_s(1:field%nv,                                    &
-                     1-field%grid%gci:field%grid%ni+field%grid%gci, &
-                     1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
-                     1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nb, 1:self%nrk))
+                     1-field%grid%ngc:field%grid%ni+field%grid%ngc, &
+                     1-field%grid%ngc:field%grid%nj+field%grid%ngc, &
+                     1-field%grid%ngc:field%grid%nk+field%grid%ngc, 1:field%nb, 1:self%nrk))
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
    endsubroutine initialize
 
@@ -359,9 +358,9 @@ contains
    !< Compute residuals of equation.
    class(equation_euler_cpu_object), intent(inout) :: self                          !< The equation.
    real(R8P),                        intent(inout) :: q(1:,                    &
-                                                        1-self%field%grid%gci:,&
-                                                        1-self%field%grid%gcj:,&
-                                                        1-self%field%grid%gck:,&
+                                                        1-self%field%grid%ngc:,&
+                                                        1-self%field%grid%ngc:,&
+                                                        1-self%field%grid%ngc:,&
                                                         1:)                         !< Conservative variables.
    real(R8P),                        intent(in)    :: t                             !< Time.
    real(R8P)                                       :: fluxes_x(1:self%field%nv,     &
@@ -378,9 +377,8 @@ contains
                                                                0:self%field%grid%nk)!< Convective fluxes in z direction.
    integer(I4P)                                    :: b, i, j, k                    !< Counter.
 
-   associate(ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,       &
-             gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck, &
-             blocks_number=>self%field%blocks_number,                                      &
+   associate(ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk, &
+             ngc=>self%field%grid%ngc, blocks_number=>self%field%blocks_number,      &
              dxyz=>self%field%dxyz, ns=>self%ns, q_aux=>self%q_aux)
    call self%compute_aux(q=q, q_aux=self%q_aux(:,:,:,:,1:blocks_number))
    fluxes_x = 0._R8P
@@ -390,7 +388,7 @@ contains
       if (.not.self%null_xyz(1)) then ! convective fluxes along x direction
          do k=1, nk
             do j=1, nj
-               call self%compute_fluxes_convective(gc=gci, n=ni,                          &
+               call self%compute_fluxes_convective(gc=ngc, n=ni,                          &
                                                    c         =    q_aux(1:ns, :,  j,k,b), &
                                                    rho       =    q_aux(ns+1, :,  j,k,b), &
                                                    un        =    q_aux(ns+2, :,  j,k,b), & ! u
@@ -409,7 +407,7 @@ contains
       if (.not.self%null_xyz(2)) then ! convective fluxes along y direction
          do k=1, nk
             do i=1, ni
-               call self%compute_fluxes_convective(gc=gcj, n=nj,                          &
+               call self%compute_fluxes_convective(gc=ngc, n=nj,                          &
                                                    c         =    q_aux(1:ns,i, :,  k,b), &
                                                    rho       =    q_aux(ns+1,i, :,  k,b), &
                                                    un        =    q_aux(ns+3,i, :,  k,b), & ! v
@@ -428,7 +426,7 @@ contains
       if (.not.self%null_xyz(3)) then ! convective fluxes along z direction
          do j=1, nj
             do i=1, ni
-               call self%compute_fluxes_convective(gc=gck, n=nk,                          &
+               call self%compute_fluxes_convective(gc=ngc, n=nk,                          &
                                                    c         =    q_aux(1:ns,i,j, :,  b), &
                                                    rho       =    q_aux(ns+1,i,j, :,  b), &
                                                    un        =    q_aux(ns+4,i,j, :,  b), & ! w
@@ -462,9 +460,9 @@ contains
    !< Set boundary conditions of equation.
    class(equation_euler_cpu_object), intent(in)    :: self                         !< The equation.
    real(R8P),                        intent(inout) :: q(1:,                    &
-                                                        1-self%field%grid%gci:,&
-                                                        1-self%field%grid%gcj:,&
-                                                        1-self%field%grid%gck:,1:) !< Field component to be updated.
+                                                        1-self%field%grid%ngc:,&
+                                                        1-self%field%grid%ngc:,&
+                                                        1-self%field%grid%ngc:,1:) !< Field component to be updated.
 
    if (allocated(self%field%local_map_bc_face))   call set_bc_fec(local_map_bc=self%field%local_map_bc_face)
    if (allocated(self%field%local_map_bc_edge))   call set_bc_fec(local_map_bc=self%field%local_map_bc_edge)
@@ -516,8 +514,7 @@ contains
    associate(blocks_number=>self%field%blocks_number,                                      &
              q=>self%field%q,                                                              &
              ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,       &
-             gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck, &
-             x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell)
+             ngc=>self%field%grid%ngc, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell)
    do b=1, blocks_number
       do k=1, nk
          do j=1, nj
@@ -547,9 +544,9 @@ contains
    !< If not specified all steps are perfermod, syncronous computation
    class(equation_euler_cpu_object), intent(inout)        :: self            !< The equation.
    real(R8P),                        intent(inout)        :: q(1:,                    &
-                                                               1-self%field%grid%gci:,&
-                                                               1-self%field%grid%gcj:,&
-                                                               1-self%field%grid%gck:,&
+                                                               1-self%field%grid%ngc:,&
+                                                               1-self%field%grid%ngc:,&
+                                                               1-self%field%grid%ngc:,&
                                                                1:)        !< Field component to be updated.
    integer(I4P),                     intent(in), optional :: step            !< Step to be perfordmed in asyncronous comp.
    logical                                                :: do_local_update !< Flag for triggering local update.

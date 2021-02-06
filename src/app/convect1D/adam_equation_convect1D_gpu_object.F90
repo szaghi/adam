@@ -108,18 +108,18 @@ contains
    self%beta_gpu = self%beta
    self%gamm_gpu = self%gamm
    allocate(self%q_gpu(1:field%nb,                                    &
-                       1-field%grid%gci:field%grid%ni+field%grid%gci, &
-                       1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
-                       1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nv))
+                       1-field%grid%ngc:field%grid%ni+field%grid%ngc, &
+                       1-field%grid%ngc:field%grid%nj+field%grid%ngc, &
+                       1-field%grid%ngc:field%grid%nk+field%grid%ngc, 1:field%nv))
    allocate(self%q_work_gpu(1:field%nb,                                    &
-                            1-field%grid%gci:field%grid%ni+field%grid%gci, &
-                            1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
-                            1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nv))
+                            1-field%grid%ngc:field%grid%ni+field%grid%ngc, &
+                            1-field%grid%ngc:field%grid%nj+field%grid%ngc, &
+                            1-field%grid%ngc:field%grid%nk+field%grid%ngc, 1:field%nv))
    allocate(self%dxyz_gpu(1:3, 1:field%nb))
    allocate(self%q_s_gpu(1:field%nb,                                    &
-                         1-field%grid%gci:field%grid%ni+field%grid%gci, &
-                         1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
-                         1-field%grid%gck:field%grid%nk+field%grid%gck, 1:field%nv, 1:self%ns))
+                         1-field%grid%ngc:field%grid%ni+field%grid%ngc, &
+                         1-field%grid%ngc:field%grid%nj+field%grid%ngc, &
+                         1-field%grid%ngc:field%grid%nk+field%grid%ngc, 1:field%nv, 1:self%ns))
    self%dxyz_gpu = self%field%dxyz
    endsubroutine initialize
 
@@ -138,11 +138,10 @@ contains
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
    self%field%refinements_needed = [(TO_NOT_TOUCH,b=1,self%field%blocks_number)]
    call self%update_ghost_gpu(q_gpu=self%q_gpu)
-   associate (gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck, &
-              ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk, dxyz=>self%field%dxyz)
+   associate (ngc=>self%field%grid%ngc, ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk, &
+              dxyz=>self%field%dxyz)
    do b=1, self%field%blocks_number
-      grad_q = gradient_cuf(b=b, ni=ni, nj=nj, nk=nk, gci=gci, gcj=gcj, gck=gck, &
-                            dx=dxyz(1,b), dy=dxyz(2,b), dz=dxyz(3,b), q_gpu=self%q_gpu)
+      grad_q = gradient_cuf(b=b, ni=ni, nj=nj, nk=nk, ngc=ngc, dx=dxyz(1,b), dy=dxyz(2,b), dz=dxyz(3,b), q_gpu=self%q_gpu)
 
       max_cell_delta = max_cell_delta_grad(grad=grad_q)
 
@@ -156,21 +155,19 @@ contains
    enddo
    endassociate
    contains
-      function gradient_cuf(b, ni, nj, nk, gci, gcj, gck, dx, dy, dz, q_gpu) result(gradient)
+      function gradient_cuf(b, ni, nj, nk, ngc, dx, dy, dz, q_gpu) result(gradient)
       integer(I4P), intent(in)         :: b            !< Counter.
       integer(I4P), intent(in)         :: ni           !< Grid cells number in I direction.
       integer(I4P), intent(in)         :: nj           !< Grid cells number in J direction.
       integer(I4P), intent(in)         :: nk           !< Grid cells number in K direction.
-      integer(I4P), intent(in)         :: gci          !< Ghost grid cells number in I direction.
-      integer(I4P), intent(in)         :: gcj          !< Ghost grid cells number in J direction.
-      integer(I4P), intent(in)         :: gck          !< Ghost grid cells number in K direction.
+      integer(I4P), intent(in)         :: ngc          !< Ghost grid cells number.in I direction.
       real(R8P),    intent(in)         :: dx           !< X space step.
       real(R8P),    intent(in)         :: dy           !< Y space step.
       real(R8P),    intent(in)         :: dz           !< Z space step.
       real(R8P),    intent(in), device :: q_gpu(1:,    &
-                                                1-gci:,&
-                                                1-gcj:,&
-                                                1-gck:,&
+                                                1-ngc:,&
+                                                1-ngc:,&
+                                                1-ngc:,&
                                                 1:)    !< Field component to be updated.
       real(R8P)                        :: gradient     !< Maximum gradient of q.
       real(R8P)                        :: grad         !< Current gradient of q.
@@ -217,18 +214,17 @@ contains
    integer(I4P)                                                :: s                !< Counter.
 
    do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
-   associate(alph=>self%alph, beta=>self%beta, gamm=>self%gamm,                            &
-             ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,       &
-             gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck, &
-             blocks_number=>self%field%blocks_number,                                      &
-             inner_blocks_number=>self%field%inner_blocks_number,                          &
+   associate(alph=>self%alph, beta=>self%beta, gamm=>self%gamm,                      &
+             ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk, &
+             ngc=>self%field%grid%ngc, blocks_number=>self%field%blocks_number,      &
+             inner_blocks_number=>self%field%inner_blocks_number,                    &
              alph_gpu=>self%alph_gpu, beta_gpu=>self%beta_gpu)
    do s=1, self%ns
-      call compute_rk_stage_gpu_cuf(ni=ni, nj=nj, nk=nk, gci=gci, gcj=gcj, gck=gck, blocks_number=blocks_number, &
+      call compute_rk_stage_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, &
                                     alph_gpu=alph_gpu, dt=dt, s=s, q_gpu=self%q_gpu, q_s_gpu=self%q_s_gpu)
       if (do_ghost_syncro_) then
          call self%update_ghost_gpu(q_gpu=self%q_s_gpu(:,:,:,:,:,s)) ! all ghosts
-         call compute_residuals_gpu_cuf(ni=ni, nj=nj, nk=nk, gci=gci, gcj=gcj, gck=gck,  &
+         call compute_residuals_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc,                    &
                                         blocks_number=blocks_number, t=t + gamm(s) * dt, &
                                         dxyz=self%dxyz_gpu, q_work_gpu=self%q_work_gpu,  &
                                         q_gpu=self%q_s_gpu(:,:,:,:,:,s))
@@ -239,7 +235,7 @@ contains
          ! TODO
       endif
    enddo
-   call advance_q_gpu_cuf(ni=ni, nj=nj, nk=nk, gci=gci, gcj=gcj, gck=gck, blocks_number=blocks_number, &
+   call advance_q_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, &
                            beta_gpu=beta_gpu, dt=dt, q_s_gpu=self%q_s_gpu, q_gpu=self%q_gpu)
    endassociate
    endsubroutine integrate
@@ -248,12 +244,12 @@ contains
    !< Set boundary conditions of equation.
    class(equation_convect1D_gpu_object), intent(in)            :: self                             !< The equation.
    real(R8P),                            intent(inout), device :: q_gpu(1:,                    &
-                                                                        1-self%field%grid%gci:,&
-                                                                        1-self%field%grid%gcj:,&
-                                                                        1-self%field%grid%gck:,1:) !< Field.
+                                                                        1-self%field%grid%ngc:,&
+                                                                        1-self%field%grid%ngc:,&
+                                                                        1-self%field%grid%ngc:,1:) !< Field.
 
    if (allocated(self%base_gpu%local_map_bc_crown_gpu)) call set_bc_fec(nv=self%field%nv,       &
-                                                                        gc=self%field%grid%gci, &
+                                                                        gc=self%field%grid%ngc, &
                                                                         local_map_bc=self%base_gpu%local_map_bc_crown_gpu)
    contains
       subroutine set_bc_fec(nv, gc, local_map_bc)
@@ -317,8 +313,7 @@ contains
    associate(blocks_number=>self%field%blocks_number,                                      &
              q=>self%field%q,                                                              &
              ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,       &
-             gci=>self%field%grid%gci, gcj=>self%field%grid%gcj, gck=>self%field%grid%gck, &
-             x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell)
+             ngc=>self%field%grid%ngc, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell)
    do b=1, blocks_number
       do k=1, nk
          do j=1, nj
@@ -338,9 +333,9 @@ contains
    !< If not specified all steps are perfermod, syncronous computation
    class(equation_convect1D_gpu_object), intent(inout)         :: self            !< The equation.
    real(R8P),                            intent(inout), device :: q_gpu(1:,                    &
-                                                                        1-self%field%grid%gci:,&
-                                                                        1-self%field%grid%gcj:,&
-                                                                        1-self%field%grid%gck:,&
+                                                                        1-self%field%grid%ngc:,&
+                                                                        1-self%field%grid%ngc:,&
+                                                                        1-self%field%grid%ngc:,&
                                                                         1:)       !< Field component to be updated.
    integer(I4P),                         intent(in), optional  :: step            !< Step to be perfordmed in asyncronous comp.
    logical                                                     :: do_local_update !< Flag for triggering local update.
@@ -388,26 +383,24 @@ contains
    endsubroutine eq_assign_eq
 
    ! non TBP cuf methods
-   subroutine advance_q_gpu_cuf(ni, nj, nk, gci, gcj, gck, blocks_number, beta_gpu, dt, q_s_gpu, q_gpu)
+   subroutine advance_q_gpu_cuf(ni, nj, nk, ngc, blocks_number, beta_gpu, dt, q_s_gpu, q_gpu)
    !< Advance q_gpu by means of RK stages.
    integer(I4P), intent(in)            :: ni             !< Grid cells number in I direction.
    integer(I4P), intent(in)            :: nj             !< Grid cells number in J direction.
    integer(I4P), intent(in)            :: nk             !< Grid cells number in K direction.
-   integer(I4P), intent(in)            :: gci            !< Ghost grid cells number in I direction.
-   integer(I4P), intent(in)            :: gcj            !< Ghost grid cells number in J direction.
-   integer(I4P), intent(in)            :: gck            !< Ghost grid cells number in K direction.
+   integer(I4P), intent(in)            :: ngc            !< Ghost grid cells number.
    integer(I4P), intent(in)            :: blocks_number  !< Number of blocks.
    real(R8P),    intent(in),    device :: beta_gpu(:)    !< RK betaa coefficients.
    real(R8P),    intent(in)            :: Dt             !< Time step.
    real(R8P),    intent(in),    device :: q_s_gpu(1:,    &
-                                                  1-gci:,&
-                                                  1-gcj:,&
-                                                  1-gck:,&
+                                                  1-ngc:,&
+                                                  1-ngc:,&
+                                                  1-ngc:,&
                                                   1:,1:) !< RK stage.
    real(R8P),    intent(inout), device ::   q_gpu(1:,    &
-                                                  1-gci:,&
-                                                  1-gcj:,&
-                                                  1-gck:,&
+                                                  1-ngc:,&
+                                                  1-ngc:,&
+                                                  1-ngc:,&
                                                   1:)    !< Conservative field.
    integer(I4P)                        :: i, j, k, b, s  !< Counter.
    integer(I4P)                        :: iercuda        !< Error trapping flag for CUDAFortran.
@@ -415,9 +408,9 @@ contains
    do s=1, 3
       !$cuf kernel do(4) <<<*,*>>>
       do b=1, blocks_number
-         do k=1-gck, nk+gck
-            do j=1-gcj, nj+gcj
-               do i=1-gci, ni+gci
+         do k=1-ngc, nk+ngc
+            do j=1-ngc, nj+ngc
+               do i=1-ngc, ni+ngc
                   q_gpu(b,i,j,k,1) = q_gpu(b,i,j,k,1) + q_s_gpu(b,i,j,k,1,s) * dt * beta_gpu(s)
                enddo
             enddo
@@ -427,26 +420,24 @@ contains
    enddo
    endsubroutine advance_q_gpu_cuf
 
-   subroutine compute_residuals_gpu_cuf(ni, nj, nk, gci, gcj, gck, blocks_number, t, dxyz, q_work_gpu, q_gpu)
+   subroutine compute_residuals_gpu_cuf(ni, nj, nk, ngc, blocks_number, t, dxyz, q_work_gpu, q_gpu)
    !< Compute residuals of equation.
    integer(I4P), intent(in)            :: ni             !< Grid cells number in I direction.
    integer(I4P), intent(in)            :: nj             !< Grid cells number in J direction.
    integer(I4P), intent(in)            :: nk             !< Grid cells number in K direction.
-   integer(I4P), intent(in)            :: gci            !< Ghost grid cells number in I direction.
-   integer(I4P), intent(in)            :: gcj            !< Ghost grid cells number in J direction.
-   integer(I4P), intent(in)            :: gck            !< Ghost grid cells number in K direction.
+   integer(I4P), intent(in)            :: ngc            !< Ghost grid cells number.
    integer(I4P), intent(in)            :: blocks_number  !< Number of blocks.
    real(R8P),    intent(in)            :: t              !< Time.
    real(R8P),    intent(in),    device :: dxyz(1:,1:)    !< Space steps.
    real(R8P),    intent(inout), device :: q_work_gpu(1:,    &
-                                                     1-gci:,&
-                                                     1-gcj:,&
-                                                     1-gck:,&
+                                                     1-ngc:,&
+                                                     1-ngc:,&
+                                                     1-ngc:,&
                                                      1:) !< Field component to be updated.
    real(R8P),    intent(inout), device :: q_gpu(1:,    &
-                                                1-gci:,&
-                                                1-gcj:,&
-                                                1-gck:,&
+                                                1-ngc:,&
+                                                1-ngc:,&
+                                                1-ngc:,&
                                                 1:)      !< Field component to be updated.
    integer(I4P)                        :: b, i, j, k     !< Counter.
    integer(I4P)                        :: iercuda        !< Error trapping flag for CUDAFortran.
@@ -475,27 +466,25 @@ contains
    !@cuf iercuda=cudaDeviceSynchronize()
    endsubroutine compute_residuals_gpu_cuf
 
-   subroutine compute_rk_stage_gpu_cuf(ni, nj, nk, gci, gcj, gck, blocks_number, alph_gpu, dt, s, q_gpu, q_s_gpu)
+   subroutine compute_rk_stage_gpu_cuf(ni, nj, nk, ngc, blocks_number, alph_gpu, dt, s, q_gpu, q_s_gpu)
    !< Initialize RK stage with q_gpu.
    integer(I4P), intent(in)            :: ni             !< Grid cells number in I direction.
    integer(I4P), intent(in)            :: nj             !< Grid cells number in J direction.
    integer(I4P), intent(in)            :: nk             !< Grid cells number in K direction.
-   integer(I4P), intent(in)            :: gci            !< Ghost grid cells number in I direction.
-   integer(I4P), intent(in)            :: gcj            !< Ghost grid cells number in J direction.
-   integer(I4P), intent(in)            :: gck            !< Ghost grid cells number in K direction.
+   integer(I4P), intent(in)            :: ngc            !< Ghost grid cells number.
    integer(I4P), intent(in)            :: blocks_number  !< Number of blocks.
    real(R8P),    intent(in),    device :: alph_gpu(:,:)  !< RK alpha coefficients.
    real(R8P),    intent(in)            :: Dt             !< Time step.
    integer(I4P), intent(in)            :: s              !< Stage to initialize.
    real(R8P),    intent(in),    device ::   q_gpu(1:,    &
-                                                  1-gci:,&
-                                                  1-gcj:,&
-                                                  1-gck:,&
+                                                  1-ngc:,&
+                                                  1-ngc:,&
+                                                  1-ngc:,&
                                                   1:)    !< Conservative field.
    real(R8P),    intent(inout), device :: q_s_gpu(1:,    &
-                                                  1-gci:,&
-                                                  1-gcj:,&
-                                                  1-gck:,&
+                                                  1-ngc:,&
+                                                  1-ngc:,&
+                                                  1-ngc:,&
                                                   1:,1:) !< RK stage.
    integer(I4P)                        :: i, j, k, b, ss !< Counter.
    integer(I4P)                        :: iercuda        !< Error trapping flag for CUDAFortran.

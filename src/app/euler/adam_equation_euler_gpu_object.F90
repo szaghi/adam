@@ -230,7 +230,7 @@ contains
    call self%destroy
    self%field => field
    self%grid  => field%grid
-   self%ngc   => field%grid%gci
+   self%ngc   => field%grid%ngc
    self%ni    => field%grid%ni
    self%nj    => field%grid%nj
    self%nk    => field%grid%nk

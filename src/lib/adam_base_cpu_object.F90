@@ -53,9 +53,9 @@ contains
    !< Update (local) ghost cells, rank 4.
    class(base_cpu_object), intent(inout) :: self                         !< The equation.
    real(R8P),              intent(inout) :: q(1:,                    &
-                                              1-self%field%grid%gci:,&
-                                              1-self%field%grid%gcj:,&
-                                              1-self%field%grid%gck:,1:) !< Field component to be updated.
+                                              1-self%field%grid%ngc:,&
+                                              1-self%field%grid%ngc:,&
+                                              1-self%field%grid%ngc:,1:) !< Field component to be updated.
    integer(I4P)                          :: i, j, k, mf                  !< Counter.
    integer(I4P)                          :: iii, jjj, kkk                !< Counter.
    integer(I4P)                          :: fec                          !< Ghost direction, faces/edges/corners.
@@ -126,9 +126,9 @@ contains
    !< Update ghost cells within other processes.
    class(base_cpu_object), intent(inout)        :: self                       !< The field.
    real(R8P),              intent(inout)        :: q(1:,                    &
-                                                     1-self%field%grid%gci:,&
-                                                     1-self%field%grid%gcj:,&
-                                                     1-self%field%grid%gck:,&
+                                                     1-self%field%grid%ngc:,&
+                                                     1-self%field%grid%ngc:,&
+                                                     1-self%field%grid%ngc:,&
                                                      1:)                      !< Field component to be updated.
    integer(I4P),           intent(in), optional :: step                       !< Step to be perfordmed in asyncronous comp.
    logical                                      :: do_step(3)                 !< Steps to be performed in asyncronous comp.
