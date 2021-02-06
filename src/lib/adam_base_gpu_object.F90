@@ -540,13 +540,22 @@ contains
    self = fresh
    endsubroutine destroy
 
-   subroutine initialize(self, field, nv_aux)
+   subroutine initialize(self, field, nv_aux, fields_gpu_number)
    !< Initialize base backend.
-   class(base_gpu_object), intent(inout)        :: self    !< The base backend.
-   integer(I4P),           intent(in), optional :: nv_aux  !< Number of auxiliary variables.
-   type(field_object),     intent(in), target   :: field   !< The field.
-   integer(I4P)                                 :: nv_aux_ !< Number of auxiliary variables, local variables.
+   class(base_gpu_object), intent(inout)        :: self               !< The base backend.
+   type(field_object),     intent(in), target   :: field              !< The field.
+   integer(I4P),           intent(in), optional :: nv_aux             !< Number of auxiliary variables.
+   integer(I4P),           intent(in), optional :: fields_gpu_number  !< Number of fields allocated on GPU.
+   integer(I4P)                                 :: nv_aux_            !< Number of auxiliary variables, local variable.
+   integer(I4P)                                 :: devices_number     !< Devices number.
+   integer(I4P)                                 :: device_rank        !< Device rank number.
+   type(cudadeviceprop)                         :: device_properties  !< Device properties.
+   integer(I4P)                                 :: d                  !< Counter.
+   real(R8P)                                    :: device_mem_req     !< Device memory requested (Gb).
+   real(R8P)                                    :: device_mem_avail   !< Device memory available (Gb).
+   integer(I4P)                                 :: fields_gpu_number_ !< Number of fields allocated on GPU, local variable.
 
+   fields_gpu_number_ = 5 ; if (present(fields_gpu_number)) fields_gpu_number_ = fields_gpu_number
    call self%destroy
    self%field => field
    nv_aux_ = self%field%nv
@@ -555,8 +564,19 @@ contains
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    allocate(self%req_send_recv(0:self%procs_number*2-1))
    call MPI_COMM_SPLIT_TYPE(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, self%local_comm, self%error)
-   call MPI_COMM_RANK(self%local_comm, self%mydev,self%error)
+   call MPI_COMM_RANK(self%local_comm, self%mydev, self%error)
    self%error = CudaSetDevice(self%mydev)
+   self%error = cudaGetDeviceCount(devices_number)
+   do d=0, devices_number - 1
+      self%error = cudaGetDeviceProperties(device_properties, device_rank)
+      call print_device_properties(device_properties, device_rank)
+   enddo
+   ! check if nb fits device memory
+   device_mem_avail = real(device_properties%totalGlobalMem, R8P)/1e9
+   device_mem_req   = self%field%block_weight*self%field%nb*8/1e9 * fields_gpu_number_
+   print '(A,F5.2,A)', ' requested device memory ', device_mem_req, ' Gb'
+   print '(A,F5.2,A)', ' available device memory ', device_mem_avail, ' Gb'
+
    allocate(self%q_t(1:field%nb,                                    &
                      1-field%grid%gci:field%grid%ni+field%grid%gci, &
                      1-field%grid%gcj:field%grid%nj+field%grid%gcj, &
@@ -1042,6 +1062,27 @@ contains
       ! enddo
    endif
    endsubroutine update_ghost_mpi_gpu_cuf
+
+   ! non TBP
+   subroutine print_device_properties(device_properties, device_rank)
+   !< Pretty print device properties.
+   type(cudadeviceprop), intent(in) :: device_properties
+   integer(I4P),         intent(in) :: device_rank
+
+   print'(A)',"device rank number: "//trim(str(device_rank, .true.))
+   print'(A)',"  total global memory:         "//trim(str(real(device_properties%totalGlobalMem)/1e9           ,.true.))//" Gbytes"
+   print'(A)',"  shared mem per block:        "//trim(str(     device_properties%sharedMemPerBlock             ,.true.))//" bytes"
+   print'(A)',"  regs per block:              "//trim(str(     device_properties%regsPerBlock                  ,.true.))
+   print'(A)',"  warp size:                   "//trim(str(     device_properties%warpSize                      ,.true.))
+   print'(A)',"  max threads per block:       "//trim(str(     device_properties%maxThreadsPerBlock            ,.true.))
+   print'(A)',"  max threads dim:             "//trim(str(     device_properties%maxThreadsDim                 ,.true.))
+   print'(A)',"  clock rate:                  "//trim(str(real(device_properties%clockRate)/1e6                ,.true.))//" GHz"
+   print'(A)',"  total const memory:          "//trim(str(     device_properties%totalConstMem                 ,.true.))//" bytes"
+   print'(A)',"  compute capability revision: "//trim(str(    [device_properties%major,device_properties%minor],.true.))
+   print'(A)',"  multi processor count:       "//trim(str(     device_properties%multiProcessorCount           ,.true.))
+   print'(A)',"  L2 cache size:               "//trim(str(     device_properties%l2CacheSize                   ,.true.))
+   print'(A)',"  max threads per SMP:         "//trim(str(     device_properties%maxThreadsPerMultiProcessor   ,.true.))
+   endsubroutine print_device_properties
 
    ! assign allocatable interface
    pure subroutine assign_allocatable_I8P_1D_gpu(lhs, rhs)

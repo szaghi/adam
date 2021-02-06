@@ -6,6 +6,7 @@ use adam_adam_object
 use adam_equation_euler_gpu_object
 use adam_parameters
 use PENF
+use CUDAFOR
 use MPI
 
 implicit none
@@ -26,15 +27,18 @@ call adam%initialize(max_level=7,                                              &
                      bc_type=[BC_EXTRAPOLATION,BC_EXTRAPOLATION,               &
                               BC_EXTRAPOLATION,BC_EXTRAPOLATION,               &
                               BC_EXTRAPOLATION,BC_EXTRAPOLATION],              &
-                     nb=4000, nv=5, nodes_number=50000_I8P)
+                     nb=1500, nv=5, nodes_number=50000_I8P)
 
-call euler%initialize(field=adam%field, ns=1, CFL=0.3_R8P, null_xyz=[.false.,.false.,.false.], weno_s=2_I4P)
+call euler%initialize(field=adam%field, ns=1, CFL=0.3_R8P,              &
+                      null_xyz=[.false.,.false.,.false.], weno_s=2_I4P, &
+                      fields_gpu_number=14)
+
  print '(A)', 'create 3 levels of refinement'
- do l=1, 5
-    print '(A)', 'refine ADAM at level '//trim(str(l))
-    print *, 'blocks_number: ',adam%field%blocks_number
+ do l=1, 3
     call adam%tree%mark_all_nodes(mark=TO_BE_REFINED)
     call adam%amr_update(do_blocks_reorder=.false., do_mpi_redistribute=.true.)
+    print '(A)', 'refine ADAM at level '//trim(str(l))
+    print *, 'blocks_number: ',adam%tree%nodes_number
  enddo
 print '(A)', 'set initial conditions'
 call euler%set_initial_conditions
@@ -61,7 +65,6 @@ enddo track
 
 time = 0._R8P
 t = 0
-!call MPI_BARRIER(MPI_COMM_WORLD, adam%error) ; call system_clock(timing(1))
 call MPI_BARRIER(MPI_COMM_WORLD, adam%error) ; timing(1) = MPI_Wtime()
 integration: do
    t = t + 1
@@ -84,23 +87,21 @@ integration: do
       print '(A)',       't:             '//trim(str(t,.true.))
    endif
    call euler%integrate(t=time)
-   !if (mod(t,n_save)==0) then
-   !   call euler%copy_gpu_cpu(compute_q_aux=.true.)
-   !   call adam%save_hdf5(basename='euler-sod-'//trim(strz(t,9)),           &
-   !                       q=euler%field%q,                                  &
-   !                       q_aux=euler%q_aux,                                &
-   !                       q_name=['rho  ','rho-u','rho-v','rho-w','rho-E'], &
-   !                       q_aux_name=['r1','r ','u ','v ','w ','g ','p '],  &
-   !                       with_cell_morton=.true.)
-   !endif
+   if (mod(t,n_save)==0) then
+      call euler%copy_gpu_cpu(compute_q_aux=.true.)
+      call adam%save_hdf5(basename='euler-sod-'//trim(strz(t,9)),           &
+                          q=euler%field%q,                                  &
+                          q_aux=euler%q_aux,                                &
+                          q_name=['rho  ','rho-u','rho-v','rho-w','rho-E'], &
+                          q_aux_name=['r1','r ','u ','v ','w ','g ','p '],  &
+                          with_cell_morton=.true.)
+   endif
    time = time + euler%dt
    if (time>=time_max .or. t > 100) exit integration
    !exit integration
 enddo integration
-!call MPI_BARRIER(MPI_COMM_WORLD, adam%error) ; call system_clock(timing(2), timing(0))
-!print '(A, F8.3)', 'timing: ', real(timing(2) - timing(1))/ timing(0) / t
 call MPI_BARRIER(MPI_COMM_WORLD, adam%error) ; timing(2) = MPI_Wtime()
-print '(A, F18.10)', 'timing: ', real(timing(2) - timing(1))/t
+print '(A, F18.10)', 'timing: ', (timing(2) - timing(1))/t
 
 !call euler%copy_gpu_cpu(compute_q_aux=.true.)
 !call adam%save_hdf5(basename='euler-sod-'//trim(strz(t,9)),           &
