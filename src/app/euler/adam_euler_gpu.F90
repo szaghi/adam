@@ -41,7 +41,7 @@ call euler%initialize(field=adam%field, ns=1, CFL=0.3_R8P,              &
     print *, 'blocks_number: ',adam%tree%nodes_number
  enddo
 print '(A)', 'set initial conditions'
-call euler%set_initial_conditions
+call euler%set_initial_conditions(ic_type='kt-02')
 
 call euler%copy_cpu_gpu
 call euler%copy_gpu_cpu(compute_q_aux=.true.)

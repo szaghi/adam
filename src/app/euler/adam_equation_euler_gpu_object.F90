@@ -6,6 +6,7 @@ use adam_base_gpu_object
 use adam_field_object
 use adam_grid_object
 use adam_parameters
+use FiNeR
 use PENF
 use MPI
 use CUDAFOR
@@ -21,7 +22,7 @@ integer(I4P), parameter :: BC_EXTRAPOLATION = 1_I4P
 integer(I4P), parameter :: BC_INFLOW        = 2_I4P
 
 type :: equation_euler_gpu_object
-   !< Euler equations system class definition, CPU backend.
+   !< Euler equations system class definition, GPU backend.
    !<
    !< Multifluids is modeled by the standard thermodynamic model.
    !<
@@ -501,79 +502,110 @@ contains
       endsubroutine set_bc
    endsubroutine set_boundary_conditions
 
-   subroutine set_initial_conditions(self)
+   subroutine set_initial_conditions(self, ic_type)
    !< Set initial conditions of field.
-   class(equation_euler_gpu_object), intent(inout) :: self    !< The equation.
-   integer(I4P)                                    :: b       !< Counter.
-   integer(I4P)                                    :: i, j, k !< Counter.
-   integer(I4P)                                    :: riemdim
-   real(R8P)                                       :: mod_u
+   class(equation_euler_gpu_object), intent(inout)        :: self       !< The equation.
+   character(*),                     intent(in), optional :: ic_type    !< Initial conditions type.
+   character(:), allocatable                              :: ic_type_   !< Initial conditions type, local var.
+   integer(I4P)                                           :: b, i, j, k !< Counter.
 
-   riemdim = 2
+   ic_type_ = 'kt-02' ; if (present(ic_type)) ic_type_ = ic_type
    associate(blocks_number=>self%field%blocks_number, q=>self%field%q, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
              ngc=>self%ngc, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell)
-   if(riemdim == 1) then
+   select case(trim(ic_type_))
+   case('sod', 'lax', 'blast-wave')
       do b=1, blocks_number
          do k=1, nk
             do j=1, nj
                do i=1, ni
-                  if (x_cell(i,b)<0.5_R8P) then
-                     q(1,i,j,k,b) = 1._R8P
-                     q(2,i,j,k,b) = 0._R8P
-                     q(3,i,j,k,b) = 0._R8P
-                     q(4,i,j,k,b) = 0._R8P
-                     q(5,i,j,k,b) = 1._R8P * E(p=1._R8P, r=1._R8P, u=0._R8P, g=self%cp0(1)/self%cv0(1))
-                  else
-                     q(1,i,j,k,b) = 0.125_R8P
-                     q(2,i,j,k,b) = 0._R8P
-                     q(3,i,j,k,b) = 0._R8P
-                     q(4,i,j,k,b) = 0._R8P
-                     q(5,i,j,k,b) = 0.125_R8P * E(p=0.1_R8P, r=0.125_R8P, u=0._R8P, g=self%cp0(1)/self%cv0(1))
-                  endif
+                  call set_ic_riemann_1D(x=x_cell(i,b), q_ic=q(:,i,j,k,b))
                enddo
             enddo
          enddo
       enddo
-   elseif(riemdim == 2) then
+   case('kt-01','kt-02','kt-03','kt-04')
       do b=1, blocks_number
          do k=1, nk
             do j=1, nj
                do i=1, ni
-                  if (x_cell(i,b)<=0.5_R8P.and.z_cell(j,b)<=0.5_R8P) then
-                     q(1,i,j,k,b) = 0.138_R8P
-                     q(2,i,j,k,b) = q(1,i,j,k,b) * 1.206_R8P
-                     q(3,i,j,k,b) = 0._R8P
-                     q(4,i,j,k,b) = q(1,i,j,k,b) * 1.206_R8P
-                     mod_u        = sqrt((q(2,i,j,k,b)/q(1,i,j,k,b))**2+(q(4,i,j,k,b)/q(1,i,j,k,b))**2)
-                     q(5,i,j,k,b) = q(1,i,j,k,b) * E(p=0.029_R8P, r=q(1,i,j,k,b), u=mod_u, g=self%cp0(1)/self%cv0(1))
-                  elseif (x_cell(i,b)>0.5_R8P.and.z_cell(j,b)<=0.5_R8P) then
-                     q(1,i,j,k,b) = 0.5323_R8P
-                     q(2,i,j,k,b) = 0._R8P
-                     q(3,i,j,k,b) = 0._R8P
-                     q(4,i,j,k,b) = q(1,i,j,k,b) * 1.206_R8P
-                     mod_u        = sqrt((q(2,i,j,k,b)/q(1,i,j,k,b))**2+(q(4,i,j,k,b)/q(1,i,j,k,b))**2)
-                     q(5,i,j,k,b) = q(1,i,j,k,b) * E(p=0.3_R8P, r=q(1,i,j,k,b), u=mod_u, g=self%cp0(1)/self%cv0(1))
-                  elseif (x_cell(i,b)<=0.5_R8P.and.z_cell(j,b)>0.5_R8P) then
-                     q(1,i,j,k,b) = 0.5323_R8P
-                     q(2,i,j,k,b) = q(1,i,j,k,b) * 1.206_R8P
-                     q(3,i,j,k,b) = 0._R8P
-                     q(4,i,j,k,b) = 0._R8P
-                     mod_u        = sqrt((q(2,i,j,k,b)/q(1,i,j,k,b))**2+(q(4,i,j,k,b)/q(1,i,j,k,b))**2)
-                     q(5,i,j,k,b) = q(1,i,j,k,b) * E(p=0.3_R8P, r=q(1,i,j,k,b), u=mod_u, g=self%cp0(1)/self%cv0(1))
-                  else
-                     q(1,i,j,k,b) = 1.5_R8P
-                     q(2,i,j,k,b) = 0._R8P
-                     q(3,i,j,k,b) = 0._R8P
-                     q(4,i,j,k,b) = 0._R8P
-                     mod_u        = sqrt((q(2,i,j,k,b)/q(1,i,j,k,b))**2+(q(4,i,j,k,b)/q(1,i,j,k,b))**2)
-                     q(5,i,j,k,b) = q(1,i,j,k,b) * E(p=1.5_R8P, r=q(1,i,j,k,b), u=mod_u, g=self%cp0(1)/self%cv0(1))
-                  endif
+                  call set_ic_riemann_2D(x=x_cell(i,b), y=z_cell(k,b), q_ic=q(:,i,j,k,b))
                enddo
             enddo
          enddo
       enddo
-   endif
+   case default
+      write(stderr, '(A)') 'ADAM-ERROR: initial conditions "'//trim(ic_type)//'" unknown'
+      call MPI_FINALIZE(self%error)
+      stop
+   endselect
    endassociate
+   contains
+      subroutine set_ic_riemann_1D(x, q_ic)
+      !< Set initial conditions for 1D Riemann problem.
+      real(R8P),    intent(in)  :: x        !< X (or Y or Z) coordinate.
+      real(R8P),    intent(out) :: q_ic(1:) !< Initial conditions to be set.
+      real(R8P)                 :: mod_u    !< Module of velocity vector.
+
+      select case(trim(ic_type_))
+      case('sod')
+         if (x<0.5_R8P) then
+            q_ic(1) = 1._R8P
+            q_ic(2) = 0._R8P
+            q_ic(3) = 0._R8P
+            q_ic(4) = 0._R8P
+            mod_u   = sqrt((q_ic(2)/q_ic(1))**2 + (q_ic(3)/q_ic(1))**2 + (q_ic(4)/q_ic(1))**2)
+            q_ic(5) = 1._R8P * E(p=1._R8P, r=q_ic(1), u=mod_u, g=self%cp0(1)/self%cv0(1))
+         else
+            q_ic(1) = 0.125_R8P
+            q_ic(2) = 0._R8P
+            q_ic(3) = 0._R8P
+            q_ic(4) = 0._R8P
+            mod_u   = sqrt((q_ic(2)/q_ic(1))**2 + (q_ic(3)/q_ic(1))**2 + (q_ic(4)/q_ic(1))**2)
+            q_ic(5) = 0.125_R8P * E(p=0.1_R8P, r=q_ic(1), u=mod_u, g=self%cp0(1)/self%cv0(1))
+         endif
+      endselect
+      endsubroutine set_ic_riemann_1D
+
+      subroutine set_ic_riemann_2D(x, y, q_ic)
+      !< Set initial conditions for 1D Riemann problem.
+      real(R8P),    intent(in)  :: x        !< X (or Y or Z) coordinate.
+      real(R8P),    intent(in)  :: y        !< Y (or X or Z) coordinate.
+      real(R8P),    intent(out) :: q_ic(1:) !< Initial conditions to be set.
+      real(R8P)                 :: mod_u    !< Module of velocity vector.
+
+      select case(trim(ic_type_))
+      case('kt-02')
+         if (x<=0.5_R8P.and.y<=0.5_R8P) then
+            q_ic(1) = 0.138_R8P
+            q_ic(2) = q_ic(1) * 1.206_R8P
+            q_ic(3) = 0._R8P
+            q_ic(4) = q_ic(1) * 1.206_R8P
+            mod_u   = sqrt((q_ic(2)/q_ic(1))**2 + (q_ic(3)/q_ic(1))**2 + (q_ic(4)/q_ic(1))**2)
+            q_ic(5) = q_ic(1) * E(p=0.029_R8P, r=q_ic(1), u=mod_u, g=self%cp0(1)/self%cv0(1))
+         elseif (x>0.5_R8P.and.y<=0.5_R8P) then
+            q_ic(1) = 0.5323_R8P
+            q_ic(2) = 0._R8P
+            q_ic(3) = 0._R8P
+            q_ic(4) = q_ic(1) * 1.206_R8P
+            mod_u   = sqrt((q_ic(2)/q_ic(1))**2 + (q_ic(3)/q_ic(1))**2 + (q_ic(4)/q_ic(1))**2)
+            q_ic(5) = q_ic(1) * E(p=0.3_R8P, r=q_ic(1), u=mod_u, g=self%cp0(1)/self%cv0(1))
+         elseif (x<=0.5_R8P.and.y>0.5_R8P) then
+            q_ic(1) = 0.5323_R8P
+            q_ic(2) = q_ic(1) * 1.206_R8P
+            q_ic(3) = 0._R8P
+            q_ic(4) = 0._R8P
+            mod_u   = sqrt((q_ic(2)/q_ic(1))**2 + (q_ic(3)/q_ic(1))**2 + (q_ic(4)/q_ic(1))**2)
+            q_ic(5) = q_ic(1) * E(p=0.3_R8P, r=q_ic(1), u=mod_u, g=self%cp0(1)/self%cv0(1))
+         else
+            q_ic(1) = 1.5_R8P
+            q_ic(2) = 0._R8P
+            q_ic(3) = 0._R8P
+            q_ic(4) = 0._R8P
+            mod_u   = sqrt((q_ic(2)/q_ic(1))**2 + (q_ic(3)/q_ic(1))**2 + (q_ic(4)/q_ic(1))**2)
+            q_ic(5) = q_ic(1) * E(p=1.5_R8P, r=q_ic(1), u=mod_u, g=self%cp0(1)/self%cv0(1))
+         endif
+      endselect
+      endsubroutine set_ic_riemann_2D
    endsubroutine set_initial_conditions
 
    subroutine update_ghost_gpu(self, q_gpu, step)

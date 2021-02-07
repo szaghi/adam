@@ -37,3 +37,6 @@
 [submodule "src/third_party/FOSSIL"]
 	path = src/third_party/FOSSIL
 	url = git@github.com:szaghi/FOSSIL.git
+[submodule "src/third_party/FiNeR"]
+	path = src/third_party/FiNeR
+	url = git@github.com:szaghi/FiNeR.git
