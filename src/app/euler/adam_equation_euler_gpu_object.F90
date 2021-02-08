@@ -95,12 +95,9 @@ type :: equation_euler_gpu_object
    ! cuf data
    real(R8P), allocatable, device :: cp0_gpu(:)           !< Specific heat at constant pressure of initial species.
    real(R8P), allocatable, device :: cv0_gpu(:)           !< Specific heat at constant pressure of initial species.
-   real(R8P), allocatable, device :: f_i_gpu(:,:,:,:,:)   !< Fluxes of cell centered variables, i direction.
-   real(R8P), allocatable, device :: f_j_gpu(:,:,:,:,:)   !< Fluxes of cell centered variables, j direction.
-   real(R8P), allocatable, device :: f_k_gpu(:,:,:,:,:)   !< Fluxes of cell centered variables, k direction.
-   real(R8P), allocatable, device :: f_rho_gpu(:,:,:,:)   !< Fluxes of cell centered variables, rho, 1D, normal direction.
-   real(R8P), allocatable, device :: f_rho_u_gpu(:,:,:,:) !< Fluxes of cell centered variables, rho*u, 1D, normal direction.
-   real(R8P), allocatable, device :: f_rho_E_gpu(:,:,:,:) !< Fluxes of cell centered variables, rho*E, 1D, normal direction.
+   real(R8P), allocatable, device :: fp_gpu(:,:,:,:,:)    !< Positive fluxes.
+   real(R8P), allocatable, device :: fm_gpu(:,:,:,:,:)    !< Negative fluxes.
+   real(R8P), allocatable, device :: f_gpu(:,:,:,:,:)     !< Convective fluxes.
    real(R8P), allocatable, device :: dxyz_gpu(:,:)        !< Space steps.
    real(R8P), allocatable, device :: alph_gpu(:,:)        !< RK alpha coefficients.
    real(R8P), allocatable, device :: beta_gpu(:)          !< RK beta coefficients.
@@ -265,6 +262,10 @@ contains
    call self%weno_initialize
    allocate(self%alph(self%nrk,self%nrk), self%beta(self%nrk), self%gamm(self%nrk))
    select case(self%nrk)
+   case(1_I4P)
+      self%alph(:,:) = reshape([1._R8P], [1,1])
+      self%beta(:) = [1._R8P]
+      self%gamm(:) = [0._R8P]
    case(3_I4P)
       self%alph(:,:) = reshape([0._R8P, 1._R8P, 0.25_R8P, &
                                 0._R8P, 0._R8P, 0.25_R8P, &
@@ -279,30 +280,18 @@ contains
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    ! GPU data
-   allocate(self%f_i_gpu(1:field%nb,                  &
-                         0-self%ngc:self%ni+self%ngc, &
-                         1-self%ngc:self%nj+self%ngc, &
-                         1-self%ngc:self%nk+self%ngc, 1:field%nv))
-   allocate(self%f_j_gpu(1:field%nb,                  &
-                         1-self%ngc:self%ni+self%ngc, &
-                         0-self%ngc:self%nj+self%ngc, &
-                         1-self%ngc:self%nk+self%ngc, 1:field%nv))
-   allocate(self%f_k_gpu(1:field%nb,                  &
-                         1-self%ngc:self%ni+self%ngc, &
-                         1-self%ngc:self%nj+self%ngc, &
-                         0-self%ngc:self%nk+self%ngc, 1:field%nv))
-   allocate(self%f_rho_gpu(1:field%nb,                  &
-                           0-self%ngc:self%ni+self%ngc, &
-                           0-self%ngc:self%nj+self%ngc, &
-                           0-self%ngc:self%nk+self%ngc))
-   allocate(self%f_rho_u_gpu(1:field%nb,                  &
-                             0-self%ngc:self%ni+self%ngc, &
-                             0-self%ngc:self%nj+self%ngc, &
-                             0-self%ngc:self%nk+self%ngc))
-   allocate(self%f_rho_E_gpu(1:field%nb,                  &
-                             0-self%ngc:self%ni+self%ngc, &
-                             0-self%ngc:self%nj+self%ngc, &
-                             0-self%ngc:self%nk+self%ngc))
+   allocate(self%fp_gpu(1:field%nb,                  &
+                        1-self%ngc:self%ni+self%ngc, &
+                        1-self%ngc:self%nj+self%ngc, &
+                        1-self%ngc:self%nk+self%ngc, 1:field%nv))
+   allocate(self%fm_gpu(1:field%nb,                  &
+                        1-self%ngc:self%ni+self%ngc, &
+                        1-self%ngc:self%nj+self%ngc, &
+                        1-self%ngc:self%nk+self%ngc, 1:field%nv))
+   allocate(self%f_gpu(1:field%nb,                  &
+                       0-self%ngc:self%ni+self%ngc, &
+                       0-self%ngc:self%nj+self%ngc, &
+                       0-self%ngc:self%nk+self%ngc, 1:field%nv))
    allocate(self%dxyz_gpu(1:field%nb, 1:3))
    allocate(self%q_aux_gpu(1:field%nb,                  &
                            1-self%ngc:self%ni+self%ngc, &
@@ -430,17 +419,14 @@ contains
          call self%compute_aux(q_gpu=self%q_s_gpu(:,:,:,:,:,s), q_aux_gpu=self%q_aux_gpu)
          call compute_residuals_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, ns=ns,          &
                                         null_x=self%null_xyz(1), null_y=self%null_xyz(2), null_z=self%null_xyz(3), &
-                                        dx_gpu      = self%dxyz_gpu(:,1),                                          &
-                                        dy_gpu      = self%dxyz_gpu(:,2),                                          &
-                                        dz_gpu      = self%dxyz_gpu(:,3),                                          &
-                                        q_aux_gpu   = self%q_aux_gpu,                                              &
-                                        f_i_gpu     = self%f_i_gpu,                                                &
-                                        f_j_gpu     = self%f_j_gpu,                                                &
-                                        f_k_gpu     = self%f_k_gpu,                                                &
-                                        f_rho_gpu   = self%f_rho_gpu,                                              &
-                                        f_rho_u_gpu = self%f_rho_u_gpu,                                            &
-                                        f_rho_E_gpu = self%f_rho_E_gpu,                                            &
-                                        q_gpu       = self%q_s_gpu(:,:,:,:,:,s))
+                                        dx_gpu    = self%dxyz_gpu(:,1),                                          &
+                                        dy_gpu    = self%dxyz_gpu(:,2),                                          &
+                                        dz_gpu    = self%dxyz_gpu(:,3),                                          &
+                                        q_aux_gpu = self%q_aux_gpu,                                              &
+                                        fp_gpu    = self%fp_gpu,                                                 &
+                                        fm_gpu    = self%fm_gpu,                                                 &
+                                        f_gpu     = self%f_gpu,                                                  &
+                                        q_gpu     = self%q_s_gpu(:,:,:,:,:,s))
       else
          ! TODO
       endif
@@ -509,16 +495,23 @@ contains
    character(:), allocatable                              :: ic_type_   !< Initial conditions type, local var.
    integer(I4P)                                           :: b, i, j, k !< Counter.
 
-   ic_type_ = 'kt-02' ; if (present(ic_type)) ic_type_ = ic_type
+   ic_type_ = 'sod-x' ; if (present(ic_type)) ic_type_ = ic_type
    associate(blocks_number=>self%field%blocks_number, q=>self%field%q, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
              ngc=>self%ngc, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell)
    select case(trim(ic_type_))
-   case('sod', 'lax', 'blast-wave')
+   case('sod-x', 'sod-y', 'sod-z')
       do b=1, blocks_number
          do k=1, nk
             do j=1, nj
                do i=1, ni
-                  call set_ic_riemann_1D(x=x_cell(i,b), q_ic=q(:,i,j,k,b))
+                  select case(trim(ic_type_))
+                  case('sod-x')
+                     call set_ic_riemann_1D(x=x_cell(i,b), q_ic=q(:,i,j,k,b))
+                  case('sod-y')
+                     call set_ic_riemann_1D(x=y_cell(j,b), q_ic=q(:,i,j,k,b))
+                  case('sod-z')
+                     call set_ic_riemann_1D(x=z_cell(k,b), q_ic=q(:,i,j,k,b))
+                  endselect
                enddo
             enddo
          enddo
@@ -547,7 +540,7 @@ contains
       real(R8P)                 :: mod_u    !< Module of velocity vector.
 
       select case(trim(ic_type_))
-      case('sod')
+      case('sod-x', 'sod-y', 'sod-z')
          if (x<0.5_R8P) then
             q_ic(1) = 1._R8P
             q_ic(2) = 0._R8P
@@ -675,12 +668,9 @@ contains
    call assign_allocatable(lhs=lhs%weno_d,rhs=rhs%weno_d)
    call assign_allocatable_gpu(lhs=lhs%cp0_gpu,    rhs=rhs%cp0_gpu    )
    call assign_allocatable_gpu(lhs=lhs%cv0_gpu,    rhs=rhs%cv0_gpu    )
-   call assign_allocatable_gpu(lhs=lhs%f_i_gpu,    rhs=rhs%f_i_gpu    )
-   call assign_allocatable_gpu(lhs=lhs%f_j_gpu,    rhs=rhs%f_j_gpu    )
-   call assign_allocatable_gpu(lhs=lhs%f_k_gpu,    rhs=rhs%f_k_gpu    )
-   call assign_allocatable_gpu(lhs=lhs%f_rho_gpu,  rhs=rhs%f_rho_gpu  )
-   call assign_allocatable_gpu(lhs=lhs%f_rho_u_gpu,rhs=rhs%f_rho_u_gpu)
-   call assign_allocatable_gpu(lhs=lhs%f_rho_E_gpu,rhs=rhs%f_rho_E_gpu)
+   call assign_allocatable_gpu(lhs=lhs%f_gpu,      rhs=rhs%f_gpu      )
+   call assign_allocatable_gpu(lhs=lhs%fp_gpu,     rhs=rhs%fp_gpu     )
+   call assign_allocatable_gpu(lhs=lhs%fm_gpu,     rhs=rhs%fm_gpu     )
    call assign_allocatable_gpu(lhs=lhs%dxyz_gpu,   rhs=rhs%dxyz_gpu   )
    call assign_allocatable_gpu(lhs=lhs%alph_gpu,   rhs=rhs%alph_gpu   )
    call assign_allocatable_gpu(lhs=lhs%beta_gpu,   rhs=rhs%beta_gpu   )
@@ -907,8 +897,7 @@ contains
    endsubroutine compute_aux_cuf
 
    subroutine compute_residuals_gpu_cuf(ni, nj, nk, ngc, ns, null_x, null_y, null_z, blocks_number, &
-                                        dx_gpu, dy_gpu, dz_gpu, q_aux_gpu,                          &
-                                        f_i_gpu, f_j_gpu, f_k_gpu, f_rho_gpu, f_rho_u_gpu, f_rho_E_gpu, q_gpu)
+                                        dx_gpu, dy_gpu, dz_gpu, q_aux_gpu, fp_gpu, fm_gpu, f_gpu, q_gpu)
    !< Compute residuals of equation.
    integer(I4P), intent(in)            :: ni                                    !< Grid cells number in I direction.
    integer(I4P), intent(in)            :: nj                                    !< Grid cells number in J direction.
@@ -923,211 +912,279 @@ contains
    real(R8P),    intent(in),    device :: dy_gpu(1:)                            !< Y space steps.
    real(R8P),    intent(in),    device :: dz_gpu(1:)                            !< Z space steps.
    real(R8P),    intent(in),    device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
-   real(R8P),    intent(inout), device :: f_i_gpu(1:,0:,1:,1:,1:)               !< Convective fluxes in i direction.
-   real(R8P),    intent(inout), device :: f_j_gpu(1:,1:,0:,1:,1:)               !< Convective fluxes in j direction.
-   real(R8P),    intent(inout), device :: f_k_gpu(1:,1:,1:,0:,1:)               !< Convective fluxes in k direction.
-   real(R8P),    intent(inout), device ::   f_rho_gpu(1:,0:,0:,0:)              !< Convective fluxes in normal direction, rho, 1D.
-   real(R8P),    intent(inout), device :: f_rho_u_gpu(1:,0:,0:,0:)              !< Convective fluxes in normal direction, rho*u, 1D.
-   real(R8P),    intent(inout), device :: f_rho_E_gpu(1:,0:,0:,0:)              !< Convective fluxes in normal direction, rho*E, 1D.
+   real(R8P),    intent(inout), device ::    fp_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Positive fluxes.
+   real(R8P),    intent(inout), device ::    fm_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Negative fluxes.
+   real(R8P),    intent(inout), device ::  f_gpu(1:,0:,0:,0:,1:)                !< Convective fluxes.
    real(R8P),    intent(inout), device :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Conservative variables.
-   integer(I4P)                        :: b, i, j, k, s                         !< Counter.
+   integer(I4P)                        :: b, i, j, k, v                         !< Counter.
    integer(I4P)                        :: iercuda                               !< Error trapping flag for CUDAFortran.
 
-   ! fluxes in i direction
-   if (.not.null_x) then
-      !$cuf kernel do(4) <<<*,*>>>
-      do k=1, nk
-         do j=1, nj
-            do i=0,ni
-               do b=1, blocks_number
-                  ! compute 1D normal fluxes
-                  call solve_riemann(r1=q_aux_gpu(b,i  ,j,k,ns+1), &
-                                     u1=q_aux_gpu(b,i  ,j,k,ns+2), &
-                                     g1=q_aux_gpu(b,i  ,j,k,ns+5), &
-                                     p1=q_aux_gpu(b,i  ,j,k,ns+6), &
-                                     r4=q_aux_gpu(b,i+1,j,k,ns+1), &
-                                     u4=q_aux_gpu(b,i+1,j,k,ns+2), &
-                                     g4=q_aux_gpu(b,i+1,j,k,ns+5), &
-                                     p4=q_aux_gpu(b,i+1,j,k,ns+6), &
-                                     f_rho  =  f_rho_gpu(b,i,j,k), &
-                                     f_rho_u=f_rho_u_gpu(b,i,j,k), &
-                                     f_rho_E=f_rho_E_gpu(b,i,j,k))
-                  ! compute 3D fluxes
-                  if (f_rho_gpu(b,i,j,k)>0._R8P) then
-                     do s=1, ns
-                        f_i_gpu(b,i,j,k,s) = f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k,s)
-                     enddo
-                     f_i_gpu(b,i,j,k,ns+1) = f_rho_u_gpu(b,i,j,k)
-                     f_i_gpu(b,i,j,k,ns+2) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k,ns+3)
-                     f_i_gpu(b,i,j,k,ns+3) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k,ns+4)
-                     f_i_gpu(b,i,j,k,ns+4) = f_rho_E_gpu(b,i,j,k) + 0.5_R8P * f_rho_gpu(b,i,j,k) * &
-                                                                  (q_aux_gpu(b,i,j,k,ns+3)**2 + q_aux_gpu(b,i,j,k,ns+4)**2)
-                  else
-                     do s=1, ns
-                        f_i_gpu(b,i,j,k,s) = f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i+1,j,k,s)
-                     enddo
-                     f_i_gpu(b,i,j,k,ns+1) = f_rho_u_gpu(b,i,j,k)
-                     f_i_gpu(b,i,j,k,ns+2) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i+1,j,k,ns+3)
-                     f_i_gpu(b,i,j,k,ns+3) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i+1,j,k,ns+4)
-                     f_i_gpu(b,i,j,k,ns+4) = f_rho_E_gpu(b,i,j,k) + 0.5_R8P * f_rho_gpu(b,i,j,k) * &
-                                                                  (q_aux_gpu(b,i+1,j,k,ns+3)**2 + q_aux_gpu(b,i+1,j,k,ns+4)**2)
-                  endif
-               enddo
-            enddo
-         enddo
-      enddo
-      !@cuf iercuda=cudaDeviceSynchronize()
-   else
-      !$cuf kernel do(5) <<<*,*>>>
-      do s=1, ns + 4
-         do k=1, nk
-            do j=1, nj
-               do i=0,ni
-                  do b=1, blocks_number
-                     f_i_gpu(b,i,j,k,s) = 0._R8P
-                  enddo
-               enddo
-            enddo
-         enddo
-      enddo
-      !@cuf iercuda=cudaDeviceSynchronize()
-   endif
-
-   ! fluxes in j direction
-   if (.not.null_y) then
-      !$cuf kernel do(4) <<<*,*>>>
-      do k=1, nk
-         do j=0, nj
-            do i=1,ni
-               do b=1, blocks_number
-                  ! compute 1D normal fluxes
-                  call solve_riemann(r1=q_aux_gpu(b,i,j  ,k,ns+1), &
-                                     u1=q_aux_gpu(b,i,j  ,k,ns+3), &
-                                     g1=q_aux_gpu(b,i,j  ,k,ns+5), &
-                                     p1=q_aux_gpu(b,i,j  ,k,ns+6), &
-                                     r4=q_aux_gpu(b,i,j+1,k,ns+1), &
-                                     u4=q_aux_gpu(b,i,j+1,k,ns+3), &
-                                     g4=q_aux_gpu(b,i,j+1,k,ns+5), &
-                                     p4=q_aux_gpu(b,i,j+1,k,ns+6), &
-                                     f_rho  =  f_rho_gpu(b,i,j,k), &
-                                     f_rho_u=f_rho_u_gpu(b,i,j,k), &
-                                     f_rho_E=f_rho_E_gpu(b,i,j,k))
-                  ! compute 3D fluxes
-                  if (f_rho_gpu(b,i,j,k)>0._R8P) then
-                     do s=1, ns
-                        f_j_gpu(b,i,j,k,s) = f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k,s)
-                     enddo
-                     f_j_gpu(b,i,j,k,ns+1) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k,ns+2)
-                     f_j_gpu(b,i,j,k,ns+2) = f_rho_u_gpu(b,i,j,k)
-                     f_j_gpu(b,i,j,k,ns+3) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k,ns+4)
-                     f_j_gpu(b,i,j,k,ns+4) = f_rho_E_gpu(b,i,j,k) + 0.5_R8P * f_rho_gpu(b,i,j,k) * &
-                                                                  (q_aux_gpu(b,i,j,k,ns+2)**2 + q_aux_gpu(b,i,j,k,ns+4)**2)
-                  else
-                     do s=1, ns
-                        f_j_gpu(b,i,j,k,s) = f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j+1,k,s)
-                     enddo
-                     f_j_gpu(b,i,j,k,ns+1) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j+1,k,ns+2)
-                     f_j_gpu(b,i,j,k,ns+2) = f_rho_u_gpu(b,i,j,k)
-                     f_j_gpu(b,i,j,k,ns+3) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j+1,k,ns+4)
-                     f_j_gpu(b,i,j,k,ns+4) = f_rho_E_gpu(b,i,j,k) + 0.5_R8P * f_rho_gpu(b,i,j,k) * &
-                                                                  (q_aux_gpu(b,i,j+1,k,ns+2)**2 + q_aux_gpu(b,i,j+1,k,ns+4)**2)
-                  endif
-               enddo
-            enddo
-         enddo
-      enddo
-      !@cuf iercuda=cudaDeviceSynchronize()
-   else
-      !$cuf kernel do(5) <<<*,*>>>
-      do s=1, ns + 4
-         do k=1, nk
-            do j=0, nj
-               do i=1,ni
-                  do b=1, blocks_number
-                     f_j_gpu(b,i,j,k,s) = 0._R8P
-                  enddo
-               enddo
-            enddo
-         enddo
-      enddo
-      !@cuf iercuda=cudaDeviceSynchronize()
-   endif
-
-   ! fluxes in k direction
-   if (.not.null_z) then
-      !$cuf kernel do(4) <<<*,*>>>
-      do k=0, nk
-         do j=1, nj
-            do i=1,ni
-               do b=1, blocks_number
-                  ! compute 1D normal fluxes
-                  call solve_riemann(r1=q_aux_gpu(b,i,j,k  ,ns+1), &
-                                     u1=q_aux_gpu(b,i,j,k  ,ns+4), &
-                                     g1=q_aux_gpu(b,i,j,k  ,ns+5), &
-                                     p1=q_aux_gpu(b,i,j,k  ,ns+6), &
-                                     r4=q_aux_gpu(b,i,j,k+1,ns+1), &
-                                     u4=q_aux_gpu(b,i,j,k+1,ns+4), &
-                                     g4=q_aux_gpu(b,i,j,k+1,ns+5), &
-                                     p4=q_aux_gpu(b,i,j,k+1,ns+6), &
-                                     f_rho  =  f_rho_gpu(b,i,j,k), &
-                                     f_rho_u=f_rho_u_gpu(b,i,j,k), &
-                                     f_rho_E=f_rho_E_gpu(b,i,j,k))
-                  ! compute 3D fluxes
-                  if (f_rho_gpu(b,i,j,k)>0._R8P) then
-                     do s=1, ns
-                        f_k_gpu(b,i,j,k,s) = f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k,s)
-                     enddo
-                     f_k_gpu(b,i,j,k,ns+1) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k,ns+2)
-                     f_k_gpu(b,i,j,k,ns+2) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k,ns+3)
-                     f_k_gpu(b,i,j,k,ns+3) = f_rho_u_gpu(b,i,j,k)
-                     f_k_gpu(b,i,j,k,ns+4) = f_rho_E_gpu(b,i,j,k) + 0.5_R8P * f_rho_gpu(b,i,j,k) * &
-                                                                  (q_aux_gpu(b,i,j,k,ns+2)**2 + q_aux_gpu(b,i,j,k,ns+3)**2)
-                  else
-                     do s=1, ns
-                        f_k_gpu(b,i,j,k,s) = f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k+1,s)
-                     enddo
-                     f_k_gpu(b,i,j,k,ns+1) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k+1,ns+2)
-                     f_k_gpu(b,i,j,k,ns+2) =   f_rho_gpu(b,i,j,k) * q_aux_gpu(b,i,j,k+1,ns+3)
-                     f_k_gpu(b,i,j,k,ns+3) = f_rho_u_gpu(b,i,j,k)
-                     f_k_gpu(b,i,j,k,ns+4) = f_rho_E_gpu(b,i,j,k) + 0.5_R8P * f_rho_gpu(b,i,j,k) * &
-                                                                  (q_aux_gpu(b,i,j,k+1,ns+2)**2 + q_aux_gpu(b,i,j,k+1,ns+3)**2)
-                  endif
-               enddo
-            enddo
-         enddo
-      enddo
-      !@cuf iercuda=cudaDeviceSynchronize()
-   else
-      !$cuf kernel do(5) <<<*,*>>>
-      do s=1, ns + 4
-         do k=1, nk
-            do j=1, nj
-               do i=1,ni
-                  do b=1, blocks_number
-                     f_k_gpu(b,i,j,k,s) = 0._R8P
-                  enddo
-               enddo
-            enddo
-         enddo
-      enddo
-      !@cuf iercuda=cudaDeviceSynchronize()
-   endif
-
+   ! initialize residuals
    !$cuf kernel do(5) <<<*,*>>>
-   do s=1, ns+4
+   do v=1, ns+4
       do k=1, nk
          do j=1, nj
-            do i=1, ni
+            do i=1,ni
                do b=1, blocks_number
-                  q_gpu(b,i,j,k,s) = (f_i_gpu(b,i-1,j  ,k  ,s) - f_i_gpu(b,i,j,k,s)) / dx_gpu(b) + &
-                                     (f_j_gpu(b,i  ,j-1,k  ,s) - f_j_gpu(b,i,j,k,s)) / dy_gpu(b) + &
-                                     (f_k_gpu(b,i  ,j  ,k-1,s) - f_k_gpu(b,i,j,k,s)) / dz_gpu(b)
+                  q_gpu(b,i,j,k,v) = 0._R8P
                enddo
             enddo
          enddo
       enddo
    enddo
    !@cuf iercuda=cudaDeviceSynchronize()
+
+   ! accumulate difference of fluxes in i direction
+   if (.not.null_x) then
+      !$cuf kernel do(4) <<<*,*>>>
+      do k=1, nk
+         do j=1, nj
+            do i=1-ngc, ni+ngc
+               do b=1, blocks_number
+                  call fluxes_pm(r=q_aux_gpu(    b,i,j,k,ns+1), &
+                                 u=q_aux_gpu(    b,i,j,k,ns+2), &
+                                 v=q_aux_gpu(    b,i,j,k,ns+3), &
+                                 w=q_aux_gpu(    b,i,j,k,ns+4), &
+                                 g=q_aux_gpu(    b,i,j,k,ns+5), &
+                                 p=q_aux_gpu(    b,i,j,k,ns+6), &
+                                 fp_rho  =fp_gpu(b,i,j,k,ns  ), &
+                                 fp_rho_u=fp_gpu(b,i,j,k,ns+1), &
+                                 fp_rho_v=fp_gpu(b,i,j,k,ns+2), &
+                                 fp_rho_w=fp_gpu(b,i,j,k,ns+3), &
+                                 fp_rho_E=fp_gpu(b,i,j,k,ns+4), &
+                                 fm_rho  =fm_gpu(b,i,j,k,ns  ), &
+                                 fm_rho_u=fm_gpu(b,i,j,k,ns+1), &
+                                 fm_rho_v=fm_gpu(b,i,j,k,ns+2), &
+                                 fm_rho_w=fm_gpu(b,i,j,k,ns+3), &
+                                 fm_rho_E=fm_gpu(b,i,j,k,ns+4))
+               enddo
+            enddo
+         enddo
+      enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
+      !$cuf kernel do(5) <<<*,*>>>
+      do v=1, ns+4
+         do k=1, nk
+            do j=1, nj
+               do i=0,ni
+                  do b=1, blocks_number
+                     f_gpu(b,i,j,k,v) = fp_gpu(b,i,j,k,v) + 0.5 * minmod(fp_gpu(b,i  ,j,k,v) - fp_gpu(b,i-1,j,k,v),&
+                                                                         fp_gpu(b,i+1,j,k,v) - fp_gpu(b,i  ,j,k,v))
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
+      !$cuf kernel do(5) <<<*,*>>>
+      do v=1, ns+4
+         do k=1, nk
+            do j=1, nj
+               do i=1,ni
+                  do b=1, blocks_number
+                     q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) + (f_gpu(b,i-1,j,k,v) - f_gpu(b,i,j,k,v)) / dx_gpu(b)
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
+      !$cuf kernel do(5) <<<*,*>>>
+      do v=1, ns+4
+         do k=1, nk
+            do j=1, nj
+               do i=0,ni
+                  do b=1, blocks_number
+                     f_gpu(b,i,j,k,v) = fm_gpu(b,i+1,j,k,v) - 0.5 * minmod(fm_gpu(b,i+1,j,k,v) - fm_gpu(b,i  ,j,k,v), &
+                                                                           fm_gpu(b,i+2,j,k,v) - fm_gpu(b,i+1,j,k,v))
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
+      !$cuf kernel do(5) <<<*,*>>>
+      do v=1, ns+4
+         do k=1, nk
+            do j=1, nj
+               do i=1,ni
+                  do b=1, blocks_number
+                     q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) + (f_gpu(b,i-1,j,k,v) - f_gpu(b,i,j,k,v)) / dx_gpu(b)
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
+   endif
+
+   ! accumulate difference of fluxes in j direction
+   if (.not.null_y) then
+      !$cuf kernel do(4) <<<*,*>>>
+      do k=1, nk
+         do j=1-ngc, nj+ngc
+            do i=1,ni
+               do b=1, blocks_number
+                  call fluxes_pm(r=q_aux_gpu(    b,i,j,k,ns+1), &
+                                 u=q_aux_gpu(    b,i,j,k,ns+3), &
+                                 v=q_aux_gpu(    b,i,j,k,ns+2), &
+                                 w=q_aux_gpu(    b,i,j,k,ns+4), &
+                                 g=q_aux_gpu(    b,i,j,k,ns+5), &
+                                 p=q_aux_gpu(    b,i,j,k,ns+6), &
+                                 fp_rho  =fp_gpu(b,i,j,k,ns  ), &
+                                 fp_rho_u=fp_gpu(b,i,j,k,ns+2), &
+                                 fp_rho_v=fp_gpu(b,i,j,k,ns+1), &
+                                 fp_rho_w=fp_gpu(b,i,j,k,ns+3), &
+                                 fp_rho_E=fp_gpu(b,i,j,k,ns+4), &
+                                 fm_rho  =fm_gpu(b,i,j,k,ns  ), &
+                                 fm_rho_u=fm_gpu(b,i,j,k,ns+2), &
+                                 fm_rho_v=fm_gpu(b,i,j,k,ns+1), &
+                                 fm_rho_w=fm_gpu(b,i,j,k,ns+3), &
+                                 fm_rho_E=fm_gpu(b,i,j,k,ns+4))
+               enddo
+            enddo
+         enddo
+      enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
+      !$cuf kernel do(5) <<<*,*>>>
+      do v=1, ns+4
+         do k=1, nk
+            do j=0, nj
+               do i=1,ni
+                  do b=1, blocks_number
+                     f_gpu(b,i,j,k,v) = fp_gpu(b,i,j,k,v) + 0.5 * minmod(fp_gpu(b,i,j  ,k,v) - fp_gpu(b,i,j-1,k,v), &
+                                                                         fp_gpu(b,i,j+1,k,v) - fp_gpu(b,i,j  ,k,v))
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
+      !$cuf kernel do(5) <<<*,*>>>
+      do v=1, ns+4
+         do k=1, nk
+            do j=1, nj
+               do i=1,ni
+                  do b=1, blocks_number
+                     q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) + (f_gpu(b,i,j-1,k,v) - f_gpu(b,i,j,k,v)) / dy_gpu(b)
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
+      !$cuf kernel do(5) <<<*,*>>>
+      do v=1, ns+4
+         do k=1, nk
+            do j=0, nj
+               do i=1,ni
+                  do b=1, blocks_number
+                     f_gpu(b,i,j,k,v) = fm_gpu(b,i,j+1,k,v) - 0.5 * minmod(fm_gpu(b,i,j+1,k,v) - fm_gpu(b,i,j  ,k,v), &
+                                                                           fm_gpu(b,i,j+2,k,v) - fm_gpu(b,i,j+1,k,v))
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
+      !$cuf kernel do(5) <<<*,*>>>
+      do v=1, ns+4
+         do k=1, nk
+            do j=1, nj
+               do i=1,ni
+                  do b=1, blocks_number
+                     q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) + (f_gpu(b,i,j-1,k,v) - f_gpu(b,i,j,k,v)) / dy_gpu(b)
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
+   endif
+
+   ! accumulate difference of fluxes in k direction
+   if (.not.null_z) then
+      !$cuf kernel do(4) <<<*,*>>>
+      do k=1-ngc, nk+ngc
+         do j=1, nj
+            do i=1,ni
+               do b=1, blocks_number
+                  call fluxes_pm(r=q_aux_gpu(    b,i,j,k,ns+1), &
+                                 u=q_aux_gpu(    b,i,j,k,ns+4), &
+                                 v=q_aux_gpu(    b,i,j,k,ns+2), &
+                                 w=q_aux_gpu(    b,i,j,k,ns+3), &
+                                 g=q_aux_gpu(    b,i,j,k,ns+5), &
+                                 p=q_aux_gpu(    b,i,j,k,ns+6), &
+                                 fp_rho  =fp_gpu(b,i,j,k,ns  ), &
+                                 fp_rho_u=fp_gpu(b,i,j,k,ns+3), &
+                                 fp_rho_v=fp_gpu(b,i,j,k,ns+1), &
+                                 fp_rho_w=fp_gpu(b,i,j,k,ns+2), &
+                                 fp_rho_E=fp_gpu(b,i,j,k,ns+4), &
+                                 fm_rho  =fm_gpu(b,i,j,k,ns  ), &
+                                 fm_rho_u=fm_gpu(b,i,j,k,ns+3), &
+                                 fm_rho_v=fm_gpu(b,i,j,k,ns+1), &
+                                 fm_rho_w=fm_gpu(b,i,j,k,ns+2), &
+                                 fm_rho_E=fm_gpu(b,i,j,k,ns+4))
+               enddo
+            enddo
+         enddo
+      enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
+      !$cuf kernel do(5) <<<*,*>>>
+      do v=1, ns+4
+         do k=0, nk
+            do j=1, nj
+               do i=1,ni
+                  do b=1, blocks_number
+                     f_gpu(b,i,j,k,v) = fp_gpu(b,i,j,k,v) + 0.5 * minmod(fp_gpu(b,i,j,k  ,v) - fp_gpu(b,i,j,k-1,v), &
+                                                                         fp_gpu(b,i,j,k+1,v) - fp_gpu(b,i,j,k  ,v))
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
+      !$cuf kernel do(5) <<<*,*>>>
+      do v=1, ns+4
+         do k=1, nk
+            do j=1, nj
+               do i=1,ni
+                  do b=1, blocks_number
+                     q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) + (f_gpu(b,i,j,k-1,v) - f_gpu(b,i,j,k,v)) / dz_gpu(b)
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
+      !$cuf kernel do(5) <<<*,*>>>
+      do v=1, ns+4
+         do k=0, nk
+            do j=1, nj
+               do i=1,ni
+                  do b=1, blocks_number
+                     f_gpu(b,i,j,k,v) = fm_gpu(b,i,j,k+1,v) - 0.5 * minmod(fm_gpu(b,i,j,k+1,v) - fm_gpu(b,i,j,k  ,v), &
+                                                                           fm_gpu(b,i,j,k+2,v) - fm_gpu(b,i,j,k+1,v))
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
+      !$cuf kernel do(5) <<<*,*>>>
+      do v=1, ns+4
+         do k=1, nk
+            do j=1, nj
+               do i=1,ni
+                  do b=1, blocks_number
+                     q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) + (f_gpu(b,i,j,k-1,v) - f_gpu(b,i,j,k,v)) / dz_gpu(b)
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
+   endif
    endsubroutine compute_residuals_gpu_cuf
 
    subroutine compute_rk_stage_gpu_cuf(ni, nj, nk, ngc, nv, blocks_number, alph_gpu, dt, s, q_gpu, q_s_gpu)
@@ -1330,6 +1387,16 @@ contains
    ss = sqrt(g*p/r)
    endfunction a
 
+   attributes(device) function a2(p, r, g) result(ss)
+   !< Return square of speed of sound for an ideal calorically perfect gas.
+   real(R8P), intent(in) :: p  !< Pressure.
+   real(R8P), intent(in) :: r  !< Density.
+   real(R8P), intent(in) :: g  !< Specific heats ratio \(\frac{{c_p}}{{c_v}}\).
+   real(R8P)             :: ss !< Speed of sound.
+
+   ss = g*p/r
+   endfunction a2
+
    attributes(host,device) function E(p, r, u, g) result(energy)
    !< Return total specific energy (per unit of mass).
    !<$$
@@ -1349,14 +1416,28 @@ contains
    !<$$
    !<  H = \frac{{\g p}}{{\left( {\g  - 1} \right)\r }} + \frac{{u^2 }}{2}
    !<$$
-   real(R_P), intent(in) :: g       !< Specific heats ratio \(\frac{{c_p}}{{c_v}}\).
-   real(R_P), intent(in) :: p       !< Pressure.
-   real(R_P), intent(in) :: r       !< Density.
+   real(R8P), intent(in) :: g       !< Specific heats ratio \(\frac{{c_p}}{{c_v}}\).
+   real(R8P), intent(in) :: p       !< Pressure.
+   real(R8P), intent(in) :: r       !< Density.
    real(R8P), intent(in) :: u       !< Module of velocity vector.
-   real(R_P)             :: entalpy !< Total specific entalpy (per unit of mass).
+   real(R8P)             :: entalpy !< Total specific entalpy (per unit of mass).
 
    entalpy = g * p / ((g - 1._R_P) * r) + 0.5_R_P * u*u
    endfunction H
+
+   attributes(device) function Hv2(p, r, u2, g) result(entalpy)
+   !< Return total specific entalpy (per unit of mass).
+   !<$$
+   !<  H = \frac{{\g p}}{{\left( {\g  - 1} \right)\r }} + \frac{{u^2 }}{2}
+   !<$$
+   real(R8P), intent(in) :: g       !< Specific heats ratio \(\frac{{c_p}}{{c_v}}\).
+   real(R8P), intent(in) :: p       !< Pressure.
+   real(R8P), intent(in) :: r       !< Density.
+   real(R8P), intent(in) :: u2      !< Square of module of velocity vector.
+   real(R8P)             :: entalpy !< Total specific entalpy (per unit of mass).
+
+   entalpy = g * p / ((g - 1._R_P) * r) + 0.5_R_P * u2
+   endfunction Hv2
 
    !attributes(device) function weno_polynomials(s, weno_p, v) result(VP)
    !!< Return WENO polynomials
@@ -1426,4 +1507,117 @@ contains
    !   enddo
    !enddo
    !endfunction weno_weights
+
+   attributes(device) subroutine fluxes_pm(r, u, v, w, g, p,                              &
+                                           fp_rho, fp_rho_u, fp_rho_v, fp_rho_w, fp_rho_E,&
+                                           fm_rho, fm_rho_u, fm_rho_v, fm_rho_w, fm_rho_E)
+   !< Compute positive and negative fluxes in cell center.
+      ! rho rho u rho v rho w E
+   real(R8P), intent(in)  :: r             !< Density.
+   real(R8P), intent(in)  :: u             !< Normal velocity.
+   real(R8P), intent(in)  :: v             !< First tangential component of velocity.
+   real(R8P), intent(in)  :: w             !< Second tangential component of velocity.
+   real(R8P), intent(in)  :: p             !< Pressure.
+   real(R8P), intent(in)  :: g             !< Specific heats ratio.
+   real(R8P), intent(out) :: fp_rho        !< Positive flux of rho.
+   real(R8P), intent(out) :: fp_rho_u      !< Positive Flux of rho*u.
+   real(R8P), intent(out) :: fp_rho_v      !< Positive Flux of rho*v.
+   real(R8P), intent(out) :: fp_rho_w      !< Positive Flux of rho*w.
+   real(R8P), intent(out) :: fp_rho_E      !< Positive Flux of rho*E.
+   real(R8P), intent(out) :: fm_rho        !< Negative flux of rho.
+   real(R8P), intent(out) :: fm_rho_u      !< Negative Flux of rho*u.
+   real(R8P), intent(out) :: fm_rho_v      !< Negative Flux of rho*v.
+   real(R8P), intent(out) :: fm_rho_w      !< Negative Flux of rho*w.
+   real(R8P), intent(out) :: fm_rho_E      !< Negative Flux of rho*E.
+   real(R8P)              :: c2, c, Hh     !< Dummy.
+   real(R8P)              :: alfa_lam      !< Dummy.
+
+   c2 = a2(p=p, r=r, g=g)
+   c  = sqrt(c2)
+   Hh = Hv2(p=p, r=r, u2=(u**2+v**2+w**2), g=g)
+
+   if (u+c < 0._R8P) then
+      fm_rho   = r*u
+      fm_rho_u = fm_rho*u + p
+      fm_rho_v = fm_rho*v
+      fm_rho_w = fm_rho*w
+      fm_rho_E = fm_rho*Hh
+      fp_rho   = 0._R8P
+      fp_rho_u = 0._R8P
+      fp_rho_v = 0._R8P
+      fp_rho_w = 0._R8P
+      fp_rho_E = 0._R8P
+   else if (u-c > 0d0) then
+      fp_rho   = r*u
+      fp_rho_u = fp_rho*u + p
+      fp_rho_v = fp_rho*v
+      fp_rho_w = fp_rho*w
+      fp_rho_E = fp_rho*Hh
+      fm_rho   = 0._R8P
+      fm_rho_u = 0._R8P
+      fm_rho_v = 0._R8P
+      fm_rho_w = 0._R8P
+      fm_rho_E = 0._R8P
+   else
+      alfa_lam = 0.5_R8P*r/g
+      if (u > 0._R8P) then
+         alfa_lam = alfa_lam*(u-c)
+
+         fm_rho   = alfa_lam
+         fm_rho_u = alfa_lam*(u-c)
+         fm_rho_v = alfa_lam*v
+         fm_rho_w = alfa_lam*w
+         fm_rho_E = alfa_lam*(Hh + c*u)
+
+         fp_rho    = r*u
+         fp_rho_u  = fp_rho*u + p
+         fp_rho_v  = fp_rho*v
+         fp_rho_w  = fp_rho*w
+         fp_rho_E  = fp_rho*Hh
+
+         fp_rho    = fp_rho   - fm_rho
+         fp_rho_u  = fp_rho_u - fm_rho_u
+         fp_rho_v  = fp_rho_v - fm_rho_v
+         fp_rho_w  = fp_rho_w - fm_rho_w
+         fp_rho_E  = fp_rho_E - fm_rho_E
+      else
+         alfa_lam = alfa_lam*(u+c)
+
+         fp_rho   = alfa_lam
+         fp_rho_u = alfa_lam*(u+c)
+         fp_rho_v = alfa_lam*v
+         fp_rho_w = alfa_lam*w
+         fp_rho_E = alfa_lam*(Hh - c*u)
+
+         fm_rho    = r*u
+         fm_rho_u  = fm_rho*u + p
+         fm_rho_v  = fm_rho*v
+         fm_rho_w  = fm_rho*w
+         fm_rho_E  = fm_rho*Hh
+
+         fm_rho    = fm_rho   - fp_rho
+         fm_rho_u  = fm_rho_u - fp_rho_u
+         fm_rho_v  = fm_rho_v - fp_rho_v
+         fm_rho_w  = fm_rho_w - fp_rho_w
+         fm_rho_E  = fm_rho_E - fp_rho_E
+      endif
+   endif
+
+   ! ec = efix*c - min(abs(un+c),abs(un-c))
+   ! if (ec > 0d0) then
+   !    c = c + ec
+   !    ec = 0.5d0*ec
+   !    ecq = ec*q(1:nns)
+   !    fp  = fp + ecq
+   !    fm  = fm - ecq
+   ! endif
+   endsubroutine fluxes_pm
+
+   attributes(device) function minmod(x,y) result(res)
+   real(R8P), intent(in), value :: x,y
+   real(R8P)                    :: res
+
+   res = sign(min(abs(x),abs(y)),x)   ! classico
+   if ((x*y)<=0._R8P) res = 0._R8P
+   endfunction minmod
 endmodule adam_equation_euler_gpu_object
