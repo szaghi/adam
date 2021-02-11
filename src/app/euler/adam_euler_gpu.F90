@@ -23,8 +23,8 @@ real(R8P)                       :: timing(1:2)       !< Tic toc timing.
 print '(A)', 'Euler equation integration'
 call adam%initialize(max_level=7,                                              &
                      emin=[0._R8P,0._R8P,0._R8P], emax=[1._R8P,1._R8P,1._R8P], &
-                     ni=16_I4P, nj=16_I4P, nk=16_I4P, ngc=2_I4P,               &
-                     ! ni=100_I4P, nj=2_I4P, nk=2_I4P, ngc=2_I4P,                &
+                     ! ni=16_I4P, nj=16_I4P, nk=16_I4P, ngc=2_I4P,               &
+                     ni=100_I4P, nj=2_I4P, nk=2_I4P, ngc=3_I4P,                &
                      ! ni=2_I4P, nj=100_I4P, nk=2_I4P, ngc=2_I4P,                &
                      ! ni=2_I4P, nj=2_I4P, nk=100_I4P, ngc=2_I4P,                &
                      bc_type=[BC_EXTRAPOLATION,BC_EXTRAPOLATION,               &
@@ -32,23 +32,23 @@ call adam%initialize(max_level=7,                                              &
                               BC_EXTRAPOLATION,BC_EXTRAPOLATION],              &
                      nb=1500, nv=5, nodes_number=50000_I8P)
 
-call euler%initialize(field=adam%field, ns=1, CFL=0.3_R8P, nrk=3,       &
-                      null_xyz=[.false.,.false.,.false.], weno_s=2_I4P, &
+call euler%initialize(field=adam%field, ns=1, CFL=0.3_R8P, nrk=3,            &
+                      null_xyz=[.false.,.true.,.true.], weno_stencils=3_I4P, &
                       fields_gpu_number=10)
 
-print '(A)', 'create 3 levels of refinement'
-do l=1, 3
-   call adam%tree%mark_all_nodes(mark=TO_BE_REFINED)
-   call adam%amr_update(do_blocks_reorder=.false., do_mpi_redistribute=.true.)
-   print '(A)', 'refine ADAM at level '//trim(str(l))
-   print *, 'blocks_number: ',adam%tree%nodes_number
-enddo
+! print '(A)', 'create 3 levels of refinement'
+! do l=1, 3
+!    call adam%tree%mark_all_nodes(mark=TO_BE_REFINED)
+!    call adam%amr_update(do_blocks_reorder=.false., do_mpi_redistribute=.true.)
+!    print '(A)', 'refine ADAM at level '//trim(str(l))
+!    print *, 'blocks_number: ',adam%tree%nodes_number
+! enddo
 print '(A)', 'set initial conditions'
-call euler%set_initial_conditions(ic_type='kt-02')
+call euler%set_initial_conditions(ic_type='sod-x')
 
 call euler%copy_cpu_gpu
 call euler%copy_gpu_cpu(compute_q_aux=.true.)
-call adam%save_hdf5(basename='euler-kt-02-'//trim(strz(0,9)),         &
+call adam%save_hdf5(basename='euler-sod-x-'//trim(strz(0,9)),         &
                     q=euler%field%q,                                  &
                     q_aux=euler%q_aux,                                &
                     q_name=['rho  ','rho-u','rho-v','rho-w','rho-E'], &
@@ -92,7 +92,7 @@ integration: do
    call euler%integrate(t=time)
    if (mod(t,n_save)==0) then
       call euler%copy_gpu_cpu(compute_q_aux=.true.)
-      call adam%save_hdf5(basename='euler-kt-02-'//trim(strz(t,9)),         &
+      call adam%save_hdf5(basename='euler-sod-x-'//trim(strz(t,9)),         &
                           q=euler%field%q,                                  &
                           q_aux=euler%q_aux,                                &
                           q_name=['rho  ','rho-u','rho-v','rho-w','rho-E'], &

@@ -6,6 +6,7 @@ use adam_base_gpu_object
 use adam_field_object
 use adam_grid_object
 use adam_parameters
+use adam_weno_library_gpu
 use FiNeR
 use PENF
 use MPI
@@ -83,32 +84,23 @@ type :: equation_euler_gpu_object
    real(R8P), allocatable :: alph(:,:) !< RK alpha coefficients.
    real(R8P), allocatable :: beta(:)   !< RK beta coefficients.
    real(R8P), allocatable :: gamm(:)   !< RK gamma coefficients.
-   ! WENO data
-   integer(I4P)           :: weno_s=1_I4P    !< Stencil number.
-   real(R8P), allocatable :: weno_c(:,:)     !< Central difference coefficients    [1:2,1:2*S].
-   real(R8P), allocatable :: weno_a(:,:)     !< Optimal weights                    [1:2,0:S-1].
-   real(R8P), allocatable :: weno_p(:,:,:)   !< Polinomials coefficients           [1:2,0:S-1,0:S-1].
-   real(R8P), allocatable :: weno_d(:,:,:)   !< Smoothness indicators coefficients [0:S-1,0:S-1,0:S-1].
-   real(R8P)              :: weno_eps=0._R8P !< Parameter for avoiding divided by zero when computing smoothness indicators.
-   integer(I4P)           :: weno_odd=1_I4P  !< Constant for distinguishing between odd and even number of stencils (mod(S,2)).
-   integer(I4P)           :: weno_exp=0_I4P  !< Exponent for growing the diffusive part of weights.
    ! cuf data
-   real(R8P), allocatable, device :: cp0_gpu(:)           !< Specific heat at constant pressure of initial species.
-   real(R8P), allocatable, device :: cv0_gpu(:)           !< Specific heat at constant pressure of initial species.
-   real(R8P), allocatable, device :: fp_gpu(:,:,:,:,:)    !< Positive fluxes.
-   real(R8P), allocatable, device :: fm_gpu(:,:,:,:,:)    !< Negative fluxes.
-   real(R8P), allocatable, device :: f_gpu(:,:,:,:,:)     !< Convective fluxes.
-   real(R8P), allocatable, device :: dxyz_gpu(:,:)        !< Space steps.
-   real(R8P), allocatable, device :: alph_gpu(:,:)        !< RK alpha coefficients.
-   real(R8P), allocatable, device :: beta_gpu(:)          !< RK beta coefficients.
-   real(R8P), allocatable, device :: gamm_gpu(:)          !< RK gamma coefficients.
-   real(R8P), allocatable, device :: q_aux_gpu(:,:,:,:,:) !< Auxiliary cell centered variables.
-   real(R8P), allocatable, device :: q_gpu(:,:,:,:,:)     !< Field cell centered variables stages.
-   real(R8P), allocatable, device :: q_s_gpu(:,:,:,:,:,:) !< RK Field cell centered variables stages.
-   real(R8P), allocatable, device :: weno_c_gpu(:,:)      !< Central difference coefficients    [1:2,1:2*S].
-   real(R8P), allocatable, device :: weno_a_gpu(:,:)      !< Optimal weights                    [1:2,0:S-1].
-   real(R8P), allocatable, device :: weno_p_gpu(:,:,:)    !< Polinomials coefficients           [1:2,0:S-1,0:S-1].
-   real(R8P), allocatable, device :: weno_d_gpu(:,:,:)    !< Smoothness indicators coefficients [0:S-1,0:S-1,0:S-1].
+   integer(I4P), allocatable, device :: weno_stencils_gpu    !< WENO stencils number/dimension.
+   real(R8P),    allocatable, device :: cp0_gpu(:)           !< Specific heat at constant pressure of initial species.
+   real(R8P),    allocatable, device :: cv0_gpu(:)           !< Specific heat at constant pressure of initial species.
+   real(R8P),    allocatable, device :: fp_gpu(:,:,:,:,:)    !< Positive fluxes.
+   real(R8P),    allocatable, device :: fm_gpu(:,:,:,:,:)    !< Negative fluxes.
+   real(R8P),    allocatable, device :: f_i_gpu(:,:,:,:,:)   !< Fluxes for i direction.
+   real(R8P),    allocatable, device :: f_j_gpu(:,:,:,:,:)   !< Fluxes for i direction.
+   real(R8P),    allocatable, device :: f_k_gpu(:,:,:,:,:)   !< Fluxes for i direction.
+   real(R8P),    allocatable, device :: f_gpu(:,:,:,:,:)     !< Convective fluxes.
+   real(R8P),    allocatable, device :: dxyz_gpu(:,:)        !< Space steps.
+   real(R8P),    allocatable, device :: alph_gpu(:,:)        !< RK alpha coefficients.
+   real(R8P),    allocatable, device :: beta_gpu(:)          !< RK beta coefficients.
+   real(R8P),    allocatable, device :: gamm_gpu(:)          !< RK gamma coefficients.
+   real(R8P),    allocatable, device :: q_aux_gpu(:,:,:,:,:) !< Auxiliary cell centered variables.
+   real(R8P),    allocatable, device :: q_gpu(:,:,:,:,:)     !< Field cell centered variables stages.
+   real(R8P),    allocatable, device :: q_s_gpu(:,:,:,:,:,:) !< RK Field cell centered variables stages.
    contains
       ! public methods
       procedure, pass(self) :: compute_aux             !< Compute auxiliary variables.
@@ -125,8 +117,6 @@ type :: equation_euler_gpu_object
       ! operators
       generic :: assignment(=) => eq_assign_eq      !< Overload `=`.
       procedure, pass(lhs), private :: eq_assign_eq !< Operator `=`.
-      ! private methods
-      procedure, pass(self) :: weno_initialize !< Initialize WENO data.
 endtype equation_euler_gpu_object
 
 contains
@@ -210,7 +200,7 @@ contains
    self = fresh
    endsubroutine destroy
 
-   subroutine initialize(self, field, ns, nrk, cp0, cv0, CFL, null_xyz, weno_s, fields_gpu_number)
+   subroutine initialize(self, field, ns, nrk, cp0, cv0, CFL, null_xyz, weno_stencils, fields_gpu_number)
    !< Initialize the equation.
    class(equation_euler_gpu_object), intent(inout)        :: self              !< The equation.
    type(field_object),               intent(in), target   :: field             !< The field.
@@ -220,7 +210,7 @@ contains
    real(R8P),                        intent(in), optional :: cv0(:)            !< Initial specific heats at constant volume.
    real(R8P),                        intent(in), optional :: CFL               !< CFL value.
    logical,                          intent(in), optional :: null_xyz(3)       !< Flag triggering 1D/2D simulations.
-   integer(I4P),                     intent(in), optional :: weno_s            !< Number of WENO stencils.
+   integer(I4P),                     intent(in), optional :: weno_stencils     !< Number of WENO stencils.
    integer(I4P),                     intent(in), optional :: fields_gpu_number !< Number of fields allocated on GPU.
    integer(I4P)                                           :: v                 !< Counter.
 
@@ -258,8 +248,12 @@ contains
                        1-self%ngc:self%ni+self%ngc, &
                        1-self%ngc:self%nj+self%ngc, &
                        1-self%ngc:self%nk+self%ngc, 1:field%nb))
-   if (present(weno_s)) self%weno_s = weno_s
-   call self%weno_initialize
+   if (present(weno_stencils)) then
+      self%weno_stencils_gpu = weno_stencils
+   else
+      self%weno_stencils_gpu = 1
+   endif
+   call weno_initialize(weno_stencils=self%weno_stencils_gpu)
    allocate(self%alph(self%nrk,self%nrk), self%beta(self%nrk), self%gamm(self%nrk))
    select case(self%nrk)
    case(1_I4P)
@@ -288,10 +282,22 @@ contains
                         1-self%ngc:self%ni+self%ngc, &
                         1-self%ngc:self%nj+self%ngc, &
                         1-self%ngc:self%nk+self%ngc, 1:field%nv))
-   allocate(self%f_gpu(1:field%nb,                  &
-                       0-self%ngc:self%ni+self%ngc, &
-                       0-self%ngc:self%nj+self%ngc, &
-                       0-self%ngc:self%nk+self%ngc, 1:field%nv))
+   allocate(self%f_i_gpu(1-self%ngc:self%ni+self%ngc, &
+                         1:field%nb,                  &
+                         1-self%ngc:self%nj+self%ngc, &
+                         1-self%ngc:self%nk+self%ngc, 1:field%nv))
+   allocate(self%f_j_gpu(1-self%ngc:self%nj+self%ngc, &
+                         1:field%nb,                  &
+                         1-self%ngc:self%ni+self%ngc, &
+                         1-self%ngc:self%nk+self%ngc, 1:field%nv))
+   allocate(self%f_k_gpu(1-self%ngc:self%nk+self%ngc, &
+                         1:field%nb,                  &
+                         1-self%ngc:self%ni+self%ngc, &
+                         1-self%ngc:self%nj+self%ngc, 1:field%nv))
+   allocate(self%f_gpu(1:field%nb,&
+                       0:self%ni, &
+                       0:self%nj, &
+                       0:self%nk, 1:field%nv))
    allocate(self%dxyz_gpu(1:field%nb, 1:3))
    allocate(self%q_aux_gpu(1:field%nb,                  &
                            1-self%ngc:self%ni+self%ngc, &
@@ -306,15 +312,11 @@ contains
                          1-self%ngc:self%nj+self%ngc, &
                          1-self%ngc:self%nk+self%ngc, 1:field%nv, 1:self%nrk))
    ! copy data that is not variable during the simulation
-   self%cp0_gpu    = self%cp0
-   self%cv0_gpu    = self%cv0
-   self%alph_gpu   = self%alph
-   self%beta_gpu   = self%beta
-   self%gamm_gpu   = self%gamm
-   self%weno_c_gpu = self%weno_c
-   self%weno_a_gpu = self%weno_a
-   self%weno_p_gpu = self%weno_p
-   self%weno_d_gpu = self%weno_d
+   self%cp0_gpu  = self%cp0
+   self%cv0_gpu  = self%cv0
+   self%alph_gpu = self%alph
+   self%beta_gpu = self%beta
+   self%gamm_gpu = self%gamm
    endsubroutine initialize
 
    subroutine mark_by_grad_rho(self, grad_tol, delta_fine, delta_coarse, threshold)
@@ -417,16 +419,20 @@ contains
       if (do_ghost_syncro_) then
          call self%update_ghost_gpu(q_gpu=self%q_s_gpu(:,:,:,:,:,s)) ! all ghosts
          call self%compute_aux(q_gpu=self%q_s_gpu(:,:,:,:,:,s), q_aux_gpu=self%q_aux_gpu)
-         call compute_residuals_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, ns=ns,          &
+         call compute_residuals_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, ns=ns, blocks_number=blocks_number,          &
                                         null_x=self%null_xyz(1), null_y=self%null_xyz(2), null_z=self%null_xyz(3), &
-                                        dx_gpu    = self%dxyz_gpu(:,1),                                          &
-                                        dy_gpu    = self%dxyz_gpu(:,2),                                          &
-                                        dz_gpu    = self%dxyz_gpu(:,3),                                          &
-                                        q_aux_gpu = self%q_aux_gpu,                                              &
-                                        fp_gpu    = self%fp_gpu,                                                 &
-                                        fm_gpu    = self%fm_gpu,                                                 &
-                                        f_gpu     = self%f_gpu,                                                  &
-                                        q_gpu     = self%q_s_gpu(:,:,:,:,:,s))
+                                        dx_gpu            = self%dxyz_gpu(:,1),                                    &
+                                        dy_gpu            = self%dxyz_gpu(:,2),                                    &
+                                        dz_gpu            = self%dxyz_gpu(:,3),                                    &
+                                        q_aux_gpu         = self%q_aux_gpu,                                        &
+                                        weno_stencils_gpu = self%weno_stencils_gpu,                                &
+                                        fp_gpu            = self%fp_gpu,                                           &
+                                        fm_gpu            = self%fm_gpu,                                           &
+                                        f_i_gpu           = self%f_i_gpu,                                          &
+                                        f_j_gpu           = self%f_j_gpu,                                          &
+                                        f_k_gpu           = self%f_k_gpu,                                          &
+                                        f_gpu             = self%f_gpu,                                            &
+                                        q_gpu             = self%q_s_gpu(:,:,:,:,:,s))
       else
          ! TODO
       endif
@@ -652,20 +658,12 @@ contains
    lhs%CFL = rhs%CFL
    lhs%null_xyz = rhs%null_xyz
    lhs%nrk = rhs%nrk
-   lhs%weno_s = rhs%weno_s
-   lhs%weno_eps = rhs%weno_eps
-   lhs%weno_odd = rhs%weno_odd
-   lhs%weno_exp = rhs%weno_exp
    call assign_allocatable(lhs=lhs%q_aux, rhs=rhs%q_aux )
    call assign_allocatable(lhs=lhs%cp0 ,  rhs=rhs%cp0   )
    call assign_allocatable(lhs=lhs%cv0 ,  rhs=rhs%cv0   )
    call assign_allocatable(lhs=lhs%alph,  rhs=rhs%alph  )
    call assign_allocatable(lhs=lhs%beta,  rhs=rhs%beta  )
    call assign_allocatable(lhs=lhs%gamm,  rhs=rhs%gamm  )
-   call assign_allocatable(lhs=lhs%weno_c,rhs=rhs%weno_c)
-   call assign_allocatable(lhs=lhs%weno_a,rhs=rhs%weno_a)
-   call assign_allocatable(lhs=lhs%weno_p,rhs=rhs%weno_p)
-   call assign_allocatable(lhs=lhs%weno_d,rhs=rhs%weno_d)
    call assign_allocatable_gpu(lhs=lhs%cp0_gpu,    rhs=rhs%cp0_gpu    )
    call assign_allocatable_gpu(lhs=lhs%cv0_gpu,    rhs=rhs%cv0_gpu    )
    call assign_allocatable_gpu(lhs=lhs%f_gpu,      rhs=rhs%f_gpu      )
@@ -678,139 +676,7 @@ contains
    call assign_allocatable_gpu(lhs=lhs%q_aux_gpu,  rhs=rhs%q_aux_gpu  )
    call assign_allocatable_gpu(lhs=lhs%q_gpu,      rhs=rhs%q_gpu      )
    call assign_allocatable_gpu(lhs=lhs%q_s_gpu,    rhs=rhs%q_s_gpu    )
-   call assign_allocatable_gpu(lhs=lhs%weno_c_gpu, rhs=rhs%weno_c_gpu )
-   call assign_allocatable_gpu(lhs=lhs%weno_a_gpu, rhs=rhs%weno_a_gpu )
-   call assign_allocatable_gpu(lhs=lhs%weno_p_gpu, rhs=rhs%weno_p_gpu )
-   call assign_allocatable_gpu(lhs=lhs%weno_d_gpu, rhs=rhs%weno_d_gpu )
    endsubroutine eq_assign_eq
-
-   ! private methods
-   subroutine weno_initialize(self)
-   !< Initialize WENO data.
-   class(equation_euler_gpu_object), intent(inout) :: self !< The equation.
-
-   if (self%weno_s==1) return
-   ! initialize weno_exp
-   self%weno_exp = self%weno_s
-   if (self%weno_s>4) self%weno_exp = self%weno_s - 1
-   ! computing weno_odd
-   self%weno_odd = mod(self%weno_s,2)
-   self%weno_eps = 0.00000000001_R8P
-   ! allocating variables
-   if (allocated(self%weno_c)) deallocate(self%weno_c) ; allocate(self%weno_c(1:2,1:2*self%weno_s))
-   if (allocated(self%weno_a)) deallocate(self%weno_a) ; allocate(self%weno_a(1:2,0:self%weno_s-1))
-   if (allocated(self%weno_p)) deallocate(self%weno_p) ; allocate(self%weno_p(1:2,0:self%weno_s-1,0:self%weno_s-1))
-   if (allocated(self%weno_d)) deallocate(self%weno_d) ; allocate(self%weno_d(0:self%weno_s-1,0:self%weno_s-1,0:self%weno_s-1))
-   associate(s=>self%weno_s, weno_exp=>self%weno_exp, weno_odd=>self%weno_odd, weno_eps=>self%weno_eps, &
-             weno_c=>self%weno_c, weno_a=>self%weno_a, weno_p=>self%weno_p, weno_d=>self%weno_d)
-   ! inizializing the coefficients
-   select case(s)
-   case(2) ! 3rd order WENO reconstruction
-     ! central difference coefficients
-     ! 1 => left interface (i-1/2)
-     weno_c(1,1) = -1._R8P/12._R8P ! cell -2
-     weno_c(1,2) =  7._R8P/12._R8P ! cell -1
-     weno_c(1,3) =  7._R8P/12._R8P ! cell  0
-     weno_c(1,4) = -1._R8P/12._R8P ! cell  1
-     ! 2 => right interface (i+1/2)
-     weno_c(2,1) = -1._R8P/12._R8P ! cell -1
-     weno_c(2,2) =  7._R8P/12._R8P ! cell  0
-     weno_c(2,3) =  7._R8P/12._R8P ! cell  1
-     weno_c(2,4) = -1._R8P/12._R8P ! cell  2
-
-     ! optimal weights
-     ! 1 => left interface (i-1/2)
-     weno_a(1,0) = 2._R8P/3._R8P ! stencil 0
-     weno_a(1,1) = 1._R8P/3._R8P ! stencil 1
-     ! 2 => right interface (i+1/2)
-     weno_a(2,0) = 1._R8P/3._R8P ! stencil 0
-     weno_a(2,1) = 2._R8P/3._R8P ! stencil 1
-
-     ! polinomials coefficients
-     ! 1 => left interface (i-1/2)
-     !  cell  0               ;    cell  1
-     weno_p(1,0,0) =  0.5_R8P ; weno_p(1,1,0) =  0.5_R8P ! stencil 0
-     weno_p(1,0,1) = -0.5_R8P ; weno_p(1,1,1) =  1.5_R8P ! stencil 1
-     ! 2 => right interface (i+1/2)
-     !  cell  0               ;    cell  1
-     weno_p(2,0,0) =  1.5_R8P ; weno_p(2,1,0) = -0.5_R8P ! stencil 0
-     weno_p(2,0,1) =  0.5_R8P ; weno_p(2,1,1) =  0.5_R8P ! stencil 1
-
-     ! smoothness indicators coefficients
-     ! stencil 0
-     !      i*i             ;       (i-1)*i
-     weno_d(0,0,0) = 1._R8P ; weno_d(1,0,0) =-2._R8P
-     !      /               ;       (i-1)*(i-1)
-     weno_d(0,1,0) = 0._R8P ; weno_d(1,1,0) = 1._R8P
-     ! stencil 1
-     !     (i+1)*(i+1)      ;       (i+1)*i
-     weno_d(0,0,1) = 1._R8P ; weno_d(1,0,1) =-2._R8P
-     !      /               ;        i*i
-     weno_d(0,1,1) = 0._R8P ; weno_d(1,1,1) = 1._R8P
-   case(3) ! 5th order WENO reconstruction
-     ! central difference coefficients
-     ! 1 => left interface (i-1/2)
-     weno_c(1,1) =  1._R8P/60._R8P ! cell -3
-     weno_c(1,2) = -7.5_R8P        ! cell -2
-     weno_c(1,3) = 37._R8P/60._R8P ! cell -1
-     weno_c(1,4) = 37._R8P/60._R8P ! cell  0
-     weno_c(1,5) = -7.5_R8P        ! cell  1
-     weno_c(1,6) =  1._R8P/60._R8P ! cell  2
-     ! 2 => right interface (i+1/2)
-     weno_c(1,1) =  1._R8P/60._R8P ! cell -2
-     weno_c(1,2) = -7.5_R8P        ! cell -1
-     weno_c(1,3) = 37._R8P/60._R8P ! cell  0
-     weno_c(1,4) = 37._R8P/60._R8P ! cell  1
-     weno_c(1,5) = -7.5_R8P        ! cell  2
-     weno_c(1,6) =  1._R8P/60._R8P ! cell  3
-
-     ! optimal weights
-     ! 1 => left interface (i-1/2)
-     weno_a(1,0) = 0.3_R8P ! stencil 0
-     weno_a(1,1) = 0.6_R8P ! stencil 1
-     weno_a(1,2) = 0.1_R8P ! stencil 2
-     ! 2 => right interface (i+1/2)
-     weno_a(2,0) = 0.1_R8P ! stencil 0
-     weno_a(2,1) = 0.6_R8P ! stencil 1
-     weno_a(2,2) = 0.3_R8P ! stencil 2
-
-     ! polinomials coefficients
-     ! 1 => left interface (i-1/2)
-     !  cell  0                     ;    cell  1                     ;    cell  2
-     weno_p(1,0,0) =  1._R8P/3._R8P ; weno_p(1,1,0) =  5._R8P/6._R8P ; weno_p(1,2,0) = -1._R8P/6._R8P ! stencil 0
-     weno_p(1,0,1) = -1._R8P/6._R8P ; weno_p(1,1,1) =  5._R8P/6._R8P ; weno_p(1,2,1) =  1._R8P/3._R8P ! stencil 1
-     weno_p(1,0,2) =  1._R8P/3._R8P ; weno_p(1,1,2) = -7._R8P/6._R8P ; weno_p(1,2,2) = 11._R8P/6._R8P ! stencil 2
-     ! 2 => right interface (i+1/2)
-     !  cell  0                     ;    cell  1                     ;    cell  2
-     weno_p(2,0,0) = 11._R8P/6._R8P ; weno_p(2,1,0) = -7._R8P/6._R8P ; weno_p(2,2,0) =  1._R8P/3._R8P ! stencil 0
-     weno_p(2,0,1) =  1._R8P/3._R8P ; weno_p(2,1,1) =  5._R8P/6._R8P ; weno_p(2,2,1) = -1._R8P/6._R8P ! stencil 1
-     weno_p(2,0,2) = -1._R8P/6._R8P ; weno_p(2,1,2) =  5._R8P/6._R8P ; weno_p(2,2,2) =  1._R8P/3._R8P ! stencil 2
-
-     ! smoothness indicators coefficients
-     ! stencil 0
-     !      i*i                      ;       (i-1)*i                   ;       (i-2)*i
-     weno_d(0,0,0) =  10._R8P/3._R8P ; weno_d(1,0,0) = -31._R8P/3._R8P ; weno_d(2,0,0) =  11._R8P/3._R8P
-     !      /                        ;       (i-1)*(i-1)               ;       (i-2)*(i-1)
-     weno_d(0,1,0) =   0._R8P        ; weno_d(1,1,0) =  25._R8P/3._R8P ; weno_d(2,1,0) = -19._R8P/3._R8P
-     !      /                        ;        /                        ;       (i-2)*(i-2)
-     weno_d(0,2,0) =   0._R8P        ; weno_d(1,2,0) =   0._R8P        ; weno_d(2,2,0) =   4._R8P/3._R8P
-     ! stencil 1
-     !     (i+1)*(i+1)               ;        i*(i+1)                  ;       (i-1)*(i+1)
-     weno_d(0,0,1) =   4._R8P/3._R8P ; weno_d(1,0,1) = -13._R8P/3._R8P ; weno_d(2,0,1) =   5._R8P/3._R8P
-     !      /                        ;        i*i                      ;       (i-1)*i
-     weno_d(0,1,1) =   0._R8P        ; weno_d(1,1,1) =  13._R8P/3._R8P ; weno_d(2,1,1) = -13._R8P/3._R8P
-     !      /                        ;        /                        ;       (i-1)*(i-1)
-     weno_d(0,2,1) =   0._R8P        ; weno_d(1,2,1) =   0._R8P        ; weno_d(2,2,1) =   4._R8P/3._R8P
-     ! stencil 2
-     !     (i+2)*(i+2)               ;       (i+1)*(i+2)               ;        i*(i+2)
-     weno_d(0,0,2) =   4._R8P/3._R8P ; weno_d(1,0,2) = -19._R8P/3._R8P ; weno_d(2,0,2) =  11._R8P/3._R8P
-     !      /                        ;       (i+1)*(i+1)               ;        i*(i+1)
-     weno_d(0,1,2) =   0._R8P        ; weno_d(1,1,2) =  25._R8P/3._R8P ; weno_d(2,1,2) = -31._R8P/3._R8P
-     !      /                        ;        /                        ;        i*i
-     weno_d(0,2,2) =   0._R8P        ; weno_d(1,2,2) =   0._R8P        ; weno_d(2,2,2) =  10._R8P/3._R8P
-   endselect
-   endassociate
-   endsubroutine weno_initialize
 
    ! non TBP cuf methods
    subroutine advance_q_gpu_cuf(ni, nj, nk, ngc, nv, nrk, blocks_number, beta_gpu, dt, q_s_gpu, q_gpu)
@@ -896,29 +762,35 @@ contains
    !@cuf iercuda=cudaDeviceSynchronize()
    endsubroutine compute_aux_cuf
 
-   subroutine compute_residuals_gpu_cuf(ni, nj, nk, ngc, ns, null_x, null_y, null_z, blocks_number, &
-                                        dx_gpu, dy_gpu, dz_gpu, q_aux_gpu, fp_gpu, fm_gpu, f_gpu, q_gpu)
+   subroutine compute_residuals_gpu_cuf(ni, nj, nk, ngc, ns, blocks_number, null_x, null_y, null_z, &
+                                        dx_gpu, dy_gpu, dz_gpu, q_aux_gpu, weno_stencils_gpu,       &
+                                        fp_gpu, fm_gpu, f_i_gpu, f_j_gpu, f_k_gpu, f_gpu, q_gpu)
    !< Compute residuals of equation.
    integer(I4P), intent(in)            :: ni                                    !< Grid cells number in I direction.
    integer(I4P), intent(in)            :: nj                                    !< Grid cells number in J direction.
    integer(I4P), intent(in)            :: nk                                    !< Grid cells number in K direction.
    integer(I4P), intent(in)            :: ngc                                   !< Ghost cells number.
    integer(I4P), intent(in)            :: ns                                    !< Number of species.
+   integer(I4P), intent(in)            :: blocks_number                         !< Number of blocks.
    logical,      intent(in)            :: null_x                                !< Nullify x direction.
    logical,      intent(in)            :: null_y                                !< Nullify y direction.
    logical,      intent(in)            :: null_z                                !< Nullify z direction.
-   integer(I4P), intent(in)            :: blocks_number                         !< Number of blocks.
    real(R8P),    intent(in),    device :: dx_gpu(1:)                            !< X space steps.
    real(R8P),    intent(in),    device :: dy_gpu(1:)                            !< Y space steps.
    real(R8P),    intent(in),    device :: dz_gpu(1:)                            !< Z space steps.
    real(R8P),    intent(in),    device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   integer(I4P), intent(in),    device :: weno_stencils_gpu                     !< WENO stencils number/dimension.
    real(R8P),    intent(inout), device ::    fp_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Positive fluxes.
    real(R8P),    intent(inout), device ::    fm_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Negative fluxes.
+   real(R8P),    intent(inout), device ::  f_i_gpu(1-ngc:,1:,1-ngc:,1-ngc:,1:)  !< Fluxes for i direction.
+   real(R8P),    intent(inout), device ::  f_j_gpu(1-ngc:,1:,1-ngc:,1-ngc:,1:)  !< Fluxes for i direction.
+   real(R8P),    intent(inout), device ::  f_k_gpu(1-ngc:,1:,1-ngc:,1-ngc:,1:)  !< Fluxes for i direction.
    real(R8P),    intent(inout), device ::  f_gpu(1:,0:,0:,0:,1:)                !< Convective fluxes.
    real(R8P),    intent(inout), device :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Conservative variables.
    integer(I4P)                        :: b, i, j, k, v                         !< Counter.
    integer(I4P)                        :: iercuda                               !< Error trapping flag for CUDAFortran.
 
+   associate(s=>weno_stencils_gpu)
    ! initialize residuals
    !$cuf kernel do(5) <<<*,*>>>
    do v=1, ns+4
@@ -962,20 +834,38 @@ contains
          enddo
       enddo
       !@cuf iercuda=cudaDeviceSynchronize()
+
       !$cuf kernel do(5) <<<*,*>>>
       do v=1, ns+4
          do k=1, nk
             do j=1, nj
-               do i=0,ni
+               do i=1-ngc, ni+ngc
                   do b=1, blocks_number
-                     f_gpu(b,i,j,k,v) = fp_gpu(b,i,j,k,v) + 0.5 * minmod(fp_gpu(b,i  ,j,k,v) - fp_gpu(b,i-1,j,k,v),&
-                                                                         fp_gpu(b,i+1,j,k,v) - fp_gpu(b,i  ,j,k,v))
+                     f_i_gpu(i,b,j,k,v) = fp_gpu(b,i,j,k,v)
                   enddo
                enddo
             enddo
          enddo
       enddo
       !@cuf iercuda=cudaDeviceSynchronize()
+
+      !$cuf kernel do(4) <<<*,*>>>
+      do v=1, ns+4
+         do k=1, nk
+            do j=1, nj
+               do b=1, blocks_number
+                  do i=0,ni
+                     call reconstruct_weno(side=weno_l_side,               &
+                                           s=s,                            &
+                                           q=f_i_gpu(i+1-s:i-1+s,b,j,k,v), &
+                                           qr=f_gpu(b,i,j,k,v))
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
+
       !$cuf kernel do(5) <<<*,*>>>
       do v=1, ns+4
          do k=1, nk
@@ -989,20 +879,38 @@ contains
          enddo
       enddo
       !@cuf iercuda=cudaDeviceSynchronize()
+
       !$cuf kernel do(5) <<<*,*>>>
       do v=1, ns+4
          do k=1, nk
             do j=1, nj
-               do i=0,ni
+               do i=1-ngc, ni+ngc
                   do b=1, blocks_number
-                     f_gpu(b,i,j,k,v) = fm_gpu(b,i+1,j,k,v) - 0.5 * minmod(fm_gpu(b,i+1,j,k,v) - fm_gpu(b,i  ,j,k,v), &
-                                                                           fm_gpu(b,i+2,j,k,v) - fm_gpu(b,i+1,j,k,v))
+                     f_i_gpu(i,b,j,k,v) = fm_gpu(b,i,j,k,v)
                   enddo
                enddo
             enddo
          enddo
       enddo
       !@cuf iercuda=cudaDeviceSynchronize()
+
+      !$cuf kernel do(4) <<<*,*>>>
+      do v=1, ns+4
+         do k=1, nk
+            do j=1, nj
+               do b=1, blocks_number
+                  do i=0,ni
+                     call reconstruct_weno(side=weno_r_side,                   &
+                                           s=s,                                &
+                                           q=f_i_gpu(i+1-s+1:i-1+s+1,b,j,k,v), &
+                                           qr=f_gpu(b,i,j,k,v))
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
+
       !$cuf kernel do(5) <<<*,*>>>
       do v=1, ns+4
          do k=1, nk
@@ -1046,6 +954,7 @@ contains
          enddo
       enddo
       !@cuf iercuda=cudaDeviceSynchronize()
+
       !$cuf kernel do(5) <<<*,*>>>
       do v=1, ns+4
          do k=1, nk
@@ -1060,6 +969,7 @@ contains
          enddo
       enddo
       !@cuf iercuda=cudaDeviceSynchronize()
+
       !$cuf kernel do(5) <<<*,*>>>
       do v=1, ns+4
          do k=1, nk
@@ -1073,6 +983,7 @@ contains
          enddo
       enddo
       !@cuf iercuda=cudaDeviceSynchronize()
+
       !$cuf kernel do(5) <<<*,*>>>
       do v=1, ns+4
          do k=1, nk
@@ -1087,6 +998,7 @@ contains
          enddo
       enddo
       !@cuf iercuda=cudaDeviceSynchronize()
+
       !$cuf kernel do(5) <<<*,*>>>
       do v=1, ns+4
          do k=1, nk
@@ -1130,6 +1042,7 @@ contains
          enddo
       enddo
       !@cuf iercuda=cudaDeviceSynchronize()
+
       !$cuf kernel do(5) <<<*,*>>>
       do v=1, ns+4
          do k=0, nk
@@ -1144,6 +1057,7 @@ contains
          enddo
       enddo
       !@cuf iercuda=cudaDeviceSynchronize()
+
       !$cuf kernel do(5) <<<*,*>>>
       do v=1, ns+4
          do k=1, nk
@@ -1157,6 +1071,7 @@ contains
          enddo
       enddo
       !@cuf iercuda=cudaDeviceSynchronize()
+
       !$cuf kernel do(5) <<<*,*>>>
       do v=1, ns+4
          do k=0, nk
@@ -1171,6 +1086,7 @@ contains
          enddo
       enddo
       !@cuf iercuda=cudaDeviceSynchronize()
+
       !$cuf kernel do(5) <<<*,*>>>
       do v=1, ns+4
          do k=1, nk
@@ -1185,6 +1101,7 @@ contains
       enddo
       !@cuf iercuda=cudaDeviceSynchronize()
    endif
+   endassociate
    endsubroutine compute_residuals_gpu_cuf
 
    subroutine compute_rk_stage_gpu_cuf(ni, nj, nk, ngc, nv, blocks_number, alph_gpu, dt, s, q_gpu, q_s_gpu)
@@ -1267,6 +1184,314 @@ contains
    endsubroutine compute_umax_cuf
 
    ! non type-bound kernel procedures
+   attributes(device) subroutine reconstruct_left_weno5_sz(qm2, qm1, q00, qp1, qp2, ql)
+   !< Reconstruct left variable with WENO 5 scheme.
+   real(R8P), intent(in)  :: qm2, qm1, q00, qp1, qp2 !< Stencil values.
+   real(R8P), intent(out) :: ql                      !< Left reconstruct.
+   real(R8P)              :: weno_a(0:2)             !< Optimal weights.
+   real(R8P)              :: weno_p(0:2,0:2)         !< Polinomial coefficients.
+   real(R8P)              :: weno_d(0:2,0:2,0:2)     !< Smoothness indicator coefficients.
+   real(R8P)              :: V(-2:2)                 !< Variable to be reconstructed.
+   real(R8P)              :: VP(0:2)                 !< Polynomial reconstructions.
+   real(R8P)              :: IS(0:2)                 !< Smoothness indicators of the stencils.
+   real(R8P)              :: a(0:2)                  !< Alpha coefficients for the weights.
+   real(R8P)              :: a_tot                   !< Summ of the alpha coefficients.
+   real(R8P)              :: w(0:2)                  !< Weights of the stencils.
+   integer(I4P)           :: s1, s2, s3              !< Counters
+
+   weno_a(0) = 0.1_R8P ! stencil 0
+   weno_a(1) = 0.6_R8P ! stencil 1
+   weno_a(2) = 0.3_R8P ! stencil 2
+   !  cell  0                   ;    cell  1                   ;    cell  2
+   weno_p(0,0) = 11._R8P/6._R8P ; weno_p(1,0) = -7._R8P/6._R8P ; weno_p(2,0) =  1._R8P/3._R8P ! stencil 0
+   weno_p(0,1) =  1._R8P/3._R8P ; weno_p(1,1) =  5._R8P/6._R8P ; weno_p(2,1) = -1._R8P/6._R8P ! stencil 1
+   weno_p(0,2) = -1._R8P/6._R8P ; weno_p(1,2) =  5._R8P/6._R8P ; weno_p(2,2) =  1._R8P/3._R8P ! stencil 2
+   ! stencil 0
+   !      i*i                      ;       (i-1)*i                   ;       (i-2)*i
+   weno_d(0,0,0) =  10._R8P/3._R8P ; weno_d(1,0,0) = -31._R8P/3._R8P ; weno_d(2,0,0) =  11._R8P/3._R8P
+   !      /                        ;       (i-1)*(i-1)               ;       (i-2)*(i-1)
+   weno_d(0,1,0) =   0._R8P        ; weno_d(1,1,0) =  25._R8P/3._R8P ; weno_d(2,1,0) = -19._R8P/3._R8P
+   !      /                        ;        /                        ;       (i-2)*(i-2)
+   weno_d(0,2,0) =   0._R8P        ; weno_d(1,2,0) =   0._R8P        ; weno_d(2,2,0) =   4._R8P/3._R8P
+   ! stencil 1
+   !     (i+1)*(i+1)               ;        i*(i+1)                  ;       (i-1)*(i+1)
+   weno_d(0,0,1) =   4._R8P/3._R8P ; weno_d(1,0,1) = -13._R8P/3._R8P ; weno_d(2,0,1) =   5._R8P/3._R8P
+   !      /                        ;        i*i                      ;       (i-1)*i
+   weno_d(0,1,1) =   0._R8P        ; weno_d(1,1,1) =  13._R8P/3._R8P ; weno_d(2,1,1) = -13._R8P/3._R8P
+   !      /                        ;        /                        ;       (i-1)*(i-1)
+   weno_d(0,2,1) =   0._R8P        ; weno_d(1,2,1) =   0._R8P        ; weno_d(2,2,1) =   4._R8P/3._R8P
+   ! stencil 2
+   !     (i+2)*(i+2)               ;       (i+1)*(i+2)               ;        i*(i+2)
+   weno_d(0,0,2) =   4._R8P/3._R8P ; weno_d(1,0,2) = -19._R8P/3._R8P ; weno_d(2,0,2) =  11._R8P/3._R8P
+   !      /                        ;       (i+1)*(i+1)               ;        i*(i+1)
+   weno_d(0,1,2) =   0._R8P        ; weno_d(1,1,2) =  25._R8P/3._R8P ; weno_d(2,1,2) = -31._R8P/3._R8P
+   !      /                        ;        /                        ;        i*i
+   weno_d(0,2,2) =   0._R8P        ; weno_d(1,2,2) =   0._R8P        ; weno_d(2,2,2) =  10._R8P/3._R8P
+
+   V = [qm2, qm1, q00, qp1, qp2]
+   do s1=0,2 ! stencil counter
+      IS(s1) = 0._R8P
+      do s2=0,2
+         do s3=0,2
+            IS(s1) = IS(s1) + weno_d(s3,s2,s1) * V(s1-s3) * V(s1-s2)
+         enddo
+      enddo
+   enddo
+   a_tot = 0._R8P
+   do s1=0,2
+      a(s1) = weno_a(s1) * (1._R8P/(1d-6 + IS(s1))**3)
+      a_tot = a_tot + a(s1)
+   enddo
+   do s1=0,2
+      w(s1) = a(s1) / a_tot
+   enddo
+   VP = 0._R8P
+   do s1=0,2 ! stencil counter
+      do s2=0,2 ! cell counter counter
+         VP(s1) = VP(s1) + weno_p(s2,s1) * V(-s2+s1)
+      enddo
+   enddo
+   ql = 0._R8P
+   do s1=0,2
+      ql = ql + w(s1) * VP(s1)
+   enddo
+   endsubroutine reconstruct_left_weno5_sz
+
+   attributes(device) subroutine reconstruct_right_weno5_sz(qm2, qm1, q00, qp1, qp2, qr)
+   !< Reconstruct right variable with WENO 5 scheme.
+   real(R8P), intent(in)  :: qm2, qm1, q00, qp1, qp2 !< Stencil values.
+   real(R8P), intent(out) :: qr                      !< Right reconstruct.
+   real(R8P)              :: weno_a(0:2)             !< Optimal weights.
+   real(R8P)              :: weno_p(0:2,0:2)         !< Polinomial coefficients.
+   real(R8P)              :: weno_d(0:2,0:2,0:2)     !< Smoothness indicator coefficients.
+   real(R8P)              :: V(-2:2)                 !< Variable to be reconstructed.
+   real(R8P)              :: VP(0:2)                 !< Polynomial reconstructions.
+   real(R8P)              :: IS(0:2)                 !< Smoothness indicators of the stencils.
+   real(R8P)              :: a(0:2)                  !< Alpha coefficients for the weights.
+   real(R8P)              :: a_tot                   !< Summ of the alpha coefficients.
+   real(R8P)              :: w(0:2)                  !< Weights of the stencils.
+   integer(I4P)           :: s1, s2, s3              !< Counters
+
+   weno_a(0) = 0.3_R8P ! stencil 0
+   weno_a(1) = 0.6_R8P ! stencil 1
+   weno_a(2) = 0.1_R8P ! stencil 2
+   !  cell  0                   ;    cell  1                   ;    cell  2
+   weno_p(0,0) =  1._R8P/3._R8P ; weno_p(1,0) =  5._R8P/6._R8P ; weno_p(2,0) = -1._R8P/6._R8P ! stencil 0
+   weno_p(0,1) = -1._R8P/6._R8P ; weno_p(1,1) =  5._R8P/6._R8P ; weno_p(2,1) =  1._R8P/3._R8P ! stencil 1
+   weno_p(0,2) =  1._R8P/3._R8P ; weno_p(1,2) = -7._R8P/6._R8P ; weno_p(2,2) = 11._R8P/6._R8P ! stencil 2
+   !  cell  0                   ;    cell  1                   ;    cell  2
+   weno_p(0,0) = 11._R8P/6._R8P ; weno_p(1,0) = -7._R8P/6._R8P ; weno_p(2,0) =  1._R8P/3._R8P ! stencil 0
+   weno_p(0,1) =  1._R8P/3._R8P ; weno_p(1,1) =  5._R8P/6._R8P ; weno_p(2,1) = -1._R8P/6._R8P ! stencil 1
+   weno_p(0,2) = -1._R8P/6._R8P ; weno_p(1,2) =  5._R8P/6._R8P ; weno_p(2,2) =  1._R8P/3._R8P ! stencil 2
+   ! stencil 0
+   !      i*i                      ;       (i-1)*i                   ;       (i-2)*i
+   weno_d(0,0,0) =  10._R8P/3._R8P ; weno_d(1,0,0) = -31._R8P/3._R8P ; weno_d(2,0,0) =  11._R8P/3._R8P
+   !      /                        ;       (i-1)*(i-1)               ;       (i-2)*(i-1)
+   weno_d(0,1,0) =   0._R8P        ; weno_d(1,1,0) =  25._R8P/3._R8P ; weno_d(2,1,0) = -19._R8P/3._R8P
+   !      /                        ;        /                        ;       (i-2)*(i-2)
+   weno_d(0,2,0) =   0._R8P        ; weno_d(1,2,0) =   0._R8P        ; weno_d(2,2,0) =   4._R8P/3._R8P
+   ! stencil 1
+   !     (i+1)*(i+1)               ;        i*(i+1)                  ;       (i-1)*(i+1)
+   weno_d(0,0,1) =   4._R8P/3._R8P ; weno_d(1,0,1) = -13._R8P/3._R8P ; weno_d(2,0,1) =   5._R8P/3._R8P
+   !      /                        ;        i*i                      ;       (i-1)*i
+   weno_d(0,1,1) =   0._R8P        ; weno_d(1,1,1) =  13._R8P/3._R8P ; weno_d(2,1,1) = -13._R8P/3._R8P
+   !      /                        ;        /                        ;       (i-1)*(i-1)
+   weno_d(0,2,1) =   0._R8P        ; weno_d(1,2,1) =   0._R8P        ; weno_d(2,2,1) =   4._R8P/3._R8P
+   ! stencil 2
+   !     (i+2)*(i+2)               ;       (i+1)*(i+2)               ;        i*(i+2)
+   weno_d(0,0,2) =   4._R8P/3._R8P ; weno_d(1,0,2) = -19._R8P/3._R8P ; weno_d(2,0,2) =  11._R8P/3._R8P
+   !      /                        ;       (i+1)*(i+1)               ;        i*(i+1)
+   weno_d(0,1,2) =   0._R8P        ; weno_d(1,1,2) =  25._R8P/3._R8P ; weno_d(2,1,2) = -31._R8P/3._R8P
+   !      /                        ;        /                        ;        i*i
+   weno_d(0,2,2) =   0._R8P        ; weno_d(1,2,2) =   0._R8P        ; weno_d(2,2,2) =  10._R8P/3._R8P
+
+   V = [qm2, qm1, q00, qp1, qp2]
+   do s1=0,2 ! stencil counter
+      IS(s1) = 0._R8P
+      do s2=0,2
+         do s3=0,2
+            IS(s1) = IS(s1) + weno_d(s3,s2,s1) * V(s1-s3) * V(s1-s2)
+         enddo
+      enddo
+   enddo
+   a_tot = 0._R8P
+   do s1=0,2
+      a(s1) = weno_a(s1) * (1._R8P/(1d-6 + IS(s1))**3)
+      a_tot = a_tot + a(s1)
+   enddo
+   do s1=0,2
+      w(s1) = a(s1) / a_tot
+   enddo
+   VP = 0._R8P
+   do s1=0,2 ! stencil counter
+      do s2=0,2 ! cell counter counter
+         VP(s1) = VP(s1) + weno_p(s2,s1) * V(-s2+s1)
+      enddo
+   enddo
+   qr = 0._R8P
+   do s1=0,2
+      qr = qr + w(s1) * VP(s1)
+   enddo
+   endsubroutine reconstruct_right_weno5_sz
+
+   attributes(device) subroutine reconstruct_left_tvd2(qm1, q00, qp1, ql)
+   !< Reconstruct left variable with TVD 2 scheme.
+   real(R8P),    intent(in)  :: qm1, q00, qp1 !< Stencil values.
+   real(R8P),    intent(out) :: ql            !< Left reconstruct.
+
+   ql = q00 + 0.5 * minmod(q00 - qm1, qp1 - q00)
+   endsubroutine reconstruct_left_tvd2
+
+   attributes(device) subroutine reconstruct_right_tvd2(qm1, q00, qp1, qr)
+   !< Reconstruct right variable with TVD 2 scheme.
+   real(R8P),    intent(in)  :: qm1, q00, qp1 !< Stencil values.
+   real(R8P),    intent(out) :: qr            !< Right reconstruct.
+
+   qr = q00 - 0.5 * minmod(q00 - qm1, qp1 - q00)
+   endsubroutine reconstruct_right_tvd2
+
+   attributes(device) subroutine reconstruct_left_weno3(qm1, q00, qp1, ql)
+   !< Reconstruct left variable with WENO 3 scheme.
+   real(R8P),    intent(in)  :: qm1, q00, qp1                         !< Stencil values.
+   real(R8P),    intent(out) :: ql                                    !< Left reconstruct.
+   real(R8P)                 :: diff0, diff1, den, I0, I1, umk4, upk4 !< Dummy variables.
+
+   diff0 = q00-qm1
+   diff1 = qp1-q00
+   I0    = diff0 ** 4
+   I1    = diff1 ** 4
+   den   = 1._R8P / (I1 + 2 * I0 + 0.0000000001_R8P)
+   umk4  = I1 * den
+   upk4  = 2._R8P * I0 * den
+   ql    = q00 + 0.5d0 * (upk4 * diff1 + umk4 * diff0)
+   endsubroutine reconstruct_left_weno3
+
+   attributes(device) subroutine reconstruct_right_weno3(qm1, q00, qp1, qr)
+   !< Reconstruct right variable with WENO 3 scheme.
+   real(R8P),    intent(in)  :: qm1, q00, qp1                         !< Stencil values.
+   real(R8P),    intent(out) :: qr                                    !< Right reconstruct.
+   real(R8P)                 :: diff0, diff1, den, I0, I1, umk4, upk4 !< Dummy variables.
+
+   ! qr = q00 - 0.5 * minmod(q00 - qm1, qp1 - q00)
+
+   diff0 = q00-qm1
+   diff1 = qp1-q00
+   I0    = diff0 ** 4
+   I1    = diff1 ** 4
+   den   = 1._R8P / (I0 + 2 * I1 + 0.0000000001_R8P)
+   umk4  = I0 * den
+   upk4  = 2._R8P * I1 * den
+   qr    = q00 - 0.5d0 * (upk4 * diff0 + umk4 * diff1)
+   endsubroutine reconstruct_right_weno3
+
+   attributes(device) subroutine reconstruct_left_weno5(qm2, qm1, q00, qp1, qp2, ql)
+   !< Reconstruct left variable with WENO 5 scheme.
+   real(R8P),    intent(in)  :: qm2, qm1, q00, qp1, qp2               !< Stencil values.
+   real(R8P),    intent(out) :: ql                                    !< Left reconstruct.
+   real(R8P)                 :: gamma1_l, gamma2_l, gamma3_l
+   real(R8P)                 :: undod, Coed2
+   real(R8P)                 :: der2(-1:1)
+   real(R8P)                 ::      u0
+   real(R8P)                 ::      u1,     u2,     u3
+   real(R8P)                 ::    ux_1,   ux_2,   ux_3
+   real(R8P)                 ::   uxx_1,  uxx_2,  uxx_3
+   real(R8P)                 ::   beta1,  beta2,  beta3
+   real(R8P)                 ::  omega1, omega2, omega3
+   real(R8P)                 :: sum_omega
+
+   u0 = max(1d-6*q00**2,0.00000001_R8P)
+
+   gamma1_l = 1._R8P/10._R8P
+   gamma2_l = 6._R8P/10._R8P
+   gamma3_l = 3._R8P/10._R8P
+   undod    = 1._R8P/12._R8P
+   Coed2    = 1._R8P/ 4._R8P * 13._R8P/12._R8P
+
+   der2(-1) = q00 -2._R8P*qm1 + qm2
+   der2( 0) = qp1 -2._R8P*q00 + qm1
+   der2( 1) = qp2 -2._R8P*qp1 + q00
+
+   ux_1 =  0.75_R8P*q00 - qm1 + 0.25_R8P*qm2
+   ux_2 =  0.25_R8P*(qp1-qm1)
+   ux_3 = -0.75_R8P*q00 + qp1 - 0.25_R8P*qp2
+
+   beta1  = Coed2*abs(der2(-1))**2 + abs(ux_1)**2
+   beta2  = Coed2*abs(der2( 0))**2 + abs(ux_2)**2
+   beta3  = Coed2*abs(der2( 1))**2 + abs(ux_3)**2
+   beta1  = max(beta1,u0)**3
+   beta2  = max(beta2,u0)**3
+   beta3  = max(beta3,u0)**3
+
+   uxx_1 = undod*der2(-1)
+   uxx_2 = undod*der2( 0)
+   uxx_3 = undod*der2( 1)
+
+   omega1 = gamma1_l/beta1
+   omega2 = gamma2_l/beta2
+   omega3 = gamma3_l/beta3
+   sum_omega = omega1+omega2+omega3
+
+   u1 = uxx_1 + ux_1
+   u2 = uxx_2 + ux_2
+   u3 = uxx_3 + ux_3
+
+   ql = q00 + (u1*omega1 + u2*omega2 + u3*omega3)/sum_omega
+   endsubroutine reconstruct_left_weno5
+
+   attributes(device) subroutine reconstruct_right_weno5(qm2, qm1, q00, qp1, qp2, qr)
+   !< Reconstruct right variable with WENO 5 scheme.
+   real(R8P),    intent(in)  :: qm2, qm1, q00, qp1, qp2               !< Stencil values.
+   real(R8P),    intent(out) :: qr                                    !< Left reconstruct.
+   real(R8P)                 :: gamma1_r, gamma2_r, gamma3_r
+   real(R8P)                 :: undod, Coed2
+   real(R8P)                 :: der2(-1:1)
+   real(R8P)                 ::      u0
+   real(R8P)                 ::      u1,     u2,     u3
+   real(R8P)                 ::    ux_1,   ux_2,   ux_3
+   real(R8P)                 ::   uxx_1,  uxx_2,  uxx_3
+   real(R8P)                 ::   beta1,  beta2,  beta3
+   real(R8P)                 ::  omega1, omega2, omega3
+   real(R8P)                 :: sum_omega
+
+   u0 = max(1d-6*q00**2,0.00000001_R8P)
+
+   gamma1_r = 3._R8P/10._R8P
+   gamma2_r = 6._R8P/10._R8P
+   gamma3_r = 1._R8P/10._R8P
+   undod    = 1._R8P/12._R8P
+   Coed2    = 1._R8P/ 4._R8P * 13._R8P/12._R8P
+
+   der2(-1) = q00 -2._R8P*qm1 + qm2
+   der2( 0) = qp1 -2._R8P*q00 + qm1
+   der2( 1) = qp2 -2._R8P*qp1 + q00
+
+   ux_1 =  0.75_R8P*q00 - qm1 + 0.25_R8P*qm2
+   ux_2 =  0.25_R8P*(qp1-qm1)
+   ux_3 = -0.75_R8P*q00 + qp1 - 0.25_R8P*qp2
+
+   beta1  = Coed2*abs(der2(-1))**2 + abs(ux_1)**2
+   beta2  = Coed2*abs(der2( 0))**2 + abs(ux_2)**2
+   beta3  = Coed2*abs(der2( 1))**2 + abs(ux_3)**2
+   beta1  = max(beta1,u0)**3
+   beta2  = max(beta2,u0)**3
+   beta3  = max(beta3,u0)**3
+
+   uxx_1 = undod*der2(-1)
+   uxx_2 = undod*der2( 0)
+   uxx_3 = undod*der2( 1)
+
+   omega1 = gamma1_r/beta1
+   omega2 = gamma2_r/beta2
+   omega3 = gamma3_r/beta3
+   sum_omega = omega1+omega2+omega3
+
+   u1 = uxx_1 - ux_1
+   u2 = uxx_2 - ux_2
+   u3 = uxx_3 - ux_3
+
+   qr = q00 + (u1*omega1 + u2*omega2 + u3*omega3)/sum_omega
+   endsubroutine reconstruct_right_weno5
+
    attributes(device) subroutine solve_riemann(r1, u1, p1, g1, r4, u4, p4, g4, f_rho, f_rho_u, f_rho_E)
    !< Solve the Riemann problem between the state $1$ and $4$ using the (local) Lax Friedrichs (Rusanov) solver.
    real(R8P),    intent(in)  :: r1            !< Density of state 1.
@@ -1439,75 +1664,6 @@ contains
    entalpy = g * p / ((g - 1._R_P) * r) + 0.5_R_P * u2
    endfunction Hv2
 
-   !attributes(device) function weno_polynomials(s, weno_p, v) result(VP)
-   !!< Return WENO polynomials
-   !integer(I4P), intent(in) :: s                       !< Number of stencils used.
-   !real(R8P),    intent(in) :: weno_p(1:2,0:S-1,0:S-1) !< Polinomials coefficients.
-   !real(R8P),    intent(in) ::     v (1:2,1-s:-1+s)    !< Variable to be reconstructed.
-   !real(R8P)                ::     vp(1:2,0:s-1   )    !< Polynomial reconstructions.
-   !integer(I4P)             :: s1, s2, f               !< Counters.
-
-   !vp = 0._R_P
-   !do s1=0,s-1 ! stencil counter
-   !   do s2=0,s-1 ! cell counter counter
-   !      do f=1,2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
-   !         vp(f,s1) = vp(f,s1) + weno_p(f,s2,s1) * v(f,-s2+s1)
-   !      enddo
-   !   enddo
-   !enddo
-   !endfunction weno_polynomials
-
-   !attributes(device) function weno_reconstructed(s, weno_p, v) result(vr)
-   !!< Return WENO reconstruction of 2S-1 order.
-   !integer(I4P), intent(in) :: s                       !< Number of stencils used.
-   !real(R8P),    intent(in) :: weno_p(1:2,0:S-1,0:S-1) !< Polinomials coefficients.
-   !real(R8P),    intent(in) ::     v (1:2,1-s:-1+s)    !< Variable to be reconstructed.
-   !real(R8P)                ::     vr(1:2         )    !< Left and right (1,2) interface value of reconstructed V.
-   !real(R8P)                ::     vp(1:2,0:s-1   )    !< Polynomial reconstructions.
-   !real(R8P)                ::     w (1:2,0:s-1   )    !< Weights of the stencils.
-
-   !vp = weno_polynomials(s=s, v=v)        ! compute the polynomials
-   !w = weno_weights(s=s, v=v)             ! compute the weights associated to the polynomials
-   !vr = weno_convolution(s=s, vp=vp, w=w) ! compute the convultion of reconstructing plynomials
-   !endfunction weno_reconstructed
-
-   !attributes(device) function weno_weights(s, weno_eps, weno_a, weno_d, v) result(w)
-   !!< Return WENO weights of the polynomial reconstructions.
-   !integer(I4P),                     intent(in) :: s                   !< Number of stencils used.
-   !real(R8P),                        intent(in) :: v    (1:2,1-s:-1+s) !< Variable to be reconstructed.
-   !real(R8P)                                    :: W    (1:2,0:s-1)    !< Weights of the stencils.
-   !real(R8P)                                    :: IS   (1:2,0:s-1)    !< Smoothness indicators of the stencils.
-   !real(R8P)                                    :: a    (1:2,0:s-1)    !< Alpha coefficients for the weights.
-   !real(R8P)                                    :: a_tot(1:2)          !< Summ of the alpha coefficients.
-   !integer(I4P)                                 :: s1, s2, s3, f       !< Counters.
-
-   !! compute smoothness indicators
-   !do s1=0,S-1 ! stencil counter
-   !   do f=1,2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
-   !      IS(f,s1) = 0._R_P
-   !      do s2=0,S-1
-   !         do s3=0,S-1
-   !            IS(f,s1) = IS(f,s1) + weno_d(s3,s2,s1) * v(f,s1-s3) * v(f,s1-s2)
-   !         enddo
-   !      enddo
-   !   enddo
-   !enddo
-   !! compute alfa coefficients
-   !a_tot = 0._R_P
-   !do s1=0,S-1
-   !   do f=1,2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
-   !      a(f,s1) = weno_a(f,s1) * (1._R_P / (weno_eps + IS(f,s1))**s)
-   !      a_tot(f) = a_tot(f) + a(f,s1)
-   !   enddo
-   !enddo
-   !! compute the weights
-   !do s1=0,S-1
-   !   do f=1,2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
-   !      w(f,s1) = a(f,s1) / a_tot(f)
-   !   enddo
-   !enddo
-   !endfunction weno_weights
-
    attributes(device) subroutine fluxes_pm(r, u, v, w, g, p,                              &
                                            fp_rho, fp_rho_u, fp_rho_v, fp_rho_w, fp_rho_E,&
                                            fm_rho, fm_rho_u, fm_rho_v, fm_rho_w, fm_rho_E)
@@ -1602,15 +1758,6 @@ contains
          fm_rho_E  = fm_rho_E - fp_rho_E
       endif
    endif
-
-   ! ec = efix*c - min(abs(un+c),abs(un-c))
-   ! if (ec > 0d0) then
-   !    c = c + ec
-   !    ec = 0.5d0*ec
-   !    ecq = ec*q(1:nns)
-   !    fp  = fp + ecq
-   !    fm  = fm - ecq
-   ! endif
    endsubroutine fluxes_pm
 
    attributes(device) function minmod(x,y) result(res)
