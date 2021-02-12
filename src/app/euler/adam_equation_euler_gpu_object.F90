@@ -2,6 +2,7 @@
 module adam_equation_euler_gpu_object
 !< ADAM, Euler equations system class definition, GPU backend.
 
+use adam_adam_object
 use adam_base_gpu_object
 use adam_field_object
 use adam_grid_object
@@ -59,16 +60,20 @@ type :: equation_euler_gpu_object
    !< cv = sum(rho(s)/rho * cv(s))
    !< g = cp / cv
    !<```
-   type(field_object), pointer :: field=>null()      !< The field.
-   type(grid_object),  pointer :: grid=>null()       !< The grid.
-   integer(I4P),       pointer :: ngc=>null()        !< Number of ghost cells.
-   integer(I4P),       pointer :: ni=>null()         !< Number of cells in i direction.
-   integer(I4P),       pointer :: nj=>null()         !< Number of cells in j direction.
-   integer(I4P),       pointer :: nk=>null()         !< Number of cells in k direction.
-   type(base_gpu_object)       :: base_gpu           !< The base GPU handler.
-   integer(I4P)                :: myrank=0_I4P       !< MPI rank process.
-   integer(I4P)                :: procs_number=1_I4P !< Number of MPI processes.
-   integer(I4P)                :: error=0_I4P        !< Error traping flag.
+   type(adam_object),  pointer :: adam=>null()          !< ADAM.
+   type(field_object), pointer :: field=>null()         !< The field.
+   type(grid_object),  pointer :: grid=>null()          !< The grid.
+   integer(I4P),       pointer :: ngc=>null()           !< Number of ghost cells.
+   integer(I4P),       pointer :: ni=>null()            !< Number of cells in i direction.
+   integer(I4P),       pointer :: nj=>null()            !< Number of cells in j direction.
+   integer(I4P),       pointer :: nk=>null()            !< Number of cells in k direction.
+   integer(I4P),       pointer :: nb=>null()            !< Total blocks number for MPI.
+   integer(I4P),       pointer :: blocks_number=>null() !< Actual blocks number.
+   integer(I4P),       pointer :: nv=>null()            !< Number of variables.
+   type(base_gpu_object)       :: base_gpu              !< The base GPU handler.
+   integer(I4P)                :: myrank=0_I4P          !< MPI rank process.
+   integer(I4P)                :: procs_number=1_I4P    !< Number of MPI processes.
+   integer(I4P)                :: error=0_I4P           !< Error traping flag.
    ! equation data
    integer(I4P)           :: ns=1_I4P               !< Number of fluid species.
    real(R8P), allocatable :: cp0(:)                 !< Specific heat at constant pressure of initial species.
@@ -103,6 +108,7 @@ type :: equation_euler_gpu_object
    real(R8P),    allocatable, device :: q_s_gpu(:,:,:,:,:,:) !< RK Field cell centered variables stages.
    contains
       ! public methods
+      procedure, pass(self) :: amr_update              !< Do AMR update.
       procedure, pass(self) :: compute_aux             !< Compute auxiliary variables.
       procedure, pass(self) :: compute_dt              !< Compute time step.
       procedure, pass(self) :: copy_cpu_gpu            !< Copy data from CPU to GPU.
@@ -111,6 +117,10 @@ type :: equation_euler_gpu_object
       procedure, pass(self) :: initialize              !< Initialize the equation.
       procedure, pass(self) :: mark_by_grad_rho        !< Mark blocks to be refined/derefined by a `grad(rho)` value.
       procedure, pass(self) :: integrate               !< Runge Kutta integration of equation.
+      procedure, pass(self) :: print_progress          !< Print simulation progress.
+      procedure, pass(self) :: refine_uniform          !< Refine all blocks uniformly.
+      procedure, pass(self) :: runge_kutta_initialize  !< Initialize Runge-Kutta data.
+      procedure, pass(self) :: save_hdf5               !< Save simulation data in HDF5 format.
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation.
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions of equation.
       procedure, pass(self) :: update_ghost_gpu        !< Update ghost cells and set boundary conditions.
@@ -121,6 +131,25 @@ endtype equation_euler_gpu_object
 
 contains
    ! public methods
+   subroutine amr_update(self, iterations)
+   !< Do AMR update.
+   class(equation_euler_gpu_object), intent(inout)        :: self            !< The equation.
+   integer(I4P),                     intent(in), optional :: iterations      !< Number of AMR iterations.
+   integer(I4P)                                           :: iterations_     !< Number of AMR iterations, local var.
+   logical                                                :: is_grid_changed !< Flag to check grid changes.
+   integer(I4P)                                           :: i               !< Counter.
+
+   iterations_ = 1 ; if (present(iterations)) iterations_ = iterations
+   amr: do i=1, iterations_
+      call self%mark_by_grad_rho(grad_tol=0.05_R8P, delta_fine=0.006_R8P, delta_coarse=0.015_R8P)
+      call self%update_ghost_gpu(q_gpu=self%q_gpu)
+      call self%copy_gpu_cpu()
+      call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed)
+      call self%copy_cpu_gpu
+      if (.not.is_grid_changed) exit amr
+   enddo amr
+   endsubroutine amr_update
+
    subroutine compute_aux(self, q_gpu, q_aux_gpu)
    !< Compute auxiliary variables.
    class(equation_euler_gpu_object), intent(in)          :: self          !< The equation.
@@ -183,7 +212,7 @@ contains
    class(equation_euler_gpu_object), intent(inout)        :: self          !< The base backend.
    logical,                          intent(in), optional :: compute_q_aux !< Flag to compute auxiliary variables.
 
-   call self%base_gpu%copy_transpose_gpu_cpu(nv=self%field%nv, q_gpu=self%q_gpu, q_cpu=self%field%q)
+   call self%base_gpu%copy_transpose_gpu_cpu(nv=self%nv, q_gpu=self%q_gpu, q_cpu=self%field%q)
    if (present(compute_q_aux)) then
       if (compute_q_aux) then
          call self%compute_aux(q_gpu=self%q_gpu, q_aux_gpu=self%q_aux_gpu)
@@ -200,10 +229,10 @@ contains
    self = fresh
    endsubroutine destroy
 
-   subroutine initialize(self, field, ns, nrk, cp0, cv0, CFL, null_xyz, weno_stencils, fields_gpu_number)
+   subroutine initialize(self, adam, ns, nrk, cp0, cv0, CFL, null_xyz, weno_stencils, fields_gpu_number)
    !< Initialize the equation.
    class(equation_euler_gpu_object), intent(inout)        :: self              !< The equation.
-   type(field_object),               intent(in), target   :: field             !< The field.
+   type(adam_object),                intent(in), target   :: adam              !< ADAM.
    integer(I4P),                     intent(in), optional :: ns                !< Species number.
    integer(I4P),                     intent(in), optional :: nrk               !< Runge-Kutta stages number.
    real(R8P),                        intent(in), optional :: cp0(:)            !< Initial specific heats at constant pressure.
@@ -216,19 +245,23 @@ contains
 
    ! CPU data
    call self%destroy
-   self%field => field
-   self%grid  => field%grid
-   self%ngc   => field%grid%ngc
-   self%ni    => field%grid%ni
-   self%nj    => field%grid%nj
-   self%nk    => field%grid%nk
+   self%adam          => adam
+   self%field         => adam%field
+   self%grid          => adam%field%grid
+   self%ngc           => adam%field%grid%ngc
+   self%ni            => adam%field%grid%ni
+   self%nj            => adam%field%grid%nj
+   self%nk            => adam%field%grid%nk
+   self%nb            => adam%field%nb
+   self%blocks_number => adam%field%blocks_number
+   self%nv            => adam%field%nv
    if (present(ns)) self%ns = ns
-   if (self%field%nv - self%ns /= 4) then
+   if (self%nv - self%ns /= 4) then
       write(stderr, '(A)') 'ADAM-ERROR: field%nv must be euler%ns+4'
       call MPI_FINALIZE(self%error)
       stop
    endif
-   call self%base_gpu%initialize(field=field, nv_aux=self%ns+6, fields_gpu_number=fields_gpu_number)
+   call self%base_gpu%initialize(field=self%field, nv_aux=self%ns+6, fields_gpu_number=fields_gpu_number)
    if (present(cp0)) then
       self%cp0 = cp0
    else
@@ -244,73 +277,62 @@ contains
    if (present(nrk)) self%nrk = nrk
    if (present(CFL)) self%CFL = CFL
    if (present(null_xyz)) self%null_xyz = null_xyz
-   allocate(self%q_aux(1:self%ns+6,                 &
-                       1-self%ngc:self%ni+self%ngc, &
-                       1-self%ngc:self%nj+self%ngc, &
-                       1-self%ngc:self%nk+self%ngc, 1:field%nb))
+
    if (present(weno_stencils)) then
       self%weno_stencils_gpu = weno_stencils
    else
       self%weno_stencils_gpu = 1
    endif
    call weno_initialize(weno_stencils=self%weno_stencils_gpu)
-   allocate(self%alph(self%nrk,self%nrk), self%beta(self%nrk), self%gamm(self%nrk))
-   select case(self%nrk)
-   case(1_I4P)
-      self%alph(:,:) = reshape([1._R8P], [1,1])
-      self%beta(:) = [1._R8P]
-      self%gamm(:) = [0._R8P]
-   case(3_I4P)
-      self%alph(:,:) = reshape([0._R8P, 1._R8P, 0.25_R8P, &
-                                0._R8P, 0._R8P, 0.25_R8P, &
-                                0._R8P, 0._R8P,0._R8P], [3,3])
-      self%beta(:) = [1._R8P/6._R8P, &
-                      1._R8P/6._R8P, &
-                      2._R8P/3._R8P]
-      self%gamm(:) = [0._R8P, &
-                      1._R8P, &
-                      0._R8P]
-   endselect
+   call self%runge_kutta_initialize
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
+   ! allocate large array
+   associate(nv=>self%nv, ns=>self%ns, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb, nrk=>self%nrk)
+   ! CPU data
+   allocate(self%q_aux(1:ns+6,       &
+                       1-ngc:ni+ngc, &
+                       1-ngc:nj+ngc, &
+                       1-ngc:nk+ngc, 1:nb))
    ! GPU data
-   allocate(self%fp_gpu(1:field%nb,                  &
-                        1-self%ngc:self%ni+self%ngc, &
-                        1-self%ngc:self%nj+self%ngc, &
-                        1-self%ngc:self%nk+self%ngc, 1:field%nv))
-   allocate(self%fm_gpu(1:field%nb,                  &
-                        1-self%ngc:self%ni+self%ngc, &
-                        1-self%ngc:self%nj+self%ngc, &
-                        1-self%ngc:self%nk+self%ngc, 1:field%nv))
-   allocate(self%f_i_gpu(1-self%ngc:self%ni+self%ngc, &
-                         1:field%nb,                  &
-                         1-self%ngc:self%nj+self%ngc, &
-                         1-self%ngc:self%nk+self%ngc, 1:field%nv))
-   allocate(self%f_j_gpu(1-self%ngc:self%nj+self%ngc, &
-                         1:field%nb,                  &
-                         1-self%ngc:self%ni+self%ngc, &
-                         1-self%ngc:self%nk+self%ngc, 1:field%nv))
-   allocate(self%f_k_gpu(1-self%ngc:self%nk+self%ngc, &
-                         1:field%nb,                  &
-                         1-self%ngc:self%ni+self%ngc, &
-                         1-self%ngc:self%nj+self%ngc, 1:field%nv))
-   allocate(self%f_gpu(1:field%nb,&
-                       0:self%ni, &
-                       0:self%nj, &
-                       0:self%nk, 1:field%nv))
-   allocate(self%dxyz_gpu(1:field%nb, 1:3))
-   allocate(self%q_aux_gpu(1:field%nb,                  &
-                           1-self%ngc:self%ni+self%ngc, &
-                           1-self%ngc:self%nj+self%ngc, &
-                           1-self%ngc:self%nk+self%ngc, 1:self%ns+6))
-   allocate(self%q_gpu(1:field%nb,                  &
-                       1-self%ngc:self%ni+self%ngc, &
-                       1-self%ngc:self%nj+self%ngc, &
-                       1-self%ngc:self%nk+self%ngc, 1:field%nv))
-   allocate(self%q_s_gpu(1:field%nb,                  &
-                         1-self%ngc:self%ni+self%ngc, &
-                         1-self%ngc:self%nj+self%ngc, &
-                         1-self%ngc:self%nk+self%ngc, 1:field%nv, 1:self%nrk))
+   allocate(self%fp_gpu(1:nb,         &
+                        1-ngc:ni+ngc, &
+                        1-ngc:nj+ngc, &
+                        1-ngc:nk+ngc, 1:nv))
+   allocate(self%fm_gpu(1:nb,         &
+                        1-ngc:ni+ngc, &
+                        1-ngc:nj+ngc, &
+                        1-ngc:nk+ngc, 1:nv))
+   allocate(self%f_i_gpu(1-ngc:ni+ngc, &
+                         1:nb,         &
+                         1-ngc:nj+ngc, &
+                         1-ngc:nk+ngc, 1:nv))
+   allocate(self%f_j_gpu(1-ngc:nj+ngc, &
+                         1:nb,         &
+                         1-ngc:ni+ngc, &
+                         1-ngc:nk+ngc, 1:nv))
+   allocate(self%f_k_gpu(1-ngc:nk+ngc, &
+                         1:nb,         &
+                         1-ngc:ni+ngc, &
+                         1-ngc:nj+ngc, 1:nv))
+   allocate(self%f_gpu(1:nb, &
+                       0:ni, &
+                       0:nj, &
+                       0:nk, 1:nv))
+   allocate(self%dxyz_gpu(1:nb, 1:3))
+   allocate(self%q_aux_gpu(1:nb,         &
+                           1-ngc:ni+ngc, &
+                           1-ngc:nj+ngc, &
+                           1-ngc:nk+ngc, 1:ns+6))
+   allocate(self%q_gpu(1:nb,         &
+                       1-ngc:ni+ngc, &
+                       1-ngc:nj+ngc, &
+                       1-ngc:nk+ngc, 1:nv))
+   allocate(self%q_s_gpu(1:nb,         &
+                         1-ngc:ni+ngc, &
+                         1-ngc:nj+ngc, &
+                         1-ngc:nk+ngc, 1:nv, 1:nrk))
+   endassociate
    ! copy data that is not variable during the simulation
    self%cp0_gpu  = self%cp0
    self%cv0_gpu  = self%cv0
@@ -332,10 +354,10 @@ contains
    integer(I4P)                                           :: b              !< Counter.
 
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
-   self%field%refinements_needed = [(TO_NOT_TOUCH,b=1,self%field%blocks_number)]
+   self%field%refinements_needed = [(TO_NOT_TOUCH,b=1,self%blocks_number)]
    call self%update_ghost_gpu(q_gpu=self%q_gpu)
    associate (ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
-              blocks_number=>self%field%blocks_number, ns=>self%ns, dxyz=>self%field%dxyz)
+              blocks_number=>self%blocks_number, ns=>self%ns, dxyz=>self%field%dxyz)
       call self%compute_aux(q_gpu=self%q_gpu, q_aux_gpu=self%q_aux_gpu)
       do b=1, blocks_number
          grad_rho = gradient_cuf(b=b, ni=ni, nj=nj, nk=nk, ngc=ngc, ns=ns, &
@@ -410,7 +432,7 @@ contains
 
    do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
    associate(alph=>self%alph, beta=>self%beta, gamm=>self%gamm, dt=>self%dt, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
-             ngc=>self%ngc, nv=>self%field%nv, nrk=>self%nrk, ns=>self%ns, blocks_number=>self%field%blocks_number, &
+             ngc=>self%ngc, nv=>self%nv, nrk=>self%nrk, ns=>self%ns, blocks_number=>self%blocks_number,             &
              inner_blocks_number=>self%field%inner_blocks_number,                                                   &
              alph_gpu=>self%alph_gpu, beta_gpu=>self%beta_gpu)
    do s=1, nrk
@@ -445,6 +467,71 @@ contains
    endassociate
    endsubroutine integrate
 
+   subroutine print_progress(self, t, time, time_max)
+   !< Print simulation progress.
+   class(equation_euler_gpu_object), intent(in) :: self     !< The equation.
+   integer(I4P),                     intent(in) :: t        !< Time iteration.
+   real(R8P),                        intent(in) :: time     !< Time.
+   real(R8P)                                    :: time_max !< Maximum time of integration.
+
+   print '(A)', 'blocks number: '//trim(str(self%adam%tree%nodes_number, .true.))
+   print '(A)', 'time step:     '//trim(str(self%dt, .true.))
+   print '(A)', 'time:          '//trim(str(time, .true.))
+   print '(A)', 't:             '//trim(str(t,.true.))
+   print '(A)', 'progress:      '//trim(str(int(time/time_max * 100), .true.))//'%'
+   endsubroutine print_progress
+
+   subroutine refine_uniform(self, refinement_levels)
+   !< Refine all blocks uniformly.
+   class(equation_euler_gpu_object), intent(inout) :: self              !< The equation.
+   integer(I4P),                     intent(in)    :: refinement_levels !< Number of refinement to be performed.
+   integer(I4P)                                    :: l                 !< Counter.
+
+   do l=1, refinement_levels
+      call self%adam%tree%mark_all_nodes(mark=TO_BE_REFINED)
+      call self%adam%amr_update(do_blocks_reorder=.false., do_mpi_redistribute=.true.)
+   enddo
+   endsubroutine
+
+   subroutine runge_kutta_initialize(self)
+   !< Initialize Runge-Kutta data.
+   class(equation_euler_gpu_object), intent(inout) :: self !< The equation.
+
+   allocate(self%alph(self%nrk,self%nrk), self%beta(self%nrk), self%gamm(self%nrk))
+   select case(self%nrk)
+   case(1_I4P)
+      self%alph(:,:) = reshape([1._R8P], [1,1])
+      self%beta(:) = [1._R8P]
+      self%gamm(:) = [0._R8P]
+   case(3_I4P)
+      self%alph(:,:) = reshape([0._R8P, 1._R8P, 0.25_R8P, &
+                                0._R8P, 0._R8P, 0.25_R8P, &
+                                0._R8P, 0._R8P,0._R8P], [3,3])
+      self%beta(:) = [1._R8P/6._R8P, &
+                      1._R8P/6._R8P, &
+                      2._R8P/3._R8P]
+      self%gamm(:) = [0._R8P, &
+                      1._R8P, &
+                      0._R8P]
+   endselect
+   endsubroutine runge_kutta_initialize
+
+   subroutine save_hdf5(self, output_basename, t, time)
+   !< Save simulation data in HDF5 format.
+   class(equation_euler_gpu_object), intent(inout) :: self            !< The equation.
+   character(*),                     intent(in)    :: output_basename !< Output base name.
+   integer(I4P),                     intent(in)    :: t               !< Time iteration.
+   real(R8P),                        intent(in)    :: time            !< Time.
+
+   call self%copy_gpu_cpu(compute_q_aux=.true.)
+   call self%adam%save_hdf5(basename=trim(output_basename)//trim(strz(t,9)),  &
+                            q=self%field%q,                                   &
+                            q_aux=self%q_aux,                                 &
+                            q_name=['rho  ','rho-u','rho-v','rho-w','rho-E'], &
+                            q_aux_name=['c1','r ','u ','v ','w ','g ','p '],  &
+                            with_cell_morton=.true.)
+   endsubroutine save_hdf5
+
    subroutine set_boundary_conditions(self, q_gpu)
    !< Set boundary conditions of equation.
    class(equation_euler_gpu_object), intent(in)            :: self                  !< The equation.
@@ -453,7 +540,7 @@ contains
                                                                     1-self%ngc:,&
                                                                     1-self%ngc:,1:) !< Conservative variables.
 
-   if (allocated(self%base_gpu%local_map_bc_crown_gpu)) call set_bc(nv=self%field%nv, ngc=self%ngc, &
+   if (allocated(self%base_gpu%local_map_bc_crown_gpu)) call set_bc(nv=self%nv, ngc=self%ngc, &
                                                                     local_map_bc=self%base_gpu%local_map_bc_crown_gpu)
    contains
       subroutine set_bc(nv, ngc, local_map_bc)
@@ -504,7 +591,7 @@ contains
    real(R8P),                        intent(in)    :: pressure_icr(:)              !< Initial conditions regions pressure.
    integer(I4P)                                    :: b, i, j, k, icr              !< Counter.
 
-   associate(blocks_number=>self%field%blocks_number, q=>self%field%q, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
+   associate(blocks_number=>self%blocks_number, q=>self%field%q, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
              ngc=>self%ngc, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell)
    do b=1, blocks_number
       do k=1, nk
@@ -609,12 +696,16 @@ contains
    class(equation_euler_gpu_object), intent(inout) :: lhs !< Left hand side.
    type(equation_euler_gpu_object),  intent(in)    :: rhs !< Right hand side.
 
-   lhs%field => rhs%field
-   lhs%grid  => rhs%grid
-   lhs%ni    => rhs%ni
-   lhs%nj    => rhs%nj
-   lhs%nk    => rhs%nk
-   lhs%ngc   => rhs%ngc
+   lhs%adam          => rhs%adam
+   lhs%field         => rhs%field
+   lhs%grid          => rhs%grid
+   lhs%ni            => rhs%ni
+   lhs%nj            => rhs%nj
+   lhs%nk            => rhs%nk
+   lhs%ngc           => rhs%ngc
+   lhs%nb            => rhs%nb
+   lhs%blocks_number => rhs%blocks_number
+   lhs%nv            => rhs%nv
    lhs%base_gpu = rhs%base_gpu
    lhs%myrank = rhs%myrank
    lhs%procs_number = rhs%procs_number
@@ -644,7 +735,7 @@ contains
    call assign_allocatable_gpu(lhs=lhs%q_s_gpu,    rhs=rhs%q_s_gpu    )
    endsubroutine eq_assign_eq
 
-   ! non TBP cuf methods
+   ! non TBP cuf procedures
    subroutine advance_q_gpu_cuf(ni, nj, nk, ngc, nv, nrk, blocks_number, beta_gpu, dt, q_s_gpu, q_gpu)
    !< Advance q_gpu by means of RK stages.
    integer(I4P), intent(in)            :: ni                                     !< Grid cells number in I direction.
@@ -1214,199 +1305,10 @@ contains
    endsubroutine compute_umax_cuf
 
    ! non type-bound kernel procedures
-   attributes(device) subroutine reconstruct_left_tvd2(qm1, q00, qp1, ql)
-   !< Reconstruct left variable with TVD 2 scheme.
-   real(R8P),    intent(in)  :: qm1, q00, qp1 !< Stencil values.
-   real(R8P),    intent(out) :: ql            !< Left reconstruct.
-
-   ql = q00 + 0.5 * minmod(q00 - qm1, qp1 - q00)
-   endsubroutine reconstruct_left_tvd2
-
-   attributes(device) subroutine reconstruct_right_tvd2(qm1, q00, qp1, qr)
-   !< Reconstruct right variable with TVD 2 scheme.
-   real(R8P),    intent(in)  :: qm1, q00, qp1 !< Stencil values.
-   real(R8P),    intent(out) :: qr            !< Right reconstruct.
-
-   qr = q00 - 0.5 * minmod(q00 - qm1, qp1 - q00)
-   endsubroutine reconstruct_right_tvd2
-
-   attributes(device) subroutine solve_riemann(r1, u1, p1, g1, r4, u4, p4, g4, f_rho, f_rho_u, f_rho_E)
-   !< Solve the Riemann problem between the state $1$ and $4$ using the (local) Lax Friedrichs (Rusanov) solver.
-   real(R8P),    intent(in)  :: r1            !< Density of state 1.
-   real(R8P),    intent(in)  :: u1            !< Velocity of state 1.
-   real(R8P),    intent(in)  :: p1            !< Pressure of state 1.
-   real(R8P),    intent(in)  :: g1            !< Specific heats ratio of state 1.
-   real(R8P),    intent(in)  :: r4            !< Density of state 4.
-   real(R8P),    intent(in)  :: u4            !< Velocity of state 4.
-   real(R8P),    intent(in)  :: p4            !< Pressure of state 4.
-   real(R8P),    intent(in)  :: g4            !< Specific heats ratio of state 4.
-   real(R8P),    intent(out) :: f_rho         !< Flux of rho at interface.
-   real(R8P),    intent(out) :: f_rho_u       !< Flux of rho*u at interface.
-   real(R8P),    intent(out) :: f_rho_E       !< Flux of rho*E at interface.
-   real(R8P)                 :: F1(1:3)       !< State 1 fluxes.
-   real(R8P)                 :: F4(1:3)       !< State 4 fluxes.
-   real(R8P)                 :: lmax          !< Maximum wave speed estimation.
-   real(R8P)                 :: u             !< Velocity of the intermediate states.
-   real(R8P)                 :: S1            !< Maximum wave speed of state 1 and 4.
-   real(R8P)                 :: S4            !< Maximum wave speed of state 1 and 4.
-   integer(I4P)              :: s             !< Species counter.
-
-   ! evaluate the intermediates states 2 and 3 from the known states U1,U4 using the PVRS approximation
-   call compute_inter_states(r1=r1, u1=u1, p1=p1, g1=g1, r4=r4, u4=u4, p4=p4, g4=g4, u=u, S1=S1, S4=S4)
-   ! evalute the maximum waves speed
-   lmax = max(abs(S1), abs(u), abs(S4))
-   ! compute the fluxes of state 1 and 4
-   F1 = fluxes(p = p1, r = r1, u = u1, g = g1)
-   F4 = fluxes(p = p4, r = r4, u = u4, g = g4)
-   ! compute the Lax-Friedrichs fluxes approximation
-   f_rho   = 0.5_R8P*(F1(1) + F4(1) - lmax*(r4                        - r1                       ))
-   f_rho_u = 0.5_R8P*(F1(2) + F4(2) - lmax*(r4*u4                     - r1*u1                    ))
-   f_rho_E = 0.5_R8P*(F1(3) + F4(3) - lmax*(r4*E(p=p4,r=r4,u=u4,g=g4) - r1*E(p=p1,r=r1,u=u1,g=g1)))
-   endsubroutine solve_riemann
-
-   attributes(device) subroutine compute_inter_states(r1, u1, p1, g1, r4, u4, p4, g4, u, S1, S4)
-   !< Compute inter states (23*-states) from state1 and state4.
-   real(R8P), intent(in)  :: r1             !< Density of state 1.
-   real(R8P), intent(in)  :: u1             !< Velocity of state 1.
-   real(R8P), intent(in)  :: p1             !< Pressure of state 1.
-   real(R8P), intent(in)  :: g1             !< Specific heats ratio of state 1.
-   real(R8P), intent(in)  :: r4             !< Density of state 4.
-   real(R8P), intent(in)  :: u4             !< Velocity of state 4.
-   real(R8P), intent(in)  :: p4             !< Pressure of state 4.
-   real(R8P), intent(in)  :: g4             !< Specific heats ratio of state 4.
-   real(R8P), intent(out) :: u              !< Velocity of the intermediate states.
-   real(R8P), intent(out) :: S1             !< Maximum wave speed of state 1 and 4.
-   real(R8P), intent(out) :: S4             !< Maximum wave speed of state 1 and 4.
-   real(R8P)              :: p              !< Pressure of the intermediate states.
-   real(R8P)              :: a1             !< Speed of sound of state 1.
-   real(R8P)              :: a4             !< Speed of sound of state 4.
-   real(R8P)              :: ram            !< Mean value of rho*a.
-   real(R8P), parameter   :: toll=1e-10_R_P !< Tollerance.
-
-   ! evaluation of the intermediate states pressure and velocity
-   a1  = sqrt(g1 * p1 / r1)                              ! left speed of sound
-   a4  = sqrt(g4 * p4 / r4)                              ! right speed of sound
-   ram = 0.5_R8P * (r1 + r4) * 0.5_R8P * (a1 + a4)       ! product of mean density for mean speed of sound
-   u   = 0.5_R8P * (u1 + u4) - 0.5_R8P * (p4 - p1) / ram ! evaluation of the contact wave speed (velocity of intermediate states)
-   p   = 0.5_R8P * (p1 + p4) - 0.5_R8P * (u4 - u1) * ram ! evaluation of the pressure of the intermediate states
-   ! evaluation of the left wave speeds
-   if (p<=p1*(1._R8P + toll)) then
-     ! rarefaction
-     S1 = u1 - a1
-   else
-     ! shock
-     S1 = u1 - a1 * sqrt(1._R8P + (g1 + 1._R8P) / (2._R8P * g1) * (p / p1 - 1._R8P))
-   endif
-   ! evaluation of the right wave speeds
-   if (p<=p4 * (1._R8P + toll)) then
-     ! rarefaction
-     S4 = u4 + a4
-   else
-     ! shock
-     S4 = u4 + a4 * sqrt(1._R8P + (g4 + 1._R8P) / (2._R8P * g4) * ( p / p4 - 1._R8P))
-   endif
-   endsubroutine compute_inter_states
-
-   attributes(device) function fluxes(p, r, u, g) result(Fc)
-   !< 1D Euler fluxes from primitive variables.
-   real(R8P), intent(in) :: p       !< Pressure.
-   real(R8P), intent(in) :: r       !< Density.
-   real(R8P), intent(in) :: u       !< Velocity.
-   real(R8P), intent(in) :: g       !< Specific heats ratio.
-   real(R8P)             :: Fc(1:3) !< State fluxes.
-
-   Fc(1) = r*u
-   Fc(2) = Fc(1)*u + p
-   Fc(3) = Fc(1)*H(p=p, r=r, u=u, g=g)
-   endfunction fluxes
-
-   attributes(device) function p(r, a, g) result(pressure)
-   !< Return pressure for an ideal calorically perfect gas.
-   real(R8P), intent(in) :: r        !< Density.
-   real(R8P), intent(in) :: a        !< Speed of sound.
-   real(R8P), intent(in) :: g        !< Specific heats ratio \(\frac{{c_p}}{{c_v}}\).
-   real(R8P)             :: pressure !< Pressure.
-
-   pressure = r*a*a/g
-   endfunction p
-
-   attributes(device) function r(p, a, g) result(density)
-   !< Return density for an ideal calorically perfect gas.
-   real(R8P), intent(in) :: p       !< Pressure.
-   real(R8P), intent(in) :: a       !< Speed of sound.
-   real(R8P), intent(in) :: g       !< Specific heats ratio \(\frac{{c_p}}{{c_v}}\).
-   real(R8P)             :: density !< Density.
-
-   density = g*p/(a*a)
-   endfunction r
-
-   attributes(device) function a(p, r, g) result(ss)
-   !< Return speed of sound for an ideal calorically perfect gas.
-   real(R8P), intent(in) :: p  !< Pressure.
-   real(R8P), intent(in) :: r  !< Density.
-   real(R8P), intent(in) :: g  !< Specific heats ratio \(\frac{{c_p}}{{c_v}}\).
-   real(R8P)             :: ss !< Speed of sound.
-
-   ss = sqrt(g*p/r)
-   endfunction a
-
-   attributes(device) function a2(p, r, g) result(ss)
-   !< Return square of speed of sound for an ideal calorically perfect gas.
-   real(R8P), intent(in) :: p  !< Pressure.
-   real(R8P), intent(in) :: r  !< Density.
-   real(R8P), intent(in) :: g  !< Specific heats ratio \(\frac{{c_p}}{{c_v}}\).
-   real(R8P)             :: ss !< Speed of sound.
-
-   ss = g*p/r
-   endfunction a2
-
-   attributes(host,device) function E(p, r, u, g) result(energy)
-   !< Return total specific energy (per unit of mass).
-   !<$$
-   !<  E = \frac{p}{{\left( {\g  - 1} \right)\r }} + \frac{{u^2 }}{2}
-   !<$$
-   real(R8P), intent(in) :: p      !< Pressure.
-   real(R8P), intent(in) :: r      !< Density.
-   real(R8P), intent(in) :: u      !< Module of velocity vector.
-   real(R8P), intent(in) :: g      !< Specific heats ratio \(\frac{{c_p}}{{c_v}}\).
-   real(R8P)             :: energy !< Total specific energy (per unit of mass).
-
-   energy = p/((g - 1._R8P) * r) + 0.5_R8P * u*u
-   endfunction E
-
-   attributes(device) function H(p, r, u, g) result(entalpy)
-   !< Return total specific entalpy (per unit of mass).
-   !<$$
-   !<  H = \frac{{\g p}}{{\left( {\g  - 1} \right)\r }} + \frac{{u^2 }}{2}
-   !<$$
-   real(R8P), intent(in) :: g       !< Specific heats ratio \(\frac{{c_p}}{{c_v}}\).
-   real(R8P), intent(in) :: p       !< Pressure.
-   real(R8P), intent(in) :: r       !< Density.
-   real(R8P), intent(in) :: u       !< Module of velocity vector.
-   real(R8P)             :: entalpy !< Total specific entalpy (per unit of mass).
-
-   entalpy = g * p / ((g - 1._R_P) * r) + 0.5_R_P * u*u
-   endfunction H
-
-   attributes(device) function Hv2(p, r, u2, g) result(entalpy)
-   !< Return total specific entalpy (per unit of mass).
-   !<$$
-   !<  H = \frac{{\g p}}{{\left( {\g  - 1} \right)\r }} + \frac{{u^2 }}{2}
-   !<$$
-   real(R8P), intent(in) :: g       !< Specific heats ratio \(\frac{{c_p}}{{c_v}}\).
-   real(R8P), intent(in) :: p       !< Pressure.
-   real(R8P), intent(in) :: r       !< Density.
-   real(R8P), intent(in) :: u2      !< Square of module of velocity vector.
-   real(R8P)             :: entalpy !< Total specific entalpy (per unit of mass).
-
-   entalpy = g * p / ((g - 1._R_P) * r) + 0.5_R_P * u2
-   endfunction Hv2
-
    attributes(device) subroutine fluxes_pm(r, u, v, w, g, p,                              &
                                            fp_rho, fp_rho_u, fp_rho_v, fp_rho_w, fp_rho_E,&
                                            fm_rho, fm_rho_u, fm_rho_v, fm_rho_w, fm_rho_E)
    !< Compute positive and negative fluxes in cell center.
-      ! rho rho u rho v rho w E
    real(R8P), intent(in)  :: r             !< Density.
    real(R8P), intent(in)  :: u             !< Normal velocity.
    real(R8P), intent(in)  :: v             !< First tangential component of velocity.
@@ -1498,11 +1400,85 @@ contains
    endif
    endsubroutine fluxes_pm
 
-   attributes(device) function minmod(x,y) result(res)
-   real(R8P), intent(in), value :: x,y
-   real(R8P)                    :: res
+   attributes(device) function a(p, r, g) result(ss)
+   !< Return speed of sound for an ideal calorically perfect gas.
+   real(R8P), intent(in) :: p  !< Pressure.
+   real(R8P), intent(in) :: r  !< Density.
+   real(R8P), intent(in) :: g  !< Specific heats ratio \(\frac{{c_p}}{{c_v}}\).
+   real(R8P)             :: ss !< Speed of sound.
 
-   res = sign(min(abs(x),abs(y)),x)   ! classico
-   if ((x*y)<=0._R8P) res = 0._R8P
-   endfunction minmod
+   ss = sqrt(g*p/r)
+   endfunction a
+
+   attributes(device) function a2(p, r, g) result(ss)
+   !< Return square of speed of sound for an ideal calorically perfect gas.
+   real(R8P), intent(in) :: p  !< Pressure.
+   real(R8P), intent(in) :: r  !< Density.
+   real(R8P), intent(in) :: g  !< Specific heats ratio \(\frac{{c_p}}{{c_v}}\).
+   real(R8P)             :: ss !< Speed of sound.
+
+   ss = g*p/r
+   endfunction a2
+
+   attributes(host,device) function E(p, r, u, g) result(energy)
+   !< Return total specific energy (per unit of mass).
+   !<$$
+   !<  E = \frac{p}{{\left( {\g  - 1} \right)\r }} + \frac{{u^2 }}{2}
+   !<$$
+   real(R8P), intent(in) :: p      !< Pressure.
+   real(R8P), intent(in) :: r      !< Density.
+   real(R8P), intent(in) :: u      !< Module of velocity vector.
+   real(R8P), intent(in) :: g      !< Specific heats ratio \(\frac{{c_p}}{{c_v}}\).
+   real(R8P)             :: energy !< Total specific energy (per unit of mass).
+
+   energy = p/((g - 1._R8P) * r) + 0.5_R8P * u*u
+   endfunction E
+
+   attributes(device) function H(p, r, u, g) result(entalpy)
+   !< Return total specific entalpy (per unit of mass).
+   !<$$
+   !<  H = \frac{{\g p}}{{\left( {\g  - 1} \right)\r }} + \frac{{u^2 }}{2}
+   !<$$
+   real(R8P), intent(in) :: g       !< Specific heats ratio \(\frac{{c_p}}{{c_v}}\).
+   real(R8P), intent(in) :: p       !< Pressure.
+   real(R8P), intent(in) :: r       !< Density.
+   real(R8P), intent(in) :: u       !< Module of velocity vector.
+   real(R8P)             :: entalpy !< Total specific entalpy (per unit of mass).
+
+   entalpy = g * p / ((g - 1._R_P) * r) + 0.5_R_P * u*u
+   endfunction H
+
+   attributes(device) function Hv2(p, r, u2, g) result(entalpy)
+   !< Return total specific entalpy (per unit of mass).
+   !<$$
+   !<  H = \frac{{\g p}}{{\left( {\g  - 1} \right)\r }} + \frac{{u^2 }}{2}
+   !<$$
+   real(R8P), intent(in) :: g       !< Specific heats ratio \(\frac{{c_p}}{{c_v}}\).
+   real(R8P), intent(in) :: p       !< Pressure.
+   real(R8P), intent(in) :: r       !< Density.
+   real(R8P), intent(in) :: u2      !< Square of module of velocity vector.
+   real(R8P)             :: entalpy !< Total specific entalpy (per unit of mass).
+
+   entalpy = g * p / ((g - 1._R_P) * r) + 0.5_R_P * u2
+   endfunction Hv2
+
+   attributes(device) function p(r, a, g) result(pressure)
+   !< Return pressure for an ideal calorically perfect gas.
+   real(R8P), intent(in) :: r        !< Density.
+   real(R8P), intent(in) :: a        !< Speed of sound.
+   real(R8P), intent(in) :: g        !< Specific heats ratio \(\frac{{c_p}}{{c_v}}\).
+   real(R8P)             :: pressure !< Pressure.
+
+   pressure = r*a*a/g
+   endfunction p
+
+   attributes(device) function r(p, a, g) result(density)
+   !< Return density for an ideal calorically perfect gas.
+   real(R8P), intent(in) :: p       !< Pressure.
+   real(R8P), intent(in) :: a       !< Speed of sound.
+   real(R8P), intent(in) :: g       !< Specific heats ratio \(\frac{{c_p}}{{c_v}}\).
+   real(R8P)             :: density !< Density.
+
+   density = g*p/(a*a)
+   endfunction r
 endmodule adam_equation_euler_gpu_object

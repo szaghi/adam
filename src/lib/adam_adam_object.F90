@@ -209,7 +209,7 @@ contains
                                     code=self%tree%block_code)
    endsubroutine mpi_redistribute
 
-   subroutine save_hdf5(self, basename, q, q_aux, q_name, q_aux_name, directory, with_ghost, with_cell_morton)
+   subroutine save_hdf5(self, basename, q, q_aux, q_name, q_aux_name, directory, with_ghost, with_cell_morton, t, time)
    !< Save ADAM in HDF5 format.
    class(adam_object), intent(inout)        :: self              !< ADAM.
    character(*),       intent(in)           :: basename          !< Base name of output files.
@@ -228,6 +228,8 @@ contains
    character(*),       intent(in), optional :: directory         !< Directory name of output files.
    logical,            intent(in), optional :: with_ghost        !< Flag to save ghost cells.
    logical,            intent(in), optional :: with_cell_morton  !< Flag to save Morton code also in cells.
+   integer(I4P),       intent(in), optional :: t                 !< Time iteration.
+   real(R8P),          intent(in), optional :: time              !< Time.
    character(:), allocatable                :: q_name_(:)        !< Q variables names, local var.
    character(:), allocatable                :: q_aux_name_(:)    !< Q auxiliary variables names, local var.
    character(:), allocatable                :: directory_        !< Directory name of output files, local var.
@@ -391,6 +393,18 @@ contains
                                          trim(str(node%myrank))//'</DataItem>'
          write(xdmf, '(A)') '          </Attribute>'
 
+         if (present(t)) then
+            write(xdmf, '(A)') '          <Attribute Name="t" Center="Grid">'
+            write(xdmf, '(A)') '            <DataItem Dimensions="1" Format="XML" DataType="Int">'//trim(str(t))//'</DataItem>'
+            write(xdmf, '(A)') '          </Attribute>'
+         endif
+
+         if (present(time)) then
+            write(xdmf, '(A)') '          <Attribute Name="time" Center="Grid">'
+            write(xdmf, '(A)') '            <DataItem Dimensions="1" Format="XML" DataType="Float">'//trim(str(time))//'</DataItem>'
+            write(xdmf, '(A)') '          </Attribute>'
+         endif
+
          write(xdmf, '(A)') '        </Grid>'
       enddo
       write(xdmf, '(A)') '      </Grid>'
@@ -402,7 +416,7 @@ contains
    endassociate
    endsubroutine save_hdf5
 
-   subroutine save_vtk(self, basename, q, q_aux, q_name, q_aux_name, directory, with_ghost, with_cell_morton)
+   subroutine save_vtk(self, basename, q, q_aux, q_name, q_aux_name, directory, with_ghost, with_cell_morton, t, time)
    !< Save ADAM in VTK files.
    class(adam_object), intent(inout)        :: self                                          !< ADAM.
    character(*),       intent(in)           :: basename                                      !< Base name of output files.
@@ -421,6 +435,8 @@ contains
    character(*),       intent(in), optional :: q_aux_name(:)                                 !< Q auxiliary variables names.
    logical,            intent(in), optional :: with_ghost                                    !< Flag to save ghost cells.
    logical,            intent(in), optional :: with_cell_morton                              !< Flag to save Morton code in cells.
+   integer(I4P),       intent(in), optional :: t                                             !< Time iteration.
+   real(R8P),          intent(in), optional :: time                                          !< Time.
    character(:), allocatable                :: directory_                                    !< Output directory name, local var.
    character(:), allocatable                :: q_name_(:)                                    !< Variables names, local var.
    character(:), allocatable                :: q_aux_name_(:)                                !< Q auxiliary variables names, l. var.
@@ -470,8 +486,10 @@ contains
                                      mesh_topology='RectilinearGrid',                                          &
                                      nx1=0-ngc, nx2=ni+ngc, ny1=0-ngc, ny2=nj+ngc, nz1=0-ngc, nz2=nk+ngc)
          self%error = vtk%xml_writer%write_fielddata(action='open')
-         self%error = vtk%xml_writer%write_fielddata(data_name='Morton', x=self%field%code(b))
-         self%error = vtk%xml_writer%write_fielddata(data_name='myrank', x=self%myrank)
+                            self%error = vtk%xml_writer%write_fielddata(data_name='Morton', x=self%field%code(b))
+                            self%error = vtk%xml_writer%write_fielddata(data_name='myrank', x=self%myrank)
+         if (present(t))    self%error = vtk%xml_writer%write_fielddata(data_name='t', x=t)
+         if (present(time)) self%error = vtk%xml_writer%write_fielddata(data_name='time', x=time)
          self%error = vtk%xml_writer%write_fielddata(action='close')
          self%error = vtk%xml_writer%write_piece(nx1=0-ngc, nx2=ni+ngc, ny1=0-ngc, ny2=nj+ngc, nz1=0-ngc, nz2=nk+ngc)
          self%error = vtk%xml_writer%write_geo(x=x(0-ngc:ni+ngc), y=y(0-ngc:nj+ngc), z=z(0-ngc:nk+ngc))

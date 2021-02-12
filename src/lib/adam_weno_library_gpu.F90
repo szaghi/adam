@@ -35,8 +35,32 @@ contains
       allocate(weno_d(0:weno_s-1,0:weno_s-1,0:weno_s-1))
    endif
    select case(weno_s)
-   case(2)
-   case(3)
+   case(2) ! 3rd order
+      ! left reconstruction
+      weno_a(1,0) = 1._R_P/3._R_P ! stencil 0
+      weno_a(1,1) = 2._R_P/3._R_P ! stencil 1
+      !  cell  0               ;    cell  1
+      weno_p(1,0,0) =  1.5_R_P ; weno_p(1,1,0) = -0.5_R_P ! stencil 0
+      weno_p(1,0,1) =  0.5_R_P ; weno_p(1,1,1) =  0.5_R_P ! stencil 1
+
+      ! right reconstruction
+      weno_a(2,0) = 2._R_P/3._R_P ! stencil 0
+      weno_a(2,1) = 1._R_P/3._R_P ! stencil 1
+      !  cell  0               ;    cell  1
+      weno_p(2,0,0) =  0.5_R_P ; weno_p(2,1,0) =  0.5_R_P ! stencil 0
+      weno_p(2,0,1) = -0.5_R_P ; weno_p(2,1,1) =  1.5_R_P ! stencil 1
+
+      ! stencil 0
+      !      i*i             ;       (i-1)*i
+      weno_d(0,0,0) = 1._R_P ; weno_d(1,0,0) =-2._R_P
+      !      /               ;       (i-1)*(i-1)
+      weno_d(0,1,0) = 0._R_P ; weno_d(1,1,0) = 1._R_P
+      ! stencil 1
+      !     (i+1)*(i+1)      ;       (i+1)*i
+      weno_d(0,0,1) = 1._R_P ; weno_d(1,0,1) =-2._R_P
+      !      /               ;        i*i
+      weno_d(0,1,1) = 0._R_P ; weno_d(1,1,1) = 1._R_P
+   case(3) ! 5th order
       ! left reconstruction
       weno_a(1,0) = 0.1_R8P ! stencil 0
       weno_a(1,1) = 0.6_R8P ! stencil 1
@@ -75,6 +99,64 @@ contains
       weno_d(0,1,2) =   0._R8P        ; weno_d(1,1,2) =  25._R8P/3._R8P ; weno_d(2,1,2) = -31._R8P/3._R8P
       !      /                        ;        /                        ;        i*i
       weno_d(0,2,2) =   0._R8P        ; weno_d(1,2,2) =   0._R8P        ; weno_d(2,2,2) =  10._R8P/3._R8P
+   case(4) ! 7th order
+      ! left reconstruction
+      weno_a(1,0) =  1._R_P/35._R_P ! stencil 0
+      weno_a(1,1) = 12._R_P/35._R_P ! stencil 1
+      weno_a(1,2) = 18._R_P/35._R_P ! stencil 2
+      weno_a(1,3) =  4._R_P/35._R_P ! stencil 3
+      !  cell  0                   ;   cell  1                    ;   cell  2                   ;   cell  3
+      weno_p(1,0,0)=25._R_P/12._R_P;weno_p(1,1,0)=-23._R_P/12._R_P;weno_p(1,2,0)=13._R_P/12._R_P;weno_p(1,3,0)=-1._R_P/4._R_P ! st 0
+      weno_p(1,0,1)= 1._R_P/4._R_P ;weno_p(1,1,1)= 13._R_P/12._R_P;weno_p(1,2,1)=-5._R_P/12._R_P;weno_p(1,3,1)= 1._R_P/12._R_P! st 1
+      weno_p(1,0,2)=-1._R_P/12._R_P;weno_p(1,1,2)=  7._R_P/12._R_P;weno_p(1,2,2)= 7._R_P/12._R_P;weno_p(1,3,2)=-1._R_P/12._R_P! st 2
+      weno_p(1,0,3)= 1._R_P/12._R_P;weno_p(1,1,3)= -5._R_P/12._R_P;weno_p(1,2,3)=13._R_P/12._R_P;weno_p(1,3,3)= 1._R_P/4._R_P ! st 3
+      ! right reconstruction
+      weno_a(2,0) =  4._R_P/35._R_P ! stencil 0
+      weno_a(2,1) = 18._R_P/35._R_P ! stencil 1
+      weno_a(2,2) = 12._R_P/35._R_P ! stencil 2
+      weno_a(2,3) =  1._R_P/35._R_P ! stencil 3
+      !  cell  0                   ;   cell  1                   ;   cell  2                    ;   cell  3
+      weno_p(2,0,0)= 1._R_P/4._R_P ;weno_p(2,1,0)=13._R_P/12._R_P;weno_p(2,2,0)= -5._R_P/12._R_P;weno_p(2,3,0)= 1._R_P/12._R_P! st 0
+      weno_p(2,0,1)=-1._R_P/12._R_P;weno_p(2,1,1)= 7._R_P/12._R_P;weno_p(2,2,1)=  7._R_P/12._R_P;weno_p(2,3,1)=-1._R_P/12._R_P! st 1
+      weno_p(2,0,2)= 1._R_P/12._R_P;weno_p(2,1,2)=-5._R_P/12._R_P;weno_p(2,2,2)= 13._R_P/12._R_P;weno_p(2,3,2)= 1._R_P/4._R_P ! st 2
+      weno_p(2,0,3)=-1._R_P/4._R_P ;weno_p(2,1,3)=13._R_P/12._R_P;weno_p(2,2,3)=-23._R_P/12._R_P;weno_p(2,3,3)=25._R_P/12._R_P! st 3
+
+      ! stencil 0
+      !      i*i                ;       (i-1)*i             ;       (i-2)*i              ;       (i-3)*i
+      weno_d(0,0,0) = 2107._R_P ; weno_d(1,0,0) =-9402._R_P ; weno_d(2,0,0) = 7042._R_P  ; weno_d(3,0,0) = -1854._R_P
+      !      /                  ;       (i-1)*(i-1)         ;       (i-2)*(i-1)          ;       (i-3)*(i-1)
+      weno_d(0,1,0) =   0._R_P  ; weno_d(1,1,0) =11003._R_P ; weno_d(2,1,0) =-17246._R_P ; weno_d(3,1,0) =  4642._R_P
+      !      /                  ;        /                  ;       (i-2)*(i-2)          ;       (i-3)*(i-2)
+      weno_d(0,2,0) =   0._R_P  ; weno_d(1,2,0) =   0._R_P  ; weno_d(2,2,0) = 7043._R_P  ; weno_d(3,2,0) = -3882._R_P
+      !      /                  ;        /                  ;        /                   ;       (i-3)*(i-3)
+      weno_d(0,3,0) =   0._R_P  ; weno_d(1,3,0) =   0._R_P  ; weno_d(2,3,0) =   0._R_P   ; weno_d(3,3,0) = 547._R_P
+      ! stencil 1
+      !     (i+1)*(i+1)         ;        i*(i+1)            ;       (i-1)*(i+1)          ;       (i-2)*(i+1)
+      weno_d(0,0,1) =  547._R_P ; weno_d(1,0,1) =-2522._R_P ; weno_d(2,0,1) = 1922._R_P  ; weno_d(3,0,1) = -494._R_P
+      !      /                  ;        i*i                ;       (i-1)*i              ;       (i-2)*i
+      weno_d(0,1,1) =   0._R_P  ; weno_d(1,1,1) = 3443._R_P ; weno_d(2,1,1) = -5966._R_P ; weno_d(3,1,1) =  1602._R_P
+      !      /                  ;        /                  ;       (i-1)*(i-1)          ;       (i-2)*(i-1)
+      weno_d(0,2,1) =   0._R_P  ; weno_d(1,2,1) =   0._R_P  ; weno_d(2,2,1) = 2843._R_P  ; weno_d(3,2,1) = -1642._R_P
+      !      /                  ;        /                  ;        /                   ;       (i-2)*(i-2)
+      weno_d(0,3,1) =   0._R_P  ; weno_d(1,3,1) =   0._R_P  ; weno_d(2,3,1) =   0._R_P   ; weno_d(3,3,1) = 267._R_P
+      ! stencil 2
+      !     (i+2)*(i+2)         ;       (i+1)*(i+2)         ;        i*(i+2)             ;       (i-1)*(i+2)
+      weno_d(0,0,2) =  267._R_P ; weno_d(1,0,2) =-1642._R_P ; weno_d(2,0,2) = 1602._R_P  ; weno_d(3,0,2) = -494._R_P
+      !      /                  ;       (i+1)*(i+1)         ;        i*(i+1)             ;       (i-1)*(i+1)
+      weno_d(0,1,2) =   0._R_P  ; weno_d(1,1,2) = 2843._R_P ; weno_d(2,1,2) = -5966._R_P ; weno_d(3,1,2) =  1922._R_P
+      !      /                  ;        /                  ;        i*i                 ;       (i-1)*i
+      weno_d(0,2,2) =   0._R_P  ; weno_d(1,2,2) =   0._R_P  ; weno_d(2,2,2) = 3443._R_P  ; weno_d(3,2,2) = -2522._R_P
+      !      /                  ;        /                  ;        /                   ;       (i-1)*(i-1)
+      weno_d(0,3,2) =   0._R_P  ; weno_d(1,3,2) =   0._R_P  ; weno_d(2,3,2) =   0._R_P   ; weno_d(3,3,2) = 547._R_P
+      ! stencil 3
+      !     (i+3)*(i+3)         ;       (i+2)*(i+3)         ;       (i+1)*(i+3)          ;        i*(i+3)
+      weno_d(0,0,3) =  547._R_P ; weno_d(1,0,3) =-3882._R_P ; weno_d(2,0,3) = 4642._R_P  ; weno_d(3,0,3) = -1854._R_P
+      !      /                  ;       (i+2)*(i+2)         ;       (i+1)*(i+2)          ;        i*(i+2)
+      weno_d(0,1,3) =   0._R_P  ; weno_d(1,1,3) = 7043._R_P ; weno_d(2,1,3) =-17246._R_P ; weno_d(3,1,3) =  7042._R_P
+      !      /                  ;        /                  ;       (i+1)*(i+1)          ;        i*(i+1)
+      weno_d(0,2,3) =   0._R_P  ; weno_d(1,2,3) =   0._R_P  ; weno_d(2,2,3) =11003._R_P  ; weno_d(3,2,3) = -9402._R_P
+      !      /                  ;        /                  ;        /                   ;        i*i
+      weno_d(0,3,3) =   0._R_P  ; weno_d(1,3,3) =   0._R_P  ; weno_d(2,3,3) =   0._R_P   ; weno_d(3,3,3) = 2107._R_P
    endselect
    endsubroutine weno_initialize
 
@@ -118,4 +200,28 @@ contains
       qr = qr + w(s1) * qp(s1)
    enddo
    endsubroutine reconstruct_weno
+
+   attributes(device) subroutine reconstruct_left_tvd2(qm1, q00, qp1, ql)
+   !< Reconstruct left variable with TVD 2 scheme.
+   real(R8P),    intent(in)  :: qm1, q00, qp1 !< Stencil values.
+   real(R8P),    intent(out) :: ql            !< Left reconstruct.
+
+   ql = q00 + 0.5 * minmod(q00 - qm1, qp1 - q00)
+   endsubroutine reconstruct_left_tvd2
+
+   attributes(device) subroutine reconstruct_right_tvd2(qm1, q00, qp1, qr)
+   !< Reconstruct right variable with TVD 2 scheme.
+   real(R8P),    intent(in)  :: qm1, q00, qp1 !< Stencil values.
+   real(R8P),    intent(out) :: qr            !< Right reconstruct.
+
+   qr = q00 - 0.5 * minmod(q00 - qm1, qp1 - q00)
+   endsubroutine reconstruct_right_tvd2
+
+   attributes(device) function minmod(x,y) result(res)
+   real(R8P), intent(in), value :: x,y
+   real(R8P)                    :: res
+
+   res = sign(min(abs(x),abs(y)),x)   ! classico
+   if ((x*y)<=0._R8P) res = 0._R8P
+   endfunction minmod
 endmodule adam_weno_library_gpu
