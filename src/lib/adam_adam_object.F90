@@ -2,15 +2,15 @@
 module adam_adam_object
 !< ADAM, ADAM class definition.
 
-use adam_field_object
-use adam_grid_object
+use adam_field_object, only : field_object
+use adam_grid_object, only : grid_object
 use adam_parameters
-use adam_tree_node_object
-use adam_tree_bucket_object
-use adam_tree_object
+use adam_tree_node_object, only : tree_node_object
+use adam_tree_bucket_object, only : tree_bucket_object
+use adam_tree_object, only : tree_object
 use PENF
-use stringifor
-use vtk_fortran
+use STRINGIFOR
+use VTK_FORTRAN
 use HDF5
 use MPI
 
@@ -520,7 +520,7 @@ contains
          vtm_group_loop : do l=1, max_level
             self%error = vtm%write_block(scratch=l, action='open', name='level-'//trim(str(l,.true.)))
          enddo vtm_group_loop
-         vtm_filenames_loop : do while(self%tree%loop(node=node))
+         vtm_filenames_loop : do while(self%tree%loop(node_ptr=node))
             b = node%block_index
             l = self%tree%level(code=node%code)
             self%error = vtm%write_block(scratch=l, action='write', filename=trim(basename)//                                   &

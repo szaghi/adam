@@ -2,13 +2,13 @@
 module adam_equation_euler_gpu_object
 !< ADAM, Euler equations system class definition, GPU backend.
 
-use adam_adam_object
-use adam_base_gpu_object
-use adam_field_object
-use adam_grid_object
+use adam_adam_object, only : adam_object
+use adam_base_gpu_object, only : base_gpu_object, assign_allocatable_gpu
+use adam_field_object, only : field_object
+use adam_grid_object, only : grid_object
 use adam_parameters
 use adam_weno_library_gpu
-use FiNeR
+use FINER
 use PENF
 use MPI
 use CUDAFOR

@@ -2,8 +2,8 @@
 program adam_euler_gpu
 !< ADAM, ADAM for Euler equation, GPU backend.
 
-use adam_adam_object
-use adam_equation_euler_gpu_object
+use adam_adam_object, only : adam_object
+use adam_equation_euler_gpu_object, only : equation_euler_gpu_object, BC_EXTRAPOLATION, BC_INFLOW
 use adam_parameters
 use FINER, only : file_ini
 use PENF

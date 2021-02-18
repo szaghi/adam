@@ -63,7 +63,7 @@ module adam_field_object
 !<         1    2    3    4    5
 !<```
 
-use adam_grid_object
+use adam_grid_object, only : grid_object
 use adam_parameters
 use PENF
 use MPI

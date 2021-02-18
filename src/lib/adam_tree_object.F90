@@ -127,14 +127,15 @@ module adam_tree_object
 !<  G  = fec-25
 !<  H  = fec-26
 
-use adam_grid_object
+use adam_grid_object, only : grid_object
 use adam_parameters
-use adam_tree_node_object
+use adam_tree_node_object, only : tree_node_object
 use adam_tree_bucket_object, only : tree_bucket_object, iterator_interface
+use FINER
 use FOSSIL
 use MORTIF
 use PENF
-use VecFor
+use VECFOR
 use MPI
 use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
 
@@ -316,7 +317,7 @@ contains
    integer(I8P), allocatable                :: codes(:)       !< List of codes.
    logical                                  :: only_mine_     !< If true return only the nodes of myrank process.
    logical                                  :: sort_by_level_ !< If true sort codes be level instead of position.
-   type(tree_node_object), pointer          :: node           !< Pointer to current node.
+   type(tree_node_object), pointer          :: node_ptr       !< Pointer to current node.
    integer(I8P)                             :: c              !< Counter.
    integer(I8P), allocatable                :: work(:)        !< Working memory for sorting codes list.
 
@@ -324,10 +325,10 @@ contains
    sort_by_level_ = .false. ; if (present(sort_by_level)) sort_by_level_ = sort_by_level
    allocate(codes(self%nodes_number))
    c = 0
-   do while(self%loop(node=node))
-      if (only_mine_.and.self%myrank/=node%myrank) cycle
+   do while(self%loop(node_ptr=node_ptr))
+      if (only_mine_.and.self%myrank/=node_ptr%myrank) cycle
       c = c + 1
-      codes(c) = node%code
+      codes(c) = node_ptr%code
    enddo
    if (c < self%nodes_number) then
       work = codes(1:c)
@@ -420,7 +421,7 @@ contains
    logical,                  intent(in),  optional :: from_cell              !< Distance from cells instead of blocks.
    real(R8P), allocatable,   intent(out), optional :: cell_distance(:,:,:,:) !< Distance from cells.
    logical                                         :: from_cell_             !< Distance from cells instead of blocks, local var.
-   type(tree_node_object), pointer                 :: node                   !< Pointer to current node.
+   type(tree_node_object), pointer                 :: node_ptr               !< Pointer to current node.
    real(R8P)                                       :: block_center(3)        !< block center coordinates.
    real(R8P)                                       :: distance(0:8)          !< Distances between block and sphere.
    integer(I4P)                                    :: i,j,k,l                !< Counter.
@@ -440,19 +441,19 @@ contains
       allocate(x_cell(1-ngc:ni+ngc))
       allocate(y_cell(1-ngc:nj+ngc))
       allocate(z_cell(1-ngc:nk+ngc))
-      do while(self%loop(node=node))
-         if (node%myrank==self%myrank) then
-            if (node%surface_stl_distance<epsilon(0._R8P)) then
+      do while(self%loop(node_ptr=node_ptr))
+         if (node_ptr%myrank==self%myrank) then
+            if (node_ptr%surface_stl_distance<epsilon(0._R8P)) then
                ! compute cell distance only in blocks where is STL surface
-               call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
+               call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
                call self%grid%compute_metrics(coordinates=[i,j,k,l], x_cell=x_cell, y_cell=y_cell, z_cell=z_cell)
                do k=1-ngc, nk+ngc
                   do j=1-ngc, nj+ngc
                      do i=1-ngc, ni+ngc
                         point(0) = x_cell(i) * ex_R8P + y_cell(j) * ey_R8P + z_cell(k) * ez_R8P
-                        cell_distance(i,j,k,node%block_index) = surface_stl%distance(point=point(0),   &
-                                                                                     is_signed=.true., &
-                                                                                     sign_algorithm='ray_intersections')
+                        cell_distance(i,j,k,node_ptr%block_index) = surface_stl%distance(point=point(0),   &
+                                                                                         is_signed=.true., &
+                                                                                         sign_algorithm='ray_intersections')
                      enddo
                   enddo
                enddo
@@ -460,10 +461,10 @@ contains
          endif
       enddo
    else
-      do while(self%loop(node=node))
-         if (node%myrank==self%myrank) then
-            if (node%surface_stl_distance<huge(0._R8P)/2._R8P) cycle ! distance already computed for this node
-            call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
+      do while(self%loop(node_ptr=node_ptr))
+         if (node_ptr%myrank==self%myrank) then
+            if (node_ptr%surface_stl_distance<huge(0._R8P)/2._R8P) cycle ! distance already computed for this node
+            call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
             call self%grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax)
             block_center = (emax + emin) / 2._R8P
             point(0) = block_center(1) * ex_R8P +  block_center(2) * ey_R8P + block_center(3) * ez_R8P
@@ -485,7 +486,7 @@ contains
             distance(7) = surface_stl%distance(point=point(7), is_signed=.true., sign_algorithm='ray_intersections')
             distance(8) = surface_stl%distance(point=point(8), is_signed=.true., sign_algorithm='ray_intersections')
             if (maxval(distance(0:8),dim=1)*minval(distance(0:8),dim=1) < 0._R8P) distance(0) = 0._R8P
-            node%surface_stl_distance = distance(0)
+            node_ptr%surface_stl_distance = distance(0)
          endif
       enddo
    endif
@@ -514,11 +515,11 @@ contains
    call self%compute_surface_stl_distance(surface_stl=self%surface_stl)
    endsubroutine load_surface_stl
 
-   function loop(self, code, node) result(again)
+   function loop(self, code, node_ptr) result(again)
    !< Sentinel while-loop on nodes returning the code (for tree looping).
    class(tree_object),     intent(in)                     :: self      !< The tree bucket.
    integer(I8P),           intent(out), optional          :: code      !< The Morton code.
-   type(tree_node_object), intent(out), optional, pointer :: node      !< Pointer to current node.
+   type(tree_node_object), intent(out), optional, pointer :: node_ptr  !< Pointer to current node.
    logical                                                :: again     !< Sentinel flag to contine the loop.
    integer(I4P), save                                     :: b=1_I4P   !< Bucket counter.
    type(tree_node_object), pointer, save                  :: p=>null() !< Pointer to current node.
@@ -536,13 +537,13 @@ contains
                if (.not.associated(p)) then
                   p => self%bucket(b)%head
                   if (present(code)) code = p%code
-                  if (present(node)) node => p
+                  if (present(node_ptr)) node_ptr => p
                   again = .true.
                   return
                elseif (associated(p%next)) then
                   p => p%next
                   if (present(code)) code = p%code
-                  if (present(node)) node => p
+                  if (present(node_ptr)) node_ptr => p
                   again = .true.
                   return
                else
@@ -634,7 +635,7 @@ contains
    subroutine make_local_maps_bc(self)
    !< Make local maps of boundary conditions.
    class(tree_object), intent(inout) :: self                  !< The tree.
-   type(tree_node_object), pointer   :: node                  !< Pointer to current node.
+   type(tree_node_object), pointer   :: node_ptr              !< Pointer to current node.
    integer(I8P), allocatable         :: neighbor(:)           !< List of code neighbors.
    type(tree_node_object), pointer   :: neigh                 !< Pointer to node neighbor.
    integer(I4P)                      :: neighbor_type         !< Neighbors type.
@@ -653,10 +654,10 @@ contains
    fec_bc_faces_number = 0_I4P
    fec_bc_edges_number = 0_I4P
    fec_bc_corners_number = 0_I4P
-   do while(self%loop(node=node))
-      if (node%myrank==self%myrank) then
+   do while(self%loop(node_ptr=node_ptr))
+      if (node_ptr%myrank==self%myrank) then
          do fec=1, 26
-            call self%get_neighbor_all(code=node%code,              &
+            call self%get_neighbor_all(code=node_ptr%code,          &
                                        face=fec,                    &
                                        neighbor=neighbor,           &
                                        neighbor_type=neighbor_type, &
@@ -676,10 +677,10 @@ contains
       fec_bc_faces_number = 0_I4P
       fec_bc_edges_number = 0_I4P
       fec_bc_corners_number = 0_I4P
-      do while(self%loop(node=node))
-         if (node%myrank==self%myrank) then
+      do while(self%loop(node_ptr=node_ptr))
+         if (node_ptr%myrank==self%myrank) then
             do fec=1, 26
-               call self%get_neighbor_all(code=node%code,              &
+               call self%get_neighbor_all(code=node_ptr%code,          &
                                           face=fec,                    &
                                           neighbor=neighbor,           &
                                           neighbor_type=neighbor_type, &
@@ -708,21 +709,21 @@ contains
                   call compute_ijk_min_max_delta(fec=fec, neighbor_bc_fec=neighbor_bc_fec, ijk_min_max_delta=ijk_min_max_delta)
                   if (fec<=6) then
                      fec_bc_faces_number = fec_bc_faces_number + 1_I4P
-                     self%local_map_bc_face(fec_bc_faces_number,1)    = node%block_index
+                     self%local_map_bc_face(fec_bc_faces_number,1)    = node_ptr%block_index
                      self%local_map_bc_face(fec_bc_faces_number,2)    = neighbor_bc_fec
                      self%local_map_bc_face(fec_bc_faces_number,3:11) = ijk_min_max_delta
                      self%local_map_bc_face(fec_bc_faces_number,12)   = fec_bc_type
                   endif
                   if (fec>=7.and.fec<=18) then
                      fec_bc_edges_number = fec_bc_edges_number + 1_I4P
-                     self%local_map_bc_edge(fec_bc_edges_number,1)    = node%block_index
+                     self%local_map_bc_edge(fec_bc_edges_number,1)    = node_ptr%block_index
                      self%local_map_bc_edge(fec_bc_edges_number,2)    = neighbor_bc_fec
                      self%local_map_bc_edge(fec_bc_edges_number,3:11) = ijk_min_max_delta
                      self%local_map_bc_edge(fec_bc_edges_number,12)   = fec_bc_type
                   endif
                   if (fec>=19) then
                      fec_bc_corners_number = fec_bc_corners_number + 1_I4P
-                     self%local_map_bc_corner(fec_bc_corners_number,1)    = node%block_index
+                     self%local_map_bc_corner(fec_bc_corners_number,1)    = node_ptr%block_index
                      self%local_map_bc_corner(fec_bc_corners_number,2)    = neighbor_bc_fec
                      self%local_map_bc_corner(fec_bc_corners_number,3:11) = ijk_min_max_delta
                      self%local_map_bc_corner(fec_bc_corners_number,12)   = fec_bc_type
@@ -784,12 +785,12 @@ contains
 
    subroutine mark_all_nodes(self, mark)
    !< Mark all nodes to be refined, derefined, ecc.
-   class(tree_object), intent(inout) :: self !< The tree.
-   integer(I4P),       intent(in)    :: mark !< Mark to be imposed [TO_BE_REFINED,...].
-   type(tree_node_object), pointer   :: node !< Pointer to current node.
+   class(tree_object), intent(inout) :: self     !< The tree.
+   integer(I4P),       intent(in)    :: mark     !< Mark to be imposed [TO_BE_REFINED,...].
+   type(tree_node_object), pointer   :: node_ptr !< Pointer to current node.
 
-   do while(self%loop(node=node))
-      node%refinement_needed = mark
+   do while(self%loop(node_ptr=node_ptr))
+      node_ptr%refinement_needed = mark
    enddo
    endsubroutine mark_all_nodes
 
@@ -800,17 +801,17 @@ contains
    real(R8P),          intent(in)           :: radius           !< Sphere radius.
    real(R8P),          intent(in), optional :: threshold        !< Threshold for sphere proximity.
    real(R8P)                                :: threshold_       !< Threshold for sphere proximity, local var.
-   type(tree_node_object), pointer          :: node             !< Pointer to current node.
+   type(tree_node_object), pointer          :: node_ptr         !< Pointer to current node.
    real(R8P)                                :: block_center(3)  !< block center coordinates.
    real(R8P)                                :: block_diagonal   !< block diagonal.
    real(R8P)                                :: distance(0:8)    !< Distances between block and sphere.
-   real(R8P)                                :: max_cell_delta   !< Max cell delta.
+   real(R8P)                                :: max_delta        !< Max cell delta.
    integer(I4P)                             :: i,j,k,l          !< Counter.
    real(R8P)                                :: emin(3), emax(3) !< Node extents.
 
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
-   do while(self%loop(node=node))
-      call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
+   do while(self%loop(node_ptr=node_ptr))
+      call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
       call self%grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax)
       block_center = (emax + emin) / 2._R8P
       block_diagonal = sqrt((emax(1) - emin(1))**2 + &
@@ -831,12 +832,12 @@ contains
          distance(0) = 0._R8P
       endif
 
-      max_cell_delta = self%max_cell_delta(distance=distance(0))
+      max_delta = self%max_cell_delta(distance=distance(0))
 
-      if (block_diagonal/min(ni,nj,nk) > max_cell_delta) then
-         node%refinement_needed = TO_BE_REFINED
-      elseif (block_diagonal/min(ni,nj,nk) * threshold_ < max_cell_delta) then
-         node%refinement_needed = TO_BE_DEREFINED
+      if (block_diagonal/min(ni,nj,nk) > max_delta) then
+         node_ptr%refinement_needed = TO_BE_REFINED
+      elseif (block_diagonal/min(ni,nj,nk) * threshold_ < max_delta) then
+         node_ptr%refinement_needed = TO_BE_DEREFINED
       endif
       endassociate
    enddo
@@ -858,26 +859,26 @@ contains
    type(surface_stl_object), intent(in)           :: surface_stl      !< STL surface.
    real(R8P),                intent(in), optional :: threshold        !< Threshold for sphere proximity.
    real(R8P)                                      :: threshold_       !< Threshold for sphere proximity, local var.
-   type(tree_node_object), pointer                :: node             !< Pointer to current node.
+   type(tree_node_object), pointer                :: node_ptr         !< Pointer to current node.
    real(R8P)                                      :: block_diagonal   !< block diagonal.
-   real(R8P)                                      :: max_cell_delta   !< Max cell delta.
+   real(R8P)                                      :: max_delta        !< Max cell delta.
    integer(I4P)                                   :: i,j,k,l          !< Counter.
    real(R8P)                                      :: emin(3), emax(3) !< Node extents.
 
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
-   do while(self%loop(node=node))
-      if (node%myrank==self%myrank) then
-         call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
+   do while(self%loop(node_ptr=node_ptr))
+      if (node_ptr%myrank==self%myrank) then
+         call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
          call self%grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax)
          block_diagonal = sqrt((emax(1) - emin(1))**2 + &
                                (emax(2) - emin(2))**2 + &
                                (emax(3) - emin(3))**2)
          associate (ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
-            max_cell_delta = self%max_cell_delta(distance=node%surface_stl_distance)
-            if (block_diagonal/min(ni,nj,nk) > max_cell_delta) then
-               node%refinement_needed = TO_BE_REFINED
-            elseif (block_diagonal/min(ni,nj,nk) * threshold_ < max_cell_delta) then
-               node%refinement_needed = TO_BE_DEREFINED
+            max_delta = self%max_cell_delta(distance=node_ptr%surface_stl_distance)
+            if (block_diagonal/min(ni,nj,nk) > max_delta) then
+               node_ptr%refinement_needed = TO_BE_REFINED
+            elseif (block_diagonal/min(ni,nj,nk) * threshold_ < max_delta) then
+               node_ptr%refinement_needed = TO_BE_DEREFINED
             endif
          endassociate
       endif
@@ -940,17 +941,17 @@ contains
    integer(I8P),       intent(in)           :: nodes_number !< Nodes number to be stored in the tree.
    real(R8P),          intent(in), optional :: max_load     !< Maximum load of tree buckets.
    type(tree_object)                        :: swap         !< Temporary (swap) tree.
-   type(tree_node_object), pointer          :: node         !< Pointer to node.
+   type(tree_node_object), pointer          :: node_ptr     !< Pointer to node.
 
    if (self%is_initialized_) then
       if (present(max_load)) self%max_load = max_load
       if (self%nodes_number > int((1._R8P/self%max_load)*nodes_number, I4P)) return ! new size too small, cannot previous nodes
       call swap%initialize(grid=self%grid, max_load=self%max_load, nodes_number=nodes_number, ratio=self%ratio, add_adam=.false.)
-      do while(self%loop(node=node)) ! re-hash all codes
-         call swap%add_node(code=node%code,                           &
-                            refinement_needed=node%refinement_needed, &
-                            myrank=node%myrank,                       &
-                            block_index=node%block_index)
+      do while(self%loop(node_ptr=node_ptr)) ! re-hash all codes
+         call swap%add_node(code=node_ptr%code,                           &
+                            refinement_needed=node_ptr%refinement_needed, &
+                            myrank=node_ptr%myrank,                       &
+                            block_index=node_ptr%block_index)
       enddo
       call move_alloc(from=swap%bucket, to=self%bucket)
       self%buckets_number = swap%buckets_number
@@ -978,7 +979,7 @@ contains
    subroutine blocks_reorder(self)
    !< Reorder blocks indexes in field.
    class(tree_object), intent(inout) :: self                !< The tree.
-   type(tree_node_object), pointer   :: node                !< Pointer to current node.
+   type(tree_node_object), pointer   :: node_ptr            !< Pointer to current node.
    integer(I4P)                      :: outer_blocks_number !< Number of outer blocks where I need fecs.
    integer(I4P)                      :: inner_blocks_number !< Number of inner blocks where I need fecs.
    logical                           :: is_inner_block      !< Flag to check if a neighbor block is inner or not.
@@ -995,11 +996,11 @@ contains
    allocate(outer_block_map(self%my_nodes_number))
    if (allocated(self%inner_outer_block_map)) deallocate(self%inner_outer_block_map)
    allocate(self%inner_outer_block_map(self%my_nodes_number))
-   do while(self%loop(node=node))
-      if (self%myrank == node%myrank) then
+   do while(self%loop(node_ptr=node_ptr))
+      if (self%myrank == node_ptr%myrank) then
          is_inner_block = .true.
          do fec=1, 26
-            call self%get_neighbor_all(code=node%code, face=fec, neighbor=neighbor, neighbor_type=neighbor_type)
+            call self%get_neighbor_all(code=node_ptr%code, face=fec, neighbor=neighbor, neighbor_type=neighbor_type)
             if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
                do n=1, size(neighbor, dim=1)
                   neigh => self%node(code=neighbor(n))
@@ -1009,24 +1010,24 @@ contains
          enddo
          if (is_inner_block) then
             inner_blocks_number = inner_blocks_number + 1
-            inner_block_map(inner_blocks_number) = node%block_index
-            node%block_index_new = inner_blocks_number
+            inner_block_map(inner_blocks_number) = node_ptr%block_index
+            node_ptr%block_index_new = inner_blocks_number
          else
             outer_blocks_number = outer_blocks_number + 1
-            outer_block_map(outer_blocks_number) = node%block_index
-            node%block_index_new = -outer_blocks_number
+            outer_block_map(outer_blocks_number) = node_ptr%block_index
+            node_ptr%block_index_new = -outer_blocks_number
          endif
       endif
    enddo
    self%inner_blocks_number = inner_blocks_number
    self%inner_outer_block_map(1:inner_blocks_number ) = inner_block_map(1:inner_blocks_number)
    self%inner_outer_block_map(inner_blocks_number+1:) = outer_block_map(1:outer_blocks_number)
-   do while(self%loop(node=node))
-      if (self%myrank == node%myrank) then
-         if (node%block_index_new < 0) then
-            node%block_index = -node%block_index_new + inner_blocks_number
+   do while(self%loop(node_ptr=node_ptr))
+      if (self%myrank == node_ptr%myrank) then
+         if (node_ptr%block_index_new < 0) then
+            node_ptr%block_index = -node_ptr%block_index_new + inner_blocks_number
          else
-            node%block_index =  node%block_index_new
+            node_ptr%block_index =  node_ptr%block_index_new
          endif
       endif
    enddo
@@ -1038,14 +1039,14 @@ contains
    class(tree_object),        intent(inout) :: self                      !< The tree.
    integer(I4P), allocatable, intent(in)    :: refinements_needed_all(:) !< Refinements needed of all blocks.
    integer(I4P), allocatable, intent(in)    :: disp_count(:)             !< Displacement of blocks that are received from process.
-   type(tree_node_object), pointer          :: node                      !< Pointer to current node.
+   type(tree_node_object), pointer          :: node_ptr                  !< Pointer to current node.
    integer(I8P)                             :: b                         !< Counter.
    integer(I4P)                             :: myrank                    !< Counter.
 
-   do while(self%loop(node=node))
-      myrank = node%myrank
-      b = node%block_index
-      node%refinement_needed = refinements_needed_all(disp_count(myrank)+b)
+   do while(self%loop(node_ptr=node_ptr))
+      myrank = node_ptr%myrank
+      b = node_ptr%block_index
+      node_ptr%refinement_needed = refinements_needed_all(disp_count(myrank)+b)
    enddo
    endsubroutine import_refinements_needed
 
@@ -1058,7 +1059,7 @@ contains
    !<                         |       |  ||          |       |
    !<   comm_map_recv_prt = [ 0,  2,  3,  3,  6, 8, (9)]         (pointer to comm_map_recv)```
    class(tree_object), intent(inout) :: self                 !< The tree.
-   type(tree_node_object), pointer   :: node                 !< Pointer to current node.
+   type(tree_node_object), pointer   :: node_ptr             !< Pointer to current node.
    integer(I8P), allocatable         :: codes_sorted(:)      !< List of (sorted) codes.
    integer(I4P), allocatable         :: comm_map_send_ctr(:) !< Communication map, counters in list to send [procs_number+1].
    integer(I4P), allocatable         :: comm_map_recv_ctr(:) !< Communication map, counters in list to recv [procs_number+1].
@@ -1078,14 +1079,14 @@ contains
 
    ! compute the number of blocks to send/receive
    my_nodes_number = 0_I8P
-   do while(self%loop(node=node))
-      if (node%myrank==self%myrank) my_nodes_number = my_nodes_number + 1_I8P
-      if     (is_node_to_send(n=node)) then
-         ! I have this node that must be sent to node%myrank_new
-         self%comm_map_n_send(node%myrank_new) = self%comm_map_n_send(node%myrank_new) + 1
-      elseif (is_node_to_receive(n=node)) then
-         ! node%rank has this node that must be sent to me
-         self%comm_map_n_recv(node%myrank) = self%comm_map_n_recv(node%myrank) + 1
+   do while(self%loop(node_ptr=node_ptr))
+      if (node_ptr%myrank==self%myrank) my_nodes_number = my_nodes_number + 1_I8P
+      if     (is_node_to_send(n=node_ptr)) then
+         ! I have this node that must be sent to node_ptr%myrank_new
+         self%comm_map_n_send(node_ptr%myrank_new) = self%comm_map_n_send(node_ptr%myrank_new) + 1
+      elseif (is_node_to_receive(n=node_ptr)) then
+         ! node_ptr%rank has this node that must be sent to me
+         self%comm_map_n_recv(node_ptr%myrank) = self%comm_map_n_recv(node_ptr%myrank) + 1
       endif
    enddo
    n_send = sum(self%comm_map_n_send, dim=1)
@@ -1119,20 +1120,20 @@ contains
    ! send map
    if (n_send>0_I4P) then
       do c=1, size(codes_sorted, dim=1) ! sort blocks in Morton order
-         node => self%node(code=codes_sorted(c))
-         if (is_node_to_send(n=node)) then
-            self%comm_map_send(comm_map_send_ctr(node%myrank_new)+1) = node%block_index
-            comm_map_send_ctr(node%myrank_new) = comm_map_send_ctr(node%myrank_new) + 1
+         node_ptr => self%node(code=codes_sorted(c))
+         if (is_node_to_send(n=node_ptr)) then
+            self%comm_map_send(comm_map_send_ctr(node_ptr%myrank_new)+1) = node_ptr%block_index
+            comm_map_send_ctr(node_ptr%myrank_new) = comm_map_send_ctr(node_ptr%myrank_new) + 1
          endif
       enddo
    endif
    ! receive map
    if (n_recv>0_I4P) then
       do c=1, size(codes_sorted, dim=1) ! sort blocks in Morton order
-         node => self%node(code=codes_sorted(c))
-         if (is_node_to_receive(n=node)) then
-            self%comm_map_recv(comm_map_recv_ctr(node%myrank)+1) = node%block_index_new
-            comm_map_recv_ctr(node%myrank) = comm_map_recv_ctr(node%myrank) + 1
+         node_ptr => self%node(code=codes_sorted(c))
+         if (is_node_to_receive(n=node_ptr)) then
+            self%comm_map_recv(comm_map_recv_ctr(node_ptr%myrank)+1) = node_ptr%block_index_new
+            comm_map_recv_ctr(node_ptr%myrank) = comm_map_recv_ctr(node_ptr%myrank) + 1
          endif
       enddo
    endif
@@ -1140,11 +1141,11 @@ contains
    if (n_keep > 0_I4P) then
       l = 0
       do c=1, size(codes_sorted, dim=1) ! sort blocks in Morton order
-         node => self%node(code=codes_sorted(c))
-         if (is_node_to_keep(n=node)) then
+         node_ptr => self%node(code=codes_sorted(c))
+         if (is_node_to_keep(n=node_ptr)) then
             l = l + 1
-            self%local_map(l,1) = node%block_index_new
-            self%local_map(l,2) = node%block_index
+            self%local_map(l,1) = node_ptr%block_index_new
+            self%local_map(l,2) = node_ptr%block_index
          endif
       enddo
    endif
@@ -1177,7 +1178,7 @@ contains
    subroutine make_comm_local_maps_ghost(self)
    !< Make communication/local maps of ghost cells.
    class(tree_object), intent(inout) :: self                       !< The tree.
-   type(tree_node_object), pointer   :: node                       !< Pointer to current node.
+   type(tree_node_object), pointer   :: node_ptr                   !< Pointer to current node.
    integer(I8P), allocatable         :: neighbor(:)                !< List of code neighbors.
    type(tree_node_object), pointer   :: neigh                      !< Pointer to node neighbor.
    integer(I4P)                      :: neighbor_type              !< Neighbors type.
@@ -1198,16 +1199,16 @@ contains
    send_fec_number = 0
    self%comm_map_n_recv_ghost = 0
    self%comm_map_n_send_ghost = 0
-   do while(self%loop(node=node))
+   do while(self%loop(node_ptr=node_ptr))
       do fec=1, 26
          weight_reduction = 2 ** count(fec_to_delta(:, fec)==0_I4P, dim=1)
-         call self%get_neighbor_all(code=node%code, face=fec, neighbor=neighbor, neighbor_type=neighbor_type)
+         call self%get_neighbor_all(code=node_ptr%code, face=fec, neighbor=neighbor, neighbor_type=neighbor_type)
          if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
             do n=1, size(neighbor, dim=1)
                neigh => self%node(code=neighbor(n))
-               if     ((self%myrank == neigh%myrank).and.(self%myrank == node%myrank)) then
+               if     ((self%myrank == neigh%myrank).and.(self%myrank == node_ptr%myrank)) then
                   my_fec_number = my_fec_number + 1
-               elseif ((self%myrank /= neigh%myrank).and.(self%myrank == node%myrank)) then
+               elseif ((self%myrank /= neigh%myrank).and.(self%myrank == node_ptr%myrank)) then
                   ! when receiving from same or less refined than me the size of the message is full, when receiving from
                   ! more refined the message is an averaged portion (reduced size)
                   recv_fec_number = recv_fec_number + 1
@@ -1218,16 +1219,16 @@ contains
                      self%comm_map_n_recv_ghost(neigh%myrank) = self%comm_map_n_recv_ghost(neigh%myrank) + &
                                                                 self%grid%weight_neighbor(fec)
                   endif
-               elseif ((self%myrank == neigh%myrank).and.(self%myrank /= node%myrank)) then
+               elseif ((self%myrank == neigh%myrank).and.(self%myrank /= node_ptr%myrank)) then
                   ! when sending to same or more refined than me the size of the message is full, when sending to less
                   ! refined the message is an averaged portion (reduced size)
                   send_fec_number = send_fec_number + 1
                   if (neighbor_type==NODE_MORE_REFINED) then
-                     self%comm_map_n_send_ghost(node%myrank) = self%comm_map_n_send_ghost(node%myrank) + &
-                                                               self%grid%weight_neighbor(fec)/ weight_reduction
+                     self%comm_map_n_send_ghost(node_ptr%myrank) = self%comm_map_n_send_ghost(node_ptr%myrank) + &
+                                                                   self%grid%weight_neighbor(fec)/ weight_reduction
                   else
-                     self%comm_map_n_send_ghost(node%myrank) = self%comm_map_n_send_ghost(node%myrank) + &
-                                                               self%grid%weight_neighbor(fec)
+                     self%comm_map_n_send_ghost(node_ptr%myrank) = self%comm_map_n_send_ghost(node_ptr%myrank) + &
+                                                                   self%grid%weight_neighbor(fec)
                   endif
                endif
             enddo
@@ -1251,17 +1252,17 @@ contains
    sf = 0
    rf = 0
    mf = 0
-   do while(self%loop(node=node))
+   do while(self%loop(node_ptr=node_ptr))
       do fec=1, 26
          weight_reduction = 2 ** count(fec_to_delta(:, fec)==0_I4P, dim=1)
-         call self%get_neighbor_all(code=node%code, face=fec, neighbor=neighbor, &
+         call self%get_neighbor_all(code=node_ptr%code, face=fec, neighbor=neighbor, &
                                     neighbor_type=neighbor_type, neighbor_portion=neighbor_portion)
          if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
             do n=1, size(neighbor, dim=1)
                neigh => self%node(code=neighbor(n))
-               if     ((self%myrank == neigh%myrank).and.(self%myrank == node%myrank)) then
+               if     ((self%myrank == neigh%myrank).and.(self%myrank == node_ptr%myrank)) then
                   mf = mf + 1
-                  self%local_map_ghost(mf, 1) = node%block_index
+                  self%local_map_ghost(mf, 1) = node_ptr%block_index
                   self%local_map_ghost(mf, 2) = neigh%block_index
                   self%local_map_ghost(mf, 3) = fec
                   if     (neighbor_type==NODE_STANDARD) then
@@ -1273,10 +1274,10 @@ contains
                   endif
                   call compute_ijk_min_max_delta(fec=fec, portion=self%local_map_ghost(mf, 4), &
                                                  ijk_min_max_delta=self%local_map_ghost(mf, 5:))
-               elseif ((self%myrank /= neigh%myrank).and.(self%myrank == node%myrank)) then
+               elseif ((self%myrank /= neigh%myrank).and.(self%myrank == node_ptr%myrank)) then
                   rf = rf + 1
                   self%comm_map_recv_ghost(rf, 15) = comm_map_recv_ctr_ghost(neigh%myrank)
-                  self%comm_map_recv_ghost(rf, 1) = node%block_index
+                  self%comm_map_recv_ghost(rf, 1) = node_ptr%block_index
                   self%comm_map_recv_ghost(rf, 2) = neigh%block_index
                   self%comm_map_recv_ghost(rf, 3) = neigh%myrank
                   self%comm_map_recv_ghost(rf, 4) = fec
@@ -1295,25 +1296,25 @@ contains
                   endif
                   call compute_ijk_min_max_delta(fec=fec, portion=self%comm_map_recv_ghost(rf, 5), &
                                                  ijk_min_max_delta=self%comm_map_recv_ghost(rf, 6:))
-               elseif ((self%myrank == neigh%myrank).and.(self%myrank /= node%myrank)) then
+               elseif ((self%myrank == neigh%myrank).and.(self%myrank /= node_ptr%myrank)) then
                   sf = sf + 1
-                  self%comm_map_send_ghost(sf, 15) = comm_map_send_ctr_ghost(node%myrank)
-                  self%comm_map_send_ghost(sf, 1) = node%block_index
+                  self%comm_map_send_ghost(sf, 15) = comm_map_send_ctr_ghost(node_ptr%myrank)
+                  self%comm_map_send_ghost(sf, 1) = node_ptr%block_index
                   self%comm_map_send_ghost(sf, 2) = neigh%block_index
-                  self%comm_map_send_ghost(sf, 3) = node%myrank
+                  self%comm_map_send_ghost(sf, 3) = node_ptr%myrank
                   self%comm_map_send_ghost(sf, 4) = fec
                   if     (neighbor_type==NODE_STANDARD) then
                      self%comm_map_send_ghost(sf, 5) = 0
-                     comm_map_send_ctr_ghost(node%myrank) = comm_map_send_ctr_ghost(node%myrank) + &
-                                                            self%grid%weight_neighbor(fec)
+                     comm_map_send_ctr_ghost(node_ptr%myrank) = comm_map_send_ctr_ghost(node_ptr%myrank) + &
+                                                                self%grid%weight_neighbor(fec)
                   elseif (neighbor_type==NODE_MORE_REFINED) then
                      self%comm_map_send_ghost(sf, 5) = n
-                     comm_map_send_ctr_ghost(node%myrank) = comm_map_send_ctr_ghost(node%myrank) + &
-                                                            self%grid%weight_neighbor(fec) / weight_reduction
+                     comm_map_send_ctr_ghost(node_ptr%myrank) = comm_map_send_ctr_ghost(node_ptr%myrank) + &
+                                                                self%grid%weight_neighbor(fec) / weight_reduction
                   elseif (neighbor_type==NODE_LESS_REFINED) then
                      self%comm_map_send_ghost(sf, 5) = -neighbor_portion
-                     comm_map_send_ctr_ghost(node%myrank) = comm_map_send_ctr_ghost(node%myrank) + &
-                                                            self%grid%weight_neighbor(fec)
+                     comm_map_send_ctr_ghost(node_ptr%myrank) = comm_map_send_ctr_ghost(node_ptr%myrank) + &
+                                                                self%grid%weight_neighbor(fec)
                   endif
                   call compute_ijk_min_max_delta(fec=fec, portion=self%comm_map_send_ghost(sf, 5), &
                                                  ijk_min_max_delta=self%comm_map_send_ghost(sf, 6:))
@@ -1407,7 +1408,7 @@ contains
    !< Gather nodes data status between MPI processes.
    class(tree_object), intent(inout) :: self           !< The tree.
    character(*),       intent(in)    :: node_member    !< Node member to be shared.
-   type(tree_node_object), pointer   :: node           !< Pointer to current node.
+   type(tree_node_object), pointer   :: node_ptr       !< Pointer to current node.
    integer(I8P), allocatable         :: send_buffer(:) !< Send buffer nodes data.
    integer(I8P), allocatable         :: recv_buffer(:) !< Recv buffer nodes data.
    integer(I4P), allocatable         :: recv_count(:)  !< Number of nodes that are received from each process.
@@ -1421,17 +1422,17 @@ contains
    ! populating receive counters and send buffer
    recv_count = 0_I4P
    n = 0_I8P
-   do while(self%loop(node=node))
-      recv_count(node%myrank) = recv_count(node%myrank) + 2
-      if (self%myrank == node%myrank) then
+   do while(self%loop(node_ptr=node_ptr))
+      recv_count(node_ptr%myrank) = recv_count(node_ptr%myrank) + 2
+      if (self%myrank == node_ptr%myrank) then
          n = n + 1
-         send_buffer(n) = node%code
+         send_buffer(n) = node_ptr%code
          n = n + 1
          select case(trim(node_member))
          case('refinement_needed')
-            send_buffer(n) = node%refinement_needed
+            send_buffer(n) = node_ptr%refinement_needed
          case('block_index')
-            send_buffer(n) = node%block_index
+            send_buffer(n) = node_ptr%block_index
          endselect
       endif
    enddo
@@ -1446,12 +1447,12 @@ contains
 
    ! update nodes data
    do n=1, self%nodes_number*2, 2
-      node => self%node(code=recv_buffer(n))
+      node_ptr => self%node(code=recv_buffer(n))
       select case(trim(node_member))
       case('refinement_needed')
-         node%refinement_needed = int(recv_buffer(n+1), I4P)
+         node_ptr%refinement_needed = int(recv_buffer(n+1), I4P)
       case('block_index')
-         node%block_index = recv_buffer(n+1)
+         node_ptr%block_index = recv_buffer(n+1)
       endselect
    enddo
    endsubroutine mpi_gather_nodes_data
@@ -1491,14 +1492,14 @@ contains
    !< if it falls in the second half.
    class(tree_object), intent(inout) :: self             !< The tree.
    integer(I8P), allocatable         :: codes_sorted(:)  !< List of (sorted) codes.
-   type(tree_node_object), pointer   :: node             !< Pointer to current node.
+   type(tree_node_object), pointer   :: node_ptr         !< Pointer to current node.
    integer(I4P)                      :: p                !< Processes counter.
    integer(I4P)                      :: cl               !< Local child counter.
    integer(I8P)                      :: c                !< Codes counter.
    integer(I4P)                      :: i, j, k, l       !< Coordinates.
    integer(I8P)                      :: block_index_new  !< New block index counter.
    integer(I8P)                      :: my_codes_number  !< Number of codes for each process for a balanced workload.
-   integer(I4P)                      :: child_local      !< Local numbering.
+   integer(I4P)                      :: child_local_code !< Local numbering.
    integer(I8P)                      :: n_keep           !< Number of keept nodes.
    integer(I8P)                      :: n_recv           !< Number of nodes that I have to receive.
 
@@ -1515,19 +1516,19 @@ contains
             ! I am lucky, the split does not separate siblings
             p = p + 1_I4P
             block_index_new = 1_I8P
-            node => self%node(code=codes_sorted(c))
-            node%myrank_new = p
-            node%block_index_new = block_index_new
+            node_ptr => self%node(code=codes_sorted(c))
+            node_ptr%myrank_new = p
+            node_ptr%block_index_new = block_index_new
          else
             ! I am not lucky, the split would separate siblings
-            child_local = self%child_local(code=codes_sorted(c))
-            if (child_local > self%ratio/2 -1) then
+            child_local_code = self%child_local(code=codes_sorted(c))
+            if (child_local_code > self%ratio/2 -1) then
                ! the split falls in the second half of siblings list, place all nodes in the current process
-               do cl=child_local, self%ratio-1
+               do cl=child_local_code, self%ratio-1
                   block_index_new = block_index_new + 1
-                  node => self%node(code=codes_sorted(c+cl-child_local))
-                  node%myrank_new = p
-                  node%block_index_new = block_index_new
+                  node_ptr => self%node(code=codes_sorted(c+cl-child_local_code))
+                  node_ptr%myrank_new = p
+                  node_ptr%block_index_new = block_index_new
                enddo
             else
                ! the split falls in the first half of siblings list, place all nodes in the next process
@@ -1535,19 +1536,19 @@ contains
                block_index_new = 0_I8P
                do cl=0, self%ratio-1
                   block_index_new = block_index_new + 1
-                  node => self%node(code=codes_sorted(c+cl-child_local))
-                  node%myrank_new = p
-                  node%block_index_new = block_index_new
+                  node_ptr => self%node(code=codes_sorted(c+cl-child_local_code))
+                  node_ptr%myrank_new = p
+                  node_ptr%block_index_new = block_index_new
                enddo
             endif
             ! update codes counter skipping all current siblings
-            c = c + self%ratio - 1 - child_local
+            c = c + self%ratio - 1 - child_local_code
          endif
       else ! no split, keeping to place nodes in the current process
          block_index_new = block_index_new + 1
-         node => self%node(code=codes_sorted(c))
-         node%myrank_new = p
-         node%block_index_new = block_index_new
+         node_ptr => self%node(code=codes_sorted(c))
+         node_ptr%myrank_new = p
+         node_ptr%block_index_new = block_index_new
       endif
       c = c + 1
    enddo
@@ -1559,21 +1560,21 @@ contains
    n_recv = 0_I8P ; if (allocated(self%comm_map_recv)) n_recv = size(self%comm_map_recv, dim=1)
    if (allocated(self%block_coordinates)) deallocate(self%block_coordinates) ; allocate(self%block_coordinates(4, n_keep + n_recv))
    if (allocated(self%block_code)) deallocate(self%block_code) ; allocate(self%block_code(n_keep + n_recv))
-   do while(self%loop(node=node))
-      node%myrank = node%myrank_new
-      node%block_index = node%block_index_new
-      if (node%myrank == self%myrank) then
+   do while(self%loop(node_ptr=node_ptr))
+      node_ptr%myrank = node_ptr%myrank_new
+      node_ptr%block_index = node_ptr%block_index_new
+      if (node_ptr%myrank == self%myrank) then
          select case(self%ratio)
          case(4_I4P)
-            call self%morton_to_coordinates(code=node%code, i=i, j=j, l=l)
+            call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, l=l)
          case(8_I4P)
-            call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
+            call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
          endselect
-         self%block_coordinates(1, node%block_index) = i
-         self%block_coordinates(2, node%block_index) = j
-         self%block_coordinates(3, node%block_index) = k
-         self%block_coordinates(4, node%block_index) = l
-         self%block_code(node%block_index) = node%code
+         self%block_coordinates(1, node_ptr%block_index) = i
+         self%block_coordinates(2, node_ptr%block_index) = j
+         self%block_coordinates(3, node_ptr%block_index) = k
+         self%block_coordinates(4, node_ptr%block_index) = l
+         self%block_code(node_ptr%block_index) = node_ptr%code
       endif
    enddo
 
@@ -2298,62 +2299,62 @@ contains
                                   parents,     &
                                   path,        &
                                   child,       &
-                                  child_local, &
+                                  child_local_code, &
                                   finest,      &
                                   siblings,    &
                                   neighbor,    &
                                   block_index, &
                                   whole)
    !< Print all code topology data.
-   class(tree_object), intent(in)           :: self          !< The tree.
-   integer(I8P),       intent(in)           :: code          !< Morton code.
-   logical,            intent(in), optional :: coordinates   !< Coordinates.
-   logical,            intent(in), optional :: level         !< Level of node.
-   logical,            intent(in), optional :: parent        !< Parent of code.
-   logical,            intent(in), optional :: parents       !< Parents list.
-   logical,            intent(in), optional :: path          !< Path from node to parent of first level.
-   logical,            intent(in), optional :: child         !< (First) Child of code.
-   logical,            intent(in), optional :: child_local   !< Local child-numbering of code.
-   logical,            intent(in), optional :: finest        !< Finest Morton code.
-   logical,            intent(in), optional :: siblings      !< Siblings of code.
-   logical,            intent(in), optional :: neighbor      !< Neighbor of code.
-   logical,            intent(in), optional :: block_index   !< Block index in the field array.
-   logical,            intent(in), optional :: whole         !< Whole topology data.
-   logical                                  :: coordinates_  !< Coordinates, local var.
-   logical                                  :: level_        !< Level of node, local var.
-   logical                                  :: parent_       !< Parent of code, local var.
-   logical                                  :: child_        !< (First) Child of code, local var.
-   logical                                  :: child_local_  !< Local child-numbering of code, local var.
-   logical                                  :: finest_       !< Finest Morton code, local var.
-   logical                                  :: siblings_     !< Siblings of code, local var.
-   logical                                  :: path_         !< Path from node to parent of first level, local var.
-   logical                                  :: parents_      !< Parents list, local var.
-   logical                                  :: neighbor_     !< Neighbor of code, local var.
-   logical                                  :: block_index_  !< Block index in the field array.
-   logical                                  :: whole_        !< Whole topology data, local var.
-   character(:), allocatable                :: topology      !< Topology string.
-   character(:), allocatable                :: parents_str   !< Parents string list.
-   character(:), allocatable                :: neighbors_str !< Neighbors string.
-   integer(I8P), allocatable                :: neighbors(:)  !< Neighbor of code.
-   integer(I4P)                             :: neighbor_type !< Type of neighbor.
-   type(tree_node_object), pointer          :: node          !< Node pointer.
-   integer(I4P)                             :: f             !< Counter.
-   integer(I4P)                             :: i, j, k, l    !< Counter.
+   class(tree_object), intent(in)           :: self             !< The tree.
+   integer(I8P),       intent(in)           :: code             !< Morton code.
+   logical,            intent(in), optional :: coordinates      !< Coordinates.
+   logical,            intent(in), optional :: level            !< Level of node.
+   logical,            intent(in), optional :: parent           !< Parent of code.
+   logical,            intent(in), optional :: parents          !< Parents list.
+   logical,            intent(in), optional :: path             !< Path from node to parent of first level.
+   logical,            intent(in), optional :: child            !< (First) Child of code.
+   logical,            intent(in), optional :: child_local_code !< Local child-numbering of code.
+   logical,            intent(in), optional :: finest           !< Finest Morton code.
+   logical,            intent(in), optional :: siblings         !< Siblings of code.
+   logical,            intent(in), optional :: neighbor         !< Neighbor of code.
+   logical,            intent(in), optional :: block_index      !< Block index in the field array.
+   logical,            intent(in), optional :: whole            !< Whole topology data.
+   logical                                  :: coordinates_     !< Coordinates, local var.
+   logical                                  :: level_           !< Level of node, local var.
+   logical                                  :: parent_          !< Parent of code, local var.
+   logical                                  :: child_           !< (First) Child of code, local var.
+   logical                                  :: child_local_     !< Local child-numbering of code, local var.
+   logical                                  :: finest_          !< Finest Morton code, local var.
+   logical                                  :: siblings_        !< Siblings of code, local var.
+   logical                                  :: path_            !< Path from node to parent of first level, local var.
+   logical                                  :: parents_         !< Parents list, local var.
+   logical                                  :: neighbor_        !< Neighbor of code, local var.
+   logical                                  :: block_index_     !< Block index in the field array.
+   logical                                  :: whole_           !< Whole topology data, local var.
+   character(:), allocatable                :: topology         !< Topology string.
+   character(:), allocatable                :: parents_str      !< Parents string list.
+   character(:), allocatable                :: neighbors_str    !< Neighbors string.
+   integer(I8P), allocatable                :: neighbors(:)     !< Neighbor of code.
+   integer(I4P)                             :: neighbor_type    !< Type of neighbor.
+   type(tree_node_object), pointer          :: node_ptr         !< Node pointer.
+   integer(I4P)                             :: f                !< Counter.
+   integer(I4P)                             :: i, j, k, l       !< Counter.
 
-   coordinates_ = .false. ; if (present(coordinates))  coordinates_ = coordinates
-   level_       = .false. ; if (present(level      ))  level_       = level
-   parent_      = .false. ; if (present(parent     ))  parent_      = parent
-   child_       = .false. ; if (present(child      ))  child_       = child
-   child_local_ = .false. ; if (present(child_local))  child_local_ = child_local
-   finest_      = .false. ; if (present(finest     ))  finest_      = finest
-   siblings_    = .false. ; if (present(siblings   ))  siblings_    = siblings
-   path_        = .false. ; if (present(path       ))  path_        = path
-   parents_     = .false. ; if (present(parents    ))  parents_     = parents
-   neighbor_    = .false. ; if (present(neighbor   ))  neighbor_    = neighbor
-   block_index_ = .false. ; if (present(block_index))  block_index_ = block_index
-   whole_       = .false. ; if (present(whole      ))  whole_       = whole
+   coordinates_ = .false. ; if (present(coordinates     )) coordinates_ = coordinates
+   level_       = .false. ; if (present(level           )) level_       = level
+   parent_      = .false. ; if (present(parent          )) parent_      = parent
+   child_       = .false. ; if (present(child           )) child_       = child
+   child_local_ = .false. ; if (present(child_local_code)) child_local_ = child_local_code
+   finest_      = .false. ; if (present(finest          )) finest_      = finest
+   siblings_    = .false. ; if (present(siblings        )) siblings_    = siblings
+   path_        = .false. ; if (present(path            )) path_        = path
+   parents_     = .false. ; if (present(parents         )) parents_     = parents
+   neighbor_    = .false. ; if (present(neighbor        )) neighbor_    = neighbor
+   block_index_ = .false. ; if (present(block_index     )) block_index_ = block_index
+   whole_       = .false. ; if (present(whole           )) whole_       = whole
 
-   node => self%node(code=code)
+   node_ptr => self%node(code=code)
 
    parents_str = ''
    do l=self%level(code=code)-1, 0, -1
@@ -2374,9 +2375,9 @@ contains
 
    select case(self%ratio)
    case(4_I4P)
-      call self%morton_to_coordinates(code=node%code, i=i, j=j, l=l)
+      call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, l=l)
    case(8_I4P)
-      call self%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
+      call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
    endselect
    topology = ' code: '//trim(str(code))
    if (coordinates_.or.whole_) topology = topology//' coordinates: '//trim(str([i,j,k,l],.true.))
@@ -2390,7 +2391,7 @@ contains
                                                                                                level=self%max_level),.true.))
    if (siblings_.or.whole_   ) topology = topology//' siblings: '//trim(str(self%siblings(code=code),.true.))
    if (neighbor_.or.whole_   ) topology = topology//' neighbor: '//neighbors_str
-   if (block_index_.or.whole_) topology = topology//' block_index: '//trim(str(node%block_index,.true.))
+   if (block_index_.or.whole_) topology = topology//' block_index: '//trim(str(node_ptr%block_index,.true.))
 
    print '(A)', topology
    endsubroutine print_code_topology
@@ -2479,7 +2480,7 @@ contains
    !< Derefine nodes.
    class(tree_object), intent(inout) :: self             !< The tree.
    type(tree_node_object), pointer   :: first_child      !< Pointer to first child node.
-   type(tree_node_object), pointer   :: node             !< Pointer to node.
+   type(tree_node_object), pointer   :: node_ptr         !< Pointer to node.
    integer(I8P)                      :: derefined_number !< Number of derefined blocks.
    integer(I8P)                      :: mn               !< Counter.
    integer(I8P)                      :: n                !< Counter.
@@ -2504,9 +2505,9 @@ contains
                                              block_index=first_child%block_index, &
                                              update_last_block_index=.false.)
          do i=0, self%ratio - 1
-            node => self%node(code=self%node_to_derefine(n+i))
-            if (self%myrank == node%myrank) then
-               self%block_to_derefine(mn+i) = node%block_index
+            node_ptr => self%node(code=self%node_to_derefine(n+i))
+            if (self%myrank == node_ptr%myrank) then
+               self%block_to_derefine(mn+i) = node_ptr%block_index
             endif
             call self%remove_node(code=self%node_to_derefine(n+i))
          enddo
@@ -2615,7 +2616,7 @@ contains
    class(tree_object),        intent(inout)        :: self                 !< The tree.
    integer(I4P),              intent(in), optional :: iterations_number    !< Sanitazie iterations number.
    integer(I4P)                                    :: iterations_number_   !< Sanitazie iterations number.
-   type(tree_node_object), pointer                 :: node                 !< Pointer to node.
+   type(tree_node_object), pointer                 :: node_ptr             !< Pointer to node.
    type(tree_node_object), pointer                 :: sibling              !< Pointer to node sibling.
    integer(I8P)                                    :: code                 !< Code.
    integer(I8P), allocatable                       :: siblings(:)          !< List of code siblings, excluded the quering code.
@@ -2632,10 +2633,10 @@ contains
 
    iterations_number_ = TREE_MAX_SANITIZE_ITERATIONS ; if (present(iterations_number)) iterations_number_ = iterations_number
 
-   min_max_check_loop : do while(self%loop(node=node))
-      new_level = self%level(code=node%code) + node%refinement_needed
+   min_max_check_loop : do while(self%loop(node_ptr=node_ptr))
+      new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
       if ((new_level > self%max_level).or.(new_level < 0)) then
-         node%refinement_needed = TO_NOT_TOUCH
+         node_ptr%refinement_needed = TO_NOT_TOUCH
       endif
    enddo min_max_check_loop
 
@@ -2646,13 +2647,13 @@ contains
       self%n_my_derefine = 0
       if (allocated(self%node_to_derefine)) deallocate(self%node_to_derefine) ; allocate(self%node_to_derefine(0))
       if (allocated(codes_analyzed)) deallocate(codes_analyzed) ; allocate(codes_analyzed(0))
-      derefine_loop : do while(self%loop(node=node))
+      derefine_loop : do while(self%loop(node_ptr=node_ptr))
          ! check if I want to be derefined and I have not been analyzed yet
-         if (node%refinement_needed == TO_BE_DEREFINED) then
-            if (findloc(codes_analyzed, node%code, dim=1)==0) then ! avoid to re-analyze already confirmed siblingsi to derefine
+         if (node_ptr%refinement_needed == TO_BE_DEREFINED) then
+            if (findloc(codes_analyzed, node_ptr%code, dim=1)==0) then ! avoid to re-analyze already confirmed siblingsi to derefine
                ! check sibling for derefinement
                can_be_derefined = .true.
-               code = node%code
+               code = node_ptr%code
                siblings = self%siblings(code=code)
                sibs_check_loop : do sib=1, self%ratio -1
                   if (.not.self%has_code(code=siblings(sib))) then
@@ -2669,10 +2670,10 @@ contains
                   all_siblings = self%all_siblings(code=code)
                   self%node_to_derefine = [self%node_to_derefine, all_siblings]
                   codes_analyzed = [codes_analyzed, all_siblings]
-                  if (self%myrank==node%myrank) self%n_my_derefine = self%n_my_derefine + 8
+                  if (self%myrank==node_ptr%myrank) self%n_my_derefine = self%n_my_derefine + 8
                else
                   is_sanitize_complete = .false.
-                  node%refinement_needed = TO_NOT_TOUCH
+                  node_ptr%refinement_needed = TO_NOT_TOUCH
                   do sib=1, self%ratio -1
                      if (self%has_code(code=siblings(sib))) then
                         sibling => self%node(code=siblings(sib))
@@ -2688,10 +2689,10 @@ contains
       enddo derefine_loop
 
      ! check for the sanity of refinement (2:1 rule)
-     refine_loop : do while(self%loop(node=node))
-        new_level = self%level(code=node%code) + node%refinement_needed
+     refine_loop : do while(self%loop(node_ptr=node_ptr))
+        new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
         face_loop : do f=1, 26
-           call self%get_neighbor_all(code=node%code, face=f, neighbor=neighbor, neighbor_type=neighbor_type)
+           call self%get_neighbor_all(code=node_ptr%code, face=f, neighbor=neighbor, neighbor_type=neighbor_type)
            if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
               neighbor_loop : do n=1, size(neighbor, dim=1)
                  ! check level
@@ -2701,28 +2702,28 @@ contains
                     ! a neighbour want to be refined 2 levels more than me, I have to refine more too
                     is_sanitize_complete = .false.
                     if     (new_level_n - new_level == 3) then ! node want to derefine, but it must be refined
-                       node%refinement_needed = 1
+                       node_ptr%refinement_needed = 1
                     elseif (new_level_n - new_level == 2) then
-                       node%refinement_needed = node%refinement_needed + 1
+                       node_ptr%refinement_needed = node_ptr%refinement_needed + 1
                     else
                        print '(A)',  'SOMETHING WENT TERRIBLY WRONG. EXIT!'
-                       print '(A)',  'REFINEMENT NEEDED '//trim(str(node%refinement_needed,.true.))
+                       print '(A)',  'REFINEMENT NEEDED '//trim(str(node_ptr%refinement_needed,.true.))
                        print '(A)',  'SANITIZE ITERATIONS '//trim(str(s,.true.))
                        stop
                     endif
-                    new_level = self%level(code=node%code) + node%refinement_needed
+                    new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
                  endif
               enddo neighbor_loop
            endif
         enddo face_loop
 
-        if (node%refinement_needed > 1) then
+        if (node_ptr%refinement_needed > 1) then
            print '(A)',  'CANNOT REFINE TWICE IN A ROW. SOMETHING WENT TERRIBLY WRONG. EXIT!'
            print '(A)',  'SANITIZE ITERATIONS '//trim(str(s,.true.))
            stop
         endif
 
-        new_level = self%level(code=node%code) + node%refinement_needed
+        new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
         if (new_level > self%max_level) then
            print '(A)',  'CANNOT REFINE MORE. SOMETHING WENT TERRIBLY WRONG. EXIT!'
            stop
@@ -2739,10 +2740,10 @@ contains
    ! update to_refine list
    self%n_my_refine = 0
    if (allocated(self%node_to_refine)) deallocate(self%node_to_refine) ; allocate(self%node_to_refine(0))
-   do while(self%loop(node=node))
-      if (node%refinement_needed==TO_BE_REFINED) then
-         self%node_to_refine = [self%node_to_refine, [node%code]]
-         if (self%myrank==node%myrank) self%n_my_refine = self%n_my_refine + 1
+   do while(self%loop(node_ptr=node_ptr))
+      if (node_ptr%refinement_needed==TO_BE_REFINED) then
+         self%node_to_refine = [self%node_to_refine, [node_ptr%code]]
+         if (self%myrank==node_ptr%myrank) self%n_my_refine = self%n_my_refine + 1
       endif
    enddo
    endsubroutine sanitize

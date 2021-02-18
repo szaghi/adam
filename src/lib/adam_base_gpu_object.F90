@@ -2,7 +2,7 @@
 module adam_base_gpu_object
 !< ADAM, base GPU class definition: provide update ghosts methods for CPU backend.
 
-use adam_field_object
+use adam_field_object, only : field_object
 use adam_parameters
 use PENF
 use MPI

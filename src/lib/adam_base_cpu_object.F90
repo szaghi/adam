@@ -2,7 +2,7 @@
 module adam_base_cpu_object
 !< ADAM, base CPU class definition: provide update ghosts methods for CPU backend.
 
-use adam_field_object
+use adam_field_object, only : field_object
 use PENF
 use MPI
 
