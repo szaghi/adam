@@ -131,7 +131,7 @@ use adam_grid_object, only : grid_object
 use adam_parameters
 use adam_tree_node_object, only : tree_node_object
 use adam_tree_bucket_object, only : tree_bucket_object, iterator_interface
-use FINER
+use FINER, only : file_ini
 use FOSSIL
 use MORTIF
 use PENF
@@ -213,11 +213,12 @@ type :: tree_object
       procedure, pass(self) :: codes                        !< Return the list of (sorted) codes actually stored in the tree.
       procedure, pass(self) :: compute_surface_stl_distance !< Compute signed distance of nodes from a STL surface.
       procedure, pass(self) :: destroy                      !< Destroy the tree.
-      procedure, pass(self) :: load_surface_stl             !< Load surface from STL file.
-      procedure, pass(self) :: loop                         !< Sentinel while-loop on nodes returning the code.
       procedure, pass(self) :: hash                         !< Hash the key.
       procedure, pass(self) :: has_code                     !< Check if the code is present in the tree.
       procedure, pass(self) :: initialize                   !< Initialize the tree.
+      procedure, pass(self) :: load_from_ini_file           !< Load object data from INI file.
+      procedure, pass(self) :: load_surface_stl             !< Load surface from STL file.
+      procedure, pass(self) :: loop                         !< Sentinel while-loop on nodes returning the code.
       procedure, pass(self) :: make_local_maps_bc           !< Make local maps of boundary conditions.
       procedure, pass(self) :: mark_all_nodes               !< Mark all nodes to be refined, derefined, ecc.
       procedure, pass(self) :: mark_sphere                  !< Mark nodes to be refined/derefined by sphere distance.
@@ -225,6 +226,7 @@ type :: tree_object
       procedure, pass(self) :: max_cell_delta               !< Return the maximum cell delta given a comparison distance.
       procedure, pass(self) :: node                         !< Return a pointer to a node.
       procedure, pass(self) :: prime_buckets_number         !< Return the buckets number as nearest prime number given nodes number.
+      procedure, pass(self) :: print_status                 !< Print status of main data.
       procedure, pass(self) :: resize                       !< Resize the tree.
       procedure, pass(self) :: traverse                     !< Traverse tree calling the iterator procedure.
       ! MPI methods
@@ -501,6 +503,95 @@ contains
    self = fresh
    endsubroutine destroy
 
+   function has_code(self, code)
+   !< Check if the key is present in the tree.
+   class(tree_object), intent(in) :: self     !< The tree.
+   integer(I8P),       intent(in) :: code     !< The Morton code.
+   logical                        :: has_code !< Check result.
+
+   has_code = .false.
+   if (self%is_initialized_) has_code = self%bucket(self%hash(code=code))%has_code(code=code)
+   endfunction has_code
+
+   elemental function hash(self, code) result(bucket)
+   !< Hash the key.
+   class(tree_object), intent(in) :: self   !< The tree.
+   integer(I8P),       intent(in) :: code   !< The Morton code.
+   integer(I4P)                   :: bucket !< Bucket index corresponding to the key.
+
+   bucket = modulo(code, int(self%buckets_number, I8P)) + 1
+   endfunction hash
+
+   subroutine initialize(self, grid, file_parameters, max_load, nodes_number, buckets_number, ratio, max_level, add_adam)
+   !< Initialize the tree.
+   class(tree_object), intent(inout)           :: self            !< The tree.
+   type(grid_object),  intent(in), target      :: grid            !< Grid data.
+   type(file_ini),     intent(inout), optional :: file_parameters !< INI file handler.
+   real(R8P),          intent(in),    optional :: max_load        !< Maximum load of tree buckets.
+   integer(I8P),       intent(in),    optional :: nodes_number    !< Nodes number to be stored in the tree.
+   integer(I8P),       intent(in),    optional :: buckets_number  !< Number of buckets for initialize the tree.
+   integer(I4P),       intent(in),    optional :: ratio           !< Refinement ratio.
+   integer(I4P),       intent(in),    optional :: max_level       !< Maximum refinement level.
+   logical,            intent(in),    optional :: add_adam        !< Add ADAM node, the ancestor of all nodes.
+   logical                                     :: add_adam_       !< Add ADAM node, the ancestor of all nodes, local var.
+
+   call self%destroy
+   self%grid => grid
+   if (present(file_parameters)) call self%load_from_ini_file(file_parameters)
+
+   ! parameters explicitely passed ovveride ones file-passed
+   add_adam_ = .true. ; if (present(add_adam)) add_adam_ = add_adam
+   ! tree data
+   if (present(max_load)) self%max_load = max_load
+   if (present(nodes_number)) then
+      self%buckets_number = self%prime_buckets_number(nodes_number=nodes_number)
+   else
+      self%buckets_number = TREE_BUCKETS_NUMBER_DEF ; if (present(buckets_number)) self%buckets_number = buckets_number
+   endif
+   allocate(self%bucket(1:self%buckets_number))
+   if (present(ratio)) then
+      if (ratio==8_I8P.or.ratio==4_I8P) then
+         self%ratio = ratio
+      else
+         write(stderr, '(A)') 'ADAM-ERROR: tree ratio must be 8 o 4'
+         call MPI_FINALIZE(self%error)
+         stop
+      endif
+   endif
+   if (present(max_level)) self%max_level = max_level
+   self%is_initialized_ = .true.
+   if (add_adam_) call self%add_node(code=-1_I8P) ! add ADAM node, the ancestor of all nodes
+
+   ! MPI data
+   call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
+   call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
+   allocate(self%comm_map_n_send(0:self%procs_number-1))
+   allocate(self%comm_map_n_recv(0:self%procs_number-1))
+   allocate(self%comm_map_send_ptr(0:self%procs_number))
+   allocate(self%comm_map_recv_ptr(0:self%procs_number))
+   self%comm_map_n_send = 0_I4P
+   self%comm_map_n_recv = 0_I4P
+   self%comm_map_send_ptr = 0_I4P
+   self%comm_map_recv_ptr = 0_I4P
+   call self%mpi_redistribute
+   ! MPI ghost data
+   allocate(self%comm_map_n_send_ghost(0:self%procs_number-1))
+   allocate(self%comm_map_n_recv_ghost(0:self%procs_number-1))
+   allocate(self%comm_map_send_ptr_ghost(0:self%procs_number))
+   allocate(self%comm_map_recv_ptr_ghost(0:self%procs_number))
+   endsubroutine initialize
+
+   subroutine load_from_ini_file(self, file_parameters)
+   !< Load object data from INI file.
+   class(tree_object), intent(inout) :: self            !< The tree.
+   type(file_ini),     intent(inout) :: file_parameters !< INI file handler.
+   integer(I8P)                      :: nodes_number    !< Nodes number to be stored in the tree.
+
+   call file_parameters%get(section_name='tree', option_name='nodes_number', val=nodes_number)
+   call file_parameters%get(section_name='tree', option_name='max_level'   , val=self%max_level)
+   self%buckets_number = self%prime_buckets_number(nodes_number=nodes_number)
+   endsubroutine load_from_ini_file
+
    subroutine load_surface_stl(self, file_name)
    !< Load surface from STL file and compute signed distance of nodes from it.
    class(tree_object), intent(inout) :: self      !< The tree.
@@ -558,79 +649,6 @@ contains
       enddo
    endif
    endfunction loop
-
-   function has_code(self, code)
-   !< Check if the key is present in the tree.
-   class(tree_object), intent(in) :: self     !< The tree.
-   integer(I8P),       intent(in) :: code     !< The Morton code.
-   logical                        :: has_code !< Check result.
-
-   has_code = .false.
-   if (self%is_initialized_) has_code = self%bucket(self%hash(code=code))%has_code(code=code)
-   endfunction has_code
-
-   elemental function hash(self, code) result(bucket)
-   !< Hash the key.
-   class(tree_object), intent(in) :: self   !< The tree.
-   integer(I8P),       intent(in) :: code   !< The Morton code.
-   integer(I4P)                   :: bucket !< Bucket index corresponding to the key.
-
-   bucket = modulo(code, int(self%buckets_number, I8P)) + 1
-   endfunction hash
-
-   subroutine initialize(self, grid, max_load, nodes_number, buckets_number, ratio, max_level, add_adam)
-   !< Initialize the tree.
-   class(tree_object), intent(inout)        :: self           !< The tree.
-   type(grid_object),  intent(in), target   :: grid           !< Grid data.
-   real(R8P),          intent(in), optional :: max_load       !< Maximum load of tree buckets.
-   integer(I8P),       intent(in), optional :: nodes_number   !< Nodes number to be stored in the tree.
-   integer(I8P),       intent(in), optional :: buckets_number !< Number of buckets for initialize the tree.
-   integer(I4P),       intent(in), optional :: ratio          !< Refinement ratio.
-   integer(I4P),       intent(in), optional :: max_level      !< Maximum refinement level.
-   logical,            intent(in), optional :: add_adam       !< Add ADAM node, the ancestor of all nodes.
-   logical                                  :: add_adam_      !< Add ADAM node, the ancestor of all nodes, local var.
-
-   call self%destroy
-   self%grid => grid
-   add_adam_ = .true. ; if (present(add_adam)) add_adam_ = add_adam
-   ! tree data
-   if (present(max_load)) self%max_load = max_load
-   if (present(nodes_number)) then
-      self%buckets_number = self%prime_buckets_number(nodes_number=nodes_number)
-   else
-      self%buckets_number = TREE_BUCKETS_NUMBER_DEF ; if (present(buckets_number)) self%buckets_number = buckets_number
-   endif
-   allocate(self%bucket(1:self%buckets_number))
-   if (present(ratio)) then
-      if (ratio==8_I8P.or.ratio==4_I8P) then
-         self%ratio = ratio
-      else
-         write(stderr, '(A)') 'ADAM-ERROR: tree ratio must be 8 o 4'
-         call MPI_FINALIZE(self%error)
-         stop
-      endif
-   endif
-   if (present(max_level)) self%max_level = max_level
-   self%is_initialized_ = .true.
-   if (add_adam_) call self%add_node(code=-1_I8P) ! add ADAM node, the ancestor of all nodes
-   ! MPI data
-   call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
-   call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
-   allocate(self%comm_map_n_send(0:self%procs_number-1))
-   allocate(self%comm_map_n_recv(0:self%procs_number-1))
-   allocate(self%comm_map_send_ptr(0:self%procs_number))
-   allocate(self%comm_map_recv_ptr(0:self%procs_number))
-   self%comm_map_n_send = 0_I4P
-   self%comm_map_n_recv = 0_I4P
-   self%comm_map_send_ptr = 0_I4P
-   self%comm_map_recv_ptr = 0_I4P
-   call self%mpi_redistribute
-   ! MPI ghost data
-   allocate(self%comm_map_n_send_ghost(0:self%procs_number-1))
-   allocate(self%comm_map_n_recv_ghost(0:self%procs_number-1))
-   allocate(self%comm_map_send_ptr_ghost(0:self%procs_number))
-   allocate(self%comm_map_recv_ptr_ghost(0:self%procs_number))
-   endsubroutine initialize
 
    subroutine make_local_maps_bc(self)
    !< Make local maps of boundary conditions.
@@ -919,6 +937,19 @@ contains
    enddo
    buckets_number = b
    endfunction prime_buckets_number
+
+   subroutine print_status(self)
+   !< Print status of main data.
+   class(tree_object), intent(in) :: self !< The tree.
+
+   print '(A)', 'tree status of main data'
+   print '(A)', '  buckets number: '//trim(str(self%buckets_number))
+   print '(A)', '  nodes number:   '//trim(str(self%nodes_number  ))
+   print '(A)', '  max load:       '//trim(str(self%max_load      ))
+   print '(A)', '  ratio:          '//trim(str(self%ratio         ))
+   print '(A)', '  max level:      '//trim(str(self%max_level     ))
+   print '(A)', ''
+   endsubroutine print_status
 
    subroutine remove_node(self, code)
    !< Remove a node from the tree, given the code.

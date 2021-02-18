@@ -8,6 +8,7 @@ use adam_parameters
 use adam_tree_node_object, only : tree_node_object
 use adam_tree_bucket_object, only : tree_bucket_object
 use adam_tree_object, only : tree_object
+use FINER, only : file_ini
 use PENF
 use STRINGIFOR
 use VTK_FORTRAN
@@ -38,6 +39,7 @@ type :: adam_object
       procedure, pass(self) :: make_comm_local_maps_ghost_bc !< Make communication/local maps of ghost cells.
       procedure, pass(self) :: mpi_gather_refinement_needed  !< Gather refinement needed.
       procedure, pass(self) :: mpi_redistribute              !< Redistribute nodes/blocks to processes, load balancing.
+      procedure, pass(self) :: print_status                  !< Print status of main data.
       procedure, pass(self) :: save_hdf5                     !< Save ADAM in HDF5 format.
       procedure, pass(self) :: save_vtk                      !< Save ADAM in VTK  format.
       ! operators
@@ -115,39 +117,42 @@ contains
    stop
    endsubroutine finalize
 
-   subroutine initialize(self,                                                               &
+   subroutine initialize(self, file_parameters,                                              &
                          ni, nj, nk, ngc, emin, emax, bc_type,                               &
                          max_load, nodes_number, buckets_number, ratio, max_level, add_adam, &
                          nv, nb)
    !< Initialize ADAM.
-   class(adam_object), intent(inout)        :: self           !< ADAM.
+   class(adam_object), intent(inout)           :: self            !< ADAM.
+   type(file_ini),     intent(inout), optional :: file_parameters !< INI file handler.
    ! grid options
-   integer(I4P),       intent(in), optional :: ni             !< Number of cells in X direction.
-   integer(I4P),       intent(in), optional :: nj             !< Number of cells in Y direction.
-   integer(I4P),       intent(in), optional :: nk             !< Number of cells in Z direction.
-   integer(I4P),       intent(in), optional :: ngc            !< Number of ghost cells.
-   real(R8P),          intent(in), optional :: emin(3)        !< Coordinates of minium abscissa.
-   real(R8P),          intent(in), optional :: emax(3)        !< Coordinates of maxium abscissa.
-   integer(I4P),       intent(in), optional :: bc_type(6)     !< Type of boundary conditions in the 6 faces of grid.
+   integer(I4P),       intent(in),    optional :: ni              !< Number of cells in X direction.
+   integer(I4P),       intent(in),    optional :: nj              !< Number of cells in Y direction.
+   integer(I4P),       intent(in),    optional :: nk              !< Number of cells in Z direction.
+   integer(I4P),       intent(in),    optional :: ngc             !< Number of ghost cells.
+   real(R8P),          intent(in),    optional :: emin(3)         !< Coordinates of minium abscissa.
+   real(R8P),          intent(in),    optional :: emax(3)         !< Coordinates of maxium abscissa.
+   integer(I4P),       intent(in),    optional :: bc_type(6)      !< Type of boundary conditions in the 6 faces of grid.
    ! tree options
-   real(R8P),          intent(in), optional :: max_load       !< Maximum load of tree buckets.
-   integer(I8P),       intent(in), optional :: nodes_number   !< Nodes number to be stored in the tree.
-   integer(I8P),       intent(in), optional :: buckets_number !< Number of buckets for initialize the tree.
-   integer(I4P),       intent(in), optional :: ratio          !< Refinement ratio.
-   integer(I4P),       intent(in), optional :: max_level      !< Maximum refinement level.
-   logical,            intent(in), optional :: add_adam       !< Add ADAM node, the ancestor of all nodes.
+   real(R8P),          intent(in),    optional :: max_load        !< Maximum load of tree buckets.
+   integer(I8P),       intent(in),    optional :: nodes_number    !< Nodes number to be stored in the tree.
+   integer(I8P),       intent(in),    optional :: buckets_number  !< Number of buckets for initialize the tree.
+   integer(I4P),       intent(in),    optional :: ratio           !< Refinement ratio.
+   integer(I4P),       intent(in),    optional :: max_level       !< Maximum refinement level.
+   logical,            intent(in),    optional :: add_adam        !< Add ADAM node, the ancestor of all nodes.
    ! field options
-   integer(I4P),       intent(in), optional :: nv             !< Number of field variables.
-   integer(I4P),       intent(in), optional :: nb             !< Number of all blocks that can be stored in field.
+   integer(I4P),       intent(in),    optional :: nv              !< Number of field variables.
+   integer(I4P),       intent(in),    optional :: nb              !< Number of all blocks that can be stored in field.
 
-   call MPI_INIT(self%error)
    call self%destroy
+   call MPI_INIT(self%error)
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
-   call self%grid%initialize(ni=ni, nj=nj, nk=nk, ngc=ngc, emin=emin, emax=emax, bc_type=bc_type)
-   call self%tree%initialize(grid=self%grid, max_load=max_load, nodes_number=nodes_number, buckets_number=buckets_number, &
+
+   call self%grid%initialize(file_parameters=file_parameters, ni=ni, nj=nj, nk=nk, ngc=ngc, emin=emin, emax=emax, bc_type=bc_type)
+   call self%tree%initialize(grid=self%grid, file_parameters=file_parameters,                             &
+                             max_load=max_load, nodes_number=nodes_number, buckets_number=buckets_number, &
                              ratio=ratio, max_level=max_level, add_adam=add_adam)
-   call self%field%initialize(grid=self%grid, nv=nv, nb=nb)
+   call self%field%initialize(grid=self%grid, file_parameters=file_parameters, nv=nv, nb=nb)
    call self%amr_update
    endsubroutine initialize
 
@@ -164,8 +169,8 @@ contains
                                             comm_map_recv_ptr_ghost = self%tree%comm_map_recv_ptr_ghost, &
                                             comm_map_send_ghost     = self%tree%comm_map_send_ghost,     &
                                             comm_map_recv_ghost     = self%tree%comm_map_recv_ghost)
-   call self%field%prepare_local_bc(local_map_bc_face = self%tree%local_map_bc_face, &
-                                    local_map_bc_edge = self%tree%local_map_bc_edge, &
+   call self%field%prepare_local_bc(local_map_bc_face   = self%tree%local_map_bc_face, &
+                                    local_map_bc_edge   = self%tree%local_map_bc_edge, &
                                     local_map_bc_corner = self%tree%local_map_bc_corner)
    endsubroutine make_comm_local_maps_ghost_bc
 
@@ -208,6 +213,15 @@ contains
                                     coordinates=self%tree%block_coordinates,       &
                                     code=self%tree%block_code)
    endsubroutine mpi_redistribute
+
+   subroutine print_status(self)
+   !< Print status of main data.
+   class(adam_object), intent(in) :: self !< Adam.
+
+   call self%grid%print_status
+   call self%tree%print_status
+   call self%field%print_status
+   endsubroutine print_status
 
    subroutine save_hdf5(self, basename, q, q_aux, q_name, q_aux_name, directory, with_ghost, with_cell_morton, t, time)
    !< Save ADAM in HDF5 format.

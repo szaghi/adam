@@ -3,6 +3,7 @@ module adam_grid_object
 !< ADAM, grid class definition.
 
 use adam_parameters
+use FINER, only : file_ini
 use PENF
 
 implicit none
@@ -26,6 +27,8 @@ type :: grid_object
       procedure, pass(self) :: compute_weight_neighbor !< Compute weight of neighbors.
       procedure, pass(self) :: destroy                 !< Destroy the field.
       procedure, pass(self) :: initialize              !< Initialize the field.
+      procedure, pass(self) :: load_from_ini_file      !< Load object data from INI file.
+      procedure, pass(self) :: print_status            !< Print status of main data.
       ! operators
       generic :: assignment(=) => grid_assign_grid      !< Overload `=`.
       procedure, pass(lhs), private :: grid_assign_grid !< Operator `=`.
@@ -130,39 +133,84 @@ contains
    self = fresh
    endsubroutine destroy
 
-   subroutine initialize(self, ni, nj, nk, ngc, emin, emax, bc_type)
+   subroutine initialize(self, file_parameters, ni, nj, nk, ngc, emin, emax, bc_type)
    !< Initialize field.
-   class(grid_object), intent(inout)        :: self               !< The grid.
-   integer(I4P),       intent(in), optional :: ni                 !< Number of cells in X direction.
-   integer(I4P),       intent(in), optional :: nj                 !< Number of cells in Y direction.
-   integer(I4P),       intent(in), optional :: nk                 !< Number of cells in Z direction.
-   integer(I4P),       intent(in), optional :: ngc                !< Number of ghost cells.
-   real(R8P),          intent(in), optional :: emin(3)            !< Coordinates of minium abscissa.
-   real(R8P),          intent(in), optional :: emax(3)            !< Coordinates of maxium abscissa.
-   integer(I4P),       intent(in), optional :: bc_type(6)         !< Type of boundary conditions in the 6 faces of grid.
+   class(grid_object), intent(inout)           :: self            !< The grid.
+   type(file_ini),     intent(inout), optional :: file_parameters !< INI file handler.
+   integer(I4P),       intent(in),    optional :: ni              !< Number of cells in X direction.
+   integer(I4P),       intent(in),    optional :: nj              !< Number of cells in Y direction.
+   integer(I4P),       intent(in),    optional :: nk              !< Number of cells in Z direction.
+   integer(I4P),       intent(in),    optional :: ngc             !< Number of ghost cells.
+   real(R8P),          intent(in),    optional :: emin(3)         !< Coordinates of minium abscissa.
+   real(R8P),          intent(in),    optional :: emax(3)         !< Coordinates of maxium abscissa.
+   integer(I4P),       intent(in),    optional :: bc_type(6)      !< Type of boundary conditions in the 6 faces of grid.
 
    call self%destroy
-   ! grid data
-   if (present(emin)) then
-      self%domain_emin = emin
-   else
-      self%domain_emin = 0._R8P
-   endif
-   if (present(emax)) then
-      self%domain_emax = emax
-   else
-      self%domain_emax = 1._R8P
-   endif
+   if (present(file_parameters)) call self%load_from_ini_file(file_parameters)
+
+   ! parameters explicitely passed ovveride ones file-passed
+   if (present(emin)) self%domain_emin = emin
+   if (present(emax)) self%domain_emax = emax
    if (present(ni))  self%ni = ni
    if (present(nj))  self%nj = nj
    if (present(nk))  self%nk = nk
    if (present(ngc)) self%ngc = ngc
-   call self%compute_weight_neighbor
    if (present(bc_type)) self%bc_type = bc_type
+
+   call self%compute_weight_neighbor
    if (any(self%bc_type(1:2)==BC_PERIODIC)) self%is_ijk_periodic(1) = .true.
    if (any(self%bc_type(3:4)==BC_PERIODIC)) self%is_ijk_periodic(2) = .true.
    if (any(self%bc_type(5:6)==BC_PERIODIC)) self%is_ijk_periodic(3) = .true.
    endsubroutine initialize
+
+   subroutine load_from_ini_file(self, file_parameters)
+   !< Load object data from INI file.
+   class(grid_object), intent(inout) :: self            !< The grid.
+   type(file_ini),     intent(inout) :: file_parameters !< INI file handler.
+   real(R8P)                         :: domain_e        !< Dummy buffer.
+   integer(I4P)                      :: bc_t            !< Dummy buffer.
+   logical                           :: is_periodic     !< Dummy buffer.
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc,         &
+             domain_emin=>self%domain_emin, domain_emax=>self%domain_emax, &
+             bc_type=>self%bc_type, is_ijk_periodic=>self%is_ijk_periodic)
+      call file_parameters%get(section_name='grid', option_name='ni'           , val=ni         )
+      call file_parameters%get(section_name='grid', option_name='nj'           , val=nj         )
+      call file_parameters%get(section_name='grid', option_name='nk'           , val=nk         )
+      call file_parameters%get(section_name='grid', option_name='ngc'          , val=ngc        )
+      call file_parameters%get(section_name='grid', option_name='emin_x'       , val=domain_e   ) ; domain_emin(1)     = domain_e
+      call file_parameters%get(section_name='grid', option_name='emin_y'       , val=domain_e   ) ; domain_emin(2)     = domain_e
+      call file_parameters%get(section_name='grid', option_name='emin_z'       , val=domain_e   ) ; domain_emin(3)     = domain_e
+      call file_parameters%get(section_name='grid', option_name='emax_x'       , val=domain_e   ) ; domain_emax(1)     = domain_e
+      call file_parameters%get(section_name='grid', option_name='emax_y'       , val=domain_e   ) ; domain_emax(2)     = domain_e
+      call file_parameters%get(section_name='grid', option_name='emax_z'       , val=domain_e   ) ; domain_emax(3)     = domain_e
+      call file_parameters%get(section_name='grid', option_name='bc_type_1'    , val=bc_t       ) ; bc_type(1)         = bc_t
+      call file_parameters%get(section_name='grid', option_name='bc_type_2'    , val=bc_t       ) ; bc_type(2)         = bc_t
+      call file_parameters%get(section_name='grid', option_name='bc_type_3'    , val=bc_t       ) ; bc_type(3)         = bc_t
+      call file_parameters%get(section_name='grid', option_name='bc_type_4'    , val=bc_t       ) ; bc_type(4)         = bc_t
+      call file_parameters%get(section_name='grid', option_name='bc_type_5'    , val=bc_t       ) ; bc_type(5)         = bc_t
+      call file_parameters%get(section_name='grid', option_name='bc_type_6'    , val=bc_t       ) ; bc_type(6)         = bc_t
+      call file_parameters%get(section_name='grid', option_name='is_i_periodic', val=is_periodic) ; is_ijk_periodic(1) = is_periodic
+      call file_parameters%get(section_name='grid', option_name='is_j_periodic', val=is_periodic) ; is_ijk_periodic(2) = is_periodic
+      call file_parameters%get(section_name='grid', option_name='is_k_periodic', val=is_periodic) ; is_ijk_periodic(3) = is_periodic
+   endassociate
+   endsubroutine load_from_ini_file
+
+   subroutine print_status(self)
+   !< Print status of main data.
+   class(grid_object), intent(in) :: self !< The field.
+
+   print '(A)',          'grid status of main data'
+   print '(A)',          '  domain minimum extent: '//trim(str(self%domain_emin    ))
+   print '(A)',          '  domain maximum extent: '//trim(str(self%domain_emax    ))
+   print '(A)',          '  ni:                    '//trim(str(self%ni             ))
+   print '(A)',          '  nj:                    '//trim(str(self%nj             ))
+   print '(A)',          '  nk:                    '//trim(str(self%nk             ))
+   print '(A)',          '  ngc:                   '//trim(str(self%ngc            ))
+   print '(A)',          '  boundary conditions:   '//trim(str(self%bc_type        ))
+   print '(A,3(L1,1X))', '  IJK periodic:          ',          self%is_ijk_periodic
+   print '(A)',          ''
+   endsubroutine print_status
 
    ! operators
    ! =

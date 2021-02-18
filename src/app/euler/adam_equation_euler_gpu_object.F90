@@ -8,7 +8,7 @@ use adam_field_object, only : field_object
 use adam_grid_object, only : grid_object
 use adam_parameters
 use adam_weno_library_gpu
-use FINER
+use FINER, only : file_ini
 use PENF
 use MPI
 use CUDAFOR
@@ -89,8 +89,10 @@ type :: equation_euler_gpu_object
    real(R8P), allocatable :: alph(:,:) !< RK alpha coefficients.
    real(R8P), allocatable :: beta(:)   !< RK beta coefficients.
    real(R8P), allocatable :: gamm(:)   !< RK gamma coefficients.
+   ! WENO data
+   integer(I4P) :: weno_stencils=1_I4P !< WENO stencils number/dimension.
    ! cuf data
-   integer(I4P), allocatable, device :: weno_stencils_gpu    !< WENO stencils number/dimension.
+   integer(I4P)                      :: fields_gpu_number    !< Number of field maps allocated on GPU.
    real(R8P),    allocatable, device :: cp0_gpu(:)           !< Specific heat at constant pressure of initial species.
    real(R8P),    allocatable, device :: cv0_gpu(:)           !< Specific heat at constant pressure of initial species.
    real(R8P),    allocatable, device :: fp_gpu(:,:,:,:,:)    !< Positive fluxes.
@@ -100,12 +102,13 @@ type :: equation_euler_gpu_object
    real(R8P),    allocatable, device :: f_k_gpu(:,:,:,:,:)   !< Fluxes for i direction.
    real(R8P),    allocatable, device :: f_gpu(:,:,:,:,:)     !< Convective fluxes.
    real(R8P),    allocatable, device :: dxyz_gpu(:,:)        !< Space steps.
+   real(R8P),    allocatable, device :: q_aux_gpu(:,:,:,:,:) !< Auxiliary cell centered variables.
+   real(R8P),    allocatable, device :: q_gpu(:,:,:,:,:)     !< Field cell centered variables stages.
    real(R8P),    allocatable, device :: alph_gpu(:,:)        !< RK alpha coefficients.
    real(R8P),    allocatable, device :: beta_gpu(:)          !< RK beta coefficients.
    real(R8P),    allocatable, device :: gamm_gpu(:)          !< RK gamma coefficients.
-   real(R8P),    allocatable, device :: q_aux_gpu(:,:,:,:,:) !< Auxiliary cell centered variables.
-   real(R8P),    allocatable, device :: q_gpu(:,:,:,:,:)     !< Field cell centered variables stages.
    real(R8P),    allocatable, device :: q_s_gpu(:,:,:,:,:,:) !< RK Field cell centered variables stages.
+   integer(I4P), allocatable, device :: weno_stencils_gpu    !< WENO stencils number/dimension.
    contains
       ! public methods
       procedure, pass(self) :: amr_update              !< Do AMR update.
@@ -115,8 +118,9 @@ type :: equation_euler_gpu_object
       procedure, pass(self) :: copy_gpu_cpu            !< Copy data from GPU to CPU.
       procedure, pass(self) :: destroy                 !< Destroy the equation.
       procedure, pass(self) :: initialize              !< Initialize the equation.
-      procedure, pass(self) :: mark_by_grad_rho        !< Mark blocks to be refined/derefined by a `grad(rho)` value.
       procedure, pass(self) :: integrate               !< Runge Kutta integration of equation.
+      procedure, pass(self) :: load_from_ini_file      !< Load object data from INI file.
+      procedure, pass(self) :: mark_by_grad_rho        !< Mark blocks to be refined/derefined by a `grad(rho)` value.
       procedure, pass(self) :: print_progress          !< Print simulation progress.
       procedure, pass(self) :: refine_uniform          !< Refine all blocks uniformly.
       procedure, pass(self) :: runge_kutta_initialize  !< Initialize Runge-Kutta data.
@@ -229,19 +233,20 @@ contains
    self = fresh
    endsubroutine destroy
 
-   subroutine initialize(self, adam, ns, nrk, cp0, cv0, CFL, null_xyz, weno_stencils, fields_gpu_number)
+   subroutine initialize(self, adam, file_parameters, ns, nrk, cp0, cv0, CFL, null_xyz, weno_stencils, fields_gpu_number)
    !< Initialize the equation.
-   class(equation_euler_gpu_object), intent(inout)        :: self              !< The equation.
-   type(adam_object),                intent(in), target   :: adam              !< ADAM.
-   integer(I4P),                     intent(in), optional :: ns                !< Species number.
-   integer(I4P),                     intent(in), optional :: nrk               !< Runge-Kutta stages number.
-   real(R8P),                        intent(in), optional :: cp0(:)            !< Initial specific heats at constant pressure.
-   real(R8P),                        intent(in), optional :: cv0(:)            !< Initial specific heats at constant volume.
-   real(R8P),                        intent(in), optional :: CFL               !< CFL value.
-   logical,                          intent(in), optional :: null_xyz(3)       !< Flag triggering 1D/2D simulations.
-   integer(I4P),                     intent(in), optional :: weno_stencils     !< Number of WENO stencils.
-   integer(I4P),                     intent(in), optional :: fields_gpu_number !< Number of fields allocated on GPU.
-   integer(I4P)                                           :: v                 !< Counter.
+   class(equation_euler_gpu_object), intent(inout)           :: self              !< The equation.
+   type(adam_object),                intent(in), target      :: adam              !< ADAM.
+   type(file_ini),                   intent(inout), optional :: file_parameters   !< INI file handler.
+   integer(I4P),                     intent(in),    optional :: ns                !< Species number.
+   integer(I4P),                     intent(in),    optional :: nrk               !< Runge-Kutta stages number.
+   real(R8P),                        intent(in),    optional :: cp0(:)            !< Initial specific heats at constant pressure.
+   real(R8P),                        intent(in),    optional :: cv0(:)            !< Initial specific heats at constant volume.
+   real(R8P),                        intent(in),    optional :: CFL               !< CFL value.
+   logical,                          intent(in),    optional :: null_xyz(3)       !< Flag triggering 1D/2D simulations.
+   integer(I4P),                     intent(in),    optional :: weno_stencils     !< Number of WENO stencils.
+   integer(I4P),                     intent(in),    optional :: fields_gpu_number !< Number of field maps allocated on GPU.
+   integer(I4P)                                              :: v                 !< Counter.
 
    ! CPU data
    call self%destroy
@@ -255,13 +260,17 @@ contains
    self%nb            => adam%field%nb
    self%blocks_number => adam%field%blocks_number
    self%nv            => adam%field%nv
+   if (present(file_parameters)) call self%load_from_ini_file(file_parameters)
+
+   ! parameters explicitely passed ovveride ones file-passed
    if (present(ns)) self%ns = ns
    if (self%nv - self%ns /= 4) then
       write(stderr, '(A)') 'ADAM-ERROR: field%nv must be euler%ns+4'
       call MPI_FINALIZE(self%error)
       stop
    endif
-   call self%base_gpu%initialize(field=self%field, nv_aux=self%ns+6, fields_gpu_number=fields_gpu_number)
+   if (present(fields_gpu_number)) self%fields_gpu_number = fields_gpu_number
+   call self%base_gpu%initialize(field=self%field, nv_aux=self%ns+6, fields_gpu_number=self%fields_gpu_number)
    if (present(cp0)) then
       self%cp0 = cp0
    else
@@ -278,15 +287,13 @@ contains
    if (present(CFL)) self%CFL = CFL
    if (present(null_xyz)) self%null_xyz = null_xyz
 
-   if (present(weno_stencils)) then
-      self%weno_stencils_gpu = weno_stencils
-   else
-      self%weno_stencils_gpu = 1
-   endif
+   if (present(weno_stencils)) self%weno_stencils = weno_stencils
+   self%weno_stencils_gpu = self%weno_stencils
    call weno_initialize(weno_stencils=self%weno_stencils_gpu)
    call self%runge_kutta_initialize
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
+
    ! allocate large array
    associate(nv=>self%nv, ns=>self%ns, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb, nrk=>self%nrk)
    ! CPU data
@@ -340,6 +347,27 @@ contains
    self%beta_gpu = self%beta
    self%gamm_gpu = self%gamm
    endsubroutine initialize
+
+   subroutine load_from_ini_file(self, file_parameters)
+   !< Load object data from INI file.
+   class(equation_euler_gpu_object), intent(inout) :: self            !< The equation.
+   type(file_ini),                   intent(inout) :: file_parameters !< INI file handler.
+   real(R8P)                                       :: domain_e        !< Dummy buffer.
+   integer(I4P)                                    :: bc_t            !< Dummy buffer.
+   logical                                         :: null_dir        !< Dummy buffer.
+
+   call file_parameters%get(section_name='euler', option_name='ns'               , val=self%ns               )
+   call file_parameters%get(section_name='euler', option_name='CFL'              , val=self%CFL              )
+   call file_parameters%get(section_name='euler', option_name='nrk'              , val=self%nrk              )
+   call file_parameters%get(section_name='euler', option_name='null_x'           , val=null_dir              )
+   self%null_xyz(1) = null_dir
+   call file_parameters%get(section_name='euler', option_name='null_y'           , val=null_dir              )
+   self%null_xyz(2) = null_dir
+   call file_parameters%get(section_name='euler', option_name='null_z'           , val=null_dir              )
+   self%null_xyz(3) = null_dir
+   call file_parameters%get(section_name='euler', option_name='weno_stencils'    , val=self%weno_stencils    )
+   call file_parameters%get(section_name='euler', option_name='fields_gpu_number', val=self%fields_gpu_number)
+   endsubroutine load_from_ini_file
 
    subroutine mark_by_grad_rho(self, grad_tol, delta_fine, delta_coarse, threshold)
    !< Mark blocks to be refined/derefined by a `grad(rho)` value.
@@ -581,16 +609,18 @@ contains
       endsubroutine set_bc
    endsubroutine set_boundary_conditions
 
-   subroutine set_initial_conditions(self, nic_regions, emin_icr, emax_icr, rho_icr, velocity_icr, pressure_icr)
+   subroutine set_initial_conditions(self, file_parameters)
    !< Set initial conditions of field.
    class(equation_euler_gpu_object), intent(inout) :: self                         !< The equation.
-   integer(I4P),                     intent(in)    :: nic_regions                  !< Number of initial conditions regions.
-   real(R8P),                        intent(in)    :: emin_icr(:,:), emax_icr(:,:) !< Initial conditions regions extents.
-   real(R8P),                        intent(in)    :: rho_icr(:)                   !< Initial conditions regions density.
-   real(R8P),                        intent(in)    :: velocity_icr(:,:)            !< Initial conditions regions velocity.
-   real(R8P),                        intent(in)    :: pressure_icr(:)              !< Initial conditions regions pressure.
+   type(file_ini),                   intent(inout) :: file_parameters              !< INI file handler.
+   integer(I4P)                                    :: nic_regions                  !< Number of initial conditions regions.
+   real(R8P), allocatable                          :: emin_icr(:,:), emax_icr(:,:) !< Initial conditions regions extents.
+   real(R8P), allocatable                          :: rho_icr(:)                   !< Initial conditions regions density.
+   real(R8P), allocatable                          :: velocity_icr(:,:)            !< Initial conditions regions velocity.
+   real(R8P), allocatable                          :: pressure_icr(:)              !< Initial conditions regions pressure.
    integer(I4P)                                    :: b, i, j, k, icr              !< Counter.
 
+   call load_ic_from_ini_file
    associate(blocks_number=>self%blocks_number, q=>self%field%q, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
              ngc=>self%ngc, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell)
    do b=1, blocks_number
@@ -618,46 +648,51 @@ contains
    enddo
    endassociate
    call self%copy_cpu_gpu
-      !subroutine set_ic_riemann_2D(x, y, q_ic)
-      !!< Set initial conditions for 1D Riemann problem.
-      !real(R8P),    intent(in)  :: x        !< X (or Y or Z) coordinate.
-      !real(R8P),    intent(in)  :: y        !< Y (or X or Z) coordinate.
-      !real(R8P),    intent(out) :: q_ic(1:) !< Initial conditions to be set.
-      !real(R8P)                 :: mod_u    !< Module of velocity vector.
+   contains
+      subroutine load_ic_from_ini_file
+      !< Load initial conditions from INI file.
+      real(R8P)                 :: buffer       !< Dummy buffer.
+      character(:), allocatable :: section_name !< Section name.
 
-      !select case(trim(ic_type_))
-      !case('kt-02')
-      !   if (x<=0.5_R8P.and.y<=0.5_R8P) then
-      !      q_ic(1) = 0.138_R8P
-      !      q_ic(2) = q_ic(1) * 1.206_R8P
-      !      q_ic(3) = 0._R8P
-      !      q_ic(4) = q_ic(1) * 1.206_R8P
-      !      mod_u   = sqrt((q_ic(2)/q_ic(1))**2 + (q_ic(3)/q_ic(1))**2 + (q_ic(4)/q_ic(1))**2)
-      !      q_ic(5) = q_ic(1) * E(p=0.029_R8P, r=q_ic(1), u=mod_u, g=self%cp0(1)/self%cv0(1))
-      !   elseif (x>0.5_R8P.and.y<=0.5_R8P) then
-      !      q_ic(1) = 0.5323_R8P
-      !      q_ic(2) = 0._R8P
-      !      q_ic(3) = 0._R8P
-      !      q_ic(4) = q_ic(1) * 1.206_R8P
-      !      mod_u   = sqrt((q_ic(2)/q_ic(1))**2 + (q_ic(3)/q_ic(1))**2 + (q_ic(4)/q_ic(1))**2)
-      !      q_ic(5) = q_ic(1) * E(p=0.3_R8P, r=q_ic(1), u=mod_u, g=self%cp0(1)/self%cv0(1))
-      !   elseif (x<=0.5_R8P.and.y>0.5_R8P) then
-      !      q_ic(1) = 0.5323_R8P
-      !      q_ic(2) = q_ic(1) * 1.206_R8P
-      !      q_ic(3) = 0._R8P
-      !      q_ic(4) = 0._R8P
-      !      mod_u   = sqrt((q_ic(2)/q_ic(1))**2 + (q_ic(3)/q_ic(1))**2 + (q_ic(4)/q_ic(1))**2)
-      !      q_ic(5) = q_ic(1) * E(p=0.3_R8P, r=q_ic(1), u=mod_u, g=self%cp0(1)/self%cv0(1))
-      !   else
-      !      q_ic(1) = 1.5_R8P
-      !      q_ic(2) = 0._R8P
-      !      q_ic(3) = 0._R8P
-      !      q_ic(4) = 0._R8P
-      !      mod_u   = sqrt((q_ic(2)/q_ic(1))**2 + (q_ic(3)/q_ic(1))**2 + (q_ic(4)/q_ic(1))**2)
-      !      q_ic(5) = q_ic(1) * E(p=1.5_R8P, r=q_ic(1), u=mod_u, g=self%cp0(1)/self%cv0(1))
-      !   endif
-      !endselect
-      !endsubroutine set_ic_riemann_2D
+      call file_parameters%get(section_name='initial_conditions', option_name='nic_regions', val=nic_regions)
+      allocate(    emin_icr(1:3, 1:nic_regions))
+      allocate(    emax_icr(1:3, 1:nic_regions))
+      allocate(     rho_icr(     1:nic_regions))
+      allocate(velocity_icr(1:3, 1:nic_regions))
+      allocate(pressure_icr(     1:nic_regions))
+      do icr=1, nic_regions
+         section_name = 'initial_conditions_'//trim(str(icr,.true.))
+         call file_parameters%get(section_name=section_name, option_name='emin_x'    , val=buffer)
+         emin_icr(1,icr) = buffer
+         call file_parameters%get(section_name=section_name, option_name='emin_y'    , val=buffer)
+         emin_icr(2,icr) = buffer
+         call file_parameters%get(section_name=section_name, option_name='emin_z'    , val=buffer)
+         emin_icr(3,icr) = buffer
+         call file_parameters%get(section_name=section_name, option_name='emax_x'    , val=buffer)
+         emax_icr(1,icr) = buffer
+         call file_parameters%get(section_name=section_name, option_name='emax_y'    , val=buffer)
+         emax_icr(2,icr) = buffer
+         call file_parameters%get(section_name=section_name, option_name='emax_z'    , val=buffer)
+         emax_icr(3,icr) = buffer
+         call file_parameters%get(section_name=section_name, option_name='rho'       , val=buffer)
+         rho_icr(  icr) = buffer
+         call file_parameters%get(section_name=section_name, option_name='velocity_x', val=buffer)
+         velocity_icr(1,icr) = buffer
+         call file_parameters%get(section_name=section_name, option_name='velocity_y', val=buffer)
+         velocity_icr(2,icr) = buffer
+         call file_parameters%get(section_name=section_name, option_name='velocity_z', val=buffer)
+         velocity_icr(3,icr) = buffer
+         call file_parameters%get(section_name=section_name, option_name='pressure'  , val=buffer)
+         pressure_icr(  icr) = buffer
+
+         print '(A)', 'initial conditions of region '//trim(str(icr,.true.))
+         print '(A)', '  emin:     '//trim(str(    emin_icr(:,icr)))
+         print '(A)', '  emax:     '//trim(str(    emax_icr(:,icr)))
+         print '(A)', '  density:  '//trim(str(     rho_icr(  icr)))
+         print '(A)', '  velocity: '//trim(str(velocity_icr(:,icr)))
+         print '(A)', '  pressure: '//trim(str(pressure_icr(  icr)))
+      enddo
+      endsubroutine load_ic_from_ini_file
    endsubroutine set_initial_conditions
 
    subroutine update_ghost_gpu(self, q_gpu, step)

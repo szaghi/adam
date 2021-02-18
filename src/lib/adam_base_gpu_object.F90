@@ -576,6 +576,7 @@ contains
    device_mem_req   = self%field%block_weight*self%field%nb*8/1e9 * fields_gpu_number_
    print '(A,F5.2,A)', ' requested device memory ', device_mem_req, ' Gb'
    print '(A,F5.2,A)', ' available device memory ', device_mem_avail, ' Gb'
+   print '(A)', ''
 
    allocate(self%q_t(1:field%nb,                                    &
                      1-field%grid%ngc:field%grid%ni+field%grid%ngc, &

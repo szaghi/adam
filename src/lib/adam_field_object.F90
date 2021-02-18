@@ -65,6 +65,7 @@ module adam_field_object
 
 use adam_grid_object, only : grid_object
 use adam_parameters
+use FINER, only : file_ini
 use PENF
 use MPI
 
@@ -124,12 +125,14 @@ type :: field_object
       procedure, pass(self) :: compute_metrics               !< Compute metrics of each block.
       procedure, pass(self) :: destroy                       !< Destroy the field.
       procedure, pass(self) :: initialize                    !< Initialize the field.
+      procedure, pass(self) :: load_from_ini_file            !< Load object data from INI file.
       procedure, pass(self) :: mark_all_blocks               !< Mark all blocks to be refined, derefined, ecc.
       procedure, pass(self) :: mark_sphere                   !< Mark blocks to be refined/derefined by sphere distance.
       procedure, pass(self) :: mpi_gather_refinements_needed !< Gather blocks refinement needed status between MPI processes.
       procedure, pass(self) :: mpi_redistribute              !< Redistribute blocks to processes.
       procedure, pass(self) :: prepare_comm_local_ghost      !< Prepare communication and local maps/buffers for ghosts update.
       procedure, pass(self) :: prepare_local_bc              !< Prepare local maps for boundary conditions.
+      procedure, pass(self) :: print_status                  !< Print status of main data.
       ! private methods
       procedure, pass(self), private :: derefine !< Derefine blocks.
       procedure, pass(self), private :: refine   !< Refine blocks.
@@ -200,15 +203,19 @@ contains
    self = fresh
    endsubroutine destroy
 
-   subroutine initialize(self, grid, nv, nb)
+   subroutine initialize(self, grid, file_parameters, nv, nb)
    !< Initialize field.
-   class(field_object), intent(inout)        :: self    !< The field.
-   type(grid_object),   intent(in), target   :: grid    !< Grid data.
-   integer(I4P),        intent(in), optional :: nv      !< Number of field variables.
-   integer(I4P),        intent(in), optional :: nb      !< Number of all blocks that can be stored.
+   class(field_object), intent(inout)           :: self            !< The field.
+   type(grid_object),   intent(in), target      :: grid            !< Grid data.
+   type(file_ini),      intent(inout), optional :: file_parameters !< INI file handler.
+   integer(I4P),        intent(in),    optional :: nv              !< Number of field variables.
+   integer(I4P),        intent(in),    optional :: nb              !< Number of all blocks that can be stored.
 
    call self%destroy
    self%grid => grid
+   if (present(file_parameters)) call self%load_from_ini_file(file_parameters)
+
+   ! parameters explicitely passed ovveride ones file-passed
    if (present(nv)) self%nv  = nv
    self%block_weight = (self%grid%ngc+self%grid%ni+self%grid%ngc)* &
                        (self%grid%ngc+self%grid%nj+self%grid%ngc)* &
@@ -245,12 +252,22 @@ contains
       self%q = 0._R8P
       self%q_work = 0._R8P
    endif
+
    ! MPI data
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
    allocate(self%blocks_numbers(0:self%procs_number-1))
    allocate(self%req_send_recv(0:self%procs_number*2-1))
    endsubroutine initialize
+
+   subroutine load_from_ini_file(self, file_parameters)
+   !< Load object data from INI file.
+   class(field_object), intent(inout) :: self            !< The field.
+   type(file_ini),      intent(inout) :: file_parameters !< INI file handler.
+
+   call file_parameters%get(section_name='field', option_name='nv', val=self%nv)
+   call file_parameters%get(section_name='field', option_name='nb', val=self%nb)
+   endsubroutine load_from_ini_file
 
    subroutine mark_sphere(self, center, radius, threshold)
    !< Mark blocks to be refined/derefined by sphere distance.
@@ -491,6 +508,18 @@ contains
    call assign_allocatable(lhs=self%local_map_bc_edge  , rhs=local_map_bc_edge  )
    call assign_allocatable(lhs=self%local_map_bc_corner, rhs=local_map_bc_corner)
    endsubroutine prepare_local_bc
+
+   subroutine print_status(self)
+   !< Print status of main data.
+   class(field_object), intent(in) :: self !< The field.
+
+   print '(A)', 'field status of main data'
+   print '(A)', '  field variables number (nv): '//trim(str(self%nv           ))
+   print '(A)', '  all blocks number (nb):      '//trim(str(self%nb           ))
+   print '(A)', '  blocks number:               '//trim(str(self%blocks_number))
+   print '(A)', '  block weight:                '//trim(str(self%block_weight ))
+   print '(A)', ''
+   endsubroutine print_status
 
    ! private methods
    subroutine derefine(self, ratio, block_to_derefine, block_derefined)
