@@ -12,6 +12,7 @@ use FiNeR
 use PENF
 use MPI
 use CUDAFOR
+!use cgal_wrappers
 use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
 
 implicit none
@@ -177,12 +178,16 @@ contains
 
    iterations_ = 1 ; if (present(iterations)) iterations_ = iterations
    amr: do i=1, iterations_
-      call self%mark_by_grad_rho(grad_tol=0.05_R8P, delta_fine=0.006_R8P, delta_coarse=0.015_R8P)
+      call self%mark_by_grad_rho(grad_tol=2._R8P, delta_fine=0.015_R8P, delta_coarse=0.15_R8P)
+      !call self%mark_by_grad_rho(grad_tol=0.05_R8P, delta_fine=0.006_R8P, delta_coarse=0.015_R8P)
       call self%update_ghost_gpu(q_gpu=self%q_gpu)
       call self%copy_gpu_cpu()
       call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed)
       call self%copy_cpu_gpu
-      if (.not.is_grid_changed) exit amr
+      if (.not.is_grid_changed) then
+          print*,'AMR Grid stabilized after : ',i,' AMR iterations'
+          exit amr
+      endif
    enddo amr
 
    call self%update_cell_gpu()
@@ -375,7 +380,7 @@ contains
    if(trim(self%flow_type) == "cold") then
        print*,"Setting cold case"
        self%ya_inflow   = 0._R8P
-       self%dha         = 0._R8P
+       self%dha         = 1._R8P ! otherwise WENO fails because there is a division to dha
        self%Damkohler   = 0._R8P
        self%pres_inflow = 10000._R8P
        self%u_inflow    = 1.5_R8P 
@@ -622,7 +627,7 @@ contains
       call self%adam%tree%mark_all_nodes(mark=TO_BE_REFINED)
       call self%adam%amr_update(do_blocks_reorder=.false., do_mpi_redistribute=.true.)
    enddo
-   call self%update_cell_gpu()
+   call self%update_cell_gpu() ! should not be needed since it is in amr_update
    !print*,'amr update a', lbound(self%x_cell_gpu,1), ubound(self%x_cell_gpu,1), size(self%x_cell_gpu,1)
    !print*,'amr update b', lbound(self%x_cell_gpu,2), ubound(self%x_cell_gpu,2), size(self%x_cell_gpu,2)
    endsubroutine
@@ -2365,7 +2370,6 @@ contains
          er(5,1) = 0._R8P ;  er(5,2) = 0._R8P  ; er(5,3) = 0._R8P ; er(5,4) = 1._R8P ; er(5,5) = 0._R8P ; er(5,6) = -ww/dha
          er(6,1) = 0._R8P ;  er(6,2) = 0._R8P  ; er(6,3) = 0._R8P ; er(6,4) = 0._R8P ; er(6,5) = 1._R8P ; er(6,6) = 1._R8P/dha
 
-         ! NEXT TODO
          el(1,1) =  0.5_R8P*(b1+vv*ci) ; el(1,2) = 1._R8P-b1 ; el(1,3) = 0.5_R8P*(b1-vv*ci)
          el(2,1) = -0.5_R8P*(b2*uu)    ; el(2,2) = b2*uu     ; el(2,3) = -0.5_R8P*(b2*uu)
          el(3,1) = -0.5_R8P*(b2*vv+ci) ; el(3,2) = b2*vv     ; el(3,3) = -0.5_R8P*(b2*vv-ci)
@@ -2373,7 +2377,7 @@ contains
          el(5,1) =  0.5_R8P*b2         ; el(5,2) = -b2       ; el(5,3) = 0.5_R8P*b2
          el(6,1) = -0.5_R8P*dha*b2     ; el(6,2) = dha*b2    ; el(6,3) = -0.5_R8P*dha*b2
 
-         el(1,4) = -ww                 ; el(1,5) = uu        ; el(1,6) = -ya*dha*b1-u**2-w**2
+         el(1,4) = -ww                 ; el(1,5) = uu        ; el(1,6) = -ya*dha*b1-uu**2-ww**2
          el(2,4) = 0._R8P              ; el(2,5) = -1._R8P   ; el(2,6) = uu*(1._R8P+ya*dha*b2)
          el(3,4) = 0._R8P              ; el(3,5) = 0._R8P    ; el(3,6) = ya*dha*vv*b2
          el(4,4) = 1._R8P              ; el(4,5) = 0._R8P    ; el(4,6) = ww*(1._R8P+ya*dha*b2)
@@ -2483,9 +2487,9 @@ contains
             ngc, b, i, j, k, i, j, k+1, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
 
          ! Compute right and left eigenvectors matrices (at Roe state)
-         er(1,1) = 1._R8P ;  er(1,2) = uu      ; er(1,3) = vv     ; er(1,4) = ww -  c ; er(1,5) = h-ww*c ; er(1,6) = ya     
+         er(1,1) = 1._R8P ;  er(1,2) = uu      ; er(1,3) = vv     ; er(1,4) = ww-c    ; er(1,5) = h-ww*c ; er(1,6) = ya     
          er(2,1) = 1._R8P ;  er(2,2) = uu      ; er(2,3) = vv     ; er(2,4) = ww      ; er(2,5) = qq     ; er(2,6) = 0._R8P  
-         er(3,1) = 1._R8P ;  er(3,2) = uu      ; er(3,3) = vv     ; er(3,4) = ww +  c ; er(3,5) = h+ww*c ; er(3,6) = ya     
+         er(3,1) = 1._R8P ;  er(3,2) = uu      ; er(3,3) = vv     ; er(3,4) = ww+c    ; er(3,5) = h+ww*c ; er(3,6) = ya     
          er(4,1) = 0._R8P ;  er(4,2) = 1._R8P  ; er(4,3) = 0._R8P ; er(4,4) = 0._R8P  ; er(4,5) = 0._R8P ; er(4,6) = -uu/dha 
          er(5,1) = 0._R8P ;  er(5,2) = 0._R8P  ; er(5,3) = 1._R8P ; er(5,4) = 0._R8P  ; er(5,5) = 0._R8P ; er(5,6) = -vv/dha
          er(6,1) = 0._R8P ;  er(6,2) = 0._R8P  ; er(6,3) = 0._R8P ; er(6,4) = 0._R8P  ; er(6,5) = 1._R8P ; er(6,6) = 1._R8P/dha

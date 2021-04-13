@@ -278,12 +278,14 @@ colors       = True
 quiet        = False
 log          = True
 jobs         = 2
-lib_dir      = /cineca/prod/opt/libraries/hdf5/1.12.0--spectrum_mpi--10.3.1/pgi--19.10--binary/lib
-include      = /cineca/prod/opt/libraries/hdf5/1.12.0--spectrum_mpi--10.3.1/pgi--19.10--binary/include
-libs         = /cineca/prod/opt/libraries/hdf5/1.12.0--spectrum_mpi--10.3.1/pgi--19.10--binary/lib/libhdf5hl_fortran.a
-               /cineca/prod/opt/libraries/hdf5/1.12.0--spectrum_mpi--10.3.1/pgi--19.10--binary/lib/libhdf5_hl.a
-               /cineca/prod/opt/libraries/hdf5/1.12.0--spectrum_mpi--10.3.1/pgi--19.10--binary/lib/libhdf5_fortran.a
-               /cineca/prod/opt/libraries/hdf5/1.12.0--spectrum_mpi--10.3.1/pgi--19.10--binary/lib/libhdf5.a
+lib_dir      = /m100_scratch/userinternal/fsalvado/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib
+include      = /m100_scratch/userinternal/fsalvado/HDF5_NVFORTRAN/install_hdf5-1.12.0/include
+libs         = /m100_scratch/userinternal/fsalvado/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5hl_fortran.a
+               /m100_scratch/userinternal/fsalvado/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5_hl.a
+               /m100_scratch/userinternal/fsalvado/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5_fortran.a
+               /m100_scratch/userinternal/fsalvado/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5.a
+               /m100_work/cin_staff/fsalvado/ADAM/adam/src/app/flame/cgal_c_wrappers.o
+               -Wl,-rpath,/cineca/prod/opt/compilers/gnu/8.4.0/none/lib64 /cineca/prod/opt/compilers/gnu/8.4.0/none/lib64/libstdc++.so.6.0.25
                /cineca/prod/opt/libraries/zlib/1.2.11/gnu--8.4.0/lib/libz.a
                /cineca/prod/opt/libraries/szip/2.1.1/gnu--8.4.0/lib/libsz.a
 ext_libs     = dl m
@@ -305,12 +307,14 @@ colors       = True
 quiet        = False
 log          = True
 jobs         = 2
-lib_dir      = /cineca/prod/opt/libraries/hdf5/1.12.0--spectrum_mpi--10.3.1/pgi--19.10--binary/lib
-include      = /cineca/prod/opt/libraries/hdf5/1.12.0--spectrum_mpi--10.3.1/pgi--19.10--binary/include
-libs         = /cineca/prod/opt/libraries/hdf5/1.12.0--spectrum_mpi--10.3.1/pgi--19.10--binary/lib/libhdf5hl_fortran.a
-               /cineca/prod/opt/libraries/hdf5/1.12.0--spectrum_mpi--10.3.1/pgi--19.10--binary/lib/libhdf5_hl.a
-               /cineca/prod/opt/libraries/hdf5/1.12.0--spectrum_mpi--10.3.1/pgi--19.10--binary/lib/libhdf5_fortran.a
-               /cineca/prod/opt/libraries/hdf5/1.12.0--spectrum_mpi--10.3.1/pgi--19.10--binary/lib/libhdf5.a
+lib_dir      = /m100_scratch/userinternal/fsalvado/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib
+include      = /m100_scratch/userinternal/fsalvado/HDF5_NVFORTRAN/install_hdf5-1.12.0/include
+libs         = /m100_scratch/userinternal/fsalvado/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5hl_fortran.a
+               /m100_scratch/userinternal/fsalvado/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5_hl.a
+               /m100_scratch/userinternal/fsalvado/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5_fortran.a
+               /m100_scratch/userinternal/fsalvado/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5.a
+               /m100_work/cin_staff/fsalvado/ADAM/adam/src/app/flame/cgal_c_wrappers.o
+               -Wl,-rpath,/cineca/prod/opt/compilers/gnu/8.4.0/none/lib64 /cineca/prod/opt/compilers/gnu/8.4.0/none/lib64/libstdc++.so.6.0.25
                /cineca/prod/opt/libraries/zlib/1.2.11/gnu--8.4.0/lib/libz.a
                /cineca/prod/opt/libraries/szip/2.1.1/gnu--8.4.0/lib/libsz.a
 ext_libs     = dl m

@@ -27,7 +27,7 @@ real(R8P), allocatable          :: velocity_icr(:,:)            !< Initial condi
 real(R8P), allocatable          :: pressure_icr(:)              !< Initial conditions regions pressure.
 real(R8P)                       :: timing(1:2)                  !< Tic toc timing.
 character(32), parameter        :: flow_types(4)=["flame1d","cold","flamechannel","sod"]
-character(32)                   :: flow_type=flow_types(4);
+character(32)                   :: flow_type=flow_types(2);
 
 SELECT CASE (flow_type)
    CASE ("flame1d")
@@ -44,18 +44,20 @@ SELECT CASE (flow_type)
       call flame%refine_uniform(refinement_levels=2)
       n_save = 1000
    CASE ("cold")
-      call adam%initialize(ni=80, nj=32, nk=32, ngc=2, max_level=8,                     &
+      !call adam%initialize(ni=80, nj=32, nk=32, ngc=2, max_level=8,                     &
+      call adam%initialize(ni=20, nj=8, nk=8, ngc=2, max_level=8,                     &
                            emin=[0._R8P,0._R8P,0._R8P], emax=[10._R8P,4._R8P,4._R8P],   &
                            bc_type=[BC_INFLOW_COLD   , BC_EXTRAPOLATION,                &
                                     BC_EXTRAPOLATION , BC_EXTRAPOLATION,                &
                                     BC_EXTRAPOLATION , BC_EXTRAPOLATION],               &
-                           nv=6, nb=150, nodes_number=150*4_I8P)
+                           nv=6, nb=5000, nodes_number=5000*4_I8P)
+                           !nv=6, nb=150, nodes_number=150*4_I8P)
       call flame%initialize(adam=adam, ns=2, CFL=0.3_R8P, nrk=3,                        &
                             null_xyz=[.false.,.false.,.false.],                         & 
                             flow_type=flow_type,                                        &
                             fields_gpu_number=14)
-      call flame%refine_uniform(refinement_levels=3)
-      n_save = 1000
+      call flame%refine_uniform(refinement_levels=1)
+      n_save = 100
    CASE ("flamechannel")
       call adam%initialize(ni=100, nj=10, nk=10, ngc=10, max_level=8,                   &
                            emin=[0._R8P,0._R8P,0._R8P], emax=[40._R8P,4_R8P,4_R8P],     &
@@ -100,7 +102,7 @@ t = 0
 call MPI_BARRIER(MPI_COMM_WORLD, adam%error) ; timing(1) = MPI_Wtime()
 integration: do
    t = t + 1
-   ! call flame%amr_update(iterations=1)
+   if(t<10) call flame%amr_update(iterations=1)
    call flame%compute_dt
    if (time + flame%dt > time_max) flame%dt = time_max - time
    if (mod(t,1)==0.and.adam%myrank==0) call flame%print_progress(t=t, time=time, time_max=time_max)
