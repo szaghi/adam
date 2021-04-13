@@ -40,6 +40,8 @@ type :: adam_object
       procedure, pass(self) :: mpi_gather_refinement_needed  !< Gather refinement needed.
       procedure, pass(self) :: mpi_redistribute              !< Redistribute nodes/blocks to processes, load balancing.
       procedure, pass(self) :: print_status                  !< Print status of main data.
+      procedure, pass(self) :: prune                         !< Prune nodes/blocks.
+      procedure, pass(self) :: refine_uniform                !< Refine all blocks uniformly.
       procedure, pass(self) :: save_hdf5                     !< Save ADAM in HDF5 format.
       procedure, pass(self) :: save_vtk                      !< Save ADAM in VTK  format.
       ! operators
@@ -65,6 +67,8 @@ contains
    !<
    !< Note: AMR update can be safely called only *after* update_ghost has been called for *q* variables, otherwise
    !< refine is not well done.
+   !< Note: only if the AMR is UNIFORM and GLOBALLY made by tree, i.e. using mark_all_nodes, the mpi_redistribute can be avoided,
+   !< otherwise mpi_gather_refinement_nedeed is not safe (having wrong nodes number counters).
    class(adam_object), intent(inout)         :: self                 !< ADAM.
    logical,            intent(in),  optional :: is_marked_by_field   !< Flag to check if marker is field.
    logical,            intent(in),  optional :: is_marked_by_tree    !< Flag to check if marker is tree.
@@ -75,8 +79,8 @@ contains
    logical                                   :: do_mpi_redistribute_ !< Flag to activate MPI redistribute, local var.
    logical                                   :: do_blocks_reorder_   !< Flag to activate blocks reorder, local var.
 
-   do_mpi_redistribute_ = .true.  ; if (present(do_mpi_redistribute )) do_mpi_redistribute_ = do_mpi_redistribute
-   do_blocks_reorder_ = .true.  ; if (present(do_blocks_reorder)) do_blocks_reorder_ = do_blocks_reorder
+   do_mpi_redistribute_ = .true. ; if (present(do_mpi_redistribute )) do_mpi_redistribute_ = do_mpi_redistribute
+   do_blocks_reorder_ = .true. ; if (present(do_blocks_reorder)) do_blocks_reorder_ = do_blocks_reorder
 
    call self%mpi_gather_refinement_needed(is_marked_by_field=is_marked_by_field, is_marked_by_tree=is_marked_by_tree)
 
@@ -182,8 +186,8 @@ contains
    logical                                   :: is_marked_by_field_ !< Flag to check if marker is field, local var.
    logical                                   :: is_marked_by_tree_  !< Flag to check if marker is tree, local var.
 
-   is_marked_by_field_  = .false. ; if (present(is_marked_by_field  )) is_marked_by_field_  = is_marked_by_field
-   is_marked_by_tree_   = .false. ; if (present(is_marked_by_tree   )) is_marked_by_tree_   = is_marked_by_tree
+   is_marked_by_field_ = .false. ; if (present(is_marked_by_field)) is_marked_by_field_ = is_marked_by_field
+   is_marked_by_tree_  = .false. ; if (present(is_marked_by_tree )) is_marked_by_tree_  = is_marked_by_tree
 
    if (is_marked_by_field_) then
       call self%field%mpi_gather_refinements_needed
@@ -222,6 +226,40 @@ contains
    call self%tree%print_status
    call self%field%print_status
    endsubroutine print_status
+
+   subroutine prune(self, ijkl_prune, print_mpi_stats, do_blocks_reorder)
+   !< Prune nodes/blocks.
+   class(adam_object), intent(inout)        :: self               !< Adam.
+   integer(I4P),       intent(inout)        :: ijkl_prune(4)      !< Maximum coordinates after which the prune operates.
+   logical,            intent(in), optional :: print_mpi_stats    !< Flag to activate MPI statistics print.
+   logical,            intent(in), optional :: do_blocks_reorder  !< Flag to activate blocks reorder.
+   logical                                  :: do_blocks_reorder_ !< Flag to activate blocks reorder, local var.
+
+   do_blocks_reorder_ = .true.  ; if (present(do_blocks_reorder)) do_blocks_reorder_ = do_blocks_reorder
+
+   call self%tree%prune(ijkl_prune=ijkl_prune)
+
+   call self%mpi_redistribute(print_mpi_stats=print_mpi_stats)
+
+   if (do_blocks_reorder_) call self%blocks_reorder
+
+   call self%make_comm_local_maps_ghost_bc
+   endsubroutine prune
+
+   subroutine refine_uniform(self, refinement_levels, do_mpi_redistribute, do_blocks_reorder)
+   !< Refine all blocks uniformly.
+   class(adam_object), intent(inout)        :: self                 !< Adam.
+   integer(I4P),       intent(in)           :: refinement_levels    !< Number of refinement to be performed.
+   logical,            intent(in), optional :: do_mpi_redistribute  !< Flag to activate MPI redistribute.
+   logical,            intent(in), optional :: do_blocks_reorder    !< Flag to activate blocks reorder.
+   integer(I4P)                             :: l                    !< Counter.
+
+   print '(A)', 'uniformly refine mesh with '//trim(str(refinement_levels))//' levels'
+   do l=1, refinement_levels
+      call self%tree%mark_all_nodes(mark=TO_BE_REFINED)
+      call self%amr_update(do_mpi_redistribute=do_mpi_redistribute, do_blocks_reorder=do_blocks_reorder)
+   enddo
+   endsubroutine refine_uniform
 
    subroutine save_hdf5(self, basename, q, q_aux, q_name, q_aux_name, directory, with_ghost, with_cell_morton, t, time)
    !< Save ADAM in HDF5 format.
@@ -319,9 +357,9 @@ contains
       if (with_cell_morton_) then
          h5_dset_name = 'morton-'//trim(str(self%myrank,.true.))//'-'//trim(str(b,.true.))
          call h5dcreate_f(h5_file_id, h5_dset_name, H5T_NATIVE_DOUBLE, h5_dspace_id, h5_dset_id, self%error)
-         call h5dwrite_f(h5_dset_id, H5T_NATIVE_DOUBLE, &
+         call h5dwrite_f(h5_dset_id, H5T_NATIVE_DOUBLE,                                                 &
                          reshape([(real(self%field%code(b),R8P),i=1,(ni+2*ngc)*(nj+2*ngc)*(nk+2*ngc))], &
-                                 [ni+2*ngc,nj+2*ngc,nk+2*ngc]),                              &
+                                 [ni+2*ngc,nj+2*ngc,nk+2*ngc]),                                         &
                          [int(ni+2*ngc,I8P),int(nj+2*ngc,I8P),int(nk+2*ngc,I8P)], self%error)
          call h5dclose_f(h5_dset_id, self%error)
       endif

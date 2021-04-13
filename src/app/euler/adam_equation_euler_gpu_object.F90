@@ -352,21 +352,19 @@ contains
    !< Load object data from INI file.
    class(equation_euler_gpu_object), intent(inout) :: self            !< The equation.
    type(file_ini),                   intent(inout) :: file_parameters !< INI file handler.
-   real(R8P)                                       :: domain_e        !< Dummy buffer.
-   integer(I4P)                                    :: bc_t            !< Dummy buffer.
-   logical                                         :: null_dir        !< Dummy buffer.
+   integer(I4P)                                    :: buff_I4P        !< I4P buffer.
+   integer(I8P)                                    :: buff_I8P        !< I8P buffer.
+   real(R8P)                                       :: buff_R8P        !< R8P buffer.
+   logical                                         :: buff_LOG        !< LOG buffer.
 
-   call file_parameters%get(section_name='euler', option_name='ns'               , val=self%ns               )
-   call file_parameters%get(section_name='euler', option_name='CFL'              , val=self%CFL              )
-   call file_parameters%get(section_name='euler', option_name='nrk'              , val=self%nrk              )
-   call file_parameters%get(section_name='euler', option_name='null_x'           , val=null_dir              )
-   self%null_xyz(1) = null_dir
-   call file_parameters%get(section_name='euler', option_name='null_y'           , val=null_dir              )
-   self%null_xyz(2) = null_dir
-   call file_parameters%get(section_name='euler', option_name='null_z'           , val=null_dir              )
-   self%null_xyz(3) = null_dir
-   call file_parameters%get(section_name='euler', option_name='weno_stencils'    , val=self%weno_stencils    )
-   call file_parameters%get(section_name='euler', option_name='fields_gpu_number', val=self%fields_gpu_number)
+   call file_parameters%get(section_name='euler', option_name='ns'               , val=buff_I4P) ; self%ns                = buff_I4P
+   call file_parameters%get(section_name='euler', option_name='CFL'              , val=buff_R8P) ; self%CFL               = buff_R8P
+   call file_parameters%get(section_name='euler', option_name='nrk'              , val=buff_I4P) ; self%nrk               = buff_I4P
+   call file_parameters%get(section_name='euler', option_name='null_x'           , val=buff_LOG) ; self%null_xyz(1)       = buff_LOG
+   call file_parameters%get(section_name='euler', option_name='null_y'           , val=buff_LOG) ; self%null_xyz(2)       = buff_LOG
+   call file_parameters%get(section_name='euler', option_name='null_z'           , val=buff_LOG) ; self%null_xyz(3)       = buff_LOG
+   call file_parameters%get(section_name='euler', option_name='weno_stencils'    , val=buff_I4P) ; self%weno_stencils     = buff_I4P
+   call file_parameters%get(section_name='euler', option_name='fields_gpu_number', val=buff_I4P) ; self%fields_gpu_number = buff_I4P
    endsubroutine load_from_ini_file
 
    subroutine mark_by_grad_rho(self, grad_tol, delta_fine, delta_coarse, threshold)
@@ -471,6 +469,7 @@ contains
          call self%compute_aux(q_gpu=self%q_s_gpu(:,:,:,:,:,s), q_aux_gpu=self%q_aux_gpu)
          call compute_residuals_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, ns=ns, blocks_number=blocks_number,          &
                                         null_x=self%null_xyz(1), null_y=self%null_xyz(2), null_z=self%null_xyz(3), &
+                                        weno_stencils     = self%weno_stencils,                                    &
                                         dx_gpu            = self%dxyz_gpu(:,1),                                    &
                                         dy_gpu            = self%dxyz_gpu(:,2),                                    &
                                         dz_gpu            = self%dxyz_gpu(:,3),                                    &
@@ -509,16 +508,15 @@ contains
    print '(A)', 'progress:      '//trim(str(int(time/time_max * 100), .true.))//'%'
    endsubroutine print_progress
 
-   subroutine refine_uniform(self, refinement_levels)
+   subroutine refine_uniform(self, refinement_levels, do_mpi_redistribute, do_blocks_reorder)
    !< Refine all blocks uniformly.
-   class(equation_euler_gpu_object), intent(inout) :: self              !< The equation.
-   integer(I4P),                     intent(in)    :: refinement_levels !< Number of refinement to be performed.
-   integer(I4P)                                    :: l                 !< Counter.
+   class(equation_euler_gpu_object), intent(inout)        :: self                !< The equation.
+   integer(I4P),                     intent(in)           :: refinement_levels   !< Number of refinement to be performed.
+   logical,                          intent(in), optional :: do_mpi_redistribute !< Flag to activate MPI redistribute.
+   logical,                          intent(in), optional :: do_blocks_reorder   !< Flag to activate blocks reorder.
 
-   do l=1, refinement_levels
-      call self%adam%tree%mark_all_nodes(mark=TO_BE_REFINED)
-      call self%adam%amr_update(do_blocks_reorder=.false., do_mpi_redistribute=.true.)
-   enddo
+   call self%adam%refine_uniform(refinement_levels=refinement_levels, &
+                                 do_mpi_redistribute=do_mpi_redistribute, do_blocks_reorder=do_blocks_reorder)
    endsubroutine
 
    subroutine runge_kutta_initialize(self)
@@ -854,8 +852,8 @@ contains
    !@cuf iercuda=cudaDeviceSynchronize()
    endsubroutine compute_aux_cuf
 
-   subroutine compute_residuals_gpu_cuf(ni, nj, nk, ngc, ns, blocks_number, null_x, null_y, null_z, &
-                                        dx_gpu, dy_gpu, dz_gpu, q_aux_gpu, weno_stencils_gpu,       &
+   subroutine compute_residuals_gpu_cuf(ni, nj, nk, ngc, ns, blocks_number, null_x, null_y, null_z, weno_stencils, &
+                                        dx_gpu, dy_gpu, dz_gpu, q_aux_gpu, weno_stencils_gpu,                      &
                                         fp_gpu, fm_gpu, f_i_gpu, f_j_gpu, f_k_gpu, f_gpu, q_gpu)
    !< Compute residuals of equation.
    integer(I4P), intent(in)            :: ni                                    !< Grid cells number in I direction.
@@ -867,6 +865,7 @@ contains
    logical,      intent(in)            :: null_x                                !< Nullify x direction.
    logical,      intent(in)            :: null_y                                !< Nullify y direction.
    logical,      intent(in)            :: null_z                                !< Nullify z direction.
+   integer(I4P), intent(in)            :: weno_stencils                         !< WENO stencils number/dimension.
    real(R8P),    intent(in),    device :: dx_gpu(1:)                            !< X space steps.
    real(R8P),    intent(in),    device :: dy_gpu(1:)                            !< Y space steps.
    real(R8P),    intent(in),    device :: dz_gpu(1:)                            !< Z space steps.
@@ -900,122 +899,12 @@ contains
 
    ! accumulate difference of fluxes in i direction
    if (.not.null_x) then
-      !$cuf kernel do(4) <<<*,*>>>
-      do k=1, nk
-         do j=1, nj
-            do i=1-ngc, ni+ngc
-               do b=1, blocks_number
-                  call fluxes_pm(r=q_aux_gpu(    b,i,j,k,ns+1), &
-                                 u=q_aux_gpu(    b,i,j,k,ns+2), &
-                                 v=q_aux_gpu(    b,i,j,k,ns+3), &
-                                 w=q_aux_gpu(    b,i,j,k,ns+4), &
-                                 g=q_aux_gpu(    b,i,j,k,ns+5), &
-                                 p=q_aux_gpu(    b,i,j,k,ns+6), &
-                                 fp_rho  =fp_gpu(b,i,j,k,ns  ), &
-                                 fp_rho_u=fp_gpu(b,i,j,k,ns+1), &
-                                 fp_rho_v=fp_gpu(b,i,j,k,ns+2), &
-                                 fp_rho_w=fp_gpu(b,i,j,k,ns+3), &
-                                 fp_rho_E=fp_gpu(b,i,j,k,ns+4), &
-                                 fm_rho  =fm_gpu(b,i,j,k,ns  ), &
-                                 fm_rho_u=fm_gpu(b,i,j,k,ns+1), &
-                                 fm_rho_v=fm_gpu(b,i,j,k,ns+2), &
-                                 fm_rho_w=fm_gpu(b,i,j,k,ns+3), &
-                                 fm_rho_E=fm_gpu(b,i,j,k,ns+4))
-               enddo
-            enddo
-         enddo
-      enddo
-      !@cuf iercuda=cudaDeviceSynchronize()
+      call reconstruct_euler_fluxes_x_weno_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, ns=ns, blocks_number=blocks_number, &
+                                               weno_stencils=weno_stencils, q_aux_gpu=q_aux_gpu,                 &
+                                               weno_stencils_gpu=weno_stencils_gpu, d_gpu=dx_gpu,                &
+                                               fp_gpu=fp_gpu, fm_gpu=fm_gpu, f_gpu=f_gpu, q_gpu=q_gpu)
 
-      !$cuf kernel do(5) <<<*,*>>>
-      do v=1, ns+4
-         do k=1, nk
-            do j=1, nj
-               do i=1-ngc, ni+ngc
-                  do b=1, blocks_number
-                     f_i_gpu(i,b,j,k,v) = fp_gpu(b,i,j,k,v)
-                  enddo
-               enddo
-            enddo
-         enddo
-      enddo
-      !@cuf iercuda=cudaDeviceSynchronize()
-
-      !$cuf kernel do(4) <<<*,*>>>
-      do v=1, ns+4
-         do k=1, nk
-            do j=1, nj
-               do b=1, blocks_number
-                  do i=0,ni
-                     call reconstruct_weno(side=weno_l_side,               &
-                                           s=s,                            &
-                                           q=f_i_gpu(i+1-s:i-1+s,b,j,k,v), &
-                                           qr=f_gpu(b,i,j,k,v))
-                  enddo
-               enddo
-            enddo
-         enddo
-      enddo
-      !@cuf iercuda=cudaDeviceSynchronize()
-
-      !$cuf kernel do(5) <<<*,*>>>
-      do v=1, ns+4
-         do k=1, nk
-            do j=1, nj
-               do i=1,ni
-                  do b=1, blocks_number
-                     q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) + (f_gpu(b,i-1,j,k,v) - f_gpu(b,i,j,k,v)) / dx_gpu(b)
-                  enddo
-               enddo
-            enddo
-         enddo
-      enddo
-      !@cuf iercuda=cudaDeviceSynchronize()
-
-      !$cuf kernel do(5) <<<*,*>>>
-      do v=1, ns+4
-         do k=1, nk
-            do j=1, nj
-               do i=1-ngc, ni+ngc
-                  do b=1, blocks_number
-                     f_i_gpu(i,b,j,k,v) = fm_gpu(b,i,j,k,v)
-                  enddo
-               enddo
-            enddo
-         enddo
-      enddo
-      !@cuf iercuda=cudaDeviceSynchronize()
-
-      !$cuf kernel do(4) <<<*,*>>>
-      do v=1, ns+4
-         do k=1, nk
-            do j=1, nj
-               do b=1, blocks_number
-                  do i=0,ni
-                     call reconstruct_weno(side=weno_r_side,                   &
-                                           s=s,                                &
-                                           q=f_i_gpu(i+1-s+1:i-1+s+1,b,j,k,v), &
-                                           qr=f_gpu(b,i,j,k,v))
-                  enddo
-               enddo
-            enddo
-         enddo
-      enddo
-      !@cuf iercuda=cudaDeviceSynchronize()
-
-      !$cuf kernel do(5) <<<*,*>>>
-      do v=1, ns+4
-         do k=1, nk
-            do j=1, nj
-               do i=1,ni
-                  do b=1, blocks_number
-                     q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) + (f_gpu(b,i-1,j,k,v) - f_gpu(b,i,j,k,v)) / dx_gpu(b)
-                  enddo
-               enddo
-            enddo
-         enddo
-      enddo
-      !@cuf iercuda=cudaDeviceSynchronize()
+      return
    endif
 
    ! accumulate difference of fluxes in j direction
@@ -1339,7 +1228,227 @@ contains
    !@cuf iercuda=cudaDeviceSynchronize()
    endsubroutine compute_umax_cuf
 
+   subroutine reconstruct_euler_fluxes_x_weno_cuf(ni, nj, nk, ngc, ns, blocks_number, weno_stencils, &
+                                                  q_aux_gpu, weno_stencils_gpu, d_gpu, fp_gpu, fm_gpu, f_gpu, q_gpu)
+   !< Reconstruct fluxes by WENO in pseudo-characteristic variables, x direction.
+   integer(I4P), intent(in)            :: ni                                        !< Grid cells number in I direction.
+   integer(I4P), intent(in)            :: nj                                        !< Grid cells number in J direction.
+   integer(I4P), intent(in)            :: nk                                        !< Grid cells number in K direction.
+   integer(I4P), intent(in)            :: ngc                                       !< Ghost cells number.
+   integer(I4P), intent(in)            :: ns                                        !< Number of species.
+   integer(I4P), intent(in)            :: blocks_number                             !< Number of blocks.
+   integer(I4P), intent(in)            :: weno_stencils                             !< WENO stencils number/dimension.
+   real(R8P),    intent(in),    device :: d_gpu(1:)                                 !< Space steps.
+   real(R8P),    intent(in),    device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Auxiliary variables.
+   integer(I4P), intent(in),    device :: weno_stencils_gpu                         !< WENO stencils number/dimension.
+   real(R8P),    intent(inout), device :: fp_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)        !< Positive fluxes.
+   real(R8P),    intent(inout), device :: fm_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)        !< Negative fluxes.
+   real(R8P),    intent(inout), device :: f_gpu(1:,0:,0:,0:,1:)                     !< Convective fluxes.
+   real(R8P),    intent(inout), device :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)         !< Conservative variables.
+   ! real(R8P)                           :: un, cn                                    !< Normal velocity.
+   real(R8P), device                   :: ra, ua, va, wa, ha, ca                    !< Roe's averages for c. projection.
+   real(R8P), device                   :: ca2i                                      !< Roe's averages of 1/a**2.
+   real(R8P), device                   :: ca2i2                                     !< Roe's averages of 1/(2*a**2).
+   real(R8P), device                   :: ka                                        !< Roe's averages of (u**2+v**2+w**2)/2.
+   real(R8P), device                   :: gmo                                       !< g-1.
+   real(R8P), device                   :: omg                                       !< 1-g.
+   real(R8P), device                   :: el(5,5), er(5,5)                          !< Left and right eigenvectors.
+   ! real(R8P)                           :: evmax(5)                                  !< Maximum eigenvalues.
+   real(R8P), device                   :: f(1-weno_stencils:-1+weno_stencils,5)       !< Local fluxes.
+   real(R8P), device                   :: fp_pc(1-weno_stencils:-1+weno_stencils,5) !< Positive pseudo-characteristic fluxes.
+   real(R8P), device                   :: fm_pc(1-weno_stencils:-1+weno_stencils,5) !< Negative pseudo-characteristic fluxes.
+   real(R8P), device                   :: fp_pc_r(5), fp_r(5)                       !< Positive reconstructed fluxes.
+   real(R8P), device                   :: fm_pc_r(5), fm_r(5)                       !< Negative reconstructed fluxes.
+   integer(I4P)                        :: b, i, j, k, v, s, v1, v2                  !< Counter.
+   integer(I4P)                        :: iercuda                                   !< Error trapping flag for CUDAFortran.
+
+   ! compute fluxes splitting in cell centers
+   !$cuf kernel do(4) <<<*,*>>>
+   do k=1    , nk
+   do j=1    , nj
+   do i=1-ngc, ni+ngc
+   do b=1    , blocks_number
+      call fluxes_pm(r=q_aux_gpu(    b,i,j,k,ns+1), &
+                     u=q_aux_gpu(    b,i,j,k,ns+2), &
+                     v=q_aux_gpu(    b,i,j,k,ns+3), &
+                     w=q_aux_gpu(    b,i,j,k,ns+4), &
+                     g=q_aux_gpu(    b,i,j,k,ns+5), &
+                     p=q_aux_gpu(    b,i,j,k,ns+6), &
+                     fp_rho  =fp_gpu(b,i,j,k,ns  ), &
+                     fp_rho_u=fp_gpu(b,i,j,k,ns+1), &
+                     fp_rho_v=fp_gpu(b,i,j,k,ns+2), &
+                     fp_rho_w=fp_gpu(b,i,j,k,ns+3), &
+                     fp_rho_E=fp_gpu(b,i,j,k,ns+4), &
+                     fm_rho  =fm_gpu(b,i,j,k,ns  ), &
+                     fm_rho_u=fm_gpu(b,i,j,k,ns+1), &
+                     fm_rho_v=fm_gpu(b,i,j,k,ns+2), &
+                     fm_rho_w=fm_gpu(b,i,j,k,ns+3), &
+                     fm_rho_E=fm_gpu(b,i,j,k,ns+4))
+   enddo
+   enddo
+   enddo
+   enddo
+   !@cuf iercuda=cudaDeviceSynchronize()
+
+   ! reconstruct fluxes by WENO in pseudo-characteristic variables
+   !$cuf kernel do(3) <<<*,*>>>
+   do k=1, nk
+   do j=1, nj
+   do b=1, blocks_number
+   do i=0, ni
+      call compute_roe_averages(g =q_aux_gpu(b,i  ,j,k,ns+5), &
+                                rl=q_aux_gpu(b,i  ,j,k,ns+1), &
+                                ul=q_aux_gpu(b,i  ,j,k,ns+2), &
+                                vl=q_aux_gpu(b,i  ,j,k,ns+3), &
+                                wl=q_aux_gpu(b,i  ,j,k,ns+4), &
+                                pl=q_aux_gpu(b,i  ,j,k,ns+6), &
+                                rr=q_aux_gpu(b,i+1,j,k,ns+1), &
+                                ur=q_aux_gpu(b,i+1,j,k,ns+2), &
+                                vr=q_aux_gpu(b,i+1,j,k,ns+3), &
+                                wr=q_aux_gpu(b,i+1,j,k,ns+4), &
+                                pr=q_aux_gpu(b,i+1,j,k,ns+6), &
+                                ra=ra, ua=ua, va=va, wa=wa, ha=ha, ca=ca, ka=ka, ca2i=ca2i, ca2i2=ca2i2, gmo=gmo, omg=omg)
+
+      ! compute left and right eigenvectors
+      ! x
+      el(1,1)=(gmo*ka+ca*ua)*ca2i2 ; el(2,1)=(omg*ua-ca)*ca2i2 ; el(3,1)=omg*va*ca2i2 ; el(4,1)=omg*wa*ca2i2 ; el(5,1)=gmo*ca2i2
+      el(1,2)=(ca*ca-gmo*ka)*ca2i  ; el(2,2)=gmo*ua*     ca2i  ; el(3,2)=gmo*va*ca2i  ; el(4,2)=gmo*wa*ca2i  ; el(5,2)=omg*ca2i
+      el(1,3)=(gmo*ka-ca*ua)*ca2i2 ; el(2,3)=(omg*ua+ca)*ca2i2 ; el(3,3)=omg*va*ca2i2 ; el(4,3)=omg*wa*ca2i2 ; el(5,3)=gmo*ca2i2
+      el(1,4)=va                   ; el(2,4)=0._R8P            ; el(3,4)=-1._R8P      ; el(4,4)=0._R8P       ; el(5,4)=0._R8P
+      el(1,5)=-wa                  ; el(2,5)=0._R8P            ; el(3,5)=0._R8P       ; el(4,5)=1._R8P       ; el(5,5)=0._R8P
+
+      er(1,1)=1._R8P     ; er(2,1)=1._R8P ; er(3,1)=1._R8P     ; er(4,1)= 0._R8P ; er(5,1)=0._R8P
+      er(1,2)=ua - ca    ; er(2,2)=ua     ; er(3,2)=ua + ca    ; er(4,2)= 0._R8P ; er(5,2)=0._R8P
+      er(1,3)=va         ; er(2,3)=va     ; er(3,3)=va         ; er(4,3)=-1._R8P ; er(5,3)=0._R8P
+      er(1,4)=wa         ; er(2,4)=wa     ; er(3,4)=wa         ; er(4,4)= 0._R8P ; er(5,4)=1._R8P
+      er(1,5)=ha - ca*ua ; er(2,5)=ka     ; er(3,5)=ha + ca*ua ; er(4,5)=-va     ; er(5,5)=wa
+      ! ! y
+      ! el(1,1)=(gmo*ka+ca*va)*ca2i2 ; el(2,1)=omg*ua*ca2i2 ; el(3,1)=(omg*va-ca)*ca2i2 ; el(4,1)=omg*wa*ca2i2 ; el(5,1)=gmo*ca2i2
+      ! el(1,2)=(ca*ca-gmo*ka)*ca2i  ; el(2,2)=gmo*ua*ca2i  ; el(3,2)=gmo*va*     ca2i  ; el(4,2)=gmo*wa*ca2i  ; el(5,2)=omg*ca2i
+      ! el(1,3)=(gmo*ka-ca*va)*ca2i2 ; el(2,3)=omg*ua*ca2i2 ; el(3,3)=(omg*va+ca)*ca2i2 ; el(4,3)=omg*wa*ca2i2 ; el(5,3)=gmo*ca2i2
+      ! el(1,4)=-ua                  ; el(2,4)=1._R8P       ; el(3,4)=0._R8P            ; el(4,4)=0._R8P       ; el(5,4)=0._R8P
+      ! el(1,5)= wa                  ; el(2,5)=0._R8P       ; el(3,5)=0._R8P            ; el(4,5)=-1._R8P      ; el(5,5)=0._R8P
+
+      ! er(1,1)=1._R8P     ; er(2,1)=1._R8P ; er(3,1)=1._R8P     ; er(4,1)=0._R8P  ; er(5,1)= 0._R8P
+      ! er(1,2)=ua         ; er(2,2)=ua     ; er(3,2)=ua         ; er(4,2)=1._R8P  ; er(5,2)= 0._R8P
+      ! er(1,3)=va - ca    ; er(2,3)=va     ; er(3,3)=va + ca    ; er(4,3)=0._R8P  ; er(5,3)= 0._R8P
+      ! er(1,4)=wa         ; er(2,4)=wa     ; er(3,4)=wa         ; er(4,4)=0._R8P  ; er(5,4)=-1._R8P
+      ! er(1,5)=ha - ca*va ; er(2,5)=ka     ; er(3,5)=ha + ca*va ; er(4,5)=ua      ; er(5,5)=-wa
+      ! ! z
+      ! el(1,1)=(gmo*ka+ca*wa)*ca2i2 ; el(2,1)=omg*ua*ca2i2 ; el(3,1)=omg*va*ca2i2 ; el(4,1)=(omg*wa-ca)*ca2i2 ; el(5,1)=gmo*ca2i2
+      ! el(1,2)=(ca*ca-gmo*ka)*ca2i  ; el(2,2)=gmo*ua*ca2i  ; el(3,2)=gmo*va*ca2i  ; el(4,2)=(gmo*wa   )*ca2i  ; el(5,2)=omg*ca2i
+      ! el(1,3)=(gmo*ka-ca*wa)*ca2i2 ; el(2,3)=omg*ua*ca2i2 ; el(3,3)=omg*va*ca2i2 ; el(4,3)=(omg*wa+ca)*ca2i2 ; el(5,3)=gmo*ca2i2
+      ! el(1,4)= ua                  ; el(2,4)=-1._R8P      ; el(3,4)=0._R8P       ; el(4,4)=0._R8P            ; el(5,4)=0._R8P
+      ! el(1,5)=-va                  ; el(2,5)=0._R8P       ; el(3,5)=1._R8P       ; el(4,5)=0._R8P            ; el(5,5)=0._R8P
+
+      ! er(1,1)=1._R8P     ; er(2,1)=1._R8P ; er(3,1)=1._R8P     ; er(4,1)= 0._R8P ; er(5,1)=0._R8P
+      ! er(1,2)=ua         ; er(2,2)=ua     ; er(3,2)=ua         ; er(4,2)=-1._R8P ; er(5,2)=0._R8P
+      ! er(1,3)=va         ; er(2,3)=va     ; er(3,3)=va         ; er(4,3)= 0._R8P ; er(5,3)=1._R8P
+      ! er(1,4)=wa - ca    ; er(2,4)=wa     ; er(3,4)=wa + ca    ; er(4,4)= 0._R8P ; er(5,4)=0._R8P
+      ! er(1,5)=ha - ca*wa ; er(2,5)=ka     ; er(3,5)=ha + ca*wa ; er(4,5)=-ua     ; er(5,5)=va
+
+      ! ! find max eigenvalues on the stencil
+      ! do v=1, 5
+      !    evmax(v) = -1._R8P
+      ! enddo
+      ! do s=1 - weno_stencils, -1 + weno_stencils
+      !    un =     q_aux_gpu(b,i+s,j,k,ns+2)
+      !    cn = a(p=q_aux_gpu(b,i+s,j,k,ns+6), &
+      !           r=q_aux_gpu(b,i+s,j,k,ns+1), &
+      !           g=q_aux_gpu(b,i+s,j,k,ns+5))
+      !    evmax(1) = max(evmax(1), abs(un - cn))
+      !    evmax(2) = max(evmax(2), abs(un     ))
+      !    evmax(3) = max(evmax(3), abs(un + cn))
+      !    evmax(4) = max(evmax(4), evmax(2)    )
+      !    evmax(5) = max(evmax(5), evmax(2)    )
+      ! enddo
+
+      ! project fluxes in pseudo-characteristic variables
+      do s=1-weno_stencils, -1+weno_stencils
+         do v=1, 5
+           fp_pc(s,v) = dot_product(el(v,1:5), fp_gpu(b,i+s,j,k,1:5))
+           fm_pc(s,v) = dot_product(el(v,1:5), fm_gpu(b,i+s,j,k,1:5))
+         enddo
+      enddo
+
+      ! do WENO reconstruction
+      do v=1, 5
+         call reconstruct_weno(side=weno_l_side,    &
+                               s=weno_stencils_gpu, &
+                               q=fp_pc(:,v),        &
+                               qr=fp_pc_r(v))
+         call reconstruct_weno(side=weno_r_side,    &
+                               s=weno_stencils_gpu, &
+                               q=fm_pc(:,v),        &
+                               qr=fm_pc_r(v))
+      enddo
+
+      ! project back reconstructed fluxes in conservative variables
+      do v=1, 5
+        fp_r(v) = dot_product(er(v,1:5), fp_pc_r(1:5))
+        fm_r(v) = dot_product(er(v,1:5), fm_pc_r(1:5))
+      enddo
+
+      ! compute fluxes
+      do v=1, 5
+         f_gpu(b,i,j,k,v) = fp_r(v) + fm_r(v)
+      enddo
+
+   enddo
+   enddo
+   enddo
+   enddo
+   !@cuf iercuda=cudaDeviceSynchronize()
+
+   ! accumulate fluxes differences
+   !$cuf kernel do(5) <<<*,*>>>
+   do v=1, 5
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) + (f_gpu(b,i-1,j,k,v) - f_gpu(b,i,j,k,v)) / d_gpu(b)
+   enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   !@cuf iercuda=cudaDeviceSynchronize()
+   endsubroutine reconstruct_euler_fluxes_x_weno_cuf
+
    ! non type-bound kernel procedures
+   attributes(device) subroutine compute_roe_averages(g,                          &
+                                                      rl, ul, vl, wl, pl,         &
+                                                      rr, ur, vr, wr, pr,         &
+                                                      ra, ua, va, wa, ha, ka, ca, &
+                                                      ca2i, ca2i2, gmo, omg)
+
+   real(R8P), intent(in)  :: g                          !< Specific heats ratio.
+   real(R8P), intent(in)  :: rl, ul, vl, wl, pl         !< Left state.
+   real(R8P), intent(in)  :: rr, ur, vr, wr, pr         !< Right state.
+   real(R8P), intent(out) :: ra, ua, va, wa, ha, ka, ca !< Roe's averages for characteristics projection.
+   real(R8P), intent(out) :: ca2i, ca2i2, gmo, omg      !< Auxiliary Roe's averages.
+   real(R8P)              :: hl, hr                     !< Left and rigth state entalpy.
+   real(R8P)              :: sigma                      !< Roe's sigma factor.
+
+   hl    = Hv2(p=pl, r=rl, u2=ul*ul + vl*vl + wl*wl, g=g)
+   hr    = Hv2(p=pr, r=rr, u2=ur*ur + vr*vr + wr*wr, g=g)
+   sigma = sqrt(rl) / (sqrt(rl) + sqrt(rr))
+
+   gmo   = g - 1._R8P
+   omg   = -gmo
+   ra    = sqrt(rl*rr)
+   ua    = sigma * ul + (1._R8P - sigma) * ur
+   va    = sigma * vl + (1._R8P - sigma) * vr
+   wa    = sigma * wl + (1._R8P - sigma) * wr
+   ha    = sigma * hl + (1._R8P - sigma) * hr
+   ka    = 0.5_R8P * (ua*ua + va*va + wa*wa)
+   ca2i  = gmo * (ha - ka)
+   ca    = sqrt(ca2i)
+   ca2i  = 1._R8P / ca2i
+   ca2i2 = 0.5_R8P * ca2i
+   endsubroutine compute_roe_averages
+
    attributes(device) subroutine fluxes_pm(r, u, v, w, g, p,                              &
                                            fp_rho, fp_rho_u, fp_rho_v, fp_rho_w, fp_rho_E,&
                                            fm_rho, fm_rho_u, fm_rho_v, fm_rho_w, fm_rho_E)

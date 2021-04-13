@@ -156,14 +156,16 @@ integer(I4P), parameter :: TREE_MAX_SANITIZE_ITERATIONS = 10_I4P !< Default numb
 type :: tree_object
    !< Tree class definition.
    ! tree data
-   type(grid_object), pointer            :: grid=>null()            !< Grid data.
-   type(tree_bucket_object), allocatable :: bucket(:)               !< Tree buckets.
-   integer(I8P)                          :: buckets_number=0_I8P    !< Number of buckets used.
-   integer(I4P)                          :: nodes_number=0_I4P      !< Number of nodes actually stored, namely the tree length.
-   real(R8P)                             :: max_load=TREE_MAX_LOAD  !< Maximum load of tree buckets.
-   integer(I4P)                          :: ratio=8_I4P             !< Refinement ratio.
-   integer(I4P)                          :: max_level=12_I4P        !< Maximum refinement level.
-   logical                               :: is_initialized_=.false. !< Initialization status.
+   type(grid_object), pointer            :: grid=>null()                !< Grid data.
+   type(tree_bucket_object), allocatable :: bucket(:)                   !< Tree buckets.
+   integer(I8P)                          :: buckets_number=0_I8P        !< Number of buckets used.
+   integer(I4P)                          :: nodes_number=0_I4P          !< Number of nodes actually stored, namely the tree length.
+   real(R8P)                             :: max_load=TREE_MAX_LOAD      !< Maximum load of tree buckets.
+   integer(I4P)                          :: ratio=8_I4P                 !< Refinement ratio.
+   integer(I4P)                          :: max_level=12_I4P            !< Maximum refinement level.
+   logical                               :: is_initialized_=.false.     !< Initialization status.
+   integer(I4P)                          :: ijkl_prune(4)=[-1,-1,-1,-1] !< IJKL prune indexes for simple-initial-forest.
+   integer(I4P)                          :: iu_ref_levels=-1_I4P        !< Initial uniform refinement levels.
    ! AMR data
    integer(I8P)              :: n_my_derefine=0_I8P      !< Number of my nodes to be derefined.
    integer(I8P)              :: n_my_refine=0_I8P        !< Number of my nodes to be refined.
@@ -227,6 +229,7 @@ type :: tree_object
       procedure, pass(self) :: node                         !< Return a pointer to a node.
       procedure, pass(self) :: prime_buckets_number         !< Return the buckets number as nearest prime number given nodes number.
       procedure, pass(self) :: print_status                 !< Print status of main data.
+      procedure, pass(self) :: prune                        !< Prune nodes.
       procedure, pass(self) :: resize                       !< Resize the tree.
       procedure, pass(self) :: traverse                     !< Traverse tree calling the iterator procedure.
       ! MPI methods
@@ -585,11 +588,17 @@ contains
    !< Load object data from INI file.
    class(tree_object), intent(inout) :: self            !< The tree.
    type(file_ini),     intent(inout) :: file_parameters !< INI file handler.
-   integer(I8P)                      :: nodes_number    !< Nodes number to be stored in the tree.
+   integer(I4P)                      :: buff_I4P        !< I4P buffer.
+   integer(I8P)                      :: buff_I8P        !< I8P buffer.
 
-   call file_parameters%get(section_name='tree', option_name='nodes_number', val=nodes_number)
-   call file_parameters%get(section_name='tree', option_name='max_level'   , val=self%max_level)
-   self%buckets_number = self%prime_buckets_number(nodes_number=nodes_number)
+   call file_parameters%get(section_name='tree', option_name='nodes_number' , val=buff_I8P)
+   self%buckets_number = self%prime_buckets_number(nodes_number=buff_I8P)
+   call file_parameters%get(section_name='tree', option_name='max_level'    , val=buff_I4P) ; self%max_level     = buff_I4P
+   call file_parameters%get(section_name='tree', option_name='iu_ref_levels', val=buff_I4P) ; self%iu_ref_levels = buff_I4P
+   call file_parameters%get(section_name='tree', option_name='i_prune'      , val=buff_I4P) ; self%ijkl_prune(1) = buff_I4P
+   call file_parameters%get(section_name='tree', option_name='j_prune'      , val=buff_I4P) ; self%ijkl_prune(2) = buff_I4P
+   call file_parameters%get(section_name='tree', option_name='k_prune'      , val=buff_I4P) ; self%ijkl_prune(3) = buff_I4P
+   call file_parameters%get(section_name='tree', option_name='l_prune'      , val=buff_I4P) ; self%ijkl_prune(4) = buff_I4P
    endsubroutine load_from_ini_file
 
    subroutine load_surface_stl(self, file_name)
@@ -948,8 +957,36 @@ contains
    print '(A)', '  max load:       '//trim(str(self%max_load      ))
    print '(A)', '  ratio:          '//trim(str(self%ratio         ))
    print '(A)', '  max level:      '//trim(str(self%max_level     ))
+   print '(A)', '  ijkl_prune:     '//trim(str(self%ijkl_prune    ))
+   print '(A)', '  iu_ref_levels:  '//trim(str(self%iu_ref_levels ))
    print '(A)', ''
    endsubroutine print_status
+
+   subroutine prune(self, ijkl_prune)
+   !< Prune nodes.
+   class(tree_object), intent(inout) :: self          !< The tree.
+   integer(I4P),       intent(inout) :: ijkl_prune(4) !< Maximum coordinates after which the prune operates.
+   type(tree_node_object), pointer   :: node_ptr      !< Pointer to current node.
+   integer(I4P)                      :: ijkl(4)       !< Coordinates counter.
+   integer(I4P)                      :: i             !< Counter.
+
+   if (ijkl_prune(4)>0) then
+      do i=1, 3
+         ijkl_prune(i) = min(ijkl_prune(i), 2**ijkl_prune(4) - 1)
+      enddo
+      self%ijkl_prune = ijkl_prune
+      print '(A)', 'prune tree with IJKL max: '//trim(str(self%ijkl_prune))
+      do while(self%loop(node_ptr=node_ptr))
+         call self%morton_to_coordinates(code=node_ptr%code, i=ijkl(1), j=ijkl(2), k=ijkl(3), l=ijkl(4))
+         if (ijkl(4)/=self%ijkl_prune(4)) then
+            print '(A)',' ERROR: cannot prune nodes at different prune-level, node: '//trim(str(node_ptr%code))
+         endif
+         if (ijkl(1)>self%ijkl_prune(1).or.ijkl(2)>self%ijkl_prune(2).or.ijkl(3)>self%ijkl_prune(3)) then
+            call self%remove_node(code=node_ptr%code)
+         endif
+      enddo
+   endif
+   endsubroutine prune
 
    subroutine remove_node(self, code)
    !< Remove a node from the tree, given the code.
@@ -1722,7 +1759,7 @@ contains
    integer(I4P)                   :: l     !< Counter.
 
    code = -1
-   if (level>1) then
+   if (level>0) then
       code = 0
       do l=2, level
          code = self%child(code=code, i=0_I4P)
@@ -1995,6 +2032,7 @@ contains
    integer(I4P)                                 :: cl, cl_neighbor             !< Counter.
    integer(I4P)                                 :: cl_array(3)                 !< Counter.
    integer(I4P)                                 :: ijk_bc(3)                   !< Counter.
+   integer(I4P)                                 :: ijk_size(3)                 !< Counter.
 
    if (present(neighbor_portion)) neighbor_portion = 1
 
@@ -2068,16 +2106,22 @@ contains
    endselect
    ijk = [i, j, k] + delta
 
+   if (all(self%ijkl_prune>=0)) then
+      ijk_size(1:3) = 2**(l - self%ijkl_prune(4)) * (self%ijkl_prune(1:3) + 1)
+   else
+      ijk_size = 2**l
+   endif
+
    ! initialize ijk of direct neighbor node as a standard node
    neighbor_type = NODE_STANDARD
    ijk_bc = 0 ! standard node has ijk_bc = 0; BC node has ijk_bc = +-1
    do i=1, 3
-      if (ijk(i)<0.or.ijk(i)>2**l - 1) then
+      if (ijk(i)<0.or.ijk(i)>ijk_size(i) - 1) then
          ! ijk of neighbor node is outside ADAM, it is a BC except for periodic BC that is indeed a standard node
          ! check for periodic BC
          if (self%grid%is_ijk_periodic(i)) then
             ! direction ijk(i) is periodic, preserve the standard node initialization because direct neighbor is a standard node
-            ijk(i) = modulo(ijk(i)+2**l, 2**l) ! ijk of neighbor node set to the direct neighbor in opposite direction
+            ijk(i) = modulo(ijk(i)+ijk_size(i), ijk_size(i)) ! ijk of neighbor node set to the direct neighbor in opposite direction
          else
             ! direction ijk(i) is not periodic, this is an actual BC
             ijk_bc(i) = sign(1, ijk(i))
@@ -2108,53 +2152,10 @@ contains
    ! direct neighbor does not exist, check if its parent exists
    direct_neighbor_parent = self%parent(code=direct_neighbor)
    if (self%has_code(code=direct_neighbor_parent)) then
-
-      !WRONG! parent exists
-      !WRONGneighbor = [direct_neighbor_parent]
-      !WRONGneighbor_type = NODE_LESS_REFINED
-      !WRONGif (present(neighbor_portion)) then
-      !WRONG   ! searching the portion of parent that matches me
-      !WRONG   delta = -delta ! thats magic
-      !WRONG   ! build the ratio/2 indexes of the children of direct_neighbor that are face-to-face with node
-      !WRONG   do i=1, 3
-      !WRONG      if     (delta(i)==1) then
-      !WRONG         ijkmin(i) = 1
-      !WRONG         ijkmax(i) = 1
-      !WRONG      elseif (delta(i)==-1) then
-      !WRONG         ijkmin(i) = 0
-      !WRONG         ijkmax(i) = 0
-      !WRONG      elseif (delta(i)==0) then
-      !WRONG         ijkmin(i) = 0
-      !WRONG         ijkmax(i) = 1
-      !WRONG      endif
-      !WRONG   enddo
-      !WRONG   ! in ijkmin/ijkmax there are the ratio/2 deltas in binary notation that select the ratio/2 children of
-      !WRONG   ! my interest
-      !WRONG   neighbor_portion = 0
-      !WRONG   portion_loop : do k=ijkmin(3), ijkmax(3)
-      !WRONG      do j=ijkmin(2), ijkmax(2)
-      !WRONG         do i=ijkmin(1), ijkmax(1)
-      !WRONG            neighbor_portion = neighbor_portion + 1
-      !WRONG            if (i + 2*j + 4*k == self%child_local(code=direct_neighbor)) exit portion_loop
-      !WRONG         enddo
-      !WRONG      enddo
-      !WRONG   enddo portion_loop
-      !WRONGendif
-
       neighbor = [direct_neighbor_parent]
       neighbor_type = NODE_LESS_REFINED
       if (present(neighbor_portion)) then
           neighbor_portion = self%child_local(code=direct_neighbor) + 1
-          ! cl = self%child_local(code=code)
-          ! cl_array(1) = mod(cl,2)
-          ! cl_array(2) = mod(cl/2,2)
-          ! cl_array(3) = mod(cl/4,2)
-
-          ! cl_array = cl_array + delta + 2 ! add 2 to avoid negative numbers (ineffective when doing mod 2)
-          ! cl_array = mod(cl_array,2)
-          ! cl_neighbor = cl_array(1) + cl_array(2)*2 + cl_array(3)*4
-
-          ! neighbor_portion = cl_neighbor + 1 ! return 1 to 8 subpart of parent which would have been the same-level direct neighbor
       endif
       return
    endif

@@ -443,7 +443,6 @@ contains
       allocate(local_map_bc_crown(1:c,1:8,1:self%field%grid%ngc))
       allocate(c_crown(1:self%field%grid%ngc))
       local_map_bc_crown = -1
-      ! c = 1
       c_crown = 1
       if (allocated(self%field%local_map_bc_face  )) call populate_local_map_bc_crown(self%field%local_map_bc_face  )
       if (allocated(self%field%local_map_bc_edge  )) call populate_local_map_bc_crown(self%field%local_map_bc_edge  )
@@ -514,7 +513,7 @@ contains
          do k=kmin, kmax, sign(1, kmax-kmin)
             do j=jmin, jmax, sign(1, jmax-jmin)
                do i=imin, imax, sign(1, imax-imin)
-                  crown = maxval([abs(i-imin), abs(j-jmin), abs(k-kmin)], mask=[idelta/=0, jdelta/=0, kdelta/=0]) + 1
+                  crown = maxval([abs(i-imin), abs(j-jmin), abs(k-kmin)], mask=[imin/=1, jmin/=1, kmin/=1]) + 1
                   local_map_bc_crown(c_crown(crown), 1, crown) = b
                   local_map_bc_crown(c_crown(crown), 2, crown) = i
                   local_map_bc_crown(c_crown(crown), 3, crown) = j
@@ -523,7 +522,6 @@ contains
                   local_map_bc_crown(c_crown(crown), 6, crown) = jdelta
                   local_map_bc_crown(c_crown(crown), 7, crown) = kdelta
                   local_map_bc_crown(c_crown(crown), 8, crown) = bc_type
-                  ! c = c + 1
                   c_crown(crown) = c_crown(crown) + 1
                enddo
             enddo
@@ -548,7 +546,6 @@ contains
    integer(I4P),           intent(in), optional :: fields_gpu_number  !< Number of fields allocated on GPU.
    integer(I4P)                                 :: nv_aux_            !< Number of auxiliary variables, local variable.
    integer(I4P)                                 :: devices_number     !< Devices number.
-   integer(I4P)                                 :: device_rank        !< Device rank number.
    type(cudadeviceprop)                         :: device_properties  !< Device properties.
    integer(I4P)                                 :: d                  !< Counter.
    real(R8P)                                    :: device_mem_req     !< Device memory requested (Gb).
@@ -568,8 +565,8 @@ contains
    self%error = CudaSetDevice(self%mydev)
    self%error = cudaGetDeviceCount(devices_number)
    do d=0, devices_number - 1
-      self%error = cudaGetDeviceProperties(device_properties, device_rank)
-      call print_device_properties(device_properties, device_rank)
+      self%error = cudaGetDeviceProperties(device_properties, self%mydev)
+      call print_device_properties(device_properties, self%mydev)
    enddo
    ! check if nb fits device memory
    device_mem_avail = real(device_properties%totalGlobalMem, R8P)/1e9

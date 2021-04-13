@@ -167,33 +167,29 @@ contains
    !< Load object data from INI file.
    class(grid_object), intent(inout) :: self            !< The grid.
    type(file_ini),     intent(inout) :: file_parameters !< INI file handler.
-   real(R8P)                         :: domain_e        !< Dummy buffer.
-   integer(I4P)                      :: bc_t            !< Dummy buffer.
-   logical                           :: is_periodic     !< Dummy buffer.
+   integer(I4P)                      :: buff_I4P        !< I4P buffer.
+   real(R8P)                         :: buff_R8P        !< R8P buffer.
+   logical                           :: buff_LOG        !< LOG buffer.
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc,         &
-             domain_emin=>self%domain_emin, domain_emax=>self%domain_emax, &
-             bc_type=>self%bc_type, is_ijk_periodic=>self%is_ijk_periodic)
-      call file_parameters%get(section_name='grid', option_name='ni'           , val=ni         )
-      call file_parameters%get(section_name='grid', option_name='nj'           , val=nj         )
-      call file_parameters%get(section_name='grid', option_name='nk'           , val=nk         )
-      call file_parameters%get(section_name='grid', option_name='ngc'          , val=ngc        )
-      call file_parameters%get(section_name='grid', option_name='emin_x'       , val=domain_e   ) ; domain_emin(1)     = domain_e
-      call file_parameters%get(section_name='grid', option_name='emin_y'       , val=domain_e   ) ; domain_emin(2)     = domain_e
-      call file_parameters%get(section_name='grid', option_name='emin_z'       , val=domain_e   ) ; domain_emin(3)     = domain_e
-      call file_parameters%get(section_name='grid', option_name='emax_x'       , val=domain_e   ) ; domain_emax(1)     = domain_e
-      call file_parameters%get(section_name='grid', option_name='emax_y'       , val=domain_e   ) ; domain_emax(2)     = domain_e
-      call file_parameters%get(section_name='grid', option_name='emax_z'       , val=domain_e   ) ; domain_emax(3)     = domain_e
-      call file_parameters%get(section_name='grid', option_name='bc_type_1'    , val=bc_t       ) ; bc_type(1)         = bc_t
-      call file_parameters%get(section_name='grid', option_name='bc_type_2'    , val=bc_t       ) ; bc_type(2)         = bc_t
-      call file_parameters%get(section_name='grid', option_name='bc_type_3'    , val=bc_t       ) ; bc_type(3)         = bc_t
-      call file_parameters%get(section_name='grid', option_name='bc_type_4'    , val=bc_t       ) ; bc_type(4)         = bc_t
-      call file_parameters%get(section_name='grid', option_name='bc_type_5'    , val=bc_t       ) ; bc_type(5)         = bc_t
-      call file_parameters%get(section_name='grid', option_name='bc_type_6'    , val=bc_t       ) ; bc_type(6)         = bc_t
-      call file_parameters%get(section_name='grid', option_name='is_i_periodic', val=is_periodic) ; is_ijk_periodic(1) = is_periodic
-      call file_parameters%get(section_name='grid', option_name='is_j_periodic', val=is_periodic) ; is_ijk_periodic(2) = is_periodic
-      call file_parameters%get(section_name='grid', option_name='is_k_periodic', val=is_periodic) ; is_ijk_periodic(3) = is_periodic
-   endassociate
+   call file_parameters%get(section_name='grid', option_name='ni'           , val=buff_I4P) ; self%ni                 = buff_I4P
+   call file_parameters%get(section_name='grid', option_name='nj'           , val=buff_I4P) ; self%nj                 = buff_I4P
+   call file_parameters%get(section_name='grid', option_name='nk'           , val=buff_I4P) ; self%nk                 = buff_I4P
+   call file_parameters%get(section_name='grid', option_name='ngc'          , val=buff_I4P) ; self%ngc                = buff_I4P
+   call file_parameters%get(section_name='grid', option_name='emin_x'       , val=buff_R8P) ; self%domain_emin(1)     = buff_R8P
+   call file_parameters%get(section_name='grid', option_name='emin_y'       , val=buff_R8P) ; self%domain_emin(2)     = buff_R8P
+   call file_parameters%get(section_name='grid', option_name='emin_z'       , val=buff_R8P) ; self%domain_emin(3)     = buff_R8P
+   call file_parameters%get(section_name='grid', option_name='emax_x'       , val=buff_R8P) ; self%domain_emax(1)     = buff_R8P
+   call file_parameters%get(section_name='grid', option_name='emax_y'       , val=buff_R8P) ; self%domain_emax(2)     = buff_R8P
+   call file_parameters%get(section_name='grid', option_name='emax_z'       , val=buff_R8P) ; self%domain_emax(3)     = buff_R8P
+   call file_parameters%get(section_name='grid', option_name='bc_type_1'    , val=buff_I4P) ; self%bc_type(1)         = buff_I4P
+   call file_parameters%get(section_name='grid', option_name='bc_type_2'    , val=buff_I4P) ; self%bc_type(2)         = buff_I4P
+   call file_parameters%get(section_name='grid', option_name='bc_type_3'    , val=buff_I4P) ; self%bc_type(3)         = buff_I4P
+   call file_parameters%get(section_name='grid', option_name='bc_type_4'    , val=buff_I4P) ; self%bc_type(4)         = buff_I4P
+   call file_parameters%get(section_name='grid', option_name='bc_type_5'    , val=buff_I4P) ; self%bc_type(5)         = buff_I4P
+   call file_parameters%get(section_name='grid', option_name='bc_type_6'    , val=buff_I4P) ; self%bc_type(6)         = buff_I4P
+   call file_parameters%get(section_name='grid', option_name='is_i_periodic', val=buff_LOG) ; self%is_ijk_periodic(1) = buff_LOG
+   call file_parameters%get(section_name='grid', option_name='is_j_periodic', val=buff_LOG) ; self%is_ijk_periodic(2) = buff_LOG
+   call file_parameters%get(section_name='grid', option_name='is_k_periodic', val=buff_LOG) ; self%is_ijk_periodic(3) = buff_LOG
    endsubroutine load_from_ini_file
 
    subroutine print_status(self)

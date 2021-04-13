@@ -23,15 +23,23 @@ integer(I4P)                    :: n_save          !< Frequency of saving output
 character(999)                  :: output_basename !< Output base name.
 real(R8P)                       :: timing(1:2)     !< Tic toc timing.
 
-call initialize(filename='src/app/euler/adam_euler_sod.ini')
+call initialize(filename='src/app/euler/adam_euler.ini')
 
-! call euler%refine_uniform(refinement_levels=3)
+print '(A)', 'initial status'
+
+call euler%adam%print_status
+
+! call euler%refine_uniform(refinement_levels=euler%adam%tree%iu_ref_levels, do_blocks_reorder=.false.)
+
+! call euler%adam%prune(ijkl_prune=euler%adam%tree%ijkl_prune, do_blocks_reorder=.false.)
 
 call euler%set_initial_conditions(file_parameters=file_parameters)
 
 call euler%save_hdf5(output_basename=output_basename, t=0, time=0._R8P)
 
-! call euler%amr_update(iterations=1)
+print '(A)', 'refined/pruned status'
+
+call euler%adam%print_status
 
 time = 0._R8P
 t = 0
@@ -56,9 +64,15 @@ call adam%finalize
 contains
    subroutine initialize(filename)
    !< Parse parameters file getting simulation input data.
-   character(*), intent(in)  :: filename !< Parameters file name.
+   character(*), intent(in)  :: filename             !< Parameters file name.
+   type(file_ini)            :: file_adam_euler      !< Adam Euler input file handler.
+   character(999)            :: file_parameters_name !< Name of file parameters.
 
-   call file_parameters%initialize(filename=trim(filename))
+   call file_adam_euler%initialize(filename=trim(filename))
+   call file_adam_euler%load
+   call file_adam_euler%get(section_name='adam_euler', option_name='file_parameters_name', val=file_parameters_name)
+
+   call file_parameters%initialize(filename=trim(file_parameters_name))
    call file_parameters%load
 
    call adam%initialize(file_parameters=file_parameters)

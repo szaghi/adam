@@ -264,9 +264,10 @@ contains
    !< Load object data from INI file.
    class(field_object), intent(inout) :: self            !< The field.
    type(file_ini),      intent(inout) :: file_parameters !< INI file handler.
+   integer(I4P)                       :: buff_I4P        !< I4P buffer.
 
-   call file_parameters%get(section_name='field', option_name='nv', val=self%nv)
-   call file_parameters%get(section_name='field', option_name='nb', val=self%nb)
+   call file_parameters%get(section_name='field', option_name='nv', val=buff_I4P) ; self%nv = buff_I4P
+   call file_parameters%get(section_name='field', option_name='nb', val=buff_I4P) ; self%nb = buff_I4P
    endsubroutine load_from_ini_file
 
    subroutine mark_sphere(self, center, radius, threshold)
