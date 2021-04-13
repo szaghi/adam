@@ -41,9 +41,9 @@ extern "C" {
         Tree *tree = new Tree(faces(*P).first, faces(*P).second, *P);
         tree->accelerate_distance_queries();
 
- //     std::cout << " n. facets: "    << P->size_of_facets()    << std::endl;
- //     std::cout << " n. halfedges: " << P->size_of_halfedges() << std::endl;
- //     std::cout << " n. vertices: "  << P->size_of_vertices()  << std::endl;
+        std::cout << " n. facets: "    << P->size_of_facets()    << std::endl;
+        std::cout << " n. halfedges: " << P->size_of_halfedges() << std::endl;
+        std::cout << " n. vertices: "  << P->size_of_vertices()  << std::endl;
 
         *ptree = new Polytree;
         (*ptree)->poly = P;

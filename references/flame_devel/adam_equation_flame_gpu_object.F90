@@ -12,7 +12,8 @@ use FiNeR
 use PENF
 use MPI
 use CUDAFOR
-!use cgal_wrappers
+use cgal_wrappers
+use ISO_C_BINDING
 use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
 
 implicit none
@@ -75,9 +76,13 @@ type :: equation_flame_gpu_object
    integer(I4P)                :: procs_number=1_I4P    !< Number of MPI processes.
    integer(I4P)                :: error=0_I4P           !< Error traping flag.
    ! equation data
+   character(32)          :: solids(1)=["sd7003.off"]   !< Number of fluid species.
+   type(c_ptr), allocatable :: ptree(:)
    character(32)          :: flow_type="flame1d"     !< Number of fluid species.
+   real(R8P),    allocatable :: phi(:,:,:,:,:)       !< Fluxes.
+   real(R8P),    allocatable, device :: phi_gpu(:,:,:,:,:)    !< Fluxes.
    integer(I4P)           :: ns=2_I4P                !< Number of fluid species.
-   integer(I4P)           :: iweno=3_I4P             !< WENO order.
+   integer(I4P)           :: iweno=2_I4P             !< WENO order.
    integer(I4P)           :: lmax=2_I4P              !< Central convective half stencil.
    integer(I4P)           :: ivis=4_I4P              !< Diffusive terms order.
    integer(I4P)           :: visc_type=0_I4P         !< Diffusivity type (0=constant, 1=power, 2=Sutherland)
@@ -150,10 +155,12 @@ type :: equation_flame_gpu_object
       procedure, pass(self) :: fd_initialize           !< Initialize Finite Difference Coefficients.
       procedure, pass(self) :: initialize              !< Initialize the equation.
       procedure, pass(self) :: mark_by_grad_rho        !< Mark blocks to be refined/derefined by a `grad(rho)` value.
+      procedure, pass(self) :: mark_by_geo             !< Mark blocks to be refined/derefined by a `grad(rho)` value.
       procedure, pass(self) :: integrate               !< Runge Kutta integration of equation.
       procedure, pass(self) :: print_progress          !< Print simulation progress.
       procedure, pass(self) :: refine_uniform          !< Refine all blocks uniformly.
       procedure, pass(self) :: update_cell_gpu         !< Refine all blocks uniformly.
+      procedure, pass(self) :: update_phi              !< Refine all blocks uniformly.
       procedure, pass(self) :: runge_kutta_initialize  !< Initialize Runge-Kutta data.
       procedure, pass(self) :: save_hdf5               !< Save simulation data in HDF5 format.
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation.
@@ -178,11 +185,19 @@ contains
 
    iterations_ = 1 ; if (present(iterations)) iterations_ = iterations
    amr: do i=1, iterations_
-      call self%mark_by_grad_rho(grad_tol=2._R8P, delta_fine=0.015_R8P, delta_coarse=0.15_R8P)
-      !call self%mark_by_grad_rho(grad_tol=0.05_R8P, delta_fine=0.006_R8P, delta_coarse=0.015_R8P)
+      if(self%flow_type == "cold") then
+         !call self%update_phi() 
+         call self%mark_by_geo(tol=2000._R8P, delta_fine=0.015_R8P, delta_coarse=0.15_R8P)
+      else
+          call self%mark_by_grad_rho(grad_tol=2._R8P, delta_fine=0.015_R8P, delta_coarse=0.15_R8P)
+          !call self%mark_by_grad_rho(grad_tol=0.05_R8P, delta_fine=0.006_R8P, delta_coarse=0.015_R8P)
+      endif
       call self%update_ghost_gpu(q_gpu=self%q_gpu)
       call self%copy_gpu_cpu()
       call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed)
+      if(self%flow_type == "cold") then
+         call self%update_phi()
+      endif
       call self%copy_cpu_gpu
       if (.not.is_grid_changed) then
           print*,'AMR Grid stabilized after : ',i,' AMR iterations'
@@ -190,7 +205,9 @@ contains
       endif
    enddo amr
 
+   print*,'START - prima update_cell_gpu'
    call self%update_cell_gpu()
+   print*,'END - prima update_cell_gpu'
 
    endsubroutine amr_update
 
@@ -206,30 +223,69 @@ contains
    if(allocated(self%x_cell_gpu)) deallocate(self%x_cell_gpu)
    if(allocated(self%y_cell_gpu)) deallocate(self%y_cell_gpu)
    if(allocated(self%z_cell_gpu)) deallocate(self%z_cell_gpu)
-   allocate(self%x_cell_t(blocks_number, 1-ngc:ni+ngc),   self%y_cell_t(blocks_number, 1-ngc:nj+ngc),   &
-       self%z_cell_t(blocks_number, 1-ngc:nk+ngc))
-   allocate(self%x_cell_gpu(blocks_number, 1-ngc:ni+ngc), self%y_cell_gpu(blocks_number, 1-ngc:nj+ngc), &
-       self%z_cell_gpu(blocks_number, 1-ngc:nk+ngc))
-   do b=1,blocks_number
-       do i=1-ngc,ni+ngc
-          self%x_cell_t(b,i) = self%field%x_cell(i,b)
-       enddo
-       do j=1-ngc,nj+ngc
-          self%y_cell_t(b,j) = self%field%y_cell(j,b)
-       enddo
-       do k=1-ngc,nk+ngc
-          self%z_cell_t(b,k) = self%field%z_cell(k,b)
-       enddo
-   enddo
-   self%x_cell_gpu = self%x_cell_t
-   self%y_cell_gpu = self%y_cell_t
-   self%z_cell_gpu = self%z_cell_t
+   if(blocks_number > 0) then
+      allocate(self%x_cell_t(blocks_number, 1-ngc:ni+ngc),   self%y_cell_t(blocks_number, 1-ngc:nj+ngc),   &
+          self%z_cell_t(blocks_number, 1-ngc:nk+ngc))
+      allocate(self%x_cell_gpu(blocks_number, 1-ngc:ni+ngc), self%y_cell_gpu(blocks_number, 1-ngc:nj+ngc), &
+          self%z_cell_gpu(blocks_number, 1-ngc:nk+ngc))
+      do b=1,blocks_number
+          do i=1-ngc,ni+ngc
+             self%x_cell_t(b,i) = self%field%x_cell(i,b)
+          enddo
+          do j=1-ngc,nj+ngc
+             self%y_cell_t(b,j) = self%field%y_cell(j,b)
+          enddo
+          do k=1-ngc,nk+ngc
+             self%z_cell_t(b,k) = self%field%z_cell(k,b)
+          enddo
+      enddo
+      self%x_cell_gpu = self%x_cell_t
+      self%y_cell_gpu = self%y_cell_t
+      self%z_cell_gpu = self%z_cell_t
+   endif
    endassociate
    !print*,'amr update 1', lbound(self%x_cell_t,1),   ubound(self%x_cell_t,1),   size(self%x_cell_t,1)
    !print*,'amr update 2', lbound(self%x_cell_t,2),   ubound(self%x_cell_t,2),   size(self%x_cell_t,2)
    !print*,'amr update 1', lbound(self%x_cell_gpu,1), ubound(self%x_cell_gpu,1), size(self%x_cell_gpu,1)
    !print*,'amr update 2', lbound(self%x_cell_gpu,2), ubound(self%x_cell_gpu,2), size(self%x_cell_gpu,2)
    endsubroutine update_cell_gpu
+
+   subroutine update_phi(self)
+   !< Update x/y/z_cell_gpu 
+   class(equation_flame_gpu_object), intent(inout) :: self                      !< The equation.
+   integer(I4P)                                    :: b, i, j, k, ib            !< Counter.
+   real(R8P)                                       :: query_x, query_y, query_z !< Counter.
+   real(R8P)                                       :: near_x, near_y, near_z    !< Counter.
+   real(R8P)                                       :: distance                  !< Counter.
+   logical                                         :: inside
+
+   associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
+             x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell,         &
+             ptree => self%ptree, phi=>self%phi, phi_gpu=>self%phi_gpu, n_solids=>size(self%solids,dim=1))
+   print*,'updating distances - start'
+   do ib=1,n_solids
+      do b=1,blocks_number
+         print*,'block: ',b,' / ',blocks_number
+         do i=1-ngc,ni+ngc
+         do j=1-ngc,nj+ngc
+         do k=1-ngc,nk+ngc
+            query_x = x_cell(i,b)
+            query_y = y_cell(j,b)
+            query_z = z_cell(k,b)
+            call polyhedron_closest(ptree(ib),query_x,query_y,query_z,near_x,near_y,near_z)
+            distance = sqrt((near_x-query_x)**2+(near_y-query_y)**2+(near_z-query_z)**2)
+            inside   = cgal_polyhedron_inside(ptree(ib),query_x,query_y,query_z)
+            if(.not.inside) distance = - distance
+            phi(b,i,j,k,ib) = distance
+         enddo
+         enddo
+         enddo
+      enddo
+   enddo
+   print*,'updating distances - end'
+   phi_gpu = phi
+   endassociate
+   endsubroutine update_phi
 
    subroutine update_cell_gpu_associatefail(self)
    !< Update x/y/z_cell_gpu 
@@ -361,8 +417,9 @@ contains
    real(R8P),                        intent(in), optional :: CFL               !< CFL value.
    logical,                          intent(in), optional :: null_xyz(3)       !< Flag triggering 1D/2D simulations.
    integer(I4P),                     intent(in), optional :: fields_gpu_number !< Number of fields allocated on GPU.
-   integer(I4P)                                           :: v                 !< Counter.
-   character(32), optional                                 :: flow_type
+   integer(I4P)                                           :: v, i              !< Counter.
+   character(32), optional                                :: flow_type
+   integer(I4P)                                           :: n_solids          !< Counter.
 
    ! CPU data
    call self%destroy
@@ -388,6 +445,12 @@ contains
        self%tem_outflow = 300._R8P
        !self%q_coeff   = self%Prandtl 
        !self%Prandtl   = 1._R8P/100._R8P
+       n_solids = size(self%solids,dim=1) 
+       allocate(self%ptree(n_solids))
+       do i=1,n_solids
+          print*,'reading solid: ', self%solids(i)
+          call cgal_polyhedron_read(self%ptree(i), self%solids(i))
+       enddo
    endif
    if(trim(self%flow_type) == "flamechannel") then
        print*,"Setting flame channel case"
@@ -429,6 +492,10 @@ contains
    allocate(self%q_aux_gpu(1:nb,     1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:ns+7))
    allocate(self%q_gpu(1:nb,         1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
    allocate(self%q_s_gpu(1:nb,       1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv, 1:nrk))
+   if(trim(self%flow_type) == "cold") then
+       allocate(self%phi(1:nb,        1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:n_solids))
+       allocate(self%phi_gpu(1:nb,    1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:n_solids))
+   endif
    allocate(self%gplus_x (6, 2*iweno, nj, nk, nb))
    allocate(self%gminus_x(6, 2*iweno, nj, nk, nb))
    allocate(self%gplus_y (6, 2*iweno, ni, nk, nb))
@@ -526,6 +593,53 @@ contains
       endfunction max_cell_delta_grad
    endsubroutine mark_by_grad_rho
 
+   subroutine mark_by_geo(self, tol, delta_fine, delta_coarse, threshold)
+   !< Mark blocks to be refined/derefined by a `grad(rho)` value.
+   class(equation_flame_gpu_object), intent(inout)        :: self           !< The equation.
+   real(R8P),                        intent(in)           :: tol            !< Gradiend tolerance value.
+   real(R8P),                        intent(in)           :: delta_fine     !< Maximum cell delta in fine grids.
+   real(R8P),                        intent(in)           :: delta_coarse   !< Minimum cell delta in coarse grids.
+   real(R8P),                        intent(in), optional :: threshold      !< Threshold for sphere proximity.
+   real(R8P)                                              :: threshold_     !< Threshold for sphere proximity, local var.
+   real(R8P)                                              :: max_cell_delta !< Maximum cell delta.
+   real(R8P)                                              :: distance       !< Value (max) of gradient of rho.
+   integer(I4P)                                           :: b              !< Counter.
+
+   threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
+   self%field%refinements_needed = [(TO_NOT_TOUCH,b=1,self%blocks_number)]
+   associate (ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
+              blocks_number=>self%blocks_number, ns=>self%ns, dxyz=>self%field%dxyz, phi=>self%phi)
+      do b=1, blocks_number
+         distance = 1._R8P
+         if(maxval(phi(b,:,:,:,1))*minval(phi(b,:,:,:,1)) < 0._R8P) then
+            distance = 0._R8P
+         endif
+         max_cell_delta = max_cell_delta_dist(distance=distance)
+
+         if (maxval(dxyz(:,b)) > max_cell_delta) then
+            self%field%refinements_needed(b) = TO_BE_REFINED
+         elseif (maxval(dxyz(:,b)) * threshold_ < max_cell_delta) then
+            self%field%refinements_needed(b) = TO_NOT_TOUCH ! TO_BE_DEREFINED
+         else
+            self%field%refinements_needed(b) = TO_NOT_TOUCH
+         endif
+      enddo
+   endassociate
+   contains
+      function max_cell_delta_dist(distance) result(delta)
+      !< Return the maximum cell delta given a comparison distance.
+      real(R8P),          intent(in) :: distance !< Comparison distance.
+      real(R8P)                      :: delta    !< Maximum cell delta admissible.
+   
+      if (abs(distance) < epsilon(0._R8P)) then
+         ! delta = 0.001_R8P
+         delta = 0.005_R8P
+      else
+         delta = huge(0._R8P)
+      endif
+      endfunction max_cell_delta_dist
+   endsubroutine mark_by_geo
+
    subroutine integrate(self, t, do_ghost_syncro, residual)
    !< Runge Kutta integration of field.
    class(equation_flame_gpu_object), intent(inout)         :: self             !< The equation.
@@ -542,8 +656,8 @@ contains
              alph_gpu=>self%alph_gpu, beta_gpu=>self%beta_gpu)
    do s=1, nrk
       if(trim(self%flow_type) == "cold") then
-         call minimal_immersed_bc(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,              &
-            gamma_fluid=self%gamma_fluid, q_gpu=self%q_gpu(:,:,:,:,:),                                       &
+         call minimal_immersed_bc(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,                 &
+            gamma_fluid=self%gamma_fluid, q_gpu=self%q_gpu(:,:,:,:,:), phi_gpu=self%phi_gpu,                        &
             x_cell_gpu=self%x_cell_gpu, y_cell_gpu=self%y_cell_gpu, z_cell_gpu=self%z_cell_gpu)
       endif
       call compute_rk_stage_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,               &
@@ -552,7 +666,7 @@ contains
          call self%update_ghost_gpu(q_gpu=self%q_s_gpu(:,:,:,:,:,s)) ! all ghosts
          if(trim(self%flow_type) == "cold") then
             call minimal_immersed_bc(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,              &
-               gamma_fluid=self%gamma_fluid, q_gpu=self%q_s_gpu(:,:,:,:,:,s),                                       &
+               gamma_fluid=self%gamma_fluid, q_gpu=self%q_s_gpu(:,:,:,:,:,s), phi_gpu=self%phi_gpu,                 &
                x_cell_gpu=self%x_cell_gpu, y_cell_gpu=self%y_cell_gpu, z_cell_gpu=self%z_cell_gpu)
          endif
          call self%compute_aux(q_gpu=self%q_s_gpu(:,:,:,:,:,s), q_aux_gpu=self%q_aux_gpu)
@@ -628,6 +742,7 @@ contains
       call self%adam%amr_update(do_blocks_reorder=.false., do_mpi_redistribute=.true.)
    enddo
    call self%update_cell_gpu() ! should not be needed since it is in amr_update
+   call self%update_phi()  ! this is needed so that next equation%amr_updates start correctly
    !print*,'amr update a', lbound(self%x_cell_gpu,1), ubound(self%x_cell_gpu,1), size(self%x_cell_gpu,1)
    !print*,'amr update b', lbound(self%x_cell_gpu,2), ubound(self%x_cell_gpu,2), size(self%x_cell_gpu,2)
    endsubroutine
@@ -2239,9 +2354,9 @@ contains
             ngc, b, i, j, k, i+1, j, k, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
 
          ! Compute right and left eigenvectors matrices (at Roe state)
-         er(1,1) = 1._R8P ;  er(1,2) = uu -  c ; er(1,3) = vv     ; er(1,4) = ww     ; er(1,5) = h-uu*c ; er(1,6) = ya     
+         er(1,1) = 1._R8P ;  er(1,2) = uu-c    ; er(1,3) = vv     ; er(1,4) = ww     ; er(1,5) = h-uu*c ; er(1,6) = ya     
          er(2,1) = 1._R8P ;  er(2,2) = uu      ; er(2,3) = vv     ; er(2,4) = ww     ; er(2,5) = qq     ; er(2,6) = 0._R8P  
-         er(3,1) = 1._R8P ;  er(3,2) = uu +  c ; er(3,3) = vv     ; er(3,4) = ww     ; er(3,5) = h+uu*c ; er(3,6) = ya     
+         er(3,1) = 1._R8P ;  er(3,2) = uu+c    ; er(3,3) = vv     ; er(3,4) = ww     ; er(3,5) = h+uu*c ; er(3,6) = ya     
          er(4,1) = 0._R8P ;  er(4,2) = 0._R8P  ; er(4,3) = 1._R8P ; er(4,4) = 0._R8P ; er(4,5) = 0._R8P ; er(4,6) = -vv/dha 
          er(5,1) = 0._R8P ;  er(5,2) = 0._R8P  ; er(5,3) = 0._R8P ; er(5,4) = 1._R8P ; er(5,5) = 0._R8P ; er(5,6) = -ww/dha
          er(6,1) = 0._R8P ;  er(6,2) = 0._R8P  ; er(6,3) = 0._R8P ; er(6,4) = 0._R8P ; er(6,5) = 1._R8P ; er(6,6) = 1._R8P/dha
@@ -2852,7 +2967,7 @@ contains
    endsubroutine compute_rk_stage_gpu_cuf
 
    subroutine minimal_immersed_bc(ni, nj, nk, ngc, nv, blocks_number, gamma_fluid, &
-           q_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu)
+           q_gpu, phi_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu)
    !< Initialize RK stage with q_gpu.
    integer(I4P), intent(in)            :: ni                                     !< Grid cells number in I direction.
    integer(I4P), intent(in)            :: nj                                     !< Grid cells number in J direction.
@@ -2862,6 +2977,7 @@ contains
    integer(I4P), intent(in)            :: blocks_number                          !< Number of blocks.
    real(R8P), intent(in)               :: gamma_fluid
    real(R8P),    intent(inout), device :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< RK stage.
+   real(R8P),    intent(inout), device :: phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< RK stage.
    integer(I4P)                        :: i, j, k, b, v                          !< Counter.
    integer(I4P)                        :: iercuda                                !< Error trapping flag for CUDAFortran.
    real(R8P),    intent(in), device    :: x_cell_gpu(1:,1-ngc:)                  !< Conservative variables.
@@ -2878,7 +2994,8 @@ contains
                y = y_cell_gpu(b,j)
                z = z_cell_gpu(b,k)
                !if(x<2.2_R8P .and. x>1.8_R8P .and. y<2.2_R8P .and. y>1.8_R8P .and. z<2.2_R8P .and. z>1.8_R8P) then
-               if( (x-4._R8P)**2+(y-2._R8P)**2+(z-2._R8P)**2 < 0.1_R8P) then
+               !if( (x-4._R8P)**2+(y-2._R8P)**2+(z-2._R8P)**2 < 0.1_R8P) then
+               if( phi_gpu(b,i,j,k,1) >  0._R8P ) then
                   pres = 10000.
                   tem = 300.
                   rho = pres/tem*gamma_fluid/(gamma_fluid-1._R8P)
