@@ -123,6 +123,7 @@ type :: equation_flame_gpu_object
    real(R8P), allocatable :: beta(:)   !< RK beta coefficients.
    real(R8P), allocatable :: gamm(:)   !< RK gamma coefficients.
    ! cuf data
+   real(R8P),    allocatable, device :: dq_gpu(:,:,:,:,:)    !<
    real(R8P),    allocatable, device :: fl_gpu(:,:,:,:,:)    !< Fluxes.
    real(R8P),    allocatable, device :: fhat_gpu(:,:,:,:,:)  !< Auxiliary fluxes.
    real(R8P),    allocatable, device :: dxyz_gpu(:,:)        !< Space steps.
@@ -186,7 +187,7 @@ contains
    iterations_ = 1 ; if (present(iterations)) iterations_ = iterations
    amr: do i=1, iterations_
       if(self%flow_type == "cold") then
-         !call self%update_phi() 
+         !call self%update_phi()
          call self%mark_by_geo(tol=2000._R8P, delta_fine=0.015_R8P, delta_coarse=0.15_R8P)
       else
           call self%mark_by_grad_rho(grad_tol=2._R8P, delta_fine=0.015_R8P, delta_coarse=0.15_R8P)
@@ -212,7 +213,7 @@ contains
    endsubroutine amr_update
 
    subroutine update_cell_gpu(self)
-   !< Update x/y/z_cell_gpu 
+   !< Update x/y/z_cell_gpu
    class(equation_flame_gpu_object), intent(inout)        :: self       !< The equation.
    integer(I4P)                                           :: b, i, j, k !< Counter.
 
@@ -251,7 +252,7 @@ contains
    endsubroutine update_cell_gpu
 
    subroutine update_phi(self)
-   !< Update x/y/z_cell_gpu 
+   !< Update x/y/z_cell_gpu
    class(equation_flame_gpu_object), intent(inout) :: self                      !< The equation.
    integer(I4P)                                    :: b, i, j, k, ib            !< Counter.
    real(R8P)                                       :: query_x, query_y, query_z !< Counter.
@@ -288,7 +289,7 @@ contains
    endsubroutine update_phi
 
    subroutine update_cell_gpu_associatefail(self)
-   !< Update x/y/z_cell_gpu 
+   !< Update x/y/z_cell_gpu
    class(equation_flame_gpu_object), intent(inout)        :: self       !< The equation.
    integer(I4P)                                           :: b, i, j, k !< Counter.
 
@@ -440,12 +441,12 @@ contains
        self%dha         = 1._R8P ! otherwise WENO fails because there is a division to dha
        self%Damkohler   = 0._R8P
        self%pres_inflow = 10000._R8P
-       self%u_inflow    = 1.5_R8P 
+       self%u_inflow    = 1.5_R8P
        self%tem_inflow  = 300._R8P
        self%tem_outflow = 300._R8P
-       !self%q_coeff   = self%Prandtl 
+       !self%q_coeff   = self%Prandtl
        !self%Prandtl   = 1._R8P/100._R8P
-       n_solids = size(self%solids,dim=1) 
+       n_solids = size(self%solids,dim=1)
        allocate(self%ptree(n_solids))
        do i=1,n_solids
           print*,'reading solid: ', self%solids(i)
@@ -454,15 +455,15 @@ contains
    endif
    if(trim(self%flow_type) == "flamechannel") then
        print*,"Setting flame channel case"
-       self%u_inflow    = 0._R8P 
+       self%u_inflow    = 0._R8P
        self%tem_inflow  = 86._R8P
        self%tem_outflow = 86._R8P
-       !self%q_coeff   = self%Prandtl 
+       !self%q_coeff   = self%Prandtl
        !self%Prandtl   = 1._R8P/100._R8P
    endif
    if(trim(self%flow_type) == "sod") then
        print*,"Setting SOD channel case"
-       self%gamma_fluid = 1.4_R8P 
+       self%gamma_fluid = 1.4_R8P
        self%Prandtl = 0.
        self%iweno = 1
    endif
@@ -491,6 +492,7 @@ contains
    allocate(self%fhat_gpu(1:nb,      1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
    allocate(self%q_aux_gpu(1:nb,     1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:ns+7))
    allocate(self%q_gpu(1:nb,         1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
+   allocate(self%dq_gpu(1:nb,        1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
    allocate(self%q_s_gpu(1:nb,       1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv, 1:nrk))
    if(trim(self%flow_type) == "cold") then
        allocate(self%phi(1:nb,        1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:n_solids))
@@ -630,7 +632,7 @@ contains
       !< Return the maximum cell delta given a comparison distance.
       real(R8P),          intent(in) :: distance !< Comparison distance.
       real(R8P)                      :: delta    !< Maximum cell delta admissible.
-   
+
       if (abs(distance) < epsilon(0._R8P)) then
          ! delta = 0.001_R8P
          delta = 0.005_R8P
@@ -659,9 +661,18 @@ contains
          call minimal_immersed_bc(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,                 &
             gamma_fluid=self%gamma_fluid, q_gpu=self%q_gpu(:,:,:,:,:), phi_gpu=self%phi_gpu,                        &
             x_cell_gpu=self%x_cell_gpu, y_cell_gpu=self%y_cell_gpu, z_cell_gpu=self%z_cell_gpu)
+
+         call evolve_eikonal_q_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
+                                       phi_gpu=self%phi_gpu,                                             &
+                                       dx_gpu=self%dxyz_gpu(:,1),                                        &
+                                       dy_gpu=self%dxyz_gpu(:,2),                                        &
+                                       dz_gpu=self%dxyz_gpu(:,3),                                        &
+                                       dq_gpu=self%dq_gpu,                                               &
+                                       q_gpu=self%q_gpu)
       endif
-      call compute_rk_stage_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,               &
+      call compute_rk_stage_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
                                     alph_gpu=alph_gpu, dt=dt, s=s, q_gpu=self%q_gpu, q_s_gpu=self%q_s_gpu)
+
       if (do_ghost_syncro_) then
          call self%update_ghost_gpu(q_gpu=self%q_s_gpu(:,:,:,:,:,s)) ! all ghosts
          if(trim(self%flow_type) == "cold") then
@@ -1055,8 +1066,8 @@ contains
                ! select only face-like boundaries because corresponding inner point are all selected this way
                ! actually, the next "if" also includes some edges/corners which are globally faces. in that cases,
                ! fluxes are computed here but never used since they are computed in ghost regions
-               if(abs(idelta)+abs(jdelta)+abs(kdelta) == 1) then 
-                  i = i - idelta ; j = j - jdelta ; k = k - kdelta 
+               if(abs(idelta)+abs(jdelta)+abs(kdelta) == 1) then
+                  i = i - idelta ; j = j - jdelta ; k = k - kdelta
                   rho      = q_aux_gpu(b,i,j,k,1)
                   uuu      = q_aux_gpu(b,i,j,k,2)
                   vvv      = q_aux_gpu(b,i,j,k,3)
@@ -1095,20 +1106,20 @@ contains
                   rhs_rya  = rya/rho*rhs_rho+rho*dya
                   rhs_rhv  = rhv/rho*rhs_rho+rho*dvv
                   rhs_rhw  = rhw/rho*rhs_rho+rho*dww
-                  q_gpu(b,i,j,k,1) = rhs_rho  
-                  q_gpu(b,i,j,k,2) = rhs_rhu  
-                  q_gpu(b,i,j,k,3) = rhs_rhv  
-                  q_gpu(b,i,j,k,4) = rhs_rhw  
-                  q_gpu(b,i,j,k,5) = rhs_rhe  
-                  q_gpu(b,i,j,k,6) = rhs_rya  
+                  q_gpu(b,i,j,k,1) = rhs_rho
+                  q_gpu(b,i,j,k,2) = rhs_rhu
+                  q_gpu(b,i,j,k,3) = rhs_rhv
+                  q_gpu(b,i,j,k,4) = rhs_rhw
+                  q_gpu(b,i,j,k,5) = rhs_rhe
+                  q_gpu(b,i,j,k,6) = rhs_rya
                endif
             endif
             if (bc_type == BC_NROUT_XMIN) then
                ! select only face-like boundaries because corresponding inner point are all selected this way
                ! actually, the next "if" also includes some edges/corners which are globally faces. in that cases,
                ! fluxes are computed here but never used since they are computed in ghost regions
-               if(abs(idelta)+abs(jdelta)+abs(kdelta) == 1) then 
-                  i = i - idelta ; j = j - jdelta ; k = k - kdelta 
+               if(abs(idelta)+abs(jdelta)+abs(kdelta) == 1) then
+                  i = i - idelta ; j = j - jdelta ; k = k - kdelta
                   rho      = q_aux_gpu(b,i,j,k,1)
                   uuu      = q_aux_gpu(b,i,j,k,2)
                   vvv      = q_aux_gpu(b,i,j,k,3)
@@ -1147,18 +1158,18 @@ contains
                   rhs_rya  = rya/rho*rhs_rho+rho*dya
                   rhs_rhv  = rhv/rho*rhs_rho+rho*dvv
                   rhs_rhw  = rhw/rho*rhs_rho+rho*dww
-                  q_gpu(b,i,j,k,1) = rhs_rho  
-                  q_gpu(b,i,j,k,2) = rhs_rhu  
-                  q_gpu(b,i,j,k,3) = rhs_rhv  
-                  q_gpu(b,i,j,k,4) = rhs_rhw  
-                  q_gpu(b,i,j,k,5) = rhs_rhe  
-                  q_gpu(b,i,j,k,6) = rhs_rya  
+                  q_gpu(b,i,j,k,1) = rhs_rho
+                  q_gpu(b,i,j,k,2) = rhs_rhu
+                  q_gpu(b,i,j,k,3) = rhs_rhv
+                  q_gpu(b,i,j,k,4) = rhs_rhw
+                  q_gpu(b,i,j,k,5) = rhs_rhe
+                  q_gpu(b,i,j,k,6) = rhs_rya
                endif
             endif
             if (bc_type == BC_NRIN_XMIN) then
                ! select only face-like boundaries because corresponding inner point are all selected this way
-               if(abs(idelta)+abs(jdelta)+abs(kdelta) == 1) then 
-                  i = i - idelta ; j = j - jdelta ; k = k - kdelta 
+               if(abs(idelta)+abs(jdelta)+abs(kdelta) == 1) then
+                  i = i - idelta ; j = j - jdelta ; k = k - kdelta
                   rho      = q_aux_gpu(b,i,j,k,1)
                   uuu      = q_aux_gpu(b,i,j,k,2)
                   vvv      = q_aux_gpu(b,i,j,k,3)
@@ -1194,12 +1205,12 @@ contains
                   rhs_rya   = yya*rhs_rho
                   rhs_rhv   = vvv*rhs_rho+rho*dvv
                   rhs_rhw   = www*rhs_rho+rho*dww
-                  q_gpu(b,i,j,k,1) = rhs_rho  
-                  q_gpu(b,i,j,k,2) = rhs_rhu  
-                  q_gpu(b,i,j,k,3) = rhs_rhv  
-                  q_gpu(b,i,j,k,4) = rhs_rhw  
-                  q_gpu(b,i,j,k,5) = rhs_rhe  
-                  q_gpu(b,i,j,k,6) = rhs_rya  
+                  q_gpu(b,i,j,k,1) = rhs_rho
+                  q_gpu(b,i,j,k,2) = rhs_rhu
+                  q_gpu(b,i,j,k,3) = rhs_rhv
+                  q_gpu(b,i,j,k,4) = rhs_rhw
+                  q_gpu(b,i,j,k,5) = rhs_rhe
+                  q_gpu(b,i,j,k,6) = rhs_rya
                endif
             endif
          endif
@@ -1439,7 +1450,7 @@ contains
       do j=1-ngc, nj+ngc
          do i=1-ngc, ni+ngc
             do b=1, blocks_number
-               if(q_aux_gpu(b,i,j,k,6) > tem_stabil) then 
+               if(q_aux_gpu(b,i,j,k,6) > tem_stabil) then
                    x_min = min(x_min, x_cell_gpu(b,i))
                endif
             enddo
@@ -1497,6 +1508,112 @@ contains
    !@cuf iercuda=cudaDeviceSynchronize()
    endsubroutine compute_aux_cuf
 
+   subroutine evolve_eikonal_q_gpu_cuf(ni, nj, nk, ngc, nv, phi_gpu, dx_gpu, dy_gpu, dz_gpu, blocks_number, dq_gpu, q_gpu)
+   !< Initialize RK stage with q_gpu.
+   integer(I4P), intent(in)            :: ni                                  !< Grid cells number in I direction.
+   integer(I4P), intent(in)            :: nj                                  !< Grid cells number in J direction.
+   integer(I4P), intent(in)            :: nk                                  !< Grid cells number in K direction.
+   integer(I4P), intent(in)            :: ngc                                 !< Ghost cells number.
+   integer(I4P), intent(in)            :: nv                                  !< Number of conservative varibales.
+   integer(I4P), intent(in)            :: blocks_number                       !< Number of blocks.
+   real(R8P),    intent(in),    device :: phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Distance function.
+   real(R8P),    intent(in),    device :: dx_gpu(1:)                          !< X space steps.
+   real(R8P),    intent(in),    device :: dy_gpu(1:)                          !< Y space steps.
+   real(R8P),    intent(in),    device :: dz_gpu(1:)                          !< Z space steps.
+   real(R8P),    intent(inout), device :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !<
+   real(R8P),    intent(inout), device :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Conservative variables.
+   integer(I4P)                        :: i, j, k, b, v                       !< Counter.
+   integer(I4P)                        :: iercuda                             !< Error trapping flag for CUDAFortran.
+   type(dim3)                          :: grid, tBlock                        !< CUDA grid and block.
+
+   tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(ni)/tBlock%y),1)
+   call compute_eikonal_dq_gpu<<<grid, tBlock>>>(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
+                                                 phi_gpu=phi_gpu, dx_gpu=dx_gpu, dy_gpu=dy_gpu, dz_gpu=dz_gpu,     &
+                                                 dq_gpu=dq_gpu, q_gpu=q_gpu)
+
+   !$cuf kernel do(4) <<<*,*>>>
+   do k=1, nk
+      do j=1, nj
+         do i=1,ni
+            do b=1, blocks_number
+               do v=1, nv
+                  if (phi_gpu(b,i,j,k,1) > 0._R8P) q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) - dq_gpu(b,i,j,k,v)
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine evolve_eikonal_q_gpu_cuf
+
+   attributes(global) subroutine compute_eikonal_dq_gpu(ni, nj, nk, ngc, nv, blocks_number, &
+                                                        phi_gpu, dx_gpu, dy_gpu, dz_gpu,    &
+                                                        q_gpu, dq_gpu)
+   !< Initialize RK stage with q_gpu.
+   integer(I4P), intent(in), value     :: ni                                  !< Grid cells number in I direction.
+   integer(I4P), intent(in), value     :: nj                                  !< Grid cells number in J direction.
+   integer(I4P), intent(in), value     :: nk                                  !< Grid cells number in K direction.
+   integer(I4P), intent(in), value     :: ngc                                 !< Ghost cells number.
+   integer(I4P), intent(in), value     :: nv                                  !< Number of conservative varibales.
+   integer(I4P), intent(in), value     :: blocks_number                       !< Number of blocks.
+   real(R8P),    intent(in),    device :: phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Distance function.
+   real(R8P),    intent(in),    device :: dx_gpu(1:)                          !< X space steps.
+   real(R8P),    intent(in),    device :: dy_gpu(1:)                          !< Y space steps.
+   real(R8P),    intent(in),    device :: dz_gpu(1:)                          !< Z space steps.
+   real(R8P),    intent(in),    device :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Conservative variables.
+   real(R8P),    intent(inout), device :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !<
+   integer(I4P)                        :: i, j, k, b, v                       !< Counter.
+   real(R8P)                           :: n_phi_x, n_phi_y, n_phi_z, n_phi    !<
+
+   b = blockDim%x * (blockIdx%x - 1) + threadIdx%x
+   i = blockDim%y * (blockIdx%y - 1) + threadIdx%y
+   if (b > blocks_number .or. i > ni) return
+
+   do k=1, nk
+      do j=1, nj
+         if (phi_gpu(b,i,j,k,1) > 0._R8P) then
+            n_phi_x = -(phi_gpu(b,i+1,j,k,1) - phi_gpu(b,i-1,j,k,1) ) / (2 * dx_gpu(b))
+            n_phi_y = -(phi_gpu(b,i,j+1,k,1) - phi_gpu(b,i,j-1,k,1) ) / (2 * dy_gpu(b))
+            n_phi_z = -(phi_gpu(b,i,j,k+1,1) - phi_gpu(b,i,j,k-1,1) ) / (2 * dz_gpu(b))
+            n_phi = abs(n_phi_x) + abs(n_phi_y) + abs(n_phi_z) + 10e-12
+            n_phi = 0.5_R8P / n_phi
+            n_phi_x = n_phi_x * n_phi
+            n_phi_y = n_phi_y * n_phi
+            n_phi_z = n_phi_z * n_phi
+            do v=1, nv
+               dq_gpu(b,i,j,k,v) = 0._R8P
+            enddo
+            if (n_phi_x > 0._R8P) then
+               do v=1, nv
+                  dq_gpu(b,i,j,k,v) = dq_gpu(b,i,j,k,v) + abs(n_phi_x) * (q_gpu(b,i,j,k,v) - q_gpu(b,i-1,j,k,v))
+               enddo
+            else
+               do v=1, nv
+                  dq_gpu(b,i,j,k,v) = dq_gpu(b,i,j,k,v) + abs(n_phi_x) * (q_gpu(b,i,j,k,v) - q_gpu(b,i+1,j,k,v))
+               enddo
+            endif
+            if (n_phi_y > 0._R8P) then
+               do v=1, nv
+                  dq_gpu(b,i,j,k,v) = dq_gpu(b,i,j,k,v) + abs(n_phi_y) * (q_gpu(b,i,j,k,v) - q_gpu(b,i,j-1,k,v))
+               enddo
+            else
+               do v=1, nv
+                  dq_gpu(b,i,j,k,v) = dq_gpu(b,i,j,k,v) + abs(n_phi_y) * (q_gpu(b,i,j,k,v) - q_gpu(b,i,j+1,k,v))
+               enddo
+            endif
+            if (n_phi_z > 0._R8P) then
+               do v=1, nv
+                  dq_gpu(b,i,j,k,v) = dq_gpu(b,i,j,k,v) + abs(n_phi_z) * (q_gpu(b,i,j,k,v) - q_gpu(b,i,j,k-1,v))
+               enddo
+            else
+               do v=1, nv
+                  dq_gpu(b,i,j,k,v) = dq_gpu(b,i,j,k,v) + abs(n_phi_z) * (q_gpu(b,i,j,k,v) - q_gpu(b,i,j,k+1,v))
+               enddo
+            endif
+         endif
+      enddo
+   enddo
+   endsubroutine compute_eikonal_dq_gpu
+
    subroutine compute_residuals_gpu(ni, nj, nk, ngc, ns, blocks_number, null_x, null_y, null_z, &
                                     dx_gpu, dy_gpu, dz_gpu, q_aux_gpu, fl_gpu, fhat_gpu, q_gpu, &
                                     iweno, lmax, dha, gamma_fluid, gplus_x, gminus_x, &
@@ -1539,28 +1656,28 @@ contains
    integer(I4P)                        :: iercuda                               !< Error trapping flag for CUDAFortran.
    type(dim3)                          :: grid, tBlock                          !< CUDA grid and block.
 
-   real(R8P) :: dx    , dy     , dz     
-   real(R8P) :: rho   , uu     , vv    , ww      
-   real(R8P) :: t     , p      , h      
-   real(R8P) :: rho_xp, rho_yp , rho_zp 
-   real(R8P) :: rho_xm, rho_ym , rho_zm 
-   real(R8P) :: u_xp  , u_yp   , u_zp   
-   real(R8P) :: u_xm  , u_ym   , u_zm   
-   real(R8P) :: v_xp  , v_yp   , v_zp   
-   real(R8P) :: v_xm  , v_ym   , v_zm   
-   real(R8P) :: w_xp  , w_yp   , w_zp   
-   real(R8P) :: w_xm  , w_ym   , w_zm   
-   real(R8P) :: p_xp  , p_yp   , p_zp   
-   real(R8P) :: p_xm  , p_ym   , p_zm   
-   real(R8P) :: t_xp  , t_yp   , t_zp   
-   real(R8P) :: t_xm  , t_ym   , t_zm   
-   real(R8P) :: h_xp  , h_yp   , h_zp   
-   real(R8P) :: h_xm  , h_ym   , h_zm   
+   real(R8P) :: dx    , dy     , dz
+   real(R8P) :: rho   , uu     , vv    , ww
+   real(R8P) :: t     , p      , h
+   real(R8P) :: rho_xp, rho_yp , rho_zp
+   real(R8P) :: rho_xm, rho_ym , rho_zm
+   real(R8P) :: u_xp  , u_yp   , u_zp
+   real(R8P) :: u_xm  , u_ym   , u_zm
+   real(R8P) :: v_xp  , v_yp   , v_zp
+   real(R8P) :: v_xm  , v_ym   , v_zm
+   real(R8P) :: w_xp  , w_yp   , w_zp
+   real(R8P) :: w_xm  , w_ym   , w_zm
+   real(R8P) :: p_xp  , p_yp   , p_zp
+   real(R8P) :: p_xm  , p_ym   , p_zm
+   real(R8P) :: t_xp  , t_yp   , t_zp
+   real(R8P) :: t_xm  , t_ym   , t_zm
+   real(R8P) :: h_xp  , h_yp   , h_zp
+   real(R8P) :: h_xm  , h_ym   , h_zm
    real(R8P) :: ulap, vlap, wlap, tlap
    real(R8P) :: ux, uy, uz, vx, vy, vz, wx, wy, wz, div3l
    real(R8P) :: sigx, sigy, sigz, sig11, sig12, sig13, sig22, sig23, sig33, sigah, sigqt, sigq
 
-   !fl_gpu = 0. 
+   !fl_gpu = 0.
 
    !!!!!! minimal navier-stokes - start
    !!!!!associate(q=>q_aux_gpu)
@@ -1569,33 +1686,33 @@ contains
    !!!!!   do j=1, nj
    !!!!!      do i=1,ni
    !!!!!         do b=1, blocks_number
-   !!!!!            dx     = dx_gpu(b)      ; dy     = dy_gpu(b)      ; dz     = dz_gpu(b)         
-   !!!!!            rho    = q(b,i,j,k,1)   ; t      = q(b,i,j,k,6)   ; p      = q(b,i,j,k,7)   
+   !!!!!            dx     = dx_gpu(b)      ; dy     = dy_gpu(b)      ; dz     = dz_gpu(b)
+   !!!!!            rho    = q(b,i,j,k,1)   ; t      = q(b,i,j,k,6)   ; p      = q(b,i,j,k,7)
    !!!!!            uu     = q(b,i,j,k,2)   ; vv     = q(b,i,j,k,3)   ; ww     = q(b,i,j,k,4)
-   !!!!!            rho_xp = q(b,i+1,j,k,1) ; rho_yp = q(b,i,j+1,k,1) ; rho_zp = q(b,i,j,k+1,1) 
-   !!!!!            rho_xm = q(b,i-1,j,k,1) ; rho_ym = q(b,i,j-1,k,1) ; rho_zm = q(b,i,j,k-1,1) 
-   !!!!!            u_xp   = q(b,i+1,j,k,2) ; u_yp   = q(b,i,j+1,k,2) ; u_zp   = q(b,i,j,k+1,2) 
-   !!!!!            u_xm   = q(b,i-1,j,k,2) ; u_ym   = q(b,i,j-1,k,2) ; u_zm   = q(b,i,j,k-1,2) 
-   !!!!!            v_xp   = q(b,i+1,j,k,3) ; v_yp   = q(b,i,j+1,k,3) ; v_zp   = q(b,i,j,k+1,3) 
-   !!!!!            v_xm   = q(b,i-1,j,k,3) ; v_ym   = q(b,i,j-1,k,3) ; v_zm   = q(b,i,j,k-1,3) 
-   !!!!!            w_xp   = q(b,i+1,j,k,4) ; w_yp   = q(b,i,j+1,k,4) ; w_zp   = q(b,i,j,k+1,4) 
-   !!!!!            w_xm   = q(b,i-1,j,k,4) ; w_ym   = q(b,i,j-1,k,4) ; w_zm   = q(b,i,j,k-1,4) 
-   !!!!!            p_xp   = q(b,i+1,j,k,7) ; p_yp   = q(b,i,j+1,k,7) ; p_zp   = q(b,i,j,k+1,7) 
-   !!!!!            p_xm   = q(b,i-1,j,k,7) ; p_ym   = q(b,i,j-1,k,7) ; p_zm   = q(b,i,j,k-1,7) 
-   !!!!!            t_xp   = q(b,i+1,j,k,6) ; t_yp   = q(b,i,j+1,k,6) ; t_zp   = q(b,i,j,k+1,6) 
-   !!!!!            t_xm   = q(b,i-1,j,k,6) ; t_ym   = q(b,i,j-1,k,6) ; t_zm   = q(b,i,j,k-1,6) 
-   !!!!!            h_xp   = q(b,i+1,j,k,8) ; h_yp   = q(b,i,j+1,k,8) ; h_zp   = q(b,i,j,k+1,8) 
-   !!!!!            h_xm   = q(b,i-1,j,k,8) ; h_ym   = q(b,i,j-1,k,8) ; h_zm   = q(b,i,j,k-1,8) 
+   !!!!!            rho_xp = q(b,i+1,j,k,1) ; rho_yp = q(b,i,j+1,k,1) ; rho_zp = q(b,i,j,k+1,1)
+   !!!!!            rho_xm = q(b,i-1,j,k,1) ; rho_ym = q(b,i,j-1,k,1) ; rho_zm = q(b,i,j,k-1,1)
+   !!!!!            u_xp   = q(b,i+1,j,k,2) ; u_yp   = q(b,i,j+1,k,2) ; u_zp   = q(b,i,j,k+1,2)
+   !!!!!            u_xm   = q(b,i-1,j,k,2) ; u_ym   = q(b,i,j-1,k,2) ; u_zm   = q(b,i,j,k-1,2)
+   !!!!!            v_xp   = q(b,i+1,j,k,3) ; v_yp   = q(b,i,j+1,k,3) ; v_zp   = q(b,i,j,k+1,3)
+   !!!!!            v_xm   = q(b,i-1,j,k,3) ; v_ym   = q(b,i,j-1,k,3) ; v_zm   = q(b,i,j,k-1,3)
+   !!!!!            w_xp   = q(b,i+1,j,k,4) ; w_yp   = q(b,i,j+1,k,4) ; w_zp   = q(b,i,j,k+1,4)
+   !!!!!            w_xm   = q(b,i-1,j,k,4) ; w_ym   = q(b,i,j-1,k,4) ; w_zm   = q(b,i,j,k-1,4)
+   !!!!!            p_xp   = q(b,i+1,j,k,7) ; p_yp   = q(b,i,j+1,k,7) ; p_zp   = q(b,i,j,k+1,7)
+   !!!!!            p_xm   = q(b,i-1,j,k,7) ; p_ym   = q(b,i,j-1,k,7) ; p_zm   = q(b,i,j,k-1,7)
+   !!!!!            t_xp   = q(b,i+1,j,k,6) ; t_yp   = q(b,i,j+1,k,6) ; t_zp   = q(b,i,j,k+1,6)
+   !!!!!            t_xm   = q(b,i-1,j,k,6) ; t_ym   = q(b,i,j-1,k,6) ; t_zm   = q(b,i,j,k-1,6)
+   !!!!!            h_xp   = q(b,i+1,j,k,8) ; h_yp   = q(b,i,j+1,k,8) ; h_zp   = q(b,i,j,k+1,8)
+   !!!!!            h_xm   = q(b,i-1,j,k,8) ; h_ym   = q(b,i,j-1,k,8) ; h_zm   = q(b,i,j,k-1,8)
 
-   !!!!!            ulap = (u_xp-2.*uu+u_xm)/dx**2 + (u_yp-2.*uu+u_ym)/dy**2 + (u_zp-2.*uu+u_zm)/dz**2 
-   !!!!!            vlap = (v_xp-2.*vv+v_xm)/dx**2 + (v_yp-2.*vv+v_ym)/dy**2 + (v_zp-2.*vv+v_zm)/dz**2 
+   !!!!!            ulap = (u_xp-2.*uu+u_xm)/dx**2 + (u_yp-2.*uu+u_ym)/dy**2 + (u_zp-2.*uu+u_zm)/dz**2
+   !!!!!            vlap = (v_xp-2.*vv+v_xm)/dx**2 + (v_yp-2.*vv+v_ym)/dy**2 + (v_zp-2.*vv+v_zm)/dz**2
    !!!!!            wlap = (w_xp-2.*ww+w_xm)/dx**2 + (w_yp-2.*ww+w_ym)/dy**2 + (w_zp-2.*ww+w_zm)/dz**2
    !!!!!            tlap = (t_xp-2.*t+t_xm) /dx**2 + (t_yp-2.*t+t_ym) /dy**2 + (t_zp-2.*t+t_zm) /dz**2
-   !!!!!            ux = (u_xp-u_xm)/(2*dx) ; uy = (u_yp-u_ym)/(2*dy) ; uz = (u_zp-u_zm)/(2*dz) 
-   !!!!!            vx = (v_xp-v_xm)/(2*dx) ; vy = (v_yp-v_ym)/(2*dy) ; vz = (v_zp-v_zm)/(2*dz) 
-   !!!!!            wx = (w_xp-w_xm)/(2*dx) ; wy = (w_yp-w_ym)/(2*dy) ; wz = (w_zp-w_zm)/(2*dz) 
+   !!!!!            ux = (u_xp-u_xm)/(2*dx) ; uy = (u_yp-u_ym)/(2*dy) ; uz = (u_zp-u_zm)/(2*dz)
+   !!!!!            vx = (v_xp-v_xm)/(2*dx) ; vy = (v_yp-v_ym)/(2*dy) ; vz = (v_zp-v_zm)/(2*dz)
+   !!!!!            wx = (w_xp-w_xm)/(2*dx) ; wy = (w_yp-w_ym)/(2*dy) ; wz = (w_zp-w_zm)/(2*dz)
    !!!!!            div3l = ux+vy+wz ; div3l   = div3l/3._R8P
-   !!!!!            sig11 = 2._R8P*(ux-div3l) ; sig12 = uy+vx ; sig13 = uz+wx 
+   !!!!!            sig11 = 2._R8P*(ux-div3l) ; sig12 = uy+vx ; sig13 = uz+wx
    !!!!!            sig22 = 2._R8P*(vy-div3l) ; sig23 = vz+wy ; sig33 = 2._R8P*(wz-div3l)
    !!!!!            ! Viscosity diffusion
    !!!!!            sigx  = Prandtl*ulap ; sigy  = Prandtl*vlap ; sigz  = Prandtl*wlap
@@ -1621,7 +1738,7 @@ contains
    !!!!!            q_gpu(b,i,j,k,5) = - (rho_xp*h_xp*u_xp        - rho_xm*h_xm*u_xm       )/(2.*dx) - &
    !!!!!                                 (rho_yp*h_yp*v_yp        - rho_ym*h_ym*v_ym)       /(2.*dy) - &
    !!!!!                                 (rho_zp*h_zp*w_zp        - rho_zm*h_zm*w_zm       )/(2.*dz) + sigq
-   !!!!!                                
+   !!!!!
    !!!!!         enddo
    !!!!!      enddo
    !!!!!   enddo
@@ -1689,7 +1806,7 @@ contains
    real(R8P), intent(in), device     :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(inout), device  ::    fl_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(in), device     :: dx_gpu(1:), dy_gpu(1:), dz_gpu(1:)
-   real(R8P), intent(in), device     :: fd_coeff1_gpu(1:), fd_coeff2_gpu(0:) 
+   real(R8P), intent(in), device     :: fd_coeff1_gpu(1:), fd_coeff2_gpu(0:)
    real(R8P), intent(in)             :: gamma_fluid, Prandtl, Lewis, dha, Zeldovich, Damkohler, q_coeff
    integer                           :: i,j,k,l,b
    real(R8P)                         :: ccl,clapl,div3l,drmutdt
@@ -1717,9 +1834,9 @@ contains
       do j=1, nj
          do i=1,ni
             do b=1, blocks_number
-               invdx  = 1._R8P/dx_gpu(b) ; invdy  = 1._R8P/dy_gpu(b) ; invdz  = 1._R8P/dz_gpu(b) 
-               invdx2 = invdx*invdx      ; invdy2 = invdy*invdy      ; invdz2 = invdz*invdz     
- 
+               invdx  = 1._R8P/dx_gpu(b) ; invdy  = 1._R8P/dy_gpu(b) ; invdz  = 1._R8P/dz_gpu(b)
+               invdx2 = invdx*invdx      ; invdy2 = invdy*invdy      ; invdz2 = invdz*invdz
+
                ! Compute first derivatives
                ux = 0._R8P ; vx = 0._R8P ; wx = 0._R8P ; tx = 0._R8P
                uy = 0._R8P ; vy = 0._R8P ; wy = 0._R8P ; ty = 0._R8P
@@ -1730,12 +1847,12 @@ contains
                   vx = vx+ccl*(q_aux_gpu(b,i+l,j,k,3)-q_aux_gpu(b,i-l,j,k,3))
                   wx = wx+ccl*(q_aux_gpu(b,i+l,j,k,4)-q_aux_gpu(b,i-l,j,k,4))
                   tx = tx+ccl*(q_aux_gpu(b,i+l,j,k,6)-q_aux_gpu(b,i-l,j,k,6))
-            
+
                   uy = uy+ccl*(q_aux_gpu(b,i,j+l,k,2)-q_aux_gpu(b,i,j-l,k,2))
                   vy = vy+ccl*(q_aux_gpu(b,i,j+l,k,3)-q_aux_gpu(b,i,j-l,k,3))
                   wy = wy+ccl*(q_aux_gpu(b,i,j+l,k,4)-q_aux_gpu(b,i,j-l,k,4))
                   ty = ty+ccl*(q_aux_gpu(b,i,j+l,k,6)-q_aux_gpu(b,i,j-l,k,6))
-            
+
                   uz = uz+ccl*(q_aux_gpu(b,i,j,k+l,2)-q_aux_gpu(b,i,j,k-l,2))
                   vz = vz+ccl*(q_aux_gpu(b,i,j,k+l,3)-q_aux_gpu(b,i,j,k-l,3))
                   wz = wz+ccl*(q_aux_gpu(b,i,j,k+l,4)-q_aux_gpu(b,i,j,k-l,4))
@@ -1744,10 +1861,10 @@ contains
                ux = ux*invdx ; vx = vx*invdx ; wx = wx*invdx ; tx = tx*invdx
                uy = uy*invdy ; vy = vy*invdy ; wy = wy*invdy ; ty = ty*invdy
                uz = uz*invdz ; vz = vz*invdz ; wz = wz*invdz ; tz = tz*invdz
- 
+
                ! Compute second derivatives
-               uu  = q_aux_gpu(b,i,j,k,2)    ; vv = q_aux_gpu(b,i,j,k,3) ; ww = q_aux_gpu(b,i,j,k,4)  
-               tem = q_aux_gpu(b,i,j,k,6)    ; ya = q_aux_gpu(b,i,j,k,5) 
+               uu  = q_aux_gpu(b,i,j,k,2)    ; vv = q_aux_gpu(b,i,j,k,3) ; ww = q_aux_gpu(b,i,j,k,4)
+               tem = q_aux_gpu(b,i,j,k,6)    ; ya = q_aux_gpu(b,i,j,k,5)
                ulapx  = fd_coeff2_gpu(0)*uu  ; ulapy  = ulapx  ; ulapz  = ulapx
                vlapx  = fd_coeff2_gpu(0)*vv  ; vlapy  = vlapx  ; vlapz  = vlapx
                wlapx  = fd_coeff2_gpu(0)*ww  ; wlapy  = wlapx  ; wlapz  = wlapx
@@ -1777,13 +1894,13 @@ contains
                tlapy  = tlapy*invdy2 ; yalapy = yalapy*invdy2
                ulapz  = ulapz*invdz2 ; vlapz  = vlapz*invdz2 ; wlapz  = wlapz*invdz2
                tlapz  = tlapz*invdz2 ; yalapz = yalapz*invdz2
- 
+
                ulap  = ulapx +ulapy +ulapz ; vlap  = vlapx +vlapy +vlapz ; wlap  = wlapx +wlapy +wlapz
                tlap  = tlapx +tlapy +tlapz ; yalap = yalapx+yalapy+yalapz
- 
+
                div3l = ux+vy+wz ; div3l   = div3l/3._R8P
                sig11 = 2._R8P*(ux-div3l)
-               sig12 = uy+vx 
+               sig12 = uy+vx
                sig13 = uz+wx
                sig22 = 2._R8P*(vy-div3l)
                sig23 = vz+wy
@@ -1812,7 +1929,7 @@ contains
                sigy  = rmutx*sig12 + rmuty*sig22 + rmutz*sig23 + rmut*vlap
                sigz  = rmutx*sig13 + rmuty*sig23 + rmutz*sig33 + rmut*wlap
                ! Heat conduction
-               sigqt = (rmutx*tx+rmuty*ty+rmutz*tz+rmut*tlap)/Prandtl  
+               sigqt = (rmutx*tx+rmuty*ty+rmutz*tz+rmut*tlap)/Prandtl
                ! Aerodynamic heating
                sigah = (sig11*ux+sig12*uy+sig13*uz+sig12*vx+sig22*vy+sig23*vz+sig13*wx+sig23*wy+sig33*wz)*rmut ! Aerodynamic heating
                ! Specie diffusion
@@ -1822,14 +1939,14 @@ contains
                ! Reactive term
                !reaction_rate = max(0._R8P, Damkohler*q_aux_gpu(b,i,j,k,1)*ya*exp(-Zeldovich/tem*gamma_fluid/(gamma_fluid-1._R8P)))
                reaction_rate = Damkohler*q_aux_gpu(b,i,j,k,1)*ya*exp(-Zeldovich/tem*gamma_fluid/(gamma_fluid-1._R8P))
-               !reaction_rate = 0._R8P 
- 
+               !reaction_rate = 0._R8P
+
                fl_gpu(b,i,j,k,2) = fl_gpu(b,i,j,k,2) - sigx
                fl_gpu(b,i,j,k,3) = fl_gpu(b,i,j,k,3) - sigy
                fl_gpu(b,i,j,k,4) = fl_gpu(b,i,j,k,4) - sigz
-               fl_gpu(b,i,j,k,5) = fl_gpu(b,i,j,k,5) - sigq 
+               fl_gpu(b,i,j,k,5) = fl_gpu(b,i,j,k,5) - sigq
                fl_gpu(b,i,j,k,6) = fl_gpu(b,i,j,k,6) - sigya + reaction_rate
- 
+
             enddo
          enddo
       enddo
@@ -1855,11 +1972,11 @@ contains
    real(R8P)                         :: uvs1, uvs2, uvs3, uvs4, uvs5, uvs6, uvs7, uv_part
    integer                           :: b, i, j, k, l, v, m
 
-   b = blockDim%x * (blockIdx%x - 1) + threadIdx%x 
+   b = blockDim%x * (blockIdx%x - 1) + threadIdx%x
    j = blockDim%y * (blockIdx%y - 1) + threadIdx%y
    if(b > blocks_number .or. j > nj) return
 
-   do k=1,nk 
+   do k=1,nk
 
       do i=0,ni ! loop on faces
          ft1 = 0._R8P ; ft2 = 0._R8P ; ft3 = 0._R8P ; ft4 = 0._R8P ; ft5 = 0._R8P ; ft6 = 0._R8P ; ft7 = 0._R8P
@@ -1867,7 +1984,7 @@ contains
              uvs1 = 0._R8P ; uvs2 = 0._R8P ; uvs3 = 0._R8P ; uvs4 = 0._R8P ; uvs5 = 0._R8P ; uvs6 = 0._R8P ; uvs7 = 0._R8P
              do m=0,l-1
                  rhom    = q_aux_gpu(b,i-m,j,k,1) + q_aux_gpu(b,i-m+l,j,k,1)
-                                              
+
                  uui     = q_aux_gpu(b,i-m,j,k,2)
                  vvi     = q_aux_gpu(b,i-m,j,k,3)
                  wwi     = q_aux_gpu(b,i-m,j,k,4)
@@ -1908,7 +2025,7 @@ contains
          fhat_gpu(b,i,j,k,6) = 0.25_R8P*ft7
       enddo
 
-      ! Update net flux 
+      ! Update net flux
       do i=1,ni ! loop on inner nodes
          do v=1,nv
             fl_gpu(b,i,j,k,v) = (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i-1,j,k,v))/dx_gpu(b)
@@ -1935,11 +2052,11 @@ contains
    real(R8P)                         :: uvs1, uvs2, uvs3, uvs4, uvs5, uvs6, uvs7, uv_part
    integer                           :: b, i, j, k, l, v, m
 
-   b = blockDim%x * (blockIdx%x - 1) + threadIdx%x 
+   b = blockDim%x * (blockIdx%x - 1) + threadIdx%x
    i = blockDim%y * (blockIdx%y - 1) + threadIdx%y
    if(b > blocks_number .or. i > ni) return
 
-   do k=1,nk 
+   do k=1,nk
 
       do j=0,nj ! loop on faces
          ft1 = 0._R8P ; ft2 = 0._R8P ; ft3 = 0._R8P ; ft4 = 0._R8P ; ft5 = 0._R8P ; ft6 = 0._R8P ; ft7 = 0._R8P
@@ -1947,7 +2064,7 @@ contains
              uvs1 = 0._R8P ; uvs2 = 0._R8P ; uvs3 = 0._R8P ; uvs4 = 0._R8P ; uvs5 = 0._R8P ; uvs6 = 0._R8P ; uvs7 = 0._R8P
              do m=0,l-1
                  rhom    = q_aux_gpu(b,i,j-m,k,1) + q_aux_gpu(b,i,j-m+l,k,1)
-                                              
+
                  uui     = q_aux_gpu(b,i,j-m,k,2)
                  vvi     = q_aux_gpu(b,i,j-m,k,3)
                  wwi     = q_aux_gpu(b,i,j-m,k,4)
@@ -1988,7 +2105,7 @@ contains
          fhat_gpu(b,i,j,k,6) = 0.25_R8P*ft7
       enddo
 
-      ! Update net flux 
+      ! Update net flux
       do j=1,nj ! loop on inner nodes
          do v=1,nv
             fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) + (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j-1,k,v))/dy_gpu(b)
@@ -2015,11 +2132,11 @@ contains
    real(R8P)                         :: uvs1, uvs2, uvs3, uvs4, uvs5, uvs6, uvs7, uv_part
    integer                           :: b, i, j, k, l, v, m
 
-   b = blockDim%x * (blockIdx%x - 1) + threadIdx%x 
+   b = blockDim%x * (blockIdx%x - 1) + threadIdx%x
    i = blockDim%y * (blockIdx%y - 1) + threadIdx%y
    if(b > blocks_number .or. i > ni) return
 
-   do j=1,nj 
+   do j=1,nj
 
       do k=0,nk ! loop on faces
          ft1 = 0._R8P ; ft2 = 0._R8P ; ft3 = 0._R8P ; ft4 = 0._R8P ; ft5 = 0._R8P ; ft6 = 0._R8P ; ft7 = 0._R8P
@@ -2027,7 +2144,7 @@ contains
              uvs1 = 0._R8P ; uvs2 = 0._R8P ; uvs3 = 0._R8P ; uvs4 = 0._R8P ; uvs5 = 0._R8P ; uvs6 = 0._R8P ; uvs7 = 0._R8P
              do m=0,l-1
                  rhom    = q_aux_gpu(b,i,j,k-m,1) + q_aux_gpu(b,i,j,k-m+l,1)
-                                              
+
                  uui     = q_aux_gpu(b,i,j,k-m,2)
                  vvi     = q_aux_gpu(b,i,j,k-m,3)
                  wwi     = q_aux_gpu(b,i,j,k-m,4)
@@ -2068,7 +2185,7 @@ contains
          fhat_gpu(b,i,j,k,6) = 0.25_R8P*ft7
       enddo
 
-      ! Update net flux 
+      ! Update net flux
       do k=1,nk ! loop on inner nodes
          do v=1,nv
             fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) + (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j,k-1,v))/dz_gpu(b)
@@ -2096,14 +2213,14 @@ contains
    real(R8P)                         :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
    real(R8P)                         :: gc, wc
 
-   b = blockDim%x * (blockIdx%x - 1) + threadIdx%x 
+   b = blockDim%x * (blockIdx%x - 1) + threadIdx%x
    j = blockDim%y * (blockIdx%y - 1) + threadIdx%y
    if(b > blocks_number .or. j > nj) return
 
-   do k=1,nk 
+   do k=1,nk
 
       do i=0,iweno-2 ! loop on faces
-         
+
          ! Compute Roe average
          call compute_roe_average(q_aux_gpu, dha, gamma_fluid, &
             ngc, b, i, j, k, i+1, j, k, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
@@ -2116,7 +2233,7 @@ contains
             evmax(m) = -1._R8P
          enddo
          do l=1,2*ngc ! LLF
-            ll = i + l - iweno 
+            ll = i + l - iweno
             uu = q_aux_gpu(b,ll,j,k,2)
             c  = q_aux_gpu(b,ll,j,k,9)
             ev(1) = abs(uu-c) ; ev(2) = abs(uu) ; ev(3) = abs(uu+c) ; ev(4) = ev(2) ; ev(5) = ev(2) ; ev(6) = ev(2)
@@ -2163,7 +2280,7 @@ contains
             evmax(m) = -1._R8P
          enddo
          do l=1,2*ngc ! LLF
-            ll = i + l - iweno 
+            ll = i + l - iweno
             uu = q_aux_gpu(b,ll,j,k,2)
             c  = q_aux_gpu(b,ll,j,k,9)
             ev(1) = abs(uu-c) ; ev(2) = abs(uu) ; ev(3) = abs(uu+c) ; ev(4) = ev(2) ; ev(5) = ev(2) ; ev(6) = ev(2)
@@ -2198,7 +2315,7 @@ contains
 
          ! Reassemble + and - characteristic fluxes
          do m=1,6
-            ghat(m) = gl(m) + gr(m) 
+            ghat(m) = gl(m) + gr(m)
          enddo
 
          ! Return to conservative fluxes
@@ -2211,7 +2328,7 @@ contains
 
       enddo
 
-      ! Update net flux 
+      ! Update net flux
       do i=1,ni ! loop on inner nodes
          do v=1,nv
             fl_gpu(b,i,j,k,v) = (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i-1,j,k,v))/dx_gpu(b)
@@ -2240,14 +2357,14 @@ contains
    real(R8P)                         :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
    real(R8P)                         :: gc, wc
 
-   b = blockDim%x * (blockIdx%x - 1) + threadIdx%x 
+   b = blockDim%x * (blockIdx%x - 1) + threadIdx%x
    j = blockDim%y * (blockIdx%y - 1) + threadIdx%y
    if(b > blocks_number .or. j > nj) return
 
-   do k=1,nk 
+   do k=1,nk
 
       do i=0,ni ! loop on faces
-         
+
          ! Compute Roe average
          call compute_roe_average(q_aux_gpu, dha, gamma_fluid, &
             ngc, b, i, j, k, i+1, j, k, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
@@ -2260,7 +2377,7 @@ contains
             evmax(m) = -1._R8P
          enddo
          do l=1,2*ngc ! LLF
-            ll = i + l - iweno 
+            ll = i + l - iweno
             uu = q_aux_gpu(b,ll,j,k,2)
             c  = q_aux_gpu(b,ll,j,k,9)
             ev(1) = abs(uu-c) ; ev(2) = abs(uu) ; ev(3) = abs(uu+c) ; ev(4) = ev(2) ; ev(5) = ev(2) ; ev(6) = ev(2)
@@ -2300,7 +2417,7 @@ contains
 
          ! Reassemble + and - characteristic fluxes
          do m=1,6
-            ghat(m) = gl(m) + gr(m) 
+            ghat(m) = gl(m) + gr(m)
          enddo
 
          ! Return to conservative fluxes
@@ -2312,7 +2429,7 @@ contains
          enddo
       enddo
 
-      ! Update net flux 
+      ! Update net flux
       do i=1,ni ! loop on inner nodes
          do v=1,nv
             fl_gpu(b,i,j,k,v) = (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i-1,j,k,v))/dx_gpu(b)
@@ -2341,32 +2458,32 @@ contains
    real(R8P)                         :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
    real(R8P)                         :: gc, wc
 
-   b = blockDim%x * (blockIdx%x - 1) + threadIdx%x 
+   b = blockDim%x * (blockIdx%x - 1) + threadIdx%x
    j = blockDim%y * (blockIdx%y - 1) + threadIdx%y
    if(b > blocks_number .or. j > nj) return
 
-   do k=1,nk 
+   do k=1,nk
 
       do i=0,ni ! loop on faces
-         
+
          ! Compute Roe average
          call compute_roe_average(q_aux_gpu, dha, gamma_fluid, &
             ngc, b, i, j, k, i+1, j, k, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
 
          ! Compute right and left eigenvectors matrices (at Roe state)
-         er(1,1) = 1._R8P ;  er(1,2) = uu-c    ; er(1,3) = vv     ; er(1,4) = ww     ; er(1,5) = h-uu*c ; er(1,6) = ya     
-         er(2,1) = 1._R8P ;  er(2,2) = uu      ; er(2,3) = vv     ; er(2,4) = ww     ; er(2,5) = qq     ; er(2,6) = 0._R8P  
-         er(3,1) = 1._R8P ;  er(3,2) = uu+c    ; er(3,3) = vv     ; er(3,4) = ww     ; er(3,5) = h+uu*c ; er(3,6) = ya     
-         er(4,1) = 0._R8P ;  er(4,2) = 0._R8P  ; er(4,3) = 1._R8P ; er(4,4) = 0._R8P ; er(4,5) = 0._R8P ; er(4,6) = -vv/dha 
+         er(1,1) = 1._R8P ;  er(1,2) = uu-c    ; er(1,3) = vv     ; er(1,4) = ww     ; er(1,5) = h-uu*c ; er(1,6) = ya
+         er(2,1) = 1._R8P ;  er(2,2) = uu      ; er(2,3) = vv     ; er(2,4) = ww     ; er(2,5) = qq     ; er(2,6) = 0._R8P
+         er(3,1) = 1._R8P ;  er(3,2) = uu+c    ; er(3,3) = vv     ; er(3,4) = ww     ; er(3,5) = h+uu*c ; er(3,6) = ya
+         er(4,1) = 0._R8P ;  er(4,2) = 0._R8P  ; er(4,3) = 1._R8P ; er(4,4) = 0._R8P ; er(4,5) = 0._R8P ; er(4,6) = -vv/dha
          er(5,1) = 0._R8P ;  er(5,2) = 0._R8P  ; er(5,3) = 0._R8P ; er(5,4) = 1._R8P ; er(5,5) = 0._R8P ; er(5,6) = -ww/dha
          er(6,1) = 0._R8P ;  er(6,2) = 0._R8P  ; er(6,3) = 0._R8P ; er(6,4) = 0._R8P ; er(6,5) = 1._R8P ; er(6,6) = 1._R8P/dha
 
-         el(1,1) =  0.5_R8P*(b1+uu*ci) ; el(1,2) = 1._R8P-b1 ; el(1,3) =  0.5_R8P*(b1-uu*ci) 
-         el(2,1) = -0.5_R8P*(b2*uu+ci) ; el(2,2) = b2*uu     ; el(2,3) = -0.5_R8P*(b2*uu-ci) 
-         el(3,1) = -0.5_R8P*(b2*vv   ) ; el(3,2) = b2*vv     ; el(3,3) = -0.5_R8P*(b2*vv   ) 
-         el(4,1) = -0.5_R8P*(b2*ww   ) ; el(4,2) = b2*ww     ; el(4,3) = -0.5_R8P*(b2*ww   ) 
-         el(5,1) =  0.5_R8P*b2         ; el(5,2) = -b2       ; el(5,3) =  0.5_R8P*b2         
-         el(6,1) = -0.5_R8P*b2*dha     ; el(6,2) = b2*dha    ; el(6,3) = -0.5_R8P*b2*dha     
+         el(1,1) =  0.5_R8P*(b1+uu*ci) ; el(1,2) = 1._R8P-b1 ; el(1,3) =  0.5_R8P*(b1-uu*ci)
+         el(2,1) = -0.5_R8P*(b2*uu+ci) ; el(2,2) = b2*uu     ; el(2,3) = -0.5_R8P*(b2*uu-ci)
+         el(3,1) = -0.5_R8P*(b2*vv   ) ; el(3,2) = b2*vv     ; el(3,3) = -0.5_R8P*(b2*vv   )
+         el(4,1) = -0.5_R8P*(b2*ww   ) ; el(4,2) = b2*ww     ; el(4,3) = -0.5_R8P*(b2*ww   )
+         el(5,1) =  0.5_R8P*b2         ; el(5,2) = -b2       ; el(5,3) =  0.5_R8P*b2
+         el(6,1) = -0.5_R8P*b2*dha     ; el(6,2) = b2*dha    ; el(6,3) = -0.5_R8P*b2*dha
 
          el(1,4) = -vv                 ; el(1,5) = -ww       ; el(1,6) = -ya*dha*b1-vv**2-ww**2
          el(2,4) = 0._R8P              ; el(2,5) = 0._R8P    ; el(2,6) = uu*ya*dha*b2
@@ -2380,7 +2497,7 @@ contains
             evmax(m) = -1._R8P
          enddo
          do l=1,2*iweno ! LLF
-            ll = i + l - iweno 
+            ll = i + l - iweno
             uu = q_aux_gpu(b,ll,j,k,2)
             c  = q_aux_gpu(b,ll,j,k,9)
             ev(1) = abs(uu-c) ; ev(2) = abs(uu) ; ev(3) = abs(uu+c) ; ev(4) = ev(2) ; ev(5) = ev(2) ; ev(6) = ev(2)
@@ -2423,7 +2540,7 @@ contains
 
          ! Reassemble + and - characteristic fluxes
          do m=1,6
-            ghat(m) = gl(m) + gr(m) 
+            ghat(m) = gl(m) + gr(m)
          enddo
 
          ! Return to conservative fluxes
@@ -2436,7 +2553,7 @@ contains
 
       enddo
 
-      ! Update net flux 
+      ! Update net flux
       do i=1,ni ! loop on inner nodes
          do v=1,6
             fl_gpu(b,i,j,k,v) = (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i-1,j,k,v))/dx_gpu(b)
@@ -2465,23 +2582,23 @@ contains
    real(R8P)                         :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
    real(R8P)                         :: gc, wc
 
-   b = blockDim%x * (blockIdx%x - 1) + threadIdx%x 
+   b = blockDim%x * (blockIdx%x - 1) + threadIdx%x
    i = blockDim%y * (blockIdx%y - 1) + threadIdx%y
    if(b > blocks_number .or. i > ni) return
 
-   do k=1,nk 
+   do k=1,nk
 
       do j=0,nj ! loop on faces
-         
+
          ! Compute Roe average
          call compute_roe_average(q_aux_gpu, dha, gamma_fluid, &
             ngc, b, i, j, k, i, j+1, k, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
 
          ! Compute right and left eigenvectors matrices (at Roe state)
-         er(1,1) = 1._R8P ;  er(1,2) = uu      ; er(1,3) = vv-c   ; er(1,4) = ww     ; er(1,5) = h-vv*c ; er(1,6) = ya     
-         er(2,1) = 1._R8P ;  er(2,2) = uu      ; er(2,3) = vv     ; er(2,4) = ww     ; er(2,5) = qq     ; er(2,6) = 0._R8P  
-         er(3,1) = 1._R8P ;  er(3,2) = uu      ; er(3,3) = vv+c   ; er(3,4) = ww     ; er(3,5) = h+vv*c ; er(3,6) = ya     
-         er(4,1) = 0._R8P ;  er(4,2) = 1._R8P  ; er(4,3) = 0._R8P ; er(4,4) = 0._R8P ; er(4,5) = 0._R8P ; er(4,6) = -uu/dha 
+         er(1,1) = 1._R8P ;  er(1,2) = uu      ; er(1,3) = vv-c   ; er(1,4) = ww     ; er(1,5) = h-vv*c ; er(1,6) = ya
+         er(2,1) = 1._R8P ;  er(2,2) = uu      ; er(2,3) = vv     ; er(2,4) = ww     ; er(2,5) = qq     ; er(2,6) = 0._R8P
+         er(3,1) = 1._R8P ;  er(3,2) = uu      ; er(3,3) = vv+c   ; er(3,4) = ww     ; er(3,5) = h+vv*c ; er(3,6) = ya
+         er(4,1) = 0._R8P ;  er(4,2) = 1._R8P  ; er(4,3) = 0._R8P ; er(4,4) = 0._R8P ; er(4,5) = 0._R8P ; er(4,6) = -uu/dha
          er(5,1) = 0._R8P ;  er(5,2) = 0._R8P  ; er(5,3) = 0._R8P ; er(5,4) = 1._R8P ; er(5,5) = 0._R8P ; er(5,6) = -ww/dha
          er(6,1) = 0._R8P ;  er(6,2) = 0._R8P  ; er(6,3) = 0._R8P ; er(6,4) = 0._R8P ; er(6,5) = 1._R8P ; er(6,6) = 1._R8P/dha
 
@@ -2504,7 +2621,7 @@ contains
             evmax(m) = -1._R8P
          enddo
          do l=1,2*iweno ! LLF
-            ll = j + l - iweno 
+            ll = j + l - iweno
             uu = q_aux_gpu(b,i,ll,k,3)
             c  = q_aux_gpu(b,i,ll,k,9)
             ev(1) = abs(uu-c) ; ev(2) = abs(uu) ; ev(3) = abs(uu+c) ; ev(4) = ev(2) ; ev(5) = ev(2) ; ev(6) = ev(2)
@@ -2525,7 +2642,7 @@ contains
                 q_aux_gpu(b,i,ll,k,5)*dha)
             vi(6) = vi(1)*q_aux_gpu(b,i,ll,k,5)
             fi(1) = vi(3)
-            fi(2) = fi(1) * q_aux_gpu(b,i,ll,k,2) 
+            fi(2) = fi(1) * q_aux_gpu(b,i,ll,k,2)
             fi(3) = fi(1) * q_aux_gpu(b,i,ll,k,3) + q_aux_gpu(b,i,ll,k,7)
             fi(4) = fi(1) * q_aux_gpu(b,i,ll,k,4)
             fi(5) = fi(1) * vi(5) / vi(1) + q_aux_gpu(b,i,ll,k,7)*q_aux_gpu(b,i,ll,k,3)
@@ -2547,7 +2664,7 @@ contains
 
          ! Reassemble + and - characteristic fluxes
          do m=1,6
-            ghat(m) = gl(m) + gr(m) 
+            ghat(m) = gl(m) + gr(m)
          enddo
 
          ! Return to conservative fluxes
@@ -2560,7 +2677,7 @@ contains
 
       enddo
 
-      ! Update net flux 
+      ! Update net flux
       do j=1,nj ! loop on inner nodes
          do v=1,6
             fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) + (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j-1,k,v))/dy_gpu(b)
@@ -2589,46 +2706,46 @@ contains
    real(R8P)                         :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
    real(R8P)                         :: gc, wc
 
-   b = blockDim%x * (blockIdx%x - 1) + threadIdx%x 
+   b = blockDim%x * (blockIdx%x - 1) + threadIdx%x
    i = blockDim%y * (blockIdx%y - 1) + threadIdx%y
    if(b > blocks_number .or. i > ni) return
 
-   do j=1,nj 
+   do j=1,nj
 
       do k=0,nk ! loop on faces
-         
+
          ! Compute Roe average
          call compute_roe_average(q_aux_gpu, dha, gamma_fluid, &
             ngc, b, i, j, k, i, j, k+1, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
 
          ! Compute right and left eigenvectors matrices (at Roe state)
-         er(1,1) = 1._R8P ;  er(1,2) = uu      ; er(1,3) = vv     ; er(1,4) = ww-c    ; er(1,5) = h-ww*c ; er(1,6) = ya     
-         er(2,1) = 1._R8P ;  er(2,2) = uu      ; er(2,3) = vv     ; er(2,4) = ww      ; er(2,5) = qq     ; er(2,6) = 0._R8P  
-         er(3,1) = 1._R8P ;  er(3,2) = uu      ; er(3,3) = vv     ; er(3,4) = ww+c    ; er(3,5) = h+ww*c ; er(3,6) = ya     
-         er(4,1) = 0._R8P ;  er(4,2) = 1._R8P  ; er(4,3) = 0._R8P ; er(4,4) = 0._R8P  ; er(4,5) = 0._R8P ; er(4,6) = -uu/dha 
+         er(1,1) = 1._R8P ;  er(1,2) = uu      ; er(1,3) = vv     ; er(1,4) = ww-c    ; er(1,5) = h-ww*c ; er(1,6) = ya
+         er(2,1) = 1._R8P ;  er(2,2) = uu      ; er(2,3) = vv     ; er(2,4) = ww      ; er(2,5) = qq     ; er(2,6) = 0._R8P
+         er(3,1) = 1._R8P ;  er(3,2) = uu      ; er(3,3) = vv     ; er(3,4) = ww+c    ; er(3,5) = h+ww*c ; er(3,6) = ya
+         er(4,1) = 0._R8P ;  er(4,2) = 1._R8P  ; er(4,3) = 0._R8P ; er(4,4) = 0._R8P  ; er(4,5) = 0._R8P ; er(4,6) = -uu/dha
          er(5,1) = 0._R8P ;  er(5,2) = 0._R8P  ; er(5,3) = 1._R8P ; er(5,4) = 0._R8P  ; er(5,5) = 0._R8P ; er(5,6) = -vv/dha
          er(6,1) = 0._R8P ;  er(6,2) = 0._R8P  ; er(6,3) = 0._R8P ; er(6,4) = 0._R8P  ; er(6,5) = 1._R8P ; er(6,6) = 1._R8P/dha
 
-         el(1,1) = 0.5_R8P*(b1+ww*ci)          ; el(1,2) = 1._R8P-b1 ; el(1,3) = 0.5_R8P*(b1-ww*ci)                    
-         el(2,1) = -0.5_R8P*(b2*uu)            ; el(2,2) = b2*uu     ; el(2,3) = -0.5_R8P*(b2*uu)                    
-         el(3,1) = -0.5_R8P*(b2*vv)            ; el(3,2) = b2*vv     ; el(3,3) = -0.5_R8P*(b2*vv)                    
-         el(4,1) = -0.5_R8P*(b2*ww+ci)         ; el(4,2) = b2*ww     ; el(4,3) = -0.5_R8P*(b2*ww-ci)                    
-         el(5,1) = 0.5_R8P*b2                  ; el(5,2) = -b2       ; el(5,3) = 0.5_R8P*b2                                    
-         el(6,1) = -0.5_R8P*dha*b2             ; el(6,2) = dha*b2    ; el(6,3) = -0.5_R8P*dha*b2                    
+         el(1,1) = 0.5_R8P*(b1+ww*ci)          ; el(1,2) = 1._R8P-b1 ; el(1,3) = 0.5_R8P*(b1-ww*ci)
+         el(2,1) = -0.5_R8P*(b2*uu)            ; el(2,2) = b2*uu     ; el(2,3) = -0.5_R8P*(b2*uu)
+         el(3,1) = -0.5_R8P*(b2*vv)            ; el(3,2) = b2*vv     ; el(3,3) = -0.5_R8P*(b2*vv)
+         el(4,1) = -0.5_R8P*(b2*ww+ci)         ; el(4,2) = b2*ww     ; el(4,3) = -0.5_R8P*(b2*ww-ci)
+         el(5,1) = 0.5_R8P*b2                  ; el(5,2) = -b2       ; el(5,3) = 0.5_R8P*b2
+         el(6,1) = -0.5_R8P*dha*b2             ; el(6,2) = dha*b2    ; el(6,3) = -0.5_R8P*dha*b2
 
-         el(1,4) = -uu                         ; el(1,5) = -vv       ; el(1,6) = -ya*dha*b1-uu**2-vv**2                      
-         el(2,4) = 1._R8P                      ; el(2,5) = 0._R8P    ; el(2,6) = uu*(1+ya*dha*b2)                                
-         el(3,4) = 0._R8P                      ; el(3,5) = 1._R8P    ; el(3,6) = vv*(1+ya*dha*b2)                     
-         el(4,4) = 0._R8P                      ; el(4,5) = 0._R8P    ; el(4,6) = ya*dha*ww*b2                     
-         el(5,4) = 0._R8P                      ; el(5,5) = 0._R8P    ; el(5,6) = -ya*dha*b2          
-         el(6,4) = 0._R8P                      ; el(6,5) = 0._R8P    ; el(6,6) = dha*(1._R8P+ya*dha*b2)                      
+         el(1,4) = -uu                         ; el(1,5) = -vv       ; el(1,6) = -ya*dha*b1-uu**2-vv**2
+         el(2,4) = 1._R8P                      ; el(2,5) = 0._R8P    ; el(2,6) = uu*(1+ya*dha*b2)
+         el(3,4) = 0._R8P                      ; el(3,5) = 1._R8P    ; el(3,6) = vv*(1+ya*dha*b2)
+         el(4,4) = 0._R8P                      ; el(4,5) = 0._R8P    ; el(4,6) = ya*dha*ww*b2
+         el(5,4) = 0._R8P                      ; el(5,5) = 0._R8P    ; el(5,6) = -ya*dha*b2
+         el(6,4) = 0._R8P                      ; el(6,5) = 0._R8P    ; el(6,6) = dha*(1._R8P+ya*dha*b2)
 
          ! Find max eigenvalues on the stencil
          do m=1,6  ! loop on characteristic fields
             evmax(m) = -1._R8P
          enddo
          do l=1,2*iweno ! LLF
-            ll = k + l - iweno 
+            ll = k + l - iweno
             uu = q_aux_gpu(b,i,j,ll,4)
             c  = q_aux_gpu(b,i,j,ll,9)
             ev(1) = abs(uu-c) ; ev(2) = abs(uu) ; ev(3) = abs(uu+c) ; ev(4) = ev(2) ; ev(5) = ev(2) ; ev(6) = ev(2)
@@ -2671,7 +2788,7 @@ contains
 
          ! Reassemble + and - characteristic fluxes
          do m=1,6
-            ghat(m) = gl(m) + gr(m) 
+            ghat(m) = gl(m) + gr(m)
          enddo
 
          ! Return to conservative fluxes
@@ -2684,7 +2801,7 @@ contains
 
       enddo
 
-      ! Update net flux 
+      ! Update net flux
       do k=1,nk ! loop on inner nodes
          do v=1,6
             fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) + (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j,k-1,v))/dz_gpu(b)
@@ -2694,7 +2811,6 @@ contains
    enddo
 
    endsubroutine euler_z_kernel
-
 
    attributes(device) subroutine compute_roe_average(q_aux_gpu, dha, gamma_fluid, &
       ngc, b, i, j, k, ip, jp, kp, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
@@ -2729,20 +2845,20 @@ contains
    qq        =  0.5_R8P * (uu*uu+vv*vv+ww*ww)
    cc        =  (gamma_fluid-1._R8P) * (h - qq - ya*dha)
    c         =  sqrt(cc)
-   ci        =  1._R8P/c 
+   ci        =  1._R8P/c
    b2        = (gamma_fluid-1._R8P)/cc  ! alias 1/theta
    b1        = b2 * qq                  ! alias q/theta
 
    endsubroutine compute_roe_average
 
    attributes(device) subroutine weno_reconstruction(nvar,vp,vm,vminus,vplus,iweno)
-    
+
    implicit none
    integer, intent(in)                             :: nvar, iweno
    !real(R8P), dimension(nvar,2*iweno), intent(in)  :: vm,vp
    real(R8P), dimension(1:nvar,1:*) :: vm,vp
    real(R8P), dimension(nvar), intent(out)         :: vminus,vplus
-   
+
    real(R8P), dimension(-1:4) :: dwe               ! linear weights
    real(R8P), dimension(-1:4) :: alfp,alfm         ! alpha_l
    real(R8P), dimension(-1:4) :: alfp_map,alfm_map ! alpha_l
@@ -2751,28 +2867,28 @@ contains
    integer                    :: r,i,j,k,l,m
    real(R8P)                  :: c0,c1,c2,c3,c4,d0,d1,d2,d3,d4,summ,sump
    real(R8P)                  :: x,y,y2
-   
+
    if (iweno==1) then ! Godunov
-   
+
        i = iweno ! index of intermediate node to perform reconstruction
-   
+
        vminus(1:nvar) = vp(1:nvar,i)
        vplus (1:nvar) = vm(1:nvar,i+1)
-   
+
    elseif (iweno==2) then ! WENO-3
-   
+
        i = iweno ! index of intermediate node to perform reconstruction
-   
+
        dwe(1)   = 2._R8P/3._R8P
        dwe(0)   = 1._R8P/3._R8P
-   
+
        do m=1,nvar
-   
+
            betap(0)  = (vp(m,i  )-vp(m,i-1))**2
            betap(1)  = (vp(m,i+1)-vp(m,i  ))**2
            betam(0)  = (vm(m,i+2)-vm(m,i+1))**2
            betam(1)  = (vm(m,i+1)-vm(m,i  ))**2
-   
+
            sump = 0._R8P
            summ = 0._R8P
            do l=0,1
@@ -2785,12 +2901,12 @@ contains
                omp(l) = alfp(l)/sump
                omm(l) = alfm(l)/summ
            enddo
-   
+
            vminus(m) = omp(0) *(-vp(m,i-1)+3*vp(m,i  )) + omp(1) *( vp(m,i  )+ vp(m,i+1))
            vplus(m)  = omm(0) *(-vm(m,i+2)+3*vm(m,i+1)) + omm(1) *( vm(m,i  )+ vm(m,i+1))
-   
+
        enddo
-   
+
        do m=1,nvar
            vminus(m) = 0.5_R8P*vminus(m)
            vplus(m)  = 0.5_R8P*vplus(m)
@@ -2918,7 +3034,6 @@ contains
    endif
 
    endsubroutine weno_reconstruction
-
 
    subroutine compute_rk_stage_gpu_cuf(ni, nj, nk, ngc, nv, blocks_number, alph_gpu, dt, s, q_gpu, q_s_gpu)
    !< Initialize RK stage with q_gpu.

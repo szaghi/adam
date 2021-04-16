@@ -294,6 +294,8 @@ libs         = /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib/libhdf5hl_fort
                /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib/libhdf5_hl.a
                /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib/libhdf5_fortran.a
                /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib/libhdf5.a
+               /home/stefano/fortran/adam/src/app/flame/cgal_c_wrappers.o
+               -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/10 /usr/lib/gcc/x86_64-linux-gnu/10/libstdc++.so
                /opt/zlib/bin/1.2.11/lib/libz.a
                /opt/szip/bin/2.1.1/lib/libsz.a
 ext_libs     = dl m
@@ -318,6 +320,8 @@ libs         = /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib/libhdf5hl_fort
                /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib/libhdf5_hl.a
                /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib/libhdf5_fortran.a
                /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib/libhdf5.a
+               /home/stefano/fortran/adam/src/app/flame/cgal_c_wrappers.o
+               -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/10 /usr/lib/gcc/x86_64-linux-gnu/10/libstdc++.so
                /opt/zlib/bin/1.2.11/lib/libz.a
                /opt/szip/bin/2.1.1/lib/libsz.a
 ext_libs     = dl m

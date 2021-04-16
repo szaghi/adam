@@ -38,30 +38,30 @@ SELECT CASE (flow_type)
                                     BC_PERIODIC,BC_PERIODIC],                           &
                            nv=6, nb=100, nodes_number=100*4_I8P)
       call flame%initialize(adam=adam, ns=2, CFL=1.3_R8P, nrk=3,                        &
-                            null_xyz=[.false.,.true.,.true.],                           & 
+                            null_xyz=[.false.,.true.,.true.],                           &
                             flow_type=flow_type,                                        &
                             fields_gpu_number=14)
       call flame%refine_uniform(refinement_levels=2)
       n_save = 1000
    CASE ("cold")
       !call adam%initialize(ni=80, nj=32, nk=32, ngc=2, max_level=8,                     &
-      !call adam%initialize(ni=20, nj=8, nk=8, ngc=2, max_level=8,                     &
+      call adam%initialize(ni=20, nj=8, nk=8, ngc=2, max_level=8,                     &
       !call adam%initialize(ni=40, nj=8, nk=2, ngc=2, max_level=8,                     &
-      call adam%initialize(ni=4, nj=16, nk=10, ngc=2, max_level=8,                     &
-                           !emin=[0._R8P,0._R8P,0._R8P], emax=[10._R8P,4._R8P,4._R8P],   &
+      ! call adam%initialize(ni=4, nj=16, nk=10, ngc=2, max_level=8,                     &
+                           emin=[0._R8P,0._R8P,0._R8P], emax=[10._R8P,4._R8P,4._R8P],   &
                            !emin=[0._R8P,0._R8P,0._R8P], emax=[10._R8P,2._R8P,0.2_R8P],   &
-                           emin=[0._R8P,0._R8P,0._R8P], emax=[2726._R8P,10792._R8P,6528._R8P],   &
+                           ! emin=[0._R8P,0._R8P,0._R8P], emax=[2726._R8P,10792._R8P,6528._R8P],   &
                            bc_type=[BC_INFLOW_COLD   , BC_EXTRAPOLATION,                &
                                     BC_EXTRAPOLATION , BC_EXTRAPOLATION,                &
                                     BC_PERIODIC      , BC_PERIODIC],                    &
                                     !BC_EXTRAPOLATION , BC_EXTRAPOLATION],               &
-                           nv=6, nb=5000, nodes_number=5000*4_I8P)
+                           nv=6, nb=500, nodes_number=500*4_I8P)
                            !nv=6, nb=150, nodes_number=150*4_I8P)
       call flame%initialize(adam=adam, ns=2, CFL=0.3_R8P, nrk=3,                        &
-                            null_xyz=[.false.,.false.,.false.],                         & 
+                            null_xyz=[.false.,.false.,.false.],                         &
                             flow_type=flow_type,                                        &
                             fields_gpu_number=15)
-      call flame%refine_uniform(refinement_levels=2)
+      call flame%refine_uniform(refinement_levels=1)
       n_save = 100
    CASE ("flamechannel")
       call adam%initialize(ni=100, nj=10, nk=10, ngc=10, max_level=8,                   &
@@ -71,7 +71,7 @@ SELECT CASE (flow_type)
                                     BC_PERIODIC,BC_PERIODIC],                           &
                            nv=6, nb=150, nodes_number=150*4_I8P)
       call flame%initialize(adam=adam, ns=2, CFL=0.8_R8P, nrk=3,                        &
-                            null_xyz=[.false.,.false.,.false.],                         & 
+                            null_xyz=[.false.,.false.,.false.],                         &
                             flow_type=flow_type,                                        &
                             fields_gpu_number=14)
       call flame%refine_uniform(refinement_levels=3)
@@ -84,7 +84,7 @@ SELECT CASE (flow_type)
                                     BC_EXTRAPOLATION,BC_EXTRAPOLATION],                 &
                            nv=6, nb=10, nodes_number=10*4_I8P)
       call flame%initialize(adam=adam, ns=2, CFL=0.8_R8P, nrk=3,                        &
-                            null_xyz=[.false.,.true.,.true.],                           & 
+                            null_xyz=[.false.,.true.,.true.],                           &
                             flow_type=flow_type,                                        &
                             fields_gpu_number=14)
       !call flame%refine_uniform(refinement_levels=2)
@@ -108,14 +108,14 @@ call MPI_BARRIER(MPI_COMM_WORLD, adam%error) ; timing(1) = MPI_Wtime()
 integration: do
    t = t + 1
    if(t<4) call flame%amr_update(iterations=1)
-   !RIMETTEREcall flame%compute_dt
-   !RIMETTEREif (time + flame%dt > time_max) flame%dt = time_max - time
-   !RIMETTEREif (mod(t,1)==0.and.adam%myrank==0) call flame%print_progress(t=t, time=time, time_max=time_max)
-   !RIMETTEREcall flame%integrate(t=time)
-   !RIMETTEREif (mod(t,n_save)==0) call flame%save_hdf5(output_basename="ffc", t=t, time=time)
-   !RIMETTEREtime = time + flame%dt
-   !RIMETTEREif (time>=time_max.or.t>=t_max) exit integration
-   if(t == 4) exit integration
+   call flame%compute_dt
+   if (time + flame%dt > time_max) flame%dt = time_max - time
+   if (mod(t,1)==0.and.adam%myrank==0) call flame%print_progress(t=t, time=time, time_max=time_max)
+   call flame%integrate(t=time)
+   if (mod(t,n_save)==0) call flame%save_hdf5(output_basename="ffc", t=t, time=time)
+   time = time + flame%dt
+   if (time>=time_max.or.t>=t_max) exit integration
+   ! if(t == 4) exit integration
 enddo integration
 call MPI_BARRIER(MPI_COMM_WORLD, adam%error) ; timing(2) = MPI_Wtime()
 print '(A, F18.10)', 'timing: ', (timing(2) - timing(1))/t
