@@ -118,13 +118,15 @@ type :: equation_flame_gpu_object
                                           .false.]  !< Flag triggering 1D/2D simulations.
    real(R8P), allocatable :: q_aux(:,:,:,:,:)       !< Auxiliary cell centered variables.
    ! Runge-Kutta data
-   integer(I4P)           :: nrk=3_I4P !< Runge-Kutta stages number.
+   integer(I4P)           :: nrk=4_I4P !< Runge-Kutta stages number.
    real(R8P), allocatable :: alph(:,:) !< RK alpha coefficients.
    real(R8P), allocatable :: beta(:)   !< RK beta coefficients.
    real(R8P), allocatable :: gamm(:)   !< RK gamma coefficients.
    ! cuf data
    real(R8P),    allocatable, device :: dq_gpu(:,:,:,:,:)    !<
    real(R8P),    allocatable, device :: fl_gpu(:,:,:,:,:)    !< Fluxes.
+   real(R8P),    allocatable, device :: prhs_gpu(:,:,:,:,:)    !< Fluxes.
+   real(R8P),    allocatable, device :: fl_s_gpu(:,:,:,:,:,:)!< Fluxes.
    real(R8P),    allocatable, device :: fhat_gpu(:,:,:,:,:)  !< Auxiliary fluxes.
    real(R8P),    allocatable, device :: dxyz_gpu(:,:)        !< Space steps.
    real(R8P),    allocatable, device :: alph_gpu(:,:)        !< RK alpha coefficients.
@@ -139,6 +141,7 @@ type :: equation_flame_gpu_object
    real(R8P),    allocatable, device :: q_aux_gpu(:,:,:,:,:) !< Auxiliary cell centered variables.
    real(R8P),    allocatable, device :: q_gpu(:,:,:,:,:)     !< Field cell centered variables stages.
    real(R8P),    allocatable, device :: q_s_gpu(:,:,:,:,:,:) !< RK Field cell centered variables stages.
+   real(R8P),    allocatable, device :: q_invert_gpu(:,:,:,:,:) !< RK Field cell centered variables stages.
    real(R8P),    allocatable, device :: gplus_x(:,:,:,:,:)   !< For weno-x
    real(R8P),    allocatable, device :: gminus_x(:,:,:,:,:)  !< For weno-x
    real(R8P),    allocatable, device :: gplus_y(:,:,:,:,:)   !< For weno-y
@@ -465,7 +468,7 @@ contains
        print*,"Setting SOD channel case"
        self%gamma_fluid = 1.4_R8P
        self%Prandtl = 0.
-       self%iweno = 1
+       self%iweno = 2
    endif
    if (present(ns)) self%ns = ns
    if (self%nv - self%ns /= 4) then
@@ -489,12 +492,17 @@ contains
    allocate(self%q_aux(1:ns+7,       1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
    ! GPU data
    allocate(self%fl_gpu(1:nb,        1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
+   allocate(self%prhs_gpu(1:nb,        1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
+   self%prhs_gpu = 0.
+   self%fl_gpu = 0.
+   allocate(self%fl_s_gpu(1:nb,      1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv, 1:nrk))
    allocate(self%fhat_gpu(1:nb,      1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
    allocate(self%q_aux_gpu(1:nb,     1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:ns+7))
    allocate(self%q_gpu(1:nb,         1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
    allocate(self%dq_gpu(1:nb,        1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
    allocate(self%q_s_gpu(1:nb,       1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv, 1:nrk))
-   if(trim(self%flow_type) == "cold") then
+   allocate(self%q_invert_gpu(1:nb,  1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
+   if(trim(self%flow_type) == "cold" .or. trim(self%flow_type) == "sod") then
        allocate(self%phi(1:nb,        1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:n_solids))
        allocate(self%phi_gpu(1:nb,    1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:n_solids))
    endif
@@ -506,6 +514,8 @@ contains
    allocate(self%gminus_z(6, 2*iweno, ni, nj, nb))
    allocate(self%dxyz_gpu(1:nb, 1:3))
    endassociate
+   self%phi     = -1
+   self%phi_gpu = self%phi
    ! copy data that is not variable during the simulation
    self%fd_coeff1_gpu = self%fd_coeff1
    self%fd_coeff2_gpu = self%fd_coeff2
@@ -650,83 +660,185 @@ contains
    real(R8P),                        intent(out), optional :: residual         !< Global residual.
    logical                                                 :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
    integer(I4P)                                            :: s                !< Counter.
+   integer(I4P)                                            :: i_eikonal        !< Counter.
+   integer(I4P), parameter                                 :: n_eikonal=2      !< Counter.
+   real(R8P)                                               :: t_s
+   real(R8P), parameter                                    :: ark(4) = [8./17.,17. /60.,5. /12.,3./4.]
+   real(R8P), parameter                                    :: brk(4) = [0.,-15./68.,-17./60.,-5./12.]
+   real(R8P)                                               :: qnrk
 
    do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
    associate(alph=>self%alph, beta=>self%beta, gamm=>self%gamm, dt=>self%dt, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
              ngc=>self%ngc, nv=>self%nv, nrk=>self%nrk, ns=>self%ns, blocks_number=>self%blocks_number,             &
              inner_blocks_number=>self%field%inner_blocks_number,                                                   &
              alph_gpu=>self%alph_gpu, beta_gpu=>self%beta_gpu)
-   do s=1, nrk
-      if(trim(self%flow_type) == "cold") then
-         call minimal_immersed_bc(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,                 &
-            gamma_fluid=self%gamma_fluid, q_gpu=self%q_gpu(:,:,:,:,:), phi_gpu=self%phi_gpu,                        &
-            x_cell_gpu=self%x_cell_gpu, y_cell_gpu=self%y_cell_gpu, z_cell_gpu=self%z_cell_gpu)
 
+   do s=1, nrk
+      t_s = t + dt*(ark(s)+brk(s))
+      ! ------------------------------------------------------------------------------------------------
+      ! MINIMAL IB
+      ! ------------------------------------------------------------------------------------------------
+      !okcall minimal_immersed_bc(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,                &
+      !ok                         gamma_fluid=self%gamma_fluid, q_gpu=self%q_gpu(:,:,:,:,:), phi_gpu=self%phi_gpu, &
+      !ok                         x_cell_gpu=self%x_cell_gpu, y_cell_gpu=self%y_cell_gpu, z_cell_gpu=self%z_cell_gpu)
+      ! ------------------------------------------------------------------------------------------------
+      qnrk = dt*brk(s)
+      call compute_rk_prhs_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,        &
+                                   alph_gpu=alph_gpu, dt=dt, s=s, q_gpu=self%q_gpu, prhs_gpu=self%prhs_gpu, &
+                                   fl_gpu=self%fl_gpu, phi_gpu=self%phi_gpu, qnrk=dt*brk(s))
+      call self%update_ghost_gpu(q_gpu=self%q_gpu(:,:,:,:,:)) 
+      ! ------------------------------------------------------------------------------------------------
+      ! ANDREA IB
+      ! ------------------------------------------------------------------------------------------------
+      do i_eikonal=1,n_eikonal
          call evolve_eikonal_q_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
                                        phi_gpu=self%phi_gpu,                                             &
                                        dx_gpu=self%dxyz_gpu(:,1),                                        &
                                        dy_gpu=self%dxyz_gpu(:,2),                                        &
                                        dz_gpu=self%dxyz_gpu(:,3),                                        &
                                        dq_gpu=self%dq_gpu,                                               &
-                                       q_gpu=self%q_gpu)
-      endif
-      call compute_rk_stage_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
-                                    alph_gpu=alph_gpu, dt=dt, s=s, q_gpu=self%q_gpu, q_s_gpu=self%q_s_gpu)
+                                       q_gpu=self%q_gpu(:,:,:,:,:))
+         call self%update_ghost_gpu(q_gpu=self%q_gpu(:,:,:,:,:)) 
+      enddo
+      call invert_eikonal_field(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,        &
+                                q_gpu=self%q_gpu(:,:,:,:,:), q_invert_gpu=self%q_invert_gpu(:,:,:,:,:),  &
+                                phi_gpu=self%phi_gpu)
+      call self%compute_aux(q_gpu=self%q_invert_gpu(:,:,:,:,:), q_aux_gpu=self%q_aux_gpu)
+      ! ------------------------------------------------------------------------------------------------
+      ! MINIMAL IB
+      ! ------------------------------------------------------------------------------------------------
+      !call minimal_immersed_bc(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,                &
+      !                         gamma_fluid=self%gamma_fluid, q_gpu=self%q_gpu(:,:,:,:,:), phi_gpu=self%phi_gpu, &
+      !                         x_cell_gpu=self%x_cell_gpu, y_cell_gpu=self%y_cell_gpu, z_cell_gpu=self%z_cell_gpu)
+      !okcall self%compute_aux(q_gpu=self%q_gpu(:,:,:,:,:), q_aux_gpu=self%q_aux_gpu)
+      ! ------------------------------------------------------------------------------------------------
+      ! produce residuo allo stadio corrente fl_gpu
+      call compute_residuals_gpu(ni=ni, nj=nj, nk=nk, ngc=ngc, ns=ns, blocks_number=blocks_number,          &
+                                 null_x=self%null_xyz(1), null_y=self%null_xyz(2), null_z=self%null_xyz(3), &
+                                 dx_gpu        = self%dxyz_gpu(:,1),                                        &
+                                 dy_gpu        = self%dxyz_gpu(:,2),                                        &
+                                 dz_gpu        = self%dxyz_gpu(:,3),                                        &
+                                 q_aux_gpu     = self%q_aux_gpu,                                            &
+                                 phi_gpu       = self%phi_gpu,                                              &
+                                 fl_gpu        = self%fl_gpu(:,:,:,:,:),                                    & 
+                                 fhat_gpu      = self%fhat_gpu,                                             &
+                                 q_gpu         = self%q_s_gpu(:,:,:,:,:,s),                                 &
+                                 iweno         = self%iweno,                                                &
+                                 lmax          = self%lmax,                                                 &
+                                 dha           = self%dha,                                                  &
+                                 gamma_fluid   = self%gamma_fluid,                                          &
+                                 gplus_x       = self%gplus_x,                                              &
+                                 gminus_x      = self%gminus_x,                                             &
+                                 gplus_y       = self%gplus_y,                                              &
+                                 gminus_y      = self%gminus_y,                                             &
+                                 gplus_z       = self%gplus_z,                                              &
+                                 gminus_z      = self%gminus_z,                                             &
+                                 Prandtl       = self%Prandtl,                                              &
+                                 q_coeff       = self%q_coeff,                                              &
+                                 Lewis         = self%Lewis,                                                &
+                                 Zeldovich     = self%Zeldovich,                                            &
+                                 Damkohler     = self%Damkohler,                                            &
+                                 ivis          = self%ivis,                                                 &
+                                 visc_type     = self%visc_type,                                            &
+                                 fd_conv_gpu   = self%fd_conv_gpu,                                          &
+                                 fd_coeff1_gpu = self%fd_coeff1_gpu,                                        &
+                                 fd_coeff2_gpu = self%fd_coeff2_gpu)
+      !call self%set_bc_rhs(q_gpu=self%fl_gpu(:,:,:,:,:), q_aux_gpu=self%q_aux_gpu)
 
-      if (do_ghost_syncro_) then
-         call self%update_ghost_gpu(q_gpu=self%q_s_gpu(:,:,:,:,:,s)) ! all ghosts
-         if(trim(self%flow_type) == "cold") then
-            call minimal_immersed_bc(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,              &
-               gamma_fluid=self%gamma_fluid, q_gpu=self%q_s_gpu(:,:,:,:,:,s), phi_gpu=self%phi_gpu,                 &
-               x_cell_gpu=self%x_cell_gpu, y_cell_gpu=self%y_cell_gpu, z_cell_gpu=self%z_cell_gpu)
-         endif
-         call self%compute_aux(q_gpu=self%q_s_gpu(:,:,:,:,:,s), q_aux_gpu=self%q_aux_gpu)
-         ! in the next q_s_gpu(...,s) is the flux (it was the rk-stage so far)
-         call compute_residuals_gpu(ni=ni, nj=nj, nk=nk, ngc=ngc, ns=ns, blocks_number=blocks_number,          &
-                                    null_x=self%null_xyz(1), null_y=self%null_xyz(2), null_z=self%null_xyz(3), &
-                                    dx_gpu        = self%dxyz_gpu(:,1),                                        &
-                                    dy_gpu        = self%dxyz_gpu(:,2),                                        &
-                                    dz_gpu        = self%dxyz_gpu(:,3),                                        &
-                                    q_aux_gpu     = self%q_aux_gpu,                                            &
-                                    fl_gpu        = self%fl_gpu,                                               &
-                                    fhat_gpu      = self%fhat_gpu,                                             &
-                                    q_gpu         = self%q_s_gpu(:,:,:,:,:,s),                                 &
-                                    iweno         = self%iweno,                                                &
-                                    lmax          = self%lmax,                                                 &
-                                    dha           = self%dha,                                                  &
-                                    gamma_fluid   = self%gamma_fluid,                                          &
-                                    gplus_x       = self%gplus_x,                                              &
-                                    gminus_x      = self%gminus_x,                                             &
-                                    Prandtl       = self%Prandtl,                                              &
-                                    q_coeff       = self%q_coeff,                                              &
-                                    Lewis         = self%Lewis,                                                &
-                                    Zeldovich     = self%Zeldovich,                                            &
-                                    Damkohler     = self%Damkohler,                                            &
-                                    ivis          = self%ivis,                                                 &
-                                    visc_type     = self%visc_type,                                            &
-                                    fd_conv_gpu   = self%fd_conv_gpu,                                          &
-                                    fd_coeff1_gpu = self%fd_coeff1_gpu,                                        &
-                                    fd_coeff2_gpu = self%fd_coeff2_gpu)
-          if(trim(self%flow_type) /= "cold") call self%set_bc_rhs(q_gpu=self%q_s_gpu(:,:,:,:,:,s), q_aux_gpu=self%q_aux_gpu)
-      else
-         ! TODO
-      endif
-      if (present(residual).and.s==self%nrk) then
-         ! TODO
-      endif
+      qnrk = dt*ark(s)
+      call compute_rk_linear_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,      &
+                                     dt=dt, q_gpu=self%q_gpu(:,:,:,:,:), prhs_gpu=self%prhs_gpu(:,:,:,:,:), &
+                                     fl_gpu=self%fl_gpu(:,:,:,:,:), phi_gpu=self%phi_gpu, qnrk=dt*ark(s))
+      !USELESScall set_zero_residual_body_points(ni, nj, nk, ngc, nv, blocks_number, alph_gpu, dt, s, fl_gpu)
    enddo
-   call advance_q_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nrk=nrk, nv=nv, blocks_number=blocks_number, &
-                           beta_gpu=beta_gpu, dt=dt, q_s_gpu=self%q_s_gpu, q_gpu=self%q_gpu)
-
-   if(trim(self%flow_type) == "flame1d") then
-      call self%compute_aux(q_gpu=self%q_gpu(:,:,:,:,:), q_aux_gpu=self%q_aux_gpu)
-      call flame_find_x_v_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, dt=dt, tem_stabil=self%tem_stabil, &
-                              x_cell_gpu=self%x_cell_gpu, y_cell_gpu=self%y_cell_gpu, z_cell_gpu=self%z_cell_gpu, &
-                              q_aux_gpu=self%q_aux_gpu, x_min=self%flame_x_min, x_min_old=self%flame_x_min_old, &
-                              velrel=self%flame_x_velrel)
-   endif
    endassociate
    endsubroutine integrate
+
+   !!!subroutine integrate(self, t, do_ghost_syncro, residual)
+   !!!!< Runge Kutta integration of field.
+   !!!class(equation_flame_gpu_object), intent(inout)         :: self             !< The equation.
+   !!!real(R8P),                        intent(in)            :: t                !< Time.
+   !!!logical,                          intent(in),  optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
+   !!!real(R8P),                        intent(out), optional :: residual         !< Global residual.
+   !!!logical                                                 :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
+   !!!integer(I4P)                                            :: s                !< Counter.
+   !!!integer(I4P)                                            :: i_eikonal        !< Counter.
+   !!!integer(I4P), parameter                                 :: n_eikonal=2      !< Counter.
+
+   !!!do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
+   !!!associate(alph=>self%alph, beta=>self%beta, gamm=>self%gamm, dt=>self%dt, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
+   !!!          ngc=>self%ngc, nv=>self%nv, nrk=>self%nrk, ns=>self%ns, blocks_number=>self%blocks_number,             &
+   !!!          inner_blocks_number=>self%field%inner_blocks_number,                                                   &
+   !!!          alph_gpu=>self%alph_gpu, beta_gpu=>self%beta_gpu)
+
+   !!!do s=1, nrk
+   !!!   call compute_rk_stage_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,      &
+   !!!                                 alph_gpu=alph_gpu, dt=dt, s=s, q_gpu=self%q_gpu, q_s_gpu=self%q_s_gpu, &
+   !!!                                 fl_gpu=self%fl_s_gpu, phi_gpu=self%phi_gpu)
+   !!!   call self%update_ghost_gpu(q_gpu=self%q_s_gpu(:,:,:,:,:,s)) ! all ghosts
+
+   !!!   ! ------------------------------------------------------------------------------------------------
+   !!!   ! ANDREA IB
+   !!!   ! ------------------------------------------------------------------------------------------------
+   !!!   !do i_eikonal=1,n_eikonal
+   !!!   !   call evolve_eikonal_q_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
+   !!!   !                                 phi_gpu=self%phi_gpu,                                             &
+   !!!   !                                 dx_gpu=self%dxyz_gpu(:,1),                                        &
+   !!!   !                                 dy_gpu=self%dxyz_gpu(:,2),                                        &
+   !!!   !                                 dz_gpu=self%dxyz_gpu(:,3),                                        &
+   !!!   !                                 dq_gpu=self%dq_gpu,                                               &
+   !!!   !                                 q_gpu=self%q_s_gpu(:,:,:,:,:,s))
+   !!!   !   call self%update_ghost_gpu(q_gpu=self%q_s_gpu(:,:,:,:,:,s)) ! all ghosts
+   !!!   !enddo
+   !!!   !! u = -u ; rho=rho ; rhoe=rhoe
+   !!!   !call invert_eikonal_field(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,           &
+   !!!   !                          q_gpu=self%q_s_gpu(:,:,:,:,:,s), q_invert_gpu=self%q_invert_gpu(:,:,:,:,:), &
+   !!!   !                          phi_gpu=self%phi_gpu)
+   !!!   !call self%compute_aux(q_gpu=self%q_invert_gpu(:,:,:,:,:), q_aux_gpu=self%q_aux_gpu)
+   !!!   ! ------------------------------------------------------------------------------------------------
+   !!!   ! MINIMAL IB
+   !!!   ! ------------------------------------------------------------------------------------------------
+   !!!   call minimal_immersed_bc(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,                   &
+   !!!                            gamma_fluid=self%gamma_fluid, q_gpu=self%q_s_gpu(:,:,:,:,:,s), phi_gpu=self%phi_gpu, &
+   !!!                            x_cell_gpu=self%x_cell_gpu, y_cell_gpu=self%y_cell_gpu, z_cell_gpu=self%z_cell_gpu)
+   !!!   call self%compute_aux(q_gpu=self%q_s_gpu(:,:,:,:,:,s), q_aux_gpu=self%q_aux_gpu)
+   !!!   ! ------------------------------------------------------------------------------------------------
+   !!!   ! produce residuo allo stadio corrente fl_gpu
+   !!!   call compute_residuals_gpu(ni=ni, nj=nj, nk=nk, ngc=ngc, ns=ns, blocks_number=blocks_number,          &
+   !!!                              null_x=self%null_xyz(1), null_y=self%null_xyz(2), null_z=self%null_xyz(3), &
+   !!!                              dx_gpu        = self%dxyz_gpu(:,1),                                        &
+   !!!                              dy_gpu        = self%dxyz_gpu(:,2),                                        &
+   !!!                              dz_gpu        = self%dxyz_gpu(:,3),                                        &
+   !!!                              q_aux_gpu     = self%q_aux_gpu,                                            &
+   !!!                              phi_gpu       = self%phi_gpu,                                              &
+   !!!                              fl_gpu        = self%fl_s_gpu(:,:,:,:,:,s),                                & 
+   !!!                              fhat_gpu      = self%fhat_gpu,                                             &
+   !!!                              q_gpu         = self%q_s_gpu(:,:,:,:,:,s),                                 &
+   !!!                              iweno         = self%iweno,                                                &
+   !!!                              lmax          = self%lmax,                                                 &
+   !!!                              dha           = self%dha,                                                  &
+   !!!                              gamma_fluid   = self%gamma_fluid,                                          &
+   !!!                              gplus_x       = self%gplus_x,                                              &
+   !!!                              gminus_x      = self%gminus_x,                                             &
+   !!!                              Prandtl       = self%Prandtl,                                              &
+   !!!                              q_coeff       = self%q_coeff,                                              &
+   !!!                              Lewis         = self%Lewis,                                                &
+   !!!                              Zeldovich     = self%Zeldovich,                                            &
+   !!!                              Damkohler     = self%Damkohler,                                            &
+   !!!                              ivis          = self%ivis,                                                 &
+   !!!                              visc_type     = self%visc_type,                                            &
+   !!!                              fd_conv_gpu   = self%fd_conv_gpu,                                          &
+   !!!                              fd_coeff1_gpu = self%fd_coeff1_gpu,                                        &
+   !!!                              fd_coeff2_gpu = self%fd_coeff2_gpu)
+   !!!   call self%set_bc_rhs(q_gpu=self%fl_s_gpu(:,:,:,:,:,s), q_aux_gpu=self%q_aux_gpu)
+   !!!   !USELESScall set_zero_residual_body_points(ni, nj, nk, ngc, nv, blocks_number, alph_gpu, dt, s, fl_gpu)
+   !!!enddo
+   !!!call advance_q_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nrk=nrk, nv=nv, blocks_number=blocks_number, &
+   !!!                        beta_gpu=beta_gpu, dt=dt, q_s_gpu=self%q_s_gpu, q_gpu=self%q_gpu, fl_s_gpu=self%fl_s_gpu, &
+   !!!                        phi_gpu=self%phi_gpu)
+
+   !!!endassociate
+   !!!endsubroutine integrate
 
    subroutine print_progress(self, t, time, time_max)
    !< Print simulation progress.
@@ -753,7 +865,9 @@ contains
       call self%adam%amr_update(do_blocks_reorder=.false., do_mpi_redistribute=.true.)
    enddo
    call self%update_cell_gpu() ! should not be needed since it is in amr_update
-   call self%update_phi()  ! this is needed so that next equation%amr_updates start correctly
+   if(self%flow_type == "cold") then
+      call self%update_phi()  ! this is needed so that next equation%amr_updates start correctly
+   endif
    !print*,'amr update a', lbound(self%x_cell_gpu,1), ubound(self%x_cell_gpu,1), size(self%x_cell_gpu,1)
    !print*,'amr update b', lbound(self%x_cell_gpu,2), ubound(self%x_cell_gpu,2), size(self%x_cell_gpu,2)
    endsubroutine
@@ -1262,7 +1376,7 @@ contains
             do k=1, nk
                do j=1, nj
                   do i=1, ni
-                     if(x_cell(i,b) < 0.5) then
+                     if(z_cell(i,b) < 0.5) then
                         rho  = 1.0
                         pres = 1.0
                         tem  = pres*gamma_fluid/(rho*(gamma_fluid-1))
@@ -1287,6 +1401,23 @@ contains
                enddo
             enddo
          enddo
+      elseif(self%flow_type == "cold") then
+         do b=1, blocks_number
+            do k=1, nk
+               do j=1, nj
+                  do i=1, ni
+                     rho = gamma_fluid/(gamma_fluid-1._R8P)*pres_inflow/tem_inflow
+                     ene = 1._R8P/gamma_fluid*tem_inflow
+                     q(1,i,j,k,b) = rho
+                     q(2,i,j,k,b) = rho * 1.5_R8P
+                     q(3,i,j,k,b) = 0._R8P
+                     q(4,i,j,k,b) = 0._R8P
+                     q(5,i,j,k,b) = rho * ene
+                     q(6,i,j,k,b) = 0.
+                  enddo
+               enddo
+            enddo
+         enddo
       else
          do b=1, blocks_number
             do k=1, nk
@@ -1299,13 +1430,14 @@ contains
                      q(1,i,j,k,b) = rho
                      if(trim(self%flow_type) == "cold") then
                          q(2,i,j,k,b) = rho * 1.5_R8P
+                         q(6,i,j,k,b) = 0.
                      else
                          q(2,i,j,k,b) = rho * u_inflow
+                         q(6,i,j,k,b) = rho * yya
                      endif
                      q(3,i,j,k,b) = 0._R8P
                      q(4,i,j,k,b) = 0._R8P
                      q(5,i,j,k,b) = rho * ene
-                     q(6,i,j,k,b) = rho * yya
                   enddo
                enddo
             enddo
@@ -1387,7 +1519,7 @@ contains
    endsubroutine eq_assign_eq
 
    ! non TBP cuf procedures
-   subroutine advance_q_gpu_cuf(ni, nj, nk, ngc, nv, nrk, blocks_number, beta_gpu, dt, q_s_gpu, q_gpu)
+   subroutine advance_q_gpu_cuf(ni, nj, nk, ngc, nv, nrk, blocks_number, beta_gpu, dt, q_s_gpu, q_gpu, fl_s_gpu, phi_gpu)
    !< Advance q_gpu by means of RK stages.
    integer(I4P), intent(in)            :: ni                                     !< Grid cells number in I direction.
    integer(I4P), intent(in)            :: nj                                     !< Grid cells number in J direction.
@@ -1399,25 +1531,35 @@ contains
    real(R8P),    intent(in),    device :: beta_gpu(:)                            !< RK betaa coefficients.
    real(R8P),    intent(in)            :: Dt                                     !< Time step.
    real(R8P),    intent(in),    device :: q_s_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:,1:) !< RK stage.
+   real(R8P),    intent(in),    device ::fl_s_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:,1:) !< RK stage.
    real(R8P),    intent(inout), device ::   q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Conservative variables.
+   real(R8P),    intent(in), device    ::  phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Conservative variables.
    integer(I4P)                        :: i, j, k, b, s, v                       !< Counter.
    integer(I4P)                        :: iercuda                                !< Error trapping flag for CUDAFortran.
 
-   do s=1, nrk
-      !$cuf kernel do(5) <<<*,*>>>
-      do v=1, nv
-         do k=1-ngc, nk+ngc
-            do j=1-ngc, nj+ngc
-               do i=1-ngc, ni+ngc
-                  do b=1, blocks_number
-                     q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) + q_s_gpu(b,i,j,k,v,s) * dt * beta_gpu(s)
-                  enddo
+   !$cuf kernel do(5) <<<*,*>>>
+   do v=1, nv
+      do k=1-ngc, nk+ngc
+         do j=1-ngc, nj+ngc
+            do i=1-ngc, ni+ngc
+               do b=1, blocks_number
+                  if(phi_gpu(b,i,j,k,1) < 0) then
+                     do s=1, nrk
+                        q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) + fl_s_gpu(b,i,j,k,v,s) * dt * beta_gpu(s)
+                     enddo
+                  else
+                     !if(v>=2 .and. v<=4) then
+                     !   q_gpu(b,i,j,k,v) = 0.
+                     !else
+                        q_gpu(b,i,j,k,v) = q_s_gpu(b,i,j,k,v,nrk) 
+                     !endif
+                  endif
                enddo
             enddo
          enddo
       enddo
-      !@cuf iercuda=cudaDeviceSynchronize()
    enddo
+   !@cuf iercuda=cudaDeviceSynchronize()
    endsubroutine advance_q_gpu_cuf
 
    subroutine flame_find_x_v_cuf(ni, nj, nk, ngc, nv, blocks_number, dt, &
@@ -1537,7 +1679,10 @@ contains
          do i=1,ni
             do b=1, blocks_number
                do v=1, nv
-                  if (phi_gpu(b,i,j,k,1) > 0._R8P) q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) - dq_gpu(b,i,j,k,v)
+                  if (phi_gpu(b,i,j,k,1) > 0._R8P) then
+                     q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) - dq_gpu(b,i,j,k,v)
+                     !if(v>=2 .and. v<=4) q_gpu(b,i,j,k,v) = 0.
+                  endif
                enddo
             enddo
          enddo
@@ -1571,11 +1716,11 @@ contains
    do k=1, nk
       do j=1, nj
          if (phi_gpu(b,i,j,k,1) > 0._R8P) then
-            n_phi_x = -(phi_gpu(b,i+1,j,k,1) - phi_gpu(b,i-1,j,k,1) ) / (2 * dx_gpu(b))
-            n_phi_y = -(phi_gpu(b,i,j+1,k,1) - phi_gpu(b,i,j-1,k,1) ) / (2 * dy_gpu(b))
-            n_phi_z = -(phi_gpu(b,i,j,k+1,1) - phi_gpu(b,i,j,k-1,1) ) / (2 * dz_gpu(b))
+            n_phi_x = (phi_gpu(b,i+1,j,k,1) - phi_gpu(b,i-1,j,k,1) ) ! / (2 * dx_gpu(b))
+            n_phi_y = (phi_gpu(b,i,j+1,k,1) - phi_gpu(b,i,j-1,k,1) ) ! / (2 * dy_gpu(b))
+            n_phi_z = (phi_gpu(b,i,j,k+1,1) - phi_gpu(b,i,j,k-1,1) ) ! / (2 * dz_gpu(b))
             n_phi = abs(n_phi_x) + abs(n_phi_y) + abs(n_phi_z) + 10e-12
-            n_phi = 0.5_R8P / n_phi
+            n_phi = 0.9_R8P / n_phi
             n_phi_x = n_phi_x * n_phi
             n_phi_y = n_phi_y * n_phi
             n_phi_z = n_phi_z * n_phi
@@ -1615,8 +1760,9 @@ contains
    endsubroutine compute_eikonal_dq_gpu
 
    subroutine compute_residuals_gpu(ni, nj, nk, ngc, ns, blocks_number, null_x, null_y, null_z, &
-                                    dx_gpu, dy_gpu, dz_gpu, q_aux_gpu, fl_gpu, fhat_gpu, q_gpu, &
-                                    iweno, lmax, dha, gamma_fluid, gplus_x, gminus_x, &
+                                    dx_gpu, dy_gpu, dz_gpu, q_aux_gpu, phi_gpu, fl_gpu, fhat_gpu, q_gpu, &
+                                    iweno, lmax, dha, gamma_fluid, &
+                                    gplus_x, gminus_x, gplus_y, gminus_y, gplus_z, gminus_z, &
                                     Prandtl, q_coeff, Lewis, Zeldovich, Damkohler, ivis, visc_type, &
                                     fd_conv_gpu, fd_coeff1_gpu, fd_coeff2_gpu )
    !< Compute residuals of equation.
@@ -1649,9 +1795,14 @@ contains
    real(R8P),    intent(in),    device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
    real(R8P),    intent(inout), device :: gplus_x(1:,1:,1:,1:,1:)               !< Auxiliary variables.
    real(R8P),    intent(inout), device :: gminus_x(1:,1:,1:,1:,1:)              !< Auxiliary variables.
+   real(R8P),    intent(inout), device :: gplus_y(1:,1:,1:,1:,1:)               !< Auxiliary variables.
+   real(R8P),    intent(inout), device :: gminus_y(1:,1:,1:,1:,1:)              !< Auxiliary variables.
+   real(R8P),    intent(inout), device :: gplus_z(1:,1:,1:,1:,1:)               !< Auxiliary variables.
+   real(R8P),    intent(inout), device :: gminus_z(1:,1:,1:,1:,1:)              !< Auxiliary variables.
    real(R8P),    intent(inout), device :: fl_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Positive fluxes.
    real(R8P),    intent(inout), device :: fhat_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Negative fluxes.
    real(R8P),    intent(inout), device :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Conservative variables.
+   real(R8P),    intent(inout), device :: phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Conservative variables.
    integer(I4P)                        :: b, i, j, k, v                         !< Counter.
    integer(I4P)                        :: iercuda                               !< Error trapping flag for CUDAFortran.
    type(dim3)                          :: grid, tBlock                          !< CUDA grid and block.
@@ -1751,37 +1902,49 @@ contains
    tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(nj)/tBlock%y),1)
    !call euler_x_central_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, &
    !                       fd_conv_gpu, dx_gpu, blocks_number, ni, nj, nk, ngc, ns+4, lmax)
-   call euler_x_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, &
+   call euler_x_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, &
                                          gplus_x, gminus_x, dx_gpu,          &
+                                         blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha, gamma_fluid)
+   !call viscous_x_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, &
+   !                                      gplus_x, gminus_x, dx_gpu,          &
+   !                                      blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha, gamma_fluid)
+
+   tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(ni)/tBlock%y),1)
+   !call euler_y_central_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, &
+   !                       fd_conv_gpu, dy_gpu, blocks_number, ni, nj, nk, ngc, ns+4, lmax)
+   call euler_y_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, &
+                                         gplus_y, gminus_y, dy_gpu,          &
                                          blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha, gamma_fluid)
 
    tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(ni)/tBlock%y),1)
-   call euler_y_central_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, &
-                          fd_conv_gpu, dy_gpu, blocks_number, ni, nj, nk, ngc, ns+4, lmax)
-
-   tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(ni)/tBlock%y),1)
-   call euler_z_central_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, &
-                          fd_conv_gpu, dz_gpu, blocks_number, ni, nj, nk, ngc, ns+4, lmax)
+   !call euler_z_central_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, &
+   !                       fd_conv_gpu, dz_gpu, blocks_number, ni, nj, nk, ngc, ns+4, lmax)
+   call euler_z_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, &
+                                         gplus_z, gminus_z, dz_gpu,          &
+                                         blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha, gamma_fluid)
 
    !@cuf iercuda=cudaDeviceSynchronize()
 
-   if(Prandtl > 0.) call viscous_cuf(ni, nj, nk, ngc, blocks_number, ivis, visc_type, fd_coeff1_gpu, fd_coeff2_gpu, &
-      gamma_fluid, Prandtl, q_coeff, Lewis, Zeldovich, Damkohler, dha, q_aux_gpu, dx_gpu, dy_gpu, dz_gpu, fl_gpu)
+   if(Prandtl > 0.) call viscous_part(blocks_number, ni, nj, nk, ngc, ns+4, Prandtl, &
+                                      q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu,        &
+                                      dx_gpu, dy_gpu, dz_gpu)
+   !if(Prandtl > 0.) call viscous_cuf(ni, nj, nk, ngc, blocks_number, ivis, visc_type, fd_coeff1_gpu, fd_coeff2_gpu, &
+   !   gamma_fluid, Prandtl, q_coeff, Lewis, Zeldovich, Damkohler, dha, q_aux_gpu, dx_gpu, dy_gpu, dz_gpu, fl_gpu)
 
-   !$cuf kernel do(5) <<<*,*>>>
-   do v=1, 6 !ns+4
-      do k=1, nk
-         do j=1, nj
-            do i=1,ni
-               do b=1, blocks_number
-                  q_gpu(b,i,j,k,v) = - fl_gpu(b,i,j,k,v)
-                  !q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) - fl_gpu(b,i,j,k,v)
-               enddo
-            enddo
-         enddo
-      enddo
-   enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
+   !!!!$cuf kernel do(5) <<<*,*>>>
+   !!!do v=1, 6 !ns+4
+   !!!   do k=1, nk
+   !!!      do j=1, nj
+   !!!         do i=1,ni
+   !!!            do b=1, blocks_number
+   !!!               q_gpu(b,i,j,k,v) = - fl_gpu(b,i,j,k,v)
+   !!!               !q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) - fl_gpu(b,i,j,k,v)
+   !!!            enddo
+   !!!         enddo
+   !!!      enddo
+   !!!   enddo
+   !!!enddo
+   !!!!@cuf iercuda=cudaDeviceSynchronize()
 
    !!!!! Force specie mass fraction to be greater than 0.
    !!!!!$cuf kernel do(4) <<<*,*>>>
@@ -1941,11 +2104,11 @@ contains
                reaction_rate = Damkohler*q_aux_gpu(b,i,j,k,1)*ya*exp(-Zeldovich/tem*gamma_fluid/(gamma_fluid-1._R8P))
                !reaction_rate = 0._R8P
 
-               fl_gpu(b,i,j,k,2) = fl_gpu(b,i,j,k,2) - sigx
-               fl_gpu(b,i,j,k,3) = fl_gpu(b,i,j,k,3) - sigy
-               fl_gpu(b,i,j,k,4) = fl_gpu(b,i,j,k,4) - sigz
-               fl_gpu(b,i,j,k,5) = fl_gpu(b,i,j,k,5) - sigq
-               fl_gpu(b,i,j,k,6) = fl_gpu(b,i,j,k,6) - sigya + reaction_rate
+               fl_gpu(b,i,j,k,2) = fl_gpu(b,i,j,k,2) + sigx
+               fl_gpu(b,i,j,k,3) = fl_gpu(b,i,j,k,3) + sigy
+               fl_gpu(b,i,j,k,4) = fl_gpu(b,i,j,k,4) + sigz
+               fl_gpu(b,i,j,k,5) = fl_gpu(b,i,j,k,5) + sigq
+               fl_gpu(b,i,j,k,6) = fl_gpu(b,i,j,k,6) + sigya + reaction_rate
 
             enddo
          enddo
@@ -2440,12 +2603,13 @@ contains
 
    endsubroutine euler_x_kernel_stefano
 
-   attributes(global) subroutine euler_x_kernel(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, gplus, gminus, dx_gpu, &
+   attributes(global) subroutine euler_x_kernel(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, gplus, gminus, dx_gpu, &
                                                 blocks_number, ni, nj, nk, ngc, nv, iweno, dha, gamma_fluid)
 
    real(R8P), intent(in), device     ::     q_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(in), device     :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(inout), device  ::    fl_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
+   real(R8P), intent(in), device     ::   phi_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(inout), device  ::  fhat_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(inout), device  ::     gplus(1:, 1:, 1:, 1:, 1:)
    real(R8P), intent(inout), device  ::    gminus(1:, 1:, 1:, 1:, 1:)
@@ -2457,6 +2621,8 @@ contains
    real(R8P)                         :: er(6,6), el(6,6), ev(6), evmax(6), ghat(6), gl(6), gr(6), fi(6), vi(6)
    real(R8P)                         :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
    real(R8P)                         :: gc, wc
+   real(R8P)                         :: dx_locale, delta_x
+   real(R8P), parameter              :: ib_eps=1.e-12_R8P
 
    b = blockDim%x * (blockIdx%x - 1) + threadIdx%x
    j = blockDim%y * (blockIdx%y - 1) + threadIdx%y
@@ -2553,10 +2719,23 @@ contains
 
       enddo
 
-      ! Update net flux
+      ! Update net flux (procedura alternativa all'interpolazione proposta nel paper, utilizza dx_locale).
       do i=1,ni ! loop on inner nodes
+         dx_locale = dx_gpu(b)
+         if(phi_gpu(b,i,j,k,1)<0.) then
+             if(phi_gpu(b,i+1,j,k,1)*phi_gpu(b,i-1,j,k,1)<0) then
+                 if(phi_gpu(b,i+1,j,k,1)>0.) then
+                     delta_x = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i+1,j,k,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dx_gpu(b)
+                     dx_locale = dx_gpu(b)/2 + delta_x
+                 else !if(phi_gpu(b,i-1,j,k,1)>0) then
+                     delta_x = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i-1,j,k,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dx_gpu(b)
+                     dx_locale = dx_gpu(b)/2 + delta_x
+                 endif
+             endif
+         endif
          do v=1,6
-            fl_gpu(b,i,j,k,v) = (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i-1,j,k,v))/dx_gpu(b)
+            !fl_gpu(b,i,j,k,v) = - (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i-1,j,k,v)) / dx_gpu(b)
+            fl_gpu(b,i,j,k,v) = - (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i-1,j,k,v))/dx_locale
          enddo
       enddo
 
@@ -2564,13 +2743,228 @@ contains
 
    endsubroutine euler_x_kernel
 
-   attributes(global) subroutine euler_y_kernel(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, gplus, gminus, dy_gpu, &
+   subroutine viscous_part(blocks_number, ni, nj, nk, ngc, nv, Prandtl, &
+                           q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu,        &
+                           dx_gpu, dy_gpu, dz_gpu)
+
+   integer, intent(in)               :: blocks_number, ni, nj, nk, ngc, nv
+   real(R8P), intent(in)             :: Prandtl
+   real(R8P), intent(in), device     :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
+   real(R8P), intent(inout), device  ::    fl_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
+   real(R8P), intent(inout), device  ::  fhat_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
+   real(R8P), intent(inout), device  ::   phi_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
+   real(R8P), intent(in), device     ::    dx_gpu(1:), dy_gpu(1:), dz_gpu(1:)
+   integer                           :: b, i, j, k, v, iercuda
+   real(R8P)                         :: du_dx, dv_dx, dw_dx, du_dy, dv_dy, dw_dy, du_dz, dv_dz, dw_dz
+   real(R8P)                         :: dx_locale, dy_locale, dz_locale
+   real(R8P)                         :: delta_x, delta_y, delta_z
+   real(R8P)                         :: sigq, sigl
+   real(R8P)                         :: tau_1_1, tau_2_1, tau_3_1, dT_dx
+   real(R8P)                         :: tau_1_2, tau_2_2, tau_3_2, dT_dy
+   real(R8P)                         :: tau_1_3, tau_2_3, tau_3_3, dT_dz
+   real(R8P)                         :: vel_u, vel_v, vel_w
+   real(R8P)                         :: mu, k_coeff
+   real(R8P), parameter              :: ib_eps=1.e-12_R8P
+
+   mu       = Prandtl
+   k_coeff  = 1.0
+
+   !$cuf kernel do(3) <<<*,*>>>
+   do k=1,nk
+      do j=1,nj
+         do b=1,blocks_number
+            do i=0,ni ! loop on faces
+                du_dx = (q_aux_gpu(b,i+1,j,k,2)-q_aux_gpu(b,i,j,k,2))/dx_gpu(b)
+                dv_dx = (q_aux_gpu(b,i+1,j,k,3)-q_aux_gpu(b,i,j,k,3))/dx_gpu(b)
+                dw_dx = (q_aux_gpu(b,i+1,j,k,4)-q_aux_gpu(b,i,j,k,4))/dx_gpu(b)
+
+                du_dy = (q_aux_gpu(b,i+1,j+1,k,2) - q_aux_gpu(b,i+1,j-1,k,2)+ &
+                         q_aux_gpu(b,i,j+1,k,2)   - q_aux_gpu(b,i,j-1,k,2) )*0.25_R8P/dy_gpu(b)
+                dv_dy = (q_aux_gpu(b,i+1,j+1,k,3) - q_aux_gpu(b,i+1,j-1,k,3)+ &
+                         q_aux_gpu(b,i,j+1,k,3)   - q_aux_gpu(b,i,j-1,k,3) )*0.25_R8P/dy_gpu(b)
+
+                du_dz = (q_aux_gpu(b,i+1,j,k+1,2) - q_aux_gpu(b,i+1,j,k-1,2)+ &
+                         q_aux_gpu(b,i,j,k+1,2)   - q_aux_gpu(b,i,j,k-1,2) )*0.25_R8P/dz_gpu(b)
+                dw_dz = (q_aux_gpu(b,i+1,j,k+1,4) - q_aux_gpu(b,i+1,j,k-1,4)+ &
+                         q_aux_gpu(b,i,j,k+1,4)   - q_aux_gpu(b,i,j,k-1,4) )*0.25_R8P/dz_gpu(b)
+
+                vel_u = 0.5*(q_aux_gpu(b,i,j,k,2) + q_aux_gpu(b,i+1,j,k,2))
+                vel_v = 0.5*(q_aux_gpu(b,i,j,k,3) + q_aux_gpu(b,i+1,j,k,3))
+                vel_w = 0.5*(q_aux_gpu(b,i,j,k,4) + q_aux_gpu(b,i+1,j,k,4))
+
+                tau_1_1 = 2.0*mu*(du_dx-1./3.*(du_dx+dv_dy+dw_dz))
+                tau_2_1 = mu*(dv_dx+du_dy)
+                tau_3_1 = mu*(dw_dx+du_dz)
+
+                dT_dx = (q_aux_gpu(b,i+1,j,k,6)-q_aux_gpu(b,i,j,k,6))/dx_gpu(b)
+
+                sigq = k_coeff*dT_dx
+                sigl = vel_u*tau_1_1+vel_v*tau_2_1+vel_w*tau_3_1
+
+                fhat_gpu(b,i,j,k,2) = tau_1_1
+                fhat_gpu(b,i,j,k,3) = tau_2_1
+                fhat_gpu(b,i,j,k,4) = tau_3_1
+                fhat_gpu(b,i,j,k,5) = sigq + sigl
+            enddo
+
+            ! Update net flux (procedura alternativa all'interpolazione proposta nel paper, utilizza dx_locale).
+            do i=1,ni ! loop on inner nodes
+               dx_locale = dx_gpu(b)
+               if(phi_gpu(b,i,j,k,1)<0.) then
+                   if(phi_gpu(b,i+1,j,k,1)*phi_gpu(b,i-1,j,k,1)<0) then
+                       if(phi_gpu(b,i+1,j,k,1)>0.) then
+                           delta_x = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i+1,j,k,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dx_gpu(b)
+                           dx_locale = dx_gpu(b)/2 + delta_x
+                       else !if(phi_gpu(b,i-1,j,k,1)>0) then
+                           delta_x = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i-1,j,k,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dx_gpu(b)
+                           dx_locale = dx_gpu(b)/2 + delta_x
+                       endif
+                   endif
+               endif
+               do v=2,6
+                  !fl_gpu(b,i,j,k,v) = - (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i-1,j,k,v)) / dx_gpu(b)
+                  fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) + (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i-1,j,k,v))/dx_locale
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+   !@cuf iercuda=cudaDeviceSynchronize()
+
+   !$cuf kernel do(3) <<<*,*>>>
+   do k=1,nk
+      do i=1,ni
+         do b=1,blocks_number
+            do j=0,nj ! loop on faces
+                du_dy = (q_aux_gpu(b,i,j+1,k,2)-q_aux_gpu(b,i,j,k,2))/dy_gpu(b)
+                dv_dy = (q_aux_gpu(b,i,j+1,k,3)-q_aux_gpu(b,i,j,k,3))/dy_gpu(b)
+                dw_dy = (q_aux_gpu(b,i,j+1,k,4)-q_aux_gpu(b,i,j,k,4))/dy_gpu(b)
+
+                du_dx = (q_aux_gpu(b,i+1,j+1,k,2) - q_aux_gpu(b,i-1,j+1,k,2)+ &
+                         q_aux_gpu(b,i+1,j,k,2)   - q_aux_gpu(b,i-1,j,k,2) )*0.25_R8P/dx_gpu(b)
+                dv_dx = (q_aux_gpu(b,i+1,j+1,k,3) - q_aux_gpu(b,i-1,j+1,k,3)+ &
+                         q_aux_gpu(b,i+1,j,k,3)   - q_aux_gpu(b,i-1,j,k,3) )*0.25_R8P/dx_gpu(b)
+
+                dv_dz = (q_aux_gpu(b,i+1,j,k+1,3) - q_aux_gpu(b,i-1,j,k+1,3)+ &
+                         q_aux_gpu(b,i+1,j,k,3)   - q_aux_gpu(b,i-1,j,k,3) )*0.25_R8P/dz_gpu(b)
+                dw_dz = (q_aux_gpu(b,i+1,j,k+1,4) - q_aux_gpu(b,i-1,j,k+1,4)+ &
+                         q_aux_gpu(b,i+1,j,k,4)   - q_aux_gpu(b,i-1,j,k,4) )*0.25_R8P/dz_gpu(b)
+
+                vel_u = 0.5*(q_aux_gpu(b,i,j,k,2) + q_aux_gpu(b,i,j+1,k,2))
+                vel_v = 0.5*(q_aux_gpu(b,i,j,k,3) + q_aux_gpu(b,i,j+1,k,3))
+                vel_w = 0.5*(q_aux_gpu(b,i,j,k,4) + q_aux_gpu(b,i,j+1,k,4))
+
+                tau_1_2 = mu*(du_dy+dv_dx)      
+                tau_2_2 = 2.0*mu*(dv_dy-1./3.*(du_dx+dv_dy+dw_dz))
+                tau_3_2 = mu*(dw_dy+dv_dz)
+
+                dT_dy = (q_aux_gpu(b,i,j+1,k,6)-q_aux_gpu(b,i,j,k,6))/dy_gpu(b)
+
+                sigq = k_coeff*dT_dy
+                sigl = vel_u*tau_1_2+vel_v*tau_2_2+vel_w*tau_3_2
+
+                fhat_gpu(b,i,j,k,2) = tau_1_2
+                fhat_gpu(b,i,j,k,3) = tau_2_2
+                fhat_gpu(b,i,j,k,4) = tau_3_2
+                fhat_gpu(b,i,j,k,5) = sigq + sigl
+            enddo
+
+            ! Update net flux
+            do j=1,nj ! loop on inner nodes
+               dy_locale = dy_gpu(b)
+               if(phi_gpu(b,i,j,k,1)<0.) then
+                   if(phi_gpu(b,i,j+1,k,1)*phi_gpu(b,i,j-1,k,1)<0) then
+                       if(phi_gpu(b,i,j+1,k,1)>0.) then
+                           delta_y = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j+1,k,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dy_gpu(b)
+                           dy_locale = dy_gpu(b)/2 + delta_y
+                       else !if(phi_gpu(b,i-1,j,k,1)>0) then
+                           delta_y = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j-1,k,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dy_gpu(b)
+                           dy_locale = dy_gpu(b)/2 + delta_y
+                       endif
+                   endif
+               endif
+               do v=2,6
+                  !fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) + (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j-1,k,v))/dy_gpu(b)
+                  fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) + (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j-1,k,v))/dy_locale
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+   !@cuf iercuda=cudaDeviceSynchronize()
+
+   !$cuf kernel do(3) <<<*,*>>>
+   do j=1,nj
+      do i=1,ni
+         do b=1,blocks_number
+            do k=0,nk ! loop on faces
+                du_dz = (q_aux_gpu(b,i,j,k+1,2)-q_aux_gpu(b,i,j,k,2))/dz_gpu(b)
+                dv_dz = (q_aux_gpu(b,i,j,k+1,3)-q_aux_gpu(b,i,j,k,3))/dz_gpu(b)
+                dw_dz = (q_aux_gpu(b,i,j,k+1,4)-q_aux_gpu(b,i,j,k,4))/dz_gpu(b)
+
+                du_dx = (q_aux_gpu(b,i+1,j,k+1,2) - q_aux_gpu(b,i-1,j,k+1,2)+ &
+                         q_aux_gpu(b,i+1,j,k,2)   - q_aux_gpu(b,i-1,j,k,2) )*0.25_R8P/dx_gpu(b)
+                dw_dx = (q_aux_gpu(b,i+1,j,k+1,4) - q_aux_gpu(b,i-1,j,k+1,4)+ &
+                         q_aux_gpu(b,i+1,j,k,4)   - q_aux_gpu(b,i-1,j,k,4) )*0.25_R8P/dx_gpu(b)
+
+                dv_dy = (q_aux_gpu(b,i,j+1,k+1,3) - q_aux_gpu(b,i,j-1,k+1,3)+ &
+                         q_aux_gpu(b,i,j+1,k,3)   - q_aux_gpu(b,i,j-1,k,3) )*0.25_R8P/dy_gpu(b)
+                dw_dy = (q_aux_gpu(b,i,j+1,k+1,4) - q_aux_gpu(b,i,j-1,k+1,4)+ &
+                         q_aux_gpu(b,i,j+1,k,4)   - q_aux_gpu(b,i,j-1,k,4) )*0.25_R8P/dy_gpu(b)
+
+                vel_u = 0.5*(q_aux_gpu(b,i,j,k,2) + q_aux_gpu(b,i,j,k+1,2))
+                vel_v = 0.5*(q_aux_gpu(b,i,j,k,3) + q_aux_gpu(b,i,j,k+1,3))
+                vel_w = 0.5*(q_aux_gpu(b,i,j,k,4) + q_aux_gpu(b,i,j,k+1,4))
+
+                tau_1_3 = mu*(du_dz+dw_dx)      
+                tau_2_3 = mu*(dv_dz+dw_dy)                 
+                tau_3_3 = 2.0*mu*(dw_dz-1./3.*(du_dx+dv_dy+dw_dz))
+
+                dT_dz = (q_aux_gpu(b,i,j,k+1,6)-q_aux_gpu(b,i,j,k,6))/dz_gpu(b)
+
+                sigq = k_coeff*dT_dz
+                sigl = vel_u*tau_1_3+vel_v*tau_2_3+vel_w*tau_3_3
+
+                fhat_gpu(b,i,j,k,2) = tau_1_3
+                fhat_gpu(b,i,j,k,3) = tau_2_3
+                fhat_gpu(b,i,j,k,4) = tau_3_3
+                fhat_gpu(b,i,j,k,5) = sigq + sigl
+            enddo
+
+            ! Update net flux
+            do k=1,nk ! loop on inner nodes
+               dz_locale = dz_gpu(b)
+               if(phi_gpu(b,i,j,k,1)<0.) then
+                   if(phi_gpu(b,i,j,k+1,1)*phi_gpu(b,i,j,k-1,1)<0) then
+                       if(phi_gpu(b,i,j,k+1,1)>0.) then
+                           delta_z = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j,k+1,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dz_gpu(b)
+                           dz_locale = dz_gpu(b)/2 + delta_z
+                       else !if(phi_gpu(b,i,j,k-1,1)>0) then
+                           delta_z = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j,k-1,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dz_gpu(b)
+                           dz_locale = dz_gpu(b)/2 + delta_z
+                       endif
+                   endif
+               endif
+               do v=2,6
+                  fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) + (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j,k-1,v))/dz_locale
+                  !fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) + (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j,k-1,v))/dz_gpu(b)
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+   !@cuf iercuda=cudaDeviceSynchronize()
+
+   endsubroutine viscous_part
+
+   attributes(global) subroutine euler_y_kernel(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, gplus, gminus, dy_gpu, &
                                                 blocks_number, ni, nj, nk, ngc, nv, iweno, dha, gamma_fluid)
 
    real(R8P), intent(in), device     ::     q_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(in), device     :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(inout), device  ::    fl_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(inout), device  ::  fhat_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
+   real(R8P), intent(in), device     ::   phi_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(inout), device  ::     gplus(1:, 1:, 1:, 1:, 1:)
    real(R8P), intent(inout), device  ::    gminus(1:, 1:, 1:, 1:, 1:)
    real(R8P), intent(in), device     ::    dy_gpu(1:)
@@ -2581,6 +2975,8 @@ contains
    real(R8P)                         :: er(6,6), el(6,6), ev(6), evmax(6), ghat(6), gl(6), gr(6), fi(6), vi(6)
    real(R8P)                         :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
    real(R8P)                         :: gc, wc
+   real(R8P)                         :: dy_locale, delta_y
+   real(R8P), parameter              :: ib_eps=1.e-12_R8P
 
    b = blockDim%x * (blockIdx%x - 1) + threadIdx%x
    i = blockDim%y * (blockIdx%y - 1) + threadIdx%y
@@ -2679,8 +3075,21 @@ contains
 
       ! Update net flux
       do j=1,nj ! loop on inner nodes
+         dy_locale = dy_gpu(b)
+         if(phi_gpu(b,i,j,k,1)<0.) then
+             if(phi_gpu(b,i,j+1,k,1)*phi_gpu(b,i,j-1,k,1)<0) then
+                 if(phi_gpu(b,i,j+1,k,1)>0.) then
+                     delta_y = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j+1,k,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dy_gpu(b)
+                     dy_locale = dy_gpu(b)/2 + delta_y
+                 else !if(phi_gpu(b,i-1,j,k,1)>0) then
+                     delta_y = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j-1,k,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dy_gpu(b)
+                     dy_locale = dy_gpu(b)/2 + delta_y
+                 endif
+             endif
+         endif
          do v=1,6
-            fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) + (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j-1,k,v))/dy_gpu(b)
+            !fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) - (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j-1,k,v))/dy_gpu(b)
+            fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) - (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j-1,k,v))/dy_locale
          enddo
       enddo
 
@@ -2688,13 +3097,14 @@ contains
 
    endsubroutine euler_y_kernel
 
-   attributes(global) subroutine euler_z_kernel(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, gplus, gminus, dz_gpu, &
+   attributes(global) subroutine euler_z_kernel(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, gplus, gminus, dz_gpu, &
                                                 blocks_number, ni, nj, nk, ngc, nv, iweno, dha, gamma_fluid)
 
    real(R8P), intent(in), device     ::     q_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(in), device     :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(inout), device  ::    fl_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(inout), device  ::  fhat_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
+   real(R8P), intent(in), device     ::   phi_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(inout), device  ::     gplus(1:, 1:, 1:, 1:, 1:)
    real(R8P), intent(inout), device  ::    gminus(1:, 1:, 1:, 1:, 1:)
    real(R8P), intent(in), device     ::    dz_gpu(1:)
@@ -2705,6 +3115,8 @@ contains
    real(R8P)                         :: er(6,6), el(6,6), ev(6), evmax(6), ghat(6), gl(6), gr(6), fi(6), vi(6)
    real(R8P)                         :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
    real(R8P)                         :: gc, wc
+   real(R8P)                         :: dz_locale, delta_z
+   real(R8P), parameter              :: ib_eps=1.e-12_R8P
 
    b = blockDim%x * (blockIdx%x - 1) + threadIdx%x
    i = blockDim%y * (blockIdx%y - 1) + threadIdx%y
@@ -2803,8 +3215,21 @@ contains
 
       ! Update net flux
       do k=1,nk ! loop on inner nodes
+         dz_locale = dz_gpu(b)
+         if(phi_gpu(b,i,j,k,1)<0.) then
+             if(phi_gpu(b,i,j,k+1,1)*phi_gpu(b,i,j,k-1,1)<0) then
+                 if(phi_gpu(b,i,j,k+1,1)>0.) then
+                     delta_z = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j,k+1,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dz_gpu(b)
+                     dz_locale = dz_gpu(b)/2 + delta_z
+                 else !if(phi_gpu(b,i,j,k-1,1)>0) then
+                     delta_z = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j,k-1,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dz_gpu(b)
+                     dz_locale = dz_gpu(b)/2 + delta_z
+                 endif
+             endif
+         endif
          do v=1,6
-            fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) + (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j,k-1,v))/dz_gpu(b)
+            fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) - (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j,k-1,v))/dz_locale
+            !fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) - (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j,k-1,v))/dz_gpu(b)
          enddo
       enddo
 
@@ -3035,7 +3460,78 @@ contains
 
    endsubroutine weno_reconstruction
 
-   subroutine compute_rk_stage_gpu_cuf(ni, nj, nk, ngc, nv, blocks_number, alph_gpu, dt, s, q_gpu, q_s_gpu)
+   subroutine compute_rk_linear_gpu_cuf(ni, nj, nk, ngc, nv, blocks_number, dt, q_gpu, prhs_gpu, fl_gpu, phi_gpu, qnrk)
+
+   !< Initialize RK stage with q_gpu.
+   integer(I4P), intent(in)            :: ni                                     !< Grid cells number in I direction.
+   integer(I4P), intent(in)            :: nj                                     !< Grid cells number in J direction.
+   integer(I4P), intent(in)            :: nk                                     !< Grid cells number in K direction.
+   integer(I4P), intent(in)            :: ngc                                    !< Ghost cells number.
+   integer(I4P), intent(in)            :: nv                                     !< Number of conservative varibales.
+   integer(I4P), intent(in)            :: blocks_number                          !< Number of blocks.
+   real(R8P),    intent(in)            :: dt                                     !< Time step.
+   real(R8P),    intent(in)            :: qnrk                                   !< Time step.
+   real(R8P),    intent(inout), device ::   q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Conservative field.
+   real(R8P),    intent(in),    device ::  fl_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Conservative field.
+   real(R8P),    intent(in),    device :: phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Conservative field.
+   real(R8P),    intent(inout), device :: prhs_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< RK stage.
+   integer(I4P)                        :: i, j, k, b, v, ss                      !< Counter.
+   integer(I4P)                        :: iercuda                                !< Error trapping flag for CUDAFortran.
+
+   !$cuf kernel do(5) <<<*,*>>>
+   do v=1, nv
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               do b=1, blocks_number
+                  if(phi_gpu(b,i,j,k,1) < 0.) then
+                     q_gpu(b,i,j,k,v) = prhs_gpu(b,i,j,k,v) + qnrk * fl_gpu(b,i,j,k,v)
+                  endif
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+   !@cuf iercuda=cudaDeviceSynchronize()
+   endsubroutine compute_rk_linear_gpu_cuf
+
+   subroutine compute_rk_prhs_gpu_cuf(ni, nj, nk, ngc, nv, blocks_number, alph_gpu, dt, s, q_gpu, prhs_gpu, fl_gpu, phi_gpu, qnrk)
+   !< Initialize RK stage with q_gpu.
+   integer(I4P), intent(in)            :: ni                                     !< Grid cells number in I direction.
+   integer(I4P), intent(in)            :: nj                                     !< Grid cells number in J direction.
+   integer(I4P), intent(in)            :: nk                                     !< Grid cells number in K direction.
+   integer(I4P), intent(in)            :: ngc                                    !< Ghost cells number.
+   integer(I4P), intent(in)            :: nv                                     !< Number of conservative varibales.
+   integer(I4P), intent(in)            :: blocks_number                          !< Number of blocks.
+   real(R8P),    intent(in),    device :: alph_gpu(:,:)                          !< RK alpha coefficients.
+   real(R8P),    intent(in)            :: dt                                     !< Time step.
+   real(R8P),    intent(in)            :: qnrk                                   !< Time step.
+   integer(I4P), intent(in)            :: s                                      !< Stage to initialize.
+   real(R8P),    intent(in),    device ::   q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Conservative field.
+   real(R8P),    intent(in),    device ::  fl_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Conservative field.
+   real(R8P),    intent(in),    device :: phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Conservative field.
+   real(R8P),    intent(inout), device :: prhs_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< RK stage.
+   integer(I4P)                        :: i, j, k, b, v, ss                      !< Counter.
+   integer(I4P)                        :: iercuda                                !< Error trapping flag for CUDAFortran.
+
+   !$cuf kernel do(5) <<<*,*>>>
+   do v=1, nv
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               do b=1, blocks_number
+                  if(phi_gpu(b,i,j,k,1) < 0.) then
+                     prhs_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) + qnrk * fl_gpu(b,i,j,k,v)
+                  endif
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+   !@cuf iercuda=cudaDeviceSynchronize()
+   endsubroutine compute_rk_prhs_gpu_cuf
+
+   subroutine compute_rk_stage_gpu_cuf(ni, nj, nk, ngc, nv, blocks_number, alph_gpu, dt, s, q_gpu, q_s_gpu, fl_gpu, phi_gpu)
    !< Initialize RK stage with q_gpu.
    integer(I4P), intent(in)            :: ni                                     !< Grid cells number in I direction.
    integer(I4P), intent(in)            :: nj                                     !< Grid cells number in J direction.
@@ -3047,6 +3543,8 @@ contains
    real(R8P),    intent(in)            :: dt                                     !< Time step.
    integer(I4P), intent(in)            :: s                                      !< Stage to initialize.
    real(R8P),    intent(in),    device ::   q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Conservative field.
+   real(R8P),    intent(in),    device ::  fl_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:,1:) !< Conservative field.
+   real(R8P),    intent(in),    device :: phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative field.
    real(R8P),    intent(inout), device :: q_s_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:,1:) !< RK stage.
    integer(I4P)                        :: i, j, k, b, v, ss                      !< Counter.
    integer(I4P)                        :: iercuda                                !< Error trapping flag for CUDAFortran.
@@ -3057,32 +3555,138 @@ contains
          do j=1, nj
             do i=1, ni
                do b=1, blocks_number
-                  q_s_gpu(b,i,j,k,v,s) = q_gpu(b,i,j,k,v)
+                  if(phi_gpu(b,i,j,k,1) < 0.) then
+                     q_s_gpu(b,i,j,k,v,s) = q_gpu(b,i,j,k,v)
+                     do ss=1, s - 1
+                        q_s_gpu(b,i,j,k,v,s) = q_s_gpu(b,i,j,k,v,s) + (fl_gpu(b,i,j,k,v,ss) * (dt * alph_gpu(s, ss)))
+                     enddo
+                  else
+                     if(s==1) then
+                        q_s_gpu(b,i,j,k,v,s) = q_gpu(b,i,j,k,v)
+                     else
+                        q_s_gpu(b,i,j,k,v,s) = q_s_gpu(b,i,j,k,v,s-1) 
+                     endif
+                  endif
                enddo
             enddo
          enddo
       enddo
    enddo
    !@cuf iercuda=cudaDeviceSynchronize()
-   do ss=1, s - 1
-      !$cuf kernel do(5) <<<*,*>>>
-      do v=1, nv
-         do k=1, nk
-            do j=1, nj
-               do i=1, ni
-                  do b=1, blocks_number
-                     q_s_gpu(b,i,j,k,v,s) = q_s_gpu(b,i,j,k,v,s) + (q_s_gpu(b,i,j,k,v,ss) * (dt * alph_gpu(s, ss)))
-                  enddo
-               enddo
+   endsubroutine compute_rk_stage_gpu_cuf
+
+   subroutine invert_eikonal_field(ni, nj, nk, ngc, nv, blocks_number, q_gpu, q_invert_gpu, phi_gpu)
+   !< Initialize RK stage with q_gpu.
+   integer(I4P), intent(in)            :: ni                                        !< Grid cells number in I direction.
+   integer(I4P), intent(in)            :: nj                                        !< Grid cells number in J direction.
+   integer(I4P), intent(in)            :: nk                                        !< Grid cells number in K direction.
+   integer(I4P), intent(in)            :: ngc                                       !< Ghost cells number.
+   integer(I4P), intent(in)            :: nv                                        !< Number of conservative varibales.
+   integer(I4P), intent(in)            :: blocks_number                             !< Number of blocks.
+   real(R8P),    intent(in),    device ::  q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)        !< Conservative field.
+   real(R8P),    intent(in),    device ::  phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)        !< Conservative field.
+   real(R8P),    intent(inout), device ::  q_invert_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative field.
+   integer(I4P)                        :: i, j, k, b, v, ss                         !< Counter.
+   integer(I4P)                        :: iercuda                                   !< Error trapping flag for CUDAFortran.
+   real(R8P)                           :: n_phi_x, n_phi_y, n_phi_z, n_phi_mod, un_mod  !< Time step.
+
+   !$cuf kernel do(4) <<<*,*>>>
+   do k=1-ngc, nk+ngc
+      do j=1-ngc, nj+ngc
+         do i=1-ngc, ni+ngc
+            do b=1, blocks_number
+               if(phi_gpu(b,i,j,k,1) < 0) then
+                   do v=1,nv
+                      q_invert_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v)
+                   enddo
+               else
+                   q_invert_gpu(b,i,j,k,1) =   q_gpu(b,i,j,k,1)
+                   q_invert_gpu(b,i,j,k,2) = - q_gpu(b,i,j,k,2)
+                   q_invert_gpu(b,i,j,k,3) = - q_gpu(b,i,j,k,3)
+                   q_invert_gpu(b,i,j,k,4) = - q_gpu(b,i,j,k,4)
+                   q_invert_gpu(b,i,j,k,5) =   q_gpu(b,i,j,k,5)
+                   q_invert_gpu(b,i,j,k,6) =   q_gpu(b,i,j,k,6)
+               endif
             enddo
          enddo
       enddo
-      !@cuf iercuda=cudaDeviceSynchronize()
    enddo
-   endsubroutine compute_rk_stage_gpu_cuf
+   !@cuf iercuda=cudaDeviceSynchronize()
 
-   subroutine minimal_immersed_bc(ni, nj, nk, ngc, nv, blocks_number, gamma_fluid, &
-           q_gpu, phi_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu)
+   !!!!$cuf kernel do(4) <<<*,*>>>
+   !!!do k=1-ngc, nk+ngc
+   !!!   do j=1-ngc, nj+ngc
+   !!!      do i=1-ngc, ni+ngc
+   !!!         do b=1, blocks_number
+   !!!            if(phi_gpu(b,i,j,k,1) < 0) then
+   !!!               do v=1,nv
+   !!!                  q_invert_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v)
+   !!!               enddo
+   !!!            else
+   !!!               n_phi_x = phi_gpu(b,i+1,j,k,1)-phi_gpu(b,i-1,j,k,1)
+   !!!               n_phi_y = phi_gpu(b,i,j+1,k,1)-phi_gpu(b,i,j-1,k,1)
+   !!!               n_phi_z = phi_gpu(b,i,j,k+1,1)-phi_gpu(b,i,j,k-1,1)
+   !!!               n_phi_mod = sqrt(n_phi_x**2+n_phi_y**2+n_phi_z**2)
+   !!!               n_phi_x = n_phi_x/n_phi_mod 
+   !!!               n_phi_y = n_phi_y/n_phi_mod 
+   !!!               n_phi_z = n_phi_z/n_phi_mod 
+   !!!               un_mod = q_gpu(b,i,j,k,2)*n_phi_x+q_gpu(b,i,j,k,3)*n_phi_y+q_gpu(b,i,j,k,4)*n_phi_z
+
+   !!!               !pres = 10000.
+   !!!               !tem = 300.
+   !!!               !rho = pres/tem*gamma_fluid/(gamma_fluid-1._R8P)
+   !!!               !q_gpu(b,i,j,k,1) = rho
+   !!!               !q_gpu(b,i,j,k,2) = 0._R8P
+   !!!               !q_gpu(b,i,j,k,3) = 0._R8P
+   !!!               !q_gpu(b,i,j,k,4) = 0._R8P
+   !!!               !q_gpu(b,i,j,k,5) = q_gpu(b,i,j,k,1)*1._R8P/gamma_fluid*tem
+   !!!               q_invert_gpu(b,i,j,k,1) = q_gpu(b,i,j,k,1)
+   !!!               q_invert_gpu(b,i,j,k,2) = q_gpu(b,i,j,k,2) - 2*un_mod*n_phi_x
+   !!!               q_invert_gpu(b,i,j,k,3) = q_gpu(b,i,j,k,3) - 2*un_mod*n_phi_y
+   !!!               q_invert_gpu(b,i,j,k,4) = q_gpu(b,i,j,k,4) - 2*un_mod*n_phi_z
+   !!!               q_invert_gpu(b,i,j,k,5) = q_gpu(b,i,j,k,5)
+   !!!               q_invert_gpu(b,i,j,k,6) = q_gpu(b,i,j,k,6)
+   !!!            endif
+   !!!         enddo
+   !!!      enddo
+   !!!   enddo
+   !!!enddo
+   !!!!@cuf iercuda=cudaDeviceSynchronize()
+   endsubroutine invert_eikonal_field
+
+   !subroutine set_zero_residual_body_points(ni, nj, nk, ngc, nv, blocks_number, alph_gpu, dt, s, fl_gpu)
+   !!< Initialize RK stage with q_gpu.
+   !integer(I4P), intent(in)            :: ni                                     !< Grid cells number in I direction.
+   !integer(I4P), intent(in)            :: nj                                     !< Grid cells number in J direction.
+   !integer(I4P), intent(in)            :: nk                                     !< Grid cells number in K direction.
+   !integer(I4P), intent(in)            :: ngc                                    !< Ghost cells number.
+   !integer(I4P), intent(in)            :: nv                                     !< Number of conservative varibales.
+   !integer(I4P), intent(in)            :: blocks_number                          !< Number of blocks.
+   !real(R8P),    intent(in),    device :: alph_gpu(:,:)                          !< RK alpha coefficients.
+   !real(R8P),    intent(in)            :: dt                                     !< Time step.
+   !integer(I4P), intent(in)            :: s                                      !< Stage to initialize.
+   !real(R8P),    intent(in),    device ::  fl_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Conservative field.
+   !integer(I4P)                        :: i, j, k, b, v, ss                      !< Counter.
+   !integer(I4P)                        :: iercuda                                !< Error trapping flag for CUDAFortran.
+
+   !!$cuf kernel do(5) <<<*,*>>>
+   !do v=1, nv
+   !   do k=1, nk
+   !      do j=1, nj
+   !         do i=1, ni
+   !            do b=1, blocks_number
+   !               if(phi_gpu(b,i,j,k,1) > 0) fl_gpu(b,i,j,k,v) = 0._R8P
+   !            enddo
+   !         enddo
+   !      enddo
+   !   enddo
+   !enddo
+   !!@cuf iercuda=cudaDeviceSynchronize()
+
+   !endsubroutine set_zero_residual_body_points
+
+   subroutine minimal_immersed_bc(ni, nj, nk, ngc, nv, blocks_number, gamma_fluid,  &
+                                  q_gpu, phi_gpu, x_cell_gpu, y_cell_gpu, z_cell_gpu)
    !< Initialize RK stage with q_gpu.
    integer(I4P), intent(in)            :: ni                                     !< Grid cells number in I direction.
    integer(I4P), intent(in)            :: nj                                     !< Grid cells number in J direction.
