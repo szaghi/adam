@@ -151,6 +151,7 @@ type :: equation_flame_gpu_object
    contains
       ! public methods
       procedure, pass(self) :: amr_update              !< Do AMR update.
+      procedure, pass(self) :: move_phi                !< Move phi and the actual ptree representation.
       procedure, pass(self) :: compute_aux             !< Compute auxiliary variables.
       procedure, pass(self) :: compute_dt              !< Compute time step.
       procedure, pass(self) :: copy_cpu_gpu            !< Copy data from CPU to GPU.
@@ -215,10 +216,104 @@ contains
 
    endsubroutine amr_update
 
+   subroutine move_phi(self, velocity)
+   !< Move phi and the actual ptree representation.
+   class(equation_flame_gpu_object), intent(inout) :: self        !< The equation.
+   real(R8P),                        intent(in)    :: velocity(3) !< Velocity of the movement.
+
+   call move_phi_cuf(ni            = self%ni,            &
+                     nj            = self%nj,            &
+                     nk            = self%nk,            &
+                     ngc           = self%ngc,           &
+                     blocks_number = self%blocks_number, &
+                     velocity      = velocity,           &
+                     phi_gpu       = self%phi_gpu,       &
+                     dphi_gpu      = self%dq_gpu)
+   endsubroutine move_phi
+
+   subroutine move_phi_cuf(ni, nj, nk, ngc, blocks_number, velocity, phi_gpu, dphi_gpu)
+   !< Move phi and the actual ptree representation.
+   integer(I4P), intent(in)            :: ni                                   !< Grid cells number in I direction.
+   integer(I4P), intent(in)            :: nj                                   !< Grid cells number in J direction.
+   integer(I4P), intent(in)            :: nk                                   !< Grid cells number in K direction.
+   integer(I4P), intent(in)            :: ngc                                  !< Ghost grid number.
+   integer(I4P), intent(in)            :: blocks_number                        !< Number of blocks.
+   real(R8P),    intent(in)            :: velocity(3)                          !< Velocity of the movement.
+   real(R8P),    intent(in),    device ::  phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Distance function.
+   real(R8P),    intent(inout), device :: dphi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Distance function gradient.
+   real(R8P)                           :: n_phi_x, n_phi_y, n_phi_z, n_phi     !< Eikonal direction.
+   integer(I4P)                        :: b, i, j, k, v                        !< Counter.
+   integer(I4P)                        :: iercuda                              !< Error trapping flag for CUDAFortran.
+
+   n_phi_x = velocity(1)
+   n_phi_y = velocity(2)
+   n_phi_z = velocity(3)
+   n_phi = abs(n_phi_x) + abs(n_phi_y) + abs(n_phi_z) + 10e-12
+   n_phi = 0.9_R8P / n_phi
+   n_phi_x = n_phi_x * n_phi
+   n_phi_y = n_phi_y * n_phi
+   n_phi_z = n_phi_z * n_phi
+
+   !$cuf kernel do(4) <<<*,*>>>
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      do v=1, 1
+         dphi_gpu(b,i,j,k,v) = 0._R8P
+      enddo
+      if (n_phi_x > 0._R8P) then
+         do v=1, 1
+            dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_x) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i-1,j,k,v))
+         enddo
+      else
+         do v=1, 1
+            dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_x) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i+1,j,k,v))
+         enddo
+      endif
+      if (n_phi_y > 0._R8P) then
+         do v=1, 1
+            dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_y) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i,j-1,k,v))
+         enddo
+      else
+         do v=1, 1
+            dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_y) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i,j+1,k,v))
+         enddo
+      endif
+      if (n_phi_z > 0._R8P) then
+         do v=1, 1
+            dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_z) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i,j,k-1,v))
+         enddo
+      else
+         do v=1, 1
+            dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_z) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i,j,k+1,v))
+         enddo
+      endif
+   enddo
+   enddo
+   enddo
+   enddo
+   !@cuf iercuda=cudaDeviceSynchronize()
+
+   !$cuf kernel do(4) <<<*,*>>>
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      do v=1, 1
+         phi_gpu(b,i,j,k,v) = phi_gpu(b,i,j,k,v) - dphi_gpu(b,i,j,k,v)
+      enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   !@cuf iercuda=cudaDeviceSynchronize()
+   endsubroutine move_phi_cuf
+
    subroutine update_cell_gpu(self)
    !< Update x/y/z_cell_gpu
-   class(equation_flame_gpu_object), intent(inout)        :: self       !< The equation.
-   integer(I4P)                                           :: b, i, j, k !< Counter.
+   class(equation_flame_gpu_object), intent(inout) :: self       !< The equation.
+   integer(I4P)                                    :: b, i, j, k !< Counter.
 
    associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc)
    if(allocated(self%x_cell_t))   deallocate(self%x_cell_t)
@@ -686,7 +781,7 @@ contains
       call compute_rk_prhs_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,        &
                                    alph_gpu=alph_gpu, dt=dt, s=s, q_gpu=self%q_gpu, prhs_gpu=self%prhs_gpu, &
                                    fl_gpu=self%fl_gpu, phi_gpu=self%phi_gpu, qnrk=dt*brk(s))
-      call self%update_ghost_gpu(q_gpu=self%q_gpu(:,:,:,:,:)) 
+      call self%update_ghost_gpu(q_gpu=self%q_gpu(:,:,:,:,:))
       ! ------------------------------------------------------------------------------------------------
       ! ANDREA IB
       ! ------------------------------------------------------------------------------------------------
@@ -698,7 +793,7 @@ contains
                                        dz_gpu=self%dxyz_gpu(:,3),                                        &
                                        dq_gpu=self%dq_gpu,                                               &
                                        q_gpu=self%q_gpu(:,:,:,:,:))
-         call self%update_ghost_gpu(q_gpu=self%q_gpu(:,:,:,:,:)) 
+         call self%update_ghost_gpu(q_gpu=self%q_gpu(:,:,:,:,:))
       enddo
       call invert_eikonal_field(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,        &
                                 q_gpu=self%q_gpu(:,:,:,:,:), q_invert_gpu=self%q_invert_gpu(:,:,:,:,:),  &
@@ -720,7 +815,7 @@ contains
                                  dz_gpu        = self%dxyz_gpu(:,3),                                        &
                                  q_aux_gpu     = self%q_aux_gpu,                                            &
                                  phi_gpu       = self%phi_gpu,                                              &
-                                 fl_gpu        = self%fl_gpu(:,:,:,:,:),                                    & 
+                                 fl_gpu        = self%fl_gpu(:,:,:,:,:),                                    &
                                  fhat_gpu      = self%fhat_gpu,                                             &
                                  q_gpu         = self%q_s_gpu(:,:,:,:,:,s),                                 &
                                  iweno         = self%iweno,                                                &
@@ -811,7 +906,7 @@ contains
    !!!                              dz_gpu        = self%dxyz_gpu(:,3),                                        &
    !!!                              q_aux_gpu     = self%q_aux_gpu,                                            &
    !!!                              phi_gpu       = self%phi_gpu,                                              &
-   !!!                              fl_gpu        = self%fl_s_gpu(:,:,:,:,:,s),                                & 
+   !!!                              fl_gpu        = self%fl_s_gpu(:,:,:,:,:,s),                                &
    !!!                              fhat_gpu      = self%fhat_gpu,                                             &
    !!!                              q_gpu         = self%q_s_gpu(:,:,:,:,:,s),                                 &
    !!!                              iweno         = self%iweno,                                                &
@@ -1551,7 +1646,7 @@ contains
                      !if(v>=2 .and. v<=4) then
                      !   q_gpu(b,i,j,k,v) = 0.
                      !else
-                        q_gpu(b,i,j,k,v) = q_s_gpu(b,i,j,k,v,nrk) 
+                        q_gpu(b,i,j,k,v) = q_s_gpu(b,i,j,k,v,nrk)
                      !endif
                   endif
                enddo
@@ -2854,7 +2949,7 @@ contains
                 vel_v = 0.5*(q_aux_gpu(b,i,j,k,3) + q_aux_gpu(b,i,j+1,k,3))
                 vel_w = 0.5*(q_aux_gpu(b,i,j,k,4) + q_aux_gpu(b,i,j+1,k,4))
 
-                tau_1_2 = mu*(du_dy+dv_dx)      
+                tau_1_2 = mu*(du_dy+dv_dx)
                 tau_2_2 = 2.0*mu*(dv_dy-1./3.*(du_dx+dv_dy+dw_dz))
                 tau_3_2 = mu*(dw_dy+dv_dz)
 
@@ -2916,8 +3011,8 @@ contains
                 vel_v = 0.5*(q_aux_gpu(b,i,j,k,3) + q_aux_gpu(b,i,j,k+1,3))
                 vel_w = 0.5*(q_aux_gpu(b,i,j,k,4) + q_aux_gpu(b,i,j,k+1,4))
 
-                tau_1_3 = mu*(du_dz+dw_dx)      
-                tau_2_3 = mu*(dv_dz+dw_dy)                 
+                tau_1_3 = mu*(du_dz+dw_dx)
+                tau_2_3 = mu*(dv_dz+dw_dy)
                 tau_3_3 = 2.0*mu*(dw_dz-1./3.*(du_dx+dv_dy+dw_dz))
 
                 dT_dz = (q_aux_gpu(b,i,j,k+1,6)-q_aux_gpu(b,i,j,k,6))/dz_gpu(b)
@@ -3564,7 +3659,7 @@ contains
                      if(s==1) then
                         q_s_gpu(b,i,j,k,v,s) = q_gpu(b,i,j,k,v)
                      else
-                        q_s_gpu(b,i,j,k,v,s) = q_s_gpu(b,i,j,k,v,s-1) 
+                        q_s_gpu(b,i,j,k,v,s) = q_s_gpu(b,i,j,k,v,s-1)
                      endif
                   endif
                enddo
@@ -3627,9 +3722,9 @@ contains
    !!!               n_phi_y = phi_gpu(b,i,j+1,k,1)-phi_gpu(b,i,j-1,k,1)
    !!!               n_phi_z = phi_gpu(b,i,j,k+1,1)-phi_gpu(b,i,j,k-1,1)
    !!!               n_phi_mod = sqrt(n_phi_x**2+n_phi_y**2+n_phi_z**2)
-   !!!               n_phi_x = n_phi_x/n_phi_mod 
-   !!!               n_phi_y = n_phi_y/n_phi_mod 
-   !!!               n_phi_z = n_phi_z/n_phi_mod 
+   !!!               n_phi_x = n_phi_x/n_phi_mod
+   !!!               n_phi_y = n_phi_y/n_phi_mod
+   !!!               n_phi_z = n_phi_z/n_phi_mod
    !!!               un_mod = q_gpu(b,i,j,k,2)*n_phi_x+q_gpu(b,i,j,k,3)*n_phi_y+q_gpu(b,i,j,k,4)*n_phi_z
 
    !!!               !pres = 10000.
