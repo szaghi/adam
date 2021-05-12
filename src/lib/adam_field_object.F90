@@ -110,11 +110,17 @@ type :: field_object
    integer(I4P), allocatable :: comm_map_n_recv_ghost(:)   !< Communication map, number of cells to recv [procs_number].
    integer(I4P), allocatable :: comm_map_send_ptr_ghost(:) !< Communication map, pointers in list to send [procs_number+1].
    integer(I4P), allocatable :: comm_map_recv_ptr_ghost(:) !< Communication map, pointers in list to recv [procs_number+1].
-   integer(I8P), allocatable :: comm_map_send_ghost(:,:)   !< Communication map, `fec` information [fec_number, 5].
-   integer(I8P), allocatable :: comm_map_recv_ghost(:,:)   !< Communication map, `fec` information [fec_number, 5].
+   integer(I4P), allocatable :: comm_map_send_ptr_ghost_s(:) !< Communication map, pointers in list to send, single var.
+   integer(I4P), allocatable :: comm_map_recv_ptr_ghost_s(:) !< Communication map, pointers in list to recv, single var.
+   integer(I8P), allocatable :: comm_map_send_ghost(:,:)   !< Communication map, `fec` information [fec_number, 15].
+   integer(I8P), allocatable :: comm_map_recv_ghost(:,:)   !< Communication map, `fec` information [fec_number, 15].
+   integer(I8P), allocatable :: comm_map_send_ghost_s(:,:)   !< Communication map, `fec` information [fec_number, 15], single var.
+   integer(I8P), allocatable :: comm_map_recv_ghost_s(:,:)   !< Communication map, `fec` information [fec_number, 15], single var.
    ! MPI data, related to field equations
-   real(R8P), allocatable :: send_buffer_ghost(:) !< Send buffer of ghost cells.
-   real(R8P), allocatable :: recv_buffer_ghost(:) !< Receive buffer of ghost cells.
+   real(R8P), allocatable :: send_buffer_ghost(:)   !< Send buffer of ghost cells.
+   real(R8P), allocatable :: recv_buffer_ghost(:)   !< Receive buffer of ghost cells.
+   real(R8P), allocatable :: send_buffer_ghost_s(:) !< Send buffer of ghost cells, single var.
+   real(R8P), allocatable :: recv_buffer_ghost_s(:) !< Receive buffer of ghost cells, single var.
    ! field equations data
    real(R8P), allocatable :: q(     :,:,:,:,:) !< Field cell centered variables.
    real(R8P), allocatable :: q_work(:,:,:,:,:) !< Field cell centered variables, working buffer memory.
@@ -480,15 +486,18 @@ contains
    integer(I8P), allocatable, intent(in)    :: comm_map_send_ghost(:,:)   !< Communication map, `fec` information.
    integer(I8P), allocatable, intent(in)    :: comm_map_recv_ghost(:,:)   !< Communication map, `fec` information.
 
-   call assign_allocatable(lhs=self%local_map_ghost        , rhs=local_map_ghost        )
-   call assign_allocatable(lhs=self%comm_map_n_send_ghost  , rhs=comm_map_n_send_ghost  )
-   call assign_allocatable(lhs=self%comm_map_n_recv_ghost  , rhs=comm_map_n_recv_ghost  )
+   call assign_allocatable(lhs=self%local_map_ghost, rhs=local_map_ghost)
+
+   call assign_allocatable(lhs=self%comm_map_n_send_ghost, rhs=comm_map_n_send_ghost  )
+   call assign_allocatable(lhs=self%comm_map_n_recv_ghost, rhs=comm_map_n_recv_ghost  )
+
+   ! Nv maps
    call assign_allocatable(lhs=self%comm_map_send_ptr_ghost, rhs=comm_map_send_ptr_ghost)
    call assign_allocatable(lhs=self%comm_map_recv_ptr_ghost, rhs=comm_map_recv_ptr_ghost)
    call assign_allocatable(lhs=self%comm_map_send_ghost    , rhs=comm_map_send_ghost    )
    call assign_allocatable(lhs=self%comm_map_recv_ghost    , rhs=comm_map_recv_ghost    )
-   if (allocated(self%send_buffer_ghost)) deallocate(self%send_buffer_ghost)
-   if (allocated(self%recv_buffer_ghost)) deallocate(self%recv_buffer_ghost)
+   if (allocated(self%send_buffer_ghost))   deallocate(self%send_buffer_ghost)
+   if (allocated(self%recv_buffer_ghost))   deallocate(self%recv_buffer_ghost)
 
    if (allocated(self%comm_map_send_ghost)) self%comm_map_send_ghost(:,15) = self%comm_map_send_ghost(:,15) * self%nv
    if (allocated(self%comm_map_recv_ghost)) self%comm_map_recv_ghost(:,15) = self%comm_map_recv_ghost(:,15) * self%nv
@@ -496,6 +505,17 @@ contains
    if (allocated(self%comm_map_recv_ptr_ghost)) self%comm_map_recv_ptr_ghost = self%comm_map_recv_ptr_ghost * self%nv
    if (allocated(self%comm_map_n_send_ghost)) allocate(self%send_buffer_ghost(sum(self%comm_map_n_send_ghost, dim=1)*self%nv))
    if (allocated(self%comm_map_n_recv_ghost)) allocate(self%recv_buffer_ghost(sum(self%comm_map_n_recv_ghost, dim=1)*self%nv))
+
+   ! single variable maps
+   call assign_allocatable(lhs=self%comm_map_send_ptr_ghost_s, rhs=comm_map_send_ptr_ghost)
+   call assign_allocatable(lhs=self%comm_map_recv_ptr_ghost_s, rhs=comm_map_recv_ptr_ghost)
+   call assign_allocatable(lhs=self%comm_map_send_ghost_s    , rhs=comm_map_send_ghost    )
+   call assign_allocatable(lhs=self%comm_map_recv_ghost_s    , rhs=comm_map_recv_ghost    )
+   if (allocated(self%send_buffer_ghost_s)) deallocate(self%send_buffer_ghost_s)
+   if (allocated(self%recv_buffer_ghost_s)) deallocate(self%recv_buffer_ghost_s)
+
+   if (allocated(self%comm_map_n_send_ghost)) allocate(self%send_buffer_ghost_s(sum(self%comm_map_n_send_ghost, dim=1)))
+   if (allocated(self%comm_map_n_recv_ghost)) allocate(self%recv_buffer_ghost_s(sum(self%comm_map_n_recv_ghost, dim=1)))
    endsubroutine prepare_comm_local_ghost
 
    subroutine prepare_local_bc(self, local_map_bc_face, local_map_bc_edge, local_map_bc_corner)
