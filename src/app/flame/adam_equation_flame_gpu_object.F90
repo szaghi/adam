@@ -103,6 +103,11 @@ type :: equation_flame_gpu_object
    real(R8P)              :: Zeldovich=1060._R8P     !< Zeldovich number.
    real(R8P)              :: Damkohler=1800._R8P     !< Damkohler number.
    real(R8P)              :: gamma_fluid=1.32_R8P    !< Gamma.
+   real(R8P)              :: R_star  
+   real(R8P)              :: cv_star 
+   real(R8P)              :: mu_star 
+   real(R8P)              :: cp_star 
+   real(R8P)              :: k_star  
    real(R8P)              :: dha=10000._R8P          !< Entalpy formation.
    real(R8P)              :: pres_inflow=10000._R8P  !< Inlet and initial pressure.
    real(R8P)              :: u_inflow=0.00524_R8P    !< Inlet u.
@@ -193,6 +198,7 @@ contains
       if(self%flow_type == "cold") then
          !call self%update_phi()
          call self%mark_by_geo(tol=2000._R8P, delta_fine=0.015_R8P, delta_coarse=0.15_R8P)
+      elseif(self%flow_type == "bryson") then
       else
           call self%mark_by_grad_rho(grad_tol=2._R8P, delta_fine=0.015_R8P, delta_coarse=0.15_R8P)
           !call self%mark_by_grad_rho(grad_tol=0.05_R8P, delta_fine=0.006_R8P, delta_coarse=0.015_R8P)
@@ -444,7 +450,8 @@ contains
 
    associate(blocks_number=>self%field%blocks_number, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, ns=>self%ns)
       call compute_aux_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, ns=ns, blocks_number=blocks_number, &
-                           gamma_fluid=self%gamma_fluid, dha=self%dha, q_gpu=q_gpu, q_aux_gpu=q_aux_gpu)
+                           gamma_fluid=self%gamma_fluid, dha=self%dha, cv_star=self%cv_star, R_star=self%R_star, &
+                           q_gpu=q_gpu, q_aux_gpu=q_aux_gpu)
    endassociate
    endsubroutine compute_aux
 
@@ -551,6 +558,24 @@ contains
           call cgal_polyhedron_read(self%ptree(i), self%solids(i))
        enddo
    endif
+   if(trim(self%flow_type) == "bryson") then
+       print*,"Setting cold case"
+       self%ya_inflow   = 0._R8P
+       self%dha         = 1._R8P ! otherwise WENO fails because there is a division to dha
+       self%Damkohler   = 0._R8P
+       self%pres_inflow = 10000._R8P
+       self%u_inflow    = 1.5_R8P
+       self%tem_inflow  = 300._R8P
+       self%tem_outflow = 300._R8P
+       !self%q_coeff   = self%Prandtl
+       !self%Prandtl   = 1._R8P/100._R8P
+       n_solids = size(self%solids,dim=1)
+       allocate(self%ptree(n_solids))
+       do i=1,n_solids
+          print*,'reading solid: ', self%solids(i)
+          call cgal_polyhedron_read(self%ptree(i), self%solids(i))
+       enddo
+   endif
    if(trim(self%flow_type) == "flamechannel") then
        print*,"Setting flame channel case"
        self%u_inflow    = 0._R8P
@@ -597,7 +622,7 @@ contains
    allocate(self%dq_gpu(1:nb,        1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
    allocate(self%q_s_gpu(1:nb,       1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv, 1:nrk))
    allocate(self%q_invert_gpu(1:nb,  1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
-   if(trim(self%flow_type) == "cold" .or. trim(self%flow_type) == "sod") then
+   if(trim(self%flow_type) == "cold" .or. trim(self%flow_type) == "sod" .or. trim(self%flow_type) == "bryson") then
        allocate(self%phi(1:nb,        1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:n_solids))
        allocate(self%phi_gpu(1:nb,    1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:n_solids))
    endif
@@ -960,7 +985,7 @@ contains
       call self%adam%amr_update(do_blocks_reorder=.false., do_mpi_redistribute=.true.)
    enddo
    call self%update_cell_gpu() ! should not be needed since it is in amr_update
-   if(self%flow_type == "cold") then
+   if(self%flow_type == "cold" .or. self%flow_type == "bryson") then
       call self%update_phi()  ! this is needed so that next equation%amr_updates start correctly
    endif
    !print*,'amr update a', lbound(self%x_cell_gpu,1), ubound(self%x_cell_gpu,1), size(self%x_cell_gpu,1)
@@ -1443,6 +1468,7 @@ contains
    associate(blocks_number=>self%blocks_number, q=>self%field%q, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
              ngc=>self%ngc, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell, &
              tem_inflow=>self%tem_inflow, ya_inflow=>self%ya_inflow, gamma_fluid=>self%gamma_fluid, &
+             R_star=>self%R_star, cv_star=>self%cv_star, cp_star=>self%cp_star, mu_star=>self%mu_star, k_star=>self%k_star, &
              pres_inflow=>self%pres_inflow, tem_outflow=>self%tem_outflow, u_inflow=>self%u_inflow, dha=>self%dha, &
              flame_center=>self%flame_center)
 
@@ -1509,6 +1535,42 @@ contains
                      q(4,i,j,k,b) = 0._R8P
                      q(5,i,j,k,b) = rho * ene
                      q(6,i,j,k,b) = 0.
+                  enddo
+               enddo
+            enddo
+         enddo
+      elseif(self%flow_type == "bryson") then
+         gamma_fluid = 1.4
+         R_star  = 287.
+         cv_star = 718.
+         mu_star = 1.11
+         cp_star = cv_star*gamma_fluid
+         k_star  = mu_star*cp_star/0.74
+         do b=1, blocks_number
+            do k=1, nk
+               do j=1, nj
+                  do i=1, ni
+                     if(x_cell(i,b) < 0.5) then
+                        rho  = 4233.95367528847
+                        pres = 7446.338
+                        tem  = pres/(rho*R_star)
+                        q(1,i,j,k,b) = rho
+                        q(2,i,j,k,b) = 2.0451067615658363
+                        q(3,i,j,k,b) = 0._R8P
+                        q(4,i,j,k,b) = 0._R8P
+                        q(5,i,j,k,b) = rho*cv_star*tem+rho*0.5*q(2,i,j,k,b)**2
+                        q(6,i,j,k,b) = 0.
+                     else
+                        rho  = 1152.499124
+                        pres = 823.2136599063617
+                        tem  = pres*gamma_fluid/(rho*(gamma_fluid-1))
+                        q(1,i,j,k,b) = rho
+                        q(2,i,j,k,b) = 0._R8P
+                        q(3,i,j,k,b) = 0._R8P
+                        q(4,i,j,k,b) = 0._R8P
+                        q(5,i,j,k,b) = rho*cv_star*tem
+                        q(6,i,j,k,b) = 0.
+                     endif
                   enddo
                enddo
             enddo
@@ -1699,7 +1761,7 @@ contains
    print*,'flame x_min: ',x_min
    endsubroutine flame_find_x_v_cuf
 
-   subroutine compute_aux_cuf(ni, nj, nk, ngc, ns, blocks_number, gamma_fluid, dha, q_gpu, q_aux_gpu)
+   subroutine compute_aux_cuf(ni, nj, nk, ngc, ns, blocks_number, gamma_fluid, dha, R_star, cv_star, q_gpu,  q_aux_gpu)
    !< Compute auxiliary variables by means of CUF threads.
    integer(I4P), intent(in)          :: ni                                     !< Grid cells number in I direction.
    integer(I4P), intent(in)          :: nj                                     !< Grid cells number in J direction.
@@ -1713,6 +1775,7 @@ contains
    real(R8P),    intent(out), device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Auxiliary variables.
    integer(I4P)                      :: b, i, j, k, s                          !< Counter.
    real(R8P)                         :: rho, uuu, vvv, www, rhe, rya, yya, tem !< Scalars.
+   real(R8P), intent(in)             :: R_star, cv_star                        !< Scalars.
    integer(I4P)                      :: iercuda                                !< Error trapping flag for CUDAFortran.
 
    !$cuf kernel do(4) <<<*,*>>>
@@ -1727,17 +1790,17 @@ contains
                rhe = q_gpu(b,i,j,k,5)
                rya = q_gpu(b,i,j,k,6)
                yya = rya/rho
-               tem = gamma_fluid*((rhe-rya*dha)/rho-0.5*(uuu**2+vvv**2+www**2))
+               tem = ((rhe-rya*dha)/rho-0.5*(uuu**2+vvv**2+www**2))/cv_star
 
-               q_aux_gpu(b,i,j,k,1) = rho                                          ! density
-               q_aux_gpu(b,i,j,k,2) = uuu                                          ! velocity x
-               q_aux_gpu(b,i,j,k,3) = vvv                                          ! velocity y
-               q_aux_gpu(b,i,j,k,4) = www                                          ! velocity z
-               q_aux_gpu(b,i,j,k,5) = yya                                          ! mass fraction
-               q_aux_gpu(b,i,j,k,6) = tem                                          ! temperature
-               q_aux_gpu(b,i,j,k,7) = (gamma_fluid-1._R8P)/gamma_fluid*rho*tem     ! pressure
-               q_aux_gpu(b,i,j,k,8) = rhe/rho+(gamma_fluid-1._R8P)/gamma_fluid*tem ! entalpy
-               q_aux_gpu(b,i,j,k,9) = sqrt((gamma_fluid-1._R8P)*tem)               ! sound speed
+               q_aux_gpu(b,i,j,k,1) = rho                            ! density
+               q_aux_gpu(b,i,j,k,2) = uuu                            ! velocity x
+               q_aux_gpu(b,i,j,k,3) = vvv                            ! velocity y
+               q_aux_gpu(b,i,j,k,4) = www                            ! velocity z
+               q_aux_gpu(b,i,j,k,5) = yya                            ! mass fraction
+               q_aux_gpu(b,i,j,k,6) = tem                            ! temperature
+               q_aux_gpu(b,i,j,k,7) = R_star*rho*tem                 ! pressure
+               q_aux_gpu(b,i,j,k,8) = rhe/rho+R_star*tem             ! entalpy
+               q_aux_gpu(b,i,j,k,9) = sqrt(gamma_fluid*R_star*tem)   ! sound speed
             enddo
          enddo
       enddo
@@ -1859,6 +1922,7 @@ contains
                                     iweno, lmax, dha, gamma_fluid, &
                                     gplus_x, gminus_x, gplus_y, gminus_y, gplus_z, gminus_z, &
                                     Prandtl, q_coeff, Lewis, Zeldovich, Damkohler, ivis, visc_type, &
+                                    R_star, cv_star, mu_star, k_star, cp_star, &
                                     fd_conv_gpu, fd_coeff1_gpu, fd_coeff2_gpu )
    !< Compute residuals of equation.
    integer(I4P), intent(in)            :: ni                                    !< Grid cells number in I direction.
@@ -1876,6 +1940,7 @@ contains
    real(R8P),    intent(in)            :: Prandtl                               !< Gamma.
    real(R8P),    intent(in)            :: q_coeff                               !< Gamma.
    real(R8P),    intent(in)            :: Lewis                                 !< Gamma.
+   real(R8P),    intent(in)            :: R_star, cv_star, mu_star, k_star, cp_star !< Gamma.
    real(R8P),    intent(in)            :: Zeldovich                             !< Gamma.
    real(R8P),    intent(in)            :: Damkohler                             !< Gamma.
    logical,      intent(in)            :: null_x                                !< Nullify x direction.
@@ -1999,7 +2064,7 @@ contains
    !                       fd_conv_gpu, dx_gpu, blocks_number, ni, nj, nk, ngc, ns+4, lmax)
    call euler_x_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, &
                                          gplus_x, gminus_x, dx_gpu,          &
-                                         blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha, gamma_fluid)
+                                         blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha, gamma_fluid, R_star)
    !call viscous_x_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, &
    !                                      gplus_x, gminus_x, dx_gpu,          &
    !                                      blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha, gamma_fluid)
@@ -2009,20 +2074,24 @@ contains
    !                       fd_conv_gpu, dy_gpu, blocks_number, ni, nj, nk, ngc, ns+4, lmax)
    call euler_y_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, &
                                          gplus_y, gminus_y, dy_gpu,          &
-                                         blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha, gamma_fluid)
+                                         blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha, gamma_fluid, R_star)
 
    tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(ni)/tBlock%y),1)
    !call euler_z_central_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, &
    !                       fd_conv_gpu, dz_gpu, blocks_number, ni, nj, nk, ngc, ns+4, lmax)
    call euler_z_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, &
                                          gplus_z, gminus_z, dz_gpu,          &
-                                         blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha, gamma_fluid)
+                                         blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha, gamma_fluid, R_star)
 
    !@cuf iercuda=cudaDeviceSynchronize()
 
-   if(Prandtl > 0.) call viscous_part(blocks_number, ni, nj, nk, ngc, ns+4, Prandtl, &
+   if(mu_star > 0.) call viscous_part(blocks_number, ni, nj, nk, ngc, ns+4, Prandtl, mu_star, k_star, &
                                       q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu,        &
                                       dx_gpu, dy_gpu, dz_gpu)
+
+   !ROTATINGFRAME if(rotating_frame) call rotating_frame_forces(blocks_number, ni, nj, nk, ngc, ns+4, Prandtl, &
+   !ROTATINGFRAME                                    q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu,        &
+   !ROTATINGFRAME                                    dx_gpu, dy_gpu, dz_gpu)
    !if(Prandtl > 0.) call viscous_cuf(ni, nj, nk, ngc, blocks_number, ivis, visc_type, fd_coeff1_gpu, fd_coeff2_gpu, &
    !   gamma_fluid, Prandtl, q_coeff, Lewis, Zeldovich, Damkohler, dha, q_aux_gpu, dx_gpu, dy_gpu, dz_gpu, fl_gpu)
 
@@ -2453,253 +2522,8 @@ contains
    enddo
    endsubroutine euler_z_central_kernel
 
-   attributes(global) subroutine euler_x_kernel_fra(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, gplus, gminus, dx_gpu, &
-                                                blocks_number, ni, nj, nk, ngc, nv, iweno, dha, gamma_fluid)
-
-   real(R8P), intent(in), device     ::     q_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P), intent(in), device     :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P), intent(inout), device  ::    fl_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P), intent(inout), device  ::  fhat_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P), intent(inout), device  ::     gplus(1:, 1:, 1:, 1:, 1:)
-   real(R8P), intent(inout), device  ::    gminus(1:, 1:, 1:, 1:, 1:)
-   real(R8P), intent(in), device     ::    dx_gpu(1:)
-   integer, intent(in), value        :: blocks_number, ni, nj, nk, ngc, nv, iweno
-   real(R8P), intent(in), value      :: dha, gamma_fluid
-   integer                           :: b, i, j, k, l, ll, m, mm, v
-   ! here 6 is used instead of nv to help the compiler to use registers instead of global memory
-   real(R8P)                         :: er(6,6), el(6,6), ev(6), evmax(6), ghat(6), gl(6), gr(6), fi(6)
-   real(R8P)                         :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
-   real(R8P)                         :: gc, wc
-
-   b = blockDim%x * (blockIdx%x - 1) + threadIdx%x
-   j = blockDim%y * (blockIdx%y - 1) + threadIdx%y
-   if(b > blocks_number .or. j > nj) return
-
-   do k=1,nk
-
-      do i=0,iweno-2 ! loop on faces
-
-         ! Compute Roe average
-         call compute_roe_average(q_aux_gpu, dha, gamma_fluid, &
-            ngc, b, i, j, k, i+1, j, k, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
-
-         ! Compute right and left eigenvectors matrices (at Roe state)
-         ! call compute_eigenvectors()
-
-         ! Find max eigenvalues on the stencil
-         do m=1,nv  ! loop on characteristic fields
-            evmax(m) = -1._R8P
-         enddo
-         do l=1,2*ngc ! LLF
-            ll = i + l - iweno
-            uu = q_aux_gpu(b,ll,j,k,2)
-            c  = q_aux_gpu(b,ll,j,k,9)
-            ev(1) = abs(uu-c) ; ev(2) = abs(uu) ; ev(3) = abs(uu+c) ; ev(4) = ev(2) ; ev(5) = ev(2) ; ev(6) = ev(2)
-            do m=1,6
-                evmax(m) = max(ev(m),evmax(m))
-            enddo
-         enddo
-
-         ! Decompose fluxes as + and -
-         do l=1,2*ngc ! loop over the stencil centered at face i
-            ll = i + l - iweno
-            fi(1)  = q_gpu(b,ll,j,k,2)
-            fi(2)  = q_aux_gpu(b,ll,j,k,2) * q_gpu(b,ll,j,k,2) + q_aux_gpu(b,ll,j,k,7)
-            fi(3)  = q_aux_gpu(b,ll,j,k,2) * q_gpu(b,ll,j,k,3)
-            fi(4)  = q_aux_gpu(b,ll,j,k,2) * q_gpu(b,ll,j,k,4)
-            fi(5)  = q_aux_gpu(b,ll,j,k,2) *(q_gpu(b,ll,j,k,5) + q_aux_gpu(b,ll,j,k,7))
-            fi(6)  = q_aux_gpu(b,ll,j,k,2) * q_gpu(b,ll,j,k,6)
-            do m=1,nv
-               wc = 0._R8P
-               gc = 0._R8P
-               do mm=1,nv
-                  wc = wc + el(mm,m) * q_gpu(b,ll,j,k,mm)
-                  gc = gc + el(mm,m) * fi(mm)
-               enddo
-               gplus (m,l,j,k,b) = 0.5_R8P * (gc + evmax(m) * wc)
-               gminus(m,l,j,k,b) = gc - gplus(m,l,j,k,b)
-            enddo
-         enddo
-
-         ! Reconstruction of the + and - fluxes
-         call weno_reconstruction(nv, gplus(1,1,j,k,b), gminus(1,1,j,k,b), gl, gr, iweno)
-      enddo
-
-      do i=0,ni ! loop on faces
-         ! Compute Roe average
-         call compute_roe_average(q_aux_gpu, dha, gamma_fluid, &
-            ngc, b, i, j, k, i+1, j, k, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
-
-         ! Compute right and left eigenvectors matrices (at Roe state)
-         ! call compute_eigenvectors()
-
-         ! Find max eigenvalues on the stencil
-         do m=1,nv  ! loop on characteristic fields
-            evmax(m) = -1._R8P
-         enddo
-         do l=1,2*ngc ! LLF
-            ll = i + l - iweno
-            uu = q_aux_gpu(b,ll,j,k,2)
-            c  = q_aux_gpu(b,ll,j,k,9)
-            ev(1) = abs(uu-c) ; ev(2) = abs(uu) ; ev(3) = abs(uu+c) ; ev(4) = ev(2) ; ev(5) = ev(2) ; ev(6) = ev(2)
-            do m=1,6
-                evmax(m) = max(ev(m),evmax(m))
-            enddo
-         enddo
-
-         ! Decompose fluxes as + and -
-         do l=1,2*ngc ! loop over the stencil centered at face i
-            ll = i + l - iweno
-            fi(1)  = q_gpu(b,ll,j,k,2)
-            fi(2)  = q_aux_gpu(b,ll,j,k,2) * q_gpu(b,ll,j,k,2) + q_aux_gpu(b,ll,j,k,7)
-            fi(3)  = q_aux_gpu(b,ll,j,k,2) * q_gpu(b,ll,j,k,3)
-            fi(4)  = q_aux_gpu(b,ll,j,k,2) * q_gpu(b,ll,j,k,4)
-            fi(5)  = q_aux_gpu(b,ll,j,k,2) *(q_gpu(b,ll,j,k,5) + q_aux_gpu(b,ll,j,k,7))
-            fi(6)  = q_aux_gpu(b,ll,j,k,2) * q_gpu(b,ll,j,k,6)
-            do m=1,nv
-               wc = 0._R8P
-               gc = 0._R8P
-               do mm=1,nv
-                  wc = wc + el(mm,m) * q_gpu(b,ll,j,k,mm)
-                  gc = gc + el(mm,m) * fi(mm)
-               enddo
-               gplus (m,l,j,k,b) = 0.5_R8P * (gc + evmax(m) * wc)
-               gminus(m,l,j,k,b) = gc - gplus(m,l,j,k,b)
-            enddo
-         enddo
-
-         ! Reconstruction of the + and - fluxes
-         ! call weno_reconstruction(nv, gplus(1,1,j,k,b), gminus(1,1,j,k,b), gl, gr, iweno, beta)
-
-         ! Reassemble + and - characteristic fluxes
-         do m=1,6
-            ghat(m) = gl(m) + gr(m)
-         enddo
-
-         ! Return to conservative fluxes
-         do m=1,nv
-            fhat_gpu(b,i,j,k,m) = 0._R8P
-            do mm=1,nv
-               fhat_gpu(b,i,j,k,m) = fhat_gpu(b,i,j,k,m) + er(mm,m) * ghat(mm)
-            enddo
-         enddo
-
-      enddo
-
-      ! Update net flux
-      do i=1,ni ! loop on inner nodes
-         do v=1,nv
-            fl_gpu(b,i,j,k,v) = (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i-1,j,k,v))/dx_gpu(b)
-         enddo
-      enddo
-
-   enddo
-
-   endsubroutine euler_x_kernel_fra
-
-   attributes(global) subroutine euler_x_kernel_stefano(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, gplus, gminus, dx_gpu, &
-                                                blocks_number, ni, nj, nk, ngc, nv, iweno, dha, gamma_fluid)
-
-   real(R8P), intent(in), device     ::     q_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P), intent(in), device     :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P), intent(inout), device  ::    fl_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P), intent(inout), device  ::  fhat_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P), intent(inout), device  ::     gplus(1:, 1:, 1:, 1:, 1:)
-   real(R8P), intent(inout), device  ::    gminus(1:, 1:, 1:, 1:, 1:)
-   real(R8P), intent(in), device     ::    dx_gpu(1:)
-   integer, intent(in), value        :: blocks_number, ni, nj, nk, ngc, nv, iweno
-   real(R8P), intent(in), value      :: dha, gamma_fluid
-   integer                           :: b, i, j, k, l, ll, m, mm, v
-   ! here 6 is used instead of nv to help the compiler to use registers instead of global memory
-   real(R8P)                         :: er(6,6), el(6,6), ev(6), evmax(6), ghat(6), gl(6), gr(6), fi(6)
-   real(R8P)                         :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
-   real(R8P)                         :: gc, wc
-
-   b = blockDim%x * (blockIdx%x - 1) + threadIdx%x
-   j = blockDim%y * (blockIdx%y - 1) + threadIdx%y
-   if(b > blocks_number .or. j > nj) return
-
-   do k=1,nk
-
-      do i=0,ni ! loop on faces
-
-         ! Compute Roe average
-         call compute_roe_average(q_aux_gpu, dha, gamma_fluid, &
-            ngc, b, i, j, k, i+1, j, k, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
-
-         ! Compute right and left eigenvectors matrices (at Roe state)
-         ! call compute_eigenvectors()
-
-         ! Find max eigenvalues on the stencil
-         do m=1,nv  ! loop on characteristic fields
-            evmax(m) = -1._R8P
-         enddo
-         do l=1,2*ngc ! LLF
-            ll = i + l - iweno
-            uu = q_aux_gpu(b,ll,j,k,2)
-            c  = q_aux_gpu(b,ll,j,k,9)
-            ev(1) = abs(uu-c) ; ev(2) = abs(uu) ; ev(3) = abs(uu+c) ; ev(4) = ev(2) ; ev(5) = ev(2) ; ev(6) = ev(2)
-            do m=1,6
-                evmax(m) = max(ev(m),evmax(m))
-            enddo
-         enddo
-
-         ! Decompose fluxes as + and -
-         do l=1,2*ngc ! loop over the stencil centered at face i
-            ll = i + l - iweno
-            fi(1)  = q_gpu(b,ll,j,k,2)
-            fi(2)  = q_aux_gpu(b,ll,j,k,2) * q_gpu(b,ll,j,k,2) + q_aux_gpu(b,ll,j,k,7)
-            fi(3)  = q_aux_gpu(b,ll,j,k,2) * q_gpu(b,ll,j,k,3)
-            fi(4)  = q_aux_gpu(b,ll,j,k,2) * q_gpu(b,ll,j,k,4)
-            fi(5)  = q_aux_gpu(b,ll,j,k,2) *(q_gpu(b,ll,j,k,5) + q_aux_gpu(b,ll,j,k,7))
-            fi(6)  = q_aux_gpu(b,ll,j,k,2) * q_gpu(b,ll,j,k,6)
-            do m=1,nv
-               wc = 0._R8P
-               gc = 0._R8P
-               do mm=1,nv
-                  wc = wc + el(mm,m) * q_gpu(b,ll,j,k,mm)
-                  gc = gc + el(mm,m) * fi(mm)
-               enddo
-               gplus (m,l,j,k,b) = 0.5_R8P * (gc + evmax(m) * wc)
-               gminus(m,l,j,k,b) = gc - gplus(m,l,j,k,b)
-            enddo
-         enddo
-
-         ! Reconstruction of the + and - fluxes
-         ! call weno_beta(nv, gplus(1,1,j,k,b), gminus(1,1,j,k,b), betap(1,1,j,k,b), betam(1,1,j,k,b), gr, iweno)
-
-      enddo
-
-      do i=0,ni
-         ! call weno_reconstruction(nv, gplus(1,1,j,k,b), gminus(1,1,j,k,b), gl, gr, iweno, betap, betam)
-
-         ! Reassemble + and - characteristic fluxes
-         do m=1,6
-            ghat(m) = gl(m) + gr(m)
-         enddo
-
-         ! Return to conservative fluxes
-         do m=1,nv
-            fhat_gpu(b,i,j,k,m) = 0._R8P
-            do mm=1,nv
-               fhat_gpu(b,i,j,k,m) = fhat_gpu(b,i,j,k,m) + er(mm,m) * ghat(mm)
-            enddo
-         enddo
-      enddo
-
-      ! Update net flux
-      do i=1,ni ! loop on inner nodes
-         do v=1,nv
-            fl_gpu(b,i,j,k,v) = (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i-1,j,k,v))/dx_gpu(b)
-         enddo
-      enddo
-
-   enddo
-
-   endsubroutine euler_x_kernel_stefano
-
    attributes(global) subroutine euler_x_kernel(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, gplus, gminus, dx_gpu, &
-                                                blocks_number, ni, nj, nk, ngc, nv, iweno, dha, gamma_fluid)
+                                                blocks_number, ni, nj, nk, ngc, nv, iweno, dha, gamma_fluid, R_star)
 
    real(R8P), intent(in), device     ::     q_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(in), device     :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
@@ -2710,7 +2534,7 @@ contains
    real(R8P), intent(inout), device  ::    gminus(1:, 1:, 1:, 1:, 1:)
    real(R8P), intent(in), device     ::    dx_gpu(1:)
    integer, intent(in), value        :: blocks_number, ni, nj, nk, ngc, nv, iweno
-   real(R8P), intent(in), value      :: dha, gamma_fluid
+   real(R8P), intent(in), value      :: dha, gamma_fluid, R_star
    integer                           :: b, i, j, k, l, ll, m, mm, v
    ! here 6 is used instead of nv to help the compiler to use registers instead of global memory
    real(R8P)                         :: er(6,6), el(6,6), ev(6), evmax(6), ghat(6), gl(6), gr(6), fi(6), vi(6)
@@ -2728,7 +2552,7 @@ contains
       do i=0,ni ! loop on faces
 
          ! Compute Roe average
-         call compute_roe_average(q_aux_gpu, dha, gamma_fluid, &
+         call compute_roe_average(q_aux_gpu, dha, gamma_fluid, R_star, &
             ngc, b, i, j, k, i+1, j, k, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
 
          ! Compute right and left eigenvectors matrices (at Roe state)
@@ -2774,7 +2598,7 @@ contains
             vi(2) = vi(1)*q_aux_gpu(b,ll,j,k,2)
             vi(3) = vi(1)*q_aux_gpu(b,ll,j,k,3)
             vi(4) = vi(1)*q_aux_gpu(b,ll,j,k,4)
-            vi(5) = vi(1)*(1._R8P/gamma_fluid*q_aux_gpu(b,ll,j,k,6)+&
+            vi(5) = vi(1)*(cv_star*q_aux_gpu(b,ll,j,k,6)+&
                 0.5_R8P*(q_aux_gpu(b,ll,j,k,2)**2+q_aux_gpu(b,ll,j,k,3)**2+q_aux_gpu(b,ll,j,k,4)**2)+&
                 q_aux_gpu(b,ll,j,k,5)*dha)
             vi(6) = vi(1)*q_aux_gpu(b,ll,j,k,5)
@@ -2791,10 +2615,19 @@ contains
                   wc = wc + el(mm,m) * vi(mm)
                   gc = gc + el(mm,m) * fi(mm)
                enddo
-               gplus (m,l,j,k,b) = 0.5_R8P * (gc + evmax(m) * wc)
+               gplus (m,l,j,k,b) = 0.5_R8P * (gc + evmax(m) * wc) 
                gminus(m,l,j,k,b) = gc - gplus(m,l,j,k,b)
             enddo
          enddo
+
+         !ROTATINGFRAME do
+         !ROTATINGFRAME    un = - v_grid(b,i,j,k) 
+         !ROTATINGFRAME    if(un > 0) then
+         !ROTATINGFRAME       gplus (m,l,j,k,b) = gplus (m,l,j,k,b) + un*vi(..)
+         !ROTATINGFRAME    else
+         !ROTATINGFRAME       gminus(m,l,j,k,b) = gminus(m,l,j,k,b) + un*vi(...)
+         !ROTATINGFRAME    endif
+         !ROTATINGFRAME enddo
 
          ! Reconstruction of the + and - fluxes
          call weno_reconstruction(6, gplus(1,1,j,k,b), gminus(1,1,j,k,b), gl, gr, iweno)
@@ -2838,12 +2671,12 @@ contains
 
    endsubroutine euler_x_kernel
 
-   subroutine viscous_part(blocks_number, ni, nj, nk, ngc, nv, Prandtl, &
+   subroutine viscous_part(blocks_number, ni, nj, nk, ngc, nv, Prandtl, mu_star, k_star, &
                            q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu,        &
                            dx_gpu, dy_gpu, dz_gpu)
 
    integer, intent(in)               :: blocks_number, ni, nj, nk, ngc, nv
-   real(R8P), intent(in)             :: Prandtl
+   real(R8P), intent(in)             :: Prandtl, mu_star, k_star
    real(R8P), intent(in), device     :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(inout), device  ::    fl_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(inout), device  ::  fhat_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
@@ -2861,8 +2694,8 @@ contains
    real(R8P)                         :: mu, k_coeff
    real(R8P), parameter              :: ib_eps=1.e-12_R8P
 
-   mu       = Prandtl
-   k_coeff  = 1.0
+   mu       = mu_star
+   k_coeff  = k_star
 
    !$cuf kernel do(3) <<<*,*>>>
    do k=1,nk
@@ -3052,8 +2885,50 @@ contains
 
    endsubroutine viscous_part
 
+   !ROTATINGFRAME subroutine rotating_frame_forces(blocks_number, ni, nj, nk, ngc, nv, Prandtl, &
+   !ROTATINGFRAME                         q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu,        &
+   !ROTATINGFRAME                         dx_gpu, dy_gpu, dz_gpu)
+
+   !ROTATINGFRAME integer, intent(in)               :: blocks_number, ni, nj, nk, ngc, nv
+   !ROTATINGFRAME real(R8P), intent(in)             :: Prandtl
+   !ROTATINGFRAME real(R8P), intent(in), device     :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
+   !ROTATINGFRAME real(R8P), intent(inout), device  ::    fl_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
+   !ROTATINGFRAME real(R8P), intent(inout), device  ::  fhat_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
+   !ROTATINGFRAME real(R8P), intent(inout), device  ::   phi_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
+   !ROTATINGFRAME real(R8P), intent(in), device     ::    dx_gpu(1:), dy_gpu(1:), dz_gpu(1:)
+   !ROTATINGFRAME integer                           :: b, i, j, k, v, iercuda
+   !ROTATINGFRAME real(R8P)                         :: du_dx, dv_dx, dw_dx, du_dy, dv_dy, dw_dy, du_dz, dv_dz, dw_dz
+   !ROTATINGFRAME real(R8P)                         :: dx_locale, dy_locale, dz_locale
+   !ROTATINGFRAME real(R8P)                         :: delta_x, delta_y, delta_z
+   !ROTATINGFRAME real(R8P)                         :: sigq, sigl
+   !ROTATINGFRAME real(R8P)                         :: tau_1_1, tau_2_1, tau_3_1, dT_dx
+   !ROTATINGFRAME real(R8P)                         :: tau_1_2, tau_2_2, tau_3_2, dT_dy
+   !ROTATINGFRAME real(R8P)                         :: tau_1_3, tau_2_3, tau_3_3, dT_dz
+   !ROTATINGFRAME real(R8P)                         :: vel_u, vel_v, vel_w
+   !ROTATINGFRAME real(R8P)                         :: mu, k_coeff
+   !ROTATINGFRAME real(R8P), parameter              :: ib_eps=1.e-12_R8P
+
+   !ROTATINGFRAME !$cuf kernel do(3) <<<*,*>>>
+   !ROTATINGFRAME do k=1,nk
+   !ROTATINGFRAME    do j=1,nj
+   !ROTATINGFRAME       do i=1,ni
+   !ROTATINGFRAME          do b=1,blocks_number
+   !ROTATINGFRAME              fl_gpu(b,i,j,k,2) = fl_gpu(b,i,j,k,2) - &
+   !ROTATINGFRAME                  q_aux_gpu(b,i,j,k,1)*(omega(2)*q_aux_gpu(b,i,j,k,4)-omega(3)*q_aux_gpu(b,i,j,k,3))
+   !ROTATINGFRAME              fl_gpu(b,i,j,k,3) = fl_gpu(b,i,j,k,3) - &
+   !ROTATINGFRAME                  q_aux_gpu(b,i,j,k,1)*(omega(3)*q_aux_gpu(b,i,j,k,2)-omega(1)*q_aux_gpu(b,i,j,k,4))
+   !ROTATINGFRAME              fl_gpu(b,i,j,k,4) = fl_gpu(b,i,j,k,4) - &
+   !ROTATINGFRAME                  q_aux_gpu(b,i,j,k,1)*(omega(1)*q_aux_gpu(b,i,j,k,3)-omega(2)*q_aux_gpu(b,i,j,k,2))
+   !ROTATINGFRAME          enddo
+   !ROTATINGFRAME       enddo
+   !ROTATINGFRAME    enddo
+   !ROTATINGFRAME enddo
+   !ROTATINGFRAME !@cuf iercuda=cudaDeviceSynchronize()
+
+   !ROTATINGFRAME endsubroutine rotating_frame_forces
+
    attributes(global) subroutine euler_y_kernel(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, gplus, gminus, dy_gpu, &
-                                                blocks_number, ni, nj, nk, ngc, nv, iweno, dha, gamma_fluid)
+                                                blocks_number, ni, nj, nk, ngc, nv, iweno, dha, gamma_fluid, R_star)
 
    real(R8P), intent(in), device     ::     q_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(in), device     :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
@@ -3064,7 +2939,7 @@ contains
    real(R8P), intent(inout), device  ::    gminus(1:, 1:, 1:, 1:, 1:)
    real(R8P), intent(in), device     ::    dy_gpu(1:)
    integer, intent(in), value        :: blocks_number, ni, nj, nk, ngc, nv, iweno
-   real(R8P), intent(in), value      :: dha, gamma_fluid
+   real(R8P), intent(in), value      :: dha, gamma_fluid, R_star
    integer                           :: b, i, j, k, l, ll, m, mm, v
    ! here 6 is used instead of nv to help the compiler to use registers instead of global memory
    real(R8P)                         :: er(6,6), el(6,6), ev(6), evmax(6), ghat(6), gl(6), gr(6), fi(6), vi(6)
@@ -3082,7 +2957,7 @@ contains
       do j=0,nj ! loop on faces
 
          ! Compute Roe average
-         call compute_roe_average(q_aux_gpu, dha, gamma_fluid, &
+         call compute_roe_average(q_aux_gpu, dha, gamma_fluid, R_star, &
             ngc, b, i, j, k, i, j+1, k, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
 
          ! Compute right and left eigenvectors matrices (at Roe state)
@@ -3128,7 +3003,7 @@ contains
             vi(2) = vi(1)*q_aux_gpu(b,i,ll,k,2)
             vi(3) = vi(1)*q_aux_gpu(b,i,ll,k,3)
             vi(4) = vi(1)*q_aux_gpu(b,i,ll,k,4)
-            vi(5) = vi(1)*(1._R8P/gamma_fluid*q_aux_gpu(b,i,ll,k,6)+&
+            vi(5) = vi(1)*(cv_star*q_aux_gpu(b,i,ll,k,6)+&
                 0.5_R8P*(q_aux_gpu(b,i,ll,k,2)**2+q_aux_gpu(b,i,ll,k,3)**2+q_aux_gpu(b,i,ll,k,4)**2)+&
                 q_aux_gpu(b,i,ll,k,5)*dha)
             vi(6) = vi(1)*q_aux_gpu(b,i,ll,k,5)
@@ -3193,7 +3068,7 @@ contains
    endsubroutine euler_y_kernel
 
    attributes(global) subroutine euler_z_kernel(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, gplus, gminus, dz_gpu, &
-                                                blocks_number, ni, nj, nk, ngc, nv, iweno, dha, gamma_fluid)
+                                                blocks_number, ni, nj, nk, ngc, nv, iweno, dha, gamma_fluid, R_star)
 
    real(R8P), intent(in), device     ::     q_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(in), device     :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
@@ -3204,7 +3079,7 @@ contains
    real(R8P), intent(inout), device  ::    gminus(1:, 1:, 1:, 1:, 1:)
    real(R8P), intent(in), device     ::    dz_gpu(1:)
    integer, intent(in), value        :: blocks_number, ni, nj, nk, ngc, nv, iweno
-   real(R8P), intent(in), value      :: dha, gamma_fluid
+   real(R8P), intent(in), value      :: dha, gamma_fluid, R_star
    integer                           :: b, i, j, k, l, ll, m, mm, v
    ! here 6 is used instead of nv to help the compiler to use registers instead of global memory
    real(R8P)                         :: er(6,6), el(6,6), ev(6), evmax(6), ghat(6), gl(6), gr(6), fi(6), vi(6)
@@ -3222,7 +3097,7 @@ contains
       do k=0,nk ! loop on faces
 
          ! Compute Roe average
-         call compute_roe_average(q_aux_gpu, dha, gamma_fluid, &
+         call compute_roe_average(q_aux_gpu, dha, gamma_fluid, R_star, &
             ngc, b, i, j, k, i, j, k+1, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
 
          ! Compute right and left eigenvectors matrices (at Roe state)
@@ -3268,7 +3143,7 @@ contains
             vi(2) = vi(1)*q_aux_gpu(b,i,j,ll,2)
             vi(3) = vi(1)*q_aux_gpu(b,i,j,ll,3)
             vi(4) = vi(1)*q_aux_gpu(b,i,j,ll,4)
-            vi(5) = vi(1)*(1._R8P/gamma_fluid*q_aux_gpu(b,i,j,ll,6)+&
+            vi(5) = vi(1)*(cv_star*q_aux_gpu(b,i,j,ll,6)+&
                 0.5_R8P*(q_aux_gpu(b,i,j,ll,2)**2+q_aux_gpu(b,i,j,ll,3)**2+q_aux_gpu(b,i,j,ll,4)**2)+&
                 q_aux_gpu(b,i,j,ll,5)*dha)
             vi(6) = vi(1)*q_aux_gpu(b,i,j,ll,5)
@@ -3332,12 +3207,12 @@ contains
 
    endsubroutine euler_z_kernel
 
-   attributes(device) subroutine compute_roe_average(q_aux_gpu, dha, gamma_fluid, &
+   attributes(device) subroutine compute_roe_average(q_aux_gpu, dha, gamma_fluid, R_star, &
       ngc, b, i, j, k, ip, jp, kp, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
 
    implicit none
    real(R8P), intent(in), device  :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P), intent(in)          :: dha, gamma_fluid
+   real(R8P), intent(in)          :: dha, gamma_fluid, R_star
    integer(I4P), intent(in)       :: ngc, b, i, j, k, ip, jp, kp
    real(R8P), intent(out)         :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
    real(R8P)                      :: ri, up, vp, wp, hp, yap, r, rp1, cc
@@ -3363,10 +3238,10 @@ contains
    h         =  (r*hp+h)*rp1
    ya        =  (r*yap+ya)*rp1
    qq        =  0.5_R8P * (uu*uu+vv*vv+ww*ww)
-   cc        =  (gamma_fluid-1._R8P) * (h - qq - ya*dha)
+   cc        =  gamma_fluid * (gamma_fluid-1._R8P) * (h - qq - ya*dha)
    c         =  sqrt(cc)
    ci        =  1._R8P/c
-   b2        = (gamma_fluid-1._R8P)/cc  ! alias 1/theta
+   b2        = (gamma_fluid*R_star)/cc  ! alias 1/theta
    b1        = b2 * qq                  ! alias q/theta
 
    endsubroutine compute_roe_average
