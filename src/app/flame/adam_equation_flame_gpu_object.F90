@@ -102,7 +102,7 @@ type :: equation_flame_gpu_object
    real(R8P)              :: Lewis=1._R8P            !< Lewis number.
    real(R8P)              :: Zeldovich=1060._R8P     !< Zeldovich number.
    real(R8P)              :: Damkohler=1800._R8P     !< Damkohler number.
-   real(R8P)              :: gamma_fluid=1.32_R8P    !< Gamma.
+   real(R8P)              :: gamma_fluid=1.4_R8P    !< Gamma.
    real(R8P)              :: R_star  
    real(R8P)              :: cv_star 
    real(R8P)              :: mu_star 
@@ -199,14 +199,16 @@ contains
          !call self%update_phi()
          call self%mark_by_geo(tol=2000._R8P, delta_fine=0.015_R8P, delta_coarse=0.15_R8P)
       elseif(self%flow_type == "bryson") then
+         !call self%mark_by_geo(tol=2000._R8P, delta_fine=0.04_R8P, delta_coarse=0.15_R8P)
+         call self%mark_by_grad_rho(grad_tol=1._R8P, delta_fine=0.05_R8P, delta_coarse=0.5_R8P)
       else
-          call self%mark_by_grad_rho(grad_tol=2._R8P, delta_fine=0.015_R8P, delta_coarse=0.15_R8P)
+         call self%mark_by_grad_rho(grad_tol=2._R8P, delta_fine=0.015_R8P, delta_coarse=0.15_R8P)
           !call self%mark_by_grad_rho(grad_tol=0.05_R8P, delta_fine=0.006_R8P, delta_coarse=0.015_R8P)
       endif
       call self%update_ghost_gpu(q_gpu=self%q_gpu)
       call self%copy_gpu_cpu()
       call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed)
-      if(self%flow_type == "cold") then
+      if(self%flow_type == "cold" .or. self%flow_type == "bryson") then
          call self%update_phi()
       endif
       call self%copy_cpu_gpu
@@ -245,7 +247,7 @@ contains
    integer(I4P), intent(in)            :: ngc                                  !< Ghost grid number.
    integer(I4P), intent(in)            :: blocks_number                        !< Number of blocks.
    real(R8P),    intent(in)            :: velocity(3)                          !< Velocity of the movement.
-   real(R8P),    intent(in),    device ::  phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Distance function.
+   real(R8P),    intent(inout), device ::  phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Distance function.
    real(R8P),    intent(inout), device :: dphi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Distance function gradient.
    real(R8P)                           :: n_phi_x, n_phi_y, n_phi_z, n_phi     !< Eikonal direction.
    integer(I4P)                        :: b, i, j, k, v                        !< Counter.
@@ -462,14 +464,15 @@ contains
    integer(I4P)                                    :: b    !< Counter.
 
    associate(blocks_number=>self%field%blocks_number, dxyz=>self%field%dxyz, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
-             ngc=>self%ngc, ns=>self%ns, q=>self%field%q, dt=>self%dt, CFL=>self%CFL)
+             ngc=>self%ngc, ns=>self%ns, q=>self%field%q, dt=>self%dt, CFL=>self%CFL, mu_star=>self%mu_star)
       call self%compute_aux(q_gpu=self%q_gpu, q_aux_gpu=self%q_aux_gpu)
       dt = huge(1._R8P)
       do b=1, self%field%blocks_number
          call compute_umax_cuf(b, ni=ni, nj=nj, nk=nk, ngc=ngc, ns=ns,   &
                                dx=dxyz(1,b), dy=dxyz(2,b), dz=dxyz(3,b), &
-                               q_aux_gpu=self%q_aux_gpu, umax=umax)
-         dt = min(dt, minval(dxyz(:,b)) / umax * CFL)
+                               q_aux_gpu=self%q_aux_gpu, umax=umax, mu_star=mu_star)
+         !dt = min(dt, minval(dxyz(:,b)) / umax * CFL)
+         dt = min(dt, CFL / umax )
       enddo
       call MPI_ALLREDUCE(MPI_IN_PLACE, dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%error)
    endassociate
@@ -546,7 +549,7 @@ contains
        self%dha         = 1._R8P ! otherwise WENO fails because there is a division to dha
        self%Damkohler   = 0._R8P
        self%pres_inflow = 10000._R8P
-       self%u_inflow    = 1.5_R8P
+       self%u_inflow    = 1._R8P
        self%tem_inflow  = 300._R8P
        self%tem_outflow = 300._R8P
        !self%q_coeff   = self%Prandtl
@@ -645,7 +648,7 @@ contains
    self%gamm_gpu = self%gamm
    endsubroutine initialize
 
-   subroutine mark_by_grad_rho(self, grad_tol, delta_fine, delta_coarse, threshold)
+   subroutine mark_by_grad_rho(self, grad_tol, delta_fine, delta_coarse, threshold, do_init)
    !< Mark blocks to be refined/derefined by a `grad(rho)` value.
    class(equation_flame_gpu_object), intent(inout)        :: self           !< The equation.
    real(R8P),                        intent(in)           :: grad_tol       !< Gradiend tolerance value.
@@ -656,37 +659,40 @@ contains
    real(R8P)                                              :: max_cell_delta !< Maximum cell delta.
    real(R8P)                                              :: grad_rho       !< Value (max) of gradient of rho.
    integer(I4P)                                           :: b              !< Counter.
+   logical, optional                , intent(in)          :: do_init
+   logical                                                :: do_init_
 
+   do_init_ = .true.    ; if (present(do_init)) do_init_ = do_init
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
-   self%field%refinements_needed = [(TO_NOT_TOUCH,b=1,self%blocks_number)]
+   if(do_init_) self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
    call self%update_ghost_gpu(q_gpu=self%q_gpu)
    associate (ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
               blocks_number=>self%blocks_number, ns=>self%ns, dxyz=>self%field%dxyz)
       call self%compute_aux(q_gpu=self%q_gpu, q_aux_gpu=self%q_aux_gpu)
       do b=1, blocks_number
-         grad_rho = gradient_cuf(b=b, ni=ni, nj=nj, nk=nk, ngc=ngc, ns=ns, &
+         grad_rho = gradient_cuf(b=b, ni=ni, nj=nj, nk=nk, ngc=ngc, &
                                  dx=dxyz(1,b), dy=dxyz(2,b), dz=dxyz(3,b), q_gpu=self%q_aux_gpu)
 
          max_cell_delta = max_cell_delta_grad(grad=grad_rho)
+         !max_cell_delta = 0.1
 
          if (maxval(dxyz(:,b)) > max_cell_delta) then
             self%field%refinements_needed(b) = TO_BE_REFINED
          elseif (maxval(dxyz(:,b)) * threshold_ < max_cell_delta) then
-            self%field%refinements_needed(b) = TO_BE_DEREFINED
+            self%field%refinements_needed(b) = max(self%field%refinements_needed(b), TO_BE_DEREFINED)
          else
-            self%field%refinements_needed(b) = TO_NOT_TOUCH
+            self%field%refinements_needed(b) = max(self%field%refinements_needed(b), TO_NOT_TOUCH)
          endif
       enddo
    endassociate
    contains
-      function gradient_cuf(b, ni, nj, nk, ngc, ns, dx, dy, dz, q_gpu) result(gradient)
+      function gradient_cuf(b, ni, nj, nk, ngc, dx, dy, dz, q_gpu) result(gradient)
       !< Gradient done by CUF threads.
       integer(I4P), intent(in)         :: b                                 !< Block index.
       integer(I4P), intent(in)         :: ni                                !< Grid cells number in I direction.
       integer(I4P), intent(in)         :: nj                                !< Grid cells number in J direction.
       integer(I4P), intent(in)         :: nk                                !< Grid cells number in K direction.
       integer(I4P), intent(in)         :: ngc                               !< Ghost cells number.
-      integer(I4P), intent(in)         :: ns                                !< Species number.
       real(R8P),    intent(in)         :: dx                                !< X space step.
       real(R8P),    intent(in)         :: dy                                !< Y space step.
       real(R8P),    intent(in)         :: dz                                !< Z space step.
@@ -704,8 +710,8 @@ contains
                grad = sqrt(((q_gpu(b,i+1,j,k,1) - q_gpu(b,i-1,j,k,1))/(2*dx))**2 + &
                            ((q_gpu(b,i,j+1,k,1) - q_gpu(b,i,j-1,k,1))/(2*dy))**2 + &
                            ((q_gpu(b,i,j,k+1,1) - q_gpu(b,i,j,k-1,1))/(2*dz))**2)
+               grad = grad/q_gpu(b,i,j,k,1)
                gradient = max(gradient, grad)
-
             enddo
          enddo
       enddo
@@ -725,7 +731,7 @@ contains
       endfunction max_cell_delta_grad
    endsubroutine mark_by_grad_rho
 
-   subroutine mark_by_geo(self, tol, delta_fine, delta_coarse, threshold)
+   subroutine mark_by_geo(self, tol, delta_fine, delta_coarse, threshold, do_init)
    !< Mark blocks to be refined/derefined by a `grad(rho)` value.
    class(equation_flame_gpu_object), intent(inout)        :: self           !< The equation.
    real(R8P),                        intent(in)           :: tol            !< Gradiend tolerance value.
@@ -736,9 +742,12 @@ contains
    real(R8P)                                              :: max_cell_delta !< Maximum cell delta.
    real(R8P)                                              :: distance       !< Value (max) of gradient of rho.
    integer(I4P)                                           :: b              !< Counter.
+   logical, optional                , intent(in)          :: do_init
+   logical                                                :: do_init_
 
+   do_init_ = .true.    ; if (present(do_init)) do_init_ = do_init
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
-   self%field%refinements_needed = [(TO_NOT_TOUCH,b=1,self%blocks_number)]
+   if(do_init_) self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
    associate (ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
               blocks_number=>self%blocks_number, ns=>self%ns, dxyz=>self%field%dxyz, phi=>self%phi)
       do b=1, blocks_number
@@ -751,9 +760,9 @@ contains
          if (maxval(dxyz(:,b)) > max_cell_delta) then
             self%field%refinements_needed(b) = TO_BE_REFINED
          elseif (maxval(dxyz(:,b)) * threshold_ < max_cell_delta) then
-            self%field%refinements_needed(b) = TO_NOT_TOUCH ! TO_BE_DEREFINED
+            self%field%refinements_needed(b) = max(self%field%refinements_needed(b), TO_BE_DEREFINED)
          else
-            self%field%refinements_needed(b) = TO_NOT_TOUCH
+            self%field%refinements_needed(b) = max(self%field%refinements_needed(b), TO_NOT_TOUCH)
          endif
       enddo
    endassociate
@@ -765,7 +774,8 @@ contains
 
       if (abs(distance) < epsilon(0._R8P)) then
          ! delta = 0.001_R8P
-         delta = 0.005_R8P
+         !delta = 0.005_R8P
+         delta = delta_fine
       else
          delta = huge(0._R8P)
       endif
@@ -785,7 +795,8 @@ contains
    real(R8P)                                               :: t_s
    real(R8P), parameter                                    :: ark(4) = [8./17.,17. /60.,5. /12.,3./4.]
    real(R8P), parameter                                    :: brk(4) = [0.,-15./68.,-17./60.,-5./12.]
-   real(R8P)                                               :: qnrk
+   real(R8P)                                               :: qnrk 
+   integer(I4P)                                            :: iermpi
 
    do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
    associate(alph=>self%alph, beta=>self%beta, gamm=>self%gamm, dt=>self%dt, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
@@ -794,6 +805,8 @@ contains
              alph_gpu=>self%alph_gpu, beta_gpu=>self%beta_gpu)
 
    do s=1, nrk
+      call MPI_Barrier(MPI_COMM_WORLD, iermpi)
+      print*,'substep  :  ',s
       t_s = t + dt*(ark(s)+brk(s))
       ! ------------------------------------------------------------------------------------------------
       ! MINIMAL IB
@@ -806,11 +819,15 @@ contains
       call compute_rk_prhs_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,        &
                                    alph_gpu=alph_gpu, dt=dt, s=s, q_gpu=self%q_gpu, prhs_gpu=self%prhs_gpu, &
                                    fl_gpu=self%fl_gpu, phi_gpu=self%phi_gpu, qnrk=dt*brk(s))
+      print*,'before update_ghost'
       call self%update_ghost_gpu(q_gpu=self%q_gpu(:,:,:,:,:))
       ! ------------------------------------------------------------------------------------------------
       ! ANDREA IB
       ! ------------------------------------------------------------------------------------------------
+      print*,'before eikonal'
       do i_eikonal=1,n_eikonal
+         call MPI_Barrier(MPI_COMM_WORLD, iermpi)
+         print*,'eikonal start'
          call evolve_eikonal_q_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
                                        phi_gpu=self%phi_gpu,                                             &
                                        dx_gpu=self%dxyz_gpu(:,1),                                        &
@@ -820,10 +837,14 @@ contains
                                        q_gpu=self%q_gpu(:,:,:,:,:))
          call self%update_ghost_gpu(q_gpu=self%q_gpu(:,:,:,:,:))
       enddo
+      print*,'after eikonal 1'
       call invert_eikonal_field(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,        &
                                 q_gpu=self%q_gpu(:,:,:,:,:), q_invert_gpu=self%q_invert_gpu(:,:,:,:,:),  &
                                 phi_gpu=self%phi_gpu)
+      print*,'after eikonal 2'
       call self%compute_aux(q_gpu=self%q_invert_gpu(:,:,:,:,:), q_aux_gpu=self%q_aux_gpu)
+      call MPI_Barrier(MPI_COMM_WORLD, iermpi)
+      print*,'after aux'
       ! ------------------------------------------------------------------------------------------------
       ! MINIMAL IB
       ! ------------------------------------------------------------------------------------------------
@@ -860,6 +881,11 @@ contains
                                  Damkohler     = self%Damkohler,                                            &
                                  ivis          = self%ivis,                                                 &
                                  visc_type     = self%visc_type,                                            &
+                                 R_star        = self%R_star,                                               &
+                                 cv_star       = self%cv_star,                                              &
+                                 mu_star       = self%mu_star,                                              &
+                                 k_star        = self%k_star,                                               &
+                                 cp_star       = self%cp_star,                                              &
                                  fd_conv_gpu   = self%fd_conv_gpu,                                          &
                                  fd_coeff1_gpu = self%fd_coeff1_gpu,                                        &
                                  fd_coeff2_gpu = self%fd_coeff2_gpu)
@@ -1106,11 +1132,13 @@ contains
                                                                     x_min=self%flame_x_min,                            &
                                                                     x_cell_gpu=self%x_cell_gpu,                        &
                                                                     y_cell_gpu=self%y_cell_gpu,                        &
-                                                                    z_cell_gpu=self%z_cell_gpu)
+                                                                    z_cell_gpu=self%z_cell_gpu,                        &
+                                                                    cv_star=self%cv_star,                              &
+                                                                    R_star=self%R_star)
    contains
       subroutine set_bc(nv, ngc, local_map_bc, pres_inflow, tem_inflow, &
           u_inflow, gamma_fluid, ya_inflow, dha, flame_center, x_min, &
-          x_cell_gpu, y_cell_gpu, z_cell_gpu)
+          x_cell_gpu, y_cell_gpu, z_cell_gpu, cv_star, R_star)
       integer(I4P), intent(in)         :: nv                      !< Number of variables.
       integer(I4P), intent(in)         :: ngc                     !< Ghost cells number.
       integer(I8P), intent(in), device :: local_map_bc(:,:,:)     !< Local map for BC ghost cells.
@@ -1134,6 +1162,8 @@ contains
       real(R8P)                        :: flame_center            !< Inflow values.
       real(R8P)                        :: x_min                   !< Inflow values.
       real(R8P)                        :: u_bc                    !< Inflow values.
+      real(R8P)                        :: cv_star                 !< Inflow values.
+      real(R8P)                        :: R_star                  !< Inflow values.
       integer :: i_inner, j_inner, k_inner
       real(R8P) :: rho, uuu, vvv, www, rhe, rya, yya, tem, pre, pres
 
@@ -1168,13 +1198,21 @@ contains
                    !jetelse
                    !jet    u_bc = 0._R8P
                    !jetendif
+
                    u_bc = u_inflow
-                   q_gpu(b,i,j,k,1) = gamma_fluid/(gamma_fluid-1._R8P)*pres_inflow/tem_inflow
+                   q_gpu(b,i,j,k,1) = 1.0
                    q_gpu(b,i,j,k,2) = q_gpu(b,i,j,k,1)*u_bc !inflow
                    q_gpu(b,i,j,k,3) = 0._R8P
                    q_gpu(b,i,j,k,4) = 0._R8P
-                   q_gpu(b,i,j,k,5) = q_gpu(b,i,j,k,1)*(1._R8P/gamma_fluid*tem_inflow+0.5*u_bc**2)
+                   q_gpu(b,i,j,k,5) = q_gpu(b,i,j,k,1)*(cv_star*1._R8P/(1.*R_star)+0.5*u_bc**2)
                    q_gpu(b,i,j,k,6) = 0._R8P
+
+                   !bryson q_gpu(b,i,j,k,1) = 5.1432014
+                   !bryson q_gpu(b,i,j,k,2) = 2.0451068*q_gpu(b,i,j,k,1)
+                   !bryson q_gpu(b,i,j,k,3) = 0._R8P
+                   !bryson q_gpu(b,i,j,k,4) = 0._R8P
+                   !bryson q_gpu(b,i,j,k,5) = q_gpu(b,i,j,k,1)*(9.0454500/((gamma_fluid-1.)*q_gpu(b,i,j,k,1))+0.5*2.0451068**2+ya_inflow*dha)
+                   !bryson q_gpu(b,i,j,k,6) = q_gpu(b,i,j,k,1)*ya_inflow
                else if (bc_type == BC_WALL_ISOTERM) then
                    i_inner = i - idelta*crown
                    j_inner = j - jdelta*crown
@@ -1523,14 +1561,20 @@ contains
             enddo
          enddo
       elseif(self%flow_type == "cold") then
+         gamma_fluid = 1.4
+         cv_star = 718.
+         R_star  = (gamma_fluid-1.)*cv_star
+         cp_star = cv_star*gamma_fluid
+         mu_star = 0.01
+         k_star  = mu_star*cp_star/0.74
          do b=1, blocks_number
             do k=1, nk
                do j=1, nj
                   do i=1, ni
-                     rho = gamma_fluid/(gamma_fluid-1._R8P)*pres_inflow/tem_inflow
-                     ene = 1._R8P/gamma_fluid*tem_inflow
+                     rho = 1.0
+                     ene = cv_star/(rho*R_star)+0.5*1.0**2
                      q(1,i,j,k,b) = rho
-                     q(2,i,j,k,b) = rho * 1.5_R8P
+                     q(2,i,j,k,b) = rho * 1._R8P
                      q(3,i,j,k,b) = 0._R8P
                      q(4,i,j,k,b) = 0._R8P
                      q(5,i,j,k,b) = rho * ene
@@ -1541,29 +1585,29 @@ contains
          enddo
       elseif(self%flow_type == "bryson") then
          gamma_fluid = 1.4
-         R_star  = 287.
          cv_star = 718.
-         mu_star = 1.11
+         R_star  = (gamma_fluid-1.)*cv_star
          cp_star = cv_star*gamma_fluid
+         mu_star = 0.0013485123
          k_star  = mu_star*cp_star/0.74
          do b=1, blocks_number
             do k=1, nk
                do j=1, nj
                   do i=1, ni
-                     if(x_cell(i,b) < 0.5) then
-                        rho  = 4233.95367528847
-                        pres = 7446.338
+                     if(x_cell(i,b) < 1.0) then
+                        rho  = 5.1432014
+                        pres = 9.0454500
                         tem  = pres/(rho*R_star)
                         q(1,i,j,k,b) = rho
-                        q(2,i,j,k,b) = 2.0451067615658363
+                        q(2,i,j,k,b) = 2.0451067615658363*rho
                         q(3,i,j,k,b) = 0._R8P
                         q(4,i,j,k,b) = 0._R8P
-                        q(5,i,j,k,b) = rho*cv_star*tem+rho*0.5*q(2,i,j,k,b)**2
+                        q(5,i,j,k,b) = rho*cv_star*tem+rho*0.5*(q(2,i,j,k,b)**2/rho**2)
                         q(6,i,j,k,b) = 0.
                      else
-                        rho  = 1152.499124
-                        pres = 823.2136599063617
-                        tem  = pres*gamma_fluid/(rho*(gamma_fluid-1))
+                        rho  = gamma_fluid
+                        pres = 1.0
+                        tem  = pres/(rho*R_star)
                         q(1,i,j,k,b) = rho
                         q(2,i,j,k,b) = 0._R8P
                         q(3,i,j,k,b) = 0._R8P
@@ -1585,13 +1629,8 @@ contains
                      rho = gamma_fluid/(gamma_fluid-1._R8P)*pres_inflow/tem
                      ene = 1._R8P/gamma_fluid*tem+0.5*u_inflow**2+yya*dha
                      q(1,i,j,k,b) = rho
-                     if(trim(self%flow_type) == "cold") then
-                         q(2,i,j,k,b) = rho * 1.5_R8P
-                         q(6,i,j,k,b) = 0.
-                     else
-                         q(2,i,j,k,b) = rho * u_inflow
-                         q(6,i,j,k,b) = rho * yya
-                     endif
+                     q(2,i,j,k,b) = rho * u_inflow
+                     q(6,i,j,k,b) = rho * yya
                      q(3,i,j,k,b) = 0._R8P
                      q(4,i,j,k,b) = 0._R8P
                      q(5,i,j,k,b) = rho * ene
@@ -1629,9 +1668,13 @@ contains
       if (step==3) do_set_bc       = .true.
    endif
 
+   print*,'UG 1'
    if (do_local_update) call self%base_gpu%update_ghost_local_gpu(q_gpu=q_gpu)
+   print*,'UG 2'
                         call self%base_gpu%update_ghost_mpi_gpu(q_gpu=q_gpu, step=step)
+   print*,'UG 3'
    if (do_set_bc)       call self%set_boundary_conditions(q_gpu=q_gpu)
+   print*,'UG 4'
    endsubroutine update_ghost_gpu
 
    ! operators
@@ -1836,7 +1879,8 @@ contains
       do j=1, nj
          do i=1,ni
             do b=1, blocks_number
-               do v=1, nv
+               do v=1, 5
+!RIMETTERE               do v=1, nv
                   if (phi_gpu(b,i,j,k,1) > 0._R8P) then
                      q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) - dq_gpu(b,i,j,k,v)
                      !if(v>=2 .and. v<=4) q_gpu(b,i,j,k,v) = 0.
@@ -2063,8 +2107,11 @@ contains
    !call euler_x_central_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, &
    !                       fd_conv_gpu, dx_gpu, blocks_number, ni, nj, nk, ngc, ns+4, lmax)
    call euler_x_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, &
-                                         gplus_x, gminus_x, dx_gpu,          &
-                                         blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha, gamma_fluid, R_star)
+                                        gplus_x, gminus_x, dx_gpu,          &
+                                        blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha, gamma_fluid, R_star, cv_star)
+   !@cuf iercuda=cudaDeviceSynchronize()
+   !call MPI_Finalize(iercuda)
+   !STOP
    !call viscous_x_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, &
    !                                      gplus_x, gminus_x, dx_gpu,          &
    !                                      blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha, gamma_fluid)
@@ -2074,14 +2121,14 @@ contains
    !                       fd_conv_gpu, dy_gpu, blocks_number, ni, nj, nk, ngc, ns+4, lmax)
    call euler_y_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, &
                                          gplus_y, gminus_y, dy_gpu,          &
-                                         blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha, gamma_fluid, R_star)
+                                         blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha, gamma_fluid, R_star, cv_star)
 
    tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(ni)/tBlock%y),1)
    !call euler_z_central_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, &
    !                       fd_conv_gpu, dz_gpu, blocks_number, ni, nj, nk, ngc, ns+4, lmax)
    call euler_z_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, &
                                          gplus_z, gminus_z, dz_gpu,          &
-                                         blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha, gamma_fluid, R_star)
+                                         blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha, gamma_fluid, R_star, cv_star)
 
    !@cuf iercuda=cudaDeviceSynchronize()
 
@@ -2523,7 +2570,7 @@ contains
    endsubroutine euler_z_central_kernel
 
    attributes(global) subroutine euler_x_kernel(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, gplus, gminus, dx_gpu, &
-                                                blocks_number, ni, nj, nk, ngc, nv, iweno, dha, gamma_fluid, R_star)
+                                                blocks_number, ni, nj, nk, ngc, nv, iweno, dha, gamma_fluid, R_star, cv_star)
 
    real(R8P), intent(in), device     ::     q_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(in), device     :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
@@ -2534,7 +2581,7 @@ contains
    real(R8P), intent(inout), device  ::    gminus(1:, 1:, 1:, 1:, 1:)
    real(R8P), intent(in), device     ::    dx_gpu(1:)
    integer, intent(in), value        :: blocks_number, ni, nj, nk, ngc, nv, iweno
-   real(R8P), intent(in), value      :: dha, gamma_fluid, R_star
+   real(R8P), intent(in), value      :: dha, gamma_fluid, R_star, cv_star
    integer                           :: b, i, j, k, l, ll, m, mm, v
    ! here 6 is used instead of nv to help the compiler to use registers instead of global memory
    real(R8P)                         :: er(6,6), el(6,6), ev(6), evmax(6), ghat(6), gl(6), gr(6), fi(6), vi(6)
@@ -2928,7 +2975,7 @@ contains
    !ROTATINGFRAME endsubroutine rotating_frame_forces
 
    attributes(global) subroutine euler_y_kernel(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, gplus, gminus, dy_gpu, &
-                                                blocks_number, ni, nj, nk, ngc, nv, iweno, dha, gamma_fluid, R_star)
+                                                blocks_number, ni, nj, nk, ngc, nv, iweno, dha, gamma_fluid, R_star, cv_star)
 
    real(R8P), intent(in), device     ::     q_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(in), device     :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
@@ -2939,7 +2986,7 @@ contains
    real(R8P), intent(inout), device  ::    gminus(1:, 1:, 1:, 1:, 1:)
    real(R8P), intent(in), device     ::    dy_gpu(1:)
    integer, intent(in), value        :: blocks_number, ni, nj, nk, ngc, nv, iweno
-   real(R8P), intent(in), value      :: dha, gamma_fluid, R_star
+   real(R8P), intent(in), value      :: dha, gamma_fluid, R_star, cv_star
    integer                           :: b, i, j, k, l, ll, m, mm, v
    ! here 6 is used instead of nv to help the compiler to use registers instead of global memory
    real(R8P)                         :: er(6,6), el(6,6), ev(6), evmax(6), ghat(6), gl(6), gr(6), fi(6), vi(6)
@@ -3068,7 +3115,7 @@ contains
    endsubroutine euler_y_kernel
 
    attributes(global) subroutine euler_z_kernel(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, gplus, gminus, dz_gpu, &
-                                                blocks_number, ni, nj, nk, ngc, nv, iweno, dha, gamma_fluid, R_star)
+                                                blocks_number, ni, nj, nk, ngc, nv, iweno, dha, gamma_fluid, R_star, cv_star)
 
    real(R8P), intent(in), device     ::     q_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(in), device     :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
@@ -3079,7 +3126,7 @@ contains
    real(R8P), intent(inout), device  ::    gminus(1:, 1:, 1:, 1:, 1:)
    real(R8P), intent(in), device     ::    dz_gpu(1:)
    integer, intent(in), value        :: blocks_number, ni, nj, nk, ngc, nv, iweno
-   real(R8P), intent(in), value      :: dha, gamma_fluid, R_star
+   real(R8P), intent(in), value      :: dha, gamma_fluid, R_star, cv_star
    integer                           :: b, i, j, k, l, ll, m, mm, v
    ! here 6 is used instead of nv to help the compiler to use registers instead of global memory
    real(R8P)                         :: er(6,6), el(6,6), ev(6), evmax(6), ghat(6), gl(6), gr(6), fi(6), vi(6)
@@ -3238,11 +3285,20 @@ contains
    h         =  (r*hp+h)*rp1
    ya        =  (r*yap+ya)*rp1
    qq        =  0.5_R8P * (uu*uu+vv*vv+ww*ww)
-   cc        =  gamma_fluid * (gamma_fluid-1._R8P) * (h - qq - ya*dha)
+   cc        =  (gamma_fluid-1._R8P) * (h - qq - ya*dha)
+   !print*, 'cc1====',cc
+   !print*, 'cc2====',gamma_fluid
+   !print*, 'cc3====',h
+   !print*, 'cc4====',qq
+   !print*, 'cc5====',ya
+   !print*, 'cc6====',dha
+   !print*, 'cc7====',ri
+   !print*, 'cc8====',rp1
+   !ERRATODIREIcc        =  gamma_fluid * (gamma_fluid-1._R8P) * (h - qq - ya*dha)
    c         =  sqrt(cc)
    ci        =  1._R8P/c
-   b2        = (gamma_fluid*R_star)/cc  ! alias 1/theta
-   b1        = b2 * qq                  ! alias q/theta
+   b2        = (gamma_fluid-1)/cc  ! alias 1/(cp*theta)
+   b1        = b2 * qq             ! alias q/(cp*theta)
 
    endsubroutine compute_roe_average
 
@@ -3449,7 +3505,8 @@ contains
    integer(I4P)                        :: iercuda                                !< Error trapping flag for CUDAFortran.
 
    !$cuf kernel do(5) <<<*,*>>>
-   do v=1, nv
+!RIMETTERE   do v=1, nv
+   do v=1, 5
       do k=1, nk
          do j=1, nj
             do i=1, ni
@@ -3485,7 +3542,8 @@ contains
    integer(I4P)                        :: iercuda                                !< Error trapping flag for CUDAFortran.
 
    !$cuf kernel do(5) <<<*,*>>>
-   do v=1, nv
+   do v=1, 5
+!RIMETTERE   do v=1, nv
       do k=1, nk
          do j=1, nj
             do i=1, ni
@@ -3701,7 +3759,7 @@ contains
    !@cuf iercuda=cudaDeviceSynchronize()
    endsubroutine minimal_immersed_bc
 
-   subroutine compute_umax_cuf(b, ni, nj, nk, ngc, ns, dx, dy, dz, q_aux_gpu, umax)
+   subroutine compute_umax_cuf(b, ni, nj, nk, ngc, ns, dx, dy, dz, q_aux_gpu, umax, mu_star)
    !< Compute maximum speed by means of CUF threads.
    integer(I4P), intent(in)         :: b                                     !< Block index.
    integer(I4P), intent(in)         :: ni                                    !< Grid cells number in I direction.
@@ -3712,11 +3770,13 @@ contains
    real(R8P),    intent(in)         :: dx                                    !< X space step.
    real(R8P),    intent(in)         :: dy                                    !< Y space step.
    real(R8P),    intent(in)         :: dz                                    !< Z space step.
+   real(R8P),    intent(in)         :: mu_star                               !< Z space step.
    real(R8P),    intent(in), device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary varibales.
    real(R8P),    intent(out)        :: umax                                  !< Maximum speed.
    real(R8P)                        :: ss                                    !< Speed of sound.
    integer(I4P)                     :: i, j, k                               !< Counter.
    integer(I4P)                     :: iercuda                               !< Error trapping flag for CUDAFortran.
+   real(R8P)                        :: dx_locale, dy_locale, dz_locale
 
    umax = 0._R8P
    !$cuf kernel do(3) <<<*,*>>>
@@ -3724,10 +3784,18 @@ contains
       do j=1, nj
          do i=1, ni
             ss = q_aux_gpu(b,i,j,k,9)
-            umax = max(umax, abs(q_aux_gpu(b,i,j,k,2)) + ss, &
-                             abs(q_aux_gpu(b,i,j,k,3)) + ss, &
-                             abs(q_aux_gpu(b,i,j,k,4)) + ss)
-
+            !umax = max(umax, abs(q_aux_gpu(b,i,j,k,2)) + ss, &
+            !                 abs(q_aux_gpu(b,i,j,k,3)) + ss, &
+            !                 abs(q_aux_gpu(b,i,j,k,4)) + ss)
+            dx_locale = dx/2.
+            dy_locale = dy/2.
+            dz_locale = dz/2.
+            umax = max(umax, (abs(q_aux_gpu(b,i,j,k,2)) + ss)/dx_locale +      &
+                              2.*mu_star/(q_aux_gpu(b,i,j,k,1))/dx_locale**2 + &
+                             (abs(q_aux_gpu(b,i,j,k,3)) + ss)/dy_locale +       &
+                              2.*mu_star/(q_aux_gpu(b,i,j,k,1))/dy_locale**2 + &
+                             (abs(q_aux_gpu(b,i,j,k,4)) + ss)/dz_locale +      &
+                              2.*mu_star/(q_aux_gpu(b,i,j,k,1))/dz_locale**2)
          enddo
       enddo
    enddo

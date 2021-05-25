@@ -486,6 +486,27 @@ contains
    integer(I8P), allocatable, intent(in)    :: comm_map_send_ghost(:,:)   !< Communication map, `fec` information.
    integer(I8P), allocatable, intent(in)    :: comm_map_recv_ghost(:,:)   !< Communication map, `fec` information.
 
+   !OLD---------------------------------------------------------------------------------------------
+   !OLD---------------------------------------------------------------------------------------------
+   !OLDcall assign_allocatable(lhs=self%local_map_ghost        , rhs=local_map_ghost        )
+   !OLDcall assign_allocatable(lhs=self%comm_map_n_send_ghost  , rhs=comm_map_n_send_ghost  )
+   !OLDcall assign_allocatable(lhs=self%comm_map_n_recv_ghost  , rhs=comm_map_n_recv_ghost  )
+   !OLDcall assign_allocatable(lhs=self%comm_map_send_ptr_ghost, rhs=comm_map_send_ptr_ghost)
+   !OLDcall assign_allocatable(lhs=self%comm_map_recv_ptr_ghost, rhs=comm_map_recv_ptr_ghost)
+   !OLDcall assign_allocatable(lhs=self%comm_map_send_ghost    , rhs=comm_map_send_ghost    )
+   !OLDcall assign_allocatable(lhs=self%comm_map_recv_ghost    , rhs=comm_map_recv_ghost    )
+   !OLDif (allocated(self%send_buffer_ghost)) deallocate(self%send_buffer_ghost)
+   !OLDif (allocated(self%recv_buffer_ghost)) deallocate(self%recv_buffer_ghost)
+
+   !OLDif (allocated(self%comm_map_send_ghost)) self%comm_map_send_ghost(:,15) = self%comm_map_send_ghost(:,15) * self%nv
+   !OLDif (allocated(self%comm_map_recv_ghost)) self%comm_map_recv_ghost(:,15) = self%comm_map_recv_ghost(:,15) * self%nv
+   !OLDif (allocated(self%comm_map_send_ptr_ghost)) self%comm_map_send_ptr_ghost = self%comm_map_send_ptr_ghost * self%nv
+   !OLDif (allocated(self%comm_map_recv_ptr_ghost)) self%comm_map_recv_ptr_ghost = self%comm_map_recv_ptr_ghost * self%nv
+   !OLDif (allocated(self%comm_map_n_send_ghost)) allocate(self%send_buffer_ghost(sum(self%comm_map_n_send_ghost, dim=1)*self%nv))
+   !OLDif (allocated(self%comm_map_n_recv_ghost)) allocate(self%recv_buffer_ghost(sum(self%comm_map_n_recv_ghost, dim=1)*self%nv))
+   !OLD---------------------------------------------------------------------------------------------
+   !OLD---------------------------------------------------------------------------------------------
+
    call assign_allocatable(lhs=self%local_map_ghost, rhs=local_map_ghost)
 
    call assign_allocatable(lhs=self%comm_map_n_send_ghost, rhs=comm_map_n_send_ghost  )
@@ -496,26 +517,41 @@ contains
    call assign_allocatable(lhs=self%comm_map_recv_ptr_ghost, rhs=comm_map_recv_ptr_ghost)
    call assign_allocatable(lhs=self%comm_map_send_ghost    , rhs=comm_map_send_ghost    )
    call assign_allocatable(lhs=self%comm_map_recv_ghost    , rhs=comm_map_recv_ghost    )
-   if (allocated(self%send_buffer_ghost))   deallocate(self%send_buffer_ghost)
-   if (allocated(self%recv_buffer_ghost))   deallocate(self%recv_buffer_ghost)
+   if (allocated(self%send_buffer_ghost)) deallocate(self%send_buffer_ghost)
+   !if (allocated(self%send_buffer_ghost))   then
+   !    deallocate(self%send_buffer_ghost)
+   !    !print*,'deallocate send_buffer_ghost'
+   !endif
+   if (allocated(self%recv_buffer_ghost)) deallocate(self%recv_buffer_ghost)
+   !if (allocated(self%recv_buffer_ghost))   then
+   !    deallocate(self%recv_buffer_ghost)
+   !    !print*,'deallocate recv_buffer_ghost'
+   !endif
 
    if (allocated(self%comm_map_send_ghost)) self%comm_map_send_ghost(:,15) = self%comm_map_send_ghost(:,15) * self%nv
    if (allocated(self%comm_map_recv_ghost)) self%comm_map_recv_ghost(:,15) = self%comm_map_recv_ghost(:,15) * self%nv
    if (allocated(self%comm_map_send_ptr_ghost)) self%comm_map_send_ptr_ghost = self%comm_map_send_ptr_ghost * self%nv
    if (allocated(self%comm_map_recv_ptr_ghost)) self%comm_map_recv_ptr_ghost = self%comm_map_recv_ptr_ghost * self%nv
-   if (allocated(self%comm_map_n_send_ghost)) allocate(self%send_buffer_ghost(sum(self%comm_map_n_send_ghost, dim=1)*self%nv))
-   if (allocated(self%comm_map_n_recv_ghost)) allocate(self%recv_buffer_ghost(sum(self%comm_map_n_recv_ghost, dim=1)*self%nv))
+   if (allocated(self%comm_map_n_send_ghost)) then
+       allocate(self%send_buffer_ghost(sum(self%comm_map_n_send_ghost, dim=1)*self%nv))
+       print*,'allocating send_buffer_ghost',size(self%send_buffer_ghost)
+       print*,'allocating send_buffer_ghost/2',self%comm_map_n_send_ghost
+   endif
+   if (allocated(self%comm_map_n_recv_ghost)) then
+       allocate(self%recv_buffer_ghost(sum(self%comm_map_n_recv_ghost, dim=1)*self%nv))
+       print*,'allocating recv_buffer_ghost',size(self%recv_buffer_ghost)
+   endif
 
    ! single variable maps
-   call assign_allocatable(lhs=self%comm_map_send_ptr_ghost_s, rhs=comm_map_send_ptr_ghost)
-   call assign_allocatable(lhs=self%comm_map_recv_ptr_ghost_s, rhs=comm_map_recv_ptr_ghost)
-   call assign_allocatable(lhs=self%comm_map_send_ghost_s    , rhs=comm_map_send_ghost    )
-   call assign_allocatable(lhs=self%comm_map_recv_ghost_s    , rhs=comm_map_recv_ghost    )
-   if (allocated(self%send_buffer_ghost_s)) deallocate(self%send_buffer_ghost_s)
-   if (allocated(self%recv_buffer_ghost_s)) deallocate(self%recv_buffer_ghost_s)
+   !RIMETTEREcall assign_allocatable(lhs=self%comm_map_send_ptr_ghost_s, rhs=comm_map_send_ptr_ghost)
+   !RIMETTEREcall assign_allocatable(lhs=self%comm_map_recv_ptr_ghost_s, rhs=comm_map_recv_ptr_ghost)
+   !RIMETTEREcall assign_allocatable(lhs=self%comm_map_send_ghost_s    , rhs=comm_map_send_ghost    )
+   !RIMETTEREcall assign_allocatable(lhs=self%comm_map_recv_ghost_s    , rhs=comm_map_recv_ghost    )
+   !RIMETTEREif (allocated(self%send_buffer_ghost_s)) deallocate(self%send_buffer_ghost_s)
+   !RIMETTEREif (allocated(self%recv_buffer_ghost_s)) deallocate(self%recv_buffer_ghost_s)
 
-   if (allocated(self%comm_map_n_send_ghost)) allocate(self%send_buffer_ghost_s(sum(self%comm_map_n_send_ghost, dim=1)))
-   if (allocated(self%comm_map_n_recv_ghost)) allocate(self%recv_buffer_ghost_s(sum(self%comm_map_n_recv_ghost, dim=1)))
+   !RIMETTEREif (allocated(self%comm_map_n_send_ghost)) allocate(self%send_buffer_ghost_s(sum(self%comm_map_n_send_ghost, dim=1)))
+   !RIMETTEREif (allocated(self%comm_map_n_recv_ghost)) allocate(self%recv_buffer_ghost_s(sum(self%comm_map_n_recv_ghost, dim=1)))
    endsubroutine prepare_comm_local_ghost
 
    subroutine prepare_local_bc(self, local_map_bc_face, local_map_bc_edge, local_map_bc_corner)

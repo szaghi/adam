@@ -80,6 +80,9 @@ contains
    subroutine copy_cpu_gpu(self)
    !< Copy data from CPU to GPU.
    class(base_gpu_object), intent(inout) :: self !< The base backend.
+       integer :: iermpi
+       print*,'calling copy_cpu_gpu'
+       call MPI_Barrier(MPI_COMM_WORLD, iermpi)
 
    if (allocated(self%local_map_ghost_gpu    )) deallocate(self%local_map_ghost_gpu    )
    if (allocated(self%comm_map_recv_ghost_gpu)) deallocate(self%comm_map_recv_ghost_gpu)
@@ -105,12 +108,16 @@ contains
    if (allocated(self%field%comm_map_send_ghost_s)) then
       self%comm_map_send_ghost_s_gpu = self%field%comm_map_send_ghost_s
    endif
+   print*,'AIA: ',allocated(self%field%send_buffer_ghost), size(self%field%send_buffer_ghost)
    if (allocated(self%field%send_buffer_ghost).and.size(self%field%send_buffer_ghost)>0) then
+      print*,'filling send_buffer_ghost_gpu'
       self%send_buffer_ghost_gpu   = self%field%send_buffer_ghost
    endif
    if (allocated(self%field%recv_buffer_ghost).and.size(self%field%recv_buffer_ghost)>0) then
+      print*,'filling recv_send_buffer_ghost_gpu'
       self%recv_buffer_ghost_gpu   = self%field%recv_buffer_ghost
    endif
+       call MPI_Barrier(MPI_COMM_WORLD, iermpi)
    if (allocated(self%field%send_buffer_ghost_s).and.size(self%field%send_buffer_ghost_s)>0) then
       self%send_buffer_ghost_s_gpu   = self%field%send_buffer_ghost_s
    endif
@@ -159,7 +166,10 @@ contains
    integer(I4P)                          :: send_ptr, send_ctr            !< Counter.
    integer(I4P), allocatable             :: c_crown(:)                    !< Counter.
 
-   if (allocated(self%field%local_map_ghost)) then
+   if (.not.allocated(self%field%local_map_ghost)) then
+      deallocate(self%local_map_ghost_cell_gpu)
+      ! add 1-var deallocation
+   else
       c = 0
       do f=1, size(self%field%local_map_ghost, dim=1)
          portion = self%field%local_map_ghost(f, 4 )
@@ -258,7 +268,12 @@ contains
       self%local_map_ghost_cell_gpu = local_map_ghost_cell
       deallocate(local_map_ghost_cell)
    endif
-   if (allocated(self%field%comm_map_send_ghost)) then
+
+   print*,'DAUUU: ',allocated(self%field%comm_map_send_ghost)
+   if (.not.allocated(self%field%comm_map_send_ghost)) then
+      deallocate(self%comm_map_send_ghost_cell_gpu)
+      ! add 1-var deallocation
+   else
       c = 0
       do f=1, size(self%field%comm_map_send_ghost, dim=1)
          portion = self%field%comm_map_send_ghost(f, 5 )
@@ -293,6 +308,8 @@ contains
 
       ! Nv variables map
       allocate(comm_map_send_ghost_cell(1:c*self%field%nv,1:7))
+      ! Single variable map
+      allocate(comm_map_send_ghost_cell_s(1:c,1:7))
       c = 1
       do f=1, size(self%field%comm_map_send_ghost, dim=1)
          b_send    = self%field%comm_map_send_ghost(f, 2 )
@@ -368,79 +385,82 @@ contains
       self%comm_map_send_ghost_cell_gpu = comm_map_send_ghost_cell
       deallocate(comm_map_send_ghost_cell)
 
-      ! single variable map
-      allocate(comm_map_send_ghost_cell_s(1:c,1:7))
-      c = 1
-      do f=1, size(self%field%comm_map_send_ghost_s, dim=1)
-         b_send    = self%field%comm_map_send_ghost_s(f, 2 )
-         portion   = self%field%comm_map_send_ghost_s(f, 5 )
-         imin      = self%field%comm_map_send_ghost_s(f, 6 )
-         jmin      = self%field%comm_map_send_ghost_s(f, 7 )
-         kmin      = self%field%comm_map_send_ghost_s(f, 8 )
-         imax      = self%field%comm_map_send_ghost_s(f, 9 )
-         jmax      = self%field%comm_map_send_ghost_s(f, 10)
-         kmax      = self%field%comm_map_send_ghost_s(f, 11)
-         idelta    = self%field%comm_map_send_ghost_s(f, 12)
-         jdelta    = self%field%comm_map_send_ghost_s(f, 13)
-         kdelta    = self%field%comm_map_send_ghost_s(f, 14)
-         send_ptr  = self%field%comm_map_send_ghost_s(f, 15)
-         if (portion==0_I4P) then
-            ! sending to a block at my level
-            send_ctr = 1
-            do k=kmin, kmax
-               do j=jmin, jmax
-                  do i=imin, imax
-                     comm_map_send_ghost_cell_s(c, 1:4) = [b_send,i+idelta,j+jdelta,k+kdelta]
-                     comm_map_send_ghost_cell_s(c,  5 ) = 1
-                     comm_map_send_ghost_cell_s(c,  6 ) = send_ptr + send_ctr
-                     comm_map_send_ghost_cell_s(c,  7 ) = 1
-                     send_ctr = send_ctr + 1
-                     c = c + 1
-                  enddo
-               enddo
-            enddo
-         elseif (portion<0_I4P) then ! Beware! This is < 0 because the reference is the receiver
-            ! sending to a block finer than me
-            send_ctr = 1
-            do k=kmin, kmax
-               do j=jmin, jmax
-                  do i=imin, imax
-                     do n=1,8
-                        comm_map_send_ghost_cell_s(c, 1:4) = [b_send,i,j,k]
-                        comm_map_send_ghost_cell_s(c,  5 ) = 1
-                        comm_map_send_ghost_cell_s(c,  6 ) = send_ptr + send_ctr
-                        comm_map_send_ghost_cell_s(c,  7 ) = 1
-                        send_ctr = send_ctr + 1
-                        c = c + 1
-                     enddo
-                  enddo
-               enddo
-            enddo
-         else
-            ! sending to a block coarser than me, loop is over the coarser grid
-            send_ctr = 1
-            do k=kmin, kmax
-               do j=jmin, jmax
-                  do i=imin, imax
-                     kkk = 2 * k + kdelta
-                     jjj = 2 * j + jdelta
-                     iii = 2 * i + idelta
-                     comm_map_send_ghost_cell_s(c, 1:4) = [b_send,iii,jjj,kkk]
-                     comm_map_send_ghost_cell_s(c,  5 ) = 1
-                     comm_map_send_ghost_cell_s(c,  6 ) = send_ptr + send_ctr
-                     comm_map_send_ghost_cell_s(c,  7 ) = 8
-                     send_ctr = send_ctr + 1
-                     c = c + 1
-                  enddo
-               enddo
-            enddo
-         endif
-      enddo
-      self%comm_map_send_ghost_cell_gpu_s = comm_map_send_ghost_cell_s
-      deallocate(comm_map_send_ghost_cell_s)
+      !RIMETTERE! single variable map
+      !RIMETTERE!SPOSTATO SOPRA allocate(comm_map_send_ghost_cell_s(1:c,1:7))
+      !RIMETTEREc = 1
+      !RIMETTEREdo f=1, size(self%field%comm_map_send_ghost_s, dim=1)
+      !RIMETTERE   b_send    = self%field%comm_map_send_ghost_s(f, 2 )
+      !RIMETTERE   portion   = self%field%comm_map_send_ghost_s(f, 5 )
+      !RIMETTERE   imin      = self%field%comm_map_send_ghost_s(f, 6 )
+      !RIMETTERE   jmin      = self%field%comm_map_send_ghost_s(f, 7 )
+      !RIMETTERE   kmin      = self%field%comm_map_send_ghost_s(f, 8 )
+      !RIMETTERE   imax      = self%field%comm_map_send_ghost_s(f, 9 )
+      !RIMETTERE   jmax      = self%field%comm_map_send_ghost_s(f, 10)
+      !RIMETTERE   kmax      = self%field%comm_map_send_ghost_s(f, 11)
+      !RIMETTERE   idelta    = self%field%comm_map_send_ghost_s(f, 12)
+      !RIMETTERE   jdelta    = self%field%comm_map_send_ghost_s(f, 13)
+      !RIMETTERE   kdelta    = self%field%comm_map_send_ghost_s(f, 14)
+      !RIMETTERE   send_ptr  = self%field%comm_map_send_ghost_s(f, 15)
+      !RIMETTERE   if (portion==0_I4P) then
+      !RIMETTERE      ! sending to a block at my level
+      !RIMETTERE      send_ctr = 1
+      !RIMETTERE      do k=kmin, kmax
+      !RIMETTERE         do j=jmin, jmax
+      !RIMETTERE            do i=imin, imax
+      !RIMETTERE               comm_map_send_ghost_cell_s(c, 1:4) = [b_send,i+idelta,j+jdelta,k+kdelta]
+      !RIMETTERE               comm_map_send_ghost_cell_s(c,  5 ) = 1
+      !RIMETTERE               comm_map_send_ghost_cell_s(c,  6 ) = send_ptr + send_ctr
+      !RIMETTERE               comm_map_send_ghost_cell_s(c,  7 ) = 1
+      !RIMETTERE               send_ctr = send_ctr + 1
+      !RIMETTERE               c = c + 1
+      !RIMETTERE            enddo
+      !RIMETTERE         enddo
+      !RIMETTERE      enddo
+      !RIMETTERE   elseif (portion<0_I4P) then ! Beware! This is < 0 because the reference is the receiver
+      !RIMETTERE      ! sending to a block finer than me
+      !RIMETTERE      send_ctr = 1
+      !RIMETTERE      do k=kmin, kmax
+      !RIMETTERE         do j=jmin, jmax
+      !RIMETTERE            do i=imin, imax
+      !RIMETTERE               do n=1,8
+      !RIMETTERE                  comm_map_send_ghost_cell_s(c, 1:4) = [b_send,i,j,k]
+      !RIMETTERE                  comm_map_send_ghost_cell_s(c,  5 ) = 1
+      !RIMETTERE                  comm_map_send_ghost_cell_s(c,  6 ) = send_ptr + send_ctr
+      !RIMETTERE                  comm_map_send_ghost_cell_s(c,  7 ) = 1
+      !RIMETTERE                  send_ctr = send_ctr + 1
+      !RIMETTERE                  c = c + 1
+      !RIMETTERE               enddo
+      !RIMETTERE            enddo
+      !RIMETTERE         enddo
+      !RIMETTERE      enddo
+      !RIMETTERE   else
+      !RIMETTERE      ! sending to a block coarser than me, loop is over the coarser grid
+      !RIMETTERE      send_ctr = 1
+      !RIMETTERE      do k=kmin, kmax
+      !RIMETTERE         do j=jmin, jmax
+      !RIMETTERE            do i=imin, imax
+      !RIMETTERE               kkk = 2 * k + kdelta
+      !RIMETTERE               jjj = 2 * j + jdelta
+      !RIMETTERE               iii = 2 * i + idelta
+      !RIMETTERE               comm_map_send_ghost_cell_s(c, 1:4) = [b_send,iii,jjj,kkk]
+      !RIMETTERE               comm_map_send_ghost_cell_s(c,  5 ) = 1
+      !RIMETTERE               comm_map_send_ghost_cell_s(c,  6 ) = send_ptr + send_ctr
+      !RIMETTERE               comm_map_send_ghost_cell_s(c,  7 ) = 8
+      !RIMETTERE               send_ctr = send_ctr + 1
+      !RIMETTERE               c = c + 1
+      !RIMETTERE            enddo
+      !RIMETTERE         enddo
+      !RIMETTERE      enddo
+      !RIMETTERE   endif
+      !RIMETTEREenddo
+      !RIMETTEREself%comm_map_send_ghost_cell_s_gpu = comm_map_send_ghost_cell_s
+      !RIMETTEREdeallocate(comm_map_send_ghost_cell_s)
    endif
 
-   if (allocated(self%field%comm_map_recv_ghost)) then
+   if (.not.allocated(self%field%comm_map_recv_ghost)) then
+      deallocate(self%comm_map_recv_ghost_cell_gpu)
+      ! add 1-var deallocation
+   else
       c = 0
       do f=1, size(self%field%comm_map_recv_ghost, dim=1)
          portion = self%field%comm_map_recv_ghost(f, 5 )
@@ -475,6 +495,8 @@ contains
 
       ! Nv variables map
       allocate(comm_map_recv_ghost_cell(1:c*self%field%nv,1:6))
+      ! Single variable map
+      allocate(comm_map_recv_ghost_cell_s(1:c,1:6))
       c = 1
       do f=1, size(self%field%comm_map_recv_ghost, dim=1)
          b_recv   = self%field%comm_map_recv_ghost(f, 1 )
@@ -528,56 +550,56 @@ contains
       self%comm_map_recv_ghost_cell_gpu = comm_map_recv_ghost_cell
       deallocate(comm_map_recv_ghost_cell)
 
-      ! single variable map
-      allocate(comm_map_recv_ghost_cell_s(1:c,1:6))
-      c = 1
-      do f=1, size(self%field%comm_map_recv_ghost_s, dim=1)
-         b_recv   = self%field%comm_map_recv_ghost_s(f, 1 )
-         portion  = self%field%comm_map_recv_ghost_s(f, 5 )
-         imin     = self%field%comm_map_recv_ghost_s(f, 6 )
-         jmin     = self%field%comm_map_recv_ghost_s(f, 7 )
-         kmin     = self%field%comm_map_recv_ghost_s(f, 8 )
-         imax     = self%field%comm_map_recv_ghost_s(f, 9 )
-         jmax     = self%field%comm_map_recv_ghost_s(f, 10)
-         kmax     = self%field%comm_map_recv_ghost_s(f, 11)
-         idelta   = self%field%comm_map_recv_ghost_s(f, 12)
-         jdelta   = self%field%comm_map_recv_ghost_s(f, 13)
-         kdelta   = self%field%comm_map_recv_ghost_s(f, 14)
-         recv_ptr = self%field%comm_map_recv_ghost_s(f, 15)
-         if (portion>=0_I4P) then
-            recv_ctr = 1
-            do k=kmin, kmax
-               do j=jmin, jmax
-                  do i=imin, imax
-                     comm_map_recv_ghost_cell_s(c, 1 ) = recv_ptr + recv_ctr
-                     comm_map_recv_ghost_cell_s(c,2:6) = [b_recv,i,j,k,1]
-                     recv_ctr = recv_ctr + 1
-                     c = c + 1
-                  enddo
-               enddo
-            enddo
-         else
-            ! receiving from a block coarser than me
-            recv_ctr = 1
-            do k=kmin, kmax
-               do j=jmin, jmax
-                  do i=imin, imax
-                     kkk = 2 * k + kdelta
-                     jjj = 2 * j + jdelta
-                     iii = 2 * i + idelta
-                     do kc=0,1 ; do jc=0,1 ; do ic=0,1
-                        comm_map_recv_ghost_cell_s(c, 1 ) = recv_ptr + recv_ctr
-                        comm_map_recv_ghost_cell_s(c,2:6) = [b_recv,iii+ic,jjj+jc,kkk+kc,1]
-                        recv_ctr = recv_ctr + 1
-                        c = c + 1
-                     enddo ; enddo ; enddo
-                  enddo
-               enddo
-            enddo
-         endif
-      enddo
-      self%comm_map_recv_ghost_cell_gpu_s = comm_map_recv_ghost_cell_s
-      deallocate(comm_map_recv_ghost_cell_s)
+      !RIMETTERE! single variable map
+      !RIMETTERE!SPOSTATO SOPRAallocate(comm_map_recv_ghost_cell_s(1:c,1:6))
+      !RIMETTEREc = 1
+      !RIMETTEREdo f=1, size(self%field%comm_map_recv_ghost_s, dim=1)
+      !RIMETTERE   b_recv   = self%field%comm_map_recv_ghost_s(f, 1 )
+      !RIMETTERE   portion  = self%field%comm_map_recv_ghost_s(f, 5 )
+      !RIMETTERE   imin     = self%field%comm_map_recv_ghost_s(f, 6 )
+      !RIMETTERE   jmin     = self%field%comm_map_recv_ghost_s(f, 7 )
+      !RIMETTERE   kmin     = self%field%comm_map_recv_ghost_s(f, 8 )
+      !RIMETTERE   imax     = self%field%comm_map_recv_ghost_s(f, 9 )
+      !RIMETTERE   jmax     = self%field%comm_map_recv_ghost_s(f, 10)
+      !RIMETTERE   kmax     = self%field%comm_map_recv_ghost_s(f, 11)
+      !RIMETTERE   idelta   = self%field%comm_map_recv_ghost_s(f, 12)
+      !RIMETTERE   jdelta   = self%field%comm_map_recv_ghost_s(f, 13)
+      !RIMETTERE   kdelta   = self%field%comm_map_recv_ghost_s(f, 14)
+      !RIMETTERE   recv_ptr = self%field%comm_map_recv_ghost_s(f, 15)
+      !RIMETTERE   if (portion>=0_I4P) then
+      !RIMETTERE      recv_ctr = 1
+      !RIMETTERE      do k=kmin, kmax
+      !RIMETTERE         do j=jmin, jmax
+      !RIMETTERE            do i=imin, imax
+      !RIMETTERE               comm_map_recv_ghost_cell_s(c, 1 ) = recv_ptr + recv_ctr
+      !RIMETTERE               comm_map_recv_ghost_cell_s(c,2:6) = [b_recv,i,j,k,1]
+      !RIMETTERE               recv_ctr = recv_ctr + 1
+      !RIMETTERE               c = c + 1
+      !RIMETTERE            enddo
+      !RIMETTERE         enddo
+      !RIMETTERE      enddo
+      !RIMETTERE   else
+      !RIMETTERE      ! receiving from a block coarser than me
+      !RIMETTERE      recv_ctr = 1
+      !RIMETTERE      do k=kmin, kmax
+      !RIMETTERE         do j=jmin, jmax
+      !RIMETTERE            do i=imin, imax
+      !RIMETTERE               kkk = 2 * k + kdelta
+      !RIMETTERE               jjj = 2 * j + jdelta
+      !RIMETTERE               iii = 2 * i + idelta
+      !RIMETTERE               do kc=0,1 ; do jc=0,1 ; do ic=0,1
+      !RIMETTERE                  comm_map_recv_ghost_cell_s(c, 1 ) = recv_ptr + recv_ctr
+      !RIMETTERE                  comm_map_recv_ghost_cell_s(c,2:6) = [b_recv,iii+ic,jjj+jc,kkk+kc,1]
+      !RIMETTERE                  recv_ctr = recv_ctr + 1
+      !RIMETTERE                  c = c + 1
+      !RIMETTERE               enddo ; enddo ; enddo
+      !RIMETTERE            enddo
+      !RIMETTERE         enddo
+      !RIMETTERE      enddo
+      !RIMETTERE   endif
+      !RIMETTEREenddo
+      !RIMETTEREself%comm_map_recv_ghost_cell_s_gpu = comm_map_recv_ghost_cell_s
+      !RIMETTEREdeallocate(comm_map_recv_ghost_cell_s)
    endif
 
    if (allocated(self%field%local_map_bc_face  ).or.&
@@ -597,6 +619,8 @@ contains
       deallocate(c_crown)
       self%local_map_bc_crown_gpu = local_map_bc_crown
       deallocate(local_map_bc_crown)
+   else
+      deallocate(self%local_map_bc_crown_gpu)
    endif
    contains
       function bc_cells_number(local_map_bc) result(cells_number)
@@ -982,8 +1006,8 @@ contains
    integer(I4P)                                     :: one_or_eight                 !< Flag triggering 8 cells mean.
    integer(I4P)                                     :: iercuda                      !< Error trapping flag for CUDAFortran.
 
-   if ((.not.allocated(comm_map_recv_ghost_cell_gpu)).and.&
-       (.not.allocated(comm_map_send_ghost_cell_gpu))) return
+   !RIMETTEREif ((.not.allocated(comm_map_recv_ghost_cell_gpu)).and.&
+   !RIMETTERE    (.not.allocated(comm_map_send_ghost_cell_gpu))) return
 
    do_step = .true.
    if (present(step)) then
@@ -994,29 +1018,45 @@ contains
    if (do_step(1)) then
       req_send_recv = MPI_REQUEST_NULL
 
+
       ! populate send buffer
-      !$cuf kernel do(1) <<<*,*>>>
-      do sf=1, size(comm_map_send_ghost_cell_gpu, dim=1)
-         b_send       = comm_map_send_ghost_cell_gpu(sf,1)
-         i_send       = comm_map_send_ghost_cell_gpu(sf,2)
-         j_send       = comm_map_send_ghost_cell_gpu(sf,3)
-         k_send       = comm_map_send_ghost_cell_gpu(sf,4)
-         v_send       = comm_map_send_ghost_cell_gpu(sf,5)
-         c_recv       = comm_map_send_ghost_cell_gpu(sf,6)
-         one_or_eight = comm_map_send_ghost_cell_gpu(sf,7)
-         if (one_or_eight==1) then
-            send_buffer_ghost_gpu(c_recv) = q_gpu(b_send,i_send,j_send,k_send,v_send)
-         else
-            send_buffer_ghost_gpu(c_recv) = 0._R8P
-            do kc=0,1 ; do jc=0,1 ; do ic=0,1
-               send_buffer_ghost_gpu(c_recv) = send_buffer_ghost_gpu(c_recv) + &
-                                               q_gpu(b_send,i_send+ic,j_send+jc,k_send+kc,v_send)
-            enddo ; enddo ; enddo
-            send_buffer_ghost_gpu(c_recv) = send_buffer_ghost_gpu(c_recv) * 0.125_R8P
-         endif
-      enddo
-      !@cuf iercuda=cudaDeviceSynchronize()
+      print*,'SIZEEE: ', size(comm_map_send_ghost_cell_gpu, dim=1)
+      print*,'SIZAAA: ', allocated(comm_map_send_ghost_cell_gpu)
+      print*,'SIZUUU: ', size(send_buffer_ghost_gpu, dim=1)
+      print*,'SIZFFF: ', allocated(send_buffer_ghost_gpu)
+      if(allocated(comm_map_send_ghost_cell_gpu)) then
+         !$cuf kernel do(1) <<<*,*>>>
+         do sf=1, size(comm_map_send_ghost_cell_gpu, dim=1)
+            b_send       = comm_map_send_ghost_cell_gpu(sf,1)
+            i_send       = comm_map_send_ghost_cell_gpu(sf,2)
+            j_send       = comm_map_send_ghost_cell_gpu(sf,3)
+            k_send       = comm_map_send_ghost_cell_gpu(sf,4)
+            v_send       = comm_map_send_ghost_cell_gpu(sf,5)
+            c_recv       = comm_map_send_ghost_cell_gpu(sf,6)
+            one_or_eight = comm_map_send_ghost_cell_gpu(sf,7)
+            if (one_or_eight==1) then
+               send_buffer_ghost_gpu(c_recv) = q_gpu(b_send,i_send,j_send,k_send,v_send)
+            else
+               send_buffer_ghost_gpu(c_recv) = 0._R8P
+               do kc=0,1 ; do jc=0,1 ; do ic=0,1
+                  send_buffer_ghost_gpu(c_recv) = send_buffer_ghost_gpu(c_recv) + &
+                                                  q_gpu(b_send,i_send+ic,j_send+jc,k_send+kc,v_send)
+               enddo ; enddo ; enddo
+               send_buffer_ghost_gpu(c_recv) = send_buffer_ghost_gpu(c_recv) * 0.125_R8P
+            endif
+            !debugsend_buffer_ghost_gpu(1) = 1.0 ! RIMETTERE SENZA
+         enddo
+         !@cuf iercuda=cudaDeviceSynchronize()
+      endif
+
+      error = cudaGetLastError()
+      if(error /= cudaSuccess) then
+         print*,'FRA CUDA ERROR ',cudaGetErrorString(error)
+         call MPI_Abort(MPI_COMM_WORLD, -15,error)
+         STOP
+       endif
    endif
+      print*,'kernel 1'
 
    if (do_step(2)) then
       ! receive
@@ -1041,23 +1081,42 @@ contains
          endif
       enddo
    endif
+      print*,'kernel 2',size(comm_map_recv_ghost_cell_gpu, dim=1)
+      print*,'kernel 2-B',size(comm_map_recv_ghost_cell_gpu, dim=2)
 
    if (do_step(3)) then
       call MPI_WAITALL(procs_number * 2, req_send_recv, MPI_STATUSES_IGNORE, error)
 
-      ! retrive from receive buffer
-      !$cuf kernel do(1) <<<*,*>>>
-      do rf=1, size(comm_map_recv_ghost_cell_gpu, dim=1)
-         c_send = comm_map_recv_ghost_cell_gpu(rf,1)
-         b_recv = comm_map_recv_ghost_cell_gpu(rf,2)
-         i_recv = comm_map_recv_ghost_cell_gpu(rf,3)
-         j_recv = comm_map_recv_ghost_cell_gpu(rf,4)
-         k_recv = comm_map_recv_ghost_cell_gpu(rf,5)
-         v_recv = comm_map_recv_ghost_cell_gpu(rf,6)
-         q_gpu(b_recv,i_recv,j_recv,k_recv,v_recv) = recv_buffer_ghost_gpu(c_send)
-      enddo
-      !@cuf iercuda=cudaDeviceSynchronize()
+      call MPI_Barrier(MPI_COMM_WORLD, error)
+      print*,'kernel 3-start'
+      !RIMETTERE SENZA
+
+      if(allocated(comm_map_recv_ghost_cell_gpu)) then
+         ! retrive from receive buffer
+         !$cuf kernel do(1) <<<*,*>>>
+         do rf=1, size(comm_map_recv_ghost_cell_gpu, dim=1)
+            c_send = comm_map_recv_ghost_cell_gpu(rf,1)
+            b_recv = comm_map_recv_ghost_cell_gpu(rf,2)
+            i_recv = comm_map_recv_ghost_cell_gpu(rf,3)
+            j_recv = comm_map_recv_ghost_cell_gpu(rf,4)
+            k_recv = comm_map_recv_ghost_cell_gpu(rf,5)
+            v_recv = comm_map_recv_ghost_cell_gpu(rf,6)
+            if(c_send < lbound(recv_buffer_ghost_gpu, dim=1) .or. c_send > ubound(recv_buffer_ghost_gpu, dim=1)) &
+                print*,'OOB c_send: ',c_send
+            if(b_recv < lbound(q_gpu, dim=1) .or. b_recv > ubound(q_gpu, dim=1)) print*,'OOB b_recv: ',b_recv
+            if(i_recv < lbound(q_gpu, dim=2) .or. i_recv > ubound(q_gpu, dim=2)) print*,'OOB i_recv: ',i_recv
+            if(j_recv < lbound(q_gpu, dim=3) .or. j_recv > ubound(q_gpu, dim=3)) print*,'OOB j_recv: ',j_recv
+            if(k_recv < lbound(q_gpu, dim=4) .or. k_recv > ubound(q_gpu, dim=4)) print*,'OOB k_recv: ',k_recv
+            if(v_recv < lbound(q_gpu, dim=5) .or. v_recv > ubound(q_gpu, dim=5)) print*,'OOB v_recv: ',v_recv
+            q_gpu(b_recv,i_recv,j_recv,k_recv,v_recv) = recv_buffer_ghost_gpu(c_send)
+            !print*,'SZ b_recv: ',b_recv
+            !debugq_gpu(b_recv,i_recv,j_recv,k_recv,v_recv) = 1.0
+         enddo
+         !@cuf iercuda=cudaDeviceSynchronize()
+      endif
    endif
+   print*,'kernel 3'
+   call MPI_Barrier(MPI_COMM_WORLD, error)
    endsubroutine update_ghost_mpi_gpu_cuf
 
    ! non TBP
