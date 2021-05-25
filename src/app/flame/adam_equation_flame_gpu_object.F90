@@ -130,6 +130,9 @@ type :: equation_flame_gpu_object
    ! cuf data
    real(R8P),    allocatable, device :: dq_gpu(:,:,:,:,:)    !<
    real(R8P),    allocatable, device :: fl_gpu(:,:,:,:,:)    !< Fluxes.
+   real(R8P),    allocatable, device :: flx_gpu(:,:,:,:,:)    !< Fluxes.
+   real(R8P),    allocatable, device :: fly_gpu(:,:,:,:,:)    !< Fluxes.
+   real(R8P),    allocatable, device :: flz_gpu(:,:,:,:,:)    !< Fluxes.
    real(R8P),    allocatable, device :: prhs_gpu(:,:,:,:,:)    !< Fluxes.
    real(R8P),    allocatable, device :: fl_s_gpu(:,:,:,:,:,:)!< Fluxes.
    real(R8P),    allocatable, device :: fhat_gpu(:,:,:,:,:)  !< Auxiliary fluxes.
@@ -177,6 +180,8 @@ type :: equation_flame_gpu_object
       procedure, pass(self) :: set_bc_rhs              !< Set boundary conditions for rhs.
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions of equation.
       procedure, pass(self) :: update_ghost_gpu        !< Update ghost cells and set boundary conditions.
+      procedure, pass(self) :: update_ghost_fluxes_gpu !< Update fluxes cells and set boundary conditions.
+      procedure, pass(self) :: compute_residuals_gpu   !< Compute residuals.
       ! operators
       generic :: assignment(=) => eq_assign_eq      !< Overload `=`.
       procedure, pass(lhs), private :: eq_assign_eq !< Operator `=`.
@@ -200,7 +205,8 @@ contains
          call self%mark_by_geo(tol=2000._R8P, delta_fine=0.015_R8P, delta_coarse=0.15_R8P)
       elseif(self%flow_type == "bryson") then
          !call self%mark_by_geo(tol=2000._R8P, delta_fine=0.04_R8P, delta_coarse=0.15_R8P)
-         call self%mark_by_grad_rho(grad_tol=1._R8P, delta_fine=0.05_R8P, delta_coarse=0.5_R8P)
+         !FINEcall self%mark_by_grad_rho(grad_tol=1._R8P, delta_fine=0.05_R8P, delta_coarse=0.5_R8P)
+         call self%mark_by_grad_rho(grad_tol=1._R8P, delta_fine=0.25_R8P, delta_coarse=1.0_R8P)
       else
          call self%mark_by_grad_rho(grad_tol=2._R8P, delta_fine=0.015_R8P, delta_coarse=0.15_R8P)
           !call self%mark_by_grad_rho(grad_tol=0.05_R8P, delta_fine=0.006_R8P, delta_coarse=0.015_R8P)
@@ -615,9 +621,15 @@ contains
    allocate(self%q_aux(1:ns+7,       1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
    ! GPU data
    allocate(self%fl_gpu(1:nb,        1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
+   allocate(self%flx_gpu(1:nb,        1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
+   allocate(self%fly_gpu(1:nb,        1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
+   allocate(self%flz_gpu(1:nb,        1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
    allocate(self%prhs_gpu(1:nb,        1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
    self%prhs_gpu = 0.
    self%fl_gpu = 0.
+   self%flx_gpu = 0.
+   self%fly_gpu = 0.
+   self%flz_gpu = 0.
    allocate(self%fl_s_gpu(1:nb,      1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv, 1:nrk))
    allocate(self%fhat_gpu(1:nb,      1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
    allocate(self%q_aux_gpu(1:nb,     1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:ns+7))
@@ -854,7 +866,7 @@ contains
       !okcall self%compute_aux(q_gpu=self%q_gpu(:,:,:,:,:), q_aux_gpu=self%q_aux_gpu)
       ! ------------------------------------------------------------------------------------------------
       ! produce residuo allo stadio corrente fl_gpu
-      call compute_residuals_gpu(ni=ni, nj=nj, nk=nk, ngc=ngc, ns=ns, blocks_number=blocks_number,          &
+      call self%compute_residuals_gpu(ni=ni, nj=nj, nk=nk, ngc=ngc, ns=ns, blocks_number=blocks_number,     &
                                  null_x=self%null_xyz(1), null_y=self%null_xyz(2), null_z=self%null_xyz(3), &
                                  dx_gpu        = self%dxyz_gpu(:,1),                                        &
                                  dy_gpu        = self%dxyz_gpu(:,2),                                        &
@@ -862,6 +874,9 @@ contains
                                  q_aux_gpu     = self%q_aux_gpu,                                            &
                                  phi_gpu       = self%phi_gpu,                                              &
                                  fl_gpu        = self%fl_gpu(:,:,:,:,:),                                    &
+                                 flx_gpu       = self%flx_gpu(:,:,:,:,:),                                   &
+                                 fly_gpu       = self%fly_gpu(:,:,:,:,:),                                   &
+                                 flz_gpu       = self%flz_gpu(:,:,:,:,:),                                   &
                                  fhat_gpu      = self%fhat_gpu,                                             &
                                  q_gpu         = self%q_s_gpu(:,:,:,:,:,s),                                 &
                                  iweno         = self%iweno,                                                &
@@ -1677,6 +1692,42 @@ contains
    print*,'UG 4'
    endsubroutine update_ghost_gpu
 
+   subroutine update_ghost_fluxes_gpu(self, flx_gpu, fly_gpu, flz_gpu, step)
+   !< Update ghost cells.
+   !< If not specified all steps are perfermod, syncronous computation
+   class(equation_flame_gpu_object), intent(inout)         :: self            !< The equation.
+   real(R8P),                        intent(inout), device :: flx_gpu(1:,         &
+                                                                      1-self%ngc:,&
+                                                                      1-self%ngc:,&
+                                                                      1-self%ngc:,&
+                                                                      1:)       !< Conservative variables.
+   real(R8P),                        intent(inout), device :: fly_gpu(1:,         &
+                                                                      1-self%ngc:,&
+                                                                      1-self%ngc:,&
+                                                                      1-self%ngc:,&
+                                                                      1:)       !< Conservative variables.
+   real(R8P),                        intent(inout), device :: flz_gpu(1:,         &
+                                                                      1-self%ngc:,&
+                                                                      1-self%ngc:,&
+                                                                      1-self%ngc:,&
+                                                                      1:)       !< Conservative variables.
+   integer(I4P),                     intent(in), optional  :: step            !< Step to be perfordmed in asyncronous comp.
+   logical                                                 :: do_local_update !< Flag for triggering local update.
+
+   ! perform local update if step is not speficied or if first step is selected
+   do_local_update = .false.
+   if (.not.present(step)) then
+      do_local_update = .true.
+   else
+      if (step==1) do_local_update = .true.
+   endif
+
+   print*,'UFF 1'
+   if (do_local_update) call self%base_gpu%update_ghost_fluxes_local_gpu(flx_gpu=flx_gpu, fly_gpu=fly_gpu, flz_gpu=flz_gpu)
+   print*,'UFF 2'
+   !TODO                     call self%base_gpu%update_ghost_fluxes_mpi_gpu(q_gpu=q_gpu, step=step)
+   endsubroutine update_ghost_fluxes_gpu
+
    ! operators
    ! =
    subroutine eq_assign_eq(lhs, rhs)
@@ -1961,14 +2012,15 @@ contains
    enddo
    endsubroutine compute_eikonal_dq_gpu
 
-   subroutine compute_residuals_gpu(ni, nj, nk, ngc, ns, blocks_number, null_x, null_y, null_z, &
-                                    dx_gpu, dy_gpu, dz_gpu, q_aux_gpu, phi_gpu, fl_gpu, fhat_gpu, q_gpu, &
-                                    iweno, lmax, dha, gamma_fluid, &
+   subroutine compute_residuals_gpu(self, ni, nj, nk, ngc, ns, blocks_number, null_x, null_y, null_z, &
+                                    dx_gpu, dy_gpu, dz_gpu, q_aux_gpu, phi_gpu, fl_gpu, flx_gpu, fly_gpu, flz_gpu, &
+                                    fhat_gpu, q_gpu, iweno, lmax, dha, gamma_fluid, &
                                     gplus_x, gminus_x, gplus_y, gminus_y, gplus_z, gminus_z, &
                                     Prandtl, q_coeff, Lewis, Zeldovich, Damkohler, ivis, visc_type, &
                                     R_star, cv_star, mu_star, k_star, cp_star, &
                                     fd_conv_gpu, fd_coeff1_gpu, fd_coeff2_gpu )
    !< Compute residuals of equation.
+   class(equation_flame_gpu_object), intent(inout)        :: self               !< The equation.
    integer(I4P), intent(in)            :: ni                                    !< Grid cells number in I direction.
    integer(I4P), intent(in)            :: nj                                    !< Grid cells number in J direction.
    integer(I4P), intent(in)            :: nk                                    !< Grid cells number in K direction.
@@ -2004,9 +2056,12 @@ contains
    real(R8P),    intent(inout), device :: gplus_z(1:,1:,1:,1:,1:)               !< Auxiliary variables.
    real(R8P),    intent(inout), device :: gminus_z(1:,1:,1:,1:,1:)              !< Auxiliary variables.
    real(R8P),    intent(inout), device :: fl_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Positive fluxes.
+   real(R8P),    intent(inout), device :: flx_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Positive fluxes.
+   real(R8P),    intent(inout), device :: fly_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Positive fluxes.
+   real(R8P),    intent(inout), device :: flz_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Positive fluxes.
    real(R8P),    intent(inout), device :: fhat_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Negative fluxes.
    real(R8P),    intent(inout), device :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Conservative variables.
-   real(R8P),    intent(inout), device :: phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Conservative variables.
+   real(R8P),    intent(inout), device :: phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Conservative variables.
    integer(I4P)                        :: b, i, j, k, v                         !< Counter.
    integer(I4P)                        :: iercuda                               !< Error trapping flag for CUDAFortran.
    type(dim3)                          :: grid, tBlock                          !< CUDA grid and block.
@@ -2031,6 +2086,8 @@ contains
    real(R8P) :: ulap, vlap, wlap, tlap
    real(R8P) :: ux, uy, uz, vx, vy, vz, wx, wy, wz, div3l
    real(R8P) :: sigx, sigy, sigz, sig11, sig12, sig13, sig22, sig23, sig33, sigah, sigqt, sigq
+
+   real(R8P) :: ib_eps
 
    !fl_gpu = 0.
 
@@ -2106,8 +2163,7 @@ contains
    tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(nj)/tBlock%y),1)
    !call euler_x_central_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, &
    !                       fd_conv_gpu, dx_gpu, blocks_number, ni, nj, nk, ngc, ns+4, lmax)
-   call euler_x_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, &
-                                        gplus_x, gminus_x, dx_gpu,          &
+   call euler_x_kernel<<<grid, tBlock>>>(q_aux_gpu, flx_gpu, gplus_x, gminus_x,                                       &
                                         blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha, gamma_fluid, R_star, cv_star)
    !@cuf iercuda=cudaDeviceSynchronize()
    !call MPI_Finalize(iercuda)
@@ -2119,22 +2175,27 @@ contains
    tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(ni)/tBlock%y),1)
    !call euler_y_central_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, &
    !                       fd_conv_gpu, dy_gpu, blocks_number, ni, nj, nk, ngc, ns+4, lmax)
-   call euler_y_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, &
-                                         gplus_y, gminus_y, dy_gpu,          &
+   call euler_y_kernel<<<grid, tBlock>>>(q_aux_gpu, fly_gpu, gplus_y, gminus_y,                                        &
                                          blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha, gamma_fluid, R_star, cv_star)
 
    tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(ni)/tBlock%y),1)
    !call euler_z_central_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, &
    !                       fd_conv_gpu, dz_gpu, blocks_number, ni, nj, nk, ngc, ns+4, lmax)
-   call euler_z_kernel<<<grid, tBlock>>>(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, &
-                                         gplus_z, gminus_z, dz_gpu,          &
+   call euler_z_kernel<<<grid, tBlock>>>(q_aux_gpu, flz_gpu, gplus_z, gminus_z,                                        &
                                          blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha, gamma_fluid, R_star, cv_star)
 
    !@cuf iercuda=cudaDeviceSynchronize()
 
    if(mu_star > 0.) call viscous_part(blocks_number, ni, nj, nk, ngc, ns+4, Prandtl, mu_star, k_star, &
-                                      q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu,        &
+                                      q_aux_gpu, flx_gpu, fly_gpu, flz_gpu,                           &
                                       dx_gpu, dy_gpu, dz_gpu)
+
+   !RIMETTEREcall self%update_ghost_fluxes_gpu(flx_gpu, fly_gpu, flz_gpu)
+
+   ib_eps = 1.e-12_R8P
+   call compute_flux_diff(blocks_number, ni, nj, nk, ngc, ns+4, &
+                          fl_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, &
+                          dx_gpu, dy_gpu, dz_gpu, ib_eps)
 
    !ROTATINGFRAME if(rotating_frame) call rotating_frame_forces(blocks_number, ni, nj, nk, ngc, ns+4, Prandtl, &
    !ROTATINGFRAME                                    q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu,        &
@@ -2569,17 +2630,13 @@ contains
    enddo
    endsubroutine euler_z_central_kernel
 
-   attributes(global) subroutine euler_x_kernel(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, gplus, gminus, dx_gpu, &
+   attributes(global) subroutine euler_x_kernel(q_aux_gpu, flx_gpu, gplus, gminus,  &
                                                 blocks_number, ni, nj, nk, ngc, nv, iweno, dha, gamma_fluid, R_star, cv_star)
 
-   real(R8P), intent(in), device     ::     q_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(in), device     :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P), intent(inout), device  ::    fl_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P), intent(in), device     ::   phi_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P), intent(inout), device  ::  fhat_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
+   real(R8P), intent(inout), device  ::   flx_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(inout), device  ::     gplus(1:, 1:, 1:, 1:, 1:)
    real(R8P), intent(inout), device  ::    gminus(1:, 1:, 1:, 1:, 1:)
-   real(R8P), intent(in), device     ::    dx_gpu(1:)
    integer, intent(in), value        :: blocks_number, ni, nj, nk, ngc, nv, iweno
    real(R8P), intent(in), value      :: dha, gamma_fluid, R_star, cv_star
    integer                           :: b, i, j, k, l, ll, m, mm, v
@@ -2587,8 +2644,6 @@ contains
    real(R8P)                         :: er(6,6), el(6,6), ev(6), evmax(6), ghat(6), gl(6), gr(6), fi(6), vi(6)
    real(R8P)                         :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
    real(R8P)                         :: gc, wc
-   real(R8P)                         :: dx_locale, delta_x
-   real(R8P), parameter              :: ib_eps=1.e-12_R8P
 
    b = blockDim%x * (blockIdx%x - 1) + threadIdx%x
    j = blockDim%y * (blockIdx%y - 1) + threadIdx%y
@@ -2686,17 +2741,39 @@ contains
 
          ! Return to conservative fluxes
          do m=1,6
-            fhat_gpu(b,i,j,k,m) = 0._R8P
+            flx_gpu(b,i,j,k,m) = 0._R8P
             do mm=1,6
-               fhat_gpu(b,i,j,k,m) = fhat_gpu(b,i,j,k,m) + er(mm,m) * ghat(mm)
+               flx_gpu(b,i,j,k,m) = flx_gpu(b,i,j,k,m) + er(mm,m) * ghat(mm)
             enddo
          enddo
 
       enddo
+   enddo
+   endsubroutine euler_x_kernel
 
-      ! Update net flux (procedura alternativa all'interpolazione proposta nel paper, utilizza dx_locale).
-      do i=1,ni ! loop on inner nodes
+
+   subroutine compute_flux_diff(blocks_number, ni, nj, nk, ngc, nv, &
+                                fl_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, &
+                                dx_gpu, dy_gpu, dz_gpu, ib_eps)
+       integer(I4P), intent(in)          :: blocks_number, ni, nj, nk, ngc, nv
+       real(R8P), intent(inout), device  ::  fl_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
+       real(R8P), intent(in)   , device  :: flx_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
+       real(R8P), intent(in)   , device  :: fly_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
+       real(R8P), intent(in)   , device  :: flz_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
+       real(R8P), intent(in)   , device  :: phi_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
+       real(R8P), intent(in)   , device  :: dx_gpu(1:), dy_gpu(1:), dz_gpu(1:)
+       real(R8P), intent(in)             :: ib_eps
+       real(R8P)                         :: delta_x, delta_y, delta_z, dx_locale, dy_locale, dz_locale
+       integer(I4P)                      :: b, i, j, k, v, iercuda
+
+      !$cuf kernel do(4) <<<*,*>>>
+      do k=1,nk
+      do j=1,nj
+      do i=1,ni
+      do b=1,blocks_number 
+
          dx_locale = dx_gpu(b)
+         ! Update net flux (procedura alternativa all'interpolazione proposta nel paper, utilizza dx_locale).
          if(phi_gpu(b,i,j,k,1)<0.) then
              if(phi_gpu(b,i+1,j,k,1)*phi_gpu(b,i-1,j,k,1)<0) then
                  if(phi_gpu(b,i+1,j,k,1)>0.) then
@@ -2708,26 +2785,56 @@ contains
                  endif
              endif
          endif
+
+         dy_locale = dy_gpu(b)
+         if(phi_gpu(b,i,j,k,1)<0.) then
+             if(phi_gpu(b,i,j+1,k,1)*phi_gpu(b,i,j-1,k,1)<0) then
+                 if(phi_gpu(b,i,j+1,k,1)>0.) then
+                     delta_y = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j+1,k,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dy_gpu(b)
+                     dy_locale = dy_gpu(b)/2 + delta_y
+                 else !if(phi_gpu(b,i-1,j,k,1)>0) then
+                     delta_y = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j-1,k,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dy_gpu(b)
+                     dy_locale = dy_gpu(b)/2 + delta_y
+                 endif
+             endif
+         endif
+
+         dz_locale = dz_gpu(b)
+         if(phi_gpu(b,i,j,k,1)<0.) then
+             if(phi_gpu(b,i,j,k+1,1)*phi_gpu(b,i,j,k-1,1)<0) then
+                 if(phi_gpu(b,i,j,k+1,1)>0.) then
+                     delta_z = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j,k+1,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dz_gpu(b)
+                     dz_locale = dz_gpu(b)/2 + delta_z
+                 else !if(phi_gpu(b,i,j,k-1,1)>0) then
+                     delta_z = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j,k-1,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dz_gpu(b)
+                     dz_locale = dz_gpu(b)/2 + delta_z
+                 endif
+             endif
+         endif
+
          do v=1,6
-            !fl_gpu(b,i,j,k,v) = - (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i-1,j,k,v)) / dx_gpu(b)
-            fl_gpu(b,i,j,k,v) = - (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i-1,j,k,v))/dx_locale
+            fl_gpu(b,i,j,k,v) = - (flx_gpu(b,i,j,k,v)-flx_gpu(b,i-1,j,k,v))/dx_locale &
+                                - (fly_gpu(b,i,j,k,v)-fly_gpu(b,i,j-1,k,v))/dy_locale &
+                                - (flz_gpu(b,i,j,k,v)-flz_gpu(b,i,j,k-1,v))/dz_locale
          enddo
+
       enddo
-
-   enddo
-
-   endsubroutine euler_x_kernel
+      enddo
+      enddo
+      enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
+   endsubroutine compute_flux_diff
 
    subroutine viscous_part(blocks_number, ni, nj, nk, ngc, nv, Prandtl, mu_star, k_star, &
-                           q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu,        &
+                           q_aux_gpu, flx_gpu, fly_gpu, flz_gpu,                         &
                            dx_gpu, dy_gpu, dz_gpu)
 
    integer, intent(in)               :: blocks_number, ni, nj, nk, ngc, nv
    real(R8P), intent(in)             :: Prandtl, mu_star, k_star
    real(R8P), intent(in), device     :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P), intent(inout), device  ::    fl_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P), intent(inout), device  ::  fhat_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P), intent(inout), device  ::   phi_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
+   real(R8P), intent(inout), device  ::   flx_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
+   real(R8P), intent(inout), device  ::   fly_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
+   real(R8P), intent(inout), device  ::   flz_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(in), device     ::    dx_gpu(1:), dy_gpu(1:), dz_gpu(1:)
    integer                           :: b, i, j, k, v, iercuda
    real(R8P)                         :: du_dx, dv_dx, dw_dx, du_dy, dv_dy, dw_dy, du_dz, dv_dz, dw_dz
@@ -2776,31 +2883,31 @@ contains
                 sigq = k_coeff*dT_dx
                 sigl = vel_u*tau_1_1+vel_v*tau_2_1+vel_w*tau_3_1
 
-                fhat_gpu(b,i,j,k,2) = tau_1_1
-                fhat_gpu(b,i,j,k,3) = tau_2_1
-                fhat_gpu(b,i,j,k,4) = tau_3_1
-                fhat_gpu(b,i,j,k,5) = sigq + sigl
+                flx_gpu(b,i,j,k,2) = flx_gpu(b,i,j,k,2) - tau_1_1
+                flx_gpu(b,i,j,k,3) = flx_gpu(b,i,j,k,3) - tau_2_1
+                flx_gpu(b,i,j,k,4) = flx_gpu(b,i,j,k,4) - tau_3_1
+                flx_gpu(b,i,j,k,5) = flx_gpu(b,i,j,k,5) - sigq + sigl
             enddo
 
-            ! Update net flux (procedura alternativa all'interpolazione proposta nel paper, utilizza dx_locale).
-            do i=1,ni ! loop on inner nodes
-               dx_locale = dx_gpu(b)
-               if(phi_gpu(b,i,j,k,1)<0.) then
-                   if(phi_gpu(b,i+1,j,k,1)*phi_gpu(b,i-1,j,k,1)<0) then
-                       if(phi_gpu(b,i+1,j,k,1)>0.) then
-                           delta_x = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i+1,j,k,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dx_gpu(b)
-                           dx_locale = dx_gpu(b)/2 + delta_x
-                       else !if(phi_gpu(b,i-1,j,k,1)>0) then
-                           delta_x = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i-1,j,k,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dx_gpu(b)
-                           dx_locale = dx_gpu(b)/2 + delta_x
-                       endif
-                   endif
-               endif
-               do v=2,6
-                  !fl_gpu(b,i,j,k,v) = - (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i-1,j,k,v)) / dx_gpu(b)
-                  fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) + (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i-1,j,k,v))/dx_locale
-               enddo
-            enddo
+            !! Update net flux (procedura alternativa all'interpolazione proposta nel paper, utilizza dx_locale).
+            !do i=1,ni ! loop on inner nodes
+            !   dx_locale = dx_gpu(b)
+            !   if(phi_gpu(b,i,j,k,1)<0.) then
+            !       if(phi_gpu(b,i+1,j,k,1)*phi_gpu(b,i-1,j,k,1)<0) then
+            !           if(phi_gpu(b,i+1,j,k,1)>0.) then
+            !               delta_x = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i+1,j,k,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dx_gpu(b)
+            !               dx_locale = dx_gpu(b)/2 + delta_x
+            !           else !if(phi_gpu(b,i-1,j,k,1)>0) then
+            !               delta_x = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i-1,j,k,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dx_gpu(b)
+            !               dx_locale = dx_gpu(b)/2 + delta_x
+            !           endif
+            !       endif
+            !   endif
+            !   do v=2,6
+            !      !fl_gpu(b,i,j,k,v) = - (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i-1,j,k,v)) / dx_gpu(b)
+            !      flx_gpu(b,i,j,k,v) = flx_gpu(b,i,j,k,v) + (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i-1,j,k,v))/dx_locale
+            !   enddo
+            !enddo
          enddo
       enddo
    enddo
@@ -2838,31 +2945,31 @@ contains
                 sigq = k_coeff*dT_dy
                 sigl = vel_u*tau_1_2+vel_v*tau_2_2+vel_w*tau_3_2
 
-                fhat_gpu(b,i,j,k,2) = tau_1_2
-                fhat_gpu(b,i,j,k,3) = tau_2_2
-                fhat_gpu(b,i,j,k,4) = tau_3_2
-                fhat_gpu(b,i,j,k,5) = sigq + sigl
+                fly_gpu(b,i,j,k,2) = fly_gpu(b,i,j,k,2) - tau_1_2
+                fly_gpu(b,i,j,k,3) = fly_gpu(b,i,j,k,3) - tau_2_2
+                fly_gpu(b,i,j,k,4) = fly_gpu(b,i,j,k,4) - tau_3_2
+                fly_gpu(b,i,j,k,5) = fly_gpu(b,i,j,k,5) - sigq + sigl
             enddo
 
-            ! Update net flux
-            do j=1,nj ! loop on inner nodes
-               dy_locale = dy_gpu(b)
-               if(phi_gpu(b,i,j,k,1)<0.) then
-                   if(phi_gpu(b,i,j+1,k,1)*phi_gpu(b,i,j-1,k,1)<0) then
-                       if(phi_gpu(b,i,j+1,k,1)>0.) then
-                           delta_y = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j+1,k,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dy_gpu(b)
-                           dy_locale = dy_gpu(b)/2 + delta_y
-                       else !if(phi_gpu(b,i-1,j,k,1)>0) then
-                           delta_y = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j-1,k,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dy_gpu(b)
-                           dy_locale = dy_gpu(b)/2 + delta_y
-                       endif
-                   endif
-               endif
-               do v=2,6
-                  !fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) + (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j-1,k,v))/dy_gpu(b)
-                  fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) + (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j-1,k,v))/dy_locale
-               enddo
-            enddo
+            !! Update net flux
+            !do j=1,nj ! loop on inner nodes
+            !   dy_locale = dy_gpu(b)
+            !   if(phi_gpu(b,i,j,k,1)<0.) then
+            !       if(phi_gpu(b,i,j+1,k,1)*phi_gpu(b,i,j-1,k,1)<0) then
+            !           if(phi_gpu(b,i,j+1,k,1)>0.) then
+            !               delta_y = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j+1,k,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dy_gpu(b)
+            !               dy_locale = dy_gpu(b)/2 + delta_y
+            !           else !if(phi_gpu(b,i-1,j,k,1)>0) then
+            !               delta_y = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j-1,k,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dy_gpu(b)
+            !               dy_locale = dy_gpu(b)/2 + delta_y
+            !           endif
+            !       endif
+            !   endif
+            !   do v=2,6
+            !      !fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) + (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j-1,k,v))/dy_gpu(b)
+            !      fly_gpu(b,i,j,k,v) = fly_gpu(b,i,j,k,v) + (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j-1,k,v))/dy_locale
+            !   enddo
+            !enddo
          enddo
       enddo
    enddo
@@ -2900,31 +3007,31 @@ contains
                 sigq = k_coeff*dT_dz
                 sigl = vel_u*tau_1_3+vel_v*tau_2_3+vel_w*tau_3_3
 
-                fhat_gpu(b,i,j,k,2) = tau_1_3
-                fhat_gpu(b,i,j,k,3) = tau_2_3
-                fhat_gpu(b,i,j,k,4) = tau_3_3
-                fhat_gpu(b,i,j,k,5) = sigq + sigl
+                flz_gpu(b,i,j,k,2) = flz_gpu(b,i,j,k,2) - tau_1_3
+                flz_gpu(b,i,j,k,3) = flz_gpu(b,i,j,k,3) - tau_2_3
+                flz_gpu(b,i,j,k,4) = flz_gpu(b,i,j,k,4) - tau_3_3
+                flz_gpu(b,i,j,k,5) = flz_gpu(b,i,j,k,5) - sigq + sigl
             enddo
 
-            ! Update net flux
-            do k=1,nk ! loop on inner nodes
-               dz_locale = dz_gpu(b)
-               if(phi_gpu(b,i,j,k,1)<0.) then
-                   if(phi_gpu(b,i,j,k+1,1)*phi_gpu(b,i,j,k-1,1)<0) then
-                       if(phi_gpu(b,i,j,k+1,1)>0.) then
-                           delta_z = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j,k+1,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dz_gpu(b)
-                           dz_locale = dz_gpu(b)/2 + delta_z
-                       else !if(phi_gpu(b,i,j,k-1,1)>0) then
-                           delta_z = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j,k-1,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dz_gpu(b)
-                           dz_locale = dz_gpu(b)/2 + delta_z
-                       endif
-                   endif
-               endif
-               do v=2,6
-                  fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) + (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j,k-1,v))/dz_locale
-                  !fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) + (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j,k-1,v))/dz_gpu(b)
-               enddo
-            enddo
+            !! Update net flux
+            !do k=1,nk ! loop on inner nodes
+            !   dz_locale = dz_gpu(b)
+            !   if(phi_gpu(b,i,j,k,1)<0.) then
+            !       if(phi_gpu(b,i,j,k+1,1)*phi_gpu(b,i,j,k-1,1)<0) then
+            !           if(phi_gpu(b,i,j,k+1,1)>0.) then
+            !               delta_z = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j,k+1,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dz_gpu(b)
+            !               dz_locale = dz_gpu(b)/2 + delta_z
+            !           else !if(phi_gpu(b,i,j,k-1,1)>0) then
+            !               delta_z = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j,k-1,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dz_gpu(b)
+            !               dz_locale = dz_gpu(b)/2 + delta_z
+            !           endif
+            !       endif
+            !   endif
+            !   do v=2,6
+            !      flz_gpu(b,i,j,k,v) = flz_gpu(b,i,j,k,v) + (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j,k-1,v))/dz_locale
+            !      !fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) + (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j,k-1,v))/dz_gpu(b)
+            !   enddo
+            !enddo
          enddo
       enddo
    enddo
@@ -2974,17 +3081,13 @@ contains
 
    !ROTATINGFRAME endsubroutine rotating_frame_forces
 
-   attributes(global) subroutine euler_y_kernel(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, gplus, gminus, dy_gpu, &
+   attributes(global) subroutine euler_y_kernel(q_aux_gpu, fly_gpu, gplus, gminus, &
                                                 blocks_number, ni, nj, nk, ngc, nv, iweno, dha, gamma_fluid, R_star, cv_star)
 
-   real(R8P), intent(in), device     ::     q_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(in), device     :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P), intent(inout), device  ::    fl_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P), intent(inout), device  ::  fhat_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P), intent(in), device     ::   phi_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
+   real(R8P), intent(inout), device  ::   fly_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(inout), device  ::     gplus(1:, 1:, 1:, 1:, 1:)
    real(R8P), intent(inout), device  ::    gminus(1:, 1:, 1:, 1:, 1:)
-   real(R8P), intent(in), device     ::    dy_gpu(1:)
    integer, intent(in), value        :: blocks_number, ni, nj, nk, ngc, nv, iweno
    real(R8P), intent(in), value      :: dha, gamma_fluid, R_star, cv_star
    integer                           :: b, i, j, k, l, ll, m, mm, v
@@ -2992,8 +3095,6 @@ contains
    real(R8P)                         :: er(6,6), el(6,6), ev(6), evmax(6), ghat(6), gl(6), gr(6), fi(6), vi(6)
    real(R8P)                         :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
    real(R8P)                         :: gc, wc
-   real(R8P)                         :: dy_locale, delta_y
-   real(R8P), parameter              :: ib_eps=1.e-12_R8P
 
    b = blockDim%x * (blockIdx%x - 1) + threadIdx%x
    i = blockDim%y * (blockIdx%y - 1) + threadIdx%y
@@ -3082,49 +3183,24 @@ contains
 
          ! Return to conservative fluxes
          do m=1,6
-            fhat_gpu(b,i,j,k,m) = 0._R8P
+            fly_gpu(b,i,j,k,m) = 0._R8P
             do mm=1,6
-               fhat_gpu(b,i,j,k,m) = fhat_gpu(b,i,j,k,m) + er(mm,m) * ghat(mm)
+               fly_gpu(b,i,j,k,m) = fly_gpu(b,i,j,k,m) + er(mm,m) * ghat(mm)
             enddo
          enddo
 
       enddo
-
-      ! Update net flux
-      do j=1,nj ! loop on inner nodes
-         dy_locale = dy_gpu(b)
-         if(phi_gpu(b,i,j,k,1)<0.) then
-             if(phi_gpu(b,i,j+1,k,1)*phi_gpu(b,i,j-1,k,1)<0) then
-                 if(phi_gpu(b,i,j+1,k,1)>0.) then
-                     delta_y = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j+1,k,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dy_gpu(b)
-                     dy_locale = dy_gpu(b)/2 + delta_y
-                 else !if(phi_gpu(b,i-1,j,k,1)>0) then
-                     delta_y = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j-1,k,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dy_gpu(b)
-                     dy_locale = dy_gpu(b)/2 + delta_y
-                 endif
-             endif
-         endif
-         do v=1,6
-            !fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) - (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j-1,k,v))/dy_gpu(b)
-            fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) - (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j-1,k,v))/dy_locale
-         enddo
-      enddo
-
    enddo
-
    endsubroutine euler_y_kernel
 
-   attributes(global) subroutine euler_z_kernel(q_gpu, q_aux_gpu, fl_gpu, fhat_gpu, phi_gpu, gplus, gminus, dz_gpu, &
+
+   attributes(global) subroutine euler_z_kernel(q_aux_gpu, flz_gpu, gplus, gminus, &
                                                 blocks_number, ni, nj, nk, ngc, nv, iweno, dha, gamma_fluid, R_star, cv_star)
 
-   real(R8P), intent(in), device     ::     q_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(in), device     :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P), intent(inout), device  ::    fl_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P), intent(inout), device  ::  fhat_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P), intent(in), device     ::   phi_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
+   real(R8P), intent(inout), device  ::   flz_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(inout), device  ::     gplus(1:, 1:, 1:, 1:, 1:)
    real(R8P), intent(inout), device  ::    gminus(1:, 1:, 1:, 1:, 1:)
-   real(R8P), intent(in), device     ::    dz_gpu(1:)
    integer, intent(in), value        :: blocks_number, ni, nj, nk, ngc, nv, iweno
    real(R8P), intent(in), value      :: dha, gamma_fluid, R_star, cv_star
    integer                           :: b, i, j, k, l, ll, m, mm, v
@@ -3132,8 +3208,6 @@ contains
    real(R8P)                         :: er(6,6), el(6,6), ev(6), evmax(6), ghat(6), gl(6), gr(6), fi(6), vi(6)
    real(R8P)                         :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
    real(R8P)                         :: gc, wc
-   real(R8P)                         :: dz_locale, delta_z
-   real(R8P), parameter              :: ib_eps=1.e-12_R8P
 
    b = blockDim%x * (blockIdx%x - 1) + threadIdx%x
    i = blockDim%y * (blockIdx%y - 1) + threadIdx%y
@@ -3222,36 +3296,14 @@ contains
 
          ! Return to conservative fluxes
          do m=1,6
-            fhat_gpu(b,i,j,k,m) = 0._R8P
+            flz_gpu(b,i,j,k,m) = 0._R8P
             do mm=1,6
-               fhat_gpu(b,i,j,k,m) = fhat_gpu(b,i,j,k,m) + er(mm,m) * ghat(mm)
+               flz_gpu(b,i,j,k,m) = flz_gpu(b,i,j,k,m) + er(mm,m) * ghat(mm)
             enddo
          enddo
 
       enddo
-
-      ! Update net flux
-      do k=1,nk ! loop on inner nodes
-         dz_locale = dz_gpu(b)
-         if(phi_gpu(b,i,j,k,1)<0.) then
-             if(phi_gpu(b,i,j,k+1,1)*phi_gpu(b,i,j,k-1,1)<0) then
-                 if(phi_gpu(b,i,j,k+1,1)>0.) then
-                     delta_z = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j,k+1,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dz_gpu(b)
-                     dz_locale = dz_gpu(b)/2 + delta_z
-                 else !if(phi_gpu(b,i,j,k-1,1)>0) then
-                     delta_z = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j,k-1,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dz_gpu(b)
-                     dz_locale = dz_gpu(b)/2 + delta_z
-                 endif
-             endif
-         endif
-         do v=1,6
-            fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) - (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j,k-1,v))/dz_locale
-            !fl_gpu(b,i,j,k,v) = fl_gpu(b,i,j,k,v) - (fhat_gpu(b,i,j,k,v)-fhat_gpu(b,i,j,k-1,v))/dz_gpu(b)
-         enddo
-      enddo
-
    enddo
-
    endsubroutine euler_z_kernel
 
    attributes(device) subroutine compute_roe_average(q_aux_gpu, dha, gamma_fluid, R_star, &
