@@ -70,11 +70,11 @@ SELECT CASE (flow_type)
    CASE ("bryson")
       call adam%initialize(ni=16, nj=16, nk=16, ngc=2, max_level=8,                     &
                            emin=[0._R8P,0._R8P,0._R8P], emax=[20._R8P,20._R8P,20._R8P], &
-                           !bc_type=[BC_INFLOW_COLD   , BC_EXTRAPOLATION,                &
-                           bc_type=[BC_EXTRAPOLATION , BC_EXTRAPOLATION,                &
+                           bc_type=[BC_INFLOW_COLD   , BC_EXTRAPOLATION,                &
+                           !bc_type=[BC_EXTRAPOLATION , BC_EXTRAPOLATION,                &
                                     BC_EXTRAPOLATION , BC_EXTRAPOLATION,                &
                                     BC_EXTRAPOLATION , BC_EXTRAPOLATION],               &
-                           nv=6, nb=1000, nodes_number=1000*8_I8P)
+                           nv=6, nb=1000, nodes_number=1000*16_I8P)
       call flame%initialize(adam=adam, ns=2, CFL=0.50_R8P, nrk=4,                        &
                             null_xyz=[.false.,.false.,.false.],                         &
                             flow_type=flow_type,                                        &

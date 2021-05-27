@@ -205,7 +205,9 @@ contains
          call self%mark_by_geo(tol=2000._R8P, delta_fine=0.015_R8P, delta_coarse=0.15_R8P)
       elseif(self%flow_type == "bryson") then
          !call self%mark_by_geo(tol=2000._R8P, delta_fine=0.04_R8P, delta_coarse=0.15_R8P)
-         !FINEcall self%mark_by_grad_rho(grad_tol=1._R8P, delta_fine=0.05_R8P, delta_coarse=0.5_R8P)
+         !FINE
+         !call self%mark_by_grad_rho(grad_tol=1._R8P, delta_fine=0.05_R8P, delta_coarse=0.5_R8P)
+         !COARSE
          call self%mark_by_grad_rho(grad_tol=1._R8P, delta_fine=0.25_R8P, delta_coarse=1.0_R8P)
       else
          call self%mark_by_grad_rho(grad_tol=2._R8P, delta_fine=0.015_R8P, delta_coarse=0.15_R8P)
@@ -1214,20 +1216,20 @@ contains
                    !jet    u_bc = 0._R8P
                    !jetendif
 
-                   u_bc = u_inflow
-                   q_gpu(b,i,j,k,1) = 1.0
-                   q_gpu(b,i,j,k,2) = q_gpu(b,i,j,k,1)*u_bc !inflow
+                   !coldu_bc = u_inflow
+                   !coldq_gpu(b,i,j,k,1) = 1.0
+                   !coldq_gpu(b,i,j,k,2) = q_gpu(b,i,j,k,1)*u_bc !inflow
+                   !coldq_gpu(b,i,j,k,3) = 0._R8P
+                   !coldq_gpu(b,i,j,k,4) = 0._R8P
+                   !coldq_gpu(b,i,j,k,5) = q_gpu(b,i,j,k,1)*(cv_star*1._R8P/(1.*R_star)+0.5*u_bc**2)
+                   !coldq_gpu(b,i,j,k,6) = 0._R8P
+
+                   q_gpu(b,i,j,k,1) = 5.1432014
+                   q_gpu(b,i,j,k,2) = 2.0451068*q_gpu(b,i,j,k,1)
                    q_gpu(b,i,j,k,3) = 0._R8P
                    q_gpu(b,i,j,k,4) = 0._R8P
-                   q_gpu(b,i,j,k,5) = q_gpu(b,i,j,k,1)*(cv_star*1._R8P/(1.*R_star)+0.5*u_bc**2)
+                   q_gpu(b,i,j,k,5) = q_gpu(b,i,j,k,1)*(9.0454500/((gamma_fluid-1.)*q_gpu(b,i,j,k,1))+0.5*2.0451068**2+ya_inflow*dha)
                    q_gpu(b,i,j,k,6) = 0._R8P
-
-                   !bryson q_gpu(b,i,j,k,1) = 5.1432014
-                   !bryson q_gpu(b,i,j,k,2) = 2.0451068*q_gpu(b,i,j,k,1)
-                   !bryson q_gpu(b,i,j,k,3) = 0._R8P
-                   !bryson q_gpu(b,i,j,k,4) = 0._R8P
-                   !bryson q_gpu(b,i,j,k,5) = q_gpu(b,i,j,k,1)*(9.0454500/((gamma_fluid-1.)*q_gpu(b,i,j,k,1))+0.5*2.0451068**2+ya_inflow*dha)
-                   !bryson q_gpu(b,i,j,k,6) = q_gpu(b,i,j,k,1)*ya_inflow
                else if (bc_type == BC_WALL_ISOTERM) then
                    i_inner = i - idelta*crown
                    j_inner = j - jdelta*crown
@@ -2190,7 +2192,7 @@ contains
                                       q_aux_gpu, flx_gpu, fly_gpu, flz_gpu,                           &
                                       dx_gpu, dy_gpu, dz_gpu)
 
-   !RIMETTEREcall self%update_ghost_fluxes_gpu(flx_gpu, fly_gpu, flz_gpu)
+   call self%update_ghost_fluxes_gpu(flx_gpu, fly_gpu, flz_gpu)
 
    ib_eps = 1.e-12_R8P
    call compute_flux_diff(blocks_number, ni, nj, nk, ngc, ns+4, &
