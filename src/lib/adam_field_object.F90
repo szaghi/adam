@@ -68,6 +68,7 @@ use adam_parameters
 use FINER, only : file_ini
 use PENF
 use MPI
+use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
 
 implicit none
 private
@@ -131,6 +132,7 @@ type :: field_object
       procedure, pass(self) :: compute_metrics               !< Compute metrics of each block.
       procedure, pass(self) :: destroy                       !< Destroy the field.
       procedure, pass(self) :: initialize                    !< Initialize the field.
+      procedure, pass(self) :: load_blocks                   !< Load blocks data, used for restarting.
       procedure, pass(self) :: load_from_ini_file            !< Load object data from INI file.
       procedure, pass(self) :: mark_all_blocks               !< Mark all blocks to be refined, derefined, ecc.
       procedure, pass(self) :: mark_sphere                   !< Mark blocks to be refined/derefined by sphere distance.
@@ -139,6 +141,7 @@ type :: field_object
       procedure, pass(self) :: prepare_comm_local_ghost      !< Prepare communication and local maps/buffers for ghosts update.
       procedure, pass(self) :: prepare_local_bc              !< Prepare local maps for boundary conditions.
       procedure, pass(self) :: print_status                  !< Print status of main data.
+      procedure, pass(self) :: save_blocks                   !< Save blocks data, used for restarting.
       ! private methods
       procedure, pass(self), private :: derefine !< Derefine blocks.
       procedure, pass(self), private :: refine   !< Refine blocks.
@@ -265,6 +268,56 @@ contains
    allocate(self%blocks_numbers(0:self%procs_number-1))
    allocate(self%req_send_recv(0:self%procs_number*2-1))
    endsubroutine initialize
+
+   subroutine load_blocks(self, basename)
+   !< Load blocks data, used for restarting.
+   !<
+   !< Note: blocks memory must be already initialized with enough memory (proper nv,ni,nj,nk,ngc and nb>=blocks number).
+   class(field_object), intent(inout) :: self                !< The field.
+   character(*),        intent(in)    :: basename            !< Output base name.
+   integer(I4P)                       :: file_unit           !< Output file unit.
+   logical                            :: file_exist          !< Flag to check file's existance.
+   integer(I4P)                       :: blocks_number       !< Blocks number.
+   integer(I4P)                       :: nv, ni, nj, nk, ngc !< Dimensions.
+   integer(I4P)                       :: b                   !< Counter.
+
+   inquire(file=trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.fbd', exist=file_exist)
+   if (file_exist) then
+      open(newunit=file_unit,                                                        &
+           file=trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.fbd', &
+           form='UNFORMATTED',                                                       &
+           access='STREAM')
+      read(unit=file_unit) nv, ni, nj, nk, ngc
+      if (nv/=self%nv.or.ni/=self%grid%ni.or.nj/=self%grid%nj.or.nk/=self%grid%nk.or.ngc/=self%grid%ngc) then
+         read(unit=file_unit) blocks_number
+         if (blocks_number <= self%nb) then
+            self%blocks_number = blocks_number
+            do b=1, self%blocks_number
+               read(unit=file_unit) self%code(b)
+               read(unit=file_unit) self%coordinates(1:4,b)
+               read(unit=file_unit) self%q(1:self%nv,                                  &
+                                           1-self%grid%ngc:self%grid%ni+self%grid%ngc, &
+                                           1-self%grid%ngc:self%grid%nj+self%grid%ngc, &
+                                           1-self%grid%ngc:self%grid%nk+self%grid%ngc,b)
+            enddo
+            call self%compute_metrics
+         else
+            write(stderr, '(A)') 'ERROR: blocks number to read "'//trim(str(blocks_number))//&
+                                 '" is greater than blocks allocated "'//trim(str(self%nb))//'"!'
+         endif
+      else
+         write(stderr, '(A)') 'ERROR: blocks dimensions to read "'//trim(str([nv, ni, nj, nk, ngc]))//&
+                              '" are different than blocks allocated "'//trim(str([self%nv,      &
+                                                                                   self%grid%ni, &
+                                                                                   self%grid%nj, &
+                                                                                   self%grid%nk, &
+                                                                                   self%grid%ngc]))//'"!'
+      endif
+      close(file_unit)
+   else
+      write(stderr, '(A)') 'ERROR: file "'//trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.fbd'//'" does not exist!'
+   endif
+   endsubroutine load_blocks
 
    subroutine load_from_ini_file(self, file_parameters)
    !< Load object data from INI file.
@@ -577,6 +630,32 @@ contains
    print '(A)', '  block weight:                '//trim(str(self%block_weight ))
    print '(A)', ''
    endsubroutine print_status
+
+   subroutine save_blocks(self, basename)
+   !< Save blocks data, used for restarting.
+   class(field_object), intent(in) :: self      !< The field.
+   character(*),        intent(in) :: basename  !< Output base name.
+   integer(I4P)                    :: file_unit !< Output file unit.
+   integer(I4P)                    :: b         !< Counter.
+
+   if (self%blocks_number > 0) then
+      open(newunit=file_unit,                                                        &
+           file=trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.fbd', &
+           form='UNFORMATTED',                                                       &
+           access='STREAM')
+      write(unit=file_unit) self%nv,  self%grid%ni,  self%grid%nj,  self%grid%nk,  self%grid%ngc
+      write(unit=file_unit) self%blocks_number
+      do b=1, self%blocks_number
+         write(unit=file_unit) self%code(b)
+         write(unit=file_unit) self%coordinates(1:4,b)
+         write(unit=file_unit) self%q(1:self%nv,                                  &
+                                      1-self%grid%ngc:self%grid%ni+self%grid%ngc, &
+                                      1-self%grid%ngc:self%grid%nj+self%grid%ngc, &
+                                      1-self%grid%ngc:self%grid%nk+self%grid%ngc,b)
+      enddo
+      close(file_unit)
+   endif
+   endsubroutine save_blocks
 
    ! private methods
    subroutine derefine(self, ratio, block_to_derefine, block_derefined)

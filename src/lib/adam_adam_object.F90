@@ -36,6 +36,7 @@ type :: adam_object
       procedure, pass(self) :: destroy                       !< Destroy ADAM.
       procedure, pass(self) :: finalize                      !< Finalize ADAM.
       procedure, pass(self) :: initialize                    !< Initialize ADAM.
+      procedure, pass(self) :: load_restart_files            !< Load restart files.
       procedure, pass(self) :: make_comm_local_maps_ghost_bc !< Make communication/local maps of ghost cells.
       procedure, pass(self) :: mpi_gather_refinement_needed  !< Gather refinement needed.
       procedure, pass(self) :: mpi_redistribute              !< Redistribute nodes/blocks to processes, load balancing.
@@ -43,6 +44,7 @@ type :: adam_object
       procedure, pass(self) :: prune                         !< Prune nodes/blocks.
       procedure, pass(self) :: refine_uniform                !< Refine all blocks uniformly.
       procedure, pass(self) :: save_hdf5                     !< Save ADAM in HDF5 format.
+      procedure, pass(self) :: save_restart_files            !< Save restart files.
       procedure, pass(self) :: save_vtk                      !< Save ADAM in VTK  format.
       ! operators
       generic :: assignment(=) => adam_assign_adam      !< Overload `=`.
@@ -120,6 +122,14 @@ contains
    call MPI_FINALIZE(self%error)
    stop
    endsubroutine finalize
+
+   subroutine load_restart_files(self, basename, t, time)
+   !< Load restart files.
+   class(adam_object), intent(inout) :: self     !< ADAM.
+   character(*),       intent(in)    :: basename !< Base name of output files.
+   integer(I4P),       intent(inout) :: t        !< Time iteration.
+   real(R8P),          intent(inout) :: time     !< Time.
+   endsubroutine load_restart_files
 
    subroutine initialize(self, file_parameters,                                              &
                          ni, nj, nk, ngc, emin, emax, bc_type,                               &
@@ -260,6 +270,17 @@ contains
       call self%amr_update(do_mpi_redistribute=do_mpi_redistribute, do_blocks_reorder=do_blocks_reorder)
    enddo
    endsubroutine refine_uniform
+
+   subroutine save_restart_files(self, basename, t, time)
+   !< Save restart files.
+   class(adam_object), intent(in) :: self     !< ADAM.
+   character(*),       intent(in) :: basename !< Base name of output files.
+   integer(I4P),       intent(in) :: t        !< Time iteration.
+   real(R8P),          intent(in) :: time     !< Time.
+
+   if (self%myrank==0) call self%tree%save_nodes(file_name=trim(adjustl(basename))//'.tnd')
+                       call self%field%save_blocks(basename=basename)
+   endsubroutine save_restart_files
 
    subroutine save_hdf5(self, basename, q, q_aux, q_name, q_aux_name, directory, with_ghost, with_cell_morton, t, time)
    !< Save ADAM in HDF5 format.

@@ -218,6 +218,7 @@ type :: tree_object
       procedure, pass(self) :: hash                         !< Hash the key.
       procedure, pass(self) :: has_code                     !< Check if the code is present in the tree.
       procedure, pass(self) :: initialize                   !< Initialize the tree.
+      procedure, pass(self) :: load_nodes                   !< Load nodes data, used for restart.
       procedure, pass(self) :: load_from_ini_file           !< Load object data from INI file.
       procedure, pass(self) :: load_surface_stl             !< Load surface from STL file.
       procedure, pass(self) :: loop                         !< Sentinel while-loop on nodes returning the code.
@@ -231,6 +232,7 @@ type :: tree_object
       procedure, pass(self) :: print_status                 !< Print status of main data.
       procedure, pass(self) :: prune                        !< Prune nodes.
       procedure, pass(self) :: resize                       !< Resize the tree.
+      procedure, pass(self) :: save_nodes                   !< Save nodes data, used for restart.
       procedure, pass(self) :: traverse                     !< Traverse tree calling the iterator procedure.
       ! MPI methods
       procedure, pass(self) :: import_refinements_needed  !< Import refinements needed status changed externally.
@@ -273,6 +275,7 @@ type :: tree_object
       procedure, pass(self), private :: coordinates3D_to_morton !< Return the Morton code given ijkl coordinates.
       procedure, pass(self), private :: coordinates2D_to_morton !< Return the Morton code given ijl coordinates.
       procedure, pass(self), private :: derefine                !< Derefine nodes.
+      procedure, pass(self), private :: empty                   !< Empty tree, i.e. remove all nodes, without destroy the tree.
       procedure, pass(self), private :: morton_to_coordinates3D !< Return the ijkl coordinates given Morton code.
       procedure, pass(self), private :: morton_to_coordinates2D !< Return the ijkl coordinates given Morton code.
       procedure, pass(self), private :: refine                  !< Refine nodes.
@@ -583,6 +586,37 @@ contains
    allocate(self%comm_map_send_ptr_ghost(0:self%procs_number))
    allocate(self%comm_map_recv_ptr_ghost(0:self%procs_number))
    endsubroutine initialize
+
+   subroutine load_nodes(self, file_name)
+   !< Load nodes data, used for restart.
+   !<
+   !< Note: the tree is made empty before lading nodes data.
+   class(tree_object), intent(inout) :: self             !< The tree.
+   character(*),       intent(in)    :: file_name        !< Output file name.
+   integer(I8P)                      :: codes_number     !< Number of codes actually stored.
+   integer(I4P)                      :: file_unit        !< Output file unit.
+   logical                           :: file_exist       !< Flag to check file's existance.
+   integer(I8P)                      :: node_code        !< Morton code of current node.
+   integer(I4P)                      :: node_myrank      !< MPI rank of current node.
+   integer(I8P)                      :: node_block_index !< Block index of current node.
+   integer(I8P)                      :: c                !< Counter.
+
+   inquire(file=trim(adjustl(file_name)), exist=file_exist)
+   if (file_exist) then
+      open(newunit=file_unit, file=trim(adjustl(file_name)), form='UNFORMATTED', access='STREAM')
+      read(unit=file_unit) codes_number
+      if (codes_number > 0) then
+         call self%empty
+         do c=1, codes_number
+            read(unit=file_unit) node_code, node_myrank, node_block_index
+            call self%add_node(code=node_code, myrank=node_myrank, block_index=node_block_index)
+         enddo
+      endif
+      close(file_unit)
+   else
+      write(stderr, '(A)') 'ERROR: file "'//trim(adjustl(file_name))//'" does not exist!'
+   endif
+   endsubroutine load_nodes
 
    subroutine load_from_ini_file(self, file_parameters)
    !< Load object data from INI file.
@@ -1029,6 +1063,31 @@ contains
       stop
    endif
    endsubroutine resize
+
+   subroutine save_nodes(self, file_name)
+   !< Save nodes data, used for restart.
+   class(tree_object), intent(in)  :: self            !< The tree.
+   character(*),       intent(in)  :: file_name       !< Output file name.
+   integer(I8P), allocatable       :: actual_codes(:) !< List of actually stored codes.
+   integer(I8P)                    :: codes_number    !< Number of codes actually stored.
+   integer(I4P)                    :: file_unit       !< Output file unit.
+   type(tree_node_object), pointer :: node_ptr        !< Pointer to current node.
+   integer(I8P)                    :: c               !< Counter.
+
+   if (self%is_initialized_) then
+      actual_codes = self%codes()
+      codes_number = size(actual_codes, dim=1)
+      if (codes_number > 0) then
+         open(newunit=file_unit, file=trim(adjustl(file_name)), form='UNFORMATTED', access='STREAM')
+         write(unit=file_unit) codes_number
+         do c=1, codes_number
+            node_ptr => self%node(code=actual_codes(c))
+            write(unit=file_unit) node_ptr%code, node_ptr%myrank, node_ptr%block_index
+         enddo
+         close(file_unit)
+      endif
+   endif
+   endsubroutine save_nodes
 
    subroutine traverse(self, iterator)
    !< Traverse tree calling the iterator procedure.
@@ -2546,6 +2605,17 @@ contains
       enddo
    endif
    endsubroutine derefine
+
+   subroutine empty(self)
+   !< Empty tree, i.e. remove all nodes, without destroy the tree.
+   class(tree_object), intent(inout) :: self !< The tree.
+   integer(I4P)                      :: b    !< Counter.
+
+   do b=lbound(self%bucket, dim=1), ubound(self%bucket, dim=1)
+      call self%bucket(b)%destroy
+   enddo
+   self%nodes_number = 0_I4P
+   endsubroutine empty
 
    subroutine morton_to_coordinates2D(self, code, i, j, l)
    !< Return the ijkl coordinates given Morton code.
