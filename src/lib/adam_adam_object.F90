@@ -134,38 +134,46 @@ contains
    subroutine initialize(self, file_parameters,                                              &
                          ni, nj, nk, ngc, emin, emax, bc_type,                               &
                          max_load, nodes_number, buckets_number, ratio, max_level, add_adam, &
+                         iu_ref_levels, i_prune, j_prune, k_prune, l_prune,                  &
                          nv, nb)
    !< Initialize ADAM.
-   class(adam_object), intent(inout)           :: self            !< ADAM.
-   type(file_ini),     intent(inout), optional :: file_parameters !< INI file handler.
+   class(adam_object), intent(inout)           :: self               !< ADAM.
+   type(file_ini),     intent(inout), optional :: file_parameters    !< INI file handler.
    ! grid options
-   integer(I4P),       intent(in),    optional :: ni              !< Number of cells in X direction.
-   integer(I4P),       intent(in),    optional :: nj              !< Number of cells in Y direction.
-   integer(I4P),       intent(in),    optional :: nk              !< Number of cells in Z direction.
-   integer(I4P),       intent(in),    optional :: ngc             !< Number of ghost cells.
-   real(R8P),          intent(in),    optional :: emin(3)         !< Coordinates of minium abscissa.
-   real(R8P),          intent(in),    optional :: emax(3)         !< Coordinates of maxium abscissa.
-   integer(I4P),       intent(in),    optional :: bc_type(6)      !< Type of boundary conditions in the 6 faces of grid.
+   integer(I4P),       intent(in),    optional :: ni                 !< Number of cells in X direction.
+   integer(I4P),       intent(in),    optional :: nj                 !< Number of cells in Y direction.
+   integer(I4P),       intent(in),    optional :: nk                 !< Number of cells in Z direction.
+   integer(I4P),       intent(in),    optional :: ngc                !< Number of ghost cells.
+   real(R8P),          intent(in),    optional :: emin(3)            !< Coordinates of minium abscissa.
+   real(R8P),          intent(in),    optional :: emax(3)            !< Coordinates of maxium abscissa.
+   integer(I4P),       intent(in),    optional :: bc_type(6)         !< Type of boundary conditions in the 6 faces of grid.
    ! tree options
-   real(R8P),          intent(in),    optional :: max_load        !< Maximum load of tree buckets.
-   integer(I8P),       intent(in),    optional :: nodes_number    !< Nodes number to be stored in the tree.
-   integer(I8P),       intent(in),    optional :: buckets_number  !< Number of buckets for initialize the tree.
-   integer(I4P),       intent(in),    optional :: ratio           !< Refinement ratio.
-   integer(I4P),       intent(in),    optional :: max_level       !< Maximum refinement level.
-   logical,            intent(in),    optional :: add_adam        !< Add ADAM node, the ancestor of all nodes.
+   real(R8P),          intent(in),    optional :: max_load           !< Maximum load of tree buckets.
+   integer(I8P),       intent(in),    optional :: nodes_number       !< Nodes number to be stored in the tree.
+   integer(I8P),       intent(in),    optional :: buckets_number     !< Number of buckets for initialize the tree.
+   integer(I4P),       intent(in),    optional :: ratio              !< Refinement ratio.
+   integer(I4P),       intent(in),    optional :: max_level          !< Maximum refinement level.
+   logical,            intent(in),    optional :: add_adam           !< Add ADAM node, the ancestor of all nodes.
+   integer(I4P),       intent(in),    optional :: iu_ref_levels      !< Uniform initial refinement.
+   integer(I4P),       intent(in),    optional :: i_prune            !< Pruning along x.
+   integer(I4P),       intent(in),    optional :: j_prune            !< Pruning along y.
+   integer(I4P),       intent(in),    optional :: k_prune            !< Pruning along z.
+   integer(I4P),       intent(in),    optional :: l_prune            !< Pruning level.
    ! field options
-   integer(I4P),       intent(in),    optional :: nv              !< Number of field variables.
-   integer(I4P),       intent(in),    optional :: nb              !< Number of all blocks that can be stored in field.
+   integer(I4P),       intent(in),    optional :: nv                 !< Number of field variables.
+   integer(I4P),       intent(in),    optional :: nb                 !< Number of all blocks that can be stored in field.
 
    call self%destroy
-   call MPI_INIT(self%error)
+
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
 
-   call self%grid%initialize(file_parameters=file_parameters, ni=ni, nj=nj, nk=nk, ngc=ngc, emin=emin, emax=emax, bc_type=bc_type)
+   call self%grid%initialize(file_parameters=file_parameters, ni=ni, nj=nj, nk=nk, ngc=ngc, emin=emin, emax=emax, &
+                             bc_type=bc_type)
    call self%tree%initialize(grid=self%grid, file_parameters=file_parameters,                             &
                              max_load=max_load, nodes_number=nodes_number, buckets_number=buckets_number, &
-                             ratio=ratio, max_level=max_level, add_adam=add_adam)
+                             ratio=ratio, max_level=max_level, add_adam=add_adam,                         &
+                             iu_ref_levels=iu_ref_levels, i_prune=i_prune, j_prune=j_prune, k_prune=k_prune, l_prune=l_prune)
    call self%field%initialize(grid=self%grid, file_parameters=file_parameters, nv=nv, nb=nb)
    call self%amr_update
    endsubroutine initialize

@@ -47,8 +47,15 @@ type :: base_gpu_object
    integer(I8P), allocatable, device :: local_map_bc_edge_gpu(:,:)           !< Local map for edge BC ghost cells.
    integer(I8P), allocatable, device :: local_map_bc_corner_gpu(:,:)         !< Local map for corner BC ghost cells.
    integer(I8P), allocatable, device :: local_map_bc_crown_gpu(:,:,:)        !< Local map for face BC ghost cells, "crown" order.
+   integer(I4P)                      :: fec_1_6_array(26)                    !< Mapping fec1-26 to fec1-6 for boundaries.
+   integer(I4P), allocatable, device :: fec_1_6_array_gpu(:)                 !< Mapping fec1-26 to fec1-6 for boundaries (GPU).
+   real(R8P),    allocatable, device :: x_cell_gpu(:,:)                      !< Cells x coordinates on GPU.
+   real(R8P),    allocatable, device :: y_cell_gpu(:,:)                      !< Cells y coordinates on GPU.
+   real(R8P),    allocatable, device :: z_cell_gpu(:,:)                      !< Cells z coordinates on GPU.
+   real(R8P),    allocatable, device :: dxyz_gpu(:,:)                        !< Delta cells GPU.
    contains
       ! public methods
+      procedure, pass(self) :: alloc                         !< Allocate gpu fields.
       procedure, pass(self) :: copy_cpu_gpu                  !< Copy data from CPU to GPU.
       procedure, pass(self) :: copy_transpose_cpu_gpu        !< Transpose data from GPU to CPU.
       procedure, pass(self) :: copy_transpose_gpu_cpu        !< Transpose data from GPU to CPU.
@@ -80,9 +87,39 @@ endinterface assign_allocatable_gpu
 
 contains
    ! public methods
+   subroutine alloc(self, field, nv_aux)
+   class(base_gpu_object), intent(inout)        :: self     !< The base backend.
+   type(field_object)    , intent(in), target   :: field    !< Field variable array.
+   integer(I4P)          , intent(in), optional :: nv_aux   !< Number of auxiliary variables.
+   integer(I4P)                                 :: nv_aux_  !< Number of auxiliary variables (local var).
+
+   self%field => field
+   nv_aux_ = self%field%nv
+   if (present(nv_aux)) nv_aux_ = max(nv_aux_, nv_aux)
+
+   ! Prepare buffers for copy-transposes performed by equation.
+   allocate(self%q_t(1:field%nb,                                    &
+                     1-field%grid%ngc:field%grid%ni+field%grid%ngc, &
+                     1-field%grid%ngc:field%grid%nj+field%grid%ngc, &
+                     1-field%grid%ngc:field%grid%nk+field%grid%ngc, 1:field%nv))
+   allocate(self%q_t_gpu(nv_aux_,                                       &
+                         1-field%grid%ngc:field%grid%ni+field%grid%ngc, &
+                         1-field%grid%ngc:field%grid%nj+field%grid%ngc, &
+                         1-field%grid%ngc:field%grid%nk+field%grid%ngc, 1:field%nb))
+
+   ! Copy cpu-to-gpu of base_gpu variables (maps and cells, not q_gpu)
+   call self%copy_cpu_gpu
+
+   endsubroutine alloc
+
    subroutine copy_cpu_gpu(self)
    !< Copy data from CPU to GPU.
    class(base_gpu_object), intent(inout) :: self !< The base backend.
+   real(R8P),    allocatable         :: x_cell_t(:,:)                      !< Cells x coordinates transposed.
+   real(R8P),    allocatable         :: y_cell_t(:,:)                      !< Cells y coordinates transposed.
+   real(R8P),    allocatable         :: z_cell_t(:,:)                      !< Cells z coordinates transposed.
+   real(R8P),    allocatable         :: dxyz_t(:,:)                        !< Delta cells coordinates transposed.
+   integer(I4P)                      :: b, i, j, k                         !< Counter.
        integer :: iermpi
        print*,'calling copy_cpu_gpu'
        call MPI_Barrier(MPI_COMM_WORLD, iermpi)
@@ -138,6 +175,42 @@ contains
    endif
    call self%create_maps_cell
    call self%create_maps_fluxes_cell
+
+   associate(blocks_number=>self%field%blocks_number,  &
+             ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk, ngc=>self%field%grid%ngc)
+   if(allocated(self%x_cell_gpu)) deallocate(self%x_cell_gpu)
+   if(allocated(self%y_cell_gpu)) deallocate(self%y_cell_gpu)
+   if(allocated(self%z_cell_gpu)) deallocate(self%z_cell_gpu)
+   if(blocks_number > 0) then
+      allocate(x_cell_t(blocks_number, 1-ngc:ni+ngc),   y_cell_t(blocks_number, 1-ngc:nj+ngc),   &
+          z_cell_t(blocks_number, 1-ngc:nk+ngc))
+      allocate(self%x_cell_gpu(blocks_number, 1-ngc:ni+ngc), self%y_cell_gpu(blocks_number, 1-ngc:nj+ngc), &
+          self%z_cell_gpu(blocks_number, 1-ngc:nk+ngc))
+      do b=1,blocks_number
+          do i=1-ngc,ni+ngc
+             x_cell_t(b,i) = self%field%x_cell(i,b)
+          enddo
+          do j=1-ngc,nj+ngc
+             y_cell_t(b,j) = self%field%y_cell(j,b)
+          enddo
+          do k=1-ngc,nk+ngc
+             z_cell_t(b,k) = self%field%z_cell(k,b)
+          enddo
+      enddo
+      self%x_cell_gpu = x_cell_t
+      self%y_cell_gpu = y_cell_t
+      self%z_cell_gpu = z_cell_t
+
+      allocate(dxyz_t(1:blocks_number,3))
+      do b=1, blocks_number
+         do i=1, 3
+            dxyz_t(b,i) = self%field%dxyz(i,b)
+         enddo
+      enddo
+      self%dxyz_gpu = dxyz_t
+   endif
+   endassociate
+
    endsubroutine copy_cpu_gpu
 
    subroutine create_maps_cell(self)
@@ -609,7 +682,7 @@ contains
       if (allocated(self%field%local_map_bc_face  )) c = c + bc_cells_number(self%field%local_map_bc_face  )
       if (allocated(self%field%local_map_bc_edge  )) c = c + bc_cells_number(self%field%local_map_bc_edge  )
       if (allocated(self%field%local_map_bc_corner)) c = c + bc_cells_number(self%field%local_map_bc_corner)
-      allocate(local_map_bc_crown(1:c,1:8,1:self%field%grid%ngc))
+      allocate(local_map_bc_crown(1:c,1:9,1:self%field%grid%ngc))
       allocate(c_crown(1:self%field%grid%ngc))
       local_map_bc_crown = -1
       c_crown = 1
@@ -669,9 +742,11 @@ contains
       integer(I4P)             :: kdelta            !< IJK delta step for extrapolation.
       integer(I4P)             :: bc_type           !< Boundary condition type.
       integer(I4P)             :: crown             !< Crown counter.
+      integer(I4P)             :: fec               !< Boundary condition fec.
 
       do f=1, size(local_map_bc, dim=1)
          b       = local_map_bc(f, 1 )
+         fec     = local_map_bc(f, 2 )
          imin    = local_map_bc(f, 3 )
          jmin    = local_map_bc(f, 4 )
          kmin    = local_map_bc(f, 5 )
@@ -694,6 +769,7 @@ contains
                   local_map_bc_crown(c_crown(crown), 6, crown) = jdelta
                   local_map_bc_crown(c_crown(crown), 7, crown) = kdelta
                   local_map_bc_crown(c_crown(crown), 8, crown) = bc_type
+                  local_map_bc_crown(c_crown(crown), 9, crown) = fec
                   c_crown(crown) = c_crown(crown) + 1
                enddo
             enddo
@@ -820,52 +896,38 @@ contains
    self = fresh
    endsubroutine destroy
 
-   subroutine initialize(self, field, nv_aux, fields_gpu_number)
+   subroutine initialize(self, device_mem_avail)
    !< Initialize base backend.
    class(base_gpu_object), intent(inout)        :: self               !< The base backend.
-   type(field_object),     intent(in), target   :: field              !< The field.
-   integer(I4P),           intent(in), optional :: nv_aux             !< Number of auxiliary variables.
-   integer(I4P),           intent(in), optional :: fields_gpu_number  !< Number of fields allocated on GPU.
-   integer(I4P)                                 :: nv_aux_            !< Number of auxiliary variables, local variable.
-   integer(I4P)                                 :: devices_number     !< Devices number.
    type(cudadeviceprop)                         :: device_properties  !< Device properties.
-   integer(I4P)                                 :: d                  !< Counter.
-   real(R8P)                                    :: device_mem_req     !< Device memory requested (Gb).
-   real(R8P)                                    :: device_mem_avail   !< Device memory available (Gb).
-   integer(I4P)                                 :: fields_gpu_number_ !< Number of fields allocated on GPU, local variable.
+   real(R8P),              intent(out)          :: device_mem_avail   !< Device memory available (Gb).
 
-   fields_gpu_number_ = 5 ; if (present(fields_gpu_number)) fields_gpu_number_ = fields_gpu_number
    call self%destroy
-   self%field => field
-   nv_aux_ = self%field%nv
-   if (present(nv_aux)) nv_aux_ = max(nv_aux_, nv_aux)
-   call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
+
+   call MPI_INIT(self%error)
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
+   call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
+
    allocate(self%req_send_recv(0:self%procs_number*2-1))
    call MPI_COMM_SPLIT_TYPE(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, self%local_comm, self%error)
    call MPI_COMM_RANK(self%local_comm, self%mydev, self%error)
    self%error = CudaSetDevice(self%mydev)
-   self%error = cudaGetDeviceCount(devices_number)
-   do d=0, devices_number - 1
-      self%error = cudaGetDeviceProperties(device_properties, self%mydev)
-      call print_device_properties(device_properties, self%mydev)
-   enddo
-   ! check if nb fits device memory
-   device_mem_avail = real(device_properties%totalGlobalMem, R8P)/1e9
-   device_mem_req   = self%field%block_weight*self%field%nb*8/1e9 * fields_gpu_number_
-   print '(A,F5.2,A)', ' requested device memory ', device_mem_req, ' Gb'
-   print '(A,F5.2,A)', ' available device memory ', device_mem_avail, ' Gb'
-   print '(A)', ''
+   self%error = cudaGetDeviceProperties(device_properties, self%mydev)
+   call print_device_properties(device_properties, self%mydev)
 
-   allocate(self%q_t(1:field%nb,                                    &
-                     1-field%grid%ngc:field%grid%ni+field%grid%ngc, &
-                     1-field%grid%ngc:field%grid%nj+field%grid%ngc, &
-                     1-field%grid%ngc:field%grid%nk+field%grid%ngc, 1:field%nv))
-   allocate(self%q_t_gpu(nv_aux_,                                       &
-                         1-field%grid%ngc:field%grid%ni+field%grid%ngc, &
-                         1-field%grid%ngc:field%grid%nj+field%grid%ngc, &
-                         1-field%grid%ngc:field%grid%nk+field%grid%ngc, 1:field%nb))
-   call self%copy_cpu_gpu
+   device_mem_avail = real(device_properties%totalGlobalMem, R8P)/1e9
+   print '(A,F5.2,A)', ' available device memory ', device_mem_avail, ' Gb'
+
+   self%fec_1_6_array([1,7,9,11,13,19,21,23,25])  = 1
+   self%fec_1_6_array([2,8,10,12,14,20,22,24,26]) = 2
+   self%fec_1_6_array([3,15,17])                  = 3
+   self%fec_1_6_array([4,16,18])                  = 4
+   self%fec_1_6_array([5])                        = 5
+   self%fec_1_6_array([6])                        = 6
+
+   allocate(self%fec_1_6_array_gpu(26)) ! Derived type component on device must be allocatable
+   self%fec_1_6_array_gpu = self%fec_1_6_array
+
    endsubroutine initialize
 
    subroutine update_ghost_local_gpu(self, q_gpu)
@@ -959,6 +1021,8 @@ contains
    ! private methods
    subroutine copy_transpose_cpu_gpu(self, q_cpu, q_gpu)
    !< Copy transposed data from CPU to GPU.
+   !< This routine is called by equation typically passing either q_gpu (belonging to this base_gpu type)
+   !< or q_aux_gpu (belonging to equation itself type)
    class(base_gpu_object), intent(inout)       :: self          !< The equation.
    real(R8P),              intent(in)          :: q_cpu(1:,                    &
                                                         1-self%field%grid%ngc:,&

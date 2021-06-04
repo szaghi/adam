@@ -528,7 +528,8 @@ contains
    bucket = modulo(code, int(self%buckets_number, I8P)) + 1
    endfunction hash
 
-   subroutine initialize(self, grid, file_parameters, max_load, nodes_number, buckets_number, ratio, max_level, add_adam)
+   subroutine initialize(self, grid, file_parameters, max_load, nodes_number, buckets_number, ratio, max_level, add_adam, &
+                         iu_ref_levels, i_prune, j_prune, k_prune, l_prune)
    !< Initialize the tree.
    class(tree_object), intent(inout)           :: self            !< The tree.
    type(grid_object),  intent(in), target      :: grid            !< Grid data.
@@ -538,6 +539,11 @@ contains
    integer(I8P),       intent(in),    optional :: buckets_number  !< Number of buckets for initialize the tree.
    integer(I4P),       intent(in),    optional :: ratio           !< Refinement ratio.
    integer(I4P),       intent(in),    optional :: max_level       !< Maximum refinement level.
+   integer(I4P),       intent(in),    optional :: iu_ref_levels   !< Uniform initial refinement.
+   integer(I4P),       intent(in),    optional :: i_prune         !< Pruning along x.
+   integer(I4P),       intent(in),    optional :: j_prune         !< Pruning along y.
+   integer(I4P),       intent(in),    optional :: k_prune         !< Pruning along z.
+   integer(I4P),       intent(in),    optional :: l_prune         !< Pruning level.
    logical,            intent(in),    optional :: add_adam        !< Add ADAM node, the ancestor of all nodes.
    logical                                     :: add_adam_       !< Add ADAM node, the ancestor of all nodes, local var.
 
@@ -567,6 +573,12 @@ contains
    if (present(max_level)) self%max_level = max_level
    self%is_initialized_ = .true.
    if (add_adam_) call self%add_node(code=-1_I8P) ! add ADAM node, the ancestor of all nodes
+
+   if(present(iu_ref_levels)) self%iu_ref_levels = iu_ref_levels
+   if(present(i_prune)) self%ijkl_prune(1)       = i_prune
+   if(present(j_prune)) self%ijkl_prune(2)       = j_prune
+   if(present(k_prune)) self%ijkl_prune(3)       = k_prune
+   if(present(l_prune)) self%ijkl_prune(4)       = l_prune
 
    ! MPI data
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
