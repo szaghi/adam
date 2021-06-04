@@ -505,12 +505,16 @@ contains
    print*,'2'
 
    ! Initialize ADAM: grid, tree, field(cpu)
+   print*,'ADAM: ',ni, nj, nk, ngc, bc_type, emin, emax, nv, nb, nodes_number, max_level, iu_ref_levels, &
+       i_prune, j_prune, k_prune, l_prune
    call self%adam%initialize(ni=ni, nj=nj, nk=nk, ngc=ngc, bc_type=bc_type,                                        &
                              emin=emin, emax=emax, nv=nv, nb=nb, nodes_number=nodes_number, max_level=max_level,   &
                              iu_ref_levels=iu_ref_levels, i_prune=i_prune, j_prune=j_prune, k_prune=k_prune, l_prune=l_prune)
+   print*,'3a'
    call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_blocks_reorder=.false.)
+   print*,'3b'
    call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false.)
-   print*,'3'
+   print*,'3c'
 
    self%ni            =  self%adam%field%grid%ni
    self%nj            =  self%adam%field%grid%nj
@@ -599,8 +603,8 @@ contains
    n_vars = IC_VARS_NUMBER(self%ic_type)
    do i_var=1,n_vars
       oname = "var"//trim(str(i_var,.true.))
-      call self%file_input%get(section_name="initial_conditions", option_name=oname, val=buf_I4)
-      self%ic_vars(i_var) = buf_I4
+      call self%file_input%get(section_name="initial_conditions", option_name=oname, val=buf_R8)
+      self%ic_vars(i_var) = buf_R8
       !call self%file_input%get(section_name="initial_conditions", option_name=oname, val=self%ic_vars(i_var))
       !call self%file_input%get(section_name="initial_conditions", option_name="var"//trim(str(i_var,.true.)), val=self%ic_vars(i_var))
    enddo
@@ -627,15 +631,20 @@ contains
    allocate(self%ptree(self%n_solids))
    do i_solid=1,self%n_solids
       sname = 'solid_'//trim(str(i_solid,.true.))
+      buf_I4 = -123123
+      call self%file_input%get(section_name=sname, option_name='bcs_type', val=buf_I4)
+      print*,'13:a ', buf_I4
+      print*,'13:d ', buf_CHAR
       call self%file_input%get(section_name=sname, option_name='name', val=buf_CHAR)
       self%solid_name = buf_CHAR
-      call self%file_input%get(section_name=sname, option_name='bc_type', val=buf_I4)
       self%solid_bc_type = buf_I4
       self%bcs_type(i_solid) = self%solid_bc_type
       call cgal_polyhedron_read(self%ptree(i_solid), self%solid_name)
    enddo
    self%bcs_vars_gpu = self%bcs_vars
-   print*,'13'
+   print*,'13: ',self%n_solids, self%bcs_vars
+   print*,'13:b ',self%bcs_type(:), buf_I4, self%solid_bc_type
+   print*,'13:b ',self%solid_name
 
    ! Allocate large arrays
    associate(nv=>self%nv, ns=>self%ns, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
@@ -684,6 +693,8 @@ contains
 
    call self%initialize(filename=filename)
    call self%set_initial_conditions()
+   if(self%n_solids > 0) call self%update_phi() 
+
    call self%save_hdf5(output_basename=self%output_basename, t=0, time=0._R8P)
    time = 0._R8P
    it = 0
@@ -725,7 +736,10 @@ contains
    integer(I4P)                    , intent(out)   :: l_prune          !< Pruning level.
    integer(I4P)                                    :: ns               !< Number of species and variables.
    real(R8P)                                       :: block_weight     !< Number of points per block.
-   real(R8P), parameter                            :: save_factor=0.95 !< Factor to avoid GPU completely full.
+   real(R8P), parameter                            :: save_factor=0.5  !< Factor to avoid GPU completely full.
+   integer(I4P)                                    :: buf_I4           !< Integer buffer.
+   real(R8P)                                       :: buf_R8           !< Real buffer.
+   integer(I4P)                                    :: size_of_real     !< Size of real.
 
    call self%file_input%initialize(filename=trim(filename))
    call self%file_input%load
@@ -735,20 +749,25 @@ contains
    call self%file_input%get(section_name='grid', option_name='ngc', val=ngc)
    call self%file_input%get(section_name='physics', option_name='ns', val=ns)
 
-   block_weight = (ngc+ni+ngc) * (ngc+nj+ngc) * (ngc+nk+ngc) * nv
-   nb           = nint(save_factor*avail_memory/(self%field_gpu_number*block_weight))
-   nodes_number = nb*self%procs_number
    nv           = ns + 4
+   block_weight = (ngc+ni+ngc) * (ngc+nj+ngc) * (ngc+nk+ngc) * nv
+   size_of_real = storage_size(emin(1))/8.
+   nb           = nint(save_factor*avail_memory*1e9/(self%field_gpu_number*block_weight*size_of_real))
+   nodes_number = nb*self%procs_number
 
-   call self%file_input%get(section_name='bc_x_min', option_name='type', val=bc_type(1))
-   call self%file_input%get(section_name='bc_x_max', option_name='type', val=bc_type(2))
-   call self%file_input%get(section_name='bc_y_min', option_name='type', val=bc_type(3))
-   call self%file_input%get(section_name='bc_y_max', option_name='type', val=bc_type(4))
-   call self%file_input%get(section_name='bc_z_min', option_name='type', val=bc_type(5))
-   call self%file_input%get(section_name='bc_z_max', option_name='type', val=bc_type(6))
+   call self%file_input%get(section_name='bc_x_min', option_name='type', val=buf_I4) ; bc_type(1) = buf_I4
+   call self%file_input%get(section_name='bc_x_max', option_name='type', val=buf_I4) ; bc_type(2) = buf_I4
+   call self%file_input%get(section_name='bc_y_min', option_name='type', val=buf_I4) ; bc_type(3) = buf_I4
+   call self%file_input%get(section_name='bc_y_max', option_name='type', val=buf_I4) ; bc_type(4) = buf_I4
+   call self%file_input%get(section_name='bc_z_min', option_name='type', val=buf_I4) ; bc_type(5) = buf_I4
+   call self%file_input%get(section_name='bc_z_max', option_name='type', val=buf_I4) ; bc_type(6) = buf_I4
 
-   call self%file_input%get(section_name='grid', option_name='emin', val=emin)
-   call self%file_input%get(section_name='grid', option_name='emax', val=emax)
+   call self%file_input%get(section_name='grid', option_name='emin_x', val=buf_R8) ; emin(1) = buf_R8
+   call self%file_input%get(section_name='grid', option_name='emin_y', val=buf_R8) ; emin(2) = buf_R8
+   call self%file_input%get(section_name='grid', option_name='emin_z', val=buf_R8) ; emin(3) = buf_R8
+   call self%file_input%get(section_name='grid', option_name='emax_x', val=buf_R8) ; emax(1) = buf_R8
+   call self%file_input%get(section_name='grid', option_name='emax_y', val=buf_R8) ; emax(2) = buf_R8
+   call self%file_input%get(section_name='grid', option_name='emax_z', val=buf_R8) ; emax(3) = buf_R8
    call self%file_input%get(section_name='amr', option_name='max_level', val=max_level)
    call self%file_input%get(section_name='amr', option_name='iu_ref_levels', val=iu_ref_levels)
    call self%file_input%get(section_name='amr', option_name='i_prune', val=i_prune)
@@ -918,7 +937,7 @@ contains
 
    do s=1, nrk
       call MPI_Barrier(MPI_COMM_WORLD, iermpi)
-      print*,'substep  :  ',s
+      print*,'substep  :  ',s, self%brk(s), dt*self%brk(s), bcs_type
       t_s = t + dt*(self%ark(s)+self%brk(s))
       call compute_rk_prhs_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,    &
                                    dt=dt, s=s, q_gpu=self%q_gpu, prhs_gpu=self%prhs_gpu,                &
@@ -948,7 +967,7 @@ contains
                                    phi_gpu=self%phi_gpu, bcs_type=bcs_type)
          print*,'after eikonal 2'
       endif
-      call self%compute_aux(q_gpu=self%q_invert_gpu(:,:,:,:,:), q_aux_gpu=self%q_aux_gpu)
+      call self%compute_aux(q_gpu=self%q_invert_gpu, q_aux_gpu=self%q_aux_gpu)
       call MPI_Barrier(MPI_COMM_WORLD, iermpi)
       print*,'after aux'
       call self%compute_residuals_gpu(ni=ni, nj=nj, nk=nk, ngc=ngc, ns=ns, blocks_number=blocks_number,                      &
@@ -1070,6 +1089,7 @@ contains
       self%ark(:) = [8._R8P/17._R8P,17._R8P /60._R8P,5._R8P /12._R8P,3._R8P/4._R8P]
       self%brk(:) = [0._R8P,-15._R8P/68._R8P,-17._R8P/60._R8P,-5._R8P/12._R8P]
    endselect
+   print*,'inRK :',self%ark(:), self%brk(:)
    endsubroutine runge_kutta_initialize
 
    subroutine save_hdf5(self, output_basename, t, time)
@@ -1588,7 +1608,14 @@ contains
    real(R8P)                           :: ib_eps                                !< Tolerance immersed boundary delta ratio.
    integer(I4P)                        :: iercuda                               !< Error trapping flag for CUDAFortran.
    type(dim3)                          :: grid, tBlock                          !< CUDA grid and block.
+   integer(I4P)                        :: error                               !< Error trapping flag for CUDAFortran.
 
+      error = cudaGetLastError()
+      if(error /= cudaSuccess) then
+         print*,'FRA-1 CUDA ERROR ',cudaGetErrorString(error)
+         call MPI_Abort(MPI_COMM_WORLD, -15,error)
+         STOP
+      endif
    if(euler_scheme == 1) then
       tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(nj)/tBlock%y),1)
       call euler_x_central_kernel<<<grid, tBlock>>>(q_aux_gpu, flx_gpu, fd_conv_gpu, dx_gpu,     &
@@ -1610,6 +1637,12 @@ contains
       call euler_z_kernel<<<grid, tBlock>>>(q_aux_gpu, flz_gpu, gplus_z, gminus_z,                                        &
                                             blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha_star, gamma_fluid, R_star, cv_star)
    endif
+      error = cudaGetLastError()
+      if(error /= cudaSuccess) then
+         print*,'FRA-2 CUDA ERROR ',cudaGetErrorString(error)
+         call MPI_Abort(MPI_COMM_WORLD, -15,error)
+         STOP
+      endif
 
    if(visc_scheme == 1) then
       !if(mu_star > 0.) call viscous_cuf(ni, nj, nk, ngc, blocks_number, ivis, visc_type, fd_coeff1_gpu, fd_coeff2_gpu, &
@@ -1619,13 +1652,29 @@ contains
                                          q_aux_gpu, flx_gpu, fly_gpu, flz_gpu,                           &
                                          dx_gpu, dy_gpu, dz_gpu)
    endif
+      !@cuf iercuda=cudaDeviceSynchronize()
+      error = cudaGetLastError()
+      if(error /= cudaSuccess) then
+         print*,'FRA-3 CUDA ERROR ',cudaGetErrorString(error)
+         call MPI_Abort(MPI_COMM_WORLD, -15,error)
+         STOP
+      endif
 
-   call self%update_ghost_fluxes_gpu(flx_gpu, fly_gpu, flz_gpu)
+   !RIMETTEREcall self%update_ghost_fluxes_gpu(flx_gpu, fly_gpu, flz_gpu)
 
    ib_eps = 1.e-12_R8P
+   print*,'CFD: ',size(dx_gpu), size(dy_gpu), size(dz_gpu), ib_eps
+   print*,'CFD: ',size(flx_gpu), size(fly_gpu), size(flz_gpu), size(phi_gpu)
+   print*,'CFD: ',ni, nj, nk, ngc, ns+4
    call compute_flux_diff(blocks_number, ni, nj, nk, ngc, ns+4, &
                           fl_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, &
                           dx_gpu, dy_gpu, dz_gpu, ib_eps)
+      error = cudaGetLastError()
+      if(error /= cudaSuccess) then
+         print*,'FRA-4 CUDA ERROR ',cudaGetErrorString(error)
+         call MPI_Abort(MPI_COMM_WORLD, -15,error)
+         STOP
+      endif
 
    endsubroutine compute_residuals_gpu
 
@@ -2039,7 +2088,7 @@ contains
              endif
          endif
 
-         do v=1,6
+         do v=1,nv
             fl_gpu(b,i,j,k,v) = - (flx_gpu(b,i,j,k,v)-flx_gpu(b,i-1,j,k,v))/dx_locale &
                                 - (fly_gpu(b,i,j,k,v)-fly_gpu(b,i,j-1,k,v))/dy_locale &
                                 - (flz_gpu(b,i,j,k,v)-flz_gpu(b,i,j,k-1,v))/dz_locale
@@ -2731,7 +2780,12 @@ contains
    real(R8P),    intent(inout), device :: prhs_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< RK stage.
    integer(I4P)                        :: i, j, k, b, v, ss                      !< Counter.
    integer(I4P)                        :: iercuda                                !< Error trapping flag for CUDAFortran.
+   integer(I4P)                        :: error                                !< Error trapping flag for CUDAFortran.
 
+   print*,'RK: ',ni, nj, nk, ngc, nv, blocks_number, dt, qnrk
+   print*,'RK: ',size(q_gpu), size(prhs_gpu), size(fl_gpu), size(phi_gpu)
+   print*,'RK: ',lbound(q_gpu), lbound(prhs_gpu), lbound(fl_gpu), lbound(phi_gpu)
+   print*,'RK: ',ubound(q_gpu), ubound(prhs_gpu), ubound(fl_gpu), ubound(phi_gpu)
    !$cuf kernel do(5) <<<*,*>>>
    do v=1, nv
       do k=1, nk
