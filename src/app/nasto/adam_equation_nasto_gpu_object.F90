@@ -229,8 +229,9 @@ contains
       do i_marker=1, self%amr_n_markers 
          amr_marker = self%amr_markers(i_marker)
          call self%update_ghost_gpu(q_gpu=self%q_gpu)
+         print*,'AMR: ',amr_marker%tol, amr_marker%delta_fine, amr_marker%delta_coarse, amr_marker%mode
          if(amr_marker%mode == 1) then ! marker "geo"
-            call self%mark_by_geo(tol=amr_marker%tol, delta_fine=amr_marker%delta_fine, delta_coarse=amr_marker%delta_coarse)
+            call self%mark_by_geo(delta_fine=amr_marker%delta_fine, delta_coarse=amr_marker%delta_coarse)
          elseif(amr_marker%mode == 2) then ! marker "grad"
             call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_fine=amr_marker%delta_fine, &
                                        delta_coarse=amr_marker%delta_coarse, ivar=amr_marker%ivar)
@@ -536,12 +537,12 @@ contains
    print*,'6'
 
    ! Numerical schemes
-   call self%file_input%get(section_name='schemes', option_name='euler_scheme', val=self%euler_scheme)
-   call self%file_input%get(section_name='schemes', option_name='euler_order' , val=self%euler_order)
+   call self%file_input%get(section_name='schemes', option_name='euler_scheme', val=buf_I4) ; self%euler_scheme = buf_I4
+   call self%file_input%get(section_name='schemes', option_name='euler_order' , val=buf_I4) ; self%euler_order  = buf_I4
    self%iweno = (self%euler_order+1)/2
    self%lmax  = (self%euler_order)/2
-   call self%file_input%get(section_name='schemes', option_name='visc_scheme' , val=self%visc_scheme)
-   call self%file_input%get(section_name='schemes', option_name='visc_order'  , val=self%visc_order)
+   call self%file_input%get(section_name='schemes', option_name='visc_scheme' , val=buf_I4) ; self%visc_scheme = buf_I4
+   call self%file_input%get(section_name='schemes', option_name='visc_order'  , val=buf_I4) ; self%visc_order  = buf_I4
    call self%fd_initialize
    self%fd_coeff1_gpu = self%fd_coeff1
    self%fd_coeff2_gpu = self%fd_coeff2
@@ -549,23 +550,23 @@ contains
    print*,'7'
 
    ! Physics
-   call self%file_input%get(section_name='physics', option_name='cp', val=self%cp_star)
-   call self%file_input%get(section_name='physics', option_name='cv', val=self%cv_star)
-   call self%file_input%get(section_name='physics', option_name='mu', val=self%mu_star)
-   call self%file_input%get(section_name='physics', option_name='k', val=self%k_star)
-   call self%file_input%get(section_name='physics', option_name='dha', val=self%dha_star)
-   call self%file_input%get(section_name='physics', option_name='Zeldovich', val=self%Zeldovich)
-   call self%file_input%get(section_name='physics', option_name='Damkohler', val=self%Damkohler)
-   call self%file_input%get(section_name='physics', option_name='Lewis', val=self%Lewis)
-   call self%file_input%get(section_name='physics', option_name='visc_law', val=self%visc_law)
+   call self%file_input%get(section_name='physics', option_name='cp',        val=buf_R8) ; self%cp_star   = buf_R8
+   call self%file_input%get(section_name='physics', option_name='cv',        val=buf_R8) ; self%cv_star   = buf_R8
+   call self%file_input%get(section_name='physics', option_name='mu',        val=buf_R8) ; self%mu_star   = buf_R8
+   call self%file_input%get(section_name='physics', option_name='k',         val=buf_R8) ; self%k_star    = buf_R8
+   call self%file_input%get(section_name='physics', option_name='dha',       val=buf_R8) ; self%dha_star  = buf_R8
+   call self%file_input%get(section_name='physics', option_name='Zeldovich', val=buf_R8) ; self%Zeldovich = buf_R8
+   call self%file_input%get(section_name='physics', option_name='Damkohler', val=buf_R8) ; self%Damkohler = buf_R8
+   call self%file_input%get(section_name='physics', option_name='Lewis',     val=buf_R8) ; self%Lewis     = buf_R8
+   call self%file_input%get(section_name='physics', option_name='visc_law',  val=buf_I4) ; self%visc_law  = buf_I4
    self%gamma_fluid = self%cp_star/self%cv_star
    self%R_star      = self%cp_star-self%cv_star
    print*,'8'
 
    ! AMR
-   call self%file_input%get(section_name='amr', option_name='frequency', val=self%amr_frequency)
-   call self%file_input%get(section_name='amr', option_name='iters', val=self%amr_iters)
-   call self%file_input%get(section_name='amr', option_name='n_markers', val=self%amr_n_markers)
+   call self%file_input%get(section_name='amr', option_name='frequency', val=buf_I4) ; self%amr_frequency = buf_I4
+   call self%file_input%get(section_name='amr', option_name='iters',     val=buf_I4) ; self%amr_iters = buf_I4
+   call self%file_input%get(section_name='amr', option_name='n_markers', val=buf_I4) ; self%amr_n_markers = buf_I4
    allocate(self%amr_markers(self%amr_n_markers))
    do i_marker=1,self%amr_n_markers
       sname = 'amr_marker_'//trim(str(i_marker,.true.))
@@ -588,25 +589,23 @@ contains
    print*,'9'
 
    ! Temporal integration
-   call self%file_input%get(section_name="time", option_name="restart",         val=self%restart)
-   call self%file_input%get(section_name="time", option_name="time_max",        val=self%time_max)
-   call self%file_input%get(section_name="time", option_name="t_max",           val=self%t_max)
-   call self%file_input%get(section_name="time", option_name="time_save",       val=self%time_save)
-   call self%file_input%get(section_name="time", option_name="n_save",          val=self%n_save)
-   call self%file_input%get(section_name="time", option_name="output_basename", val=self%output_basename)
-   call self%file_input%get(section_name='time', option_name='CFL', val=self%CFL)
+   call self%file_input%get(section_name="time", option_name="restart",         val=buf_I4)   ; self%restart         = buf_I4
+   call self%file_input%get(section_name="time", option_name="time_max",        val=buf_R8)   ; self%time_max        = buf_R8
+   call self%file_input%get(section_name="time", option_name="t_max",           val=buf_I4)   ; self%t_max           = buf_I4
+   call self%file_input%get(section_name="time", option_name="time_save",       val=buf_R8)   ; self%time_save       = buf_R8
+   call self%file_input%get(section_name="time", option_name="n_save",          val=buf_I4)   ; self%n_save          = buf_I4
+   call self%file_input%get(section_name="time", option_name="output_basename", val=buf_CHAR) ; self%output_basename = buf_CHAR
+   call self%file_input%get(section_name='time', option_name='CFL',             val=buf_R8)   ; self%CFL             = buf_R8
    call self%runge_kutta_initialize
    print*,'10'
 
    ! Initial conditions
-   call self%file_input%get(section_name="initial_conditions", option_name='ic_type', val=self%ic_type)
+   call self%file_input%get(section_name="initial_conditions", option_name='ic_type', val=buf_I4) ; self%ic_type = buf_I4
    n_vars = IC_VARS_NUMBER(self%ic_type)
    do i_var=1,n_vars
       oname = "var"//trim(str(i_var,.true.))
       call self%file_input%get(section_name="initial_conditions", option_name=oname, val=buf_R8)
       self%ic_vars(i_var) = buf_R8
-      !call self%file_input%get(section_name="initial_conditions", option_name=oname, val=self%ic_vars(i_var))
-      !call self%file_input%get(section_name="initial_conditions", option_name="var"//trim(str(i_var,.true.)), val=self%ic_vars(i_var))
    enddo
    print*,'11'
 
@@ -622,29 +621,28 @@ contains
       enddo
    enddo
    self%bc_vars_gpu = self%bc_vars
+   print*,'bc_vars: ',self%bc_vars
    print*,'12'
 
    ! Immersed boundary
-   call self%file_input%get(section_name='solids', option_name='n_solids', val=self%n_solids)
+   call self%file_input%get(section_name='solids', option_name='n_solids', val=buf_I4)
+   self%n_solids = buf_I4
    allocate(self%bcs_type(self%n_solids))
    allocate(self%bcs_vars(BCS_VARS_NUMBER_MAX, self%n_solids))
    allocate(self%ptree(self%n_solids))
    do i_solid=1,self%n_solids
       sname = 'solid_'//trim(str(i_solid,.true.))
-      buf_I4 = -123123
-      call self%file_input%get(section_name=sname, option_name='bcs_type', val=buf_I4)
-      print*,'13:a ', buf_I4
-      print*,'13:d ', buf_CHAR
       call self%file_input%get(section_name=sname, option_name='name', val=buf_CHAR)
       self%solid_name = buf_CHAR
+      call self%file_input%get(section_name=sname, option_name='bcs_type', val=buf_I4)
       self%solid_bc_type = buf_I4
       self%bcs_type(i_solid) = self%solid_bc_type
       call cgal_polyhedron_read(self%ptree(i_solid), self%solid_name)
    enddo
    self%bcs_vars_gpu = self%bcs_vars
-   print*,'13: ',self%n_solids, self%bcs_vars
-   print*,'13:b ',self%bcs_type(:), buf_I4, self%solid_bc_type
-   print*,'13:b ',self%solid_name
+   !print*,'13: ',self%n_solids, self%bcs_vars
+   !print*,'13:b ',self%bcs_type(:), buf_I4, self%solid_bc_type
+   !print*,'13:b ',self%solid_name
 
    ! Allocate large arrays
    associate(nv=>self%nv, ns=>self%ns, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
@@ -867,10 +865,9 @@ contains
       endfunction max_cell_delta_grad
    endsubroutine mark_by_grad_var
 
-   subroutine mark_by_geo(self, tol, delta_fine, delta_coarse, threshold, do_init)
+   subroutine mark_by_geo(self, delta_fine, delta_coarse, threshold, do_init)
    !< Mark blocks to be refined/derefined by a `grad(rho)` value.
    class(equation_nasto_gpu_object), intent(inout)        :: self           !< The equation.
-   real(R8P),                        intent(in)           :: tol            !< Gradiend tolerance value.
    real(R8P),                        intent(in)           :: delta_fine     !< Maximum cell delta in fine grids.
    real(R8P),                        intent(in)           :: delta_coarse   !< Minimum cell delta in coarse grids.
    real(R8P),                        intent(in), optional :: threshold      !< Threshold for sphere proximity.
@@ -1174,13 +1171,13 @@ contains
                      q_gpu(b,i,j,k,v) = q_gpu(b,i-idelta,j-jdelta,k-kdelta,v)
                   enddo
                else if (bc_type == BC_INFLOW) then
-                   q_gpu(b,i,j,k,1) = q_bc_vars_gpu(fec_1_6, 1)
-                   q_gpu(b,i,j,k,2) = q_bc_vars_gpu(fec_1_6, 1)* q_bc_vars_gpu(fec_1_6, 2)
-                   q_gpu(b,i,j,k,3) = q_bc_vars_gpu(fec_1_6, 1)* q_bc_vars_gpu(fec_1_6, 3)
-                   q_gpu(b,i,j,k,4) = q_bc_vars_gpu(fec_1_6, 1)* q_bc_vars_gpu(fec_1_6, 4)
-                   q_gpu(b,i,j,k,5) = q_bc_vars_gpu(fec_1_6, 1)*                         &
-                       (cv_star*q_bc_vars_gpu(fec_1_6, 5)/(q_bc_vars_gpu(fec_1_6,1)*R_star)+ &
-                       0.5_R8P*(q_bc_vars_gpu(fec_1_6, 2)**2+q_bc_vars_gpu(fec_1_6, 3)**2+q_bc_vars_gpu(fec_1_6, 4)**2))
+                   q_gpu(b,i,j,k,1) = q_bc_vars_gpu(1, fec_1_6)
+                   q_gpu(b,i,j,k,2) = q_bc_vars_gpu(1, fec_1_6)* q_bc_vars_gpu(2, fec_1_6)
+                   q_gpu(b,i,j,k,3) = q_bc_vars_gpu(1, fec_1_6)* q_bc_vars_gpu(3, fec_1_6)
+                   q_gpu(b,i,j,k,4) = q_bc_vars_gpu(1, fec_1_6)* q_bc_vars_gpu(4, fec_1_6)
+                   q_gpu(b,i,j,k,5) = q_bc_vars_gpu(1, fec_1_6)*                         &
+                       (cv_star*q_bc_vars_gpu(5, fec_1_6)/(q_bc_vars_gpu(1, fec_1_6)*R_star)+ &
+                       0.5_R8P*(q_bc_vars_gpu(2, fec_1_6)**2+q_bc_vars_gpu(3, fec_1_6)**2+q_bc_vars_gpu(4, fec_1_6)**2))
                endif
             endif
          enddo
