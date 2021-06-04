@@ -23,7 +23,7 @@ public :: equation_nasto_gpu_object
 integer(I4P), parameter :: IC_UNIFORM         = 1_I4P
 integer(I4P), parameter :: IC_LEFTRIGHT       = 2_I4P
 integer(I4P), parameter :: IC_FLAME           = 3_I4P
-integer(I4P), parameter :: IC_VARS_NUMBER(3)  = [5, 11, 12]
+integer(I4P), parameter :: IC_VARS_NUMBER(3)  = [6, 11, 12]
 integer(I4P), parameter :: IC_VARS_NUMBER_MAX = 12 !maxval(IC_VARS_NUMBER)    !< Maximum number of variables needed for IC.
 
 integer(I4P), parameter :: BC_EXTRAPOLATION   = 1_I4P
@@ -446,7 +446,7 @@ contains
    if (present(compute_q_aux)) then
       if (compute_q_aux) then
          call self%compute_aux(q_gpu=self%q_gpu, q_aux_gpu=self%q_aux_gpu)
-         call self%base_gpu%copy_transpose_gpu_cpu(nv=self%ns+7, q_gpu=self%q_aux_gpu, q_cpu=self%q_aux)
+         call self%base_gpu%copy_transpose_gpu_cpu(nv=self%nv_aux, q_gpu=self%q_aux_gpu, q_cpu=self%q_aux)
       endif
    endif
    endsubroutine copy_gpu_cpu
@@ -1101,7 +1101,7 @@ contains
                             q=self%field%q,                                   &
                             q_aux=self%q_aux,                                 &
                             q_name=['rho','rhu','rhv','rhw','rhe','rhY'], &
-                            q_aux_name=['rhob','u','v','w','ya','tem','pres','ental','c'],  &
+                            q_aux_name=['rhob','u','v','w','ya','tem','pres','ental','csp'],  &
                             with_cell_morton=.true.)
    endsubroutine save_hdf5
 
@@ -1191,6 +1191,8 @@ contains
    class(equation_nasto_gpu_object), intent(inout) :: self       !< The equation.
    integer(I4P)                                    :: b, i, j, k !< Counter.
    real(R8P)                                       :: x_split    !< Scalar.
+   real(R8P)                                       :: uu, vv, ww !< Scalar.
+   real(R8P)                                       :: rn         !< Scalar.
 
    associate(blocks_number=>self%blocks_number, q=>self%field%q, ni=>self%ni, nj=>self%nj, nk=>self%nk,        &
              ngc=>self%ngc, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell,   &
@@ -1203,11 +1205,14 @@ contains
                do j=1, nj
                   do i=1, ni
                      q(1,i,j,k,b) = ic_vars(1)
-                     q(2,i,j,k,b) = ic_vars(1)*ic_vars(2)
-                     q(3,i,j,k,b) = ic_vars(1)*ic_vars(3)
-                     q(4,i,j,k,b) = ic_vars(1)*ic_vars(4)
+                     call random_number(rn) ; rn = rn*ic_vars(6) ; uu = ic_vars(2)+rn
+                     q(2,i,j,k,b) = ic_vars(1)*uu
+                     call random_number(rn) ; rn = rn*ic_vars(6) ; vv = ic_vars(3)+rn
+                     q(3,i,j,k,b) = ic_vars(1)*vv
+                     call random_number(rn) ; rn = rn*ic_vars(6) ; ww = ic_vars(4)+rn
+                     q(4,i,j,k,b) = ic_vars(1)*ww
                      q(5,i,j,k,b) = ic_vars(1)*(cv_star*ic_vars(5)/(ic_vars(1)*R_star)+&
-                         0.5_R8P*(ic_vars(2)**2+ic_vars(3)**2+ic_vars(4)**2))
+                         0.5_R8P*(uu**2+vv**2+ww**2))
                   enddo
                enddo
             enddo
@@ -1430,6 +1435,8 @@ contains
                q_aux_gpu(b,i,j,k,7) = R_star*rho*tem                 ! pressure
                q_aux_gpu(b,i,j,k,8) = rhe/rho+R_star*tem             ! entalpy
                q_aux_gpu(b,i,j,k,9) = sqrt(gamma_fluid*R_star*tem)   ! sound speed
+               !print*,'q_aux_gpu(b,i,j,k,9): ',sqrt(gamma_fluid*R_star*tem)
+               !print*,'tem :',tem
             enddo
          enddo
       enddo
@@ -1613,6 +1620,9 @@ contains
          call MPI_Abort(MPI_COMM_WORLD, -15,error)
          STOP
       endif
+
+      print*,'CR 1'
+
    if(euler_scheme == 1) then
       tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(nj)/tBlock%y),1)
       call euler_x_central_kernel<<<grid, tBlock>>>(q_aux_gpu, flx_gpu, fd_conv_gpu, dx_gpu,     &
@@ -1626,7 +1636,7 @@ contains
    else
       tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(nj)/tBlock%y),1)
       call euler_x_kernel<<<grid, tBlock>>>(q_aux_gpu, flx_gpu, gplus_x, gminus_x,                                       &
-                                        blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha_star, gamma_fluid, R_star, cv_star)
+                                            blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha_star, gamma_fluid, R_star, cv_star)
       tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(ni)/tBlock%y),1)
       call euler_y_kernel<<<grid, tBlock>>>(q_aux_gpu, fly_gpu, gplus_y, gminus_y,                                        &
                                             blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha_star, gamma_fluid, R_star, cv_star)
@@ -1634,6 +1644,8 @@ contains
       call euler_z_kernel<<<grid, tBlock>>>(q_aux_gpu, flz_gpu, gplus_z, gminus_z,                                        &
                                             blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha_star, gamma_fluid, R_star, cv_star)
    endif
+      print*,'CR 2'
+
       error = cudaGetLastError()
       if(error /= cudaSuccess) then
          print*,'FRA-2 CUDA ERROR ',cudaGetErrorString(error)
@@ -1650,6 +1662,8 @@ contains
                                          dx_gpu, dy_gpu, dz_gpu)
    endif
       !@cuf iercuda=cudaDeviceSynchronize()
+      print*,'CR 3'
+
       error = cudaGetLastError()
       if(error /= cudaSuccess) then
          print*,'FRA-3 CUDA ERROR ',cudaGetErrorString(error)
@@ -1666,6 +1680,7 @@ contains
    call compute_flux_diff(blocks_number, ni, nj, nk, ngc, ns+4, &
                           fl_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, &
                           dx_gpu, dy_gpu, dz_gpu, ib_eps)
+      print*,'CR 4'
       error = cudaGetLastError()
       if(error /= cudaSuccess) then
          print*,'FRA-4 CUDA ERROR ',cudaGetErrorString(error)
@@ -1899,7 +1914,8 @@ contains
    real(R8P), intent(in), value      :: dha_star, gamma_fluid, R_star, cv_star
    integer                           :: b, i, j, k, l, ll, m, mm, v
    ! here 6 is used instead of nv to help the compiler to use registers instead of global memory
-   real(R8P)                         :: er(nv,nv), el(nv,nv), ev(nv), evmax(nv), ghat(nv), gl(nv), gr(nv), fi(nv), vi(nv)
+   real(R8P)                         :: er(5,5), el(5,5), ev(5), evmax(5), ghat(5), gl(5), gr(5), fi(5), vi(5)
+   !real(R8P)                         :: er(nv,nv), el(nv,nv), ev(nv), evmax(nv), ghat(nv), gl(nv), gr(nv), fi(nv), vi(nv)
    real(R8P)                         :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
    real(R8P)                         :: gc, wc
 
@@ -2265,7 +2281,8 @@ contains
    integer, intent(in), value        :: blocks_number, ni, nj, nk, ngc, nv, iweno
    real(R8P), intent(in), value      :: dha_star, gamma_fluid, R_star, cv_star
    integer                           :: b, i, j, k, l, ll, m, mm, v
-   real(R8P)                         :: er(nv,nv), el(nv,nv), ev(nv), evmax(nv), ghat(nv), gl(nv), gr(nv), fi(nv), vi(nv)
+   real(R8P)                         :: er(5,5), el(5,5), ev(5), evmax(5), ghat(5), gl(5), gr(5), fi(5), vi(5)
+   !real(R8P)                         :: er(nv,nv), el(nv,nv), ev(nv), evmax(nv), ghat(nv), gl(nv), gr(nv), fi(nv), vi(nv)
    real(R8P)                         :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
    real(R8P)                         :: gc, wc
 
@@ -2402,7 +2419,8 @@ contains
    integer, intent(in), value        :: blocks_number, ni, nj, nk, ngc, nv, iweno
    real(R8P), intent(in), value      :: dha_star, gamma_fluid, R_star, cv_star
    integer                           :: b, i, j, k, l, ll, m, mm, v
-   real(R8P)                         :: er(nv,nv), el(nv,nv), ev(nv), evmax(nv), ghat(nv), gl(nv), gr(nv), fi(nv), vi(nv)
+   real(R8P)                         :: er(5,5), el(5,5), ev(5), evmax(5), ghat(5), gl(5), gr(5), fi(5), vi(5)
+   !real(R8P)                         :: er(nv,nv), el(nv,nv), ev(nv), evmax(nv), ghat(nv), gl(nv), gr(nv), fi(nv), vi(nv)
    real(R8P)                         :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
    real(R8P)                         :: gc, wc
 
