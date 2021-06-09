@@ -15,6 +15,7 @@ use CUDAFOR
 use cgal_wrappers
 use ISO_C_BINDING
 use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
+use memorysaver  
 
 implicit none
 private
@@ -81,7 +82,6 @@ type :: equation_nasto_gpu_object
    !< q_aux(9): sound speed
    !<```
    type(file_ini)              :: file_input            !< Nasto input file handler.
-
    type(adam_object)           :: adam                  !< ADAM.
    type(field_object), pointer :: field=>null()         !< The field.
    type(grid_object),  pointer :: grid=>null()          !< The grid.
@@ -226,9 +226,12 @@ contains
 
    amr: do i=1, self%amr_iters
       is_grid_changed_all = .false.
+      call save_memory(-10, self%myrank)
       do i_marker=1, self%amr_n_markers 
          amr_marker = self%amr_markers(i_marker)
+      call save_memory(-11, self%myrank)
          call self%update_ghost_gpu(q_gpu=self%q_gpu)
+      call save_memory(-12, self%myrank)
          print*,'AMR: ',amr_marker%tol, amr_marker%delta_fine, amr_marker%delta_coarse, amr_marker%mode
          if(amr_marker%mode == 1) then ! marker "geo"
             call self%mark_by_geo(delta_fine=amr_marker%delta_fine, delta_coarse=amr_marker%delta_coarse)
@@ -236,10 +239,15 @@ contains
             call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_fine=amr_marker%delta_fine, &
                                        delta_coarse=amr_marker%delta_coarse, ivar=amr_marker%ivar)
          endif
+      call save_memory(-13, self%myrank)
          call self%copy_gpu_cpu() ! needed for adam%amr_update
+      call save_memory(-14, self%myrank)
          call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed)
+      call save_memory(-15, self%myrank)
          if(self%n_solids > 0) call self%update_phi()
+      call save_memory(-16, self%myrank)
          call self%copy_cpu_gpu
+      call save_memory(-17, self%myrank)
          is_grid_changed_all = is_grid_changed_all.or.is_grid_changed
       enddo
       if (.not.is_grid_changed_all) then
@@ -366,10 +374,16 @@ contains
             query_x = x_cell(i,b)
             query_y = y_cell(j,b)
             query_z = z_cell(k,b)
-            call polyhedron_closest(ptree(ib),query_x,query_y,query_z,near_x,near_y,near_z)
-            distance = sqrt((near_x-query_x)**2+(near_y-query_y)**2+(near_z-query_z)**2)
-            inside   = cgal_polyhedron_inside(ptree(ib),query_x,query_y,query_z)
-            if(.not.inside) distance = - distance
+
+            ! RIMETTERE CGAL
+            !call polyhedron_closest(ptree(ib),query_x,query_y,query_z,near_x,near_y,near_z)
+            !distance = sqrt((near_x-query_x)**2+(near_y-query_y)**2+(near_z-query_z)**2)
+            !inside   = cgal_polyhedron_inside(ptree(ib),query_x,query_y,query_z)
+            !if(.not.inside) distance = - distance
+            ! RIMETTERE CGAL
+
+            distance = - (sqrt((query_x-10.)**2+(query_y-10.)**2+(query_z-10.)**2)-1.)
+
             phi(b,i,j,k,ib) = distance
          enddo
          enddo
@@ -683,11 +697,13 @@ contains
    endsubroutine initialize
 
    subroutine run(self, filename)
+ 
    class(equation_nasto_gpu_object), intent(inout) :: self         !< The equation.
    character(*)                    , intent(in)    :: filename     !< Input file name.
    real(R8P)                                       :: time         !< Time.
    integer(I4P)                                    :: it           !< Temporal iteration.
    real(R8P)                                       :: timing(1:2)  !< Tic toc timing.
+
 
    call self%initialize(filename=filename)
    call self%set_initial_conditions()
@@ -697,9 +713,11 @@ contains
    time = 0._R8P
    it = 0
    call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing(1) = MPI_Wtime()
+
    integration: do
-      print*,'Iteration = ',it
+      print*,'Iteration[rank] = ',it,'[',self%myrank,']'
       it = it + 1
+      call save_memory(it, self%myrank)
       if(mod(it,self%amr_frequency) == 0) call self%amr_update()
       call self%compute_dt()
       if (time + self%dt > self%time_max) self%dt = self%time_max - time
@@ -734,7 +752,7 @@ contains
    integer(I4P)                    , intent(out)   :: l_prune          !< Pruning level.
    integer(I4P)                                    :: ns               !< Number of species and variables.
    real(R8P)                                       :: block_weight     !< Number of points per block.
-   real(R8P), parameter                            :: save_factor=0.5  !< Factor to avoid GPU completely full.
+   real(R8P), parameter                            :: save_factor=0.9  !< Factor to avoid GPU completely full.
    integer(I4P)                                    :: buf_I4           !< Integer buffer.
    real(R8P)                                       :: buf_R8           !< Real buffer.
    integer(I4P)                                    :: size_of_real     !< Size of real.
@@ -880,7 +898,13 @@ contains
 
    do_init_ = .true.    ; if (present(do_init)) do_init_ = do_init
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
-   if(do_init_) self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
+   if(do_init_) then
+       !self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
+
+       if (allocated(self%field%refinements_needed)) deallocate(self%field%refinements_needed)
+       allocate(self%field%refinements_needed(self%blocks_number))
+       self%field%refinements_needed(:) = TO_BE_DEREFINED
+   endif
    associate (ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
               blocks_number=>self%blocks_number, ns=>self%ns, dxyz=>self%field%dxyz, phi=>self%phi)
       do b=1, blocks_number

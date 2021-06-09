@@ -14,6 +14,7 @@ use STRINGIFOR
 use VTK_FORTRAN
 use HDF5
 use MPI
+use memorysaver
 
 implicit none
 private
@@ -28,6 +29,7 @@ type :: adam_object
    integer(I4P) :: error=0_I4P        !< Error traping flag.
    integer(I4P) :: procs_number=1_I4P !< MPI Number of processes.
    integer(I4P) :: myrank=0_I4P       !< MPI rank process.
+
    contains
       ! public methods
       procedure, pass(self) :: adapt                         !< Adapt tree/field accordingly to refine/derefine necessity.
@@ -57,10 +59,13 @@ contains
    !< Adapt tree/field accordingly to refine/derefine necessity.
    class(adam_object), intent(inout) :: self !< ADAM.
 
+      call save_memory(-31, self%myrank)
    call self%tree%adapt
+      call save_memory(-32, self%myrank)
    call self%field%adapt(ratio=self%tree%ratio,                                                            &
                          block_to_refine=self%tree%block_to_refine, block_refined=self%tree%block_refined, &
                          block_to_derefine=self%tree%block_to_derefine, block_derefined=self%tree%block_derefined)
+      call save_memory(-33, self%myrank)
    endsubroutine adapt
 
    subroutine amr_update(self, is_marked_by_field, is_marked_by_tree, do_mpi_redistribute, do_blocks_reorder, &
@@ -81,21 +86,41 @@ contains
    logical                                   :: do_mpi_redistribute_ !< Flag to activate MPI redistribute, local var.
    logical                                   :: do_blocks_reorder_   !< Flag to activate blocks reorder, local var.
 
+   real(R8P) :: temp
+   integer :: i
+
    do_mpi_redistribute_ = .true. ; if (present(do_mpi_redistribute )) do_mpi_redistribute_ = do_mpi_redistribute
    do_blocks_reorder_ = .true. ; if (present(do_blocks_reorder)) do_blocks_reorder_ = do_blocks_reorder
 
+      call save_memory(-21, self%myrank)
    call self%mpi_gather_refinement_needed(is_marked_by_field=is_marked_by_field, is_marked_by_tree=is_marked_by_tree)
 
+      call save_memory(-22, self%myrank)
+   temp=0.0001
+   do i=1,200000
+   temp = temp+(-1)**i*abs(sin(atan(cos(sinh(temp)))))**(abs(sin(cos(sqrt(temp)))))
+   enddo
+   print*,'temp: ',temp
    call self%adapt
+   temp=0.0002
+   do i=1,200000
+   temp = temp+(-1)**i*abs(sin(atan(cos(sinh(temp)))))**(abs(sin(cos(sqrt(temp)))))
+   enddo
+   print*,'temp: ',temp
+
+      call save_memory(-23, self%myrank)
 
    if (present(is_grid_changed)) is_grid_changed = (size(self%tree%node_to_refine,   dim=1)>0_I4P).or.&
                                                    (size(self%tree%node_to_derefine, dim=1)>0_I4P)
 
    if (do_mpi_redistribute_) call self%mpi_redistribute(print_mpi_stats=print_mpi_stats)
+      call save_memory(-24, self%myrank)
 
    if (do_blocks_reorder_) call self%blocks_reorder
 
+      call save_memory(-25, self%myrank)
    call self%make_comm_local_maps_ghost_bc
+      call save_memory(-26, self%myrank)
    endsubroutine amr_update
 
    subroutine blocks_reorder(self)

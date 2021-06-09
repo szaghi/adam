@@ -138,6 +138,7 @@ use PENF
 use VECFOR
 use MPI
 use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
+use memorysaver
 
 implicit none
 private
@@ -208,6 +209,9 @@ type :: tree_object
    integer(I8P), allocatable :: comm_map_recv_ghost(:,:)   !< Communication map, `fec` information [fec_number, 5].
    ! STL surfaces data
    type(surface_stl_object)  :: surface_stl !< STL surface.
+
+   integer(I8P), allocatable                       :: temp_array_i8(:)
+   integer(I8P), allocatable                       :: codes_analyzed(:)    !< List of codes analyzed.
    contains
       ! public methods
       procedure, pass(self) :: adapt                        !< Adapt tree accordingly to refine/derefine necessity.
@@ -312,9 +316,13 @@ contains
    !< Adapt tree accordingly to refine/derefine necessity.
    class(tree_object), intent(inout) :: self !< The tree.
 
+      call save_memory(-41, self%myrank)
    call self%sanitize
+      call save_memory(-42, self%myrank)
    call self%refine
+      call save_memory(-43, self%myrank)
    call self%derefine
+      call save_memory(-44, self%myrank)
    endsubroutine adapt
 
    function codes(self, only_mine, sort_by_level)
@@ -340,6 +348,9 @@ contains
    enddo
    if (c < self%nodes_number) then
       work = codes(1:c)
+      !RIMETTERE SENZA
+      if(allocated(codes)) deallocate(codes)
+      !RIMETTERE SENZA
       call move_alloc(from=work, to=codes)
    endif
    allocate(work((size(codes,dim=1)+1)/2))
@@ -1067,6 +1078,9 @@ contains
                             myrank=node_ptr%myrank,                       &
                             block_index=node_ptr%block_index)
       enddo
+      !RIMETTERE SENZA
+      if(allocated(self%bucket)) deallocate(self%bucket)
+      !RIMETTERE SENZA
       call move_alloc(from=swap%bucket, to=self%bucket)
       self%buckets_number = swap%buckets_number
       self%nodes_number   = swap%nodes_number
@@ -2255,7 +2269,8 @@ contains
          do i=ijkmin(1), ijkmax(1)
             ! the first child (global) Morton code of direct neighbor has been already computed thus the other
             ! Morton codes are simply computed adding the local numeration to the first child code
-            neighbor = [neighbor, [self%child(code=direct_neighbor, i=i + 2*j + 4*k)]]
+            neighbor = [neighbor, self%child(code=direct_neighbor, i=i + 2*j + 4*k)]
+            !RIMETTEREneighbor = [neighbor, [self%child(code=direct_neighbor, i=i + 2*j + 4*k)]]
          enddo
       enddo
    enddo
@@ -2390,9 +2405,15 @@ contains
       allocate(temp(1:size(path)+1))
       temp(1:size(path)) = path
       temp(size(path)+1) = self%parent(code=c)
+      !RIMETTERE SENZA
+      if(allocated(path)) deallocate(path)
+      !RIMETTERE SENZA
       call move_alloc(from=temp,to=path)
       c = self%parent(code=c)
    enddo
+   !RIMETTERE SENZA
+   if(allocated(temp)) deallocate(temp)
+   !RIMETTERE SENZA
    endfunction path
 
    subroutine print_code_topology(self, code,  &
@@ -2745,6 +2766,8 @@ contains
    integer(I4P)                                    :: new_level_n          !< Neighbor new level counter.
    integer(I4P)                                    :: s, sib, f, n         !< Counter.
 
+   integer(I8P)                                    :: old_size
+
    iterations_number_ = TREE_MAX_SANITIZE_ITERATIONS ; if (present(iterations_number)) iterations_number_ = iterations_number
 
    min_max_check_loop : do while(self%loop(node_ptr=node_ptr))
@@ -2754,17 +2777,20 @@ contains
       endif
    enddo min_max_check_loop
 
+   allocate(self%temp_array_i8(10000))
+
    sanitize_loop : do s=1, iterations_number_
       is_sanitize_complete = .true.
 
       ! check for the sanity of derefinement
       self%n_my_derefine = 0
       if (allocated(self%node_to_derefine)) deallocate(self%node_to_derefine) ; allocate(self%node_to_derefine(0))
-      if (allocated(codes_analyzed)) deallocate(codes_analyzed) ; allocate(codes_analyzed(0))
+      !RIMETTEREif (allocated(codes_analyzed)) deallocate(codes_analyzed) ; allocate(codes_analyzed(0))
+      if (allocated(self%codes_analyzed)) deallocate(self%codes_analyzed) ; allocate(self%codes_analyzed(0))
       derefine_loop : do while(self%loop(node_ptr=node_ptr))
          ! check if I want to be derefined and I have not been analyzed yet
          if (node_ptr%refinement_needed == TO_BE_DEREFINED) then
-            if (findloc(codes_analyzed, node_ptr%code, dim=1)==0) then ! avoid to re-analyze already confirmed siblingsi to derefine
+            if (findloc(self%codes_analyzed, node_ptr%code, dim=1)==0) then ! avoid to re-analyze already confirmed siblingsi to derefine
                ! check sibling for derefinement
                can_be_derefined = .true.
                code = node_ptr%code
@@ -2782,8 +2808,31 @@ contains
                enddo sibs_check_loop
                if (can_be_derefined) then
                   all_siblings = self%all_siblings(code=code)
-                  self%node_to_derefine = [self%node_to_derefine, all_siblings]
-                  codes_analyzed = [codes_analyzed, all_siblings]
+
+                  !RIMETTEREMEMORYLEAKself%node_to_derefine = [self%node_to_derefine, all_siblings]
+                  !RIMETTEREMEMORYLEAKcodes_analyzed = [codes_analyzed, all_siblings]
+
+                  !---------------------------------
+                  old_size = size(self%node_to_derefine, dim=1)
+                  !allocate(self%temp_array_i8(old_size+8))
+                  self%temp_array_i8(1:old_size) = self%node_to_derefine
+                  self%temp_array_i8(old_size+1:old_size+8) = all_siblings
+                  deallocate(self%node_to_derefine)
+                  allocate(self%node_to_derefine(old_size+8))
+                  self%node_to_derefine(:) = self%temp_array_i8(1:old_size+8)
+                  !deallocate(self%temp_array_i8)
+
+                  old_size = size(self%codes_analyzed, dim=1)
+                  !allocate(self%temp_array_i8(old_size+8))
+                  self%temp_array_i8(1:old_size) = self%codes_analyzed
+                  self%temp_array_i8(old_size+1:old_size+8) = all_siblings
+                  deallocate(self%codes_analyzed)
+                  allocate(self%codes_analyzed(old_size+8))
+                  self%codes_analyzed(:) = self%temp_array_i8(1:old_size+8)
+                  !deallocate(self%temp_array_i8)
+
+                  !---------------------------------
+
                   if (self%myrank==node_ptr%myrank) self%n_my_derefine = self%n_my_derefine + 8
                else
                   is_sanitize_complete = .false.
@@ -2856,10 +2905,25 @@ contains
    if (allocated(self%node_to_refine)) deallocate(self%node_to_refine) ; allocate(self%node_to_refine(0))
    do while(self%loop(node_ptr=node_ptr))
       if (node_ptr%refinement_needed==TO_BE_REFINED) then
-         self%node_to_refine = [self%node_to_refine, [node_ptr%code]]
+
+         !RIMETTEREMEMORYLEAKself%node_to_refine = [self%node_to_refine, [node_ptr%code]]
+
+         !---------------------
+                  old_size = size(self%node_to_refine, dim=1)
+                  !allocate(self%temp_array_i8(old_size+1))
+                  self%temp_array_i8(1:old_size) = self%node_to_refine
+                  self%temp_array_i8(old_size+1:old_size+1) = node_ptr%code
+                  deallocate(self%node_to_refine)
+                  allocate(self%node_to_refine(old_size+1))
+                  self%node_to_refine(:) = self%temp_array_i8(1:old_size+1)
+                  !deallocate(self%temp_array_i8)
+         !---------------------
+
          if (self%myrank==node_ptr%myrank) self%n_my_refine = self%n_my_refine + 1
       endif
    enddo
+   deallocate(self%temp_array_i8)
+   deallocate(self%codes_analyzed)
    endsubroutine sanitize
 
    ! operators

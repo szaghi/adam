@@ -1102,6 +1102,8 @@ contains
    integer(I4P)                        :: i, j, k, b, v !< Counter.
    integer(I4P)                        :: iercuda       !< Error trapping flag for CUDAFortran.
 
+   real(R8P),   allocatable            :: q_cpu_temp(:,:,:,:,:)
+
    !$cuf kernel do(4) <<<*,*>>>
    do k=1-ngc, nk+ngc
       do j=1-ngc, nj+ngc
@@ -1115,7 +1117,11 @@ contains
       enddo
    enddo
    !@cuf iercuda=cudaDeviceSynchronize()
-   q_cpu = q_t_gpu
+   !RIMETTEREFORSE INVECE DI SOTTOq_cpu(:,:,:,:,:) = q_t_gpu
+   allocate(q_cpu_temp(1:9, -1:18, -1:18, -1:18, size(q_cpu, dim=5)))
+   q_cpu_temp = q_t_gpu
+   q_cpu = q_cpu_temp(1:nv,:,:,:,:)
+   deallocate(q_cpu_temp)
    endsubroutine copy_transpose_gpu_cpu_cuf
 
    subroutine update_ghost_local_gpu_cuf(ngc, local_map_ghost_cell_gpu, q_gpu)
