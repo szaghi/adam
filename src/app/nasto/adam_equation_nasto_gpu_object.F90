@@ -376,13 +376,13 @@ contains
             query_z = z_cell(k,b)
 
             ! RIMETTERE CGAL
-            !call polyhedron_closest(ptree(ib),query_x,query_y,query_z,near_x,near_y,near_z)
-            !distance = sqrt((near_x-query_x)**2+(near_y-query_y)**2+(near_z-query_z)**2)
-            !inside   = cgal_polyhedron_inside(ptree(ib),query_x,query_y,query_z)
-            !if(.not.inside) distance = - distance
+            call polyhedron_closest(ptree(ib),query_x,query_y,query_z,near_x,near_y,near_z)
+            distance = sqrt((near_x-query_x)**2+(near_y-query_y)**2+(near_z-query_z)**2)
+            inside   = cgal_polyhedron_inside(ptree(ib),query_x,query_y,query_z)
+            if(.not.inside) distance = - distance
             ! RIMETTERE CGAL
 
-            distance = - (sqrt((query_x-10.)**2+(query_y-10.)**2+(query_z-10.)**2)-1.)
+            !distance = - (sqrt((query_x-10.)**2+(query_y-10.)**2+(query_z-10.)**2)-1.)
 
             phi(b,i,j,k,ib) = distance
          enddo
@@ -752,7 +752,7 @@ contains
    integer(I4P)                    , intent(out)   :: l_prune          !< Pruning level.
    integer(I4P)                                    :: ns               !< Number of species and variables.
    real(R8P)                                       :: block_weight     !< Number of points per block.
-   real(R8P), parameter                            :: save_factor=0.9  !< Factor to avoid GPU completely full.
+   real(R8P), parameter                            :: save_factor=0.8  !< Factor to avoid GPU completely full.
    integer(I4P)                                    :: buf_I4           !< Integer buffer.
    real(R8P)                                       :: buf_R8           !< Real buffer.
    integer(I4P)                                    :: size_of_real     !< Size of real.
@@ -899,11 +899,11 @@ contains
    do_init_ = .true.    ; if (present(do_init)) do_init_ = do_init
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
    if(do_init_) then
-       !self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
+       self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
 
-       if (allocated(self%field%refinements_needed)) deallocate(self%field%refinements_needed)
-       allocate(self%field%refinements_needed(self%blocks_number))
-       self%field%refinements_needed(:) = TO_BE_DEREFINED
+       !if (allocated(self%field%refinements_needed)) deallocate(self%field%refinements_needed)
+       !allocate(self%field%refinements_needed(self%blocks_number))
+       !self%field%refinements_needed(:) = TO_BE_DEREFINED
    endif
    associate (ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
               blocks_number=>self%blocks_number, ns=>self%ns, dxyz=>self%field%dxyz, phi=>self%phi)

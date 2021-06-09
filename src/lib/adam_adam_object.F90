@@ -86,9 +86,6 @@ contains
    logical                                   :: do_mpi_redistribute_ !< Flag to activate MPI redistribute, local var.
    logical                                   :: do_blocks_reorder_   !< Flag to activate blocks reorder, local var.
 
-   real(R8P) :: temp
-   integer :: i
-
    do_mpi_redistribute_ = .true. ; if (present(do_mpi_redistribute )) do_mpi_redistribute_ = do_mpi_redistribute
    do_blocks_reorder_ = .true. ; if (present(do_blocks_reorder)) do_blocks_reorder_ = do_blocks_reorder
 
@@ -96,17 +93,7 @@ contains
    call self%mpi_gather_refinement_needed(is_marked_by_field=is_marked_by_field, is_marked_by_tree=is_marked_by_tree)
 
       call save_memory(-22, self%myrank)
-   temp=0.0001
-   do i=1,200000
-   temp = temp+(-1)**i*abs(sin(atan(cos(sinh(temp)))))**(abs(sin(cos(sqrt(temp)))))
-   enddo
-   print*,'temp: ',temp
    call self%adapt
-   temp=0.0002
-   do i=1,200000
-   temp = temp+(-1)**i*abs(sin(atan(cos(sinh(temp)))))**(abs(sin(cos(sqrt(temp)))))
-   enddo
-   print*,'temp: ',temp
 
       call save_memory(-23, self%myrank)
 

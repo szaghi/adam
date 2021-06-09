@@ -2412,7 +2412,7 @@ contains
       c = self%parent(code=c)
    enddo
    !RIMETTERE SENZA
-   if(allocated(temp)) deallocate(temp)
+   !EVITEREIif(allocated(temp)) deallocate(temp)
    !RIMETTERE SENZA
    endfunction path
 
@@ -2766,7 +2766,7 @@ contains
    integer(I4P)                                    :: new_level_n          !< Neighbor new level counter.
    integer(I4P)                                    :: s, sib, f, n         !< Counter.
 
-   integer(I8P)                                    :: old_size
+   !integer(I8P)                                    :: old_size
 
    iterations_number_ = TREE_MAX_SANITIZE_ITERATIONS ; if (present(iterations_number)) iterations_number_ = iterations_number
 
@@ -2777,7 +2777,7 @@ contains
       endif
    enddo min_max_check_loop
 
-   allocate(self%temp_array_i8(10000))
+   !MEMORYLEAK LEVAREallocate(self%temp_array_i8(10000))
 
    sanitize_loop : do s=1, iterations_number_
       is_sanitize_complete = .true.
@@ -2785,12 +2785,13 @@ contains
       ! check for the sanity of derefinement
       self%n_my_derefine = 0
       if (allocated(self%node_to_derefine)) deallocate(self%node_to_derefine) ; allocate(self%node_to_derefine(0))
-      !RIMETTEREif (allocated(codes_analyzed)) deallocate(codes_analyzed) ; allocate(codes_analyzed(0))
-      if (allocated(self%codes_analyzed)) deallocate(self%codes_analyzed) ; allocate(self%codes_analyzed(0))
+      if (allocated(codes_analyzed)) deallocate(codes_analyzed) ; allocate(codes_analyzed(0))
+      !MEMORYLEAKLEVAREif (allocated(self%codes_analyzed)) deallocate(self%codes_analyzed) ; allocate(self%codes_analyzed(0))
       derefine_loop : do while(self%loop(node_ptr=node_ptr))
          ! check if I want to be derefined and I have not been analyzed yet
          if (node_ptr%refinement_needed == TO_BE_DEREFINED) then
-            if (findloc(self%codes_analyzed, node_ptr%code, dim=1)==0) then ! avoid to re-analyze already confirmed siblingsi to derefine
+            if (findloc(codes_analyzed, node_ptr%code, dim=1)==0) then ! avoid to re-analyze already confirmed siblingsi to derefine
+            !MEMORYLEAKLEVAREif (findloc(self%codes_analyzed, node_ptr%code, dim=1)==0) then ! avoid to re-analyze already confirmed siblingsi to derefine
                ! check sibling for derefinement
                can_be_derefined = .true.
                code = node_ptr%code
@@ -2809,27 +2810,27 @@ contains
                if (can_be_derefined) then
                   all_siblings = self%all_siblings(code=code)
 
-                  !RIMETTEREMEMORYLEAKself%node_to_derefine = [self%node_to_derefine, all_siblings]
-                  !RIMETTEREMEMORYLEAKcodes_analyzed = [codes_analyzed, all_siblings]
+                  self%node_to_derefine = [self%node_to_derefine, all_siblings]
+                  codes_analyzed = [codes_analyzed, all_siblings]
 
                   !---------------------------------
-                  old_size = size(self%node_to_derefine, dim=1)
-                  !allocate(self%temp_array_i8(old_size+8))
-                  self%temp_array_i8(1:old_size) = self%node_to_derefine
-                  self%temp_array_i8(old_size+1:old_size+8) = all_siblings
-                  deallocate(self%node_to_derefine)
-                  allocate(self%node_to_derefine(old_size+8))
-                  self%node_to_derefine(:) = self%temp_array_i8(1:old_size+8)
-                  !deallocate(self%temp_array_i8)
+                  !old_size = size(self%node_to_derefine, dim=1)
+                  !!allocate(self%temp_array_i8(old_size+8))
+                  !self%temp_array_i8(1:old_size) = self%node_to_derefine
+                  !self%temp_array_i8(old_size+1:old_size+8) = all_siblings
+                  !deallocate(self%node_to_derefine)
+                  !allocate(self%node_to_derefine(old_size+8))
+                  !self%node_to_derefine(:) = self%temp_array_i8(1:old_size+8)
+                  !!deallocate(self%temp_array_i8)
 
-                  old_size = size(self%codes_analyzed, dim=1)
-                  !allocate(self%temp_array_i8(old_size+8))
-                  self%temp_array_i8(1:old_size) = self%codes_analyzed
-                  self%temp_array_i8(old_size+1:old_size+8) = all_siblings
-                  deallocate(self%codes_analyzed)
-                  allocate(self%codes_analyzed(old_size+8))
-                  self%codes_analyzed(:) = self%temp_array_i8(1:old_size+8)
-                  !deallocate(self%temp_array_i8)
+                  !old_size = size(self%codes_analyzed, dim=1)
+                  !!allocate(self%temp_array_i8(old_size+8))
+                  !self%temp_array_i8(1:old_size) = self%codes_analyzed
+                  !self%temp_array_i8(old_size+1:old_size+8) = all_siblings
+                  !deallocate(self%codes_analyzed)
+                  !allocate(self%codes_analyzed(old_size+8))
+                  !self%codes_analyzed(:) = self%temp_array_i8(1:old_size+8)
+                  !!deallocate(self%temp_array_i8)
 
                   !---------------------------------
 
@@ -2906,24 +2907,24 @@ contains
    do while(self%loop(node_ptr=node_ptr))
       if (node_ptr%refinement_needed==TO_BE_REFINED) then
 
-         !RIMETTEREMEMORYLEAKself%node_to_refine = [self%node_to_refine, [node_ptr%code]]
+         self%node_to_refine = [self%node_to_refine, [node_ptr%code]]
 
          !---------------------
-                  old_size = size(self%node_to_refine, dim=1)
-                  !allocate(self%temp_array_i8(old_size+1))
-                  self%temp_array_i8(1:old_size) = self%node_to_refine
-                  self%temp_array_i8(old_size+1:old_size+1) = node_ptr%code
-                  deallocate(self%node_to_refine)
-                  allocate(self%node_to_refine(old_size+1))
-                  self%node_to_refine(:) = self%temp_array_i8(1:old_size+1)
-                  !deallocate(self%temp_array_i8)
+         !         old_size = size(self%node_to_refine, dim=1)
+         !         !allocate(self%temp_array_i8(old_size+1))
+         !         self%temp_array_i8(1:old_size) = self%node_to_refine
+         !         self%temp_array_i8(old_size+1:old_size+1) = node_ptr%code
+         !         deallocate(self%node_to_refine)
+         !         allocate(self%node_to_refine(old_size+1))
+         !         self%node_to_refine(:) = self%temp_array_i8(1:old_size+1)
+         !         !deallocate(self%temp_array_i8)
          !---------------------
 
          if (self%myrank==node_ptr%myrank) self%n_my_refine = self%n_my_refine + 1
       endif
    enddo
-   deallocate(self%temp_array_i8)
-   deallocate(self%codes_analyzed)
+   !MEMORYLEAKLEVAREdeallocate(self%temp_array_i8)
+   !MEMORYLEAKLEVAREdeallocate(self%codes_analyzed)
    endsubroutine sanitize
 
    ! operators
