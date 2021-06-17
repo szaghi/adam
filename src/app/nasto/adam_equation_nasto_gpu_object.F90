@@ -375,14 +375,28 @@ contains
             query_y = y_cell(j,b)
             query_z = z_cell(k,b)
 
+            ! p = your point
+            ! c = centre of the cube
+            ! s = half size of the cube
+            ! r = the point we are looking for
+            !RIMETTEREv = p - c
+            !RIMETTEREm = maxval(abs((v)))
+            !RIMETTEREr = c + ( v / m * s )
+
             ! RIMETTERE CGAL
-            call polyhedron_closest(ptree(ib),query_x,query_y,query_z,near_x,near_y,near_z)
-            distance = sqrt((near_x-query_x)**2+(near_y-query_y)**2+(near_z-query_z)**2)
-            inside   = cgal_polyhedron_inside(ptree(ib),query_x,query_y,query_z)
-            if(.not.inside) distance = - distance
+            if(query_y < 31.2 .or. query_y > 32.5 .or. query_x < 19.5 .or. query_x > 21.5) then
+                distance = -100.
+            else
+                call polyhedron_closest(ptree(ib),query_x,query_y,query_z,near_x,near_y,near_z)
+                distance = sqrt((near_x-query_x)**2+(near_y-query_y)**2+(near_z-query_z)**2)
+                inside   = cgal_polyhedron_inside(ptree(ib),query_x,query_y,query_z)
+                if(.not.inside) distance = - distance
+            endif
+
+            !if(inside) print*,'Point inside!!!!!!!!!!!!!!!!'
             ! RIMETTERE CGAL
 
-            !distance = - (sqrt((query_x-10.)**2+(query_y-10.)**2+(query_z-10.)**2)-1.)
+            !distance = - (sqrt((query_x-15.)**2+(query_y-25.)**2+(query_z-25.)**2)-1.)
 
             phi(b,i,j,k,ib) = distance
          enddo
@@ -698,11 +712,12 @@ contains
 
    subroutine run(self, filename)
  
-   class(equation_nasto_gpu_object), intent(inout) :: self         !< The equation.
-   character(*)                    , intent(in)    :: filename     !< Input file name.
-   real(R8P)                                       :: time         !< Time.
-   integer(I4P)                                    :: it           !< Temporal iteration.
-   real(R8P)                                       :: timing(1:2)  !< Tic toc timing.
+   class(equation_nasto_gpu_object), intent(inout) :: self              !< The equation.
+   character(*)                    , intent(in)    :: filename          !< Input file name.
+   real(R8P)                                       :: time              !< Time.
+   integer(I4P)                                    :: it                !< Temporal iteration.
+   real(R8P)                                       :: timing(1:2)       !< Tic toc timing.
+   real(R8P)                                       :: timing_step(1:2)  !< Tic toc timing.
 
 
    call self%initialize(filename=filename)
@@ -715,9 +730,12 @@ contains
    call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing(1) = MPI_Wtime()
 
    integration: do
+      call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(1) = MPI_Wtime()
       print*,'Iteration[rank] = ',it,'[',self%myrank,']'
       it = it + 1
       call save_memory(it, self%myrank)
+      !RIMETTERE aggiunta it<100 da levare!!!!
+      !if(mod(it,self%amr_frequency) == 0 .and. it <= 100) call self%amr_update()
       if(mod(it,self%amr_frequency) == 0) call self%amr_update()
       call self%compute_dt()
       if (time + self%dt > self%time_max) self%dt = self%time_max - time
@@ -726,9 +744,11 @@ contains
       if (mod(it,self%n_save)==0) call self%save_hdf5(output_basename=self%output_basename, t=it, time=time)
       time = time + self%dt
       if (time>=self%time_max.or.it>=self%t_max) exit integration
+      call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(2) = MPI_Wtime()
+      print '(A, F18.10)', 'step timing: ', timing_step(2) - timing_step(1)
    enddo integration
    call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing(2) = MPI_Wtime()
-   print '(A, F18.10)', 'timing: ', (timing(2) - timing(1))/it
+   print '(A, F18.10)', 'averaged timing: ', (timing(2) - timing(1))/it
    call self%save_hdf5(output_basename=self%output_basename, t=it, time=time)
    call self%adam%finalize
    endsubroutine run
@@ -770,6 +790,7 @@ contains
    size_of_real = storage_size(emin(1))/8.
    nb           = nint(save_factor*avail_memory*1e9/(self%field_gpu_number*block_weight*size_of_real))
    nodes_number = nb*self%procs_number
+   print*,'available places for blocks: ',nb
 
    call self%file_input%get(section_name='bc_x_min', option_name='type', val=buf_I4) ; bc_type(1) = buf_I4
    call self%file_input%get(section_name='bc_x_max', option_name='type', val=buf_I4) ; bc_type(2) = buf_I4
@@ -932,7 +953,8 @@ contains
       if (abs(distance) < epsilon(0._R8P)) then
          delta = delta_fine
       else
-         delta = huge(0._R8P)
+         delta = delta_coarse
+         !delta = huge(0._R8P)
       endif
       endfunction max_cell_delta_dist
    endsubroutine mark_by_geo
@@ -950,6 +972,8 @@ contains
    real(R8P)                                               :: t_s
    real(R8P)                                               :: qnrk 
    integer(I4P)                                            :: iermpi
+
+   integer(I4P)                                     :: error                         !< Error trapping flag for CUDAFortran.
 
    do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
    associate(dt=>self%dt, ni=>self%ni, nj=>self%nj, nk=>self%nk,                                         &
@@ -973,6 +997,11 @@ contains
          do i_eikonal=1,n_eikonal
             call MPI_Barrier(MPI_COMM_WORLD, iermpi)
             print*,'eikonal start'
+
+      error = cudaGetLastError() ; if(error /= cudaSuccess) then
+         print*,'BEFORE EIK POST FRA CUDA ERROR ',cudaGetErrorString(error)
+         call MPI_Abort(MPI_COMM_WORLD, -15,error) ; STOP
+      endif
             call evolve_eikonal_q_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
                                           phi_gpu=self%phi_gpu,                                             &
                                           dx_gpu=self%dxyz_gpu(:,1),                                        &
@@ -980,6 +1009,10 @@ contains
                                           dz_gpu=self%dxyz_gpu(:,3),                                        &
                                           dq_gpu=self%dq_gpu,                                               &
                                           q_gpu=self%q_gpu)
+      error = cudaGetLastError() ; if(error /= cudaSuccess) then
+         print*,'AFTER EIK POST FRA CUDA ERROR ',cudaGetErrorString(error)
+         call MPI_Abort(MPI_COMM_WORLD, -15,error) ; STOP
+      endif
             call self%update_ghost_gpu(q_gpu=self%q_gpu)
          enddo
          print*,'after eikonal 1'
@@ -1486,10 +1519,24 @@ contains
    integer(I4P)                        :: iercuda                             !< Error trapping flag for CUDAFortran.
    type(dim3)                          :: grid, tBlock                        !< CUDA grid and block.
 
+   integer :: error
+
+      error = cudaGetLastError() ; if(error /= cudaSuccess) then
+         print*,'BEFORE DQ PRE FRA CUDA ERROR ',cudaGetErrorString(error)
+         print*,'THINGS: ',blocks_number, ni
+         call MPI_Abort(MPI_COMM_WORLD, -15,error) ; STOP
+      endif
    tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(ni)/tBlock%y),1)
+   if(blocks_number > 0) then
    call compute_eikonal_dq_gpu<<<grid, tBlock>>>(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
                                                  phi_gpu=phi_gpu, dx_gpu=dx_gpu, dy_gpu=dy_gpu, dz_gpu=dz_gpu,     &
                                                  dq_gpu=dq_gpu, q_gpu=q_gpu)
+                                         endif
+      error = cudaGetLastError() ; if(error /= cudaSuccess) then
+         print*,'AFTER DQ POST FRA CUDA ERROR ',cudaGetErrorString(error)
+         print*,'THINGS: ',blocks_number, ni
+         call MPI_Abort(MPI_COMM_WORLD, -15,error) ; STOP
+      endif
 
    !$cuf kernel do(4) <<<*,*>>>
    do k=1, nk
@@ -1647,26 +1694,28 @@ contains
 
       print*,'CR 1'
 
-   if(euler_scheme == 1) then
-      tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(nj)/tBlock%y),1)
-      call euler_x_central_kernel<<<grid, tBlock>>>(q_aux_gpu, flx_gpu, fd_conv_gpu, dx_gpu,     &
-                                                    blocks_number, ni, nj, nk, ngc, ns+4, lmax)
-      tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(ni)/tBlock%y),1)
-      call euler_y_central_kernel<<<grid, tBlock>>>(q_aux_gpu, fly_gpu, fd_conv_gpu, dy_gpu,     &
-                                                    blocks_number, ni, nj, nk, ngc, ns+4, lmax)
-      tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(ni)/tBlock%y),1)
-      call euler_z_central_kernel<<<grid, tBlock>>>(q_aux_gpu, flz_gpu, fd_conv_gpu, dz_gpu,     &
-                                                    blocks_number, ni, nj, nk, ngc, ns+4, lmax)
-   else
-      tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(nj)/tBlock%y),1)
-      call euler_x_kernel<<<grid, tBlock>>>(q_aux_gpu, flx_gpu, gplus_x, gminus_x,                                       &
-                                            blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha_star, gamma_fluid, R_star, cv_star)
-      tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(ni)/tBlock%y),1)
-      call euler_y_kernel<<<grid, tBlock>>>(q_aux_gpu, fly_gpu, gplus_y, gminus_y,                                        &
-                                            blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha_star, gamma_fluid, R_star, cv_star)
-      tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(ni)/tBlock%y),1)
-      call euler_z_kernel<<<grid, tBlock>>>(q_aux_gpu, flz_gpu, gplus_z, gminus_z,                                        &
-                                            blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha_star, gamma_fluid, R_star, cv_star)
+   if(blocks_number > 0) then
+       if(euler_scheme == 1) then
+          tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(nj)/tBlock%y),1)
+          call euler_x_central_kernel<<<grid, tBlock>>>(q_aux_gpu, flx_gpu, fd_conv_gpu, dx_gpu,     &
+                                                        blocks_number, ni, nj, nk, ngc, ns+4, lmax)
+          tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(ni)/tBlock%y),1)
+          call euler_y_central_kernel<<<grid, tBlock>>>(q_aux_gpu, fly_gpu, fd_conv_gpu, dy_gpu,     &
+                                                        blocks_number, ni, nj, nk, ngc, ns+4, lmax)
+          tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(ni)/tBlock%y),1)
+          call euler_z_central_kernel<<<grid, tBlock>>>(q_aux_gpu, flz_gpu, fd_conv_gpu, dz_gpu,     &
+                                                        blocks_number, ni, nj, nk, ngc, ns+4, lmax)
+       else
+          tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(nj)/tBlock%y),1)
+          call euler_x_kernel<<<grid, tBlock>>>(q_aux_gpu, flx_gpu, gplus_x, gminus_x,                                       &
+                                                blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha_star, gamma_fluid, R_star, cv_star)
+          tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(ni)/tBlock%y),1)
+          call euler_y_kernel<<<grid, tBlock>>>(q_aux_gpu, fly_gpu, gplus_y, gminus_y,                                        &
+                                                blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha_star, gamma_fluid, R_star, cv_star)
+          tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(ni)/tBlock%y),1)
+          call euler_z_kernel<<<grid, tBlock>>>(q_aux_gpu, flz_gpu, gplus_z, gminus_z,                                        &
+                                                blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha_star, gamma_fluid, R_star, cv_star)
+       endif
    endif
       print*,'CR 2'
 
