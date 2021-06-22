@@ -263,8 +263,8 @@ ext_libs     = dl m
 
 [template-static-nvf-debug-mpi-cuda]
 compiler     = custom
-#fc           = mpif90
-fc           = mpipgifort
+fc           = mpif90
+#fc           = mpipgifort
 modsw        = -module=
 mpi          = True
 cflags       = $CSTATIC_CUDA_NVF $DEBUG_NVF -c
@@ -284,7 +284,7 @@ libs         = /m100_scratch/userinternal/fsalvado/HDF5_NVFORTRAN/install_hdf5-1
                /m100_scratch/userinternal/fsalvado/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5_hl.a
                /m100_scratch/userinternal/fsalvado/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5_fortran.a
                /m100_scratch/userinternal/fsalvado/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5.a
-               /m100_work/cin_staff/fsalvado/ADAM/adam/src/app/flame/cgal_c_wrappers.o
+               /m100_work/cin_staff/fsalvado/ADAM/adam/src/third_party_manual/CGAL/cgal_c_wrappers.o
                -Wl,-rpath,/cineca/prod/opt/compilers/gnu/8.4.0/none/lib64 /cineca/prod/opt/compilers/gnu/8.4.0/none/lib64/libstdc++.so.6.0.25
                /cineca/prod/opt/libraries/zlib/1.2.11/gnu--8.4.0/lib/libz.a
                /cineca/prod/opt/libraries/szip/2.1.1/gnu--8.4.0/lib/libsz.a
@@ -292,10 +292,12 @@ ext_libs     = dl m
 
 [template-static-nvf-mpi-cuda]
 compiler     = custom
-#fc           = mpif90
-fc           = mpipgifort
+fc           = mpif90
+#fc           = mpipgifort
 modsw        = -module=
 mpi          = True
+#cflags       = $CSTATIC_CUDA_NVF -O0 
+#lflags       = $LSTATIC_CUDA_NVF -O0
 cflags       = $CSTATIC_CUDA_NVF -O3 
 lflags       = $LSTATIC_CUDA_NVF -O3
 exclude_dirs = $EXDIRS
@@ -306,17 +308,19 @@ src          = ./src/
 colors       = True
 quiet        = False
 log          = True
-jobs         = 2
+jobs         = 10
 lib_dir      = /m100_scratch/userinternal/fsalvado/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib
 include      = /m100_scratch/userinternal/fsalvado/HDF5_NVFORTRAN/install_hdf5-1.12.0/include
 libs         = /m100_scratch/userinternal/fsalvado/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5hl_fortran.a
                /m100_scratch/userinternal/fsalvado/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5_hl.a
                /m100_scratch/userinternal/fsalvado/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5_fortran.a
                /m100_scratch/userinternal/fsalvado/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5.a
-               /m100_work/cin_staff/fsalvado/ADAM/adam/src/app/flame/cgal_c_wrappers.o
+               /m100_work/cin_staff/fsalvado/ADAM/adam/src/third_party_manual/CGAL/cgal_c_wrappers.o
                -Wl,-rpath,/cineca/prod/opt/compilers/gnu/8.4.0/none/lib64 /cineca/prod/opt/compilers/gnu/8.4.0/none/lib64/libstdc++.so.6.0.25
                /cineca/prod/opt/libraries/zlib/1.2.11/gnu--8.4.0/lib/libz.a
                /cineca/prod/opt/libraries/szip/2.1.1/gnu--8.4.0/lib/libsz.a
+               /m100_work/cin_staff/fsalvado/ADAM/adam/src/third_party_manual/memeval/cm.o
+               /m100_work/cin_staff/fsalvado/ADAM/adam/src/third_party_manual/memeval/cm_wrapper.o
 ext_libs     = dl m
 
 # rules

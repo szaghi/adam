@@ -1093,6 +1093,8 @@ contains
    integer(I4P)                        :: i, j, k, b, v !< Counter.
    integer(I4P)                        :: iercuda       !< Error trapping flag for CUDAFortran.
 
+   !real(R8P),   allocatable            :: q_cpu_temp(:,:,:,:,:)
+
    !$cuf kernel do(4) <<<*,*>>>
    do k=1-ngc, nk+ngc
       do j=1-ngc, nj+ngc
@@ -1106,7 +1108,16 @@ contains
       enddo
    enddo
    !@cuf iercuda=cudaDeviceSynchronize()
-   q_cpu = q_t_gpu
+
+   !RIMETTEREFORSE INVECE DI SOTTOq_cpu(:,:,:,:,:) = q_t_gpu
+   ! q_t_gpu has nv_aux variables which can be larger than local nv (i.e., nv or nv_aux)
+   ! q_cpu   has local nv variables which is lower than nv_aux
+   q_cpu(1:nv,:,:,:,1:blocks_number) = q_t_gpu(1:nv,:,:,:,1:blocks_number)
+
+   !allocate(q_cpu_temp(1:9, -1:18, -1:18, -1:18, size(q_cpu, dim=5)))
+   !q_cpu_temp = q_t_gpu
+   !q_cpu = q_cpu_temp(1:nv,:,:,:,:)
+   !deallocate(q_cpu_temp)
    endsubroutine copy_transpose_gpu_cpu_cuf
 
    subroutine update_ghost_local_gpu_cuf(ngc, local_map_ghost_cell_gpu, q_gpu)
@@ -1129,6 +1140,14 @@ contains
    integer(I4P)                                     :: one_or_eight                  !< Flag triggering 8 cells mean.
    integer(I4P)                                     :: iercuda                       !< Error trapping flag for CUDAFortran.
 
+   integer(I4P)                                     :: error                         !< Error trapping flag for CUDAFortran.
+
+      error = cudaGetLastError()
+      if(error /= cudaSuccess) then
+         print*,'BEFORE LOCAL POST FRA CUDA ERROR ',cudaGetErrorString(error)
+         call MPI_Abort(MPI_COMM_WORLD, -15,error)
+         STOP
+      endif
    if (.not.allocated(local_map_ghost_cell_gpu)) return
    !$cuf kernel do(2) <<<*,*>>>
    do v=1, size(q_gpu, dim=5)
@@ -1155,6 +1174,13 @@ contains
       enddo
    enddo
    !@cuf iercuda=cudaDeviceSynchronize()
+
+      error = cudaGetLastError()
+      if(error /= cudaSuccess) then
+         print*,'LOCAL POST FRA CUDA ERROR ',cudaGetErrorString(error)
+         call MPI_Abort(MPI_COMM_WORLD, -15,error)
+         STOP
+      endif
    endsubroutine update_ghost_local_gpu_cuf
 
    subroutine update_ghost_fluxes_local_gpu_cuf(ngc, local_map_ghost_fluxes_cell_gpu, flx_gpu, fly_gpu, flz_gpu)
@@ -1276,6 +1302,13 @@ contains
 
    if (do_step(1)) then
       req_send_recv = MPI_REQUEST_NULL
+
+      error = cudaGetLastError()
+      if(error /= cudaSuccess) then
+         print*,'BEFORE FRA CUDA ERROR ',cudaGetErrorString(error)
+         call MPI_Abort(MPI_COMM_WORLD, -15,error)
+         STOP
+      endif
 
       ! populate send buffer
       print*,'SIZEEE: ', size(comm_map_send_ghost_cell_gpu, dim=1)
