@@ -16,8 +16,9 @@ public :: assign_allocatable_gpu
 type :: base_gpu_object
    !< Equation base GPU class definition.
    !<
-   !< Provide update ghosts methods for GPU backend.
-   type(field_object), pointer :: field=>null() !< The field.
+   !< Provide methods for GPU backend.
+   type(field_object), pointer :: field=>null()     !< The field.
+   integer(I4P)                :: fec_1_6_array(26) !< Mapping fec1-26 to fec1-6 for boundaries.
    ! MPI data
    integer(I4P)              :: myrank=0_I4P       !< MPI rank process.
    integer(I4P)              :: procs_number=1_I4P !< Number of MPI processes.
@@ -47,7 +48,6 @@ type :: base_gpu_object
    integer(I8P), allocatable, device :: local_map_bc_edge_gpu(:,:)           !< Local map for edge BC ghost cells.
    integer(I8P), allocatable, device :: local_map_bc_corner_gpu(:,:)         !< Local map for corner BC ghost cells.
    integer(I8P), allocatable, device :: local_map_bc_crown_gpu(:,:,:)        !< Local map for face BC ghost cells, "crown" order.
-   integer(I4P)                      :: fec_1_6_array(26)                    !< Mapping fec1-26 to fec1-6 for boundaries.
    integer(I4P), allocatable, device :: fec_1_6_array_gpu(:)                 !< Mapping fec1-26 to fec1-6 for boundaries (GPU).
    real(R8P),    allocatable, device :: x_cell_gpu(:,:)                      !< Cells x coordinates on GPU.
    real(R8P),    allocatable, device :: y_cell_gpu(:,:)                      !< Cells y coordinates on GPU.
@@ -55,7 +55,7 @@ type :: base_gpu_object
    real(R8P),    allocatable, device :: dxyz_gpu(:,:)                        !< Delta cells GPU.
    contains
       ! public methods
-      procedure, pass(self) :: alloc                         !< Allocate gpu fields.
+      procedure, pass(self) :: alloc                         !< Allocate GPU fields.
       procedure, pass(self) :: copy_cpu_gpu                  !< Copy data from CPU to GPU.
       procedure, pass(self) :: copy_transpose_cpu_gpu        !< Transpose data from GPU to CPU.
       procedure, pass(self) :: copy_transpose_gpu_cpu        !< Transpose data from GPU to CPU.
@@ -88,16 +88,17 @@ endinterface assign_allocatable_gpu
 contains
    ! public methods
    subroutine alloc(self, field, nv_aux)
-   class(base_gpu_object), intent(inout)        :: self     !< The base backend.
-   type(field_object)    , intent(in), target   :: field    !< Field variable array.
-   integer(I4P)          , intent(in), optional :: nv_aux   !< Number of auxiliary variables.
-   integer(I4P)                                 :: nv_aux_  !< Number of auxiliary variables (local var).
+   !< Allocate GPU fields.
+   class(base_gpu_object), intent(inout)        :: self    !< The base backend.
+   type(field_object)    , intent(in), target   :: field   !< Field variable array.
+   integer(I4P)          , intent(in), optional :: nv_aux  !< Number of auxiliary variables.
+   integer(I4P)                                 :: nv_aux_ !< Number of auxiliary variables (local var).
 
    self%field => field
    nv_aux_ = self%field%nv
    if (present(nv_aux)) nv_aux_ = max(nv_aux_, nv_aux)
 
-   ! Prepare buffers for copy-transposes performed by equation.
+   ! allocate buffers for copy-transposes performed by equation
    allocate(self%q_t(1:field%nb,                                    &
                      1-field%grid%ngc:field%grid%ni+field%grid%ngc, &
                      1-field%grid%ngc:field%grid%nj+field%grid%ngc, &
@@ -107,22 +108,21 @@ contains
                          1-field%grid%ngc:field%grid%nj+field%grid%ngc, &
                          1-field%grid%ngc:field%grid%nk+field%grid%ngc, 1:field%nb))
 
-   ! Copy cpu-to-gpu of base_gpu variables (maps and cells, not q_gpu)
+   ! copy CPU-to-GPU of base_gpu variables (maps and cells, not q_gpu)
    call self%copy_cpu_gpu
-
    endsubroutine alloc
 
    subroutine copy_cpu_gpu(self)
    !< Copy data from CPU to GPU.
-   class(base_gpu_object), intent(inout) :: self !< The base backend.
-   real(R8P),    allocatable         :: x_cell_t(:,:)                      !< Cells x coordinates transposed.
-   real(R8P),    allocatable         :: y_cell_t(:,:)                      !< Cells y coordinates transposed.
-   real(R8P),    allocatable         :: z_cell_t(:,:)                      !< Cells z coordinates transposed.
-   real(R8P),    allocatable         :: dxyz_t(:,:)                        !< Delta cells coordinates transposed.
-   integer(I4P)                      :: b, i, j, k                         !< Counter.
-       integer :: iermpi
-       print*,'calling copy_cpu_gpu'
-       call MPI_Barrier(MPI_COMM_WORLD, iermpi)
+   class(base_gpu_object), intent(inout) :: self          !< The base backend.
+   real(R8P), allocatable                :: x_cell_t(:,:) !< Cells x coordinates transposed.
+   real(R8P), allocatable                :: y_cell_t(:,:) !< Cells y coordinates transposed.
+   real(R8P), allocatable                :: z_cell_t(:,:) !< Cells z coordinates transposed.
+   real(R8P), allocatable                :: dxyz_t(:,:)   !< Delta cells coordinates transposed.
+   integer(I4P)                          :: b, i, j, k    !< Counter.
+
+   print*,'calling copy_cpu_gpu'
+   call MPI_Barrier(MPI_COMM_WORLD, self%error)
 
    if (allocated(self%local_map_ghost_gpu    )) deallocate(self%local_map_ghost_gpu    )
    if (allocated(self%comm_map_recv_ghost_gpu)) deallocate(self%comm_map_recv_ghost_gpu)
@@ -133,46 +133,34 @@ contains
    if (allocated(self%local_map_bc_corner_gpu)) deallocate(self%local_map_bc_corner_gpu)
    if (allocated(self%local_map_bc_edge_gpu  )) deallocate(self%local_map_bc_edge_gpu  )
 
-   if (allocated(self%field%local_map_ghost    )) then
-      self%local_map_ghost_gpu     = self%field%local_map_ghost
-   endif
-   if (allocated(self%field%comm_map_recv_ghost)) then
-      self%comm_map_recv_ghost_gpu = self%field%comm_map_recv_ghost
-   endif
-   if (allocated(self%field%comm_map_send_ghost)) then
-      self%comm_map_send_ghost_gpu = self%field%comm_map_send_ghost
-   endif
-   if (allocated(self%field%comm_map_recv_ghost_s)) then
-      self%comm_map_recv_ghost_s_gpu = self%field%comm_map_recv_ghost_s
-   endif
-   if (allocated(self%field%comm_map_send_ghost_s)) then
-      self%comm_map_send_ghost_s_gpu = self%field%comm_map_send_ghost_s
-   endif
+   if (allocated(self%field%local_map_ghost)) self%local_map_ghost_gpu = self%field%local_map_ghost
+   if (allocated(self%field%comm_map_recv_ghost)) self%comm_map_recv_ghost_gpu = self%field%comm_map_recv_ghost
+   if (allocated(self%field%comm_map_send_ghost)) self%comm_map_send_ghost_gpu = self%field%comm_map_send_ghost
+   if (allocated(self%field%comm_map_recv_ghost_s)) self%comm_map_recv_ghost_s_gpu = self%field%comm_map_recv_ghost_s
+   if (allocated(self%field%comm_map_send_ghost_s)) self%comm_map_send_ghost_s_gpu = self%field%comm_map_send_ghost_s
+
    print*,'AIA: ',allocated(self%field%send_buffer_ghost), size(self%field%send_buffer_ghost)
    if (allocated(self%field%send_buffer_ghost).and.size(self%field%send_buffer_ghost)>0) then
       print*,'filling send_buffer_ghost_gpu'
-      self%send_buffer_ghost_gpu   = self%field%send_buffer_ghost
+      self%send_buffer_ghost_gpu = self%field%send_buffer_ghost
    endif
    if (allocated(self%field%recv_buffer_ghost).and.size(self%field%recv_buffer_ghost)>0) then
       print*,'filling recv_send_buffer_ghost_gpu'
-      self%recv_buffer_ghost_gpu   = self%field%recv_buffer_ghost
+      self%recv_buffer_ghost_gpu = self%field%recv_buffer_ghost
    endif
-       call MPI_Barrier(MPI_COMM_WORLD, iermpi)
+
+   call MPI_Barrier(MPI_COMM_WORLD, self%error)
    if (allocated(self%field%send_buffer_ghost_s).and.size(self%field%send_buffer_ghost_s)>0) then
-      self%send_buffer_ghost_s_gpu   = self%field%send_buffer_ghost_s
+      self%send_buffer_ghost_s_gpu = self%field%send_buffer_ghost_s
    endif
    if (allocated(self%field%recv_buffer_ghost_s).and.size(self%field%recv_buffer_ghost_s)>0) then
-      self%recv_buffer_ghost_s_gpu   = self%field%recv_buffer_ghost_s
+      self%recv_buffer_ghost_s_gpu = self%field%recv_buffer_ghost_s
    endif
-   if (allocated(self%field%local_map_bc_face)) then
-      self%local_map_bc_face_gpu = self%field%local_map_bc_face
-   endif
-   if (allocated(self%field%local_map_bc_corner)) then
-      self%local_map_bc_corner_gpu = self%field%local_map_bc_corner
-   endif
-   if (allocated(self%field%local_map_bc_edge)) then
-      self%local_map_bc_edge_gpu = self%field%local_map_bc_edge
-   endif
+
+   if (allocated(self%field%local_map_bc_face))   self%local_map_bc_face_gpu   = self%field%local_map_bc_face
+   if (allocated(self%field%local_map_bc_corner)) self%local_map_bc_corner_gpu = self%field%local_map_bc_corner
+   if (allocated(self%field%local_map_bc_edge))   self%local_map_bc_edge_gpu   = self%field%local_map_bc_edge
+
    call self%create_maps_cell
    call self%create_maps_fluxes_cell
 
@@ -182,10 +170,12 @@ contains
    if(allocated(self%y_cell_gpu)) deallocate(self%y_cell_gpu)
    if(allocated(self%z_cell_gpu)) deallocate(self%z_cell_gpu)
    if(blocks_number > 0) then
-      allocate(x_cell_t(blocks_number, 1-ngc:ni+ngc),   y_cell_t(blocks_number, 1-ngc:nj+ngc),   &
-          z_cell_t(blocks_number, 1-ngc:nk+ngc))
-      allocate(self%x_cell_gpu(blocks_number, 1-ngc:ni+ngc), self%y_cell_gpu(blocks_number, 1-ngc:nj+ngc), &
-          self%z_cell_gpu(blocks_number, 1-ngc:nk+ngc))
+      allocate(x_cell_t(blocks_number, 1-ngc:ni+ngc),   &
+               y_cell_t(blocks_number, 1-ngc:nj+ngc),   &
+               z_cell_t(blocks_number, 1-ngc:nk+ngc))
+      allocate(self%x_cell_gpu(blocks_number, 1-ngc:ni+ngc), &
+               self%y_cell_gpu(blocks_number, 1-ngc:nj+ngc), &
+               self%z_cell_gpu(blocks_number, 1-ngc:nk+ngc))
       do b=1,blocks_number
           do i=1-ngc,ni+ngc
              x_cell_t(b,i) = self%field%x_cell(i,b)
@@ -200,6 +190,7 @@ contains
       self%x_cell_gpu = x_cell_t
       self%y_cell_gpu = y_cell_t
       self%z_cell_gpu = z_cell_t
+      deallocate(x_cell_t, y_cell_t, z_cell_t)
 
       allocate(dxyz_t(1:blocks_number,3))
       do b=1, blocks_number
@@ -208,9 +199,9 @@ contains
          enddo
       enddo
       self%dxyz_gpu = dxyz_t
+      deallocate(dxyz_t)
    endif
    endassociate
-
    endsubroutine copy_cpu_gpu
 
    subroutine create_maps_cell(self)
@@ -1285,7 +1276,6 @@ contains
 
    if (do_step(1)) then
       req_send_recv = MPI_REQUEST_NULL
-
 
       ! populate send buffer
       print*,'SIZEEE: ', size(comm_map_send_ghost_cell_gpu, dim=1)
