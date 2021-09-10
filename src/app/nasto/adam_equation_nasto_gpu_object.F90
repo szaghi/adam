@@ -15,7 +15,7 @@ use CUDAFOR
 use cgal_wrappers
 use ISO_C_BINDING
 use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
-use memorysaver  
+use memorysaver
 
 implicit none
 private
@@ -227,7 +227,7 @@ contains
    amr: do i=1, self%amr_iters
       is_grid_changed_all = .false.
       call save_memory(-10, self%myrank)
-      do i_marker=1, self%amr_n_markers 
+      do i_marker=1, self%amr_n_markers
          amr_marker = self%amr_markers(i_marker)
       call save_memory(-11, self%myrank)
          call self%update_ghost_gpu(q_gpu=self%q_gpu)
@@ -384,19 +384,19 @@ contains
             !RIMETTEREr = c + ( v / m * s )
 
             ! RIMETTERE CGAL
-            if(query_y < 31.2 .or. query_y > 32.5 .or. query_x < 19.5 .or. query_x > 21.5) then
-                distance = -100.
-            else
-                call polyhedron_closest(ptree(ib),query_x,query_y,query_z,near_x,near_y,near_z)
-                distance = sqrt((near_x-query_x)**2+(near_y-query_y)**2+(near_z-query_z)**2)
-                inside   = cgal_polyhedron_inside(ptree(ib),query_x,query_y,query_z)
-                if(.not.inside) distance = - distance
-            endif
+            ! if(query_y < 31.2 .or. query_y > 32.5 .or. query_x < 19.5 .or. query_x > 21.5) then
+            !     distance = -100.
+            ! else
+            !     call polyhedron_closest(ptree(ib),query_x,query_y,query_z,near_x,near_y,near_z)
+            !     distance = sqrt((near_x-query_x)**2+(near_y-query_y)**2+(near_z-query_z)**2)
+            !     inside   = cgal_polyhedron_inside(ptree(ib),query_x,query_y,query_z)
+            !     if(.not.inside) distance = - distance
+            ! endif
 
             !if(inside) print*,'Point inside!!!!!!!!!!!!!!!!'
             ! RIMETTERE CGAL
 
-            !distance = - (sqrt((query_x-15.)**2+(query_y-25.)**2+(query_z-25.)**2)-1.)
+            distance = - (sqrt((query_x-15.)**2+(query_y-25.)**2+(query_z-25.)**2)-1.)
 
             phi(b,i,j,k,ib) = distance
          enddo
@@ -665,7 +665,8 @@ contains
       call self%file_input%get(section_name=sname, option_name='bcs_type', val=buf_I4)
       self%solid_bc_type = buf_I4
       self%bcs_type(i_solid) = self%solid_bc_type
-      call cgal_polyhedron_read(self%ptree(i_solid), self%solid_name)
+      ! RIMETTERE CGAL
+      ! call cgal_polyhedron_read(self%ptree(i_solid), self%solid_name)
    enddo
    self%bcs_vars_gpu = self%bcs_vars
    !print*,'13: ',self%n_solids, self%bcs_vars
@@ -711,7 +712,7 @@ contains
    endsubroutine initialize
 
    subroutine run(self, filename)
- 
+
    class(equation_nasto_gpu_object), intent(inout) :: self              !< The equation.
    character(*)                    , intent(in)    :: filename          !< Input file name.
    real(R8P)                                       :: time              !< Time.
@@ -719,10 +720,9 @@ contains
    real(R8P)                                       :: timing(1:2)       !< Tic toc timing.
    real(R8P)                                       :: timing_step(1:2)  !< Tic toc timing.
 
-
    call self%initialize(filename=filename)
    call self%set_initial_conditions()
-   if(self%n_solids > 0) call self%update_phi() 
+   if(self%n_solids > 0) call self%update_phi()
 
    call self%save_hdf5(output_basename=self%output_basename, t=0, time=0._R8P)
    time = 0._R8P
@@ -970,7 +970,7 @@ contains
    integer(I4P)                                            :: i_eikonal        !< Counter.
    integer(I4P), parameter                                 :: n_eikonal=2      !< Counter.
    real(R8P)                                               :: t_s
-   real(R8P)                                               :: qnrk 
+   real(R8P)                                               :: qnrk
    integer(I4P)                                            :: iermpi
 
    integer(I4P)                                     :: error                         !< Error trapping flag for CUDAFortran.
@@ -2005,26 +2005,23 @@ contains
             ngc, b, i, j, k, i+1, j, k, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
 
          ! Compute right and left eigenvectors matrices (at Roe state)
-         er(1,1) = 1._R8P ;  er(1,2) = uu-c    ; er(1,3) = vv     ; er(1,4) = ww     ; er(1,5) = h-uu*c 
-         er(2,1) = 1._R8P ;  er(2,2) = uu      ; er(2,3) = vv     ; er(2,4) = ww     ; er(2,5) = qq     
-         er(3,1) = 1._R8P ;  er(3,2) = uu+c    ; er(3,3) = vv     ; er(3,4) = ww     ; er(3,5) = h+uu*c 
-         er(4,1) = 0._R8P ;  er(4,2) = 0._R8P  ; er(4,3) = 1._R8P ; er(4,4) = 0._R8P ; er(4,5) = 0._R8P 
-         er(5,1) = 0._R8P ;  er(5,2) = 0._R8P  ; er(5,3) = 0._R8P ; er(5,4) = 1._R8P ; er(5,5) = 0._R8P 
-        
+         er(1,1) = 1._R8P ;  er(1,2) = uu-c    ; er(1,3) = vv     ; er(1,4) = ww     ; er(1,5) = h-uu*c
+         er(2,1) = 1._R8P ;  er(2,2) = uu      ; er(2,3) = vv     ; er(2,4) = ww     ; er(2,5) = qq
+         er(3,1) = 1._R8P ;  er(3,2) = uu+c    ; er(3,3) = vv     ; er(3,4) = ww     ; er(3,5) = h+uu*c
+         er(4,1) = 0._R8P ;  er(4,2) = 0._R8P  ; er(4,3) = 1._R8P ; er(4,4) = 0._R8P ; er(4,5) = 0._R8P
+         er(5,1) = 0._R8P ;  er(5,2) = 0._R8P  ; er(5,3) = 0._R8P ; er(5,4) = 1._R8P ; er(5,5) = 0._R8P
 
          el(1,1) =  0.5_R8P*(b1+uu*ci) ; el(1,2) = 1._R8P-b1 ; el(1,3) =  0.5_R8P*(b1-uu*ci)
          el(2,1) = -0.5_R8P*(b2*uu+ci) ; el(2,2) = b2*uu     ; el(2,3) = -0.5_R8P*(b2*uu-ci)
          el(3,1) = -0.5_R8P*(b2*vv   ) ; el(3,2) = b2*vv     ; el(3,3) = -0.5_R8P*(b2*vv   )
          el(4,1) = -0.5_R8P*(b2*ww   ) ; el(4,2) = b2*ww     ; el(4,3) = -0.5_R8P*(b2*ww   )
          el(5,1) =  0.5_R8P*b2         ; el(5,2) = -b2       ; el(5,3) =  0.5_R8P*b2
-         
 
-         el(1,4) = -vv                 ; el(1,5) = -ww     
-         el(2,4) = 0._R8P              ; el(2,5) = 0._R8P  
-         el(3,4) = 1._R8P              ; el(3,5) = 0._R8P  
-         el(4,4) = 0._R8P              ; el(4,5) = 1._R8P  
-         el(5,4) = 0._R8P              ; el(5,5) = 0._R8P  
-        
+         el(1,4) = -vv                 ; el(1,5) = -ww
+         el(2,4) = 0._R8P              ; el(2,5) = 0._R8P
+         el(3,4) = 1._R8P              ; el(3,5) = 0._R8P
+         el(4,4) = 0._R8P              ; el(4,5) = 1._R8P
+         el(5,4) = 0._R8P              ; el(5,5) = 0._R8P
 
          if(nv == 6) then
          ! Compute right and left eigenvectors matrices (at Roe state)
@@ -2035,11 +2032,6 @@ contains
                                                                                                           er(5,6) = -ww/dha_star
          er(6,1) = 0._R8P ;  er(6,2) = 0._R8P  ; er(6,3) = 0._R8P ; er(6,4) = 0._R8P ; er(6,5) = 1._R8P ; er(6,6) = 1._R8P/dha_star
 
-                                                                                            
-                                                                                            
-                                                                                            
-                                                                                            
-                                                                                    
          el(6,1) = -0.5_R8P*b2*dha_star     ; el(6,2) = b2*dha_star    ; el(6,3) = -0.5_R8P*b2*dha_star
 
                                                                el(1,6) = -ya*dha_star*b1-vv**2-ww**2
@@ -2058,7 +2050,7 @@ contains
             ll = i + l - iweno
             uu = q_aux_gpu(b,ll,j,k,2)
             c  = q_aux_gpu(b,ll,j,k,9)
-            ev(1) = abs(uu-c) ; ev(2) = abs(uu) ; ev(3) = abs(uu+c) ; ev(4) = ev(2) ; ev(5) = ev(2) 
+            ev(1) = abs(uu-c) ; ev(2) = abs(uu) ; ev(3) = abs(uu+c) ; ev(4) = ev(2) ; ev(5) = ev(2)
             if(nv == 6) ev(6) = ev(2)
             do m=1,nv
                 evmax(m) = max(ev(m),evmax(m))
@@ -2089,7 +2081,7 @@ contains
                   wc = wc + el(mm,m) * vi(mm)
                   gc = gc + el(mm,m) * fi(mm)
                enddo
-               gplus (m,l,j,k,b) = 0.5_R8P * (gc + evmax(m) * wc) 
+               gplus (m,l,j,k,b) = 0.5_R8P * (gc + evmax(m) * wc)
                gminus(m,l,j,k,b) = gc - gplus(m,l,j,k,b)
             enddo
          enddo
@@ -2132,7 +2124,7 @@ contains
       do k=1,nk
       do j=1,nj
       do i=1,ni
-      do b=1,blocks_number 
+      do b=1,blocks_number
 
          dx_locale = dx_gpu(b)
          ! Update net flux (procedura alternativa all'interpolazione proposta nel paper, utilizza dx_locale).
@@ -2372,26 +2364,23 @@ contains
             ngc, b, i, j, k, i, j+1, k, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
 
          ! Compute right and left eigenvectors matrices (at Roe state)
-         er(1,1) = 1._R8P ;  er(1,2) = uu      ; er(1,3) = vv-c   ; er(1,4) = ww     ; er(1,5) = h-vv*c 
-         er(2,1) = 1._R8P ;  er(2,2) = uu      ; er(2,3) = vv     ; er(2,4) = ww     ; er(2,5) = qq     
-         er(3,1) = 1._R8P ;  er(3,2) = uu      ; er(3,3) = vv+c   ; er(3,4) = ww     ; er(3,5) = h+vv*c 
-         er(4,1) = 0._R8P ;  er(4,2) = 1._R8P  ; er(4,3) = 0._R8P ; er(4,4) = 0._R8P ; er(4,5) = 0._R8P 
-         er(5,1) = 0._R8P ;  er(5,2) = 0._R8P  ; er(5,3) = 0._R8P ; er(5,4) = 1._R8P ; er(5,5) = 0._R8P 
-         
+         er(1,1) = 1._R8P ;  er(1,2) = uu      ; er(1,3) = vv-c   ; er(1,4) = ww     ; er(1,5) = h-vv*c
+         er(2,1) = 1._R8P ;  er(2,2) = uu      ; er(2,3) = vv     ; er(2,4) = ww     ; er(2,5) = qq
+         er(3,1) = 1._R8P ;  er(3,2) = uu      ; er(3,3) = vv+c   ; er(3,4) = ww     ; er(3,5) = h+vv*c
+         er(4,1) = 0._R8P ;  er(4,2) = 1._R8P  ; er(4,3) = 0._R8P ; er(4,4) = 0._R8P ; er(4,5) = 0._R8P
+         er(5,1) = 0._R8P ;  er(5,2) = 0._R8P  ; er(5,3) = 0._R8P ; er(5,4) = 1._R8P ; er(5,5) = 0._R8P
 
          el(1,1) =  0.5_R8P*(b1+vv*ci) ; el(1,2) = 1._R8P-b1 ; el(1,3) = 0.5_R8P*(b1-vv*ci)
          el(2,1) = -0.5_R8P*(b2*uu)    ; el(2,2) = b2*uu     ; el(2,3) = -0.5_R8P*(b2*uu)
          el(3,1) = -0.5_R8P*(b2*vv+ci) ; el(3,2) = b2*vv     ; el(3,3) = -0.5_R8P*(b2*vv-ci)
          el(4,1) = -0.5_R8P*(b2*ww)    ; el(4,2) = b2*ww     ; el(4,3) = -0.5_R8P*(b2*ww)
          el(5,1) =  0.5_R8P*b2         ; el(5,2) = -b2       ; el(5,3) = 0.5_R8P*b2
-        
 
-         el(1,4) = -ww                 ; el(1,5) = uu      
-         el(2,4) = 0._R8P              ; el(2,5) = -1._R8P 
-         el(3,4) = 0._R8P              ; el(3,5) = 0._R8P  
-         el(4,4) = 1._R8P              ; el(4,5) = 0._R8P  
-         el(5,4) = 0._R8P              ; el(5,5) = 0._R8P  
-       
+         el(1,4) = -ww                 ; el(1,5) = uu
+         el(2,4) = 0._R8P              ; el(2,5) = -1._R8P
+         el(3,4) = 0._R8P              ; el(3,5) = 0._R8P
+         el(4,4) = 1._R8P              ; el(4,5) = 0._R8P
+         el(5,4) = 0._R8P              ; el(5,5) = 0._R8P
 
          if(nv == 6) then
          ! Compute right and left eigenvectors matrices (at Roe state)
@@ -2402,11 +2391,6 @@ contains
                                                                                                           er(5,6) = -ww/dha_star
          er(6,1) = 0._R8P ;  er(6,2) = 0._R8P  ; er(6,3) = 0._R8P ; er(6,4) = 0._R8P ; er(6,5) = 1._R8P ; er(6,6) = 1._R8P/dha_star
 
-                                                                                           
-                                                                                         
-                                                                                            
-                                                                                         
-                                                                                   
          el(6,1) = -0.5_R8P*dha_star*b2     ; el(6,2) = dha_star*b2    ; el(6,3) = -0.5_R8P*dha_star*b2
 
                                                                el(1,6) = -ya*dha_star*b1-uu**2-ww**2
@@ -2425,7 +2409,7 @@ contains
             ll = j + l - iweno
             uu = q_aux_gpu(b,i,ll,k,3)
             c  = q_aux_gpu(b,i,ll,k,9)
-            ev(1) = abs(uu-c) ; ev(2) = abs(uu) ; ev(3) = abs(uu+c) ; ev(4) = ev(2) ; ev(5) = ev(2) ; 
+            ev(1) = abs(uu-c) ; ev(2) = abs(uu) ; ev(3) = abs(uu+c) ; ev(4) = ev(2) ; ev(5) = ev(2) ;
             if(nv == 6) ev(6) = ev(2)
             do m=1,nv
                 evmax(m) = max(ev(m),evmax(m))
@@ -2481,7 +2465,6 @@ contains
    enddo
    endsubroutine euler_y_kernel
 
-
    attributes(global) subroutine euler_z_kernel(q_aux_gpu, flz_gpu, gplus, gminus, &
                                                 blocks_number, ni, nj, nk, ngc, nv, iweno, dha_star, gamma_fluid, R_star, cv_star)
 
@@ -2510,26 +2493,23 @@ contains
             ngc, b, i, j, k, i, j, k+1, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
 
          ! Compute right and left eigenvectors matrices (at Roe state)
-         er(1,1) = 1._R8P ;  er(1,2) = uu      ; er(1,3) = vv     ; er(1,4) = ww-c    ; er(1,5) = h-ww*c 
-         er(2,1) = 1._R8P ;  er(2,2) = uu      ; er(2,3) = vv     ; er(2,4) = ww      ; er(2,5) = qq     
-         er(3,1) = 1._R8P ;  er(3,2) = uu      ; er(3,3) = vv     ; er(3,4) = ww+c    ; er(3,5) = h+ww*c 
-         er(4,1) = 0._R8P ;  er(4,2) = 1._R8P  ; er(4,3) = 0._R8P ; er(4,4) = 0._R8P  ; er(4,5) = 0._R8P 
-         er(5,1) = 0._R8P ;  er(5,2) = 0._R8P  ; er(5,3) = 1._R8P ; er(5,4) = 0._R8P  ; er(5,5) = 0._R8P 
-         
+         er(1,1) = 1._R8P ;  er(1,2) = uu      ; er(1,3) = vv     ; er(1,4) = ww-c    ; er(1,5) = h-ww*c
+         er(2,1) = 1._R8P ;  er(2,2) = uu      ; er(2,3) = vv     ; er(2,4) = ww      ; er(2,5) = qq
+         er(3,1) = 1._R8P ;  er(3,2) = uu      ; er(3,3) = vv     ; er(3,4) = ww+c    ; er(3,5) = h+ww*c
+         er(4,1) = 0._R8P ;  er(4,2) = 1._R8P  ; er(4,3) = 0._R8P ; er(4,4) = 0._R8P  ; er(4,5) = 0._R8P
+         er(5,1) = 0._R8P ;  er(5,2) = 0._R8P  ; er(5,3) = 1._R8P ; er(5,4) = 0._R8P  ; er(5,5) = 0._R8P
 
          el(1,1) = 0.5_R8P*(b1+ww*ci)          ; el(1,2) = 1._R8P-b1 ; el(1,3) = 0.5_R8P*(b1-ww*ci)
          el(2,1) = -0.5_R8P*(b2*uu)            ; el(2,2) = b2*uu     ; el(2,3) = -0.5_R8P*(b2*uu)
          el(3,1) = -0.5_R8P*(b2*vv)            ; el(3,2) = b2*vv     ; el(3,3) = -0.5_R8P*(b2*vv)
          el(4,1) = -0.5_R8P*(b2*ww+ci)         ; el(4,2) = b2*ww     ; el(4,3) = -0.5_R8P*(b2*ww-ci)
          el(5,1) = 0.5_R8P*b2                  ; el(5,2) = -b2       ; el(5,3) = 0.5_R8P*b2
-        
 
-         el(1,4) = -uu                         ; el(1,5) = -vv     
-         el(2,4) = 1._R8P                      ; el(2,5) = 0._R8P  
-         el(3,4) = 0._R8P                      ; el(3,5) = 1._R8P  
-         el(4,4) = 0._R8P                      ; el(4,5) = 0._R8P  
-         el(5,4) = 0._R8P                      ; el(5,5) = 0._R8P  
-       
+         el(1,4) = -uu                         ; el(1,5) = -vv
+         el(2,4) = 1._R8P                      ; el(2,5) = 0._R8P
+         el(3,4) = 0._R8P                      ; el(3,5) = 1._R8P
+         el(4,4) = 0._R8P                      ; el(4,5) = 0._R8P
+         el(5,4) = 0._R8P                      ; el(5,5) = 0._R8P
 
          if(nv == 6) then
          ! Compute right and left eigenvectors matrices (at Roe state)
@@ -2540,11 +2520,6 @@ contains
                                                                                                            er(5,6) = -vv/dha_star
          er(6,1) = 0._R8P ;  er(6,2) = 0._R8P  ; er(6,3) = 0._R8P ; er(6,4) = 0._R8P  ; er(6,5) = 1._R8P ; er(6,6) = 1._R8P/dha_star
 
-                                                                                                   
-                                                                                                 
-                                                                                                 
-                                                                                                    
-                                                                                           
          el(6,1) = -0.5_R8P*dha_star*b2             ; el(6,2) = dha_star*b2    ; el(6,3) = -0.5_R8P*dha_star*b2
 
                                                                        el(1,6) = -ya*dha_star*b1-uu**2-vv**2
@@ -2563,7 +2538,7 @@ contains
             ll = k + l - iweno
             uu = q_aux_gpu(b,i,j,ll,4)
             c  = q_aux_gpu(b,i,j,ll,9)
-            ev(1) = abs(uu-c) ; ev(2) = abs(uu) ; ev(3) = abs(uu+c) ; ev(4) = ev(2) ; ev(5) = ev(2) 
+            ev(1) = abs(uu-c) ; ev(2) = abs(uu) ; ev(3) = abs(uu+c) ; ev(4) = ev(2) ; ev(5) = ev(2)
             if(nv == 6) ev(6) = ev(2)
             do m=1,nv
                 evmax(m) = max(ev(m),evmax(m))
