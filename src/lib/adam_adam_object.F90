@@ -137,10 +137,17 @@ contains
 
    subroutine load_restart_files(self, basename, t, time)
    !< Load restart files.
-   class(adam_object), intent(inout) :: self     !< ADAM.
-   character(*),       intent(in)    :: basename !< Base name of output files.
-   integer(I4P),       intent(inout) :: t        !< Time iteration.
-   real(R8P),          intent(inout) :: time     !< Time.
+   class(adam_object), intent(inout) :: self      !< ADAM.
+   character(*),       intent(in)    :: basename  !< Base name of output files.
+   integer(I4P),       intent(out)   :: t         !< Time iteration.
+   real(R8P),          intent(out)   :: time      !< Time.
+   integer(I4P)                      :: file_unit !< Output file unit.
+
+   open(newunit=file_unit, file=trim(adjustl(basename))//'.time', form='UNFORMATTED', access='STREAM')
+   read(unit=file_unit) t, time
+   close(file_unit)
+   call self%tree%load_nodes(file_name=trim(adjustl(basename))//'.tnd')
+   call self%field%load_blocks(basename=basename)
    endsubroutine load_restart_files
 
    subroutine initialize(self, file_parameters,                                              &
@@ -293,13 +300,19 @@ contains
 
    subroutine save_restart_files(self, basename, t, time)
    !< Save restart files.
-   class(adam_object), intent(in) :: self     !< ADAM.
-   character(*),       intent(in) :: basename !< Base name of output files.
-   integer(I4P),       intent(in) :: t        !< Time iteration.
-   real(R8P),          intent(in) :: time     !< Time.
+   class(adam_object), intent(in) :: self      !< ADAM.
+   character(*),       intent(in) :: basename  !< Base name of output files.
+   integer(I4P),       intent(in) :: t         !< Time iteration.
+   real(R8P),          intent(in) :: time      !< Time.
+   integer(I4P)                   :: file_unit !< Output file unit.
 
-   if (self%myrank==0) call self%tree%save_nodes(file_name=trim(adjustl(basename))//'.tnd')
-                       call self%field%save_blocks(basename=basename)
+   if (self%myrank==0) then
+      open(newunit=file_unit, file=trim(adjustl(basename))//'.time', form='UNFORMATTED', access='STREAM')
+      write(unit=file_unit) t, time
+      close(file_unit)
+      call self%tree%save_nodes(file_name=trim(adjustl(basename))//'.tnd')
+   endif
+   call self%field%save_blocks(basename=basename)
    endsubroutine save_restart_files
 
    subroutine save_hdf5(self, basename, q, q_aux, q_name, q_aux_name, directory, with_ghost, with_cell_morton, t, time)

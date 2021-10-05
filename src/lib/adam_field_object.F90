@@ -288,7 +288,7 @@ contains
            form='UNFORMATTED',                                                       &
            access='STREAM')
       read(unit=file_unit) nv, ni, nj, nk, ngc
-      if (nv/=self%nv.or.ni/=self%grid%ni.or.nj/=self%grid%nj.or.nk/=self%grid%nk.or.ngc/=self%grid%ngc) then
+      if (nv==self%nv.and.ni==self%grid%ni.and.nj==self%grid%nj.and.nk==self%grid%nk.and.ngc==self%grid%ngc) then
          read(unit=file_unit) blocks_number
          if (blocks_number <= self%nb) then
             self%blocks_number = blocks_number
@@ -315,7 +315,8 @@ contains
       endif
       close(file_unit)
    else
-      write(stderr, '(A)') 'ERROR: file "'//trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.fbd'//'" does not exist!'
+      write(stderr, '(A)') 'WARNING: file "'//trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.fbd'//&
+                           '" does not exist!'
    endif
    endsubroutine load_blocks
 

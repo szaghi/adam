@@ -890,12 +890,12 @@ contains
    subroutine initialize(self, device_mem_avail)
    !< Initialize base backend.
    class(base_gpu_object), intent(inout)        :: self               !< The base backend.
-   type(cudadeviceprop)                         :: device_properties  !< Device properties.
    real(R8P),              intent(out)          :: device_mem_avail   !< Device memory available (Gb).
+   type(cudadeviceprop)                         :: device_properties  !< Device properties.
 
-   call self%destroy
+   ! call self%destroy
 
-   call MPI_INIT(self%error)
+   ! call MPI_INIT(self%error)
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
 
@@ -918,7 +918,6 @@ contains
 
    allocate(self%fec_1_6_array_gpu(26)) ! Derived type component on device must be allocatable
    self%fec_1_6_array_gpu = self%fec_1_6_array
-
    endsubroutine initialize
 
    subroutine update_ghost_local_gpu(self, q_gpu)

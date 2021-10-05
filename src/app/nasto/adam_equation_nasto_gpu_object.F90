@@ -126,14 +126,17 @@ type :: equation_nasto_gpu_object
    integer(I4P)                      :: amr_n_markers   !< AMR number of markers.
    type(amr_marker_obj), allocatable :: amr_markers(:)  !< AMR array of marker objects.
    ! Time
-   integer(I4P)                      :: restart         !< Restart flag (0=no, 1=yes)
-   real(R8P)                         :: time_max        !< Maximum time of run.
-   integer(I4P)                      :: t_max           !< Maximum number of iterations of run.
-   real(R8P)                         :: time_save       !< Time interval between subsequent saves.
-   integer(I4P)                      :: n_save          !< Iteration interval between subsequent saves.
-   character(999)                    :: output_basename !< Output file basename.
-   real(R8P)                         :: CFL             !< CFL time limit.
-   real(R8P)                         :: dt=0.0001_R8P   !< Maximum time step accordingly to CFL criterion.
+   ! integer(I4P)                      :: restart         !< Restart flag (0=no, 1=yes)
+   logical                           :: restart=.false.  !< Restart flag.
+   character(999)                    :: restart_basename !< Restart file basename.
+   integer(I4P)                      :: restart_save     !< Iteration interval between subsequent restart saves.
+   real(R8P)                         :: time_max         !< Maximum time of run.
+   integer(I4P)                      :: t_max            !< Maximum number of iterations of run.
+   real(R8P)                         :: time_save        !< Time interval between subsequent saves.
+   integer(I4P)                      :: n_save           !< Iteration interval between subsequent saves.
+   character(999)                    :: output_basename  !< Output file basename.
+   real(R8P)                         :: CFL              !< CFL time limit.
+   real(R8P)                         :: dt=0.0001_R8P    !< Maximum time step accordingly to CFL criterion.
    ! Initial conditions
    integer(I4P)           :: ic_type                     !< Initial condition type.
    real(R8P)              :: ic_vars(IC_VARS_NUMBER_MAX) !< Variables' array for initial conditions.
@@ -193,6 +196,7 @@ type :: equation_nasto_gpu_object
       procedure, pass(self) :: destroy                 !< Destroy the equation.
       procedure, pass(self) :: fd_initialize           !< Initialize Finite Difference Coefficients.
       procedure, pass(self) :: initialize              !< Initialize the equation.
+      procedure, pass(self) :: load_restart_files      !< Load restart files.
       procedure, pass(self) :: mark_by_grad_var        !< Mark blocks to be refined/derefined by a `grad(var)` value.
       procedure, pass(self) :: mark_by_geo             !< Mark blocks to be refined/derefined by a `grad(var)` value.
       procedure, pass(self) :: integrate               !< Runge Kutta integration of equation.
@@ -202,6 +206,7 @@ type :: equation_nasto_gpu_object
       procedure, pass(self) :: run                     !< Run all.
       procedure, pass(self) :: update_phi              !< Refine all blocks uniformly.
       procedure, pass(self) :: runge_kutta_initialize  !< Initialize Runge-Kutta data.
+      procedure, pass(self) :: save_restart_files      !< Save restart files.
       procedure, pass(self) :: save_hdf5               !< Save simulation data in HDF5 format.
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation.
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions of equation.
@@ -396,7 +401,7 @@ contains
             !if(inside) print*,'Point inside!!!!!!!!!!!!!!!!'
             ! RIMETTERE CGAL
 
-            distance = - (sqrt((query_x-15.)**2+(query_y-25.)**2+(query_z-25.)**2)-1.)
+            distance = - (sqrt((query_x-10.)**2+(query_y-10.)**2+(query_z-10.)**2)-1.)
 
             phi(b,i,j,k,ib) = distance
          enddo
@@ -490,7 +495,7 @@ contains
    subroutine initialize(self, filename)
    !< Initialize the equation.
    class(equation_nasto_gpu_object), intent(inout) :: self              !< The equation.
-   character(*)                    , intent(in)    :: filename          !< Input file name.
+   character(*),                     intent(in)    :: filename          !< Input file name.
    integer(I4P)                                    :: v, i              !< Counter.
    integer(I4P)                                    :: n_solids          !< Number of immersed bodies.
    integer(I4P)                                    :: n_vars            !< Number of ic/bc vars.
@@ -514,57 +519,57 @@ contains
    integer(I4P)                                    :: i_solid, i_marker !< Counter.
    real(R8P)                                       :: gpu_memory        !< Available GPU memory.
    real(R8P)                                       :: emin(3), emax(3)  !< Domain dimension.
+   logical                                         :: buf_BOOL          !< Logical buffer.
    integer(I4P)                                    :: buf_I4            !< I4 buffer.
    real(R8P)                                       :: buf_R8            !< R8 buffer.
    character(999)                                  :: buf_CHAR          !< String buffer.
 
-   call self%destroy
+   ! call self%destroy
 
-   ! Assign device and get device memory
+   print '(A)', 'assign device and get device memory'
    call self%base_gpu%initialize(gpu_memory)
 
+   print '(A)', 'initialize MPI'
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
-   print*,'1'
 
-   ! Parse input
+   print '(A)', 'parse main input'
    call self%parse_input(avail_memory=gpu_memory, filename=filename, nb=nb, nodes_number=nodes_number, nv=nv,      &
                          ni=ni, nj=nj, nk=nk, ngc=ngc, max_level=max_level, bc_type=bc_type, emin=emin, emax=emax, &
                          iu_ref_levels=iu_ref_levels, i_prune=i_prune, j_prune=j_prune, k_prune=k_prune, l_prune=l_prune)
-   print*,'2'
+   print '(A)', 'ni, nj, nk, ngc, nv:               '//trim(str([ni, nj, nk, ngc, nv]))
+   print '(A)', 'BC types:                          '//trim(str(bc_type))
+   print '(A)', 'emin, emax:                        '//trim(str([emin, emax]))
+   print '(A)', 'nb, nodes_number:                  '//trim(str([nb, nodes_number]))
+   print '(A)', 'max_level, iu_ref_levels:          '//trim(str([max_level, iu_ref_levels]))
+   print '(A)', 'i_prune, j_prune, k_prune, l_prune:'//trim(str([i_prune, j_prune, k_prune, l_prune]))
 
-   ! Initialize ADAM: grid, tree, field(cpu)
-   print*,'ADAM: ',ni, nj, nk, ngc, bc_type, emin, emax, nv, nb, nodes_number, max_level, iu_ref_levels, &
-       i_prune, j_prune, k_prune, l_prune
+   print '(A)', 'initialize ADAM (tree, field)'
    call self%adam%initialize(ni=ni, nj=nj, nk=nk, ngc=ngc, bc_type=bc_type,                                        &
                              emin=emin, emax=emax, nv=nv, nb=nb, nodes_number=nodes_number, max_level=max_level,   &
                              iu_ref_levels=iu_ref_levels, i_prune=i_prune, j_prune=j_prune, k_prune=k_prune, l_prune=l_prune)
-   print*,'3a'
+
+   print '(A)', 'do uniform refine if any'
    call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_blocks_reorder=.false.)
-   print*,'3b'
+
+   print '(A)', 'do ijk prune if any'
    call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false.)
-   print*,'3c'
 
-   self%ni            =  self%adam%field%grid%ni
-   self%nj            =  self%adam%field%grid%nj
-   self%nk            =  self%adam%field%grid%nk
-   self%ngc           =  self%adam%field%grid%ngc
-   self%nb            =  self%adam%field%nb
-   self%nv            =  self%adam%field%nv
-   self%nv_aux        =  9
-   print*,'4'
+   self%ni     =  self%adam%field%grid%ni
+   self%nj     =  self%adam%field%grid%nj
+   self%nk     =  self%adam%field%grid%nk
+   self%ngc    =  self%adam%field%grid%ngc
+   self%nb     =  self%adam%field%nb
+   self%nv     =  self%adam%field%nv
+   self%nv_aux =  9
 
-   ! Allocate field_gpu variables
+   print '(A)', 'allocate GPU variables'
    call self%base_gpu%alloc(field=self%adam%field, nv_aux=self%nv_aux)
-   print*,'5'
-
-   ! Use base_gpu as pointee
    self%field         => self%base_gpu%field
    self%grid          => self%base_gpu%field%grid
    self%blocks_number => self%base_gpu%field%blocks_number
-   print*,'6'
 
-   ! Numerical schemes
+   print '(A)', 'parse numerical schemes input setting'
    call self%file_input%get(section_name='schemes', option_name='euler_scheme', val=buf_I4) ; self%euler_scheme = buf_I4
    call self%file_input%get(section_name='schemes', option_name='euler_order' , val=buf_I4) ; self%euler_order  = buf_I4
    self%iweno = (self%euler_order+1)/2
@@ -575,9 +580,8 @@ contains
    self%fd_coeff1_gpu = self%fd_coeff1
    self%fd_coeff2_gpu = self%fd_coeff2
    self%fd_conv_gpu   = self%fd_conv
-   print*,'7'
 
-   ! Physics
+   print '(A)', 'parse physical input setting'
    call self%file_input%get(section_name='physics', option_name='cp',        val=buf_R8) ; self%cp_star   = buf_R8
    call self%file_input%get(section_name='physics', option_name='cv',        val=buf_R8) ; self%cv_star   = buf_R8
    call self%file_input%get(section_name='physics', option_name='mu',        val=buf_R8) ; self%mu_star   = buf_R8
@@ -589,9 +593,8 @@ contains
    call self%file_input%get(section_name='physics', option_name='visc_law',  val=buf_I4) ; self%visc_law  = buf_I4
    self%gamma_fluid = self%cp_star/self%cv_star
    self%R_star      = self%cp_star-self%cv_star
-   print*,'8'
 
-   ! AMR
+   print '(A)', 'parse AMR input setting'
    call self%file_input%get(section_name='amr', option_name='frequency', val=buf_I4) ; self%amr_frequency = buf_I4
    call self%file_input%get(section_name='amr', option_name='iters',     val=buf_I4) ; self%amr_iters = buf_I4
    call self%file_input%get(section_name='amr', option_name='n_markers', val=buf_I4) ; self%amr_n_markers = buf_I4
@@ -614,20 +617,20 @@ contains
          self%amr_markers(i_marker)%tol = buf_R8
       endif
    enddo
-   print*,'9'
 
-   ! Temporal integration
-   call self%file_input%get(section_name="time", option_name="restart",         val=buf_I4)   ; self%restart         = buf_I4
-   call self%file_input%get(section_name="time", option_name="time_max",        val=buf_R8)   ; self%time_max        = buf_R8
-   call self%file_input%get(section_name="time", option_name="t_max",           val=buf_I4)   ; self%t_max           = buf_I4
-   call self%file_input%get(section_name="time", option_name="time_save",       val=buf_R8)   ; self%time_save       = buf_R8
-   call self%file_input%get(section_name="time", option_name="n_save",          val=buf_I4)   ; self%n_save          = buf_I4
-   call self%file_input%get(section_name="time", option_name="output_basename", val=buf_CHAR) ; self%output_basename = buf_CHAR
-   call self%file_input%get(section_name='time', option_name='CFL',             val=buf_R8)   ; self%CFL             = buf_R8
+   print '(A)', 'parse timing input setting'
+   call self%file_input%get(section_name="time", option_name="restart",         val=buf_BOOL) ; self%restart          = buf_BOOL
+   call self%file_input%get(section_name="time", option_name="restart_basename",val=buf_CHAR) ; self%restart_basename = buf_CHAR
+   call self%file_input%get(section_name="time", option_name="restart_save",    val=buf_I4)   ; self%restart_save     = buf_I4
+   call self%file_input%get(section_name="time", option_name="time_max",        val=buf_R8)   ; self%time_max         = buf_R8
+   call self%file_input%get(section_name="time", option_name="t_max",           val=buf_I4)   ; self%t_max            = buf_I4
+   call self%file_input%get(section_name="time", option_name="time_save",       val=buf_R8)   ; self%time_save        = buf_R8
+   call self%file_input%get(section_name="time", option_name="n_save",          val=buf_I4)   ; self%n_save           = buf_I4
+   call self%file_input%get(section_name="time", option_name="output_basename", val=buf_CHAR) ; self%output_basename  = buf_CHAR
+   call self%file_input%get(section_name='time', option_name='CFL',             val=buf_R8)   ; self%CFL              = buf_R8
    call self%runge_kutta_initialize
-   print*,'10'
 
-   ! Initial conditions
+   print '(A)', 'parse initial conditions input setting'
    call self%file_input%get(section_name="initial_conditions", option_name='ic_type', val=buf_I4) ; self%ic_type = buf_I4
    n_vars = IC_VARS_NUMBER(self%ic_type)
    do i_var=1,n_vars
@@ -635,9 +638,8 @@ contains
       call self%file_input%get(section_name="initial_conditions", option_name=oname, val=buf_R8)
       self%ic_vars(i_var) = buf_R8
    enddo
-   print*,'11'
 
-   ! Boundary conditions
+   print '(A)', 'parse boundary conditions input setting'
    snames_bc(:) = ["bc_x_min", "bc_x_max", "bc_y_min", "bc_y_max", "bc_z_min", "bc_z_max"]
    do i_bc=1,6
       sname = snames_bc(i_bc)
@@ -649,10 +651,8 @@ contains
       enddo
    enddo
    self%bc_vars_gpu = self%bc_vars
-   print*,'bc_vars: ',self%bc_vars
-   print*,'12'
 
-   ! Immersed boundary
+   print '(A)', 'parse Immersed Boundary input setting'
    call self%file_input%get(section_name='solids', option_name='n_solids', val=buf_I4)
    self%n_solids = buf_I4
    allocate(self%bcs_type(self%n_solids))
@@ -669,11 +669,8 @@ contains
       ! call cgal_polyhedron_read(self%ptree(i_solid), self%solid_name)
    enddo
    self%bcs_vars_gpu = self%bcs_vars
-   !print*,'13: ',self%n_solids, self%bcs_vars
-   !print*,'13:b ',self%bcs_type(:), buf_I4, self%solid_bc_type
-   !print*,'13:b ',self%solid_name
 
-   ! Allocate large arrays
+   print '(A)', 'allocate large arrays'
    associate(nv=>self%nv, ns=>self%ns, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
              nb=>self%nb, nrk=>self%nrk, nv_aux=>self%nv_aux, n_solids=>self%n_solids, iweno=>self%iweno)
    ! CPU data
@@ -693,7 +690,7 @@ contains
    self%flx_gpu  = 0._R8P
    self%fly_gpu  = 0._R8P
    self%flz_gpu  = 0._R8P
-   if(self%n_solids > 0) then
+   if (self%n_solids > 0) then
       allocate(self%phi(1:nb,     1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:n_solids))
       allocate(self%phi_gpu(1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:n_solids))
       self%phi     = -1._R8P
@@ -708,25 +705,40 @@ contains
 
    allocate(self%dxyz_gpu(1:nb, 1:3)) !TODO
    endassociate
-   print*,'14'
+
    endsubroutine initialize
 
-   subroutine run(self, filename)
+   subroutine load_restart_files(self, t, time)
+   !< Save restart files.
+   class(equation_nasto_gpu_object), intent(inout) :: self !< The equation.
+   integer(I4P),                     intent(out)   :: t    !< Time iteration.
+   real(R8P),                        intent(out)   :: time !< Time.
 
-   class(equation_nasto_gpu_object), intent(inout) :: self              !< The equation.
-   character(*)                    , intent(in)    :: filename          !< Input file name.
-   real(R8P)                                       :: time              !< Time.
-   integer(I4P)                                    :: it                !< Temporal iteration.
-   real(R8P)                                       :: timing(1:2)       !< Tic toc timing.
-   real(R8P)                                       :: timing_step(1:2)  !< Tic toc timing.
+   call self%adam%load_restart_files(basename=self%restart_basename, t=t, time=time)
+   !call self%save_hdf5(output_basename=self%restart_basename, t=it, time=time)
+   endsubroutine load_restart_files
+
+   subroutine run(self, filename)
+   class(equation_nasto_gpu_object), intent(inout) :: self             !< The equation.
+   character(*),                     intent(in)    :: filename         !< Input file name.
+   real(R8P)                                       :: time             !< Time.
+   integer(I4P)                                    :: it               !< Temporal iteration.
+   real(R8P)                                       :: timing(1:2)      !< Tic toc timing.
+   real(R8P)                                       :: timing_step(1:2) !< Tic toc timing.
 
    call self%initialize(filename=filename)
-   call self%set_initial_conditions()
-   if(self%n_solids > 0) call self%update_phi()
+   if (self%restart) then
+      print '(A)', 'restart simulation from "'//trim(self%restart_basename)//'" files'
+      call self%load_restart_files(t=it, time=time)
+      print '(A)', 'restart t, time: '//trim(str([it, time]))
+   else
+      call self%set_initial_conditions()
+      time = 0._R8P
+      it = 0
+   endif
+   if (self%n_solids > 0) call self%update_phi()
 
-   call self%save_hdf5(output_basename=self%output_basename, t=0, time=0._R8P)
-   time = 0._R8P
-   it = 0
+   call self%save_hdf5(output_basename=self%output_basename, t=it, time=time)
    call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing(1) = MPI_Wtime()
 
    integration: do
@@ -742,6 +754,10 @@ contains
       if (self%myrank==0) call self%print_progress(t=it, time=time, time_max=self%time_max)
       call self%integrate(t=time)
       if (mod(it,self%n_save)==0) call self%save_hdf5(output_basename=self%output_basename, t=it, time=time)
+      if (mod(it,self%restart_save)==0) then
+         call self%adam%save_restart_files(basename=self%restart_basename, t=it, time=time)
+         call self%save_hdf5(output_basename=self%restart_basename, t=it, time=time)
+      endif
       time = time + self%dt
       if (time>=self%time_max.or.it>=self%t_max) exit integration
       call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(2) = MPI_Wtime()
@@ -1154,13 +1170,23 @@ contains
    real(R8P),                        intent(in)    :: time            !< Time.
 
    call self%copy_gpu_cpu(compute_q_aux=.true.)
-   call self%adam%save_hdf5(basename=trim(output_basename)//trim(strz(t,9)),  &
-                            q=self%field%q,                                   &
-                            q_aux=self%q_aux,                                 &
-                            q_name=['rho','rhu','rhv','rhw','rhe','rhY'], &
+   call self%adam%save_hdf5(basename=trim(output_basename)//'-'//trim(strz(t,9)),             &
+                            q=self%field%q,                                                   &
+                            q_aux=self%q_aux,                                                 &
+                            q_name=['rho','rhu','rhv','rhw','rhe','rhY'],                     &
                             q_aux_name=['rhob','u','v','w','ya','tem','pres','ental','csp'],  &
                             with_cell_morton=.true.)
    endsubroutine save_hdf5
+
+   subroutine save_restart_files(self, t, time)
+   !< Save restart files.
+   class(equation_nasto_gpu_object), intent(inout) :: self !< The equation.
+   integer(I4P),                     intent(in)    :: t    !< Time iteration.
+   real(R8P),                        intent(in)    :: time !< Time.
+
+   call self%adam%save_restart_files(basename=self%restart_basename, t=t, time=time)
+   call self%save_hdf5(output_basename=self%restart_basename, t=t, time=time)
+   endsubroutine save_restart_files
 
    subroutine set_boundary_conditions(self, q_gpu)
    !< Set boundary conditions of equation.
