@@ -121,7 +121,7 @@ contains
    real(R8P), allocatable                :: dxyz_t(:,:)   !< Delta cells coordinates transposed.
    integer(I4P)                          :: b, i, j, k    !< Counter.
 
-   print*,'calling copy_cpu_gpu'
+   print '(A)','copy CPU to GPU'
    call MPI_Barrier(MPI_COMM_WORLD, self%error)
 
    if (allocated(self%local_map_ghost_gpu    )) deallocate(self%local_map_ghost_gpu    )
@@ -139,13 +139,11 @@ contains
    if (allocated(self%field%comm_map_recv_ghost_s)) self%comm_map_recv_ghost_s_gpu = self%field%comm_map_recv_ghost_s
    if (allocated(self%field%comm_map_send_ghost_s)) self%comm_map_send_ghost_s_gpu = self%field%comm_map_send_ghost_s
 
-   print*,'AIA: ',allocated(self%field%send_buffer_ghost), size(self%field%send_buffer_ghost)
    if (allocated(self%field%send_buffer_ghost).and.size(self%field%send_buffer_ghost)>0) then
       print*,'filling send_buffer_ghost_gpu'
       self%send_buffer_ghost_gpu = self%field%send_buffer_ghost
    endif
    if (allocated(self%field%recv_buffer_ghost).and.size(self%field%recv_buffer_ghost)>0) then
-      print*,'filling recv_send_buffer_ghost_gpu'
       self%recv_buffer_ghost_gpu = self%field%recv_buffer_ghost
    endif
 
@@ -335,7 +333,6 @@ contains
       deallocate(local_map_ghost_cell)
    endif
 
-   print*,'DAUUU: ',allocated(self%field%comm_map_send_ghost)
    if (allocated(self%comm_map_send_ghost_cell_gpu)) deallocate(self%comm_map_send_ghost_cell_gpu)
    if (allocated(self%field%comm_map_send_ghost)) then
       c = 0
@@ -521,7 +518,6 @@ contains
       !RIMETTEREdeallocate(comm_map_send_ghost_cell_s)
    endif
 
-   print*,'DARRR: ',allocated(self%field%comm_map_recv_ghost)
    if (allocated(self%comm_map_recv_ghost_cell_gpu)) deallocate(self%comm_map_recv_ghost_cell_gpu)
    if (allocated(self%field%comm_map_recv_ghost)) then
       c = 0
@@ -665,7 +661,6 @@ contains
       !RIMETTEREdeallocate(comm_map_recv_ghost_cell_s)
    endif
 
-   print*,'DZZZZ'
    if (allocated(self%field%local_map_bc_face  ).or.&
        allocated(self%field%local_map_bc_edge  ).or.&
        allocated(self%field%local_map_bc_corner)) then
@@ -686,7 +681,6 @@ contains
    else
       deallocate(self%local_map_bc_crown_gpu)
    endif
-   print*,'DXXXXX'
    contains
       function bc_cells_number(local_map_bc) result(cells_number)
       !< Return BC cells number.
@@ -1310,10 +1304,6 @@ contains
       endif
 
       ! populate send buffer
-      print*,'SIZEEE: ', size(comm_map_send_ghost_cell_gpu, dim=1)
-      print*,'SIZAAA: ', allocated(comm_map_send_ghost_cell_gpu)
-      print*,'SIZUUU: ', size(send_buffer_ghost_gpu, dim=1)
-      print*,'SIZFFF: ', allocated(send_buffer_ghost_gpu)
       if(allocated(comm_map_send_ghost_cell_gpu)) then
          !$cuf kernel do(1) <<<*,*>>>
          do sf=1, size(comm_map_send_ghost_cell_gpu, dim=1)
@@ -1346,7 +1336,6 @@ contains
          STOP
       endif
    endif
-      print*,'kernel 1'
 
    if (do_step(2)) then
       ! receive
@@ -1371,14 +1360,11 @@ contains
          endif
       enddo
    endif
-      print*,'kernel 2',size(comm_map_recv_ghost_cell_gpu, dim=1)
-      print*,'kernel 2-B',size(comm_map_recv_ghost_cell_gpu, dim=2)
 
    if (do_step(3)) then
       call MPI_WAITALL(procs_number * 2, req_send_recv, MPI_STATUSES_IGNORE, error)
 
       call MPI_Barrier(MPI_COMM_WORLD, error)
-      print*,'kernel 3-start'
       !RIMETTERE SENZA
 
       if(allocated(comm_map_recv_ghost_cell_gpu)) then
@@ -1391,21 +1377,11 @@ contains
             j_recv = comm_map_recv_ghost_cell_gpu(rf,4)
             k_recv = comm_map_recv_ghost_cell_gpu(rf,5)
             v_recv = comm_map_recv_ghost_cell_gpu(rf,6)
-            if(c_send < lbound(recv_buffer_ghost_gpu, dim=1) .or. c_send > ubound(recv_buffer_ghost_gpu, dim=1)) &
-                print*,'OOB c_send: ',c_send
-            if(b_recv < lbound(q_gpu, dim=1) .or. b_recv > ubound(q_gpu, dim=1)) print*,'OOB b_recv: ',b_recv
-            if(i_recv < lbound(q_gpu, dim=2) .or. i_recv > ubound(q_gpu, dim=2)) print*,'OOB i_recv: ',i_recv
-            if(j_recv < lbound(q_gpu, dim=3) .or. j_recv > ubound(q_gpu, dim=3)) print*,'OOB j_recv: ',j_recv
-            if(k_recv < lbound(q_gpu, dim=4) .or. k_recv > ubound(q_gpu, dim=4)) print*,'OOB k_recv: ',k_recv
-            if(v_recv < lbound(q_gpu, dim=5) .or. v_recv > ubound(q_gpu, dim=5)) print*,'OOB v_recv: ',v_recv
             q_gpu(b_recv,i_recv,j_recv,k_recv,v_recv) = recv_buffer_ghost_gpu(c_send)
-            !print*,'SZ b_recv: ',b_recv
-            !debugq_gpu(b_recv,i_recv,j_recv,k_recv,v_recv) = 1.0
          enddo
          !@cuf iercuda=cudaDeviceSynchronize()
       endif
    endif
-   print*,'kernel 3'
    call MPI_Barrier(MPI_COMM_WORLD, error)
    endsubroutine update_ghost_mpi_gpu_cuf
 

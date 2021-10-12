@@ -234,185 +234,32 @@ contains
       call save_memory(-10, self%myrank)
       do i_marker=1, self%amr_n_markers
          amr_marker = self%amr_markers(i_marker)
-      call save_memory(-11, self%myrank)
+         call save_memory(-11, self%myrank)
          call self%update_ghost_gpu(q_gpu=self%q_gpu)
-      call save_memory(-12, self%myrank)
-         print*,'AMR: ',amr_marker%tol, amr_marker%delta_fine, amr_marker%delta_coarse, amr_marker%mode
+         call save_memory(-12, self%myrank)
          if(amr_marker%mode == 1) then ! marker "geo"
             call self%mark_by_geo(delta_fine=amr_marker%delta_fine, delta_coarse=amr_marker%delta_coarse)
          elseif(amr_marker%mode == 2) then ! marker "grad"
             call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_fine=amr_marker%delta_fine, &
                                        delta_coarse=amr_marker%delta_coarse, ivar=amr_marker%ivar)
          endif
-      call save_memory(-13, self%myrank)
+         call save_memory(-13, self%myrank)
          call self%copy_gpu_cpu() ! needed for adam%amr_update
-      call save_memory(-14, self%myrank)
+         call save_memory(-14, self%myrank)
          call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed)
-      call save_memory(-15, self%myrank)
+         call save_memory(-15, self%myrank)
          if(self%n_solids > 0) call self%update_phi()
-      call save_memory(-16, self%myrank)
+         call save_memory(-16, self%myrank)
          call self%copy_cpu_gpu
-      call save_memory(-17, self%myrank)
+         call save_memory(-17, self%myrank)
          is_grid_changed_all = is_grid_changed_all.or.is_grid_changed
       enddo
       if (.not.is_grid_changed_all) then
-          print*,'AMR Grid stabilized after : ',i,' AMR iterations'
+          print '(A)','AMR Grid stabilized after : '//trim(str(i))//' AMR iterations'
           exit amr
       endif
    enddo amr
-
    endsubroutine amr_update
-
-   subroutine move_phi(self, velocity)
-   !< Move phi and the actual ptree representation.
-   class(equation_nasto_gpu_object), intent(inout) :: self        !< The equation.
-   real(R8P),                        intent(in)    :: velocity(3) !< Velocity of the movement.
-
-   call move_phi_cuf(ni            = self%ni,            &
-                     nj            = self%nj,            &
-                     nk            = self%nk,            &
-                     ngc           = self%ngc,           &
-                     blocks_number = self%blocks_number, &
-                     velocity      = velocity,           &
-                     phi_gpu       = self%phi_gpu,       &
-                     dphi_gpu      = self%dq_gpu)
-   endsubroutine move_phi
-
-   subroutine move_phi_cuf(ni, nj, nk, ngc, blocks_number, velocity, phi_gpu, dphi_gpu)
-   !< Move phi and the actual ptree representation.
-   integer(I4P), intent(in)            :: ni                                   !< Grid cells number in I direction.
-   integer(I4P), intent(in)            :: nj                                   !< Grid cells number in J direction.
-   integer(I4P), intent(in)            :: nk                                   !< Grid cells number in K direction.
-   integer(I4P), intent(in)            :: ngc                                  !< Ghost grid number.
-   integer(I4P), intent(in)            :: blocks_number                        !< Number of blocks.
-   real(R8P),    intent(in)            :: velocity(3)                          !< Velocity of the movement.
-   real(R8P),    intent(inout), device ::  phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Distance function.
-   real(R8P),    intent(inout), device :: dphi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Distance function gradient.
-   real(R8P)                           :: n_phi_x, n_phi_y, n_phi_z, n_phi     !< Eikonal direction.
-   integer(I4P)                        :: b, i, j, k, v                        !< Counter.
-   integer(I4P)                        :: iercuda                              !< Error trapping flag for CUDAFortran.
-
-   n_phi_x = velocity(1)
-   n_phi_y = velocity(2)
-   n_phi_z = velocity(3)
-   n_phi = abs(n_phi_x) + abs(n_phi_y) + abs(n_phi_z) + 10e-12
-   n_phi = 0.9_R8P / n_phi
-   n_phi_x = n_phi_x * n_phi
-   n_phi_y = n_phi_y * n_phi
-   n_phi_z = n_phi_z * n_phi
-
-   !$cuf kernel do(4) <<<*,*>>>
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-   do b=1, blocks_number
-      do v=1, 1
-         dphi_gpu(b,i,j,k,v) = 0._R8P
-      enddo
-      if (n_phi_x > 0._R8P) then
-         do v=1, 1
-            dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_x) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i-1,j,k,v))
-         enddo
-      else
-         do v=1, 1
-            dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_x) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i+1,j,k,v))
-         enddo
-      endif
-      if (n_phi_y > 0._R8P) then
-         do v=1, 1
-            dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_y) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i,j-1,k,v))
-         enddo
-      else
-         do v=1, 1
-            dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_y) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i,j+1,k,v))
-         enddo
-      endif
-      if (n_phi_z > 0._R8P) then
-         do v=1, 1
-            dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_z) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i,j,k-1,v))
-         enddo
-      else
-         do v=1, 1
-            dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_z) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i,j,k+1,v))
-         enddo
-      endif
-   enddo
-   enddo
-   enddo
-   enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
-
-   !$cuf kernel do(4) <<<*,*>>>
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-   do b=1, blocks_number
-      do v=1, 1
-         phi_gpu(b,i,j,k,v) = phi_gpu(b,i,j,k,v) - dphi_gpu(b,i,j,k,v)
-      enddo
-   enddo
-   enddo
-   enddo
-   enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
-   endsubroutine move_phi_cuf
-
-   subroutine update_phi(self)
-   !< Update x/y/z_cell_gpu
-   class(equation_nasto_gpu_object), intent(inout) :: self                      !< The equation.
-   integer(I4P)                                    :: b, i, j, k, ib            !< Counter.
-   real(R8P)                                       :: query_x, query_y, query_z !< Query point coordinates.
-   real(R8P)                                       :: near_x, near_y, near_z    !< Nearest point coordinates.
-   real(R8P)                                       :: distance                  !< Distance from solid.
-   logical                                         :: inside                    !< Inside/outside boolean.
-
-   associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
-             x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell,         &
-             ptree => self%ptree, phi=>self%phi, phi_gpu=>self%phi_gpu, n_solids=>self%n_solids)
-   print*,'updating distances - start'
-   do ib=1,n_solids
-      do b=1,blocks_number
-         print*,'block: ',b,' / ',blocks_number
-         do i=1-ngc,ni+ngc
-         do j=1-ngc,nj+ngc
-         do k=1-ngc,nk+ngc
-            query_x = x_cell(i,b)
-            query_y = y_cell(j,b)
-            query_z = z_cell(k,b)
-
-            ! p = your point
-            ! c = centre of the cube
-            ! s = half size of the cube
-            ! r = the point we are looking for
-            !RIMETTEREv = p - c
-            !RIMETTEREm = maxval(abs((v)))
-            !RIMETTEREr = c + ( v / m * s )
-
-            ! RIMETTERE CGAL
-            ! if(query_y < 31.2 .or. query_y > 32.5 .or. query_x < 19.5 .or. query_x > 21.5) then
-            !     distance = -100.
-            ! else
-            !     call polyhedron_closest(ptree(ib),query_x,query_y,query_z,near_x,near_y,near_z)
-            !     distance = sqrt((near_x-query_x)**2+(near_y-query_y)**2+(near_z-query_z)**2)
-            !     inside   = cgal_polyhedron_inside(ptree(ib),query_x,query_y,query_z)
-            !     if(.not.inside) distance = - distance
-            ! endif
-
-            !if(inside) print*,'Point inside!!!!!!!!!!!!!!!!'
-            ! RIMETTERE CGAL
-
-            distance = - (sqrt((query_x-10.)**2+(query_y-10.)**2+(query_z-10.)**2)-1.)
-
-            phi(b,i,j,k,ib) = distance
-         enddo
-         enddo
-         enddo
-      enddo
-   enddo
-   print*,'updating distances - end'
-   phi_gpu = phi
-   endassociate
-   endsubroutine update_phi
 
    subroutine compute_aux(self, q_gpu, q_aux_gpu)
    !< Compute auxiliary variables.
@@ -491,6 +338,61 @@ contains
 
    self = fresh
    endsubroutine destroy
+
+   subroutine fd_initialize(self)
+   !< Initialize Finite-Difference coefficients.
+   class(equation_nasto_gpu_object), intent(inout) :: self !< The equation.
+
+   allocate(self%fd_conv(4,4), self%fd_coeff1(3), self%fd_coeff2(0:3))
+
+   ! Coefficients for finite difference computations
+   associate(fd_conv=>self%fd_conv, fd_coeff1=>self%fd_coeff1,fd_coeff2=>self%fd_coeff2)
+
+   ! Coefficients for computation of convective terms
+   fd_conv(1,1) = 1._R8P/2._R8P
+
+   fd_conv(1,2) =  2._R8P/3._R8P
+   fd_conv(2,2) = -1._R8P/12._R8P
+
+   fd_conv(1,3) =  3._R8P/4._R8P
+   fd_conv(2,3) = -3._R8P/20._R8P
+   fd_conv(3,3) =  1._R8P/60._R8P
+
+   fd_conv(1,4) =  4._R8P/5._R8P
+   fd_conv(2,4) = -1._R8P/5._R8P
+   fd_conv(3,4) =  4._R8P/105._R8P
+   fd_conv(4,4) = -1._R8P/280._R8P
+
+   ! Coefficients for computation of viscous terms
+   select case (self%visc_order/2)
+   case (1)
+    fd_coeff1(1) = 0.5_R8P
+   case (2)
+    fd_coeff1(1) = 2._R8P/3._R8P
+    fd_coeff1(2) = -1._R8P/12._R8P
+   case (3)
+    fd_coeff1(1) = 0.75_R8P
+    fd_coeff1(2) = -0.15_R8P
+    fd_coeff1(3) = 1._R8P/60._R8P
+   end select
+
+   select case (self%visc_order/2)
+   case (1)
+    fd_coeff2(0) = -2._R8P
+    fd_coeff2(1) =  1._R8P
+   case (2)
+    fd_coeff2(0) = -2.5_R8P
+    fd_coeff2(1) = 4._R8P/3._R8P
+    fd_coeff2(2) = -1._R8P/12._R8P
+   case (3)
+    fd_coeff2(0) = -245._R8P/90._R8P
+    fd_coeff2(1) = 1.5_R8P
+    fd_coeff2(2) = -0.15_R8P
+    fd_coeff2(3) = 1._R8P/90._R8P
+   endselect
+
+   endassociate
+   endsubroutine fd_initialize
 
    subroutine initialize(self, filename)
    !< Initialize the equation.
@@ -708,130 +610,144 @@ contains
 
    endsubroutine initialize
 
-   subroutine load_restart_files(self, t, time)
-   !< Save restart files.
-   class(equation_nasto_gpu_object), intent(inout) :: self !< The equation.
-   integer(I4P),                     intent(out)   :: t    !< Time iteration.
-   real(R8P),                        intent(out)   :: time !< Time.
+   subroutine integrate(self, t, do_ghost_syncro, residual)
+   !< Runge Kutta integration of field.
+   class(equation_nasto_gpu_object), intent(inout)         :: self             !< The equation.
+   real(R8P),                        intent(in)            :: t                !< Time.
+   logical,                          intent(in),  optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
+   real(R8P),                        intent(out), optional :: residual         !< Global residual.
+   logical                                                 :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
+   integer(I4P)                                            :: s                !< Counter.
+   integer(I4P)                                            :: i_eikonal        !< Counter.
+   integer(I4P), parameter                                 :: n_eikonal=2      !< Counter.
+   real(R8P)                                               :: t_s
+   real(R8P)                                               :: qnrk
+   integer(I4P)                                            :: iermpi
 
-   call self%adam%load_restart_files(basename=self%restart_basename, t=t, time=time)
-   !call self%save_hdf5(output_basename=self%restart_basename, t=it, time=time)
-   endsubroutine load_restart_files
+   integer(I4P)                                     :: error                         !< Error trapping flag for CUDAFortran.
 
-   subroutine run(self, filename)
-   class(equation_nasto_gpu_object), intent(inout) :: self             !< The equation.
-   character(*),                     intent(in)    :: filename         !< Input file name.
-   real(R8P)                                       :: time             !< Time.
-   integer(I4P)                                    :: it               !< Temporal iteration.
-   real(R8P)                                       :: timing(1:2)      !< Tic toc timing.
-   real(R8P)                                       :: timing_step(1:2) !< Tic toc timing.
+   do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
+   associate(dt=>self%dt, ni=>self%ni, nj=>self%nj, nk=>self%nk,                                         &
+             ngc=>self%ngc, nv=>self%nv, nrk=>self%nrk, ns=>self%ns, blocks_number=>self%blocks_number,  &
+             inner_blocks_number=>self%field%inner_blocks_number, n_solids=>self%n_solids, bcs_type=>self%bcs_type(1))
 
-   call self%initialize(filename=filename)
-   if (self%restart) then
-      print '(A)', 'restart simulation from "'//trim(self%restart_basename)//'" files'
-      call self%load_restart_files(t=it, time=time)
-      print '(A)', 'restart t, time: '//trim(str([it, time]))
-   else
-      call self%set_initial_conditions()
-      time = 0._R8P
-      it = 0
-   endif
-   if (self%n_solids > 0) call self%update_phi()
+   do s=1, nrk
+      call MPI_Barrier(MPI_COMM_WORLD, iermpi)
+      t_s = t + dt*(self%ark(s)+self%brk(s))
+      call compute_rk_prhs_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,    &
+                                   dt=dt, s=s, q_gpu=self%q_gpu, prhs_gpu=self%prhs_gpu,                &
+                                   fl_gpu=self%fl_gpu, phi_gpu=self%phi_gpu, qnrk=dt*self%brk(s))
+      call self%update_ghost_gpu(q_gpu=self%q_gpu)
+      ! ------------------------------------------------------------------------------------------------
+      ! ANDREA IB
+      ! ------------------------------------------------------------------------------------------------
+      if(n_solids > 0) then
+         do i_eikonal=1,n_eikonal
+            call MPI_Barrier(MPI_COMM_WORLD, iermpi)
 
-   call self%save_hdf5(output_basename=self%output_basename, t=it, time=time)
-   call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing(1) = MPI_Wtime()
-
-   integration: do
-      call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(1) = MPI_Wtime()
-      print*,'Iteration[rank] = ',it,'[',self%myrank,']'
-      it = it + 1
-      call save_memory(it, self%myrank)
-      !RIMETTERE aggiunta it<100 da levare!!!!
-      !if(mod(it,self%amr_frequency) == 0 .and. it <= 100) call self%amr_update()
-      if(mod(it,self%amr_frequency) == 0) call self%amr_update()
-      call self%compute_dt()
-      if (time + self%dt > self%time_max) self%dt = self%time_max - time
-      if (self%myrank==0) call self%print_progress(t=it, time=time, time_max=self%time_max)
-      call self%integrate(t=time)
-      if (mod(it,self%n_save)==0) call self%save_hdf5(output_basename=self%output_basename, t=it, time=time)
-      if (mod(it,self%restart_save)==0) then
-         call self%adam%save_restart_files(basename=self%restart_basename, t=it, time=time)
-         call self%save_hdf5(output_basename=self%restart_basename, t=it, time=time)
+            error = cudaGetLastError()
+            if (error /= cudaSuccess) then
+               print*,'BEFORE EIK POST FRA CUDA ERROR ',cudaGetErrorString(error)
+               call MPI_Abort(MPI_COMM_WORLD, -15,error) ; STOP
+            endif
+            call evolve_eikonal_q_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
+                                          phi_gpu=self%phi_gpu,                                             &
+                                          dx_gpu=self%dxyz_gpu(:,1),                                        &
+                                          dy_gpu=self%dxyz_gpu(:,2),                                        &
+                                          dz_gpu=self%dxyz_gpu(:,3),                                        &
+                                          dq_gpu=self%dq_gpu,                                               &
+                                          q_gpu=self%q_gpu)
+            error = cudaGetLastError()
+            if (error /= cudaSuccess) then
+               print*,'AFTER EIK POST FRA CUDA ERROR ',cudaGetErrorString(error)
+               call MPI_Abort(MPI_COMM_WORLD, -15,error) ; STOP
+            endif
+            call self%update_ghost_gpu(q_gpu=self%q_gpu)
+         enddo
+         call invert_eikonal_field(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,        &
+                                   q_gpu=self%q_gpu(:,:,:,:,:), q_invert_gpu=self%q_invert_gpu(:,:,:,:,:),  &
+                                   phi_gpu=self%phi_gpu, bcs_type=bcs_type)
       endif
-      time = time + self%dt
-      if (time>=self%time_max.or.it>=self%t_max) exit integration
-      call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(2) = MPI_Wtime()
-      print '(A, F18.10)', 'step timing: ', timing_step(2) - timing_step(1)
-   enddo integration
-   call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing(2) = MPI_Wtime()
-   print '(A, F18.10)', 'averaged timing: ', (timing(2) - timing(1))/it
-   call self%save_hdf5(output_basename=self%output_basename, t=it, time=time)
-   call self%adam%finalize
-   endsubroutine run
+      call self%compute_aux(q_gpu=self%q_invert_gpu, q_aux_gpu=self%q_aux_gpu)
+      call MPI_Barrier(MPI_COMM_WORLD, iermpi)
+      call self%compute_residuals_gpu(ni=ni, nj=nj, nk=nk, ngc=ngc, ns=ns, blocks_number=blocks_number,                      &
+                                      dx_gpu = self%dxyz_gpu(:,1), dy_gpu = self%dxyz_gpu(:,2), dz_gpu = self%dxyz_gpu(:,3), &
+                                      q_aux_gpu = self%q_aux_gpu,  phi_gpu = self%phi_gpu,      fl_gpu = self%fl_gpu,        &
+                                      flx_gpu   = self%flx_gpu,    fly_gpu = self%fly_gpu,      flz_gpu = self%flz_gpu,      &
+                                      fd_conv_gpu = self%fd_conv_gpu, fd_coeff1_gpu = self%fd_coeff1_gpu,                    &
+                                      fd_coeff2_gpu = self%fd_coeff2_gpu,                                                    &
+                                      gminus_x = self%gminus_x, gminus_y = self%gminus_y, gminus_z = self%gminus_z,          &
+                                      gplus_x = self%gplus_x,   gplus_y  = self%gplus_y,  gplus_z  = self%gplus_z,           &
+                                      euler_scheme = self%euler_scheme, visc_scheme = self%visc_scheme,                      &
+                                      lmax = self%lmax, iweno = self%iweno, visc_order = self%visc_order,                    &
+                                      visc_law = self%visc_law,                                                              &
+                                      cp_star       = self%cp_star,  cv_star = self%cv_star, gamma_fluid = self%gamma_fluid, &
+                                      R_star        = self%R_star,   mu_star = self%mu_star, k_star      = self%k_star,      &
+                                      dha_star      = self%dha_star, Lewis   = self%Lewis,   Zeldovich   = self%Zeldovich,   &
+                                      Damkohler     = self%Damkohler)
+      !call self%set_bc_rhs(q_gpu=self%fl_gpu(:,:,:,:,:), q_aux_gpu=self%q_aux_gpu)
 
-   subroutine parse_input(self, avail_memory, filename, nb, nodes_number, nv, ni, nj, nk, ngc, &
-                          max_level, emin, emax, bc_type, iu_ref_levels, i_prune, j_prune, k_prune, l_prune)
-   class(equation_nasto_gpu_object), intent(inout) :: self             !< The equation.
-   real(R8P)                       , intent(in)    :: avail_memory     !< Available memory
-   character(*)                    , intent(in)    :: filename         !< Input file name.
-   integer(I4P)                    , intent(out)   :: nv               !< Number of variables.
-   integer(I4P)                    , intent(out)   :: nb               !< Number of allocated blocks.
-   integer(I8P)                    , intent(out)   :: nodes_number     !< Number of tree nodes.
-   integer(I4P)                    , intent(out)   :: ni, nj, nk, ngc  !< Grid dimensions.
-   integer(I4P)                    , intent(out)   :: max_level        !< Max tree level.
-   integer(I4P)                    , intent(out)   :: bc_type(6)       !< Boundary conditions flags.
-   real(R8P)                       , intent(out)   :: emin(3), emax(3) !< Domain sizes.
-   integer(I4P)                    , intent(out)   :: iu_ref_levels    !< Domain sizes.
-   integer(I4P)                    , intent(out)   :: i_prune          !< Pruning along x.
-   integer(I4P)                    , intent(out)   :: j_prune          !< Pruning along y.
-   integer(I4P)                    , intent(out)   :: k_prune          !< Pruning along z.
-   integer(I4P)                    , intent(out)   :: l_prune          !< Pruning level.
-   integer(I4P)                                    :: ns               !< Number of species and variables.
-   real(R8P)                                       :: block_weight     !< Number of points per block.
-   real(R8P), parameter                            :: save_factor=0.8  !< Factor to avoid GPU completely full.
-   integer(I4P)                                    :: buf_I4           !< Integer buffer.
-   real(R8P)                                       :: buf_R8           !< Real buffer.
-   integer(I4P)                                    :: size_of_real     !< Size of real.
+      call compute_rk_linear_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,      &
+                                     dt=dt, q_gpu=self%q_gpu, prhs_gpu=self%prhs_gpu,                       &
+                                     fl_gpu=self%fl_gpu, phi_gpu=self%phi_gpu, qnrk=dt*self%ark(s))
+   enddo
+   endassociate
+   endsubroutine integrate
 
-   call self%file_input%initialize(filename=trim(filename))
-   call self%file_input%load
-   call self%file_input%get(section_name='grid', option_name='ni', val=ni)
-   call self%file_input%get(section_name='grid', option_name='nj', val=nj)
-   call self%file_input%get(section_name='grid', option_name='nk', val=nk)
-   call self%file_input%get(section_name='grid', option_name='ngc', val=ngc)
-   call self%file_input%get(section_name='physics', option_name='ns', val=ns)
+   subroutine mark_by_geo(self, delta_fine, delta_coarse, threshold, do_init)
+   !< Mark blocks to be refined/derefined by a `grad(rho)` value.
+   class(equation_nasto_gpu_object), intent(inout)        :: self           !< The equation.
+   real(R8P),                        intent(in)           :: delta_fine     !< Maximum cell delta in fine grids.
+   real(R8P),                        intent(in)           :: delta_coarse   !< Minimum cell delta in coarse grids.
+   real(R8P),                        intent(in), optional :: threshold      !< Threshold for sphere proximity.
+   real(R8P)                                              :: threshold_     !< Threshold for sphere proximity, local var.
+   real(R8P)                                              :: max_cell_delta !< Maximum cell delta.
+   real(R8P)                                              :: distance       !< Value (max) of gradient of rho.
+   integer(I4P)                                           :: b              !< Counter.
+   logical, optional                , intent(in)          :: do_init
+   logical                                                :: do_init_
 
-   nv           = ns + 4
-   block_weight = (ngc+ni+ngc) * (ngc+nj+ngc) * (ngc+nk+ngc) * nv
-   size_of_real = storage_size(emin(1))/8.
-   nb           = nint(save_factor*avail_memory*1e9/(self%field_gpu_number*block_weight*size_of_real))
-   nodes_number = nb*self%procs_number
-   print*,'available places for blocks: ',nb
+   do_init_ = .true.    ; if (present(do_init)) do_init_ = do_init
+   threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
+   if(do_init_) then
+       self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
 
-   call self%file_input%get(section_name='bc_x_min', option_name='type', val=buf_I4) ; bc_type(1) = buf_I4
-   call self%file_input%get(section_name='bc_x_max', option_name='type', val=buf_I4) ; bc_type(2) = buf_I4
-   call self%file_input%get(section_name='bc_y_min', option_name='type', val=buf_I4) ; bc_type(3) = buf_I4
-   call self%file_input%get(section_name='bc_y_max', option_name='type', val=buf_I4) ; bc_type(4) = buf_I4
-   call self%file_input%get(section_name='bc_z_min', option_name='type', val=buf_I4) ; bc_type(5) = buf_I4
-   call self%file_input%get(section_name='bc_z_max', option_name='type', val=buf_I4) ; bc_type(6) = buf_I4
+       !if (allocated(self%field%refinements_needed)) deallocate(self%field%refinements_needed)
+       !allocate(self%field%refinements_needed(self%blocks_number))
+       !self%field%refinements_needed(:) = TO_BE_DEREFINED
+   endif
+   associate (ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
+              blocks_number=>self%blocks_number, ns=>self%ns, dxyz=>self%field%dxyz, phi=>self%phi)
+      do b=1, blocks_number
+         distance = 1._R8P
+         if(maxval(phi(b,:,:,:,1))*minval(phi(b,:,:,:,1)) < 0._R8P) then
+            distance = 0._R8P
+         endif
+         max_cell_delta = max_cell_delta_dist(distance=distance)
 
-   call self%file_input%get(section_name='grid', option_name='emin_x', val=buf_R8) ; emin(1) = buf_R8
-   call self%file_input%get(section_name='grid', option_name='emin_y', val=buf_R8) ; emin(2) = buf_R8
-   call self%file_input%get(section_name='grid', option_name='emin_z', val=buf_R8) ; emin(3) = buf_R8
-   call self%file_input%get(section_name='grid', option_name='emax_x', val=buf_R8) ; emax(1) = buf_R8
-   call self%file_input%get(section_name='grid', option_name='emax_y', val=buf_R8) ; emax(2) = buf_R8
-   call self%file_input%get(section_name='grid', option_name='emax_z', val=buf_R8) ; emax(3) = buf_R8
-   call self%file_input%get(section_name='amr', option_name='max_level', val=max_level)
-   call self%file_input%get(section_name='amr', option_name='iu_ref_levels', val=iu_ref_levels)
-   call self%file_input%get(section_name='amr', option_name='i_prune', val=i_prune)
-   call self%file_input%get(section_name='amr', option_name='j_prune', val=j_prune)
-   call self%file_input%get(section_name='amr', option_name='k_prune', val=k_prune)
-   call self%file_input%get(section_name='amr', option_name='l_prune', val=l_prune)
+         if (maxval(dxyz(:,b)) > max_cell_delta) then
+            self%field%refinements_needed(b) = TO_BE_REFINED
+         elseif (maxval(dxyz(:,b)) * threshold_ < max_cell_delta) then
+            self%field%refinements_needed(b) = max(self%field%refinements_needed(b), TO_BE_DEREFINED)
+         else
+            self%field%refinements_needed(b) = max(self%field%refinements_needed(b), TO_NOT_TOUCH)
+         endif
+      enddo
+   endassociate
+   contains
+      function max_cell_delta_dist(distance) result(delta)
+      !< Return the maximum cell delta given a comparison distance.
+      real(R8P),          intent(in) :: distance !< Comparison distance.
+      real(R8P)                      :: delta    !< Maximum cell delta admissible.
 
-   !TODO
-   ! Check all input parameters
-
-   endsubroutine parse_input
+      if (abs(distance) < epsilon(0._R8P)) then
+         delta = delta_fine
+      else
+         delta = delta_coarse
+         !delta = huge(0._R8P)
+      endif
+      endfunction max_cell_delta_dist
+   endsubroutine mark_by_geo
 
    subroutine mark_by_grad_var(self, grad_tol, delta_fine, delta_coarse, ivar, threshold, do_init)
    !< Mark blocks to be refined/derefined by a `grad(rho)` value.
@@ -920,162 +836,184 @@ contains
       endfunction max_cell_delta_grad
    endsubroutine mark_by_grad_var
 
-   subroutine mark_by_geo(self, delta_fine, delta_coarse, threshold, do_init)
-   !< Mark blocks to be refined/derefined by a `grad(rho)` value.
-   class(equation_nasto_gpu_object), intent(inout)        :: self           !< The equation.
-   real(R8P),                        intent(in)           :: delta_fine     !< Maximum cell delta in fine grids.
-   real(R8P),                        intent(in)           :: delta_coarse   !< Minimum cell delta in coarse grids.
-   real(R8P),                        intent(in), optional :: threshold      !< Threshold for sphere proximity.
-   real(R8P)                                              :: threshold_     !< Threshold for sphere proximity, local var.
-   real(R8P)                                              :: max_cell_delta !< Maximum cell delta.
-   real(R8P)                                              :: distance       !< Value (max) of gradient of rho.
-   integer(I4P)                                           :: b              !< Counter.
-   logical, optional                , intent(in)          :: do_init
-   logical                                                :: do_init_
+   subroutine move_phi(self, velocity)
+   !< Move phi and the actual ptree representation.
+   class(equation_nasto_gpu_object), intent(inout) :: self        !< The equation.
+   real(R8P),                        intent(in)    :: velocity(3) !< Velocity of the movement.
 
-   do_init_ = .true.    ; if (present(do_init)) do_init_ = do_init
-   threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
-   if(do_init_) then
-       self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
+   call move_phi_cuf(ni            = self%ni,            &
+                     nj            = self%nj,            &
+                     nk            = self%nk,            &
+                     ngc           = self%ngc,           &
+                     blocks_number = self%blocks_number, &
+                     velocity      = velocity,           &
+                     phi_gpu       = self%phi_gpu,       &
+                     dphi_gpu      = self%dq_gpu)
+   endsubroutine move_phi
 
-       !if (allocated(self%field%refinements_needed)) deallocate(self%field%refinements_needed)
-       !allocate(self%field%refinements_needed(self%blocks_number))
-       !self%field%refinements_needed(:) = TO_BE_DEREFINED
-   endif
-   associate (ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
-              blocks_number=>self%blocks_number, ns=>self%ns, dxyz=>self%field%dxyz, phi=>self%phi)
-      do b=1, blocks_number
-         distance = 1._R8P
-         if(maxval(phi(b,:,:,:,1))*minval(phi(b,:,:,:,1)) < 0._R8P) then
-            distance = 0._R8P
-         endif
-         max_cell_delta = max_cell_delta_dist(distance=distance)
+   subroutine move_phi_cuf(ni, nj, nk, ngc, blocks_number, velocity, phi_gpu, dphi_gpu)
+   !< Move phi and the actual ptree representation.
+   integer(I4P), intent(in)            :: ni                                   !< Grid cells number in I direction.
+   integer(I4P), intent(in)            :: nj                                   !< Grid cells number in J direction.
+   integer(I4P), intent(in)            :: nk                                   !< Grid cells number in K direction.
+   integer(I4P), intent(in)            :: ngc                                  !< Ghost grid number.
+   integer(I4P), intent(in)            :: blocks_number                        !< Number of blocks.
+   real(R8P),    intent(in)            :: velocity(3)                          !< Velocity of the movement.
+   real(R8P),    intent(inout), device ::  phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Distance function.
+   real(R8P),    intent(inout), device :: dphi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Distance function gradient.
+   real(R8P)                           :: n_phi_x, n_phi_y, n_phi_z, n_phi     !< Eikonal direction.
+   integer(I4P)                        :: b, i, j, k, v                        !< Counter.
+   integer(I4P)                        :: iercuda                              !< Error trapping flag for CUDAFortran.
 
-         if (maxval(dxyz(:,b)) > max_cell_delta) then
-            self%field%refinements_needed(b) = TO_BE_REFINED
-         elseif (maxval(dxyz(:,b)) * threshold_ < max_cell_delta) then
-            self%field%refinements_needed(b) = max(self%field%refinements_needed(b), TO_BE_DEREFINED)
-         else
-            self%field%refinements_needed(b) = max(self%field%refinements_needed(b), TO_NOT_TOUCH)
-         endif
+   n_phi_x = velocity(1)
+   n_phi_y = velocity(2)
+   n_phi_z = velocity(3)
+   n_phi = abs(n_phi_x) + abs(n_phi_y) + abs(n_phi_z) + 10e-12
+   n_phi = 0.9_R8P / n_phi
+   n_phi_x = n_phi_x * n_phi
+   n_phi_y = n_phi_y * n_phi
+   n_phi_z = n_phi_z * n_phi
+
+   !$cuf kernel do(4) <<<*,*>>>
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      do v=1, 1
+         dphi_gpu(b,i,j,k,v) = 0._R8P
       enddo
-   endassociate
-   contains
-      function max_cell_delta_dist(distance) result(delta)
-      !< Return the maximum cell delta given a comparison distance.
-      real(R8P),          intent(in) :: distance !< Comparison distance.
-      real(R8P)                      :: delta    !< Maximum cell delta admissible.
-
-      if (abs(distance) < epsilon(0._R8P)) then
-         delta = delta_fine
-      else
-         delta = delta_coarse
-         !delta = huge(0._R8P)
-      endif
-      endfunction max_cell_delta_dist
-   endsubroutine mark_by_geo
-
-   subroutine integrate(self, t, do_ghost_syncro, residual)
-   !< Runge Kutta integration of field.
-   class(equation_nasto_gpu_object), intent(inout)         :: self             !< The equation.
-   real(R8P),                        intent(in)            :: t                !< Time.
-   logical,                          intent(in),  optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
-   real(R8P),                        intent(out), optional :: residual         !< Global residual.
-   logical                                                 :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
-   integer(I4P)                                            :: s                !< Counter.
-   integer(I4P)                                            :: i_eikonal        !< Counter.
-   integer(I4P), parameter                                 :: n_eikonal=2      !< Counter.
-   real(R8P)                                               :: t_s
-   real(R8P)                                               :: qnrk
-   integer(I4P)                                            :: iermpi
-
-   integer(I4P)                                     :: error                         !< Error trapping flag for CUDAFortran.
-
-   do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
-   associate(dt=>self%dt, ni=>self%ni, nj=>self%nj, nk=>self%nk,                                         &
-             ngc=>self%ngc, nv=>self%nv, nrk=>self%nrk, ns=>self%ns, blocks_number=>self%blocks_number,  &
-             inner_blocks_number=>self%field%inner_blocks_number, n_solids=>self%n_solids, bcs_type=>self%bcs_type(1))
-
-   do s=1, nrk
-      call MPI_Barrier(MPI_COMM_WORLD, iermpi)
-      print*,'substep  :  ',s, self%brk(s), dt*self%brk(s), bcs_type
-      t_s = t + dt*(self%ark(s)+self%brk(s))
-      call compute_rk_prhs_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,    &
-                                   dt=dt, s=s, q_gpu=self%q_gpu, prhs_gpu=self%prhs_gpu,                &
-                                   fl_gpu=self%fl_gpu, phi_gpu=self%phi_gpu, qnrk=dt*self%brk(s))
-      print*,'before update_ghost'
-      call self%update_ghost_gpu(q_gpu=self%q_gpu)
-      ! ------------------------------------------------------------------------------------------------
-      ! ANDREA IB
-      ! ------------------------------------------------------------------------------------------------
-      print*,'before eikonal'
-      if(n_solids > 0) then
-         do i_eikonal=1,n_eikonal
-            call MPI_Barrier(MPI_COMM_WORLD, iermpi)
-            print*,'eikonal start'
-
-      error = cudaGetLastError() ; if(error /= cudaSuccess) then
-         print*,'BEFORE EIK POST FRA CUDA ERROR ',cudaGetErrorString(error)
-         call MPI_Abort(MPI_COMM_WORLD, -15,error) ; STOP
-      endif
-            call evolve_eikonal_q_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
-                                          phi_gpu=self%phi_gpu,                                             &
-                                          dx_gpu=self%dxyz_gpu(:,1),                                        &
-                                          dy_gpu=self%dxyz_gpu(:,2),                                        &
-                                          dz_gpu=self%dxyz_gpu(:,3),                                        &
-                                          dq_gpu=self%dq_gpu,                                               &
-                                          q_gpu=self%q_gpu)
-      error = cudaGetLastError() ; if(error /= cudaSuccess) then
-         print*,'AFTER EIK POST FRA CUDA ERROR ',cudaGetErrorString(error)
-         call MPI_Abort(MPI_COMM_WORLD, -15,error) ; STOP
-      endif
-            call self%update_ghost_gpu(q_gpu=self%q_gpu)
+      if (n_phi_x > 0._R8P) then
+         do v=1, 1
+            dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_x) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i-1,j,k,v))
          enddo
-         print*,'after eikonal 1'
-         call invert_eikonal_field(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,        &
-                                   q_gpu=self%q_gpu(:,:,:,:,:), q_invert_gpu=self%q_invert_gpu(:,:,:,:,:),  &
-                                   phi_gpu=self%phi_gpu, bcs_type=bcs_type)
-         print*,'after eikonal 2'
+      else
+         do v=1, 1
+            dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_x) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i+1,j,k,v))
+         enddo
       endif
-      call self%compute_aux(q_gpu=self%q_invert_gpu, q_aux_gpu=self%q_aux_gpu)
-      call MPI_Barrier(MPI_COMM_WORLD, iermpi)
-      print*,'after aux'
-      call self%compute_residuals_gpu(ni=ni, nj=nj, nk=nk, ngc=ngc, ns=ns, blocks_number=blocks_number,                      &
-                                      dx_gpu = self%dxyz_gpu(:,1), dy_gpu = self%dxyz_gpu(:,2), dz_gpu = self%dxyz_gpu(:,3), &
-                                      q_aux_gpu = self%q_aux_gpu,  phi_gpu = self%phi_gpu,      fl_gpu = self%fl_gpu,        &
-                                      flx_gpu   = self%flx_gpu,    fly_gpu = self%fly_gpu,      flz_gpu = self%flz_gpu,      &
-                                      fd_conv_gpu = self%fd_conv_gpu, fd_coeff1_gpu = self%fd_coeff1_gpu,                    &
-                                      fd_coeff2_gpu = self%fd_coeff2_gpu,                                                    &
-                                      gminus_x = self%gminus_x, gminus_y = self%gminus_y, gminus_z = self%gminus_z,          &
-                                      gplus_x = self%gplus_x,   gplus_y  = self%gplus_y,  gplus_z  = self%gplus_z,           &
-                                      euler_scheme = self%euler_scheme, visc_scheme = self%visc_scheme,                      &
-                                      lmax = self%lmax, iweno = self%iweno, visc_order = self%visc_order,                    &
-                                      visc_law = self%visc_law,                                                              &
-                                      cp_star       = self%cp_star,  cv_star = self%cv_star, gamma_fluid = self%gamma_fluid, &
-                                      R_star        = self%R_star,   mu_star = self%mu_star, k_star      = self%k_star,      &
-                                      dha_star      = self%dha_star, Lewis   = self%Lewis,   Zeldovich   = self%Zeldovich,   &
-                                      Damkohler     = self%Damkohler)
-      !call self%set_bc_rhs(q_gpu=self%fl_gpu(:,:,:,:,:), q_aux_gpu=self%q_aux_gpu)
-
-      call compute_rk_linear_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,      &
-                                     dt=dt, q_gpu=self%q_gpu, prhs_gpu=self%prhs_gpu,                       &
-                                     fl_gpu=self%fl_gpu, phi_gpu=self%phi_gpu, qnrk=dt*self%ark(s))
+      if (n_phi_y > 0._R8P) then
+         do v=1, 1
+            dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_y) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i,j-1,k,v))
+         enddo
+      else
+         do v=1, 1
+            dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_y) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i,j+1,k,v))
+         enddo
+      endif
+      if (n_phi_z > 0._R8P) then
+         do v=1, 1
+            dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_z) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i,j,k-1,v))
+         enddo
+      else
+         do v=1, 1
+            dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_z) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i,j,k+1,v))
+         enddo
+      endif
    enddo
-   endassociate
-   endsubroutine integrate
+   enddo
+   enddo
+   enddo
+   !@cuf iercuda=cudaDeviceSynchronize()
 
-   subroutine print_progress(self, t, time, time_max)
+   !$cuf kernel do(4) <<<*,*>>>
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+   do b=1, blocks_number
+      do v=1, 1
+         phi_gpu(b,i,j,k,v) = phi_gpu(b,i,j,k,v) - dphi_gpu(b,i,j,k,v)
+      enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   !@cuf iercuda=cudaDeviceSynchronize()
+   endsubroutine move_phi_cuf
+
+   subroutine parse_input(self, avail_memory, filename, nb, nodes_number, nv, ni, nj, nk, ngc, &
+                          max_level, emin, emax, bc_type, iu_ref_levels, i_prune, j_prune, k_prune, l_prune)
+   class(equation_nasto_gpu_object), intent(inout) :: self             !< The equation.
+   real(R8P)                       , intent(in)    :: avail_memory     !< Available memory
+   character(*)                    , intent(in)    :: filename         !< Input file name.
+   integer(I4P)                    , intent(out)   :: nv               !< Number of variables.
+   integer(I4P)                    , intent(out)   :: nb               !< Number of allocated blocks.
+   integer(I8P)                    , intent(out)   :: nodes_number     !< Number of tree nodes.
+   integer(I4P)                    , intent(out)   :: ni, nj, nk, ngc  !< Grid dimensions.
+   integer(I4P)                    , intent(out)   :: max_level        !< Max tree level.
+   integer(I4P)                    , intent(out)   :: bc_type(6)       !< Boundary conditions flags.
+   real(R8P)                       , intent(out)   :: emin(3), emax(3) !< Domain sizes.
+   integer(I4P)                    , intent(out)   :: iu_ref_levels    !< Domain sizes.
+   integer(I4P)                    , intent(out)   :: i_prune          !< Pruning along x.
+   integer(I4P)                    , intent(out)   :: j_prune          !< Pruning along y.
+   integer(I4P)                    , intent(out)   :: k_prune          !< Pruning along z.
+   integer(I4P)                    , intent(out)   :: l_prune          !< Pruning level.
+   integer(I4P)                                    :: ns               !< Number of species and variables.
+   real(R8P)                                       :: block_weight     !< Number of points per block.
+   real(R8P), parameter                            :: save_factor=0.8  !< Factor to avoid GPU completely full.
+   integer(I4P)                                    :: buf_I4           !< Integer buffer.
+   real(R8P)                                       :: buf_R8           !< Real buffer.
+   integer(I4P)                                    :: size_of_real     !< Size of real.
+
+   call self%file_input%initialize(filename=trim(filename))
+   call self%file_input%load
+   call self%file_input%get(section_name='grid', option_name='ni', val=ni)
+   call self%file_input%get(section_name='grid', option_name='nj', val=nj)
+   call self%file_input%get(section_name='grid', option_name='nk', val=nk)
+   call self%file_input%get(section_name='grid', option_name='ngc', val=ngc)
+   call self%file_input%get(section_name='physics', option_name='ns', val=ns)
+
+   nv           = ns + 4
+   block_weight = (ngc+ni+ngc) * (ngc+nj+ngc) * (ngc+nk+ngc) * nv
+   size_of_real = storage_size(emin(1))/8.
+   nb           = nint(save_factor*avail_memory*1e9/(self%field_gpu_number*block_weight*size_of_real))
+   nodes_number = nb*self%procs_number
+   print '(A)', 'available places for blocks [nb]: '//trim(str(nb))
+
+   call self%file_input%get(section_name='bc_x_min', option_name='type', val=buf_I4) ; bc_type(1) = buf_I4
+   call self%file_input%get(section_name='bc_x_max', option_name='type', val=buf_I4) ; bc_type(2) = buf_I4
+   call self%file_input%get(section_name='bc_y_min', option_name='type', val=buf_I4) ; bc_type(3) = buf_I4
+   call self%file_input%get(section_name='bc_y_max', option_name='type', val=buf_I4) ; bc_type(4) = buf_I4
+   call self%file_input%get(section_name='bc_z_min', option_name='type', val=buf_I4) ; bc_type(5) = buf_I4
+   call self%file_input%get(section_name='bc_z_max', option_name='type', val=buf_I4) ; bc_type(6) = buf_I4
+
+   call self%file_input%get(section_name='grid', option_name='emin_x', val=buf_R8) ; emin(1) = buf_R8
+   call self%file_input%get(section_name='grid', option_name='emin_y', val=buf_R8) ; emin(2) = buf_R8
+   call self%file_input%get(section_name='grid', option_name='emin_z', val=buf_R8) ; emin(3) = buf_R8
+   call self%file_input%get(section_name='grid', option_name='emax_x', val=buf_R8) ; emax(1) = buf_R8
+   call self%file_input%get(section_name='grid', option_name='emax_y', val=buf_R8) ; emax(2) = buf_R8
+   call self%file_input%get(section_name='grid', option_name='emax_z', val=buf_R8) ; emax(3) = buf_R8
+   call self%file_input%get(section_name='amr', option_name='max_level', val=max_level)
+   call self%file_input%get(section_name='amr', option_name='iu_ref_levels', val=iu_ref_levels)
+   call self%file_input%get(section_name='amr', option_name='i_prune', val=i_prune)
+   call self%file_input%get(section_name='amr', option_name='j_prune', val=j_prune)
+   call self%file_input%get(section_name='amr', option_name='k_prune', val=k_prune)
+   call self%file_input%get(section_name='amr', option_name='l_prune', val=l_prune)
+
+   !TODO
+   ! Check all input parameters
+
+   endsubroutine parse_input
+
+   subroutine print_progress(self, t, time, t_max, time_max)
    !< Print simulation progress.
    class(equation_nasto_gpu_object), intent(in) :: self     !< The equation.
    integer(I4P),                     intent(in) :: t        !< Time iteration.
    real(R8P),                        intent(in) :: time     !< Time.
-   real(R8P)                                    :: time_max !< Maximum time of integration.
+   integer(I4P),                     intent(in) :: t_max    !< Maximum time iteration.
+   real(R8P),                        intent(in) :: time_max !< Maximum time of integration.
 
-   print '(A)', 'blocks number: '//trim(str(self%adam%tree%nodes_number, .true.))
-   print '(A)', 'time step:     '//trim(str(self%dt, .true.))
-   print '(A)', 'time:          '//trim(str(time, .true.))
-   print '(A)', 't:             '//trim(str(t,.true.))
-   print '(A)', 'progress:      '//trim(str(int(time/time_max * 100), .true.))//'%'
+   print '(A)', 'Iteration[rank] = '//trim(str(t))//'['//trim(str(self%myrank))//']'
+   if (self%myrank==0) then
+         print '(A)', 'blocks number: '//trim(str(self%adam%tree%nodes_number, .true.))
+         print '(A)', 'time step:     '//trim(str(self%dt, .true.))
+         print '(A)', 'time:          '//trim(str(time, .true.))
+         print '(A)', 't:             '//trim(str(t,.true.))
+      if (t_max <= 0) then
+         print '(A)', 'progress:      '//trim(str(int(time/time_max * 100), .true.))//'%'
+      else
+         print '(A)', 'progress:      '//trim(str(int((t*1._R8P)/t_max * 100), .true.))//'%'
+      endif
+   endif
    endsubroutine print_progress
 
    subroutine refine_uniform(self, refinement_levels)
@@ -1090,60 +1028,57 @@ contains
    enddo
    endsubroutine
 
-   subroutine fd_initialize(self)
-   !< Initialize Finite-Difference coefficients.
-   class(equation_nasto_gpu_object), intent(inout) :: self !< The equation.
+   subroutine run(self, filename)
+   class(equation_nasto_gpu_object), intent(inout) :: self             !< The equation.
+   character(*),                     intent(in)    :: filename         !< Input file name.
+   real(R8P)                                       :: time             !< Time.
+   integer(I4P)                                    :: it               !< Temporal iteration.
+   real(R8P)                                       :: timing(1:2)      !< Tic toc timing.
+   real(R8P)                                       :: timing_step(1:2) !< Tic toc timing.
 
-   allocate(self%fd_conv(4,4), self%fd_coeff1(3), self%fd_coeff2(0:3))
+   call MPI_INIT(self%error)
 
-   ! Coefficients for finite difference computations
-   associate(fd_conv=>self%fd_conv, fd_coeff1=>self%fd_coeff1,fd_coeff2=>self%fd_coeff2)
+   call self%initialize(filename=filename)
+   if (self%restart) then
+      print '(A)', 'restart simulation from "'//trim(self%restart_basename)//'" files'
+      call self%load_restart_files(t=it, time=time)
+      print '(A)', 'restart [t, time]: '//trim(str(it))//', '//trim(str(time))
+   else
+      call self%set_initial_conditions()
+      time = 0._R8P
+      it = 0
+   endif
+   if (self%n_solids > 0) call self%update_phi()
 
-   ! Coefficients for computation of convective terms
-   fd_conv(1,1) = 1._R8P/2._R8P
+   call self%save_hdf5(output_basename=self%output_basename, t=it, time=time)
+   call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing(1) = MPI_Wtime()
 
-   fd_conv(1,2) =  2._R8P/3._R8P
-   fd_conv(2,2) = -1._R8P/12._R8P
-
-   fd_conv(1,3) =  3._R8P/4._R8P
-   fd_conv(2,3) = -3._R8P/20._R8P
-   fd_conv(3,3) =  1._R8P/60._R8P
-
-   fd_conv(1,4) =  4._R8P/5._R8P
-   fd_conv(2,4) = -1._R8P/5._R8P
-   fd_conv(3,4) =  4._R8P/105._R8P
-   fd_conv(4,4) = -1._R8P/280._R8P
-
-   ! Coefficients for computation of viscous terms
-   select case (self%visc_order/2)
-   case (1)
-    fd_coeff1(1) = 0.5_R8P
-   case (2)
-    fd_coeff1(1) = 2._R8P/3._R8P
-    fd_coeff1(2) = -1._R8P/12._R8P
-   case (3)
-    fd_coeff1(1) = 0.75_R8P
-    fd_coeff1(2) = -0.15_R8P
-    fd_coeff1(3) = 1._R8P/60._R8P
-   end select
-
-   select case (self%visc_order/2)
-   case (1)
-    fd_coeff2(0) = -2._R8P
-    fd_coeff2(1) =  1._R8P
-   case (2)
-    fd_coeff2(0) = -2.5_R8P
-    fd_coeff2(1) = 4._R8P/3._R8P
-    fd_coeff2(2) = -1._R8P/12._R8P
-   case (3)
-    fd_coeff2(0) = -245._R8P/90._R8P
-    fd_coeff2(1) = 1.5_R8P
-    fd_coeff2(2) = -0.15_R8P
-    fd_coeff2(3) = 1._R8P/90._R8P
-   endselect
-
-   endassociate
-   endsubroutine fd_initialize
+   integration: do
+      call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(1) = MPI_Wtime()
+      it = it + 1
+      call save_memory(it, self%myrank)
+      !RIMETTERE aggiunta it<100 da levare!!!!
+      !if(mod(it,self%amr_frequency) == 0 .and. it <= 100) call self%amr_update()
+      if(mod(it,self%amr_frequency) == 0) call self%amr_update()
+      call self%compute_dt()
+      if ((self%t_max <= 0).and.(time + self%dt > self%time_max)) self%dt = self%time_max - time
+      call self%integrate(t=time)
+      time = time + self%dt
+      call self%print_progress(t=it, time=time, t_max=self%t_max, time_max=self%time_max)
+      if (mod(it,self%n_save)==0) call self%save_hdf5(output_basename=self%output_basename, t=it, time=time)
+      if (mod(it,self%restart_save)==0) then
+         call self%adam%save_restart_files(basename=self%restart_basename, t=it, time=time)
+         call self%save_hdf5(output_basename=self%restart_basename, t=it, time=time)
+      endif
+      if (((self%t_max <= 0).and.(time >= self%time_max)).or.(it>=self%t_max)) exit integration
+      call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(2) = MPI_Wtime()
+      print '(A, F18.10)', 'step timing: ', timing_step(2) - timing_step(1)
+   enddo integration
+   call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing(2) = MPI_Wtime()
+   print '(A, F18.10)', 'averaged timing: ', (timing(2) - timing(1))/it
+   call self%save_hdf5(output_basename=self%output_basename, t=it, time=time)
+   call self%adam%finalize
+   endsubroutine run
 
    subroutine runge_kutta_initialize(self)
    !< Initialize Runge-Kutta data.
@@ -1159,7 +1094,6 @@ contains
       self%ark(:) = [8._R8P/17._R8P,17._R8P /60._R8P,5._R8P /12._R8P,3._R8P/4._R8P]
       self%brk(:) = [0._R8P,-15._R8P/68._R8P,-17._R8P/60._R8P,-5._R8P/12._R8P]
    endselect
-   print*,'inRK :',self%ark(:), self%brk(:)
    endsubroutine runge_kutta_initialize
 
    subroutine save_hdf5(self, output_basename, t, time)
@@ -1355,13 +1289,9 @@ contains
       if (step==3) do_set_bc       = .true.
    endif
 
-   print*,'UG 1'
    if (do_local_update) call self%base_gpu%update_ghost_local_gpu(q_gpu=q_gpu)
-   print*,'UG 2'
                         call self%base_gpu%update_ghost_mpi_gpu(q_gpu=q_gpu, step=step)
-   print*,'UG 3'
    if (do_set_bc)       call self%set_boundary_conditions(q_gpu=q_gpu)
-   print*,'UG 4'
    endsubroutine update_ghost_gpu
 
    subroutine update_ghost_fluxes_gpu(self, flx_gpu, fly_gpu, flz_gpu, step)
@@ -1394,11 +1324,64 @@ contains
       if (step==1) do_local_update = .true.
    endif
 
-   print*,'UFF 1'
    if (do_local_update) call self%base_gpu%update_ghost_fluxes_local_gpu(flx_gpu=flx_gpu, fly_gpu=fly_gpu, flz_gpu=flz_gpu)
-   print*,'UFF 2'
    !TODO                     call self%base_gpu%update_ghost_fluxes_mpi_gpu(q_gpu=q_gpu, step=step)
    endsubroutine update_ghost_fluxes_gpu
+
+   subroutine update_phi(self)
+   !< Update x/y/z_cell_gpu
+   class(equation_nasto_gpu_object), intent(inout) :: self                      !< The equation.
+   integer(I4P)                                    :: b, i, j, k, ib            !< Counter.
+   real(R8P)                                       :: query_x, query_y, query_z !< Query point coordinates.
+   real(R8P)                                       :: near_x, near_y, near_z    !< Nearest point coordinates.
+   real(R8P)                                       :: distance                  !< Distance from solid.
+   logical                                         :: inside                    !< Inside/outside boolean.
+
+   associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
+             x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell,         &
+             ptree => self%ptree, phi=>self%phi, phi_gpu=>self%phi_gpu, n_solids=>self%n_solids)
+   print '(A)', 'update IB distance'
+   do ib=1,n_solids
+      do b=1,blocks_number
+         do i=1-ngc,ni+ngc
+         do j=1-ngc,nj+ngc
+         do k=1-ngc,nk+ngc
+            query_x = x_cell(i,b)
+            query_y = y_cell(j,b)
+            query_z = z_cell(k,b)
+
+            ! p = your point
+            ! c = centre of the cube
+            ! s = half size of the cube
+            ! r = the point we are looking for
+            !RIMETTEREv = p - c
+            !RIMETTEREm = maxval(abs((v)))
+            !RIMETTEREr = c + ( v / m * s )
+
+            ! RIMETTERE CGAL
+            ! if(query_y < 31.2 .or. query_y > 32.5 .or. query_x < 19.5 .or. query_x > 21.5) then
+            !     distance = -100.
+            ! else
+            !     call polyhedron_closest(ptree(ib),query_x,query_y,query_z,near_x,near_y,near_z)
+            !     distance = sqrt((near_x-query_x)**2+(near_y-query_y)**2+(near_z-query_z)**2)
+            !     inside   = cgal_polyhedron_inside(ptree(ib),query_x,query_y,query_z)
+            !     if(.not.inside) distance = - distance
+            ! endif
+
+            !if(inside) print*,'Point inside!!!!!!!!!!!!!!!!'
+            ! RIMETTERE CGAL
+
+            distance = - (sqrt((query_x-10.)**2+(query_y-10.)**2+(query_z-10.)**2)-1.)
+
+            phi(b,i,j,k,ib) = distance
+         enddo
+         enddo
+         enddo
+      enddo
+   enddo
+   phi_gpu = phi
+   endassociate
+   endsubroutine update_phi
 
    ! operators
    ! =
@@ -1471,7 +1454,6 @@ contains
    enddo
    !@cuf iercuda=cudaDeviceSynchronize()
    call MPI_ALLREDUCE(MPI_IN_PLACE, x_min, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, ierr)
-   print*,'flame x_min: ',x_min
    endsubroutine flame_find_x_v_cuf
 
    subroutine compute_aux_cuf(ni, nj, nk, ngc, ns, blocks_number, gamma_fluid, dha_star, R_star, cv_star, q_gpu,  q_aux_gpu)
@@ -1518,8 +1500,6 @@ contains
                q_aux_gpu(b,i,j,k,7) = R_star*rho*tem                 ! pressure
                q_aux_gpu(b,i,j,k,8) = rhe/rho+R_star*tem             ! entalpy
                q_aux_gpu(b,i,j,k,9) = sqrt(gamma_fluid*R_star*tem)   ! sound speed
-               !print*,'q_aux_gpu(b,i,j,k,9): ',sqrt(gamma_fluid*R_star*tem)
-               !print*,'tem :',tem
             enddo
          enddo
       enddo
@@ -1718,8 +1698,6 @@ contains
          STOP
       endif
 
-      print*,'CR 1'
-
    if(blocks_number > 0) then
        if(euler_scheme == 1) then
           tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(nj)/tBlock%y),1)
@@ -1743,7 +1721,6 @@ contains
                                                 blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha_star, gamma_fluid, R_star, cv_star)
        endif
    endif
-      print*,'CR 2'
 
       error = cudaGetLastError()
       if(error /= cudaSuccess) then
@@ -1761,7 +1738,6 @@ contains
                                          dx_gpu, dy_gpu, dz_gpu)
    endif
       !@cuf iercuda=cudaDeviceSynchronize()
-      print*,'CR 3'
 
       error = cudaGetLastError()
       if(error /= cudaSuccess) then
@@ -1773,13 +1749,9 @@ contains
    !RIMETTEREcall self%update_ghost_fluxes_gpu(flx_gpu, fly_gpu, flz_gpu)
 
    ib_eps = 1.e-12_R8P
-   print*,'CFD: ',size(dx_gpu), size(dy_gpu), size(dz_gpu), ib_eps
-   print*,'CFD: ',size(flx_gpu), size(fly_gpu), size(flz_gpu), size(phi_gpu)
-   print*,'CFD: ',ni, nj, nk, ngc, ns+4
    call compute_flux_diff(blocks_number, ni, nj, nk, ngc, ns+4, &
                           fl_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, &
                           dx_gpu, dy_gpu, dz_gpu, ib_eps)
-      print*,'CR 4'
       error = cudaGetLastError()
       if(error /= cudaSuccess) then
          print*,'FRA-4 CUDA ERROR ',cudaGetErrorString(error)
@@ -2652,14 +2624,6 @@ contains
    ya        =  (r*yap+ya)*rp1
    qq        =  0.5_R8P * (uu*uu+vv*vv+ww*ww)
    cc        =  (gamma_fluid-1._R8P) * (h - qq - ya*dha_star)
-   !print*, 'cc1====',cc
-   !print*, 'cc2====',gamma_fluid
-   !print*, 'cc3====',h
-   !print*, 'cc4====',qq
-   !print*, 'cc5====',ya
-   !print*, 'cc6====',dha_star
-   !print*, 'cc7====',ri
-   !print*, 'cc8====',rp1
    !ERRATODIREIcc        =  gamma_fluid * (gamma_fluid-1._R8P) * (h - qq - ya*dha_star)
    c         =  sqrt(cc)
    ci        =  1._R8P/c
@@ -2871,10 +2835,6 @@ contains
    integer(I4P)                        :: iercuda                                !< Error trapping flag for CUDAFortran.
    integer(I4P)                        :: error                                !< Error trapping flag for CUDAFortran.
 
-   print*,'RK: ',ni, nj, nk, ngc, nv, blocks_number, dt, qnrk
-   print*,'RK: ',size(q_gpu), size(prhs_gpu), size(fl_gpu), size(phi_gpu)
-   print*,'RK: ',lbound(q_gpu), lbound(prhs_gpu), lbound(fl_gpu), lbound(phi_gpu)
-   print*,'RK: ',ubound(q_gpu), ubound(prhs_gpu), ubound(fl_gpu), ubound(phi_gpu)
    !$cuf kernel do(5) <<<*,*>>>
    do v=1, nv
       do k=1, nk

@@ -588,12 +588,9 @@ contains
    if (allocated(self%comm_map_recv_ptr_ghost)) self%comm_map_recv_ptr_ghost = self%comm_map_recv_ptr_ghost * self%nv
    if (allocated(self%comm_map_n_send_ghost)) then
        allocate(self%send_buffer_ghost(sum(self%comm_map_n_send_ghost, dim=1)*self%nv))
-       print*,'allocating send_buffer_ghost',size(self%send_buffer_ghost)
-       print*,'allocating send_buffer_ghost/2',self%comm_map_n_send_ghost
    endif
    if (allocated(self%comm_map_n_recv_ghost)) then
        allocate(self%recv_buffer_ghost(sum(self%comm_map_n_recv_ghost, dim=1)*self%nv))
-       print*,'allocating recv_buffer_ghost',size(self%recv_buffer_ghost)
    endif
 
    ! single variable maps
