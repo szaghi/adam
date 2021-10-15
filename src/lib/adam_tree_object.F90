@@ -237,6 +237,7 @@ type :: tree_object
       procedure, pass(self) :: prune                        !< Prune nodes.
       procedure, pass(self) :: resize                       !< Resize the tree.
       procedure, pass(self) :: save_nodes                   !< Save nodes data, used for restart.
+      procedure, pass(self) :: save_local_map               !< Save local map.
       procedure, pass(self) :: traverse                     !< Traverse tree calling the iterator procedure.
       ! MPI methods
       procedure, pass(self) :: import_refinements_needed  !< Import refinements needed status changed externally.
@@ -1089,6 +1090,26 @@ contains
       stop
    endif
    endsubroutine resize
+
+   subroutine save_local_map(self, file_name)
+   !< Save local map.
+   class(tree_object), intent(in)  :: self      !< The tree.
+   character(*),       intent(in)  :: file_name !< Output file name.
+   integer(I4P)                    :: file_unit !< Output file unit.
+   integer(I4P)                    :: i1,i2     !< Counter.
+
+   if (self%is_initialized_) then
+      if (allocated(self%local_map_ghost)) then
+         open(newunit=file_unit, file=trim(adjustl(file_name)), form='FORMATTED')
+         do i1=lbound(self%local_map_ghost, dim=1), ubound(self%local_map_ghost, dim=1)
+            ! do i2=lbound(self%local_map_ghost, dim=2), ubound(self%local_map_ghost, dim=2)
+               write(unit=file_unit, '(13(I6,1X))') self%local_map_ghost(i1, :)
+            ! enddo
+         enddo
+         close(file_unit)
+      endif
+   endif
+   endsubroutine save_local_map
 
    subroutine save_nodes(self, file_name)
    !< Save nodes data, used for restart.

@@ -7,6 +7,7 @@ use adam_base_gpu_object
 use adam_field_object
 use adam_grid_object
 use adam_parameters
+use adam_tree_node_object, only : tree_node_object
 use adam_weno_library_gpu
 use FiNeR
 use PENF
@@ -81,6 +82,10 @@ type :: equation_nasto_gpu_object
    !< q_aux(8): entalpy
    !< q_aux(9): sound speed
    !<```
+   ! debug restart
+   integer(I4P) :: itt = 0
+   ! debug restart
+
    type(file_ini)              :: file_input            !< Nasto input file handler.
    type(adam_object)           :: adam                  !< ADAM.
    type(field_object), pointer :: field=>null()         !< The field.
@@ -126,7 +131,6 @@ type :: equation_nasto_gpu_object
    integer(I4P)                      :: amr_n_markers   !< AMR number of markers.
    type(amr_marker_obj), allocatable :: amr_markers(:)  !< AMR array of marker objects.
    ! Time
-   ! integer(I4P)                      :: restart         !< Restart flag (0=no, 1=yes)
    logical                           :: restart=.false.  !< Restart flag.
    character(999)                    :: restart_basename !< Restart file basename.
    integer(I4P)                      :: restart_save     !< Iteration interval between subsequent restart saves.
@@ -159,6 +163,9 @@ type :: equation_nasto_gpu_object
    real(R8P)              :: dha_star=10000._R8P        !< Entalpy formation.
    ! Fields
    real(R8P), allocatable :: q_aux(:,:,:,:,:)           !< Auxiliary cell centered variables.
+   ! ! debug restart
+   ! real(R8P), allocatable :: pbuffer(:,:,:,:,:) !< Print buffer.
+   ! ! debug restart
    ! cuf data
    real(R8P),    allocatable, device :: dq_gpu(:,:,:,:,:)       !< Eikonal right hand side.
    real(R8P),    allocatable, device :: fl_gpu(:,:,:,:,:)       !< Residuals.
@@ -222,12 +229,12 @@ contains
    ! public methods
    subroutine amr_update(self)
    !< Do AMR update.
-   class(equation_nasto_gpu_object), intent(inout)        :: self                 !< The equation.
-   integer(I4P)                                           :: iterations_          !< Number of AMR iterations, local var.
-   logical                                                :: is_grid_changed      !< Flag to check grid changes for each marker.
-   logical                                                :: is_grid_changed_all  !< Flag to check grid changes for each iter.
-   integer(I4P)                                           :: b, i, j, k, i_marker !< Counter.
-   type(amr_marker_obj)                                   :: amr_marker           !< Current amr marker.
+   class(equation_nasto_gpu_object), intent(inout) :: self                 !< The equation.
+   integer(I4P)                                    :: iterations_          !< Number of AMR iterations, local var.
+   logical                                         :: is_grid_changed      !< Flag to check grid changes for each marker.
+   logical                                         :: is_grid_changed_all  !< Flag to check grid changes for each iter.
+   integer(I4P)                                    :: b, i, j, k, i_marker !< Counter.
+   type(amr_marker_obj)                            :: amr_marker           !< Current amr marker.
 
    amr: do i=1, self%amr_iters
       is_grid_changed_all = .false.
@@ -585,6 +592,9 @@ contains
    allocate(self%fly_gpu(1:nb,      1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
    allocate(self%flz_gpu(1:nb,      1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
    allocate(self%prhs_gpu(1:nb,     1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
+   ! ! debug restart
+   ! allocate(self%pbuffer(1:nb,      1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
+   ! ! debug restart
    allocate(self%dq_gpu(1:nb,       1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
    allocate(self%q_invert_gpu(1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
    self%prhs_gpu = 0._R8P
@@ -637,11 +647,48 @@ contains
       call compute_rk_prhs_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,    &
                                    dt=dt, s=s, q_gpu=self%q_gpu, prhs_gpu=self%prhs_gpu,                &
                                    fl_gpu=self%fl_gpu, phi_gpu=self%phi_gpu, qnrk=dt*self%brk(s))
+
+      ! ! debug restart
+      ! if (self%itt == 51) then
+      ! print*, ' cazzo 1', s
+      ! self%pbuffer = self%prhs_gpu
+      ! print '(A)', 'debug-restart prhs_gpu[1,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 1)))
+      ! print '(A)', 'debug-restart prhs_gpu[2,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 2)))
+      ! print '(A)', 'debug-restart prhs_gpu[3,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
+      ! print '(A)', 'debug-restart prhs_gpu[4,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 4)))
+      ! print '(A)', 'debug-restart prhs_gpu[5,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 5)))
+      ! self%pbuffer = self%fl_gpu
+      ! print '(A)', 'debug-restart fl_gpu[1,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 1)))
+      ! print '(A)', 'debug-restart fl_gpu[2,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 2)))
+      ! print '(A)', 'debug-restart fl_gpu[3,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
+      ! print '(A)', 'debug-restart fl_gpu[4,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 4)))
+      ! print '(A)', 'debug-restart fl_gpu[5,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 5)))
+      ! endif
+      ! ! debug restart
+
       call self%update_ghost_gpu(q_gpu=self%q_gpu)
+
+      ! ! debug restart
+      ! if (self%itt == 51) then
+      ! print*, ' cazzo 2', s
+      ! self%pbuffer = self%q_gpu
+      ! print '(A)', 'debug-restart q_gpu[1,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 1)))
+      ! print '(A)', 'debug-restart q_gpu[1,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 1)))
+      ! print '(A)', 'debug-restart q_gpu[2,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 2)))
+      ! print '(A)', 'debug-restart q_gpu[2,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 2)))
+      ! print '(A)', 'debug-restart q_gpu[3,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 3)))
+      ! print '(A)', 'debug-restart q_gpu[3,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
+      ! print '(A)', 'debug-restart q_gpu[4,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 4)))
+      ! print '(A)', 'debug-restart q_gpu[4,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 4)))
+      ! print '(A)', 'debug-restart q_gpu[5,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 5)))
+      ! print '(A)', 'debug-restart q_gpu[5,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 5)))
+      ! endif
+      ! ! debug restart
+
       ! ------------------------------------------------------------------------------------------------
       ! ANDREA IB
       ! ------------------------------------------------------------------------------------------------
-      if(n_solids > 0) then
+      if (n_solids > 0) then
          do i_eikonal=1,n_eikonal
             call MPI_Barrier(MPI_COMM_WORLD, iermpi)
 
@@ -657,6 +704,24 @@ contains
                                           dz_gpu=self%dxyz_gpu(:,3),                                        &
                                           dq_gpu=self%dq_gpu,                                               &
                                           q_gpu=self%q_gpu)
+
+      ! ! debug restart
+      ! if (self%itt == 51) then
+      ! print*, ' cazzo 3', s
+      ! self%pbuffer = self%q_gpu
+      ! print '(A)', 'debug-restart q_gpu[1,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 1)))
+      ! print '(A)', 'debug-restart q_gpu[1,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 1)))
+      ! print '(A)', 'debug-restart q_gpu[2,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 2)))
+      ! print '(A)', 'debug-restart q_gpu[2,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 2)))
+      ! print '(A)', 'debug-restart q_gpu[3,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 3)))
+      ! print '(A)', 'debug-restart q_gpu[3,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
+      ! print '(A)', 'debug-restart q_gpu[4,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 4)))
+      ! print '(A)', 'debug-restart q_gpu[4,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 4)))
+      ! print '(A)', 'debug-restart q_gpu[5,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 5)))
+      ! print '(A)', 'debug-restart q_gpu[5,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 5)))
+      ! endif
+      ! ! debug restart
+
             error = cudaGetLastError()
             if (error /= cudaSuccess) then
                print*,'AFTER EIK POST FRA CUDA ERROR ',cudaGetErrorString(error)
@@ -667,8 +732,54 @@ contains
          call invert_eikonal_field(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,        &
                                    q_gpu=self%q_gpu(:,:,:,:,:), q_invert_gpu=self%q_invert_gpu(:,:,:,:,:),  &
                                    phi_gpu=self%phi_gpu, bcs_type=bcs_type)
+      else
+         ! added for restart debug...
+         self%q_invert_gpu = self%q_gpu
       endif
+
+      ! ! debug restart
+      ! if (self%itt == 51) then
+      ! print*, ' cazzo 4', s
+      ! self%pbuffer = self%q_invert_gpu
+      ! print '(A)', 'debug-restart q_invert_gpu[1,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 1)))
+      ! print '(A)', 'debug-restart q_invert_gpu[1,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 1)))
+      ! print '(A)', 'debug-restart q_invert_gpu[2,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 2)))
+      ! print '(A)', 'debug-restart q_invert_gpu[2,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 2)))
+      ! print '(A)', 'debug-restart q_invert_gpu[3,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 3)))
+      ! print '(A)', 'debug-restart q_invert_gpu[3,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
+      ! print '(A)', 'debug-restart q_invert_gpu[4,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 4)))
+      ! print '(A)', 'debug-restart q_invert_gpu[4,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 4)))
+      ! print '(A)', 'debug-restart q_invert_gpu[5,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 5)))
+      ! print '(A)', 'debug-restart q_invert_gpu[5,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 5)))
+      ! endif
+      ! ! debug restart
+
       call self%compute_aux(q_gpu=self%q_invert_gpu, q_aux_gpu=self%q_aux_gpu)
+
+      ! ! debug restart
+      ! if (self%itt == 51) then
+      ! print*, ' cazzo 4-bis', s
+      ! self%pbuffer = self%q_aux_gpu(:,:,:,:,1:5)
+      ! print '(A)', 'debug-restart q_aux_gpu[1,ni-3:ni,0   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 1)))
+      ! print '(A)', 'debug-restart q_aux_gpu[1,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 1)))
+      ! print '(A)', 'debug-restart q_aux_gpu[2,ni-3:ni,0   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 2)))
+      ! print '(A)', 'debug-restart q_aux_gpu[2,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 2)))
+      ! print '(A)', 'debug-restart q_aux_gpu[3,ni-3:ni,0   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 3)))
+      ! print '(A)', 'debug-restart q_aux_gpu[3,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
+      ! print '(A)', 'debug-restart q_aux_gpu[4,ni-3:ni,0   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 4)))
+      ! print '(A)', 'debug-restart q_aux_gpu[4,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 4)))
+      ! print '(A)', 'debug-restart q_aux_gpu[5,ni-3:ni,0   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 5)))
+      ! print '(A)', 'debug-restart q_aux_gpu[5,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 5)))
+      ! self%pbuffer = self%q_aux_gpu(:,:,:,:,4:8)
+      ! print '(A)', 'debug-restart q_aux_gpu[7,ni-3:ni,0   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 3)))
+      ! print '(A)', 'debug-restart q_aux_gpu[7,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
+      ! print '(A)', 'debug-restart q_aux_gpu[8,ni-3:ni,0   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 4)))
+      ! print '(A)', 'debug-restart q_aux_gpu[8,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 4)))
+      ! print '(A)', 'debug-restart q_aux_gpu[5,ni-3:ni,0   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 5)))
+      ! print '(A)', 'debug-restart q_aux_gpu[5,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 5)))
+      ! endif
+      ! ! debug restart
+
       call MPI_Barrier(MPI_COMM_WORLD, iermpi)
       call self%compute_residuals_gpu(ni=ni, nj=nj, nk=nk, ngc=ngc, ns=ns, blocks_number=blocks_number,                      &
                                       dx_gpu = self%dxyz_gpu(:,1), dy_gpu = self%dxyz_gpu(:,2), dz_gpu = self%dxyz_gpu(:,3), &
@@ -687,12 +798,44 @@ contains
                                       Damkohler     = self%Damkohler)
       !call self%set_bc_rhs(q_gpu=self%fl_gpu(:,:,:,:,:), q_aux_gpu=self%q_aux_gpu)
 
+      ! ! debug restart
+      ! if (self%itt == 51) then
+      ! print*, ' cazzo 5', s
+      ! self%pbuffer = self%fl_gpu
+      ! print '(A)', 'debug-restart fl_gpu[rho*v,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 3)))
+      ! print '(A)', 'debug-restart fl_gpu[rho*v,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
+      ! endif
+      ! ! debug restart
+
       call compute_rk_linear_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,      &
                                      dt=dt, q_gpu=self%q_gpu, prhs_gpu=self%prhs_gpu,                       &
                                      fl_gpu=self%fl_gpu, phi_gpu=self%phi_gpu, qnrk=dt*self%ark(s))
+
+      ! ! debug restart
+      ! if (self%itt == 51) then
+      ! print*, ' cazzo 6', s
+      ! self%pbuffer = self%q_gpu
+      ! print '(A)', 'debug-restart q_gpu[rho*v,ni-3:ni,0   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 3)))
+      ! print '(A)', 'debug-restart q_gpu[rho*v,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
+      ! endif
+      ! ! debug restart
+
    enddo
    endassociate
    endsubroutine integrate
+
+   subroutine load_restart_files(self, t, time)
+   !< Save restart files.
+   class(equation_nasto_gpu_object), intent(inout) :: self !< The equation.
+   integer(I4P),                     intent(out)   :: t    !< Time iteration.
+   real(R8P),                        intent(out)   :: time !< Time.
+
+   call self%adam%load_restart_files(basename=self%restart_basename, t=t, time=time)
+   call self%adam%mpi_redistribute(print_mpi_stats=.true.)
+   ! call self%adam%make_comm_local_maps_ghost_bc
+   call self%copy_cpu_gpu
+   ! call self%update_ghost_gpu(q_gpu=self%q_gpu)
+   endsubroutine load_restart_files
 
    subroutine mark_by_geo(self, delta_fine, delta_coarse, threshold, do_init)
    !< Mark blocks to be refined/derefined by a `grad(rho)` value.
@@ -1043,6 +1186,9 @@ contains
       print '(A)', 'restart simulation from "'//trim(self%restart_basename)//'" files'
       call self%load_restart_files(t=it, time=time)
       print '(A)', 'restart [t, time]: '//trim(str(it))//', '//trim(str(time))
+      ! ! debug restart
+      ! call self%adam%tree%save_local_map(file_name='restart-local.map')
+      ! ! debug restart
    else
       call self%set_initial_conditions()
       time = 0._R8P
@@ -1056,19 +1202,38 @@ contains
    integration: do
       call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(1) = MPI_Wtime()
       it = it + 1
+      ! ! debug restart
+      ! self%itt = it
+      ! ! debug restart
       call save_memory(it, self%myrank)
       !RIMETTERE aggiunta it<100 da levare!!!!
       !if(mod(it,self%amr_frequency) == 0 .and. it <= 100) call self%amr_update()
       if(mod(it,self%amr_frequency) == 0) call self%amr_update()
       call self%compute_dt()
       if ((self%t_max <= 0).and.(time + self%dt > self%time_max)) self%dt = self%time_max - time
+      ! ! dump for debug restart
+      ! if (it==51) then
+      !    call self%copy_gpu_cpu(compute_q_aux=.true.)
+      !    print*, 'cazzo palle'
+      !    print '(A)', 'debug-restart [1,ni-3:ni,0   ,nk/2]'//trim(str(self%adam%field%q(1, 6:8, 0, 4, 296)))
+      !    print '(A)', 'debug-restart [1,ni-3:ni,8   ,nk/2]'//trim(str(self%adam%field%q(1, 6:8, 8, 4, 167)))
+      !    print '(A)', 'debug-restart [2,ni-3:ni,0   ,nk/2]'//trim(str(self%adam%field%q(2, 6:8, 0, 4, 296)))
+      !    print '(A)', 'debug-restart [2,ni-3:ni,8   ,nk/2]'//trim(str(self%adam%field%q(2, 6:8, 8, 4, 167)))
+      !    print '(A)', 'debug-restart [3,ni-3:ni,0   ,nk/2]'//trim(str(self%adam%field%q(3, 6:8, 0, 4, 296)))
+      !    print '(A)', 'debug-restart [3,ni-3:ni,8   ,nk/2]'//trim(str(self%adam%field%q(3, 6:8, 8, 4, 167)))
+      !    print '(A)', 'debug-restart [4,ni-3:ni,0   ,nk/2]'//trim(str(self%adam%field%q(4, 6:8, 0, 4, 296)))
+      !    print '(A)', 'debug-restart [4,ni-3:ni,8   ,nk/2]'//trim(str(self%adam%field%q(4, 6:8, 8, 4, 167)))
+      !    print '(A)', 'debug-restart [5,ni-3:ni,0   ,nk/2]'//trim(str(self%adam%field%q(5, 6:8, 0, 4, 296)))
+      !    print '(A)', 'debug-restart [5,ni-3:ni,8   ,nk/2]'//trim(str(self%adam%field%q(5, 6:8, 8, 4, 167)))
+      !    print*, 'cazzo palle'
+      ! endif
+      ! ! dump for debug restart
       call self%integrate(t=time)
       time = time + self%dt
       call self%print_progress(t=it, time=time, t_max=self%t_max, time_max=self%time_max)
       if (mod(it,self%n_save)==0) call self%save_hdf5(output_basename=self%output_basename, t=it, time=time)
       if (mod(it,self%restart_save)==0) then
-         call self%adam%save_restart_files(basename=self%restart_basename, t=it, time=time)
-         call self%save_hdf5(output_basename=self%restart_basename, t=it, time=time)
+         call self%save_restart_files(t=it, time=time)
       endif
       if (((self%t_max <= 0).and.(time >= self%time_max)).or.(it>=self%t_max)) exit integration
       call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(2) = MPI_Wtime()
@@ -1118,8 +1283,12 @@ contains
    integer(I4P),                     intent(in)    :: t    !< Time iteration.
    real(R8P),                        intent(in)    :: time !< Time.
 
+   print '(A)', 'save restart files: '//trim(str([t,time]))
    call self%adam%save_restart_files(basename=self%restart_basename, t=t, time=time)
    call self%save_hdf5(output_basename=self%restart_basename, t=t, time=time)
+   ! ! debug restart
+   ! call self%adam%tree%save_local_map(file_name='fromstart-local.map')
+   ! ! debug restart
    endsubroutine save_restart_files
 
    subroutine set_boundary_conditions(self, q_gpu)
@@ -1722,6 +1891,21 @@ contains
        endif
    endif
 
+   ! ! debug restart
+   ! if (self%itt == 51) then
+   ! print*, ' cazzo residual euler 1'
+   ! self%pbuffer = flx_gpu
+   ! print '(A)', 'debug-restart flx_gpu[rho*v,ni-3:ni,1   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 1, 4, 3)))
+   ! print '(A)', 'debug-restart flx_gpu[rho*v,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
+   ! self%pbuffer = fly_gpu
+   ! print '(A)', 'debug-restart fly_gpu[rho*v,ni-3:ni,1   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 1, 4, 3)))
+   ! print '(A)', 'debug-restart fly_gpu[rho*v,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
+   ! self%pbuffer = flz_gpu
+   ! print '(A)', 'debug-restart flz_gpu[rho*v,ni-3:ni,1   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 1, 4, 3)))
+   ! print '(A)', 'debug-restart flz_gpu[rho*v,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
+   ! endif
+   ! ! debug restart
+
       error = cudaGetLastError()
       if(error /= cudaSuccess) then
          print*,'FRA-2 CUDA ERROR ',cudaGetErrorString(error)
@@ -1738,6 +1922,21 @@ contains
                                          dx_gpu, dy_gpu, dz_gpu)
    endif
       !@cuf iercuda=cudaDeviceSynchronize()
+
+   ! ! debug restart
+   ! if (self%itt == 51) then
+   ! print*, ' cazzo residual visc 2'
+   ! self%pbuffer = flx_gpu
+   ! print '(A)', 'debug-restart flx_gpu[rho*v,ni-3:ni,1   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 1, 4, 3)))
+   ! print '(A)', 'debug-restart flx_gpu[rho*v,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
+   ! self%pbuffer = fly_gpu
+   ! print '(A)', 'debug-restart fly_gpu[rho*v,ni-3:ni,1   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 1, 4, 3)))
+   ! print '(A)', 'debug-restart fly_gpu[rho*v,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
+   ! self%pbuffer = flz_gpu
+   ! print '(A)', 'debug-restart flz_gpu[rho*v,ni-3:ni,1   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 1, 4, 3)))
+   ! print '(A)', 'debug-restart flz_gpu[rho*v,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
+   ! endif
+   ! ! debug restart
 
       error = cudaGetLastError()
       if(error /= cudaSuccess) then
