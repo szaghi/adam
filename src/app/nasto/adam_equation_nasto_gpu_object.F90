@@ -305,7 +305,6 @@ contains
                                q_aux_gpu=self%q_aux_gpu, umax=umax, mu_star=mu_star)
          !dt = min(dt, minval(dxyz(:,b)) / umax * CFL)
          dt = min(dt, CFL / umax )
-         ! print*, 'cazzo DT: ', b, dxyz(:,b), umax, CFL, mu_star
       enddo
       call MPI_ALLREDUCE(MPI_IN_PLACE, dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%error)
    endassociate
@@ -832,10 +831,10 @@ contains
    real(R8P),                        intent(out)   :: time !< Time.
 
    call self%adam%load_restart_files(basename=self%restart_basename, t=t, time=time)
-   ! call self%adam%mpi_redistribute(print_mpi_stats=.true.)
    call self%adam%make_comm_local_maps_ghost_bc
    call self%copy_cpu_gpu
-   call self%update_ghost_gpu(q_gpu=self%q_gpu)
+   ! note: update ghost has been commented because it is not necessary
+   ! call self%update_ghost_gpu(q_gpu=self%q_gpu)
    endsubroutine load_restart_files
 
    subroutine mark_by_geo(self, delta_fine, delta_coarse, threshold, do_init)
