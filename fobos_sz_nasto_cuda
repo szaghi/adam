@@ -1,10 +1,12 @@
 [modes]
-modes = nasto-nvf-mpi-cuda
+modes = nasto-nvf-mpi-cuda nasto-nvf-mpi-cuda-m100
 
 [common-variables]
 $CSTATIC_NVF = -cpp -c
-$CSTATIC_CUDA_NVF = -cpp -c -Mcuda=cc75,cuda11.0,ptxinfo
-$LSTATIC_CUDA_NVF = -Mcuda=cc75,cuda11.0,ptxinfo
+$CSTATIC_CUDA_NVF      = -cpp -c -Mcuda=cc75,cuda11.0,ptxinfo
+$LSTATIC_CUDA_NVF      = -Mcuda=cc75,cuda11.0,ptxinfo
+$CSTATIC_M100_CUDA_NVF = -cpp -c -Mcuda=cc70,cuda11.3,ptxinfo
+$LSTATIC_M100_CUDA_NVF = -Mcuda=cc70,cuda11.3,ptxinfo
 $DEBUG_NVF   = -O0 -g -C
 $OPTIMIZE    = -O3
 $EXDIRS      = references/
@@ -33,6 +35,11 @@ $EXDIRS      = references/
 # main modes
 [nasto-nvf-mpi-cuda]
 template  = template-nvf-mpi-cuda
+target    = adam_nasto_gpu.F90
+build_dir = ./exe/
+
+[nasto-nvf-mpi-cuda-m100]
+template  = template-nvf-mpi-cuda-m100
 target    = adam_nasto_gpu.F90
 build_dir = ./exe/
 
@@ -65,12 +72,50 @@ libs         = /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7/lib/libhdf5hl_fort
                ./src/third_party_manual/memeval/cm_wrapper.o
 ext_libs     = dl m
 
+[template-nvf-mpi-cuda-m100]
+compiler     = custom
+fc           = mpif90
+modsw        = -module=
+mpi          = True
+cflags       = $CSTATIC_M100_CUDA_NVF -O2
+lflags       = $LSTATIC_M100_CUDA_NVF -O2
+exclude_dirs = $EXDIRS
+preproc      = -D_NVF -D_MPI_
+mod_dir      = ./mod/
+obj_dir      = ./obj/
+src          = ./src/
+colors       = True
+quiet        = False
+log          = True
+jobs         = 4
+lib_dir      = ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib
+include      = ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/include
+libs         = ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5hl_fortran.a
+               ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5_hl.a
+               ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5_fortran.a
+               ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5.a
+               -Wl,-rpath,/cineca/prod/opt/compilers/gnu/8.4.0/none/lib64 /cineca/prod/opt/compilers/gnu/8.4.0/none/lib64/libstdc++.so.6.0.25
+               /cineca/prod/opt/libraries/zlib/1.2.11/gnu--8.4.0/lib/libz.a
+               /cineca/prod/opt/libraries/szip/2.1.1/gnu--8.4.0/lib/libsz.a
+               ./src/third_party_manual/CGAL/cgal_c_wrappers.o
+               ./src/third_party_manual/memeval/cm.o
+               ./src/third_party_manual/memeval/cm_wrapper.o
+ext_libs     = dl m
+
 [rule-makethirdpartymanual]
 help   = Make third party manual-compiling library
 rule_1 = mkdir -p exe/mod
 rule_2 = cd src/third_party_manual/CGAL/ ; g++ -std=c++17 -frounding-math -O2 -I/opt/cgal/5.2.1/include/ -c cgal_c_wrappers.cpp ; cd -
 rule_3 = cd src/third_party_manual/memeval/ ; gcc -c cm.c ; nvfortran -c cm_wrapper.F90 ; cd -
 rule_4 = cp src/third_party_manual/memeval/*.mod exe/mod/
+
+[rule-makethirdpartymanual-m100]
+help   = Make third party manual-compiling library
+rule_1 = mkdir -p exe/mod
+rule_2 = cd src/third_party_manual/CGAL/ ; g++ -std=c++17 -frounding-math -O2 -I/cineca/prod/opt/libraries/boost/1.76.0/spectrum_mpi--10.4.0--binary/include -I../../../lib/CGAL-5.0.2-INSTALL/include/ -I /cineca/prod/opt/libraries/mpfr/4.0.2/gnu--8.4.0/include -c cgal_c_wrappers.cpp ; cd -
+rule_3 = cd src/third_party_manual/memeval/ ; gcc -c cm.c ; nvfortran -c cm_wrapper.F90 ; cd -
+rule_4 = cp src/third_party_manual/memeval/*.mod exe/mod/
+
 
 [rule-delexe]
 help = Delete exes
