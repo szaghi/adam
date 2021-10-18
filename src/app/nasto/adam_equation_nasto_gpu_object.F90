@@ -305,6 +305,7 @@ contains
                                q_aux_gpu=self%q_aux_gpu, umax=umax, mu_star=mu_star)
          !dt = min(dt, minval(dxyz(:,b)) / umax * CFL)
          dt = min(dt, CFL / umax )
+         ! print*, 'cazzo DT: ', b, dxyz(:,b), umax, CFL, mu_star
       enddo
       call MPI_ALLREDUCE(MPI_IN_PLACE, dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%error)
    endassociate
@@ -831,10 +832,10 @@ contains
    real(R8P),                        intent(out)   :: time !< Time.
 
    call self%adam%load_restart_files(basename=self%restart_basename, t=t, time=time)
-   call self%adam%mpi_redistribute(print_mpi_stats=.true.)
-   ! call self%adam%make_comm_local_maps_ghost_bc
+   ! call self%adam%mpi_redistribute(print_mpi_stats=.true.)
+   call self%adam%make_comm_local_maps_ghost_bc
    call self%copy_cpu_gpu
-   ! call self%update_ghost_gpu(q_gpu=self%q_gpu)
+   call self%update_ghost_gpu(q_gpu=self%q_gpu)
    endsubroutine load_restart_files
 
    subroutine mark_by_geo(self, delta_fine, delta_coarse, threshold, do_init)
@@ -1145,18 +1146,20 @@ contains
    integer(I4P),                     intent(in) :: t_max    !< Maximum time iteration.
    real(R8P),                        intent(in) :: time_max !< Maximum time of integration.
 
+   print '(A)', ''
    print '(A)', 'Iteration[rank] = '//trim(str(t))//'['//trim(str(self%myrank))//']'
    if (self%myrank==0) then
+         print '(A)', 't:             '//trim(str(t,.true.))
          print '(A)', 'blocks number: '//trim(str(self%adam%tree%nodes_number, .true.))
          print '(A)', 'time step:     '//trim(str(self%dt, .true.))
          print '(A)', 'time:          '//trim(str(time, .true.))
-         print '(A)', 't:             '//trim(str(t,.true.))
       if (t_max <= 0) then
          print '(A)', 'progress:      '//trim(str(int(time/time_max * 100), .true.))//'%'
       else
          print '(A)', 'progress:      '//trim(str(int((t*1._R8P)/t_max * 100), .true.))//'%'
       endif
    endif
+   print '(A)', ''
    endsubroutine print_progress
 
    subroutine refine_uniform(self, refinement_levels)
@@ -1212,21 +1215,21 @@ contains
       call self%compute_dt()
       if ((self%t_max <= 0).and.(time + self%dt > self%time_max)) self%dt = self%time_max - time
       ! ! dump for debug restart
-      ! if (it==51) then
-      !    call self%copy_gpu_cpu(compute_q_aux=.true.)
-      !    print*, 'cazzo palle'
-      !    print '(A)', 'debug-restart [1,ni-3:ni,0   ,nk/2]'//trim(str(self%adam%field%q(1, 6:8, 0, 4, 296)))
-      !    print '(A)', 'debug-restart [1,ni-3:ni,8   ,nk/2]'//trim(str(self%adam%field%q(1, 6:8, 8, 4, 167)))
-      !    print '(A)', 'debug-restart [2,ni-3:ni,0   ,nk/2]'//trim(str(self%adam%field%q(2, 6:8, 0, 4, 296)))
-      !    print '(A)', 'debug-restart [2,ni-3:ni,8   ,nk/2]'//trim(str(self%adam%field%q(2, 6:8, 8, 4, 167)))
-      !    print '(A)', 'debug-restart [3,ni-3:ni,0   ,nk/2]'//trim(str(self%adam%field%q(3, 6:8, 0, 4, 296)))
-      !    print '(A)', 'debug-restart [3,ni-3:ni,8   ,nk/2]'//trim(str(self%adam%field%q(3, 6:8, 8, 4, 167)))
-      !    print '(A)', 'debug-restart [4,ni-3:ni,0   ,nk/2]'//trim(str(self%adam%field%q(4, 6:8, 0, 4, 296)))
-      !    print '(A)', 'debug-restart [4,ni-3:ni,8   ,nk/2]'//trim(str(self%adam%field%q(4, 6:8, 8, 4, 167)))
-      !    print '(A)', 'debug-restart [5,ni-3:ni,0   ,nk/2]'//trim(str(self%adam%field%q(5, 6:8, 0, 4, 296)))
-      !    print '(A)', 'debug-restart [5,ni-3:ni,8   ,nk/2]'//trim(str(self%adam%field%q(5, 6:8, 8, 4, 167)))
-      !    print*, 'cazzo palle'
-      ! endif
+      if (it==51) then
+         call self%copy_gpu_cpu(compute_q_aux=.true.)
+         print*, 'cazzo palle'
+         print '(A)', 'debug-restart [1,ni-3:ni,0   ,nk/2]'//trim(str(self%adam%field%q(1, 6:8, 0, 4, 296)))
+         print '(A)', 'debug-restart [1,ni-3:ni,8   ,nk/2]'//trim(str(self%adam%field%q(1, 6:8, 8, 4, 167)))
+         print '(A)', 'debug-restart [2,ni-3:ni,0   ,nk/2]'//trim(str(self%adam%field%q(2, 6:8, 0, 4, 296)))
+         print '(A)', 'debug-restart [2,ni-3:ni,8   ,nk/2]'//trim(str(self%adam%field%q(2, 6:8, 8, 4, 167)))
+         print '(A)', 'debug-restart [3,ni-3:ni,0   ,nk/2]'//trim(str(self%adam%field%q(3, 6:8, 0, 4, 296)))
+         print '(A)', 'debug-restart [3,ni-3:ni,8   ,nk/2]'//trim(str(self%adam%field%q(3, 6:8, 8, 4, 167)))
+         print '(A)', 'debug-restart [4,ni-3:ni,0   ,nk/2]'//trim(str(self%adam%field%q(4, 6:8, 0, 4, 296)))
+         print '(A)', 'debug-restart [4,ni-3:ni,8   ,nk/2]'//trim(str(self%adam%field%q(4, 6:8, 8, 4, 167)))
+         print '(A)', 'debug-restart [5,ni-3:ni,0   ,nk/2]'//trim(str(self%adam%field%q(5, 6:8, 0, 4, 296)))
+         print '(A)', 'debug-restart [5,ni-3:ni,8   ,nk/2]'//trim(str(self%adam%field%q(5, 6:8, 8, 4, 167)))
+         print*, 'cazzo palle'
+      endif
       ! ! dump for debug restart
       call self%integrate(t=time)
       time = time + self%dt
@@ -1284,6 +1287,7 @@ contains
    real(R8P),                        intent(in)    :: time !< Time.
 
    print '(A)', 'save restart files: '//trim(str([t,time]))
+   call self%copy_gpu_cpu(compute_q_aux=.true.)
    call self%adam%save_restart_files(basename=self%restart_basename, t=t, time=time)
    call self%save_hdf5(output_basename=self%restart_basename, t=t, time=time)
    ! ! debug restart
@@ -3194,7 +3198,7 @@ contains
             dz_locale = dz/2.
             umax = max(umax, (abs(q_aux_gpu(b,i,j,k,2)) + ss)/dx_locale +      &
                               2.*mu_star/(q_aux_gpu(b,i,j,k,1))/dx_locale**2 + &
-                             (abs(q_aux_gpu(b,i,j,k,3)) + ss)/dy_locale +       &
+                             (abs(q_aux_gpu(b,i,j,k,3)) + ss)/dy_locale +      &
                               2.*mu_star/(q_aux_gpu(b,i,j,k,1))/dy_locale**2 + &
                              (abs(q_aux_gpu(b,i,j,k,4)) + ss)/dz_locale +      &
                               2.*mu_star/(q_aux_gpu(b,i,j,k,1))/dz_locale**2)
