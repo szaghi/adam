@@ -1213,23 +1213,6 @@ contains
       if(mod(it,self%amr_frequency) == 0) call self%amr_update()
       call self%compute_dt()
       if ((self%t_max <= 0).and.(time + self%dt > self%time_max)) self%dt = self%time_max - time
-      ! ! dump for debug restart
-      if (it==51) then
-         call self%copy_gpu_cpu(compute_q_aux=.true.)
-         print*, 'cazzo palle'
-         print '(A)', 'debug-restart [1,ni-3:ni,0   ,nk/2]'//trim(str(self%adam%field%q(1, 6:8, 0, 4, 296)))
-         print '(A)', 'debug-restart [1,ni-3:ni,8   ,nk/2]'//trim(str(self%adam%field%q(1, 6:8, 8, 4, 167)))
-         print '(A)', 'debug-restart [2,ni-3:ni,0   ,nk/2]'//trim(str(self%adam%field%q(2, 6:8, 0, 4, 296)))
-         print '(A)', 'debug-restart [2,ni-3:ni,8   ,nk/2]'//trim(str(self%adam%field%q(2, 6:8, 8, 4, 167)))
-         print '(A)', 'debug-restart [3,ni-3:ni,0   ,nk/2]'//trim(str(self%adam%field%q(3, 6:8, 0, 4, 296)))
-         print '(A)', 'debug-restart [3,ni-3:ni,8   ,nk/2]'//trim(str(self%adam%field%q(3, 6:8, 8, 4, 167)))
-         print '(A)', 'debug-restart [4,ni-3:ni,0   ,nk/2]'//trim(str(self%adam%field%q(4, 6:8, 0, 4, 296)))
-         print '(A)', 'debug-restart [4,ni-3:ni,8   ,nk/2]'//trim(str(self%adam%field%q(4, 6:8, 8, 4, 167)))
-         print '(A)', 'debug-restart [5,ni-3:ni,0   ,nk/2]'//trim(str(self%adam%field%q(5, 6:8, 0, 4, 296)))
-         print '(A)', 'debug-restart [5,ni-3:ni,8   ,nk/2]'//trim(str(self%adam%field%q(5, 6:8, 8, 4, 167)))
-         print*, 'cazzo palle'
-      endif
-      ! ! dump for debug restart
       call self%integrate(t=time)
       time = time + self%dt
       call self%print_progress(t=it, time=time, t_max=self%t_max, time_max=self%time_max)
@@ -1237,7 +1220,7 @@ contains
       if (mod(it,self%restart_save)==0) then
          call self%save_restart_files(t=it, time=time)
       endif
-      if (((self%t_max <= 0).and.(time >= self%time_max)).or.(it>=self%t_max)) exit integration
+      if (((self%t_max <= 0).and.(time >= self%time_max)).or.((it>=self%t_max).and.(self%t_max > 0))) exit integration
       call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(2) = MPI_Wtime()
       print '(A, F18.10)', 'step timing: ', timing_step(2) - timing_step(1)
    enddo integration
@@ -1288,10 +1271,7 @@ contains
    print '(A)', 'save restart files: '//trim(str([t,time]))
    call self%copy_gpu_cpu(compute_q_aux=.true.)
    call self%adam%save_restart_files(basename=self%restart_basename, t=t, time=time)
-   call self%save_hdf5(output_basename=self%restart_basename, t=t, time=time)
-   ! ! debug restart
-   ! call self%adam%tree%save_local_map(file_name='fromstart-local.map')
-   ! ! debug restart
+   call self%save_hdf5(output_basename=self%restart_basename, t=0_I4P, time=time)
    endsubroutine save_restart_files
 
    subroutine set_boundary_conditions(self, q_gpu)
