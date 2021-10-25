@@ -35,6 +35,7 @@ type :: adam_object
       procedure, pass(self) :: adapt                         !< Adapt tree/field accordingly to refine/derefine necessity.
       procedure, pass(self) :: amr_update                    !< Update AMR status.
       procedure, pass(self) :: blocks_reorder                !< Reorder blocks (for asyncrhonous MPI)
+      procedure, pass(self) :: check_blocks_number           !< Check if blocks number is groving too much.
       procedure, pass(self) :: destroy                       !< Destroy ADAM.
       procedure, pass(self) :: finalize                      !< Finalize ADAM.
       procedure, pass(self) :: initialize                    !< Initialize ADAM.
@@ -59,13 +60,11 @@ contains
    !< Adapt tree/field accordingly to refine/derefine necessity.
    class(adam_object), intent(inout) :: self !< ADAM.
 
-      call save_memory(-31, self%myrank)
    call self%tree%adapt
-      call save_memory(-32, self%myrank)
+   call self%check_blocks_number
    call self%field%adapt(ratio=self%tree%ratio,                                                            &
                          block_to_refine=self%tree%block_to_refine, block_refined=self%tree%block_refined, &
                          block_to_derefine=self%tree%block_to_derefine, block_derefined=self%tree%block_derefined)
-      call save_memory(-33, self%myrank)
    endsubroutine adapt
 
    subroutine amr_update(self, is_marked_by_field, is_marked_by_tree, do_mpi_redistribute, do_blocks_reorder, &
@@ -118,6 +117,22 @@ contains
    call self%field%blocks_reorder(inner_outer_block_map=self%tree%inner_outer_block_map, &
                                   inner_blocks_number=self%tree%inner_blocks_number)
    endsubroutine blocks_reorder
+
+   subroutine check_blocks_number(self)
+   !< Check if blocks number is groving too much.
+   class(adam_object), intent(inout) :: self  !< ADAM.
+   type(tree_node_object), pointer   :: node_ptr         !< Pointer to current node.
+
+   do while(self%tree%loop(node_ptr=node_ptr))
+      if (node_ptr%block_index > self%field%nb) then
+         print '(A)', 'ERROR: the number of new blocks after AMR is greater than Nb'
+         print '(A)', 'max blocks numer available [Nb]: '//trim(str(self%field%nb))
+         print '(A)', 'blocks numer required after AMR: '//trim(str(node_ptr%block_index))
+         print '(A)', 'process number [myrank]:         '//trim(str(node_ptr%myrank))
+         call MPI_ABORT(MPI_COMM_WORLD, -101, self%error)
+      endif
+   enddo
+   endsubroutine check_blocks_number
 
    subroutine destroy(self)
    !< Destroy ADAM.
