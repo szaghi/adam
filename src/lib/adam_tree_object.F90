@@ -317,13 +317,9 @@ contains
    !< Adapt tree accordingly to refine/derefine necessity.
    class(tree_object), intent(inout) :: self !< The tree.
 
-      call save_memory(-41, self%myrank)
    call self%sanitize
-      call save_memory(-42, self%myrank)
    call self%refine
-      call save_memory(-43, self%myrank)
    call self%derefine
-      call save_memory(-44, self%myrank)
    endsubroutine adapt
 
    function codes(self, only_mine, sort_by_level)

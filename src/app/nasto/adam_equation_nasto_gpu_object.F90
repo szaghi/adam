@@ -82,39 +82,35 @@ type :: equation_nasto_gpu_object
    !< q_aux(8): entalpy
    !< q_aux(9): sound speed
    !<```
-   ! debug restart
-   integer(I4P) :: itt = 0
-   ! debug restart
-
-   type(file_ini)              :: file_input            !< Nasto input file handler.
-   type(adam_object)           :: adam                  !< ADAM.
-   type(field_object), pointer :: field=>null()         !< The field.
-   type(grid_object),  pointer :: grid=>null()          !< The grid.
-   integer(I4P)                :: ngc                   !< Number of ghost cells.
-   integer(I4P)                :: ni                    !< Number of cells in i direction.
-   integer(I4P)                :: nj                    !< Number of cells in j direction.
-   integer(I4P)                :: nk                    !< Number of cells in k direction.
-   integer(I4P)                :: nb                    !< Total blocks number for MPI.
-   integer(I4P), pointer       :: blocks_number=>null() !< Actual blocks number.
-   integer(I4P)                :: nv                    !< Number of variables.
-   integer(I4P)                :: nv_aux                !< Number of auxiliary variables.
-   type(base_gpu_object)       :: base_gpu              !< The base GPU handler.
-   integer(I4P)                :: myrank=0_I4P          !< MPI rank process.
-   integer(I4P)                :: procs_number=1_I4P    !< Number of MPI processes.
-   integer(I4P)                :: error=0_I4P           !< Error traping flag.
+   type(file_ini)              :: file_input              !< Nasto input file handler.
+   type(adam_object)           :: adam                    !< ADAM.
+   type(field_object), pointer :: field=>null()           !< The field.
+   type(grid_object),  pointer :: grid=>null()            !< The grid.
+   integer(I4P)                :: ngc                     !< Number of ghost cells.
+   integer(I4P)                :: ni                      !< Number of cells in i direction.
+   integer(I4P)                :: nj                      !< Number of cells in j direction.
+   integer(I4P)                :: nk                      !< Number of cells in k direction.
+   integer(I4P)                :: nb                      !< Total blocks number for MPI.
+   integer(I4P), pointer       :: blocks_number=>null()   !< Actual blocks number.
+   integer(I4P)                :: nv                      !< Number of variables.
+   integer(I4P)                :: nv_aux                  !< Number of auxiliary variables.
+   type(base_gpu_object)       :: base_gpu                !< The base GPU handler.
+   integer(I4P)                :: myrank=0_I4P            !< MPI rank process.
+   integer(I4P)                :: procs_number=1_I4P      !< Number of MPI processes.
+   integer(I4P)                :: error=0_I4P             !< Error traping flag.
    integer(I4P)                :: field_gpu_number=12_I4P !< Number of nv fields used in memory.
    ! equation data
-   real(R8P), allocatable      :: fd_coeff1(:)          !< First order derivatives coeffs.
-   real(R8P), allocatable      :: fd_coeff2(:)          !< Second order derivatives coeffs.
-   real(R8P), allocatable      :: fd_conv(:,:)          !< Second order derivatives coeffs.
-   integer(I4P)                :: visc_scheme=2_I4P     !< Laplacian viscosity scheme.
-   integer(I4P)                :: euler_scheme=2_I4P    !< Centered euler scheme scheme.
-   integer(I4P)                :: visc_order=4_I4P      !< Laplacian viscosity order.
-   integer(I4P)                :: euler_order=4_I4P     !< Centered euler scheme order.
-   integer(I4P)                :: ns=1_I4P              !< Number of fluid species.
-   integer(I4P)                :: iweno=2_I4P           !< WENO order.
-   integer(I4P)                :: lmax=2_I4P            !< Central convective half stencil.
-   integer(I4P)                :: visc_law=0_I4P        !< Diffusivity type (0=constant, 1=power, 2=Sutherland)
+   real(R8P), allocatable      :: fd_coeff1(:)       !< First order derivatives coeffs.
+   real(R8P), allocatable      :: fd_coeff2(:)       !< Second order derivatives coeffs.
+   real(R8P), allocatable      :: fd_conv(:,:)       !< Second order derivatives coeffs.
+   integer(I4P)                :: visc_scheme=2_I4P  !< Laplacian viscosity scheme.
+   integer(I4P)                :: euler_scheme=2_I4P !< Centered euler scheme scheme.
+   integer(I4P)                :: visc_order=4_I4P   !< Laplacian viscosity order.
+   integer(I4P)                :: euler_order=4_I4P  !< Centered euler scheme order.
+   integer(I4P)                :: ns=1_I4P           !< Number of fluid species.
+   integer(I4P)                :: iweno=2_I4P        !< WENO order.
+   integer(I4P)                :: lmax=2_I4P         !< Central convective half stencil.
+   integer(I4P)                :: visc_law=0_I4P     !< Diffusivity type (0=constant, 1=power, 2=Sutherland)
    ! Runge-Kutta data
    integer(I4P)                      :: nrk=4_I4P       !< Runge-Kutta stages number.
    real(R8P), allocatable            :: ark(:)          !< RK alpha coefficients.
@@ -131,67 +127,64 @@ type :: equation_nasto_gpu_object
    integer(I4P)                      :: amr_n_markers   !< AMR number of markers.
    type(amr_marker_obj), allocatable :: amr_markers(:)  !< AMR array of marker objects.
    ! Time
-   logical                           :: restart=.false.  !< Restart flag.
-   character(999)                    :: restart_basename !< Restart file basename.
-   integer(I4P)                      :: restart_save     !< Iteration interval between subsequent restart saves.
-   real(R8P)                         :: time_max         !< Maximum time of run.
-   integer(I4P)                      :: t_max            !< Maximum number of iterations of run.
-   real(R8P)                         :: time_save        !< Time interval between subsequent saves.
-   integer(I4P)                      :: n_save           !< Iteration interval between subsequent saves.
-   character(999)                    :: output_basename  !< Output file basename.
-   real(R8P)                         :: CFL              !< CFL time limit.
-   real(R8P)                         :: dt=0.0001_R8P    !< Maximum time step accordingly to CFL criterion.
+   integer(I4P)   :: it = 0           !< Time iteration counter.
+   real(R8P)      :: time = 0.0_R8P   !< Time.
+   logical        :: restart=.false.  !< Restart flag.
+   character(999) :: restart_basename !< Restart file basename.
+   integer(I4P)   :: restart_save     !< Iteration interval between subsequent restart saves.
+   real(R8P)      :: time_max         !< Maximum time of run.
+   integer(I4P)   :: t_max            !< Maximum number of iterations of run.
+   real(R8P)      :: time_save        !< Time interval between subsequent saves.
+   integer(I4P)   :: n_save           !< Iteration interval between subsequent saves.
+   character(999) :: output_basename  !< Output file basename.
+   real(R8P)      :: CFL              !< CFL time limit.
+   real(R8P)      :: dt=0.0001_R8P    !< Maximum time step accordingly to CFL criterion.
    ! Initial conditions
    integer(I4P)           :: ic_type                     !< Initial condition type.
    real(R8P)              :: ic_vars(IC_VARS_NUMBER_MAX) !< Variables' array for initial conditions.
    ! Boundary conditions
-   integer(I4P)           :: bc_type(6)                  !< Boundary condition type.
-   real(R8P)              :: bc_vars(BC_VARS_NUMBER_MAX, 6) !< Variables' array for boundary conditions.
-   ! Boundary conditions
-   integer(I4P), allocatable :: bcs_type(:)             !< Immersed boundary condition type.
-   real(R8P), allocatable    :: bcs_vars(:, :)          !< Variables' array for immersed boundary conditions.
+   integer(I4P)              :: bc_type(6)                     !< Boundary condition type.
+   real(R8P)                 :: bc_vars(BC_VARS_NUMBER_MAX, 6) !< Variables' array for boundary conditions.
+   integer(I4P), allocatable :: bcs_type(:)                    !< Immersed boundary condition type.
+   real(R8P), allocatable    :: bcs_vars(:, :)                 !< Variables' array for immersed boundary conditions.
    ! Physics
-   real(R8P)              :: Lewis=1._R8P               !< Lewis number.
-   real(R8P)              :: Zeldovich=1060._R8P        !< Zeldovich number.
-   real(R8P)              :: Damkohler=1800._R8P        !< Damkohler number.
-   real(R8P)              :: gamma_fluid=1.4_R8P        !< Gamma.
-   real(R8P)              :: R_star=287._R8P            !< Gas constant.
-   real(R8P)              :: cv_star=714._R8P           !< Constant volume specific heat.
-   real(R8P)              :: mu_star=0.001_R8P          !< Dynamic viscosity.
-   real(R8P)              :: cp_star=1000._R8P          !< Constant pressure specific heat.
-   real(R8P)              :: k_star=0.0013_R8P          !< Thermal diffusivity.
-   real(R8P)              :: dha_star=10000._R8P        !< Entalpy formation.
+   real(R8P) :: Lewis=1._R8P        !< Lewis number.
+   real(R8P) :: Zeldovich=1060._R8P !< Zeldovich number.
+   real(R8P) :: Damkohler=1800._R8P !< Damkohler number.
+   real(R8P) :: gamma_fluid=1.4_R8P !< Gamma.
+   real(R8P) :: R_star=287._R8P     !< Gas constant.
+   real(R8P) :: cv_star=714._R8P    !< Constant volume specific heat.
+   real(R8P) :: mu_star=0.001_R8P   !< Dynamic viscosity.
+   real(R8P) :: cp_star=1000._R8P   !< Constant pressure specific heat.
+   real(R8P) :: k_star=0.0013_R8P   !< Thermal diffusivity.
+   real(R8P) :: dha_star=10000._R8P !< Entalpy formation.
    ! Fields
-   real(R8P), allocatable :: q_aux(:,:,:,:,:)           !< Auxiliary cell centered variables.
-   ! ! debug restart
-   ! real(R8P), allocatable :: pbuffer(:,:,:,:,:) !< Print buffer.
-   ! ! debug restart
-   ! cuf data
-   real(R8P),    allocatable, device :: dq_gpu(:,:,:,:,:)       !< Eikonal right hand side.
-   real(R8P),    allocatable, device :: fl_gpu(:,:,:,:,:)       !< Residuals.
-   real(R8P),    allocatable, device :: flx_gpu(:,:,:,:,:)      !< Fluxes along x.
-   real(R8P),    allocatable, device :: fly_gpu(:,:,:,:,:)      !< Fluxes along y.
-   real(R8P),    allocatable, device :: flz_gpu(:,:,:,:,:)      !< Fluxes along z.
-   real(R8P),    allocatable, device :: prhs_gpu(:,:,:,:,:)     !< Prhs for Runge-Kutta.
-   real(R8P),    allocatable, device :: dxyz_gpu(:,:)           !< Space steps.
-   real(R8P),    allocatable, device :: fd_coeff1_gpu(:)        !< First order derivatives coeffs.
-   real(R8P),    allocatable, device :: fd_coeff2_gpu(:)        !< Second order derivatives coeffs.
-   real(R8P),    allocatable, device :: fd_conv_gpu(:,:)        !< Second order derivatives coeffs.
-   real(R8P),    allocatable, device :: x_cell_gpu(:,:)         !< Cell positions in x.
-   real(R8P),    allocatable, device :: y_cell_gpu(:,:)         !< Cell positions in y.
-   real(R8P),    allocatable, device :: z_cell_gpu(:,:)         !< Cell positions in z.
-   real(R8P),    allocatable, device :: q_aux_gpu(:,:,:,:,:)    !< Auxiliary cell centered variables.
-   real(R8P),    allocatable, device :: q_gpu(:,:,:,:,:)        !< Field cell centered variables.
-   real(R8P),    allocatable, device :: q_invert_gpu(:,:,:,:,:) !< Field cell with boundary set on immersed bodies.
-   real(R8P),    allocatable, device :: gplus_x(:,:,:,:,:)      !< For weno-x
-   real(R8P),    allocatable, device :: gminus_x(:,:,:,:,:)     !< For weno-x
-   real(R8P),    allocatable, device :: gplus_y(:,:,:,:,:)      !< For weno-y
-   real(R8P),    allocatable, device :: gminus_y(:,:,:,:,:)     !< For weno-y
-   real(R8P),    allocatable, device :: gplus_z(:,:,:,:,:)      !< For weno-z
-   real(R8P),    allocatable, device :: gminus_z(:,:,:,:,:)     !< For weno-z
-   real(R8P),    allocatable, device :: phi_gpu(:,:,:,:,:)      !< Distance function on GPU.
-   real(R8P),    allocatable, device :: bc_vars_gpu(:, :)       !< Variables' array for boundary conditions on GPU.
-   real(R8P),    allocatable, device :: bcs_vars_gpu(:, :)      !< Variables' array for immersed boundary on GPU.
+   real(R8P), allocatable         :: q_aux(:,:,:,:,:)        !< Auxiliary cell centered variables.
+   real(R8P), allocatable, device :: dq_gpu(:,:,:,:,:)       !< Eikonal right hand side.
+   real(R8P), allocatable, device :: fl_gpu(:,:,:,:,:)       !< Residuals.
+   real(R8P), allocatable, device :: flx_gpu(:,:,:,:,:)      !< Fluxes along x.
+   real(R8P), allocatable, device :: fly_gpu(:,:,:,:,:)      !< Fluxes along y.
+   real(R8P), allocatable, device :: flz_gpu(:,:,:,:,:)      !< Fluxes along z.
+   real(R8P), allocatable, device :: prhs_gpu(:,:,:,:,:)     !< Prhs for Runge-Kutta.
+   real(R8P), allocatable, device :: dxyz_gpu(:,:)           !< Space steps.
+   real(R8P), allocatable, device :: fd_coeff1_gpu(:)        !< First order derivatives coeffs.
+   real(R8P), allocatable, device :: fd_coeff2_gpu(:)        !< Second order derivatives coeffs.
+   real(R8P), allocatable, device :: fd_conv_gpu(:,:)        !< Second order derivatives coeffs.
+   real(R8P), allocatable, device :: x_cell_gpu(:,:)         !< Cell positions in x.
+   real(R8P), allocatable, device :: y_cell_gpu(:,:)         !< Cell positions in y.
+   real(R8P), allocatable, device :: z_cell_gpu(:,:)         !< Cell positions in z.
+   real(R8P), allocatable, device :: q_aux_gpu(:,:,:,:,:)    !< Auxiliary cell centered variables.
+   real(R8P), allocatable, device :: q_gpu(:,:,:,:,:)        !< Field cell centered variables.
+   real(R8P), allocatable, device :: q_invert_gpu(:,:,:,:,:) !< Field cell with boundary set on immersed bodies.
+   real(R8P), allocatable, device :: gplus_x(:,:,:,:,:)      !< For weno-x
+   real(R8P), allocatable, device :: gminus_x(:,:,:,:,:)     !< For weno-x
+   real(R8P), allocatable, device :: gplus_y(:,:,:,:,:)      !< For weno-y
+   real(R8P), allocatable, device :: gminus_y(:,:,:,:,:)     !< For weno-y
+   real(R8P), allocatable, device :: gplus_z(:,:,:,:,:)      !< For weno-z
+   real(R8P), allocatable, device :: gminus_z(:,:,:,:,:)     !< For weno-z
+   real(R8P), allocatable, device :: phi_gpu(:,:,:,:,:)      !< Distance function on GPU.
+   real(R8P), allocatable, device :: bc_vars_gpu(:, :)       !< Variables' array for boundary conditions on GPU.
+   real(R8P), allocatable, device :: bcs_vars_gpu(:, :)      !< Variables' array for immersed boundary on GPU.
    contains
       ! public methods
       procedure, pass(self) :: amr_update              !< Do AMR update.
@@ -238,27 +231,19 @@ contains
 
    amr: do i=1, self%amr_iters
       is_grid_changed_all = .false.
-      call save_memory(-10, self%myrank)
       do i_marker=1, self%amr_n_markers
          amr_marker = self%amr_markers(i_marker)
-         call save_memory(-11, self%myrank)
          call self%update_ghost_gpu(q_gpu=self%q_gpu)
-         call save_memory(-12, self%myrank)
          if(amr_marker%mode == 1) then ! marker "geo"
             call self%mark_by_geo(delta_fine=amr_marker%delta_fine, delta_coarse=amr_marker%delta_coarse)
          elseif(amr_marker%mode == 2) then ! marker "grad"
             call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_fine=amr_marker%delta_fine, &
                                        delta_coarse=amr_marker%delta_coarse, ivar=amr_marker%ivar)
          endif
-         call save_memory(-13, self%myrank)
          call self%copy_gpu_cpu() ! needed for adam%amr_update
-         call save_memory(-14, self%myrank)
          call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed)
-         call save_memory(-15, self%myrank)
          if(self%n_solids > 0) call self%update_phi()
-         call save_memory(-16, self%myrank)
          call self%copy_cpu_gpu
-         call save_memory(-17, self%myrank)
          is_grid_changed_all = is_grid_changed_all.or.is_grid_changed
       enddo
       if (.not.is_grid_changed_all) then
@@ -1176,8 +1161,6 @@ contains
    subroutine run(self, filename)
    class(equation_nasto_gpu_object), intent(inout) :: self             !< The equation.
    character(*),                     intent(in)    :: filename         !< Input file name.
-   real(R8P)                                       :: time             !< Time.
-   integer(I4P)                                    :: it               !< Temporal iteration.
    real(R8P)                                       :: timing(1:2)      !< Tic toc timing.
    real(R8P)                                       :: timing_step(1:2) !< Tic toc timing.
 
@@ -1186,47 +1169,36 @@ contains
    call self%initialize(filename=filename)
    if (self%restart) then
       print '(A)', 'restart simulation from "'//trim(self%restart_basename)//'" files'
-      call self%load_restart_files(t=it, time=time)
-      print '(A)', 'restart [t, time]: '//trim(str(it))//', '//trim(str(time))
-      ! ! debug restart
-      ! call self%adam%tree%save_local_map(file_name='restart-local.map')
-      ! ! debug restart
+      call self%load_restart_files(t=self%it, time=self%time)
+      print '(A)', 'restart [t, time]: '//trim(str(self%it))//', '//trim(str(self%time))
    else
       call self%set_initial_conditions()
-      time = 0._R8P
-      it = 0
+      self%time = 0._R8P
+      self%it = 0
    endif
    if (self%n_solids > 0) call self%update_phi()
 
-   call self%save_hdf5(output_basename=self%output_basename, t=it, time=time)
+   call self%save_hdf5(output_basename=self%output_basename, t=self%it, time=self%time)
    call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing(1) = MPI_Wtime()
 
    integration: do
       call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(1) = MPI_Wtime()
-      it = it + 1
-      ! ! debug restart
-      ! self%itt = it
-      ! ! debug restart
-      call save_memory(it, self%myrank)
-      !RIMETTERE aggiunta it<100 da levare!!!!
-      !if(mod(it,self%amr_frequency) == 0 .and. it <= 100) call self%amr_update()
-      if(mod(it,self%amr_frequency) == 0) call self%amr_update()
+      self%it = self%it + 1
+      if(mod(self%it,self%amr_frequency) == 0) call self%amr_update()
       call self%compute_dt()
-      if ((self%t_max <= 0).and.(time + self%dt > self%time_max)) self%dt = self%time_max - time
-      call self%integrate(t=time)
-      time = time + self%dt
-      call self%print_progress(t=it, time=time, t_max=self%t_max, time_max=self%time_max)
-      if (mod(it,self%n_save)==0) call self%save_hdf5(output_basename=self%output_basename, t=it, time=time)
-      if (mod(it,self%restart_save)==0) then
-         call self%save_restart_files(t=it, time=time)
-      endif
-      if (((self%t_max <= 0).and.(time >= self%time_max)).or.((it>=self%t_max).and.(self%t_max > 0))) exit integration
+      if ((self%t_max <= 0).and.(self%time + self%dt > self%time_max)) self%dt = self%time_max - time
+      call self%integrate(t=self%time)
+      self%time = self%time + self%dt
+      call self%print_progress(t=self%it, time=self%time, t_max=self%t_max, time_max=self%time_max)
+      if (mod(self%it,self%n_save)==0) call self%save_hdf5(output_basename=self%output_basename, t=self%it, time=self%time)
+      if (mod(self%it,self%restart_save)==0) call self%save_restart_files(t=self%it, time=self%time)
+      if (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0))) exit integration
       call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(2) = MPI_Wtime()
       print '(A, F18.10)', 'step timing: ', timing_step(2) - timing_step(1)
    enddo integration
    call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing(2) = MPI_Wtime()
-   print '(A, F18.10)', 'averaged timing: ', (timing(2) - timing(1))/it
-   call self%save_hdf5(output_basename=self%output_basename, t=it, time=time)
+   print '(A, F18.10)', 'averaged timing: ', (timing(2) - timing(1))/self%it
+   call self%save_hdf5(output_basename=self%output_basename, t=self%it, time=self%time)
    call self%adam%finalize
    endsubroutine run
 
@@ -1542,29 +1514,7 @@ contains
    class(equation_nasto_gpu_object), intent(inout) :: lhs !< Left hand side.
    type(equation_nasto_gpu_object),  intent(in)    :: rhs !< Right hand side.
 
-   !lhs%adam          => rhs%adam
-   !lhs%field         => rhs%field
-   !lhs%grid          => rhs%grid
-   !lhs%ni            => rhs%ni
-   !lhs%nj            => rhs%nj
-   !lhs%nk            => rhs%nk
-   !lhs%ngc           => rhs%ngc
-   !lhs%nb            => rhs%nb
-   !lhs%blocks_number => rhs%blocks_number
-   !lhs%nv            => rhs%nv
-   !lhs%base_gpu = rhs%base_gpu
-   !lhs%myrank = rhs%myrank
-   !lhs%procs_number = rhs%procs_number
-   !lhs%error = rhs%error
-   !lhs%ns = rhs%ns
-   !lhs%dt = rhs%dt
-   !lhs%CFL = rhs%CFL
-   !lhs%nrk = rhs%nrk
-   !call assign_allocatable(lhs=lhs%q_aux, rhs=rhs%q_aux )
-   !call assign_allocatable_gpu(lhs=lhs%fl_gpu,     rhs=rhs%fl_gpu      )
-   !call assign_allocatable_gpu(lhs=lhs%dxyz_gpu,   rhs=rhs%dxyz_gpu   )
-   !call assign_allocatable_gpu(lhs=lhs%q_aux_gpu,  rhs=rhs%q_aux_gpu  )
-   !call assign_allocatable_gpu(lhs=lhs%q_gpu,      rhs=rhs%q_gpu      )
+   ! TODO to be written
    endsubroutine eq_assign_eq
 
    subroutine flame_find_x_v_cuf(ni, nj, nk, ngc, nv, blocks_number, dt, &

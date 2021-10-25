@@ -88,25 +88,18 @@ contains
    do_mpi_redistribute_ = .true. ; if (present(do_mpi_redistribute )) do_mpi_redistribute_ = do_mpi_redistribute
    do_blocks_reorder_ = .true. ; if (present(do_blocks_reorder)) do_blocks_reorder_ = do_blocks_reorder
 
-      call save_memory(-21, self%myrank)
    call self%mpi_gather_refinement_needed(is_marked_by_field=is_marked_by_field, is_marked_by_tree=is_marked_by_tree)
 
-      call save_memory(-22, self%myrank)
    call self%adapt
-
-      call save_memory(-23, self%myrank)
 
    if (present(is_grid_changed)) is_grid_changed = (size(self%tree%node_to_refine,   dim=1)>0_I4P).or.&
                                                    (size(self%tree%node_to_derefine, dim=1)>0_I4P)
 
    if (do_mpi_redistribute_) call self%mpi_redistribute(print_mpi_stats=print_mpi_stats)
-      call save_memory(-24, self%myrank)
 
    if (do_blocks_reorder_) call self%blocks_reorder
 
-      call save_memory(-25, self%myrank)
    call self%make_comm_local_maps_ghost_bc
-      call save_memory(-26, self%myrank)
    endsubroutine amr_update
 
    subroutine blocks_reorder(self)
