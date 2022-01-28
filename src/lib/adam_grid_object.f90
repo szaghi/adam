@@ -26,6 +26,7 @@ type :: grid_object
       procedure, pass(self) :: compute_metrics         !< Compute metrics of a block.
       procedure, pass(self) :: compute_weight_neighbor !< Compute weight of neighbors.
       procedure, pass(self) :: destroy                 !< Destroy the field.
+      procedure, pass(self) :: do_cplane_intersect     !< Return true if a block is intersected by coordinate-plane.
       procedure, pass(self) :: initialize              !< Initialize the field.
       procedure, pass(self) :: load_from_ini_file      !< Load object data from INI file.
       procedure, pass(self) :: print_status            !< Print status of main data.
@@ -132,6 +133,41 @@ contains
 
    self = fresh
    endsubroutine destroy
+
+   function do_cplane_intersect(self, emin, emax, dxyz, cplane_origin, cplane_normal, cplane_block_indexes) result(do_intersect)
+   !< Return true if a block is intersected by coordinate-plane.
+   class(grid_object), intent(inout)         :: self                    !< The grid.
+   real(R8P),          intent(in)            :: emin(3), emax(3)        !< Block extents.
+   real(R8P),          intent(in)            :: dxyz(3)                 !< Block space steps.
+   real(R8P),          intent(in)            :: cplane_origin(3)        !< Coordinate-plane origin.
+   real(R8P),          intent(in)            :: cplane_normal(3)        !< Coordinate-plane normal.
+   integer(I4P),       intent(out), optional :: cplane_block_indexes(3) !< Block-local indexes of cplane intersection.
+   logical                                   :: do_intersect            !< Test result.
+
+   do_intersect = .false.
+   if     (nint(cplane_normal(1))==1) then
+      if ((cplane_origin(1) >= emin(1)).and.(cplane_origin(1) <= emax(1))) then
+         do_intersect = .true.
+         if (present(cplane_block_indexes)) then
+            cplane_block_indexes(1) = ceiling((cplane_origin(1) - emin(1)) / dxyz(1), I4P)
+         endif
+      endif
+   elseif (nint(cplane_normal(2))==1) then
+      if ((cplane_origin(2) >= emin(2)).and.(cplane_origin(2) <= emax(2))) then
+         do_intersect = .true.
+         if (present(cplane_block_indexes)) then
+            cplane_block_indexes(2) = ceiling((cplane_origin(2) - emin(2)) / dxyz(2), I4P)
+         endif
+      endif
+   elseif (nint(cplane_normal(3))==1) then
+      if ((cplane_origin(3) >= emin(3)).and.(cplane_origin(3) <= emax(3))) then
+         do_intersect = .true.
+         if (present(cplane_block_indexes)) then
+            cplane_block_indexes(3) = ceiling((cplane_origin(3) - emin(3)) / dxyz(3), I4P)
+         endif
+      endif
+   endif
+   endfunction do_cplane_intersect
 
    subroutine initialize(self, file_parameters, ni, nj, nk, ngc, emin, emax, bc_type)
    !< Initialize field.

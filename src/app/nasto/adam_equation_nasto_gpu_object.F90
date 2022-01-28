@@ -139,6 +139,12 @@ type :: equation_nasto_gpu_object
    character(999) :: output_basename  !< Output file basename.
    real(R8P)      :: CFL              !< CFL time limit.
    real(R8P)      :: dt=0.0001_R8P    !< Maximum time step accordingly to CFL criterion.
+   ! Slices
+   integer(I4P)              :: slices_number=0      !< Number of slices to be save.
+   integer(I4P), allocatable :: slice_type(:)        !< Type of slice, 1=coordinate-axis.
+   integer(I4P), allocatable :: slice_save(:)        !< Iteration interval between subsequent data-slice saves.
+   real(R8P),    allocatable :: slice_origin(:,:)    !< Slice origin [3,slices_number].
+   real(R8P),    allocatable :: slice_direction(:,:) !< Slice direction [3,slices_number].
    ! Initial conditions
    integer(I4P)           :: ic_type                     !< Initial condition type.
    real(R8P)              :: ic_vars(IC_VARS_NUMBER_MAX) !< Variables' array for initial conditions.
@@ -208,6 +214,7 @@ type :: equation_nasto_gpu_object
       procedure, pass(self) :: runge_kutta_initialize  !< Initialize Runge-Kutta data.
       procedure, pass(self) :: save_restart_files      !< Save restart files.
       procedure, pass(self) :: save_hdf5               !< Save simulation data in HDF5 format.
+      procedure, pass(self) :: save_slices             !< Save simulation data slices.
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation.
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions of equation.
       procedure, pass(self) :: update_ghost_gpu        !< Update ghost cells and set boundary conditions.
@@ -411,6 +418,7 @@ contains
    integer(I4P)                                    :: bc_type_item      !< Boundary condition type element.
    integer(I4P)                                    :: i_var, i_bc       !< Counter.
    integer(I4P)                                    :: i_solid, i_marker !< Counter.
+   integer(I4P)                                    :: i_slice           !< Counter.
    real(R8P)                                       :: gpu_memory        !< Available GPU memory.
    real(R8P)                                       :: emin(3), emax(3)  !< Domain dimension.
    logical                                         :: buf_BOOL          !< Logical buffer.
@@ -522,7 +530,35 @@ contains
    call self%file_input%get(section_name="time", option_name="n_save",          val=buf_I4)   ; self%n_save           = buf_I4
    call self%file_input%get(section_name="time", option_name="output_basename", val=buf_CHAR) ; self%output_basename  = buf_CHAR
    call self%file_input%get(section_name='time', option_name='CFL',             val=buf_R8)   ; self%CFL              = buf_R8
+   call self%file_input%get(section_name="time", option_name="slices_number",   val=buf_I4)   ; self%slices_number    = buf_I4
    call self%runge_kutta_initialize
+
+   if (self%slices_number > 0) then
+      allocate(self%slice_type(self%slices_number))
+      allocate(self%slice_save(self%slices_number))
+      allocate(self%slice_origin(3,self%slices_number))
+      allocate(self%slice_direction(3,self%slices_number))
+      print '(A)', 'parse slices input setting'
+      do i_slice=1,self%slices_number
+         sname = 'slice_'//trim(str(i_slice,.true.))
+         call self%file_input%get(section_name=sname, option_name='slice_type', val=buf_I4)
+         self%slice_type(i_slice) = buf_I4
+         call self%file_input%get(section_name=sname, option_name='slice_save', val=buf_I4)
+         self%slice_save(i_slice) = buf_I4
+         call self%file_input%get(section_name=sname, option_name='slice_origin_x', val=buf_R8)
+         self%slice_origin(1,i_slice) = buf_R8
+         call self%file_input%get(section_name=sname, option_name='slice_origin_y', val=buf_R8)
+         self%slice_origin(2,i_slice) = buf_R8
+         call self%file_input%get(section_name=sname, option_name='slice_origin_z', val=buf_R8)
+         self%slice_origin(3,i_slice) = buf_R8
+         call self%file_input%get(section_name=sname, option_name='slice_direction_x', val=buf_R8)
+         self%slice_direction(1,i_slice) = buf_R8
+         call self%file_input%get(section_name=sname, option_name='slice_direction_y', val=buf_R8)
+         self%slice_direction(2,i_slice) = buf_R8
+         call self%file_input%get(section_name=sname, option_name='slice_direction_z', val=buf_R8)
+         self%slice_direction(3,i_slice) = buf_R8
+      enddo
+   endif
 
    print '(A)', 'parse initial conditions input setting'
    call self%file_input%get(section_name="initial_conditions", option_name='ic_type', val=buf_I4) ; self%ic_type = buf_I4
@@ -1159,10 +1195,11 @@ contains
    endsubroutine
 
    subroutine run(self, filename)
-   class(equation_nasto_gpu_object), intent(inout) :: self             !< The equation.
-   character(*),                     intent(in)    :: filename         !< Input file name.
-   real(R8P)                                       :: timing(1:2)      !< Tic toc timing.
-   real(R8P)                                       :: timing_step(1:2) !< Tic toc timing.
+   class(equation_nasto_gpu_object), intent(inout) :: self               !< The equation.
+   character(*),                     intent(in)    :: filename           !< Input file name.
+   logical                                         :: is_cp_gpu_cpu_done !< Flag to minimize copies GPU-CPUi for IO.
+   real(R8P)                                       :: timing(1:2)        !< Tic toc timing.
+   real(R8P)                                       :: timing_step(1:2)   !< Tic toc timing.
 
    call MPI_INIT(self%error)
 
@@ -1178,7 +1215,8 @@ contains
    endif
    if (self%n_solids > 0) call self%update_phi()
 
-   call self%save_hdf5(output_basename=self%output_basename, t=self%it, time=self%time)
+   is_cp_gpu_cpu_done = .false.
+   call self%save_hdf5(is_cp_gpu_cpu_done=is_cp_gpu_cpu_done)
    call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing(1) = MPI_Wtime()
 
    integration: do
@@ -1186,19 +1224,24 @@ contains
       self%it = self%it + 1
       if(mod(self%it,self%amr_frequency) == 0) call self%amr_update()
       call self%compute_dt()
-      if ((self%t_max <= 0).and.(self%time + self%dt > self%time_max)) self%dt = self%time_max - time
+      if ((self%t_max <= 0).and.(self%time + self%dt > self%time_max)) self%dt = self%time_max - self%time
       call self%integrate(t=self%time)
       self%time = self%time + self%dt
       call self%print_progress(t=self%it, time=self%time, t_max=self%t_max, time_max=self%time_max)
-      if (mod(self%it,self%n_save)==0) call self%save_hdf5(output_basename=self%output_basename, t=self%it, time=self%time)
-      if (mod(self%it,self%restart_save)==0) call self%save_restart_files(t=self%it, time=self%time)
+
+      is_cp_gpu_cpu_done = .false.
+      call self%save_hdf5(is_cp_gpu_cpu_done=is_cp_gpu_cpu_done)
+      call self%save_restart_files(is_cp_gpu_cpu_done=is_cp_gpu_cpu_done)
+      call self%save_slices(is_cp_gpu_cpu_done=is_cp_gpu_cpu_done)
+
       if (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0))) exit integration
       call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(2) = MPI_Wtime()
       print '(A, F18.10)', 'step timing: ', timing_step(2) - timing_step(1)
    enddo integration
    call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing(2) = MPI_Wtime()
    print '(A, F18.10)', 'averaged timing: ', (timing(2) - timing(1))/self%it
-   call self%save_hdf5(output_basename=self%output_basename, t=self%it, time=self%time)
+   is_cp_gpu_cpu_done = .false.
+   call self%save_hdf5(is_cp_gpu_cpu_done=is_cp_gpu_cpu_done)
    call self%adam%finalize
    endsubroutine run
 
@@ -1218,33 +1261,85 @@ contains
    endselect
    endsubroutine runge_kutta_initialize
 
-   subroutine save_hdf5(self, output_basename, t, time)
+   subroutine save_hdf5(self, is_cp_gpu_cpu_done, output_basename)
    !< Save simulation data in HDF5 format.
-   class(equation_nasto_gpu_object), intent(inout) :: self            !< The equation.
-   character(*),                     intent(in)    :: output_basename !< Output base name.
-   integer(I4P),                     intent(in)    :: t               !< Time iteration.
-   real(R8P),                        intent(in)    :: time            !< Time.
+   class(equation_nasto_gpu_object), intent(inout)        :: self               !< The equation.
+   logical,                          intent(inout)        :: is_cp_gpu_cpu_done !< Flag to minimize copies GPU-CPU for IO.
+   character(*),                     intent(in), optional :: output_basename    !< Output basename.
+   character(:), allocatable                              :: output_basename_   !< Output basename, local var.
 
-   call self%copy_gpu_cpu(compute_q_aux=.true.)
-   call self%adam%save_hdf5(basename=trim(output_basename)//'-'//trim(strz(t,9)),             &
-                            q=self%field%q,                                                   &
-                            q_aux=self%q_aux,                                                 &
-                            q_name=['rho','rhu','rhv','rhw','rhe','rhY'],                     &
-                            q_aux_name=['rhob','u','v','w','ya','tem','pres','ental','csp'],  &
-                            with_cell_morton=.true.)
+   if (mod(self%it,self%n_save)==0) then
+      print '(A)', 'save HDF5 files t: '//trim(str(self%it,.true.))//', time: '//trim(str(self%time,.true.))
+      if (.not.is_cp_gpu_cpu_done) then
+         call self%copy_gpu_cpu(compute_q_aux=.true.)
+         is_cp_gpu_cpu_done = .true.
+      endif
+      output_basename_ = trim(self%output_basename)//'-'//trim(strz(self%it,9))
+      if (present(output_basename)) output_basename_ = trim(output_basename)
+      call self%adam%save_hdf5(basename=trim(output_basename_),                                  &
+                               q=self%field%q,                                                   &
+                               q_aux=self%q_aux,                                                 &
+                               q_name=['rho','rhu','rhv','rhw','rhe'],                           &
+                               q_aux_name=['rhob','u','v','w','ya','tem','pres','ental','csp'],  &
+                               with_cell_morton=.true.)
+   endif
    endsubroutine save_hdf5
 
-   subroutine save_restart_files(self, t, time)
+   subroutine save_restart_files(self, is_cp_gpu_cpu_done)
    !< Save restart files.
-   class(equation_nasto_gpu_object), intent(inout) :: self !< The equation.
-   integer(I4P),                     intent(in)    :: t    !< Time iteration.
-   real(R8P),                        intent(in)    :: time !< Time.
+   class(equation_nasto_gpu_object), intent(inout) :: self               !< The equation.
+   logical,                          intent(inout) :: is_cp_gpu_cpu_done !< Flag to minimize copies GPU-CPU for IO.
 
-   print '(A)', 'save restart files: '//trim(str([t,time]))
-   call self%copy_gpu_cpu(compute_q_aux=.true.)
-   call self%adam%save_restart_files(basename=self%restart_basename, t=t, time=time)
-   call self%save_hdf5(output_basename=self%restart_basename, t=0_I4P, time=time)
+   if (mod(self%it,self%restart_save)==0) then
+      print '(A)', 'save restart files t: '//trim(str(self%it,.true.))//', time: '//trim(str(self%time,.true.))
+      if (.not.is_cp_gpu_cpu_done) then
+         call self%copy_gpu_cpu(compute_q_aux=.true.)
+         is_cp_gpu_cpu_done = .true.
+      endif
+      call self%adam%save_restart_files(basename=self%restart_basename, t=self%it, time=self%time)
+      call self%save_hdf5(is_cp_gpu_cpu_done=is_cp_gpu_cpu_done, output_basename=self%restart_basename)
+   endif
    endsubroutine save_restart_files
+
+   subroutine save_slices(self, is_cp_gpu_cpu_done)
+   !< Save simulation data slices.
+   class(equation_nasto_gpu_object), intent(inout) :: self               !< The equation.
+   logical,                          intent(inout) :: is_cp_gpu_cpu_done !< Flag to minimize copies GPU-CPU for IO.
+   integer(I4P)                                    :: s                  !< Slices counter.
+
+   if (self%slices_number>0) then
+      do s=1, self%slices_number
+         if (mod(self%it,self%slice_save(s))==0) then
+            print '(A)', 'save slice n: '//trim(str(s,.true.))//&
+                  ', t: '//trim(str(self%it,.true.))//', time: '//trim(str(self%time,.true.))
+            if (.not.is_cp_gpu_cpu_done) then
+               call self%copy_gpu_cpu(compute_q_aux=.true.)
+               is_cp_gpu_cpu_done = .true.
+            endif
+            if (self%slice_type(s)==1) then
+               call self%adam%save_slice_caxis(slice_origin=self%slice_origin(1:3,s),                           &
+                                               slice_direction=self%slice_direction(1:3,s),                     &
+                                               basename=trim(self%output_basename)//                            &
+                                                        '-slice_'//trim(strz(s,2))//'-'//trim(strz(self%it,9)), &
+                                               q=self%field%q,                                                  &
+                                               q_aux=self%q_aux,                                                &
+                                               q_name=['rho','rhu','rhv','rhw','rhe'],                          &
+                                               q_aux_name=['rhob','u','v','w','ya','tem','pres','ental','csp'])
+            elseif (self%slice_type(s)==2) then
+               call self%adam%save_hdf5(basename=trim(self%output_basename)//                            &
+                                                 '-slice_'//trim(strz(s,2))//'-'//trim(strz(self%it,9)), &
+                                        q=self%field%q,                                                  &
+                                        q_aux=self%q_aux,                                                &
+                                        q_name=['rho','rhu','rhv','rhw','rhe'],                          &
+                                        q_aux_name=['rhob','u','v','w','ya','tem','pres','ental','csp'], &
+                                        with_cell_morton=.true.,                                         &
+                                        slice_origin=self%slice_origin(1:3,s),                           &
+                                        slice_normal=self%slice_direction(1:3,s))
+            endif
+         endif
+      enddo
+   endif
+   endsubroutine save_slices
 
    subroutine set_boundary_conditions(self, q_gpu)
    !< Set boundary conditions of equation.

@@ -131,6 +131,9 @@ type :: field_object
       procedure, pass(self) :: blocks_reorder                !< Reorder blocks indexes in field.
       procedure, pass(self) :: compute_metrics               !< Compute metrics of each block.
       procedure, pass(self) :: destroy                       !< Destroy the field.
+      procedure, pass(self) :: do_caxis_intersect            !< Return true if a block is intersected by coordinate-axis.
+      procedure, pass(self) :: do_cplane_intersect           !< Return true if a block is intersected by coordinate-plane.
+      procedure, pass(self) :: do_ray_intersect              !< Return true if a block is intersected by ray.
       procedure, pass(self) :: initialize                    !< Initialize the field.
       procedure, pass(self) :: load_blocks                   !< Load blocks data, used for restarting.
       procedure, pass(self) :: load_from_ini_file            !< Load object data from INI file.
@@ -211,6 +214,129 @@ contains
 
    self = fresh
    endsubroutine destroy
+
+   function do_caxis_intersect(self, b, caxis_origin, caxis_direction, caxis_block_indexes) result(do_intersect)
+   !< Return true if a block is intersected by coordinate-axis.
+   class(field_object), intent(inout)         :: self                   !< The field.
+   integer(I4P),        intent(in)            :: b                      !< Block index.
+   real(R8P),           intent(in)            :: caxis_origin(3)        !< Coordinate-axis origin.
+   real(R8P),           intent(in)            :: caxis_direction(3)     !< Coordinate-axis direction.
+   integer(I4P),        intent(out), optional :: caxis_block_indexes(3) !< Block-local indexes of caxis intersection.
+   logical                                    :: do_intersect           !< Test result.
+
+   do_intersect = .false.
+   if     (nint(caxis_direction(1))==1) then
+      if ((caxis_origin(2) >= self%emin(2,b)).and.(caxis_origin(2) <= self%emax(2,b)).and. &
+          (caxis_origin(3) >= self%emin(3,b)).and.(caxis_origin(3) <= self%emax(3,b))) then
+         do_intersect = .true.
+         if (present(caxis_block_indexes)) then
+            caxis_block_indexes(2) = ceiling((caxis_origin(2) - self%emin(2,b)) / self%dxyz(2,b), I4P)
+            caxis_block_indexes(3) = ceiling((caxis_origin(3) - self%emin(3,b)) / self%dxyz(3,b), I4P)
+         endif
+      endif
+   elseif (nint(caxis_direction(2))==1) then
+      if ((caxis_origin(1) >= self%emin(1,b)).and.(caxis_origin(1) <= self%emax(1,b)).and. &
+          (caxis_origin(3) >= self%emin(3,b)).and.(caxis_origin(3) <= self%emax(3,b))) then
+         do_intersect = .true.
+         if (present(caxis_block_indexes)) then
+            caxis_block_indexes(1) = ceiling((caxis_origin(1) - self%emin(1,b)) / self%dxyz(1,b), I4P)
+            caxis_block_indexes(3) = ceiling((caxis_origin(3) - self%emin(3,b)) / self%dxyz(3,b), I4P)
+         endif
+      endif
+   elseif (nint(caxis_direction(3))==1) then
+      if ((caxis_origin(2) >= self%emin(2,b)).and.(caxis_origin(2) <= self%emax(2,b)).and. &
+          (caxis_origin(1) >= self%emin(1,b)).and.(caxis_origin(1) <= self%emax(1,b))) then
+         do_intersect = .true.
+         if (present(caxis_block_indexes)) then
+            caxis_block_indexes(2) = ceiling((caxis_origin(2) - self%emin(2,b)) / self%dxyz(2,b), I4P)
+            caxis_block_indexes(1) = ceiling((caxis_origin(1) - self%emin(1,b)) / self%dxyz(1,b), I4P)
+         endif
+      endif
+   endif
+   endfunction do_caxis_intersect
+
+   function do_cplane_intersect(self, b, cplane_origin, cplane_normal, cplane_block_indexes) result(do_intersect)
+   !< Return true if a block is intersected by coordinate-plane.
+   class(field_object), intent(inout)         :: self                    !< The field.
+   integer(I4P),        intent(in)            :: b                       !< Block index.
+   real(R8P),           intent(in)            :: cplane_origin(3)        !< Coordinate-plane origin.
+   real(R8P),           intent(in)            :: cplane_normal(3)        !< Coordinate-plane normal.
+   integer(I4P),        intent(out), optional :: cplane_block_indexes(3) !< Block-local indexes of cplane intersection.
+   logical                                    :: do_intersect            !< Test result.
+
+   do_intersect = self%grid%do_cplane_intersect(emin=self%emin(:,b),         &
+                                                emax=self%emax(:,b),         &
+                                                dxyz=self%dxyz(:,b),         &
+                                                cplane_origin=cplane_origin, &
+                                                cplane_normal=cplane_normal, &
+                                                cplane_block_indexes=cplane_block_indexes)
+   endfunction do_cplane_intersect
+
+   function do_ray_intersect(self, b, ray_origin, ray_direction) result(do_intersect)
+   !< Return true if a block is intersected by ray from ray_origin and oriented as ray_direction vector.
+   class(field_object), intent(inout) :: self             !< The field.
+   integer(I4P),        intent(in)    :: b                !< Block index.
+   real(R8P),           intent(in)    :: ray_origin(3)    !< Ray origin.
+   real(R8P),           intent(in)    :: ray_direction(3) !< Ray direction.
+   logical                            :: do_intersect     !< Test result.
+   logical                            :: must_return      !< Flag to check when to return from procedure.
+   real(R8P)                          :: tmin, tmax       !< Minimum maximum ray intersections with box slabs.
+
+   do_intersect = .false.
+   must_return = .false.
+   tmin = 0._R8P
+   tmax = MaxR8P
+   call check_slab(bmin=self%emin(1,b), bmax=self%emax(1,b), o=ray_origin(1), d=ray_direction(1), &
+                   must_return=must_return, tmin=tmin, tmax=tmax)
+   if (must_return) return
+   call check_slab(bmin=self%emin(2,b), bmax=self%emax(2,b), o=ray_origin(2), d=ray_direction(2), &
+                   must_return=must_return, tmin=tmin, tmax=tmax)
+   if (must_return) return
+   call check_slab(bmin=self%emin(3,b), bmax=self%emax(3,b), o=ray_origin(3), d=ray_direction(3), &
+                   must_return=must_return, tmin=tmin, tmax=tmax)
+   if (must_return) return
+   ! ray intersects all 3 slabs
+   do_intersect = .true.
+   contains
+      subroutine check_slab(bmin, bmax, o, d, must_return, tmin, tmax)
+      !< Perform ray intersection check in a direction-split fashion over slabs.
+      real(R8P), intent(in)    :: bmin        !< Box minimum bound in the current direction.
+      real(R8P), intent(in)    :: bmax        !< Box maximum bound in the current direction.
+      real(R8P), intent(in)    :: o           !< Ray origin in the current direction.
+      real(R8P), intent(in)    :: d           !< Ray slope in the current direction.
+      logical,   intent(inout) :: must_return !< Flag to check when to return from procedure.
+      real(R8P), intent(inout) :: tmin, tmax  !< Minimum maximum ray intersections with box slabs.
+      real(R8P)                :: ood, t1, t2 !< Intersection coefficients.
+      real(R8P)                :: tmp         !< Temporary buffer.
+
+      if ((d) < 1.E-16_R8P) then
+         ! ray is parallel to slab, no hit if origin not within slab
+         if ((o < bmin).or.(o > bmax)) then
+            must_return = .true.
+            return
+         endif
+      else
+         ! compute intersection t value of ray with near and far plane of slab
+         ood = 1._R8P / d
+         t1 = (bmin - o) * ood
+         t2 = (bmax - o) * ood
+         ! make t1 be intersection with near plane, t2 with far plane
+         if (t1 > t2) then
+            tmp = t1
+            t1 = t2
+            t2 = tmp
+         endif
+         ! compute the intersection of slab intersection intervals
+         if (t1 > tmin) tmin = t1
+         if (t2 > tmax) tmax = t2
+         ! exit with no collision as soon as slab intersection becomes empty
+         if (tmin > tmax) then
+            must_return = .true.
+            return
+         endif
+      endif
+      endsubroutine check_slab
+   endfunction do_ray_intersect
 
    subroutine initialize(self, grid, file_parameters, nv, nb)
    !< Initialize field.
