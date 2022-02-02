@@ -140,11 +140,11 @@ type :: equation_nasto_gpu_object
    real(R8P)      :: CFL              !< CFL time limit.
    real(R8P)      :: dt=0.0001_R8P    !< Maximum time step accordingly to CFL criterion.
    ! Slices
-   integer(I4P)              :: slices_number=0      !< Number of slices to be save.
-   integer(I4P), allocatable :: slice_type(:)        !< Type of slice, 1=coordinate-axis.
-   integer(I4P), allocatable :: slice_save(:)        !< Iteration interval between subsequent data-slice saves.
-   real(R8P),    allocatable :: slice_origin(:,:)    !< Slice origin [3,slices_number].
-   real(R8P),    allocatable :: slice_direction(:,:) !< Slice direction [3,slices_number].
+   integer(I4P)              :: slices_number=0 !< Number of slices to be save.
+   integer(I4P), allocatable :: slice_save(:)   !< Iteration interval between subsequent data-slice saves.
+   integer(I4P), allocatable :: slice_nijk(:,:) !< Slice number of points [3,slices_number].
+   real(R8P),    allocatable :: slice_emin(:,:) !< Slice minimum extents  [3,slices_number].
+   real(R8P),    allocatable :: slice_emax(:,:) !< Slice maximum extents  [3,slices_number].
    ! Initial conditions
    integer(I4P)           :: ic_type                     !< Initial condition type.
    real(R8P)              :: ic_vars(IC_VARS_NUMBER_MAX) !< Variables' array for initial conditions.
@@ -534,29 +534,23 @@ contains
    call self%runge_kutta_initialize
 
    if (self%slices_number > 0) then
-      allocate(self%slice_type(self%slices_number))
       allocate(self%slice_save(self%slices_number))
-      allocate(self%slice_origin(3,self%slices_number))
-      allocate(self%slice_direction(3,self%slices_number))
+      allocate(self%slice_nijk(3,self%slices_number))
+      allocate(self%slice_emin(3,self%slices_number))
+      allocate(self%slice_emax(3,self%slices_number))
       print '(A)', 'parse slices input setting'
       do i_slice=1,self%slices_number
          sname = 'slice_'//trim(str(i_slice,.true.))
-         call self%file_input%get(section_name=sname, option_name='slice_type', val=buf_I4)
-         self%slice_type(i_slice) = buf_I4
-         call self%file_input%get(section_name=sname, option_name='slice_save', val=buf_I4)
-         self%slice_save(i_slice) = buf_I4
-         call self%file_input%get(section_name=sname, option_name='slice_origin_x', val=buf_R8)
-         self%slice_origin(1,i_slice) = buf_R8
-         call self%file_input%get(section_name=sname, option_name='slice_origin_y', val=buf_R8)
-         self%slice_origin(2,i_slice) = buf_R8
-         call self%file_input%get(section_name=sname, option_name='slice_origin_z', val=buf_R8)
-         self%slice_origin(3,i_slice) = buf_R8
-         call self%file_input%get(section_name=sname, option_name='slice_direction_x', val=buf_R8)
-         self%slice_direction(1,i_slice) = buf_R8
-         call self%file_input%get(section_name=sname, option_name='slice_direction_y', val=buf_R8)
-         self%slice_direction(2,i_slice) = buf_R8
-         call self%file_input%get(section_name=sname, option_name='slice_direction_z', val=buf_R8)
-         self%slice_direction(3,i_slice) = buf_R8
+         call self%file_input%get(section_name=sname, option_name='slice_save', val=buf_I4)   ; self%slice_save(  i_slice) = buf_I4
+         call self%file_input%get(section_name=sname, option_name='slice_ni', val=buf_I4)     ; self%slice_nijk(1,i_slice) = buf_I4
+         call self%file_input%get(section_name=sname, option_name='slice_nj', val=buf_I4)     ; self%slice_nijk(2,i_slice) = buf_I4
+         call self%file_input%get(section_name=sname, option_name='slice_nk', val=buf_I4)     ; self%slice_nijk(3,i_slice) = buf_I4
+         call self%file_input%get(section_name=sname, option_name='slice_emin_x', val=buf_R8) ; self%slice_emin(1,i_slice) = buf_R8
+         call self%file_input%get(section_name=sname, option_name='slice_emin_y', val=buf_R8) ; self%slice_emin(2,i_slice) = buf_R8
+         call self%file_input%get(section_name=sname, option_name='slice_emin_z', val=buf_R8) ; self%slice_emin(3,i_slice) = buf_R8
+         call self%file_input%get(section_name=sname, option_name='slice_emax_x', val=buf_R8) ; self%slice_emax(1,i_slice) = buf_R8
+         call self%file_input%get(section_name=sname, option_name='slice_emax_y', val=buf_R8) ; self%slice_emax(2,i_slice) = buf_R8
+         call self%file_input%get(section_name=sname, option_name='slice_emax_z', val=buf_R8) ; self%slice_emax(3,i_slice) = buf_R8
       enddo
    endif
 
@@ -1201,6 +1195,11 @@ contains
    real(R8P)                                       :: timing(1:2)        !< Tic toc timing.
    real(R8P)                                       :: timing_step(1:2)   !< Tic toc timing.
 
+   logical                                         :: is_mine
+   integer(I8P)                                    :: b
+   integer(I4P)                                    :: ijk(3,8), v
+   real(R8P)                                       :: xyz(3,8), q(1,8), qp(1)
+
    call MPI_INIT(self%error)
 
    call self%initialize(filename=filename)
@@ -1240,6 +1239,22 @@ contains
    enddo integration
    call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing(2) = MPI_Wtime()
    print '(A, F18.10)', 'averaged timing: ', (timing(2) - timing(1))/self%it
+
+   call self%adam%interpolate_at_point(point=[3.9_R8P, 6.6_R8P, 10.4_R8P], &
+                                       q=self%field%q(1:1,:,:,:,:), &
+                                       qp=qp, is_mine=is_mine, qc=q, ijk=ijk, xyz=xyz, code=b, v=v)
+   print '(A)', 'cazzo block '//trim(str(b))
+   print '(A)', 'cazzo vertex '//trim(str(v))
+   print '(A)', 'cazzo cell 1 '//trim(str(ijk(:,1)))//'['//trim(str(xyz(:,1)))//']'//trim(str(q(1,1)))
+   print '(A)', 'cazzo cell 2 '//trim(str(ijk(:,2)))//'['//trim(str(xyz(:,2)))//']'//trim(str(q(1,2)))
+   print '(A)', 'cazzo cell 3 '//trim(str(ijk(:,3)))//'['//trim(str(xyz(:,3)))//']'//trim(str(q(1,3)))
+   print '(A)', 'cazzo cell 4 '//trim(str(ijk(:,4)))//'['//trim(str(xyz(:,4)))//']'//trim(str(q(1,4)))
+   print '(A)', 'cazzo cell 5 '//trim(str(ijk(:,5)))//'['//trim(str(xyz(:,5)))//']'//trim(str(q(1,5)))
+   print '(A)', 'cazzo cell 6 '//trim(str(ijk(:,6)))//'['//trim(str(xyz(:,6)))//']'//trim(str(q(1,6)))
+   print '(A)', 'cazzo cell 7 '//trim(str(ijk(:,7)))//'['//trim(str(xyz(:,7)))//']'//trim(str(q(1,7)))
+   print '(A)', 'cazzo cell 8 '//trim(str(ijk(:,8)))//'['//trim(str(xyz(:,8)))//']'//trim(str(q(1,8)))
+   print '(A)', 'cazzo interpolation '//trim(str(qp))
+
    is_cp_gpu_cpu_done = .false.
    call self%save_hdf5(is_cp_gpu_cpu_done=is_cp_gpu_cpu_done)
    call self%adam%finalize
@@ -1268,7 +1283,8 @@ contains
    character(*),                     intent(in), optional :: output_basename    !< Output basename.
    character(:), allocatable                              :: output_basename_   !< Output basename, local var.
 
-   if (mod(self%it,self%n_save)==0) then
+   if (mod(self%it,self%n_save)==0.or.self%it==self%t_max.or.&
+      (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0)))) then
       print '(A)', 'save HDF5 files t: '//trim(str(self%it,.true.))//', time: '//trim(str(self%time,.true.))
       if (.not.is_cp_gpu_cpu_done) then
          call self%copy_gpu_cpu(compute_q_aux=.true.)
@@ -1306,6 +1322,9 @@ contains
    class(equation_nasto_gpu_object), intent(inout) :: self               !< The equation.
    logical,                          intent(inout) :: is_cp_gpu_cpu_done !< Flag to minimize copies GPU-CPU for IO.
    integer(I4P)                                    :: s                  !< Slices counter.
+   integer(I4P)                                    :: i, j, k            !< Counter.
+   real(R8P)                                       :: dxyz(3)            !< Slice space steps.
+   real(R8P), allocatable                          :: points(:,:,:,:)    !< Slice points coordinates.
 
    if (self%slices_number>0) then
       do s=1, self%slices_number
@@ -1316,26 +1335,25 @@ contains
                call self%copy_gpu_cpu(compute_q_aux=.true.)
                is_cp_gpu_cpu_done = .true.
             endif
-            if (self%slice_type(s)==1) then
-               call self%adam%save_slice_caxis(slice_origin=self%slice_origin(1:3,s),                           &
-                                               slice_direction=self%slice_direction(1:3,s),                     &
-                                               basename=trim(self%output_basename)//                            &
-                                                        '-slice_'//trim(strz(s,2))//'-'//trim(strz(self%it,9)), &
-                                               q=self%field%q,                                                  &
-                                               q_aux=self%q_aux,                                                &
-                                               q_name=['rho','rhu','rhv','rhw','rhe'],                          &
-                                               q_aux_name=['rhob','u','v','w','ya','tem','pres','ental','csp'])
-            elseif (self%slice_type(s)==2) then
-               call self%adam%save_hdf5(basename=trim(self%output_basename)//                            &
-                                                 '-slice_'//trim(strz(s,2))//'-'//trim(strz(self%it,9)), &
-                                        q=self%field%q,                                                  &
-                                        q_aux=self%q_aux,                                                &
-                                        q_name=['rho','rhu','rhv','rhw','rhe'],                          &
-                                        q_aux_name=['rhob','u','v','w','ya','tem','pres','ental','csp'], &
-                                        with_cell_morton=.true.,                                         &
-                                        slice_origin=self%slice_origin(1:3,s),                           &
-                                        slice_normal=self%slice_direction(1:3,s))
-            endif
+            if (allocated(points)) deallocate(points)
+            allocate(points(3,self%slice_nijk(1,s),self%slice_nijk(2,s),self%slice_nijk(3,s)))
+            dxyz(1) = (self%slice_emax(1,s) - self%slice_emin(1,s)) / self%slice_nijk(1,s)
+            dxyz(2) = (self%slice_emax(2,s) - self%slice_emin(2,s)) / self%slice_nijk(2,s)
+            dxyz(3) = (self%slice_emax(3,s) - self%slice_emin(3,s)) / self%slice_nijk(3,s)
+            do k=1, self%slice_nijk(3,s)
+               do j=1, self%slice_nijk(2,s)
+                  do i=1, self%slice_nijk(1,s)
+                     points(1,i,j,k) = self%slice_emin(1,s) + (i - 0.5_R8P) * dxyz(1)
+                     points(2,i,j,k) = self%slice_emin(2,s) + (j - 0.5_R8P) * dxyz(2)
+                     points(3,i,j,k) = self%slice_emin(3,s) + (k - 0.5_R8P) * dxyz(3)
+                  enddo
+               enddo
+            enddo
+            call self%adam%save_slice(points=points,                                                   &
+                                      basename=trim(self%output_basename)//                            &
+                                               '-slice_'//trim(strz(s,2))//'-'//trim(strz(self%it,9)), &
+                                      q=self%field%q,                                                  &
+                                      q_name=['rho','rhu','rhv','rhw','rhe'])
          endif
       enddo
    endif

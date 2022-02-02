@@ -27,6 +27,7 @@ type :: grid_object
       procedure, pass(self) :: compute_weight_neighbor !< Compute weight of neighbors.
       procedure, pass(self) :: destroy                 !< Destroy the field.
       procedure, pass(self) :: do_cplane_intersect     !< Return true if a block is intersected by coordinate-plane.
+      procedure, pass(self) :: get_closest_block       !< Get the closest block to a given point at a given level.
       procedure, pass(self) :: initialize              !< Initialize the field.
       procedure, pass(self) :: load_from_ini_file      !< Load object data from INI file.
       procedure, pass(self) :: print_status            !< Print status of main data.
@@ -168,6 +169,22 @@ contains
       endif
    endif
    endfunction do_cplane_intersect
+
+   function get_closest_block(self, point, level) result(ijk)
+   !< Get the closest block to a given point at a given level.
+   class(grid_object), intent(in) :: self     !< The grid.
+   real(R8P),          intent(in) :: point(3) !< Point xyz coordinates.
+   integer(I4P),       intent(in) :: level    !< Refinement level.
+   integer(I4P)                   :: ijk(3)   !< Indexes of the closest (living or not) block.
+   real(R8P)                      :: dxyz(3)  !< Space steps.
+
+   dxyz(1) = (self%domain_emax(1) - self%domain_emin(1)) / 2**level
+   dxyz(2) = (self%domain_emax(2) - self%domain_emin(2)) / 2**level
+   dxyz(3) = (self%domain_emax(3) - self%domain_emin(3)) / 2**level
+   ijk(1) = ceiling((point(1) - self%domain_emin(1)) / dxyz(1), I4P)
+   ijk(2) = ceiling((point(2) - self%domain_emin(2)) / dxyz(2), I4P)
+   ijk(3) = ceiling((point(3) - self%domain_emin(3)) / dxyz(3), I4P)
+   endfunction get_closest_block
 
    subroutine initialize(self, file_parameters, ni, nj, nk, ngc, emin, emax, bc_type)
    !< Initialize field.

@@ -210,8 +210,8 @@ type :: tree_object
    ! STL surfaces data
    type(surface_stl_object)  :: surface_stl !< STL surface.
 
-   integer(I8P), allocatable                       :: temp_array_i8(:)
-   integer(I8P), allocatable                       :: codes_analyzed(:)    !< List of codes analyzed.
+   integer(I8P), allocatable :: temp_array_i8(:)
+   integer(I8P), allocatable :: codes_analyzed(:)    !< List of codes analyzed.
    contains
       ! public methods
       procedure, pass(self) :: adapt                        !< Adapt tree accordingly to refine/derefine necessity.
@@ -219,6 +219,8 @@ type :: tree_object
       procedure, pass(self) :: codes                        !< Return the list of (sorted) codes actually stored in the tree.
       procedure, pass(self) :: compute_surface_stl_distance !< Compute signed distance of nodes from a STL surface.
       procedure, pass(self) :: destroy                      !< Destroy the tree.
+      procedure, pass(self) :: get_closest_block            !< Get the closest block to a given point.
+      procedure, pass(self) :: get_closest_cells            !< Get the closest cells to a given point.
       procedure, pass(self) :: hash                         !< Hash the key.
       procedure, pass(self) :: has_code                     !< Check if the code is present in the tree.
       procedure, pass(self) :: initialize                   !< Initialize the tree.
@@ -516,6 +518,78 @@ contains
 
    self = fresh
    endsubroutine destroy
+
+   function get_closest_block(self, point) result(code)
+   !< Get the closest block to a given point.
+   class(tree_object), intent(in) :: self     !< The tree.
+   real(R8P),          intent(in) :: point(3) !< Point xyz coordinates.
+   integer(I8P)                   :: code     !< The Morton code.
+   integer(I4P)                   :: ijkl(4)  !< Indexes.
+   integer(I8P), allocatable      :: path(:)  !< Path codes from node to root.
+   integer(I4P)                   :: c        !< Counter.
+
+   ! find the block closest to the point in the finest refinement level
+   ijkl(1:3) = self%grid%get_closest_block(point=point, level=self%max_level)
+   code = self%coordinates_to_morton(i=ijkl(1), j=ijkl(2), k=ijkl(3), l=self%max_level)
+   if (.not.self%has_code(code=code)) then
+      ! finest-level block does not exist, return the finest living into its parents-path
+      path = self%path(code=code)
+      do c=lbound(path, dim=1), ubound(path, dim=1)
+         code = path(c)
+         if (self%has_code(code=code)) exit
+      enddo
+   endif
+   endfunction get_closest_block
+
+   subroutine get_closest_cells(self, point, code, ijk, v, xyz)
+   !< Get the closest cells to a given point.
+   class(tree_object), intent(in)            :: self     !< The tree.
+   real(R8P),          intent(in)            :: point(3) !< Point xyz coordinates.
+   integer(I8P),       intent(in)            :: code     !< The Morton code of the closest block.
+   integer(I4P),       intent(out)           :: ijk(3,8) !< Closest cells indexes.
+   integer(I4P),       intent(out), optional :: v        !< Closest vertex index.
+   real(R8P),          intent(out), optional :: xyz(3,8) !< Closest cells center-coordinates.
+   integer(I4P)                              :: v_       !< Closest vertex index, local var.
+   integer(I4P)                              :: ijkl(4)  !< Block indexes.
+   real(R8P)                                 :: emin(3)  !< Minimum block extent.
+   real(R8P)                                 :: dxyz(3)  !< Space steps.
+   integer(I4P)                              :: vijk(3)  !< Vertex indices.
+   integer(I4P)                              :: c,cc     !< Counter.
+   ! parameters
+   integer(I4P), parameter :: vi(0:1,0:1,0:1) = reshape([0,1,2,3,4,5,6,7],[2,2,2]) !< Vertices indexes.
+   integer(I4P), parameter :: ci(0:7)         = [-1,+1,-1,+1,-1,+1,-1,+1]          !< Cell-vertices x increments.
+   integer(I4P), parameter :: cj(0:7)         = [-1,-1,+1,+1,-1,-1,+1,+1]          !< Cell-vertices y increments.
+   integer(I4P), parameter :: ck(0:7)         = [-1,-1,-1,-1,+1,+1,+1,+1]          !< Cell-vertices z increments.
+
+   ! get metrics of the closest block
+   call self%morton_to_coordinates(code=code, i=ijkl(1), j=ijkl(2), k=ijkl(3), l=ijkl(4))
+   call self%grid%compute_metrics(coordinates=ijkl, emin=emin, dx=dxyz(1), dy=dxyz(2), dz=dxyz(3))
+   ! find closest cell, put it into first element of ijk array
+   ijk(1,1) = ceiling((point(1) - emin(1)) / dxyz(1), I4P)
+   ijk(2,1) = ceiling((point(2) - emin(2)) / dxyz(2), I4P)
+   ijk(3,1) = ceiling((point(3) - emin(3)) / dxyz(3), I4P)
+   ! find closest vertex into the closest cell
+   vijk(1) = nint((point(1) - (emin(1) + (ijk(1,1)-1) * dxyz(1))) / dxyz(1), I4P)
+   vijk(2) = nint((point(2) - (emin(2) + (ijk(2,1)-1) * dxyz(2))) / dxyz(2), I4P)
+   vijk(3) = nint((point(3) - (emin(3) + (ijk(3,1)-1) * dxyz(3))) / dxyz(3), I4P)
+   v_= vi(vijk(1), vijk(2), vijk(3))
+   ! find other 7 cells surrounding the vertex
+                                  ijk(1,2) = ijk(1,1) + ci(v_) ;  ijk(1,3) = ijk(1,1)          ;  ijk(1,4) = ijk(1,1) + ci(v_)
+                                  ijk(2,2) = ijk(2,1)          ;  ijk(2,3) = ijk(2,1) + cj(v_) ;  ijk(2,4) = ijk(2,1) + cj(v_)
+                                  ijk(3,2) = ijk(3,1)          ;  ijk(3,3) = ijk(3,1)          ;  ijk(3,4) = ijk(3,1)
+
+   ijk(1,5) = ijk(1,1)          ; ijk(1,6) = ijk(1,1) + ci(v_) ;  ijk(1,7) = ijk(1,1)          ;  ijk(1,8) = ijk(1,1) + ci(v_)
+   ijk(2,5) = ijk(2,1)          ; ijk(2,6) = ijk(2,1)          ;  ijk(2,7) = ijk(2,1) + cj(v_) ;  ijk(2,8) = ijk(2,1) + cj(v_)
+   ijk(3,5) = ijk(3,1) + ck(v_) ; ijk(3,6) = ijk(3,1) + ck(v_) ;  ijk(3,7) = ijk(3,1) + ck(v_) ;  ijk(3,8) = ijk(3,1) + ck(v_)
+   if (present(v)) v = v_
+   if (present(xyz)) then
+      do cc=1,8
+         do c=1,3
+            xyz(c,cc) = emin(c) + (ijk(c,cc)-0.5_R8P) * dxyz(c)
+         enddo
+      enddo
+   endif
+   endsubroutine get_closest_cells
 
    function has_code(self, code)
    !< Check if the key is present in the tree.

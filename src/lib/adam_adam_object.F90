@@ -39,6 +39,7 @@ type :: adam_object
       procedure, pass(self) :: destroy                       !< Destroy ADAM.
       procedure, pass(self) :: finalize                      !< Finalize ADAM.
       procedure, pass(self) :: initialize                    !< Initialize ADAM.
+      procedure, pass(self) :: interpolate_at_point          !< Interpolate a scalar variable at a given point.
       procedure, pass(self) :: load_restart_files            !< Load restart files.
       procedure, pass(self) :: make_comm_local_maps_ghost_bc !< Make communication/local maps of ghost cells.
       procedure, pass(self) :: mpi_gather_refinement_needed  !< Gather refinement needed.
@@ -48,7 +49,7 @@ type :: adam_object
       procedure, pass(self) :: refine_uniform                !< Refine all blocks uniformly.
       procedure, pass(self) :: save_hdf5                     !< Save ADAM in HDF5 format.
       procedure, pass(self) :: save_restart_files            !< Save restart files.
-      procedure, pass(self) :: save_slice_caxis              !< Save slice made by coordinate-axis.
+      procedure, pass(self) :: save_slice                    !< Save slice.
       procedure, pass(self) :: save_vtk                      !< Save ADAM in VTK  format.
       ! operators
       generic :: assignment(=) => adam_assign_adam      !< Overload `=`.
@@ -206,6 +207,61 @@ contains
    call self%amr_update
    endsubroutine initialize
 
+   subroutine interpolate_at_point(self, point, q, qp, is_mine, p, qc, ijk, xyz, code, v)
+   !< Interpolate a scalar variable at a given point.
+   class(adam_object), intent(in)            :: self      !< ADAM.
+   real(R8P),          intent(in)            :: point(3)  !< Interpolation point xyz coordinates.
+   real(R8P),          intent(in)            :: q(1:,              &
+                                                  1-self%grid%ngc:,&
+                                                  1-self%grid%ngc:,&
+                                                  1-self%grid%ngc:,&
+                                                  1:)     !< Q variables to be interpolated.
+   real(R8P),          intent(out)           :: qp(1:)    !< Q variables interpolated at given point.
+   logical,            intent(out)           :: is_mine   !< Flag to check if point interpolation belongs to myrank.
+   integer(I4P),       intent(in),  optional :: p         !< Power parameter.
+   real(R8P),          intent(out), optional :: qc(1:,1:) !< Closest cells q-variable values.
+   integer(I4P),       intent(out), optional :: ijk(3,8)  !< Closest cells indexes.
+   real(R8P),          intent(out), optional :: xyz(3,8)  !< Closest cells center-coordinates.
+   integer(I8P),       intent(out), optional :: code      !< Closest block Morton code.
+   integer(I4P),       intent(out), optional :: v         !< Closest vertex index.
+   integer(I8P)                              :: code_     !< Closest block Morton code, local var.
+   type(tree_node_object), pointer           :: node      !< Pointer to node.
+   integer(I4P)                              :: ijk_(3,8) !< Closest cells indexes, local var.
+   real(R8P)                                 :: xyz_(3,8) !< Closest cells center-coordinates, local var.
+   real(R8P)                                 :: w         !< Interpolation weights of closest cells.
+   real(R8P)                                 :: ws        !< Sum of interpolation weights of closest cells.
+   integer(I4P)                              :: p_        !< Power parameter, local var.
+   integer(I4P)                              :: i, j, k   !< Counter.
+
+   p_ = 3 ; if (present(p)) p_ = p
+   code_ = self%tree%get_closest_block(point=point)
+   node => self%tree%node(code=code_)
+   if (node%myrank == self%myrank) then
+      call self%tree%get_closest_cells(point=point, code=code_, ijk=ijk_, xyz=xyz_, v=v)
+      qp = 0._R8P
+      ws = 0._R8P
+      do j=1, 8
+         w = 0._R8P
+         do i=1, 3
+            w = w + (xyz_(i,j) - point(i)) ** 2 ! square distance from point
+         enddo
+         w = 1._R8P / w ** p_
+         ws = ws + w
+         do k=1,size(q, dim=1)
+            qp(k) = qp(k) + w * q(k,ijk_(1,j),ijk_(2,j),ijk_(3,j),node%block_index)
+            if (present(qc)) qc(k,j) = q(k,ijk_(1,j),ijk_(2,j),ijk_(3,j),node%block_index)
+         enddo
+      enddo
+      qp = qp / ws
+      is_mine = .true.
+      if (present(ijk))  ijk  = ijk_
+      if (present(xyz))  xyz  = xyz_
+      if (present(code)) code = code_
+   else
+      is_mine = .false.
+   endif
+   endsubroutine interpolate_at_point
+
    subroutine make_comm_local_maps_ghost_bc(self)
    !< Make communication/local maps of ghost cells and boundary conditions.
    class(adam_object), intent(inout) :: self !< ADAM.
@@ -324,8 +380,7 @@ contains
    call self%field%save_blocks(basename=basename)
    endsubroutine save_restart_files
 
-   subroutine save_hdf5(self, basename, q, q_aux, q_name, q_aux_name, directory, with_ghost, with_cell_morton, t, time, &
-                        slice_origin, slice_normal)
+   subroutine save_hdf5(self, basename, q, q_aux, q_name, q_aux_name, directory, with_ghost, with_cell_morton, t, time)
    !< Save ADAM in HDF5 format.
    class(adam_object), intent(inout)        :: self                    !< ADAM.
    character(*),       intent(in)           :: basename                !< Base name of output files.
@@ -346,8 +401,6 @@ contains
    logical,            intent(in), optional :: with_cell_morton        !< Flag to save Morton code also in cells.
    integer(I4P),       intent(in), optional :: t                       !< Time iteration.
    real(R8P),          intent(in), optional :: time                    !< Time.
-   real(R8P),          intent(in), optional :: slice_origin(3)         !< Coordinate-plane origin.
-   real(R8P),          intent(in), optional :: slice_normal(3)         !< Coordinate-plane normal.
    character(:), allocatable                :: q_name_(:)              !< Q variables names, local var.
    character(:), allocatable                :: q_aux_name_(:)          !< Q auxiliary variables names, local var.
    character(:), allocatable                :: directory_              !< Directory name of output files, local var.
@@ -369,8 +422,6 @@ contains
    integer(I4P)                             :: node_level              !< Node level counter.
    integer(I4P)                             :: i, j, k, l              !< Counter.
    integer(I4P)                             :: ijk(3,2)                !< Blocks extents.
-   integer(I4P)                             :: cplane_block_indexes(3) !< Block indexes of cplane intersection.
-   integer(I4P)                             :: sijk                    !< Index of cplane in blocks.
 
    if (present(q_name)) then
       allocate(character(len(q_name(1))):: q_name_(size(q, dim=1)))
@@ -400,30 +451,9 @@ contains
    endif
 
    associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
-   if (present(slice_origin).and.present(slice_normal)) then
-      if     (nint(slice_normal(1))==1) then
-         sijk = 1
-         ijk(1,:) = [1,1]
-         ijk(2,:) = [1-ngc,nj+ngc]
-         ijk(3,:) = [1-ngc,nk+ngc]
-      elseif (nint(slice_normal(2))==1) then
-         sijk = 2
-         ijk(1,:) = [1-ngc,ni+ngc]
-         ijk(2,:) = [1,1]
-         ijk(3,:) = [1-ngc,nk+ngc]
-      elseif (nint(slice_normal(3))==1) then
-         sijk = 3
-         ijk(1,:) = [1-ngc,ni+ngc]
-         ijk(2,:) = [1-ngc,nj+ngc]
-         ijk(3,:) = [1,1]
-      else
-         ! raise error
-      endif
-   else
-      ijk(1,:) = [1-ngc,ni+ngc]
-      ijk(2,:) = [1-ngc,nj+ngc]
-      ijk(3,:) = [1-ngc,nk+ngc]
-   endif
+   ijk(1,:) = [1-ngc,ni+ngc]
+   ijk(2,:) = [1-ngc,nj+ngc]
+   ijk(3,:) = [1-ngc,nk+ngc]
    endassociate
 
    ! save H5 file (one for each process)
@@ -435,41 +465,19 @@ contains
                   h5_dspace_id=h5_dspace_id)
    ! save all blocks in process
    do b=1, self%field%blocks_number
-      if (present(slice_origin).and.present(slice_normal)) then
-         if (self%field%do_cplane_intersect(b=int(b,I4P),               &
-                                            cplane_origin=slice_origin, &
-                                            cplane_normal=slice_normal, &
-                                            cplane_block_indexes=cplane_block_indexes)) then
-            ijk(sijk,:) = cplane_block_indexes(sijk)
-            call save_hdf5_block(h5_file_id=h5_file_id,                                          &
-                                 h5_dspace_id=h5_dspace_id,                                      &
-                                 myrank=self%myrank,                                             &
-                                 code=self%field%code(b),                                        &
-                                 block_index=b,                                                  &
-                                 ii=ijk(1,:),                                                    &
-                                 jj=ijk(2,:),                                                    &
-                                 kk=ijk(3,:),                                                    &
-                                 q=q(:,ijk(1,1):ijk(1,2),ijk(2,1):ijk(2,2),ijk(3,1):ijk(3,2),b), &
-                                 q_name=q_name_,                                                 &
-                                 with_cell_morton=with_cell_morton_,                             &
-                                 q_aux_name=q_aux_name_,                                         &
-                                 q_aux=q_aux(:,ijk(1,1):ijk(1,2),ijk(2,1):ijk(2,2),ijk(3,1):ijk(3,2),b))
-         endif
-      else
-         call save_hdf5_block(h5_file_id=h5_file_id,                                          &
-                              h5_dspace_id=h5_dspace_id,                                      &
-                              myrank=self%myrank,                                             &
-                              code=self%field%code(b),                                        &
-                              block_index=b,                                                  &
-                              ii=ijk(1,:),                                                    &
-                              jj=ijk(2,:),                                                    &
-                              kk=ijk(3,:),                                                    &
-                              q=q(:,ijk(1,1):ijk(1,2),ijk(2,1):ijk(2,2),ijk(3,1):ijk(3,2),b), &
-                              q_name=q_name_,                                                 &
-                              with_cell_morton=with_cell_morton_,                             &
-                              q_aux_name=q_aux_name_,                                         &
-                              q_aux=q_aux(:,ijk(1,1):ijk(1,2),ijk(2,1):ijk(2,2),ijk(3,1):ijk(3,2),b))
-      endif
+      call save_hdf5_block(h5_file_id=h5_file_id,                                          &
+                           h5_dspace_id=h5_dspace_id,                                      &
+                           myrank=self%myrank,                                             &
+                           code=self%field%code(b),                                        &
+                           block_index=b,                                                  &
+                           ii=ijk(1,:),                                                    &
+                           jj=ijk(2,:),                                                    &
+                           kk=ijk(3,:),                                                    &
+                           q=q(:,ijk(1,1):ijk(1,2),ijk(2,1):ijk(2,2),ijk(3,1):ijk(3,2),b), &
+                           q_name=q_name_,                                                 &
+                           with_cell_morton=with_cell_morton_,                             &
+                           q_aux_name=q_aux_name_,                                         &
+                           q_aux=q_aux(:,ijk(1,1):ijk(1,2),ijk(2,1):ijk(2,2),ijk(3,1):ijk(3,2),b))
    enddo
    call close_hdf5(h5_file_id=h5_file_id, h5_dspace_id=h5_dspace_id)
 
@@ -490,81 +498,50 @@ contains
          call self%tree%morton_to_coordinates(code=node%code, i=i, j=j, k=k, l=l)
          call self%grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax, dx=dxyz(1), dy=dxyz(2), dz=dxyz(3))
          emin = [emin(1)-ngc*dxyz(1),emin(2)-ngc*dxyz(2),emin(3)-ngc*dxyz(3)]
-         if (present(slice_origin).and.present(slice_normal)) then
-            if (self%grid%do_cplane_intersect(emin=emin, emax=emax, dxyz=dxyz, &
-                                              cplane_origin=slice_origin,      &
-                                              cplane_normal=slice_normal,      &
-                                              cplane_block_indexes=cplane_block_indexes)) then
-               ijk(sijk,:) = cplane_block_indexes(sijk)
-               emin(sijk) = slice_origin(sijk)
-               call save_xdmf_block(file_unit=xdmf_unit,                                                &
-                                    h5_file_name=h5_file_name,                                          &
-                                    myrank=node%myrank,                                                 &
-                                    code=node%code,                                                     &
-                                    block_index=node%block_index,                                       &
-                                    emin=emin,                                                          &
-                                    dxyz=dxyz,                                                          &
-                                    nijk=[ijk(1,2)-ijk(1,1)+2,ijk(2,2)-ijk(2,1)+2,ijk(3,2)-ijk(3,1)+2], &
-                                    q_name=q_name_,                                                     &
-                                    with_cell_morton=with_cell_morton_,                                 &
-                                    q_aux_name=q_aux_name_,                                             &
-                                    t=t,                                                                &
-                                    time=time)
-            endif
-         else
-            call save_xdmf_block(file_unit=xdmf_unit,                                                &
-                                 h5_file_name=h5_file_name,                                          &
-                                 myrank=node%myrank,                                                 &
-                                 code=node%code,                                                     &
-                                 block_index=node%block_index,                                       &
-                                 emin=emin,                                                          &
-                                 dxyz=dxyz,                                                          &
-                                 nijk=[ijk(1,2)-ijk(1,1)+2,ijk(2,2)-ijk(2,1)+2,ijk(3,2)-ijk(3,1)+2], &
-                                 q_name=q_name_,                                                     &
-                                 with_cell_morton=with_cell_morton_,                                 &
-                                 q_aux_name=q_aux_name_,                                             &
-                                 t=t,                                                                &
-                                 time=time)
-         endif
+         call save_xdmf_block(file_unit=xdmf_unit,                                                &
+                              h5_file_name=h5_file_name,                                          &
+                              myrank=node%myrank,                                                 &
+                              code=node%code,                                                     &
+                              block_index=node%block_index,                                       &
+                              emin=emin,                                                          &
+                              dxyz=dxyz,                                                          &
+                              nijk=[ijk(1,2)-ijk(1,1)+2,ijk(2,2)-ijk(2,1)+2,ijk(3,2)-ijk(3,1)+2], &
+                              q_name=q_name_,                                                     &
+                              with_cell_morton=with_cell_morton_,                                 &
+                              q_aux_name=q_aux_name_,                                             &
+                              t=t,                                                                &
+                              time=time)
       enddo
       write(xdmf_unit, '(A)') '      </Grid>'
       call close_xdmf(file_unit=xdmf_unit)
    endif
    endsubroutine save_hdf5
 
-   subroutine save_slice_caxis(self, slice_origin, slice_direction, &
-                               basename, q, q_aux, q_name, q_aux_name, with_ghost, t, time)
-   !< Save slice made by coordinate-axis.
-   class(adam_object), intent(inout)        :: self                                          !< ADAM.
-   real(R8P),          intent(in)           :: slice_origin(3)                               !< Coordinate-axis origin.
-   real(R8P),          intent(in)           :: slice_direction(3)                            !< Coordinate-axis direction.
-   character(*),       intent(in)           :: basename                                      !< Base name of output files.
+   subroutine save_slice(self, points, basename, q, q_aux, q_name, q_aux_name, t, time)
+   !< Save slice.
+   class(adam_object), intent(inout)        :: self                !< ADAM.
+   real(R8P),          intent(in)           :: points(1:,1:,1:,1:) !< Interpolation points coordinates [1:3,1:ni,1:nj,1:nk].
+   character(*),       intent(in)           :: basename            !< Base name of output files.
    real(R8P),          intent(in)           :: q(1:,              &
                                                  1-self%grid%ngc:,&
                                                  1-self%grid%ngc:,&
                                                  1-self%grid%ngc:,&
-                                                 1:)                                         !< Q variables to be saved.
+                                                 1:)                    !< Q variables to be saved.
    real(R8P),          intent(in), optional :: q_aux(1:,              &
                                                      1-self%grid%ngc:,&
                                                      1-self%grid%ngc:,&
                                                      1-self%grid%ngc:,&
-                                                     1:)                                     !< Q auxiliary variables to be saved.
-   character(*),       intent(in), optional :: q_name(:)                                     !< Variables names.
-   character(*),       intent(in), optional :: q_aux_name(:)                                 !< Q auxiliary variables names.
-   logical,            intent(in), optional :: with_ghost                                    !< Flag to save ghost cells.
-   integer(I4P),       intent(in), optional :: t                                             !< Time iteration.
-   real(R8P),          intent(in), optional :: time                                          !< Time.
-   character(:), allocatable                :: q_name_(:)                                    !< Variables names, local var.
-   character(:), allocatable                :: q_aux_name_(:)                                !< Q auxiliary variables names, l. var.
-   logical                                  :: with_ghost_                                   !< Flag to save ghost cells, local var.
-   integer(I4P)                             :: v                                             !< Counter.
-   integer(I4P)                             :: ngc                                           !< Ghost cells saved.
-   integer(I4P)                             :: file_unit                                     !< Unit file.
-   integer(I4P)                             :: caxis_block_indexes(3)                        !< Block indexes of caxis intersection.
-   integer(I4P)                             :: b                                             !< Counter.
-   real(R8P)                                :: x(1-self%grid%ngc:self%grid%ni+self%grid%ngc) !< X coordinates.
-   real(R8P)                                :: y(1-self%grid%ngc:self%grid%nj+self%grid%ngc) !< Y coordinates.
-   real(R8P)                                :: z(1-self%grid%ngc:self%grid%nk+self%grid%ngc) !< Z coordinates.
+                                                     1:)           !< Q auxiliary variables to be saved.
+   character(*),       intent(in), optional :: q_name(:)           !< Variables names.
+   character(*),       intent(in), optional :: q_aux_name(:)       !< Q auxiliary variables names.
+   integer(I4P),       intent(in), optional :: t                   !< Time iteration.
+   real(R8P),          intent(in), optional :: time                !< Time.
+   character(:), allocatable                :: q_name_(:)          !< Variables names, local var.
+   character(:), allocatable                :: q_aux_name_(:)      !< Q auxiliary variables names, l. var.
+   integer(I4P)                             :: file_unit           !< Unit file.
+   real(R8P)                                :: qp(1:self%field%nv) !< Q variables interpolated at given point.
+   logical                                  :: is_mine             !< Flag to check if point interpolation belongs to myrank.
+   integer(I4P)                             :: i, j, k, v          !< Counter.
 
    if (present(q_name)) then
       allocate(character(len(q_name(1))):: q_name_(size(q, dim=1)))
@@ -584,74 +561,21 @@ contains
          q_aux_name_(v) = 'qaux-'//trim(strz(v,2))
       enddo
    endif
-   with_ghost_ = .false. ; if (present(with_ghost)) with_ghost_ = with_ghost
-   ngc = 0_I4P ; if (with_ghost_) ngc = self%grid%ngc
 
-   if (nint(slice_direction(1))==1) then
-      call open_slice_caxis(file_name=trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.dat', &
-                            xn='x', xo=['y','z'], q_name=q_name_, q_aux_name=q_aux_name_, file_unit=file_unit)
-      do b=1, self%field%blocks_number
-         if (self%field%do_caxis_intersect(b=b,                             &
-                                           caxis_origin=slice_origin,       &
-                                           caxis_direction=slice_direction, &
-                                           caxis_block_indexes=caxis_block_indexes)) then
-            call self%grid%compute_metrics(coordinates=self%field%coordinates(:,b), x_cell=x)
-            call save_slice_caxis_block(file_unit = file_unit,                                                  &
-                                        nn        = self%grid%ni,                                               &
-                                        ngc       = ngc,                                                        &
-                                        level     = self%field%coordinates(4,b),                                &
-                                        code      = self%field%code(b),                                         &
-                                        xn        = x,                                                          &
-                                        xo        = [y(caxis_block_indexes(2)),z(caxis_block_indexes(3))],      &
-                                        qn        =     q(:,:,caxis_block_indexes(2),caxis_block_indexes(3),b), &
-                                        qn_aux    = q_aux(:,:,caxis_block_indexes(2),caxis_block_indexes(3),b))
-         endif
+   call open_slice_file(file_name=trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.dat', &
+                        q_name=q_name_, q_aux_name=q_aux_name_,                                        &
+                        nijk=[size(points,dim=2),size(points,dim=3),size(points,dim=4)],               &
+                        file_unit=file_unit)
+   do k=lbound(points, dim=4), ubound(points, dim=4)
+      do j=lbound(points, dim=3), ubound(points, dim=3)
+         do i=lbound(points, dim=2), ubound(points, dim=2)
+            call self%interpolate_at_point(point=points(:,i,j,k), q=q, qp=qp, is_mine=is_mine)
+            if (is_mine) call save_slice_record(file_unit=file_unit, point=points(:,i,j,k), qp=qp)
+         enddo
       enddo
-      call close_slice_caxis(file_unit=file_unit)
-   elseif (nint(slice_direction(2))==1) then
-      call open_slice_caxis(file_name=trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.dat', &
-                            xn='y', xo=['x','z'], q_name=q_name_, q_aux_name=q_aux_name_, file_unit=file_unit)
-      do b=1, self%field%blocks_number
-         if (self%field%do_caxis_intersect(b=b,                             &
-                                           caxis_origin=slice_origin,       &
-                                           caxis_direction=slice_direction, &
-                                           caxis_block_indexes=caxis_block_indexes)) then
-            call self%grid%compute_metrics(coordinates=self%field%coordinates(:,b), y_cell=y)
-            call save_slice_caxis_block(file_unit = file_unit,                                                  &
-                                        nn        = self%grid%nj,                                               &
-                                        ngc       = ngc,                                                        &
-                                        level     = self%field%coordinates(4,b),                                &
-                                        code      = self%field%code(b),                                         &
-                                        xn        = y,                                                          &
-                                        xo        = [x(caxis_block_indexes(1)),z(caxis_block_indexes(3))],      &
-                                        qn        =     q(:,caxis_block_indexes(1),:,caxis_block_indexes(3),b), &
-                                        qn_aux    = q_aux(:,caxis_block_indexes(1),:,caxis_block_indexes(3),b))
-         endif
-      enddo
-      call close_slice_caxis(file_unit=file_unit)
-   elseif (nint(slice_direction(3))==1) then
-      call open_slice_caxis(file_name=trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.dat', &
-                            xn='z', xo=['x','y'], q_name=q_name_, q_aux_name=q_aux_name_, file_unit=file_unit)
-      do b=1, self%field%blocks_number
-         if (self%field%do_caxis_intersect(b=b,                             &
-                                           caxis_origin=slice_origin,       &
-                                           caxis_direction=slice_direction, &
-                                           caxis_block_indexes=caxis_block_indexes)) then
-            call self%grid%compute_metrics(coordinates=self%field%coordinates(:,b), z_cell=z)
-            call save_slice_caxis_block(file_unit = file_unit,                                                  &
-                                        nn        = self%grid%nk,                                               &
-                                        ngc       = ngc,                                                        &
-                                        level     = self%field%coordinates(4,b),                                &
-                                        code      = self%field%code(b),                                         &
-                                        xn        = z,                                                          &
-                                        xo        = [x(caxis_block_indexes(1)),y(caxis_block_indexes(2))],      &
-                                        qn        =     q(:,caxis_block_indexes(1),caxis_block_indexes(2),:,b), &
-                                        qn_aux    = q_aux(:,caxis_block_indexes(1),caxis_block_indexes(2),:,b))
-         endif
-      enddo
-      call close_slice_caxis(file_unit=file_unit)
-   endif
-   endsubroutine save_slice_caxis
+   enddo
+   call close_slice_file(file_unit=file_unit)
+   endsubroutine save_slice
 
    subroutine save_vtk(self, basename, q, q_aux, q_name, q_aux_name, directory, with_ghost, with_cell_morton, t, time)
    !< Save ADAM in VTK files.
@@ -966,64 +890,56 @@ contains
    write(file_unit, '(A)') '        </Grid>'
    endsubroutine save_xdmf_block
 
-   ! slice caxis
-   subroutine close_slice_caxis(file_unit)
-   !< Close slice file.
-   integer(I4P), intent(in) :: file_unit !< Slice file unit.
-
-   close(file_unit)
-   endsubroutine close_slice_caxis
-
-   subroutine open_slice_caxis(file_name, xn, xo, q_name, q_aux_name, file_unit)
-   !< Open file for coordinate-axis slice.
-   character(*), intent(in)               :: file_name     !< Slice file name.
-   character(1), intent(in)               :: xn            !< Abscissa along slice.
-   character(1), intent(in)               :: xo(2)         !< Other abscissa of slice.
+   ! slice
+   subroutine open_slice_file(file_name, q_name, q_aux_name, nijk, file_unit)
+   !< Open slice file.
+   character(*),              intent(in)  :: file_name     !< Slice file name.
    character(*),              intent(in)  :: q_name(:)     !< Q variables names.
    character(*), allocatable, intent(in)  :: q_aux_name(:) !< Q auxiliary variables names.
+   integer(I4P),              intent(in)  :: nijk(3)       !< Slice dimensions.
    integer(I4P),              intent(out) :: file_unit     !< Unit file.
    character(:), allocatable              :: file_buffer   !< File buffer string.
    integer(I4P)                           :: v             !< Counter.
 
    open(newunit=file_unit, file=trim(file_name), form='FORMATTED')
-   file_buffer = 'level, block, '//xn//', '//xo(1)//', '//xo(2)
+   file_buffer = 'VARIABLES = "x" "y" "Z"'
    do v=1, size(q_name, dim=1)
-      file_buffer = file_buffer//', '//q_name(v)
+      file_buffer = file_buffer//' "'//q_name(v)//'"'
    enddo
    if (allocated(q_aux_name)) then
       do v=1, size(q_aux_name, dim=1)
-         file_buffer = file_buffer//', '//q_aux_name(v)
+         file_buffer = file_buffer//' "'//q_aux_name(v)//'"'
       enddo
    endif
+   file_buffer = file_buffer//new_line('a')//&
+                 'ZONE'//     new_line('a')//&
+                 'I = '//trim(str(nijk(1)))//', '//'J = '//trim(str(nijk(2)))//', '//'K = '//trim(str(nijk(3)))
    write(unit=file_unit, '(A)') trim(file_buffer)
-   endsubroutine open_slice_caxis
+   endsubroutine open_slice_file
 
-   subroutine save_slice_caxis_block(file_unit, nn, ngc, level, code, xn, xo, qn, qn_aux)
-   !< Write a file buffer record for coordinate-axis slice.
-   integer(I4P), intent(in)           :: file_unit         !< Unit file.
-   integer(I4P), intent(in)           :: nn                !< Number of cells to be saved.
-   integer(I4P), intent(in)           :: ngc               !< Number of ghost cells.
-   integer(I4P), intent(in)           :: level             !< Block refinement level.
-   integer(I8P), intent(in)           :: code              !< Block Morton code.
-   real(R8P),    intent(in)           :: xn(1-ngc:)        !< Abscissa along slice.
-   real(R8P),    intent(in)           :: xo(2)             !< Other abscissa of slice.
-   real(R8P),    intent(in)           :: qn(1:,1-ngc:)     !< Cells conservative variables.
-   real(R8P),    intent(in), optional :: qn_aux(1:,1-ngc:) !< Cells auxiliary variables.
-   character(:), allocatable          :: file_buffer       !< File buffer string.
-   integer(I4P)                       :: n, v              !< Counter.
+   subroutine close_slice_file(file_unit)
+   !< Close slice file.
+   integer(I4P), intent(in) :: file_unit !< Slice file unit.
 
-   do n=1-ngc, nn+ngc
-      file_buffer = trim(str(level))//', '//trim(str(code))//', '//trim(str(xn(n)))//', '//trim(str(xo(1)))//', '//trim(str(xo(2)))
-      do v=1, size(qn, dim=1)
-         file_buffer = file_buffer//', '//trim(str(qn(v,n)))
-      enddo
-      if (present(qn_aux)) then
-         do v=1, size(qn_aux, dim=1)
-            file_buffer = file_buffer//', '//trim(str(qn_aux(v,n)))
-         enddo
-      endif
-      write(unit=file_unit, '(A)') trim(file_buffer)
+   close(file_unit)
+   endsubroutine close_slice_file
+
+   subroutine save_slice_record(file_unit, point, qp)
+   !< Save slice record.
+   integer(I4P), intent(in)  :: file_unit   !< Slice file unit.
+   real(R8P),    intent(in)  :: point(1:)   !< Interpolation points coordinates [1:3].
+   real(R8P),    intent(in)  :: qp(1:)      !< Q variables interpolated at given point.
+   character(:), allocatable :: file_buffer !< File buffer string.
+   integer(I4P)              :: v           !< Counter.
+
+   file_buffer = ''
+   do v=1, size(point, dim=1)
+      file_buffer = file_buffer//trim(str(point(v)))//' '
    enddo
-   endsubroutine save_slice_caxis_block
-
+   do v=1, size(qp, dim=1) - 1
+      file_buffer = file_buffer//trim(str(qp(v)))//' '
+   enddo
+   file_buffer = file_buffer//trim(str(qp(size(qp, dim=1))))
+   write(file_unit, '(A)') file_buffer
+   endsubroutine save_slice_record
 endmodule adam_adam_object
