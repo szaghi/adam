@@ -36,35 +36,70 @@ else:
             nk = int(hnijk.split(',')[2].split('=')[1])
             slice_o = np.loadtxt(base_name + ".dat", delimiter=" ", skiprows=3)
             slice_r = slice_o.reshape(ni,nj,nk,nv)
-            if ni == 1:
+            slice_type = '3D'
+            if   ni == 1 and nj == 1:
+                slice_type = '1D'
+                x = slice_r[0,0,:,2]
+                r = slice_r[0,0,:,v]
+                x_label = 'Z'
+                y_label = args.clabel
+            elif ni == 1 and nk == 1:
+                slice_type = '1D'
                 x = slice_r[0,:,0,1]
-                y = slice_r[0,0,:,2]
+                r = slice_r[0,:,0,v]
+                x_label = 'Y'
+                y_label = args.clabel
+            elif nj == 1 and nk == 1:
+                slice_type = '1D'
+                x = slice_r[:,0,0,0]
+                r = slice_r[:,0,0,v]
+                x_label = 'X'
+                y_label = args.clabel
+            elif ni == 1:
+                slice_type = '2D'
+                x = slice_r[0,0,:,1]
+                y = slice_r[0,:,0,2]
                 r = slice_r[0,:,:,v]
                 x_label = 'Y'
                 y_label = 'Z'
             elif nj == 1:
+                slice_type = '2D'
                 x = slice_r[0,0,:,0]
                 y = slice_r[:,0,0,2]
                 r = slice_r[:,0,:,v]
                 x_label = 'X'
                 y_label = 'Z'
             elif nk == 1:
+                slice_type = '2D'
                 x = slice_r[0,:,0,0]
                 y = slice_r[:,0,0,1]
                 r = slice_r[:,:,0,v]
                 x_label = 'X'
                 y_label = 'Y'
-            # create contour plot
-            fig, ax = plt.subplots(1, 1)
-            ax.set_xlabel(x_label)
-            ax.set_ylabel(y_label)
-            ax.set_title('2D Slice ' + x_label + y_label)
-            if args.levels is not None:
-                levels = np.linspace(args.levels[0], args.levels[1], int(args.levels[2]) + 1)
-                cf = plt.contourf(x, y, r, levels=levels, cmap='RdGy')
-            else :
-                cf = plt.contourf(x, y, r, levels=20, cmap='RdGy')
-            cbar = plt.colorbar(cf)
-            cbar.ax.set_ylabel(args.clabel, labelpad=10, rotation=270)
-            plt.savefig(base_name + '.png')
-            plt.close()
+            if slice_type == '2D':
+                # create contour plot
+                fig, ax = plt.subplots(1, 1)
+                ax.set_xlabel(x_label)
+                ax.set_ylabel(y_label)
+                ax.set_title('2D Slice ' + x_label + y_label)
+                if args.levels is not None:
+                    levels = np.linspace(args.levels[0], args.levels[1], int(args.levels[2]) + 1)
+                    cf = plt.contourf(x, y, r, levels=levels, cmap='RdGy')
+                else :
+                    cf = plt.contourf(x, y, r, levels=20, cmap='RdGy')
+                cbar = plt.colorbar(cf)
+                cbar.ax.set_ylabel(args.clabel, labelpad=10, rotation=270)
+                plt.savefig(base_name + '.png')
+                plt.close()
+            elif slice_type == '1D':
+                # create xy plot
+                fig, ax = plt.subplots(1, 1)
+                ax.set_xlabel(x_label)
+                ax.set_ylabel(y_label)
+                ax.set_title('1D Slice ' + x_label)
+                if args.levels is not None:
+                    ax.set_ylim([args.levels[0], args.levels[1]])
+                plt.grid()
+                xy = plt.plot(x, r)
+                plt.savefig(base_name + '.png')
+                plt.close()
