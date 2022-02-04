@@ -20,12 +20,12 @@ if args.mp4 is not None:
     os.system('ffmpeg -framerate 10 -pattern_type glob -i "' + slice_files_pattern + '*.png" ' + args.mp4)
 else:
     for file_name in os.listdir("./"):
-        if file_name.startswith(slice_files_pattern):
+        if file_name.startswith(slice_files_pattern) and file_name.endswith(".dat"):
             print('plot file ' + file_name)
             base_name = file_name.split('.')[0]
             # load data
             with open(base_name + ".dat") as sf:
-              head = [next(sf) for x in range(3)]
+                head = [next(sf) for x in range(3)]
             # number of variables saved
             hnv = head[0].strip()
             nv = len(hnv.split('= ')[1].split(' '))

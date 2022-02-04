@@ -517,31 +517,36 @@ contains
    endif
    endsubroutine save_hdf5
 
-   subroutine save_slice(self, points, basename, q, q_aux, q_name, q_aux_name, t, time)
+   subroutine save_slice(self, points, basename, q, q_name, phi, t, time)
    !< Save slice.
-   class(adam_object), intent(inout)        :: self                !< ADAM.
-   real(R8P),          intent(in)           :: points(1:,1:,1:,1:) !< Interpolation points coordinates [1:3,1:ni,1:nj,1:nk].
-   character(*),       intent(in)           :: basename            !< Base name of output files.
+   class(adam_object), intent(inout)        :: self                  !< ADAM.
+   real(R8P),          intent(in)           :: points(1:,1:,1:,1:)   !< Interpolation points coordinates [1:3,1:ni,1:nj,1:nk].
+   character(*),       intent(in)           :: basename              !< Base name of output files.
    real(R8P),          intent(in)           :: q(1:,              &
                                                  1-self%grid%ngc:,&
                                                  1-self%grid%ngc:,&
                                                  1-self%grid%ngc:,&
-                                                 1:)                    !< Q variables to be saved.
-   real(R8P),          intent(in), optional :: q_aux(1:,              &
-                                                     1-self%grid%ngc:,&
-                                                     1-self%grid%ngc:,&
-                                                     1-self%grid%ngc:,&
-                                                     1:)           !< Q auxiliary variables to be saved.
-   character(*),       intent(in), optional :: q_name(:)           !< Variables names.
-   character(*),       intent(in), optional :: q_aux_name(:)       !< Q auxiliary variables names.
-   integer(I4P),       intent(in), optional :: t                   !< Time iteration.
-   real(R8P),          intent(in), optional :: time                !< Time.
-   character(:), allocatable                :: q_name_(:)          !< Variables names, local var.
-   character(:), allocatable                :: q_aux_name_(:)      !< Q auxiliary variables names, l. var.
-   integer(I4P)                             :: file_unit           !< Unit file.
-   real(R8P)                                :: qp(1:self%field%nv) !< Q variables interpolated at given point.
-   logical                                  :: is_mine             !< Flag to check if point interpolation belongs to myrank.
-   integer(I4P)                             :: i, j, k, v          !< Counter.
+                                                 1:)                 !< Q variables to be saved.
+   character(*),       intent(in), optional :: q_name(:)             !< Variables names.
+   real(R8P),          intent(in), optional :: phi(1:,              &
+                                                   1-self%grid%ngc:,&
+                                                   1-self%grid%ngc:,&
+                                                   1-self%grid%ngc:) !< Distance function.
+   integer(I4P),       intent(in), optional :: t                     !< Time iteration.
+   real(R8P),          intent(in), optional :: time                  !< Time.
+   character(:), allocatable                :: q_name_(:)            !< Variables names, local var.
+   character(:), allocatable                :: q_aux_name_(:)        !< Q auxiliary variables names, l. var.
+   real(R8P)                                :: qp(1:size(q,dim=1))   !< Q variables interpolated at given point.
+   logical                                  :: is_mine               !< Flag to check if point interpolation belongs to myrank.
+   integer(I4P)                             :: nijkv(4)              !< Points grid dimensions.
+   integer(I4P)                             :: i, j, k, v, p         !< Counter.
+   integer(I4P)                             :: MPI_IO_FILE_unit      !< Unit file.
+   integer(MPI_OFFSET_KIND)                 :: offset, offset_head   !< MPI record offset.
+   integer(I4P)                             :: ijkc(3,8)             !< IJK indexes of cells containing interpolation point.
+   integer(I8P)                             :: code                  !< Morton code of block containing interpolation point.
+   integer(I4P)                             :: ijk                   !< IJK counter (linearized).
+   integer(I4P)                             :: error                 !< MPI error traping flag.
+   type(tree_node_object), pointer          :: node                  !< Pointer to node.
 
    if (present(q_name)) then
       allocate(character(len(q_name(1))):: q_name_(size(q, dim=1)))
@@ -552,29 +557,41 @@ contains
          q_name_(v) = 'q-'//trim(strz(v,2))
       enddo
    endif
-   if (present(q_aux_name).and.present(q_aux)) then
-      allocate(character(len(q_aux_name(1))):: q_aux_name_(size(q_aux, dim=1)))
-      q_aux_name_ = q_aux_name
-   elseif (present(q_aux)) then
-      allocate(character(7):: q_aux_name_(size(q_aux, dim=1)))
-      do v=1, size(q_aux, dim=1)
-         q_aux_name_(v) = 'qaux-'//trim(strz(v,2))
-      enddo
-   endif
+   p = 0 ; if (present(phi)) p = 1
+   nijkv(1) = size(points, dim=2)
+   nijkv(2) = size(points, dim=3)
+   nijkv(3) = size(points, dim=4)
+   nijkv(4) = 3 + size(q, dim=1) + p
 
-   call open_slice_file(file_name=trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.dat', &
-                        q_name=q_name_, q_aux_name=q_aux_name_,                                        &
-                        nijk=[size(points,dim=2),size(points,dim=3),size(points,dim=4)],               &
-                        file_unit=file_unit)
+   call MPI_FILE_OPEN(MPI_COMM_WORLD, trim(adjustl(basename))//'.mat', &
+                      MPI_MODE_CREATE+MPI_MODE_WRONLY, MPI_INFO_NULL, MPI_IO_FILE_unit, error)
+   offset_head = 0
+   if (self%myrank==0) then
+      call MPI_FILE_WRITE_AT_ALL(MPI_IO_FILE_unit, offset_head, nijkv, 4, MPI_INT, MPI_STATUS_IGNORE, error)
+      offset_head = offset_head + 4 * 4
+   endif
+   ijk = 0
    do k=lbound(points, dim=4), ubound(points, dim=4)
       do j=lbound(points, dim=3), ubound(points, dim=3)
          do i=lbound(points, dim=2), ubound(points, dim=2)
-            call self%interpolate_at_point(point=points(:,i,j,k), q=q, qp=qp, is_mine=is_mine)
-            if (is_mine) call save_slice_record(file_unit=file_unit, point=points(:,i,j,k), qp=qp)
+            call self%interpolate_at_point(point=points(:,i,j,k), q=q, qp=qp, is_mine=is_mine, ijk=ijkc, code=code)
+            if (is_mine) then
+               offset = offset_head + ijk * 8 * (3 + size(q, dim=1) + p)
+               call MPI_FILE_WRITE_AT_ALL(MPI_IO_FILE_unit, offset, points(:,i,j,k), 3, MPI_REAL8, MPI_STATUS_IGNORE, error)
+               offset = offset + 8 * 3
+               call MPI_FILE_WRITE_AT_ALL(MPI_IO_FILE_unit, offset, qp, size(q, dim=1), MPI_REAL8, MPI_STATUS_IGNORE, error)
+               if (present(phi)) then
+                  node => self%tree%node(code=code)
+                  offset = offset + 8 * size(q, dim=1)
+                  call MPI_FILE_WRITE_AT_ALL(MPI_IO_FILE_unit, offset, phi(node%block_index,ijkc(1,1),ijkc(2,1),ijkc(3,1)), 1, &
+                                             MPI_REAL8, MPI_STATUS_IGNORE, error)
+               endif
+            endif
+            ijk = ijk + 1
          enddo
       enddo
    enddo
-   call close_slice_file(file_unit=file_unit)
+   call MPI_FILE_CLOSE(MPI_IO_FILE_unit, error)
    endsubroutine save_slice
 
    subroutine save_vtk(self, basename, q, q_aux, q_name, q_aux_name, directory, with_ghost, with_cell_morton, t, time)
@@ -889,57 +906,4 @@ contains
    endif
    write(file_unit, '(A)') '        </Grid>'
    endsubroutine save_xdmf_block
-
-   ! slice
-   subroutine open_slice_file(file_name, q_name, q_aux_name, nijk, file_unit)
-   !< Open slice file.
-   character(*),              intent(in)  :: file_name     !< Slice file name.
-   character(*),              intent(in)  :: q_name(:)     !< Q variables names.
-   character(*), allocatable, intent(in)  :: q_aux_name(:) !< Q auxiliary variables names.
-   integer(I4P),              intent(in)  :: nijk(3)       !< Slice dimensions.
-   integer(I4P),              intent(out) :: file_unit     !< Unit file.
-   character(:), allocatable              :: file_buffer   !< File buffer string.
-   integer(I4P)                           :: v             !< Counter.
-
-   open(newunit=file_unit, file=trim(file_name), form='FORMATTED')
-   file_buffer = 'VARIABLES = "x" "y" "Z"'
-   do v=1, size(q_name, dim=1)
-      file_buffer = file_buffer//' "'//q_name(v)//'"'
-   enddo
-   if (allocated(q_aux_name)) then
-      do v=1, size(q_aux_name, dim=1)
-         file_buffer = file_buffer//' "'//q_aux_name(v)//'"'
-      enddo
-   endif
-   file_buffer = file_buffer//new_line('a')//&
-                 'ZONE'//     new_line('a')//&
-                 'I = '//trim(str(nijk(1)))//', '//'J = '//trim(str(nijk(2)))//', '//'K = '//trim(str(nijk(3)))
-   write(unit=file_unit, '(A)') trim(file_buffer)
-   endsubroutine open_slice_file
-
-   subroutine close_slice_file(file_unit)
-   !< Close slice file.
-   integer(I4P), intent(in) :: file_unit !< Slice file unit.
-
-   close(file_unit)
-   endsubroutine close_slice_file
-
-   subroutine save_slice_record(file_unit, point, qp)
-   !< Save slice record.
-   integer(I4P), intent(in)  :: file_unit   !< Slice file unit.
-   real(R8P),    intent(in)  :: point(1:)   !< Interpolation points coordinates [1:3].
-   real(R8P),    intent(in)  :: qp(1:)      !< Q variables interpolated at given point.
-   character(:), allocatable :: file_buffer !< File buffer string.
-   integer(I4P)              :: v           !< Counter.
-
-   file_buffer = ''
-   do v=1, size(point, dim=1)
-      file_buffer = file_buffer//trim(str(point(v)))//' '
-   enddo
-   do v=1, size(qp, dim=1) - 1
-      file_buffer = file_buffer//trim(str(qp(v)))//' '
-   enddo
-   file_buffer = file_buffer//trim(str(qp(size(qp, dim=1))))
-   write(file_unit, '(A)') file_buffer
-   endsubroutine save_slice_record
 endmodule adam_adam_object

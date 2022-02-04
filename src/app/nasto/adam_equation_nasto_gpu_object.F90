@@ -1353,7 +1353,8 @@ contains
                                       basename=trim(self%output_basename)//                            &
                                                '-slice_'//trim(strz(s,2))//'-'//trim(strz(self%it,9)), &
                                       q=self%field%q,                                                  &
-                                      q_name=['rho','rhu','rhv','rhw','rhe'])
+                                      q_name=['rho','rhu','rhv','rhw','rhe'],                          &
+                                      phi=self%phi(:,:,:,:,1))
          endif
       enddo
    endif
