@@ -1221,7 +1221,11 @@ contains
    integration: do
       call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(1) = MPI_Wtime()
       self%it = self%it + 1
-      if(mod(self%it,self%amr_frequency) == 0) call self%amr_update()
+      if(mod(self%it,self%amr_frequency) == 0) then
+         call self%amr_update()
+         call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(2) = MPI_Wtime()
+         print '(A, F18.10)', 'step timing (AMR): ', timing_step(2) - timing_step(1)
+      endif
       call self%compute_dt()
       if ((self%t_max <= 0).and.(self%time + self%dt > self%time_max)) self%dt = self%time_max - self%time
       call self%integrate(t=self%time)
@@ -1239,22 +1243,6 @@ contains
    enddo integration
    call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing(2) = MPI_Wtime()
    print '(A, F18.10)', 'averaged timing: ', (timing(2) - timing(1))/self%it
-
-   call self%adam%interpolate_at_point(point=[3.9_R8P, 6.6_R8P, 10.4_R8P], &
-                                       q=self%field%q(1:1,:,:,:,:), &
-                                       qp=qp, is_mine=is_mine, qc=q, ijk=ijk, xyz=xyz, code=b, v=v)
-   print '(A)', 'cazzo block '//trim(str(b))
-   print '(A)', 'cazzo vertex '//trim(str(v))
-   print '(A)', 'cazzo cell 1 '//trim(str(ijk(:,1)))//'['//trim(str(xyz(:,1)))//']'//trim(str(q(1,1)))
-   print '(A)', 'cazzo cell 2 '//trim(str(ijk(:,2)))//'['//trim(str(xyz(:,2)))//']'//trim(str(q(1,2)))
-   print '(A)', 'cazzo cell 3 '//trim(str(ijk(:,3)))//'['//trim(str(xyz(:,3)))//']'//trim(str(q(1,3)))
-   print '(A)', 'cazzo cell 4 '//trim(str(ijk(:,4)))//'['//trim(str(xyz(:,4)))//']'//trim(str(q(1,4)))
-   print '(A)', 'cazzo cell 5 '//trim(str(ijk(:,5)))//'['//trim(str(xyz(:,5)))//']'//trim(str(q(1,5)))
-   print '(A)', 'cazzo cell 6 '//trim(str(ijk(:,6)))//'['//trim(str(xyz(:,6)))//']'//trim(str(q(1,6)))
-   print '(A)', 'cazzo cell 7 '//trim(str(ijk(:,7)))//'['//trim(str(xyz(:,7)))//']'//trim(str(q(1,7)))
-   print '(A)', 'cazzo cell 8 '//trim(str(ijk(:,8)))//'['//trim(str(xyz(:,8)))//']'//trim(str(q(1,8)))
-   print '(A)', 'cazzo interpolation '//trim(str(qp))
-
    is_cp_gpu_cpu_done = .false.
    call self%save_hdf5(is_cp_gpu_cpu_done=is_cp_gpu_cpu_done)
    call self%adam%finalize

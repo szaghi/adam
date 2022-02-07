@@ -51,7 +51,6 @@ open(newunit=file_unit_output, file=file_name_output)
 ! load header
 read(unit=file_unit_input) nijkv
 allocate(vars(nijkv(4)))
-print '(A)', 'slice dimensions [ni, nj, nk, nv]: '//trim(str(nijkv))
 if (.not.is_vars_name_passed) then
    vars_name = 'VARIABLES = "x" "y" "Z"'
    do v=4, nijkv(4)
@@ -61,8 +60,9 @@ endif
 
 ! save header
 write(unit=file_unit_output,'(A)') vars_name
-write(unit=file_unit_output,'(A)') 'ZONE'
-write(unit=file_unit_output,'(A)') 'I = '//trim(str(nijkv(1)))//', '//'J = '//trim(str(nijkv(2)))//', '//'K = '//trim(str(nijkv(3)))
+write(unit=file_unit_output,'(A)') 'ZONE T="ADAM slice", I='//trim(str(nijkv(1),.true.))//', '//&
+                                                        'J='//trim(str(nijkv(2),.true.))//', '//&
+                                                        'K='//trim(str(nijkv(3),.true.))
 
 ! load/save data
 do k=1, nijkv(3)
