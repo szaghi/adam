@@ -14,7 +14,8 @@ args_parser.add_argument('-clabel', type=str, default="rho", help="contour varia
 args_parser.add_argument('-levels', type=float, default=None, nargs=3, help="contour variable levels [vmin, vmax, n]")
 args_parser.add_argument('-mp4', type=str, default=None, help="generate mp4 file, pass mp4 filename")
 args_parser.add_argument('-mat', action='store_true', default=False, help="convert binary mat files to ascii dat ones")
-args_parser.add_argument('-vnames', type=str, default="'VARIABLES = "+'"x" "y" "z" "rho" "rhou" "rhov" "rhow" "rhoe" "f"'+"'", help="variables names")
+args_parser.add_argument('-vnames', type=str, default="'VARIABLES = "+'"x" "y" "z" "rho" "rhou" "rhov" "rhow" "rhoe" "f"'+"'",
+                         help="variables names")
 args = args_parser.parse_args()
 slice_files_pattern = args.b
 
@@ -38,16 +39,16 @@ for file_name in os.listdir("./"):
         base_name = file_name.split('.')[0]
         # load data
         with open(base_name + ".dat") as sf:
-            head = [next(sf) for x in range(3)]
+            head = [next(sf) for x in range(2)]
         # number of variables saved
         hnv = head[0].strip()
         nv = len(hnv.split('= ')[1].split(' '))
         # number of slice points
-        hnijk = head[2].strip()
-        ni = int(hnijk.split(',')[0].split('=')[1])
-        nj = int(hnijk.split(',')[1].split('=')[1])
-        nk = int(hnijk.split(',')[2].split('=')[1])
-        slice_o = np.loadtxt(base_name + ".dat", delimiter=" ", skiprows=3)
+        hnijk = head[1].strip()
+        ni = int(hnijk.split(',')[1].split('=')[1])
+        nj = int(hnijk.split(',')[2].split('=')[1])
+        nk = int(hnijk.split(',')[3].split('=')[1])
+        slice_o = np.loadtxt(base_name + ".dat", delimiter=" ", skiprows=2)
         slice_r = slice_o.reshape(ni,nj,nk,nv)
         slice_type = '3D'
         if   ni == 1 and nj == 1:
