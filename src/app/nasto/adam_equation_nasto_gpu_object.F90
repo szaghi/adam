@@ -140,11 +140,12 @@ type :: equation_nasto_gpu_object
    real(R8P)      :: CFL              !< CFL time limit.
    real(R8P)      :: dt=0.0001_R8P    !< Maximum time step accordingly to CFL criterion.
    ! Slices
-   integer(I4P)              :: slices_number=0 !< Number of slices to be save.
-   integer(I4P), allocatable :: slice_save(:)   !< Iteration interval between subsequent data-slice saves.
-   integer(I4P), allocatable :: slice_nijk(:,:) !< Slice number of points [3,slices_number].
-   real(R8P),    allocatable :: slice_emin(:,:) !< Slice minimum extents  [3,slices_number].
-   real(R8P),    allocatable :: slice_emax(:,:) !< Slice maximum extents  [3,slices_number].
+   integer(I4P)               :: slices_number=0 !< Number of slices to be save.
+   character(99), allocatable :: slice_itype(:)  !< Slice interpolation type.
+   integer(I4P),  allocatable :: slice_save(:)   !< Iteration interval between subsequent data-slice saves.
+   integer(I4P),  allocatable :: slice_nijk(:,:) !< Slice number of points [3,slices_number].
+   real(R8P),     allocatable :: slice_emin(:,:) !< Slice minimum extents  [3,slices_number].
+   real(R8P),     allocatable :: slice_emax(:,:) !< Slice maximum extents  [3,slices_number].
    ! Initial conditions
    integer(I4P)           :: ic_type                     !< Initial condition type.
    real(R8P)              :: ic_vars(IC_VARS_NUMBER_MAX) !< Variables' array for initial conditions.
@@ -534,6 +535,7 @@ contains
    call self%runge_kutta_initialize
 
    if (self%slices_number > 0) then
+      allocate(self%slice_itype(self%slices_number))
       allocate(self%slice_save(self%slices_number))
       allocate(self%slice_nijk(3,self%slices_number))
       allocate(self%slice_emin(3,self%slices_number))
@@ -541,16 +543,17 @@ contains
       print '(A)', 'parse slices input setting'
       do i_slice=1,self%slices_number
          sname = 'slice_'//trim(str(i_slice,.true.))
-         call self%file_input%get(section_name=sname, option_name='slice_save', val=buf_I4)   ; self%slice_save(  i_slice) = buf_I4
-         call self%file_input%get(section_name=sname, option_name='slice_ni', val=buf_I4)     ; self%slice_nijk(1,i_slice) = buf_I4
-         call self%file_input%get(section_name=sname, option_name='slice_nj', val=buf_I4)     ; self%slice_nijk(2,i_slice) = buf_I4
-         call self%file_input%get(section_name=sname, option_name='slice_nk', val=buf_I4)     ; self%slice_nijk(3,i_slice) = buf_I4
-         call self%file_input%get(section_name=sname, option_name='slice_emin_x', val=buf_R8) ; self%slice_emin(1,i_slice) = buf_R8
-         call self%file_input%get(section_name=sname, option_name='slice_emin_y', val=buf_R8) ; self%slice_emin(2,i_slice) = buf_R8
-         call self%file_input%get(section_name=sname, option_name='slice_emin_z', val=buf_R8) ; self%slice_emin(3,i_slice) = buf_R8
-         call self%file_input%get(section_name=sname, option_name='slice_emax_x', val=buf_R8) ; self%slice_emax(1,i_slice) = buf_R8
-         call self%file_input%get(section_name=sname, option_name='slice_emax_y', val=buf_R8) ; self%slice_emax(2,i_slice) = buf_R8
-         call self%file_input%get(section_name=sname, option_name='slice_emax_z', val=buf_R8) ; self%slice_emax(3,i_slice) = buf_R8
+         call self%file_input%get(section_name=sname, option_name='slice_itype', val=buf_CHAR) ; self%slice_itype( i_slice)=buf_CHAR
+         call self%file_input%get(section_name=sname, option_name='slice_save', val=buf_I4)    ; self%slice_save(  i_slice)=buf_I4
+         call self%file_input%get(section_name=sname, option_name='slice_ni', val=buf_I4)      ; self%slice_nijk(1,i_slice)=buf_I4
+         call self%file_input%get(section_name=sname, option_name='slice_nj', val=buf_I4)      ; self%slice_nijk(2,i_slice)=buf_I4
+         call self%file_input%get(section_name=sname, option_name='slice_nk', val=buf_I4)      ; self%slice_nijk(3,i_slice)=buf_I4
+         call self%file_input%get(section_name=sname, option_name='slice_emin_x', val=buf_R8)  ; self%slice_emin(1,i_slice)=buf_R8
+         call self%file_input%get(section_name=sname, option_name='slice_emin_y', val=buf_R8)  ; self%slice_emin(2,i_slice)=buf_R8
+         call self%file_input%get(section_name=sname, option_name='slice_emin_z', val=buf_R8)  ; self%slice_emin(3,i_slice)=buf_R8
+         call self%file_input%get(section_name=sname, option_name='slice_emax_x', val=buf_R8)  ; self%slice_emax(1,i_slice)=buf_R8
+         call self%file_input%get(section_name=sname, option_name='slice_emax_y', val=buf_R8)  ; self%slice_emax(2,i_slice)=buf_R8
+         call self%file_input%get(section_name=sname, option_name='slice_emax_z', val=buf_R8)  ; self%slice_emax(3,i_slice)=buf_R8
       enddo
    endif
 
@@ -1245,6 +1248,7 @@ contains
    print '(A, F18.10)', 'averaged timing: ', (timing(2) - timing(1))/self%it
    is_cp_gpu_cpu_done = .false.
    call self%save_hdf5(is_cp_gpu_cpu_done=is_cp_gpu_cpu_done)
+   call self%save_slices(is_cp_gpu_cpu_done=is_cp_gpu_cpu_done)
    call self%adam%finalize
    endsubroutine run
 
@@ -1316,7 +1320,8 @@ contains
 
    if (self%slices_number>0) then
       do s=1, self%slices_number
-         if (mod(self%it,self%slice_save(s))==0) then
+         if (mod(self%it,self%slice_save(s))==0.or.self%it==self%t_max.or.&
+            (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0)))) then
             print '(A)', 'save slice n: '//trim(str(s,.true.))//&
                   ', t: '//trim(str(self%it,.true.))//', time: '//trim(str(self%time,.true.))
             if (.not.is_cp_gpu_cpu_done) then
@@ -1338,6 +1343,7 @@ contains
                enddo
             enddo
             call self%adam%save_slice(points=points,                                                   &
+                                      itype=trim(self%slice_itype(s)),                                 &
                                       basename=trim(self%output_basename)//                            &
                                                '-slice_'//trim(strz(s,2))//'-'//trim(strz(self%it,9)), &
                                       q=self%field%q,                                                  &

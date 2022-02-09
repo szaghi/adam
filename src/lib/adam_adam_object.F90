@@ -207,9 +207,10 @@ contains
    call self%amr_update
    endsubroutine initialize
 
-   subroutine interpolate_at_point(self, point, q, qp, is_mine, p, qc, ijk, xyz, code, v)
+   subroutine interpolate_at_point(self, itype, point, q, qp, is_mine, p, qc, ijk, xyz, code, v)
    !< Interpolate a scalar variable at a given point.
    class(adam_object), intent(in)            :: self      !< ADAM.
+   character(*),       intent(in)            :: itype     !< Type of interpolation.
    real(R8P),          intent(in)            :: point(3)  !< Interpolation point xyz coordinates.
    real(R8P),          intent(in)            :: q(1:,              &
                                                   1-self%grid%ngc:,&
@@ -228,16 +229,40 @@ contains
    type(tree_node_object), pointer           :: node      !< Pointer to node.
    integer(I4P)                              :: ijk_(3,8) !< Closest cells indexes, local var.
    real(R8P)                                 :: xyz_(3,8) !< Closest cells center-coordinates, local var.
-   real(R8P)                                 :: w         !< Interpolation weights of closest cells.
-   real(R8P)                                 :: ws        !< Sum of interpolation weights of closest cells.
-   integer(I4P)                              :: p_        !< Power parameter, local var.
    integer(I4P)                              :: i, j, k   !< Counter.
 
-   p_ = 3 ; if (present(p)) p_ = p
    code_ = self%tree%get_closest_block(point=point)
    node => self%tree%node(code=code_)
    if (node%myrank == self%myrank) then
+      is_mine = .true.
       call self%tree%get_closest_cells(point=point, code=code_, ijk=ijk_, xyz=xyz_, v=v)
+      select case(trim(itype))
+      case('inverse_distance')
+         call inverse_distance_interpolation
+      case('trilinear')
+         call trilinear_interpolation
+      endselect
+      if (present(qc)) then
+         do j=1,8
+           do i=1,size(q, dim=1)
+              qc(i,j) = q(i,ijk_(1,j),ijk_(2,j),ijk_(3,j),node%block_index)
+           enddo
+         enddo
+      endif
+      if (present(ijk))  ijk  = ijk_
+      if (present(xyz))  xyz  = xyz_
+      if (present(code)) code = code_
+   else
+      is_mine = .false.
+   endif
+   contains
+      subroutine inverse_distance_interpolation
+      !< Compute inverse distance interpolation.
+      real(R8P)    :: w       !< Interpolation weights of closest cells.
+      real(R8P)    :: ws      !< Sum of interpolation weights of closest cells.
+      integer(I4P) :: p_      !< Power parameter, local var.
+
+      p_ = 3 ; if (present(p)) p_ = p
       qp = 0._R8P
       ws = 0._R8P
       do j=1, 8
@@ -249,17 +274,36 @@ contains
          ws = ws + w
          do k=1,size(q, dim=1)
             qp(k) = qp(k) + w * q(k,ijk_(1,j),ijk_(2,j),ijk_(3,j),node%block_index)
-            if (present(qc)) qc(k,j) = q(k,ijk_(1,j),ijk_(2,j),ijk_(3,j),node%block_index)
          enddo
       enddo
       qp = qp / ws
-      is_mine = .true.
-      if (present(ijk))  ijk  = ijk_
-      if (present(xyz))  xyz  = xyz_
-      if (present(code)) code = code_
-   else
-      is_mine = .false.
-   endif
+      endsubroutine inverse_distance_interpolation
+
+      subroutine trilinear_interpolation
+      !< Compute trilinear interpolation.
+      real(R8P)    :: q1, q2, q3 !< Linear distances.
+      real(R8P)    :: p1, p2, p3 !< Linear distances complements.
+      real(R8P)    :: qx( 4)     !< X linear interpolations.
+      real(R8P)    :: qxy(2)     !< XY linear interpolations.
+
+      q1 = (point(1)-xyz_(1,1))/(xyz_(1,8)-xyz_(1,1))
+      q2 = (point(2)-xyz_(2,1))/(xyz_(2,8)-xyz_(2,1))
+      q3 = (point(3)-xyz_(3,1))/(xyz_(3,8)-xyz_(3,1))
+      p1 = 1._R8P - q1
+      p2 = 1._R8P - q2
+      p3 = 1._R8P - q3
+
+      do i=1, size(q, dim=1)
+         qx( 1) = p1*q(i,ijk_(1,1),ijk_(2,1),ijk_(3,1),node%block_index) + q1*q(i,ijk_(1,2),ijk_(2,2),ijk_(3,2),node%block_index)
+         qx( 2) = p1*q(i,ijk_(1,3),ijk_(2,3),ijk_(3,3),node%block_index) + q1*q(i,ijk_(1,4),ijk_(2,4),ijk_(3,4),node%block_index)
+         qx( 3) = p1*q(i,ijk_(1,5),ijk_(2,5),ijk_(3,5),node%block_index) + q1*q(i,ijk_(1,6),ijk_(2,6),ijk_(3,6),node%block_index)
+         qx( 4) = p1*q(i,ijk_(1,7),ijk_(2,7),ijk_(3,7),node%block_index) + q1*q(i,ijk_(1,8),ijk_(2,8),ijk_(3,8),node%block_index)
+         qxy(1) = p2*qx(1) + q2*qx(2)
+         qxy(2) = p2*qx(3) + q2*qx(4)
+
+         qp(i) = p3*qxy(1) + q3*qxy(2)
+      enddo
+      endsubroutine trilinear_interpolation
    endsubroutine interpolate_at_point
 
    subroutine make_comm_local_maps_ghost_bc(self)
@@ -517,9 +561,10 @@ contains
    endif
    endsubroutine save_hdf5
 
-   subroutine save_slice(self, points, basename, q, q_name, phi, t, time)
+   subroutine save_slice(self, itype, points, basename, q, q_name, phi, t, time)
    !< Save slice.
    class(adam_object), intent(inout)        :: self                  !< ADAM.
+   character(*),       intent(in)           :: itype                 !< Type of interpolation.
    real(R8P),          intent(in)           :: points(1:,1:,1:,1:)   !< Interpolation points coordinates [1:3,1:ni,1:nj,1:nk].
    character(*),       intent(in)           :: basename              !< Base name of output files.
    real(R8P),          intent(in)           :: q(1:,              &
@@ -575,7 +620,7 @@ contains
    do k=lbound(points, dim=4), ubound(points, dim=4)
       do j=lbound(points, dim=3), ubound(points, dim=3)
          do i=lbound(points, dim=2), ubound(points, dim=2)
-            call self%interpolate_at_point(point=points(:,i,j,k), q=q, qp=qp, is_mine=is_mine, ijk=ijkc, code=code)
+            call self%interpolate_at_point(itype=itype, point=points(:,i,j,k), q=q, qp=qp, is_mine=is_mine, ijk=ijkc, code=code)
             if (is_mine) then
                offset = offset_head + ijk * 8 * (3 + size(q, dim=1) + p)
                ! call MPI_FILE_WRITE_AT_ALL(MPI_IO_FILE_unit, offset, points(:,i,j,k), 3, MPI_REAL8, MPI_STATUS_IGNORE, error)
