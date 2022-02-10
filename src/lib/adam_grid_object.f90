@@ -10,19 +10,28 @@ implicit none
 private
 public :: grid_object
 
+! grid parameters
+integer(I4P), parameter :: MAX_REF_LEVELS = 100_I4P !< Maximum refinement levels.
+
 type :: grid_object
    !< Grid class definition.
-   real(R8P)    :: domain_emin(3)=[0._R8P,0._R8P,0._R8P] !< Coordinates of minimum abscissa of whole domain.
-   real(R8P)    :: domain_emax(3)=[1._R8P,1._R8P,1._R8P] !< Coordinates of maximum abscissa of whole domain.
-   integer(I4P) :: ni=16_I4P                             !< Number of cells in i direction.
-   integer(I4P) :: nj=16_I4P                             !< Number of cells in j direction.
-   integer(I4P) :: nk=16_I4P                             !< Number of cells in k direction.
-   integer(I4P) :: ngc=2_I4P                             !< Number of ghost cells.
-   integer(I4P) :: weight_neighbor(26)=0_I4P             !< Weight of neighbors (cells number).
-   integer(I4P) :: bc_type(6)=0_I4P                      !< Type of boundary conditions in the 6 faces of grid.
-   logical      :: is_ijk_periodic(3)=.false.            !< Flag to indicate if the direction i, j or k is periodic.
+   real(R8P)                 :: domain_emin(3)=[0._R8P,0._R8P,0._R8P] !< Coordinates of minimum abscissa of whole domain.
+   real(R8P)                 :: domain_emax(3)=[1._R8P,1._R8P,1._R8P] !< Coordinates of maximum abscissa of whole domain.
+   integer(I4P)              :: ni=16_I4P                             !< Number of cells in i direction.
+   integer(I4P)              :: nj=16_I4P                             !< Number of cells in j direction.
+   integer(I4P)              :: nk=16_I4P                             !< Number of cells in k direction.
+   integer(I4P)              :: ngc=2_I4P                             !< Number of ghost cells.
+   integer(I4P)              :: weight_neighbor(26)=0_I4P             !< Weight of neighbors (cells number).
+   integer(I4P)              :: bc_type(6)=0_I4P                      !< Type of boundary conditions in the 6 faces of grid.
+   logical                   :: is_ijk_periodic(3)=.false.            !< Flag to indicate if the direction i, j or k is periodic.
+   real(R8P),    allocatable :: block_dxyz(:,:)                       !< Blocks space steps for each level [3,MAX_REF_LEVELS].
+   real(R8P),    allocatable :: cell_dxyz(:,:)                        !< Cells  space steps for each level [3,MAX_REF_LEVELS].
+   integer(I4P), allocatable :: nb_max(:)                             !< Number of maximum blocks in each direction for each level.
    contains
       ! public methods
+      procedure, pass(self) :: block_emin              !< Return block emin given its coordinates.
+      procedure, pass(self) :: block_emax              !< Return block emax given its coordinates.
+      procedure, pass(self) :: cell_xyz                !< Return cells xyz abscissa given block coordinates.
       procedure, pass(self) :: compute_metrics         !< Compute metrics of a block.
       procedure, pass(self) :: compute_weight_neighbor !< Compute weight of neighbors.
       procedure, pass(self) :: destroy                 !< Destroy the field.
@@ -30,6 +39,7 @@ type :: grid_object
       procedure, pass(self) :: get_closest_block       !< Get the closest block to a given point at a given level.
       procedure, pass(self) :: initialize              !< Initialize the field.
       procedure, pass(self) :: load_from_ini_file      !< Load object data from INI file.
+      procedure, pass(self) :: node_xyz                !< Return nodes xyz abscissa given block coordinates.
       procedure, pass(self) :: print_status            !< Print status of main data.
       ! operators
       generic :: assignment(=) => grid_assign_grid      !< Overload `=`.
@@ -38,6 +48,80 @@ endtype grid_object
 
 contains
    ! public methods
+   function block_emin(self, coordinates) result(emin)
+   !< Return block emin given its coordinates.
+   class(grid_object), intent(in) :: self           !< The grid.
+   integer(I4P),       intent(in) :: coordinates(4) !< Block coordinates.
+   real(R8P)                      :: emin(3)        !< Min abscissa of block.
+
+   emin(:) = coordinates(:) * self%block_dxyz(:, coordinates(4))
+   endfunction block_emin
+
+   function block_emax(self, coordinates) result(emax)
+   !< Return block emax given its coordinates.
+   class(grid_object), intent(in) :: self           !< The grid.
+   integer(I4P),       intent(in) :: coordinates(4) !< Block coordinates.
+   real(R8P)                      :: emax(3)        !< Max abscissa of block.
+
+   emax(:) = self%block_emin(coordinates) + self%block_dxyz(:, coordinates(4))
+   endfunction block_emax
+
+   subroutine node_xyz(self, coordinates, x_node, y_node, z_node)
+   !< Return nodes xyz abscissa given block coordinates.
+   class(grid_object), intent(in)            :: self                                !< The grid.
+   integer(I4P),       intent(in)            :: coordinates(4)                      !< Block coordinates.
+   real(R8P),          intent(out), optional :: x_node(0-self%ngc:self%ni+self%ngc) !< X coordinates.
+   real(R8P),          intent(out), optional :: y_node(0-self%ngc:self%nj+self%ngc) !< Y coordinates.
+   real(R8P),          intent(out), optional :: z_node(0-self%ngc:self%nk+self%ngc) !< Z coordinates.
+   real(R8P)                                 :: emin(3)                             !< Min abscissa of block.
+   integer(I4P)                              :: i, j, k                             !< Counter.
+
+   emin = self%block_emin(coordinates)
+   if (present(x_node)) then
+      do i=0-self%ngc, self%ni+self%ngc
+         x_node(i) = emin(1) + i * self%cell_dxyz(1,coordinates(4))
+      enddo
+   endif
+   if (present(y_node)) then
+      do j=0-self%ngc, self%nj+self%ngc
+         y_node(j) = emin(2) + j * self%cell_dxyz(2,coordinates(4))
+      enddo
+   endif
+   if (present(z_node)) then
+      do k=0-self%ngc, self%nk+self%ngc
+         z_node(k) = emin(3) + k * self%cell_dxyz(3,coordinates(4))
+      enddo
+   endif
+   endsubroutine node_xyz
+
+   subroutine cell_xyz(self, coordinates, x_cell, y_cell, z_cell)
+   !< Return cells xyz abscissa given block coordinates.
+   class(grid_object), intent(in)            :: self                                !< The grid.
+   integer(I4P),       intent(in)            :: coordinates(4)                      !< Block coordinates.
+   real(R8P),          intent(out), optional :: x_cell(1-self%ngc:self%ni+self%ngc) !< X coordinates.
+   real(R8P),          intent(out), optional :: y_cell(1-self%ngc:self%nj+self%ngc) !< Y coordinates.
+   real(R8P),          intent(out), optional :: z_cell(1-self%ngc:self%nk+self%ngc) !< Z coordinates.
+   real(R8P)                                 :: emin(3)                             !< Min abscissa of block.
+   integer(I4P)                              :: i, j, k                             !< Counter.
+
+   emin = self%block_emin(coordinates)
+   if (present(x_cell)) then
+      do i=1-self%ngc, self%ni+self%ngc
+         x_cell(i) = emin(1) + (i-0.5_R8P) * self%cell_dxyz(1,coordinates(4))
+      enddo
+   endif
+   if (present(y_cell)) then
+      do j=1-self%ngc, self%nj+self%ngc
+         y_cell(j) = emin(2) + (j-0.5_R8P) * self%cell_dxyz(2,coordinates(4))
+      enddo
+   endif
+   if (present(z_cell)) then
+      do k=1-self%ngc, self%nk+self%ngc
+         z_cell(k) = emin(3) + (k-0.5_R8P) * self%cell_dxyz(3,coordinates(4))
+      enddo
+   endif
+   endsubroutine cell_xyz
+
    subroutine compute_metrics(self, coordinates,      &
                               dx, dy, dz,             &
                               emin, emax,             &
@@ -54,58 +138,14 @@ contains
    real(R8P),          intent(out), optional :: x_cell(1-self%ngc:self%ni+self%ngc)  !< X coordinates.
    real(R8P),          intent(out), optional :: y_cell(1-self%ngc:self%nj+self%ngc)  !< Y coordinates.
    real(R8P),          intent(out), optional :: z_cell(1-self%ngc:self%nk+self%ngc)  !< Z coordinates.
-   real(R8P)                                 :: emin_(3), emax_(3)                   !< Min/max abscissa of block, local var.
-   real(R8P)                                 :: x_node_(0-self%ngc:self%ni+self%ngc) !< X coordinates, local var.
-   real(R8P)                                 :: y_node_(0-self%ngc:self%nj+self%ngc) !< Y coordinates, local var.
-   real(R8P)                                 :: z_node_(0-self%ngc:self%nk+self%ngc) !< Z coordinates, local var.
-   real(R8P)                                 :: x_cell_(1-self%ngc:self%ni+self%ngc) !< X coordinates, local var.
-   real(R8P)                                 :: y_cell_(1-self%ngc:self%nj+self%ngc) !< Y coordinates, local var.
-   real(R8P)                                 :: z_cell_(1-self%ngc:self%nk+self%ngc) !< Z coordinates, local var.
-   real(R8P)                                 :: dx_, dy_, dz_                        !< Space steps, local var.
-   integer(I4P)                              :: i, j, k, l                           !< Counter.
 
-   i = coordinates(1)
-   j = coordinates(2)
-   k = coordinates(3)
-   l = coordinates(4)
-   dx_ = (self%domain_emax(1) - self%domain_emin(1)) / 2**l
-   dy_ = (self%domain_emax(2) - self%domain_emin(2)) / 2**l
-   dz_ = (self%domain_emax(3) - self%domain_emin(3)) / 2**l
-   emin_(1) = i * dx_ ; emax_(1) = emin_(1) + dx_
-   emin_(2) = j * dy_ ; emax_(2) = emin_(2) + dy_
-   emin_(3) = k * dz_ ; emax_(3) = emin_(3) + dz_
-   dx_ = dx_ / self%ni
-   dy_ = dy_ / self%nj
-   dz_ = dz_ / self%nk
-   do i=0-self%ngc, self%ni+self%ngc
-      x_node_(i) = emin_(1) + i * dx_
-   enddo
-   do j=0-self%ngc, self%nj+self%ngc
-      y_node_(j) = emin_(2) + j * dy_
-   enddo
-   do k=0-self%ngc, self%nk+self%ngc
-      z_node_(k) = emin_(3) + k * dz_
-   enddo
-   do i=1-self%ngc, self%ni+self%ngc
-      x_cell_(i) = x_node_(i-1) + dx_ * 0.5_R8P
-   enddo
-   do j=1-self%ngc, self%nj+self%ngc
-      y_cell_(j) = y_node_(j-1) + dy_ * 0.5_R8P
-   enddo
-   do k=1-self%ngc, self%nk+self%ngc
-      z_cell_(k) = z_node_(k-1) + dz_ * 0.5_R8P
-   enddo
-   if (present(dx)) dx = dx_
-   if (present(dy)) dy = dy_
-   if (present(dz)) dz = dz_
-   if (present(emin)) emin = emin_
-   if (present(emax)) emax = emax_
-   if (present(x_node)) x_node = x_node_
-   if (present(y_node)) y_node = y_node_
-   if (present(z_node)) z_node = z_node_
-   if (present(x_cell)) x_cell = x_cell_
-   if (present(y_cell)) y_cell = y_cell_
-   if (present(z_cell)) z_cell = z_cell_
+   if (present(dx)) dx = self%cell_dxyz(1,coordinates(4))
+   if (present(dy)) dy = self%cell_dxyz(2,coordinates(4))
+   if (present(dz)) dz = self%cell_dxyz(3,coordinates(4))
+   if (present(emin)) emin = self%block_emin(coordinates)
+   if (present(emax)) emax = self%block_emax(coordinates)
+   call self%node_xyz(coordinates=coordinates, x_node=x_node, y_node=y_node, z_node=z_node)
+   call self%cell_xyz(coordinates=coordinates, x_cell=x_cell, y_cell=y_cell, z_cell=z_cell)
    endsubroutine compute_metrics
 
    subroutine compute_weight_neighbor(self)
@@ -176,14 +216,10 @@ contains
    real(R8P),          intent(in) :: point(3) !< Point xyz coordinates.
    integer(I4P),       intent(in) :: level    !< Refinement level.
    integer(I4P)                   :: ijk(3)   !< Indexes of the closest (living or not) block.
-   real(R8P)                      :: dxyz(3)  !< Space steps.
 
-   dxyz(1) = (self%domain_emax(1) - self%domain_emin(1)) / 2**level
-   dxyz(2) = (self%domain_emax(2) - self%domain_emin(2)) / 2**level
-   dxyz(3) = (self%domain_emax(3) - self%domain_emin(3)) / 2**level
-   ijk(1) = ceiling((point(1) - self%domain_emin(1)) / dxyz(1), I4P)
-   ijk(2) = ceiling((point(2) - self%domain_emin(2)) / dxyz(2), I4P)
-   ijk(3) = ceiling((point(3) - self%domain_emin(3)) / dxyz(3), I4P)
+   associate(nb_max=>self%nb_max(level), emin=>self%domain_emin, dxyz=>self%block_dxyz(:,level))
+      ijk(:) = min(nb_max, max(1, ceiling((point(:) - emin(:)) / dxyz(:), I4P)))
+   endassociate
    endfunction get_closest_block
 
    subroutine initialize(self, file_parameters, ni, nj, nk, ngc, emin, emax, bc_type)
@@ -197,6 +233,8 @@ contains
    real(R8P),          intent(in),    optional :: emin(3)         !< Coordinates of minium abscissa.
    real(R8P),          intent(in),    optional :: emax(3)         !< Coordinates of maxium abscissa.
    integer(I4P),       intent(in),    optional :: bc_type(6)      !< Type of boundary conditions in the 6 faces of grid.
+   integer(I4P)                                :: l               !< Counter.
+   integer(I4P)                                :: nijk(3)         !< Cells number.
 
    call self%destroy
    if (present(file_parameters)) call self%load_from_ini_file(file_parameters)
@@ -214,6 +252,16 @@ contains
    if (any(self%bc_type(1:2)==BC_PERIODIC)) self%is_ijk_periodic(1) = .true.
    if (any(self%bc_type(3:4)==BC_PERIODIC)) self%is_ijk_periodic(2) = .true.
    if (any(self%bc_type(5:6)==BC_PERIODIC)) self%is_ijk_periodic(3) = .true.
+
+   nijk = [self%ni, self%nj, self%nk]
+   allocate(self%block_dxyz(3,MAX_REF_LEVELS))
+   allocate(self%cell_dxyz( 3,MAX_REF_LEVELS))
+   allocate(self%nb_max(      MAX_REF_LEVELS))
+   do l=1, MAX_REF_LEVELS
+      self%nb_max(l) = 2**l
+      self%block_dxyz(:,l) = (self%domain_emax(:) - self%domain_emin(:)) / self%nb_max(l)
+      self%cell_dxyz(:,l) = self%block_dxyz(:,l) / nijk(:)
+   enddo
    endsubroutine initialize
 
    subroutine load_from_ini_file(self, file_parameters)
