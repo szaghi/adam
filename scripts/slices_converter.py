@@ -116,6 +116,25 @@ def _parser_png2mp4(clisubparsers):
     return
 
 
+def _parser_mat2mp4(clisubparsers):
+    """
+    Construct the mat2mp4 cli parser.
+
+    Parameters
+    ----------
+    clisubparsers : argparse subparser object
+    """
+    basename = _subparser_basename()
+    mat2dat = _subparser_mat2dat()
+    dat2png = _subparser_dat2png()
+    png2mp4 = _subparser_png2mp4()
+    mat2mp4_parser = clisubparsers.add_parser('mat2mp4',
+                                              help='convert slices from .mat to .mp4 files',
+                                              parents=[basename, mat2dat, dat2png, png2mp4])
+    mat2mp4_parser.set_defaults(which='mat2mp4')
+    return
+
+
 def cli_parser():
     """
     Create the slices_converter.py Command Line Interface (CLI).
@@ -132,14 +151,17 @@ def cli_parser():
                                                "\n  slices_converter.py mat2dat -b slice_01 -vnames VARIABLES = "+'"x" "y" "z" "rho"' +
                                                "\n  slices_converter.py dat2png -b slice_01 -v 3 -levels 1 12 32" +
                                                "\n  slices_converter.py png2mp4 -b slice_01 -mp4 slice_01.mp4" +
+                                               "\n  slices_converter.py mat2mp4 -b slice_01 -mp4 slice_01.mp4" +
                                                "\nFor more detailed commands help use" +
                                                "\n  slices_converter.py mat2dat -h,--help" +
                                                "\n  slices_converter.py dat2png -h,--help" +
-                                               "\n  slices_converter.py png2mp4 -h,--help")
+                                               "\n  slices_converter.py png2mp4 -h,--help" +
+                                               "\n  slices_converter.py mat2mp4 -h,--help")
     clisubparsers = cliparser.add_subparsers(title='Commands', description='Valid commands')
     _parser_mat2dat(clisubparsers)
     _parser_dat2png(clisubparsers)
     _parser_png2mp4(clisubparsers)
+    _parser_mat2mp4(clisubparsers)
     return cliparser
 
 
@@ -276,5 +298,9 @@ if __name__ == '__main__':
     if cliargs.which == 'dat2png':
         run_dat2png(slice_files_pattern=cliargs.b, v=cliargs.v, clabel=cliargs.clabel, levels=cliargs.levels)
     if cliargs.which == 'png2mp4':
+        run_png2mp4(slice_files_pattern=cliargs.b, mp4=cliargs.mp4)
+    if cliargs.which == 'mat2mp4':
+        run_mat2dat(slice_files_pattern=cliargs.b, vnames=cliargs.vnames)
+        run_dat2png(slice_files_pattern=cliargs.b, v=cliargs.v, clabel=cliargs.clabel, levels=cliargs.levels)
         run_png2mp4(slice_files_pattern=cliargs.b, mp4=cliargs.mp4)
     sys.exit(0)

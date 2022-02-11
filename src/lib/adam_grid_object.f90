@@ -27,6 +27,9 @@ type :: grid_object
    real(R8P),    allocatable :: block_dxyz(:,:)                       !< Blocks space steps for each level [3,MAX_REF_LEVELS].
    real(R8P),    allocatable :: cell_dxyz(:,:)                        !< Cells  space steps for each level [3,MAX_REF_LEVELS].
    integer(I4P), allocatable :: nb_max(:)                             !< Number of maximum blocks in each direction for each level.
+   real(R8P),    allocatable :: lin_space_x(:,:)                      !< Lin. space x for each level [0-ngc:ni+ngc,MAX_REF_LEVELS].
+   real(R8P),    allocatable :: lin_space_y(:,:)                      !< Lin. space y for each level [0-ngc:nj+ngc,MAX_REF_LEVELS].
+   real(R8P),    allocatable :: lin_space_z(:,:)                      !< Lin. space z for each level [0-ngc:nk+ngc,MAX_REF_LEVELS].
    contains
       ! public methods
       procedure, pass(self) :: block_emin              !< Return block emin given its coordinates.
@@ -77,21 +80,24 @@ contains
    integer(I4P)                              :: i, j, k                             !< Counter.
 
    emin = self%block_emin(coordinates)
-   if (present(x_node)) then
-      do i=0-self%ngc, self%ni+self%ngc
-         x_node(i) = emin(1) + i * self%cell_dxyz(1,coordinates(4))
-      enddo
-   endif
-   if (present(y_node)) then
-      do j=0-self%ngc, self%nj+self%ngc
-         y_node(j) = emin(2) + j * self%cell_dxyz(2,coordinates(4))
-      enddo
-   endif
-   if (present(z_node)) then
-      do k=0-self%ngc, self%nk+self%ngc
-         z_node(k) = emin(3) + k * self%cell_dxyz(3,coordinates(4))
-      enddo
-   endif
+   if (present(x_node)) x_node(:) = emin(1) + self%lin_space_x(:,coordinates(4))
+   if (present(y_node)) y_node(:) = emin(2) + self%lin_space_y(:,coordinates(4))
+   if (present(z_node)) z_node(:) = emin(3) + self%lin_space_z(:,coordinates(4))
+   ! if (present(x_node)) then
+   !    do i=0-self%ngc, self%ni+self%ngc
+   !       x_node(i) = emin(1) + i * self%cell_dxyz(1,coordinates(4))
+   !    enddo
+   ! endif
+   ! if (present(y_node)) then
+   !    do j=0-self%ngc, self%nj+self%ngc
+   !       y_node(j) = emin(2) + j * self%cell_dxyz(2,coordinates(4))
+   !    enddo
+   ! endif
+   ! if (present(z_node)) then
+   !    do k=0-self%ngc, self%nk+self%ngc
+   !       z_node(k) = emin(3) + k * self%cell_dxyz(3,coordinates(4))
+   !    enddo
+   ! endif
    endsubroutine node_xyz
 
    subroutine cell_xyz(self, coordinates, x_cell, y_cell, z_cell)
@@ -105,21 +111,24 @@ contains
    integer(I4P)                              :: i, j, k                             !< Counter.
 
    emin = self%block_emin(coordinates)
-   if (present(x_cell)) then
-      do i=1-self%ngc, self%ni+self%ngc
-         x_cell(i) = emin(1) + (i-0.5_R8P) * self%cell_dxyz(1,coordinates(4))
-      enddo
-   endif
-   if (present(y_cell)) then
-      do j=1-self%ngc, self%nj+self%ngc
-         y_cell(j) = emin(2) + (j-0.5_R8P) * self%cell_dxyz(2,coordinates(4))
-      enddo
-   endif
-   if (present(z_cell)) then
-      do k=1-self%ngc, self%nk+self%ngc
-         z_cell(k) = emin(3) + (k-0.5_R8P) * self%cell_dxyz(3,coordinates(4))
-      enddo
-   endif
+   if (present(x_cell)) x_cell(:) = emin(1) + self%lin_space_x(1-self%ngc:self%ni+self%ngc,coordinates(4))
+   if (present(y_cell)) y_cell(:) = emin(2) + self%lin_space_y(1-self%ngc:self%nj+self%ngc,coordinates(4))
+   if (present(z_cell)) z_cell(:) = emin(3) + self%lin_space_z(1-self%ngc:self%nk+self%ngc,coordinates(4))
+   ! if (present(x_cell)) then
+   !    do i=1-self%ngc, self%ni+self%ngc
+   !       x_cell(i) = emin(1) + (i-0.5_R8P) * self%cell_dxyz(1,coordinates(4))
+   !    enddo
+   ! endif
+   ! if (present(y_cell)) then
+   !    do j=1-self%ngc, self%nj+self%ngc
+   !       y_cell(j) = emin(2) + (j-0.5_R8P) * self%cell_dxyz(2,coordinates(4))
+   !    enddo
+   ! endif
+   ! if (present(z_cell)) then
+   !    do k=1-self%ngc, self%nk+self%ngc
+   !       z_cell(k) = emin(3) + (k-0.5_R8P) * self%cell_dxyz(3,coordinates(4))
+   !    enddo
+   ! endif
    endsubroutine cell_xyz
 
    subroutine compute_metrics(self, coordinates,      &
@@ -233,7 +242,7 @@ contains
    real(R8P),          intent(in),    optional :: emin(3)         !< Coordinates of minium abscissa.
    real(R8P),          intent(in),    optional :: emax(3)         !< Coordinates of maxium abscissa.
    integer(I4P),       intent(in),    optional :: bc_type(6)      !< Type of boundary conditions in the 6 faces of grid.
-   integer(I4P)                                :: l               !< Counter.
+   integer(I4P)                                :: i, j, k, l      !< Counter.
    integer(I4P)                                :: nijk(3)         !< Cells number.
 
    call self%destroy
@@ -254,13 +263,25 @@ contains
    if (any(self%bc_type(5:6)==BC_PERIODIC)) self%is_ijk_periodic(3) = .true.
 
    nijk = [self%ni, self%nj, self%nk]
-   allocate(self%block_dxyz(3,MAX_REF_LEVELS))
-   allocate(self%cell_dxyz( 3,MAX_REF_LEVELS))
-   allocate(self%nb_max(      MAX_REF_LEVELS))
+   allocate(self%block_dxyz(3,                           MAX_REF_LEVELS))
+   allocate(self%cell_dxyz( 3,                           MAX_REF_LEVELS))
+   allocate(self%nb_max(                                 MAX_REF_LEVELS))
+   allocate(self%lin_space_x(0-self%ngc:self%ni+self%ngc,MAX_REF_LEVELS))
+   allocate(self%lin_space_y(0-self%ngc:self%nj+self%ngc,MAX_REF_LEVELS))
+   allocate(self%lin_space_z(0-self%ngc:self%nk+self%ngc,MAX_REF_LEVELS))
    do l=1, MAX_REF_LEVELS
       self%nb_max(l) = 2**l
       self%block_dxyz(:,l) = (self%domain_emax(:) - self%domain_emin(:)) / self%nb_max(l)
       self%cell_dxyz(:,l) = self%block_dxyz(:,l) / nijk(:)
+      do i=0-self%ngc, self%ni+self%ngc
+         self%lin_space_x(i,l) = i * self%cell_dxyz(1,l)
+      enddo
+      do j=0-self%ngc, self%nj+self%ngc
+         self%lin_space_y(j,l) = j * self%cell_dxyz(2,l)
+      enddo
+      do k=0-self%ngc, self%nk+self%ngc
+         self%lin_space_z(k,l) = k * self%cell_dxyz(3,l)
+      enddo
    enddo
    endsubroutine initialize
 

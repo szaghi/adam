@@ -50,13 +50,24 @@ integer(I4P), parameter :: IENTA = 8
 integer(I4P), parameter :: ISOUN = 9
 
 type :: amr_marker_obj
-   integer(I4P) :: mode
-   integer(I4P) :: solid
-   real(R8P)    :: delta_fine
-   real(R8P)    :: delta_coarse
-   integer(I4P) :: ivar
-   real(R8P)    :: tol
+   !< AMR marker object.
+   integer(I4P) :: mode         !< Marker mode.
+   integer(I4P) :: solid        !< Solid number.
+   real(R8P)    :: delta_fine   !< Fine cell space step.
+   real(R8P)    :: delta_coarse !< Coarse cell space step.
+   integer(I4P) :: ivar         !< ivar.
+   real(R8P)    :: tol          !< Tolerance.
 endtype amr_marker_obj
+
+type :: slice_obj
+   !< Slice object.
+   character(99)          :: slice_itype           !< Slice interpolation type.
+   integer(I4P)           :: slice_save            !< Iteration interval between subsequent data-slice saves.
+   integer(I4P)           :: slice_nijk(3)         !< Slice number of points.
+   real(R8P)              :: slice_emin(3)         !< Slice minimum extents.
+   real(R8P)              :: slice_emax(3)         !< Slice maximum extents.
+   real(R8P), allocatable :: slice_points(:,:,:,:) !< Slice points coordinates [3,ni,nj,nk].
+endtype slice_obj
 
 type :: equation_nasto_gpu_object
    !< Flame single-step class definition, GPU backend.
@@ -140,12 +151,8 @@ type :: equation_nasto_gpu_object
    real(R8P)      :: CFL              !< CFL time limit.
    real(R8P)      :: dt=0.0001_R8P    !< Maximum time step accordingly to CFL criterion.
    ! Slices
-   integer(I4P)               :: slices_number=0 !< Number of slices to be save.
-   character(99), allocatable :: slice_itype(:)  !< Slice interpolation type.
-   integer(I4P),  allocatable :: slice_save(:)   !< Iteration interval between subsequent data-slice saves.
-   integer(I4P),  allocatable :: slice_nijk(:,:) !< Slice number of points [3,slices_number].
-   real(R8P),     allocatable :: slice_emin(:,:) !< Slice minimum extents  [3,slices_number].
-   real(R8P),     allocatable :: slice_emax(:,:) !< Slice maximum extents  [3,slices_number].
+   integer(I4P)                 :: slices_number=0 !< Number of slices to be save.
+   type(slice_obj), allocatable :: slice(:)        !< Slices data.
    ! Initial conditions
    integer(I4P)           :: ic_type                     !< Initial condition type.
    real(R8P)              :: ic_vars(IC_VARS_NUMBER_MAX) !< Variables' array for initial conditions.
@@ -398,7 +405,7 @@ contains
    !< Initialize the equation.
    class(equation_nasto_gpu_object), intent(inout) :: self              !< The equation.
    character(*),                     intent(in)    :: filename          !< Input file name.
-   integer(I4P)                                    :: v, i              !< Counter.
+   integer(I4P)                                    :: i, j, k, v, s     !< Counter.
    integer(I4P)                                    :: n_solids          !< Number of immersed bodies.
    integer(I4P)                                    :: n_vars            !< Number of ic/bc vars.
    integer(I4P)                                    :: iu_ref_levels     !< Uniform refinement initial.
@@ -419,9 +426,9 @@ contains
    integer(I4P)                                    :: bc_type_item      !< Boundary condition type element.
    integer(I4P)                                    :: i_var, i_bc       !< Counter.
    integer(I4P)                                    :: i_solid, i_marker !< Counter.
-   integer(I4P)                                    :: i_slice           !< Counter.
    real(R8P)                                       :: gpu_memory        !< Available GPU memory.
    real(R8P)                                       :: emin(3), emax(3)  !< Domain dimension.
+   real(R8P)                                       :: dxyz(3)           !< Space steps.
    logical                                         :: buf_BOOL          !< Logical buffer.
    integer(I4P)                                    :: buf_I4            !< I4 buffer.
    real(R8P)                                       :: buf_R8            !< R8 buffer.
@@ -535,25 +542,34 @@ contains
    call self%runge_kutta_initialize
 
    if (self%slices_number > 0) then
-      allocate(self%slice_itype(self%slices_number))
-      allocate(self%slice_save(self%slices_number))
-      allocate(self%slice_nijk(3,self%slices_number))
-      allocate(self%slice_emin(3,self%slices_number))
-      allocate(self%slice_emax(3,self%slices_number))
+      allocate(self%slice(self%slices_number))
       print '(A)', 'parse slices input setting'
-      do i_slice=1,self%slices_number
-         sname = 'slice_'//trim(str(i_slice,.true.))
-         call self%file_input%get(section_name=sname, option_name='slice_itype', val=buf_CHAR) ; self%slice_itype( i_slice)=buf_CHAR
-         call self%file_input%get(section_name=sname, option_name='slice_save', val=buf_I4)    ; self%slice_save(  i_slice)=buf_I4
-         call self%file_input%get(section_name=sname, option_name='slice_ni', val=buf_I4)      ; self%slice_nijk(1,i_slice)=buf_I4
-         call self%file_input%get(section_name=sname, option_name='slice_nj', val=buf_I4)      ; self%slice_nijk(2,i_slice)=buf_I4
-         call self%file_input%get(section_name=sname, option_name='slice_nk', val=buf_I4)      ; self%slice_nijk(3,i_slice)=buf_I4
-         call self%file_input%get(section_name=sname, option_name='slice_emin_x', val=buf_R8)  ; self%slice_emin(1,i_slice)=buf_R8
-         call self%file_input%get(section_name=sname, option_name='slice_emin_y', val=buf_R8)  ; self%slice_emin(2,i_slice)=buf_R8
-         call self%file_input%get(section_name=sname, option_name='slice_emin_z', val=buf_R8)  ; self%slice_emin(3,i_slice)=buf_R8
-         call self%file_input%get(section_name=sname, option_name='slice_emax_x', val=buf_R8)  ; self%slice_emax(1,i_slice)=buf_R8
-         call self%file_input%get(section_name=sname, option_name='slice_emax_y', val=buf_R8)  ; self%slice_emax(2,i_slice)=buf_R8
-         call self%file_input%get(section_name=sname, option_name='slice_emax_z', val=buf_R8)  ; self%slice_emax(3,i_slice)=buf_R8
+      do s=1, self%slices_number
+         sname = 'slice_'//trim(str(s,.true.))
+         call self%file_input%get(section_name=sname, option_name='slice_itype', val=buf_CHAR) ; self%slice(s)%slice_itype=buf_CHAR
+         call self%file_input%get(section_name=sname, option_name='slice_save', val=buf_I4)    ; self%slice(s)%slice_save =buf_I4
+         call self%file_input%get(section_name=sname, option_name='slice_ni', val=buf_I4)      ; self%slice(s)%slice_nijk(1)=buf_I4
+         call self%file_input%get(section_name=sname, option_name='slice_nj', val=buf_I4)      ; self%slice(s)%slice_nijk(2)=buf_I4
+         call self%file_input%get(section_name=sname, option_name='slice_nk', val=buf_I4)      ; self%slice(s)%slice_nijk(3)=buf_I4
+         call self%file_input%get(section_name=sname, option_name='slice_emin_x', val=buf_R8)  ; self%slice(s)%slice_emin(1)=buf_R8
+         call self%file_input%get(section_name=sname, option_name='slice_emin_y', val=buf_R8)  ; self%slice(s)%slice_emin(2)=buf_R8
+         call self%file_input%get(section_name=sname, option_name='slice_emin_z', val=buf_R8)  ; self%slice(s)%slice_emin(3)=buf_R8
+         call self%file_input%get(section_name=sname, option_name='slice_emax_x', val=buf_R8)  ; self%slice(s)%slice_emax(1)=buf_R8
+         call self%file_input%get(section_name=sname, option_name='slice_emax_y', val=buf_R8)  ; self%slice(s)%slice_emax(2)=buf_R8
+         call self%file_input%get(section_name=sname, option_name='slice_emax_z', val=buf_R8)  ; self%slice(s)%slice_emax(3)=buf_R8
+         allocate(self%slice(s)%slice_points(3,self%slice(s)%slice_nijk(1),self%slice(s)%slice_nijk(2),self%slice(s)%slice_nijk(3)))
+         dxyz(1) = (self%slice(s)%slice_emax(1) - self%slice(s)%slice_emin(1)) / self%slice(s)%slice_nijk(1)
+         dxyz(2) = (self%slice(s)%slice_emax(2) - self%slice(s)%slice_emin(2)) / self%slice(s)%slice_nijk(2)
+         dxyz(3) = (self%slice(s)%slice_emax(3) - self%slice(s)%slice_emin(3)) / self%slice(s)%slice_nijk(3)
+         do k=1, self%slice(s)%slice_nijk(3)
+            do j=1, self%slice(s)%slice_nijk(2)
+               do i=1, self%slice(s)%slice_nijk(1)
+                  self%slice(s)%slice_points(1,i,j,k) = self%slice(s)%slice_emin(1) + (i - 0.5_R8P) * dxyz(1)
+                  self%slice(s)%slice_points(2,i,j,k) = self%slice(s)%slice_emin(2) + (j - 0.5_R8P) * dxyz(2)
+                  self%slice(s)%slice_points(3,i,j,k) = self%slice(s)%slice_emin(3) + (k - 0.5_R8P) * dxyz(3)
+               enddo
+            enddo
+         enddo
       enddo
    endif
 
@@ -1314,13 +1330,10 @@ contains
    class(equation_nasto_gpu_object), intent(inout) :: self               !< The equation.
    logical,                          intent(inout) :: is_cp_gpu_cpu_done !< Flag to minimize copies GPU-CPU for IO.
    integer(I4P)                                    :: s                  !< Slices counter.
-   integer(I4P)                                    :: i, j, k            !< Counter.
-   real(R8P)                                       :: dxyz(3)            !< Slice space steps.
-   real(R8P), allocatable                          :: points(:,:,:,:)    !< Slice points coordinates.
 
    if (self%slices_number>0) then
       do s=1, self%slices_number
-         if (mod(self%it,self%slice_save(s))==0.or.self%it==self%t_max.or.&
+         if (mod(self%it,self%slice(s)%slice_save)==0.or.self%it==self%t_max.or.&
             (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0)))) then
             print '(A)', 'save slice n: '//trim(str(s,.true.))//&
                   ', t: '//trim(str(self%it,.true.))//', time: '//trim(str(self%time,.true.))
@@ -1328,22 +1341,8 @@ contains
                call self%copy_gpu_cpu(compute_q_aux=.true.)
                is_cp_gpu_cpu_done = .true.
             endif
-            if (allocated(points)) deallocate(points)
-            allocate(points(3,self%slice_nijk(1,s),self%slice_nijk(2,s),self%slice_nijk(3,s)))
-            dxyz(1) = (self%slice_emax(1,s) - self%slice_emin(1,s)) / self%slice_nijk(1,s)
-            dxyz(2) = (self%slice_emax(2,s) - self%slice_emin(2,s)) / self%slice_nijk(2,s)
-            dxyz(3) = (self%slice_emax(3,s) - self%slice_emin(3,s)) / self%slice_nijk(3,s)
-            do k=1, self%slice_nijk(3,s)
-               do j=1, self%slice_nijk(2,s)
-                  do i=1, self%slice_nijk(1,s)
-                     points(1,i,j,k) = self%slice_emin(1,s) + (i - 0.5_R8P) * dxyz(1)
-                     points(2,i,j,k) = self%slice_emin(2,s) + (j - 0.5_R8P) * dxyz(2)
-                     points(3,i,j,k) = self%slice_emin(3,s) + (k - 0.5_R8P) * dxyz(3)
-                  enddo
-               enddo
-            enddo
-            call self%adam%save_slice(points=points,                                                   &
-                                      itype=trim(self%slice_itype(s)),                                 &
+            call self%adam%save_slice(points=self%slice(s)%slice_points,                               &
+                                      itype=trim(self%slice(s)%slice_itype),                           &
                                       basename=trim(self%output_basename)//                            &
                                                '-slice_'//trim(strz(s,2))//'-'//trim(strz(self%it,9)), &
                                       q=self%field%q,                                                  &
