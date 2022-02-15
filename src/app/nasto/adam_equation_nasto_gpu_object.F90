@@ -220,6 +220,7 @@ type :: equation_nasto_gpu_object
       procedure, pass(self) :: run                     !< Run all.
       procedure, pass(self) :: update_phi              !< Refine all blocks uniformly.
       procedure, pass(self) :: runge_kutta_initialize  !< Initialize Runge-Kutta data.
+      procedure, pass(self) :: save_simulation_data    !< Save all simulation data.
       procedure, pass(self) :: save_restart_files      !< Save restart files.
       procedure, pass(self) :: save_hdf5               !< Save simulation data in HDF5 format.
       procedure, pass(self) :: save_slices             !< Save simulation data slices.
@@ -1208,16 +1209,10 @@ contains
    endsubroutine
 
    subroutine run(self, filename)
-   class(equation_nasto_gpu_object), intent(inout) :: self               !< The equation.
-   character(*),                     intent(in)    :: filename           !< Input file name.
-   logical                                         :: is_cp_gpu_cpu_done !< Flag to minimize copies GPU-CPUi for IO.
-   real(R8P)                                       :: timing(1:2)        !< Tic toc timing.
-   real(R8P)                                       :: timing_step(1:2)   !< Tic toc timing.
-
-   logical                                         :: is_mine
-   integer(I8P)                                    :: b
-   integer(I4P)                                    :: ijk(3,8), v
-   real(R8P)                                       :: xyz(3,8), q(1,8), qp(1)
+   class(equation_nasto_gpu_object), intent(inout) :: self             !< The equation.
+   character(*),                     intent(in)    :: filename         !< Input file name.
+   real(R8P)                                       :: timing(1:2)      !< Tic toc timing.
+   real(R8P)                                       :: timing_step(1:2) !< Tic toc timing.
 
    call MPI_INIT(self%error)
 
@@ -1233,38 +1228,41 @@ contains
    endif
    if (self%n_solids > 0) call self%update_phi()
 
-   is_cp_gpu_cpu_done = .false.
-   call self%save_hdf5(is_cp_gpu_cpu_done=is_cp_gpu_cpu_done)
+   call self%save_simulation_data
    call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing(1) = MPI_Wtime()
 
    integration: do
       call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(1) = MPI_Wtime()
       self%it = self%it + 1
+
       if(mod(self%it,self%amr_frequency) == 0) then
          call self%amr_update()
          call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(2) = MPI_Wtime()
          print '(A, F18.10)', 'step timing (AMR): ', timing_step(2) - timing_step(1)
       endif
+
       call self%compute_dt()
       if ((self%t_max <= 0).and.(self%time + self%dt > self%time_max)) self%dt = self%time_max - self%time
+
       call self%integrate(t=self%time)
+
       self%time = self%time + self%dt
       call self%print_progress(t=self%it, time=self%time, t_max=self%t_max, time_max=self%time_max)
 
-      is_cp_gpu_cpu_done = .false.
-      call self%save_hdf5(is_cp_gpu_cpu_done=is_cp_gpu_cpu_done)
-      call self%save_restart_files(is_cp_gpu_cpu_done=is_cp_gpu_cpu_done)
-      call self%save_slices(is_cp_gpu_cpu_done=is_cp_gpu_cpu_done)
+      call self%save_simulation_data
+      call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(2) = MPI_Wtime()
+      print '(A, F18.10)', 'step timing (save data): ', timing_step(2) - timing_step(1)
 
       if (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0))) exit integration
+
       call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(2) = MPI_Wtime()
       print '(A, F18.10)', 'step timing: ', timing_step(2) - timing_step(1)
    enddo integration
+
    call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing(2) = MPI_Wtime()
    print '(A, F18.10)', 'averaged timing: ', (timing(2) - timing(1))/self%it
-   is_cp_gpu_cpu_done = .false.
-   call self%save_hdf5(is_cp_gpu_cpu_done=is_cp_gpu_cpu_done)
-   call self%save_slices(is_cp_gpu_cpu_done=is_cp_gpu_cpu_done)
+
+   call self%save_simulation_data
    call self%adam%finalize
    endsubroutine run
 
@@ -1284,20 +1282,51 @@ contains
    endselect
    endsubroutine runge_kutta_initialize
 
-   subroutine save_hdf5(self, is_cp_gpu_cpu_done, output_basename)
+   subroutine save_simulation_data(self)
+   !< Save all simulation data.
+   class(equation_nasto_gpu_object), intent(inout) :: self                     !< The equation.
+   logical                                         :: is_update_ghost_gpu_done !< Flag to minimize ghosts-update-calls for IO.
+   logical                                         :: is_alo_slice_to_save     !< Flag to check if at least one slice is to save.
+   integer(I4P)                                    :: s                        !< Slices counter.
+
+   ! update ghost cells if necessary
+   is_update_ghost_gpu_done = .false.
+   is_alo_slice_to_save     = .false.
+   if (self%slices_number>0) then
+      do s=1, self%slices_number
+         if (mod(self%it,self%slice(s)%slice_save)==0.or.self%it==self%t_max.or.&
+            (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0)))) then
+            is_alo_slice_to_save = .true.
+            if (.not.is_update_ghost_gpu_done) then
+               is_update_ghost_gpu_done = .true.
+               call self%update_ghost_gpu(q_gpu=self%q_gpu)
+               call self%update_ghost_gpu(q_gpu=self%q_aux_gpu)
+            endif
+         endif
+      enddo
+   endif
+   ! copy GPU data to CPU
+   if (mod(self%it,self%n_save)==0.or.self%it==self%t_max.or.& ! HDF5 output
+      (mod(self%it,self%restart_save)==0).or.                & ! restart output
+      is_alo_slice_to_save.or.                               & ! slices output
+      (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0)))) then
+      call self%copy_gpu_cpu(compute_q_aux=.true.)
+   endif
+   ! save data
+   call self%save_hdf5
+   call self%save_restart_files
+   call self%save_slices
+   endsubroutine save_simulation_data
+
+   subroutine save_hdf5(self, output_basename)
    !< Save simulation data in HDF5 format.
-   class(equation_nasto_gpu_object), intent(inout)        :: self               !< The equation.
-   logical,                          intent(inout)        :: is_cp_gpu_cpu_done !< Flag to minimize copies GPU-CPU for IO.
-   character(*),                     intent(in), optional :: output_basename    !< Output basename.
-   character(:), allocatable                              :: output_basename_   !< Output basename, local var.
+   class(equation_nasto_gpu_object), intent(inout)        :: self             !< The equation.
+   character(*),                     intent(in), optional :: output_basename  !< Output basename.
+   character(:), allocatable                              :: output_basename_ !< Output basename, local var.
 
    if (mod(self%it,self%n_save)==0.or.self%it==self%t_max.or.&
       (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0)))) then
       print '(A)', 'save HDF5 files t: '//trim(str(self%it,.true.))//', time: '//trim(str(self%time,.true.))
-      if (.not.is_cp_gpu_cpu_done) then
-         call self%copy_gpu_cpu(compute_q_aux=.true.)
-         is_cp_gpu_cpu_done = .true.
-      endif
       output_basename_ = trim(self%output_basename)//'-'//trim(strz(self%it,9))
       if (present(output_basename)) output_basename_ = trim(output_basename)
       call self%adam%save_hdf5(basename=trim(output_basename_),                                  &
@@ -1309,45 +1338,37 @@ contains
    endif
    endsubroutine save_hdf5
 
-   subroutine save_restart_files(self, is_cp_gpu_cpu_done)
+   subroutine save_restart_files(self)
    !< Save restart files.
-   class(equation_nasto_gpu_object), intent(inout) :: self               !< The equation.
-   logical,                          intent(inout) :: is_cp_gpu_cpu_done !< Flag to minimize copies GPU-CPU for IO.
+   class(equation_nasto_gpu_object), intent(inout) :: self !< The equation.
 
    if (mod(self%it,self%restart_save)==0) then
       print '(A)', 'save restart files t: '//trim(str(self%it,.true.))//', time: '//trim(str(self%time,.true.))
-      if (.not.is_cp_gpu_cpu_done) then
-         call self%copy_gpu_cpu(compute_q_aux=.true.)
-         is_cp_gpu_cpu_done = .true.
-      endif
       call self%adam%save_restart_files(basename=self%restart_basename, t=self%it, time=self%time)
-      call self%save_hdf5(is_cp_gpu_cpu_done=is_cp_gpu_cpu_done, output_basename=self%restart_basename)
+      call self%save_hdf5(output_basename=self%restart_basename)
    endif
    endsubroutine save_restart_files
 
-   subroutine save_slices(self, is_cp_gpu_cpu_done)
+   subroutine save_slices(self)
    !< Save simulation data slices.
-   class(equation_nasto_gpu_object), intent(inout) :: self               !< The equation.
-   logical,                          intent(inout) :: is_cp_gpu_cpu_done !< Flag to minimize copies GPU-CPU for IO.
-   integer(I4P)                                    :: s                  !< Slices counter.
+   class(equation_nasto_gpu_object), intent(inout) :: self !< The equation.
+   integer(I4P)                                    :: s    !< Slices counter.
 
    if (self%slices_number>0) then
       do s=1, self%slices_number
-         if (mod(self%it,self%slice(s)%slice_save)==0.or.self%it==self%t_max.or.&
-            (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0)))) then
-            print '(A)', 'save slice n: '//trim(str(s,.true.))//&
-                  ', t: '//trim(str(self%it,.true.))//', time: '//trim(str(self%time,.true.))
-            if (.not.is_cp_gpu_cpu_done) then
-               call self%copy_gpu_cpu(compute_q_aux=.true.)
-               is_cp_gpu_cpu_done = .true.
+         if (self%it>0) then
+            if (mod(self%it,self%slice(s)%slice_save)==0.or.self%it==self%t_max.or.&
+               (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0)))) then
+               print '(A)', 'save slice n: '//trim(str(s,.true.))//&
+                     ', t: '//trim(str(self%it,.true.))//', time: '//trim(str(self%time,.true.))
+               call self%adam%save_slice(points=self%slice(s)%slice_points,                               &
+                                         itype=trim(self%slice(s)%slice_itype),                           &
+                                         basename=trim(self%output_basename)//                            &
+                                                  '-slice_'//trim(strz(s,2))//'-'//trim(strz(self%it,9)), &
+                                         q=self%field%q,                                                  &
+                                         q_name=['rho','rhu','rhv','rhw','rhe'],                          &
+                                         phi=self%phi(:,:,:,:,1))
             endif
-            call self%adam%save_slice(points=self%slice(s)%slice_points,                               &
-                                      itype=trim(self%slice(s)%slice_itype),                           &
-                                      basename=trim(self%output_basename)//                            &
-                                               '-slice_'//trim(strz(s,2))//'-'//trim(strz(self%it,9)), &
-                                      q=self%field%q,                                                  &
-                                      q_name=['rho','rhu','rhv','rhw','rhe'],                          &
-                                      phi=self%phi(:,:,:,:,1))
          endif
       enddo
    endif
