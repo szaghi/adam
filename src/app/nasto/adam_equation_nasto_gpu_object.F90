@@ -2266,8 +2266,8 @@ contains
          er(1,1) = 1._R8P ;  er(1,2) = uu-c    ; er(1,3) = vv     ; er(1,4) = ww     ; er(1,5) = h-uu*c
          er(2,1) = 1._R8P ;  er(2,2) = uu      ; er(2,3) = vv     ; er(2,4) = ww     ; er(2,5) = qq
          er(3,1) = 1._R8P ;  er(3,2) = uu+c    ; er(3,3) = vv     ; er(3,4) = ww     ; er(3,5) = h+uu*c
-         er(4,1) = 0._R8P ;  er(4,2) = 0._R8P  ; er(4,3) = 1._R8P ; er(4,4) = 0._R8P ; er(4,5) = 0._R8P
-         er(5,1) = 0._R8P ;  er(5,2) = 0._R8P  ; er(5,3) = 0._R8P ; er(5,4) = 1._R8P ; er(5,5) = 0._R8P
+         er(4,1) = 0._R8P ;  er(4,2) = 0._R8P  ; er(4,3) = 1._R8P ; er(4,4) = 0._R8P ; er(4,5) = vv
+         er(5,1) = 0._R8P ;  er(5,2) = 0._R8P  ; er(5,3) = 0._R8P ; er(5,4) = 1._R8P ; er(5,5) = ww
 
          el(1,1) =  0.5_R8P*(b1+uu*ci) ; el(1,2) = 1._R8P-b1 ; el(1,3) =  0.5_R8P*(b1-uu*ci)
          el(2,1) = -0.5_R8P*(b2*uu+ci) ; el(2,2) = b2*uu     ; el(2,3) = -0.5_R8P*(b2*uu-ci)
@@ -2625,8 +2625,8 @@ contains
          er(1,1) = 1._R8P ;  er(1,2) = uu      ; er(1,3) = vv-c   ; er(1,4) = ww     ; er(1,5) = h-vv*c
          er(2,1) = 1._R8P ;  er(2,2) = uu      ; er(2,3) = vv     ; er(2,4) = ww     ; er(2,5) = qq
          er(3,1) = 1._R8P ;  er(3,2) = uu      ; er(3,3) = vv+c   ; er(3,4) = ww     ; er(3,5) = h+vv*c
-         er(4,1) = 0._R8P ;  er(4,2) = 1._R8P  ; er(4,3) = 0._R8P ; er(4,4) = 0._R8P ; er(4,5) = 0._R8P
-         er(5,1) = 0._R8P ;  er(5,2) = 0._R8P  ; er(5,3) = 0._R8P ; er(5,4) = 1._R8P ; er(5,5) = 0._R8P
+         er(4,1) = 0._R8P ;  er(4,2) = 1._R8P  ; er(4,3) = 0._R8P ; er(4,4) = 0._R8P ; er(4,5) = ww
+         er(5,1) = 0._R8P ;  er(5,2) = 0._R8P  ; er(5,3) = 0._R8P ; er(5,4) = 1._R8P ; er(5,5) = -uu
 
          el(1,1) =  0.5_R8P*(b1+vv*ci) ; el(1,2) = 1._R8P-b1 ; el(1,3) = 0.5_R8P*(b1-vv*ci)
          el(2,1) = -0.5_R8P*(b2*uu)    ; el(2,2) = b2*uu     ; el(2,3) = -0.5_R8P*(b2*uu)
@@ -2754,8 +2754,8 @@ contains
          er(1,1) = 1._R8P ;  er(1,2) = uu      ; er(1,3) = vv     ; er(1,4) = ww-c    ; er(1,5) = h-ww*c
          er(2,1) = 1._R8P ;  er(2,2) = uu      ; er(2,3) = vv     ; er(2,4) = ww      ; er(2,5) = qq
          er(3,1) = 1._R8P ;  er(3,2) = uu      ; er(3,3) = vv     ; er(3,4) = ww+c    ; er(3,5) = h+ww*c
-         er(4,1) = 0._R8P ;  er(4,2) = 1._R8P  ; er(4,3) = 0._R8P ; er(4,4) = 0._R8P  ; er(4,5) = 0._R8P
-         er(5,1) = 0._R8P ;  er(5,2) = 0._R8P  ; er(5,3) = 1._R8P ; er(5,4) = 0._R8P  ; er(5,5) = 0._R8P
+         er(4,1) = 0._R8P ;  er(4,2) = 1._R8P  ; er(4,3) = 0._R8P ; er(4,4) = 0._R8P  ; er(4,5) = uu
+         er(5,1) = 0._R8P ;  er(5,2) = 0._R8P  ; er(5,3) = 1._R8P ; er(5,4) = 0._R8P  ; er(5,5) = vv
 
          el(1,1) = 0.5_R8P*(b1+ww*ci)          ; el(1,2) = 1._R8P-b1 ; el(1,3) = 0.5_R8P*(b1-ww*ci)
          el(2,1) = -0.5_R8P*(b2*uu)            ; el(2,2) = b2*uu     ; el(2,3) = -0.5_R8P*(b2*uu)
