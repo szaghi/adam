@@ -551,18 +551,18 @@ contains
 
    subroutine get_closest_cells(self, point, code, ijk, v, xyz)
    !< Get the closest cells to a given point.
-   class(tree_object), intent(in)            :: self     !< The tree.
-   real(R8P),          intent(in)            :: point(3) !< Point xyz coordinates.
-   integer(I8P),       intent(in)            :: code     !< The Morton code of the closest block.
-   integer(I4P),       intent(out)           :: ijk(3,8) !< Closest cells indexes.
-   integer(I4P),       intent(out), optional :: v        !< Closest vertex index.
-   real(R8P),          intent(out), optional :: xyz(3,8) !< Closest cells center-coordinates.
-   integer(I4P)                              :: v_       !< Closest vertex index, local var.
-   integer(I4P)                              :: ijkl(4)  !< Block indexes.
-   real(R8P)                                 :: emin(3)  !< Minimum block extent.
-   real(R8P)                                 :: dxyz(3)  !< Space steps.
-   integer(I4P)                              :: vijk(3)  !< Vertex indices.
-   integer(I4P)                              :: c,cc     !< Counter.
+   class(tree_object), intent(in)            :: self       !< The tree.
+   real(R8P),          intent(in)            :: point(3)   !< Point xyz coordinates.
+   integer(I8P),       intent(in)            :: code       !< The Morton code of the closest block.
+   integer(I4P),       intent(out)           :: ijk(3,8)   !< Closest cells indexes.
+   integer(I4P),       intent(out), optional :: v          !< Closest vertex index.
+   real(R8P),          intent(out), optional :: xyz(3,8)   !< Closest cells center-coordinates.
+   integer(I4P)                              :: v_         !< Closest vertex index, local var.
+   integer(I4P)                              :: ijkl(4)    !< Block indexes.
+   real(R8P)                                 :: emin(3)    !< Minimum block extent.
+   real(R8P)                                 :: dxyz(3)    !< Space steps.
+   integer(I4P)                              :: vijk(3)    !< Vertex indices.
+   integer(I4P)                              :: c,cc,i,j,k !< Counter.
    ! parameters
    ! integer(I4P), parameter :: vi(0:1,0:1,0:1) = reshape([0,1,2,3,4,5,6,7],[2,2,2]) !< Vertices indexes.
    ! integer(I4P), parameter :: ci(0:7)         = [-1,+1,-1,+1,-1,+1,-1,+1]          !< Cell-vertices x increments.

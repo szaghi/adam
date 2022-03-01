@@ -229,7 +229,7 @@ contains
    associate(nb_max=>self%nb_max(level), emin=>self%domain_emin, dxyz=>self%block_dxyz(:,level))
       ! ijk(:) = min(nb_max, max(1, ceiling((point(:) - emin(:)) / dxyz(:), I4P)))
       ijk(:) = int((point(:) - emin(:)) / dxyz(:), I4P)
-      if (any(ijk)<0.or.any(ijk)>2**level-1) then
+      if (any(ijk<0).or.any(ijk>2**level-1)) then
          print '(A)', 'ERROR: grid%get_closest block failed ijk: '//str(ijk)//&
                ' level:'//str(level)//' point:'//str(point)
       endif
