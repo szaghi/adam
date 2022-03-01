@@ -235,7 +235,7 @@ contains
    node => self%tree%node(code=code_)
    if (node%myrank == self%myrank) then
       is_mine = .true.
-      call self%tree%get_closest_cells(point=point, code=code_, ijk=ijk_, xyz=xyz_, v=v)
+      call self%tree%get_closest_cells(point=point, code=code_, ijk=ijk_, xyz=xyz_)!, v=v)
       select case(trim(itype))
       case('inverse_distance')
          call inverse_distance_interpolation

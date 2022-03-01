@@ -521,12 +521,13 @@ contains
 
    function get_closest_block(self, point) result(code)
    !< Get the closest block to a given point.
-   class(tree_object), intent(in) :: self     !< The tree.
-   real(R8P),          intent(in) :: point(3) !< Point xyz coordinates.
-   integer(I8P)                   :: code     !< The Morton code.
-   integer(I4P)                   :: ijkl(4)  !< Indexes.
-   integer(I8P), allocatable      :: path(:)  !< Path codes from node to root.
-   integer(I4P)                   :: c        !< Counter.
+   class(tree_object), intent(in) :: self        !< The tree.
+   real(R8P),          intent(in) :: point(3)    !< Point xyz coordinates.
+   integer(I8P)                   :: code        !< The Morton code.
+   integer(I4P)                   :: ijkl(4)     !< Indexes.
+   integer(I8P), allocatable      :: path(:)     !< Path codes from node to root.
+   integer(I4P)                   :: c           !< Counter.
+   logical                        :: block_found !< Flag to check if block has been found.
 
    ! find the block closest to the point in the finest refinement level
    ijkl(1:3) = self%grid%get_closest_block(point=point, level=self%max_level)
@@ -534,10 +535,17 @@ contains
    if (.not.self%has_code(code=code)) then
       ! finest-level block does not exist, return the finest living into its parents-path
       path = self%path(code=code)
+      block_found = .false.
       do c=lbound(path, dim=1), ubound(path, dim=1)
          code = path(c)
-         if (self%has_code(code=code)) exit
+         if (self%has_code(code=code)) then
+            block_found = .true.
+            exit
+          endif
       enddo
+      if (.not.block_found) then
+         print '(A)', 'ERROR: tree%get_closest block failed, path: '//str(path)//' point: '//str(point)
+      endif
    endif
    endfunction get_closest_block
 
@@ -556,32 +564,46 @@ contains
    integer(I4P)                              :: vijk(3)  !< Vertex indices.
    integer(I4P)                              :: c,cc     !< Counter.
    ! parameters
-   integer(I4P), parameter :: vi(0:1,0:1,0:1) = reshape([0,1,2,3,4,5,6,7],[2,2,2]) !< Vertices indexes.
-   integer(I4P), parameter :: ci(0:7)         = [-1,+1,-1,+1,-1,+1,-1,+1]          !< Cell-vertices x increments.
-   integer(I4P), parameter :: cj(0:7)         = [-1,-1,+1,+1,-1,-1,+1,+1]          !< Cell-vertices y increments.
-   integer(I4P), parameter :: ck(0:7)         = [-1,-1,-1,-1,+1,+1,+1,+1]          !< Cell-vertices z increments.
+   ! integer(I4P), parameter :: vi(0:1,0:1,0:1) = reshape([0,1,2,3,4,5,6,7],[2,2,2]) !< Vertices indexes.
+   ! integer(I4P), parameter :: ci(0:7)         = [-1,+1,-1,+1,-1,+1,-1,+1]          !< Cell-vertices x increments.
+   ! integer(I4P), parameter :: cj(0:7)         = [-1,-1,+1,+1,-1,-1,+1,+1]          !< Cell-vertices y increments.
+   ! integer(I4P), parameter :: ck(0:7)         = [-1,-1,-1,-1,+1,+1,+1,+1]          !< Cell-vertices z increments.
 
    ! get metrics of the closest block
    call self%morton_to_coordinates(code=code, i=ijkl(1), j=ijkl(2), k=ijkl(3), l=ijkl(4))
    call self%grid%compute_metrics(coordinates=ijkl, emin=emin, dx=dxyz(1), dy=dxyz(2), dz=dxyz(3))
+   ijk(1,1) = floor((point(1) - 0.5_R8P*dxyz(1) - emin(1)) / dxyz(1), I4P) + 1
+   ijk(2,1) = floor((point(2) - 0.5_R8P*dxyz(2) - emin(2)) / dxyz(2), I4P) + 1
+   ijk(3,1) = floor((point(3) - 0.5_R8P*dxyz(3) - emin(3)) / dxyz(3), I4P) + 1
+   cc = 0
+   do k=0,1
+     do j=0,1
+       do i=0,1
+          cc = cc + 1
+          ijk(1,cc) = ijk(1,1) + i
+          ijk(2,cc) = ijk(2,1) + j
+          ijk(3,cc) = ijk(3,1) + k
+       enddo
+     enddo
+   enddo
    ! find closest cell, put it into first element of ijk array
-   ijk(1,1) = ceiling((point(1) - emin(1)) / dxyz(1), I4P)
-   ijk(2,1) = ceiling((point(2) - emin(2)) / dxyz(2), I4P)
-   ijk(3,1) = ceiling((point(3) - emin(3)) / dxyz(3), I4P)
-   ! find closest vertex into the closest cell
-   vijk(1) = nint((point(1) - (emin(1) + (ijk(1,1)-1) * dxyz(1))) / dxyz(1), I4P)
-   vijk(2) = nint((point(2) - (emin(2) + (ijk(2,1)-1) * dxyz(2))) / dxyz(2), I4P)
-   vijk(3) = nint((point(3) - (emin(3) + (ijk(3,1)-1) * dxyz(3))) / dxyz(3), I4P)
-   v_= vi(vijk(1), vijk(2), vijk(3))
-   ! find other 7 cells surrounding the vertex
-                                  ijk(1,2) = ijk(1,1) + ci(v_) ;  ijk(1,3) = ijk(1,1)          ;  ijk(1,4) = ijk(1,1) + ci(v_)
-                                  ijk(2,2) = ijk(2,1)          ;  ijk(2,3) = ijk(2,1) + cj(v_) ;  ijk(2,4) = ijk(2,1) + cj(v_)
-                                  ijk(3,2) = ijk(3,1)          ;  ijk(3,3) = ijk(3,1)          ;  ijk(3,4) = ijk(3,1)
+   ! ijk(1,1) = ceiling((point(1) - emin(1)) / dxyz(1), I4P)
+   ! ijk(2,1) = ceiling((point(2) - emin(2)) / dxyz(2), I4P)
+   ! ijk(3,1) = ceiling((point(3) - emin(3)) / dxyz(3), I4P)
+   ! ! find closest vertex into the closest cell
+   ! vijk(1) = nint((point(1) - (emin(1) + (ijk(1,1)-1) * dxyz(1))) / dxyz(1), I4P)
+   ! vijk(2) = nint((point(2) - (emin(2) + (ijk(2,1)-1) * dxyz(2))) / dxyz(2), I4P)
+   ! vijk(3) = nint((point(3) - (emin(3) + (ijk(3,1)-1) * dxyz(3))) / dxyz(3), I4P)
+   ! v_= vi(vijk(1), vijk(2), vijk(3))
+   ! ! find other 7 cells surrounding the vertex
+   !                                ijk(1,2) = ijk(1,1) + ci(v_) ;  ijk(1,3) = ijk(1,1)          ;  ijk(1,4) = ijk(1,1) + ci(v_)
+   !                                ijk(2,2) = ijk(2,1)          ;  ijk(2,3) = ijk(2,1) + cj(v_) ;  ijk(2,4) = ijk(2,1) + cj(v_)
+   !                                ijk(3,2) = ijk(3,1)          ;  ijk(3,3) = ijk(3,1)          ;  ijk(3,4) = ijk(3,1)
 
-   ijk(1,5) = ijk(1,1)          ; ijk(1,6) = ijk(1,1) + ci(v_) ;  ijk(1,7) = ijk(1,1)          ;  ijk(1,8) = ijk(1,1) + ci(v_)
-   ijk(2,5) = ijk(2,1)          ; ijk(2,6) = ijk(2,1)          ;  ijk(2,7) = ijk(2,1) + cj(v_) ;  ijk(2,8) = ijk(2,1) + cj(v_)
-   ijk(3,5) = ijk(3,1) + ck(v_) ; ijk(3,6) = ijk(3,1) + ck(v_) ;  ijk(3,7) = ijk(3,1) + ck(v_) ;  ijk(3,8) = ijk(3,1) + ck(v_)
-   if (present(v)) v = v_
+   ! ijk(1,5) = ijk(1,1)          ; ijk(1,6) = ijk(1,1) + ci(v_) ;  ijk(1,7) = ijk(1,1)          ;  ijk(1,8) = ijk(1,1) + ci(v_)
+   ! ijk(2,5) = ijk(2,1)          ; ijk(2,6) = ijk(2,1)          ;  ijk(2,7) = ijk(2,1) + cj(v_) ;  ijk(2,8) = ijk(2,1) + cj(v_)
+   ! ijk(3,5) = ijk(3,1) + ck(v_) ; ijk(3,6) = ijk(3,1) + ck(v_) ;  ijk(3,7) = ijk(3,1) + ck(v_) ;  ijk(3,8) = ijk(3,1) + ck(v_)
+   ! if (present(v)) v = v_
    if (present(xyz)) then
       do cc=1,8
          do c=1,3
