@@ -164,6 +164,27 @@ def cli_parser():
     _parser_mat2mp4(clisubparsers)
     return cliparser
 
+def is_file_to_convert(src_file, dst_file):
+    """
+    Check if file is to be converted or is already converted (mat2dat, dat2png).
+
+    Parameters
+    ----------
+    src_file : str, source file to be converted
+    dst_file : str, destination file converted
+
+    Returns
+    -------
+    is_to_convert : bool, true or false
+    """
+    is_to_convert = False
+    if os.path.exists(dst_file):
+       if os.path.getmtime(src_file) >= os.path.getmtime(dst_file):
+          is_to_convert = True
+    else:
+       is_to_convert = True
+    return is_to_convert
+
 
 def run_mat2dat(slice_files_pattern, vnames):
     """
@@ -175,10 +196,13 @@ def run_mat2dat(slice_files_pattern, vnames):
     vnames : str
     """
     for file_name in os.listdir("./"):
-        if file_name.startswith(slice_files_pattern) and file_name.endswith(".mat"):
-            print('convert file ' + file_name)
-            base_name = file_name.split('.')[0]
-            os.system('ascot -i ' + file_name + ' -v ' + vnames + ' -o ' + base_name + '.dat')
+       if file_name.startswith(slice_files_pattern) and file_name.endswith(".mat"):
+          base_name = file_name.split('.')[0]
+          if is_file_to_convert(file_name, base_name + '.dat'):
+             print('convert file ' + file_name)
+             os.system('ascot -i ' + file_name + ' -v ' + vnames + ' -o ' + base_name + '.dat')
+          else:
+             print('file ' + file_name + ' already converted')
 
 
 def run_dat2png(slice_files_pattern, v, clabel, levels):
@@ -192,89 +216,92 @@ def run_dat2png(slice_files_pattern, v, clabel, levels):
     levels : list
     """
     for file_name in os.listdir("./"):
-        if file_name.startswith(slice_files_pattern) and file_name.endswith(".dat"):
-            print('plot file ' + file_name)
-            base_name = file_name.split('.')[0]
-            # load data
-            with open(base_name + ".dat") as sf:
+       if file_name.startswith(slice_files_pattern) and file_name.endswith(".dat"):
+          base_name = file_name.split('.')[0]
+          if is_file_to_convert(file_name, base_name + '.png'):
+             print('convert file ' + file_name)
+             # load data
+             with open(file_name) as sf:
                 head = [next(sf) for x in range(2)]
-            # number of variables saved
-            hnv = head[0].strip()
-            nv = len(hnv.split('= ')[1].split(' '))
-            # number of slice points
-            hnijk = head[1].strip()
-            ni = int(hnijk.split(',')[1].split('=')[1])
-            nj = int(hnijk.split(',')[2].split('=')[1])
-            nk = int(hnijk.split(',')[3].split('=')[1])
-            slice_o = np.loadtxt(base_name + ".dat", delimiter=" ", skiprows=2)
-            slice_r = slice_o.reshape(ni,nj,nk,nv)
-            slice_type = '3D'
-            if   ni == 1 and nj == 1:
+             # number of variables saved
+             hnv = head[0].strip()
+             nv = len(hnv.split('= ')[1].split(' '))
+             # number of slice points
+             hnijk = head[1].strip()
+             ni = int(hnijk.split(',')[1].split('=')[1])
+             nj = int(hnijk.split(',')[2].split('=')[1])
+             nk = int(hnijk.split(',')[3].split('=')[1])
+             slice_o = np.loadtxt(file_name, delimiter=" ", skiprows=2)
+             slice_r = slice_o.reshape(ni,nj,nk,nv)
+             slice_type = '3D'
+             if   ni == 1 and nj == 1:
                 slice_type = '1D'
                 x = slice_r[0,0,:,2]
                 r = slice_r[0,0,:,v]
                 x_label = 'Z'
                 y_label = clabel
-            elif ni == 1 and nk == 1:
+             elif ni == 1 and nk == 1:
                 slice_type = '1D'
                 x = slice_r[0,:,0,1]
                 r = slice_r[0,:,0,v]
                 x_label = 'Y'
                 y_label = clabel
-            elif nj == 1 and nk == 1:
+             elif nj == 1 and nk == 1:
                 slice_type = '1D'
                 x = slice_r[:,0,0,0]
                 r = slice_r[:,0,0,v]
                 x_label = 'X'
                 y_label = clabel
-            elif ni == 1:
+             elif ni == 1:
                 slice_type = '2D'
                 x = slice_r[0,0,:,1]
                 y = slice_r[0,:,0,2]
                 r = slice_r[0,:,:,v]
                 x_label = 'Y'
                 y_label = 'Z'
-            elif nj == 1:
+             elif nj == 1:
                 slice_type = '2D'
                 x = slice_r[0,0,:,0]
                 y = slice_r[:,0,0,2]
                 r = slice_r[:,0,:,v]
                 x_label = 'X'
                 y_label = 'Z'
-            elif nk == 1:
+             elif nk == 1:
                 slice_type = '2D'
                 x = slice_r[0,:,0,0]
                 y = slice_r[:,0,0,1]
                 r = slice_r[:,:,0,v]
                 x_label = 'X'
                 y_label = 'Y'
-            if slice_type == '2D':
+             if slice_type == '2D':
                 # create contour plot
                 fig, ax = plt.subplots(1, 1)
                 ax.set_xlabel(x_label)
                 ax.set_ylabel(y_label)
                 ax.set_title('2D Slice ' + x_label + y_label)
                 if levels is not None:
-                    clevels = np.linspace(levels[0], levels[1], int(levels[2]) + 1)
-                    cf = plt.contourf(x, y, r, levels=clevels, cmap='RdGy')
+                   clevels = np.linspace(levels[0], levels[1], int(levels[2]) + 1)
+                   cf = plt.contourf(x, y, r, levels=clevels, cmap='RdGy')
                 else :
-                    cf = plt.contourf(x, y, r, levels=20, cmap='RdGy')
+                   cf = plt.contourf(x, y, r, levels=20, cmap='RdGy')
                 cbar = plt.colorbar(cf)
                 cbar.ax.set_ylabel(clabel, labelpad=10, rotation=270)
                 plt.savefig(base_name + '.png')
                 plt.close()
-            elif slice_type == '1D':
+             elif slice_type == '1D':
                 # create xy plot
                 fig, ax = plt.subplots(1, 1)
                 ax.set_xlabel(x_label)
                 ax.set_ylabel(y_label)
                 ax.set_title('1D Slice ' + x_label)
                 if levels is not None:
-                    ax.set_ylim([levels[0], levels[1]])
+                   ax.set_ylim([levels[0], levels[1]])
                 plt.grid()
                 xy = plt.plot(x, r)
                 plt.savefig(base_name + '.png')
                 plt.close()
+          else:
+             print('file ' + file_name + ' already converted')
 
 
 def run_png2mp4(slice_files_pattern, mp4):
