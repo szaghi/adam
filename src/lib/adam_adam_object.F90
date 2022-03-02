@@ -115,18 +115,23 @@ contains
 
    subroutine check_blocks_number(self)
    !< Check if blocks number is groving too much.
-   class(adam_object), intent(inout) :: self  !< ADAM.
-   type(tree_node_object), pointer   :: node_ptr         !< Pointer to current node.
+   class(adam_object), intent(inout) :: self     !< ADAM.
+   type(tree_node_object), pointer   :: node_ptr !< Pointer to current node.
+   integer(I4P)                      :: max_nb   !< Maximum number of blocks desidered.
 
+   max_nb = 0
    do while(self%tree%loop(node_ptr=node_ptr))
-      if (node_ptr%block_index > self%field%nb) then
-         print '(A)', 'ERROR: the number of new blocks after AMR is greater than Nb'
-         print '(A)', 'max blocks numer available [Nb]: '//trim(str(self%field%nb))
-         print '(A)', 'blocks numer required after AMR: '//trim(str(node_ptr%block_index))
-         print '(A)', 'process number [myrank]:         '//trim(str(node_ptr%myrank))
-         call MPI_ABORT(MPI_COMM_WORLD, -101, self%error)
-      endif
+      max_nb = max(max_nb, node_ptr%block_index)
    enddo
+   if (max_nb > self%field%nb) then
+      print '(A)', 'ERROR: the number of new blocks after AMR is greater than Nb'
+      print '(A)', 'max blocks numer available [Nb]: '//trim(str(self%field%nb))
+      print '(A)', 'blocks numer required after AMR: '//trim(str(node_ptr%block_index))
+      print '(A)', 'process number [myrank]:         '//trim(str(node_ptr%myrank))
+      call MPI_ABORT(MPI_COMM_WORLD, -101, self%error)
+   endif
+   print '(A)', 'maximum number of blocks created after AMR update: '//str(max_nb)//'/'//str(self%field%nb)//&
+                ' myrank['//str(self%myrank)//'] '
    endsubroutine check_blocks_number
 
    subroutine destroy(self)

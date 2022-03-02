@@ -1241,6 +1241,8 @@ contains
          print '(A, F18.10)', 'step timing (AMR): ', timing_step(2) - timing_step(1)
       endif
 
+      call save_memory(it=self%it, rank=self%myrank)
+
       call self%compute_dt()
       if ((self%t_max <= 0).and.(self%time + self%dt > self%time_max)) self%dt = self%time_max - self%time
 

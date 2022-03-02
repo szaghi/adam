@@ -1132,7 +1132,6 @@ contains
    integer(I4P)                                     :: k_send                        !< K send index.
    integer(I4P)                                     :: one_or_eight                  !< Flag triggering 8 cells mean.
    integer(I4P)                                     :: iercuda                       !< Error trapping flag for CUDAFortran.
-
    integer(I4P)                                     :: error                         !< Error trapping flag for CUDAFortran.
 
       error = cudaGetLastError()
@@ -1168,12 +1167,12 @@ contains
    enddo
    !@cuf iercuda=cudaDeviceSynchronize()
 
-      error = cudaGetLastError()
-      if(error /= cudaSuccess) then
-         print*,'LOCAL POST FRA CUDA ERROR ',cudaGetErrorString(error)
-         call MPI_Abort(MPI_COMM_WORLD, -15,error)
-         STOP
-      endif
+   error = cudaGetLastError()
+   if(error /= cudaSuccess) then
+      print*,'LOCAL POST FRA CUDA ERROR ',cudaGetErrorString(error)
+      call MPI_Abort(MPI_COMM_WORLD, -15,error)
+      STOP
+   endif
    endsubroutine update_ghost_local_gpu_cuf
 
    subroutine update_ghost_fluxes_local_gpu_cuf(ngc, local_map_ghost_fluxes_cell_gpu, flx_gpu, fly_gpu, flz_gpu)
