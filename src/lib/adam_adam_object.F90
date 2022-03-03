@@ -199,7 +199,7 @@ contains
 
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
-   self%myrankstr = '[myrank-'//trim(str(self%myrank,.true.))//']'
+   self%myrankstr = '[myrank-'//trim(strz(self%myrank,6))//']'
 
    call self%grid%initialize(file_parameters=file_parameters, ni=ni, nj=nj, nk=nk, ngc=ngc, emin=emin, emax=emax, &
                              bc_type=bc_type)

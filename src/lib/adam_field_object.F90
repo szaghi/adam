@@ -392,7 +392,7 @@ contains
    ! MPI data
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
-   self%myrankstr = '[myrank-'//trim(str(self%myrank,.true.))//']'
+   self%myrankstr = '[myrank-'//trim(strz(self%myrank,6))//']'
    allocate(self%blocks_numbers(0:self%procs_number-1))
    allocate(self%req_send_recv(0:self%procs_number*2-1))
    endsubroutine initialize
@@ -430,7 +430,6 @@ contains
                                            1-self%grid%ngc:self%grid%ni+self%grid%ngc, &
                                            1-self%grid%ngc:self%grid%nj+self%grid%ngc, &
                                            1-self%grid%ngc:self%grid%nk+self%grid%ngc,b)
-               print '(A)', self%myrankstr//'load block '//trim(str(b))//' being node '//trim(str(self%code(b)))
             enddo
             call self%compute_metrics
          else
@@ -446,6 +445,8 @@ contains
                                                                                    self%grid%ngc]))//'"!'
       endif
       close(file_unit)
+      print '(A)', self%myrankstr//'load field blocks from file '//&
+                   trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.fbd completed'
    else
       write(stderr, '(A)') self%myrankstr//'WARNING: file "'//trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.fbd'//&
                            '" does not exist!'

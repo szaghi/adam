@@ -437,14 +437,13 @@ contains
    character(999)                                  :: buf_CHAR          !< String buffer.
 
    ! call self%destroy
+   call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
+   call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
+   self%myrankstr = '[myrank-'//trim(strz(self%myrank,6))//']'
+   print '(A)', self%myrankstr//'initialize MPI'
 
    print '(A)', self%myrankstr//'assign device and get device memory'
    call self%base_gpu%initialize(gpu_memory)
-
-   print '(A)', self%myrankstr//'initialize MPI'
-   call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
-   call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
-   self%myrankstr = '[myrank-'//trim(str(self%myrank,.true.))//']'
 
    print '(A)', self%myrankstr//'parse main input'
    call self%parse_input(avail_memory=gpu_memory, filename=filename, nb=nb, nodes_number=nodes_number, nv=nv,      &
@@ -1237,7 +1236,7 @@ contains
       if(mod(self%it,self%amr_frequency) == 0) then
          call self%amr_update()
          call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(2) = MPI_Wtime()
-         print self%myrankstr//'(A, F18.10)', 'step timing (AMR): ', timing_step(2) - timing_step(1)
+         print '(A, F18.10)', self%myrankstr//'step timing (AMR): ', timing_step(2) - timing_step(1)
       endif
 
       call save_memory(it=self%it, rank=self%myrank)

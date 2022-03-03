@@ -256,7 +256,7 @@ contains
 
    call self%destroy
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
-   self%myrankstr = '[myrank-'//trim(str(self%myrank,.true.))//']'
+   self%myrankstr = '[myrank-'//trim(strz(self%myrank,6))//']'
    if (present(file_parameters)) call self%load_from_ini_file(file_parameters)
 
    ! parameters explicitely passed ovveride ones file-passed

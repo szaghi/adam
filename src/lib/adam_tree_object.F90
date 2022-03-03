@@ -688,7 +688,7 @@ contains
    ! MPI data
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
-   self%myrankstr = '[myrank-'//trim(str(self%myrank,.true.))//']'
+   self%myrankstr = '[myrank-'//trim(strz(self%myrank,6))//']'
    allocate(self%comm_map_n_send(0:self%procs_number-1))
    allocate(self%comm_map_n_recv(0:self%procs_number-1))
    allocate(self%comm_map_send_ptr(0:self%procs_number))
@@ -730,10 +730,10 @@ contains
          do c=1, codes_number
             read(unit=file_unit) node_code, node_myrank, node_block_index
             call self%add_node(code=node_code, myrank=node_myrank, block_index=node_block_index)
-            print '(A)', self%myrankstr//'add node '//trim(str(node_code))//' being block '//trim(str(node_block_index))
          enddo
       endif
       close(file_unit)
+      print '(A)', self%myrankstr//'load tree nodes from file '//trim(adjustl(file_name))//' completed'
    else
       write(stderr, '(A)') self%myrankstr//'ERROR: file "'//trim(adjustl(file_name))//'" does not exist!'
    endif

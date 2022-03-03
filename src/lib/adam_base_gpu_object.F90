@@ -122,7 +122,7 @@ contains
    real(R8P), allocatable                :: dxyz_t(:,:)   !< Delta cells coordinates transposed.
    integer(I4P)                          :: b, i, j, k    !< Counter.
 
-   print '(A)', self%myrankstr//'copy CPU to GPU'
+   print '(A)', self%myrankstr//'copy CPU to GPU start'
    call MPI_Barrier(MPI_COMM_WORLD, self%error)
 
    if (allocated(self%local_map_ghost_gpu    )) deallocate(self%local_map_ghost_gpu    )
@@ -141,34 +141,54 @@ contains
    if (allocated(self%field%comm_map_send_ghost_s)) self%comm_map_send_ghost_s_gpu = self%field%comm_map_send_ghost_s
 
    if (allocated(self%field%send_buffer_ghost).and.size(self%field%send_buffer_ghost)>0) then
-      print '(A)', self%myrankstr//'filling send_buffer_ghost_gpu'
+      print '(A)', self%myrankstr//'copy_cpu_gpu fill send_buffer_ghost_gpu start'
       self%send_buffer_ghost_gpu = self%field%send_buffer_ghost
+      print '(A)', self%myrankstr//'copy_cpu_gpu fill send_buffer_ghost_gpu finish'
    endif
    if (allocated(self%field%recv_buffer_ghost).and.size(self%field%recv_buffer_ghost)>0) then
+      print '(A)', self%myrankstr//'copy_cpu_gpu fill recv_buffer_ghost_gpu start'
       self%recv_buffer_ghost_gpu = self%field%recv_buffer_ghost
+      print '(A)', self%myrankstr//'copy_cpu_gpu fill recv_buffer_ghost_gpu finish'
    endif
 
    call MPI_Barrier(MPI_COMM_WORLD, self%error)
    if (allocated(self%field%send_buffer_ghost_s).and.size(self%field%send_buffer_ghost_s)>0) then
+      print '(A)', self%myrankstr//'copy_cpu_gpu fill send_buffer_ghost_gpu_s start'
       self%send_buffer_ghost_s_gpu = self%field%send_buffer_ghost_s
+      print '(A)', self%myrankstr//'copy_cpu_gpu fill send_buffer_ghost_gpu_s finish'
    endif
    if (allocated(self%field%recv_buffer_ghost_s).and.size(self%field%recv_buffer_ghost_s)>0) then
+      print '(A)', self%myrankstr//'copy_cpu_gpu fill recv_buffer_ghost_gpu_s start'
       self%recv_buffer_ghost_s_gpu = self%field%recv_buffer_ghost_s
+      print '(A)', self%myrankstr//'copy_cpu_gpu fill recv_buffer_ghost_gpu_s finish'
    endif
 
-   if (allocated(self%field%local_map_bc_face))   self%local_map_bc_face_gpu   = self%field%local_map_bc_face
-   if (allocated(self%field%local_map_bc_corner)) self%local_map_bc_corner_gpu = self%field%local_map_bc_corner
-   if (allocated(self%field%local_map_bc_edge))   self%local_map_bc_edge_gpu   = self%field%local_map_bc_edge
+   if (allocated(self%field%local_map_bc_face))   then
+      print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_face start'
+      self%local_map_bc_face_gpu = self%field%local_map_bc_face
+      print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_face finish'
+   endif
+   if (allocated(self%field%local_map_bc_corner)) then
+      print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_corner start'
+      self%local_map_bc_corner_gpu = self%field%local_map_bc_corner
+      print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_corner finish'
+   endif
+   if (allocated(self%field%local_map_bc_edge)) then
+      print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_edge start'
+      self%local_map_bc_edge_gpu = self%field%local_map_bc_edge
+      print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_edge finish'
+   endif
 
    call self%create_maps_cell
    call self%create_maps_fluxes_cell
 
    associate(blocks_number=>self%field%blocks_number,  &
              ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk, ngc=>self%field%grid%ngc)
-   if(allocated(self%x_cell_gpu)) deallocate(self%x_cell_gpu)
-   if(allocated(self%y_cell_gpu)) deallocate(self%y_cell_gpu)
-   if(allocated(self%z_cell_gpu)) deallocate(self%z_cell_gpu)
-   if(blocks_number > 0) then
+   if (allocated(self%x_cell_gpu)) deallocate(self%x_cell_gpu)
+   if (allocated(self%y_cell_gpu)) deallocate(self%y_cell_gpu)
+   if (allocated(self%z_cell_gpu)) deallocate(self%z_cell_gpu)
+   if (blocks_number > 0) then
+      print '(A)', self%myrankstr//'copy_cpu_gpu allocate and compute dxyz_cell_gpu start'
       allocate(x_cell_t(blocks_number, 1-ngc:ni+ngc),   &
                y_cell_t(blocks_number, 1-ngc:nj+ngc),   &
                z_cell_t(blocks_number, 1-ngc:nk+ngc))
@@ -176,15 +196,15 @@ contains
                self%y_cell_gpu(blocks_number, 1-ngc:nj+ngc), &
                self%z_cell_gpu(blocks_number, 1-ngc:nk+ngc))
       do b=1,blocks_number
-          do i=1-ngc,ni+ngc
-             x_cell_t(b,i) = self%field%x_cell(i,b)
-          enddo
-          do j=1-ngc,nj+ngc
-             y_cell_t(b,j) = self%field%y_cell(j,b)
-          enddo
-          do k=1-ngc,nk+ngc
-             z_cell_t(b,k) = self%field%z_cell(k,b)
-          enddo
+         do i=1-ngc,ni+ngc
+            x_cell_t(b,i) = self%field%x_cell(i,b)
+         enddo
+         do j=1-ngc,nj+ngc
+            y_cell_t(b,j) = self%field%y_cell(j,b)
+         enddo
+         do k=1-ngc,nk+ngc
+            z_cell_t(b,k) = self%field%z_cell(k,b)
+         enddo
       enddo
       self%x_cell_gpu = x_cell_t
       self%y_cell_gpu = y_cell_t
@@ -199,8 +219,10 @@ contains
       enddo
       self%dxyz_gpu = dxyz_t
       deallocate(dxyz_t)
+      print '(A)', self%myrankstr//'copy_cpu_gpu allocate and compute dxyz_cell_gpu start'
    endif
    endassociate
+   print '(A)', self%myrankstr//'copy CPU to GPU finish'
    endsubroutine copy_cpu_gpu
 
    subroutine create_maps_cell(self)
@@ -233,6 +255,7 @@ contains
    integer(I4P)                          :: send_ptr, send_ctr            !< Counter.
    integer(I4P), allocatable             :: c_crown(:)                    !< Counter.
 
+   print '(A)', self%myrankstr//'create_maps_cell start'
    if (allocated(self%local_map_ghost_cell_gpu)) deallocate(self%local_map_ghost_cell_gpu)
    if (allocated(self%field%local_map_ghost)) then
       c = 0
@@ -682,6 +705,7 @@ contains
    else
       deallocate(self%local_map_bc_crown_gpu)
    endif
+   print '(A)', self%myrankstr//'create_maps_cell finish'
    contains
       function bc_cells_number(local_map_bc) result(cells_number)
       !< Return BC cells number.
@@ -794,6 +818,7 @@ contains
    integer(I4P)                          :: send_ptr, send_ctr            !< Counter.
    integer(I4P), allocatable             :: c_crown(:)                    !< Counter.
 
+   print '(A)', self%myrankstr//'create_maps_fluxes_cell start'
    if (allocated(self%local_map_ghost_fluxes_cell_gpu)) deallocate(self%local_map_ghost_fluxes_cell_gpu)
 
    if (allocated(self%field%local_map_ghost)) then
@@ -871,7 +896,7 @@ contains
          deallocate(local_map_ghost_fluxes_cell)
       endif
    endif
-
+   print '(A)', self%myrankstr//'create_maps_fluxes_cell finish'
    endsubroutine create_maps_fluxes_cell
 
    subroutine destroy(self)
@@ -892,7 +917,7 @@ contains
 
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
-   self%myrankstr = '[myrank-'//trim(str(self%myrank,.true.))//']'
+   self%myrankstr = '[myrank-'//trim(strz(self%myrank,6))//']'
 
    allocate(self%req_send_recv(0:self%procs_number*2-1))
    call MPI_COMM_SPLIT_TYPE(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, self%local_comm, self%error)
