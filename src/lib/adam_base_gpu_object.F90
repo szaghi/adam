@@ -21,6 +21,7 @@ type :: base_gpu_object
    integer(I4P)                :: fec_1_6_array(26) !< Mapping fec1-26 to fec1-6 for boundaries.
    ! MPI data
    integer(I4P)              :: myrank=0_I4P       !< MPI rank process.
+   character(:), allocatable :: myrankstr          !< MPI rank process stringified.
    integer(I4P)              :: procs_number=1_I4P !< Number of MPI processes.
    integer(I4P)              :: error=0_I4P        !< Error traping flag.
    integer(I4P)              :: mydev=0_I4P        !< My GPU rank.
@@ -121,7 +122,7 @@ contains
    real(R8P), allocatable                :: dxyz_t(:,:)   !< Delta cells coordinates transposed.
    integer(I4P)                          :: b, i, j, k    !< Counter.
 
-   print '(A)','copy CPU to GPU'
+   print '(A)', self%myrankstr//'copy CPU to GPU'
    call MPI_Barrier(MPI_COMM_WORLD, self%error)
 
    if (allocated(self%local_map_ghost_gpu    )) deallocate(self%local_map_ghost_gpu    )
@@ -140,7 +141,7 @@ contains
    if (allocated(self%field%comm_map_send_ghost_s)) self%comm_map_send_ghost_s_gpu = self%field%comm_map_send_ghost_s
 
    if (allocated(self%field%send_buffer_ghost).and.size(self%field%send_buffer_ghost)>0) then
-      print*,'filling send_buffer_ghost_gpu'
+      print '(A)', self%myrankstr//'filling send_buffer_ghost_gpu'
       self%send_buffer_ghost_gpu = self%field%send_buffer_ghost
    endif
    if (allocated(self%field%recv_buffer_ghost).and.size(self%field%recv_buffer_ghost)>0) then
@@ -889,19 +890,19 @@ contains
 
    ! call self%destroy
 
-   ! call MPI_INIT(self%error)
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
+   self%myrankstr = '[myrank-'//trim(str(self%myrank,.true.))//']'
 
    allocate(self%req_send_recv(0:self%procs_number*2-1))
    call MPI_COMM_SPLIT_TYPE(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, self%local_comm, self%error)
    call MPI_COMM_RANK(self%local_comm, self%mydev, self%error)
    self%error = CudaSetDevice(self%mydev)
    self%error = cudaGetDeviceProperties(device_properties, self%mydev)
-   call print_device_properties(device_properties, self%mydev)
+   call print_device_properties(self, device_properties)
 
    device_mem_avail = real(device_properties%totalGlobalMem, R8P)/1e9
-   print '(A,F5.2,A)', ' available device memory ', device_mem_avail, ' Gb'
+   print '(A,F5.2,A)', self%myrankstr//'available device memory ', device_mem_avail, ' Gb'
 
    self%fec_1_6_array([1,7,9,11,13,19,21,23,25])  = 1
    self%fec_1_6_array([2,8,10,12,14,20,22,24,26]) = 2
@@ -1385,24 +1386,26 @@ contains
    endsubroutine update_ghost_mpi_gpu_cuf
 
    ! non TBP
-   subroutine print_device_properties(device_properties, device_rank)
+   subroutine print_device_properties(self, device_properties)
    !< Pretty print device properties.
-   type(cudadeviceprop), intent(in) :: device_properties
-   integer(I4P),         intent(in) :: device_rank
+   class(base_gpu_object), intent(in) :: self               !< The base backend.
+   type(cudadeviceprop),   intent(in) :: device_properties  !< Device properties.
 
-   print'(A)',"device rank number: "//trim(str(device_rank, .true.))
-   print'(A)',"  total global memory:         "//trim(str(real(device_properties%totalGlobalMem)/1e9           ,.true.))//" Gbytes"
-   print'(A)',"  shared mem per block:        "//trim(str(     device_properties%sharedMemPerBlock             ,.true.))//" bytes"
-   print'(A)',"  regs per block:              "//trim(str(     device_properties%regsPerBlock                  ,.true.))
-   print'(A)',"  warp size:                   "//trim(str(     device_properties%warpSize                      ,.true.))
-   print'(A)',"  max threads per block:       "//trim(str(     device_properties%maxThreadsPerBlock            ,.true.))
-   print'(A)',"  max threads dim:             "//trim(str(     device_properties%maxThreadsDim                 ,.true.))
-   print'(A)',"  clock rate:                  "//trim(str(real(device_properties%clockRate)/1e6                ,.true.))//" GHz"
-   print'(A)',"  total const memory:          "//trim(str(     device_properties%totalConstMem                 ,.true.))//" bytes"
-   print'(A)',"  compute capability revision: "//trim(str(    [device_properties%major,device_properties%minor],.true.))
-   print'(A)',"  multi processor count:       "//trim(str(     device_properties%multiProcessorCount           ,.true.))
-   print'(A)',"  L2 cache size:               "//trim(str(     device_properties%l2CacheSize                   ,.true.))
-   print'(A)',"  max threads per SMP:         "//trim(str(     device_properties%maxThreadsPerMultiProcessor   ,.true.))
+   associate(r=>self%myrankstr)
+   print'(A)',r//"total global memory:         "//trim(str(real(device_properties%totalGlobalMem)/1e9           ,.true.))//" Gbytes"
+   print'(A)',r//"shared mem per block:        "//trim(str(     device_properties%sharedMemPerBlock             ,.true.))//" bytes"
+   print'(A)',r//"regs per block:              "//trim(str(     device_properties%regsPerBlock                  ,.true.))
+   print'(A)',r//"warp size:                   "//trim(str(     device_properties%warpSize                      ,.true.))
+   print'(A)',r//"max threads per block:       "//trim(str(     device_properties%maxThreadsPerBlock            ,.true.))
+   print'(A)',r//"max threads dim:             "//trim(str(     device_properties%maxThreadsDim                 ,.true.))
+   print'(A)',r//"clock rate:                  "//trim(str(real(device_properties%clockRate)/1e6                ,.true.))//" GHz"
+   print'(A)',r//"total const memory:          "//trim(str(     device_properties%totalConstMem                 ,.true.))//" bytes"
+   print'(A)',r//"compute capability revision: "//trim(str(    [device_properties%major,device_properties%minor],.true.))
+   print'(A)',r//"multi processor count:       "//trim(str(     device_properties%multiProcessorCount           ,.true.))
+   print'(A)',r//"L2 cache size:               "//trim(str(     device_properties%l2CacheSize                   ,.true.))
+   print'(A)',r//"max threads per SMP:         "//trim(str(     device_properties%maxThreadsPerMultiProcessor   ,.true.))
+   print'(A)',r//"device rank:                 "//trim(str(     self%mydev                                      ,.true.))
+   endassociate
    endsubroutine print_device_properties
 
    ! assign allocatable interface

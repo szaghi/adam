@@ -26,10 +26,10 @@ type :: adam_object
    type(tree_object)  :: tree  !< The tree.
    type(field_object) :: field !< The field.
    ! MPI data
-   integer(I4P) :: error=0_I4P        !< Error traping flag.
-   integer(I4P) :: procs_number=1_I4P !< MPI Number of processes.
-   integer(I4P) :: myrank=0_I4P       !< MPI rank process.
-
+   integer(I4P)               :: error=0_I4P        !< Error traping flag.
+   integer(I4P)               :: procs_number=1_I4P !< MPI Number of processes.
+   integer(I4P)               :: myrank=0_I4P       !< MPI rank process.
+   character(:), allocatable  :: myrankstr          !< MPI rank process stringified.
    contains
       ! public methods
       procedure, pass(self) :: adapt                         !< Adapt tree/field accordingly to refine/derefine necessity.
@@ -124,14 +124,12 @@ contains
       max_nb = max(max_nb, node_ptr%block_index)
    enddo
    if (max_nb > self%field%nb) then
-      print '(A)', 'ERROR: the number of new blocks after AMR is greater than Nb'
-      print '(A)', 'max blocks numer available [Nb]: '//trim(str(self%field%nb))
-      print '(A)', 'blocks numer required after AMR: '//trim(str(node_ptr%block_index))
-      print '(A)', 'process number [myrank]:         '//trim(str(node_ptr%myrank))
+      print '(A)', self%myrankstr//'ERROR: the number of new blocks after AMR is greater than Nb'
+      print '(A)', self%myrankstr//'max blocks numer available [Nb]: '//trim(str(self%field%nb))
+      print '(A)', self%myrankstr//'blocks numer required after AMR: '//trim(str(node_ptr%block_index))
       call MPI_ABORT(MPI_COMM_WORLD, -101, self%error)
    endif
-   print '(A)', 'maximum number of blocks created after AMR update: '//str(max_nb)//'/'//str(self%field%nb)//&
-                ' myrank['//str(self%myrank)//'] '
+   print '(A)', self%myrankstr//'maximum number of blocks created after AMR update: '//str(max_nb)//'/'//str(self%field%nb)
    endsubroutine check_blocks_number
 
    subroutine destroy(self)
@@ -201,6 +199,7 @@ contains
 
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
+   self%myrankstr = '[myrank-'//trim(str(self%myrank,.true.))//']'
 
    call self%grid%initialize(file_parameters=file_parameters, ni=ni, nj=nj, nk=nk, ngc=ngc, emin=emin, emax=emax, &
                              bc_type=bc_type)
@@ -405,7 +404,7 @@ contains
    logical,            intent(in), optional :: do_blocks_reorder    !< Flag to activate blocks reorder.
    integer(I4P)                             :: l                    !< Counter.
 
-   print '(A)', 'uniformly refine mesh with '//trim(str(refinement_levels))//' levels'
+   print '(A)', self%myrankstr//'uniformly refine mesh with '//trim(str(refinement_levels))//' levels'
    do l=1, refinement_levels
       call self%tree%mark_all_nodes(mark=TO_BE_REFINED)
       call self%amr_update(do_mpi_redistribute=do_mpi_redistribute, do_blocks_reorder=do_blocks_reorder)

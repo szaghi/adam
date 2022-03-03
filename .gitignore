@@ -2,3 +2,4 @@ building-errors.log
 exe/
 simulations/
 references/xall/
+*.o *.mod

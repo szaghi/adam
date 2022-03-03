@@ -188,6 +188,7 @@ type :: tree_object
    integer(I4P)              :: error=0_I4P               !< Error traping flag.
    integer(I4P)              :: procs_number=1_I4P        !< MPI Number of processes.
    integer(I4P)              :: myrank=0_I4P              !< MPI rank process.
+   character(:), allocatable :: myrankstr                 !< MPI rank process stringified.
    integer(I4P)              :: my_nodes_number=0_I4P     !< Number of my nodes, keep_nodes_number + recv_nodes_number.
    integer(I4P)              :: send_nodes_number=0_I4P   !< Number of nodes to be sent.
    integer(I4P)              :: recv_nodes_number=0_I4P   !< Number of nodes to be received.
@@ -544,7 +545,7 @@ contains
           endif
       enddo
       if (.not.block_found) then
-         print '(A)', 'ERROR: tree%get_closest block failed, path: '//str(path)//' point: '//str(point)
+         print '(A)', self%myrankstr//'ERROR: tree%get_closest block failed, path: '//str(path)//' point: '//str(point)
       endif
    endif
    endfunction get_closest_block
@@ -669,7 +670,7 @@ contains
       if (ratio==8_I8P.or.ratio==4_I8P) then
          self%ratio = ratio
       else
-         write(stderr, '(A)') 'ADAM-ERROR: tree ratio must be 8 o 4'
+         write(stderr, '(A)') self%myrankstr//'ADAM-ERROR: tree ratio must be 8 o 4'
          call MPI_FINALIZE(self%error)
          stop
       endif
@@ -687,6 +688,7 @@ contains
    ! MPI data
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
+   self%myrankstr = '[myrank-'//trim(str(self%myrank,.true.))//']'
    allocate(self%comm_map_n_send(0:self%procs_number-1))
    allocate(self%comm_map_n_recv(0:self%procs_number-1))
    allocate(self%comm_map_send_ptr(0:self%procs_number))
@@ -719,18 +721,21 @@ contains
 
    inquire(file=trim(adjustl(file_name)), exist=file_exist)
    if (file_exist) then
+      print '(A)', self%myrankstr//'load tree nodes from file '//trim(adjustl(file_name))
       open(newunit=file_unit, file=trim(adjustl(file_name)), form='UNFORMATTED', access='STREAM')
       read(unit=file_unit) codes_number
+      print '(A)', self%myrankstr//'tree nodes number '//trim(str(codes_number))
       if (codes_number > 0) then
          call self%empty
          do c=1, codes_number
             read(unit=file_unit) node_code, node_myrank, node_block_index
             call self%add_node(code=node_code, myrank=node_myrank, block_index=node_block_index)
+            print '(A)', self%myrankstr//'add node '//trim(str(node_code))//' being block '//trim(str(node_block_index))
          enddo
       endif
       close(file_unit)
    else
-      write(stderr, '(A)') 'ERROR: file "'//trim(adjustl(file_name))//'" does not exist!'
+      write(stderr, '(A)') self%myrankstr//'ERROR: file "'//trim(adjustl(file_name))//'" does not exist!'
    endif
    endsubroutine load_nodes
 
@@ -757,11 +762,11 @@ contains
    character(*),       intent(in)    :: file_name !< STL file name.
    type(file_stl_object)             :: file_stl  !< STL file handler.
 
-   print '(A)', 'ADAM: load STL file: '//trim(adjustl(file_name))
+   print '(A)', self%myrankstr//'ADAM: load STL file: '//trim(adjustl(file_name))
    call file_stl%load_from_file(facet=self%surface_stl%facet, file_name=trim(adjustl(file_name)), guess_format=.true.)
    call self%surface_stl%analize(aabb_refinement_levels=3)
    call self%surface_stl%sanitize
-   print '(A)', 'ADAM: compute distance from STL surface'
+   print '(A)', self%myrankstr//'ADAM: compute distance from STL surface'
    call self%compute_surface_stl_distance(surface_stl=self%surface_stl)
    endsubroutine load_surface_stl
 
@@ -1101,15 +1106,15 @@ contains
    !< Print status of main data.
    class(tree_object), intent(in) :: self !< The tree.
 
-   print '(A)', 'tree status of main data'
-   print '(A)', '  buckets number: '//trim(str(self%buckets_number))
-   print '(A)', '  nodes number:   '//trim(str(self%nodes_number  ))
-   print '(A)', '  max load:       '//trim(str(self%max_load      ))
-   print '(A)', '  ratio:          '//trim(str(self%ratio         ))
-   print '(A)', '  max level:      '//trim(str(self%max_level     ))
-   print '(A)', '  ijkl_prune:     '//trim(str(self%ijkl_prune    ))
-   print '(A)', '  iu_ref_levels:  '//trim(str(self%iu_ref_levels ))
-   print '(A)', ''
+   print '(A)', self%myrankstr//'tree status of main data'
+   print '(A)', self%myrankstr//'  buckets number: '//trim(str(self%buckets_number))
+   print '(A)', self%myrankstr//'  nodes number:   '//trim(str(self%nodes_number  ))
+   print '(A)', self%myrankstr//'  max load:       '//trim(str(self%max_load      ))
+   print '(A)', self%myrankstr//'  ratio:          '//trim(str(self%ratio         ))
+   print '(A)', self%myrankstr//'  max level:      '//trim(str(self%max_level     ))
+   print '(A)', self%myrankstr//'  ijkl_prune:     '//trim(str(self%ijkl_prune    ))
+   print '(A)', self%myrankstr//'  iu_ref_levels:  '//trim(str(self%iu_ref_levels ))
+   print '(A)', self%myrankstr//''
    endsubroutine print_status
 
    subroutine prune(self, ijkl_prune)
@@ -1125,11 +1130,11 @@ contains
          ijkl_prune(i) = min(ijkl_prune(i), 2**ijkl_prune(4) - 1)
       enddo
       self%ijkl_prune = ijkl_prune
-      print '(A)', 'prune tree with IJKL max: '//trim(str(self%ijkl_prune))
+      print '(A)', self%myrankstr//'prune tree with IJKL max: '//trim(str(self%ijkl_prune))
       do while(self%loop(node_ptr=node_ptr))
          call self%morton_to_coordinates(code=node_ptr%code, i=ijkl(1), j=ijkl(2), k=ijkl(3), l=ijkl(4))
          if (ijkl(4)/=self%ijkl_prune(4)) then
-            print '(A)',' ERROR: cannot prune nodes at different prune-level, node: '//trim(str(node_ptr%code))
+            print '(A)', self%myrankstr//'ERROR: cannot prune nodes at different prune-level, node: '//trim(str(node_ptr%code))
          endif
          if (ijkl(1)>self%ijkl_prune(1).or.ijkl(2)>self%ijkl_prune(2).or.ijkl(3)>self%ijkl_prune(3)) then
             call self%remove_node(code=node_ptr%code)
@@ -1178,7 +1183,7 @@ contains
       self%buckets_number = swap%buckets_number
       self%nodes_number   = swap%nodes_number
    else
-      print '(A)', 'ERROR: tree is not initialized, cannot be resized'
+      print '(A)', self%myrankstr//'ERROR: tree is not initialized, cannot be resized'
       stop
    endif
    endsubroutine resize
@@ -1217,6 +1222,7 @@ contains
       actual_codes = self%codes()
       codes_number = size(actual_codes, dim=1)
       if (codes_number > 0) then
+         print '(A)', self%myrankstr//'save tree nodes in file  '//trim(adjustl(file_name))
          open(newunit=file_unit, file=trim(adjustl(file_name)), form='UNFORMATTED', access='STREAM')
          write(unit=file_unit) codes_number
          do c=1, codes_number
@@ -1729,22 +1735,17 @@ contains
    integer(I4P)                   :: p    !< Counter.
 
    do p=0, self%procs_number-1
-      print '(A)', ' myrank: '//trim(str(self%myrank,.true.))//&
-                   ' send to: '//trim(str(p,.true.))//' blocks n.: '//trim(str(self%comm_map_n_send(p),.true.))
+      print '(A)', self%myrankstr//' send to: '//trim(str(p,.true.))//' blocks n.: '//trim(str(self%comm_map_n_send(p),.true.))
    enddo
    if (allocated(self%comm_map_send)) &
-      print '(A)', ' myrank: '//trim(str(self%myrank,.true.))//&
-                   ' blocks sent: '//trim(str(self%comm_map_send,.true.))
+      print '(A)', self%myrankstr//' blocks sent: '//trim(str(self%comm_map_send,.true.))
    do p=0, self%procs_number-1
-      print '(A)', ' myrank: '//trim(str(self%myrank,.true.))//&
-                   ' recv from: '//trim(str(p,.true.))//' blocks n.: '//trim(str(self%comm_map_n_recv(p),.true.))
+      print '(A)', self%myrankstr//' recv from: '//trim(str(p,.true.))//' blocks n.: '//trim(str(self%comm_map_n_recv(p),.true.))
    enddo
    if (allocated(self%comm_map_recv)) &
-      print '(A)', ' myrank: '//trim(str(self%myrank,.true.))//&
-                   ' blocks recv:  '//trim(str(self%comm_map_recv,.true.))
+      print '(A)', self%myrankstr//' blocks recv:  '//trim(str(self%comm_map_recv,.true.))
    if (allocated(self%local_map)) &
-      print '(A)', ' myrank: '//trim(str(self%myrank,.true.))//&
-                   ' blocks kept n.: '//trim(str(size(self%local_map(:,1),dim=1),.true.))
+      print '(A)', self%myrankstr//' blocks kept n.: '//trim(str(size(self%local_map(:,1),dim=1),.true.))
    endsubroutine mpi_print_stats
 
    subroutine mpi_redistribute(self)
@@ -2630,7 +2631,7 @@ contains
    if (neighbor_.or.whole_   ) topology = topology//' neighbor: '//neighbors_str
    if (block_index_.or.whole_) topology = topology//' block_index: '//trim(str(node_ptr%block_index,.true.))
 
-   print '(A)', topology
+   print '(A)', self%myrankstr//topology
    endsubroutine print_code_topology
 
    pure function siblings(self, code)
@@ -2673,7 +2674,7 @@ contains
    integer(I4P)                             :: myrank_                  !< MPI rank process, local variable.
 
    if (.not.self%is_initialized_) then
-      print '(A)', 'ERROR: cannot add a node a non initialized tree'
+      print '(A)', self%myrankstr//'ERROR: cannot add a node a non initialized tree'
    endif
 
    myrank_ = 0; if(present(myrank)) myrank_ = myrank
@@ -2983,9 +2984,9 @@ contains
                     elseif (new_level_n - new_level == 2) then
                        node_ptr%refinement_needed = node_ptr%refinement_needed + 1
                     else
-                       print '(A)',  'SOMETHING WENT TERRIBLY WRONG. EXIT!'
-                       print '(A)',  'REFINEMENT NEEDED '//trim(str(node_ptr%refinement_needed,.true.))
-                       print '(A)',  'SANITIZE ITERATIONS '//trim(str(s,.true.))
+                       print '(A)', self%myrankstr//'SOMETHING WENT TERRIBLY WRONG. EXIT!'
+                       print '(A)', self%myrankstr//'REFINEMENT NEEDED '//trim(str(node_ptr%refinement_needed,.true.))
+                       print '(A)', self%myrankstr//'SANITIZE ITERATIONS '//trim(str(s,.true.))
                        stop
                     endif
                     new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
@@ -2995,14 +2996,14 @@ contains
         enddo face_loop
 
         if (node_ptr%refinement_needed > 1) then
-           print '(A)',  'CANNOT REFINE TWICE IN A ROW. SOMETHING WENT TERRIBLY WRONG. EXIT!'
-           print '(A)',  'SANITIZE ITERATIONS '//trim(str(s,.true.))
+           print '(A)', self%myrankstr//'CANNOT REFINE TWICE IN A ROW. SOMETHING WENT TERRIBLY WRONG. EXIT!'
+           print '(A)', self%myrankstr//'SANITIZE ITERATIONS '//trim(str(s,.true.))
            stop
         endif
 
         new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
         if (new_level > self%max_level) then
-           print '(A)',  'CANNOT REFINE MORE. SOMETHING WENT TERRIBLY WRONG. EXIT!'
+           print '(A)', self%myrankstr//'CANNOT REFINE MORE. SOMETHING WENT TERRIBLY WRONG. EXIT!'
            stop
         endif
      enddo refine_loop
@@ -3010,7 +3011,7 @@ contains
    enddo sanitize_loop
 
    if (.not.is_sanitize_complete) then
-      print '(A)',  'SANITZE CANNOT BE COMPLETED. SOMETHING WENT TERRIBLY WRONG. EXIT!'
+      print '(A)', self%myrankstr//'SANITZE CANNOT BE COMPLETED. SOMETHING WENT TERRIBLY WRONG. EXIT!'
       stop
    endif
 

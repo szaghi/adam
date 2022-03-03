@@ -5,6 +5,7 @@ module adam_grid_object
 use adam_parameters
 use FINER, only : file_ini
 use PENF
+use MPI
 
 implicit none
 private
@@ -30,6 +31,9 @@ type :: grid_object
    real(R8P),    allocatable :: lin_space_x(:,:)                      !< Lin. space x for each level [0-ngc:ni+ngc,MAX_REF_LEVELS].
    real(R8P),    allocatable :: lin_space_y(:,:)                      !< Lin. space y for each level [0-ngc:nj+ngc,MAX_REF_LEVELS].
    real(R8P),    allocatable :: lin_space_z(:,:)                      !< Lin. space z for each level [0-ngc:nk+ngc,MAX_REF_LEVELS].
+   integer(I4P)              :: error=0_I4P                           !< Error traping flag.
+   integer(I4P)              :: myrank=0_I4P                          !< MPI rank process.
+   character(:), allocatable :: myrankstr                             !< MPI rank process stringified.
    contains
       ! public methods
       procedure, pass(self) :: block_emin              !< Return block emin given its coordinates.
@@ -230,8 +234,8 @@ contains
       ! ijk(:) = min(nb_max, max(1, ceiling((point(:) - emin(:)) / dxyz(:), I4P)))
       ijk(:) = int((point(:) - emin(:)) / dxyz(:), I4P)
       if (any(ijk<0).or.any(ijk>2**level-1)) then
-         print '(A)', 'ERROR: grid%get_closest block failed ijk: '//str(ijk)//&
-               ' level:'//str(level)//' point:'//str(point)
+         print '(A)', self%myrankstr//'ERROR: grid%get_closest block failed ijk: '//str(ijk)//&
+                      ' level:'//str(level)//' point:'//str(point)
       endif
    endassociate
    endfunction get_closest_block
@@ -251,6 +255,8 @@ contains
    integer(I4P)                                :: nijk(3)         !< Cells number.
 
    call self%destroy
+   call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
+   self%myrankstr = '[myrank-'//trim(str(self%myrank,.true.))//']'
    if (present(file_parameters)) call self%load_from_ini_file(file_parameters)
 
    ! parameters explicitely passed ovveride ones file-passed
@@ -323,16 +329,16 @@ contains
    !< Print status of main data.
    class(grid_object), intent(in) :: self !< The field.
 
-   print '(A)',          'grid status of main data'
-   print '(A)',          '  domain minimum extent: '//trim(str(self%domain_emin    ))
-   print '(A)',          '  domain maximum extent: '//trim(str(self%domain_emax    ))
-   print '(A)',          '  ni:                    '//trim(str(self%ni             ))
-   print '(A)',          '  nj:                    '//trim(str(self%nj             ))
-   print '(A)',          '  nk:                    '//trim(str(self%nk             ))
-   print '(A)',          '  ngc:                   '//trim(str(self%ngc            ))
-   print '(A)',          '  boundary conditions:   '//trim(str(self%bc_type        ))
-   print '(A,3(L1,1X))', '  IJK periodic:          ',          self%is_ijk_periodic
-   print '(A)',          ''
+   print '(A)',          self%myrankstr//'grid status of main data'
+   print '(A)',          self%myrankstr//'  domain minimum extent: '//trim(str(self%domain_emin    ))
+   print '(A)',          self%myrankstr//'  domain maximum extent: '//trim(str(self%domain_emax    ))
+   print '(A)',          self%myrankstr//'  ni:                    '//trim(str(self%ni             ))
+   print '(A)',          self%myrankstr//'  nj:                    '//trim(str(self%nj             ))
+   print '(A)',          self%myrankstr//'  nk:                    '//trim(str(self%nk             ))
+   print '(A)',          self%myrankstr//'  ngc:                   '//trim(str(self%ngc            ))
+   print '(A)',          self%myrankstr//'  boundary conditions:   '//trim(str(self%bc_type        ))
+   print '(A,3(L1,1X))', self%myrankstr//'  IJK periodic:          ',          self%is_ijk_periodic
+   print '(A)',          self%myrankstr//''
    endsubroutine print_status
 
    ! operators

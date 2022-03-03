@@ -100,6 +100,7 @@ type :: field_object
    ! MPI data, unrelated to field equations
    integer(I4P)              :: error=0_I4P                !< Error traping flag.
    integer(I4P)              :: myrank=0_I4P               !< MPI rank process.
+   character(:), allocatable :: myrankstr                  !< MPI rank process stringified.
    integer(I4P)              :: procs_number=1_I4P         !< Number of processes.
    integer(I4P), allocatable :: blocks_numbers(:)          !< Number of blocks actually stored in all processes.
    integer(I4P), allocatable :: refinements_needed(:)      !< Refinements needed of my blocks.
@@ -391,6 +392,7 @@ contains
    ! MPI data
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
+   self%myrankstr = '[myrank-'//trim(str(self%myrank,.true.))//']'
    allocate(self%blocks_numbers(0:self%procs_number-1))
    allocate(self%req_send_recv(0:self%procs_number*2-1))
    endsubroutine initialize
@@ -409,6 +411,8 @@ contains
 
    inquire(file=trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.fbd', exist=file_exist)
    if (file_exist) then
+      print '(A)', self%myrankstr//'load field blocks from file '//&
+                   trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.fbd'
       open(newunit=file_unit,                                                        &
            file=trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.fbd', &
            form='UNFORMATTED',                                                       &
@@ -416,6 +420,7 @@ contains
       read(unit=file_unit) nv, ni, nj, nk, ngc
       if (nv==self%nv.and.ni==self%grid%ni.and.nj==self%grid%nj.and.nk==self%grid%nk.and.ngc==self%grid%ngc) then
          read(unit=file_unit) blocks_number
+         print '(A)', self%myrankstr//'field blocks number '//trim(str(blocks_number))
          if (blocks_number <= self%nb) then
             self%blocks_number = blocks_number
             do b=1, self%blocks_number
@@ -425,23 +430,24 @@ contains
                                            1-self%grid%ngc:self%grid%ni+self%grid%ngc, &
                                            1-self%grid%ngc:self%grid%nj+self%grid%ngc, &
                                            1-self%grid%ngc:self%grid%nk+self%grid%ngc,b)
+               print '(A)', self%myrankstr//'load block '//trim(str(b))//' being node '//trim(str(self%code(b)))
             enddo
             call self%compute_metrics
          else
-            write(stderr, '(A)') 'ERROR: blocks number to read "'//trim(str(blocks_number))//&
+            write(stderr, '(A)') self%myrankstr//'ERROR: blocks number to read "'//trim(str(blocks_number))//&
                                  '" is greater than blocks allocated "'//trim(str(self%nb))//'"!'
          endif
       else
-         write(stderr, '(A)') 'ERROR: blocks dimensions to read "'//trim(str([nv, ni, nj, nk, ngc]))//&
-                              '" are different than blocks allocated "'//trim(str([self%nv,      &
-                                                                                   self%grid%ni, &
-                                                                                   self%grid%nj, &
-                                                                                   self%grid%nk, &
+         write(stderr, '(A)') self%myrankstr//'ERROR: blocks dimensions to read "'//trim(str([nv, ni, nj, nk, ngc]))//&
+                              '" are different than blocks allocated "'//trim(str([self%nv,                           &
+                                                                                   self%grid%ni,                      &
+                                                                                   self%grid%nj,                      &
+                                                                                   self%grid%nk,                      &
                                                                                    self%grid%ngc]))//'"!'
       endif
       close(file_unit)
    else
-      write(stderr, '(A)') 'WARNING: file "'//trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.fbd'//&
+      write(stderr, '(A)') self%myrankstr//'WARNING: file "'//trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.fbd'//&
                            '" does not exist!'
    endif
    endsubroutine load_blocks
@@ -747,12 +753,12 @@ contains
    !< Print status of main data.
    class(field_object), intent(in) :: self !< The field.
 
-   print '(A)', 'field status of main data'
-   print '(A)', '  field variables number (nv): '//trim(str(self%nv           ))
-   print '(A)', '  all blocks number (nb):      '//trim(str(self%nb           ))
-   print '(A)', '  blocks number:               '//trim(str(self%blocks_number))
-   print '(A)', '  block weight:                '//trim(str(self%block_weight ))
-   print '(A)', ''
+   print '(A)', self%myrankstr//'field status of main data'
+   print '(A)', self%myrankstr//'  field variables number (nv): '//trim(str(self%nv           ))
+   print '(A)', self%myrankstr//'  all blocks number (nb):      '//trim(str(self%nb           ))
+   print '(A)', self%myrankstr//'  blocks number:               '//trim(str(self%blocks_number))
+   print '(A)', self%myrankstr//'  block weight:                '//trim(str(self%block_weight ))
+   print '(A)', self%myrankstr//''
    endsubroutine print_status
 
    subroutine save_blocks(self, basename)
