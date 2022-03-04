@@ -179,7 +179,9 @@ contains
       print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_edge finish'
    endif
 
+   call MPI_Barrier(MPI_COMM_WORLD, self%error)
    call self%create_maps_cell
+   call MPI_Barrier(MPI_COMM_WORLD, self%error)
    call self%create_maps_fluxes_cell
 
    associate(blocks_number=>self%field%blocks_number,  &
@@ -289,6 +291,7 @@ contains
             enddo
          endif
       enddo
+      print '(A)', self%myrankstr//'create_maps_cell allocate local_map_ghost_cell'
       allocate(local_map_ghost_cell(1:c,1:9))
       c = 1
       do f=1, size(self%field%local_map_ghost, dim=1)
@@ -354,6 +357,7 @@ contains
          endif
       enddo
       self%local_map_ghost_cell_gpu = local_map_ghost_cell
+      print '(A)', self%myrankstr//'create_maps_cell deallocate local_map_ghost_cell'
       deallocate(local_map_ghost_cell)
    endif
 
@@ -392,6 +396,7 @@ contains
       enddo
 
       ! Nv variables map
+      print '(A)', self%myrankstr//'create_maps_cell allocate comm_map_send_ghost_cell'
       allocate(comm_map_send_ghost_cell(1:c*self%field%nv,1:7))
       ! Single variable map
       !allocate(comm_map_send_ghost_cell_s(1:c,1:7))
@@ -468,6 +473,7 @@ contains
          endif
       enddo
       self%comm_map_send_ghost_cell_gpu = comm_map_send_ghost_cell
+      print '(A)', self%myrankstr//'create_maps_cell deallocate comm_map_send_ghost_cell'
       deallocate(comm_map_send_ghost_cell)
 
       !RIMETTERE! single variable map
@@ -577,8 +583,10 @@ contains
       enddo
 
       ! Nv variables map
+      print '(A)', self%myrankstr//'create_maps_cell allocate comm_map_recv_ghost_cell'
       allocate(comm_map_recv_ghost_cell(1:c*self%field%nv,1:6))
       ! Single variable map
+      print '(A)', self%myrankstr//'create_maps_cell allocate comm_map_recv_ghost_cell_s'
       allocate(comm_map_recv_ghost_cell_s(1:c,1:6))
       c = 1
       do f=1, size(self%field%comm_map_recv_ghost, dim=1)
@@ -631,6 +639,7 @@ contains
          endif
       enddo
       self%comm_map_recv_ghost_cell_gpu = comm_map_recv_ghost_cell
+      print '(A)', self%myrankstr//'create_maps_cell deallocate comm_map_recv_ghost_cell'
       deallocate(comm_map_recv_ghost_cell)
 
       !RIMETTERE! single variable map
@@ -692,17 +701,22 @@ contains
       if (allocated(self%field%local_map_bc_face  )) c = c + bc_cells_number(self%field%local_map_bc_face  )
       if (allocated(self%field%local_map_bc_edge  )) c = c + bc_cells_number(self%field%local_map_bc_edge  )
       if (allocated(self%field%local_map_bc_corner)) c = c + bc_cells_number(self%field%local_map_bc_corner)
+      print '(A)', self%myrankstr//'create_maps_cell allocate local_map_bc_crown'
       allocate(local_map_bc_crown(1:c,1:9,1:self%field%grid%ngc))
+      print '(A)', self%myrankstr//'create_maps_cell allocate c_crown'
       allocate(c_crown(1:self%field%grid%ngc))
       local_map_bc_crown = -1
       c_crown = 1
       if (allocated(self%field%local_map_bc_face  )) call populate_local_map_bc_crown(self%field%local_map_bc_face  )
       if (allocated(self%field%local_map_bc_edge  )) call populate_local_map_bc_crown(self%field%local_map_bc_edge  )
       if (allocated(self%field%local_map_bc_corner)) call populate_local_map_bc_crown(self%field%local_map_bc_corner)
+      print '(A)', self%myrankstr//'create_maps_cell deallocate c_crown'
       deallocate(c_crown)
       self%local_map_bc_crown_gpu = local_map_bc_crown
+      print '(A)', self%myrankstr//'create_maps_cell deallocate local_map_bc_crown'
       deallocate(local_map_bc_crown)
    else
+      print '(A)', self%myrankstr//'create_maps_cell deallocate local_map_bc_crown_gpu'
       deallocate(self%local_map_bc_crown_gpu)
    endif
    print '(A)', self%myrankstr//'create_maps_cell finish'
