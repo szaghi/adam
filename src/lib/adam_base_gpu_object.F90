@@ -233,8 +233,8 @@ contains
    integer(I8P), allocatable             :: local_map_ghost_cell(:,:)     !< Local map ghost cells update, cells order.
    integer(I8P), allocatable             :: comm_map_send_ghost_cell(:,:) !< MPI send map ghost cells update, cells order.
    integer(I8P), allocatable             :: comm_map_recv_ghost_cell(:,:) !< MPI send map ghost cells update, cells order.
-   integer(I8P), allocatable             :: comm_map_send_ghost_cell_s(:,:) !< MPI send map ghost cells, cells order, single var.
-   integer(I8P), allocatable             :: comm_map_recv_ghost_cell_s(:,:) !< MPI send map ghost cells, cells order, single var.
+   ! integer(I8P), allocatable             :: comm_map_send_ghost_cell_s(:,:) !< MPI send map ghost cells, cells order, single var.
+   ! integer(I8P), allocatable             :: comm_map_recv_ghost_cell_s(:,:) !< MPI send map ghost cells, cells order, single var.
    integer(I8P), allocatable             :: local_map_bc_crown(:,:,:)     !< Local map for face BC ghost cells, "crown" order.
    integer(I4P)                          :: c, f, v, n                    !< Counter.
    integer(I4P)                          :: i, j, k                       !< Counter.
@@ -586,8 +586,8 @@ contains
       print '(A)', self%myrankstr//'create_maps_cell allocate comm_map_recv_ghost_cell'
       allocate(comm_map_recv_ghost_cell(1:c*self%field%nv,1:6))
       ! Single variable map
-      print '(A)', self%myrankstr//'create_maps_cell allocate comm_map_recv_ghost_cell_s'
-      allocate(comm_map_recv_ghost_cell_s(1:c,1:6))
+      ! print '(A)', self%myrankstr//'create_maps_cell allocate comm_map_recv_ghost_cell_s'
+      ! allocate(comm_map_recv_ghost_cell_s(1:c,1:6))
       c = 1
       do f=1, size(self%field%comm_map_recv_ghost, dim=1)
          b_recv   = self%field%comm_map_recv_ghost(f, 1 )
@@ -808,8 +808,8 @@ contains
    integer(I8P), allocatable             :: local_map_ghost_fluxes_cell(:,:)     !< Local map ghost cells update, cells order.
    integer(I8P), allocatable             :: comm_map_send_ghost_cell(:,:) !< MPI send map ghost cells update, cells order.
    integer(I8P), allocatable             :: comm_map_recv_ghost_cell(:,:) !< MPI send map ghost cells update, cells order.
-   integer(I8P), allocatable             :: comm_map_send_ghost_cell_s(:,:) !< MPI send map ghost cells, cells order, single var.
-   integer(I8P), allocatable             :: comm_map_recv_ghost_cell_s(:,:) !< MPI send map ghost cells, cells order, single var.
+   ! integer(I8P), allocatable             :: comm_map_send_ghost_cell_s(:,:) !< MPI send map ghost cells, cells order, single var.
+   ! integer(I8P), allocatable             :: comm_map_recv_ghost_cell_s(:,:) !< MPI send map ghost cells, cells order, single var.
    integer(I8P), allocatable             :: local_map_bc_crown(:,:,:)     !< Local map for face BC ghost cells, "crown" order.
    integer(I4P)                          :: c, f, v, n                    !< Counter.
    integer(I4P)                          :: i, j, k                       !< Counter.
