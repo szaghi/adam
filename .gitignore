@@ -2,4 +2,6 @@ building-errors.log
 exe/
 simulations/
 references/xall/
-*.o *.mod
+src/third_party_manual/memeval/*.o
+src/third_party_manual/memeval/*.mod
+src/third_party_manual/CGAL/*.o

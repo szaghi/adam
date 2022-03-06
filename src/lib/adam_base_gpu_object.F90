@@ -115,12 +115,13 @@ contains
 
    subroutine copy_cpu_gpu(self)
    !< Copy data from CPU to GPU.
-   class(base_gpu_object), intent(inout) :: self          !< The base backend.
-   real(R8P), allocatable                :: x_cell_t(:,:) !< Cells x coordinates transposed.
-   real(R8P), allocatable                :: y_cell_t(:,:) !< Cells y coordinates transposed.
-   real(R8P), allocatable                :: z_cell_t(:,:) !< Cells z coordinates transposed.
-   real(R8P), allocatable                :: dxyz_t(:,:)   !< Delta cells coordinates transposed.
-   integer(I4P)                          :: b, i, j, k    !< Counter.
+   class(base_gpu_object), intent(inout) :: self                !< The base backend.
+   real(R8P), allocatable                :: x_cell_t(:,:)       !< Cells x coordinates transposed.
+   real(R8P), allocatable                :: y_cell_t(:,:)       !< Cells y coordinates transposed.
+   real(R8P), allocatable                :: z_cell_t(:,:)       !< Cells z coordinates transposed.
+   real(R8P), allocatable                :: dxyz_t(:,:)         !< Delta cells coordinates transposed.
+   integer(I4P)                          :: b, i, j, k          !< Counter.
+   integer(cuda_count_kind)              :: mem_free, mem_total !< Device memory.
 
    print '(A)', self%myrankstr//'copy CPU to GPU start'
    call MPI_Barrier(MPI_COMM_WORLD, self%error)
@@ -137,44 +138,54 @@ contains
    if (allocated(self%field%local_map_ghost)) self%local_map_ghost_gpu = self%field%local_map_ghost
    if (allocated(self%field%comm_map_recv_ghost)) self%comm_map_recv_ghost_gpu = self%field%comm_map_recv_ghost
    if (allocated(self%field%comm_map_send_ghost)) self%comm_map_send_ghost_gpu = self%field%comm_map_send_ghost
-   if (allocated(self%field%comm_map_recv_ghost_s)) self%comm_map_recv_ghost_s_gpu = self%field%comm_map_recv_ghost_s
-   if (allocated(self%field%comm_map_send_ghost_s)) self%comm_map_send_ghost_s_gpu = self%field%comm_map_send_ghost_s
+   ! if (allocated(self%field%comm_map_recv_ghost_s)) self%comm_map_recv_ghost_s_gpu = self%field%comm_map_recv_ghost_s
+   ! if (allocated(self%field%comm_map_send_ghost_s)) self%comm_map_send_ghost_s_gpu = self%field%comm_map_send_ghost_s
 
    if (allocated(self%field%send_buffer_ghost).and.size(self%field%send_buffer_ghost)>0) then
-      print '(A)', self%myrankstr//'copy_cpu_gpu fill send_buffer_ghost_gpu start'
+      print '(A)', self%myrankstr//'copy_cpu_gpu fill send_buffer_ghost_gpu start'//trim(str([mem_free,mem_total]))
+      self%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%myrankstr//'copy_cpu_gpu mem_free,mem_total: '//trim(str([mem_free,mem_total]))
       self%send_buffer_ghost_gpu = self%field%send_buffer_ghost
       print '(A)', self%myrankstr//'copy_cpu_gpu fill send_buffer_ghost_gpu finish'
    endif
    if (allocated(self%field%recv_buffer_ghost).and.size(self%field%recv_buffer_ghost)>0) then
       print '(A)', self%myrankstr//'copy_cpu_gpu fill recv_buffer_ghost_gpu start'
+      self%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%myrankstr//'copy_cpu_gpu mem_free,mem_total: '//trim(str([mem_free,mem_total]))
       self%recv_buffer_ghost_gpu = self%field%recv_buffer_ghost
       print '(A)', self%myrankstr//'copy_cpu_gpu fill recv_buffer_ghost_gpu finish'
    endif
 
    call MPI_Barrier(MPI_COMM_WORLD, self%error)
-   if (allocated(self%field%send_buffer_ghost_s).and.size(self%field%send_buffer_ghost_s)>0) then
-      print '(A)', self%myrankstr//'copy_cpu_gpu fill send_buffer_ghost_gpu_s start'
-      self%send_buffer_ghost_s_gpu = self%field%send_buffer_ghost_s
-      print '(A)', self%myrankstr//'copy_cpu_gpu fill send_buffer_ghost_gpu_s finish'
-   endif
-   if (allocated(self%field%recv_buffer_ghost_s).and.size(self%field%recv_buffer_ghost_s)>0) then
-      print '(A)', self%myrankstr//'copy_cpu_gpu fill recv_buffer_ghost_gpu_s start'
-      self%recv_buffer_ghost_s_gpu = self%field%recv_buffer_ghost_s
-      print '(A)', self%myrankstr//'copy_cpu_gpu fill recv_buffer_ghost_gpu_s finish'
-   endif
+   ! if (allocated(self%field%send_buffer_ghost_s).and.size(self%field%send_buffer_ghost_s)>0) then
+   !    print '(A)', self%myrankstr//'copy_cpu_gpu fill send_buffer_ghost_gpu_s start'
+   !    self%send_buffer_ghost_s_gpu = self%field%send_buffer_ghost_s
+   !    print '(A)', self%myrankstr//'copy_cpu_gpu fill send_buffer_ghost_gpu_s finish'
+   ! endif
+   ! if (allocated(self%field%recv_buffer_ghost_s).and.size(self%field%recv_buffer_ghost_s)>0) then
+   !    print '(A)', self%myrankstr//'copy_cpu_gpu fill recv_buffer_ghost_gpu_s start'
+   !    self%recv_buffer_ghost_s_gpu = self%field%recv_buffer_ghost_s
+   !    print '(A)', self%myrankstr//'copy_cpu_gpu fill recv_buffer_ghost_gpu_s finish'
+   ! endif
 
    if (allocated(self%field%local_map_bc_face))   then
       print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_face start'
+      self%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%myrankstr//'copy_cpu_gpu mem_free,mem_total: '//trim(str([mem_free,mem_total]))
       self%local_map_bc_face_gpu = self%field%local_map_bc_face
       print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_face finish'
    endif
    if (allocated(self%field%local_map_bc_corner)) then
       print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_corner start'
+      self%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%myrankstr//'copy_cpu_gpu mem_free,mem_total: '//trim(str([mem_free,mem_total]))
       self%local_map_bc_corner_gpu = self%field%local_map_bc_corner
       print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_corner finish'
    endif
    if (allocated(self%field%local_map_bc_edge)) then
       print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_edge start'
+      self%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%myrankstr//'copy_cpu_gpu mem_free,mem_total: '//trim(str([mem_free,mem_total]))
       self%local_map_bc_edge_gpu = self%field%local_map_bc_edge
       print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_edge finish'
    endif
@@ -191,12 +202,16 @@ contains
    if (allocated(self%z_cell_gpu)) deallocate(self%z_cell_gpu)
    if (blocks_number > 0) then
       print '(A)', self%myrankstr//'copy_cpu_gpu allocate and compute dxyz_cell_gpu start'
+      self%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%myrankstr//'copy_cpu_gpu before alloc dxyz_cell_gpu mem_free,mem_total: '//trim(str([mem_free,mem_total]))
       allocate(x_cell_t(blocks_number, 1-ngc:ni+ngc),   &
                y_cell_t(blocks_number, 1-ngc:nj+ngc),   &
                z_cell_t(blocks_number, 1-ngc:nk+ngc))
       allocate(self%x_cell_gpu(blocks_number, 1-ngc:ni+ngc), &
                self%y_cell_gpu(blocks_number, 1-ngc:nj+ngc), &
                self%z_cell_gpu(blocks_number, 1-ngc:nk+ngc))
+      self%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%myrankstr//'copy_cpu_gpu after alloc dxyz_cell_gpu mem_free,mem_total: '//trim(str([mem_free,mem_total]))
       do b=1,blocks_number
          do i=1-ngc,ni+ngc
             x_cell_t(b,i) = self%field%x_cell(i,b)

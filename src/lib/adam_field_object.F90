@@ -116,13 +116,13 @@ type :: field_object
    integer(I4P), allocatable :: comm_map_recv_ptr_ghost_s(:) !< Communication map, pointers in list to recv, single var.
    integer(I8P), allocatable :: comm_map_send_ghost(:,:)   !< Communication map, `fec` information [fec_number, 15].
    integer(I8P), allocatable :: comm_map_recv_ghost(:,:)   !< Communication map, `fec` information [fec_number, 15].
-   integer(I8P), allocatable :: comm_map_send_ghost_s(:,:)   !< Communication map, `fec` information [fec_number, 15], single var.
-   integer(I8P), allocatable :: comm_map_recv_ghost_s(:,:)   !< Communication map, `fec` information [fec_number, 15], single var.
+   ! integer(I8P), allocatable :: comm_map_send_ghost_s(:,:)   !< Communication map, `fec` information [fec_number, 15], single var.
+   ! integer(I8P), allocatable :: comm_map_recv_ghost_s(:,:)   !< Communication map, `fec` information [fec_number, 15], single var.
    ! MPI data, related to field equations
    real(R8P), allocatable :: send_buffer_ghost(:)   !< Send buffer of ghost cells.
    real(R8P), allocatable :: recv_buffer_ghost(:)   !< Receive buffer of ghost cells.
-   real(R8P), allocatable :: send_buffer_ghost_s(:) !< Send buffer of ghost cells, single var.
-   real(R8P), allocatable :: recv_buffer_ghost_s(:) !< Receive buffer of ghost cells, single var.
+   ! real(R8P), allocatable :: send_buffer_ghost_s(:) !< Send buffer of ghost cells, single var.
+   ! real(R8P), allocatable :: recv_buffer_ghost_s(:) !< Receive buffer of ghost cells, single var.
    ! field equations data
    real(R8P), allocatable :: q(     :,:,:,:,:) !< Field cell centered variables.
    real(R8P), allocatable :: q_work(:,:,:,:,:) !< Field cell centered variables, working buffer memory.
