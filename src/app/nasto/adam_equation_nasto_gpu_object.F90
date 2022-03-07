@@ -1128,7 +1128,7 @@ contains
    integer(I4P)                    , intent(out)   :: l_prune          !< Pruning level.
    integer(I4P)                                    :: ns               !< Number of species and variables.
    real(R8P)                                       :: block_weight     !< Number of points per block.
-   real(R8P), parameter                            :: save_factor=0.8  !< Factor to avoid GPU completely full.
+   real(R8P), parameter                            :: save_factor=0.6  !< Factor to avoid GPU completely full.
    integer(I4P)                                    :: buf_I4           !< Integer buffer.
    real(R8P)                                       :: buf_R8           !< Real buffer.
    integer(I4P)                                    :: size_of_real     !< Size of real.
