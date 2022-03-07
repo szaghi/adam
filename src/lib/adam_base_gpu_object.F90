@@ -121,37 +121,57 @@ contains
    real(R8P), allocatable                :: z_cell_t(:,:)       !< Cells z coordinates transposed.
    real(R8P), allocatable                :: dxyz_t(:,:)         !< Delta cells coordinates transposed.
    integer(I4P)                          :: b, i, j, k          !< Counter.
+   integer(I4P)                          :: lb(2), ub(2)        !< Counter.
    integer(cuda_count_kind)              :: mem_free, mem_total !< Device memory.
 
    print '(A)', self%myrankstr//'copy CPU to GPU start'
    call MPI_Barrier(MPI_COMM_WORLD, self%error)
 
-   if (allocated(self%local_map_ghost_gpu    )) deallocate(self%local_map_ghost_gpu    )
-   if (allocated(self%comm_map_recv_ghost_gpu)) deallocate(self%comm_map_recv_ghost_gpu)
-   if (allocated(self%comm_map_send_ghost_gpu)) deallocate(self%comm_map_send_ghost_gpu)
-   if (allocated(self%send_buffer_ghost_gpu  )) deallocate(self%send_buffer_ghost_gpu  )
-   if (allocated(self%recv_buffer_ghost_gpu  )) deallocate(self%recv_buffer_ghost_gpu  )
-   if (allocated(self%local_map_bc_face_gpu  )) deallocate(self%local_map_bc_face_gpu  )
-   if (allocated(self%local_map_bc_corner_gpu)) deallocate(self%local_map_bc_corner_gpu)
-   if (allocated(self%local_map_bc_edge_gpu  )) deallocate(self%local_map_bc_edge_gpu  )
+   if (allocated(self%local_map_ghost_gpu)) deallocate(self%local_map_ghost_gpu)
+   if (allocated(self%field%local_map_ghost)) then
+      lb(1) = lbound(self%field%local_map_ghost, dim=1) ; ub(1) = ubound(self%field%local_map_ghost, dim=1)
+      lb(2) = lbound(self%field%local_map_ghost, dim=2) ; ub(2) = ubound(self%field%local_map_ghost, dim=2)
+      allocate(self%local_map_ghost_gpu(lb(1):ub(1), lb(2):ub(2)))
+      self%local_map_ghost_gpu = self%field%local_map_ghost
+   endif
 
-   if (allocated(self%field%local_map_ghost)) self%local_map_ghost_gpu = self%field%local_map_ghost
-   if (allocated(self%field%comm_map_recv_ghost)) self%comm_map_recv_ghost_gpu = self%field%comm_map_recv_ghost
-   if (allocated(self%field%comm_map_send_ghost)) self%comm_map_send_ghost_gpu = self%field%comm_map_send_ghost
+   if (allocated(self%comm_map_recv_ghost_gpu)) deallocate(self%comm_map_recv_ghost_gpu)
+   if (allocated(self%field%comm_map_recv_ghost)) then
+      lb(1) = lbound(self%field%comm_map_recv_ghost, dim=1) ; ub(1) = ubound(self%field%comm_map_recv_ghost, dim=1)
+      lb(2) = lbound(self%field%comm_map_recv_ghost, dim=2) ; ub(2) = ubound(self%field%comm_map_recv_ghost, dim=2)
+      allocate(self%comm_map_recv_ghost_gpu(lb(1):ub(1), lb(2):ub(2)))
+      self%comm_map_recv_ghost_gpu = self%field%comm_map_recv_ghost
+   endif
+
+   if (allocated(self%comm_map_send_ghost_gpu)) deallocate(self%comm_map_send_ghost_gpu)
+   if (allocated(self%field%comm_map_send_ghost)) then
+      lb(1) = lbound(self%field%comm_map_send_ghost, dim=1) ; ub(1) = ubound(self%field%comm_map_send_ghost, dim=1)
+      lb(2) = lbound(self%field%comm_map_send_ghost, dim=2) ; ub(2) = ubound(self%field%comm_map_send_ghost, dim=2)
+      allocate(self%comm_map_send_ghost_gpu(lb(1):ub(1), lb(2):ub(2)))
+      self%comm_map_send_ghost_gpu = self%field%comm_map_send_ghost
+   endif
+
    ! if (allocated(self%field%comm_map_recv_ghost_s)) self%comm_map_recv_ghost_s_gpu = self%field%comm_map_recv_ghost_s
    ! if (allocated(self%field%comm_map_send_ghost_s)) self%comm_map_send_ghost_s_gpu = self%field%comm_map_send_ghost_s
 
+   if (allocated(self%send_buffer_ghost_gpu)) deallocate(self%send_buffer_ghost_gpu)
    if (allocated(self%field%send_buffer_ghost).and.size(self%field%send_buffer_ghost)>0) then
       print '(A)', self%myrankstr//'copy_cpu_gpu fill send_buffer_ghost_gpu start'//trim(str([mem_free,mem_total]))
       self%error = cudaMemGetInfo(mem_free, mem_total)
       print '(A)', self%myrankstr//'copy_cpu_gpu mem_free,mem_total: '//trim(str([mem_free,mem_total]))
+      lb(1) = lbound(self%field%send_buffer_ghost, dim=1) ; ub(1) = ubound(self%field%send_buffer_ghost, dim=1)
       self%send_buffer_ghost_gpu = self%field%send_buffer_ghost
+      allocate(self%send_buffer_ghost_gpu(lb(1):ub(1)))
       print '(A)', self%myrankstr//'copy_cpu_gpu fill send_buffer_ghost_gpu finish'
    endif
+
+   if (allocated(self%recv_buffer_ghost_gpu)) deallocate(self%recv_buffer_ghost_gpu)
    if (allocated(self%field%recv_buffer_ghost).and.size(self%field%recv_buffer_ghost)>0) then
       print '(A)', self%myrankstr//'copy_cpu_gpu fill recv_buffer_ghost_gpu start'
       self%error = cudaMemGetInfo(mem_free, mem_total)
       print '(A)', self%myrankstr//'copy_cpu_gpu mem_free,mem_total: '//trim(str([mem_free,mem_total]))
+      lb(1) = lbound(self%field%recv_buffer_ghost, dim=1) ; ub(1) = ubound(self%field%recv_buffer_ghost, dim=1)
+      allocate(self%recv_buffer_ghost_gpu(lb(1):ub(1)))
       self%recv_buffer_ghost_gpu = self%field%recv_buffer_ghost
       print '(A)', self%myrankstr//'copy_cpu_gpu fill recv_buffer_ghost_gpu finish'
    endif
@@ -168,24 +188,38 @@ contains
    !    print '(A)', self%myrankstr//'copy_cpu_gpu fill recv_buffer_ghost_gpu_s finish'
    ! endif
 
+   if (allocated(self%local_map_bc_face_gpu)) deallocate(self%local_map_bc_face_gpu)
    if (allocated(self%field%local_map_bc_face))   then
       print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_face start'
       self%error = cudaMemGetInfo(mem_free, mem_total)
       print '(A)', self%myrankstr//'copy_cpu_gpu mem_free,mem_total: '//trim(str([mem_free,mem_total]))
+      lb(1) = lbound(self%field%local_map_bc_face, dim=1) ; ub(1) = ubound(self%field%local_map_bc_face, dim=1)
+      lb(2) = lbound(self%field%local_map_bc_face, dim=2) ; ub(2) = ubound(self%field%local_map_bc_face, dim=2)
+      allocate(self%local_map_bc_face_gpu(lb(1):ub(1), lb(2):ub(2)))
       self%local_map_bc_face_gpu = self%field%local_map_bc_face
       print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_face finish'
    endif
+
+   if (allocated(self%local_map_bc_corner_gpu)) deallocate(self%local_map_bc_corner_gpu)
    if (allocated(self%field%local_map_bc_corner)) then
       print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_corner start'
       self%error = cudaMemGetInfo(mem_free, mem_total)
       print '(A)', self%myrankstr//'copy_cpu_gpu mem_free,mem_total: '//trim(str([mem_free,mem_total]))
+      lb(1) = lbound(self%field%local_map_bc_corner, dim=1) ; ub(1) = ubound(self%field%local_map_bc_corner, dim=1)
+      lb(2) = lbound(self%field%local_map_bc_corner, dim=2) ; ub(2) = ubound(self%field%local_map_bc_corner, dim=2)
+      allocate(self%local_map_bc_corner_gpu(lb(1):ub(1), lb(2):ub(2)))
       self%local_map_bc_corner_gpu = self%field%local_map_bc_corner
       print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_corner finish'
    endif
+
+   if (allocated(self%local_map_bc_edge_gpu)) deallocate(self%local_map_bc_edge_gpu  )
    if (allocated(self%field%local_map_bc_edge)) then
       print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_edge start'
       self%error = cudaMemGetInfo(mem_free, mem_total)
       print '(A)', self%myrankstr//'copy_cpu_gpu mem_free,mem_total: '//trim(str([mem_free,mem_total]))
+      lb(1) = lbound(self%field%local_map_bc_edge, dim=1) ; ub(1) = ubound(self%field%local_map_bc_edge, dim=1)
+      lb(2) = lbound(self%field%local_map_bc_edge, dim=2) ; ub(2) = ubound(self%field%local_map_bc_edge, dim=2)
+      allocate(self%local_map_bc_edge_gpu(lb(1):ub(1), lb(2):ub(2)))
       self%local_map_bc_edge_gpu = self%field%local_map_bc_edge
       print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_edge finish'
    endif
@@ -271,6 +305,7 @@ contains
    integer(I4P)                          :: recv_ptr, recv_ctr            !< Counter.
    integer(I4P)                          :: send_ptr, send_ctr            !< Counter.
    integer(I4P), allocatable             :: c_crown(:)                    !< Counter.
+   integer(I4P)                          :: lb(3), ub(3)                  !< Counter.
 
    print '(A)', self%myrankstr//'create_maps_cell start'
    if (allocated(self%local_map_ghost_cell_gpu)) deallocate(self%local_map_ghost_cell_gpu)
@@ -371,6 +406,9 @@ contains
             enddo
          endif
       enddo
+      lb(1) = lbound(local_map_ghost_cell, dim=1) ; ub(1) = ubound(local_map_ghost_cell, dim=1)
+      lb(2) = lbound(local_map_ghost_cell, dim=2) ; ub(2) = ubound(local_map_ghost_cell, dim=2)
+      allocate(self%local_map_ghost_cell_gpu(lb(1):ub(1), lb(2):ub(2)))
       self%local_map_ghost_cell_gpu = local_map_ghost_cell
       print '(A)', self%myrankstr//'create_maps_cell deallocate local_map_ghost_cell'
       deallocate(local_map_ghost_cell)
@@ -487,6 +525,9 @@ contains
             enddo
          endif
       enddo
+      lb(1) = lbound(comm_map_send_ghost_cell, dim=1) ; ub(1) = ubound(comm_map_send_ghost_cell, dim=1)
+      lb(2) = lbound(comm_map_send_ghost_cell, dim=2) ; ub(2) = ubound(comm_map_send_ghost_cell, dim=2)
+      allocate(self%comm_map_send_ghost_cell_gpu(lb(1):ub(1), lb(2):ub(2)))
       self%comm_map_send_ghost_cell_gpu = comm_map_send_ghost_cell
       print '(A)', self%myrankstr//'create_maps_cell deallocate comm_map_send_ghost_cell'
       deallocate(comm_map_send_ghost_cell)
@@ -653,6 +694,9 @@ contains
             enddo
          endif
       enddo
+      lb(1) = lbound(comm_map_recv_ghost_cell, dim=1) ; ub(1) = ubound(comm_map_recv_ghost_cell, dim=1)
+      lb(2) = lbound(comm_map_recv_ghost_cell, dim=2) ; ub(2) = ubound(comm_map_recv_ghost_cell, dim=2)
+      allocate(self%comm_map_recv_ghost_cell_gpu(lb(1):ub(1), lb(2):ub(2)))
       self%comm_map_recv_ghost_cell_gpu = comm_map_recv_ghost_cell
       print '(A)', self%myrankstr//'create_maps_cell deallocate comm_map_recv_ghost_cell'
       deallocate(comm_map_recv_ghost_cell)
@@ -709,6 +753,7 @@ contains
       !RIMETTEREdeallocate(comm_map_recv_ghost_cell_s)
    endif
 
+   if (allocated(self%local_map_bc_crown_gpu)) deallocate(self%local_map_bc_crown_gpu)
    if (allocated(self%field%local_map_bc_face  ).or.&
        allocated(self%field%local_map_bc_edge  ).or.&
        allocated(self%field%local_map_bc_corner)) then
@@ -725,14 +770,18 @@ contains
       if (allocated(self%field%local_map_bc_face  )) call populate_local_map_bc_crown(self%field%local_map_bc_face  )
       if (allocated(self%field%local_map_bc_edge  )) call populate_local_map_bc_crown(self%field%local_map_bc_edge  )
       if (allocated(self%field%local_map_bc_corner)) call populate_local_map_bc_crown(self%field%local_map_bc_corner)
-      print '(A)', self%myrankstr//'create_maps_cell deallocate c_crown'
       deallocate(c_crown)
+      print '(A)', self%myrankstr//'create_maps_cell deallocate c_crown'
+      lb(1) = lbound(local_map_bc_crown, dim=1) ; ub(1) = ubound(local_map_bc_crown, dim=1)
+      lb(2) = lbound(local_map_bc_crown, dim=2) ; ub(2) = ubound(local_map_bc_crown, dim=2)
+      lb(3) = lbound(local_map_bc_crown, dim=3) ; ub(3) = ubound(local_map_bc_crown, dim=3)
+      allocate(self%local_map_bc_crown_gpu(lb(1):ub(1), lb(2):ub(2), lb(3):ub(3)))
       self%local_map_bc_crown_gpu = local_map_bc_crown
       print '(A)', self%myrankstr//'create_maps_cell deallocate local_map_bc_crown'
       deallocate(local_map_bc_crown)
-   else
-      print '(A)', self%myrankstr//'create_maps_cell deallocate local_map_bc_crown_gpu'
-      deallocate(self%local_map_bc_crown_gpu)
+   ! else
+   !    print '(A)', self%myrankstr//'create_maps_cell deallocate local_map_bc_crown_gpu'
+   !    deallocate(self%local_map_bc_crown_gpu)
    endif
    print '(A)', self%myrankstr//'create_maps_cell finish'
    contains
@@ -846,6 +895,7 @@ contains
    integer(I4P)                          :: recv_ptr, recv_ctr            !< Counter.
    integer(I4P)                          :: send_ptr, send_ctr            !< Counter.
    integer(I4P), allocatable             :: c_crown(:)                    !< Counter.
+   integer(I4P)                          :: lb(2), ub(2)                  !< Counter.
 
    print '(A)', self%myrankstr//'create_maps_fluxes_cell start'
    if (allocated(self%local_map_ghost_fluxes_cell_gpu)) deallocate(self%local_map_ghost_fluxes_cell_gpu)
@@ -921,6 +971,9 @@ contains
                enddo
             endif
          enddo
+         lb(1) = lbound(local_map_ghost_fluxes_cell, dim=1) ; ub(1) = ubound(local_map_ghost_fluxes_cell, dim=1)
+         lb(2) = lbound(local_map_ghost_fluxes_cell, dim=2) ; ub(2) = ubound(local_map_ghost_fluxes_cell, dim=2)
+         allocate(self%local_map_ghost_fluxes_cell_gpu(lb(1):ub(1), lb(2):ub(2)))
          self%local_map_ghost_fluxes_cell_gpu = local_map_ghost_fluxes_cell
          deallocate(local_map_ghost_fluxes_cell)
       endif
