@@ -2,6 +2,7 @@
 module adam_adam_object
 !< ADAM, ADAM class definition.
 
+use adam_base_mpi_object, only : base_mpi_object
 use adam_field_object, only : field_object
 use adam_grid_object, only : grid_object
 use adam_parameters
@@ -22,22 +23,16 @@ public :: adam_object
 
 type :: adam_object
    !< ADAM class definition.
-   type(grid_object)  :: grid  !< The grid.
-   type(tree_object)  :: tree  !< The tree.
-   type(field_object) :: field !< The field.
-   ! MPI data
-   integer(I4P)               :: error=0_I4P        !< Error traping flag.
-   integer(I4P)               :: procs_number=1_I4P !< MPI Number of processes.
-   integer(I4P)               :: myrank=0_I4P       !< MPI rank process.
-   character(:), allocatable  :: myrankstr          !< MPI rank process stringified.
+   type(base_mpi_object) :: base_mpi !< The MPI backend.
+   type(grid_object)     :: grid     !< The grid.
+   type(tree_object)     :: tree     !< The tree.
+   type(field_object)    :: field    !< The field.
    contains
       ! public methods
       procedure, pass(self) :: adapt                         !< Adapt tree/field accordingly to refine/derefine necessity.
       procedure, pass(self) :: amr_update                    !< Update AMR status.
       procedure, pass(self) :: blocks_reorder                !< Reorder blocks (for asyncrhonous MPI)
       procedure, pass(self) :: check_blocks_number           !< Check if blocks number is groving too much.
-      procedure, pass(self) :: destroy                       !< Destroy ADAM.
-      procedure, pass(self) :: finalize                      !< Finalize ADAM.
       procedure, pass(self) :: initialize                    !< Initialize ADAM.
       procedure, pass(self) :: interpolate_at_point          !< Interpolate a scalar variable at a given point.
       procedure, pass(self) :: load_restart_files            !< Load restart files.
@@ -51,9 +46,6 @@ type :: adam_object
       procedure, pass(self) :: save_restart_files            !< Save restart files.
       procedure, pass(self) :: save_slice                    !< Save slice.
       procedure, pass(self) :: save_vtk                      !< Save ADAM in VTK  format.
-      ! operators
-      generic :: assignment(=) => adam_assign_adam      !< Overload `=`.
-      procedure, pass(lhs), private :: adam_assign_adam !< Operator `=`.
 endtype adam_object
 
 contains
@@ -124,29 +116,13 @@ contains
       max_nb = max(max_nb, node_ptr%block_index)
    enddo
    if (max_nb > self%field%nb) then
-      print '(A)', self%myrankstr//'ERROR: the number of new blocks after AMR is greater than Nb'
-      print '(A)', self%myrankstr//'max blocks numer available [Nb]: '//trim(str(self%field%nb))
-      print '(A)', self%myrankstr//'blocks numer required after AMR: '//trim(str(node_ptr%block_index))
-      call MPI_ABORT(MPI_COMM_WORLD, -101, self%error)
+      print '(A)', self%base_mpi%myrankstr//'ERROR: the number of new blocks after AMR is greater than Nb'
+      print '(A)', self%base_mpi%myrankstr//'max blocks numer available [Nb]: '//trim(str(self%field%nb))
+      print '(A)', self%base_mpi%myrankstr//'blocks numer required after AMR: '//trim(str(node_ptr%block_index))
+      call MPI_ABORT(MPI_COMM_WORLD, -101, self%base_mpi%error)
    endif
-   print '(A)', self%myrankstr//'maximum number of blocks created after AMR update: '//str(max_nb)//'/'//str(self%field%nb)
+   print '(A)', self%base_mpi%myrankstr//'maximum number of blocks created after AMR update: '//str(max_nb)//'/'//str(self%field%nb)
    endsubroutine check_blocks_number
-
-   subroutine destroy(self)
-   !< Destroy ADAM.
-   class(adam_object), intent(inout) :: self  !< ADAM.
-   type(adam_object)                 :: fresh !< Fresh ADAM.
-
-   self = fresh
-   endsubroutine destroy
-
-   subroutine finalize(self)
-   !< Finalize ADAM.
-   class(adam_object), intent(inout) :: self !< ADAM.
-
-   call MPI_FINALIZE(self%error)
-   stop
-   endsubroutine finalize
 
    subroutine load_restart_files(self, basename, t, time)
    !< Load restart files.
@@ -195,20 +171,32 @@ contains
    integer(I4P),       intent(in),    optional :: nv                 !< Number of field variables.
    integer(I4P),       intent(in),    optional :: nb                 !< Number of all blocks that can be stored in field.
 
-   call self%destroy
-
-   call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
-   call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
-   self%myrankstr = '[myrank-'//trim(strz(self%myrank,6))//']'
-
-   call self%grid%initialize(file_parameters=file_parameters, ni=ni, nj=nj, nk=nk, ngc=ngc, emin=emin, emax=emax, &
+   call self%base_mpi%initialize
+   print '(A)', self%base_mpi%myrankstr//'adam%initialize start'
+   call self%grid%initialize(file_parameters=file_parameters, &
+                             ni=ni,                           &
+                             nj=nj,                           &
+                             nk=nk,                           &
+                             ngc=ngc,                         &
+                             emin=emin,                       &
+                             emax=emax,                       &
                              bc_type=bc_type)
-   call self%tree%initialize(grid=self%grid, file_parameters=file_parameters,                             &
-                             max_load=max_load, nodes_number=nodes_number, buckets_number=buckets_number, &
-                             ratio=ratio, max_level=max_level, add_adam=add_adam,                         &
-                             iu_ref_levels=iu_ref_levels, i_prune=i_prune, j_prune=j_prune, k_prune=k_prune, l_prune=l_prune)
+   call self%tree%initialize(grid=self%grid, &
+                             file_parameters=file_parameters, &
+                             max_load=max_load,               &
+                             nodes_number=nodes_number,       &
+                             buckets_number=buckets_number,   &
+                             ratio=ratio,                     &
+                             max_level=max_level,             &
+                             add_adam=add_adam,               &
+                             iu_ref_levels=iu_ref_levels,     &
+                             i_prune=i_prune,                 &
+                             j_prune=j_prune,                 &
+                             k_prune=k_prune,                 &
+                             l_prune=l_prune)
    call self%field%initialize(grid=self%grid, file_parameters=file_parameters, nv=nv, nb=nb)
    call self%amr_update
+   print '(A)', self%base_mpi%myrankstr//'adam%initialize finish'
    endsubroutine initialize
 
    subroutine interpolate_at_point(self, itype, point, q, qp, is_mine, p, qc, ijk, xyz, code, v)
@@ -237,9 +225,9 @@ contains
 
    code_ = self%tree%get_closest_block(point=point)
    node => self%tree%node(code=code_)
-   if (node%myrank == self%myrank) then
+   if (node%myrank == self%base_mpi%myrank) then
       is_mine = .true.
-      call self%tree%get_closest_cells(point=point, code=code_, ijk=ijk_, xyz=xyz_)!, v=v)
+      call self%tree%get_closest_cells(point=point, code=code_, ijk=ijk_, xyz=xyz_)
       select case(trim(itype))
       case('inverse_distance')
          call inverse_distance_interpolation
@@ -404,7 +392,7 @@ contains
    logical,            intent(in), optional :: do_blocks_reorder    !< Flag to activate blocks reorder.
    integer(I4P)                             :: l                    !< Counter.
 
-   print '(A)', self%myrankstr//'uniformly refine mesh with '//trim(str(refinement_levels))//' levels'
+   print '(A)', self%base_mpi%myrankstr//'uniformly refine mesh with '//trim(str(refinement_levels))//' levels'
    do l=1, refinement_levels
       call self%tree%mark_all_nodes(mark=TO_BE_REFINED)
       call self%amr_update(do_mpi_redistribute=do_mpi_redistribute, do_blocks_reorder=do_blocks_reorder)
@@ -419,7 +407,7 @@ contains
    real(R8P),          intent(in) :: time      !< Time.
    integer(I4P)                   :: file_unit !< Output file unit.
 
-   if (self%myrank==0) then
+   if (self%base_mpi%myrank==0) then
       open(newunit=file_unit, file=trim(adjustl(basename))//'.time', form='UNFORMATTED', access='STREAM')
       write(unit=file_unit) t, time
       close(file_unit)
@@ -505,17 +493,17 @@ contains
    endassociate
 
    ! save H5 file (one for each process)
-   call open_hdf5(h5_file_name=directory_//trim(basename)//'-proc'//trim(strz(self%myrank,6))//'.h5', &
-                  ni=int(ijk(1,2)-ijk(1,1)+1,I8P),                                                    &
-                  nj=int(ijk(2,2)-ijk(2,1)+1,I8P),                                                    &
-                  nk=int(ijk(3,2)-ijk(3,1)+1,I8P),                                                    &
-                  h5_file_id=h5_file_id,                                                              &
+   call open_hdf5(h5_file_name=directory_//trim(basename)//'-proc'//trim(strz(self%base_mpi%myrank,6))//'.h5', &
+                  ni=int(ijk(1,2)-ijk(1,1)+1,I8P),                                                             &
+                  nj=int(ijk(2,2)-ijk(2,1)+1,I8P),                                                             &
+                  nk=int(ijk(3,2)-ijk(3,1)+1,I8P),                                                             &
+                  h5_file_id=h5_file_id,                                                                       &
                   h5_dspace_id=h5_dspace_id)
    ! save all blocks in process
    do b=1, self%field%blocks_number
       call save_hdf5_block(h5_file_id=h5_file_id,                                          &
                            h5_dspace_id=h5_dspace_id,                                      &
-                           myrank=self%myrank,                                             &
+                           myrank=self%base_mpi%myrank,                                    &
                            code=self%field%code(b),                                        &
                            block_index=b,                                                  &
                            ii=ijk(1,:),                                                    &
@@ -530,7 +518,7 @@ contains
    call close_hdf5(h5_file_id=h5_file_id, h5_dspace_id=h5_dspace_id)
 
    ! save XDMF file (only master process does)
-   if (self%myrank == 0_I4P) then
+   if (self%base_mpi%myrank == 0_I4P) then
       call open_xdmf(file_name=directory_//trim(basename)//'.xdmf', file_unit=xdmf_unit)
       codes = self%tree%codes(sort_by_level=.true.)
       node_level = self%tree%level(code=codes(1))
@@ -615,7 +603,7 @@ contains
    call MPI_FILE_OPEN(MPI_COMM_WORLD, trim(adjustl(basename))//'.mat', &
                       MPI_MODE_CREATE+MPI_MODE_WRONLY, MPI_INFO_NULL, MPI_IO_FILE_unit, error)
    offset_head = 0
-   if (self%myrank==0) then
+   if (self%base_mpi%myrank==0) then
       ! call MPI_FILE_WRITE_AT_ALL(MPI_IO_FILE_unit, offset_head, nijkv, 4, MPI_INT, MPI_STATUS_IGNORE, error)
       call MPI_FILE_WRITE_AT(MPI_IO_FILE_unit, offset_head, nijkv, 4, MPI_INT, MPI_STATUS_IGNORE, error)
    endif
@@ -706,79 +694,64 @@ contains
    else
       ngc = 0_I4P
    endif
-   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
+   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, error=>self%base_mpi%error)
       max_level = 0_I4P
       vtr_loop : do b=1, self%field%blocks_number
          call self%grid%compute_metrics(coordinates=self%field%coordinates(:,b), x_node=x, y_node=y, z_node=z)
          max_level = max(max_level, self%field%coordinates(4,b))
-         self%error = vtk%initialize(format='raw', filename=directory_//trim(basename)//                       &
-                                                            '-morton-'//trim(str(self%field%code(b),.true.))// &
-                                                            '-block-'//trim(str(b,.true.))//                   &
-                                                            '-proc-'//trim(str(self%myrank,.true.))//'.vtr',   &
-                                     mesh_topology='RectilinearGrid',                                          &
-                                     nx1=0-ngc, nx2=ni+ngc, ny1=0-ngc, ny2=nj+ngc, nz1=0-ngc, nz2=nk+ngc)
-         self%error = vtk%xml_writer%write_fielddata(action='open')
-                            self%error = vtk%xml_writer%write_fielddata(data_name='Morton', x=self%field%code(b))
-                            self%error = vtk%xml_writer%write_fielddata(data_name='myrank', x=self%myrank)
-         if (present(t))    self%error = vtk%xml_writer%write_fielddata(data_name='t', x=t)
-         if (present(time)) self%error = vtk%xml_writer%write_fielddata(data_name='time', x=time)
-         self%error = vtk%xml_writer%write_fielddata(action='close')
-         self%error = vtk%xml_writer%write_piece(nx1=0-ngc, nx2=ni+ngc, ny1=0-ngc, ny2=nj+ngc, nz1=0-ngc, nz2=nk+ngc)
-         self%error = vtk%xml_writer%write_geo(x=x(0-ngc:ni+ngc), y=y(0-ngc:nj+ngc), z=z(0-ngc:nk+ngc))
-         self%error = vtk%xml_writer%write_dataarray(location='cell', action='open')
+         error = vtk%initialize(format='raw', filename=directory_//trim(basename)//                              &
+                                                       '-morton-'//trim(str(self%field%code(b),.true.))//        &
+                                                       '-block-'//trim(str(b,.true.))//                          &
+                                                       '-proc-'//trim(str(self%base_mpi%myrank,.true.))//'.vtr', &
+                                mesh_topology='RectilinearGrid',                                                 &
+                                nx1=0-ngc, nx2=ni+ngc, ny1=0-ngc, ny2=nj+ngc, nz1=0-ngc, nz2=nk+ngc)
+                            error = vtk%xml_writer%write_fielddata(action='open')
+                            error = vtk%xml_writer%write_fielddata(data_name='Morton', x=self%field%code(b))
+                            error = vtk%xml_writer%write_fielddata(data_name='myrank', x=self%base_mpi%myrank)
+         if (present(t))    error = vtk%xml_writer%write_fielddata(data_name='t', x=t)
+         if (present(time)) error = vtk%xml_writer%write_fielddata(data_name='time', x=time)
+                            error = vtk%xml_writer%write_fielddata(action='close')
+         error = vtk%xml_writer%write_piece(nx1=0-ngc, nx2=ni+ngc, ny1=0-ngc, ny2=nj+ngc, nz1=0-ngc, nz2=nk+ngc)
+         error = vtk%xml_writer%write_geo(x=x(0-ngc:ni+ngc), y=y(0-ngc:nj+ngc), z=z(0-ngc:nk+ngc))
+         error = vtk%xml_writer%write_dataarray(location='cell', action='open')
          do v=1, size(q, dim=1)
-            self%error = vtk%xml_writer%write_dataarray(data_name=trim(q_name_(v)), &
-                                                        x=[q(v,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,b)])
+            error = vtk%xml_writer%write_dataarray(data_name=trim(q_name_(v)), &
+                                                   x=[q(v,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,b)])
          enddo
          if (present(q_aux)) then
             do v=1, size(q_aux, dim=1)
-               self%error = vtk%xml_writer%write_dataarray(data_name=trim(q_aux_name_(v)), &
-                                                           x=[q_aux(v,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,b)])
+               error = vtk%xml_writer%write_dataarray(data_name=trim(q_aux_name_(v)), &
+                                                      x=[q_aux(v,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,b)])
             enddo
          endif
          if (with_cell_morton_) then
-            self%error = vtk%xml_writer%write_dataarray(data_name='morton', &
-                                                        x=reshape([(self%field%code(b),i=1,(ni+2*ngc)*(nj+2*ngc)*(nk+2*ngc))], &
-                                                                  [ni+2*ngc,nj+2*ngc,nk+2*ngc]))
+            error = vtk%xml_writer%write_dataarray(data_name='morton', &
+                                                   x=reshape([(self%field%code(b),i=1,(ni+2*ngc)*(nj+2*ngc)*(nk+2*ngc))], &
+                                                             [ni+2*ngc,nj+2*ngc,nk+2*ngc]))
          endif
-         self%error = vtk%xml_writer%write_dataarray(location='cell', action='close')
-         self%error = vtk%xml_writer%write_piece()
-         self%error = vtk%finalize()
+         error = vtk%xml_writer%write_dataarray(location='cell', action='close')
+         error = vtk%xml_writer%write_piece()
+         error = vtk%finalize()
       enddo vtr_loop
 
       ! save VTM file (only master process does)
-      if (self%myrank == 0_I4P) then
-         self%error = vtm%initialize(filename=directory_//trim(basename)//'.vtm', scratch_units_number=max_level)
+      if (self%base_mpi%myrank == 0_I4P) then
+         error = vtm%initialize(filename=directory_//trim(basename)//'.vtm', scratch_units_number=max_level)
          vtm_group_loop : do l=1, max_level
-            self%error = vtm%write_block(scratch=l, action='open', name='level-'//trim(str(l,.true.)))
+            error = vtm%write_block(scratch=l, action='open', name='level-'//trim(str(l,.true.)))
          enddo vtm_group_loop
          vtm_filenames_loop : do while(self%tree%loop(node_ptr=node))
             b = node%block_index
             l = self%tree%level(code=node%code)
-            self%error = vtm%write_block(scratch=l, action='write', filename=trim(basename)//                                   &
-                                                                             '-morton-'//trim(str(self%field%code(b),.true.))// &
-                                                                             '-block-'//trim(str(b,.true.))//                   &
-                                                                             '-proc-'//trim(str(self%myrank,.true.))//'.vtr')
+            error = vtm%write_block(scratch=l, action='write', filename=trim(basename)//                                   &
+                                                                        '-morton-'//trim(str(self%field%code(b),.true.))// &
+                                                                        '-block-'//trim(str(b,.true.))//                   &
+                                                                        '-proc-'//trim(str(self%base_mpi%myrank,.true.))//'.vtr')
          enddo vtm_filenames_loop
-         self%error = vtm%finalize()
+         error = vtm%finalize()
       endif
    endassociate
    endsubroutine save_vtk
-
-   ! operators
-   ! =
-   subroutine adam_assign_adam(lhs, rhs)
-   !< Operator `=`.
-   class(adam_object), intent(inout) :: lhs !< Left hand side.
-   type(adam_object),  intent(in)    :: rhs !< Right hand side.
-
-   lhs%grid         = rhs%grid
-   lhs%tree         = rhs%tree
-   lhs%field        = rhs%field
-   lhs%error        = rhs%error
-   lhs%procs_number = rhs%procs_number
-   lhs%myrank       = rhs%myrank
-   endsubroutine adam_assign_adam
 
    ! non TBP
    ! HDF5

@@ -63,6 +63,7 @@ module adam_field_object
 !<         1    2    3    4    5
 !<```
 
+use adam_base_mpi_object, only : base_mpi_object
 use adam_grid_object, only : grid_object
 use adam_parameters
 use FINER, only : file_ini
@@ -98,31 +99,24 @@ type :: field_object
    integer(I8P), allocatable  :: local_map_bc_edge(:,:)   !< Local map for edge BC ghost cells.
    integer(I8P), allocatable  :: local_map_bc_corner(:,:) !< Local map for corner BC ghost cells.
    ! MPI data, unrelated to field equations
-   integer(I4P)              :: error=0_I4P                !< Error traping flag.
-   integer(I4P)              :: myrank=0_I4P               !< MPI rank process.
-   character(:), allocatable :: myrankstr                  !< MPI rank process stringified.
-   integer(I4P)              :: procs_number=1_I4P         !< Number of processes.
-   integer(I4P), allocatable :: blocks_numbers(:)          !< Number of blocks actually stored in all processes.
-   integer(I4P), allocatable :: refinements_needed(:)      !< Refinements needed of my blocks.
-   integer(I4P), allocatable :: refinements_needed_all(:)  !< Refinements needed of all blocks.
-   integer(I4P), allocatable :: disp_count(:)              !< Displacement of blocks that are received from process.
-   integer(I4P)              :: inner_blocks_number=0_I4P  !< Number of inner blocks where I need fecs.
-   integer(I4P), allocatable :: req_send_recv(:)           !< MPI request receive flags.
-   integer(I4P), allocatable :: comm_map_n_send_ghost(:)   !< Communication map, number of cells to send [procs_number].
-   integer(I4P), allocatable :: comm_map_n_recv_ghost(:)   !< Communication map, number of cells to recv [procs_number].
-   integer(I4P), allocatable :: comm_map_send_ptr_ghost(:) !< Communication map, pointers in list to send [procs_number+1].
-   integer(I4P), allocatable :: comm_map_recv_ptr_ghost(:) !< Communication map, pointers in list to recv [procs_number+1].
+   type(base_mpi_object)     :: base_mpi                     !< The MPI backend.
+   integer(I4P), allocatable :: blocks_numbers(:)            !< Number of blocks actually stored in all processes.
+   integer(I4P), allocatable :: refinements_needed(:)        !< Refinements needed of my blocks.
+   integer(I4P), allocatable :: refinements_needed_all(:)    !< Refinements needed of all blocks.
+   integer(I4P), allocatable :: disp_count(:)                !< Displacement of blocks that are received from process.
+   integer(I4P)              :: inner_blocks_number=0_I4P    !< Number of inner blocks where I need fecs.
+   integer(I4P), allocatable :: req_send_recv(:)             !< MPI request receive flags.
+   integer(I4P), allocatable :: comm_map_n_send_ghost(:)     !< Communication map, number of cells to send [procs_number].
+   integer(I4P), allocatable :: comm_map_n_recv_ghost(:)     !< Communication map, number of cells to recv [procs_number].
+   integer(I4P), allocatable :: comm_map_send_ptr_ghost(:)   !< Communication map, pointers in list to send [procs_number+1].
+   integer(I4P), allocatable :: comm_map_recv_ptr_ghost(:)   !< Communication map, pointers in list to recv [procs_number+1].
    integer(I4P), allocatable :: comm_map_send_ptr_ghost_s(:) !< Communication map, pointers in list to send, single var.
    integer(I4P), allocatable :: comm_map_recv_ptr_ghost_s(:) !< Communication map, pointers in list to recv, single var.
-   integer(I8P), allocatable :: comm_map_send_ghost(:,:)   !< Communication map, `fec` information [fec_number, 15].
-   integer(I8P), allocatable :: comm_map_recv_ghost(:,:)   !< Communication map, `fec` information [fec_number, 15].
-   ! integer(I8P), allocatable :: comm_map_send_ghost_s(:,:)   !< Communication map, `fec` information [fec_number, 15], single var.
-   ! integer(I8P), allocatable :: comm_map_recv_ghost_s(:,:)   !< Communication map, `fec` information [fec_number, 15], single var.
+   integer(I8P), allocatable :: comm_map_send_ghost(:,:)     !< Communication map, `fec` information [fec_number, 15].
+   integer(I8P), allocatable :: comm_map_recv_ghost(:,:)     !< Communication map, `fec` information [fec_number, 15].
    ! MPI data, related to field equations
-   real(R8P), allocatable :: send_buffer_ghost(:)   !< Send buffer of ghost cells.
-   real(R8P), allocatable :: recv_buffer_ghost(:)   !< Receive buffer of ghost cells.
-   ! real(R8P), allocatable :: send_buffer_ghost_s(:) !< Send buffer of ghost cells, single var.
-   ! real(R8P), allocatable :: recv_buffer_ghost_s(:) !< Receive buffer of ghost cells, single var.
+   real(R8P), allocatable :: send_buffer_ghost(:)            !< Send buffer of ghost cells.
+   real(R8P), allocatable :: recv_buffer_ghost(:)            !< Receive buffer of ghost cells.
    ! field equations data
    real(R8P), allocatable :: q(     :,:,:,:,:) !< Field cell centered variables.
    real(R8P), allocatable :: q_work(:,:,:,:,:) !< Field cell centered variables, working buffer memory.
@@ -131,7 +125,6 @@ type :: field_object
       procedure, pass(self) :: adapt                         !< Adapt field accordingly to refine/derefine necessity.
       procedure, pass(self) :: blocks_reorder                !< Reorder blocks indexes in field.
       procedure, pass(self) :: compute_metrics               !< Compute metrics of each block.
-      procedure, pass(self) :: destroy                       !< Destroy the field.
       procedure, pass(self) :: do_caxis_intersect            !< Return true if a block is intersected by coordinate-axis.
       procedure, pass(self) :: do_cplane_intersect           !< Return true if a block is intersected by coordinate-plane.
       procedure, pass(self) :: do_ray_intersect              !< Return true if a block is intersected by ray.
@@ -149,9 +142,6 @@ type :: field_object
       ! private methods
       procedure, pass(self), private :: derefine !< Derefine blocks.
       procedure, pass(self), private :: refine   !< Refine blocks.
-      ! operators
-      generic :: assignment(=) => field_assign_field      !< Overload `=`.
-      procedure, pass(lhs), private :: field_assign_field !< Operator `=`.
 endtype field_object
 
 contains
@@ -207,14 +197,6 @@ contains
                                      x_cell=self%x_cell(:,b), y_cell=self%y_cell(:,b), z_cell=self%z_cell(:,b))
    enddo
    endsubroutine compute_metrics
-
-   subroutine destroy(self)
-   !< Destroy field.
-   class(field_object), intent(inout) :: self  !< The field.
-   type(field_object)                 :: fresh !< Fresh field.
-
-   self = fresh
-   endsubroutine destroy
 
    function do_caxis_intersect(self, b, caxis_origin, caxis_direction, caxis_block_indexes) result(do_intersect)
    !< Return true if a block is intersected by coordinate-axis.
@@ -347,10 +329,10 @@ contains
    integer(I4P),        intent(in),    optional :: nv              !< Number of field variables.
    integer(I4P),        intent(in),    optional :: nb              !< Number of all blocks that can be stored.
 
-   call self%destroy
+   call self%base_mpi%initialize
+   print '(A)', self%base_mpi%myrankstr//'field%initialize start'
    self%grid => grid
    if (present(file_parameters)) call self%load_from_ini_file(file_parameters)
-
    ! parameters explicitely passed ovveride ones file-passed
    if (present(nv)) self%nv  = nv
    self%block_weight = (self%grid%ngc+self%grid%ni+self%grid%ngc)* &
@@ -358,13 +340,10 @@ contains
                        (self%grid%ngc+self%grid%nk+self%grid%ngc)*self%nv
    if (present(nb)) self%nb  = nb
    if (self%nb>0) then
-
       allocate(self%code(self%nb))
       self%code    = -2_I8P
       self%code(1) = -1_I8P ! first block is assumed to be ADAM
-
       allocate(self%coordinates(4, self%nb))
-
       allocate(self%emin(3,self%nb))
       allocate(self%emax(3,self%nb))
       allocate(self%dxyz(3,self%nb))
@@ -376,7 +355,6 @@ contains
       allocate(self%z_node(0-self%grid%ngc:self%grid%nk+self%grid%ngc,self%nb))
       self%emin(:,1) = self%grid%domain_emin
       self%emax(:,1) = self%grid%domain_emax
-
       allocate(     self%q(1:self%nv,                                  &
                            1-self%grid%ngc:self%grid%ni+self%grid%ngc, &
                            1-self%grid%ngc:self%grid%nj+self%grid%ngc, &
@@ -388,13 +366,9 @@ contains
       self%q = 0._R8P
       self%q_work = 0._R8P
    endif
-
-   ! MPI data
-   call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
-   call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
-   self%myrankstr = '[myrank-'//trim(strz(self%myrank,6))//']'
-   allocate(self%blocks_numbers(0:self%procs_number-1))
-   allocate(self%req_send_recv(0:self%procs_number*2-1))
+   allocate(self%blocks_numbers(0:self%base_mpi%procs_number-1))
+   allocate(self%req_send_recv(0:self%base_mpi%procs_number*2-1))
+   print '(A)', self%base_mpi%myrankstr//'field%initialize finish'
    endsubroutine initialize
 
    subroutine load_blocks(self, basename)
@@ -409,18 +383,18 @@ contains
    integer(I4P)                       :: nv, ni, nj, nk, ngc !< Dimensions.
    integer(I4P)                       :: b                   !< Counter.
 
-   inquire(file=trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.fbd', exist=file_exist)
+   inquire(file=trim(adjustl(basename))//'-proc'//trim(strz(self%base_mpi%myrank,6))//'.fbd', exist=file_exist)
    if (file_exist) then
-      print '(A)', self%myrankstr//'load field blocks from file '//&
-                   trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.fbd'
-      open(newunit=file_unit,                                                        &
-           file=trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.fbd', &
-           form='UNFORMATTED',                                                       &
+      print '(A)', self%base_mpi%myrankstr//'load field blocks from file '//&
+                   trim(adjustl(basename))//'-proc'//trim(strz(self%base_mpi%myrank,6))//'.fbd'
+      open(newunit=file_unit,                                                                 &
+           file=trim(adjustl(basename))//'-proc'//trim(strz(self%base_mpi%myrank,6))//'.fbd', &
+           form='UNFORMATTED',                                                                &
            access='STREAM')
       read(unit=file_unit) nv, ni, nj, nk, ngc
       if (nv==self%nv.and.ni==self%grid%ni.and.nj==self%grid%nj.and.nk==self%grid%nk.and.ngc==self%grid%ngc) then
          read(unit=file_unit) blocks_number
-         print '(A)', self%myrankstr//'field blocks number '//trim(str(blocks_number))
+         print '(A)', self%base_mpi%myrankstr//'field blocks number '//trim(str(blocks_number))
          if (blocks_number <= self%nb) then
             self%blocks_number = blocks_number
             do b=1, self%blocks_number
@@ -433,11 +407,11 @@ contains
             enddo
             call self%compute_metrics
          else
-            write(stderr, '(A)') self%myrankstr//'ERROR: blocks number to read "'//trim(str(blocks_number))//&
+            write(stderr, '(A)') self%base_mpi%myrankstr//'ERROR: blocks number to read "'//trim(str(blocks_number))//&
                                  '" is greater than blocks allocated "'//trim(str(self%nb))//'"!'
          endif
       else
-         write(stderr, '(A)') self%myrankstr//'ERROR: blocks dimensions to read "'//trim(str([nv, ni, nj, nk, ngc]))//&
+         write(stderr, '(A)') self%base_mpi%myrankstr//'ERROR: blocks dimensions to read "'//trim(str([nv, ni, nj, nk, ngc]))//&
                               '" are different than blocks allocated "'//trim(str([self%nv,                           &
                                                                                    self%grid%ni,                      &
                                                                                    self%grid%nj,                      &
@@ -445,11 +419,11 @@ contains
                                                                                    self%grid%ngc]))//'"!'
       endif
       close(file_unit)
-      print '(A)', self%myrankstr//'load field blocks from file '//&
-                   trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.fbd completed'
+      print '(A)', self%base_mpi%myrankstr//'load field blocks from file '//&
+                   trim(adjustl(basename))//'-proc'//trim(strz(self%base_mpi%myrank,6))//'.fbd completed'
    else
-      write(stderr, '(A)') self%myrankstr//'WARNING: file "'//trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.fbd'//&
-                           '" does not exist!'
+      write(stderr, '(A)') self%base_mpi%myrankstr//'WARNING: file "'//&
+                           trim(adjustl(basename))//'-proc'//trim(strz(self%base_mpi%myrank,6))//'.fbd" does not exist!'
    endif
    endsubroutine load_blocks
 
@@ -554,22 +528,22 @@ contains
    integer(I8P)                       :: p             !< Counter.
 
    ! computing received blocks
-   allocate(recv_count(0:self%procs_number - 1))
+   allocate(recv_count(0:self%base_mpi%procs_number - 1))
    call MPI_ALLGATHER(self%blocks_number, 1_I4P, MPI_INTEGER, &
-                      recv_count, 1_I4P, MPI_INTEGER, MPI_COMM_WORLD, self%error)
+                      recv_count, 1_I4P, MPI_INTEGER, MPI_COMM_WORLD, self%base_mpi%error)
 
    ! computing displacement counts
    if (allocated(self%disp_count)) deallocate(self%disp_count)
-   allocate(self%disp_count(0:self%procs_number - 1))
+   allocate(self%disp_count(0:self%base_mpi%procs_number - 1))
    self%disp_count = 0_I4P
-   do p=1, self%procs_number - 1
+   do p=1, self%base_mpi%procs_number - 1
       self%disp_count(p) = self%disp_count(p-1) + recv_count(p-1)
    enddo
 
    if (allocated(self%refinements_needed_all)) deallocate(self%refinements_needed_all)
    allocate(self%refinements_needed_all(sum(recv_count, dim=1)))
    call MPI_ALLGATHERV(self%refinements_needed, self%blocks_number, MPI_INTEGER, &
-                       self%refinements_needed_all, recv_count, self%disp_count, MPI_INTEGER, MPI_COMM_WORLD, self%error)
+                       self%refinements_needed_all, recv_count, self%disp_count, MPI_INTEGER, MPI_COMM_WORLD, self%base_mpi%error)
    endsubroutine mpi_gather_refinements_needed
 
    subroutine mpi_redistribute(self, comm_map_send, comm_map_recv, comm_map_send_ptr, comm_map_recv_ptr, &
@@ -594,7 +568,7 @@ contains
    integer(I4P)                             :: n_recv, n_send         !< Counter.
    integer(I4P), allocatable                :: req_recv(:)            !< MPI request receive flags.
 
-   allocate(req_recv(0:self%procs_number-1))
+   allocate(req_recv(0:self%base_mpi%procs_number-1))
    req_recv = MPI_REQUEST_NULL
 
    send_size = 0_I8P ; if (allocated(comm_map_send)) send_size = size(comm_map_send, dim=1) * self%block_weight
@@ -612,25 +586,25 @@ contains
       enddo
    endif
 
-   do p=0, self%procs_number - 1_I4P
+   do p=0, self%base_mpi%procs_number - 1_I4P
       ptr_start = comm_map_recv_ptr(p)   * self%block_weight + 1
       ptr_end   = comm_map_recv_ptr(p+1) * self%block_weight
       n_recv    = ptr_end - ptr_start + 1
       if (n_recv > 0) then
-         call MPI_IRECV(recv_buffer(ptr_start), n_recv, MPI_REAL8, p, 100, MPI_COMM_WORLD, req_recv(p), self%error)
+         call MPI_IRECV(recv_buffer(ptr_start), n_recv, MPI_REAL8, p, 100, MPI_COMM_WORLD, req_recv(p), self%base_mpi%error)
       endif
    enddo
 
-   do p=0, self%procs_number - 1_I4P
+   do p=0, self%base_mpi%procs_number - 1_I4P
       ptr_start = comm_map_send_ptr(p)   * self%block_weight + 1
       ptr_end   = comm_map_send_ptr(p+1) * self%block_weight
       n_send    = ptr_end - ptr_start + 1
       if (n_send > 0) then
-         call MPI_SEND(send_buffer(ptr_start), n_send, MPI_REAL8, p, 100, MPI_COMM_WORLD, self%error)
+         call MPI_SEND(send_buffer(ptr_start), n_send, MPI_REAL8, p, 100, MPI_COMM_WORLD, self%base_mpi%error)
       endif
    enddo
 
-   call MPI_WAITALL(self%procs_number, req_recv, MPI_STATUSES_IGNORE, self%error)
+   call MPI_WAITALL(self%base_mpi%procs_number, req_recv, MPI_STATUSES_IGNORE, self%base_mpi%error)
 
    if (recv_size > 0_I8P) then
       recv_offset = 1
@@ -754,12 +728,12 @@ contains
    !< Print status of main data.
    class(field_object), intent(in) :: self !< The field.
 
-   print '(A)', self%myrankstr//'field status of main data'
-   print '(A)', self%myrankstr//'  field variables number (nv): '//trim(str(self%nv           ))
-   print '(A)', self%myrankstr//'  all blocks number (nb):      '//trim(str(self%nb           ))
-   print '(A)', self%myrankstr//'  blocks number:               '//trim(str(self%blocks_number))
-   print '(A)', self%myrankstr//'  block weight:                '//trim(str(self%block_weight ))
-   print '(A)', self%myrankstr//''
+   print '(A)', self%base_mpi%myrankstr//'field status of main data'
+   print '(A)', self%base_mpi%myrankstr//'  field variables number (nv): '//trim(str(self%nv           ))
+   print '(A)', self%base_mpi%myrankstr//'  all blocks number (nb):      '//trim(str(self%nb           ))
+   print '(A)', self%base_mpi%myrankstr//'  blocks number:               '//trim(str(self%blocks_number))
+   print '(A)', self%base_mpi%myrankstr//'  block weight:                '//trim(str(self%block_weight ))
+   print '(A)', self%base_mpi%myrankstr//''
    endsubroutine print_status
 
    subroutine save_blocks(self, basename)
@@ -770,9 +744,9 @@ contains
    integer(I4P)                    :: b         !< Counter.
 
    if (self%blocks_number > 0) then
-      open(newunit=file_unit,                                                        &
-           file=trim(adjustl(basename))//'-proc'//trim(strz(self%myrank,6))//'.fbd', &
-           form='UNFORMATTED',                                                       &
+      open(newunit=file_unit,                                                                 &
+           file=trim(adjustl(basename))//'-proc'//trim(strz(self%base_mpi%myrank,6))//'.fbd', &
+           form='UNFORMATTED',                                                                &
            access='STREAM')
       write(unit=file_unit) self%nv,  self%grid%ni,  self%grid%nj,  self%grid%nk,  self%grid%ngc
       write(unit=file_unit) self%blocks_number
@@ -895,7 +869,7 @@ contains
    associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, q=>self%q, q_work=>self%q_work)
    if (allocated(block_to_refine)) then
       do b=1, size(block_to_refine, dim=2)
-         if (self%myrank /= block_to_refine(2,b)) cycle
+         if (self%base_mpi%myrank /= block_to_refine(2,b)) cycle
          ib = block_to_refine(1,b)
 
          q_work(:,:,:,:,ib) = q(:,:,:,:,ib)
@@ -983,55 +957,4 @@ contains
    endif
    endassociate
    endsubroutine refine
-
-   ! operators
-   ! =
-   subroutine field_assign_field(lhs, rhs)
-   !< Operator `=`.
-   class(field_object), intent(inout) :: lhs !< Left hand side.
-   type(field_object),  intent(in)    :: rhs !< Right hand side.
-
-   lhs%grid => rhs%grid
-   lhs%nv            = rhs%nv
-   lhs%block_weight  = rhs%block_weight
-   lhs%nb            = rhs%nb
-   lhs%blocks_number = rhs%blocks_number
-   call assign_allocatable(lhs=lhs%code, rhs=rhs%code)
-   call assign_allocatable(lhs=lhs%coordinates, rhs=rhs%coordinates)
-   call assign_allocatable(lhs=lhs%emin, rhs=rhs%emin)
-   call assign_allocatable(lhs=lhs%emax, rhs=rhs%emax)
-   call assign_allocatable(lhs=lhs%dxyz, rhs=rhs%dxyz)
-   call assign_allocatable(lhs=lhs%x_cell, rhs=rhs%x_cell)
-   call assign_allocatable(lhs=lhs%y_cell, rhs=rhs%y_cell)
-   call assign_allocatable(lhs=lhs%z_cell, rhs=rhs%z_cell)
-   call assign_allocatable(lhs=lhs%x_node, rhs=rhs%x_node)
-   call assign_allocatable(lhs=lhs%y_node, rhs=rhs%y_node)
-   call assign_allocatable(lhs=lhs%z_node, rhs=rhs%z_node)
-   call assign_allocatable(lhs=lhs%local_map_ghost, rhs=rhs%local_map_ghost)
-   ! MPI data, unrelated to field equations
-   lhs%error        = rhs%error
-   lhs%myrank       = rhs%myrank
-   lhs%procs_number = rhs%procs_number
-   call assign_allocatable(lhs=lhs%blocks_numbers, rhs=rhs%blocks_numbers)
-   call assign_allocatable(lhs=lhs%refinements_needed, rhs=rhs%refinements_needed)
-   call assign_allocatable(lhs=lhs%refinements_needed_all, rhs=rhs%refinements_needed_all)
-   call assign_allocatable(lhs=lhs%disp_count, rhs=rhs%disp_count)
-   lhs%inner_blocks_number = rhs%inner_blocks_number
-   call assign_allocatable(lhs=lhs%local_map_bc_face, rhs=rhs%local_map_bc_face)
-   call assign_allocatable(lhs=lhs%local_map_bc_edge, rhs=rhs%local_map_bc_edge)
-   call assign_allocatable(lhs=lhs%local_map_bc_corner, rhs=rhs%local_map_bc_corner)
-   call assign_allocatable(lhs=lhs%req_send_recv, rhs=rhs%req_send_recv)
-   call assign_allocatable(lhs=lhs%comm_map_n_send_ghost, rhs=rhs%comm_map_n_send_ghost)
-   call assign_allocatable(lhs=lhs%comm_map_n_recv_ghost, rhs=rhs%comm_map_n_recv_ghost)
-   call assign_allocatable(lhs=lhs%comm_map_send_ptr_ghost, rhs=rhs%comm_map_send_ptr_ghost)
-   call assign_allocatable(lhs=lhs%comm_map_recv_ptr_ghost, rhs=rhs%comm_map_recv_ptr_ghost)
-   call assign_allocatable(lhs=lhs%comm_map_send_ghost, rhs=rhs%comm_map_send_ghost)
-   call assign_allocatable(lhs=lhs%comm_map_recv_ghost, rhs=rhs%comm_map_recv_ghost)
-   ! MPI data, related to field equations
-   call assign_allocatable(lhs=lhs%send_buffer_ghost, rhs=rhs%send_buffer_ghost)
-   call assign_allocatable(lhs=lhs%recv_buffer_ghost, rhs=rhs%recv_buffer_ghost)
-   ! field equations data
-   call assign_allocatable(lhs=lhs%q, rhs=rhs%q)
-   call assign_allocatable(lhs=lhs%q_work, rhs=rhs%q_work)
-   endsubroutine field_assign_field
 endmodule adam_field_object

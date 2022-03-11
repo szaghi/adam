@@ -2,6 +2,7 @@
 module adam_grid_object
 !< ADAM, grid class definition.
 
+use adam_base_mpi_object, only : base_mpi_object
 use adam_parameters
 use FINER, only : file_ini
 use PENF
@@ -31,9 +32,7 @@ type :: grid_object
    real(R8P),    allocatable :: lin_space_x(:,:)                      !< Lin. space x for each level [0-ngc:ni+ngc,MAX_REF_LEVELS].
    real(R8P),    allocatable :: lin_space_y(:,:)                      !< Lin. space y for each level [0-ngc:nj+ngc,MAX_REF_LEVELS].
    real(R8P),    allocatable :: lin_space_z(:,:)                      !< Lin. space z for each level [0-ngc:nk+ngc,MAX_REF_LEVELS].
-   integer(I4P)              :: error=0_I4P                           !< Error traping flag.
-   integer(I4P)              :: myrank=0_I4P                          !< MPI rank process.
-   character(:), allocatable :: myrankstr                             !< MPI rank process stringified.
+   type(base_mpi_object)     :: base_mpi                              !< The MPI backend.
    contains
       ! public methods
       procedure, pass(self) :: block_emin              !< Return block emin given its coordinates.
@@ -41,16 +40,12 @@ type :: grid_object
       procedure, pass(self) :: cell_xyz                !< Return cells xyz abscissa given block coordinates.
       procedure, pass(self) :: compute_metrics         !< Compute metrics of a block.
       procedure, pass(self) :: compute_weight_neighbor !< Compute weight of neighbors.
-      procedure, pass(self) :: destroy                 !< Destroy the field.
       procedure, pass(self) :: do_cplane_intersect     !< Return true if a block is intersected by coordinate-plane.
       procedure, pass(self) :: get_closest_block       !< Get the closest block to a given point at a given level.
       procedure, pass(self) :: initialize              !< Initialize the field.
       procedure, pass(self) :: load_from_ini_file      !< Load object data from INI file.
       procedure, pass(self) :: node_xyz                !< Return nodes xyz abscissa given block coordinates.
       procedure, pass(self) :: print_status            !< Print status of main data.
-      ! operators
-      generic :: assignment(=) => grid_assign_grid      !< Overload `=`.
-      procedure, pass(lhs), private :: grid_assign_grid !< Operator `=`.
 endtype grid_object
 
 contains
@@ -180,14 +175,6 @@ contains
    enddo
    endsubroutine compute_weight_neighbor
 
-   elemental subroutine destroy(self)
-   !< Destroy field.
-   class(grid_object), intent(inout) :: self  !< The grid.
-   type(grid_object)                 :: fresh !< Fresh grid.
-
-   self = fresh
-   endsubroutine destroy
-
    function do_cplane_intersect(self, emin, emax, dxyz, cplane_origin, cplane_normal, cplane_block_indexes) result(do_intersect)
    !< Return true if a block is intersected by coordinate-plane.
    class(grid_object), intent(inout)         :: self                    !< The grid.
@@ -234,7 +221,7 @@ contains
       ! ijk(:) = min(nb_max, max(1, ceiling((point(:) - emin(:)) / dxyz(:), I4P)))
       ijk(:) = int((point(:) - emin(:)) / dxyz(:), I4P)
       if (any(ijk<0).or.any(ijk>2**level-1)) then
-         print '(A)', self%myrankstr//'ERROR: grid%get_closest block failed ijk: '//str(ijk)//&
+         print '(A)', self%base_mpi%myrankstr//'ERROR: grid%get_closest block failed ijk: '//str(ijk)//&
                       ' level:'//str(level)//' point:'//str(point)
       endif
    endassociate
@@ -254,9 +241,7 @@ contains
    integer(I4P)                                :: i, j, k, l      !< Counter.
    integer(I4P)                                :: nijk(3)         !< Cells number.
 
-   call self%destroy
-   call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
-   self%myrankstr = '[myrank-'//trim(strz(self%myrank,6))//']'
+   call self%base_mpi%initialize
    if (present(file_parameters)) call self%load_from_ini_file(file_parameters)
 
    ! parameters explicitely passed ovveride ones file-passed
@@ -329,33 +314,15 @@ contains
    !< Print status of main data.
    class(grid_object), intent(in) :: self !< The field.
 
-   print '(A)',          self%myrankstr//'grid status of main data'
-   print '(A)',          self%myrankstr//'  domain minimum extent: '//trim(str(self%domain_emin    ))
-   print '(A)',          self%myrankstr//'  domain maximum extent: '//trim(str(self%domain_emax    ))
-   print '(A)',          self%myrankstr//'  ni:                    '//trim(str(self%ni             ))
-   print '(A)',          self%myrankstr//'  nj:                    '//trim(str(self%nj             ))
-   print '(A)',          self%myrankstr//'  nk:                    '//trim(str(self%nk             ))
-   print '(A)',          self%myrankstr//'  ngc:                   '//trim(str(self%ngc            ))
-   print '(A)',          self%myrankstr//'  boundary conditions:   '//trim(str(self%bc_type        ))
-   print '(A,3(L1,1X))', self%myrankstr//'  IJK periodic:          ',          self%is_ijk_periodic
-   print '(A)',          self%myrankstr//''
+   print '(A)',          self%base_mpi%myrankstr//'grid status of main data'
+   print '(A)',          self%base_mpi%myrankstr//'  domain minimum extent: '//trim(str(self%domain_emin    ))
+   print '(A)',          self%base_mpi%myrankstr//'  domain maximum extent: '//trim(str(self%domain_emax    ))
+   print '(A)',          self%base_mpi%myrankstr//'  ni:                    '//trim(str(self%ni             ))
+   print '(A)',          self%base_mpi%myrankstr//'  nj:                    '//trim(str(self%nj             ))
+   print '(A)',          self%base_mpi%myrankstr//'  nk:                    '//trim(str(self%nk             ))
+   print '(A)',          self%base_mpi%myrankstr//'  ngc:                   '//trim(str(self%ngc            ))
+   print '(A)',          self%base_mpi%myrankstr//'  boundary conditions:   '//trim(str(self%bc_type        ))
+   print '(A,3(L1,1X))', self%base_mpi%myrankstr//'  IJK periodic:          ',          self%is_ijk_periodic
+   print '(A)',          self%base_mpi%myrankstr//''
    endsubroutine print_status
-
-   ! operators
-   ! =
-   pure subroutine grid_assign_grid(lhs, rhs)
-   !< Operator `=`.
-   class(grid_object), intent(inout) :: lhs !< Left hand side.
-   type(grid_object),  intent(in)    :: rhs !< Right hand side.
-
-   lhs%domain_emin     = rhs%domain_emin
-   lhs%domain_emax     = rhs%domain_emax
-   lhs%ni              = rhs%ni
-   lhs%nj              = rhs%nj
-   lhs%nk              = rhs%nk
-   lhs%ngc             = rhs%ngc
-   lhs%weight_neighbor = rhs%weight_neighbor
-   lhs%bc_type         = rhs%bc_type
-   lhs%is_ijk_periodic = rhs%is_ijk_periodic
-   endsubroutine grid_assign_grid
 endmodule adam_grid_object

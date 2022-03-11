@@ -127,6 +127,7 @@ module adam_tree_object
 !<  G  = fec-25
 !<  H  = fec-26
 
+use adam_base_mpi_object, only : base_mpi_object
 use adam_grid_object, only : grid_object
 use adam_parameters
 use adam_tree_node_object, only : tree_node_object
@@ -185,10 +186,7 @@ type :: tree_object
    integer(I8P), allocatable :: local_map_bc_edge(:,:)   !< Local map for edge BC ghost cells.
    integer(I8P), allocatable :: local_map_bc_corner(:,:) !< Local map for corner BC ghost cells.
    ! MPI data of nodes
-   integer(I4P)              :: error=0_I4P               !< Error traping flag.
-   integer(I4P)              :: procs_number=1_I4P        !< MPI Number of processes.
-   integer(I4P)              :: myrank=0_I4P              !< MPI rank process.
-   character(:), allocatable :: myrankstr                 !< MPI rank process stringified.
+   type(base_mpi_object)     :: base_mpi                  !< The MPI backend.
    integer(I4P)              :: my_nodes_number=0_I4P     !< Number of my nodes, keep_nodes_number + recv_nodes_number.
    integer(I4P)              :: send_nodes_number=0_I4P   !< Number of nodes to be sent.
    integer(I4P)              :: recv_nodes_number=0_I4P   !< Number of nodes to be received.
@@ -219,7 +217,6 @@ type :: tree_object
       procedure, pass(self) :: blocks_reorder               !< Reorder blocks indexes in field.
       procedure, pass(self) :: codes                        !< Return the list of (sorted) codes actually stored in the tree.
       procedure, pass(self) :: compute_surface_stl_distance !< Compute signed distance of nodes from a STL surface.
-      procedure, pass(self) :: destroy                      !< Destroy the tree.
       procedure, pass(self) :: get_closest_block            !< Get the closest block to a given point.
       procedure, pass(self) :: get_closest_cells            !< Get the closest cells to a given point.
       procedure, pass(self) :: hash                         !< Hash the key.
@@ -289,9 +286,6 @@ type :: tree_object
       procedure, pass(self), private :: refine                  !< Refine nodes.
       procedure, pass(self), private :: remove_node             !< Remove a node from the tree, given the key.
       procedure, pass(self), private :: sanitize                !< Sanitize the tree.
-      ! operators
-      generic :: assignment(=) => tree_assign_tree      !< Overload `=`.
-      procedure, pass(lhs), private :: tree_assign_tree !< Operator `=`.
 endtype tree_object
 
 abstract interface
@@ -342,7 +336,7 @@ contains
    allocate(codes(self%nodes_number))
    c = 0
    do while(self%loop(node_ptr=node_ptr))
-      if (only_mine_.and.self%myrank/=node_ptr%myrank) cycle
+      if (only_mine_.and.self%base_mpi%myrank/=node_ptr%myrank) cycle
       c = c + 1
       codes(c) = node_ptr%code
    enddo
@@ -461,7 +455,7 @@ contains
       allocate(y_cell(1-ngc:nj+ngc))
       allocate(z_cell(1-ngc:nk+ngc))
       do while(self%loop(node_ptr=node_ptr))
-         if (node_ptr%myrank==self%myrank) then
+         if (node_ptr%myrank==self%base_mpi%myrank) then
             if (node_ptr%surface_stl_distance<epsilon(0._R8P)) then
                ! compute cell distance only in blocks where is STL surface
                call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
@@ -481,7 +475,7 @@ contains
       enddo
    else
       do while(self%loop(node_ptr=node_ptr))
-         if (node_ptr%myrank==self%myrank) then
+         if (node_ptr%myrank==self%base_mpi%myrank) then
             if (node_ptr%surface_stl_distance<huge(0._R8P)/2._R8P) cycle ! distance already computed for this node
             call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
             call self%grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax)
@@ -512,14 +506,6 @@ contains
    endassociate
    endsubroutine compute_surface_stl_distance
 
-   subroutine destroy(self)
-   !< Destroy the tree.
-   class(tree_object), intent(inout) :: self  !< The tree.
-   type(tree_object)                 :: fresh !< Fresh tree.
-
-   self = fresh
-   endsubroutine destroy
-
    function get_closest_block(self, point) result(code)
    !< Get the closest block to a given point.
    class(tree_object), intent(in) :: self        !< The tree.
@@ -545,7 +531,7 @@ contains
           endif
       enddo
       if (.not.block_found) then
-         print '(A)', self%myrankstr//'ERROR: tree%get_closest block failed, path: '//str(path)//' point: '//str(point)
+         print '(A)', self%base_mpi%myrankstr//'ERROR: tree%get_closest block failed, path: '//str(path)//' point: '//str(point)
       endif
    endif
    endfunction get_closest_block
@@ -652,7 +638,8 @@ contains
    logical,            intent(in),    optional :: add_adam        !< Add ADAM node, the ancestor of all nodes.
    logical                                     :: add_adam_       !< Add ADAM node, the ancestor of all nodes, local var.
 
-   call self%destroy
+   call self%base_mpi%initialize
+   print '(A)', self%base_mpi%myrankstr//'tree%initialize start'
    self%grid => grid
    if (present(file_parameters)) call self%load_from_ini_file(file_parameters)
 
@@ -670,8 +657,8 @@ contains
       if (ratio==8_I8P.or.ratio==4_I8P) then
          self%ratio = ratio
       else
-         write(stderr, '(A)') self%myrankstr//'ADAM-ERROR: tree ratio must be 8 o 4'
-         call MPI_FINALIZE(self%error)
+         write(stderr, '(A)') self%base_mpi%myrankstr//'ADAM-ERROR: tree ratio must be 8 o 4'
+         call MPI_FINALIZE(self%base_mpi%error)
          stop
       endif
    endif
@@ -686,23 +673,21 @@ contains
    if(present(l_prune)) self%ijkl_prune(4)       = l_prune
 
    ! MPI data
-   call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
-   call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
-   self%myrankstr = '[myrank-'//trim(strz(self%myrank,6))//']'
-   allocate(self%comm_map_n_send(0:self%procs_number-1))
-   allocate(self%comm_map_n_recv(0:self%procs_number-1))
-   allocate(self%comm_map_send_ptr(0:self%procs_number))
-   allocate(self%comm_map_recv_ptr(0:self%procs_number))
+   allocate(self%comm_map_n_send(0:self%base_mpi%procs_number-1))
+   allocate(self%comm_map_n_recv(0:self%base_mpi%procs_number-1))
+   allocate(self%comm_map_send_ptr(0:self%base_mpi%procs_number))
+   allocate(self%comm_map_recv_ptr(0:self%base_mpi%procs_number))
    self%comm_map_n_send = 0_I4P
    self%comm_map_n_recv = 0_I4P
    self%comm_map_send_ptr = 0_I4P
    self%comm_map_recv_ptr = 0_I4P
    call self%mpi_redistribute
    ! MPI ghost data
-   allocate(self%comm_map_n_send_ghost(0:self%procs_number-1))
-   allocate(self%comm_map_n_recv_ghost(0:self%procs_number-1))
-   allocate(self%comm_map_send_ptr_ghost(0:self%procs_number))
-   allocate(self%comm_map_recv_ptr_ghost(0:self%procs_number))
+   allocate(self%comm_map_n_send_ghost(0:self%base_mpi%procs_number-1))
+   allocate(self%comm_map_n_recv_ghost(0:self%base_mpi%procs_number-1))
+   allocate(self%comm_map_send_ptr_ghost(0:self%base_mpi%procs_number))
+   allocate(self%comm_map_recv_ptr_ghost(0:self%base_mpi%procs_number))
+   print '(A)', self%base_mpi%myrankstr//'tree%initialize finish'
    endsubroutine initialize
 
    subroutine load_nodes(self, file_name)
@@ -721,10 +706,10 @@ contains
 
    inquire(file=trim(adjustl(file_name)), exist=file_exist)
    if (file_exist) then
-      print '(A)', self%myrankstr//'load tree nodes from file '//trim(adjustl(file_name))
+      print '(A)', self%base_mpi%myrankstr//'load tree nodes from file '//trim(adjustl(file_name))
       open(newunit=file_unit, file=trim(adjustl(file_name)), form='UNFORMATTED', access='STREAM')
       read(unit=file_unit) codes_number
-      print '(A)', self%myrankstr//'tree nodes number '//trim(str(codes_number))
+      print '(A)', self%base_mpi%myrankstr//'tree nodes number '//trim(str(codes_number))
       if (codes_number > 0) then
          call self%empty
          do c=1, codes_number
@@ -733,9 +718,9 @@ contains
          enddo
       endif
       close(file_unit)
-      print '(A)', self%myrankstr//'load tree nodes from file '//trim(adjustl(file_name))//' completed'
+      print '(A)', self%base_mpi%myrankstr//'load tree nodes from file '//trim(adjustl(file_name))//' completed'
    else
-      write(stderr, '(A)') self%myrankstr//'ERROR: file "'//trim(adjustl(file_name))//'" does not exist!'
+      write(stderr, '(A)') self%base_mpi%myrankstr//'ERROR: file "'//trim(adjustl(file_name))//'" does not exist!'
    endif
    endsubroutine load_nodes
 
@@ -762,11 +747,11 @@ contains
    character(*),       intent(in)    :: file_name !< STL file name.
    type(file_stl_object)             :: file_stl  !< STL file handler.
 
-   print '(A)', self%myrankstr//'ADAM: load STL file: '//trim(adjustl(file_name))
+   print '(A)', self%base_mpi%myrankstr//'ADAM: load STL file: '//trim(adjustl(file_name))
    call file_stl%load_from_file(facet=self%surface_stl%facet, file_name=trim(adjustl(file_name)), guess_format=.true.)
    call self%surface_stl%analize(aabb_refinement_levels=3)
    call self%surface_stl%sanitize
-   print '(A)', self%myrankstr//'ADAM: compute distance from STL surface'
+   print '(A)', self%base_mpi%myrankstr//'ADAM: compute distance from STL surface'
    call self%compute_surface_stl_distance(surface_stl=self%surface_stl)
    endsubroutine load_surface_stl
 
@@ -837,7 +822,7 @@ contains
    fec_bc_edges_number = 0_I4P
    fec_bc_corners_number = 0_I4P
    do while(self%loop(node_ptr=node_ptr))
-      if (node_ptr%myrank==self%myrank) then
+      if (node_ptr%myrank==self%base_mpi%myrank) then
          do fec=1, 26
             call self%get_neighbor_all(code=node_ptr%code,          &
                                        face=fec,                    &
@@ -860,7 +845,7 @@ contains
       fec_bc_edges_number = 0_I4P
       fec_bc_corners_number = 0_I4P
       do while(self%loop(node_ptr=node_ptr))
-         if (node_ptr%myrank==self%myrank) then
+         if (node_ptr%myrank==self%base_mpi%myrank) then
             do fec=1, 26
                call self%get_neighbor_all(code=node_ptr%code,          &
                                           face=fec,                    &
@@ -1049,7 +1034,7 @@ contains
 
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
    do while(self%loop(node_ptr=node_ptr))
-      if (node_ptr%myrank==self%myrank) then
+      if (node_ptr%myrank==self%base_mpi%myrank) then
          call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
          call self%grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax)
          block_diagonal = sqrt((emax(1) - emin(1))**2 + &
@@ -1106,15 +1091,15 @@ contains
    !< Print status of main data.
    class(tree_object), intent(in) :: self !< The tree.
 
-   print '(A)', self%myrankstr//'tree status of main data'
-   print '(A)', self%myrankstr//'  buckets number: '//trim(str(self%buckets_number))
-   print '(A)', self%myrankstr//'  nodes number:   '//trim(str(self%nodes_number  ))
-   print '(A)', self%myrankstr//'  max load:       '//trim(str(self%max_load      ))
-   print '(A)', self%myrankstr//'  ratio:          '//trim(str(self%ratio         ))
-   print '(A)', self%myrankstr//'  max level:      '//trim(str(self%max_level     ))
-   print '(A)', self%myrankstr//'  ijkl_prune:     '//trim(str(self%ijkl_prune    ))
-   print '(A)', self%myrankstr//'  iu_ref_levels:  '//trim(str(self%iu_ref_levels ))
-   print '(A)', self%myrankstr//''
+   print '(A)', self%base_mpi%myrankstr//'tree status of main data'
+   print '(A)', self%base_mpi%myrankstr//'  buckets number: '//trim(str(self%buckets_number))
+   print '(A)', self%base_mpi%myrankstr//'  nodes number:   '//trim(str(self%nodes_number  ))
+   print '(A)', self%base_mpi%myrankstr//'  max load:       '//trim(str(self%max_load      ))
+   print '(A)', self%base_mpi%myrankstr//'  ratio:          '//trim(str(self%ratio         ))
+   print '(A)', self%base_mpi%myrankstr//'  max level:      '//trim(str(self%max_level     ))
+   print '(A)', self%base_mpi%myrankstr//'  ijkl_prune:     '//trim(str(self%ijkl_prune    ))
+   print '(A)', self%base_mpi%myrankstr//'  iu_ref_levels:  '//trim(str(self%iu_ref_levels ))
+   print '(A)', self%base_mpi%myrankstr//''
    endsubroutine print_status
 
    subroutine prune(self, ijkl_prune)
@@ -1130,11 +1115,12 @@ contains
          ijkl_prune(i) = min(ijkl_prune(i), 2**ijkl_prune(4) - 1)
       enddo
       self%ijkl_prune = ijkl_prune
-      print '(A)', self%myrankstr//'prune tree with IJKL max: '//trim(str(self%ijkl_prune))
+      print '(A)', self%base_mpi%myrankstr//'prune tree with IJKL max: '//trim(str(self%ijkl_prune))
       do while(self%loop(node_ptr=node_ptr))
          call self%morton_to_coordinates(code=node_ptr%code, i=ijkl(1), j=ijkl(2), k=ijkl(3), l=ijkl(4))
          if (ijkl(4)/=self%ijkl_prune(4)) then
-            print '(A)', self%myrankstr//'ERROR: cannot prune nodes at different prune-level, node: '//trim(str(node_ptr%code))
+            print '(A)', self%base_mpi%myrankstr//'ERROR: cannot prune nodes at different prune-level, node: '//&
+                         trim(str(node_ptr%code))
          endif
          if (ijkl(1)>self%ijkl_prune(1).or.ijkl(2)>self%ijkl_prune(2).or.ijkl(3)>self%ijkl_prune(3)) then
             call self%remove_node(code=node_ptr%code)
@@ -1183,7 +1169,7 @@ contains
       self%buckets_number = swap%buckets_number
       self%nodes_number   = swap%nodes_number
    else
-      print '(A)', self%myrankstr//'ERROR: tree is not initialized, cannot be resized'
+      print '(A)', self%base_mpi%myrankstr//'ERROR: tree is not initialized, cannot be resized'
       stop
    endif
    endsubroutine resize
@@ -1222,7 +1208,7 @@ contains
       actual_codes = self%codes()
       codes_number = size(actual_codes, dim=1)
       if (codes_number > 0) then
-         print '(A)', self%myrankstr//'save tree nodes in file  '//trim(adjustl(file_name))
+         print '(A)', self%base_mpi%myrankstr//'save tree nodes in file  '//trim(adjustl(file_name))
          open(newunit=file_unit, file=trim(adjustl(file_name)), form='UNFORMATTED', access='STREAM')
          write(unit=file_unit) codes_number
          do c=1, codes_number
@@ -1269,14 +1255,14 @@ contains
    if (allocated(self%inner_outer_block_map)) deallocate(self%inner_outer_block_map)
    allocate(self%inner_outer_block_map(self%my_nodes_number))
    do while(self%loop(node_ptr=node_ptr))
-      if (self%myrank == node_ptr%myrank) then
+      if (self%base_mpi%myrank == node_ptr%myrank) then
          is_inner_block = .true.
          do fec=1, 26
             call self%get_neighbor_all(code=node_ptr%code, face=fec, neighbor=neighbor, neighbor_type=neighbor_type)
             if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
                do n=1, size(neighbor, dim=1)
                   neigh => self%node(code=neighbor(n))
-                  if (self%myrank /= neigh%myrank) is_inner_block = .false.
+                  if (self%base_mpi%myrank /= neigh%myrank) is_inner_block = .false.
                enddo
             endif
          enddo
@@ -1295,7 +1281,7 @@ contains
    self%inner_outer_block_map(1:inner_blocks_number ) = inner_block_map(1:inner_blocks_number)
    self%inner_outer_block_map(inner_blocks_number+1:) = outer_block_map(1:outer_blocks_number)
    do while(self%loop(node_ptr=node_ptr))
-      if (self%myrank == node_ptr%myrank) then
+      if (self%base_mpi%myrank == node_ptr%myrank) then
          if (node_ptr%block_index_new < 0) then
             node_ptr%block_index = -node_ptr%block_index_new + inner_blocks_number
          else
@@ -1352,7 +1338,7 @@ contains
    ! compute the number of blocks to send/receive
    my_nodes_number = 0_I8P
    do while(self%loop(node_ptr=node_ptr))
-      if (node_ptr%myrank==self%myrank) my_nodes_number = my_nodes_number + 1_I8P
+      if (node_ptr%myrank==self%base_mpi%myrank) my_nodes_number = my_nodes_number + 1_I8P
       if     (is_node_to_send(n=node_ptr)) then
          ! I have this node that must be sent to node_ptr%myrank_new
          self%comm_map_n_send(node_ptr%myrank_new) = self%comm_map_n_send(node_ptr%myrank_new) + 1
@@ -1380,7 +1366,7 @@ contains
    ! compute communication maps pointers/counters
    self%comm_map_send_ptr = 0_I4P
    self%comm_map_recv_ptr = 0_I4P
-   do p=1, self%procs_number
+   do p=1, self%base_mpi%procs_number
       self%comm_map_send_ptr(p) = self%comm_map_send_ptr(p-1) + self%comm_map_n_send(p-1)
       self%comm_map_recv_ptr(p) = self%comm_map_recv_ptr(p-1) + self%comm_map_n_recv(p-1)
    enddo
@@ -1427,7 +1413,7 @@ contains
       type(tree_node_object), intent(in), pointer :: n               !< Pointer to current node.
       logical                                     :: is_node_to_keep !< Check result.
 
-      is_node_to_keep = ((self%myrank == n%myrank).and.(n%myrank == n%myrank_new))
+      is_node_to_keep = ((self%base_mpi%myrank == n%myrank).and.(n%myrank == n%myrank_new))
       endfunction is_node_to_keep
 
       function is_node_to_send(n)
@@ -1435,7 +1421,7 @@ contains
       type(tree_node_object), intent(in), pointer :: n               !< Pointer to current node.
       logical                                     :: is_node_to_send !< Check result.
 
-      is_node_to_send = ((self%myrank == n%myrank).and.(n%myrank /= n%myrank_new))
+      is_node_to_send = ((self%base_mpi%myrank == n%myrank).and.(n%myrank /= n%myrank_new))
       endfunction is_node_to_send
 
       function is_node_to_receive(n)
@@ -1443,7 +1429,7 @@ contains
       type(tree_node_object), intent(in), pointer :: n                  !< Pointer to current node.
       logical                                     :: is_node_to_receive !< Check result.
 
-      is_node_to_receive = ((self%myrank == n%myrank_new).and.(n%myrank /= n%myrank_new))
+      is_node_to_receive = ((self%base_mpi%myrank == n%myrank_new).and.(n%myrank /= n%myrank_new))
       endfunction is_node_to_receive
    endsubroutine make_comm_local_maps
 
@@ -1478,9 +1464,9 @@ contains
          if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
             do n=1, size(neighbor, dim=1)
                neigh => self%node(code=neighbor(n))
-               if     ((self%myrank == neigh%myrank).and.(self%myrank == node_ptr%myrank)) then
+               if     ((self%base_mpi%myrank == neigh%myrank).and.(self%base_mpi%myrank == node_ptr%myrank)) then
                   my_fec_number = my_fec_number + 1
-               elseif ((self%myrank /= neigh%myrank).and.(self%myrank == node_ptr%myrank)) then
+               elseif ((self%base_mpi%myrank /= neigh%myrank).and.(self%base_mpi%myrank == node_ptr%myrank)) then
                   ! when receiving from same or less refined than me the size of the message is full, when receiving from
                   ! more refined the message is an averaged portion (reduced size)
                   recv_fec_number = recv_fec_number + 1
@@ -1491,7 +1477,7 @@ contains
                      self%comm_map_n_recv_ghost(neigh%myrank) = self%comm_map_n_recv_ghost(neigh%myrank) + &
                                                                 self%grid%weight_neighbor(fec)
                   endif
-               elseif ((self%myrank == neigh%myrank).and.(self%myrank /= node_ptr%myrank)) then
+               elseif ((self%base_mpi%myrank == neigh%myrank).and.(self%base_mpi%myrank /= node_ptr%myrank)) then
                   ! when sending to same or more refined than me the size of the message is full, when sending to less
                   ! refined the message is an averaged portion (reduced size)
                   send_fec_number = send_fec_number + 1
@@ -1510,7 +1496,7 @@ contains
    ! create pointer for each process in the send/recv buffers
    self%comm_map_send_ptr_ghost = 0_I4P
    self%comm_map_recv_ptr_ghost = 0_I4P
-   do p=1, self%procs_number
+   do p=1, self%base_mpi%procs_number
       self%comm_map_send_ptr_ghost(p) = self%comm_map_send_ptr_ghost(p-1) + self%comm_map_n_send_ghost(p-1)
       self%comm_map_recv_ptr_ghost(p) = self%comm_map_recv_ptr_ghost(p-1) + self%comm_map_n_recv_ghost(p-1)
    enddo
@@ -1532,7 +1518,7 @@ contains
          if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
             do n=1, size(neighbor, dim=1)
                neigh => self%node(code=neighbor(n))
-               if     ((self%myrank == neigh%myrank).and.(self%myrank == node_ptr%myrank)) then
+               if     ((self%base_mpi%myrank == neigh%myrank).and.(self%base_mpi%myrank == node_ptr%myrank)) then
                   mf = mf + 1
                   self%local_map_ghost(mf, 1) = node_ptr%block_index
                   self%local_map_ghost(mf, 2) = neigh%block_index
@@ -1546,7 +1532,7 @@ contains
                   endif
                   call compute_ijk_min_max_delta(fec=fec, portion=self%local_map_ghost(mf, 4), &
                                                  ijk_min_max_delta=self%local_map_ghost(mf, 5:))
-               elseif ((self%myrank /= neigh%myrank).and.(self%myrank == node_ptr%myrank)) then
+               elseif ((self%base_mpi%myrank /= neigh%myrank).and.(self%base_mpi%myrank == node_ptr%myrank)) then
                   rf = rf + 1
                   self%comm_map_recv_ghost(rf, 15) = comm_map_recv_ctr_ghost(neigh%myrank)
                   self%comm_map_recv_ghost(rf, 1) = node_ptr%block_index
@@ -1568,7 +1554,7 @@ contains
                   endif
                   call compute_ijk_min_max_delta(fec=fec, portion=self%comm_map_recv_ghost(rf, 5), &
                                                  ijk_min_max_delta=self%comm_map_recv_ghost(rf, 6:))
-               elseif ((self%myrank == neigh%myrank).and.(self%myrank /= node_ptr%myrank)) then
+               elseif ((self%base_mpi%myrank == neigh%myrank).and.(self%base_mpi%myrank /= node_ptr%myrank)) then
                   sf = sf + 1
                   self%comm_map_send_ghost(sf, 15) = comm_map_send_ctr_ghost(node_ptr%myrank)
                   self%comm_map_send_ghost(sf, 1) = node_ptr%block_index
@@ -1689,14 +1675,14 @@ contains
 
    allocate(send_buffer(self%my_nodes_number * 2)) ! [Morton code, refinement_needed]
    allocate(recv_buffer(self%nodes_number    * 2)) ! [Morton code, refinement_needed]
-   allocate(recv_count(0:self%procs_number - 1))
-   allocate(disp_count(0:self%procs_number - 1))
+   allocate(recv_count(0:self%base_mpi%procs_number - 1))
+   allocate(disp_count(0:self%base_mpi%procs_number - 1))
    ! populating receive counters and send buffer
    recv_count = 0_I4P
    n = 0_I8P
    do while(self%loop(node_ptr=node_ptr))
       recv_count(node_ptr%myrank) = recv_count(node_ptr%myrank) + 2
-      if (self%myrank == node_ptr%myrank) then
+      if (self%base_mpi%myrank == node_ptr%myrank) then
          n = n + 1
          send_buffer(n) = node_ptr%code
          n = n + 1
@@ -1710,12 +1696,12 @@ contains
    enddo
    ! computing displacement counts
    disp_count = 0_I4P
-   do p=1, self%procs_number - 1
+   do p=1, self%base_mpi%procs_number - 1
       disp_count(p) = disp_count(p-1) + recv_count(p-1)
    enddo
 
    call MPI_ALLGATHERV(send_buffer, self%my_nodes_number * 2, MPI_INTEGER8, &
-                       recv_buffer, recv_count, disp_count, MPI_INTEGER8, MPI_COMM_WORLD, self%error)
+                       recv_buffer, recv_count, disp_count, MPI_INTEGER8, MPI_COMM_WORLD, self%base_mpi%error)
 
    ! update nodes data
    do n=1, self%nodes_number*2, 2
@@ -1734,18 +1720,20 @@ contains
    class(tree_object), intent(in) :: self !< The tree.
    integer(I4P)                   :: p    !< Counter.
 
-   do p=0, self%procs_number-1
-      print '(A)', self%myrankstr//' send to: '//trim(str(p,.true.))//' blocks n.: '//trim(str(self%comm_map_n_send(p),.true.))
+   do p=0, self%base_mpi%procs_number-1
+      print '(A)', self%base_mpi%myrankstr//' send to: '//trim(str(p,.true.))//' blocks n.: '//&
+                   trim(str(self%comm_map_n_send(p),.true.))
    enddo
    if (allocated(self%comm_map_send)) &
-      print '(A)', self%myrankstr//' blocks sent: '//trim(str(self%comm_map_send,.true.))
-   do p=0, self%procs_number-1
-      print '(A)', self%myrankstr//' recv from: '//trim(str(p,.true.))//' blocks n.: '//trim(str(self%comm_map_n_recv(p),.true.))
+      print '(A)', self%base_mpi%myrankstr//' blocks sent: '//trim(str(self%comm_map_send,.true.))
+   do p=0, self%base_mpi%procs_number-1
+      print '(A)', self%base_mpi%myrankstr//' recv from: '//trim(str(p,.true.))//' blocks n.: '//&
+                   trim(str(self%comm_map_n_recv(p),.true.))
    enddo
    if (allocated(self%comm_map_recv)) &
-      print '(A)', self%myrankstr//' blocks recv:  '//trim(str(self%comm_map_recv,.true.))
+      print '(A)', self%base_mpi%myrankstr//' blocks recv:  '//trim(str(self%comm_map_recv,.true.))
    if (allocated(self%local_map)) &
-      print '(A)', self%myrankstr//' blocks kept n.: '//trim(str(size(self%local_map(:,1),dim=1),.true.))
+      print '(A)', self%base_mpi%myrankstr//' blocks kept n.: '//trim(str(size(self%local_map(:,1),dim=1),.true.))
    endsubroutine mpi_print_stats
 
    subroutine mpi_redistribute(self)
@@ -1771,14 +1759,14 @@ contains
    integer(I8P)                      :: n_recv           !< Number of nodes that I have to receive.
 
    codes_sorted = self%codes() ! sorted list of codes
-   my_codes_number = nint(real(size(codes_sorted, dim=1),R8P) / self%procs_number)
+   my_codes_number = nint(real(size(codes_sorted, dim=1),R8P) / self%base_mpi%procs_number)
    ! initialize process rank and my codes number
    p = 0_I4P
    block_index_new = 0_I8P
    ! loop over all codes
    c = 1
    do while(c<=size(codes_sorted, dim=1))
-      if (block_index_new > my_codes_number.and.p < self%procs_number-1) then ! I would like to split...
+      if (block_index_new > my_codes_number.and.p < self%base_mpi%procs_number-1) then ! I would like to split...
          if (can_split()) then
             ! I am lucky, the split does not separate siblings
             p = p + 1_I4P
@@ -1830,7 +1818,7 @@ contains
    do while(self%loop(node_ptr=node_ptr))
       node_ptr%myrank = node_ptr%myrank_new
       node_ptr%block_index = node_ptr%block_index_new
-      if (node_ptr%myrank == self%myrank) then
+      if (node_ptr%myrank == self%base_mpi%myrank) then
          select case(self%ratio)
          case(4_I4P)
             call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, l=l)
@@ -2631,7 +2619,7 @@ contains
    if (neighbor_.or.whole_   ) topology = topology//' neighbor: '//neighbors_str
    if (block_index_.or.whole_) topology = topology//' block_index: '//trim(str(node_ptr%block_index,.true.))
 
-   print '(A)', self%myrankstr//topology
+   print '(A)', self%base_mpi%myrankstr//topology
    endsubroutine print_code_topology
 
    pure function siblings(self, code)
@@ -2674,7 +2662,7 @@ contains
    integer(I4P)                             :: myrank_                  !< MPI rank process, local variable.
 
    if (.not.self%is_initialized_) then
-      print '(A)', self%myrankstr//'ERROR: cannot add a node a non initialized tree'
+      print '(A)', self%base_mpi%myrankstr//'ERROR: cannot add a node a non initialized tree'
    endif
 
    myrank_ = 0; if(present(myrank)) myrank_ = myrank
@@ -2685,7 +2673,7 @@ contains
    call self%bucket(b)%add_node(code=code, refinement_needed=refinement_needed, &
                                 myrank=myrank_, block_index=block_index)
 
-   if (self%myrank == myrank_) then
+   if (self%base_mpi%myrank == myrank_) then
       update_last_block_index_ = .true. ; if (present(update_last_block_index)) update_last_block_index_ = update_last_block_index
       if (update_last_block_index_) self%last_block_index = self%last_block_index + 1
    endif
@@ -2733,7 +2721,7 @@ contains
       mn = -7
       do n=1, derefined_number, self%ratio
          first_child => self%node(code=self%node_to_derefine(n))
-         if (self%myrank == first_child%myrank) then
+         if (self%base_mpi%myrank == first_child%myrank) then
             mn = mn + 8
             self%block_derefined(1,(mn-1)/self%ratio+1) = self%parent(code=first_child%code)
             self%block_derefined(2,(mn-1)/self%ratio+1) = first_child%block_index
@@ -2744,7 +2732,7 @@ contains
                                              update_last_block_index=.false.)
          do i=0, self%ratio - 1
             node_ptr => self%node(code=self%node_to_derefine(n+i))
-            if (self%myrank == node_ptr%myrank) then
+            if (self%base_mpi%myrank == node_ptr%myrank) then
                self%block_to_derefine(mn+i) = node_ptr%block_index
             endif
             call self%remove_node(code=self%node_to_derefine(n+i))
@@ -2836,19 +2824,19 @@ contains
       mn = 0
       do n=1, refined_number
          parent => self%node(code=self%node_to_refine(n))
-         if (parent%myrank == self%myrank) then
+         if (parent%myrank == self%base_mpi%myrank) then
             mn = mn + 1
             self%block_to_refine(1,mn) = parent%block_index
             self%block_to_refine(2,mn) = parent%myrank
          endif
          call self%add_node(code=self%child(code=parent%code, i=0), myrank=parent%myrank, &
                             block_index=parent%block_index, update_last_block_index=.false.)
-         if (parent%myrank == self%myrank) then
+         if (parent%myrank == self%base_mpi%myrank) then
             self%block_refined(1, (mn-1)*self%ratio+1) = self%child(code=parent%code, i=0)
             self%block_refined(2, (mn-1)*self%ratio+1) = parent%block_index
          endif
          do i=1, self%ratio-1
-            if (parent%myrank == self%myrank) then
+            if (parent%myrank == self%base_mpi%myrank) then
                self%block_refined(1, (mn-1)*self%ratio+1+i) = self%child(code=parent%code, i=i)
                self%block_refined(2, (mn-1)*self%ratio+1+i) = self%last_block_index + 1
             endif
@@ -2927,28 +2915,7 @@ contains
                   self%node_to_derefine = [self%node_to_derefine, all_siblings]
                   codes_analyzed = [codes_analyzed, all_siblings]
 
-                  !---------------------------------
-                  !old_size = size(self%node_to_derefine, dim=1)
-                  !!allocate(self%temp_array_i8(old_size+8))
-                  !self%temp_array_i8(1:old_size) = self%node_to_derefine
-                  !self%temp_array_i8(old_size+1:old_size+8) = all_siblings
-                  !deallocate(self%node_to_derefine)
-                  !allocate(self%node_to_derefine(old_size+8))
-                  !self%node_to_derefine(:) = self%temp_array_i8(1:old_size+8)
-                  !!deallocate(self%temp_array_i8)
-
-                  !old_size = size(self%codes_analyzed, dim=1)
-                  !!allocate(self%temp_array_i8(old_size+8))
-                  !self%temp_array_i8(1:old_size) = self%codes_analyzed
-                  !self%temp_array_i8(old_size+1:old_size+8) = all_siblings
-                  !deallocate(self%codes_analyzed)
-                  !allocate(self%codes_analyzed(old_size+8))
-                  !self%codes_analyzed(:) = self%temp_array_i8(1:old_size+8)
-                  !!deallocate(self%temp_array_i8)
-
-                  !---------------------------------
-
-                  if (self%myrank==node_ptr%myrank) self%n_my_derefine = self%n_my_derefine + 8
+                  if (self%base_mpi%myrank==node_ptr%myrank) self%n_my_derefine = self%n_my_derefine + 8
                else
                   is_sanitize_complete = .false.
                   node_ptr%refinement_needed = TO_NOT_TOUCH
@@ -2984,9 +2951,9 @@ contains
                     elseif (new_level_n - new_level == 2) then
                        node_ptr%refinement_needed = node_ptr%refinement_needed + 1
                     else
-                       print '(A)', self%myrankstr//'SOMETHING WENT TERRIBLY WRONG. EXIT!'
-                       print '(A)', self%myrankstr//'REFINEMENT NEEDED '//trim(str(node_ptr%refinement_needed,.true.))
-                       print '(A)', self%myrankstr//'SANITIZE ITERATIONS '//trim(str(s,.true.))
+                       print '(A)', self%base_mpi%myrankstr//'SOMETHING WENT TERRIBLY WRONG. EXIT!'
+                       print '(A)', self%base_mpi%myrankstr//'REFINEMENT NEEDED '//trim(str(node_ptr%refinement_needed,.true.))
+                       print '(A)', self%base_mpi%myrankstr//'SANITIZE ITERATIONS '//trim(str(s,.true.))
                        stop
                     endif
                     new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
@@ -2996,14 +2963,14 @@ contains
         enddo face_loop
 
         if (node_ptr%refinement_needed > 1) then
-           print '(A)', self%myrankstr//'CANNOT REFINE TWICE IN A ROW. SOMETHING WENT TERRIBLY WRONG. EXIT!'
-           print '(A)', self%myrankstr//'SANITIZE ITERATIONS '//trim(str(s,.true.))
+           print '(A)', self%base_mpi%myrankstr//'CANNOT REFINE TWICE IN A ROW. SOMETHING WENT TERRIBLY WRONG. EXIT!'
+           print '(A)', self%base_mpi%myrankstr//'SANITIZE ITERATIONS '//trim(str(s,.true.))
            stop
         endif
 
         new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
         if (new_level > self%max_level) then
-           print '(A)', self%myrankstr//'CANNOT REFINE MORE. SOMETHING WENT TERRIBLY WRONG. EXIT!'
+           print '(A)', self%base_mpi%myrankstr//'CANNOT REFINE MORE. SOMETHING WENT TERRIBLY WRONG. EXIT!'
            stop
         endif
      enddo refine_loop
@@ -3011,7 +2978,7 @@ contains
    enddo sanitize_loop
 
    if (.not.is_sanitize_complete) then
-      print '(A)', self%myrankstr//'SANITZE CANNOT BE COMPLETED. SOMETHING WENT TERRIBLY WRONG. EXIT!'
+      print '(A)', self%base_mpi%myrankstr//'SANITZE CANNOT BE COMPLETED. SOMETHING WENT TERRIBLY WRONG. EXIT!'
       stop
    endif
 
@@ -3020,92 +2987,9 @@ contains
    if (allocated(self%node_to_refine)) deallocate(self%node_to_refine) ; allocate(self%node_to_refine(0))
    do while(self%loop(node_ptr=node_ptr))
       if (node_ptr%refinement_needed==TO_BE_REFINED) then
-
          self%node_to_refine = [self%node_to_refine, [node_ptr%code]]
-
-         !---------------------
-         !         old_size = size(self%node_to_refine, dim=1)
-         !         !allocate(self%temp_array_i8(old_size+1))
-         !         self%temp_array_i8(1:old_size) = self%node_to_refine
-         !         self%temp_array_i8(old_size+1:old_size+1) = node_ptr%code
-         !         deallocate(self%node_to_refine)
-         !         allocate(self%node_to_refine(old_size+1))
-         !         self%node_to_refine(:) = self%temp_array_i8(1:old_size+1)
-         !         !deallocate(self%temp_array_i8)
-         !---------------------
-
-         if (self%myrank==node_ptr%myrank) self%n_my_refine = self%n_my_refine + 1
+         if (self%base_mpi%myrank==node_ptr%myrank) self%n_my_refine = self%n_my_refine + 1
       endif
    enddo
-   !MEMORYLEAKLEVAREdeallocate(self%temp_array_i8)
-   !MEMORYLEAKLEVAREdeallocate(self%codes_analyzed)
    endsubroutine sanitize
-
-   ! operators
-   ! =
-   subroutine tree_assign_tree(lhs, rhs)
-   !< Operator `=`.
-   class(tree_object), intent(inout) :: lhs !< Left hand side.
-   type(tree_object),  intent(in)    :: rhs !< Right hand side.
-   integer(I4P)                      :: b   !< Counter.
-
-   ! tree data
-   lhs%grid => rhs%grid
-   if (allocated(rhs%bucket)) then
-      lhs%bucket = rhs%bucket
-   else
-      if (allocated(lhs%bucket)) then
-         do b=lbound(lhs%bucket, dim=1), ubound(lhs%bucket, dim=1)
-            call lhs%bucket(b)%destroy
-         enddo
-         deallocate(lhs%bucket)
-      endif
-   endif
-   lhs%buckets_number = rhs%buckets_number
-   lhs%nodes_number = rhs%nodes_number
-   lhs%max_load = rhs%max_load
-   lhs%ratio = rhs%ratio
-   lhs%max_level = rhs%max_level
-   lhs%is_initialized_ = rhs%is_initialized_
-   ! AMR data
-   lhs%n_my_derefine    = rhs%n_my_derefine
-   lhs%n_my_refine      = rhs%n_my_refine
-   lhs%last_block_index = rhs%last_block_index
-   call assign_allocatable(lhs=lhs%node_to_refine, rhs=rhs%node_to_refine)
-   call assign_allocatable(lhs=lhs%node_to_derefine, rhs=rhs%node_to_derefine)
-   call assign_allocatable(lhs=lhs%block_to_refine, rhs=rhs%block_to_refine)
-   call assign_allocatable(lhs=lhs%block_to_derefine, rhs=rhs%block_to_derefine)
-   call assign_allocatable(lhs=lhs%block_refined, rhs=rhs%block_refined)
-   call assign_allocatable(lhs=lhs%block_derefined, rhs=rhs%block_derefined)
-   call assign_allocatable(lhs=lhs%block_coordinates, rhs=rhs%block_coordinates)
-   call assign_allocatable(lhs=lhs%block_code, rhs=rhs%block_code)
-   call assign_allocatable(lhs=lhs%local_map, rhs=rhs%local_map)
-   call assign_allocatable(lhs=lhs%local_map_ghost, rhs=rhs%local_map_ghost)
-   call assign_allocatable(lhs=lhs%local_map_bc_face, rhs=rhs%local_map_bc_face)
-   call assign_allocatable(lhs=lhs%local_map_bc_edge, rhs=rhs%local_map_bc_edge)
-   call assign_allocatable(lhs=lhs%local_map_bc_corner, rhs=rhs%local_map_bc_corner)
-   ! MPI data of nodes
-   lhs%error = rhs%error
-   lhs%procs_number = rhs%procs_number
-   lhs%myrank = rhs%myrank
-   lhs%my_nodes_number = rhs%my_nodes_number
-   lhs%send_nodes_number = rhs%send_nodes_number
-   lhs%recv_nodes_number = rhs%recv_nodes_number
-   lhs%keep_nodes_number = rhs%keep_nodes_number
-   lhs%inner_blocks_number = rhs%inner_blocks_number
-   call assign_allocatable(lhs=lhs%inner_outer_block_map, rhs=rhs%inner_outer_block_map)
-   call assign_allocatable(lhs=lhs%comm_map_n_send, rhs=rhs%comm_map_n_send)
-   call assign_allocatable(lhs=lhs%comm_map_n_recv, rhs=rhs%comm_map_n_recv)
-   call assign_allocatable(lhs=lhs%comm_map_send_ptr, rhs=rhs%comm_map_send_ptr)
-   call assign_allocatable(lhs=lhs%comm_map_recv_ptr, rhs=rhs%comm_map_recv_ptr)
-   call assign_allocatable(lhs=lhs%comm_map_send, rhs=rhs%comm_map_send)
-   call assign_allocatable(lhs=lhs%comm_map_recv, rhs=rhs%comm_map_recv)
-   ! MPI data of ghost cells
-   call assign_allocatable(lhs=lhs%comm_map_n_send_ghost, rhs=rhs%comm_map_n_send_ghost)
-   call assign_allocatable(lhs=lhs%comm_map_n_recv_ghost, rhs=rhs%comm_map_n_recv_ghost)
-   call assign_allocatable(lhs=lhs%comm_map_send_ptr_ghost, rhs=rhs%comm_map_send_ptr_ghost)
-   call assign_allocatable(lhs=lhs%comm_map_recv_ptr_ghost, rhs=rhs%comm_map_recv_ptr_ghost)
-   call assign_allocatable(lhs=lhs%comm_map_send_ghost, rhs=rhs%comm_map_send_ghost)
-   call assign_allocatable(lhs=lhs%comm_map_recv_ghost, rhs=rhs%comm_map_recv_ghost)
-   endsubroutine tree_assign_tree
 endmodule adam_tree_object

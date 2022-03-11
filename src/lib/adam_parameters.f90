@@ -79,6 +79,7 @@ integer(I4P), parameter :: delta_to_fec(-1:1,-1:1,-1:1) = reshape([19, & ! -1, -
 
 interface assign_allocatable
    !< Safe assign allocatable arrays, generic interface.
+   module procedure assign_allocatable_char   !< Safe assign allocatable character.
    module procedure assign_allocatable_I8P_1D !< Safe assign allocatable arrays, I8P 1D type.
    module procedure assign_allocatable_I8P_2D !< Safe assign allocatable arrays, I8P 2D type.
    module procedure assign_allocatable_I4P_1D !< Safe assign allocatable arrays, I4P 1D type.
@@ -93,6 +94,18 @@ endinterface assign_allocatable
 
 contains
    ! private procedures
+   pure subroutine assign_allocatable_char(lhs, rhs)
+   !< Safe assign allocatable arrays, I8P 1D type.
+   character(:), allocatable, intent(inout) :: lhs !< Left hand side.
+   character(:), allocatable, intent(in)    :: rhs !< Right hand side.
+
+   if (allocated(rhs)) then
+      lhs = rhs
+   else
+      if (allocated(lhs)) deallocate(lhs)
+   endif
+   endsubroutine assign_allocatable_char
+
    pure subroutine assign_allocatable_I8P_1D(lhs, rhs)
    !< Safe assign allocatable arrays, I8P 1D type.
    integer(I8P), allocatable, intent(inout) :: lhs(:) !< Left hand side.

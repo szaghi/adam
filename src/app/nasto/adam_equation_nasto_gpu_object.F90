@@ -181,22 +181,18 @@ type :: equation_nasto_gpu_object
    real(R8P), allocatable, device :: fly_gpu(:,:,:,:,:)      !< Fluxes along y.
    real(R8P), allocatable, device :: flz_gpu(:,:,:,:,:)      !< Fluxes along z.
    real(R8P), allocatable, device :: prhs_gpu(:,:,:,:,:)     !< Prhs for Runge-Kutta.
-   real(R8P), allocatable, device :: dxyz_gpu(:,:)           !< Space steps.
    real(R8P), allocatable, device :: fd_coeff1_gpu(:)        !< First order derivatives coeffs.
    real(R8P), allocatable, device :: fd_coeff2_gpu(:)        !< Second order derivatives coeffs.
    real(R8P), allocatable, device :: fd_conv_gpu(:,:)        !< Second order derivatives coeffs.
-   real(R8P), allocatable, device :: x_cell_gpu(:,:)         !< Cell positions in x.
-   real(R8P), allocatable, device :: y_cell_gpu(:,:)         !< Cell positions in y.
-   real(R8P), allocatable, device :: z_cell_gpu(:,:)         !< Cell positions in z.
    real(R8P), allocatable, device :: q_aux_gpu(:,:,:,:,:)    !< Auxiliary cell centered variables.
    real(R8P), allocatable, device :: q_gpu(:,:,:,:,:)        !< Field cell centered variables.
    real(R8P), allocatable, device :: q_invert_gpu(:,:,:,:,:) !< Field cell with boundary set on immersed bodies.
-   real(R8P), allocatable, device :: gplus_x(:,:,:,:,:)      !< For weno-x
-   real(R8P), allocatable, device :: gminus_x(:,:,:,:,:)     !< For weno-x
-   real(R8P), allocatable, device :: gplus_y(:,:,:,:,:)      !< For weno-y
-   real(R8P), allocatable, device :: gminus_y(:,:,:,:,:)     !< For weno-y
-   real(R8P), allocatable, device :: gplus_z(:,:,:,:,:)      !< For weno-z
-   real(R8P), allocatable, device :: gminus_z(:,:,:,:,:)     !< For weno-z
+   real(R8P), allocatable, device :: gplus_x(:,:,:,:,:)      !< For weno-x.
+   real(R8P), allocatable, device :: gminus_x(:,:,:,:,:)     !< For weno-x.
+   real(R8P), allocatable, device :: gplus_y(:,:,:,:,:)      !< For weno-y.
+   real(R8P), allocatable, device :: gminus_y(:,:,:,:,:)     !< For weno-y.
+   real(R8P), allocatable, device :: gplus_z(:,:,:,:,:)      !< For weno-z.
+   real(R8P), allocatable, device :: gminus_z(:,:,:,:,:)     !< For weno-z.
    real(R8P), allocatable, device :: phi_gpu(:,:,:,:,:)      !< Distance function on GPU.
    real(R8P), allocatable, device :: bc_vars_gpu(:, :)       !< Variables' array for boundary conditions on GPU.
    real(R8P), allocatable, device :: bcs_vars_gpu(:, :)      !< Variables' array for immersed boundary on GPU.
@@ -314,16 +310,10 @@ contains
 
    subroutine copy_cpu_gpu(self)
    !< Copy data from CPU to GPU.
-   class(equation_nasto_gpu_object), intent(inout) :: self        !< The base backend.
-   real(R8P), allocatable                          :: dxyz_t(:,:) !< Space steps transposed.
-   integer(I4P)                                    :: i, b        !< Counter.
+   class(equation_nasto_gpu_object), intent(inout) :: self !< The base backend.
 
-   call self%base_gpu%copy_transpose_cpu_gpu(q_cpu=self%field%q, q_gpu=self%q_gpu)
-   call self%base_gpu%copy_cpu_gpu
-   self%x_cell_gpu = self%base_gpu%x_cell_gpu
-   self%y_cell_gpu = self%base_gpu%y_cell_gpu
-   self%z_cell_gpu = self%base_gpu%z_cell_gpu
-   self%dxyz_gpu   = self%base_gpu%dxyz_gpu
+   call self%base_gpu%copy_transpose_cpu_gpu(nv=self%nv, q_cpu=self%field%q, q_gpu=self%q_gpu)
+   call self%base_gpu%copy_cpu_gpu(verbose=.true.)
    endsubroutine copy_cpu_gpu
 
    subroutine copy_gpu_cpu(self, compute_q_aux)
@@ -436,17 +426,16 @@ contains
    real(R8P)                                       :: buf_R8            !< R8 buffer.
    character(999)                                  :: buf_CHAR          !< String buffer.
 
-   ! call self%destroy
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
    self%myrankstr = '[myrank-'//trim(strz(self%myrank,6))//']'
-   print '(A)', self%myrankstr//'initialize MPI'
+   print '(A)', self%myrankstr//'equation_nasto_gpu_object%initialize start'
 
-   print '(A)', self%myrankstr//'assign device and get device memory'
-   call self%base_gpu%initialize(gpu_memory)
+   print '(A)', self%myrankstr//'inizialize GPU main data'
+   call self%base_gpu%initialize_gpu
 
    print '(A)', self%myrankstr//'parse main input'
-   call self%parse_input(avail_memory=gpu_memory, filename=filename, nb=nb, nodes_number=nodes_number, nv=nv,      &
+   call self%parse_input(filename=filename, nb=nb, nodes_number=nodes_number, nv=nv,                               &
                          ni=ni, nj=nj, nk=nk, ngc=ngc, max_level=max_level, bc_type=bc_type, emin=emin, emax=emax, &
                          iu_ref_levels=iu_ref_levels, i_prune=i_prune, j_prune=j_prune, k_prune=k_prune, l_prune=l_prune)
    print '(A)', self%myrankstr//'ni, nj, nk, ngc, nv:               '//trim(str([ni, nj, nk, ngc, nv]))
@@ -475,8 +464,7 @@ contains
    self%nv     =  self%adam%field%nv
    self%nv_aux =  9
 
-   print '(A)', self%myrankstr//'allocate GPU variables'
-   call self%base_gpu%alloc(field=self%adam%field, nv_aux=self%nv_aux)
+   call self%base_gpu%initialize(field=self%adam%field, nv_aux=self%nv_aux, verbose=.true.)
    self%field         => self%base_gpu%field
    self%grid          => self%base_gpu%field%grid
    self%blocks_number => self%base_gpu%field%blocks_number
@@ -628,9 +616,6 @@ contains
    allocate(self%fly_gpu(1:nb,      1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
    allocate(self%flz_gpu(1:nb,      1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
    allocate(self%prhs_gpu(1:nb,     1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
-   ! ! debug restart
-   ! allocate(self%pbuffer(1:nb,      1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
-   ! ! debug restart
    allocate(self%dq_gpu(1:nb,       1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
    allocate(self%q_invert_gpu(1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
    self%prhs_gpu = 0._R8P
@@ -650,10 +635,8 @@ contains
    allocate(self%gminus_y(nv, 2*iweno, ni, nk, nb))
    allocate(self%gplus_z (nv, 2*iweno, ni, nj, nb))
    allocate(self%gminus_z(nv, 2*iweno, ni, nj, nb))
-
-   allocate(self%dxyz_gpu(1:nb, 1:3)) !TODO
    endassociate
-
+   print '(A)', self%myrankstr//'equation_nasto_gpu_object%initialize finish'
    endsubroutine initialize
 
    subroutine integrate(self, t, do_ghost_syncro, residual)
@@ -735,9 +718,9 @@ contains
             endif
             call evolve_eikonal_q_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
                                           phi_gpu=self%phi_gpu,                                             &
-                                          dx_gpu=self%dxyz_gpu(:,1),                                        &
-                                          dy_gpu=self%dxyz_gpu(:,2),                                        &
-                                          dz_gpu=self%dxyz_gpu(:,3),                                        &
+                                          dx_gpu=self%base_gpu%dxyz_gpu(:,1),                               &
+                                          dy_gpu=self%base_gpu%dxyz_gpu(:,2),                               &
+                                          dz_gpu=self%base_gpu%dxyz_gpu(:,3),                               &
                                           dq_gpu=self%dq_gpu,                                               &
                                           q_gpu=self%q_gpu)
 
@@ -818,7 +801,9 @@ contains
 
       call MPI_Barrier(MPI_COMM_WORLD, iermpi)
       call self%compute_residuals_gpu(ni=ni, nj=nj, nk=nk, ngc=ngc, ns=ns, blocks_number=blocks_number,                      &
-                                      dx_gpu = self%dxyz_gpu(:,1), dy_gpu = self%dxyz_gpu(:,2), dz_gpu = self%dxyz_gpu(:,3), &
+                                      dx_gpu = self%base_gpu%dxyz_gpu(:,1),                                                  &
+                                      dy_gpu = self%base_gpu%dxyz_gpu(:,2),                                                  &
+                                      dz_gpu = self%base_gpu%dxyz_gpu(:,3),                                                  &
                                       q_aux_gpu = self%q_aux_gpu,  phi_gpu = self%phi_gpu,      fl_gpu = self%fl_gpu,        &
                                       flx_gpu   = self%flx_gpu,    fly_gpu = self%fly_gpu,      flz_gpu = self%flz_gpu,      &
                                       fd_conv_gpu = self%fd_conv_gpu, fd_coeff1_gpu = self%fd_coeff1_gpu,                    &
@@ -1109,23 +1094,22 @@ contains
    !@cuf iercuda=cudaDeviceSynchronize()
    endsubroutine move_phi_cuf
 
-   subroutine parse_input(self, avail_memory, filename, nb, nodes_number, nv, ni, nj, nk, ngc, &
+   subroutine parse_input(self, filename, nb, nodes_number, nv, ni, nj, nk, ngc, &
                           max_level, emin, emax, bc_type, iu_ref_levels, i_prune, j_prune, k_prune, l_prune)
    class(equation_nasto_gpu_object), intent(inout) :: self             !< The equation.
-   real(R8P)                       , intent(in)    :: avail_memory     !< Available memory
-   character(*)                    , intent(in)    :: filename         !< Input file name.
-   integer(I4P)                    , intent(out)   :: nv               !< Number of variables.
-   integer(I4P)                    , intent(out)   :: nb               !< Number of allocated blocks.
-   integer(I8P)                    , intent(out)   :: nodes_number     !< Number of tree nodes.
-   integer(I4P)                    , intent(out)   :: ni, nj, nk, ngc  !< Grid dimensions.
-   integer(I4P)                    , intent(out)   :: max_level        !< Max tree level.
-   integer(I4P)                    , intent(out)   :: bc_type(6)       !< Boundary conditions flags.
-   real(R8P)                       , intent(out)   :: emin(3), emax(3) !< Domain sizes.
-   integer(I4P)                    , intent(out)   :: iu_ref_levels    !< Domain sizes.
-   integer(I4P)                    , intent(out)   :: i_prune          !< Pruning along x.
-   integer(I4P)                    , intent(out)   :: j_prune          !< Pruning along y.
-   integer(I4P)                    , intent(out)   :: k_prune          !< Pruning along z.
-   integer(I4P)                    , intent(out)   :: l_prune          !< Pruning level.
+   character(*),                     intent(in)    :: filename         !< Input file name.
+   integer(I4P),                     intent(out)   :: nv               !< Number of variables.
+   integer(I4P),                     intent(out)   :: nb               !< Number of allocated blocks.
+   integer(I8P),                     intent(out)   :: nodes_number     !< Number of tree nodes.
+   integer(I4P),                     intent(out)   :: ni, nj, nk, ngc  !< Grid dimensions.
+   integer(I4P),                     intent(out)   :: max_level        !< Max tree level.
+   integer(I4P),                     intent(out)   :: bc_type(6)       !< Boundary conditions flags.
+   real(R8P),                        intent(out)   :: emin(3), emax(3) !< Domain sizes.
+   integer(I4P),                     intent(out)   :: iu_ref_levels    !< Domain sizes.
+   integer(I4P),                     intent(out)   :: i_prune          !< Pruning along x.
+   integer(I4P),                     intent(out)   :: j_prune          !< Pruning along y.
+   integer(I4P),                     intent(out)   :: k_prune          !< Pruning along z.
+   integer(I4P),                     intent(out)   :: l_prune          !< Pruning level.
    integer(I4P)                                    :: ns               !< Number of species and variables.
    real(R8P)                                       :: block_weight     !< Number of points per block.
    real(R8P), parameter                            :: save_factor=0.6  !< Factor to avoid GPU completely full.
@@ -1144,7 +1128,7 @@ contains
    nv           = ns + 4
    block_weight = (ngc+ni+ngc) * (ngc+nj+ngc) * (ngc+nk+ngc) * nv
    size_of_real = storage_size(emin(1))/8.
-   nb           = nint(save_factor*avail_memory*1e9/(self%field_gpu_number*block_weight*size_of_real))
+   nb           = nint(save_factor*self%base_gpu%memory_avail*1e9/(self%field_gpu_number*block_weight*size_of_real))
    nodes_number = nb*self%procs_number
    print '(A)', self%myrankstr//'available places for blocks [nb]: '//trim(str(nb))
 
@@ -1170,7 +1154,6 @@ contains
 
    !TODO
    ! Check all input parameters
-
    endsubroutine parse_input
 
    subroutine print_progress(self, t, time, t_max, time_max)
@@ -1263,7 +1246,6 @@ contains
    print '(A, F18.10)', self%myrankstr//'averaged timing: ', (timing(2) - timing(1))/self%it
 
    call self%save_simulation_data
-   call self%adam%finalize
    endsubroutine run
 
    subroutine runge_kutta_initialize(self)
@@ -1384,11 +1366,11 @@ contains
 
    if (allocated(self%base_gpu%local_map_bc_crown_gpu)) call set_bc(nv=self%nv, ngc=self%ngc,                          &
                                                                     local_map_bc=self%base_gpu%local_map_bc_crown_gpu, &
-                                                                    x_cell_gpu=self%x_cell_gpu,                        &
-                                                                    y_cell_gpu=self%y_cell_gpu,                        &
-                                                                    z_cell_gpu=self%z_cell_gpu,                        &
+                                                                    x_cell_gpu=self%base_gpu%x_cell_gpu,               &
+                                                                    y_cell_gpu=self%base_gpu%y_cell_gpu,               &
+                                                                    z_cell_gpu=self%base_gpu%z_cell_gpu,               &
                                                                     fec_1_6_array_gpu=self%base_gpu%fec_1_6_array_gpu, &
-                                                                    q_bc_vars_gpu=self%bc_vars_gpu,                  &
+                                                                    q_bc_vars_gpu=self%bc_vars_gpu,                    &
                                                                     gamma_fluid=self%gamma_fluid,                      &
                                                                     dha_star=self%dha_star,                            &
                                                                     cv_star=self%cv_star,                              &
@@ -1646,7 +1628,7 @@ contains
    endsubroutine eq_assign_eq
 
    subroutine flame_find_x_v_cuf(ni, nj, nk, ngc, nv, blocks_number, dt, &
-       tem_stabil, x_cell_gpu, y_cell_gpu, z_cell_gpu, q_aux_gpu, x_min, x_min_old, velrel)
+                                 tem_stabil, x_cell_gpu, y_cell_gpu, z_cell_gpu, q_aux_gpu, x_min, x_min_old, velrel)
 
    !< Advance q_gpu by means of RK stages.
    integer(I4P), intent(in)            :: ni                                     !< Grid cells number in I direction.

@@ -1,50 +1,42 @@
 !< ADAM, base GPU class definition.
 module adam_base_gpu_object
-!< ADAM, base GPU class definition: provide update ghosts methods for CPU backend.
+!< ADAM, base GPU class definition: provide methods for GPU backend handling.
 
+use adam_base_mpi_object, only : base_mpi_object
 use adam_field_object, only : field_object
 use adam_parameters
 use PENF
 use MPI
 use CUDAFOR
+use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
 
 implicit none
 private
 public :: base_gpu_object
-public :: assign_allocatable_gpu
 
 type :: base_gpu_object
-   !< Equation base GPU class definition.
+   !< Base GPU class definition.
    !<
    !< Provide methods for GPU backend.
-   type(field_object), pointer :: field=>null()     !< The field.
-   integer(I4P)                :: fec_1_6_array(26) !< Mapping fec1-26 to fec1-6 for boundaries.
+   type(field_object), pointer :: field=>null()  !< The field.
+   real(R8P), allocatable      :: q_t(:,:,:,:,:) !< Transposed cell centered variables on CPU.
    ! MPI data
-   integer(I4P)              :: myrank=0_I4P       !< MPI rank process.
-   character(:), allocatable :: myrankstr          !< MPI rank process stringified.
-   integer(I4P)              :: procs_number=1_I4P !< Number of MPI processes.
-   integer(I4P)              :: error=0_I4P        !< Error traping flag.
-   integer(I4P)              :: mydev=0_I4P        !< My GPU rank.
-   integer(I4P)              :: local_comm=0_I4P   !< Local communicator.
-   integer(I4P), allocatable :: req_send_recv(:)   !< MPI request receive flags.
-   real(R8P),    allocatable :: q_t(:,:,:,:,:)     !< Transposed cell centered variables on CPU.
+   type(base_mpi_object)     :: base_mpi          !< The MPI backend.
+   integer(I4P)              :: mydev=0_I4P       !< My GPU rank.
+   integer(I4P)              :: local_comm=0_I4P  !< Local communicator.
+   integer(I4P), allocatable :: req_send_recv(:)  !< MPI request receive flags.
    ! GPU data
+   real(R8P)                         :: memory_avail=0._R8P                  !< Device memory available (Gb).
    real(R8P),    allocatable, device :: q_t_gpu(:,:,:,:,:)                   !< Transposed cell centered variables on GPU.
    integer(I8P), allocatable, device :: local_map_ghost_cell_gpu(:,:)        !< Local map for ghost cells updating, cells order.
    integer(I8P), allocatable, device :: local_map_ghost_fluxes_cell_gpu(:,:) !< Local map for ghost fluxes updating, cells order.
    integer(I8P), allocatable, device :: local_map_ghost_gpu(:,:)             !< Local map for ghost cells updating, fecs order.
    integer(I8P), allocatable, device :: comm_map_recv_ghost_gpu(:,:)         !< Communication map, `fec` information.
    integer(I8P), allocatable, device :: comm_map_send_ghost_gpu(:,:)         !< Communication map, `fec` information.
-   integer(I8P), allocatable, device :: comm_map_send_ghost_s_gpu(:,:)       !< Communication map, `fec` information, single var.
-   integer(I8P), allocatable, device :: comm_map_recv_ghost_s_gpu(:,:)       !< Communication map, `fec` information, single var.
    integer(I8P), allocatable, device :: comm_map_recv_ghost_cell_gpu(:,:)    !< Communication map, `fec` information, cell order.
    integer(I8P), allocatable, device :: comm_map_send_ghost_cell_gpu(:,:)    !< Communication map, `fec` information, cell order.
-   integer(I8P), allocatable, device :: comm_map_recv_ghost_cell_s_gpu(:,:)  !< Communication map, single var.
-   integer(I8P), allocatable, device :: comm_map_send_ghost_cell_s_gpu(:,:)  !< Communication map, single var.
    real(R8P),    allocatable, device :: send_buffer_ghost_gpu(:)             !< Send buffer of ghost cells.
    real(R8P),    allocatable, device :: recv_buffer_ghost_gpu(:)             !< Receive buffer of ghost cells.
-   real(R8P),    allocatable, device :: send_buffer_ghost_s_gpu(:)           !< Send buffer of ghost cells, single var.
-   real(R8P),    allocatable, device :: recv_buffer_ghost_s_gpu(:)           !< Receive buffer of ghost cells, single var.
    integer(I8P), allocatable, device :: local_map_bc_face_gpu(:,:)           !< Local map for face BC ghost cells.
    integer(I8P), allocatable, device :: local_map_bc_edge_gpu(:,:)           !< Local map for edge BC ghost cells.
    integer(I8P), allocatable, device :: local_map_bc_corner_gpu(:,:)         !< Local map for corner BC ghost cells.
@@ -56,258 +48,264 @@ type :: base_gpu_object
    real(R8P),    allocatable, device :: dxyz_gpu(:,:)                        !< Delta cells GPU.
    contains
       ! public methods
-      procedure, pass(self) :: alloc                         !< Allocate GPU fields.
-      procedure, pass(self) :: copy_cpu_gpu                  !< Copy data from CPU to GPU.
+      procedure, pass(self) :: copy_cpu_gpu                  !< Copy data from (field) CPU to (base_gpu) GPU.
       procedure, pass(self) :: copy_transpose_cpu_gpu        !< Transpose data from GPU to CPU.
       procedure, pass(self) :: copy_transpose_gpu_cpu        !< Transpose data from GPU to CPU.
       procedure, pass(self) :: create_maps_cell              !< Create maps in cells order form the fecs ordered ones.
       procedure, pass(self) :: create_maps_fluxes_cell       !< Create fluxes maps in cells order form the fecs ordered ones.
-      procedure, pass(self) :: destroy                       !< Destroy the equation.
-      procedure, pass(self) :: initialize                    !< Initialize the equation.
+      procedure, pass(self) :: initialize                    !< Initialize base backend.
+      procedure, pass(self) :: initialize_gpu                !< Initialize GPU main data.
       procedure, pass(self) :: update_ghost_local_gpu        !< Update ghosts locally.
       procedure, pass(self) :: update_ghost_fluxes_local_gpu !< Update ghosts locally.
       procedure, pass(self) :: update_ghost_mpi_gpu          !< Update ghosts MPI.
-      ! operators
-      generic :: assignment(=) => base_assign_base      !< Overload `=`.
-      procedure, pass(lhs), private :: base_assign_base !< Operator `=`.
+      generic               :: alloc_var_gpu =>      &
+                               alloc_var_gpu_R8P_1D, &
+                               alloc_var_gpu_R8P_2D, &
+                               alloc_var_gpu_R8P_5D, &
+                               alloc_var_gpu_I4P_1D, &
+                               alloc_var_gpu_I8P_1D, &
+                               alloc_var_gpu_I8P_2D, &
+                               alloc_var_gpu_I8P_3D          !< Allocate GPU variable with memory checking.
+      generic               :: assign_var_gpu =>      &
+                               assign_var_gpu_R8P_1D, &
+                               assign_var_gpu_R8P_2D, &
+                               assign_var_gpu_I4P_1D, &
+                               assign_var_gpu_I8P_1D, &
+                               assign_var_gpu_I8P_2D, &
+                               assign_var_gpu_I8P_3D         !< Assign GPU variable with memory checking.
+      ! private methods
+      procedure, pass(self), private :: alloc_var_gpu_R8P_1D  !< Allocate GPU variable with memory checking (kind R8P, rank 1).
+      procedure, pass(self), private :: alloc_var_gpu_R8P_2D  !< Allocate GPU variable with memory checking (kind R8P, rank 2).
+      procedure, pass(self), private :: alloc_var_gpu_R8P_5D  !< Allocate GPU variable with memory checking (kind R8P, rank 5).
+      procedure, pass(self), private :: alloc_var_gpu_I4P_1D  !< Allocate GPU variable with memory checking (kind I4P, rank 1).
+      procedure, pass(self), private :: alloc_var_gpu_I8P_1D  !< Allocate GPU variable with memory checking (kind I8P, rank 1).
+      procedure, pass(self), private :: alloc_var_gpu_I8P_2D  !< Allocate GPU variable with memory checking (kind I8P, rank 2).
+      procedure, pass(self), private :: alloc_var_gpu_I8P_3D  !< Allocate GPU variable with memory checking (kind I8P, rank 3).
+      procedure, pass(self), private :: assign_var_gpu_R8P_1D !< Assign GPU variable with memory checking (kind R8P, rank 1).
+      procedure, pass(self), private :: assign_var_gpu_R8P_2D !< Assign GPU variable with memory checking (kind R8P, rank 2).
+      procedure, pass(self), private :: assign_var_gpu_I4P_1D !< Assign GPU variable with memory checking (kind I4P, rank 1).
+      procedure, pass(self), private :: assign_var_gpu_I8P_1D !< Assign GPU variable with memory checking (kind I8P, rank 1).
+      procedure, pass(self), private :: assign_var_gpu_I8P_2D !< Assign GPU variable with memory checking (kind I8P, rank 2).
+      procedure, pass(self), private :: assign_var_gpu_I8P_3D !< Assign GPU variable with memory checking (kind I8P, rank 3).
 endtype base_gpu_object
 
-interface assign_allocatable_gpu
-   !< Safe assign allocatable arrays (GPU), generic interface.
-   module procedure assign_allocatable_I8P_1D_gpu !< Safe assign allocatable arrays, I8P 1D type.
-   module procedure assign_allocatable_I8P_2D_gpu !< Safe assign allocatable arrays, I8P 2D type.
-   module procedure assign_allocatable_I4P_1D_gpu !< Safe assign allocatable arrays, I4P 1D type.
-   module procedure assign_allocatable_I4P_2D_gpu !< Safe assign allocatable arrays, I4P 2D type.
-   module procedure assign_allocatable_R8P_1D_gpu !< Safe assign allocatable arrays, R8P 1D type.
-   module procedure assign_allocatable_R8P_2D_gpu !< Safe assign allocatable arrays, R8P 2D type.
-   module procedure assign_allocatable_R8P_3D_gpu !< Safe assign allocatable arrays, R8P 3D type.
-   module procedure assign_allocatable_R8P_4D_gpu !< Safe assign allocatable arrays, R8P 4D type.
-   module procedure assign_allocatable_R8P_5D_gpu !< Safe assign allocatable arrays, R8P 5D type.
-   module procedure assign_allocatable_R8P_6D_gpu !< Safe assign allocatable arrays, R8P 6D type.
-endinterface assign_allocatable_gpu
+interface transpose_a
+   module procedure transpose_a_R8P_2D !< Transpose array (kind R8P, rank 2).
+endinterface transpose_a
 
 contains
    ! public methods
-   subroutine alloc(self, field, nv_aux)
-   !< Allocate GPU fields.
-   class(base_gpu_object), intent(inout)        :: self    !< The base backend.
-   type(field_object)    , intent(in), target   :: field   !< Field variable array.
-   integer(I4P)          , intent(in), optional :: nv_aux  !< Number of auxiliary variables.
-   integer(I4P)                                 :: nv_aux_ !< Number of auxiliary variables (local var).
+   subroutine copy_cpu_gpu(self, verbose)
+   !< Copy data from (field) CPU to (base_gpu) GPU.
+   class(base_gpu_object), intent(inout)        :: self     !< The base backend.
+   logical,                intent(in), optional :: verbose  !< Flag to activate verbose mode.
+   logical                                      :: verbose_ !< Flag to activate verbose mode, local var.
 
-   self%field => field
-   nv_aux_ = self%field%nv
-   if (present(nv_aux)) nv_aux_ = max(nv_aux_, nv_aux)
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   if (verbose_) print '(A)', self%base_mpi%myrankstr//'base_gpu%copy_cpu_gpu start'
+   call MPI_Barrier(MPI_COMM_WORLD, self%base_mpi%error)
 
-   ! allocate buffers for copy-transposes performed by equation
-   allocate(self%q_t(1:field%nb,                                    &
-                     1-field%grid%ngc:field%grid%ni+field%grid%ngc, &
-                     1-field%grid%ngc:field%grid%nj+field%grid%ngc, &
-                     1-field%grid%ngc:field%grid%nk+field%grid%ngc, 1:field%nv))
-   allocate(self%q_t_gpu(nv_aux_,                                       &
-                         1-field%grid%ngc:field%grid%ni+field%grid%ngc, &
-                         1-field%grid%ngc:field%grid%nj+field%grid%ngc, &
-                         1-field%grid%ngc:field%grid%nk+field%grid%ngc, 1:field%nb))
+   associate(local_map_ghost=>self%field%local_map_ghost,         &
+             comm_map_recv_ghost=>self%field%comm_map_recv_ghost, &
+             comm_map_send_ghost=>self%field%comm_map_send_ghost, &
+             send_buffer_ghost=>self%field%send_buffer_ghost,     &
+             recv_buffer_ghost=>self%field%recv_buffer_ghost,     &
+             local_map_bc_face=>self%field%local_map_bc_face,     &
+             local_map_bc_corner=>self%field%local_map_bc_corner, &
+             local_map_bc_edge=>self%field%local_map_bc_edge,     &
+             x_cell=>self%field%x_cell,                           &
+             y_cell=>self%field%y_cell,                           &
+             z_cell=>self%field%z_cell,                           &
+             dxyz=>self%field%dxyz)
+      if (allocated(local_map_ghost)) &
+         call self%assign_var_gpu(var=self%local_map_ghost_gpu,                                             &
+                                  ulb=reshape([lbound(local_map_ghost,dim=1),ubound(local_map_ghost,dim=1), &
+                                               lbound(local_map_ghost,dim=2),ubound(local_map_ghost,dim=2)],&
+                                              [2,2]),                                                       &
+                                  rhs=local_map_ghost,                                                      &
+                                  msg='base_gpu%copy_cpu_gpu(local_map_ghost_gpu) ', verbose=verbose)
 
-   ! copy CPU-to-GPU of base_gpu variables (maps and cells, not q_gpu)
-   call self%copy_cpu_gpu
-   endsubroutine alloc
+      if (allocated(comm_map_recv_ghost)) &
+         call self%assign_var_gpu(var=self%comm_map_recv_ghost_gpu,                                                 &
+                                  ulb=reshape([lbound(comm_map_recv_ghost,dim=1),ubound(comm_map_recv_ghost,dim=1), &
+                                               lbound(comm_map_recv_ghost,dim=2),ubound(comm_map_recv_ghost,dim=2)],&
+                                              [2,2]),                                                               &
+                                  rhs=comm_map_recv_ghost,                                                          &
+                                  msg='base_gpu%copy_cpu_gpu(comm_map_recv_ghost_gpu) ', verbose=verbose)
 
-   subroutine copy_cpu_gpu(self)
-   !< Copy data from CPU to GPU.
-   class(base_gpu_object), intent(inout) :: self                !< The base backend.
-   real(R8P), allocatable                :: x_cell_t(:,:)       !< Cells x coordinates transposed.
-   real(R8P), allocatable                :: y_cell_t(:,:)       !< Cells y coordinates transposed.
-   real(R8P), allocatable                :: z_cell_t(:,:)       !< Cells z coordinates transposed.
-   real(R8P), allocatable                :: dxyz_t(:,:)         !< Delta cells coordinates transposed.
-   integer(I4P)                          :: b, i, j, k          !< Counter.
-   integer(I4P)                          :: lb(2), ub(2)        !< Counter.
-   integer(cuda_count_kind)              :: mem_free, mem_total !< Device memory.
+      if (allocated(comm_map_send_ghost)) &
+         call self%assign_var_gpu(var=self%comm_map_send_ghost_gpu,                                                 &
+                                  ulb=reshape([lbound(comm_map_send_ghost,dim=1),ubound(comm_map_send_ghost,dim=1), &
+                                               lbound(comm_map_send_ghost,dim=2),ubound(comm_map_send_ghost,dim=2)],&
+                                              [2,2]),                                                               &
+                                  rhs=comm_map_send_ghost,                                                          &
+                                  msg='base_gpu%copy_cpu_gpu(comm_map_send_ghost_gpu) ', verbose=verbose)
 
-   print '(A)', self%myrankstr//'copy CPU to GPU start'
-   call MPI_Barrier(MPI_COMM_WORLD, self%error)
+      if (allocated(send_buffer_ghost)) &
+         call self%assign_var_gpu(var=self%send_buffer_ghost_gpu,                                       &
+                                  ulb=[lbound(send_buffer_ghost,dim=1),ubound(send_buffer_ghost,dim=1)],&
+                                  rhs=send_buffer_ghost,                                                &
+                                  msg='base_gpu%copy_cpu_gpu(send_buffer_ghost_gpu) ', verbose=verbose)
 
-   if (allocated(self%local_map_ghost_gpu)) deallocate(self%local_map_ghost_gpu)
-   if (allocated(self%field%local_map_ghost)) then
-      lb(1) = lbound(self%field%local_map_ghost, dim=1) ; ub(1) = ubound(self%field%local_map_ghost, dim=1)
-      lb(2) = lbound(self%field%local_map_ghost, dim=2) ; ub(2) = ubound(self%field%local_map_ghost, dim=2)
-      allocate(self%local_map_ghost_gpu(lb(1):ub(1), lb(2):ub(2)))
-      self%local_map_ghost_gpu = self%field%local_map_ghost
-   endif
+      if (allocated(recv_buffer_ghost)) &
+         call self%assign_var_gpu(var=self%recv_buffer_ghost_gpu,                                       &
+                                  ulb=[lbound(recv_buffer_ghost,dim=1),ubound(recv_buffer_ghost,dim=1)],&
+                                  rhs=recv_buffer_ghost,                                                &
+                                  msg='base_gpu%copy_cpu_gpu(recv_buffer_ghost_gpu) ', verbose=verbose)
 
-   if (allocated(self%comm_map_recv_ghost_gpu)) deallocate(self%comm_map_recv_ghost_gpu)
-   if (allocated(self%field%comm_map_recv_ghost)) then
-      lb(1) = lbound(self%field%comm_map_recv_ghost, dim=1) ; ub(1) = ubound(self%field%comm_map_recv_ghost, dim=1)
-      lb(2) = lbound(self%field%comm_map_recv_ghost, dim=2) ; ub(2) = ubound(self%field%comm_map_recv_ghost, dim=2)
-      allocate(self%comm_map_recv_ghost_gpu(lb(1):ub(1), lb(2):ub(2)))
-      self%comm_map_recv_ghost_gpu = self%field%comm_map_recv_ghost
-   endif
+      if (allocated(local_map_bc_face)) &
+         call self%assign_var_gpu(var=self%local_map_bc_face_gpu,                                               &
+                                  ulb=reshape([lbound(local_map_bc_face,dim=1),ubound(local_map_bc_face,dim=1), &
+                                               lbound(local_map_bc_face,dim=2),ubound(local_map_bc_face,dim=2)],&
+                                              [2,2]),                                                           &
+                                  rhs=local_map_bc_face,                                                        &
+                                  msg='base_gpu%copy_cpu_gpu(local_map_bc_face_gpu) ', verbose=verbose)
 
-   if (allocated(self%comm_map_send_ghost_gpu)) deallocate(self%comm_map_send_ghost_gpu)
-   if (allocated(self%field%comm_map_send_ghost)) then
-      lb(1) = lbound(self%field%comm_map_send_ghost, dim=1) ; ub(1) = ubound(self%field%comm_map_send_ghost, dim=1)
-      lb(2) = lbound(self%field%comm_map_send_ghost, dim=2) ; ub(2) = ubound(self%field%comm_map_send_ghost, dim=2)
-      allocate(self%comm_map_send_ghost_gpu(lb(1):ub(1), lb(2):ub(2)))
-      self%comm_map_send_ghost_gpu = self%field%comm_map_send_ghost
-   endif
+      if (allocated(local_map_bc_corner)) &
+         call self%assign_var_gpu(var=self%local_map_bc_corner_gpu,                                                 &
+                                  ulb=reshape([lbound(local_map_bc_corner,dim=1),ubound(local_map_bc_corner,dim=1), &
+                                               lbound(local_map_bc_corner,dim=2),ubound(local_map_bc_corner,dim=2)],&
+                                              [2,2]),                                                               &
+                                  rhs=local_map_bc_corner,                                                          &
+                                  msg='base_gpu%copy_cpu_gpu(local_map_bc_corner_gpu) ', verbose=verbose)
 
-   ! if (allocated(self%field%comm_map_recv_ghost_s)) self%comm_map_recv_ghost_s_gpu = self%field%comm_map_recv_ghost_s
-   ! if (allocated(self%field%comm_map_send_ghost_s)) self%comm_map_send_ghost_s_gpu = self%field%comm_map_send_ghost_s
-
-   if (allocated(self%send_buffer_ghost_gpu)) deallocate(self%send_buffer_ghost_gpu)
-   if (allocated(self%field%send_buffer_ghost).and.size(self%field%send_buffer_ghost)>0) then
-      print '(A)', self%myrankstr//'copy_cpu_gpu fill send_buffer_ghost_gpu start'//trim(str([mem_free,mem_total]))
-      self%error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', self%myrankstr//'copy_cpu_gpu mem_free,mem_total: '//trim(str([mem_free,mem_total]))
-      lb(1) = lbound(self%field%send_buffer_ghost, dim=1) ; ub(1) = ubound(self%field%send_buffer_ghost, dim=1)
-      self%send_buffer_ghost_gpu = self%field%send_buffer_ghost
-      allocate(self%send_buffer_ghost_gpu(lb(1):ub(1)))
-      print '(A)', self%myrankstr//'copy_cpu_gpu fill send_buffer_ghost_gpu finish'
-   endif
-
-   if (allocated(self%recv_buffer_ghost_gpu)) deallocate(self%recv_buffer_ghost_gpu)
-   if (allocated(self%field%recv_buffer_ghost).and.size(self%field%recv_buffer_ghost)>0) then
-      print '(A)', self%myrankstr//'copy_cpu_gpu fill recv_buffer_ghost_gpu start'
-      self%error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', self%myrankstr//'copy_cpu_gpu mem_free,mem_total: '//trim(str([mem_free,mem_total]))
-      lb(1) = lbound(self%field%recv_buffer_ghost, dim=1) ; ub(1) = ubound(self%field%recv_buffer_ghost, dim=1)
-      allocate(self%recv_buffer_ghost_gpu(lb(1):ub(1)))
-      self%recv_buffer_ghost_gpu = self%field%recv_buffer_ghost
-      print '(A)', self%myrankstr//'copy_cpu_gpu fill recv_buffer_ghost_gpu finish'
-   endif
-
-   call MPI_Barrier(MPI_COMM_WORLD, self%error)
-   ! if (allocated(self%field%send_buffer_ghost_s).and.size(self%field%send_buffer_ghost_s)>0) then
-   !    print '(A)', self%myrankstr//'copy_cpu_gpu fill send_buffer_ghost_gpu_s start'
-   !    self%send_buffer_ghost_s_gpu = self%field%send_buffer_ghost_s
-   !    print '(A)', self%myrankstr//'copy_cpu_gpu fill send_buffer_ghost_gpu_s finish'
-   ! endif
-   ! if (allocated(self%field%recv_buffer_ghost_s).and.size(self%field%recv_buffer_ghost_s)>0) then
-   !    print '(A)', self%myrankstr//'copy_cpu_gpu fill recv_buffer_ghost_gpu_s start'
-   !    self%recv_buffer_ghost_s_gpu = self%field%recv_buffer_ghost_s
-   !    print '(A)', self%myrankstr//'copy_cpu_gpu fill recv_buffer_ghost_gpu_s finish'
-   ! endif
-
-   if (allocated(self%local_map_bc_face_gpu)) deallocate(self%local_map_bc_face_gpu)
-   if (allocated(self%field%local_map_bc_face))   then
-      print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_face start'
-      self%error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', self%myrankstr//'copy_cpu_gpu mem_free,mem_total: '//trim(str([mem_free,mem_total]))
-      lb(1) = lbound(self%field%local_map_bc_face, dim=1) ; ub(1) = ubound(self%field%local_map_bc_face, dim=1)
-      lb(2) = lbound(self%field%local_map_bc_face, dim=2) ; ub(2) = ubound(self%field%local_map_bc_face, dim=2)
-      allocate(self%local_map_bc_face_gpu(lb(1):ub(1), lb(2):ub(2)))
-      self%local_map_bc_face_gpu = self%field%local_map_bc_face
-      print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_face finish'
-   endif
-
-   if (allocated(self%local_map_bc_corner_gpu)) deallocate(self%local_map_bc_corner_gpu)
-   if (allocated(self%field%local_map_bc_corner)) then
-      print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_corner start'
-      self%error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', self%myrankstr//'copy_cpu_gpu mem_free,mem_total: '//trim(str([mem_free,mem_total]))
-      lb(1) = lbound(self%field%local_map_bc_corner, dim=1) ; ub(1) = ubound(self%field%local_map_bc_corner, dim=1)
-      lb(2) = lbound(self%field%local_map_bc_corner, dim=2) ; ub(2) = ubound(self%field%local_map_bc_corner, dim=2)
-      allocate(self%local_map_bc_corner_gpu(lb(1):ub(1), lb(2):ub(2)))
-      self%local_map_bc_corner_gpu = self%field%local_map_bc_corner
-      print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_corner finish'
-   endif
-
-   if (allocated(self%local_map_bc_edge_gpu)) deallocate(self%local_map_bc_edge_gpu  )
-   if (allocated(self%field%local_map_bc_edge)) then
-      print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_edge start'
-      self%error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', self%myrankstr//'copy_cpu_gpu mem_free,mem_total: '//trim(str([mem_free,mem_total]))
-      lb(1) = lbound(self%field%local_map_bc_edge, dim=1) ; ub(1) = ubound(self%field%local_map_bc_edge, dim=1)
-      lb(2) = lbound(self%field%local_map_bc_edge, dim=2) ; ub(2) = ubound(self%field%local_map_bc_edge, dim=2)
-      allocate(self%local_map_bc_edge_gpu(lb(1):ub(1), lb(2):ub(2)))
-      self%local_map_bc_edge_gpu = self%field%local_map_bc_edge
-      print '(A)', self%myrankstr//'copy_cpu_gpu fill local_map_bc_edge finish'
-   endif
-
-   call MPI_Barrier(MPI_COMM_WORLD, self%error)
-   call self%create_maps_cell
-   call MPI_Barrier(MPI_COMM_WORLD, self%error)
-   call self%create_maps_fluxes_cell
-
-   associate(blocks_number=>self%field%blocks_number,  &
-             ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk, ngc=>self%field%grid%ngc)
-   if (allocated(self%x_cell_gpu)) deallocate(self%x_cell_gpu)
-   if (allocated(self%y_cell_gpu)) deallocate(self%y_cell_gpu)
-   if (allocated(self%z_cell_gpu)) deallocate(self%z_cell_gpu)
-   if (blocks_number > 0) then
-      print '(A)', self%myrankstr//'copy_cpu_gpu allocate and compute dxyz_cell_gpu start'
-      self%error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', self%myrankstr//'copy_cpu_gpu before alloc dxyz_cell_gpu mem_free,mem_total: '//trim(str([mem_free,mem_total]))
-      allocate(x_cell_t(blocks_number, 1-ngc:ni+ngc),   &
-               y_cell_t(blocks_number, 1-ngc:nj+ngc),   &
-               z_cell_t(blocks_number, 1-ngc:nk+ngc))
-      allocate(self%x_cell_gpu(blocks_number, 1-ngc:ni+ngc), &
-               self%y_cell_gpu(blocks_number, 1-ngc:nj+ngc), &
-               self%z_cell_gpu(blocks_number, 1-ngc:nk+ngc))
-      self%error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', self%myrankstr//'copy_cpu_gpu after alloc dxyz_cell_gpu mem_free,mem_total: '//trim(str([mem_free,mem_total]))
-      do b=1,blocks_number
-         do i=1-ngc,ni+ngc
-            x_cell_t(b,i) = self%field%x_cell(i,b)
-         enddo
-         do j=1-ngc,nj+ngc
-            y_cell_t(b,j) = self%field%y_cell(j,b)
-         enddo
-         do k=1-ngc,nk+ngc
-            z_cell_t(b,k) = self%field%z_cell(k,b)
-         enddo
-      enddo
-      self%x_cell_gpu = x_cell_t
-      self%y_cell_gpu = y_cell_t
-      self%z_cell_gpu = z_cell_t
-      deallocate(x_cell_t, y_cell_t, z_cell_t)
-
-      allocate(dxyz_t(1:blocks_number,3))
-      do b=1, blocks_number
-         do i=1, 3
-            dxyz_t(b,i) = self%field%dxyz(i,b)
-         enddo
-      enddo
-      self%dxyz_gpu = dxyz_t
-      deallocate(dxyz_t)
-      print '(A)', self%myrankstr//'copy_cpu_gpu allocate and compute dxyz_cell_gpu start'
-   endif
+      if (allocated(local_map_bc_edge)) &
+         call self%assign_var_gpu(var=self%local_map_bc_edge_gpu,                                               &
+                                  ulb=reshape([lbound(local_map_bc_edge,dim=1),ubound(local_map_bc_edge,dim=1), &
+                                               lbound(local_map_bc_edge,dim=2),ubound(local_map_bc_edge,dim=2)],&
+                                              [2,2]),                                                           &
+                                  rhs=local_map_bc_edge,                                                        &
+                                  msg='base_gpu%copy_cpu_gpu(local_map_bc_edge_gpu) ', verbose=verbose)
+      if (allocated(x_cell)) &
+         call self%assign_var_gpu(var=self%x_cell_gpu,                                      &
+                                  ulb=reshape([lbound(x_cell, dim=1),ubound(x_cell, dim=1), &
+                                               lbound(x_cell, dim=2),ubound(x_cell, dim=2)],&
+                                              [2,2]),                                       &
+                                  rhs=x_cell, transposed=.true., msg='base_gpu%copy_cpu_gpu(x_cell_gpu) ', verbose=verbose)
+      if (allocated(y_cell)) &
+         call self%assign_var_gpu(var=self%y_cell_gpu,                                      &
+                                  ulb=reshape([lbound(y_cell, dim=1),ubound(y_cell, dim=1), &
+                                               lbound(y_cell, dim=2),ubound(y_cell, dim=2)],&
+                                              [2,2]),                                       &
+                                  rhs=y_cell, transposed=.true., msg='base_gpu%copy_cpu_gpu(y_cell_gpu) ', verbose=verbose)
+      if (allocated(z_cell)) &
+         call self%assign_var_gpu(var=self%z_cell_gpu,                                      &
+                                  ulb=reshape([lbound(z_cell, dim=1),ubound(z_cell, dim=1), &
+                                               lbound(z_cell, dim=2),ubound(z_cell, dim=2)],&
+                                              [2,2]),                                       &
+                                  rhs=z_cell, transposed=.true., msg='base_gpu%copy_cpu_gpu(z_cell_gpu) ', verbose=verbose)
+      if (allocated(dxyz)) &
+         call self%assign_var_gpu(var=self%dxyz_gpu,                                    &
+                                  ulb=reshape([lbound(dxyz, dim=1),ubound(dxyz, dim=1), &
+                                               lbound(dxyz, dim=2),ubound(dxyz, dim=2)],&
+                                              [2,2]),                                   &
+                                  rhs=dxyz, transposed=.true., msg='base_gpu%copy_cpu_gpu(dxyz_gpu) ', verbose=verbose)
    endassociate
-   print '(A)', self%myrankstr//'copy CPU to GPU finish'
+
+   call self%create_maps_cell(verbose=verbose)
+   call self%create_maps_fluxes_cell(verbose=verbose)
+
+   if (verbose_) print '(A)', self%base_mpi%myrankstr//'base_gpu%copy_cpu_gpu finish'
    endsubroutine copy_cpu_gpu
 
-   subroutine create_maps_cell(self)
-   !< Create maps in cells order form the fecs ordered ones.
-   class(base_gpu_object), intent(inout) :: self                          !< The base backend.
-   integer(I8P), allocatable             :: local_map_ghost_cell(:,:)     !< Local map ghost cells update, cells order.
-   integer(I8P), allocatable             :: comm_map_send_ghost_cell(:,:) !< MPI send map ghost cells update, cells order.
-   integer(I8P), allocatable             :: comm_map_recv_ghost_cell(:,:) !< MPI send map ghost cells update, cells order.
-   ! integer(I8P), allocatable             :: comm_map_send_ghost_cell_s(:,:) !< MPI send map ghost cells, cells order, single var.
-   ! integer(I8P), allocatable             :: comm_map_recv_ghost_cell_s(:,:) !< MPI send map ghost cells, cells order, single var.
-   integer(I8P), allocatable             :: local_map_bc_crown(:,:,:)     !< Local map for face BC ghost cells, "crown" order.
-   integer(I4P)                          :: c, f, v, n                    !< Counter.
-   integer(I4P)                          :: i, j, k                       !< Counter.
-   integer(I4P)                          :: iii, jjj, kkk                 !< Counter.
-   integer(I4P)                          :: ic, jc, kc                    !< Counter.
-   integer(I4P)                          :: fec                           !< Ghost direction, faces/edges/corners.
-   integer(I4P)                          :: portion                       !< Portion of fec updated (0=>whole fec).
-   integer(I4P)                          :: b_recv                        !< Index of receiving block.
-   integer(I4P)                          :: b_send                        !< Index of sending block.
-   integer(I4P)                          :: imin                          !< Lower limit of i indexes.
-   integer(I4P)                          :: jmin                          !< Lower limit of j indexes.
-   integer(I4P)                          :: kmin                          !< Lower limit of j indexes.
-   integer(I4P)                          :: imax                          !< Upper limit of i indexes.
-   integer(I4P)                          :: jmax                          !< Upper limit of j indexes.
-   integer(I4P)                          :: kmax                          !< Upper limit of k indexes.
-   integer(I4P)                          :: idelta                        !< Delta offset for ghost-inner cells of i.
-   integer(I4P)                          :: jdelta                        !< Delta offset for ghost-inner cells of j.
-   integer(I4P)                          :: kdelta                        !< Delta offset for ghost-inner cells of k.
-   integer(I4P)                          :: recv_ptr, recv_ctr            !< Counter.
-   integer(I4P)                          :: send_ptr, send_ctr            !< Counter.
-   integer(I4P), allocatable             :: c_crown(:)                    !< Counter.
-   integer(I4P)                          :: lb(3), ub(3)                  !< Counter.
+   subroutine copy_transpose_cpu_gpu(self, nv, q_cpu, q_gpu)
+   !< Copy transposed data from CPU to GPU.
+   !< This routine is called by equation typically passing either q_gpu or q_aux_gpu.
+   class(base_gpu_object), intent(inout)       :: self          !< The equation.
+   integer(I4P),           intent(in)          :: nv            !< Number of varibales.
+   real(R8P),              intent(in)          :: q_cpu(1:,                    &
+                                                        1-self%field%grid%ngc:,&
+                                                        1-self%field%grid%ngc:,&
+                                                        1-self%field%grid%ngc:,&
+                                                        1:)     !< Conservative variables on CPU.
+   real(R8P),              intent(out), device :: q_gpu(1:,                    &
+                                                       1-self%field%grid%ngc:,&
+                                                       1-self%field%grid%ngc:,&
+                                                       1-self%field%grid%ngc:,&
+                                                       1:)      !< Conservative variables on GPU.
+   integer(I4P)                                :: i, j, k, b, v !< Counter.
 
-   print '(A)', self%myrankstr//'create_maps_cell start'
+   associate(blocks_number=>self%field%blocks_number, &
+             ni=>self%field%grid%ni,                  &
+             nj=>self%field%grid%nj,                  &
+             nk=>self%field%grid%nk,                  &
+             ngc=>self%field%grid%ngc,                &
+             q_t=>self%q_t)
+      do b=1, blocks_number
+         do k=1-ngc, nk+ngc
+            do j=1-ngc, nj+ngc
+               do i=1-ngc, ni+ngc
+                  do v=1, nv
+                     q_t(b,i,j,k,v) = q_cpu(v,i,j,k,b)
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      q_gpu = q_t
+   endassociate
+   endsubroutine copy_transpose_cpu_gpu
+
+   subroutine copy_transpose_gpu_cpu(self, nv, q_gpu, q_cpu)
+   !< Copy transposed data from GPU to CPU.
+   !< This routine is called by equation typically passing either q_gpu or q_aux_gpu.
+   class(base_gpu_object), intent(inout)      :: self      !< The equation.
+   integer(I4P),           intent(in)         :: nv        !< Number of varibales.
+   real(R8P),              intent(in), device :: q_gpu(1:,                    &
+                                                       1-self%field%grid%ngc:,&
+                                                       1-self%field%grid%ngc:,&
+                                                       1-self%field%grid%ngc:,&
+                                                       1:) !< Conservative variables on GPU.
+   real(R8P),              intent(out)        :: q_cpu(1:,                    &
+                                                       1-self%field%grid%ngc:,&
+                                                       1-self%field%grid%ngc:,&
+                                                       1-self%field%grid%ngc:,&
+                                                       1:) !< Conservative variables on CPU.
+
+   associate(blocks_number=>self%field%blocks_number, &
+             ni=>self%field%grid%ni,                  &
+             nj=>self%field%grid%nj,                  &
+             nk=>self%field%grid%nk,                  &
+             ngc=>self%field%grid%ngc,                &
+             q_t_gpu=>self%q_t_gpu)
+      call copy_transpose_gpu_cpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
+                                      q_gpu=q_gpu, q_t_gpu=q_t_gpu, q_cpu=q_cpu)
+   endassociate
+   endsubroutine copy_transpose_gpu_cpu
+
+   subroutine create_maps_cell(self, verbose)
+   !< Create maps in cells order form the fecs ordered ones.
+   class(base_gpu_object), intent(inout)        :: self                          !< The base backend.
+   logical,                intent(in), optional :: verbose                       !< Flag to activate verbose mode.
+   logical                                      :: verbose_                      !< Flag to activate verbose mode, local var.
+   integer(I8P), allocatable                    :: local_map_ghost_cell(:,:)     !< Local map ghost cells update, cells order.
+   integer(I8P), allocatable                    :: comm_map_send_ghost_cell(:,:) !< MPI send map ghost cells update, cells order.
+   integer(I8P), allocatable                    :: comm_map_recv_ghost_cell(:,:) !< MPI send map ghost cells update, cells order.
+   integer(I8P), allocatable                    :: local_map_bc_crown(:,:,:)     !< Local map for face BC ghost cells, crown order.
+   integer(I4P)                                 :: c, f, v, n                    !< Counter.
+   integer(I4P)                                 :: i, j, k                       !< Counter.
+   integer(I4P)                                 :: iii, jjj, kkk                 !< Counter.
+   integer(I4P)                                 :: ic, jc, kc                    !< Counter.
+   integer(I4P)                                 :: fec                           !< Ghost direction, faces/edges/corners.
+   integer(I4P)                                 :: portion                       !< Portion of fec updated (0=>whole fec).
+   integer(I4P)                                 :: b_recv                        !< Index of receiving block.
+   integer(I4P)                                 :: b_send                        !< Index of sending block.
+   integer(I4P)                                 :: imin                          !< Lower limit of i indexes.
+   integer(I4P)                                 :: jmin                          !< Lower limit of j indexes.
+   integer(I4P)                                 :: kmin                          !< Lower limit of j indexes.
+   integer(I4P)                                 :: imax                          !< Upper limit of i indexes.
+   integer(I4P)                                 :: jmax                          !< Upper limit of j indexes.
+   integer(I4P)                                 :: kmax                          !< Upper limit of k indexes.
+   integer(I4P)                                 :: idelta                        !< Delta offset for ghost-inner cells of i.
+   integer(I4P)                                 :: jdelta                        !< Delta offset for ghost-inner cells of j.
+   integer(I4P)                                 :: kdelta                        !< Delta offset for ghost-inner cells of k.
+   integer(I4P)                                 :: recv_ptr, recv_ctr            !< Counter.
+   integer(I4P)                                 :: send_ptr, send_ctr            !< Counter.
+   integer(I4P), allocatable                    :: c_crown(:)                    !< Counter.
+
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   if (verbose_) print '(A)', self%base_mpi%myrankstr//'base_gpu%create_maps_cell start'
+
    if (allocated(self%local_map_ghost_cell_gpu)) deallocate(self%local_map_ghost_cell_gpu)
    if (allocated(self%field%local_map_ghost)) then
       c = 0
@@ -341,7 +339,6 @@ contains
             enddo
          endif
       enddo
-      print '(A)', self%myrankstr//'create_maps_cell allocate local_map_ghost_cell'
       allocate(local_map_ghost_cell(1:c,1:9))
       c = 1
       do f=1, size(self%field%local_map_ghost, dim=1)
@@ -406,11 +403,12 @@ contains
             enddo
          endif
       enddo
-      lb(1) = lbound(local_map_ghost_cell, dim=1) ; ub(1) = ubound(local_map_ghost_cell, dim=1)
-      lb(2) = lbound(local_map_ghost_cell, dim=2) ; ub(2) = ubound(local_map_ghost_cell, dim=2)
-      allocate(self%local_map_ghost_cell_gpu(lb(1):ub(1), lb(2):ub(2)))
-      self%local_map_ghost_cell_gpu = local_map_ghost_cell
-      print '(A)', self%myrankstr//'create_maps_cell deallocate local_map_ghost_cell'
+      call self%assign_var_gpu(var=self%local_map_ghost_cell_gpu,                                                  &
+                               ulb=reshape([lbound(local_map_ghost_cell,dim=1),ubound(local_map_ghost_cell,dim=1), &
+                                            lbound(local_map_ghost_cell,dim=2),ubound(local_map_ghost_cell,dim=2)],&
+                                           [2,2]),                                                                 &
+                               rhs=local_map_ghost_cell,                                                           &
+                               msg='base_gpu%create_maps_cell(local_map_ghost_cell_gpu) ', verbose=verbose)
       deallocate(local_map_ghost_cell)
    endif
 
@@ -449,10 +447,6 @@ contains
       enddo
 
       ! Nv variables map
-      print '(A)', self%myrankstr//'create_maps_cell allocate comm_map_send_ghost_cell'
-      allocate(comm_map_send_ghost_cell(1:c*self%field%nv,1:7))
-      ! Single variable map
-      !allocate(comm_map_send_ghost_cell_s(1:c,1:7))
       c = 1
       do f=1, size(self%field%comm_map_send_ghost, dim=1)
          b_send    = self%field%comm_map_send_ghost(f, 2 )
@@ -525,83 +519,13 @@ contains
             enddo
          endif
       enddo
-      lb(1) = lbound(comm_map_send_ghost_cell, dim=1) ; ub(1) = ubound(comm_map_send_ghost_cell, dim=1)
-      lb(2) = lbound(comm_map_send_ghost_cell, dim=2) ; ub(2) = ubound(comm_map_send_ghost_cell, dim=2)
-      allocate(self%comm_map_send_ghost_cell_gpu(lb(1):ub(1), lb(2):ub(2)))
-      self%comm_map_send_ghost_cell_gpu = comm_map_send_ghost_cell
-      print '(A)', self%myrankstr//'create_maps_cell deallocate comm_map_send_ghost_cell'
+      call self%assign_var_gpu(var=self%comm_map_send_ghost_cell_gpu,                                                      &
+                               ulb=reshape([lbound(comm_map_send_ghost_cell,dim=1),ubound(comm_map_send_ghost_cell,dim=1), &
+                                            lbound(comm_map_send_ghost_cell,dim=2),ubound(comm_map_send_ghost_cell,dim=2)],&
+                                           [2,2]),                                                                         &
+                               rhs=comm_map_send_ghost_cell,                                                               &
+                               msg='base_gpu%create_maps_cell(comm_map_send_ghost_cell_gpu) ', verbose=verbose)
       deallocate(comm_map_send_ghost_cell)
-
-      !RIMETTERE! single variable map
-      !RIMETTERE!SPOSTATO SOPRA allocate(comm_map_send_ghost_cell_s(1:c,1:7))
-      !RIMETTEREc = 1
-      !RIMETTEREdo f=1, size(self%field%comm_map_send_ghost_s, dim=1)
-      !RIMETTERE   b_send    = self%field%comm_map_send_ghost_s(f, 2 )
-      !RIMETTERE   portion   = self%field%comm_map_send_ghost_s(f, 5 )
-      !RIMETTERE   imin      = self%field%comm_map_send_ghost_s(f, 6 )
-      !RIMETTERE   jmin      = self%field%comm_map_send_ghost_s(f, 7 )
-      !RIMETTERE   kmin      = self%field%comm_map_send_ghost_s(f, 8 )
-      !RIMETTERE   imax      = self%field%comm_map_send_ghost_s(f, 9 )
-      !RIMETTERE   jmax      = self%field%comm_map_send_ghost_s(f, 10)
-      !RIMETTERE   kmax      = self%field%comm_map_send_ghost_s(f, 11)
-      !RIMETTERE   idelta    = self%field%comm_map_send_ghost_s(f, 12)
-      !RIMETTERE   jdelta    = self%field%comm_map_send_ghost_s(f, 13)
-      !RIMETTERE   kdelta    = self%field%comm_map_send_ghost_s(f, 14)
-      !RIMETTERE   send_ptr  = self%field%comm_map_send_ghost_s(f, 15)
-      !RIMETTERE   if (portion==0_I4P) then
-      !RIMETTERE      ! sending to a block at my level
-      !RIMETTERE      send_ctr = 1
-      !RIMETTERE      do k=kmin, kmax
-      !RIMETTERE         do j=jmin, jmax
-      !RIMETTERE            do i=imin, imax
-      !RIMETTERE               comm_map_send_ghost_cell_s(c, 1:4) = [b_send,i+idelta,j+jdelta,k+kdelta]
-      !RIMETTERE               comm_map_send_ghost_cell_s(c,  5 ) = 1
-      !RIMETTERE               comm_map_send_ghost_cell_s(c,  6 ) = send_ptr + send_ctr
-      !RIMETTERE               comm_map_send_ghost_cell_s(c,  7 ) = 1
-      !RIMETTERE               send_ctr = send_ctr + 1
-      !RIMETTERE               c = c + 1
-      !RIMETTERE            enddo
-      !RIMETTERE         enddo
-      !RIMETTERE      enddo
-      !RIMETTERE   elseif (portion<0_I4P) then ! Beware! This is < 0 because the reference is the receiver
-      !RIMETTERE      ! sending to a block finer than me
-      !RIMETTERE      send_ctr = 1
-      !RIMETTERE      do k=kmin, kmax
-      !RIMETTERE         do j=jmin, jmax
-      !RIMETTERE            do i=imin, imax
-      !RIMETTERE               do n=1,8
-      !RIMETTERE                  comm_map_send_ghost_cell_s(c, 1:4) = [b_send,i,j,k]
-      !RIMETTERE                  comm_map_send_ghost_cell_s(c,  5 ) = 1
-      !RIMETTERE                  comm_map_send_ghost_cell_s(c,  6 ) = send_ptr + send_ctr
-      !RIMETTERE                  comm_map_send_ghost_cell_s(c,  7 ) = 1
-      !RIMETTERE                  send_ctr = send_ctr + 1
-      !RIMETTERE                  c = c + 1
-      !RIMETTERE               enddo
-      !RIMETTERE            enddo
-      !RIMETTERE         enddo
-      !RIMETTERE      enddo
-      !RIMETTERE   else
-      !RIMETTERE      ! sending to a block coarser than me, loop is over the coarser grid
-      !RIMETTERE      send_ctr = 1
-      !RIMETTERE      do k=kmin, kmax
-      !RIMETTERE         do j=jmin, jmax
-      !RIMETTERE            do i=imin, imax
-      !RIMETTERE               kkk = 2 * k + kdelta
-      !RIMETTERE               jjj = 2 * j + jdelta
-      !RIMETTERE               iii = 2 * i + idelta
-      !RIMETTERE               comm_map_send_ghost_cell_s(c, 1:4) = [b_send,iii,jjj,kkk]
-      !RIMETTERE               comm_map_send_ghost_cell_s(c,  5 ) = 1
-      !RIMETTERE               comm_map_send_ghost_cell_s(c,  6 ) = send_ptr + send_ctr
-      !RIMETTERE               comm_map_send_ghost_cell_s(c,  7 ) = 8
-      !RIMETTERE               send_ctr = send_ctr + 1
-      !RIMETTERE               c = c + 1
-      !RIMETTERE            enddo
-      !RIMETTERE         enddo
-      !RIMETTERE      enddo
-      !RIMETTERE   endif
-      !RIMETTEREenddo
-      !RIMETTEREself%comm_map_send_ghost_cell_s_gpu = comm_map_send_ghost_cell_s
-      !RIMETTEREdeallocate(comm_map_send_ghost_cell_s)
    endif
 
    if (allocated(self%comm_map_recv_ghost_cell_gpu)) deallocate(self%comm_map_recv_ghost_cell_gpu)
@@ -639,11 +563,7 @@ contains
       enddo
 
       ! Nv variables map
-      print '(A)', self%myrankstr//'create_maps_cell allocate comm_map_recv_ghost_cell'
       allocate(comm_map_recv_ghost_cell(1:c*self%field%nv,1:6))
-      ! Single variable map
-      ! print '(A)', self%myrankstr//'create_maps_cell allocate comm_map_recv_ghost_cell_s'
-      ! allocate(comm_map_recv_ghost_cell_s(1:c,1:6))
       c = 1
       do f=1, size(self%field%comm_map_recv_ghost, dim=1)
          b_recv   = self%field%comm_map_recv_ghost(f, 1 )
@@ -694,63 +614,13 @@ contains
             enddo
          endif
       enddo
-      lb(1) = lbound(comm_map_recv_ghost_cell, dim=1) ; ub(1) = ubound(comm_map_recv_ghost_cell, dim=1)
-      lb(2) = lbound(comm_map_recv_ghost_cell, dim=2) ; ub(2) = ubound(comm_map_recv_ghost_cell, dim=2)
-      allocate(self%comm_map_recv_ghost_cell_gpu(lb(1):ub(1), lb(2):ub(2)))
-      self%comm_map_recv_ghost_cell_gpu = comm_map_recv_ghost_cell
-      print '(A)', self%myrankstr//'create_maps_cell deallocate comm_map_recv_ghost_cell'
+      call self%assign_var_gpu(var=self%comm_map_recv_ghost_cell_gpu,                                                      &
+                               ulb=reshape([lbound(comm_map_recv_ghost_cell,dim=1),ubound(comm_map_recv_ghost_cell,dim=1), &
+                                            lbound(comm_map_recv_ghost_cell,dim=2),ubound(comm_map_recv_ghost_cell,dim=2)],&
+                                           [2,2]),                                                                         &
+                               rhs=comm_map_recv_ghost_cell,                                                               &
+                               msg='base_gpu%create_maps_cell(comm_map_recv_ghost_cell_gpu) ', verbose=verbose)
       deallocate(comm_map_recv_ghost_cell)
-
-      !RIMETTERE! single variable map
-      !RIMETTERE!SPOSTATO SOPRAallocate(comm_map_recv_ghost_cell_s(1:c,1:6))
-      !RIMETTEREc = 1
-      !RIMETTEREdo f=1, size(self%field%comm_map_recv_ghost_s, dim=1)
-      !RIMETTERE   b_recv   = self%field%comm_map_recv_ghost_s(f, 1 )
-      !RIMETTERE   portion  = self%field%comm_map_recv_ghost_s(f, 5 )
-      !RIMETTERE   imin     = self%field%comm_map_recv_ghost_s(f, 6 )
-      !RIMETTERE   jmin     = self%field%comm_map_recv_ghost_s(f, 7 )
-      !RIMETTERE   kmin     = self%field%comm_map_recv_ghost_s(f, 8 )
-      !RIMETTERE   imax     = self%field%comm_map_recv_ghost_s(f, 9 )
-      !RIMETTERE   jmax     = self%field%comm_map_recv_ghost_s(f, 10)
-      !RIMETTERE   kmax     = self%field%comm_map_recv_ghost_s(f, 11)
-      !RIMETTERE   idelta   = self%field%comm_map_recv_ghost_s(f, 12)
-      !RIMETTERE   jdelta   = self%field%comm_map_recv_ghost_s(f, 13)
-      !RIMETTERE   kdelta   = self%field%comm_map_recv_ghost_s(f, 14)
-      !RIMETTERE   recv_ptr = self%field%comm_map_recv_ghost_s(f, 15)
-      !RIMETTERE   if (portion>=0_I4P) then
-      !RIMETTERE      recv_ctr = 1
-      !RIMETTERE      do k=kmin, kmax
-      !RIMETTERE         do j=jmin, jmax
-      !RIMETTERE            do i=imin, imax
-      !RIMETTERE               comm_map_recv_ghost_cell_s(c, 1 ) = recv_ptr + recv_ctr
-      !RIMETTERE               comm_map_recv_ghost_cell_s(c,2:6) = [b_recv,i,j,k,1]
-      !RIMETTERE               recv_ctr = recv_ctr + 1
-      !RIMETTERE               c = c + 1
-      !RIMETTERE            enddo
-      !RIMETTERE         enddo
-      !RIMETTERE      enddo
-      !RIMETTERE   else
-      !RIMETTERE      ! receiving from a block coarser than me
-      !RIMETTERE      recv_ctr = 1
-      !RIMETTERE      do k=kmin, kmax
-      !RIMETTERE         do j=jmin, jmax
-      !RIMETTERE            do i=imin, imax
-      !RIMETTERE               kkk = 2 * k + kdelta
-      !RIMETTERE               jjj = 2 * j + jdelta
-      !RIMETTERE               iii = 2 * i + idelta
-      !RIMETTERE               do kc=0,1 ; do jc=0,1 ; do ic=0,1
-      !RIMETTERE                  comm_map_recv_ghost_cell_s(c, 1 ) = recv_ptr + recv_ctr
-      !RIMETTERE                  comm_map_recv_ghost_cell_s(c,2:6) = [b_recv,iii+ic,jjj+jc,kkk+kc,1]
-      !RIMETTERE                  recv_ctr = recv_ctr + 1
-      !RIMETTERE                  c = c + 1
-      !RIMETTERE               enddo ; enddo ; enddo
-      !RIMETTERE            enddo
-      !RIMETTERE         enddo
-      !RIMETTERE      enddo
-      !RIMETTERE   endif
-      !RIMETTEREenddo
-      !RIMETTEREself%comm_map_recv_ghost_cell_s_gpu = comm_map_recv_ghost_cell_s
-      !RIMETTEREdeallocate(comm_map_recv_ghost_cell_s)
    endif
 
    if (allocated(self%local_map_bc_crown_gpu)) deallocate(self%local_map_bc_crown_gpu)
@@ -761,9 +631,7 @@ contains
       if (allocated(self%field%local_map_bc_face  )) c = c + bc_cells_number(self%field%local_map_bc_face  )
       if (allocated(self%field%local_map_bc_edge  )) c = c + bc_cells_number(self%field%local_map_bc_edge  )
       if (allocated(self%field%local_map_bc_corner)) c = c + bc_cells_number(self%field%local_map_bc_corner)
-      print '(A)', self%myrankstr//'create_maps_cell allocate local_map_bc_crown'
       allocate(local_map_bc_crown(1:c,1:9,1:self%field%grid%ngc))
-      print '(A)', self%myrankstr//'create_maps_cell allocate c_crown'
       allocate(c_crown(1:self%field%grid%ngc))
       local_map_bc_crown = -1
       c_crown = 1
@@ -771,19 +639,17 @@ contains
       if (allocated(self%field%local_map_bc_edge  )) call populate_local_map_bc_crown(self%field%local_map_bc_edge  )
       if (allocated(self%field%local_map_bc_corner)) call populate_local_map_bc_crown(self%field%local_map_bc_corner)
       deallocate(c_crown)
-      print '(A)', self%myrankstr//'create_maps_cell deallocate c_crown'
-      lb(1) = lbound(local_map_bc_crown, dim=1) ; ub(1) = ubound(local_map_bc_crown, dim=1)
-      lb(2) = lbound(local_map_bc_crown, dim=2) ; ub(2) = ubound(local_map_bc_crown, dim=2)
-      lb(3) = lbound(local_map_bc_crown, dim=3) ; ub(3) = ubound(local_map_bc_crown, dim=3)
-      allocate(self%local_map_bc_crown_gpu(lb(1):ub(1), lb(2):ub(2), lb(3):ub(3)))
-      self%local_map_bc_crown_gpu = local_map_bc_crown
-      print '(A)', self%myrankstr//'create_maps_cell deallocate local_map_bc_crown'
+      call self%assign_var_gpu(var=self%local_map_bc_crown_gpu,                                                &
+                               ulb=reshape([lbound(local_map_bc_crown,dim=1),ubound(local_map_bc_crown,dim=1), &
+                                            lbound(local_map_bc_crown,dim=2),ubound(local_map_bc_crown,dim=2), &
+                                            lbound(local_map_bc_crown,dim=3),ubound(local_map_bc_crown,dim=3)],&
+                                           [2,3]),                                                             &
+                               rhs=local_map_bc_crown,                                                         &
+                               msg='base_gpu%create_maps_cell(local_map_bc_crown_gpu) ', verbose=verbose)
       deallocate(local_map_bc_crown)
-   ! else
-   !    print '(A)', self%myrankstr//'create_maps_cell deallocate local_map_bc_crown_gpu'
-   !    deallocate(self%local_map_bc_crown_gpu)
    endif
-   print '(A)', self%myrankstr//'create_maps_cell finish'
+
+   if (verbose_) print '(A)', self%base_mpi%myrankstr//'base_gpu%create_maps_cell finish'
    contains
       function bc_cells_number(local_map_bc) result(cells_number)
       !< Return BC cells number.
@@ -866,40 +732,40 @@ contains
       endsubroutine populate_local_map_bc_crown
    endsubroutine create_maps_cell
 
-   subroutine create_maps_fluxes_cell(self)
+   subroutine create_maps_fluxes_cell(self, verbose)
    !< Create maps in cells order form the fecs ordered ones.
-   class(base_gpu_object), intent(inout) :: self                          !< The base backend.
-   integer(I8P), allocatable             :: local_map_ghost_fluxes_cell(:,:)     !< Local map ghost cells update, cells order.
-   integer(I8P), allocatable             :: comm_map_send_ghost_cell(:,:) !< MPI send map ghost cells update, cells order.
-   integer(I8P), allocatable             :: comm_map_recv_ghost_cell(:,:) !< MPI send map ghost cells update, cells order.
-   ! integer(I8P), allocatable             :: comm_map_send_ghost_cell_s(:,:) !< MPI send map ghost cells, cells order, single var.
-   ! integer(I8P), allocatable             :: comm_map_recv_ghost_cell_s(:,:) !< MPI send map ghost cells, cells order, single var.
-   integer(I8P), allocatable             :: local_map_bc_crown(:,:,:)     !< Local map for face BC ghost cells, "crown" order.
-   integer(I4P)                          :: c, f, v, n                    !< Counter.
-   integer(I4P)                          :: i, j, k                       !< Counter.
-   integer(I4P)                          :: iii, jjj, kkk                 !< Counter.
-   integer(I4P)                          :: ic, jc, kc                    !< Counter.
-   integer(I4P)                          :: fec                           !< Ghost direction, faces/edges/corners.
-   integer(I4P)                          :: portion                       !< Portion of fec updated (0=>whole fec).
-   integer(I4P)                          :: b_recv                        !< Index of receiving block.
-   integer(I4P)                          :: b_send                        !< Index of sending block.
-   integer(I4P)                          :: imin                          !< Lower limit of i indexes.
-   integer(I4P)                          :: jmin                          !< Lower limit of j indexes.
-   integer(I4P)                          :: kmin                          !< Lower limit of j indexes.
-   integer(I4P)                          :: imax                          !< Upper limit of i indexes.
-   integer(I4P)                          :: jmax                          !< Upper limit of j indexes.
-   integer(I4P)                          :: kmax                          !< Upper limit of k indexes.
-   integer(I4P)                          :: idelta                        !< Delta offset for ghost-inner cells of i.
-   integer(I4P)                          :: jdelta                        !< Delta offset for ghost-inner cells of j.
-   integer(I4P)                          :: kdelta                        !< Delta offset for ghost-inner cells of k.
-   integer(I4P)                          :: recv_ptr, recv_ctr            !< Counter.
-   integer(I4P)                          :: send_ptr, send_ctr            !< Counter.
-   integer(I4P), allocatable             :: c_crown(:)                    !< Counter.
-   integer(I4P)                          :: lb(2), ub(2)                  !< Counter.
+   class(base_gpu_object), intent(inout)        :: self                             !< The base backend.
+   logical,                intent(in), optional :: verbose                          !< Flag to activate verbose mode.
+   logical                                      :: verbose_                         !< Flag to activate verbose mode, local var.
+   integer(I8P), allocatable                    :: local_map_ghost_fluxes_cell(:,:) !< Local map ghost cells update, cells order.
+   integer(I8P), allocatable                    :: comm_map_send_ghost_cell(:,:)    !< MPI send map ghost cells update, cells order.
+   integer(I8P), allocatable                    :: comm_map_recv_ghost_cell(:,:)    !< MPI send map ghost cells update, cells order.
+   integer(I8P), allocatable                    :: local_map_bc_crown(:,:,:)        !< Local map for face BC ghost cells, crown ord.
+   integer(I4P)                                 :: c, f, v, n                       !< Counter.
+   integer(I4P)                                 :: i, j, k                          !< Counter.
+   integer(I4P)                                 :: iii, jjj, kkk                    !< Counter.
+   integer(I4P)                                 :: ic, jc, kc                       !< Counter.
+   integer(I4P)                                 :: fec                              !< Ghost direction, faces/edges/corners.
+   integer(I4P)                                 :: portion                          !< Portion of fec updated (0=>whole fec).
+   integer(I4P)                                 :: b_recv                           !< Index of receiving block.
+   integer(I4P)                                 :: b_send                           !< Index of sending block.
+   integer(I4P)                                 :: imin                             !< Lower limit of i indexes.
+   integer(I4P)                                 :: jmin                             !< Lower limit of j indexes.
+   integer(I4P)                                 :: kmin                             !< Lower limit of j indexes.
+   integer(I4P)                                 :: imax                             !< Upper limit of i indexes.
+   integer(I4P)                                 :: jmax                             !< Upper limit of j indexes.
+   integer(I4P)                                 :: kmax                             !< Upper limit of k indexes.
+   integer(I4P)                                 :: idelta                           !< Delta offset for ghost-inner cells of i.
+   integer(I4P)                                 :: jdelta                           !< Delta offset for ghost-inner cells of j.
+   integer(I4P)                                 :: kdelta                           !< Delta offset for ghost-inner cells of k.
+   integer(I4P)                                 :: recv_ptr, recv_ctr               !< Counter.
+   integer(I4P)                                 :: send_ptr, send_ctr               !< Counter.
+   integer(I4P), allocatable                    :: c_crown(:)                       !< Counter.
 
-   print '(A)', self%myrankstr//'create_maps_fluxes_cell start'
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   if (verbose_) print '(A)', self%base_mpi%myrankstr//'base_gpu%create_maps_fluxes_cell start'
+
    if (allocated(self%local_map_ghost_fluxes_cell_gpu)) deallocate(self%local_map_ghost_fluxes_cell_gpu)
-
    if (allocated(self%field%local_map_ghost)) then
       c = 0
       do f=1, size(self%field%local_map_ghost, dim=1)
@@ -971,56 +837,99 @@ contains
                enddo
             endif
          enddo
-         lb(1) = lbound(local_map_ghost_fluxes_cell, dim=1) ; ub(1) = ubound(local_map_ghost_fluxes_cell, dim=1)
-         lb(2) = lbound(local_map_ghost_fluxes_cell, dim=2) ; ub(2) = ubound(local_map_ghost_fluxes_cell, dim=2)
-         allocate(self%local_map_ghost_fluxes_cell_gpu(lb(1):ub(1), lb(2):ub(2)))
-         self%local_map_ghost_fluxes_cell_gpu = local_map_ghost_fluxes_cell
+         call self%assign_var_gpu(var=self%local_map_ghost_fluxes_cell_gpu,                                                 &
+                                  ulb=reshape(                                                                              &
+                                      [lbound(local_map_ghost_fluxes_cell,dim=1),ubound(local_map_ghost_fluxes_cell,dim=1), &
+                                       lbound(local_map_ghost_fluxes_cell,dim=2),ubound(local_map_ghost_fluxes_cell,dim=2)],&
+                                      [2,2]),                                                                               &
+                                  rhs=local_map_ghost_fluxes_cell,                                                          &
+                                  msg='base_gpu%create_maps_fluxes_cell(local_map_ghost_fluxes_cell_gpu) ', verbose=verbose)
          deallocate(local_map_ghost_fluxes_cell)
       endif
    endif
-   print '(A)', self%myrankstr//'create_maps_fluxes_cell finish'
+
+   if (verbose_) print '(A)', self%base_mpi%myrankstr//'base_gpu%create_maps_fluxes_cell finish'
    endsubroutine create_maps_fluxes_cell
 
-   subroutine destroy(self)
-   !< Destroy base backend.
-   class(base_gpu_object), intent(inout) :: self  !< The base backend.
-   type(base_gpu_object)                 :: fresh !< Fresh equation.
-
-   self = fresh
-   endsubroutine destroy
-
-   subroutine initialize(self, device_mem_avail)
+   subroutine initialize(self, field, nv_aux, verbose)
    !< Initialize base backend.
-   class(base_gpu_object), intent(inout)        :: self               !< The base backend.
-   real(R8P),              intent(out)          :: device_mem_avail   !< Device memory available (Gb).
-   type(cudadeviceprop)                         :: device_properties  !< Device properties.
+   class(base_gpu_object), intent(inout)        :: self              !< The base backend.
+   type(field_object),     intent(in), target   :: field             !< Field variable array.
+   integer(I4P),           intent(in), optional :: nv_aux            !< Number of auxiliary variables.
+   logical,                intent(in), optional :: verbose           !< Flag to activate verbose mode.
+   integer(I4P)                                 :: nv_aux_           !< Number of auxiliary variables (local var).
+   integer(I4P)                                 :: fec_1_6_array(26) !< Mapping fec1-26 to fec1-6 for boundaries.
 
-   ! call self%destroy
-
-   call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
-   call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
-   self%myrankstr = '[myrank-'//trim(strz(self%myrank,6))//']'
-
-   allocate(self%req_send_recv(0:self%procs_number*2-1))
-   call MPI_COMM_SPLIT_TYPE(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, self%local_comm, self%error)
-   call MPI_COMM_RANK(self%local_comm, self%mydev, self%error)
-   self%error = CudaSetDevice(self%mydev)
-   self%error = cudaGetDeviceProperties(device_properties, self%mydev)
-   call print_device_properties(self, device_properties)
-
-   device_mem_avail = real(device_properties%totalGlobalMem, R8P)/1e9
-   print '(A,F5.2,A)', self%myrankstr//'available device memory ', device_mem_avail, ' Gb'
-
-   self%fec_1_6_array([1,7,9,11,13,19,21,23,25])  = 1
-   self%fec_1_6_array([2,8,10,12,14,20,22,24,26]) = 2
-   self%fec_1_6_array([3,15,17])                  = 3
-   self%fec_1_6_array([4,16,18])                  = 4
-   self%fec_1_6_array([5])                        = 5
-   self%fec_1_6_array([6])                        = 6
-
-   allocate(self%fec_1_6_array_gpu(26)) ! Derived type component on device must be allocatable
-   self%fec_1_6_array_gpu = self%fec_1_6_array
+   print '(A)', self%base_mpi%myrankstr//'base_gpu%initialize start'
+   self%field => field
+   allocate(self%req_send_recv(0:self%base_mpi%procs_number*2-1))
+   fec_1_6_array([1,7,9,11,13,19,21,23,25])  = 1
+   fec_1_6_array([2,8,10,12,14,20,22,24,26]) = 2
+   fec_1_6_array([3,15,17])                  = 3
+   fec_1_6_array([4,16,18])                  = 4
+   fec_1_6_array([5])                        = 5
+   fec_1_6_array([6])                        = 6
+   call self%assign_var_gpu(var=self%fec_1_6_array_gpu, &
+                            ulb=[1,26],                 &
+                            rhs=fec_1_6_array,          &
+                            msg='base_gpu%initialize(fec_1_6_array_gpu)', verbose=verbose)
+   nv_aux_ = self%field%nv
+   if (present(nv_aux)) nv_aux_ = max(nv_aux_, nv_aux)
+   ! allocate buffers for copy-transposes performed by equation
+   allocate(self%q_t(1:field%nb,                                    &
+                     1-field%grid%ngc:field%grid%ni+field%grid%ngc, &
+                     1-field%grid%ngc:field%grid%nj+field%grid%ngc, &
+                     1-field%grid%ngc:field%grid%nk+field%grid%ngc, nv_aux_))
+   call self%alloc_var_gpu(var=self%q_t_gpu,                                          &
+                           ulb=reshape([1,nv_aux_,                                    &
+                                        1-field%grid%ngc,field%grid%ni+field%grid%ngc,&
+                                        1-field%grid%ngc,field%grid%nj+field%grid%ngc,&
+                                        1-field%grid%ngc,field%grid%nk+field%grid%ngc,&
+                                        1,field%nb],[2,5]),                           &
+                           msg='base_gpu%alloc(q_t_gpu) ', verbose=verbose)
+   ! copy CPU-to-GPU of base_gpu variables (maps and cells, not q_gpu)
+   call self%copy_cpu_gpu
+   print '(A)', self%base_mpi%myrankstr//'base_gpu%initialize finish'
    endsubroutine initialize
+
+   subroutine initialize_gpu(self)
+   !< Initialize GPU main data.
+   !< @Note This must be the first routine called before.
+   class(base_gpu_object), intent(inout) :: self              !< The base backend.
+   type(cudadeviceprop)                  :: device_properties !< Device properties.
+
+   call self%base_mpi%initialize
+   print '(A)', self%base_mpi%myrankstr//'base_gpu%initialize_gpu start'
+   call MPI_COMM_SPLIT_TYPE(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, self%local_comm, self%base_mpi%error)
+   call MPI_COMM_RANK(self%local_comm, self%mydev, self%base_mpi%error)
+   self%base_mpi%error = CudaSetDevice(self%mydev)
+   self%base_mpi%error = cudaGetDeviceProperties(device_properties, self%mydev)
+   self%memory_avail = real(device_properties%totalGlobalMem, R8P)/1e9
+   call print_device_properties(self, device_properties)
+   print '(A)', self%base_mpi%myrankstr//'base_gpu%initialize_gpu finish'
+   endsubroutine initialize_gpu
+
+   subroutine print_device_properties(self, device_properties)
+   !< Pretty print device properties.
+   class(base_gpu_object), intent(in) :: self               !< The base backend.
+   type(cudadeviceprop),   intent(in) :: device_properties  !< Device properties.
+
+   associate(r=>self%base_mpi%myrankstr)
+   print'(A)',r//"total global memory:         "//trim(str(real(device_properties%totalGlobalMem)/1e9           ,.true.))//" Gbytes"
+   print'(A)',r//"shared mem per block:        "//trim(str(     device_properties%sharedMemPerBlock             ,.true.))//" bytes"
+   print'(A)',r//"regs per block:              "//trim(str(     device_properties%regsPerBlock                  ,.true.))
+   print'(A)',r//"warp size:                   "//trim(str(     device_properties%warpSize                      ,.true.))
+   print'(A)',r//"max threads per block:       "//trim(str(     device_properties%maxThreadsPerBlock            ,.true.))
+   print'(A)',r//"max threads dim:             "//trim(str(     device_properties%maxThreadsDim                 ,.true.))
+   print'(A)',r//"clock rate:                  "//trim(str(real(device_properties%clockRate)/1e6                ,.true.))//" GHz"
+   print'(A)',r//"total const memory:          "//trim(str(     device_properties%totalConstMem                 ,.true.))//" bytes"
+   print'(A)',r//"compute capability revision: "//trim(str(    [device_properties%major,device_properties%minor],.true.))
+   print'(A)',r//"multi processor count:       "//trim(str(     device_properties%multiProcessorCount           ,.true.))
+   print'(A)',r//"L2 cache size:               "//trim(str(     device_properties%l2CacheSize                   ,.true.))
+   print'(A)',r//"max threads per SMP:         "//trim(str(     device_properties%maxThreadsPerMultiProcessor   ,.true.))
+   print'(A)',r//"device rank:                 "//trim(str(     self%mydev                                      ,.true.))
+   endassociate
+   endsubroutine print_device_properties
 
    subroutine update_ghost_local_gpu(self, q_gpu)
    !< Update (local) ghost cells.
@@ -1065,107 +974,310 @@ contains
                                                           1:) !< Field component to be updated.
    integer(I4P),           intent(in), optional  :: step      !< Step to be perfordmed in asyncronous comp.
 
-   if (size(q_gpu, dim=5)>1) then
-      call update_ghost_mpi_gpu_cuf(procs_number=self%field%procs_number,                           &
-                                    req_send_recv=self%field%req_send_recv,                         &
-                                    comm_map_send_ptr_ghost=self%field%comm_map_send_ptr_ghost,     &
-                                    comm_map_recv_ptr_ghost=self%field%comm_map_recv_ptr_ghost,     &
-                                    comm_map_send_ghost_cell_gpu=self%comm_map_send_ghost_cell_gpu, &
-                                    comm_map_recv_ghost_cell_gpu=self%comm_map_recv_ghost_cell_gpu, &
-                                    recv_buffer_ghost_gpu=self%recv_buffer_ghost_gpu,               &
-                                    send_buffer_ghost_gpu=self%send_buffer_ghost_gpu,               &
-                                    ngc=self%field%grid%ngc, q_gpu=q_gpu, step=step)
-
-   else
-      call update_ghost_mpi_gpu_cuf(procs_number=self%field%procs_number,                             &
-                                    req_send_recv=self%field%req_send_recv,                           &
-                                    comm_map_send_ptr_ghost=self%field%comm_map_send_ptr_ghost_s,     &
-                                    comm_map_recv_ptr_ghost=self%field%comm_map_recv_ptr_ghost_s,     &
-                                    comm_map_send_ghost_cell_gpu=self%comm_map_send_ghost_cell_s_gpu, &
-                                    comm_map_recv_ghost_cell_gpu=self%comm_map_recv_ghost_cell_s_gpu, &
-                                    recv_buffer_ghost_gpu=self%recv_buffer_ghost_s_gpu,               &
-                                    send_buffer_ghost_gpu=self%send_buffer_ghost_s_gpu,               &
-                                    ngc=self%field%grid%ngc, q_gpu=q_gpu, step=step)
-   endif
+   call update_ghost_mpi_gpu_cuf(procs_number=self%field%base_mpi%procs_number,                  &
+                                 req_send_recv=self%field%req_send_recv,                         &
+                                 comm_map_send_ptr_ghost=self%field%comm_map_send_ptr_ghost,     &
+                                 comm_map_recv_ptr_ghost=self%field%comm_map_recv_ptr_ghost,     &
+                                 comm_map_send_ghost_cell_gpu=self%comm_map_send_ghost_cell_gpu, &
+                                 comm_map_recv_ghost_cell_gpu=self%comm_map_recv_ghost_cell_gpu, &
+                                 recv_buffer_ghost_gpu=self%recv_buffer_ghost_gpu,               &
+                                 send_buffer_ghost_gpu=self%send_buffer_ghost_gpu,               &
+                                 ngc=self%field%grid%ngc, q_gpu=q_gpu, step=step)
    endsubroutine update_ghost_mpi_gpu
 
-   ! operators
-   ! =
-   subroutine base_assign_base(lhs, rhs)
-   !< Operator `=`.
-   class(base_gpu_object), intent(inout) :: lhs !< Left hand side.
-   type(base_gpu_object),  intent(in)    :: rhs !< Right hand side.
-
-   lhs%field => rhs%field
-   lhs%myrank = rhs%myrank
-   lhs%procs_number = rhs%procs_number
-   lhs%error = rhs%error
-   call assign_allocatable(lhs=lhs%req_send_recv, rhs=rhs%req_send_recv)
-   call assign_allocatable(lhs=lhs%q_t,           rhs=rhs%q_t          )
-   call assign_allocatable_gpu(lhs=lhs%q_t_gpu,                 rhs=rhs%q_t_gpu                )
-   call assign_allocatable_gpu(lhs=lhs%local_map_ghost_gpu    , rhs=rhs%local_map_ghost_gpu    )
-   call assign_allocatable_gpu(lhs=lhs%comm_map_recv_ghost_gpu, rhs=rhs%comm_map_recv_ghost_gpu)
-   call assign_allocatable_gpu(lhs=lhs%comm_map_send_ghost_gpu, rhs=rhs%comm_map_send_ghost_gpu)
-   call assign_allocatable_gpu(lhs=lhs%send_buffer_ghost_gpu  , rhs=rhs%send_buffer_ghost_gpu  )
-   call assign_allocatable_gpu(lhs=lhs%recv_buffer_ghost_gpu  , rhs=rhs%recv_buffer_ghost_gpu  )
-   endsubroutine base_assign_base
-
    ! private methods
-   subroutine copy_transpose_cpu_gpu(self, q_cpu, q_gpu)
-   !< Copy transposed data from CPU to GPU.
-   !< This routine is called by equation typically passing either q_gpu (belonging to this base_gpu type)
-   !< or q_aux_gpu (belonging to equation itself type)
-   class(base_gpu_object), intent(inout)       :: self          !< The equation.
-   real(R8P),              intent(in)          :: q_cpu(1:,                    &
-                                                        1-self%field%grid%ngc:,&
-                                                        1-self%field%grid%ngc:,&
-                                                        1-self%field%grid%ngc:,&
-                                                        1:)     !< Conservative variables on CPU.
-   real(R8P),              intent(out), device :: q_gpu(1:,                    &
-                                                       1-self%field%grid%ngc:,&
-                                                       1-self%field%grid%ngc:,&
-                                                       1-self%field%grid%ngc:,&
-                                                       1:)      !< Conservative variables on GPU.
-   integer(I4P)                                :: i, j, k, b, v !< Counter.
-   associate(blocks_number=>self%field%blocks_number,                                      &
-             ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,       &
-             ngc=>self%field%grid%ngc, nv=>self%field%nv, q_t=>self%q_t)
-      do b=1, blocks_number
-         do k=1-ngc, nk+ngc
-            do j=1-ngc, nj+ngc
-               do i=1-ngc, ni+ngc
-                  do v=1, nv
-                     q_t(b,i,j,k,v) = q_cpu(v,i,j,k,b)
-                  enddo
-               enddo
-            enddo
-         enddo
-      enddo
-      q_gpu = q_t
-   endassociate
-   endsubroutine copy_transpose_cpu_gpu
+   subroutine alloc_var_gpu_R8P_1D(self, var, ulb, msg, verbose)
+   !< Allocate GPU variable with memory checking (kind R8P, rank 1).
+   class(base_gpu_object), intent(inout)         :: self                !< The base backend.
+   real(R8P), allocatable, intent(inout), device :: var(:)              !< Varibale to be allocate on GPU.
+   integer(I4P),           intent(in)            :: ulb(2)              !< Upper/lower bounds of variable.
+   character(*),           intent(in), optional  :: msg                 !< Message to be printed in verbose mode.
+   logical,                intent(in), optional  :: verbose             !< Flag to activate verbose mode.
+   character(:), allocatable                     :: msg_                !< Message to be printed in verbose mode, local var.
+   logical                                       :: verbose_            !< Flag to activate verbose mode, local var.
+   integer(cuda_count_kind)                      :: mem_free, mem_total !< Device memory.
 
-   subroutine copy_transpose_gpu_cpu(self, nv, q_gpu, q_cpu)
-   !< Copy transposed data from GPU to CPU.
-   class(base_gpu_object), intent(inout)      :: self      !< The equation.
-   integer(I4P),           intent(in)         :: nv        !< Number of conservative varibales.
-   real(R8P),              intent(in), device :: q_gpu(1:,                    &
-                                                       1-self%field%grid%ngc:,&
-                                                       1-self%field%grid%ngc:,&
-                                                       1-self%field%grid%ngc:,&
-                                                       1:) !< Conservative variables on GPU.
-   real(R8P),              intent(out)        :: q_cpu(1:,                    &
-                                                       1-self%field%grid%ngc:,&
-                                                       1-self%field%grid%ngc:,&
-                                                       1-self%field%grid%ngc:,&
-                                                       1:) !< Conservative variables on CPU.
-   associate(blocks_number=>self%field%blocks_number,                                      &
-             ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk,       &
-             ngc=>self%field%grid%ngc)
-      call copy_transpose_gpu_cpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
-                                      q_gpu=q_gpu, q_t_gpu=self%q_t_gpu, q_cpu=q_cpu)
-   endassociate
-   endsubroutine copy_transpose_gpu_cpu
+   msg_     = ''      ; if (present(msg    )) msg_     = msg
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   if (allocated(var)) deallocate(var)
+   if (verbose_) then
+      self%base_mpi%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%base_mpi%myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+   endif
+   allocate(var(ulb(1):ulb(2)))
+   if (verbose_) then
+      self%base_mpi%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%base_mpi%myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+   endif
+   endsubroutine alloc_var_gpu_R8P_1D
+
+   subroutine alloc_var_gpu_R8P_2D(self, var, ulb, msg, verbose)
+   !< Allocate GPU variable with memory checking (kind R8P, rank 2).
+   class(base_gpu_object), intent(inout)         :: self                !< The base backend.
+   real(R8P), allocatable, intent(inout), device :: var(:,:)            !< Varibale to be allocate on GPU.
+   integer(I4P),           intent(in)            :: ulb(2,2)            !< Upper/lower bounds of variable.
+   character(*),           intent(in), optional  :: msg                 !< Message to be printed in verbose mode.
+   logical,                intent(in), optional  :: verbose             !< Flag to activate verbose mode.
+   character(:), allocatable                     :: msg_                !< Message to be printed in verbose mode, local var.
+   logical                                       :: verbose_            !< Flag to activate verbose mode, local var.
+   integer(cuda_count_kind)                      :: mem_free, mem_total !< Device memory.
+
+   msg_     = ''      ; if (present(msg    )) msg_     = msg
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   if (allocated(var)) deallocate(var)
+   if (verbose_) then
+      self%base_mpi%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%base_mpi%myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+   endif
+   allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2)))
+   if (verbose_) then
+      self%base_mpi%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%base_mpi%myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+   endif
+   endsubroutine alloc_var_gpu_R8P_2D
+
+   subroutine alloc_var_gpu_R8P_5D(self, var, ulb, msg, verbose)
+   !< Allocate GPU variable with memory checking (kind R8P, rank 5).
+   class(base_gpu_object), intent(inout)         :: self                !< The base backend.
+   real(R8P), allocatable, intent(inout), device :: var(:,:,:,:,:)      !< Varibale to be allocate on GPU.
+   integer(I4P),           intent(in)            :: ulb(2,5)            !< Upper/lower bounds of variable.
+   character(*),           intent(in), optional  :: msg                 !< Message to be printed in verbose mode.
+   logical,                intent(in), optional  :: verbose             !< Flag to activate verbose mode.
+   character(:), allocatable                     :: msg_                !< Message to be printed in verbose mode, local var.
+   logical                                       :: verbose_            !< Flag to activate verbose mode, local var.
+   integer(cuda_count_kind)                      :: mem_free, mem_total !< Device memory.
+
+   msg_     = ''      ; if (present(msg    )) msg_     = msg
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   if (allocated(var)) deallocate(var)
+   if (verbose_) then
+      self%base_mpi%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%base_mpi%myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+   endif
+   allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2), ulb(1,3):ulb(2,3), ulb(1,4):ulb(2,4), ulb(1,5):ulb(2,5)))
+   if (verbose_) then
+      self%base_mpi%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%base_mpi%myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+   endif
+   endsubroutine alloc_var_gpu_R8P_5D
+
+   subroutine alloc_var_gpu_I4P_1D(self, var, ulb, msg, verbose)
+   !< Allocate GPU variable with memory checking (kind I4P, rank 1).
+   class(base_gpu_object),    intent(inout)         :: self                !< The base backend.
+   integer(I4P), allocatable, intent(inout), device :: var(:)              !< Varibale to be allocate on GPU.
+   integer(I4P),              intent(in)            :: ulb(2)              !< Upper/lower bounds of variable.
+   character(*),              intent(in), optional  :: msg                 !< Message to be printed in verbose mode.
+   logical,                   intent(in), optional  :: verbose             !< Flag to activate verbose mode.
+   character(:), allocatable                        :: msg_                !< Message to be printed in verbose mode, local var.
+   logical                                          :: verbose_            !< Flag to activate verbose mode, local var.
+   integer(cuda_count_kind)                         :: mem_free, mem_total !< Device memory.
+
+   msg_     = ''      ; if (present(msg    )) msg_     = msg
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   if (allocated(var)) deallocate(var)
+   if (verbose_) then
+      self%base_mpi%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%base_mpi%myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+   endif
+   allocate(var(ulb(1):ulb(2)))
+   if (verbose_) then
+      self%base_mpi%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%base_mpi%myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+   endif
+   endsubroutine alloc_var_gpu_I4P_1D
+
+   subroutine alloc_var_gpu_I8P_1D(self, var, ulb, msg, verbose)
+   !< Allocate GPU variable with memory checking (kind I8P, rank 1).
+   class(base_gpu_object),    intent(inout)         :: self                !< The base backend.
+   integer(I8P), allocatable, intent(inout), device :: var(:)              !< Varibale to be allocate on GPU.
+   integer(I4P),              intent(in)            :: ulb(2)              !< Upper/lower bounds of variable.
+   character(*),              intent(in), optional  :: msg                 !< Message to be printed in verbose mode.
+   logical,                   intent(in), optional  :: verbose             !< Flag to activate verbose mode.
+   character(:), allocatable                        :: msg_                !< Message to be printed in verbose mode, local var.
+   logical                                          :: verbose_            !< Flag to activate verbose mode, local var.
+   integer(cuda_count_kind)                         :: mem_free, mem_total !< Device memory.
+
+   msg_     = ''      ; if (present(msg    )) msg_     = msg
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   if (allocated(var)) deallocate(var)
+   if (verbose_) then
+      self%base_mpi%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%base_mpi%myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+   endif
+   allocate(var(ulb(1):ulb(2)))
+   if (verbose_) then
+      self%base_mpi%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%base_mpi%myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+   endif
+   endsubroutine alloc_var_gpu_I8P_1D
+
+   subroutine alloc_var_gpu_I8P_2D(self, var, ulb, msg, verbose)
+   !< Allocate GPU variable with memory checking (kind I8P, rank 2).
+   class(base_gpu_object),    intent(inout)         :: self                !< The base backend.
+   integer(I8P), allocatable, intent(inout), device :: var(:,:)            !< Varibale to be allocate on GPU.
+   integer(I4P),              intent(in)            :: ulb(2,2)            !< Upper/lower bounds of variable.
+   character(*),              intent(in), optional  :: msg                 !< Message to be printed in verbose mode.
+   logical,                   intent(in), optional  :: verbose             !< Flag to activate verbose mode.
+   character(:), allocatable                        :: msg_                !< Message to be printed in verbose mode, local var.
+   logical                                          :: verbose_            !< Flag to activate verbose mode, local var.
+   integer(cuda_count_kind)                         :: mem_free, mem_total !< Device memory.
+
+   msg_     = ''      ; if (present(msg    )) msg_     = msg
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   if (allocated(var)) deallocate(var)
+   if (verbose_) then
+      self%base_mpi%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%base_mpi%myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+   endif
+   allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2)))
+   if (verbose_) then
+      self%base_mpi%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%base_mpi%myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+   endif
+   endsubroutine alloc_var_gpu_I8P_2D
+
+   subroutine alloc_var_gpu_I8P_3D(self, var, ulb, msg, verbose)
+   !< Allocate GPU variable with memory checking (kind I8P, rank 3).
+   class(base_gpu_object),    intent(inout)         :: self                !< The base backend.
+   integer(I8P), allocatable, intent(inout), device :: var(:,:,:)          !< Varibale to be allocate on GPU.
+   integer(I4P),              intent(in)            :: ulb(2,3)            !< Upper/lower bounds of variable.
+   character(*),              intent(in), optional  :: msg                 !< Message to be printed in verbose mode.
+   logical,                   intent(in), optional  :: verbose             !< Flag to activate verbose mode.
+   character(:), allocatable                        :: msg_                !< Message to be printed in verbose mode, local var.
+   logical                                          :: verbose_            !< Flag to activate verbose mode, local var.
+   integer(cuda_count_kind)                         :: mem_free, mem_total !< Device memory.
+
+   msg_     = ''      ; if (present(msg    )) msg_     = msg
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   if (allocated(var)) deallocate(var)
+   if (verbose_) then
+      self%base_mpi%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%base_mpi%myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+   endif
+   allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2), ulb(1,3):ulb(2,3)))
+   if (verbose_) then
+      self%base_mpi%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%base_mpi%myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+   endif
+   endsubroutine alloc_var_gpu_I8P_3D
+
+   subroutine assign_var_gpu_R8P_1D(self, var, ulb, rhs, msg, verbose)
+   !< Assign GPU variable with memory checking (kind R8P, rank 1).
+   !< Variable is returned not allocated if right hand side is not allocated.
+   class(base_gpu_object), intent(inout)         :: self               !< The base backend.
+   real(R8P), allocatable, intent(inout), device :: var(:)             !< Varibale to be allocate on GPU.
+   integer(I4P),           intent(in)            :: ulb(2)             !< Upper/lower bounds of rhs.
+   real(R8P),              intent(in)            :: rhs(ulb(1):ulb(2)) !< Right hand side of assignement.
+   character(*),           intent(in), optional  :: msg                !< Message to be printed in verbose mode.
+   logical,                intent(in), optional  :: verbose            !< Flag to activate verbose mode.
+
+   if (allocated(var)) deallocate(var)
+   if (size(rhs, dim=1)>0) then
+      call self%alloc_var_gpu(var=var, ulb=ulb, msg=msg, verbose=verbose)
+      var = rhs
+   endif
+   endsubroutine assign_var_gpu_R8P_1D
+
+   subroutine assign_var_gpu_R8P_2D(self, var, ulb, rhs, transposed, msg, verbose)
+   !< Assign GPU variable with memory checking (kind R8P, rank 2).
+   !< Variable is returned not allocated if right hand side is not allocated.
+   class(base_gpu_object), intent(inout)         :: self                   !< The base backend.
+   real(R8P), allocatable, intent(inout), device :: var(:,:)               !< Varibale to be allocate on GPU.
+   integer(I4P),           intent(in)            :: ulb(2,2)               !< Upper/lower bounds of rhs.
+   real(R8P),              intent(in)            :: rhs(ulb(1,1):ulb(2,1), &
+                                                        ulb(1,2):ulb(2,2)) !< Right hand side of assignement.
+   logical,                intent(in), optional  :: transposed             !< Assign trasposed rhs.
+   character(*),           intent(in), optional  :: msg                    !< Message to be printed in verbose mode.
+   logical,                intent(in), optional  :: verbose                !< Flag to activate verbose mode.
+   logical                                       :: transposed_            !< Assign trasposed rhs, local var.
+   real(R8P), allocatable                        :: rhst(:,:)              !< Right hand side transposed.
+
+   if (allocated(var)) deallocate(var)
+   if (size(rhs, dim=1)*size(rhs, dim=2)>0) then
+      transposed_ = .false. ; if (present(transposed)) transposed_ = transposed
+      if (transposed_) then
+         allocate(rhst(ulb(1,2):ulb(2,2),ulb(1,1):ulb(2,1)))
+         call self%alloc_var_gpu(var=var, ulb=reshape([ulb(1,2),ulb(2,2),ulb(1,1),ulb(2,1)],[2,2]), msg=msg, verbose=verbose)
+         call transpose_a(ii=ulb(:,1), jj=ulb(:,2), a=rhs, t=rhst)
+         var = rhst
+         deallocate(rhst)
+      else
+         call self%alloc_var_gpu(var=var, ulb=ulb, msg=msg, verbose=verbose)
+         var = rhs
+      endif
+   endif
+   endsubroutine assign_var_gpu_R8P_2D
+
+   subroutine assign_var_gpu_I4P_1D(self, var, ulb, rhs, msg, verbose)
+   !< Assign GPU variable with memory checking (kind I4P, rank 1).
+   !< Variable is returned not allocated if right hand side is not allocated.
+   class(base_gpu_object),    intent(inout)         :: self               !< The base backend.
+   integer(I4P), allocatable, intent(inout), device :: var(:)             !< Varibale to be allocate on GPU.
+   integer(I4P),              intent(in)            :: ulb(2)             !< Upper/lower bounds of rhs.
+   integer(I4P),              intent(in)            :: rhs(ulb(1):ulb(2)) !< Right hand side of assignement.
+   character(*),              intent(in), optional  :: msg                !< Message to be printed in verbose mode.
+   logical,                   intent(in), optional  :: verbose            !< Flag to activate verbose mode.
+
+   if (allocated(var)) deallocate(var)
+   if (size(rhs, dim=1)>0) then
+      call self%alloc_var_gpu(var=var, ulb=ulb, msg=msg, verbose=verbose)
+      var = rhs
+   endif
+   endsubroutine assign_var_gpu_I4P_1D
+
+   subroutine assign_var_gpu_I8P_1D(self, var, ulb, rhs, msg, verbose)
+   !< Assign GPU variable with memory checking (kind I8P, rank 1).
+   !< Variable is returned not allocated if right hand side is not allocated.
+   class(base_gpu_object),    intent(inout)         :: self               !< The base backend.
+   integer(I8P), allocatable, intent(inout), device :: var(:)             !< Varibale to be allocate on GPU.
+   integer(I4P),              intent(in)            :: ulb(2)             !< Upper/lower bounds of rhs.
+   integer(I8P),              intent(in)            :: rhs(ulb(1):ulb(2)) !< Right hand side of assignement.
+   character(*),              intent(in), optional  :: msg                !< Message to be printed in verbose mode.
+   logical,                   intent(in), optional  :: verbose            !< Flag to activate verbose mode.
+
+   if (allocated(var)) deallocate(var)
+   if (size(rhs, dim=1)>0) then
+      call self%alloc_var_gpu(var=var, ulb=ulb, msg=msg, verbose=verbose)
+      var = rhs
+   endif
+   endsubroutine assign_var_gpu_I8P_1D
+
+   subroutine assign_var_gpu_I8P_2D(self, var, ulb, rhs, msg, verbose)
+   !< Assign GPU variable with memory checking (kind I8P, rank 2).
+   !< Variable is returned not allocated if right hand side is not allocated.
+   class(base_gpu_object),    intent(inout)         :: self                   !< The base backend.
+   integer(I8P), allocatable, intent(inout), device :: var(:,:)               !< Varibale to be allocate on GPU.
+   integer(I4P),              intent(in)            :: ulb(2,2)               !< Upper/lower bounds of rhs.
+   integer(I8P),              intent(in)            :: rhs(ulb(1,1):ulb(2,1), &
+                                                           ulb(1,2):ulb(2,2)) !< Right hand side of assignement.
+   character(*),              intent(in), optional  :: msg                    !< Message to be printed in verbose mode.
+   logical,                   intent(in), optional  :: verbose                !< Flag to activate verbose mode.
+
+   if (allocated(var)) deallocate(var)
+   if (size(rhs, dim=1)*size(rhs, dim=2)>0) then
+      call self%alloc_var_gpu(var=var, ulb=ulb, msg=msg, verbose=verbose)
+      var = rhs
+   endif
+   endsubroutine assign_var_gpu_I8P_2D
+
+   subroutine assign_var_gpu_I8P_3D(self, var, ulb, rhs, msg, verbose)
+   !< Assign GPU variable with memory checking (kind I8P, rank 3).
+   !< Variable is returned not allocated if right hand side is not allocated.
+   class(base_gpu_object),    intent(inout)         :: self                   !< The base backend.
+   integer(I8P), allocatable, intent(inout), device :: var(:,:,:)             !< Varibale to be allocate on GPU.
+   integer(I4P),              intent(in)            :: ulb(2,3)               !< Upper/lower bounds of rhs.
+   integer(I8P),              intent(in)            :: rhs(ulb(1,1):ulb(2,1), &
+                                                           ulb(1,2):ulb(2,2), &
+                                                           ulb(1,3):ulb(2,3)) !< Right hand side of assignement.
+   character(*),              intent(in), optional  :: msg                    !< Message to be printed in verbose mode.
+   logical,                   intent(in), optional  :: verbose                !< Flag to activate verbose mode.
+
+   if (allocated(var)) deallocate(var)
+   if (size(rhs, dim=1)*size(rhs, dim=2)*size(rhs, dim=3)>0) then
+      call self%alloc_var_gpu(var=var, ulb=ulb, msg=msg, verbose=verbose)
+      var = rhs
+   endif
+   endsubroutine assign_var_gpu_I8P_3D
 
    ! non TBP CUF methods
    subroutine copy_transpose_gpu_cpu_cuf(ni, nj, nk, ngc, nv, blocks_number, q_gpu, q_t_gpu, q_cpu)
@@ -1192,9 +1304,15 @@ contains
                                                 1-ngc:,&
                                                 1:)     !< Conservative variables on CPU.
    integer(I4P)                        :: i, j, k, b, v !< Counter.
+   integer(I4P)                        :: error         !< Error traping flag.
    integer(I4P)                        :: iercuda       !< Error trapping flag for CUDAFortran.
 
-   !real(R8P),   allocatable            :: q_cpu_temp(:,:,:,:,:)
+   iercuda = cudaGetLastError()
+   if (iercuda /= cudaSuccess) then
+      write(stderr, '(A)') 'base_gpu%copy_transpose_gpu_cpu_cuf start, cuda ERROR: '//cudaGetErrorString(iercuda)
+      call MPI_Abort(MPI_COMM_WORLD, -15, error)
+      stop
+   endif
 
    !$cuf kernel do(4) <<<*,*>>>
    do k=1-ngc, nk+ngc
@@ -1210,15 +1328,16 @@ contains
    enddo
    !@cuf iercuda=cudaDeviceSynchronize()
 
-   !RIMETTEREFORSE INVECE DI SOTTOq_cpu(:,:,:,:,:) = q_t_gpu
    ! q_t_gpu has nv_aux variables which can be larger than local nv (i.e., nv or nv_aux)
    ! q_cpu   has local nv variables which is lower than nv_aux
    q_cpu(1:nv,:,:,:,1:blocks_number) = q_t_gpu(1:nv,:,:,:,1:blocks_number)
 
-   !allocate(q_cpu_temp(1:9, -1:18, -1:18, -1:18, size(q_cpu, dim=5)))
-   !q_cpu_temp = q_t_gpu
-   !q_cpu = q_cpu_temp(1:nv,:,:,:,:)
-   !deallocate(q_cpu_temp)
+   iercuda = cudaGetLastError()
+   if (iercuda /= cudaSuccess) then
+      write(stderr, '(A)') 'base_gpu%copy_transpose_gpu_cpu_cuf finish, cuda ERROR: '//cudaGetErrorString(iercuda)
+      call MPI_Abort(MPI_COMM_WORLD, -15, error)
+      stop
+   endif
    endsubroutine copy_transpose_gpu_cpu_cuf
 
    subroutine update_ghost_local_gpu_cuf(ngc, local_map_ghost_cell_gpu, q_gpu)
@@ -1239,15 +1358,16 @@ contains
    integer(I4P)                                     :: j_send                        !< J send index.
    integer(I4P)                                     :: k_send                        !< K send index.
    integer(I4P)                                     :: one_or_eight                  !< Flag triggering 8 cells mean.
+   integer(I4P)                                     :: error                         !< Error traping flag.
    integer(I4P)                                     :: iercuda                       !< Error trapping flag for CUDAFortran.
-   integer(I4P)                                     :: error                         !< Error trapping flag for CUDAFortran.
 
-      error = cudaGetLastError()
-      if(error /= cudaSuccess) then
-         print*,'BEFORE LOCAL POST FRA CUDA ERROR ',cudaGetErrorString(error)
-         call MPI_Abort(MPI_COMM_WORLD, -15,error)
-         STOP
-      endif
+   iercuda = cudaGetLastError()
+   if (iercuda /= cudaSuccess) then
+      write(stderr, '(A)') 'base_gpu%update_ghost_local_gpu_cuf start, cuda ERROR: '//cudaGetErrorString(iercuda)
+      call MPI_Abort(MPI_COMM_WORLD, -15, error)
+      stop
+   endif
+
    if (.not.allocated(local_map_ghost_cell_gpu)) return
    !$cuf kernel do(2) <<<*,*>>>
    do v=1, size(q_gpu, dim=5)
@@ -1275,42 +1395,50 @@ contains
    enddo
    !@cuf iercuda=cudaDeviceSynchronize()
 
-   error = cudaGetLastError()
-   if(error /= cudaSuccess) then
-      print*,'LOCAL POST FRA CUDA ERROR ',cudaGetErrorString(error)
-      call MPI_Abort(MPI_COMM_WORLD, -15,error)
-      STOP
+   iercuda = cudaGetLastError()
+   if (iercuda /= cudaSuccess) then
+      write(stderr, '(A)') 'base_gpu%update_ghost_local_gpu_cuf finish, cuda ERROR: '//cudaGetErrorString(iercuda)
+      call MPI_Abort(MPI_COMM_WORLD, -15, error)
+      stop
    endif
    endsubroutine update_ghost_local_gpu_cuf
 
    subroutine update_ghost_fluxes_local_gpu_cuf(ngc, local_map_ghost_fluxes_cell_gpu, flx_gpu, fly_gpu, flz_gpu)
-   !< Update (local) ghost cells.
-   integer(I4P), intent(in)                         :: ngc                           !< Ghost cells number.
+   !< Update (local) ghost fluxes cells.
+   integer(I4P), intent(in)                         :: ngc                                  !< Ghost cells number.
    integer(I8P), intent(in),    device, allocatable :: local_map_ghost_fluxes_cell_gpu(:,:) !< Local map of ghost cells.
    real(R8P),    intent(inout), device              :: flx_gpu(1:,    &
                                                                1-ngc:,&
                                                                1-ngc:,&
-                                                               1-ngc:,1:)            !< Field component to be updated.
+                                                               1-ngc:,1:)                   !< Field component to be updated.
    real(R8P),    intent(inout), device              :: fly_gpu(1:,    &
                                                                1-ngc:,&
                                                                1-ngc:,&
-                                                               1-ngc:,1:)            !< Field component to be updated.
+                                                               1-ngc:,1:)                   !< Field component to be updated.
    real(R8P),    intent(inout), device              :: flz_gpu(1:,    &
                                                                1-ngc:,&
                                                                1-ngc:,&
-                                                               1-ngc:,1:)            !< Field component to be updated.
-   integer(I4P)                                     :: ic, jc, kc, mf, v             !< Counter.
-   integer(I4P)                                     :: b_recv                        !< Index of receiving block.
-   integer(I4P)                                     :: b_send                        !< Index of sending block.
-   integer(I4P)                                     :: i_recv                        !< I recv index.
-   integer(I4P)                                     :: j_recv                        !< J recv index.
-   integer(I4P)                                     :: k_recv                        !< K recv index.
-   integer(I4P)                                     :: i_send                        !< I send index.
-   integer(I4P)                                     :: j_send                        !< J send index.
-   integer(I4P)                                     :: k_send                        !< K send index.
-   integer(I4P)                                     :: one_or_eight                  !< Flag triggering 8 cells mean.
-   integer(I4P)                                     :: iercuda                       !< Error trapping flag for CUDAFortran.
-   integer(I4P)                                     :: fec                           !< Ghost type.
+                                                               1-ngc:,1:)                   !< Field component to be updated.
+   integer(I4P)                                     :: ic, jc, kc, mf, v                    !< Counter.
+   integer(I4P)                                     :: b_recv                               !< Index of receiving block.
+   integer(I4P)                                     :: b_send                               !< Index of sending block.
+   integer(I4P)                                     :: i_recv                               !< I recv index.
+   integer(I4P)                                     :: j_recv                               !< J recv index.
+   integer(I4P)                                     :: k_recv                               !< K recv index.
+   integer(I4P)                                     :: i_send                               !< I send index.
+   integer(I4P)                                     :: j_send                               !< J send index.
+   integer(I4P)                                     :: k_send                               !< K send index.
+   integer(I4P)                                     :: one_or_eight                         !< Flag triggering 8 cells mean.
+   integer(I4P)                                     :: error                                !< Error traping flag.
+   integer(I4P)                                     :: iercuda                              !< Error trapping flag for CUDAFortran.
+   integer(I4P)                                     :: fec                                  !< Ghost type.
+
+   iercuda = cudaGetLastError()
+   if (iercuda /= cudaSuccess) then
+      write(stderr, '(A)') 'base_gpu%update_ghost_fluxes_local_gpu_cuf start, cuda ERROR: '//cudaGetErrorString(iercuda)
+      call MPI_Abort(MPI_COMM_WORLD, -15, error)
+      stop
+   endif
 
    if (.not.allocated(local_map_ghost_fluxes_cell_gpu)) return
    !$cuf kernel do(2) <<<*,*>>>
@@ -1352,6 +1480,13 @@ contains
       enddo
    enddo
    !@cuf iercuda=cudaDeviceSynchronize()
+
+   iercuda = cudaGetLastError()
+   if (iercuda /= cudaSuccess) then
+      write(stderr, '(A)') 'base_gpu%update_ghost_fluxes_local_gpu_cuf finish, cuda ERROR: '//cudaGetErrorString(iercuda)
+      call MPI_Abort(MPI_COMM_WORLD, -15, error)
+      stop
+   endif
    endsubroutine update_ghost_fluxes_local_gpu_cuf
 
    subroutine update_ghost_mpi_gpu_cuf(ngc, procs_number, req_send_recv,                           &
@@ -1359,40 +1494,44 @@ contains
                                        comm_map_recv_ghost_cell_gpu, comm_map_send_ghost_cell_gpu, &
                                        recv_buffer_ghost_gpu, send_buffer_ghost_gpu , q_gpu, step)
    !< Update ghost cells within other processes.
-   integer(I4P), intent(in)                         :: ngc                               !< Ghost cells number.
-   integer(I4P),              intent(in)            :: procs_number                      !< Number of MPI processes.
-   integer(I4P), allocatable, intent(inout)         :: req_send_recv(:)                  !< MPI request receive flags.
-   integer(I4P), allocatable, intent(in)            :: comm_map_send_ptr_ghost(:)        !< Communication map, pntrs list to send.
-   integer(I4P), allocatable, intent(in)            :: comm_map_recv_ptr_ghost(:)        !< Communication map, pntrs list to recv.
-   integer(I8P), allocatable, intent(in),    device :: comm_map_recv_ghost_cell_gpu(:,:) !< Communication map, cell information.
-   integer(I8P), allocatable, intent(in),    device :: comm_map_send_ghost_cell_gpu(:,:) !< Communication map, cell information.
-   real(R8P),    allocatable, intent(inout), device :: recv_buffer_ghost_gpu(:)          !< Receive buffer of ghost cells.
-   real(R8P),    allocatable, intent(inout), device :: send_buffer_ghost_gpu(:)          !< Send buffer of ghost cells.
+   integer(I4P), intent(in)                         :: ngc                                    !< Ghost cells number.
+   integer(I4P),              intent(in)            :: procs_number                           !< Number of MPI processes.
+   integer(I4P), allocatable, intent(inout)         :: req_send_recv(:)                       !< MPI request receive flags.
+   integer(I4P), allocatable, intent(in)            :: comm_map_send_ptr_ghost(:)             !< Comm map, pntrs list to send.
+   integer(I4P), allocatable, intent(in)            :: comm_map_recv_ptr_ghost(:)             !< Comm map, pntrs list to recv.
+   integer(I8P), allocatable, intent(in),    device :: comm_map_recv_ghost_cell_gpu(:,:)      !< Comm map, cell information.
+   integer(I8P), allocatable, intent(in),    device :: comm_map_send_ghost_cell_gpu(:,:)      !< Comm map, cell information.
+   real(R8P),    allocatable, intent(inout), device :: recv_buffer_ghost_gpu(:)               !< Receive buffer of ghost cells.
+   real(R8P),    allocatable, intent(inout), device :: send_buffer_ghost_gpu(:)               !< Send buffer of ghost cells.
    real(R8P),                 intent(inout), device :: q_gpu(1:,    &
                                                              1-ngc:,&
                                                              1-ngc:,&
                                                              1-ngc:,&
-                                                             1:)                    !< Field component to be updated.
-   integer(I4P),              intent(in), optional  :: step                         !< Step to be perfordmed in asyncronous comp.
-   logical                                          :: do_step(3)                   !< Steps to be performed in asyncronous comp.
-   integer(I4P)                                     :: i, j, k                      !< Counter.
-   integer(I4P)                                     :: ic, jc, kc                   !< Counter.
-   integer(I4P)                                     :: fec, mf, rf, sf, n, p, v     !< Counter.
-   integer(I4P)                                     :: portion                      !< Portion of fec updated (0=>whole fec).
+                                                             1:)                              !< Field component to be updated.
+   integer(I4P),              intent(in), optional  :: step                                   !< Step performed in async comp.
+   logical                                          :: do_step(3)                             !< Steps performed in async comp.
+   integer(I4P)                                     :: i, j, k                                !< Counter.
+   integer(I4P)                                     :: ic, jc, kc                             !< Counter.
+   integer(I4P)                                     :: fec, mf, rf, sf, n, p, v               !< Counter.
+   integer(I4P)                                     :: portion                                !< Portion of fec updated (0=>whole).
    integer(I4P)                                     :: b_send, i_send, j_send, k_send, v_send !< Send indexes.
    integer(I4P)                                     :: b_recv, i_recv, j_recv, k_recv, v_recv !< Receive indexes.
-   integer(I4P)                                     :: ptr_start, ptr_end           !< Counter.
-   integer(I4P)                                     :: n_recv, n_send               !< Counter.
-   integer(I4P)                                     :: recv_rank                    !< Rank of receiving block.
-   integer(I4P)                                     :: error                        !< Error traping flag.
-   integer(I4P)                                     :: send_ptr, send_ctr           !< Counter.
-   integer(I4P)                                     :: recv_ptr, recv_ctr           !< Counter.
-   integer(I4P)                                     :: c_send, c_recv               !< Counter.
-   integer(I4P)                                     :: one_or_eight                 !< Flag triggering 8 cells mean.
-   integer(I4P)                                     :: iercuda                      !< Error trapping flag for CUDAFortran.
+   integer(I4P)                                     :: ptr_start, ptr_end                     !< Counter.
+   integer(I4P)                                     :: n_recv, n_send                         !< Counter.
+   integer(I4P)                                     :: recv_rank                              !< Rank of receiving block.
+   integer(I4P)                                     :: send_ptr, send_ctr                     !< Counter.
+   integer(I4P)                                     :: recv_ptr, recv_ctr                     !< Counter.
+   integer(I4P)                                     :: c_send, c_recv                         !< Counter.
+   integer(I4P)                                     :: one_or_eight                           !< Flag triggering 8 cells mean.
+   integer(I4P)                                     :: error                                  !< Error traping flag.
+   integer(I4P)                                     :: iercuda                                !< Error trapping flag for CUDAFor.
 
-   !RIMETTEREif ((.not.allocated(comm_map_recv_ghost_cell_gpu)).and.&
-   !RIMETTERE    (.not.allocated(comm_map_send_ghost_cell_gpu))) return
+   iercuda = cudaGetLastError()
+   if (iercuda /= cudaSuccess) then
+      write(stderr, '(A)') 'base_gpu%update_ghost_mpi_gpu_cuf start, cuda ERROR: '//cudaGetErrorString(iercuda)
+      call MPI_Abort(MPI_COMM_WORLD, -15, iercuda)
+      stop
+   endif
 
    do_step = .true.
    if (present(step)) then
@@ -1403,11 +1542,11 @@ contains
    if (do_step(1)) then
       req_send_recv = MPI_REQUEST_NULL
 
-      error = cudaGetLastError()
-      if(error /= cudaSuccess) then
-         print*,'BEFORE FRA CUDA ERROR ',cudaGetErrorString(error)
-         call MPI_Abort(MPI_COMM_WORLD, -15,error)
-         STOP
+      iercuda = cudaGetLastError()
+      if (iercuda /= cudaSuccess) then
+         write(stderr, '(A)') 'base_gpu%update_ghost_mpi_gpu_cuf before send buffer fill, cuda ERROR: '//cudaGetErrorString(iercuda)
+         call MPI_Abort(MPI_COMM_WORLD, -15, iercuda)
+         stop
       endif
 
       ! populate send buffer
@@ -1431,16 +1570,15 @@ contains
                enddo ; enddo ; enddo
                send_buffer_ghost_gpu(c_recv) = send_buffer_ghost_gpu(c_recv) * 0.125_R8P
             endif
-            !debugsend_buffer_ghost_gpu(1) = 1.0 ! RIMETTERE SENZA
          enddo
          !@cuf iercuda=cudaDeviceSynchronize()
       endif
 
-      error = cudaGetLastError()
-      if(error /= cudaSuccess) then
-         print*,'FRA CUDA ERROR ',cudaGetErrorString(error)
-         call MPI_Abort(MPI_COMM_WORLD, -15,error)
-         STOP
+      iercuda = cudaGetLastError()
+      if (iercuda /= cudaSuccess) then
+         write(stderr, '(A)') 'base_gpu%update_ghost_mpi_gpu_cuf after send buffer fill, cuda ERROR: '//cudaGetErrorString(iercuda)
+         call MPI_Abort(MPI_COMM_WORLD, -15, error)
+         stop
       endif
    endif
 
@@ -1490,149 +1628,27 @@ contains
       endif
    endif
    call MPI_Barrier(MPI_COMM_WORLD, error)
+
+   iercuda = cudaGetLastError()
+   if (iercuda /= cudaSuccess) then
+      write(stderr, '(A)') 'base_gpu%update_ghost_mpi_gpu_cuf finish, cuda ERROR: '//cudaGetErrorString(iercuda)
+      call MPI_Abort(MPI_COMM_WORLD, -15, error)
+      stop
+   endif
    endsubroutine update_ghost_mpi_gpu_cuf
 
    ! non TBP
-   subroutine print_device_properties(self, device_properties)
-   !< Pretty print device properties.
-   class(base_gpu_object), intent(in) :: self               !< The base backend.
-   type(cudadeviceprop),   intent(in) :: device_properties  !< Device properties.
+   subroutine transpose_a_R8P_2D(ii, jj, a, t)
+   !< Transpose array (kind R8P, rank 2).
+   integer(I4P), intent(in)  :: ii(2), jj(2)               !< Array bounds.
+   real(R8P),    intent(in)  :: a(ii(1):ii(2),jj(1):jj(2)) !< Input array.
+   real(R8P),    intent(out) :: t(jj(1):jj(2),ii(1):ii(2)) !< Transposed array.
+   integer(I4P)              :: i, j                       !< Counter.
 
-   associate(r=>self%myrankstr)
-   print'(A)',r//"total global memory:         "//trim(str(real(device_properties%totalGlobalMem)/1e9           ,.true.))//" Gbytes"
-   print'(A)',r//"shared mem per block:        "//trim(str(     device_properties%sharedMemPerBlock             ,.true.))//" bytes"
-   print'(A)',r//"regs per block:              "//trim(str(     device_properties%regsPerBlock                  ,.true.))
-   print'(A)',r//"warp size:                   "//trim(str(     device_properties%warpSize                      ,.true.))
-   print'(A)',r//"max threads per block:       "//trim(str(     device_properties%maxThreadsPerBlock            ,.true.))
-   print'(A)',r//"max threads dim:             "//trim(str(     device_properties%maxThreadsDim                 ,.true.))
-   print'(A)',r//"clock rate:                  "//trim(str(real(device_properties%clockRate)/1e6                ,.true.))//" GHz"
-   print'(A)',r//"total const memory:          "//trim(str(     device_properties%totalConstMem                 ,.true.))//" bytes"
-   print'(A)',r//"compute capability revision: "//trim(str(    [device_properties%major,device_properties%minor],.true.))
-   print'(A)',r//"multi processor count:       "//trim(str(     device_properties%multiProcessorCount           ,.true.))
-   print'(A)',r//"L2 cache size:               "//trim(str(     device_properties%l2CacheSize                   ,.true.))
-   print'(A)',r//"max threads per SMP:         "//trim(str(     device_properties%maxThreadsPerMultiProcessor   ,.true.))
-   print'(A)',r//"device rank:                 "//trim(str(     self%mydev                                      ,.true.))
-   endassociate
-   endsubroutine print_device_properties
-
-   ! assign allocatable interface
-   pure subroutine assign_allocatable_I8P_1D_gpu(lhs, rhs)
-   !< Safe assign allocatable arrays, I8P 1D type.
-   integer(I8P), allocatable, device, intent(inout) :: lhs(:) !< Left hand side.
-   integer(I8P), allocatable, device, intent(in)    :: rhs(:) !< Right hand side.
-
-   if (allocated(rhs)) then
-      lhs = rhs
-   else
-      if (allocated(lhs)) deallocate(lhs)
-   endif
-   endsubroutine assign_allocatable_I8P_1D_gpu
-
-   pure subroutine assign_allocatable_I8P_2D_gpu(lhs, rhs)
-   !< Safe assign allocatable arrays, I8P 2D type.
-   integer(I8P), allocatable, device, intent(inout) :: lhs(:,:) !< Left hand side.
-   integer(I8P), allocatable, device, intent(in)    :: rhs(:,:) !< Right hand side.
-
-   if (allocated(rhs)) then
-      lhs = rhs
-   else
-      if (allocated(lhs)) deallocate(lhs)
-   endif
-   endsubroutine assign_allocatable_I8P_2D_gpu
-
-   pure subroutine assign_allocatable_I4P_1D_gpu(lhs, rhs)
-   !< Safe assign allocatable arrays, I4P 1D type.
-   integer(I4P), allocatable, device, intent(inout) :: lhs(:) !< Left hand side.
-   integer(I4P), allocatable, device, intent(in)    :: rhs(:) !< Right hand side.
-
-   if (allocated(rhs)) then
-      lhs = rhs
-   else
-      if (allocated(lhs)) deallocate(lhs)
-   endif
-   endsubroutine assign_allocatable_I4P_1D_gpu
-
-   pure subroutine assign_allocatable_I4P_2D_gpu(lhs, rhs)
-   !< Safe assign allocatable arrays, I4P 2D type.
-   integer(I4P), allocatable, device, intent(inout) :: lhs(:,:) !< Left hand side.
-   integer(I4P), allocatable, device, intent(in)    :: rhs(:,:) !< Right hand side.
-
-   if (allocated(rhs)) then
-      lhs = rhs
-   else
-      if (allocated(lhs)) deallocate(lhs)
-   endif
-   endsubroutine assign_allocatable_I4P_2D_gpu
-
-   pure subroutine assign_allocatable_R8P_1D_gpu(lhs, rhs)
-   !< Safe assign allocatable arrays, R8P 1D type.
-   real(R8P), allocatable, device, intent(inout) :: lhs(:) !< Left hand side.
-   real(R8P), allocatable, device, intent(in)    :: rhs(:) !< Right hand side.
-
-   if (allocated(rhs)) then
-      lhs = rhs
-   else
-      if (allocated(lhs)) deallocate(lhs)
-   endif
-   endsubroutine assign_allocatable_R8P_1D_gpu
-
-   pure subroutine assign_allocatable_R8P_2D_gpu(lhs, rhs)
-   !< Safe assign allocatable arrays, R8P 2D type.
-   real(R8P), allocatable, device, intent(inout) :: lhs(:,:) !< Left hand side.
-   real(R8P), allocatable, device, intent(in)    :: rhs(:,:) !< Right hand side.
-
-   if (allocated(rhs)) then
-      lhs = rhs
-   else
-      if (allocated(lhs)) deallocate(lhs)
-   endif
-   endsubroutine assign_allocatable_R8P_2D_gpu
-
-   pure subroutine assign_allocatable_R8P_3D_gpu(lhs, rhs)
-   !< Safe assign allocatable arrays, R8P 3D type.
-   real(R8P), allocatable, device, intent(inout) :: lhs(:,:,:) !< Left hand side.
-   real(R8P), allocatable, device, intent(in)    :: rhs(:,:,:) !< Right hand side.
-
-   if (allocated(rhs)) then
-      lhs = rhs
-   else
-      if (allocated(lhs)) deallocate(lhs)
-   endif
-   endsubroutine assign_allocatable_R8P_3D_gpu
-
-   pure subroutine assign_allocatable_R8P_4D_gpu(lhs, rhs)
-   !< Safe assign allocatable arrays, R8P 4D type.
-   real(R8P), allocatable, device, intent(inout) :: lhs(:,:,:,:) !< Left hand side.
-   real(R8P), allocatable, device, intent(in)    :: rhs(:,:,:,:) !< Right hand side.
-
-   if (allocated(rhs)) then
-      lhs = rhs
-   else
-      if (allocated(lhs)) deallocate(lhs)
-   endif
-   endsubroutine assign_allocatable_R8P_4D_gpu
-
-   pure subroutine assign_allocatable_R8P_5D_gpu(lhs, rhs)
-   !< Safe assign allocatable arrays, R8P 5D type.
-   real(R8P), allocatable, device, intent(inout) :: lhs(:,:,:,:,:) !< Left hand side.
-   real(R8P), allocatable, device, intent(in)    :: rhs(:,:,:,:,:) !< Right hand side.
-
-   if (allocated(rhs)) then
-      lhs = rhs
-   else
-      if (allocated(lhs)) deallocate(lhs)
-   endif
-   endsubroutine assign_allocatable_R8P_5D_gpu
-
-   pure subroutine assign_allocatable_R8P_6D_gpu(lhs, rhs)
-   !< Safe assign allocatable arrays, R8P 6D type.
-   real(R8P), allocatable, device, intent(inout) :: lhs(:,:,:,:,:,:) !< Left hand side.
-   real(R8P), allocatable, device, intent(in)    :: rhs(:,:,:,:,:,:) !< Right hand side.
-
-   if (allocated(rhs)) then
-      lhs = rhs
-   else
-      if (allocated(lhs)) deallocate(lhs)
-   endif
-   endsubroutine assign_allocatable_R8P_6D_gpu
+   do j=jj(1), jj(2)
+      do i=ii(1), ii(2)
+         t(j,i) = a(i,j)
+      enddo
+   enddo
+   endsubroutine transpose_a_R8P_2D
 endmodule adam_base_gpu_object
