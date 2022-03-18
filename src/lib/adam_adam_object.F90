@@ -140,10 +140,10 @@ contains
    endsubroutine load_restart_files
 
    subroutine initialize(self, file_parameters,                                              &
-                         ni, nj, nk, ngc, emin, emax, bc_type,                               &
+                         ni, nj, nk, ngc, emin, emax, bc_type, do_grid_init,                 &
                          max_load, nodes_number, buckets_number, ratio, max_level, add_adam, &
-                         iu_ref_levels, i_prune, j_prune, k_prune, l_prune,                  &
-                         nv, nb)
+                         iu_ref_levels, i_prune, j_prune, k_prune, l_prune, do_tree_init,    &
+                         nv, nb, do_field_init)
    !< Initialize ADAM.
    class(adam_object), intent(inout)           :: self               !< ADAM.
    type(file_ini),     intent(inout), optional :: file_parameters    !< INI file handler.
@@ -155,6 +155,7 @@ contains
    real(R8P),          intent(in),    optional :: emin(3)            !< Coordinates of minium abscissa.
    real(R8P),          intent(in),    optional :: emax(3)            !< Coordinates of maxium abscissa.
    integer(I4P),       intent(in),    optional :: bc_type(6)         !< Type of boundary conditions in the 6 faces of grid.
+   logical,            intent(in),    optional :: do_grid_init       !< Flag to activate grid initialize.
    ! tree options
    real(R8P),          intent(in),    optional :: max_load           !< Maximum load of tree buckets.
    integer(I8P),       intent(in),    optional :: nodes_number       !< Nodes number to be stored in the tree.
@@ -167,34 +168,46 @@ contains
    integer(I4P),       intent(in),    optional :: j_prune            !< Pruning along y.
    integer(I4P),       intent(in),    optional :: k_prune            !< Pruning along z.
    integer(I4P),       intent(in),    optional :: l_prune            !< Pruning level.
+   logical,            intent(in),    optional :: do_tree_init       !< Flag to activate tree initialize.
    ! field options
    integer(I4P),       intent(in),    optional :: nv                 !< Number of field variables.
    integer(I4P),       intent(in),    optional :: nb                 !< Number of all blocks that can be stored in field.
+   logical,            intent(in),    optional :: do_field_init      !< Flag to activate field initialize.
+   ! local var
+   logical                                     :: do_grid_init_      !< Flag to activate grid initialize, local var.
+   logical                                     :: do_tree_init_      !< Flag to activate tree initialize, local var.
+   logical                                     :: do_field_init_     !< Flag to activate field initialize, local var.
 
+   do_grid_init_  = .false. ; if (present(do_grid_init))  do_grid_init_  = do_grid_init
+   do_tree_init_  = .false. ; if (present(do_tree_init))  do_tree_init_  = do_tree_init
+   do_field_init_ = .false. ; if (present(do_field_init)) do_field_init_ = do_field_init
    call self%base_mpi%initialize
    print '(A)', self%base_mpi%myrankstr//'adam%initialize start'
-   call self%grid%initialize(file_parameters=file_parameters, &
-                             ni=ni,                           &
-                             nj=nj,                           &
-                             nk=nk,                           &
-                             ngc=ngc,                         &
-                             emin=emin,                       &
-                             emax=emax,                       &
-                             bc_type=bc_type)
-   call self%tree%initialize(grid=self%grid, &
-                             file_parameters=file_parameters, &
-                             max_load=max_load,               &
-                             nodes_number=nodes_number,       &
-                             buckets_number=buckets_number,   &
-                             ratio=ratio,                     &
-                             max_level=max_level,             &
-                             add_adam=add_adam,               &
-                             iu_ref_levels=iu_ref_levels,     &
-                             i_prune=i_prune,                 &
-                             j_prune=j_prune,                 &
-                             k_prune=k_prune,                 &
-                             l_prune=l_prune)
-   call self%field%initialize(grid=self%grid, file_parameters=file_parameters, nv=nv, nb=nb)
+   if (do_grid_init_) &
+      call self%grid%initialize(file_parameters=file_parameters, &
+                                ni=ni,                           &
+                                nj=nj,                           &
+                                nk=nk,                           &
+                                ngc=ngc,                         &
+                                emin=emin,                       &
+                                emax=emax,                       &
+                                bc_type=bc_type)
+   if (do_tree_init_) &
+      call self%tree%initialize(grid=self%grid, &
+                                file_parameters=file_parameters, &
+                                max_load=max_load,               &
+                                nodes_number=nodes_number,       &
+                                buckets_number=buckets_number,   &
+                                ratio=ratio,                     &
+                                max_level=max_level,             &
+                                add_adam=add_adam,               &
+                                iu_ref_levels=iu_ref_levels,     &
+                                i_prune=i_prune,                 &
+                                j_prune=j_prune,                 &
+                                k_prune=k_prune,                 &
+                                l_prune=l_prune)
+   if (do_field_init_) &
+      call self%field%initialize(grid=self%grid, file_parameters=file_parameters, nv=nv, nb=nb)
    call self%amr_update
    print '(A)', self%base_mpi%myrankstr//'adam%initialize finish'
    endsubroutine initialize

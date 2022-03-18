@@ -729,16 +729,13 @@ contains
    class(tree_object), intent(inout) :: self            !< The tree.
    type(file_ini),     intent(inout) :: file_parameters !< INI file handler.
    integer(I4P)                      :: buff_I4P        !< I4P buffer.
-   integer(I8P)                      :: buff_I8P        !< I8P buffer.
 
-   call file_parameters%get(section_name='tree', option_name='nodes_number' , val=buff_I8P)
-   self%buckets_number = self%prime_buckets_number(nodes_number=buff_I8P)
-   call file_parameters%get(section_name='tree', option_name='max_level'    , val=buff_I4P) ; self%max_level     = buff_I4P
-   call file_parameters%get(section_name='tree', option_name='iu_ref_levels', val=buff_I4P) ; self%iu_ref_levels = buff_I4P
-   call file_parameters%get(section_name='tree', option_name='i_prune'      , val=buff_I4P) ; self%ijkl_prune(1) = buff_I4P
-   call file_parameters%get(section_name='tree', option_name='j_prune'      , val=buff_I4P) ; self%ijkl_prune(2) = buff_I4P
-   call file_parameters%get(section_name='tree', option_name='k_prune'      , val=buff_I4P) ; self%ijkl_prune(3) = buff_I4P
-   call file_parameters%get(section_name='tree', option_name='l_prune'      , val=buff_I4P) ; self%ijkl_prune(4) = buff_I4P
+   call file_parameters%get(section_name='amr', option_name='max_level'    , val=buff_I4P) ; self%max_level     = buff_I4P
+   call file_parameters%get(section_name='amr', option_name='iu_ref_levels', val=buff_I4P) ; self%iu_ref_levels = buff_I4P
+   call file_parameters%get(section_name='amr', option_name='i_prune'      , val=buff_I4P) ; self%ijkl_prune(1) = buff_I4P
+   call file_parameters%get(section_name='amr', option_name='j_prune'      , val=buff_I4P) ; self%ijkl_prune(2) = buff_I4P
+   call file_parameters%get(section_name='amr', option_name='k_prune'      , val=buff_I4P) ; self%ijkl_prune(3) = buff_I4P
+   call file_parameters%get(section_name='amr', option_name='l_prune'      , val=buff_I4P) ; self%ijkl_prune(4) = buff_I4P
    endsubroutine load_from_ini_file
 
    subroutine load_surface_stl(self, file_name)

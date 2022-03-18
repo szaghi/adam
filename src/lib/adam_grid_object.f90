@@ -23,6 +23,7 @@ type :: grid_object
    integer(I4P)              :: nj=16_I4P                             !< Number of cells in j direction.
    integer(I4P)              :: nk=16_I4P                             !< Number of cells in k direction.
    integer(I4P)              :: ngc=2_I4P                             !< Number of ghost cells.
+   integer(I4P)              :: block_weight=0._R8P                   !< Weight of single block.
    integer(I4P)              :: weight_neighbor(26)=0_I4P             !< Weight of neighbors (cells number).
    integer(I4P)              :: bc_type(6)=0_I4P                      !< Type of boundary conditions in the 6 faces of grid.
    logical                   :: is_ijk_periodic(3)=.false.            !< Flag to indicate if the direction i, j or k is periodic.
@@ -227,7 +228,7 @@ contains
    endassociate
    endfunction get_closest_block
 
-   subroutine initialize(self, file_parameters, ni, nj, nk, ngc, emin, emax, bc_type)
+   subroutine initialize(self, file_parameters, ni, nj, nk, ngc, emin, emax, bc_type, verbose)
    !< Initialize field.
    class(grid_object), intent(inout)           :: self            !< The grid.
    type(file_ini),     intent(inout), optional :: file_parameters !< INI file handler.
@@ -238,6 +239,7 @@ contains
    real(R8P),          intent(in),    optional :: emin(3)         !< Coordinates of minium abscissa.
    real(R8P),          intent(in),    optional :: emax(3)         !< Coordinates of maxium abscissa.
    integer(I4P),       intent(in),    optional :: bc_type(6)      !< Type of boundary conditions in the 6 faces of grid.
+   logical,            intent(in),    optional :: verbose         !< Flag to activate verbose output.
    integer(I4P)                                :: i, j, k, l      !< Counter.
    integer(I4P)                                :: nijk(3)         !< Cells number.
 
@@ -252,6 +254,7 @@ contains
    if (present(nk))  self%nk = nk
    if (present(ngc)) self%ngc = ngc
    if (present(bc_type)) self%bc_type = bc_type
+   self%block_weight = (self%ngc+self%ni+self%ngc) * (self%ngc+self%nj+self%ngc) * (self%ngc+self%nk+self%ngc)
 
    call self%compute_weight_neighbor
    if (any(self%bc_type(1:2)==BC_PERIODIC)) self%is_ijk_periodic(1) = .true.
@@ -279,6 +282,9 @@ contains
          self%lin_space_z(k,l) = k * self%cell_dxyz(3,l)
       enddo
    enddo
+   if (present(verbose)) then
+      if (verbose) call self%print_status
+   endif
    endsubroutine initialize
 
    subroutine load_from_ini_file(self, file_parameters)
@@ -289,25 +295,25 @@ contains
    real(R8P)                         :: buff_R8P        !< R8P buffer.
    logical                           :: buff_LOG        !< LOG buffer.
 
-   call file_parameters%get(section_name='grid', option_name='ni'           , val=buff_I4P) ; self%ni                 = buff_I4P
-   call file_parameters%get(section_name='grid', option_name='nj'           , val=buff_I4P) ; self%nj                 = buff_I4P
-   call file_parameters%get(section_name='grid', option_name='nk'           , val=buff_I4P) ; self%nk                 = buff_I4P
-   call file_parameters%get(section_name='grid', option_name='ngc'          , val=buff_I4P) ; self%ngc                = buff_I4P
-   call file_parameters%get(section_name='grid', option_name='emin_x'       , val=buff_R8P) ; self%domain_emin(1)     = buff_R8P
-   call file_parameters%get(section_name='grid', option_name='emin_y'       , val=buff_R8P) ; self%domain_emin(2)     = buff_R8P
-   call file_parameters%get(section_name='grid', option_name='emin_z'       , val=buff_R8P) ; self%domain_emin(3)     = buff_R8P
-   call file_parameters%get(section_name='grid', option_name='emax_x'       , val=buff_R8P) ; self%domain_emax(1)     = buff_R8P
-   call file_parameters%get(section_name='grid', option_name='emax_y'       , val=buff_R8P) ; self%domain_emax(2)     = buff_R8P
-   call file_parameters%get(section_name='grid', option_name='emax_z'       , val=buff_R8P) ; self%domain_emax(3)     = buff_R8P
-   call file_parameters%get(section_name='grid', option_name='bc_type_1'    , val=buff_I4P) ; self%bc_type(1)         = buff_I4P
-   call file_parameters%get(section_name='grid', option_name='bc_type_2'    , val=buff_I4P) ; self%bc_type(2)         = buff_I4P
-   call file_parameters%get(section_name='grid', option_name='bc_type_3'    , val=buff_I4P) ; self%bc_type(3)         = buff_I4P
-   call file_parameters%get(section_name='grid', option_name='bc_type_4'    , val=buff_I4P) ; self%bc_type(4)         = buff_I4P
-   call file_parameters%get(section_name='grid', option_name='bc_type_5'    , val=buff_I4P) ; self%bc_type(5)         = buff_I4P
-   call file_parameters%get(section_name='grid', option_name='bc_type_6'    , val=buff_I4P) ; self%bc_type(6)         = buff_I4P
-   call file_parameters%get(section_name='grid', option_name='is_i_periodic', val=buff_LOG) ; self%is_ijk_periodic(1) = buff_LOG
-   call file_parameters%get(section_name='grid', option_name='is_j_periodic', val=buff_LOG) ; self%is_ijk_periodic(2) = buff_LOG
-   call file_parameters%get(section_name='grid', option_name='is_k_periodic', val=buff_LOG) ; self%is_ijk_periodic(3) = buff_LOG
+   call file_parameters%get(section_name='grid',     option_name='ni'           , val=buff_I4P) ; self%ni                =buff_I4P
+   call file_parameters%get(section_name='grid',     option_name='nj'           , val=buff_I4P) ; self%nj                =buff_I4P
+   call file_parameters%get(section_name='grid',     option_name='nk'           , val=buff_I4P) ; self%nk                =buff_I4P
+   call file_parameters%get(section_name='grid',     option_name='ngc'          , val=buff_I4P) ; self%ngc               =buff_I4P
+   call file_parameters%get(section_name='grid',     option_name='emin_x'       , val=buff_R8P) ; self%domain_emin(1)    =buff_R8P
+   call file_parameters%get(section_name='grid',     option_name='emin_y'       , val=buff_R8P) ; self%domain_emin(2)    =buff_R8P
+   call file_parameters%get(section_name='grid',     option_name='emin_z'       , val=buff_R8P) ; self%domain_emin(3)    =buff_R8P
+   call file_parameters%get(section_name='grid',     option_name='emax_x'       , val=buff_R8P) ; self%domain_emax(1)    =buff_R8P
+   call file_parameters%get(section_name='grid',     option_name='emax_y'       , val=buff_R8P) ; self%domain_emax(2)    =buff_R8P
+   call file_parameters%get(section_name='grid',     option_name='emax_z'       , val=buff_R8P) ; self%domain_emax(3)    =buff_R8P
+   call file_parameters%get(section_name='bc_x_min', option_name='type'         , val=buff_I4P) ; self%bc_type(1)        =buff_I4P
+   call file_parameters%get(section_name='bc_x_max', option_name='type'         , val=buff_I4P) ; self%bc_type(2)        =buff_I4P
+   call file_parameters%get(section_name='bc_y_min', option_name='type'         , val=buff_I4P) ; self%bc_type(3)        =buff_I4P
+   call file_parameters%get(section_name='bc_y_max', option_name='type'         , val=buff_I4P) ; self%bc_type(4)        =buff_I4P
+   call file_parameters%get(section_name='bc_z_min', option_name='type'         , val=buff_I4P) ; self%bc_type(5)        =buff_I4P
+   call file_parameters%get(section_name='bc_z_max', option_name='type'         , val=buff_I4P) ; self%bc_type(6)        =buff_I4P
+   call file_parameters%get(section_name='grid',     option_name='is_i_periodic', val=buff_LOG) ; self%is_ijk_periodic(1)=buff_LOG
+   call file_parameters%get(section_name='grid',     option_name='is_j_periodic', val=buff_LOG) ; self%is_ijk_periodic(2)=buff_LOG
+   call file_parameters%get(section_name='grid',     option_name='is_k_periodic', val=buff_LOG) ; self%is_ijk_periodic(3)=buff_LOG
    endsubroutine load_from_ini_file
 
    subroutine print_status(self)

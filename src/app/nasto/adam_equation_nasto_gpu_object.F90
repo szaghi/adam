@@ -4,6 +4,7 @@ module adam_equation_nasto_gpu_object
 
 use adam_adam_object
 use adam_base_gpu_object
+use adam_base_mpi_object
 use adam_field_object
 use adam_grid_object
 use adam_parameters
@@ -106,10 +107,7 @@ type :: equation_nasto_gpu_object
    integer(I4P)                :: nv                      !< Number of variables.
    integer(I4P)                :: nv_aux                  !< Number of auxiliary variables.
    type(base_gpu_object)       :: base_gpu                !< The base GPU handler.
-   integer(I4P)                :: myrank=0_I4P            !< MPI rank process.
-   character(:), allocatable   :: myrankstr               !< MPI rank process stringified.
-   integer(I4P)                :: procs_number=1_I4P      !< Number of MPI processes.
-   integer(I4P)                :: error=0_I4P             !< Error traping flag.
+   type(base_mpi_object)       :: base_mpi                !< The MPI backend.
    integer(I4P)                :: field_gpu_number=12_I4P !< Number of nv fields used in memory.
    ! equation data
    real(R8P), allocatable      :: fd_coeff1(:)       !< First order derivatives coeffs.
@@ -211,7 +209,6 @@ type :: equation_nasto_gpu_object
       procedure, pass(self) :: mark_by_grad_var        !< Mark blocks to be refined/derefined by a `grad(var)` value.
       procedure, pass(self) :: mark_by_geo             !< Mark blocks to be refined/derefined by a `grad(var)` value.
       procedure, pass(self) :: integrate               !< Runge Kutta integration of equation.
-      procedure, pass(self) :: parse_input             !< Parse input file.
       procedure, pass(self) :: print_progress          !< Print simulation progress.
       procedure, pass(self) :: refine_uniform          !< Refine all blocks uniformly.
       procedure, pass(self) :: run                     !< Run all.
@@ -260,7 +257,7 @@ contains
          is_grid_changed_all = is_grid_changed_all.or.is_grid_changed
       enddo
       if (.not.is_grid_changed_all) then
-          print '(A)', self%myrankstr//'AMR Grid stabilized after : '//trim(str(i))//' AMR iterations'
+          print '(A)', self%base_mpi%myrankstr//'AMR Grid stabilized after : '//trim(str(i))//' AMR iterations'
           exit amr
       endif
    enddo amr
@@ -304,7 +301,7 @@ contains
          !dt = min(dt, minval(dxyz(:,b)) / umax * CFL)
          dt = min(dt, CFL / umax )
       enddo
-      call MPI_ALLREDUCE(MPI_IN_PLACE, dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%error)
+      call MPI_ALLREDUCE(MPI_IN_PLACE, dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%base_mpi%error)
    endassociate
    endsubroutine compute_dt
 
@@ -400,60 +397,48 @@ contains
    integer(I4P)                                    :: i, j, k, v, s     !< Counter.
    integer(I4P)                                    :: n_solids          !< Number of immersed bodies.
    integer(I4P)                                    :: n_vars            !< Number of ic/bc vars.
-   integer(I4P)                                    :: iu_ref_levels     !< Uniform refinement initial.
-   integer(I4P)                                    :: ni, nj, nk, ngc   !< Number of cells along directions.
    integer(I4P)                                    :: mode              !< AMR mode.
-   integer(I4P)                                    :: i_prune           !< Pruning along x.
-   integer(I4P)                                    :: j_prune           !< Pruning along y.
-   integer(I4P)                                    :: k_prune           !< Pruning along z.
-   integer(I4P)                                    :: l_prune           !< Pruning level.
-   integer(I4P)                                    :: max_level         !< Max refinement level.
    integer(I8P)                                    :: nodes_number      !< Allocated nodes on tree.
    integer(I4P)                                    :: nb                !< Number of allocated blocks.
    integer(I4P)                                    :: nv                !< Number of evolved variables.
    character(999)                                  :: sname             !< Section name.
    character(999)                                  :: oname             !< Option name.
    character(999)                                  :: snames_bc(6)      !< Section names bc.
-   integer(I4P)                                    :: bc_type(6)        !< Boundary condition type array.
    integer(I4P)                                    :: bc_type_item      !< Boundary condition type element.
    integer(I4P)                                    :: i_var, i_bc       !< Counter.
    integer(I4P)                                    :: i_solid, i_marker !< Counter.
-   real(R8P)                                       :: gpu_memory        !< Available GPU memory.
-   real(R8P)                                       :: emin(3), emax(3)  !< Domain dimension.
    real(R8P)                                       :: dxyz(3)           !< Space steps.
    logical                                         :: buf_BOOL          !< Logical buffer.
    integer(I4P)                                    :: buf_I4            !< I4 buffer.
    real(R8P)                                       :: buf_R8            !< R8 buffer.
    character(999)                                  :: buf_CHAR          !< String buffer.
+   integer(I4P)                                    :: ns                !< Number of species.
 
-   call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
-   call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
-   self%myrankstr = '[myrank-'//trim(strz(self%myrank,6))//']'
-   print '(A)', self%myrankstr//'equation_nasto_gpu_object%initialize start'
+   call self%base_mpi%initialize(do_mpi_init=.true.)
 
-   print '(A)', self%myrankstr//'inizialize GPU main data'
+   print '(A)', self%base_mpi%myrankstr//'equation_nasto_gpu_object%initialize start'
+
    call self%base_gpu%initialize_gpu
 
-   print '(A)', self%myrankstr//'parse main input'
-   call self%parse_input(filename=filename, nb=nb, nodes_number=nodes_number, nv=nv,                               &
-                         ni=ni, nj=nj, nk=nk, ngc=ngc, max_level=max_level, bc_type=bc_type, emin=emin, emax=emax, &
-                         iu_ref_levels=iu_ref_levels, i_prune=i_prune, j_prune=j_prune, k_prune=k_prune, l_prune=l_prune)
-   print '(A)', self%myrankstr//'ni, nj, nk, ngc, nv:               '//trim(str([ni, nj, nk, ngc, nv]))
-   print '(A)', self%myrankstr//'BC types:                          '//trim(str(bc_type))
-   print '(A)', self%myrankstr//'emin, emax:                        '//trim(str([emin, emax]))
-   print '(A)', self%myrankstr//'nb, nodes_number:                  '//trim(str([nb, nodes_number]))
-   print '(A)', self%myrankstr//'max_level, iu_ref_levels:          '//trim(str([max_level, iu_ref_levels]))
-   print '(A)', self%myrankstr//'i_prune, j_prune, k_prune, l_prune:'//trim(str([i_prune, j_prune, k_prune, l_prune]))
+   call self%file_input%initialize(filename=trim(filename))
+   call self%file_input%load
+   call self%adam%grid%initialize(file_parameters=self%file_input, verbose=.true.)
+   self%bc_type = self%adam%grid%bc_type
+   call self%base_mpi%compute_blocks_number(memory_avail=self%base_gpu%memory_avail,  &
+                                            block_weight=self%adam%grid%block_weight, &
+                                            fields_number=60,                         &
+                                            nb=nb,                                    &
+                                            nodes_number=nodes_number,                &
+                                            verbose=.true.)
+   call self%file_input%get(section_name='physics', option_name='ns', val=ns)
+   nv = ns + 4
+   call self%adam%initialize(file_parameters=self%file_input, &
+                             do_tree_init=.true.,             &
+                             do_field_init=.true.,            &
+                             nv=nv, nb=nb, nodes_number=nodes_number)
 
-   print '(A)', self%myrankstr//'initialize ADAM (tree, field)'
-   call self%adam%initialize(ni=ni, nj=nj, nk=nk, ngc=ngc, bc_type=bc_type,                                        &
-                             emin=emin, emax=emax, nv=nv, nb=nb, nodes_number=nodes_number, max_level=max_level,   &
-                             iu_ref_levels=iu_ref_levels, i_prune=i_prune, j_prune=j_prune, k_prune=k_prune, l_prune=l_prune)
-
-   print '(A)', self%myrankstr//'do uniform refine if any'
    call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_blocks_reorder=.false.)
 
-   print '(A)', self%myrankstr//'do ijk prune if any'
    call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false.)
 
    self%ni     =  self%adam%field%grid%ni
@@ -469,7 +454,6 @@ contains
    self%grid          => self%base_gpu%field%grid
    self%blocks_number => self%base_gpu%field%blocks_number
 
-   print '(A)', self%myrankstr//'parse numerical schemes input setting'
    call self%file_input%get(section_name='schemes', option_name='euler_scheme', val=buf_I4) ; self%euler_scheme = buf_I4
    call self%file_input%get(section_name='schemes', option_name='euler_order' , val=buf_I4) ; self%euler_order  = buf_I4
    self%iweno = (self%euler_order+1)/2
@@ -481,7 +465,6 @@ contains
    self%fd_coeff2_gpu = self%fd_coeff2
    self%fd_conv_gpu   = self%fd_conv
 
-   print '(A)', self%myrankstr//'parse physical input setting'
    call self%file_input%get(section_name='physics', option_name='cp',        val=buf_R8) ; self%cp_star   = buf_R8
    call self%file_input%get(section_name='physics', option_name='cv',        val=buf_R8) ; self%cv_star   = buf_R8
    call self%file_input%get(section_name='physics', option_name='mu',        val=buf_R8) ; self%mu_star   = buf_R8
@@ -494,7 +477,6 @@ contains
    self%gamma_fluid = self%cp_star/self%cv_star
    self%R_star      = self%cp_star-self%cv_star
 
-   print '(A)', self%myrankstr//'parse AMR input setting'
    call self%file_input%get(section_name='amr', option_name='frequency', val=buf_I4) ; self%amr_frequency = buf_I4
    call self%file_input%get(section_name='amr', option_name='iters',     val=buf_I4) ; self%amr_iters = buf_I4
    call self%file_input%get(section_name='amr', option_name='n_markers', val=buf_I4) ; self%amr_n_markers = buf_I4
@@ -518,7 +500,6 @@ contains
       endif
    enddo
 
-   print '(A)', self%myrankstr//'parse timing input setting'
    call self%file_input%get(section_name="time", option_name="restart",         val=buf_BOOL) ; self%restart          = buf_BOOL
    call self%file_input%get(section_name="time", option_name="restart_basename",val=buf_CHAR) ; self%restart_basename = buf_CHAR
    call self%file_input%get(section_name="time", option_name="restart_save",    val=buf_I4)   ; self%restart_save     = buf_I4
@@ -533,7 +514,6 @@ contains
 
    if (self%slices_number > 0) then
       allocate(self%slice(self%slices_number))
-      print '(A)', self%myrankstr//'parse slices input setting'
       do s=1, self%slices_number
          sname = 'slice_'//trim(str(s,.true.))
          call self%file_input%get(section_name=sname, option_name='slice_itype', val=buf_CHAR) ; self%slice(s)%slice_itype=buf_CHAR
@@ -563,7 +543,6 @@ contains
       enddo
    endif
 
-   print '(A)', self%myrankstr//'parse initial conditions input setting'
    call self%file_input%get(section_name="initial_conditions", option_name='ic_type', val=buf_I4) ; self%ic_type = buf_I4
    n_vars = IC_VARS_NUMBER(self%ic_type)
    do i_var=1,n_vars
@@ -572,7 +551,6 @@ contains
       self%ic_vars(i_var) = buf_R8
    enddo
 
-   print '(A)', self%myrankstr//'parse boundary conditions input setting'
    snames_bc(:) = ["bc_x_min", "bc_x_max", "bc_y_min", "bc_y_max", "bc_z_min", "bc_z_max"]
    do i_bc=1,6
       sname = snames_bc(i_bc)
@@ -585,7 +563,6 @@ contains
    enddo
    self%bc_vars_gpu = self%bc_vars
 
-   print '(A)', self%myrankstr//'parse Immersed Boundary input setting'
    call self%file_input%get(section_name='solids', option_name='n_solids', val=buf_I4)
    self%n_solids = buf_I4
    allocate(self%bcs_type(self%n_solids))
@@ -603,21 +580,29 @@ contains
    enddo
    self%bcs_vars_gpu = self%bcs_vars
 
-   print '(A)', self%myrankstr//'allocate large arrays'
    associate(nv=>self%nv, ns=>self%ns, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
              nb=>self%nb, nrk=>self%nrk, nv_aux=>self%nv_aux, n_solids=>self%n_solids, iweno=>self%iweno)
    ! CPU data
    allocate(self%q_aux(1:nv_aux, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
    ! GPU data
-   allocate(self%q_gpu(1:nb,        1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
-   allocate(self%q_aux_gpu(1:nb,    1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv_aux))
-   allocate(self%fl_gpu(1:nb,       1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
-   allocate(self%flx_gpu(1:nb,      1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
-   allocate(self%fly_gpu(1:nb,      1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
-   allocate(self%flz_gpu(1:nb,      1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
-   allocate(self%prhs_gpu(1:nb,     1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
-   allocate(self%dq_gpu(1:nb,       1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
-   allocate(self%q_invert_gpu(1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv))
+   call self%base_gpu%alloc_var_gpu(var=self%q_gpu, msg='equation_nasto_gpu%alloc(q_gpu) ', verbose=.true.,&
+                                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
+   call self%base_gpu%alloc_var_gpu(var=self%q_aux_gpu, msg='equation_nasto_gpu%alloc(q_aux_gpu) ', verbose=.true.,&
+                                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv_aux],[2,5]))
+   call self%base_gpu%alloc_var_gpu(var=self%fl_gpu, msg='equation_nasto_gpu%alloc(fl_gpu) ', verbose=.true.,&
+                                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
+   call self%base_gpu%alloc_var_gpu(var=self%flx_gpu, msg='equation_nasto_gpu%alloc(flx_gpu) ', verbose=.true.,&
+                                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
+   call self%base_gpu%alloc_var_gpu(var=self%fly_gpu, msg='equation_nasto_gpu%alloc(fly_gpu) ', verbose=.true.,&
+                                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
+   call self%base_gpu%alloc_var_gpu(var=self%flz_gpu, msg='equation_nasto_gpu%alloc(flz_gpu) ', verbose=.true.,&
+                                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
+   call self%base_gpu%alloc_var_gpu(var=self%prhs_gpu, msg='equation_nasto_gpu%alloc(prhs_gpu) ', verbose=.true.,&
+                                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
+   call self%base_gpu%alloc_var_gpu(var=self%dq_gpu, msg='equation_nasto_gpu%alloc(dq_gpu) ', verbose=.true.,&
+                                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
+   call self%base_gpu%alloc_var_gpu(var=self%q_invert_gpu, msg='equation_nasto_gpu%alloc(q_invert_gpu) ', verbose=.true.,&
+                                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
    self%prhs_gpu = 0._R8P
    self%fl_gpu   = 0._R8P
    self%flx_gpu  = 0._R8P
@@ -625,7 +610,8 @@ contains
    self%flz_gpu  = 0._R8P
    if (self%n_solids > 0) then
       allocate(self%phi(1:nb,     1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:n_solids))
-      allocate(self%phi_gpu(1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:n_solids))
+      call self%base_gpu%alloc_var_gpu(var=self%phi_gpu, msg='equation_nasto_gpu%alloc(phi_gpu) ', verbose=.true.,&
+                                       ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,n_solids],[2,5]))
       self%phi     = -1._R8P
       self%phi_gpu = self%phi
    endif
@@ -636,7 +622,7 @@ contains
    allocate(self%gplus_z (nv, 2*iweno, ni, nj, nb))
    allocate(self%gminus_z(nv, 2*iweno, ni, nj, nb))
    endassociate
-   print '(A)', self%myrankstr//'equation_nasto_gpu_object%initialize finish'
+   print '(A)', self%base_mpi%myrankstr//'equation_nasto_gpu_object%initialize finish'
    endsubroutine initialize
 
    subroutine integrate(self, t, do_ghost_syncro, residual)
@@ -1094,68 +1080,6 @@ contains
    !@cuf iercuda=cudaDeviceSynchronize()
    endsubroutine move_phi_cuf
 
-   subroutine parse_input(self, filename, nb, nodes_number, nv, ni, nj, nk, ngc, &
-                          max_level, emin, emax, bc_type, iu_ref_levels, i_prune, j_prune, k_prune, l_prune)
-   class(equation_nasto_gpu_object), intent(inout) :: self             !< The equation.
-   character(*),                     intent(in)    :: filename         !< Input file name.
-   integer(I4P),                     intent(out)   :: nv               !< Number of variables.
-   integer(I4P),                     intent(out)   :: nb               !< Number of allocated blocks.
-   integer(I8P),                     intent(out)   :: nodes_number     !< Number of tree nodes.
-   integer(I4P),                     intent(out)   :: ni, nj, nk, ngc  !< Grid dimensions.
-   integer(I4P),                     intent(out)   :: max_level        !< Max tree level.
-   integer(I4P),                     intent(out)   :: bc_type(6)       !< Boundary conditions flags.
-   real(R8P),                        intent(out)   :: emin(3), emax(3) !< Domain sizes.
-   integer(I4P),                     intent(out)   :: iu_ref_levels    !< Domain sizes.
-   integer(I4P),                     intent(out)   :: i_prune          !< Pruning along x.
-   integer(I4P),                     intent(out)   :: j_prune          !< Pruning along y.
-   integer(I4P),                     intent(out)   :: k_prune          !< Pruning along z.
-   integer(I4P),                     intent(out)   :: l_prune          !< Pruning level.
-   integer(I4P)                                    :: ns               !< Number of species and variables.
-   real(R8P)                                       :: block_weight     !< Number of points per block.
-   real(R8P), parameter                            :: save_factor=0.6  !< Factor to avoid GPU completely full.
-   integer(I4P)                                    :: buf_I4           !< Integer buffer.
-   real(R8P)                                       :: buf_R8           !< Real buffer.
-   integer(I4P)                                    :: size_of_real     !< Size of real.
-
-   call self%file_input%initialize(filename=trim(filename))
-   call self%file_input%load
-   call self%file_input%get(section_name='grid', option_name='ni', val=ni)
-   call self%file_input%get(section_name='grid', option_name='nj', val=nj)
-   call self%file_input%get(section_name='grid', option_name='nk', val=nk)
-   call self%file_input%get(section_name='grid', option_name='ngc', val=ngc)
-   call self%file_input%get(section_name='physics', option_name='ns', val=ns)
-
-   nv           = ns + 4
-   block_weight = (ngc+ni+ngc) * (ngc+nj+ngc) * (ngc+nk+ngc) * nv
-   size_of_real = storage_size(emin(1))/8.
-   nb           = nint(save_factor*self%base_gpu%memory_avail*1e9/(self%field_gpu_number*block_weight*size_of_real))
-   nodes_number = nb*self%procs_number
-   print '(A)', self%myrankstr//'available places for blocks [nb]: '//trim(str(nb))
-
-   call self%file_input%get(section_name='bc_x_min', option_name='type', val=buf_I4) ; bc_type(1) = buf_I4
-   call self%file_input%get(section_name='bc_x_max', option_name='type', val=buf_I4) ; bc_type(2) = buf_I4
-   call self%file_input%get(section_name='bc_y_min', option_name='type', val=buf_I4) ; bc_type(3) = buf_I4
-   call self%file_input%get(section_name='bc_y_max', option_name='type', val=buf_I4) ; bc_type(4) = buf_I4
-   call self%file_input%get(section_name='bc_z_min', option_name='type', val=buf_I4) ; bc_type(5) = buf_I4
-   call self%file_input%get(section_name='bc_z_max', option_name='type', val=buf_I4) ; bc_type(6) = buf_I4
-
-   call self%file_input%get(section_name='grid', option_name='emin_x', val=buf_R8) ; emin(1) = buf_R8
-   call self%file_input%get(section_name='grid', option_name='emin_y', val=buf_R8) ; emin(2) = buf_R8
-   call self%file_input%get(section_name='grid', option_name='emin_z', val=buf_R8) ; emin(3) = buf_R8
-   call self%file_input%get(section_name='grid', option_name='emax_x', val=buf_R8) ; emax(1) = buf_R8
-   call self%file_input%get(section_name='grid', option_name='emax_y', val=buf_R8) ; emax(2) = buf_R8
-   call self%file_input%get(section_name='grid', option_name='emax_z', val=buf_R8) ; emax(3) = buf_R8
-   call self%file_input%get(section_name='amr', option_name='max_level', val=max_level)
-   call self%file_input%get(section_name='amr', option_name='iu_ref_levels', val=iu_ref_levels)
-   call self%file_input%get(section_name='amr', option_name='i_prune', val=i_prune)
-   call self%file_input%get(section_name='amr', option_name='j_prune', val=j_prune)
-   call self%file_input%get(section_name='amr', option_name='k_prune', val=k_prune)
-   call self%file_input%get(section_name='amr', option_name='l_prune', val=l_prune)
-
-   !TODO
-   ! Check all input parameters
-   endsubroutine parse_input
-
    subroutine print_progress(self, t, time, t_max, time_max)
    !< Print simulation progress.
    class(equation_nasto_gpu_object), intent(in) :: self     !< The equation.
@@ -1164,17 +1088,17 @@ contains
    integer(I4P),                     intent(in) :: t_max    !< Maximum time iteration.
    real(R8P),                        intent(in) :: time_max !< Maximum time of integration.
 
-      print '(A)', self%myrankstr//''
-      print '(A)', self%myrankstr//'t:             '//trim(str(t,.true.))
-      print '(A)', self%myrankstr//'blocks number: '//trim(str(self%adam%tree%nodes_number, .true.))
-      print '(A)', self%myrankstr//'time step:     '//trim(str(self%dt, .true.))
-      print '(A)', self%myrankstr//'time:          '//trim(str(time, .true.))
+      print '(A)', self%base_mpi%myrankstr//''
+      print '(A)', self%base_mpi%myrankstr//'t:             '//trim(str(t,.true.))
+      print '(A)', self%base_mpi%myrankstr//'blocks number: '//trim(str(self%adam%tree%nodes_number, .true.))
+      print '(A)', self%base_mpi%myrankstr//'time step:     '//trim(str(self%dt, .true.))
+      print '(A)', self%base_mpi%myrankstr//'time:          '//trim(str(time, .true.))
    if (t_max <= 0) then
-      print '(A)', self%myrankstr//'progress:      '//trim(str(int(time/time_max * 100), .true.))//'%'
+      print '(A)', self%base_mpi%myrankstr//'progress:      '//trim(str(int(time/time_max * 100), .true.))//'%'
    else
-      print '(A)', self%myrankstr//'progress:      '//trim(str(int((t*1._R8P)/t_max * 100), .true.))//'%'
+      print '(A)', self%base_mpi%myrankstr//'progress:      '//trim(str(int((t*1._R8P)/t_max * 100), .true.))//'%'
    endif
-      print '(A)', self%myrankstr//''
+      print '(A)', self%base_mpi%myrankstr//''
    endsubroutine print_progress
 
    subroutine refine_uniform(self, refinement_levels)
@@ -1195,13 +1119,11 @@ contains
    real(R8P)                                       :: timing(1:2)      !< Tic toc timing.
    real(R8P)                                       :: timing_step(1:2) !< Tic toc timing.
 
-   call MPI_INIT(self%error)
-
    call self%initialize(filename=filename)
    if (self%restart) then
-      print '(A)', self%myrankstr//'restart simulation from "'//trim(self%restart_basename)//'" files'
+      print '(A)', self%base_mpi%myrankstr//'restart simulation from "'//trim(self%restart_basename)//'" files'
       call self%load_restart_files(t=self%it, time=self%time)
-      print '(A)', self%myrankstr//'restart [t, time]: '//trim(str(self%it))//', '//trim(str(self%time))
+      print '(A)', self%base_mpi%myrankstr//'restart [t, time]: '//trim(str(self%it))//', '//trim(str(self%time))
    else
       call self%set_initial_conditions()
       self%time = 0._R8P
@@ -1210,19 +1132,19 @@ contains
    if (self%n_solids > 0) call self%update_phi()
 
    call self%save_simulation_data
-   call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing(1) = MPI_Wtime()
+   call MPI_BARRIER(MPI_COMM_WORLD, self%base_mpi%error) ; timing(1) = MPI_Wtime()
 
    integration: do
-      call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(1) = MPI_Wtime()
+      call MPI_BARRIER(MPI_COMM_WORLD, self%base_mpi%error) ; timing_step(1) = MPI_Wtime()
       self%it = self%it + 1
 
       if(mod(self%it,self%amr_frequency) == 0) then
          call self%amr_update()
-         call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(2) = MPI_Wtime()
-         print '(A, F18.10)', self%myrankstr//'step timing (AMR): ', timing_step(2) - timing_step(1)
+         call MPI_BARRIER(MPI_COMM_WORLD, self%base_mpi%error) ; timing_step(2) = MPI_Wtime()
+         print '(A, F18.10)', self%base_mpi%myrankstr//'step timing (AMR): ', timing_step(2) - timing_step(1)
       endif
 
-      call save_memory(it=self%it, rank=self%myrank)
+      call save_memory(it=self%it, rank=self%base_mpi%myrank)
 
       call self%compute_dt()
       if ((self%t_max <= 0).and.(self%time + self%dt > self%time_max)) self%dt = self%time_max - self%time
@@ -1233,17 +1155,17 @@ contains
       call self%print_progress(t=self%it, time=self%time, t_max=self%t_max, time_max=self%time_max)
 
       call self%save_simulation_data
-      call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(2) = MPI_Wtime()
-      print '(A, F18.10)', self%myrankstr//'step timing (save data): ', timing_step(2) - timing_step(1)
+      call MPI_BARRIER(MPI_COMM_WORLD, self%base_mpi%error) ; timing_step(2) = MPI_Wtime()
+      print '(A, F18.10)', self%base_mpi%myrankstr//'step timing (save data): ', timing_step(2) - timing_step(1)
 
       if (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0))) exit integration
 
-      call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing_step(2) = MPI_Wtime()
-      print '(A, F18.10)', self%myrankstr//'step timing: ', timing_step(2) - timing_step(1)
+      call MPI_BARRIER(MPI_COMM_WORLD, self%base_mpi%error) ; timing_step(2) = MPI_Wtime()
+      print '(A, F18.10)', self%base_mpi%myrankstr//'step timing: ', timing_step(2) - timing_step(1)
    enddo integration
 
-   call MPI_BARRIER(MPI_COMM_WORLD, self%error) ; timing(2) = MPI_Wtime()
-   print '(A, F18.10)', self%myrankstr//'averaged timing: ', (timing(2) - timing(1))/self%it
+   call MPI_BARRIER(MPI_COMM_WORLD, self%base_mpi%error) ; timing(2) = MPI_Wtime()
+   print '(A, F18.10)', self%base_mpi%myrankstr//'averaged timing: ', (timing(2) - timing(1))/self%it
 
    call self%save_simulation_data
    endsubroutine run
@@ -1308,7 +1230,8 @@ contains
 
    if (mod(self%it,self%n_save)==0.or.self%it==self%t_max.or.&
       (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0)))) then
-      print '(A)', self%myrankstr//'save HDF5 files t: '//trim(str(self%it,.true.))//', time: '//trim(str(self%time,.true.))
+      print '(A)', self%base_mpi%myrankstr//'save HDF5 files t: '//trim(str(self%it,.true.))//', time: '//&
+                   trim(str(self%time,.true.))
       output_basename_ = trim(self%output_basename)//'-'//trim(strz(self%it,9))
       if (present(output_basename)) output_basename_ = trim(output_basename)
       call self%adam%save_hdf5(basename=trim(output_basename_),                                  &
@@ -1325,7 +1248,8 @@ contains
    class(equation_nasto_gpu_object), intent(inout) :: self !< The equation.
 
    if (mod(self%it,self%restart_save)==0) then
-      print '(A)', self%myrankstr//'save restart files t: '//trim(str(self%it,.true.))//', time: '//trim(str(self%time,.true.))
+      print '(A)', self%base_mpi%myrankstr//'save restart files t: '//trim(str(self%it,.true.))//', time: '//&
+                   trim(str(self%time,.true.))
       call self%adam%save_restart_files(basename=self%restart_basename, t=self%it, time=self%time)
       call self%save_hdf5(output_basename=self%restart_basename)
    endif
@@ -1341,7 +1265,7 @@ contains
          if (self%it>0) then
             if (mod(self%it,self%slice(s)%slice_save)==0.or.self%it==self%t_max.or.&
                (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0)))) then
-               print '(A)', self%myrankstr//'save slice n: '//trim(str(s,.true.))//&
+               print '(A)', self%base_mpi%myrankstr//'save slice n: '//trim(str(s,.true.))//&
                             ', t: '//trim(str(self%it,.true.))//', time: '//trim(str(self%time,.true.))
                call self%adam%save_slice(points=self%slice(s)%slice_points,                               &
                                          itype=trim(self%slice(s)%slice_itype),                           &
@@ -1574,7 +1498,7 @@ contains
    associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
              x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell,         &
              ptree => self%ptree, phi=>self%phi, phi_gpu=>self%phi_gpu, n_solids=>self%n_solids)
-   print '(A)', self%myrankstr//'update IB distance'
+   print '(A)', self%base_mpi%myrankstr//'update IB distance'
    do ib=1,n_solids
       do b=1,blocks_number
          do i=1-ngc,ni+ngc
