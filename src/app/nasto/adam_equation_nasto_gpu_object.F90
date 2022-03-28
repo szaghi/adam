@@ -4,9 +4,9 @@ module adam_equation_nasto_gpu_object
 
 use adam_adam_object
 use adam_base_gpu_object
-use adam_base_mpi_object
 use adam_field_object
 use adam_grid_object
+use adam_mpi_lib
 use adam_parameters
 use adam_tree_node_object, only : tree_node_object
 use adam_weno_library_gpu
@@ -107,7 +107,6 @@ type :: equation_nasto_gpu_object
    integer(I4P)                :: nv                      !< Number of variables.
    integer(I4P)                :: nv_aux                  !< Number of auxiliary variables.
    type(base_gpu_object)       :: base_gpu                !< The base GPU handler.
-   type(base_mpi_object)       :: base_mpi                !< The MPI backend.
    integer(I4P)                :: field_gpu_number=12_I4P !< Number of nv fields used in memory.
    ! equation data
    real(R8P), allocatable      :: fd_coeff1(:)       !< First order derivatives coeffs.
@@ -257,7 +256,7 @@ contains
          is_grid_changed_all = is_grid_changed_all.or.is_grid_changed
       enddo
       if (.not.is_grid_changed_all) then
-          print '(A)', self%base_mpi%myrankstr//'AMR Grid stabilized after : '//trim(str(i))//' AMR iterations'
+          print '(A)', myrankstr//'AMR Grid stabilized after : '//trim(str(i))//' AMR iterations'
           exit amr
       endif
    enddo amr
@@ -301,7 +300,7 @@ contains
          !dt = min(dt, minval(dxyz(:,b)) / umax * CFL)
          dt = min(dt, CFL / umax )
       enddo
-      call MPI_ALLREDUCE(MPI_IN_PLACE, dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%base_mpi%error)
+      call MPI_ALLREDUCE(MPI_IN_PLACE, dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, error)
    endassociate
    endsubroutine compute_dt
 
@@ -392,194 +391,66 @@ contains
 
    subroutine initialize(self, filename)
    !< Initialize the equation.
-   class(equation_nasto_gpu_object), intent(inout) :: self              !< The equation.
-   character(*),                     intent(in)    :: filename          !< Input file name.
-   integer(I4P)                                    :: i, j, k, v, s     !< Counter.
-   integer(I4P)                                    :: n_solids          !< Number of immersed bodies.
-   integer(I4P)                                    :: n_vars            !< Number of ic/bc vars.
-   integer(I4P)                                    :: mode              !< AMR mode.
-   integer(I8P)                                    :: nodes_number      !< Allocated nodes on tree.
-   integer(I4P)                                    :: nb                !< Number of allocated blocks.
-   integer(I4P)                                    :: nv                !< Number of evolved variables.
-   character(999)                                  :: sname             !< Section name.
-   character(999)                                  :: oname             !< Option name.
-   character(999)                                  :: snames_bc(6)      !< Section names bc.
-   integer(I4P)                                    :: bc_type_item      !< Boundary condition type element.
-   integer(I4P)                                    :: i_var, i_bc       !< Counter.
-   integer(I4P)                                    :: i_solid, i_marker !< Counter.
-   real(R8P)                                       :: dxyz(3)           !< Space steps.
-   logical                                         :: buf_BOOL          !< Logical buffer.
-   integer(I4P)                                    :: buf_I4            !< I4 buffer.
-   real(R8P)                                       :: buf_R8            !< R8 buffer.
-   character(999)                                  :: buf_CHAR          !< String buffer.
-   integer(I4P)                                    :: ns                !< Number of species.
+   class(equation_nasto_gpu_object), intent(inout) :: self         !< The equation.
+   character(*),                     intent(in)    :: filename     !< Input file name.
+   integer(I8P)                                    :: nodes_number !< Allocated nodes on tree.
+   integer(I4P)                                    :: nb           !< Number of allocated blocks.
+   integer(I4P)                                    :: nv           !< Number of evolved variables.
+   integer(I4P)                                    :: ns           !< Number of species.
 
-   call self%base_mpi%initialize(do_mpi_init=.true.)
+   call mpi_initialize(do_mpi_init=.true.)
 
-   print '(A)', self%base_mpi%myrankstr//'equation_nasto_gpu_object%initialize start'
+   print '(A)', myrankstr//'equation_nasto_gpu_object%initialize start'
 
    call self%base_gpu%initialize_gpu
 
    call self%file_input%initialize(filename=trim(filename))
    call self%file_input%load
+
    call self%adam%grid%initialize(file_parameters=self%file_input, verbose=.true.)
    self%bc_type = self%adam%grid%bc_type
-   call self%base_mpi%compute_blocks_number(memory_avail=self%base_gpu%memory_avail,  &
-                                            block_weight=self%adam%grid%block_weight, &
-                                            fields_number=60,                         &
-                                            nb=nb,                                    &
-                                            nodes_number=nodes_number,                &
-                                            verbose=.true.)
+
+   call self%adam%compute_blocks_number(memory_avail=self%base_gpu%memory_avail,  &
+                                        fields_number=80,                         &
+                                        nb=nb,                                    &
+                                        nodes_number=nodes_number,                &
+                                        verbose=.true.)
+
    call self%file_input%get(section_name='physics', option_name='ns', val=ns)
    nv = ns + 4
+
    call self%adam%initialize(file_parameters=self%file_input, &
                              do_tree_init=.true.,             &
                              do_field_init=.true.,            &
                              nv=nv, nb=nb, nodes_number=nodes_number)
+   call forward_main_adam_data(grid=self%adam%grid, field=self%adam%field)
 
    call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_blocks_reorder=.false.)
 
    call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false.)
 
-   self%ni     =  self%adam%field%grid%ni
-   self%nj     =  self%adam%field%grid%nj
-   self%nk     =  self%adam%field%grid%nk
-   self%ngc    =  self%adam%field%grid%ngc
-   self%nb     =  self%adam%field%nb
-   self%nv     =  self%adam%field%nv
-   self%nv_aux =  9
-
+   self%nv_aux = 9
    call self%base_gpu%initialize(field=self%adam%field, nv_aux=self%nv_aux, verbose=.true.)
-   self%field         => self%base_gpu%field
-   self%grid          => self%base_gpu%field%grid
-   self%blocks_number => self%base_gpu%field%blocks_number
 
-   call self%file_input%get(section_name='schemes', option_name='euler_scheme', val=buf_I4) ; self%euler_scheme = buf_I4
-   call self%file_input%get(section_name='schemes', option_name='euler_order' , val=buf_I4) ; self%euler_order  = buf_I4
-   self%iweno = (self%euler_order+1)/2
-   self%lmax  = (self%euler_order)/2
-   call self%file_input%get(section_name='schemes', option_name='visc_scheme' , val=buf_I4) ; self%visc_scheme = buf_I4
-   call self%file_input%get(section_name='schemes', option_name='visc_order'  , val=buf_I4) ; self%visc_order  = buf_I4
-   call self%fd_initialize
-   self%fd_coeff1_gpu = self%fd_coeff1
-   self%fd_coeff2_gpu = self%fd_coeff2
-   self%fd_conv_gpu   = self%fd_conv
+   call load_schemes_from_ini_file
 
-   call self%file_input%get(section_name='physics', option_name='cp',        val=buf_R8) ; self%cp_star   = buf_R8
-   call self%file_input%get(section_name='physics', option_name='cv',        val=buf_R8) ; self%cv_star   = buf_R8
-   call self%file_input%get(section_name='physics', option_name='mu',        val=buf_R8) ; self%mu_star   = buf_R8
-   call self%file_input%get(section_name='physics', option_name='k',         val=buf_R8) ; self%k_star    = buf_R8
-   call self%file_input%get(section_name='physics', option_name='dha',       val=buf_R8) ; self%dha_star  = buf_R8
-   call self%file_input%get(section_name='physics', option_name='Zeldovich', val=buf_R8) ; self%Zeldovich = buf_R8
-   call self%file_input%get(section_name='physics', option_name='Damkohler', val=buf_R8) ; self%Damkohler = buf_R8
-   call self%file_input%get(section_name='physics', option_name='Lewis',     val=buf_R8) ; self%Lewis     = buf_R8
-   call self%file_input%get(section_name='physics', option_name='visc_law',  val=buf_I4) ; self%visc_law  = buf_I4
-   self%gamma_fluid = self%cp_star/self%cv_star
-   self%R_star      = self%cp_star-self%cv_star
+   call load_physics_from_ini_file
 
-   call self%file_input%get(section_name='amr', option_name='frequency', val=buf_I4) ; self%amr_frequency = buf_I4
-   call self%file_input%get(section_name='amr', option_name='iters',     val=buf_I4) ; self%amr_iters = buf_I4
-   call self%file_input%get(section_name='amr', option_name='n_markers', val=buf_I4) ; self%amr_n_markers = buf_I4
-   allocate(self%amr_markers(self%amr_n_markers))
-   do i_marker=1,self%amr_n_markers
-      sname = 'amr_marker_'//trim(str(i_marker,.true.))
-      call self%file_input%get(section_name=sname, option_name='mode', val=mode)
-      self%amr_markers(i_marker)%mode = mode
-      call self%file_input%get(section_name=sname, option_name='delta_fine', val=buf_R8)
-      self%amr_markers(i_marker)%delta_fine = buf_R8
-      call self%file_input%get(section_name=sname, option_name='delta_coarse', val=buf_R8)
-      self%amr_markers(i_marker)%delta_coarse = buf_R8
-      if(mode == 1) then
-         call self%file_input%get(section_name=sname, option_name='solid', val=buf_I4)
-         self%amr_markers(i_marker)%solid = buf_I4
-      elseif(mode == 2) then
-         call self%file_input%get(section_name=sname, option_name='var', val=buf_I4)
-         self%amr_markers(i_marker)%ivar = buf_I4
-         call self%file_input%get(section_name=sname, option_name='tol', val=buf_R8)
-         self%amr_markers(i_marker)%tol = buf_R8
-      endif
-   enddo
+   call load_amr_from_ini_file
 
-   call self%file_input%get(section_name="time", option_name="restart",         val=buf_BOOL) ; self%restart          = buf_BOOL
-   call self%file_input%get(section_name="time", option_name="restart_basename",val=buf_CHAR) ; self%restart_basename = buf_CHAR
-   call self%file_input%get(section_name="time", option_name="restart_save",    val=buf_I4)   ; self%restart_save     = buf_I4
-   call self%file_input%get(section_name="time", option_name="time_max",        val=buf_R8)   ; self%time_max         = buf_R8
-   call self%file_input%get(section_name="time", option_name="t_max",           val=buf_I4)   ; self%t_max            = buf_I4
-   call self%file_input%get(section_name="time", option_name="time_save",       val=buf_R8)   ; self%time_save        = buf_R8
-   call self%file_input%get(section_name="time", option_name="n_save",          val=buf_I4)   ; self%n_save           = buf_I4
-   call self%file_input%get(section_name="time", option_name="output_basename", val=buf_CHAR) ; self%output_basename  = buf_CHAR
-   call self%file_input%get(section_name='time', option_name='CFL',             val=buf_R8)   ; self%CFL              = buf_R8
-   call self%file_input%get(section_name="time", option_name="slices_number",   val=buf_I4)   ; self%slices_number    = buf_I4
+   call load_timing_from_ini_file
+
+   call load_ic_from_ini_file
+
+   call load_bc_from_ini_file
+
+   call load_slices_from_ini_file
+
+   call load_solids_from_ini_file
+
    call self%runge_kutta_initialize
 
-   if (self%slices_number > 0) then
-      allocate(self%slice(self%slices_number))
-      do s=1, self%slices_number
-         sname = 'slice_'//trim(str(s,.true.))
-         call self%file_input%get(section_name=sname, option_name='slice_itype', val=buf_CHAR) ; self%slice(s)%slice_itype=buf_CHAR
-         call self%file_input%get(section_name=sname, option_name='slice_save', val=buf_I4)    ; self%slice(s)%slice_save =buf_I4
-         call self%file_input%get(section_name=sname, option_name='slice_ni', val=buf_I4)      ; self%slice(s)%slice_nijk(1)=buf_I4
-         call self%file_input%get(section_name=sname, option_name='slice_nj', val=buf_I4)      ; self%slice(s)%slice_nijk(2)=buf_I4
-         call self%file_input%get(section_name=sname, option_name='slice_nk', val=buf_I4)      ; self%slice(s)%slice_nijk(3)=buf_I4
-         call self%file_input%get(section_name=sname, option_name='slice_emin_x', val=buf_R8)  ; self%slice(s)%slice_emin(1)=buf_R8
-         call self%file_input%get(section_name=sname, option_name='slice_emin_y', val=buf_R8)  ; self%slice(s)%slice_emin(2)=buf_R8
-         call self%file_input%get(section_name=sname, option_name='slice_emin_z', val=buf_R8)  ; self%slice(s)%slice_emin(3)=buf_R8
-         call self%file_input%get(section_name=sname, option_name='slice_emax_x', val=buf_R8)  ; self%slice(s)%slice_emax(1)=buf_R8
-         call self%file_input%get(section_name=sname, option_name='slice_emax_y', val=buf_R8)  ; self%slice(s)%slice_emax(2)=buf_R8
-         call self%file_input%get(section_name=sname, option_name='slice_emax_z', val=buf_R8)  ; self%slice(s)%slice_emax(3)=buf_R8
-         allocate(self%slice(s)%slice_points(3,self%slice(s)%slice_nijk(1),self%slice(s)%slice_nijk(2),self%slice(s)%slice_nijk(3)))
-         dxyz(1) = (self%slice(s)%slice_emax(1) - self%slice(s)%slice_emin(1)) / self%slice(s)%slice_nijk(1)
-         dxyz(2) = (self%slice(s)%slice_emax(2) - self%slice(s)%slice_emin(2)) / self%slice(s)%slice_nijk(2)
-         dxyz(3) = (self%slice(s)%slice_emax(3) - self%slice(s)%slice_emin(3)) / self%slice(s)%slice_nijk(3)
-         do k=1, self%slice(s)%slice_nijk(3)
-            do j=1, self%slice(s)%slice_nijk(2)
-               do i=1, self%slice(s)%slice_nijk(1)
-                  self%slice(s)%slice_points(1,i,j,k) = self%slice(s)%slice_emin(1) + (i - 0.5_R8P) * dxyz(1)
-                  self%slice(s)%slice_points(2,i,j,k) = self%slice(s)%slice_emin(2) + (j - 0.5_R8P) * dxyz(2)
-                  self%slice(s)%slice_points(3,i,j,k) = self%slice(s)%slice_emin(3) + (k - 0.5_R8P) * dxyz(3)
-               enddo
-            enddo
-         enddo
-      enddo
-   endif
-
-   call self%file_input%get(section_name="initial_conditions", option_name='ic_type', val=buf_I4) ; self%ic_type = buf_I4
-   n_vars = IC_VARS_NUMBER(self%ic_type)
-   do i_var=1,n_vars
-      oname = "var"//trim(str(i_var,.true.))
-      call self%file_input%get(section_name="initial_conditions", option_name=oname, val=buf_R8)
-      self%ic_vars(i_var) = buf_R8
-   enddo
-
-   snames_bc(:) = ["bc_x_min", "bc_x_max", "bc_y_min", "bc_y_max", "bc_z_min", "bc_z_max"]
-   do i_bc=1,6
-      sname = snames_bc(i_bc)
-      call self%file_input%get(section_name=sname, option_name='type', val=bc_type_item)
-      n_vars = BC_VARS_NUMBER(bc_type_item)
-      do i_var=1,n_vars
-          call self%file_input%get(section_name=sname, option_name="var"//trim(str(i_var,.true.)), val=buf_R8)
-          self%bc_vars(i_var, i_bc) = buf_R8
-      enddo
-   enddo
-   self%bc_vars_gpu = self%bc_vars
-
-   call self%file_input%get(section_name='solids', option_name='n_solids', val=buf_I4)
-   self%n_solids = buf_I4
-   allocate(self%bcs_type(self%n_solids))
-   allocate(self%bcs_vars(BCS_VARS_NUMBER_MAX, self%n_solids))
-   allocate(self%ptree(self%n_solids))
-   do i_solid=1,self%n_solids
-      sname = 'solid_'//trim(str(i_solid,.true.))
-      call self%file_input%get(section_name=sname, option_name='name', val=buf_CHAR)
-      self%solid_name = buf_CHAR
-      call self%file_input%get(section_name=sname, option_name='bcs_type', val=buf_I4)
-      self%solid_bc_type = buf_I4
-      self%bcs_type(i_solid) = self%solid_bc_type
-      ! RIMETTERE CGAL
-      ! call cgal_polyhedron_read(self%ptree(i_solid), self%solid_name)
-   enddo
-   self%bcs_vars_gpu = self%bcs_vars
-
+   ! allocate equation data
    associate(nv=>self%nv, ns=>self%ns, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
              nb=>self%nb, nrk=>self%nrk, nv_aux=>self%nv_aux, n_solids=>self%n_solids, iweno=>self%iweno)
    ! CPU data
@@ -609,7 +480,7 @@ contains
    self%fly_gpu  = 0._R8P
    self%flz_gpu  = 0._R8P
    if (self%n_solids > 0) then
-      allocate(self%phi(1:nb,     1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:n_solids))
+      allocate(self%phi(1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:n_solids))
       call self%base_gpu%alloc_var_gpu(var=self%phi_gpu, msg='equation_nasto_gpu%alloc(phi_gpu) ', verbose=.true.,&
                                        ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,n_solids],[2,5]))
       self%phi     = -1._R8P
@@ -622,7 +493,225 @@ contains
    allocate(self%gplus_z (nv, 2*iweno, ni, nj, nb))
    allocate(self%gminus_z(nv, 2*iweno, ni, nj, nb))
    endassociate
-   print '(A)', self%base_mpi%myrankstr//'equation_nasto_gpu_object%initialize finish'
+   print '(A)', myrankstr//'equation_nasto_gpu_object%initialize finish'
+   contains
+      subroutine forward_main_adam_data(grid, field)
+      !< Forward main ADAM data to equation for easy handling.
+      type(grid_object),  intent(in), target :: grid  !< The grid.
+      type(field_object), intent(in), target :: field !< The field.
+
+      self%grid          => grid
+      self%field         => field
+      self%blocks_number => field%blocks_number
+      self%ni            =  field%grid%ni
+      self%nj            =  field%grid%nj
+      self%nk            =  field%grid%nk
+      self%ngc           =  field%grid%ngc
+      self%nb            =  field%nb
+      self%nv            =  field%nv
+      endsubroutine forward_main_adam_data
+
+      subroutine load_schemes_from_ini_file
+      !< Parse schemes setting from input file.
+      integer(I4P) :: buf_I4 !< I4 buffer.
+
+      call self%file_input%get(section_name='schemes', option_name='euler_scheme', val=buf_I4) ; self%euler_scheme = buf_I4
+      call self%file_input%get(section_name='schemes', option_name='euler_order' , val=buf_I4) ; self%euler_order  = buf_I4
+      self%iweno = (self%euler_order+1)/2
+      self%lmax  = (self%euler_order)/2
+      call self%file_input%get(section_name='schemes', option_name='visc_scheme' , val=buf_I4) ; self%visc_scheme = buf_I4
+      call self%file_input%get(section_name='schemes', option_name='visc_order'  , val=buf_I4) ; self%visc_order  = buf_I4
+      call self%fd_initialize
+      self%fd_coeff1_gpu = self%fd_coeff1
+      self%fd_coeff2_gpu = self%fd_coeff2
+      self%fd_conv_gpu   = self%fd_conv
+      endsubroutine load_schemes_from_ini_file
+
+      subroutine load_physics_from_ini_file
+      !< Parse physics setting from input file.
+      integer(I4P) :: buf_I4 !< I4 buffer.
+      real(R8P)    :: buf_R8 !< R8 buffer.
+
+      call self%file_input%get(section_name='physics', option_name='cp',        val=buf_R8) ; self%cp_star   = buf_R8
+      call self%file_input%get(section_name='physics', option_name='cv',        val=buf_R8) ; self%cv_star   = buf_R8
+      call self%file_input%get(section_name='physics', option_name='mu',        val=buf_R8) ; self%mu_star   = buf_R8
+      call self%file_input%get(section_name='physics', option_name='k',         val=buf_R8) ; self%k_star    = buf_R8
+      call self%file_input%get(section_name='physics', option_name='dha',       val=buf_R8) ; self%dha_star  = buf_R8
+      call self%file_input%get(section_name='physics', option_name='Zeldovich', val=buf_R8) ; self%Zeldovich = buf_R8
+      call self%file_input%get(section_name='physics', option_name='Damkohler', val=buf_R8) ; self%Damkohler = buf_R8
+      call self%file_input%get(section_name='physics', option_name='Lewis',     val=buf_R8) ; self%Lewis     = buf_R8
+      call self%file_input%get(section_name='physics', option_name='visc_law',  val=buf_I4) ; self%visc_law  = buf_I4
+      self%gamma_fluid = self%cp_star/self%cv_star
+      self%R_star      = self%cp_star-self%cv_star
+      endsubroutine load_physics_from_ini_file
+
+      subroutine load_amr_from_ini_file
+      !< Parse AMR setting from input file.
+      integer(I4P)   :: buf_I4   !< I4 buffer.
+      real(R8P)      :: buf_R8   !< R8 buffer.
+      character(999) :: sname    !< Section name.
+      integer(I4P)   :: i_marker !< Counter.
+      integer(I4P)   :: mode     !< AMR mode.
+
+      call self%file_input%get(section_name='amr', option_name='frequency', val=buf_I4) ; self%amr_frequency = buf_I4
+      call self%file_input%get(section_name='amr', option_name='iters',     val=buf_I4) ; self%amr_iters     = buf_I4
+      call self%file_input%get(section_name='amr', option_name='n_markers', val=buf_I4) ; self%amr_n_markers = buf_I4
+      allocate(self%amr_markers(self%amr_n_markers))
+      do i_marker=1,self%amr_n_markers
+         sname = 'amr_marker_'//trim(str(i_marker,.true.))
+         call self%file_input%get(section_name=sname, option_name='mode', val=mode)
+         self%amr_markers(i_marker)%mode = mode
+         call self%file_input%get(section_name=sname, option_name='delta_fine', val=buf_R8)
+         self%amr_markers(i_marker)%delta_fine = buf_R8
+         call self%file_input%get(section_name=sname, option_name='delta_coarse', val=buf_R8)
+         self%amr_markers(i_marker)%delta_coarse = buf_R8
+         if(mode == 1) then
+            call self%file_input%get(section_name=sname, option_name='solid', val=buf_I4)
+            self%amr_markers(i_marker)%solid = buf_I4
+         elseif(mode == 2) then
+            call self%file_input%get(section_name=sname, option_name='var', val=buf_I4)
+            self%amr_markers(i_marker)%ivar = buf_I4
+            call self%file_input%get(section_name=sname, option_name='tol', val=buf_R8)
+            self%amr_markers(i_marker)%tol = buf_R8
+         endif
+      enddo
+      endsubroutine load_amr_from_ini_file
+
+      subroutine load_timing_from_ini_file
+      !< Parse timing setting from input file.
+      logical        :: buf_BOOL !< Logical buffer.
+      character(999) :: buf_CHAR !< String buffer.
+      integer(I4P)   :: buf_I4   !< I4 buffer.
+      real(R8P)      :: buf_R8   !< R8 buffer.
+
+      call self%file_input%get(section_name="time", option_name="restart",         val=buf_BOOL) ; self%restart          = buf_BOOL
+      call self%file_input%get(section_name="time", option_name="restart_basename",val=buf_CHAR) ; self%restart_basename = buf_CHAR
+      call self%file_input%get(section_name="time", option_name="restart_save",    val=buf_I4)   ; self%restart_save     = buf_I4
+      call self%file_input%get(section_name="time", option_name="time_max",        val=buf_R8)   ; self%time_max         = buf_R8
+      call self%file_input%get(section_name="time", option_name="t_max",           val=buf_I4)   ; self%t_max            = buf_I4
+      call self%file_input%get(section_name="time", option_name="time_save",       val=buf_R8)   ; self%time_save        = buf_R8
+      call self%file_input%get(section_name="time", option_name="n_save",          val=buf_I4)   ; self%n_save           = buf_I4
+      call self%file_input%get(section_name="time", option_name="output_basename", val=buf_CHAR) ; self%output_basename  = buf_CHAR
+      call self%file_input%get(section_name='time', option_name='CFL',             val=buf_R8)   ; self%CFL              = buf_R8
+      endsubroutine load_timing_from_ini_file
+
+      subroutine load_ic_from_ini_file
+      !< Parse initial conditions setting from input file.
+      integer(I4P)   :: buf_I4 !< I4 buffer.
+      real(R8P)      :: buf_R8 !< R8 buffer.
+      character(999) :: oname  !< Option name.
+      integer(I4P)   :: i_var  !< Counter.
+      integer(I4P)   :: n_vars !< Number of vars.
+
+      call self%file_input%get(section_name="initial_conditions", option_name='ic_type', val=buf_I4) ; self%ic_type = buf_I4
+      n_vars = IC_VARS_NUMBER(self%ic_type)
+      do i_var=1,n_vars
+         oname = "var"//trim(str(i_var,.true.))
+         call self%file_input%get(section_name="initial_conditions", option_name=oname, val=buf_R8) ; self%ic_vars(i_var) = buf_R8
+      enddo
+      endsubroutine load_ic_from_ini_file
+
+      subroutine load_bc_from_ini_file
+      !< Parse boundary conditions setting from input file.
+      real(R8P)      :: buf_R8       !< R8 buffer.
+      character(999) :: sname        !< Section name.
+      character(999) :: snames_bc(6) !< Section names bc.
+      integer(I4P)   :: bc_type_item !< Boundary condition type element.
+      integer(I4P)   :: i_var, i_bc  !< Counter.
+      integer(I4P)   :: n_vars       !< Number of vars.
+
+      snames_bc(:) = ["bc_x_min", "bc_x_max", "bc_y_min", "bc_y_max", "bc_z_min", "bc_z_max"]
+      do i_bc=1,6
+         sname = snames_bc(i_bc)
+         call self%file_input%get(section_name=sname, option_name='type', val=bc_type_item)
+         n_vars = BC_VARS_NUMBER(bc_type_item)
+         do i_var=1,n_vars
+             call self%file_input%get(section_name=sname, option_name="var"//trim(str(i_var,.true.)), val=buf_R8)
+             self%bc_vars(i_var, i_bc) = buf_R8
+         enddo
+      enddo
+      self%bc_vars_gpu = self%bc_vars
+      endsubroutine load_bc_from_ini_file
+
+      subroutine load_slices_from_ini_file
+      !< Parse slices setting from input file.
+      character(999) :: buf_CHAR   !< String buffer.
+      integer(I4P)   :: buf_I4     !< I4 buffer.
+      real(R8P)      :: buf_R8     !< R8 buffer.
+      character(999) :: sname      !< Section name.
+      real(R8P)      :: dxyz(3)    !< Space steps.
+      integer(I4P)   :: i, j, k, s !< Counter.
+
+      call self%file_input%get(section_name="time", option_name="slices_number", val=buf_I4) ; self%slices_number = buf_I4
+      if (self%slices_number > 0) then
+         allocate(self%slice(self%slices_number))
+         do s=1, self%slices_number
+            sname = 'slice_'//trim(str(s,.true.))
+            call self%file_input%get(section_name=sname, option_name='slice_itype',  val=buf_CHAR)
+            self%slice(s)%slice_itype  =buf_CHAR
+            call self%file_input%get(section_name=sname, option_name='slice_save',   val=buf_I4)
+            self%slice(s)%slice_save   =buf_I4
+            call self%file_input%get(section_name=sname, option_name='slice_ni',     val=buf_I4)
+            self%slice(s)%slice_nijk(1)=buf_I4
+            call self%file_input%get(section_name=sname, option_name='slice_nj',     val=buf_I4)
+            self%slice(s)%slice_nijk(2)=buf_I4
+            call self%file_input%get(section_name=sname, option_name='slice_nk',     val=buf_I4)
+            self%slice(s)%slice_nijk(3)=buf_I4
+            call self%file_input%get(section_name=sname, option_name='slice_emin_x', val=buf_R8)
+            self%slice(s)%slice_emin(1)=buf_R8
+            call self%file_input%get(section_name=sname, option_name='slice_emin_y', val=buf_R8)
+            self%slice(s)%slice_emin(2)=buf_R8
+            call self%file_input%get(section_name=sname, option_name='slice_emin_z', val=buf_R8)
+            self%slice(s)%slice_emin(3)=buf_R8
+            call self%file_input%get(section_name=sname, option_name='slice_emax_x', val=buf_R8)
+            self%slice(s)%slice_emax(1)=buf_R8
+            call self%file_input%get(section_name=sname, option_name='slice_emax_y', val=buf_R8)
+            self%slice(s)%slice_emax(2)=buf_R8
+            call self%file_input%get(section_name=sname, option_name='slice_emax_z', val=buf_R8)
+            self%slice(s)%slice_emax(3)=buf_R8
+            allocate(self%slice(s)%slice_points(3,self%slice(s)%slice_nijk(1),&
+                                                  self%slice(s)%slice_nijk(2),&
+                                                  self%slice(s)%slice_nijk(3)))
+            dxyz(1) = (self%slice(s)%slice_emax(1) - self%slice(s)%slice_emin(1)) / self%slice(s)%slice_nijk(1)
+            dxyz(2) = (self%slice(s)%slice_emax(2) - self%slice(s)%slice_emin(2)) / self%slice(s)%slice_nijk(2)
+            dxyz(3) = (self%slice(s)%slice_emax(3) - self%slice(s)%slice_emin(3)) / self%slice(s)%slice_nijk(3)
+            do k=1, self%slice(s)%slice_nijk(3)
+               do j=1, self%slice(s)%slice_nijk(2)
+                  do i=1, self%slice(s)%slice_nijk(1)
+                     self%slice(s)%slice_points(1,i,j,k) = self%slice(s)%slice_emin(1) + (i - 0.5_R8P) * dxyz(1)
+                     self%slice(s)%slice_points(2,i,j,k) = self%slice(s)%slice_emin(2) + (j - 0.5_R8P) * dxyz(2)
+                     self%slice(s)%slice_points(3,i,j,k) = self%slice(s)%slice_emin(3) + (k - 0.5_R8P) * dxyz(3)
+                  enddo
+               enddo
+            enddo
+         enddo
+      endif
+      endsubroutine load_slices_from_ini_file
+
+      subroutine load_solids_from_ini_file
+      !< Parse immersed boundary solids setting from input file.
+      character(999) :: buf_CHAR !< String buffer.
+      integer(I4P)   :: buf_I4   !< I4 buffer.
+      character(999) :: sname    !< Section name.
+      integer(I4P)   :: i_solid  !< Counter.
+
+      call self%file_input%get(section_name='solids', option_name='n_solids', val=buf_I4)
+      self%n_solids = buf_I4
+      allocate(self%bcs_type(self%n_solids))
+      allocate(self%bcs_vars(BCS_VARS_NUMBER_MAX, self%n_solids))
+      allocate(self%ptree(self%n_solids))
+      do i_solid=1,self%n_solids
+         sname = 'solid_'//trim(str(i_solid,.true.))
+         call self%file_input%get(section_name=sname, option_name='name', val=buf_CHAR)
+         self%solid_name = buf_CHAR
+         call self%file_input%get(section_name=sname, option_name='bcs_type', val=buf_I4)
+         self%solid_bc_type = buf_I4
+         self%bcs_type(i_solid) = self%solid_bc_type
+         ! RIMETTERE CGAL
+         ! call cgal_polyhedron_read(self%ptree(i_solid), self%solid_name)
+      enddo
+      self%bcs_vars_gpu = self%bcs_vars
+      endsubroutine load_solids_from_ini_file
    endsubroutine initialize
 
    subroutine integrate(self, t, do_ghost_syncro, residual)
@@ -1088,17 +1177,19 @@ contains
    integer(I4P),                     intent(in) :: t_max    !< Maximum time iteration.
    real(R8P),                        intent(in) :: time_max !< Maximum time of integration.
 
-      print '(A)', self%base_mpi%myrankstr//''
-      print '(A)', self%base_mpi%myrankstr//'t:             '//trim(str(t,.true.))
-      print '(A)', self%base_mpi%myrankstr//'blocks number: '//trim(str(self%adam%tree%nodes_number, .true.))
-      print '(A)', self%base_mpi%myrankstr//'time step:     '//trim(str(self%dt, .true.))
-      print '(A)', self%base_mpi%myrankstr//'time:          '//trim(str(time, .true.))
+   associate(r=>myrankstr)
+      print '(A)', r//''
+      print '(A)', r//'t:             '//trim(str(t,.true.))
+      print '(A)', r//'blocks number: '//trim(str(self%adam%tree%nodes_number, .true.))
+      print '(A)', r//'time step:     '//trim(str(self%dt, .true.))
+      print '(A)', r//'time:          '//trim(str(time, .true.))
    if (t_max <= 0) then
-      print '(A)', self%base_mpi%myrankstr//'progress:      '//trim(str(int(time/time_max * 100), .true.))//'%'
+      print '(A)', r//'progress:      '//trim(str(int(time/time_max * 100), .true.))//'%'
    else
-      print '(A)', self%base_mpi%myrankstr//'progress:      '//trim(str(int((t*1._R8P)/t_max * 100), .true.))//'%'
+      print '(A)', r//'progress:      '//trim(str(int((t*1._R8P)/t_max * 100), .true.))//'%'
    endif
-      print '(A)', self%base_mpi%myrankstr//''
+      print '(A)', r//''
+   endassociate
    endsubroutine print_progress
 
    subroutine refine_uniform(self, refinement_levels)
@@ -1121,9 +1212,9 @@ contains
 
    call self%initialize(filename=filename)
    if (self%restart) then
-      print '(A)', self%base_mpi%myrankstr//'restart simulation from "'//trim(self%restart_basename)//'" files'
+      print '(A)', myrankstr//'restart simulation from "'//trim(self%restart_basename)//'" files'
       call self%load_restart_files(t=self%it, time=self%time)
-      print '(A)', self%base_mpi%myrankstr//'restart [t, time]: '//trim(str(self%it))//', '//trim(str(self%time))
+      print '(A)', myrankstr//'restart [t, time]: '//trim(str(self%it))//', '//trim(str(self%time))
    else
       call self%set_initial_conditions()
       self%time = 0._R8P
@@ -1132,19 +1223,19 @@ contains
    if (self%n_solids > 0) call self%update_phi()
 
    call self%save_simulation_data
-   call MPI_BARRIER(MPI_COMM_WORLD, self%base_mpi%error) ; timing(1) = MPI_Wtime()
+   call MPI_BARRIER(MPI_COMM_WORLD, error) ; timing(1) = MPI_Wtime()
 
    integration: do
-      call MPI_BARRIER(MPI_COMM_WORLD, self%base_mpi%error) ; timing_step(1) = MPI_Wtime()
+      call MPI_BARRIER(MPI_COMM_WORLD, error) ; timing_step(1) = MPI_Wtime()
       self%it = self%it + 1
 
       if(mod(self%it,self%amr_frequency) == 0) then
          call self%amr_update()
-         call MPI_BARRIER(MPI_COMM_WORLD, self%base_mpi%error) ; timing_step(2) = MPI_Wtime()
-         print '(A, F18.10)', self%base_mpi%myrankstr//'step timing (AMR): ', timing_step(2) - timing_step(1)
+         call MPI_BARRIER(MPI_COMM_WORLD, error) ; timing_step(2) = MPI_Wtime()
+         print '(A, F18.10)', myrankstr//'step timing (AMR): ', timing_step(2) - timing_step(1)
       endif
 
-      call save_memory(it=self%it, rank=self%base_mpi%myrank)
+      call save_memory(it=self%it, rank=myrank)
 
       call self%compute_dt()
       if ((self%t_max <= 0).and.(self%time + self%dt > self%time_max)) self%dt = self%time_max - self%time
@@ -1155,17 +1246,17 @@ contains
       call self%print_progress(t=self%it, time=self%time, t_max=self%t_max, time_max=self%time_max)
 
       call self%save_simulation_data
-      call MPI_BARRIER(MPI_COMM_WORLD, self%base_mpi%error) ; timing_step(2) = MPI_Wtime()
-      print '(A, F18.10)', self%base_mpi%myrankstr//'step timing (save data): ', timing_step(2) - timing_step(1)
+      call MPI_BARRIER(MPI_COMM_WORLD, error) ; timing_step(2) = MPI_Wtime()
+      print '(A, F18.10)', myrankstr//'step timing (save data): ', timing_step(2) - timing_step(1)
 
       if (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0))) exit integration
 
-      call MPI_BARRIER(MPI_COMM_WORLD, self%base_mpi%error) ; timing_step(2) = MPI_Wtime()
-      print '(A, F18.10)', self%base_mpi%myrankstr//'step timing: ', timing_step(2) - timing_step(1)
+      call MPI_BARRIER(MPI_COMM_WORLD, error) ; timing_step(2) = MPI_Wtime()
+      print '(A, F18.10)', myrankstr//'step timing: ', timing_step(2) - timing_step(1)
    enddo integration
 
-   call MPI_BARRIER(MPI_COMM_WORLD, self%base_mpi%error) ; timing(2) = MPI_Wtime()
-   print '(A, F18.10)', self%base_mpi%myrankstr//'averaged timing: ', (timing(2) - timing(1))/self%it
+   call MPI_BARRIER(MPI_COMM_WORLD, error) ; timing(2) = MPI_Wtime()
+   print '(A, F18.10)', myrankstr//'averaged timing: ', (timing(2) - timing(1))/self%it
 
    call self%save_simulation_data
    endsubroutine run
@@ -1230,7 +1321,7 @@ contains
 
    if (mod(self%it,self%n_save)==0.or.self%it==self%t_max.or.&
       (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0)))) then
-      print '(A)', self%base_mpi%myrankstr//'save HDF5 files t: '//trim(str(self%it,.true.))//', time: '//&
+      print '(A)', myrankstr//'save HDF5 files t: '//trim(str(self%it,.true.))//', time: '//&
                    trim(str(self%time,.true.))
       output_basename_ = trim(self%output_basename)//'-'//trim(strz(self%it,9))
       if (present(output_basename)) output_basename_ = trim(output_basename)
@@ -1248,7 +1339,7 @@ contains
    class(equation_nasto_gpu_object), intent(inout) :: self !< The equation.
 
    if (mod(self%it,self%restart_save)==0) then
-      print '(A)', self%base_mpi%myrankstr//'save restart files t: '//trim(str(self%it,.true.))//', time: '//&
+      print '(A)', myrankstr//'save restart files t: '//trim(str(self%it,.true.))//', time: '//&
                    trim(str(self%time,.true.))
       call self%adam%save_restart_files(basename=self%restart_basename, t=self%it, time=self%time)
       call self%save_hdf5(output_basename=self%restart_basename)
@@ -1265,7 +1356,7 @@ contains
          if (self%it>0) then
             if (mod(self%it,self%slice(s)%slice_save)==0.or.self%it==self%t_max.or.&
                (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0)))) then
-               print '(A)', self%base_mpi%myrankstr//'save slice n: '//trim(str(s,.true.))//&
+               print '(A)', myrankstr//'save slice n: '//trim(str(s,.true.))//&
                             ', t: '//trim(str(self%it,.true.))//', time: '//trim(str(self%time,.true.))
                call self%adam%save_slice(points=self%slice(s)%slice_points,                               &
                                          itype=trim(self%slice(s)%slice_itype),                           &
@@ -1498,7 +1589,7 @@ contains
    associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
              x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell,         &
              ptree => self%ptree, phi=>self%phi, phi_gpu=>self%phi_gpu, n_solids=>self%n_solids)
-   print '(A)', self%base_mpi%myrankstr//'update IB distance'
+   print '(A)', myrankstr//'update IB distance start'
    do ib=1,n_solids
       do b=1,blocks_number
          do i=1-ngc,ni+ngc
@@ -1539,6 +1630,7 @@ contains
    enddo
    phi_gpu = phi
    endassociate
+   print '(A)', myrankstr//'update IB distance finish'
    endsubroutine update_phi
 
    ! operators

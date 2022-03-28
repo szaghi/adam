@@ -2,7 +2,7 @@
 module adam_grid_object
 !< ADAM, grid class definition.
 
-use adam_base_mpi_object, only : base_mpi_object
+use adam_mpi_lib
 use adam_parameters
 use FINER, only : file_ini
 use PENF
@@ -33,7 +33,6 @@ type :: grid_object
    real(R8P),    allocatable :: lin_space_x(:,:)                      !< Lin. space x for each level [0-ngc:ni+ngc,MAX_REF_LEVELS].
    real(R8P),    allocatable :: lin_space_y(:,:)                      !< Lin. space y for each level [0-ngc:nj+ngc,MAX_REF_LEVELS].
    real(R8P),    allocatable :: lin_space_z(:,:)                      !< Lin. space z for each level [0-ngc:nk+ngc,MAX_REF_LEVELS].
-   type(base_mpi_object)     :: base_mpi                              !< The MPI backend.
    contains
       ! public methods
       procedure, pass(self) :: block_emin              !< Return block emin given its coordinates.
@@ -219,10 +218,9 @@ contains
    integer(I4P)                   :: ijk(3)   !< Indexes of the closest (living or not) block.
 
    associate(nb_max=>self%nb_max(level), emin=>self%domain_emin, dxyz=>self%block_dxyz(:,level))
-      ! ijk(:) = min(nb_max, max(1, ceiling((point(:) - emin(:)) / dxyz(:), I4P)))
       ijk(:) = int((point(:) - emin(:)) / dxyz(:), I4P)
       if (any(ijk<0).or.any(ijk>2**level-1)) then
-         print '(A)', self%base_mpi%myrankstr//'ERROR: grid%get_closest block failed ijk: '//str(ijk)//&
+         print '(A)', myrankstr//'ERROR: grid%get_closest block failed ijk: '//str(ijk)//&
                       ' level:'//str(level)//' point:'//str(point)
       endif
    endassociate
@@ -243,7 +241,6 @@ contains
    integer(I4P)                                :: i, j, k, l      !< Counter.
    integer(I4P)                                :: nijk(3)         !< Cells number.
 
-   call self%base_mpi%initialize
    if (present(file_parameters)) call self%load_from_ini_file(file_parameters)
 
    ! parameters explicitely passed ovveride ones file-passed
@@ -293,42 +290,38 @@ contains
    type(file_ini),     intent(inout) :: file_parameters !< INI file handler.
    integer(I4P)                      :: buff_I4P        !< I4P buffer.
    real(R8P)                         :: buff_R8P        !< R8P buffer.
-   logical                           :: buff_LOG        !< LOG buffer.
 
-   call file_parameters%get(section_name='grid',     option_name='ni'           , val=buff_I4P) ; self%ni                =buff_I4P
-   call file_parameters%get(section_name='grid',     option_name='nj'           , val=buff_I4P) ; self%nj                =buff_I4P
-   call file_parameters%get(section_name='grid',     option_name='nk'           , val=buff_I4P) ; self%nk                =buff_I4P
-   call file_parameters%get(section_name='grid',     option_name='ngc'          , val=buff_I4P) ; self%ngc               =buff_I4P
-   call file_parameters%get(section_name='grid',     option_name='emin_x'       , val=buff_R8P) ; self%domain_emin(1)    =buff_R8P
-   call file_parameters%get(section_name='grid',     option_name='emin_y'       , val=buff_R8P) ; self%domain_emin(2)    =buff_R8P
-   call file_parameters%get(section_name='grid',     option_name='emin_z'       , val=buff_R8P) ; self%domain_emin(3)    =buff_R8P
-   call file_parameters%get(section_name='grid',     option_name='emax_x'       , val=buff_R8P) ; self%domain_emax(1)    =buff_R8P
-   call file_parameters%get(section_name='grid',     option_name='emax_y'       , val=buff_R8P) ; self%domain_emax(2)    =buff_R8P
-   call file_parameters%get(section_name='grid',     option_name='emax_z'       , val=buff_R8P) ; self%domain_emax(3)    =buff_R8P
-   call file_parameters%get(section_name='bc_x_min', option_name='type'         , val=buff_I4P) ; self%bc_type(1)        =buff_I4P
-   call file_parameters%get(section_name='bc_x_max', option_name='type'         , val=buff_I4P) ; self%bc_type(2)        =buff_I4P
-   call file_parameters%get(section_name='bc_y_min', option_name='type'         , val=buff_I4P) ; self%bc_type(3)        =buff_I4P
-   call file_parameters%get(section_name='bc_y_max', option_name='type'         , val=buff_I4P) ; self%bc_type(4)        =buff_I4P
-   call file_parameters%get(section_name='bc_z_min', option_name='type'         , val=buff_I4P) ; self%bc_type(5)        =buff_I4P
-   call file_parameters%get(section_name='bc_z_max', option_name='type'         , val=buff_I4P) ; self%bc_type(6)        =buff_I4P
-   call file_parameters%get(section_name='grid',     option_name='is_i_periodic', val=buff_LOG) ; self%is_ijk_periodic(1)=buff_LOG
-   call file_parameters%get(section_name='grid',     option_name='is_j_periodic', val=buff_LOG) ; self%is_ijk_periodic(2)=buff_LOG
-   call file_parameters%get(section_name='grid',     option_name='is_k_periodic', val=buff_LOG) ; self%is_ijk_periodic(3)=buff_LOG
+   call file_parameters%get(section_name='grid',     option_name='ni'    , val=buff_I4P) ; self%ni            =buff_I4P
+   call file_parameters%get(section_name='grid',     option_name='nj'    , val=buff_I4P) ; self%nj            =buff_I4P
+   call file_parameters%get(section_name='grid',     option_name='nk'    , val=buff_I4P) ; self%nk            =buff_I4P
+   call file_parameters%get(section_name='grid',     option_name='ngc'   , val=buff_I4P) ; self%ngc           =buff_I4P
+   call file_parameters%get(section_name='grid',     option_name='emin_x', val=buff_R8P) ; self%domain_emin(1)=buff_R8P
+   call file_parameters%get(section_name='grid',     option_name='emin_y', val=buff_R8P) ; self%domain_emin(2)=buff_R8P
+   call file_parameters%get(section_name='grid',     option_name='emin_z', val=buff_R8P) ; self%domain_emin(3)=buff_R8P
+   call file_parameters%get(section_name='grid',     option_name='emax_x', val=buff_R8P) ; self%domain_emax(1)=buff_R8P
+   call file_parameters%get(section_name='grid',     option_name='emax_y', val=buff_R8P) ; self%domain_emax(2)=buff_R8P
+   call file_parameters%get(section_name='grid',     option_name='emax_z', val=buff_R8P) ; self%domain_emax(3)=buff_R8P
+   call file_parameters%get(section_name='bc_x_min', option_name='type'  , val=buff_I4P) ; self%bc_type(1)    =buff_I4P
+   call file_parameters%get(section_name='bc_x_max', option_name='type'  , val=buff_I4P) ; self%bc_type(2)    =buff_I4P
+   call file_parameters%get(section_name='bc_y_min', option_name='type'  , val=buff_I4P) ; self%bc_type(3)    =buff_I4P
+   call file_parameters%get(section_name='bc_y_max', option_name='type'  , val=buff_I4P) ; self%bc_type(4)    =buff_I4P
+   call file_parameters%get(section_name='bc_z_min', option_name='type'  , val=buff_I4P) ; self%bc_type(5)    =buff_I4P
+   call file_parameters%get(section_name='bc_z_max', option_name='type'  , val=buff_I4P) ; self%bc_type(6)    =buff_I4P
    endsubroutine load_from_ini_file
 
    subroutine print_status(self)
    !< Print status of main data.
    class(grid_object), intent(in) :: self !< The field.
 
-   print '(A)',          self%base_mpi%myrankstr//'grid status of main data'
-   print '(A)',          self%base_mpi%myrankstr//'  domain minimum extent: '//trim(str(self%domain_emin    ))
-   print '(A)',          self%base_mpi%myrankstr//'  domain maximum extent: '//trim(str(self%domain_emax    ))
-   print '(A)',          self%base_mpi%myrankstr//'  ni:                    '//trim(str(self%ni             ))
-   print '(A)',          self%base_mpi%myrankstr//'  nj:                    '//trim(str(self%nj             ))
-   print '(A)',          self%base_mpi%myrankstr//'  nk:                    '//trim(str(self%nk             ))
-   print '(A)',          self%base_mpi%myrankstr//'  ngc:                   '//trim(str(self%ngc            ))
-   print '(A)',          self%base_mpi%myrankstr//'  boundary conditions:   '//trim(str(self%bc_type        ))
-   print '(A,3(L1,1X))', self%base_mpi%myrankstr//'  IJK periodic:          ',          self%is_ijk_periodic
-   print '(A)',          self%base_mpi%myrankstr//''
+   print '(A)',          myrankstr//'grid status of main data'
+   print '(A)',          myrankstr//'  domain minimum extent: '//trim(str(self%domain_emin    ))
+   print '(A)',          myrankstr//'  domain maximum extent: '//trim(str(self%domain_emax    ))
+   print '(A)',          myrankstr//'  ni:                    '//trim(str(self%ni             ))
+   print '(A)',          myrankstr//'  nj:                    '//trim(str(self%nj             ))
+   print '(A)',          myrankstr//'  nk:                    '//trim(str(self%nk             ))
+   print '(A)',          myrankstr//'  ngc:                   '//trim(str(self%ngc            ))
+   print '(A)',          myrankstr//'  boundary conditions:   '//trim(str(self%bc_type        ))
+   print '(A,3(L1,1X))', myrankstr//'  IJK periodic:          ',          self%is_ijk_periodic
+   print '(A)',          myrankstr//''
    endsubroutine print_status
 endmodule adam_grid_object

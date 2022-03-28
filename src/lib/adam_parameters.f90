@@ -137,6 +137,8 @@ contains
 
    if (allocated(rhs)) then
       lhs = rhs
+         ! print*, 'cazzo lhs ', lhs, size(lhs)
+         ! print*, 'cazzo rhs ', rhs, size(rhs)
    else
       if (allocated(lhs)) deallocate(lhs)
    endif
