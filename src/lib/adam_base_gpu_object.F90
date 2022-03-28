@@ -3,7 +3,7 @@ module adam_base_gpu_object
 !< ADAM, base GPU class definition: provide methods for GPU backend handling.
 
 use adam_field_object, only : field_object
-use adam_mpi_lib
+use adam_mpih_object, only : mpih_object
 use adam_parameters
 use PENF
 use MPI
@@ -18,6 +18,7 @@ type :: base_gpu_object
    !< Base GPU class definition.
    !<
    !< Provide methods for GPU backend.
+   type(mpih_object)         :: mpih              !< MPI handler.
    type(field_object), pointer :: field=>null()  !< The field.
    real(R8P), allocatable      :: q_t(:,:,:,:,:) !< Transposed cell centered variables on CPU.
    ! MPI data
@@ -101,8 +102,8 @@ contains
    logical                                      :: verbose_ !< Flag to activate verbose mode, local var.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   if (verbose_) print '(A)', myrankstr//'base_gpu%copy_cpu_gpu start'
-   call MPI_Barrier(MPI_COMM_WORLD, error)
+   if (verbose_) print '(A)', self%mpih%myrankstr//'base_gpu%copy_cpu_gpu start'
+   call MPI_Barrier(MPI_COMM_WORLD, self%mpih%error)
 
    associate(local_map_ghost=>self%field%local_map_ghost,         &
              comm_map_recv_ghost=>self%field%comm_map_recv_ghost, &
@@ -204,7 +205,7 @@ contains
    call self%create_maps_cell(verbose=verbose)
    call self%create_maps_fluxes_cell(verbose=verbose)
 
-   if (verbose_) print '(A)', myrankstr//'base_gpu%copy_cpu_gpu finish'
+   if (verbose_) print '(A)', self%mpih%myrankstr//'base_gpu%copy_cpu_gpu finish'
    endsubroutine copy_cpu_gpu
 
    subroutine copy_transpose_cpu_gpu(self, nv, q_cpu, q_gpu)
@@ -303,7 +304,7 @@ contains
    integer(I4P), allocatable                    :: c_crown(:)                    !< Counter.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   if (verbose_) print '(A)', myrankstr//'base_gpu%create_maps_cell start'
+   if (verbose_) print '(A)', self%mpih%myrankstr//'base_gpu%create_maps_cell start'
 
    if (allocated(self%local_map_ghost_cell_gpu)) deallocate(self%local_map_ghost_cell_gpu)
    if (allocated(self%field%local_map_ghost)) then
@@ -648,7 +649,7 @@ contains
       deallocate(local_map_bc_crown)
    endif
 
-   if (verbose_) print '(A)', myrankstr//'base_gpu%create_maps_cell finish'
+   if (verbose_) print '(A)', self%mpih%myrankstr//'base_gpu%create_maps_cell finish'
    contains
       function bc_cells_number(local_map_bc) result(cells_number)
       !< Return BC cells number.
@@ -762,7 +763,7 @@ contains
    integer(I4P), allocatable                    :: c_crown(:)                       !< Counter.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   if (verbose_) print '(A)', myrankstr//'base_gpu%create_maps_fluxes_cell start'
+   if (verbose_) print '(A)', self%mpih%myrankstr//'base_gpu%create_maps_fluxes_cell start'
 
    if (allocated(self%local_map_ghost_fluxes_cell_gpu)) deallocate(self%local_map_ghost_fluxes_cell_gpu)
    if (allocated(self%field%local_map_ghost)) then
@@ -847,7 +848,7 @@ contains
       endif
    endif
 
-   if (verbose_) print '(A)', myrankstr//'base_gpu%create_maps_fluxes_cell finish'
+   if (verbose_) print '(A)', self%mpih%myrankstr//'base_gpu%create_maps_fluxes_cell finish'
    endsubroutine create_maps_fluxes_cell
 
    subroutine initialize(self, field, nv_aux, verbose)
@@ -859,9 +860,9 @@ contains
    integer(I4P)                                 :: nv_aux_           !< Number of auxiliary variables (local var).
    integer(I4P)                                 :: fec_1_6_array(26) !< Mapping fec1-26 to fec1-6 for boundaries.
 
-   print '(A)', myrankstr//'base_gpu%initialize start'
+   print '(A)', self%mpih%myrankstr//'base_gpu%initialize start'
    self%field => field
-   allocate(self%req_send_recv(0:procs_number*2-1))
+   allocate(self%req_send_recv(0:self%mpih%procs_number*2-1))
    fec_1_6_array([1,7,9,11,13,19,21,23,25])  = 1
    fec_1_6_array([2,8,10,12,14,20,22,24,26]) = 2
    fec_1_6_array([3,15,17])                  = 3
@@ -888,7 +889,7 @@ contains
                            msg='base_gpu%alloc(q_t_gpu) ', verbose=verbose)
    ! copy CPU-to-GPU of base_gpu variables (maps and cells, not q_gpu)
    call self%copy_cpu_gpu
-   print '(A)', myrankstr//'base_gpu%initialize finish'
+   print '(A)', self%mpih%myrankstr//'base_gpu%initialize finish'
    endsubroutine initialize
 
    subroutine initialize_gpu(self)
@@ -897,14 +898,15 @@ contains
    class(base_gpu_object), intent(inout) :: self              !< The base backend.
    type(cudadeviceprop)                  :: device_properties !< Device properties.
 
-   print '(A)', myrankstr//'base_gpu%initialize_gpu start'
-   call MPI_COMM_SPLIT_TYPE(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, self%local_comm, error)
-   call MPI_COMM_RANK(self%local_comm, self%mydev, error)
-   error = CudaSetDevice(self%mydev)
-   error = cudaGetDeviceProperties(device_properties, self%mydev)
+   call self%mpih%initialize
+   print '(A)', self%mpih%myrankstr//'base_gpu%initialize_gpu start'
+   call MPI_COMM_SPLIT_TYPE(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, self%local_comm, self%mpih%error)
+   call MPI_COMM_RANK(self%local_comm, self%mydev, self%mpih%error)
+   self%mpih%error = CudaSetDevice(self%mydev)
+   self%mpih%error = cudaGetDeviceProperties(device_properties, self%mydev)
    self%memory_avail = real(device_properties%totalGlobalMem, R8P)/1e9
    call print_device_properties(self, device_properties)
-   print '(A)', myrankstr//'base_gpu%initialize_gpu finish'
+   print '(A)', self%mpih%myrankstr//'base_gpu%initialize_gpu finish'
    endsubroutine initialize_gpu
 
    subroutine print_device_properties(self, device_properties)
@@ -912,7 +914,7 @@ contains
    class(base_gpu_object), intent(in) :: self               !< The base backend.
    type(cudadeviceprop),   intent(in) :: device_properties  !< Device properties.
 
-   associate(r=>myrankstr)
+   associate(r=>self%mpih%myrankstr)
    print'(A)',r//"total global memory:         "//trim(str(real(device_properties%totalGlobalMem)/1e9           ,.true.))//" Gbytes"
    print'(A)',r//"shared mem per block:        "//trim(str(     device_properties%sharedMemPerBlock             ,.true.))//" bytes"
    print'(A)',r//"regs per block:              "//trim(str(     device_properties%regsPerBlock                  ,.true.))
@@ -972,7 +974,7 @@ contains
                                                           1:) !< Field component to be updated.
    integer(I4P),           intent(in), optional  :: step      !< Step to be perfordmed in asyncronous comp.
 
-   call update_ghost_mpi_gpu_cuf(procs_number=procs_number,                                      &
+   call update_ghost_mpi_gpu_cuf(procs_number=self%mpih%procs_number,                            &
                                  req_send_recv=self%field%req_send_recv,                         &
                                  comm_map_send_ptr_ghost=self%field%comm_map_send_ptr_ghost,     &
                                  comm_map_recv_ptr_ghost=self%field%comm_map_recv_ptr_ghost,     &
@@ -999,13 +1001,13 @@ contains
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (allocated(var)) deallocate(var)
    if (verbose_) then
-      error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%mpih%myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    allocate(var(ulb(1):ulb(2)))
    if (verbose_) then
-      error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%mpih%myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_gpu_R8P_1D
 
@@ -1024,13 +1026,13 @@ contains
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (allocated(var)) deallocate(var)
    if (verbose_) then
-      error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%mpih%myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2)))
    if (verbose_) then
-      error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%mpih%myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_gpu_R8P_2D
 
@@ -1049,13 +1051,13 @@ contains
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (allocated(var)) deallocate(var)
    if (verbose_) then
-      error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%mpih%myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2), ulb(1,3):ulb(2,3), ulb(1,4):ulb(2,4), ulb(1,5):ulb(2,5)))
    if (verbose_) then
-      error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%mpih%myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_gpu_R8P_5D
 
@@ -1074,13 +1076,13 @@ contains
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (allocated(var)) deallocate(var)
    if (verbose_) then
-      error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%mpih%myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    allocate(var(ulb(1):ulb(2)))
    if (verbose_) then
-      error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%mpih%myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_gpu_I4P_1D
 
@@ -1099,13 +1101,13 @@ contains
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (allocated(var)) deallocate(var)
    if (verbose_) then
-      error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%mpih%myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    allocate(var(ulb(1):ulb(2)))
    if (verbose_) then
-      error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%mpih%myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_gpu_I8P_1D
 
@@ -1124,13 +1126,13 @@ contains
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (allocated(var)) deallocate(var)
    if (verbose_) then
-      error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%mpih%myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2)))
    if (verbose_) then
-      error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%mpih%myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_gpu_I8P_2D
 
@@ -1149,13 +1151,13 @@ contains
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (allocated(var)) deallocate(var)
    if (verbose_) then
-      error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%mpih%myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2), ulb(1,3):ulb(2,3)))
    if (verbose_) then
-      error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', self%mpih%myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_gpu_I8P_3D
 

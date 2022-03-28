@@ -2,7 +2,7 @@
 module adam_grid_object
 !< ADAM, grid class definition.
 
-use adam_mpi_lib
+use adam_mpih_object, only : mpih_object
 use adam_parameters
 use FINER, only : file_ini
 use PENF
@@ -17,6 +17,7 @@ integer(I4P), parameter :: MAX_REF_LEVELS = 100_I4P !< Maximum refinement levels
 
 type :: grid_object
    !< Grid class definition.
+   type(mpih_object)         :: mpih                                  !< MPI handler.
    real(R8P)                 :: domain_emin(3)=[0._R8P,0._R8P,0._R8P] !< Coordinates of minimum abscissa of whole domain.
    real(R8P)                 :: domain_emax(3)=[1._R8P,1._R8P,1._R8P] !< Coordinates of maximum abscissa of whole domain.
    integer(I4P)              :: ni=16_I4P                             !< Number of cells in i direction.
@@ -220,7 +221,7 @@ contains
    associate(nb_max=>self%nb_max(level), emin=>self%domain_emin, dxyz=>self%block_dxyz(:,level))
       ijk(:) = int((point(:) - emin(:)) / dxyz(:), I4P)
       if (any(ijk<0).or.any(ijk>2**level-1)) then
-         print '(A)', myrankstr//'ERROR: grid%get_closest block failed ijk: '//str(ijk)//&
+         print '(A)', self%mpih%myrankstr//'ERROR: grid%get_closest block failed ijk: '//str(ijk)//&
                       ' level:'//str(level)//' point:'//str(point)
       endif
    endassociate
@@ -241,6 +242,8 @@ contains
    integer(I4P)                                :: i, j, k, l      !< Counter.
    integer(I4P)                                :: nijk(3)         !< Cells number.
 
+   call self%mpih%initialize
+   print '(A)', self%mpih%myrankstr//'grid%initialize start'
    if (present(file_parameters)) call self%load_from_ini_file(file_parameters)
 
    ! parameters explicitely passed ovveride ones file-passed
@@ -282,6 +285,7 @@ contains
    if (present(verbose)) then
       if (verbose) call self%print_status
    endif
+   print '(A)', self%mpih%myrankstr//'grid%initialize finish'
    endsubroutine initialize
 
    subroutine load_from_ini_file(self, file_parameters)
@@ -313,15 +317,15 @@ contains
    !< Print status of main data.
    class(grid_object), intent(in) :: self !< The field.
 
-   print '(A)',          myrankstr//'grid status of main data'
-   print '(A)',          myrankstr//'  domain minimum extent: '//trim(str(self%domain_emin    ))
-   print '(A)',          myrankstr//'  domain maximum extent: '//trim(str(self%domain_emax    ))
-   print '(A)',          myrankstr//'  ni:                    '//trim(str(self%ni             ))
-   print '(A)',          myrankstr//'  nj:                    '//trim(str(self%nj             ))
-   print '(A)',          myrankstr//'  nk:                    '//trim(str(self%nk             ))
-   print '(A)',          myrankstr//'  ngc:                   '//trim(str(self%ngc            ))
-   print '(A)',          myrankstr//'  boundary conditions:   '//trim(str(self%bc_type        ))
-   print '(A,3(L1,1X))', myrankstr//'  IJK periodic:          ',          self%is_ijk_periodic
-   print '(A)',          myrankstr//''
+   print '(A)',          self%mpih%myrankstr//'grid status of main data'
+   print '(A)',          self%mpih%myrankstr//'  domain minimum extent: '//trim(str(self%domain_emin    ))
+   print '(A)',          self%mpih%myrankstr//'  domain maximum extent: '//trim(str(self%domain_emax    ))
+   print '(A)',          self%mpih%myrankstr//'  ni:                    '//trim(str(self%ni             ))
+   print '(A)',          self%mpih%myrankstr//'  nj:                    '//trim(str(self%nj             ))
+   print '(A)',          self%mpih%myrankstr//'  nk:                    '//trim(str(self%nk             ))
+   print '(A)',          self%mpih%myrankstr//'  ngc:                   '//trim(str(self%ngc            ))
+   print '(A)',          self%mpih%myrankstr//'  boundary conditions:   '//trim(str(self%bc_type        ))
+   print '(A,3(L1,1X))', self%mpih%myrankstr//'  IJK periodic:          ',          self%is_ijk_periodic
+   print '(A)',          self%mpih%myrankstr//''
    endsubroutine print_status
 endmodule adam_grid_object

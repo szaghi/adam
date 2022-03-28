@@ -6,7 +6,7 @@ use adam_adam_object
 use adam_base_gpu_object
 use adam_field_object
 use adam_grid_object
-use adam_mpi_lib
+use adam_mpih_object
 use adam_parameters
 use adam_tree_node_object, only : tree_node_object
 use adam_weno_library_gpu
@@ -94,6 +94,7 @@ type :: equation_nasto_gpu_object
    !< q_aux(8): entalpy
    !< q_aux(9): sound speed
    !<```
+   type(mpih_object)           :: mpih                    !< MPI handler.
    type(file_ini)              :: file_input              !< Nasto input file handler.
    type(adam_object)           :: adam                    !< ADAM.
    type(field_object), pointer :: field=>null()           !< The field.
@@ -256,7 +257,7 @@ contains
          is_grid_changed_all = is_grid_changed_all.or.is_grid_changed
       enddo
       if (.not.is_grid_changed_all) then
-          print '(A)', myrankstr//'AMR Grid stabilized after : '//trim(str(i))//' AMR iterations'
+          print '(A)', self%mpih%myrankstr//'AMR Grid stabilized after : '//trim(str(i))//' AMR iterations'
           exit amr
       endif
    enddo amr
@@ -300,7 +301,7 @@ contains
          !dt = min(dt, minval(dxyz(:,b)) / umax * CFL)
          dt = min(dt, CFL / umax )
       enddo
-      call MPI_ALLREDUCE(MPI_IN_PLACE, dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, error)
+      call MPI_ALLREDUCE(MPI_IN_PLACE, dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih%error)
    endassociate
    endsubroutine compute_dt
 
@@ -398,9 +399,9 @@ contains
    integer(I4P)                                    :: nv           !< Number of evolved variables.
    integer(I4P)                                    :: ns           !< Number of species.
 
-   call mpi_initialize(do_mpi_init=.true.)
+   call self%mpih%initialize(do_mpi_init=.true.)
 
-   print '(A)', myrankstr//'equation_nasto_gpu_object%initialize start'
+   print '(A)', self%mpih%myrankstr//'equation_nasto_gpu_object%initialize start'
 
    call self%base_gpu%initialize_gpu
 
@@ -493,7 +494,7 @@ contains
    allocate(self%gplus_z (nv, 2*iweno, ni, nj, nb))
    allocate(self%gminus_z(nv, 2*iweno, ni, nj, nb))
    endassociate
-   print '(A)', myrankstr//'equation_nasto_gpu_object%initialize finish'
+   print '(A)', self%mpih%myrankstr//'equation_nasto_gpu_object%initialize finish'
    contains
       subroutine forward_main_adam_data(grid, field)
       !< Forward main ADAM data to equation for easy handling.
@@ -728,8 +729,6 @@ contains
    real(R8P)                                               :: qnrk
    integer(I4P)                                            :: iermpi
 
-   integer(I4P)                                     :: error                         !< Error trapping flag for CUDAFortran.
-
    do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
    associate(dt=>self%dt, ni=>self%ni, nj=>self%nj, nk=>self%nk,                                         &
              ngc=>self%ngc, nv=>self%nv, nrk=>self%nrk, ns=>self%ns, blocks_number=>self%blocks_number,  &
@@ -786,10 +785,10 @@ contains
          do i_eikonal=1,n_eikonal
             call MPI_Barrier(MPI_COMM_WORLD, iermpi)
 
-            error = cudaGetLastError()
-            if (error /= cudaSuccess) then
-               print*,'BEFORE EIK POST FRA CUDA ERROR ',cudaGetErrorString(error)
-               call MPI_Abort(MPI_COMM_WORLD, -15,error) ; STOP
+            self%mpih%error = cudaGetLastError()
+            if (self%mpih%error /= cudaSuccess) then
+               print*,'BEFORE EIK POST FRA CUDA ERROR ',cudaGetErrorString(self%mpih%error)
+               call MPI_Abort(MPI_COMM_WORLD, -15,self%mpih%error) ; STOP
             endif
             call evolve_eikonal_q_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
                                           phi_gpu=self%phi_gpu,                                             &
@@ -816,10 +815,10 @@ contains
       ! endif
       ! ! debug restart
 
-            error = cudaGetLastError()
-            if (error /= cudaSuccess) then
-               print*,'AFTER EIK POST FRA CUDA ERROR ',cudaGetErrorString(error)
-               call MPI_Abort(MPI_COMM_WORLD, -15,error) ; STOP
+            self%mpih%error = cudaGetLastError()
+            if (self%mpih%error /= cudaSuccess) then
+               print*,'AFTER EIK POST FRA CUDA ERROR ',cudaGetErrorString(self%mpih%error)
+               call MPI_Abort(MPI_COMM_WORLD, -15,self%mpih%error) ; STOP
             endif
             call self%update_ghost_gpu(q_gpu=self%q_gpu)
          enddo
@@ -1177,7 +1176,7 @@ contains
    integer(I4P),                     intent(in) :: t_max    !< Maximum time iteration.
    real(R8P),                        intent(in) :: time_max !< Maximum time of integration.
 
-   associate(r=>myrankstr)
+   associate(r=>self%mpih%myrankstr)
       print '(A)', r//''
       print '(A)', r//'t:             '//trim(str(t,.true.))
       print '(A)', r//'blocks number: '//trim(str(self%adam%tree%nodes_number, .true.))
@@ -1212,9 +1211,9 @@ contains
 
    call self%initialize(filename=filename)
    if (self%restart) then
-      print '(A)', myrankstr//'restart simulation from "'//trim(self%restart_basename)//'" files'
+      print '(A)', self%mpih%myrankstr//'restart simulation from "'//trim(self%restart_basename)//'" files'
       call self%load_restart_files(t=self%it, time=self%time)
-      print '(A)', myrankstr//'restart [t, time]: '//trim(str(self%it))//', '//trim(str(self%time))
+      print '(A)', self%mpih%myrankstr//'restart [t, time]: '//trim(str(self%it))//', '//trim(str(self%time))
    else
       call self%set_initial_conditions()
       self%time = 0._R8P
@@ -1223,19 +1222,19 @@ contains
    if (self%n_solids > 0) call self%update_phi()
 
    call self%save_simulation_data
-   call MPI_BARRIER(MPI_COMM_WORLD, error) ; timing(1) = MPI_Wtime()
+   call MPI_BARRIER(MPI_COMM_WORLD, self%mpih%error) ; timing(1) = MPI_Wtime()
 
    integration: do
-      call MPI_BARRIER(MPI_COMM_WORLD, error) ; timing_step(1) = MPI_Wtime()
+      call MPI_BARRIER(MPI_COMM_WORLD, self%mpih%error) ; timing_step(1) = MPI_Wtime()
       self%it = self%it + 1
 
       if(mod(self%it,self%amr_frequency) == 0) then
          call self%amr_update()
-         call MPI_BARRIER(MPI_COMM_WORLD, error) ; timing_step(2) = MPI_Wtime()
-         print '(A, F18.10)', myrankstr//'step timing (AMR): ', timing_step(2) - timing_step(1)
+         call MPI_BARRIER(MPI_COMM_WORLD, self%mpih%error) ; timing_step(2) = MPI_Wtime()
+         print '(A, F18.10)', self%mpih%myrankstr//'step timing (AMR): ', timing_step(2) - timing_step(1)
       endif
 
-      call save_memory(it=self%it, rank=myrank)
+      call save_memory(it=self%it, rank=self%mpih%myrank)
 
       call self%compute_dt()
       if ((self%t_max <= 0).and.(self%time + self%dt > self%time_max)) self%dt = self%time_max - self%time
@@ -1246,17 +1245,17 @@ contains
       call self%print_progress(t=self%it, time=self%time, t_max=self%t_max, time_max=self%time_max)
 
       call self%save_simulation_data
-      call MPI_BARRIER(MPI_COMM_WORLD, error) ; timing_step(2) = MPI_Wtime()
-      print '(A, F18.10)', myrankstr//'step timing (save data): ', timing_step(2) - timing_step(1)
+      call MPI_BARRIER(MPI_COMM_WORLD, self%mpih%error) ; timing_step(2) = MPI_Wtime()
+      print '(A, F18.10)', self%mpih%myrankstr//'step timing (save data): ', timing_step(2) - timing_step(1)
 
       if (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0))) exit integration
 
-      call MPI_BARRIER(MPI_COMM_WORLD, error) ; timing_step(2) = MPI_Wtime()
-      print '(A, F18.10)', myrankstr//'step timing: ', timing_step(2) - timing_step(1)
+      call MPI_BARRIER(MPI_COMM_WORLD, self%mpih%error) ; timing_step(2) = MPI_Wtime()
+      print '(A, F18.10)', self%mpih%myrankstr//'step timing: ', timing_step(2) - timing_step(1)
    enddo integration
 
-   call MPI_BARRIER(MPI_COMM_WORLD, error) ; timing(2) = MPI_Wtime()
-   print '(A, F18.10)', myrankstr//'averaged timing: ', (timing(2) - timing(1))/self%it
+   call MPI_BARRIER(MPI_COMM_WORLD, self%mpih%error) ; timing(2) = MPI_Wtime()
+   print '(A, F18.10)', self%mpih%myrankstr//'averaged timing: ', (timing(2) - timing(1))/self%it
 
    call self%save_simulation_data
    endsubroutine run
@@ -1321,7 +1320,7 @@ contains
 
    if (mod(self%it,self%n_save)==0.or.self%it==self%t_max.or.&
       (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0)))) then
-      print '(A)', myrankstr//'save HDF5 files t: '//trim(str(self%it,.true.))//', time: '//&
+      print '(A)', self%mpih%myrankstr//'save HDF5 files t: '//trim(str(self%it,.true.))//', time: '//&
                    trim(str(self%time,.true.))
       output_basename_ = trim(self%output_basename)//'-'//trim(strz(self%it,9))
       if (present(output_basename)) output_basename_ = trim(output_basename)
@@ -1339,7 +1338,7 @@ contains
    class(equation_nasto_gpu_object), intent(inout) :: self !< The equation.
 
    if (mod(self%it,self%restart_save)==0) then
-      print '(A)', myrankstr//'save restart files t: '//trim(str(self%it,.true.))//', time: '//&
+      print '(A)', self%mpih%myrankstr//'save restart files t: '//trim(str(self%it,.true.))//', time: '//&
                    trim(str(self%time,.true.))
       call self%adam%save_restart_files(basename=self%restart_basename, t=self%it, time=self%time)
       call self%save_hdf5(output_basename=self%restart_basename)
@@ -1356,7 +1355,7 @@ contains
          if (self%it>0) then
             if (mod(self%it,self%slice(s)%slice_save)==0.or.self%it==self%t_max.or.&
                (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0)))) then
-               print '(A)', myrankstr//'save slice n: '//trim(str(s,.true.))//&
+               print '(A)', self%mpih%myrankstr//'save slice n: '//trim(str(s,.true.))//&
                             ', t: '//trim(str(self%it,.true.))//', time: '//trim(str(self%time,.true.))
                call self%adam%save_slice(points=self%slice(s)%slice_points,                               &
                                          itype=trim(self%slice(s)%slice_itype),                           &
@@ -1589,7 +1588,7 @@ contains
    associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
              x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell,         &
              ptree => self%ptree, phi=>self%phi, phi_gpu=>self%phi_gpu, n_solids=>self%n_solids)
-   print '(A)', myrankstr//'update IB distance start'
+   print '(A)', self%mpih%myrankstr//'update IB distance start'
    do ib=1,n_solids
       do b=1,blocks_number
          do i=1-ngc,ni+ngc
@@ -1630,7 +1629,7 @@ contains
    enddo
    phi_gpu = phi
    endassociate
-   print '(A)', myrankstr//'update IB distance finish'
+   print '(A)', self%mpih%myrankstr//'update IB distance finish'
    endsubroutine update_phi
 
    ! operators
@@ -1917,12 +1916,11 @@ contains
    real(R8P)                           :: ib_eps                                !< Tolerance immersed boundary delta ratio.
    integer(I4P)                        :: iercuda                               !< Error trapping flag for CUDAFortran.
    type(dim3)                          :: grid, tBlock                          !< CUDA grid and block.
-   integer(I4P)                        :: error                               !< Error trapping flag for CUDAFortran.
 
-      error = cudaGetLastError()
-      if(error /= cudaSuccess) then
-         print*,'FRA-1 CUDA ERROR ',cudaGetErrorString(error)
-         call MPI_Abort(MPI_COMM_WORLD, -15,error)
+      self%mpih%error = cudaGetLastError()
+      if(self%mpih%error /= cudaSuccess) then
+         print*,'FRA-1 CUDA ERROR ',cudaGetErrorString(self%mpih%error)
+         call MPI_Abort(MPI_COMM_WORLD, -15,self%mpih%error)
          STOP
       endif
 
@@ -1965,10 +1963,10 @@ contains
    ! endif
    ! ! debug restart
 
-      error = cudaGetLastError()
-      if(error /= cudaSuccess) then
-         print*,'FRA-2 CUDA ERROR ',cudaGetErrorString(error)
-         call MPI_Abort(MPI_COMM_WORLD, -15,error)
+      self%mpih%error = cudaGetLastError()
+      if(self%mpih%error /= cudaSuccess) then
+         print*,'FRA-2 CUDA ERROR ',cudaGetErrorString(self%mpih%error)
+         call MPI_Abort(MPI_COMM_WORLD, -15,self%mpih%error)
          STOP
       endif
 
@@ -1997,10 +1995,10 @@ contains
    ! endif
    ! ! debug restart
 
-      error = cudaGetLastError()
-      if(error /= cudaSuccess) then
-         print*,'FRA-3 CUDA ERROR ',cudaGetErrorString(error)
-         call MPI_Abort(MPI_COMM_WORLD, -15,error)
+      self%mpih%error = cudaGetLastError()
+      if(self%mpih%error /= cudaSuccess) then
+         print*,'FRA-3 CUDA ERROR ',cudaGetErrorString(self%mpih%error)
+         call MPI_Abort(MPI_COMM_WORLD, -15,self%mpih%error)
          STOP
       endif
 
@@ -2010,10 +2008,10 @@ contains
    call compute_flux_diff(blocks_number, ni, nj, nk, ngc, ns+4, &
                           fl_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, &
                           dx_gpu, dy_gpu, dz_gpu, ib_eps)
-      error = cudaGetLastError()
-      if(error /= cudaSuccess) then
-         print*,'FRA-4 CUDA ERROR ',cudaGetErrorString(error)
-         call MPI_Abort(MPI_COMM_WORLD, -15,error)
+      self%mpih%error = cudaGetLastError()
+      if(self%mpih%error /= cudaSuccess) then
+         print*,'FRA-4 CUDA ERROR ',cudaGetErrorString(self%mpih%error)
+         call MPI_Abort(MPI_COMM_WORLD, -15,self%mpih%error)
          STOP
       endif
 
@@ -3091,7 +3089,6 @@ contains
    real(R8P),    intent(inout), device :: prhs_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< RK stage.
    integer(I4P)                        :: i, j, k, b, v, ss                      !< Counter.
    integer(I4P)                        :: iercuda                                !< Error trapping flag for CUDAFortran.
-   integer(I4P)                        :: error                                !< Error trapping flag for CUDAFortran.
 
    !$cuf kernel do(5) <<<*,*>>>
    do v=1, nv

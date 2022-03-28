@@ -64,8 +64,8 @@ module adam_field_object
 !<```
 
 use adam_grid_object, only : grid_object
+use adam_mpih_object, only : mpih_object
 use adam_memory_cpu_lib
-use adam_mpi_lib
 use adam_parameters
 use FINER, only : file_ini
 use PENF
@@ -79,6 +79,7 @@ public :: field_object
 type :: field_object
    !< Field class definition.
    ! mesh related data, unrelated to field equations
+   type(mpih_object)          :: mpih                     !< MPI handler.
    type(grid_object), pointer :: grid=>null()             !< Grid data.
    integer(I4P)               :: nv=1_I4P                 !< Number of field variables.
    integer(I4P)               :: block_weight=0_I4P       !< Block weight, `cells_number * variables_number`.
@@ -331,7 +332,8 @@ contains
    integer(I4P),        intent(in),    optional :: nv              !< Number of field variables.
    integer(I4P),        intent(in),    optional :: nb              !< Number of all blocks that can be stored.
 
-   print '(A)', myrankstr//'field%initialize start'
+   call self%mpih%initialize
+   print '(A)', self%mpih%myrankstr//'field%initialize start'
    self%grid => grid
    if (present(file_parameters)) call self%load_from_ini_file(file_parameters)
    ! parameters explicitely passed ovveride ones file-passed
@@ -402,12 +404,12 @@ contains
       self%q_work = 0._R8P
    endif
    call alloc_var_cpu(var=self%blocks_numbers, &
-                      ulb=[0,procs_number-1],  &
+                      ulb=[0,self%mpih%procs_number-1],  &
                       msg='field%initialize(blocks_numbers) ', verbose=.true.)
    call alloc_var_cpu(var=self%req_send_recv,  &
-                      ulb=[0,procs_number*2-1],&
+                      ulb=[0,self%mpih%procs_number*2-1],&
                       msg='field%initialize(req_send_recv) ', verbose=.true.)
-   print '(A)', myrankstr//'field%initialize finish'
+   print '(A)', self%mpih%myrankstr//'field%initialize finish'
    endsubroutine initialize
 
    subroutine load_blocks(self, basename)
@@ -422,17 +424,18 @@ contains
    integer(I4P)                       :: nv, ni, nj, nk, ngc !< Dimensions.
    integer(I4P)                       :: b                   !< Counter.
 
-   inquire(file=trim(adjustl(basename))//'-proc'//trim(strz(myrank,6))//'.fbd', exist=file_exist)
+   inquire(file=trim(adjustl(basename))//'-proc'//trim(strz(self%mpih%myrank,6))//'.fbd', exist=file_exist)
    if (file_exist) then
-      print '(A)', myrankstr//'load field blocks from file '//trim(adjustl(basename))//'-proc'//trim(strz(myrank,6))//'.fbd'
-      open(newunit=file_unit,                                                   &
-           file=trim(adjustl(basename))//'-proc'//trim(strz(myrank,6))//'.fbd', &
-           form='UNFORMATTED',                                                  &
+      print '(A)', self%mpih%myrankstr//'load field blocks from file '//trim(adjustl(basename))//&
+                   '-proc'//trim(strz(self%mpih%myrank,6))//'.fbd'
+      open(newunit=file_unit,                                                             &
+           file=trim(adjustl(basename))//'-proc'//trim(strz(self%mpih%myrank,6))//'.fbd', &
+           form='UNFORMATTED',                                                            &
            access='STREAM')
       read(unit=file_unit) nv, ni, nj, nk, ngc
       if (nv==self%nv.and.ni==self%grid%ni.and.nj==self%grid%nj.and.nk==self%grid%nk.and.ngc==self%grid%ngc) then
          read(unit=file_unit) blocks_number
-         print '(A)', myrankstr//'field blocks number '//trim(str(blocks_number))
+         print '(A)', self%mpih%myrankstr//'field blocks number '//trim(str(blocks_number))
          if (blocks_number <= self%nb) then
             self%blocks_number = blocks_number
             do b=1, self%blocks_number
@@ -445,23 +448,23 @@ contains
             enddo
             call self%compute_metrics
          else
-            write(stderr, '(A)') myrankstr//'ERROR: blocks number to read "'//trim(str(blocks_number))//&
+            write(stderr, '(A)') self%mpih%myrankstr//'ERROR: blocks number to read "'//trim(str(blocks_number))//&
                                  '" is greater than blocks allocated "'//trim(str(self%nb))//'"!'
          endif
       else
-         write(stderr, '(A)') myrankstr//'ERROR: blocks dimensions to read "'//trim(str([nv, ni, nj, nk, ngc]))//&
-                              '" are different than blocks allocated "'//trim(str([self%nv,                      &
-                                                                                   self%grid%ni,                 &
-                                                                                   self%grid%nj,                 &
-                                                                                   self%grid%nk,                 &
+         write(stderr, '(A)') self%mpih%myrankstr//'ERROR: blocks dimensions to read "'//trim(str([nv, ni, nj, nk, ngc]))//&
+                              '" are different than blocks allocated "'//trim(str([self%nv,                                &
+                                                                                   self%grid%ni,                           &
+                                                                                   self%grid%nj,                           &
+                                                                                   self%grid%nk,                           &
                                                                                    self%grid%ngc]))//'"!'
       endif
       close(file_unit)
-      print '(A)', myrankstr//'load field blocks from file '//&
-                   trim(adjustl(basename))//'-proc'//trim(strz(myrank,6))//'.fbd completed'
+      print '(A)', self%mpih%myrankstr//'load field blocks from file '//&
+                   trim(adjustl(basename))//'-proc'//trim(strz(self%mpih%myrank,6))//'.fbd completed'
    else
-      write(stderr, '(A)') myrankstr//'WARNING: file "'//&
-                           trim(adjustl(basename))//'-proc'//trim(strz(myrank,6))//'.fbd" does not exist!'
+      write(stderr, '(A)') self%mpih%myrankstr//'WARNING: file "'//&
+                           trim(adjustl(basename))//'-proc'//trim(strz(self%mpih%myrank,6))//'.fbd" does not exist!'
    endif
    endsubroutine load_blocks
 
@@ -566,21 +569,21 @@ contains
    integer(I8P)                       :: p             !< Counter.
 
    ! computing received blocks
-   allocate(recv_count(0:procs_number - 1))
-   call MPI_ALLGATHER(self%blocks_number, 1_I4P, MPI_INTEGER, recv_count, 1_I4P, MPI_INTEGER, MPI_COMM_WORLD, error)
+   allocate(recv_count(0:self%mpih%procs_number - 1))
+   call MPI_ALLGATHER(self%blocks_number, 1_I4P, MPI_INTEGER, recv_count, 1_I4P, MPI_INTEGER, MPI_COMM_WORLD, self%mpih%error)
 
    ! computing displacement counts
    if (allocated(self%disp_count)) deallocate(self%disp_count)
-   allocate(self%disp_count(0:procs_number - 1))
+   allocate(self%disp_count(0:self%mpih%procs_number - 1))
    self%disp_count = 0_I4P
-   do p=1, procs_number - 1
+   do p=1, self%mpih%procs_number - 1
       self%disp_count(p) = self%disp_count(p-1) + recv_count(p-1)
    enddo
 
    if (allocated(self%refinements_needed_all)) deallocate(self%refinements_needed_all)
    allocate(self%refinements_needed_all(sum(recv_count, dim=1)))
    call MPI_ALLGATHERV(self%refinements_needed, self%blocks_number, MPI_INTEGER, &
-                       self%refinements_needed_all, recv_count, self%disp_count, MPI_INTEGER, MPI_COMM_WORLD, error)
+                       self%refinements_needed_all, recv_count, self%disp_count, MPI_INTEGER, MPI_COMM_WORLD, self%mpih%error)
    endsubroutine mpi_gather_refinements_needed
 
    subroutine mpi_redistribute(self, comm_map_send, comm_map_recv, comm_map_send_ptr, comm_map_recv_ptr, &
@@ -605,7 +608,7 @@ contains
    integer(I4P)                             :: n_recv, n_send         !< Counter.
    integer(I4P), allocatable                :: req_recv(:)            !< MPI request receive flags.
 
-   allocate(req_recv(0:procs_number-1))
+   allocate(req_recv(0:self%mpih%procs_number-1))
    req_recv = MPI_REQUEST_NULL
 
    send_size = 0_I8P ; if (allocated(comm_map_send)) send_size = size(comm_map_send, dim=1) * self%block_weight
@@ -623,25 +626,25 @@ contains
       enddo
    endif
 
-   do p=0, procs_number - 1_I4P
+   do p=0, self%mpih%procs_number - 1_I4P
       ptr_start = comm_map_recv_ptr(p)   * self%block_weight + 1
       ptr_end   = comm_map_recv_ptr(p+1) * self%block_weight
       n_recv    = ptr_end - ptr_start + 1
       if (n_recv > 0) then
-         call MPI_IRECV(recv_buffer(ptr_start), n_recv, MPI_REAL8, p, 100, MPI_COMM_WORLD, req_recv(p), error)
+         call MPI_IRECV(recv_buffer(ptr_start), n_recv, MPI_REAL8, p, 100, MPI_COMM_WORLD, req_recv(p), self%mpih%error)
       endif
    enddo
 
-   do p=0, procs_number - 1_I4P
+   do p=0, self%mpih%procs_number - 1_I4P
       ptr_start = comm_map_send_ptr(p)   * self%block_weight + 1
       ptr_end   = comm_map_send_ptr(p+1) * self%block_weight
       n_send    = ptr_end - ptr_start + 1
       if (n_send > 0) then
-         call MPI_SEND(send_buffer(ptr_start), n_send, MPI_REAL8, p, 100, MPI_COMM_WORLD, error)
+         call MPI_SEND(send_buffer(ptr_start), n_send, MPI_REAL8, p, 100, MPI_COMM_WORLD, self%mpih%error)
       endif
    enddo
 
-   call MPI_WAITALL(procs_number, req_recv, MPI_STATUSES_IGNORE, error)
+   call MPI_WAITALL(self%mpih%procs_number, req_recv, MPI_STATUSES_IGNORE, self%mpih%error)
 
    if (recv_size > 0_I8P) then
       recv_offset = 1
@@ -741,12 +744,12 @@ contains
    !< Print status of main data.
    class(field_object), intent(in) :: self !< The field.
 
-   print '(A)', myrankstr//'field status of main data'
-   print '(A)', myrankstr//'  field variables number (nv): '//trim(str(self%nv           ))
-   print '(A)', myrankstr//'  all blocks number (nb):      '//trim(str(self%nb           ))
-   print '(A)', myrankstr//'  blocks number:               '//trim(str(self%blocks_number))
-   print '(A)', myrankstr//'  block weight:                '//trim(str(self%block_weight ))
-   print '(A)', myrankstr//''
+   print '(A)', self%mpih%myrankstr//'field status of main data'
+   print '(A)', self%mpih%myrankstr//'  field variables number (nv): '//trim(str(self%nv           ))
+   print '(A)', self%mpih%myrankstr//'  all blocks number (nb):      '//trim(str(self%nb           ))
+   print '(A)', self%mpih%myrankstr//'  blocks number:               '//trim(str(self%blocks_number))
+   print '(A)', self%mpih%myrankstr//'  block weight:                '//trim(str(self%block_weight ))
+   print '(A)', self%mpih%myrankstr//''
    endsubroutine print_status
 
    subroutine save_blocks(self, basename)
@@ -757,9 +760,9 @@ contains
    integer(I4P)                    :: b         !< Counter.
 
    if (self%blocks_number > 0) then
-      open(newunit=file_unit,                                                   &
-           file=trim(adjustl(basename))//'-proc'//trim(strz(myrank,6))//'.fbd', &
-           form='UNFORMATTED',                                                  &
+      open(newunit=file_unit,                                                             &
+           file=trim(adjustl(basename))//'-proc'//trim(strz(self%mpih%myrank,6))//'.fbd', &
+           form='UNFORMATTED',                                                            &
            access='STREAM')
       write(unit=file_unit) self%nv,  self%grid%ni,  self%grid%nj,  self%grid%nk,  self%grid%ngc
       write(unit=file_unit) self%blocks_number
@@ -882,7 +885,7 @@ contains
    associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, q=>self%q, q_work=>self%q_work)
    if (allocated(block_to_refine)) then
       do b=1, size(block_to_refine, dim=2)
-         if (myrank /= block_to_refine(2,b)) cycle
+         if (self%mpih%myrank /= block_to_refine(2,b)) cycle
          ib = block_to_refine(1,b)
 
          q_work(:,:,:,:,ib) = q(:,:,:,:,ib)

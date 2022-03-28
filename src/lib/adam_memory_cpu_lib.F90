@@ -2,7 +2,6 @@
 module adam_memory_cpu_lib
 !< ADAM, CPU-memory handling library.
 
-use adam_mpi_lib
 use PENF
 use memorysaver, only : getmemory
 use, intrinsic :: iso_c_binding
@@ -48,12 +47,12 @@ contains
    if (allocated(var)) deallocate(var)
    if (verbose_) then
       call getmemory(mem_total, mem_free)
-      print '(A)', myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      print '(A)', msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    allocate(var(ulb(1):ulb(2)))
    if (verbose_) then
       call getmemory(mem_total, mem_free)
-      print '(A)', myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      print '(A)', msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_cpu_R8P_1D
 
@@ -72,12 +71,12 @@ contains
    if (allocated(var)) deallocate(var)
    if (verbose_) then
       call getmemory(mem_total, mem_free)
-      print '(A)', myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      print '(A)', msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2)))
    if (verbose_) then
       call getmemory(mem_total, mem_free)
-      print '(A)', myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      print '(A)', msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_cpu_R8P_2D
 
@@ -96,12 +95,12 @@ contains
    if (allocated(var)) deallocate(var)
    if (verbose_) then
       call getmemory(mem_total, mem_free)
-      print '(A)', myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      print '(A)', msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2), ulb(1,3):ulb(2,3), ulb(1,4):ulb(2,4), ulb(1,5):ulb(2,5)))
    if (verbose_) then
       call getmemory(mem_total, mem_free)
-      print '(A)', myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      print '(A)', msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_cpu_R8P_5D
 
@@ -120,12 +119,12 @@ contains
    if (allocated(var)) deallocate(var)
    if (verbose_) then
       call getmemory(mem_total, mem_free)
-      print '(A)', myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      print '(A)', msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    allocate(var(ulb(1):ulb(2)))
    if (verbose_) then
       call getmemory(mem_total, mem_free)
-      print '(A)', myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      print '(A)', msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_cpu_I4P_1D
 
@@ -144,12 +143,12 @@ contains
    if (allocated(var)) deallocate(var)
    if (verbose_) then
       call getmemory(mem_total, mem_free)
-      print '(A)', myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      print '(A)', msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    allocate(var(ulb(1):ulb(2)))
    if (verbose_) then
       call getmemory(mem_total, mem_free)
-      print '(A)', myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      print '(A)', msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_cpu_I8P_1D
 
@@ -168,12 +167,12 @@ contains
    if (allocated(var)) deallocate(var)
    if (verbose_) then
       call getmemory(mem_total, mem_free)
-      print '(A)', myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      print '(A)', msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2)))
    if (verbose_) then
       call getmemory(mem_total, mem_free)
-      print '(A)', myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      print '(A)', msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_cpu_I8P_2D
 
@@ -192,12 +191,12 @@ contains
    if (allocated(var)) deallocate(var)
    if (verbose_) then
       call getmemory(mem_total, mem_free)
-      print '(A)', myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      print '(A)', msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2), ulb(1,3):ulb(2,3)))
    if (verbose_) then
       call getmemory(mem_total, mem_free)
-      print '(A)', myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      print '(A)', msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_cpu_I8P_3D
 
@@ -216,12 +215,12 @@ contains
    if (allocated(var)) deallocate(var)
    if (verbose_) then
       call getmemory(mem_total, mem_free)
-      print '(A)', myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      print '(A)', msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2)))
    if (verbose_) then
       call getmemory(mem_total, mem_free)
-      print '(A)', myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+      print '(A)', msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_cpu_I4P_2D
 
