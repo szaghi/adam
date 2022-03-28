@@ -914,8 +914,8 @@ contains
       associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc)
          nijk = [ni, nj, nk]
 
-         ijkdelta = fec_to_delta(1:3, fec)
-         ijkdelta_global = fec_to_delta(1:3, neighbor_bc_fec)
+         ijkdelta = FEC_TO_DELTA(1:3, fec)
+         ijkdelta_global = FEC_TO_DELTA(1:3, neighbor_bc_fec)
 
          do i=1, 3
             if     (ijkdelta(i)==1) then
@@ -1457,7 +1457,7 @@ contains
    self%comm_map_n_send_ghost = 0
    do while(self%loop(node_ptr=node_ptr))
       do fec=1, 26
-         weight_reduction = 2 ** count(fec_to_delta(:, fec)==0_I4P, dim=1)
+         weight_reduction = 2 ** count(FEC_TO_DELTA(:, fec)==0_I4P, dim=1)
          call self%get_neighbor_all(code=node_ptr%code, face=fec, neighbor=neighbor, neighbor_type=neighbor_type)
          if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
             do n=1, size(neighbor, dim=1)
@@ -1510,7 +1510,7 @@ contains
    mf = 0
    do while(self%loop(node_ptr=node_ptr))
       do fec=1, 26
-         weight_reduction = 2 ** count(fec_to_delta(:, fec)==0_I4P, dim=1)
+         weight_reduction = 2 ** count(FEC_TO_DELTA(:, fec)==0_I4P, dim=1)
          call self%get_neighbor_all(code=node_ptr%code, face=fec, neighbor=neighbor, &
                                     neighbor_type=neighbor_type, neighbor_portion=neighbor_portion)
          if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
@@ -1599,7 +1599,7 @@ contains
       nijk = [ni, nj, nk]
 
       abs_portion = abs(portion)
-      delta = fec_to_delta(1:3, fec)
+      delta = FEC_TO_DELTA(1:3, fec)
 
       if     (portion==0) then
          do i=1, 3
@@ -2315,7 +2315,7 @@ contains
       endif
    enddo
    if (neighbor_type == NODE_BOUNDARY_CONDITION) then
-      if (present(neighbor_bc_fec)) neighbor_bc_fec = delta_to_fec(ijk_bc(1),ijk_bc(2),ijk_bc(3))
+      if (present(neighbor_bc_fec)) neighbor_bc_fec = DELTA_TO_FEC(ijk_bc(1),ijk_bc(2),ijk_bc(3))
       return
    endif
 

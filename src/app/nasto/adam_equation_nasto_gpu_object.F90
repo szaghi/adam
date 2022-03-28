@@ -7,6 +7,7 @@ use adam_base_gpu_object
 use adam_field_object
 use adam_grid_object
 use adam_mpih_object
+use adam_memory_gpu_lib
 use adam_parameters
 use adam_tree_node_object, only : tree_node_object
 use adam_weno_library_gpu
@@ -457,24 +458,24 @@ contains
    ! CPU data
    allocate(self%q_aux(1:nv_aux, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
    ! GPU data
-   call self%base_gpu%alloc_var_gpu(var=self%q_gpu, msg='equation_nasto_gpu%alloc(q_gpu) ', verbose=.true.,&
-                                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
-   call self%base_gpu%alloc_var_gpu(var=self%q_aux_gpu, msg='equation_nasto_gpu%alloc(q_aux_gpu) ', verbose=.true.,&
-                                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv_aux],[2,5]))
-   call self%base_gpu%alloc_var_gpu(var=self%fl_gpu, msg='equation_nasto_gpu%alloc(fl_gpu) ', verbose=.true.,&
-                                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
-   call self%base_gpu%alloc_var_gpu(var=self%flx_gpu, msg='equation_nasto_gpu%alloc(flx_gpu) ', verbose=.true.,&
-                                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
-   call self%base_gpu%alloc_var_gpu(var=self%fly_gpu, msg='equation_nasto_gpu%alloc(fly_gpu) ', verbose=.true.,&
-                                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
-   call self%base_gpu%alloc_var_gpu(var=self%flz_gpu, msg='equation_nasto_gpu%alloc(flz_gpu) ', verbose=.true.,&
-                                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
-   call self%base_gpu%alloc_var_gpu(var=self%prhs_gpu, msg='equation_nasto_gpu%alloc(prhs_gpu) ', verbose=.true.,&
-                                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
-   call self%base_gpu%alloc_var_gpu(var=self%dq_gpu, msg='equation_nasto_gpu%alloc(dq_gpu) ', verbose=.true.,&
-                                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
-   call self%base_gpu%alloc_var_gpu(var=self%q_invert_gpu, msg='equation_nasto_gpu%alloc(q_invert_gpu) ', verbose=.true.,&
-                                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
+   call alloc_var_gpu(var=self%q_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(q_gpu) ', verbose=.true.,&
+                      ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
+   call alloc_var_gpu(var=self%q_aux_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(q_aux_gpu) ', verbose=.true.,&
+                      ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv_aux],[2,5]))
+   call alloc_var_gpu(var=self%fl_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(fl_gpu) ', verbose=.true.,&
+                      ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
+   call alloc_var_gpu(var=self%flx_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(flx_gpu) ', verbose=.true.,&
+                      ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
+   call alloc_var_gpu(var=self%fly_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(fly_gpu) ', verbose=.true.,&
+                      ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
+   call alloc_var_gpu(var=self%flz_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(flz_gpu) ', verbose=.true.,&
+                      ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
+   call alloc_var_gpu(var=self%prhs_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(prhs_gpu) ', verbose=.true.,&
+                      ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
+   call alloc_var_gpu(var=self%dq_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(dq_gpu) ', verbose=.true.,&
+                      ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
+   call alloc_var_gpu(var=self%q_invert_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(q_invert_gpu) ', verbose=.true.,&
+                      ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
    self%prhs_gpu = 0._R8P
    self%fl_gpu   = 0._R8P
    self%flx_gpu  = 0._R8P
@@ -482,8 +483,8 @@ contains
    self%flz_gpu  = 0._R8P
    if (self%n_solids > 0) then
       allocate(self%phi(1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:n_solids))
-      call self%base_gpu%alloc_var_gpu(var=self%phi_gpu, msg='equation_nasto_gpu%alloc(phi_gpu) ', verbose=.true.,&
-                                       ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,n_solids],[2,5]))
+      call alloc_var_gpu(var=self%phi_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(phi_gpu) ', verbose=.true.,&
+                         ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,n_solids],[2,5]))
       self%phi     = -1._R8P
       self%phi_gpu = self%phi
    endif

@@ -170,8 +170,8 @@ contains
    ngc = self%ngc
    do fec=1, 26
       do i=1, 3
-         self%weight_neighbor(fec) = self%weight_neighbor(fec) * (  abs(fec_to_delta(i,fec))  * ngc + &
-                                                                 (1-abs(fec_to_delta(i,fec))) * nijk(i))
+         self%weight_neighbor(fec) = self%weight_neighbor(fec) * (  abs(FEC_TO_DELTA(i,fec))  * ngc + &
+                                                                 (1-abs(FEC_TO_DELTA(i,fec))) * nijk(i))
       enddo
    enddo
    endsubroutine compute_weight_neighbor

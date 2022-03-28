@@ -345,70 +345,70 @@ contains
    if (self%nb>0) then
       call alloc_var_cpu(var=self%code,  &
                          ulb=[1,self%nb],&
-                         msg='field%initialize(code) ', verbose=.true.)
+                         msg=self%mpih%myrankstr//'field%initialize(code) ', verbose=.true.)
       self%code    = -2_I8P
       self%code(1) = -1_I8P ! first block is assumed to be ADAM
       call alloc_var_cpu(var=self%coordinates,                &
                          ulb=reshape([1,4, 1,self%nb],[2,2]), &
-                         msg='field%initialize(coordinates) ', verbose=.true.)
+                         msg=self%mpih%myrankstr//'field%initialize(coordinates) ', verbose=.true.)
       call alloc_var_cpu(var=self%emin,                       &
                          ulb=reshape([1,3, 1,self%nb],[2,2]), &
-                         msg='field%initialize(emin) ', verbose=.true.)
+                         msg=self%mpih%myrankstr//'field%initialize(emin) ', verbose=.true.)
       call alloc_var_cpu(var=self%emax,                       &
                          ulb=reshape([1,3, 1,self%nb],[2,2]), &
-                         msg='field%initialize(emax) ', verbose=.true.)
+                         msg=self%mpih%myrankstr//'field%initialize(emax) ', verbose=.true.)
       self%emin(:,1) = self%grid%domain_emin
       self%emax(:,1) = self%grid%domain_emax
       call alloc_var_cpu(var=self%dxyz,                       &
                          ulb=reshape([1,3, 1,self%nb],[2,2]), &
-                         msg='field%initialize(dxyz) ', verbose=.true.)
+                         msg=self%mpih%myrankstr//'field%initialize(dxyz) ', verbose=.true.)
       call alloc_var_cpu(var=self%x_cell,                                         &
                          ulb=reshape([1-self%grid%ngc,self%grid%ni+self%grid%ngc, &
                                       1,self%nb],[2,2]),                          &
-                         msg='field%initialize(x_cell) ', verbose=.true.)
+                         msg=self%mpih%myrankstr//'field%initialize(x_cell) ', verbose=.true.)
       call alloc_var_cpu(var=self%y_cell,                                         &
                          ulb=reshape([1-self%grid%ngc,self%grid%nj+self%grid%ngc, &
                                       1,self%nb],[2,2]),                          &
-                         msg='field%initialize(y_cell) ', verbose=.true.)
+                         msg=self%mpih%myrankstr//'field%initialize(y_cell) ', verbose=.true.)
       call alloc_var_cpu(var=self%z_cell,                                         &
                          ulb=reshape([1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
                                       1,self%nb],[2,2]),                          &
-                         msg='field%initialize(z_cell) ', verbose=.true.)
+                         msg=self%mpih%myrankstr//'field%initialize(z_cell) ', verbose=.true.)
       call alloc_var_cpu(var=self%x_node,                                         &
                          ulb=reshape([0-self%grid%ngc,self%grid%ni+self%grid%ngc, &
                                       1,self%nb],[2,2]),                          &
-                         msg='field%initialize(x_node) ', verbose=.true.)
+                         msg=self%mpih%myrankstr//'field%initialize(x_node) ', verbose=.true.)
       call alloc_var_cpu(var=self%y_node,                                         &
                          ulb=reshape([0-self%grid%ngc,self%grid%nj+self%grid%ngc, &
                                       1,self%nb],[2,2]),                          &
-                         msg='field%initialize(y_node) ', verbose=.true.)
+                         msg=self%mpih%myrankstr//'field%initialize(y_node) ', verbose=.true.)
       call alloc_var_cpu(var=self%z_node,                                         &
                          ulb=reshape([0-self%grid%ngc,self%grid%nk+self%grid%ngc, &
                                       1,self%nb],[2,2]),                          &
-                         msg='field%initialize(z_node) ', verbose=.true.)
+                         msg=self%mpih%myrankstr//'field%initialize(z_node) ', verbose=.true.)
       call alloc_var_cpu(var=self%q,                                              &
                          ulb=reshape([1,self%nv,                                  &
                                       1-self%grid%ngc,self%grid%ni+self%grid%ngc, &
                                       1-self%grid%ngc,self%grid%nj+self%grid%ngc, &
                                       1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
                                       1,self%nb],[2,5]),                          &
-                         msg='field%initialize(q) ', verbose=.true.)
+                         msg=self%mpih%myrankstr//'field%initialize(q) ', verbose=.true.)
       call alloc_var_cpu(var=self%q_work,                                         &
                          ulb=reshape([1,self%nv,                                  &
                                       1-self%grid%ngc,self%grid%ni+self%grid%ngc, &
                                       1-self%grid%ngc,self%grid%nj+self%grid%ngc, &
                                       1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
                                       1,self%nb],[2,5]),                          &
-                         msg='field%initialize(q_work) ', verbose=.true.)
+                         msg=self%mpih%myrankstr//'field%initialize(q_work) ', verbose=.true.)
       self%q = 0._R8P
       self%q_work = 0._R8P
    endif
    call alloc_var_cpu(var=self%blocks_numbers, &
                       ulb=[0,self%mpih%procs_number-1],  &
-                      msg='field%initialize(blocks_numbers) ', verbose=.true.)
+                      msg=self%mpih%myrankstr//'field%initialize(blocks_numbers) ', verbose=.true.)
    call alloc_var_cpu(var=self%req_send_recv,  &
                       ulb=[0,self%mpih%procs_number*2-1],&
-                      msg='field%initialize(req_send_recv) ', verbose=.true.)
+                      msg=self%mpih%myrankstr//'field%initialize(req_send_recv) ', verbose=.true.)
    print '(A)', self%mpih%myrankstr//'field%initialize finish'
    endsubroutine initialize
 
@@ -691,25 +691,25 @@ contains
 
    call assign_allocatable_cpu(lhs=self%local_map_ghost, &
                                rhs=     local_map_ghost, &
-                               msg='field%prepare_comm_local_ghost(local_map_ghost) ', verbose=verbose)
+                               msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(local_map_ghost) ', verbose=verbose)
    call assign_allocatable_cpu(lhs=self%comm_map_n_send_ghost, &
                                rhs=     comm_map_n_send_ghost, &
-                               msg='field%prepare_comm_local_ghost(comm_map_n_send_ghost) ', verbose=verbose)
+                               msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(comm_map_n_send_ghost) ', verbose=verbose)
    call assign_allocatable_cpu(lhs=self%comm_map_n_recv_ghost, &
                                rhs=     comm_map_n_recv_ghost, &
-                               msg='field%prepare_comm_local_ghost(comm_map_n_recv_ghost) ', verbose=verbose)
+                               msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(comm_map_n_recv_ghost) ', verbose=verbose)
    call assign_allocatable_cpu(lhs=self%comm_map_send_ptr_ghost, &
                                rhs=     comm_map_send_ptr_ghost, &
-                               msg='field%prepare_comm_local_ghost(comm_map_send_ptr_ghost) ', verbose=verbose)
+                               msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(comm_map_send_ptr_ghost) ', verbose=verbose)
    call assign_allocatable_cpu(lhs=self%comm_map_recv_ptr_ghost, &
                                rhs=     comm_map_recv_ptr_ghost, &
-                               msg='field%prepare_comm_local_ghost(comm_map_recv_ptr_ghost) ', verbose=verbose)
+                               msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(comm_map_recv_ptr_ghost) ', verbose=verbose)
    call assign_allocatable_cpu(lhs=self%comm_map_send_ghost, &
                                rhs=     comm_map_send_ghost, &
-                               msg='field%prepare_comm_local_ghost(comm_map_send_ghost) ', verbose=verbose)
+                               msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(comm_map_send_ghost) ', verbose=verbose)
    call assign_allocatable_cpu(lhs=self%comm_map_recv_ghost, &
                                rhs=     comm_map_recv_ghost, &
-                               msg='field%prepare_comm_local_ghost(comm_map_recv_ghost) ', verbose=verbose)
+                               msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(comm_map_recv_ghost) ', verbose=verbose)
    if (allocated(self%comm_map_send_ghost)) self%comm_map_send_ghost(:,15) = self%comm_map_send_ghost(:,15) * self%nv
    if (allocated(self%comm_map_recv_ghost)) self%comm_map_recv_ghost(:,15) = self%comm_map_recv_ghost(:,15) * self%nv
    if (allocated(self%comm_map_send_ptr_ghost)) self%comm_map_send_ptr_ghost = self%comm_map_send_ptr_ghost * self%nv
@@ -718,26 +718,33 @@ contains
    if (allocated(self%comm_map_n_send_ghost)) then
       call alloc_var_cpu(var=self%send_buffer_ghost,                              &
                          ulb=[1, sum(self%comm_map_n_send_ghost, dim=1)*self%nv], &
-                         msg='field%prepare_comm_local_ghost(send_buffer_ghost) ', verbose=verbose)
+                         msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(send_buffer_ghost) ', verbose=verbose)
    endif
    if (allocated(self%recv_buffer_ghost)) deallocate(self%recv_buffer_ghost)
    if (allocated(self%comm_map_n_recv_ghost)) then
       call alloc_var_cpu(var=self%recv_buffer_ghost,                              &
                          ulb=[1, sum(self%comm_map_n_recv_ghost, dim=1)*self%nv], &
-                         msg='field%prepare_comm_local_ghost(recv_buffer_ghost) ', verbose=verbose)
+                         msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(recv_buffer_ghost) ', verbose=verbose)
    endif
    endsubroutine prepare_comm_local_ghost
 
-   subroutine prepare_local_bc(self, local_map_bc_face, local_map_bc_edge, local_map_bc_corner)
+   subroutine prepare_local_bc(self, local_map_bc_face, local_map_bc_edge, local_map_bc_corner, verbose)
    !< Prepare local maps of boundary conditions.
-   class(field_object),       intent(inout) :: self                     !< The field.
-   integer(I8P), allocatable, intent(in)    :: local_map_bc_face(:,:)   !< Local map for face BC ghost cells.
-   integer(I8P), allocatable, intent(in)    :: local_map_bc_edge(:,:)   !< Local map for edge BC ghost cells.
-   integer(I8P), allocatable, intent(in)    :: local_map_bc_corner(:,:) !< Local map for corner BC ghost cells.
+   class(field_object),       intent(inout)        :: self                     !< The field.
+   integer(I8P), allocatable, intent(in)           :: local_map_bc_face(:,:)   !< Local map for face BC ghost cells.
+   integer(I8P), allocatable, intent(in)           :: local_map_bc_edge(:,:)   !< Local map for edge BC ghost cells.
+   integer(I8P), allocatable, intent(in)           :: local_map_bc_corner(:,:) !< Local map for corner BC ghost cells.
+   logical,                   intent(in), optional :: verbose                  !< Flag to activate verbose mode.
 
-   call assign_allocatable(lhs=self%local_map_bc_face  , rhs=local_map_bc_face  )
-   call assign_allocatable(lhs=self%local_map_bc_edge  , rhs=local_map_bc_edge  )
-   call assign_allocatable(lhs=self%local_map_bc_corner, rhs=local_map_bc_corner)
+   call assign_allocatable_cpu(lhs=self%local_map_bc_face, &
+                               rhs=     local_map_bc_face, &
+                               msg=self%mpih%myrankstr//'field%prepare_local_bc(local_map_bc_face) ', verbose=verbose)
+   call assign_allocatable_cpu(lhs=self%local_map_bc_edge, &
+                               rhs=     local_map_bc_edge, &
+                               msg=self%mpih%myrankstr//'field%prepare_local_bc(local_map_bc_edge) ', verbose=verbose)
+   call assign_allocatable_cpu(lhs=self%local_map_bc_corner, &
+                               rhs=     local_map_bc_corner, &
+                               msg=self%mpih%myrankstr//'field%prepare_local_bc(local_map_bc_corner) ', verbose=verbose)
    endsubroutine prepare_local_bc
 
    subroutine print_status(self)

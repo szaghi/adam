@@ -4,6 +4,7 @@ module adam_base_gpu_object
 
 use adam_field_object, only : field_object
 use adam_mpih_object, only : mpih_object
+use adam_memory_gpu_lib
 use adam_parameters
 use PENF
 use MPI
@@ -58,40 +59,7 @@ type :: base_gpu_object
       procedure, pass(self) :: update_ghost_local_gpu        !< Update ghosts locally.
       procedure, pass(self) :: update_ghost_fluxes_local_gpu !< Update ghosts locally.
       procedure, pass(self) :: update_ghost_mpi_gpu          !< Update ghosts MPI.
-      generic               :: alloc_var_gpu =>      &
-                               alloc_var_gpu_R8P_1D, &
-                               alloc_var_gpu_R8P_2D, &
-                               alloc_var_gpu_R8P_5D, &
-                               alloc_var_gpu_I4P_1D, &
-                               alloc_var_gpu_I8P_1D, &
-                               alloc_var_gpu_I8P_2D, &
-                               alloc_var_gpu_I8P_3D          !< Allocate GPU variable with memory checking.
-      generic               :: assign_var_gpu =>      &
-                               assign_var_gpu_R8P_1D, &
-                               assign_var_gpu_R8P_2D, &
-                               assign_var_gpu_I4P_1D, &
-                               assign_var_gpu_I8P_1D, &
-                               assign_var_gpu_I8P_2D, &
-                               assign_var_gpu_I8P_3D         !< Assign GPU variable with memory checking.
-      ! private methods
-      procedure, pass(self), private :: alloc_var_gpu_R8P_1D  !< Allocate GPU variable with memory checking (kind R8P, rank 1).
-      procedure, pass(self), private :: alloc_var_gpu_R8P_2D  !< Allocate GPU variable with memory checking (kind R8P, rank 2).
-      procedure, pass(self), private :: alloc_var_gpu_R8P_5D  !< Allocate GPU variable with memory checking (kind R8P, rank 5).
-      procedure, pass(self), private :: alloc_var_gpu_I4P_1D  !< Allocate GPU variable with memory checking (kind I4P, rank 1).
-      procedure, pass(self), private :: alloc_var_gpu_I8P_1D  !< Allocate GPU variable with memory checking (kind I8P, rank 1).
-      procedure, pass(self), private :: alloc_var_gpu_I8P_2D  !< Allocate GPU variable with memory checking (kind I8P, rank 2).
-      procedure, pass(self), private :: alloc_var_gpu_I8P_3D  !< Allocate GPU variable with memory checking (kind I8P, rank 3).
-      procedure, pass(self), private :: assign_var_gpu_R8P_1D !< Assign GPU variable with memory checking (kind R8P, rank 1).
-      procedure, pass(self), private :: assign_var_gpu_R8P_2D !< Assign GPU variable with memory checking (kind R8P, rank 2).
-      procedure, pass(self), private :: assign_var_gpu_I4P_1D !< Assign GPU variable with memory checking (kind I4P, rank 1).
-      procedure, pass(self), private :: assign_var_gpu_I8P_1D !< Assign GPU variable with memory checking (kind I8P, rank 1).
-      procedure, pass(self), private :: assign_var_gpu_I8P_2D !< Assign GPU variable with memory checking (kind I8P, rank 2).
-      procedure, pass(self), private :: assign_var_gpu_I8P_3D !< Assign GPU variable with memory checking (kind I8P, rank 3).
 endtype base_gpu_object
-
-interface transpose_a
-   module procedure transpose_a_R8P_2D !< Transpose array (kind R8P, rank 2).
-endinterface transpose_a
 
 contains
    ! public methods
@@ -103,108 +71,44 @@ contains
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) print '(A)', self%mpih%myrankstr//'base_gpu%copy_cpu_gpu start'
-   call MPI_Barrier(MPI_COMM_WORLD, self%mpih%error)
-
-   associate(local_map_ghost=>self%field%local_map_ghost,         &
-             comm_map_recv_ghost=>self%field%comm_map_recv_ghost, &
-             comm_map_send_ghost=>self%field%comm_map_send_ghost, &
-             send_buffer_ghost=>self%field%send_buffer_ghost,     &
-             recv_buffer_ghost=>self%field%recv_buffer_ghost,     &
-             local_map_bc_face=>self%field%local_map_bc_face,     &
-             local_map_bc_corner=>self%field%local_map_bc_corner, &
-             local_map_bc_edge=>self%field%local_map_bc_edge,     &
-             x_cell=>self%field%x_cell,                           &
-             y_cell=>self%field%y_cell,                           &
-             z_cell=>self%field%z_cell,                           &
-             dxyz=>self%field%dxyz)
-      if (allocated(local_map_ghost)) &
-         call self%assign_var_gpu(var=self%local_map_ghost_gpu,                                             &
-                                  ulb=reshape([lbound(local_map_ghost,dim=1),ubound(local_map_ghost,dim=1), &
-                                               lbound(local_map_ghost,dim=2),ubound(local_map_ghost,dim=2)],&
-                                              [2,2]),                                                       &
-                                  rhs=local_map_ghost,                                                      &
-                                  msg='base_gpu%copy_cpu_gpu(local_map_ghost_gpu) ', verbose=verbose)
-
-      if (allocated(comm_map_recv_ghost)) &
-         call self%assign_var_gpu(var=self%comm_map_recv_ghost_gpu,                                                 &
-                                  ulb=reshape([lbound(comm_map_recv_ghost,dim=1),ubound(comm_map_recv_ghost,dim=1), &
-                                               lbound(comm_map_recv_ghost,dim=2),ubound(comm_map_recv_ghost,dim=2)],&
-                                              [2,2]),                                                               &
-                                  rhs=comm_map_recv_ghost,                                                          &
-                                  msg='base_gpu%copy_cpu_gpu(comm_map_recv_ghost_gpu) ', verbose=verbose)
-
-      if (allocated(comm_map_send_ghost)) &
-         call self%assign_var_gpu(var=self%comm_map_send_ghost_gpu,                                                 &
-                                  ulb=reshape([lbound(comm_map_send_ghost,dim=1),ubound(comm_map_send_ghost,dim=1), &
-                                               lbound(comm_map_send_ghost,dim=2),ubound(comm_map_send_ghost,dim=2)],&
-                                              [2,2]),                                                               &
-                                  rhs=comm_map_send_ghost,                                                          &
-                                  msg='base_gpu%copy_cpu_gpu(comm_map_send_ghost_gpu) ', verbose=verbose)
-
-      if (allocated(send_buffer_ghost)) &
-         call self%assign_var_gpu(var=self%send_buffer_ghost_gpu,                                       &
-                                  ulb=[lbound(send_buffer_ghost,dim=1),ubound(send_buffer_ghost,dim=1)],&
-                                  rhs=send_buffer_ghost,                                                &
-                                  msg='base_gpu%copy_cpu_gpu(send_buffer_ghost_gpu) ', verbose=verbose)
-
-      if (allocated(recv_buffer_ghost)) &
-         call self%assign_var_gpu(var=self%recv_buffer_ghost_gpu,                                       &
-                                  ulb=[lbound(recv_buffer_ghost,dim=1),ubound(recv_buffer_ghost,dim=1)],&
-                                  rhs=recv_buffer_ghost,                                                &
-                                  msg='base_gpu%copy_cpu_gpu(recv_buffer_ghost_gpu) ', verbose=verbose)
-
-      if (allocated(local_map_bc_face)) &
-         call self%assign_var_gpu(var=self%local_map_bc_face_gpu,                                               &
-                                  ulb=reshape([lbound(local_map_bc_face,dim=1),ubound(local_map_bc_face,dim=1), &
-                                               lbound(local_map_bc_face,dim=2),ubound(local_map_bc_face,dim=2)],&
-                                              [2,2]),                                                           &
-                                  rhs=local_map_bc_face,                                                        &
-                                  msg='base_gpu%copy_cpu_gpu(local_map_bc_face_gpu) ', verbose=verbose)
-
-      if (allocated(local_map_bc_corner)) &
-         call self%assign_var_gpu(var=self%local_map_bc_corner_gpu,                                                 &
-                                  ulb=reshape([lbound(local_map_bc_corner,dim=1),ubound(local_map_bc_corner,dim=1), &
-                                               lbound(local_map_bc_corner,dim=2),ubound(local_map_bc_corner,dim=2)],&
-                                              [2,2]),                                                               &
-                                  rhs=local_map_bc_corner,                                                          &
-                                  msg='base_gpu%copy_cpu_gpu(local_map_bc_corner_gpu) ', verbose=verbose)
-
-      if (allocated(local_map_bc_edge)) &
-         call self%assign_var_gpu(var=self%local_map_bc_edge_gpu,                                               &
-                                  ulb=reshape([lbound(local_map_bc_edge,dim=1),ubound(local_map_bc_edge,dim=1), &
-                                               lbound(local_map_bc_edge,dim=2),ubound(local_map_bc_edge,dim=2)],&
-                                              [2,2]),                                                           &
-                                  rhs=local_map_bc_edge,                                                        &
-                                  msg='base_gpu%copy_cpu_gpu(local_map_bc_edge_gpu) ', verbose=verbose)
-      if (allocated(x_cell)) &
-         call self%assign_var_gpu(var=self%x_cell_gpu,                                      &
-                                  ulb=reshape([lbound(x_cell, dim=1),ubound(x_cell, dim=1), &
-                                               lbound(x_cell, dim=2),ubound(x_cell, dim=2)],&
-                                              [2,2]),                                       &
-                                  rhs=x_cell, transposed=.true., msg='base_gpu%copy_cpu_gpu(x_cell_gpu) ', verbose=verbose)
-      if (allocated(y_cell)) &
-         call self%assign_var_gpu(var=self%y_cell_gpu,                                      &
-                                  ulb=reshape([lbound(y_cell, dim=1),ubound(y_cell, dim=1), &
-                                               lbound(y_cell, dim=2),ubound(y_cell, dim=2)],&
-                                              [2,2]),                                       &
-                                  rhs=y_cell, transposed=.true., msg='base_gpu%copy_cpu_gpu(y_cell_gpu) ', verbose=verbose)
-      if (allocated(z_cell)) &
-         call self%assign_var_gpu(var=self%z_cell_gpu,                                      &
-                                  ulb=reshape([lbound(z_cell, dim=1),ubound(z_cell, dim=1), &
-                                               lbound(z_cell, dim=2),ubound(z_cell, dim=2)],&
-                                              [2,2]),                                       &
-                                  rhs=z_cell, transposed=.true., msg='base_gpu%copy_cpu_gpu(z_cell_gpu) ', verbose=verbose)
-      if (allocated(dxyz)) &
-         call self%assign_var_gpu(var=self%dxyz_gpu,                                    &
-                                  ulb=reshape([lbound(dxyz, dim=1),ubound(dxyz, dim=1), &
-                                               lbound(dxyz, dim=2),ubound(dxyz, dim=2)],&
-                                              [2,2]),                                   &
-                                  rhs=dxyz, transposed=.true., msg='base_gpu%copy_cpu_gpu(dxyz_gpu) ', verbose=verbose)
-   endassociate
-
+   call assign_allocatable_gpu(lhs=      self%local_map_ghost_gpu, &
+                               rhs=self%field%local_map_ghost,     &
+                               msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(local_map_ghost_gpu) ', verbose=verbose)
+   call assign_allocatable_gpu(lhs=      self%comm_map_recv_ghost_gpu, &
+                               rhs=self%field%comm_map_recv_ghost,     &
+                               msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(comm_map_recv_ghost_gpu) ', verbose=verbose)
+   call assign_allocatable_gpu(lhs=      self%comm_map_send_ghost_gpu, &
+                               rhs=self%field%comm_map_send_ghost,     &
+                               msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(comm_map_send_ghost_gpu) ', verbose=verbose)
+   call assign_allocatable_gpu(lhs=      self%send_buffer_ghost_gpu, &
+                               rhs=self%field%send_buffer_ghost,     &
+                               msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(send_buffer_ghost_gpu) ', verbose=verbose)
+   call assign_allocatable_gpu(lhs=      self%recv_buffer_ghost_gpu, &
+                               rhs=self%field%recv_buffer_ghost,     &
+                               msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(recv_buffer_ghost_gpu) ', verbose=verbose)
+   call assign_allocatable_gpu(lhs=      self%local_map_bc_face_gpu, &
+                               rhs=self%field%local_map_bc_face,     &
+                               msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(local_map_bc_face_gpu) ', verbose=verbose)
+   call assign_allocatable_gpu(lhs=      self%local_map_bc_corner_gpu, &
+                               rhs=self%field%local_map_bc_corner,     &
+                               msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(local_map_bc_corner_gpu) ', verbose=verbose)
+   call assign_allocatable_gpu(lhs=      self%local_map_bc_edge_gpu, &
+                               rhs=self%field%local_map_bc_edge,     &
+                               msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(local_map_bc_edge_gpu) ', verbose=verbose)
+   call assign_allocatable_gpu(lhs=      self%x_cell_gpu, &
+                               rhs=self%field%x_cell,     &
+                               transposed=.true., msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(x_cell_gpu) ', verbose=verbose)
+   call assign_allocatable_gpu(lhs=      self%y_cell_gpu, &
+                               rhs=self%field%y_cell,     &
+                               transposed=.true., msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(y_cell_gpu) ', verbose=verbose)
+   call assign_allocatable_gpu(lhs=      self%z_cell_gpu, &
+                               rhs=self%field%z_cell,     &
+                               transposed=.true., msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(z_cell_gpu) ', verbose=verbose)
+   call assign_allocatable_gpu(lhs=      self%dxyz_gpu, &
+                               rhs=self%field%dxyz,     &
+                               transposed=.true., msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(dxyz_gpu) ', verbose=verbose)
    call self%create_maps_cell(verbose=verbose)
    call self%create_maps_fluxes_cell(verbose=verbose)
-
    if (verbose_) print '(A)', self%mpih%myrankstr//'base_gpu%copy_cpu_gpu finish'
    endsubroutine copy_cpu_gpu
 
@@ -403,12 +307,9 @@ contains
             enddo
          endif
       enddo
-      call self%assign_var_gpu(var=self%local_map_ghost_cell_gpu,                                                  &
-                               ulb=reshape([lbound(local_map_ghost_cell,dim=1),ubound(local_map_ghost_cell,dim=1), &
-                                            lbound(local_map_ghost_cell,dim=2),ubound(local_map_ghost_cell,dim=2)],&
-                                           [2,2]),                                                                 &
-                               rhs=local_map_ghost_cell,                                                           &
-                               msg='base_gpu%create_maps_cell(local_map_ghost_cell_gpu) ', verbose=verbose)
+      call assign_allocatable_gpu(lhs=self%local_map_ghost_cell_gpu, &
+                                  rhs=     local_map_ghost_cell,     &
+                                  msg=self%mpih%myrankstr//'base_gpu%create_maps_cell(local_map_ghost_cell_gpu) ', verbose=verbose)
       deallocate(local_map_ghost_cell)
    endif
 
@@ -519,12 +420,10 @@ contains
             enddo
          endif
       enddo
-      call self%assign_var_gpu(var=self%comm_map_send_ghost_cell_gpu,                                                      &
-                               ulb=reshape([lbound(comm_map_send_ghost_cell,dim=1),ubound(comm_map_send_ghost_cell,dim=1), &
-                                            lbound(comm_map_send_ghost_cell,dim=2),ubound(comm_map_send_ghost_cell,dim=2)],&
-                                           [2,2]),                                                                         &
-                               rhs=comm_map_send_ghost_cell,                                                               &
-                               msg='base_gpu%create_maps_cell(comm_map_send_ghost_cell_gpu) ', verbose=verbose)
+      call assign_allocatable_gpu(lhs=self%comm_map_send_ghost_cell_gpu,                                               &
+                                  rhs=     comm_map_send_ghost_cell,                                                   &
+                                  msg=self%mpih%myrankstr//'base_gpu%create_maps_cell(comm_map_send_ghost_cell_gpu) ', &
+                                  verbose=verbose)
       deallocate(comm_map_send_ghost_cell)
    endif
 
@@ -614,12 +513,10 @@ contains
             enddo
          endif
       enddo
-      call self%assign_var_gpu(var=self%comm_map_recv_ghost_cell_gpu,                                                      &
-                               ulb=reshape([lbound(comm_map_recv_ghost_cell,dim=1),ubound(comm_map_recv_ghost_cell,dim=1), &
-                                            lbound(comm_map_recv_ghost_cell,dim=2),ubound(comm_map_recv_ghost_cell,dim=2)],&
-                                           [2,2]),                                                                         &
-                               rhs=comm_map_recv_ghost_cell,                                                               &
-                               msg='base_gpu%create_maps_cell(comm_map_recv_ghost_cell_gpu) ', verbose=verbose)
+      call assign_allocatable_gpu(lhs=self%comm_map_recv_ghost_cell_gpu,                                               &
+                                  rhs=     comm_map_recv_ghost_cell,                                                   &
+                                  msg=self%mpih%myrankstr//'base_gpu%create_maps_cell(comm_map_recv_ghost_cell_gpu) ', &
+                                  verbose=verbose)
       deallocate(comm_map_recv_ghost_cell)
    endif
 
@@ -639,13 +536,9 @@ contains
       if (allocated(self%field%local_map_bc_edge  )) call populate_local_map_bc_crown(self%field%local_map_bc_edge  )
       if (allocated(self%field%local_map_bc_corner)) call populate_local_map_bc_crown(self%field%local_map_bc_corner)
       deallocate(c_crown)
-      call self%assign_var_gpu(var=self%local_map_bc_crown_gpu,                                                &
-                               ulb=reshape([lbound(local_map_bc_crown,dim=1),ubound(local_map_bc_crown,dim=1), &
-                                            lbound(local_map_bc_crown,dim=2),ubound(local_map_bc_crown,dim=2), &
-                                            lbound(local_map_bc_crown,dim=3),ubound(local_map_bc_crown,dim=3)],&
-                                           [2,3]),                                                             &
-                               rhs=local_map_bc_crown,                                                         &
-                               msg='base_gpu%create_maps_cell(local_map_bc_crown_gpu) ', verbose=verbose)
+      call assign_allocatable_gpu(lhs=self%local_map_bc_crown_gpu, &
+                                  rhs=     local_map_bc_crown,     &
+                                  msg=self%mpih%myrankstr//'base_gpu%create_maps_cell(local_map_bc_crown_gpu) ', verbose=verbose)
       deallocate(local_map_bc_crown)
    endif
 
@@ -837,13 +730,10 @@ contains
                enddo
             endif
          enddo
-         call self%assign_var_gpu(var=self%local_map_ghost_fluxes_cell_gpu,                                                 &
-                                  ulb=reshape(                                                                              &
-                                      [lbound(local_map_ghost_fluxes_cell,dim=1),ubound(local_map_ghost_fluxes_cell,dim=1), &
-                                       lbound(local_map_ghost_fluxes_cell,dim=2),ubound(local_map_ghost_fluxes_cell,dim=2)],&
-                                      [2,2]),                                                                               &
-                                  rhs=local_map_ghost_fluxes_cell,                                                          &
-                                  msg='base_gpu%create_maps_fluxes_cell(local_map_ghost_fluxes_cell_gpu) ', verbose=verbose)
+         call assign_allocatable_gpu(lhs=self%local_map_ghost_fluxes_cell_gpu,                                                     &
+                                     rhs=     local_map_ghost_fluxes_cell,                                                         &
+                                     msg=self%mpih%myrankstr//'base_gpu%create_maps_fluxes_cell(local_map_ghost_fluxes_cell_gpu) ',&
+                                     verbose=verbose)
          deallocate(local_map_ghost_fluxes_cell)
       endif
    endif
@@ -853,14 +743,15 @@ contains
 
    subroutine initialize(self, field, nv_aux, verbose)
    !< Initialize base backend.
-   class(base_gpu_object), intent(inout)        :: self              !< The base backend.
-   type(field_object),     intent(in), target   :: field             !< Field variable array.
-   integer(I4P),           intent(in), optional :: nv_aux            !< Number of auxiliary variables.
-   logical,                intent(in), optional :: verbose           !< Flag to activate verbose mode.
-   integer(I4P)                                 :: nv_aux_           !< Number of auxiliary variables (local var).
-   integer(I4P)                                 :: fec_1_6_array(26) !< Mapping fec1-26 to fec1-6 for boundaries.
+   class(base_gpu_object), intent(inout)        :: self             !< The base backend.
+   type(field_object),     intent(in), target   :: field            !< Field variable array.
+   integer(I4P),           intent(in), optional :: nv_aux           !< Number of auxiliary variables.
+   logical,                intent(in), optional :: verbose          !< Flag to activate verbose mode.
+   integer(I4P)                                 :: nv_aux_          !< Number of auxiliary variables (local var).
+   integer(I4P), allocatable                    :: fec_1_6_array(:) !< Mapping fec1-26 to fec1-6 for boundaries.
 
    print '(A)', self%mpih%myrankstr//'base_gpu%initialize start'
+   allocate(fec_1_6_array(26))
    self%field => field
    allocate(self%req_send_recv(0:self%mpih%procs_number*2-1))
    fec_1_6_array([1,7,9,11,13,19,21,23,25])  = 1
@@ -869,10 +760,9 @@ contains
    fec_1_6_array([4,16,18])                  = 4
    fec_1_6_array([5])                        = 5
    fec_1_6_array([6])                        = 6
-   call self%assign_var_gpu(var=self%fec_1_6_array_gpu, &
-                            ulb=[1,26],                 &
-                            rhs=fec_1_6_array,          &
-                            msg='base_gpu%initialize(fec_1_6_array_gpu)', verbose=verbose)
+   call assign_allocatable_gpu(lhs=self%fec_1_6_array_gpu, &
+                               rhs=     fec_1_6_array,     &
+                               msg=self%mpih%myrankstr//'base_gpu%initialize(fec_1_6_array_gpu)', verbose=verbose)
    nv_aux_ = self%field%nv
    if (present(nv_aux)) nv_aux_ = max(nv_aux_, nv_aux)
    ! allocate buffers for copy-transposes performed by equation
@@ -880,15 +770,16 @@ contains
                      1-field%grid%ngc:field%grid%ni+field%grid%ngc, &
                      1-field%grid%ngc:field%grid%nj+field%grid%ngc, &
                      1-field%grid%ngc:field%grid%nk+field%grid%ngc, nv_aux_))
-   call self%alloc_var_gpu(var=self%q_t_gpu,                                          &
-                           ulb=reshape([1,nv_aux_,                                    &
-                                        1-field%grid%ngc,field%grid%ni+field%grid%ngc,&
-                                        1-field%grid%ngc,field%grid%nj+field%grid%ngc,&
-                                        1-field%grid%ngc,field%grid%nk+field%grid%ngc,&
-                                        1,field%nb],[2,5]),                           &
-                           msg='base_gpu%alloc(q_t_gpu) ', verbose=verbose)
+   call alloc_var_gpu(var=self%q_t_gpu,                                          &
+                      ulb=reshape([1,nv_aux_,                                    &
+                                   1-field%grid%ngc,field%grid%ni+field%grid%ngc,&
+                                   1-field%grid%ngc,field%grid%nj+field%grid%ngc,&
+                                   1-field%grid%ngc,field%grid%nk+field%grid%ngc,&
+                                   1,field%nb],[2,5]),                           &
+                      msg=self%mpih%myrankstr//'base_gpu%alloc(q_t_gpu) ', verbose=verbose)
    ! copy CPU-to-GPU of base_gpu variables (maps and cells, not q_gpu)
    call self%copy_cpu_gpu
+   deallocate(fec_1_6_array)
    print '(A)', self%mpih%myrankstr//'base_gpu%initialize finish'
    endsubroutine initialize
 
@@ -984,300 +875,6 @@ contains
                                  send_buffer_ghost_gpu=self%send_buffer_ghost_gpu,               &
                                  ngc=self%field%grid%ngc, q_gpu=q_gpu, step=step)
    endsubroutine update_ghost_mpi_gpu
-
-   ! private methods
-   subroutine alloc_var_gpu_R8P_1D(self, var, ulb, msg, verbose)
-   !< Allocate GPU variable with memory checking (kind R8P, rank 1).
-   class(base_gpu_object), intent(inout)         :: self                !< The base backend.
-   real(R8P), allocatable, intent(inout), device :: var(:)              !< Varibale to be allocate on GPU.
-   integer(I4P),           intent(in)            :: ulb(2)              !< Upper/lower bounds of variable.
-   character(*),           intent(in), optional  :: msg                 !< Message to be printed in verbose mode.
-   logical,                intent(in), optional  :: verbose             !< Flag to activate verbose mode.
-   character(:), allocatable                     :: msg_                !< Message to be printed in verbose mode, local var.
-   logical                                       :: verbose_            !< Flag to activate verbose mode, local var.
-   integer(cuda_count_kind)                      :: mem_free, mem_total !< Device memory.
-
-   msg_     = ''      ; if (present(msg    )) msg_     = msg
-   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   if (allocated(var)) deallocate(var)
-   if (verbose_) then
-      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', self%mpih%myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
-   endif
-   allocate(var(ulb(1):ulb(2)))
-   if (verbose_) then
-      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', self%mpih%myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
-   endif
-   endsubroutine alloc_var_gpu_R8P_1D
-
-   subroutine alloc_var_gpu_R8P_2D(self, var, ulb, msg, verbose)
-   !< Allocate GPU variable with memory checking (kind R8P, rank 2).
-   class(base_gpu_object), intent(inout)         :: self                !< The base backend.
-   real(R8P), allocatable, intent(inout), device :: var(:,:)            !< Varibale to be allocate on GPU.
-   integer(I4P),           intent(in)            :: ulb(2,2)            !< Upper/lower bounds of variable.
-   character(*),           intent(in), optional  :: msg                 !< Message to be printed in verbose mode.
-   logical,                intent(in), optional  :: verbose             !< Flag to activate verbose mode.
-   character(:), allocatable                     :: msg_                !< Message to be printed in verbose mode, local var.
-   logical                                       :: verbose_            !< Flag to activate verbose mode, local var.
-   integer(cuda_count_kind)                      :: mem_free, mem_total !< Device memory.
-
-   msg_     = ''      ; if (present(msg    )) msg_     = msg
-   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   if (allocated(var)) deallocate(var)
-   if (verbose_) then
-      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', self%mpih%myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
-   endif
-   allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2)))
-   if (verbose_) then
-      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', self%mpih%myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
-   endif
-   endsubroutine alloc_var_gpu_R8P_2D
-
-   subroutine alloc_var_gpu_R8P_5D(self, var, ulb, msg, verbose)
-   !< Allocate GPU variable with memory checking (kind R8P, rank 5).
-   class(base_gpu_object), intent(inout)         :: self                !< The base backend.
-   real(R8P), allocatable, intent(inout), device :: var(:,:,:,:,:)      !< Varibale to be allocate on GPU.
-   integer(I4P),           intent(in)            :: ulb(2,5)            !< Upper/lower bounds of variable.
-   character(*),           intent(in), optional  :: msg                 !< Message to be printed in verbose mode.
-   logical,                intent(in), optional  :: verbose             !< Flag to activate verbose mode.
-   character(:), allocatable                     :: msg_                !< Message to be printed in verbose mode, local var.
-   logical                                       :: verbose_            !< Flag to activate verbose mode, local var.
-   integer(cuda_count_kind)                      :: mem_free, mem_total !< Device memory.
-
-   msg_     = ''      ; if (present(msg    )) msg_     = msg
-   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   if (allocated(var)) deallocate(var)
-   if (verbose_) then
-      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', self%mpih%myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
-   endif
-   allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2), ulb(1,3):ulb(2,3), ulb(1,4):ulb(2,4), ulb(1,5):ulb(2,5)))
-   if (verbose_) then
-      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', self%mpih%myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
-   endif
-   endsubroutine alloc_var_gpu_R8P_5D
-
-   subroutine alloc_var_gpu_I4P_1D(self, var, ulb, msg, verbose)
-   !< Allocate GPU variable with memory checking (kind I4P, rank 1).
-   class(base_gpu_object),    intent(inout)         :: self                !< The base backend.
-   integer(I4P), allocatable, intent(inout), device :: var(:)              !< Varibale to be allocate on GPU.
-   integer(I4P),              intent(in)            :: ulb(2)              !< Upper/lower bounds of variable.
-   character(*),              intent(in), optional  :: msg                 !< Message to be printed in verbose mode.
-   logical,                   intent(in), optional  :: verbose             !< Flag to activate verbose mode.
-   character(:), allocatable                        :: msg_                !< Message to be printed in verbose mode, local var.
-   logical                                          :: verbose_            !< Flag to activate verbose mode, local var.
-   integer(cuda_count_kind)                         :: mem_free, mem_total !< Device memory.
-
-   msg_     = ''      ; if (present(msg    )) msg_     = msg
-   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   if (allocated(var)) deallocate(var)
-   if (verbose_) then
-      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', self%mpih%myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
-   endif
-   allocate(var(ulb(1):ulb(2)))
-   if (verbose_) then
-      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', self%mpih%myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
-   endif
-   endsubroutine alloc_var_gpu_I4P_1D
-
-   subroutine alloc_var_gpu_I8P_1D(self, var, ulb, msg, verbose)
-   !< Allocate GPU variable with memory checking (kind I8P, rank 1).
-   class(base_gpu_object),    intent(inout)         :: self                !< The base backend.
-   integer(I8P), allocatable, intent(inout), device :: var(:)              !< Varibale to be allocate on GPU.
-   integer(I4P),              intent(in)            :: ulb(2)              !< Upper/lower bounds of variable.
-   character(*),              intent(in), optional  :: msg                 !< Message to be printed in verbose mode.
-   logical,                   intent(in), optional  :: verbose             !< Flag to activate verbose mode.
-   character(:), allocatable                        :: msg_                !< Message to be printed in verbose mode, local var.
-   logical                                          :: verbose_            !< Flag to activate verbose mode, local var.
-   integer(cuda_count_kind)                         :: mem_free, mem_total !< Device memory.
-
-   msg_     = ''      ; if (present(msg    )) msg_     = msg
-   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   if (allocated(var)) deallocate(var)
-   if (verbose_) then
-      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', self%mpih%myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
-   endif
-   allocate(var(ulb(1):ulb(2)))
-   if (verbose_) then
-      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', self%mpih%myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
-   endif
-   endsubroutine alloc_var_gpu_I8P_1D
-
-   subroutine alloc_var_gpu_I8P_2D(self, var, ulb, msg, verbose)
-   !< Allocate GPU variable with memory checking (kind I8P, rank 2).
-   class(base_gpu_object),    intent(inout)         :: self                !< The base backend.
-   integer(I8P), allocatable, intent(inout), device :: var(:,:)            !< Varibale to be allocate on GPU.
-   integer(I4P),              intent(in)            :: ulb(2,2)            !< Upper/lower bounds of variable.
-   character(*),              intent(in), optional  :: msg                 !< Message to be printed in verbose mode.
-   logical,                   intent(in), optional  :: verbose             !< Flag to activate verbose mode.
-   character(:), allocatable                        :: msg_                !< Message to be printed in verbose mode, local var.
-   logical                                          :: verbose_            !< Flag to activate verbose mode, local var.
-   integer(cuda_count_kind)                         :: mem_free, mem_total !< Device memory.
-
-   msg_     = ''      ; if (present(msg    )) msg_     = msg
-   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   if (allocated(var)) deallocate(var)
-   if (verbose_) then
-      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', self%mpih%myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
-   endif
-   allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2)))
-   if (verbose_) then
-      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', self%mpih%myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
-   endif
-   endsubroutine alloc_var_gpu_I8P_2D
-
-   subroutine alloc_var_gpu_I8P_3D(self, var, ulb, msg, verbose)
-   !< Allocate GPU variable with memory checking (kind I8P, rank 3).
-   class(base_gpu_object),    intent(inout)         :: self                !< The base backend.
-   integer(I8P), allocatable, intent(inout), device :: var(:,:,:)          !< Varibale to be allocate on GPU.
-   integer(I4P),              intent(in)            :: ulb(2,3)            !< Upper/lower bounds of variable.
-   character(*),              intent(in), optional  :: msg                 !< Message to be printed in verbose mode.
-   logical,                   intent(in), optional  :: verbose             !< Flag to activate verbose mode.
-   character(:), allocatable                        :: msg_                !< Message to be printed in verbose mode, local var.
-   logical                                          :: verbose_            !< Flag to activate verbose mode, local var.
-   integer(cuda_count_kind)                         :: mem_free, mem_total !< Device memory.
-
-   msg_     = ''      ; if (present(msg    )) msg_     = msg
-   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   if (allocated(var)) deallocate(var)
-   if (verbose_) then
-      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', self%mpih%myrankstr//msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
-   endif
-   allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2), ulb(1,3):ulb(2,3)))
-   if (verbose_) then
-      self%mpih%error = cudaMemGetInfo(mem_free, mem_total)
-      print '(A)', self%mpih%myrankstr//msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
-   endif
-   endsubroutine alloc_var_gpu_I8P_3D
-
-   subroutine assign_var_gpu_R8P_1D(self, var, ulb, rhs, msg, verbose)
-   !< Assign GPU variable with memory checking (kind R8P, rank 1).
-   !< Variable is returned not allocated if right hand side is not allocated.
-   class(base_gpu_object), intent(inout)         :: self               !< The base backend.
-   real(R8P), allocatable, intent(inout), device :: var(:)             !< Varibale to be allocate on GPU.
-   integer(I4P),           intent(in)            :: ulb(2)             !< Upper/lower bounds of rhs.
-   real(R8P),              intent(in)            :: rhs(ulb(1):ulb(2)) !< Right hand side of assignement.
-   character(*),           intent(in), optional  :: msg                !< Message to be printed in verbose mode.
-   logical,                intent(in), optional  :: verbose            !< Flag to activate verbose mode.
-
-   if (allocated(var)) deallocate(var)
-   if (size(rhs, dim=1)>0) then
-      call self%alloc_var_gpu(var=var, ulb=ulb, msg=msg, verbose=verbose)
-      var = rhs
-   endif
-   endsubroutine assign_var_gpu_R8P_1D
-
-   subroutine assign_var_gpu_R8P_2D(self, var, ulb, rhs, transposed, msg, verbose)
-   !< Assign GPU variable with memory checking (kind R8P, rank 2).
-   !< Variable is returned not allocated if right hand side is not allocated.
-   class(base_gpu_object), intent(inout)         :: self                   !< The base backend.
-   real(R8P), allocatable, intent(inout), device :: var(:,:)               !< Varibale to be allocate on GPU.
-   integer(I4P),           intent(in)            :: ulb(2,2)               !< Upper/lower bounds of rhs.
-   real(R8P),              intent(in)            :: rhs(ulb(1,1):ulb(2,1), &
-                                                        ulb(1,2):ulb(2,2)) !< Right hand side of assignement.
-   logical,                intent(in), optional  :: transposed             !< Assign trasposed rhs.
-   character(*),           intent(in), optional  :: msg                    !< Message to be printed in verbose mode.
-   logical,                intent(in), optional  :: verbose                !< Flag to activate verbose mode.
-   logical                                       :: transposed_            !< Assign trasposed rhs, local var.
-   real(R8P), allocatable                        :: rhst(:,:)              !< Right hand side transposed.
-
-   if (allocated(var)) deallocate(var)
-   if (size(rhs, dim=1)*size(rhs, dim=2)>0) then
-      transposed_ = .false. ; if (present(transposed)) transposed_ = transposed
-      if (transposed_) then
-         allocate(rhst(ulb(1,2):ulb(2,2),ulb(1,1):ulb(2,1)))
-         call self%alloc_var_gpu(var=var, ulb=reshape([ulb(1,2),ulb(2,2),ulb(1,1),ulb(2,1)],[2,2]), msg=msg, verbose=verbose)
-         call transpose_a(ii=ulb(:,1), jj=ulb(:,2), a=rhs, t=rhst)
-         var = rhst
-         deallocate(rhst)
-      else
-         call self%alloc_var_gpu(var=var, ulb=ulb, msg=msg, verbose=verbose)
-         var = rhs
-      endif
-   endif
-   endsubroutine assign_var_gpu_R8P_2D
-
-   subroutine assign_var_gpu_I4P_1D(self, var, ulb, rhs, msg, verbose)
-   !< Assign GPU variable with memory checking (kind I4P, rank 1).
-   !< Variable is returned not allocated if right hand side is not allocated.
-   class(base_gpu_object),    intent(inout)         :: self               !< The base backend.
-   integer(I4P), allocatable, intent(inout), device :: var(:)             !< Varibale to be allocate on GPU.
-   integer(I4P),              intent(in)            :: ulb(2)             !< Upper/lower bounds of rhs.
-   integer(I4P),              intent(in)            :: rhs(ulb(1):ulb(2)) !< Right hand side of assignement.
-   character(*),              intent(in), optional  :: msg                !< Message to be printed in verbose mode.
-   logical,                   intent(in), optional  :: verbose            !< Flag to activate verbose mode.
-
-   if (allocated(var)) deallocate(var)
-   if (size(rhs, dim=1)>0) then
-      call self%alloc_var_gpu(var=var, ulb=ulb, msg=msg, verbose=verbose)
-      var = rhs
-   endif
-   endsubroutine assign_var_gpu_I4P_1D
-
-   subroutine assign_var_gpu_I8P_1D(self, var, ulb, rhs, msg, verbose)
-   !< Assign GPU variable with memory checking (kind I8P, rank 1).
-   !< Variable is returned not allocated if right hand side is not allocated.
-   class(base_gpu_object),    intent(inout)         :: self               !< The base backend.
-   integer(I8P), allocatable, intent(inout), device :: var(:)             !< Varibale to be allocate on GPU.
-   integer(I4P),              intent(in)            :: ulb(2)             !< Upper/lower bounds of rhs.
-   integer(I8P),              intent(in)            :: rhs(ulb(1):ulb(2)) !< Right hand side of assignement.
-   character(*),              intent(in), optional  :: msg                !< Message to be printed in verbose mode.
-   logical,                   intent(in), optional  :: verbose            !< Flag to activate verbose mode.
-
-   if (allocated(var)) deallocate(var)
-   if (size(rhs, dim=1)>0) then
-      call self%alloc_var_gpu(var=var, ulb=ulb, msg=msg, verbose=verbose)
-      var = rhs
-   endif
-   endsubroutine assign_var_gpu_I8P_1D
-
-   subroutine assign_var_gpu_I8P_2D(self, var, ulb, rhs, msg, verbose)
-   !< Assign GPU variable with memory checking (kind I8P, rank 2).
-   !< Variable is returned not allocated if right hand side is not allocated.
-   class(base_gpu_object),    intent(inout)         :: self                   !< The base backend.
-   integer(I8P), allocatable, intent(inout), device :: var(:,:)               !< Varibale to be allocate on GPU.
-   integer(I4P),              intent(in)            :: ulb(2,2)               !< Upper/lower bounds of rhs.
-   integer(I8P),              intent(in)            :: rhs(ulb(1,1):ulb(2,1), &
-                                                           ulb(1,2):ulb(2,2)) !< Right hand side of assignement.
-   character(*),              intent(in), optional  :: msg                    !< Message to be printed in verbose mode.
-   logical,                   intent(in), optional  :: verbose                !< Flag to activate verbose mode.
-
-   if (allocated(var)) deallocate(var)
-   if (size(rhs, dim=1)*size(rhs, dim=2)>0) then
-      call self%alloc_var_gpu(var=var, ulb=ulb, msg=msg, verbose=verbose)
-      var = rhs
-   endif
-   endsubroutine assign_var_gpu_I8P_2D
-
-   subroutine assign_var_gpu_I8P_3D(self, var, ulb, rhs, msg, verbose)
-   !< Assign GPU variable with memory checking (kind I8P, rank 3).
-   !< Variable is returned not allocated if right hand side is not allocated.
-   class(base_gpu_object),    intent(inout)         :: self                   !< The base backend.
-   integer(I8P), allocatable, intent(inout), device :: var(:,:,:)             !< Varibale to be allocate on GPU.
-   integer(I4P),              intent(in)            :: ulb(2,3)               !< Upper/lower bounds of rhs.
-   integer(I8P),              intent(in)            :: rhs(ulb(1,1):ulb(2,1), &
-                                                           ulb(1,2):ulb(2,2), &
-                                                           ulb(1,3):ulb(2,3)) !< Right hand side of assignement.
-   character(*),              intent(in), optional  :: msg                    !< Message to be printed in verbose mode.
-   logical,                   intent(in), optional  :: verbose                !< Flag to activate verbose mode.
-
-   if (allocated(var)) deallocate(var)
-   if (size(rhs, dim=1)*size(rhs, dim=2)*size(rhs, dim=3)>0) then
-      call self%alloc_var_gpu(var=var, ulb=ulb, msg=msg, verbose=verbose)
-      var = rhs
-   endif
-   endsubroutine assign_var_gpu_I8P_3D
 
    ! non TBP CUF methods
    subroutine copy_transpose_gpu_cpu_cuf(ni, nj, nk, ngc, nv, blocks_number, q_gpu, q_t_gpu, q_cpu)
@@ -1636,19 +1233,4 @@ contains
       stop
    endif
    endsubroutine update_ghost_mpi_gpu_cuf
-
-   ! non TBP
-   subroutine transpose_a_R8P_2D(ii, jj, a, t)
-   !< Transpose array (kind R8P, rank 2).
-   integer(I4P), intent(in)  :: ii(2), jj(2)               !< Array bounds.
-   real(R8P),    intent(in)  :: a(ii(1):ii(2),jj(1):jj(2)) !< Input array.
-   real(R8P),    intent(out) :: t(jj(1):jj(2),ii(1):ii(2)) !< Transposed array.
-   integer(I4P)              :: i, j                       !< Counter.
-
-   do j=jj(1), jj(2)
-      do i=ii(1), ii(2)
-         t(j,i) = a(i,j)
-      enddo
-   enddo
-   endsubroutine transpose_a_R8P_2D
 endmodule adam_base_gpu_object
