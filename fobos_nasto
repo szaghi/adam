@@ -22,8 +22,7 @@ libs     = $HDF5_cuda_22_3/lib/libhdf5hl_fortran.a
            /opt/zlib/bin/1.2.11/lib/libz.a
            /opt/szip/bin/2.1.1/lib/libsz.a
            ./exe/obj/cgal_c_wrappers.o
-           ./exe/obj/cm.o
-           ./exe/obj/cm_wrapper.o
+           ./exe/obj/getmemory.o
 
 [nasto-nvf-mpi-cuda-debug]
 help     = Build nasto app with NVF-MPI-CUDA on SZ laptop
@@ -41,8 +40,7 @@ libs     = $HDF5_cuda_22_3/lib/libhdf5hl_fortran.a
            /opt/zlib/bin/1.2.11/lib/libz.a
            /opt/szip/bin/2.1.1/lib/libsz.a
            ./exe/obj/cgal_c_wrappers.o
-           ./exe/obj/cm.o
-           ./exe/obj/cm_wrapper.o
+           ./exe/obj/getmemory.o
 
 [nasto-nvf-mpi-cuda-m100]
 help     = Build nasto app with NVF-MPI-CUDA on marconi100 cluster
@@ -61,9 +59,8 @@ libs     = ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5hl_fortran.a
            -Wl,-rpath,/cineca/prod/opt/compilers/gnu/8.4.0/none/lib64 /cineca/prod/opt/compilers/gnu/8.4.0/none/lib64/libstdc++.so.6.0.25
            /cineca/prod/opt/libraries/zlib/1.2.11/gnu--8.4.0/lib/libz.a
            /cineca/prod/opt/libraries/szip/2.1.1/gnu--8.4.0/lib/libsz.a
-           ./src/third_party_manual/CGAL/cgal_c_wrappers.o
-           ./src/third_party_manual/memeval/cm.o
-           ./src/third_party_manual/memeval/cm_wrapper.o
+           ./exe/obj/cgal_c_wrappers.o
+           ./exe/obj/getmemory.o
 
 [ascot-nvf-mpi-cuda]
 compiler     = nvfortran
@@ -144,16 +141,14 @@ exclude_dirs = references/
 help   = Make third party manual-compiling libraries on SZ laptop
 rule_1 = mkdir -p exe/mod exe/obj
 rule_2 = cd src/third_party_manual/CGAL/ ; g++ -std=c++17 -frounding-math -O2 -I/opt/cgal/5.2.1/include/ -c cgal_c_wrappers.cpp ; cd -
-rule_3 = cd src/third_party_manual/memeval/ ; gcc -c cm.c ; nvfortran -c cm_wrapper.F90 ; cd -
-rule_4 = mv src/third_party_manual/memeval/*.mod exe/mod/
-rule_5 = mv src/third_party_manual/memeval/*.o exe/obj/
-rule_7 = mv src/third_party_manual/CGAL/*.o exe/obj/
+rule_3 = cd src/third_party_manual/getmemory/ ; gcc -c getmemory.c ; cd -
+rule_4 = mv src/third_party_manual/getmemory/*.o exe/obj/
+rule_5 = mv src/third_party_manual/CGAL/*.o exe/obj/
 
 [rule-makethirdpartymanual-m100]
 help   = Make third party manual-compiling libraries on marconi100 cluster
 rule_1 = mkdir -p exe/mod exe/obj
 rule_2 = cd src/third_party_manual/CGAL/ ; g++ -std=c++17 -frounding-math -O2 -I/cineca/prod/opt/libraries/boost/1.76.0/spectrum_mpi--10.4.0--binary/include -I../../../lib/CGAL-5.0.2-INSTALL/include/ -I /cineca/prod/opt/libraries/mpfr/4.0.2/gnu--8.4.0/include -c cgal_c_wrappers.cpp ; cd -
-rule_3 = cd src/third_party_manual/memeval/ ; gcc -c cm.c ; nvfortran -c cm_wrapper.F90 ; cd -
-rule_4 = mv src/third_party_manual/memeval/*.mod exe/mod/
-rule_5 = mv src/third_party_manual/memeval/*.o exe/obj/
-rule_7 = mv src/third_party_manual/CGAL/*.o exe/obj/
+rule_3 = cd src/third_party_manual/getmemory/ ; gcc -c cm.c ; cd -
+rule_4 = mv src/third_party_manual/getmemory/*.o exe/obj/
+rule_5 = mv src/third_party_manual/CGAL/*.o exe/obj/
