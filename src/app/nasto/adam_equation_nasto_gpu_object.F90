@@ -753,42 +753,7 @@ contains
                                    dt=dt, s=s, q_gpu=self%q_gpu, prhs_gpu=self%prhs_gpu,                &
                                    fl_gpu=self%fl_gpu, phi_gpu=self%phi_gpu, qnrk=dt*self%brk(s))
 
-      ! ! debug restart
-      ! if (self%itt == 51) then
-      ! print*, ' cazzo 1', s
-      ! self%pbuffer = self%prhs_gpu
-      ! print '(A)', 'debug-restart prhs_gpu[1,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 1)))
-      ! print '(A)', 'debug-restart prhs_gpu[2,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 2)))
-      ! print '(A)', 'debug-restart prhs_gpu[3,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
-      ! print '(A)', 'debug-restart prhs_gpu[4,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 4)))
-      ! print '(A)', 'debug-restart prhs_gpu[5,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 5)))
-      ! self%pbuffer = self%fl_gpu
-      ! print '(A)', 'debug-restart fl_gpu[1,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 1)))
-      ! print '(A)', 'debug-restart fl_gpu[2,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 2)))
-      ! print '(A)', 'debug-restart fl_gpu[3,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
-      ! print '(A)', 'debug-restart fl_gpu[4,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 4)))
-      ! print '(A)', 'debug-restart fl_gpu[5,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 5)))
-      ! endif
-      ! ! debug restart
-
       call self%update_ghost_gpu(q_gpu=self%q_gpu)
-
-      ! ! debug restart
-      ! if (self%itt == 51) then
-      ! print*, ' cazzo 2', s
-      ! self%pbuffer = self%q_gpu
-      ! print '(A)', 'debug-restart q_gpu[1,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 1)))
-      ! print '(A)', 'debug-restart q_gpu[1,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 1)))
-      ! print '(A)', 'debug-restart q_gpu[2,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 2)))
-      ! print '(A)', 'debug-restart q_gpu[2,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 2)))
-      ! print '(A)', 'debug-restart q_gpu[3,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 3)))
-      ! print '(A)', 'debug-restart q_gpu[3,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
-      ! print '(A)', 'debug-restart q_gpu[4,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 4)))
-      ! print '(A)', 'debug-restart q_gpu[4,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 4)))
-      ! print '(A)', 'debug-restart q_gpu[5,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 5)))
-      ! print '(A)', 'debug-restart q_gpu[5,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 5)))
-      ! endif
-      ! ! debug restart
 
       ! ------------------------------------------------------------------------------------------------
       ! ANDREA IB
@@ -842,48 +807,7 @@ contains
          self%q_invert_gpu = self%q_gpu
       endif
 
-      ! ! debug restart
-      ! if (self%itt == 51) then
-      ! print*, ' cazzo 4', s
-      ! self%pbuffer = self%q_invert_gpu
-      ! print '(A)', 'debug-restart q_invert_gpu[1,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 1)))
-      ! print '(A)', 'debug-restart q_invert_gpu[1,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 1)))
-      ! print '(A)', 'debug-restart q_invert_gpu[2,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 2)))
-      ! print '(A)', 'debug-restart q_invert_gpu[2,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 2)))
-      ! print '(A)', 'debug-restart q_invert_gpu[3,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 3)))
-      ! print '(A)', 'debug-restart q_invert_gpu[3,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
-      ! print '(A)', 'debug-restart q_invert_gpu[4,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 4)))
-      ! print '(A)', 'debug-restart q_invert_gpu[4,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 4)))
-      ! print '(A)', 'debug-restart q_invert_gpu[5,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 5)))
-      ! print '(A)', 'debug-restart q_invert_gpu[5,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 5)))
-      ! endif
-      ! ! debug restart
-
       call self%compute_aux(q_gpu=self%q_invert_gpu, q_aux_gpu=self%q_aux_gpu)
-
-      ! ! debug restart
-      ! if (self%itt == 51) then
-      ! print*, ' cazzo 4-bis', s
-      ! self%pbuffer = self%q_aux_gpu(:,:,:,:,1:5)
-      ! print '(A)', 'debug-restart q_aux_gpu[1,ni-3:ni,0   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 1)))
-      ! print '(A)', 'debug-restart q_aux_gpu[1,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 1)))
-      ! print '(A)', 'debug-restart q_aux_gpu[2,ni-3:ni,0   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 2)))
-      ! print '(A)', 'debug-restart q_aux_gpu[2,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 2)))
-      ! print '(A)', 'debug-restart q_aux_gpu[3,ni-3:ni,0   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 3)))
-      ! print '(A)', 'debug-restart q_aux_gpu[3,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
-      ! print '(A)', 'debug-restart q_aux_gpu[4,ni-3:ni,0   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 4)))
-      ! print '(A)', 'debug-restart q_aux_gpu[4,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 4)))
-      ! print '(A)', 'debug-restart q_aux_gpu[5,ni-3:ni,0   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 5)))
-      ! print '(A)', 'debug-restart q_aux_gpu[5,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 5)))
-      ! self%pbuffer = self%q_aux_gpu(:,:,:,:,4:8)
-      ! print '(A)', 'debug-restart q_aux_gpu[7,ni-3:ni,0   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 3)))
-      ! print '(A)', 'debug-restart q_aux_gpu[7,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
-      ! print '(A)', 'debug-restart q_aux_gpu[8,ni-3:ni,0   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 4)))
-      ! print '(A)', 'debug-restart q_aux_gpu[8,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 4)))
-      ! print '(A)', 'debug-restart q_aux_gpu[5,ni-3:ni,0   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 5)))
-      ! print '(A)', 'debug-restart q_aux_gpu[5,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 5)))
-      ! endif
-      ! ! debug restart
 
       call MPI_Barrier(MPI_COMM_WORLD, iermpi)
       call self%compute_residuals_gpu(ni=ni, nj=nj, nk=nk, ngc=ngc, ns=ns, blocks_number=blocks_number,                      &
@@ -905,28 +829,9 @@ contains
                                       Damkohler     = self%Damkohler)
       !call self%set_bc_rhs(q_gpu=self%fl_gpu(:,:,:,:,:), q_aux_gpu=self%q_aux_gpu)
 
-      ! ! debug restart
-      ! if (self%itt == 51) then
-      ! print*, ' cazzo 5', s
-      ! self%pbuffer = self%fl_gpu
-      ! print '(A)', 'debug-restart fl_gpu[rho*v,ni-3:ni,0     ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 3)))
-      ! print '(A)', 'debug-restart fl_gpu[rho*v,ni-3:ni,nj    ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
-      ! endif
-      ! ! debug restart
-
       call compute_rk_linear_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,      &
                                      dt=dt, q_gpu=self%q_gpu, prhs_gpu=self%prhs_gpu,                       &
                                      fl_gpu=self%fl_gpu, phi_gpu=self%phi_gpu, qnrk=dt*self%ark(s))
-
-      ! ! debug restart
-      ! if (self%itt == 51) then
-      ! print*, ' cazzo 6', s
-      ! self%pbuffer = self%q_gpu
-      ! print '(A)', 'debug-restart q_gpu[rho*v,ni-3:ni,0   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 0, 4, 3)))
-      ! print '(A)', 'debug-restart q_gpu[rho*v,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
-      ! endif
-      ! ! debug restart
-
    enddo
    endassociate
    endsubroutine integrate
@@ -1021,6 +926,7 @@ contains
    if(do_init_) self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
    associate (ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
               blocks_number=>self%blocks_number, ns=>self%ns, dxyz=>self%field%dxyz)
+      call self%update_ghost_gpu(q_gpu=self%q_gpu)
       call self%compute_aux(q_gpu=self%q_gpu, q_aux_gpu=self%q_aux_gpu)
       do b=1, blocks_number
          grad_var = gradient_cuf(b=b, ni=ni, nj=nj, nk=nk, ngc=ngc, &
@@ -1059,9 +965,12 @@ contains
 
       gradient = 0._R8P
       !$cuf kernel do(3) <<<*,*>>>
-      do k=1, nk
-         do j=1, nj
-            do i=1, ni
+      ! do k=1, nk
+      !    do j=1, nj
+      !       do i=1, ni
+      do k=0, nk+1
+         do j=0, nj+1
+            do i=0, ni+1
                grad = sqrt(((q_gpu(b,i+1,j,k,ivar) - q_gpu(b,i-1,j,k,ivar))/(2*dx))**2 + &
                            ((q_gpu(b,i,j+1,k,ivar) - q_gpu(b,i,j-1,k,ivar))/(2*dy))**2 + &
                            ((q_gpu(b,i,j,k+1,ivar) - q_gpu(b,i,j,k-1,ivar))/(2*dz))**2)
