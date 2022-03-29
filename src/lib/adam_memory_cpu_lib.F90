@@ -3,7 +3,6 @@ module adam_memory_cpu_lib
 !< ADAM, CPU-memory handling library.
 
 use PENF
-use memorysaver, only : getmemory
 use, intrinsic :: iso_c_binding
 
 implicit none
@@ -11,6 +10,7 @@ save
 private
 public :: alloc_var_cpu
 public :: assign_allocatable_cpu
+public :: save_memory_cpu_status
 
 interface alloc_var_cpu
 !< Allocate CPU variable with memory checking.
@@ -30,6 +30,13 @@ module procedure  assign_allocatable_cpu_R8P_2D, &
                   assign_allocatable_cpu_I8P_2D, &
                   assign_allocatable_cpu_I4P_1D
 endinterface assign_allocatable_cpu
+
+interface
+   subroutine getmemory(mem_free, mem_total) bind(C, name="getmemory")
+      import :: C_LONG
+      integer(C_LONG), intent(in) :: mem_free, mem_total
+   endsubroutine getmemory
+endinterface
 
 contains
    subroutine alloc_var_cpu_R8P_1D(var, ulb, msg, verbose)
@@ -282,4 +289,20 @@ contains
       endif
    endif
    endsubroutine assign_allocatable_cpu_I4P_1D
+
+   subroutine save_memory_cpu_status(file_name, tag)
+   !< Save the current CPU-memory status into a file.
+   !< File is accessed in append position.
+   character(*), intent(in)           :: file_name           !< File name.
+   character(*), intent(in), optional :: tag                 !< Tag of current status.
+   character(:), allocatable          :: tag_                !< Tag of current status, local var.
+   integer(C_LONG)                    :: mem_free, mem_total !< Process memory.
+   integer(I4P)                       :: file_unit           !< File unit.
+
+   tag_ = '' ; if (present(tag)) tag_ = trim(tag)
+   call getmemory(mem_free, mem_total)
+   open(newunit=file_unit, file=trim(file_name), position="append")
+   write(file_unit,*) tag_, mem_free, mem_total
+   close(file_unit)
+   endsubroutine save_memory_cpu_status
 endmodule adam_memory_cpu_lib

@@ -139,7 +139,6 @@ use PENF
 use VECFOR
 use MPI
 use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
-use memorysaver
 
 implicit none
 private

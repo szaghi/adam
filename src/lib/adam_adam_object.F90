@@ -15,7 +15,6 @@ use STRINGIFOR
 use VTK_FORTRAN
 use HDF5
 use MPI
-use memorysaver
 
 implicit none
 private
@@ -125,14 +124,13 @@ contains
    print '(A)', self%mpih%myrankstr//'maximum number of blocks created after AMR update: '//str(max_nb)//'/'//str(self%field%nb)
    endsubroutine check_blocks_number
 
-   subroutine compute_blocks_number(self, memory_avail, fields_number, nb, nodes_number, verbose)
+   subroutine compute_blocks_number(self, memory_avail, fields_number, nb, nodes_number)
    !< Compute maximum blocks number allocatable on memory available.
    class(adam_object), intent(in)           :: self          !< ADAM.
    real(R8P),          intent(in)           :: memory_avail  !< Memory available for single MPI process.
    integer(I4P),       intent(in)           :: fields_number !< Fields number.
    integer(I4P),       intent(out)          :: nb            !< Maximum blocks number for single MPI process.
    integer(I8P),       intent(out)          :: nodes_number  !< Maximum blocks number for all MPI processes (nodes).
-   logical,            intent(in), optional :: verbose       !< Flag to activate verbose output.
    integer(I4P)                             :: size_of_real  !< Size of real.
    real(R8P)                                :: save_factor   !< Factor to avoid memory completely full.
 
@@ -140,12 +138,6 @@ contains
    save_factor = 0.6_R8P
    nb = nint(save_factor * memory_avail*1e9 / (fields_number * self%grid%block_weight * size_of_real))
    nodes_number  = nb * self%mpih%procs_number
-   if (present(verbose)) then
-      if (verbose) then
-         print '(A)', self%mpih%myrankstr//'blocks number for single MPI [nb]: '//trim(str(nb))
-         print '(A)', self%mpih%myrankstr//'blocks number for all MPI [nodes_number]: '//trim(str(nodes_number))
-      endif
-   endif
    endsubroutine compute_blocks_number
 
    subroutine load_restart_files(self, basename, t, time)
@@ -232,6 +224,8 @@ contains
                                 l_prune=l_prune)
    if (do_field_init_) &
       call self%field%initialize(grid=self%grid, file_parameters=file_parameters, nv=nv, nb=nb)
+   print '(A)', self%mpih%myrankstr//'blocks number for single MPI [nb]: '//trim(str(self%field%nb))
+   print '(A)', self%mpih%myrankstr//'blocks number for all MPI [nodes_number]: '//trim(str(self%tree%nodes_number))
    call self%amr_update
    print '(A)', self%mpih%myrankstr//'adam%initialize finish'
    endsubroutine initialize

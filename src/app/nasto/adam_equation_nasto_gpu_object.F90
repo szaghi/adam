@@ -7,6 +7,7 @@ use adam_base_gpu_object
 use adam_field_object
 use adam_grid_object
 use adam_mpih_object
+use adam_memory_cpu_lib
 use adam_memory_gpu_lib
 use adam_parameters
 use adam_tree_node_object, only : tree_node_object
@@ -18,7 +19,6 @@ use CUDAFOR
 use cgal_wrappers
 use ISO_C_BINDING
 use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
-use memorysaver
 
 implicit none
 private
@@ -110,6 +110,7 @@ type :: equation_nasto_gpu_object
    integer(I4P)                :: nv_aux                  !< Number of auxiliary variables.
    type(base_gpu_object)       :: base_gpu                !< The base GPU handler.
    integer(I4P)                :: field_gpu_number=12_I4P !< Number of nv fields used in memory.
+   logical                     :: save_memory_status      !< Flag to activate memory status saving.
    ! equation data
    real(R8P), allocatable      :: fd_coeff1(:)       !< First order derivatives coeffs.
    real(R8P), allocatable      :: fd_coeff2(:)       !< Second order derivatives coeffs.
@@ -415,8 +416,7 @@ contains
    call self%adam%compute_blocks_number(memory_avail=self%base_gpu%memory_avail,  &
                                         fields_number=80,                         &
                                         nb=nb,                                    &
-                                        nodes_number=nodes_number,                &
-                                        verbose=.true.)
+                                        nodes_number=nodes_number)
 
    call self%file_input%get(section_name='physics', option_name='ns', val=ns)
    nv = ns + 4
@@ -433,6 +433,8 @@ contains
 
    self%nv_aux = 9
    call self%base_gpu%initialize(field=self%adam%field, nv_aux=self%nv_aux, verbose=.true.)
+
+   call load_equation_from_ini_file
 
    call load_schemes_from_ini_file
 
@@ -512,6 +514,15 @@ contains
       self%nb            =  field%nb
       self%nv            =  field%nv
       endsubroutine forward_main_adam_data
+
+      subroutine load_equation_from_ini_file
+      !< Parse equation setting from input file.
+      logical :: buf_LOG !< Logical buffer.
+
+      call self%file_input%get(section_name='equation', option_name='save_memory_status', val=buf_LOG)
+      self%save_memory_status = buf_LOG
+      print '(A)', self%mpih%myrankstr//'save memory status: '//trim(str(self%save_memory_status))
+      endsubroutine load_equation_from_ini_file
 
       subroutine load_schemes_from_ini_file
       !< Parse schemes setting from input file.
@@ -1223,19 +1234,23 @@ contains
    if (self%n_solids > 0) call self%update_phi()
 
    call self%save_simulation_data
-   call MPI_BARRIER(MPI_COMM_WORLD, self%mpih%error) ; timing(1) = MPI_Wtime()
 
+   call self%mpih%barrier(tictoc=.true., timing=timing(1), single=.true.)
    integration: do
-      call MPI_BARRIER(MPI_COMM_WORLD, self%mpih%error) ; timing_step(1) = MPI_Wtime()
+      call self%mpih%barrier(tictoc=.true., timing=timing_step(1), single=.true.)
       self%it = self%it + 1
 
-      if(mod(self%it,self%amr_frequency) == 0) then
-         call self%amr_update()
-         call MPI_BARRIER(MPI_COMM_WORLD, self%mpih%error) ; timing_step(2) = MPI_Wtime()
-         print '(A, F18.10)', self%mpih%myrankstr//'step timing (AMR): ', timing_step(2) - timing_step(1)
+      if (self%save_memory_status) then
+         call save_memory_cpu_status(file_name='memory_cpu-'//self%mpih%myrankstr//'.dat', tag=str(self%it,.true.))
+         call save_memory_gpu_status(file_name='memory_gpu-'//self%mpih%myrankstr//'.dat', tag=str(self%it,.true.))
       endif
 
-      call save_memory(it=self%it, rank=self%mpih%myrank)
+      if (mod(self%it,self%amr_frequency)==0) then
+         call self%mpih%barrier(tictoc=.true.)
+         call self%amr_update()
+         call self%mpih%barrier(tictoc=.true.)
+         print '(A, F18.10)', self%mpih%myrankstr//'step timing (AMR): ', self%mpih%tictoc_timing()
+      endif
 
       call self%compute_dt()
       if ((self%t_max <= 0).and.(self%time + self%dt > self%time_max)) self%dt = self%time_max - self%time
@@ -1246,16 +1261,13 @@ contains
       call self%print_progress(t=self%it, time=self%time, t_max=self%t_max, time_max=self%time_max)
 
       call self%save_simulation_data
-      call MPI_BARRIER(MPI_COMM_WORLD, self%mpih%error) ; timing_step(2) = MPI_Wtime()
-      print '(A, F18.10)', self%mpih%myrankstr//'step timing (save data): ', timing_step(2) - timing_step(1)
 
       if (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0))) exit integration
 
-      call MPI_BARRIER(MPI_COMM_WORLD, self%mpih%error) ; timing_step(2) = MPI_Wtime()
+      call self%mpih%barrier(tictoc=.true., timing=timing_step(2), single=.true.)
       print '(A, F18.10)', self%mpih%myrankstr//'step timing: ', timing_step(2) - timing_step(1)
    enddo integration
-
-   call MPI_BARRIER(MPI_COMM_WORLD, self%mpih%error) ; timing(2) = MPI_Wtime()
+   call self%mpih%barrier(tictoc=.true., timing=timing(2), single=.true.)
    print '(A, F18.10)', self%mpih%myrankstr//'averaged timing: ', (timing(2) - timing(1))/self%it
 
    call self%save_simulation_data
@@ -1321,6 +1333,7 @@ contains
 
    if (mod(self%it,self%n_save)==0.or.self%it==self%t_max.or.&
       (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0)))) then
+      call self%mpih%barrier(tictoc=.true.)
       print '(A)', self%mpih%myrankstr//'save HDF5 files t: '//trim(str(self%it,.true.))//', time: '//&
                    trim(str(self%time,.true.))
       output_basename_ = trim(self%output_basename)//'-'//trim(strz(self%it,9))
@@ -1331,6 +1344,8 @@ contains
                                q_name=['rho','rhu','rhv','rhw','rhe'],                           &
                                q_aux_name=['rhob','u','v','w','ya','tem','pres','ental','csp'],  &
                                with_cell_morton=.true.)
+      call self%mpih%barrier(tictoc=.true.)
+      print '(A, F18.10)', self%mpih%myrankstr//'step timing (save HDF5): ', self%mpih%tictoc_timing()
    endif
    endsubroutine save_hdf5
 
@@ -1339,10 +1354,13 @@ contains
    class(equation_nasto_gpu_object), intent(inout) :: self !< The equation.
 
    if (mod(self%it,self%restart_save)==0) then
+      call self%mpih%barrier(tictoc=.true.)
       print '(A)', self%mpih%myrankstr//'save restart files t: '//trim(str(self%it,.true.))//', time: '//&
                    trim(str(self%time,.true.))
       call self%adam%save_restart_files(basename=self%restart_basename, t=self%it, time=self%time)
       call self%save_hdf5(output_basename=self%restart_basename)
+      call self%mpih%barrier(tictoc=.true.)
+      print '(A, F18.10)', self%mpih%myrankstr//'step timing (save restart): ', self%mpih%tictoc_timing()
    endif
    endsubroutine save_restart_files
 
@@ -1356,6 +1374,7 @@ contains
          if (self%it>0) then
             if (mod(self%it,self%slice(s)%slice_save)==0.or.self%it==self%t_max.or.&
                (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0)))) then
+               call self%mpih%barrier(tictoc=.true.)
                print '(A)', self%mpih%myrankstr//'save slice n: '//trim(str(s,.true.))//&
                             ', t: '//trim(str(self%it,.true.))//', time: '//trim(str(self%time,.true.))
                call self%adam%save_slice(points=self%slice(s)%slice_points,                               &
@@ -1365,6 +1384,9 @@ contains
                                          q=self%field%q,                                                  &
                                          q_name=['rho','rhu','rhv','rhw','rhe'],                          &
                                          phi=self%phi(:,:,:,:,1))
+               call self%mpih%barrier(tictoc=.true.)
+               print '(A, F18.10)', self%mpih%myrankstr//'step timing (save slice-'//trim(str(s,.true.)) //'): ', &
+                                    self%mpih%tictoc_timing()
             endif
          endif
       enddo

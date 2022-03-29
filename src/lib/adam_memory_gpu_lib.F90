@@ -10,6 +10,7 @@ save
 private
 public :: alloc_var_gpu
 public :: assign_allocatable_gpu
+public :: save_memory_gpu_status
 
 interface alloc_var_gpu
 !< Allocate GPU variable with memory checking.
@@ -315,6 +316,23 @@ contains
       endif
    endif
    endsubroutine assign_allocatable_gpu_I8P_3D
+
+   subroutine save_memory_gpu_status(file_name, tag)
+   !< Save the current CPU-memory status into a file.
+   !< File is accessed in append position.
+   character(*), intent(in)           :: file_name           !< File name.
+   character(*), intent(in), optional :: tag                 !< Tag of current status.
+   character(:), allocatable          :: tag_                !< Tag of current status, local var.
+   integer(cuda_count_kind)           :: mem_free, mem_total !< Device memory.
+   integer(I4P)                       :: file_unit           !< File unit.
+   integer(I4P)                       :: error               !< Error traping flag.
+
+   tag_ = '' ; if (present(tag)) tag_ = trim(tag)
+   error = cudaMemGetInfo(mem_free, mem_total)
+   open(newunit=file_unit, file=trim(file_name), position="append")
+   write(file_unit,*) tag_, mem_free, mem_total
+   close(file_unit)
+   endsubroutine save_memory_gpu_status
 
    subroutine transpose_a_R8P_2D(ii, jj, a, t)
    !< Transpose array (kind R8P, rank 2).
