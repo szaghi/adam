@@ -1,12 +1,14 @@
 !< ADAM, base CPU class definition.
 module adam_base_cpu_object
-!< ADAM, base CPU class definition: provide update ghosts methods for CPU backend.
+!< ADAM, base GPU class definition: provide methods for CPU backend handling.
 
 use adam_field_object, only : field_object
+use adam_mpih_object, only : mpih_object
 use PENF
 use MPI
 
 implicit none
+save
 private
 public :: base_cpu_object
 
@@ -14,39 +16,26 @@ type :: base_cpu_object
    !< Equation base CPU class definition.
    !<
    !< Provide update ghosts methods for CPU backend.
+   type(mpih_object)           :: mpih          !< MPI handler.
    type(field_object), pointer :: field=>null() !< The field.
-   ! MPI data, unrelated to field equations
-   integer(I4P) :: error=0_I4P  !< Error traping flag.
-   integer(I4P) :: myrank=0_I4P !< MPI rank process.
    contains
       ! public methods
-      procedure, pass(self) :: destroy            !< Destroy the equation.
       procedure, pass(self) :: initialize         !< Initialize the equation.
       procedure, pass(self) :: update_ghost_local !< Update ghosts locally.
       procedure, pass(self) :: update_ghost_mpi   !< Update ghosts MPI.
-      ! operators
-      generic :: assignment(=) => eq_assign_eq      !< Overload `=`.
-      procedure, pass(lhs), private :: eq_assign_eq !< Operator `=`.
 endtype base_cpu_object
 
 contains
    ! public methods
-   subroutine destroy(self)
-   !< Destroy the equation.
-   class(base_cpu_object), intent(inout) :: self  !< The equation.
-   type(base_cpu_object)                 :: fresh !< Fresh equation.
-
-   self = fresh
-   endsubroutine destroy
-
    subroutine initialize(self, field)
    !< Initialize the equation.
    class(base_cpu_object), intent(inout)      :: self  !< The equation.
    type(field_object),     intent(in), target :: field !< The field.
 
-   call self%destroy
+   call self%mpih%initialize
+   print '(A)', self%mpih%myrankstr//'base_cpu%initialize start'
    self%field => field
-   call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
+   print '(A)', self%mpih%myrankstr//'base_cpu%initialize finish'
    endsubroutine initialize
 
    subroutine update_ghost_local(self, q)
@@ -336,16 +325,4 @@ contains
       enddo
    endif
    endsubroutine update_ghost_mpi
-
-   ! operators
-   ! =
-   subroutine eq_assign_eq(lhs, rhs)
-   !< Operator `=`.
-   class(base_cpu_object), intent(inout) :: lhs !< Left hand side.
-   type(base_cpu_object),  intent(in)    :: rhs !< Right hand side.
-
-   lhs%field => rhs%field
-   lhs%error  = rhs%error
-   lhs%myrank = rhs%myrank
-   endsubroutine eq_assign_eq
 endmodule adam_base_cpu_object

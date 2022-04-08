@@ -12,6 +12,7 @@ use CUDAFOR
 use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
 
 implicit none
+save
 private
 public :: base_gpu_object
 
@@ -19,7 +20,7 @@ type :: base_gpu_object
    !< Base GPU class definition.
    !<
    !< Provide methods for GPU backend.
-   type(mpih_object)         :: mpih              !< MPI handler.
+   type(mpih_object)           :: mpih           !< MPI handler.
    type(field_object), pointer :: field=>null()  !< The field.
    real(R8P), allocatable      :: q_t(:,:,:,:,:) !< Transposed cell centered variables on CPU.
    ! MPI data
@@ -348,6 +349,7 @@ contains
       enddo
 
       ! Nv variables map
+      allocate(comm_map_send_ghost_cell(1:c*self%field%nv,1:7))
       c = 1
       do f=1, size(self%field%comm_map_send_ghost, dim=1)
          b_send    = self%field%comm_map_send_ghost(f, 2 )
