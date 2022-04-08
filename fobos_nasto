@@ -1,5 +1,5 @@
 [modes]
-modes = nasto-nvf-mpi-cuda nasto-nvf-mpi-cuda-debug nasto-nvf-mpi-cuda-m100 ascot-nvf-mpi-cuda
+modes = nasto-nvf-mpi-cuda nasto-nvf-mpi-cuda-debug nasto-nvf-mpi-cuda-m100 nasto-nvf-mpi-cuda-m100-debug ascot-nvf-mpi-cuda
 
 [common-variables]
 $HDF5_cuda_22_3 = /opt/HDF5/bin/1.12.1/openmpi/3.1.5/nvidia/22.3
@@ -50,6 +50,26 @@ fc       = mpif90
 modsw    = -module=
 cflags   = -cpp -c -Mcuda=cc70,cuda11.3,ptxinfo -O2
 lflags   = -Mcuda=cc70,cuda11.3,ptxinfo -O2
+lib_dir  = ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib
+include  = ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/include
+libs     = ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5hl_fortran.a
+           ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5_hl.a
+           ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5_fortran.a
+           ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5.a
+           -Wl,-rpath,/cineca/prod/opt/compilers/gnu/8.4.0/none/lib64 /cineca/prod/opt/compilers/gnu/8.4.0/none/lib64/libstdc++.so.6.0.25
+           /cineca/prod/opt/libraries/zlib/1.2.11/gnu--8.4.0/lib/libz.a
+           /cineca/prod/opt/libraries/szip/2.1.1/gnu--8.4.0/lib/libsz.a
+           ./exe/obj/cgal_c_wrappers.o
+           ./exe/obj/getmemory.o
+
+[nasto-nvf-mpi-cuda-m100-debug]
+help     = Build nasto app with NVF-MPI-CUDA on marconi100 cluster
+template = template-nvf-mpi-cuda-nasto
+compiler = custom
+fc       = mpif90
+modsw    = -module=
+cflags   = -cpp -c -Mcuda=cc70,cuda11.3,ptxinfo -C -gopt -Mbounds -Mchkptr -traceback
+lflags   = -Mcuda=cc70,cuda11.3,ptxinfo -C -gopt -Mbounds -Mchkptr -traceback
 lib_dir  = ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib
 include  = ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/include
 libs     = ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5hl_fortran.a
@@ -149,6 +169,6 @@ rule_5 = mv src/third_party_manual/CGAL/*.o exe/obj/
 help   = Make third party manual-compiling libraries on marconi100 cluster
 rule_1 = mkdir -p exe/mod exe/obj
 rule_2 = cd src/third_party_manual/CGAL/ ; g++ -std=c++17 -frounding-math -O2 -I/cineca/prod/opt/libraries/boost/1.76.0/spectrum_mpi--10.4.0--binary/include -I../../../lib/CGAL-5.0.2-INSTALL/include/ -I /cineca/prod/opt/libraries/mpfr/4.0.2/gnu--8.4.0/include -c cgal_c_wrappers.cpp ; cd -
-rule_3 = cd src/third_party_manual/getmemory/ ; gcc -c cm.c ; cd -
+rule_3 = cd src/third_party_manual/getmemory/ ; gcc -c getmemory.c ; cd -
 rule_4 = mv src/third_party_manual/getmemory/*.o exe/obj/
 rule_5 = mv src/third_party_manual/CGAL/*.o exe/obj/
