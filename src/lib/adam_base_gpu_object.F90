@@ -771,14 +771,18 @@ contains
    allocate(self%q_t(1:field%nb,                                    &
                      1-field%grid%ngc:field%grid%ni+field%grid%ngc, &
                      1-field%grid%ngc:field%grid%nj+field%grid%ngc, &
-                     1-field%grid%ngc:field%grid%nk+field%grid%ngc, nv_aux_))
-   call alloc_var_gpu(var=self%q_t_gpu,                                          &
-                      ulb=reshape([1,nv_aux_,                                    &
-                                   1-field%grid%ngc,field%grid%ni+field%grid%ngc,&
-                                   1-field%grid%ngc,field%grid%nj+field%grid%ngc,&
-                                   1-field%grid%ngc,field%grid%nk+field%grid%ngc,&
-                                   1,field%nb],[2,5]),                           &
-                      msg=self%mpih%myrankstr//'base_gpu%alloc(q_t_gpu) ', verbose=verbose)
+                     1-field%grid%ngc:field%grid%nk+field%grid%ngc, 1:nv_aux_))
+   ! call alloc_var_gpu(var=self%q_t_gpu,                                          &
+   !                    ulb=reshape([1,nv_aux_,                                    &
+   !                                 1-field%grid%ngc,field%grid%ni+field%grid%ngc,&
+   !                                 1-field%grid%ngc,field%grid%nj+field%grid%ngc,&
+   !                                 1-field%grid%ngc,field%grid%nk+field%grid%ngc,&
+   !                                 1,field%nb],[2,5]),                           &
+   !                    msg=self%mpih%myrankstr//'base_gpu%alloc(q_t_gpu) ', verbose=verbose)
+   allocate(self%q_t_gpu(1:nv_aux_,                                     &
+                         1-field%grid%ngc:field%grid%ni+field%grid%ngc, &
+                         1-field%grid%ngc:field%grid%nj+field%grid%ngc, &
+                         1-field%grid%ngc:field%grid%nk+field%grid%ngc, 1:field%nb))
    ! copy CPU-to-GPU of base_gpu variables (maps and cells, not q_gpu)
    call self%copy_cpu_gpu
    deallocate(fec_1_6_array)
