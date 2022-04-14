@@ -48,8 +48,8 @@ template = template-nvf-mpi-cuda-nasto
 compiler = custom
 fc       = mpif90
 modsw    = -module=
-cflags   = -cpp -c -Mcuda=cc70,cuda11.3,ptxinfo -O2
-lflags   = -Mcuda=cc70,cuda11.3,ptxinfo -O2
+cflags   = -cpp -c -Mcuda=cc70,cuda11.6,ptxinfo -O2
+lflags   = -Mcuda=cc70,cuda11.6,ptxinfo -O2
 lib_dir  = ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib
 include  = ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/include
 libs     = ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5hl_fortran.a
