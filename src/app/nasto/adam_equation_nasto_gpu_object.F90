@@ -1561,7 +1561,7 @@ contains
             !if(inside) print*,'Point inside!!!!!!!!!!!!!!!!'
             ! RIMETTERE CGAL
 
-            distance = - (sqrt((query_x-10.)**2+(query_y-10.)**2+(query_z-10.)**2)-1.)
+            distance = - (sqrt((query_x-10._R8P)**2+(query_y-10._R8P)**2+(query_z-10._R8P)**2)-0.5_R8P)
 
             phi(b,i,j,k,ib) = distance
          enddo
