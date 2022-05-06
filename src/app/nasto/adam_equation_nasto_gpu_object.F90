@@ -975,12 +975,12 @@ contains
 
       gradient = 0._R8P
       !$cuf kernel do(3) <<<*,*>>>
-      ! do k=1, nk
-      !    do j=1, nj
-      !       do i=1, ni
-      do k=0, nk+1
-         do j=0, nj+1
-            do i=0, ni+1
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+      ! do k=0, nk+1
+      !    do j=0, nj+1
+      !       do i=0, ni+1
                grad = sqrt(((q_gpu(b,i+1,j,k,ivar) - q_gpu(b,i-1,j,k,ivar))/(2*dx))**2 + &
                            ((q_gpu(b,i,j+1,k,ivar) - q_gpu(b,i,j-1,k,ivar))/(2*dy))**2 + &
                            ((q_gpu(b,i,j,k+1,ivar) - q_gpu(b,i,j,k-1,ivar))/(2*dz))**2)

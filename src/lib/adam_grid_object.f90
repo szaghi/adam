@@ -57,7 +57,7 @@ contains
    integer(I4P),       intent(in) :: coordinates(4) !< Block coordinates.
    real(R8P)                      :: emin(3)        !< Min abscissa of block.
 
-   emin(:) = coordinates(:) * self%block_dxyz(:, coordinates(4))
+   emin(:) = self%domain_emin(:) + coordinates(:) * self%block_dxyz(:, coordinates(4))
    endfunction block_emin
 
    function block_emax(self, coordinates) result(emax)
