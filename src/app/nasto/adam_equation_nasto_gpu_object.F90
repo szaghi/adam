@@ -1152,6 +1152,8 @@ contains
    endif
    if (self%n_solids > 0) call self%update_phi()
 
+   call self%amr_update()
+
    call self%save_simulation_data
 
    call self%mpih%barrier(tictoc=.true., timing=timing(1), single=.true.)
@@ -1561,7 +1563,7 @@ contains
             !if(inside) print*,'Point inside!!!!!!!!!!!!!!!!'
             ! RIMETTERE CGAL
 
-            distance = - (sqrt((query_x-10._R8P)**2+(query_y-10._R8P)**2+(query_z-10._R8P)**2)-0.5_R8P)
+            distance = - (sqrt((query_x-10._R8P)**2+(query_y-10._R8P)**2+(query_z-10._R8P)**2)-1.0_R8P)
 
             phi(b,i,j,k,ib) = distance
          enddo
