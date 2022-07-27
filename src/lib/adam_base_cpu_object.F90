@@ -1,11 +1,13 @@
 !< ADAM, base CPU class definition.
 module adam_base_cpu_object
-!< ADAM, base GPU class definition: provide methods for CPU backend handling.
+!< ADAM, base CPU class definition: provide methods for CPU backend handling.
 
 use adam_field_object, only : field_object
+use adam_memory_cpu_lib, only : cpuMemGetInfo
 use adam_mpih_object, only : mpih_object
 use PENF
 use MPI
+use, intrinsic :: iso_c_binding, only : C_LONG
 
 implicit none
 save
@@ -16,11 +18,13 @@ type :: base_cpu_object
    !< Equation base CPU class definition.
    !<
    !< Provide update ghosts methods for CPU backend.
-   type(mpih_object)           :: mpih          !< MPI handler.
-   type(field_object), pointer :: field=>null() !< The field.
+   type(mpih_object)           :: mpih                !< MPI handler.
+   type(field_object), pointer :: field=>null()       !< The field.
+   real(R8P)                   :: memory_avail=0._R8P !< CPU memory available (Gb).
    contains
       ! public methods
       procedure, pass(self) :: initialize         !< Initialize the equation.
+      procedure, pass(self) :: initialize_cpu     !< Initialize CPU main data.
       procedure, pass(self) :: update_ghost_local !< Update ghosts locally.
       procedure, pass(self) :: update_ghost_mpi   !< Update ghosts MPI.
 endtype base_cpu_object
@@ -29,14 +33,26 @@ contains
    ! public methods
    subroutine initialize(self, field)
    !< Initialize the equation.
-   class(base_cpu_object), intent(inout)      :: self  !< The equation.
-   type(field_object),     intent(in), target :: field !< The field.
+   class(base_cpu_object), intent(inout)      :: self                !< The equation.
+   type(field_object),     intent(in), target :: field               !< The field.
 
-   call self%mpih%initialize
    print '(A)', self%mpih%myrankstr//'base_cpu%initialize start'
    self%field => field
    print '(A)', self%mpih%myrankstr//'base_cpu%initialize finish'
    endsubroutine initialize
+
+   subroutine initialize_cpu(self)
+   !< Initialize CPU main data.
+   !< @Note This must be the first routine called.
+   class(base_cpu_object), intent(inout) :: self !< The base backend.
+   integer(C_LONG)                       :: mem_free, mem_total !< CPU memory.
+
+   call self%mpih%initialize
+   print '(A)', self%mpih%myrankstr//'base_cpu%initialize_cpu start'
+   call cpuMemGetInfo(mem_total, mem_free)
+   self%memory_avail = real(mem_total, R8P)/1e9
+   print '(A)', self%mpih%myrankstr//'base_cpu%initialize_cpu finish'
+   endsubroutine initialize_cpu
 
    subroutine update_ghost_local(self, q)
    !< Update (local) ghost cells, rank 4.
@@ -214,27 +230,27 @@ contains
 
    if (do_step(2)) then
       ! receive
-      do p=0, self%field%procs_number - 1_I4P
+      do p=0, self%field%mpih%procs_number - 1_I4P
          ptr_start = self%field%comm_map_recv_ptr_ghost(p) + 1
          ptr_end   = self%field%comm_map_recv_ptr_ghost(p+1)
          n_recv    = ptr_end - ptr_start + 1
          if (n_recv > 0) then
 #ifdef _MPI_
             call MPI_IRECV(self%field%recv_buffer_ghost(ptr_start), n_recv, MPI_REAL8, p, 100, MPI_COMM_WORLD, &
-                           self%field%req_send_recv(p), self%field%error)
+                           self%field%req_send_recv(p), self%mpih%error)
 #endif
          endif
       enddo
 
       ! send
-      do p=0, self%field%procs_number - 1_I4P
+      do p=0, self%mpih%procs_number - 1_I4P
          ptr_start = self%field%comm_map_send_ptr_ghost(p) + 1
          ptr_end   = self%field%comm_map_send_ptr_ghost(p+1)
          n_send    = ptr_end - ptr_start + 1
          if (n_send > 0) then
 #ifdef _MPI_
             call MPI_ISEND(self%field%send_buffer_ghost(ptr_start), n_send, MPI_REAL8, p, 100, MPI_COMM_WORLD, &
-                           self%field%req_send_recv(p+self%field%procs_number), self%field%error)
+                           self%field%req_send_recv(p+self%mpih%procs_number), self%mpih%error)
 #endif
          endif
       enddo
@@ -243,7 +259,7 @@ contains
    if (do_step(3)) then
       comm_map_recv_ctr_ghost = self%field%comm_map_recv_ptr_ghost
 
-      call MPI_WAITALL(self%field%procs_number * 2, self%field%req_send_recv, MPI_STATUSES_IGNORE, self%field%error)
+      call MPI_WAITALL(self%mpih%procs_number * 2, self%field%req_send_recv, MPI_STATUSES_IGNORE, self%mpih%error)
 
       ! retrive from receive buffer
       do rf=1, size(self%field%comm_map_recv_ghost, dim=1)

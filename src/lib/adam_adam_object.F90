@@ -333,18 +333,22 @@ contains
    !< Make communication/local maps of ghost cells and boundary conditions.
    class(adam_object), intent(inout) :: self !< ADAM.
 
-   call self%tree%make_comm_local_maps_ghost
+   call self%tree%make_comm_local_maps_ghost(nv=self%field%nv)
    call self%tree%make_local_maps_bc
-   call self%field%prepare_comm_local_ghost(local_map_ghost         = self%tree%local_map_ghost,         &
-                                            comm_map_n_send_ghost   = self%tree%comm_map_n_send_ghost,   &
-                                            comm_map_n_recv_ghost   = self%tree%comm_map_n_recv_ghost,   &
-                                            comm_map_send_ptr_ghost = self%tree%comm_map_send_ptr_ghost, &
-                                            comm_map_recv_ptr_ghost = self%tree%comm_map_recv_ptr_ghost, &
-                                            comm_map_send_ghost     = self%tree%comm_map_send_ghost,     &
-                                            comm_map_recv_ghost     = self%tree%comm_map_recv_ghost)
-   call self%field%prepare_local_bc(local_map_bc_face   = self%tree%local_map_bc_face, &
-                                    local_map_bc_edge   = self%tree%local_map_bc_edge, &
-                                    local_map_bc_corner = self%tree%local_map_bc_corner)
+   call self%field%set_comm_local_ghost(local_map_ghost          = self%tree%local_map_ghost,         &
+                                        local_map_ghost_cell     = self%tree%local_map_ghost_cell,    &
+                                        comm_map_n_send_ghost    = self%tree%comm_map_n_send_ghost,   &
+                                        comm_map_n_recv_ghost    = self%tree%comm_map_n_recv_ghost,   &
+                                        comm_map_send_ptr_ghost  = self%tree%comm_map_send_ptr_ghost, &
+                                        comm_map_recv_ptr_ghost  = self%tree%comm_map_recv_ptr_ghost, &
+                                        comm_map_send_ghost      = self%tree%comm_map_send_ghost,     &
+                                        comm_map_send_ghost_cell = self%tree%comm_map_send_ghost_cell,&
+                                        comm_map_recv_ghost      = self%tree%comm_map_recv_ghost,     &
+                                        comm_map_recv_ghost_cell = self%tree%comm_map_recv_ghost_cell)
+   call self%field%set_local_bc(local_map_bc_face   = self%tree%local_map_bc_face,   &
+                                local_map_bc_edge   = self%tree%local_map_bc_edge,   &
+                                local_map_bc_corner = self%tree%local_map_bc_corner, &
+                                local_map_bc_crown  = self%tree%local_map_bc_crown)
    endsubroutine make_comm_local_maps_ghost_bc
 
    subroutine mpi_gather_refinement_needed(self, is_marked_by_field, is_marked_by_tree)
@@ -819,23 +823,23 @@ contains
    subroutine save_hdf5_block(h5_file_id, h5_dspace_id, &
                               myrank, code, block_index, ii, jj, kk, q, q_name, with_cell_morton, q_aux_name, q_aux)
    !< Save block into HDF5 file.
-   integer(HID_T),            intent(in)           :: h5_file_id                     !< H5 File identifier.
-   integer(HID_T),            intent(in)           :: h5_dspace_id                   !< H5 Dataspace identifier.
-   integer(I4P),              intent(in)           :: myrank                         !< MPI rank process.
-   integer(I8P),              intent(in)           :: code                           !< Block Morton code.
-   integer(I8P),              intent(in)           :: block_index                    !< Block index.
-   integer(I4P),              intent(in)           :: ii(2)                          !< First and last i indexes.
-   integer(I4P),              intent(in)           :: jj(2)                          !< First and last j indexes.
-   integer(I4P),              intent(in)           :: kk(2)                          !< First and last k indexes.
-   real(R8P),                 intent(in)           :: q(1:,ii(1):,jj(1):,kk(1):)     !< Q variables to be saved.
-   character(*),              intent(in)           :: q_name(:)                      !< Q variables names.
-   logical,                   intent(in)           :: with_cell_morton               !< Flag to save Morton code also in cells.
-   character(*), allocatable, intent(in)           :: q_aux_name(:)                  !< Q auxiliary variables names.
-   real(R8P),                 intent(in), optional :: q_aux(1:,ii(1):,jj(1):,kk(1):) !< Q auxiliary variables to be saved.
-   character(len=:), allocatable                   :: h5_dset_name                   !< H5 Dataset name.
-   integer(HID_T)                                  :: h5_dset_id                     !< H5 Dataset identifier.
-   integer(I4P)                                    :: v, i                           !< Counter.
-   integer(I4P)                                    :: error                          !< Error traping flag.
+   integer(HID_T), intent(in)           :: h5_file_id                     !< H5 File identifier.
+   integer(HID_T), intent(in)           :: h5_dspace_id                   !< H5 Dataspace identifier.
+   integer(I4P),   intent(in)           :: myrank                         !< MPI rank process.
+   integer(I8P),   intent(in)           :: code                           !< Block Morton code.
+   integer(I8P),   intent(in)           :: block_index                    !< Block index.
+   integer(I4P),   intent(in)           :: ii(2)                          !< First and last i indexes.
+   integer(I4P),   intent(in)           :: jj(2)                          !< First and last j indexes.
+   integer(I4P),   intent(in)           :: kk(2)                          !< First and last k indexes.
+   real(R8P),      intent(in)           :: q(1:,ii(1):,jj(1):,kk(1):)     !< Q variables to be saved.
+   character(*),   intent(in)           :: q_name(:)                      !< Q variables names.
+   logical,        intent(in)           :: with_cell_morton               !< Flag to save Morton code also in cells.
+   character(*),   intent(in)           :: q_aux_name(:)                  !< Q auxiliary variables names.
+   real(R8P),      intent(in), optional :: q_aux(1:,ii(1):,jj(1):,kk(1):) !< Q auxiliary variables to be saved.
+   character(len=:), allocatable        :: h5_dset_name                   !< H5 Dataset name.
+   integer(HID_T)                       :: h5_dset_id                     !< H5 Dataset identifier.
+   integer(I4P)                         :: v, i                           !< Counter.
+   integer(I4P)                         :: error                          !< Error traping flag.
 
    do v=1, size(q, dim=1)
       h5_dset_name = trim(q_name(v))//'-'//trim(str(myrank,.true.))//'-'//trim(str(block_index,.true.))
@@ -900,7 +904,7 @@ contains
    integer(I4P),              intent(in)           :: nijk(3)          !< Block dimensions.
    character(*),              intent(in)           :: q_name(:)        !< Q variables names.
    logical,                   intent(in)           :: with_cell_morton !< Flag to save Morton code also in cells.
-   character(*), allocatable, intent(in)           :: q_aux_name(:)    !< Q auxiliary variables names.
+   character(:), allocatable, intent(in)           :: q_aux_name(:)    !< Q auxiliary variables names.
    integer(I4P),              intent(in), optional :: t                !< Time iteration.
    real(R8P),                 intent(in), optional :: time             !< Time.
    character(:), allocatable                       :: h5_dset_name     !< Dataset name.
@@ -947,7 +951,8 @@ contains
    write(file_unit, '(A)') '            <DataItem Dimensions="1" Format="XML" DataType="Int">'//trim(str(code))//'</DataItem>'
    write(file_unit, '(A)') '          </Attribute>'
    write(file_unit, '(A)') '          <Attribute Name="block-index" Center="Grid">'
-   write(file_unit, '(A)') '            <DataItem Dimensions="1" Format="XML" DataType="Int">'//trim(str(block_index))//'</DataItem>'
+   write(file_unit, '(A)') '            <DataItem Dimensions="1" Format="XML" DataType="Int">'//trim(str(block_index))//&
+                           '</DataItem>'
    write(file_unit, '(A)') '          </Attribute>'
    write(file_unit, '(A)') '          <Attribute Name="myrank" Center="Grid">'
    write(file_unit, '(A)') '            <DataItem Dimensions="1" Format="XML" DataType="Int">'//trim(str(rank))//'</DataItem>'

@@ -18,7 +18,7 @@ libs     = $HDF5_cuda_22_3/lib/libhdf5hl_fortran.a
            $HDF5_cuda_22_3/lib/libhdf5_hl.a
            $HDF5_cuda_22_3/lib/libhdf5_fortran.a
            $HDF5_cuda_22_3/lib/libhdf5.a
-           -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/10 /usr/lib/gcc/x86_64-linux-gnu/10/libstdc++.so
+           -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/11 /usr/lib/gcc/x86_64-linux-gnu/11/libstdc++.so
            /opt/zlib/bin/1.2.11/lib/libz.a
            /opt/szip/bin/2.1.1/lib/libsz.a
            ./exe/obj/cgal_c_wrappers.o
@@ -36,7 +36,7 @@ libs     = $HDF5_cuda_22_3/lib/libhdf5hl_fortran.a
            $HDF5_cuda_22_3/lib/libhdf5_hl.a
            $HDF5_cuda_22_3/lib/libhdf5_fortran.a
            $HDF5_cuda_22_3/lib/libhdf5.a
-           -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/10 /usr/lib/gcc/x86_64-linux-gnu/10/libstdc++.so
+           -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/11 /usr/lib/gcc/x86_64-linux-gnu/11/libstdc++.so
            /opt/zlib/bin/1.2.11/lib/libz.a
            /opt/szip/bin/2.1.1/lib/libsz.a
            ./exe/obj/cgal_c_wrappers.o

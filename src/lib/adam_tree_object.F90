@@ -127,17 +127,17 @@ module adam_tree_object
 !<  G  = fec-25
 !<  H  = fec-26
 
-use adam_grid_object, only : grid_object
-use adam_mpih_object, only : mpih_object
-use adam_parameters
-use adam_tree_node_object, only : tree_node_object
+use adam_grid_object,        only : grid_object
+use adam_mpih_object,        only : mpih_object
+use adam_tree_node_object,   only : tree_node_object
 use adam_tree_bucket_object, only : tree_bucket_object, iterator_interface
-use FINER, only : file_ini
-use FOSSIL
-use MORTIF
-use PENF
-use VECFOR
-use MPI
+use adam_parameters
+use finer, only : file_ini
+use fossil
+use mortif
+use penf
+use vecfor
+use mpi
 use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
 
 implicit none
@@ -145,14 +145,14 @@ private
 public :: tree_object
 
 ! tree node parameters
-integer(I4P), parameter :: NODE_LESS_REFINED = -1_I4P      !< More refined node type.
-integer(I4P), parameter :: NODE_STANDARD     =  0_I4P      !< Standard node type.
-integer(I4P), parameter :: NODE_MORE_REFINED =  1_I4P      !< More refined node type.
-integer(I4P), parameter :: NODE_BOUNDARY_CONDITION = 2_I4P !< Boundary condition node type.
+integer(I4P), parameter :: NODE_LESS_REFINED       = -1_I4P !< Less refined node type.
+integer(I4P), parameter :: NODE_STANDARD           =  0_I4P !< Standard node type.
+integer(I4P), parameter :: NODE_MORE_REFINED       =  1_I4P !< More refined node type.
+integer(I4P), parameter :: NODE_BOUNDARY_CONDITION =  2_I4P !< Boundary condition node type.
 ! tree parameters
-integer(I8P), parameter :: TREE_BUCKETS_NUMBER_DEF = 9973_I8P    !< Default number of buckets of hash table.
-real(R8P),    parameter :: TREE_MAX_LOAD = 0.9_R8P               !< Maximum load of hash table buckets.
-integer(I4P), parameter :: TREE_MAX_SANITIZE_ITERATIONS = 10_I4P !< Default number of tree sanitize iterations.
+integer(I8P), parameter :: TREE_BUCKETS_NUMBER_DEF      = 9973_I8P !< Default number of buckets of hash table.
+real(R8P),    parameter :: TREE_MAX_LOAD                = 0.9_R8P  !< Maximum load of hash table buckets.
+integer(I4P), parameter :: TREE_MAX_SANITIZE_ITERATIONS = 10_I4P   !< Default number of tree sanitize iterations.
 
 type :: tree_object
    !< Tree class definition.
@@ -169,23 +169,27 @@ type :: tree_object
    integer(I4P)                          :: ijkl_prune(4)=[-1,-1,-1,-1] !< IJKL prune indexes for simple-initial-forest.
    integer(I4P)                          :: iu_ref_levels=-1_I4P        !< Initial uniform refinement levels.
    ! AMR data
-   integer(I8P)              :: n_my_derefine=0_I8P      !< Number of my nodes to be derefined.
-   integer(I8P)              :: n_my_refine=0_I8P        !< Number of my nodes to be refined.
-   integer(I8P)              :: last_block_index=0_I8P   !< Last block index in the field array.
-   integer(I8P), allocatable :: node_to_refine(:)        !< List of nodes to be refined.
-   integer(I8P), allocatable :: node_to_derefine(:)      !< List of nodes to be derefined.
-   integer(I8P), allocatable :: block_to_refine(:,:)     !< List of field blocks to be refined.
-   integer(I8P), allocatable :: block_refined(:,:)       !< List of field refined blocks with Morton code.
-   integer(I8P), allocatable :: block_to_derefine(:)     !< List of field blocks to be derefined.
-   integer(I8P), allocatable :: block_derefined(:,:)     !< List of field derefined blocks with Morton code.
-   integer(I4P), allocatable :: block_coordinates(:,:)   !< Block coordinates of redistributed blocks [4,blocks_number].
-   integer(I8P), allocatable :: block_code(:)            !< Block Morton code of redistributed blocks [blocks_number].
-   integer(I8P), allocatable :: local_map(:,:)           !< Local map, list block index changes of my nodes.
-   integer(I8P), allocatable :: local_map_ghost(:,:)     !< Local map for ghost cells updating [fec_number, 4].
-   integer(I8P), allocatable :: local_map_bc_face(:,:)   !< Local map for face BC ghost cells.
-   integer(I8P), allocatable :: local_map_bc_edge(:,:)   !< Local map for edge BC ghost cells.
-   integer(I8P), allocatable :: local_map_bc_corner(:,:) !< Local map for corner BC ghost cells.
-   ! MPI data of nodes
+   integer(I8P)              :: n_my_derefine=0_I8P       !< Number of my nodes to be derefined.
+   integer(I8P)              :: n_my_refine=0_I8P         !< Number of my nodes to be refined.
+   integer(I8P)              :: last_block_index=0_I8P    !< Last block index in the field array.
+   integer(I8P), allocatable :: node_to_refine(:)         !< List of nodes to be refined.
+   integer(I8P), allocatable :: node_to_derefine(:)       !< List of nodes to be derefined.
+   integer(I8P), allocatable :: block_to_refine(:,:)      !< List of field blocks to be refined.
+   integer(I8P), allocatable :: block_refined(:,:)        !< List of field refined blocks with Morton code.
+   integer(I8P), allocatable :: block_to_derefine(:)      !< List of field blocks to be derefined.
+   integer(I8P), allocatable :: block_derefined(:,:)      !< List of field derefined blocks with Morton code.
+   integer(I4P), allocatable :: block_coordinates(:,:)    !< Block coordinates of redistributed blocks [4,blocks_number].
+   integer(I8P), allocatable :: block_code(:)             !< Block Morton code of redistributed blocks [blocks_number].
+   ! MAPS
+   ! Local maps
+   integer(I8P), allocatable :: local_map(:,:)            !< Local map, list block index changes of my nodes.
+   integer(I8P), allocatable :: local_map_ghost(:,:)      !< Local map for ghost cells updating [fec_number, 4].
+   integer(I8P), allocatable :: local_map_ghost_cell(:,:) !< Local map ghost cells update, cells order.
+   integer(I8P), allocatable :: local_map_bc_face(:,:)    !< Local map for face BC ghost cells.
+   integer(I8P), allocatable :: local_map_bc_edge(:,:)    !< Local map for edge BC ghost cells.
+   integer(I8P), allocatable :: local_map_bc_corner(:,:)  !< Local map for corner BC ghost cells.
+   integer(I8P), allocatable :: local_map_bc_crown(:,:,:) !< Local map for face BC ghost cells, crown order.
+   ! MPI send/recv maps
    integer(I4P)              :: my_nodes_number=0_I4P     !< Number of my nodes, keep_nodes_number + recv_nodes_number.
    integer(I4P)              :: send_nodes_number=0_I4P   !< Number of nodes to be sent.
    integer(I4P)              :: recv_nodes_number=0_I4P   !< Number of nodes to be received.
@@ -198,13 +202,15 @@ type :: tree_object
    integer(I4P), allocatable :: comm_map_recv_ptr(:)      !< Communication map, pointers in list to recv [procs_number+1].
    integer(I8P), allocatable :: comm_map_send(:)          !< Communication map, blocks to send [sum(comm_map_n_send)].
    integer(I8P), allocatable :: comm_map_recv(:)          !< Communication map, blocks to receive [sum(comm_map_n_recv)].
-   ! MPI data of ghost cells
-   integer(I4P), allocatable :: comm_map_n_send_ghost(:)   !< Communication map, number of ghost celss to send [procs_number].
-   integer(I4P), allocatable :: comm_map_n_recv_ghost(:)   !< Communication map, number of ghost celss to recv [procs_number].
-   integer(I4P), allocatable :: comm_map_send_ptr_ghost(:) !< Communication map, pointers in list to send [procs_number+1].
-   integer(I4P), allocatable :: comm_map_recv_ptr_ghost(:) !< Communication map, pointers in list to recv [procs_number+1].
-   integer(I8P), allocatable :: comm_map_send_ghost(:,:)   !< Communication map, `fec` information [fec_number, 5].
-   integer(I8P), allocatable :: comm_map_recv_ghost(:,:)   !< Communication map, `fec` information [fec_number, 5].
+   ! MPI send/recv ghost cells maps
+   integer(I4P), allocatable :: comm_map_n_send_ghost(:)      !< Communication map, number of ghost celss to send [procs_number].
+   integer(I4P), allocatable :: comm_map_n_recv_ghost(:)      !< Communication map, number of ghost celss to recv [procs_number].
+   integer(I4P), allocatable :: comm_map_send_ptr_ghost(:)    !< Communication map, pointers in list to send [procs_number+1].
+   integer(I4P), allocatable :: comm_map_recv_ptr_ghost(:)    !< Communication map, pointers in list to recv [procs_number+1].
+   integer(I8P), allocatable :: comm_map_send_ghost(:,:)      !< Communication map, send ghost cells, fec order.
+   integer(I8P), allocatable :: comm_map_send_ghost_cell(:,:) !< Communication map, send ghost cells, cells order.
+   integer(I8P), allocatable :: comm_map_recv_ghost(:,:)      !< Communication map, recv ghost cells, fec order.
+   integer(I8P), allocatable :: comm_map_recv_ghost_cell(:,:) !< Communication map, recv ghost cells, cells order.
    ! STL surfaces data
    type(surface_stl_object)  :: surface_stl !< STL surface.
 
@@ -225,7 +231,6 @@ type :: tree_object
       procedure, pass(self) :: load_from_ini_file           !< Load object data from INI file.
       procedure, pass(self) :: load_surface_stl             !< Load surface from STL file.
       procedure, pass(self) :: loop                         !< Sentinel while-loop on nodes returning the code.
-      procedure, pass(self) :: make_local_maps_bc           !< Make local maps of boundary conditions.
       procedure, pass(self) :: mark_all_nodes               !< Mark all nodes to be refined, derefined, ecc.
       procedure, pass(self) :: mark_sphere                  !< Mark nodes to be refined/derefined by sphere distance.
       procedure, pass(self) :: mark_surface_stl             !< Mark all nodes inside a surface defined by STL triangulation.
@@ -236,12 +241,14 @@ type :: tree_object
       procedure, pass(self) :: prune                        !< Prune nodes.
       procedure, pass(self) :: resize                       !< Resize the tree.
       procedure, pass(self) :: save_nodes                   !< Save nodes data, used for restart.
-      procedure, pass(self) :: save_local_map               !< Save local map.
       procedure, pass(self) :: traverse                     !< Traverse tree calling the iterator procedure.
-      ! MPI methods
-      procedure, pass(self) :: import_refinements_needed  !< Import refinements needed status changed externally.
+      ! MAPS methods
+      procedure, pass(self) :: make_local_maps_bc         !< Make local maps of boundary conditions.
       procedure, pass(self) :: make_comm_local_maps       !< Make communication/local maps.
       procedure, pass(self) :: make_comm_local_maps_ghost !< Make communication/local maps of ghost cells.
+      procedure, pass(self) :: save_local_map             !< Save local map.
+      ! MPI methods
+      procedure, pass(self) :: import_refinements_needed  !< Import refinements needed status changed externally.
       procedure, pass(self) :: mpi_gather_nodes_data      !< Gather nodes data between MPI processes.
       procedure, pass(self) :: mpi_print_stats            !< Print MPI stats.
       procedure, pass(self) :: mpi_redistribute           !< Redistribute nodes to MPI processes, load balancing.
@@ -796,143 +803,6 @@ contains
    endif
    endfunction loop
 
-   subroutine make_local_maps_bc(self)
-   !< Make local maps of boundary conditions.
-   class(tree_object), intent(inout) :: self                  !< The tree.
-   type(tree_node_object), pointer   :: node_ptr              !< Pointer to current node.
-   integer(I8P), allocatable         :: neighbor(:)           !< List of code neighbors.
-   type(tree_node_object), pointer   :: neigh                 !< Pointer to node neighbor.
-   integer(I4P)                      :: neighbor_type         !< Neighbors type.
-   integer(I4P)                      :: neighbor_bc_fec       !< Neighbors fec for BC.
-   integer(I4P)                      :: my_fec_number         !< Number of faces/edges/corners ghost cells locally exchanged.
-   integer(I4P)                      :: fec, mf, rf, sf, n, p !< Counter.
-   integer(I8P)                      :: ijk_min_max_delta(1:9) !< IJK min/max/delta.
-   integer(I4P)                      :: fec_bc_faces_number
-   integer(I4P)                      :: fec_bc_edges_number
-   integer(I4P)                      :: fec_bc_corners_number
-   integer(I4P)                      :: fec_bc_type
-
-   if (allocated(self%local_map_bc_face))   deallocate(self%local_map_bc_face)
-   if (allocated(self%local_map_bc_edge))   deallocate(self%local_map_bc_edge)
-   if (allocated(self%local_map_bc_corner)) deallocate(self%local_map_bc_corner)
-   fec_bc_faces_number = 0_I4P
-   fec_bc_edges_number = 0_I4P
-   fec_bc_corners_number = 0_I4P
-   do while(self%loop(node_ptr=node_ptr))
-      if (node_ptr%myrank==self%mpih%myrank) then
-         do fec=1, 26
-            call self%get_neighbor_all(code=node_ptr%code,          &
-                                       face=fec,                    &
-                                       neighbor=neighbor,           &
-                                       neighbor_type=neighbor_type, &
-                                       neighbor_bc_fec=neighbor_bc_fec)
-            if (neighbor_type == NODE_BOUNDARY_CONDITION) then
-               if (fec<=6)             fec_bc_faces_number   = fec_bc_faces_number   + 1_I4P
-               if (fec>=7.and.fec<=18) fec_bc_edges_number   = fec_bc_edges_number   + 1_I4P
-               if (fec>=19)            fec_bc_corners_number = fec_bc_corners_number + 1_I4P
-            endif
-         enddo
-      endif
-   enddo
-   if (fec_bc_faces_number > 0.or.fec_bc_edges_number > 0.or.fec_bc_corners_number > 0) then
-      if (fec_bc_faces_number > 0)   allocate(self%local_map_bc_face(fec_bc_faces_number, 12))
-      if (fec_bc_edges_number > 0)   allocate(self%local_map_bc_edge(fec_bc_edges_number, 12))
-      if (fec_bc_corners_number > 0) allocate(self%local_map_bc_corner(fec_bc_corners_number, 12))
-      fec_bc_faces_number = 0_I4P
-      fec_bc_edges_number = 0_I4P
-      fec_bc_corners_number = 0_I4P
-      do while(self%loop(node_ptr=node_ptr))
-         if (node_ptr%myrank==self%mpih%myrank) then
-            do fec=1, 26
-               call self%get_neighbor_all(code=node_ptr%code,          &
-                                          face=fec,                    &
-                                          neighbor=neighbor,           &
-                                          neighbor_type=neighbor_type, &
-                                          neighbor_bc_fec=neighbor_bc_fec)
-               if (neighbor_type == NODE_BOUNDARY_CONDITION) then
-                  select case(neighbor_bc_fec)
-                  case(1,7,9,11,13,19,21,23,25)
-                     ! BC i min
-                     fec_bc_type = self%grid%bc_type(1)
-                  case(2,8,10,12,14,20,22,24,26)
-                     ! BC i max
-                     fec_bc_type = self%grid%bc_type(2)
-                  case(3,15,17)
-                     ! BC j min
-                     fec_bc_type = self%grid%bc_type(3)
-                  case(4,16,18)
-                     ! BC j max
-                     fec_bc_type = self%grid%bc_type(4)
-                  case(5)
-                     ! BC k min
-                     fec_bc_type = self%grid%bc_type(5)
-                  case(6)
-                     ! BC k max
-                     fec_bc_type = self%grid%bc_type(6)
-                  endselect
-                  call compute_ijk_min_max_delta(fec=fec, neighbor_bc_fec=neighbor_bc_fec, ijk_min_max_delta=ijk_min_max_delta)
-                  if (fec<=6) then
-                     fec_bc_faces_number = fec_bc_faces_number + 1_I4P
-                     self%local_map_bc_face(fec_bc_faces_number,1)    = node_ptr%block_index
-                     self%local_map_bc_face(fec_bc_faces_number,2)    = neighbor_bc_fec
-                     self%local_map_bc_face(fec_bc_faces_number,3:11) = ijk_min_max_delta
-                     self%local_map_bc_face(fec_bc_faces_number,12)   = fec_bc_type
-                  endif
-                  if (fec>=7.and.fec<=18) then
-                     fec_bc_edges_number = fec_bc_edges_number + 1_I4P
-                     self%local_map_bc_edge(fec_bc_edges_number,1)    = node_ptr%block_index
-                     self%local_map_bc_edge(fec_bc_edges_number,2)    = neighbor_bc_fec
-                     self%local_map_bc_edge(fec_bc_edges_number,3:11) = ijk_min_max_delta
-                     self%local_map_bc_edge(fec_bc_edges_number,12)   = fec_bc_type
-                  endif
-                  if (fec>=19) then
-                     fec_bc_corners_number = fec_bc_corners_number + 1_I4P
-                     self%local_map_bc_corner(fec_bc_corners_number,1)    = node_ptr%block_index
-                     self%local_map_bc_corner(fec_bc_corners_number,2)    = neighbor_bc_fec
-                     self%local_map_bc_corner(fec_bc_corners_number,3:11) = ijk_min_max_delta
-                     self%local_map_bc_corner(fec_bc_corners_number,12)   = fec_bc_type
-                  endif
-               endif
-            enddo
-         endif
-      enddo
-   endif
-   contains
-      subroutine compute_ijk_min_max_delta(fec, neighbor_bc_fec, ijk_min_max_delta)
-      !< Compute IJK min/max/delta.
-      integer(I4P), intent(in)  :: fec                    !< Current fec number.
-      integer(I4P)              :: neighbor_bc_fec        !< Neighbors fec for BC.
-      integer(I8P), intent(out) :: ijk_min_max_delta(1:9) !< IJK min/max/delta.
-      integer(I4P)              :: ijkmin(3)              !< Lower limit of ijk indexes.
-      integer(I4P)              :: ijkmax(3)              !< Upper limit of ijk indexes.
-      integer(I4P)              :: ijkdelta(3)            !< Delta offset for ghost-inner cells mapping same refinement.
-      integer(I4P)              :: ijkdelta_global(3)     !< Delta offset for ghost-inner cells mapping same refinement.
-      integer(I4P)              :: nijk(3)                !< Ni, Nj , Nk stored in array.
-      integer(I4P)              :: i                      !< Counter.
-
-      associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc)
-         nijk = [ni, nj, nk]
-
-         ijkdelta = FEC_TO_DELTA(1:3, fec)
-         ijkdelta_global = FEC_TO_DELTA(1:3, neighbor_bc_fec)
-
-         do i=1, 3
-            if     (ijkdelta(i)==1) then
-               ijkmin(i) = nijk(i) + 1
-               ijkmax(i) = nijk(i) + ngc
-            elseif (ijkdelta(i)==-1) then
-               ijkmin(i) = 0
-               ijkmax(i) = 1 - ngc
-            elseif (ijkdelta(i)==0) then
-               ijkmin(i) = 1
-               ijkmax(i) = nijk(i)
-            endif
-         enddo
-         ijk_min_max_delta = [ijkmin, ijkmax, ijkdelta_global]
-      endassociate
-      endsubroutine
-   endsubroutine make_local_maps_bc
-
    function max_cell_delta(self, distance) result(delta)
    !< Return the maximum cell delta given a comparison distance.
    class(tree_object), intent(in) :: self     !< The field.
@@ -1171,26 +1041,6 @@ contains
    endif
    endsubroutine resize
 
-   subroutine save_local_map(self, file_name)
-   !< Save local map.
-   class(tree_object), intent(in)  :: self      !< The tree.
-   character(*),       intent(in)  :: file_name !< Output file name.
-   integer(I4P)                    :: file_unit !< Output file unit.
-   integer(I4P)                    :: i1,i2     !< Counter.
-
-   if (self%is_initialized_) then
-      if (allocated(self%local_map_ghost)) then
-         open(newunit=file_unit, file=trim(adjustl(file_name)), form='FORMATTED')
-         do i1=lbound(self%local_map_ghost, dim=1), ubound(self%local_map_ghost, dim=1)
-            ! do i2=lbound(self%local_map_ghost, dim=2), ubound(self%local_map_ghost, dim=2)
-               write(unit=file_unit, '(13(I6,1X))') self%local_map_ghost(i1, :)
-            ! enddo
-         enddo
-         close(file_unit)
-      endif
-   endif
-   endsubroutine save_local_map
-
    subroutine save_nodes(self, file_name)
    !< Save nodes data, used for restart.
    class(tree_object), intent(in)  :: self            !< The tree.
@@ -1230,80 +1080,247 @@ contains
    endif
    endsubroutine traverse
 
-   ! MPI methods
-   subroutine blocks_reorder(self)
-   !< Reorder blocks indexes in field.
-   class(tree_object), intent(inout) :: self                !< The tree.
-   type(tree_node_object), pointer   :: node_ptr            !< Pointer to current node.
-   integer(I4P)                      :: outer_blocks_number !< Number of outer blocks where I need fecs.
-   integer(I4P)                      :: inner_blocks_number !< Number of inner blocks where I need fecs.
-   logical                           :: is_inner_block      !< Flag to check if a neighbor block is inner or not.
-   integer(I8P), allocatable         :: neighbor(:)         !< List of code neighbors.
-   type(tree_node_object), pointer   :: neigh               !< Pointer to node neighbor.
-   integer(I4P)                      :: neighbor_type       !< Neighbors type.
-   integer(I4P), allocatable         :: inner_block_map(:)  !< Inner blocks map.
-   integer(I4P), allocatable         :: outer_block_map(:)  !< Outer blocks map.
-   integer(I4P)                      :: fec, n              !< Counter.
+   ! MAPS methods
+   subroutine make_local_maps_bc(self, verbose)
+   !< Make local maps of boundary conditions.
+   class(tree_object), intent(inout)        :: self                   !< The tree.
+   logical,            intent(in), optional :: verbose                !< Flag to activate verbose mode.
+   logical                                  :: verbose_               !< Flag to activate verbose mode, local var.
+   type(tree_node_object), pointer          :: node_ptr               !< Pointer to current node.
+   integer(I8P), allocatable                :: neighbor(:)            !< List of code neighbors.
+   type(tree_node_object), pointer          :: neigh                  !< Pointer to node neighbor.
+   integer(I4P)                             :: neighbor_type          !< Neighbors type.
+   integer(I4P)                             :: neighbor_bc_fec        !< Neighbors fec for BC.
+   integer(I4P)                             :: my_fec_number          !< Number of faces/edges/corners ghost cells locally exchanged.
+   integer(I4P)                             :: fec, mf, rf, sf, n, p  !< Counter.
+   integer(I8P)                             :: ijk_min_max_delta(1:9) !< IJK min/max/delta.
+   integer(I4P)                             :: fec_bc_faces_number    !< BC faces number.
+   integer(I4P)                             :: fec_bc_edges_number    !< BC edges number.
+   integer(I4P)                             :: fec_bc_corners_number  !< BC corners number.
+   integer(I4P)                             :: fec_bc_type            !< BC type.
+   integer(I4P), allocatable                :: c_crown(:), c          !< Counter.
 
-   outer_blocks_number = 0
-   inner_blocks_number = 0
-   allocate(inner_block_map(self%my_nodes_number))
-   allocate(outer_block_map(self%my_nodes_number))
-   if (allocated(self%inner_outer_block_map)) deallocate(self%inner_outer_block_map)
-   allocate(self%inner_outer_block_map(self%my_nodes_number))
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   if (verbose_) print '(A)', self%mpih%myrankstr//'tree%make_local_maps_bc start'
+
+   if (allocated(self%local_map_bc_face))   deallocate(self%local_map_bc_face)
+   if (allocated(self%local_map_bc_edge))   deallocate(self%local_map_bc_edge)
+   if (allocated(self%local_map_bc_corner)) deallocate(self%local_map_bc_corner)
+   fec_bc_faces_number = 0_I4P
+   fec_bc_edges_number = 0_I4P
+   fec_bc_corners_number = 0_I4P
    do while(self%loop(node_ptr=node_ptr))
-      if (self%mpih%myrank == node_ptr%myrank) then
-         is_inner_block = .true.
+      if (node_ptr%myrank==self%mpih%myrank) then
          do fec=1, 26
-            call self%get_neighbor_all(code=node_ptr%code, face=fec, neighbor=neighbor, neighbor_type=neighbor_type)
-            if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
-               do n=1, size(neighbor, dim=1)
-                  neigh => self%node(code=neighbor(n))
-                  if (self%mpih%myrank /= neigh%myrank) is_inner_block = .false.
-               enddo
+            call self%get_neighbor_all(code=node_ptr%code,          &
+                                       face=fec,                    &
+                                       neighbor=neighbor,           &
+                                       neighbor_type=neighbor_type, &
+                                       neighbor_bc_fec=neighbor_bc_fec)
+            if (neighbor_type == NODE_BOUNDARY_CONDITION) then
+               if (fec<=6)             fec_bc_faces_number   = fec_bc_faces_number   + 1_I4P
+               if (fec>=7.and.fec<=18) fec_bc_edges_number   = fec_bc_edges_number   + 1_I4P
+               if (fec>=19)            fec_bc_corners_number = fec_bc_corners_number + 1_I4P
             endif
          enddo
-         if (is_inner_block) then
-            inner_blocks_number = inner_blocks_number + 1
-            inner_block_map(inner_blocks_number) = node_ptr%block_index
-            node_ptr%block_index_new = inner_blocks_number
-         else
-            outer_blocks_number = outer_blocks_number + 1
-            outer_block_map(outer_blocks_number) = node_ptr%block_index
-            node_ptr%block_index_new = -outer_blocks_number
-         endif
       endif
    enddo
-   self%inner_blocks_number = inner_blocks_number
-   self%inner_outer_block_map(1:inner_blocks_number ) = inner_block_map(1:inner_blocks_number)
-   self%inner_outer_block_map(inner_blocks_number+1:) = outer_block_map(1:outer_blocks_number)
-   do while(self%loop(node_ptr=node_ptr))
-      if (self%mpih%myrank == node_ptr%myrank) then
-         if (node_ptr%block_index_new < 0) then
-            node_ptr%block_index = -node_ptr%block_index_new + inner_blocks_number
-         else
-            node_ptr%block_index =  node_ptr%block_index_new
+   if (fec_bc_faces_number > 0.or.fec_bc_edges_number > 0.or.fec_bc_corners_number > 0) then
+      if (fec_bc_faces_number > 0)   allocate(self%local_map_bc_face(fec_bc_faces_number, 12))
+      if (fec_bc_edges_number > 0)   allocate(self%local_map_bc_edge(fec_bc_edges_number, 12))
+      if (fec_bc_corners_number > 0) allocate(self%local_map_bc_corner(fec_bc_corners_number, 12))
+      fec_bc_faces_number = 0_I4P
+      fec_bc_edges_number = 0_I4P
+      fec_bc_corners_number = 0_I4P
+      do while(self%loop(node_ptr=node_ptr))
+         if (node_ptr%myrank==self%mpih%myrank) then
+            do fec=1, 26
+               call self%get_neighbor_all(code=node_ptr%code,          &
+                                          face=fec,                    &
+                                          neighbor=neighbor,           &
+                                          neighbor_type=neighbor_type, &
+                                          neighbor_bc_fec=neighbor_bc_fec)
+               if (neighbor_type == NODE_BOUNDARY_CONDITION) then
+                  select case(neighbor_bc_fec)
+                  case(1,7,9,11,13,19,21,23,25)
+                     ! BC i min
+                     fec_bc_type = self%grid%bc_type(1)
+                  case(2,8,10,12,14,20,22,24,26)
+                     ! BC i max
+                     fec_bc_type = self%grid%bc_type(2)
+                  case(3,15,17)
+                     ! BC j min
+                     fec_bc_type = self%grid%bc_type(3)
+                  case(4,16,18)
+                     ! BC j max
+                     fec_bc_type = self%grid%bc_type(4)
+                  case(5)
+                     ! BC k min
+                     fec_bc_type = self%grid%bc_type(5)
+                  case(6)
+                     ! BC k max
+                     fec_bc_type = self%grid%bc_type(6)
+                  endselect
+                  call compute_ijk_min_max_delta(fec=fec, neighbor_bc_fec=neighbor_bc_fec, ijk_min_max_delta=ijk_min_max_delta)
+                  if (fec<=6) then
+                     fec_bc_faces_number = fec_bc_faces_number + 1_I4P
+                     self%local_map_bc_face(fec_bc_faces_number,1)    = node_ptr%block_index
+                     self%local_map_bc_face(fec_bc_faces_number,2)    = neighbor_bc_fec
+                     self%local_map_bc_face(fec_bc_faces_number,3:11) = ijk_min_max_delta
+                     self%local_map_bc_face(fec_bc_faces_number,12)   = fec_bc_type
+                  endif
+                  if (fec>=7.and.fec<=18) then
+                     fec_bc_edges_number = fec_bc_edges_number + 1_I4P
+                     self%local_map_bc_edge(fec_bc_edges_number,1)    = node_ptr%block_index
+                     self%local_map_bc_edge(fec_bc_edges_number,2)    = neighbor_bc_fec
+                     self%local_map_bc_edge(fec_bc_edges_number,3:11) = ijk_min_max_delta
+                     self%local_map_bc_edge(fec_bc_edges_number,12)   = fec_bc_type
+                  endif
+                  if (fec>=19) then
+                     fec_bc_corners_number = fec_bc_corners_number + 1_I4P
+                     self%local_map_bc_corner(fec_bc_corners_number,1)    = node_ptr%block_index
+                     self%local_map_bc_corner(fec_bc_corners_number,2)    = neighbor_bc_fec
+                     self%local_map_bc_corner(fec_bc_corners_number,3:11) = ijk_min_max_delta
+                     self%local_map_bc_corner(fec_bc_corners_number,12)   = fec_bc_type
+                  endif
+               endif
+            enddo
          endif
-      endif
-   enddo
-   call self%mpi_gather_nodes_data(node_member='block_index')
-   endsubroutine blocks_reorder
+      enddo
+   endif
+   if (allocated(self%local_map_bc_crown)) deallocate(self%local_map_bc_crown)
+   if (allocated(self%local_map_bc_face  ).or.&
+       allocated(self%local_map_bc_edge  ).or.&
+       allocated(self%local_map_bc_corner)) then
+      c = 0
+      if (allocated(self%local_map_bc_face  )) c = c + bc_cells_number(self%local_map_bc_face  )
+      if (allocated(self%local_map_bc_edge  )) c = c + bc_cells_number(self%local_map_bc_edge  )
+      if (allocated(self%local_map_bc_corner)) c = c + bc_cells_number(self%local_map_bc_corner)
+      allocate(self%local_map_bc_crown(1:c,1:9,1:self%grid%ngc))
+      allocate(c_crown(1:self%grid%ngc))
+      self%local_map_bc_crown = -1
+      c_crown = 1
+      if (allocated(self%local_map_bc_face  )) call populate_local_map_bc_crown(self%local_map_bc_face  )
+      if (allocated(self%local_map_bc_edge  )) call populate_local_map_bc_crown(self%local_map_bc_edge  )
+      if (allocated(self%local_map_bc_corner)) call populate_local_map_bc_crown(self%local_map_bc_corner)
+      deallocate(c_crown)
+   endif
+   if (verbose_) print '(A)', self%mpih%myrankstr//'tree%make_local_maps_bc finish'
+   contains
+      subroutine compute_ijk_min_max_delta(fec, neighbor_bc_fec, ijk_min_max_delta)
+      !< Compute IJK min/max/delta.
+      integer(I4P), intent(in)  :: fec                    !< Current fec number.
+      integer(I4P)              :: neighbor_bc_fec        !< Neighbors fec for BC.
+      integer(I8P), intent(out) :: ijk_min_max_delta(1:9) !< IJK min/max/delta.
+      integer(I4P)              :: ijkmin(3)              !< Lower limit of ijk indexes.
+      integer(I4P)              :: ijkmax(3)              !< Upper limit of ijk indexes.
+      integer(I4P)              :: ijkdelta(3)            !< Delta offset for ghost-inner cells mapping same refinement.
+      integer(I4P)              :: ijkdelta_global(3)     !< Delta offset for ghost-inner cells mapping same refinement.
+      integer(I4P)              :: nijk(3)                !< Ni, Nj , Nk stored in array.
+      integer(I4P)              :: i                      !< Counter.
 
-   subroutine import_refinements_needed(self, refinements_needed_all, disp_count)
-   !< Import refinements needed status changed externally.
-   class(tree_object),        intent(inout) :: self                      !< The tree.
-   integer(I4P), allocatable, intent(in)    :: refinements_needed_all(:) !< Refinements needed of all blocks.
-   integer(I4P), allocatable, intent(in)    :: disp_count(:)             !< Displacement of blocks that are received from process.
-   type(tree_node_object), pointer          :: node_ptr                  !< Pointer to current node.
-   integer(I8P)                             :: b                         !< Counter.
-   integer(I4P)                             :: myrank                    !< Counter.
+      associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc)
+         nijk = [ni, nj, nk]
 
-   do while(self%loop(node_ptr=node_ptr))
-      myrank = node_ptr%myrank
-      b = node_ptr%block_index
-      node_ptr%refinement_needed = refinements_needed_all(disp_count(myrank)+b)
-   enddo
-   endsubroutine import_refinements_needed
+         ijkdelta = FEC_TO_DELTA(1:3, fec)
+         ijkdelta_global = FEC_TO_DELTA(1:3, neighbor_bc_fec)
+
+         do i=1, 3
+            if     (ijkdelta(i)==1) then
+               ijkmin(i) = nijk(i) + 1
+               ijkmax(i) = nijk(i) + ngc
+            elseif (ijkdelta(i)==-1) then
+               ijkmin(i) = 0
+               ijkmax(i) = 1 - ngc
+            elseif (ijkdelta(i)==0) then
+               ijkmin(i) = 1
+               ijkmax(i) = nijk(i)
+            endif
+         enddo
+         ijk_min_max_delta = [ijkmin, ijkmax, ijkdelta_global]
+      endassociate
+      endsubroutine compute_ijk_min_max_delta
+
+      function bc_cells_number(local_map_bc) result(cells_number)
+      !< Return BC cells number.
+      integer(I8P), intent(in) :: local_map_bc(:,:) !< Local map for BC ghost cells.
+      integer(I4P)             :: f, i, j, k        !< Counter.
+      integer(I4P)             :: imin              !< Lower limit of ijk indexes.
+      integer(I4P)             :: jmin              !< Lower limit of ijk indexes.
+      integer(I4P)             :: kmin              !< Lower limit of ijk indexes.
+      integer(I4P)             :: imax              !< Upper limit of ijk indexes.
+      integer(I4P)             :: jmax              !< Upper limit of ijk indexes.
+      integer(I4P)             :: kmax              !< Upper limit of ijk indexes.
+      integer(I4P)             :: cells_number      !< Number of BC cells.
+
+      cells_number = 0
+      do f=1, size(local_map_bc, dim=1)
+         imin    = local_map_bc(f, 3 )
+         jmin    = local_map_bc(f, 4 )
+         kmin    = local_map_bc(f, 5 )
+         imax    = local_map_bc(f, 6 )
+         jmax    = local_map_bc(f, 7 )
+         kmax    = local_map_bc(f, 8 )
+         do k=kmin, kmax, sign(1, kmax-kmin)
+            do j=jmin, jmax, sign(1, jmax-jmin)
+               do i=imin, imax, sign(1, imax-imin)
+                  cells_number = cells_number + 1
+               enddo
+            enddo
+         enddo
+      enddo
+      endfunction bc_cells_number
+
+      subroutine populate_local_map_bc_crown(local_map_bc)
+      !< Populate map of BC cells in crown order.
+      integer(I8P), intent(in) :: local_map_bc(:,:) !< Local map for BC ghost cells.
+      integer(I4P)             :: f, i, j, k, b     !< Counter.
+      integer(I4P)             :: imin              !< Lower limit of ijk indexes.
+      integer(I4P)             :: jmin              !< Lower limit of ijk indexes.
+      integer(I4P)             :: kmin              !< Lower limit of ijk indexes.
+      integer(I4P)             :: imax              !< Upper limit of ijk indexes.
+      integer(I4P)             :: jmax              !< Upper limit of ijk indexes.
+      integer(I4P)             :: kmax              !< Upper limit of ijk indexes.
+      integer(I4P)             :: idelta            !< IJK delta step for extrapolation.
+      integer(I4P)             :: jdelta            !< IJK delta step for extrapolation.
+      integer(I4P)             :: kdelta            !< IJK delta step for extrapolation.
+      integer(I4P)             :: bc_type           !< Boundary condition type.
+      integer(I4P)             :: crown             !< Crown counter.
+      integer(I4P)             :: fec               !< Boundary condition fec.
+
+      do f=1, size(local_map_bc, dim=1)
+         b       = local_map_bc(f, 1 )
+         fec     = local_map_bc(f, 2 )
+         imin    = local_map_bc(f, 3 )
+         jmin    = local_map_bc(f, 4 )
+         kmin    = local_map_bc(f, 5 )
+         imax    = local_map_bc(f, 6 )
+         jmax    = local_map_bc(f, 7 )
+         kmax    = local_map_bc(f, 8 )
+         idelta  = local_map_bc(f, 9 )
+         jdelta  = local_map_bc(f, 10)
+         kdelta  = local_map_bc(f, 11)
+         bc_type = local_map_bc(f, 12)
+         do k=kmin, kmax, sign(1, kmax-kmin)
+            do j=jmin, jmax, sign(1, jmax-jmin)
+               do i=imin, imax, sign(1, imax-imin)
+                  crown = maxval([abs(i-imin), abs(j-jmin), abs(k-kmin)], mask=[imin/=1, jmin/=1, kmin/=1]) + 1
+                  self%local_map_bc_crown(c_crown(crown), 1, crown) = b
+                  self%local_map_bc_crown(c_crown(crown), 2, crown) = i
+                  self%local_map_bc_crown(c_crown(crown), 3, crown) = j
+                  self%local_map_bc_crown(c_crown(crown), 4, crown) = k
+                  self%local_map_bc_crown(c_crown(crown), 5, crown) = idelta
+                  self%local_map_bc_crown(c_crown(crown), 6, crown) = jdelta
+                  self%local_map_bc_crown(c_crown(crown), 7, crown) = kdelta
+                  self%local_map_bc_crown(c_crown(crown), 8, crown) = bc_type
+                  self%local_map_bc_crown(c_crown(crown), 9, crown) = fec
+                  c_crown(crown) = c_crown(crown) + 1
+               enddo
+            enddo
+         enddo
+      enddo
+      endsubroutine populate_local_map_bc_crown
+   endsubroutine make_local_maps_bc
 
    subroutine make_comm_local_maps(self)
    !< Make communication/local maps.
@@ -1430,9 +1447,10 @@ contains
       endfunction is_node_to_receive
    endsubroutine make_comm_local_maps
 
-   subroutine make_comm_local_maps_ghost(self)
+   subroutine make_comm_local_maps_ghost(self, nv)
    !< Make communication/local maps of ghost cells.
    class(tree_object), intent(inout) :: self                       !< The tree.
+   integer(I4P),       intent(in)    :: nv                         !< Number of field variables.
    type(tree_node_object), pointer   :: node_ptr                   !< Pointer to current node.
    integer(I8P), allocatable         :: neighbor(:)                !< List of code neighbors.
    type(tree_node_object), pointer   :: neigh                      !< Pointer to node neighbor.
@@ -1442,9 +1460,26 @@ contains
    integer(I4P)                      :: recv_fec_number            !< Number of faces/edges/corners ghost cells externally received.
    integer(I4P)                      :: send_fec_number            !< Number of faces/edges/corners ghost cells externally sent.
    integer(I4P)                      :: fec, mf, rf, sf, n, p      !< Counter.
+   integer(I4P)                      :: i, j, k, c, f, v           !< Counter.
+   integer(I4P)                      :: iii, jjj, kkk              !< Counter.
+   integer(I4P)                      :: ic, jc, kc                 !< Counter.
+   integer(I4P)                      :: portion                    !< Portion of fec updated (0=>whole fec).
    integer(I4P)                      :: weight_reduction           !< Neighbor weight reduction for send/recv at different level.
    integer(I4P), allocatable         :: comm_map_send_ctr_ghost(:) !< Communication map, counters to send.
    integer(I4P), allocatable         :: comm_map_recv_ctr_ghost(:) !< Communication map, counters to recv.
+   integer(I4P)                      :: b_recv                     !< Index of receiving block.
+   integer(I4P)                      :: b_send                     !< Index of sending block.
+   integer(I4P)                      :: imin                       !< Lower limit of i indexes.
+   integer(I4P)                      :: jmin                       !< Lower limit of j indexes.
+   integer(I4P)                      :: kmin                       !< Lower limit of j indexes.
+   integer(I4P)                      :: imax                       !< Upper limit of i indexes.
+   integer(I4P)                      :: jmax                       !< Upper limit of j indexes.
+   integer(I4P)                      :: kmax                       !< Upper limit of k indexes.
+   integer(I4P)                      :: idelta                     !< Delta offset for ghost-inner cells of i.
+   integer(I4P)                      :: jdelta                     !< Delta offset for ghost-inner cells of j.
+   integer(I4P)                      :: kdelta                     !< Delta offset for ghost-inner cells of k.
+   integer(I4P)                      :: send_ptr, send_ctr         !< Counter.
+   integer(I4P)                      :: recv_ptr, recv_ctr         !< Counter.
 
    if (allocated(self%local_map_ghost    )) deallocate(self%local_map_ghost    )
    if (allocated(self%comm_map_send_ghost)) deallocate(self%comm_map_send_ghost)
@@ -1578,6 +1613,302 @@ contains
          endif
       enddo
    enddo
+   ! maps in cells order
+   if (allocated(self%local_map_ghost_cell)) deallocate(self%local_map_ghost_cell)
+   if (allocated(self%local_map_ghost)) then
+      c = 0
+      do f=1, size(self%local_map_ghost, dim=1)
+         portion = self%local_map_ghost(f, 4 )
+         imin    = self%local_map_ghost(f, 5 )
+         jmin    = self%local_map_ghost(f, 6 )
+         kmin    = self%local_map_ghost(f, 7 )
+         imax    = self%local_map_ghost(f, 8 )
+         jmax    = self%local_map_ghost(f, 9 )
+         kmax    = self%local_map_ghost(f, 10)
+         if (portion>=0) then
+            ! receiving from a block with the same refinement or finer than me
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     c = c + 1
+                  enddo
+               enddo
+            enddo
+         else
+            ! receiving from a block coarser than me
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     do kc=0,1 ; do jc=0,1 ; do ic=0,1
+                        c = c + 1
+                     enddo ; enddo ; enddo
+                  enddo
+               enddo
+            enddo
+         endif
+      enddo
+      allocate(self%local_map_ghost_cell(1:c,1:9))
+      c = 1
+      do f=1, size(self%local_map_ghost, dim=1)
+         b_recv  = self%local_map_ghost(f, 1 )
+         b_send  = self%local_map_ghost(f, 2 )
+         portion = self%local_map_ghost(f, 4 )
+         imin    = self%local_map_ghost(f, 5 )
+         jmin    = self%local_map_ghost(f, 6 )
+         kmin    = self%local_map_ghost(f, 7 )
+         imax    = self%local_map_ghost(f, 8 )
+         jmax    = self%local_map_ghost(f, 9 )
+         kmax    = self%local_map_ghost(f, 10)
+         idelta  = self%local_map_ghost(f, 11)
+         jdelta  = self%local_map_ghost(f, 12)
+         kdelta  = self%local_map_ghost(f, 13)
+         if     (portion==0) then
+            ! receiving from a block with the same refinement
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     self%local_map_ghost_cell(c,1:2) = [b_send, b_recv]
+                     self%local_map_ghost_cell(c,3:5) = [i+idelta, j+jdelta, k+kdelta]
+                     self%local_map_ghost_cell(c,6:8) = [i, j, k]
+                     self%local_map_ghost_cell(c, 9 ) = 1
+                     c = c + 1
+                  enddo
+               enddo
+            enddo
+         elseif (portion>0) then
+            ! receiving from a block finer than me
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     kkk = 2 * k + kdelta
+                     jjj = 2 * j + jdelta
+                     iii = 2 * i + idelta
+                     self%local_map_ghost_cell(c,1:2) = [b_send, b_recv]
+                     self%local_map_ghost_cell(c,3:5) = [iii, jjj, kkk]
+                     self%local_map_ghost_cell(c,6:8) = [i, j, k]
+                     self%local_map_ghost_cell(c, 9 ) = 8
+                     c = c + 1
+                  enddo
+               enddo
+            enddo
+         else
+            ! receiving from a block coarser than me
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     kkk = 2 * k + kdelta
+                     jjj = 2 * j + jdelta
+                     iii = 2 * i + idelta
+                     do kc=0,1 ; do jc=0,1 ; do ic=0,1
+                        self%local_map_ghost_cell(c,1:2) = [b_send, b_recv]
+                        self%local_map_ghost_cell(c,3:5) = [i, j, k]
+                        self%local_map_ghost_cell(c,6:8) = [iii+ic,  jjj+jc, kkk+kc]
+                        self%local_map_ghost_cell(c, 9 ) = 1
+                        c = c + 1
+                     enddo ; enddo ; enddo
+                  enddo
+               enddo
+            enddo
+         endif
+      enddo
+   endif
+
+   if (allocated(self%comm_map_send_ghost_cell)) deallocate(self%comm_map_send_ghost_cell)
+   if (allocated(self%comm_map_send_ghost)) then
+      c = 0
+      do f=1, size(self%comm_map_send_ghost, dim=1)
+         portion = self%comm_map_send_ghost(f, 5 )
+         imin    = self%comm_map_send_ghost(f, 6 )
+         jmin    = self%comm_map_send_ghost(f, 7 )
+         kmin    = self%comm_map_send_ghost(f, 8 )
+         imax    = self%comm_map_send_ghost(f, 9 )
+         jmax    = self%comm_map_send_ghost(f, 10)
+         kmax    = self%comm_map_send_ghost(f, 11)
+         if (portion>=0_I4P) then
+            ! sending to a block at my level or to a block coarser than me
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     c = c + 1
+                  enddo
+               enddo
+            enddo
+         else
+            ! sending to a block finer than me
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     do kc=0,1 ; do jc=0,1 ; do ic=0,1
+                        c = c + 1
+                     enddo ; enddo ; enddo
+                  enddo
+               enddo
+            enddo
+         endif
+      enddo
+      ! Nv variables map
+      allocate(self%comm_map_send_ghost_cell(1:c*nv,1:7))
+      c = 1
+      do f=1, size(self%comm_map_send_ghost, dim=1)
+         b_send    = self%comm_map_send_ghost(f, 2 )
+         portion   = self%comm_map_send_ghost(f, 5 )
+         imin      = self%comm_map_send_ghost(f, 6 )
+         jmin      = self%comm_map_send_ghost(f, 7 )
+         kmin      = self%comm_map_send_ghost(f, 8 )
+         imax      = self%comm_map_send_ghost(f, 9 )
+         jmax      = self%comm_map_send_ghost(f, 10)
+         kmax      = self%comm_map_send_ghost(f, 11)
+         idelta    = self%comm_map_send_ghost(f, 12)
+         jdelta    = self%comm_map_send_ghost(f, 13)
+         kdelta    = self%comm_map_send_ghost(f, 14)
+         send_ptr  = self%comm_map_send_ghost(f, 15)
+         if (portion==0_I4P) then
+            ! sending to a block at my level
+            send_ctr = 1
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     do v=1, nv
+                        self%comm_map_send_ghost_cell(c, 1:4) = [b_send,i+idelta,j+jdelta,k+kdelta]
+                        self%comm_map_send_ghost_cell(c,  5 ) = v
+                        self%comm_map_send_ghost_cell(c,  6 ) = send_ptr + send_ctr
+                        self%comm_map_send_ghost_cell(c,  7 ) = 1
+                        send_ctr = send_ctr + 1
+                        c = c + 1
+                     enddo
+                  enddo
+               enddo
+            enddo
+         elseif (portion<0_I4P) then ! Beware! This is < 0 because the reference is the receiver
+            ! sending to a block finer than me
+            send_ctr = 1
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     do n=1,8
+                        do v=1, nv
+                           self%comm_map_send_ghost_cell(c, 1:4) = [b_send,i,j,k]
+                           self%comm_map_send_ghost_cell(c,  5 ) = v
+                           self%comm_map_send_ghost_cell(c,  6 ) = send_ptr + send_ctr
+                           self%comm_map_send_ghost_cell(c,  7 ) = 1
+                           send_ctr = send_ctr + 1
+                           c = c + 1
+                        enddo
+                     enddo
+                  enddo
+               enddo
+            enddo
+         else
+            ! sending to a block coarser than me, loop is over the coarser grid
+            send_ctr = 1
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     kkk = 2 * k + kdelta
+                     jjj = 2 * j + jdelta
+                     iii = 2 * i + idelta
+                     do v=1, nv
+                        self%comm_map_send_ghost_cell(c, 1:4) = [b_send,iii,jjj,kkk]
+                        self%comm_map_send_ghost_cell(c,  5 ) = v
+                        self%comm_map_send_ghost_cell(c,  6 ) = send_ptr + send_ctr
+                        self%comm_map_send_ghost_cell(c,  7 ) = 8
+                        send_ctr = send_ctr + 1
+                        c = c + 1
+                     enddo
+                  enddo
+               enddo
+            enddo
+         endif
+      enddo
+   endif
+
+   if (allocated(self%comm_map_recv_ghost_cell)) deallocate(self%comm_map_recv_ghost_cell)
+   if (allocated(self%comm_map_recv_ghost)) then
+      c = 0
+      do f=1, size(self%comm_map_recv_ghost, dim=1)
+         portion = self%comm_map_recv_ghost(f, 5 )
+         imin    = self%comm_map_recv_ghost(f, 6 )
+         jmin    = self%comm_map_recv_ghost(f, 7 )
+         kmin    = self%comm_map_recv_ghost(f, 8 )
+         imax    = self%comm_map_recv_ghost(f, 9 )
+         jmax    = self%comm_map_recv_ghost(f, 10)
+         kmax    = self%comm_map_recv_ghost(f, 11)
+         if (portion>=0_I4P) then
+            ! receiving from a block at the same level or finer than me
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     c = c + 1
+                  enddo
+               enddo
+            enddo
+         else
+            ! receiving from a block coarser than me
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     do kc=0,1 ; do jc=0,1 ; do ic=0,1
+                        c = c + 1
+                     enddo ; enddo ; enddo
+                  enddo
+               enddo
+            enddo
+         endif
+      enddo
+
+      ! Nv variables map
+      allocate(self%comm_map_recv_ghost_cell(1:c*nv,1:6))
+      c = 1
+      do f=1, size(self%comm_map_recv_ghost, dim=1)
+         b_recv   = self%comm_map_recv_ghost(f, 1 )
+         portion  = self%comm_map_recv_ghost(f, 5 )
+         imin     = self%comm_map_recv_ghost(f, 6 )
+         jmin     = self%comm_map_recv_ghost(f, 7 )
+         kmin     = self%comm_map_recv_ghost(f, 8 )
+         imax     = self%comm_map_recv_ghost(f, 9 )
+         jmax     = self%comm_map_recv_ghost(f, 10)
+         kmax     = self%comm_map_recv_ghost(f, 11)
+         idelta   = self%comm_map_recv_ghost(f, 12)
+         jdelta   = self%comm_map_recv_ghost(f, 13)
+         kdelta   = self%comm_map_recv_ghost(f, 14)
+         recv_ptr = self%comm_map_recv_ghost(f, 15)
+         if (portion>=0_I4P) then
+            recv_ctr = 1
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     do v=1, nv
+                        self%comm_map_recv_ghost_cell(c, 1 ) = recv_ptr + recv_ctr
+                        self%comm_map_recv_ghost_cell(c,2:6) = [b_recv,i,j,k,v]
+                        recv_ctr = recv_ctr + 1
+                        c = c + 1
+                     enddo
+                  enddo
+               enddo
+            enddo
+         else
+            ! receiving from a block coarser than me
+            recv_ctr = 1
+            do k=kmin, kmax
+               do j=jmin, jmax
+                  do i=imin, imax
+                     kkk = 2 * k + kdelta
+                     jjj = 2 * j + jdelta
+                     iii = 2 * i + idelta
+                     do kc=0,1 ; do jc=0,1 ; do ic=0,1
+                        do v=1, nv
+                           self%comm_map_recv_ghost_cell(c, 1 ) = recv_ptr + recv_ctr
+                           self%comm_map_recv_ghost_cell(c,2:6) = [b_recv,iii+ic,jjj+jc,kkk+kc,v]
+                           recv_ctr = recv_ctr + 1
+                           c = c + 1
+                        enddo
+                     enddo ; enddo ; enddo
+                  enddo
+               enddo
+            enddo
+         endif
+      enddo
+   endif
    contains
       subroutine compute_ijk_min_max_delta(fec, portion, ijk_min_max_delta)
       !< Compute IJK min/max/delta.
@@ -1658,6 +1989,99 @@ contains
       endassociate
       endsubroutine
    endsubroutine make_comm_local_maps_ghost
+
+   subroutine save_local_map(self, file_name)
+   !< Save local map.
+   class(tree_object), intent(in)  :: self      !< The tree.
+   character(*),       intent(in)  :: file_name !< Output file name.
+   integer(I4P)                    :: file_unit !< Output file unit.
+   integer(I4P)                    :: i1        !< Counter.
+
+   if (self%is_initialized_) then
+      if (allocated(self%local_map_ghost)) then
+         open(newunit=file_unit, file=trim(adjustl(file_name)), form='FORMATTED')
+         do i1=lbound(self%local_map_ghost, dim=1), ubound(self%local_map_ghost, dim=1)
+            write(unit=file_unit, fmt='(13(I6,1X))') self%local_map_ghost(i1, :)
+         enddo
+         close(file_unit)
+      endif
+   endif
+   endsubroutine save_local_map
+
+   ! MPI methods
+   subroutine blocks_reorder(self)
+   !< Reorder blocks indexes in field.
+   class(tree_object), intent(inout) :: self                !< The tree.
+   type(tree_node_object), pointer   :: node_ptr            !< Pointer to current node.
+   integer(I4P)                      :: outer_blocks_number !< Number of outer blocks where I need fecs.
+   integer(I4P)                      :: inner_blocks_number !< Number of inner blocks where I need fecs.
+   logical                           :: is_inner_block      !< Flag to check if a neighbor block is inner or not.
+   integer(I8P), allocatable         :: neighbor(:)         !< List of code neighbors.
+   type(tree_node_object), pointer   :: neigh               !< Pointer to node neighbor.
+   integer(I4P)                      :: neighbor_type       !< Neighbors type.
+   integer(I4P), allocatable         :: inner_block_map(:)  !< Inner blocks map.
+   integer(I4P), allocatable         :: outer_block_map(:)  !< Outer blocks map.
+   integer(I4P)                      :: fec, n              !< Counter.
+
+   outer_blocks_number = 0
+   inner_blocks_number = 0
+   allocate(inner_block_map(self%my_nodes_number))
+   allocate(outer_block_map(self%my_nodes_number))
+   if (allocated(self%inner_outer_block_map)) deallocate(self%inner_outer_block_map)
+   allocate(self%inner_outer_block_map(self%my_nodes_number))
+   do while(self%loop(node_ptr=node_ptr))
+      if (self%mpih%myrank == node_ptr%myrank) then
+         is_inner_block = .true.
+         do fec=1, 26
+            call self%get_neighbor_all(code=node_ptr%code, face=fec, neighbor=neighbor, neighbor_type=neighbor_type)
+            if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
+               do n=1, size(neighbor, dim=1)
+                  neigh => self%node(code=neighbor(n))
+                  if (self%mpih%myrank /= neigh%myrank) is_inner_block = .false.
+               enddo
+            endif
+         enddo
+         if (is_inner_block) then
+            inner_blocks_number = inner_blocks_number + 1
+            inner_block_map(inner_blocks_number) = node_ptr%block_index
+            node_ptr%block_index_new = inner_blocks_number
+         else
+            outer_blocks_number = outer_blocks_number + 1
+            outer_block_map(outer_blocks_number) = node_ptr%block_index
+            node_ptr%block_index_new = -outer_blocks_number
+         endif
+      endif
+   enddo
+   self%inner_blocks_number = inner_blocks_number
+   self%inner_outer_block_map(1:inner_blocks_number ) = inner_block_map(1:inner_blocks_number)
+   self%inner_outer_block_map(inner_blocks_number+1:) = outer_block_map(1:outer_blocks_number)
+   do while(self%loop(node_ptr=node_ptr))
+      if (self%mpih%myrank == node_ptr%myrank) then
+         if (node_ptr%block_index_new < 0) then
+            node_ptr%block_index = -node_ptr%block_index_new + inner_blocks_number
+         else
+            node_ptr%block_index =  node_ptr%block_index_new
+         endif
+      endif
+   enddo
+   call self%mpi_gather_nodes_data(node_member='block_index')
+   endsubroutine blocks_reorder
+
+   subroutine import_refinements_needed(self, refinements_needed_all, disp_count)
+   !< Import refinements needed status changed externally.
+   class(tree_object),        intent(inout) :: self                      !< The tree.
+   integer(I4P), allocatable, intent(in)    :: refinements_needed_all(:) !< Refinements needed of all blocks.
+   integer(I4P), allocatable, intent(in)    :: disp_count(:)             !< Displacement of blocks that are received from process.
+   type(tree_node_object), pointer          :: node_ptr                  !< Pointer to current node.
+   integer(I8P)                             :: b                         !< Counter.
+   integer(I4P)                             :: myrank                    !< Counter.
+
+   do while(self%loop(node_ptr=node_ptr))
+      myrank = node_ptr%myrank
+      b = node_ptr%block_index
+      node_ptr%refinement_needed = refinements_needed_all(disp_count(myrank)+b)
+   enddo
+   endsubroutine import_refinements_needed
 
    subroutine mpi_gather_nodes_data(self, node_member)
    !< Gather nodes data status between MPI processes.

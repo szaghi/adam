@@ -1,0 +1,74 @@
+[modes]
+modes = euler-gnu-mpi euler-gnu-mpi-debug
+
+[common-variables]
+$HDF5_gnu = /opt/HDF5/bin/1.12.2/openmpi/4.1.4/gnu/11.2.0
+$ZLIB     = /opt/zlib/bin/1.2.11/lib/libz.a
+$SZIP     = /opt/szip/bin/2.1.1/lib/libsz.a
+
+# main modes
+[euler-gnu-mpi]
+help     = Build euler app with GNU MPI on SZ laptop
+template = template-euler-gnu-mpi
+cflags   = -cpp -c -O2
+lflags   = -O2
+
+[euler-gnu-mpi-debug]
+help     = Build euler app with GNU MPI DEBUG on SZ laptop
+template = template-euler-gnu-mpi
+cflags   = -cpp -c -C -gopt -Mbounds -traceback
+lflags   = -C -gopt -Mbounds -traceback
+
+# templates
+[template-euler-gnu-mpi]
+compiler     = gnu
+mod_dir      = ./mod/
+obj_dir      = ./obj/
+src          = ./src/
+build_dir    = ./exe/
+target       = adam_euler_cpu.F90
+colors       = True
+quiet        = False
+log          = True
+jobs         = 4
+mpi          = True
+preproc      = -D_MPI_
+ext_libs     = dl m
+lib_dir      = $HDF5_gnu/lib
+include      = $HDF5_gnu/include
+libs         = $HDF5_gnu/lib/libhdf5hl_fortran.a
+               $HDF5_gnu/lib/libhdf5_hl.a
+               $HDF5_gnu/lib/libhdf5_fortran.a
+               $HDF5_gnu/lib/libhdf5.a
+               $ZLIB
+               $SZIP
+               ./exe/obj/getmemory.o
+exclude_dirs = references/
+               BeFoR64/src/tests/
+               BeFoR64/src/third_party/
+               FACE/src/tests/
+               FACE/src/third_party/
+               FiNeR/src/tests/
+               FiNeR/src/third_party/
+               FOSSIL/src/app/
+               FOSSIL/src/tests/
+               FOSSIL/src/third_party/
+               FoXy/src/tests/
+               FoXy/src/third_party/
+               MORTIF/src/tests/
+               MORTIF/src/third_party/
+               PENF/src/tests/
+               StringiFor/src/tests/
+               StringiFor/src/third_party/
+               VecFor/src/tests/
+               VecFor/src/third_party/
+               VTKFortran/src/tests/
+               VTKFortran/src/third_party/
+               third_party_manual/
+
+# aux rules
+[rule-makethirdpartymanual]
+help   = Make third party manual-compiling libraries on SZ laptop
+rule_1 = mkdir -p exe/mod exe/obj
+rule_2 = cd src/third_party_manual/getmemory/ ; gcc -c getmemory.c ; cd -
+rule_3 = mv src/third_party_manual/getmemory/*.o exe/obj/

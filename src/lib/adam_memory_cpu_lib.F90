@@ -10,6 +10,7 @@ save
 private
 public :: alloc_var_cpu
 public :: assign_allocatable_cpu
+public :: cpuMemGetInfo
 public :: save_memory_cpu_status
 
 interface alloc_var_cpu
@@ -28,14 +29,15 @@ interface assign_allocatable_cpu
 !< Assign CPU variable with memory checking.
 module procedure  assign_allocatable_cpu_R8P_2D, &
                   assign_allocatable_cpu_I8P_2D, &
+                  assign_allocatable_cpu_I8P_3D, &
                   assign_allocatable_cpu_I4P_1D
 endinterface assign_allocatable_cpu
 
 interface
-   subroutine getmemory(mem_free, mem_total) bind(C, name="getmemory")
+   subroutine cpuMemGetInfo(mem_free, mem_total) bind(C, name="getmemory")
       import :: C_LONG
       integer(C_LONG), intent(in) :: mem_free, mem_total
-   endsubroutine getmemory
+   endsubroutine cpuMemGetInfo
 endinterface
 
 contains
@@ -53,12 +55,12 @@ contains
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (allocated(var)) deallocate(var)
    if (verbose_) then
-      call getmemory(mem_total, mem_free)
+      call cpuMemGetInfo(mem_total, mem_free)
       print '(A)', msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    allocate(var(ulb(1):ulb(2)))
    if (verbose_) then
-      call getmemory(mem_total, mem_free)
+      call cpuMemGetInfo(mem_total, mem_free)
       print '(A)', msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_cpu_R8P_1D
@@ -77,12 +79,12 @@ contains
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (allocated(var)) deallocate(var)
    if (verbose_) then
-      call getmemory(mem_total, mem_free)
+      call cpuMemGetInfo(mem_total, mem_free)
       print '(A)', msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2)))
    if (verbose_) then
-      call getmemory(mem_total, mem_free)
+      call cpuMemGetInfo(mem_total, mem_free)
       print '(A)', msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_cpu_R8P_2D
@@ -101,12 +103,12 @@ contains
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (allocated(var)) deallocate(var)
    if (verbose_) then
-      call getmemory(mem_total, mem_free)
+      call cpuMemGetInfo(mem_total, mem_free)
       print '(A)', msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2), ulb(1,3):ulb(2,3), ulb(1,4):ulb(2,4), ulb(1,5):ulb(2,5)))
    if (verbose_) then
-      call getmemory(mem_total, mem_free)
+      call cpuMemGetInfo(mem_total, mem_free)
       print '(A)', msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_cpu_R8P_5D
@@ -125,12 +127,12 @@ contains
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (allocated(var)) deallocate(var)
    if (verbose_) then
-      call getmemory(mem_total, mem_free)
+      call cpuMemGetInfo(mem_total, mem_free)
       print '(A)', msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    allocate(var(ulb(1):ulb(2)))
    if (verbose_) then
-      call getmemory(mem_total, mem_free)
+      call cpuMemGetInfo(mem_total, mem_free)
       print '(A)', msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_cpu_I4P_1D
@@ -149,12 +151,12 @@ contains
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (allocated(var)) deallocate(var)
    if (verbose_) then
-      call getmemory(mem_total, mem_free)
+      call cpuMemGetInfo(mem_total, mem_free)
       print '(A)', msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    allocate(var(ulb(1):ulb(2)))
    if (verbose_) then
-      call getmemory(mem_total, mem_free)
+      call cpuMemGetInfo(mem_total, mem_free)
       print '(A)', msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_cpu_I8P_1D
@@ -173,12 +175,12 @@ contains
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (allocated(var)) deallocate(var)
    if (verbose_) then
-      call getmemory(mem_total, mem_free)
+      call cpuMemGetInfo(mem_total, mem_free)
       print '(A)', msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2)))
    if (verbose_) then
-      call getmemory(mem_total, mem_free)
+      call cpuMemGetInfo(mem_total, mem_free)
       print '(A)', msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_cpu_I8P_2D
@@ -197,12 +199,12 @@ contains
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (allocated(var)) deallocate(var)
    if (verbose_) then
-      call getmemory(mem_total, mem_free)
+      call cpuMemGetInfo(mem_total, mem_free)
       print '(A)', msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2), ulb(1,3):ulb(2,3)))
    if (verbose_) then
-      call getmemory(mem_total, mem_free)
+      call cpuMemGetInfo(mem_total, mem_free)
       print '(A)', msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_cpu_I8P_3D
@@ -221,12 +223,12 @@ contains
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (allocated(var)) deallocate(var)
    if (verbose_) then
-      call getmemory(mem_total, mem_free)
+      call cpuMemGetInfo(mem_total, mem_free)
       print '(A)', msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2)))
    if (verbose_) then
-      call getmemory(mem_total, mem_free)
+      call cpuMemGetInfo(mem_total, mem_free)
       print '(A)', msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_cpu_I4P_2D
@@ -271,6 +273,27 @@ contains
    endif
    endsubroutine assign_allocatable_cpu_I8P_2D
 
+   subroutine assign_allocatable_cpu_I8P_3D(lhs, rhs, msg, verbose)
+   !< Assign CPU variable with memory checking (kind I8P, rank 3).
+   !< Variable is returned not allocated if right hand side is not allocated.
+   integer(I8P), allocatable, intent(inout)         :: lhs(:,:,:) !< Left hand side of assignement.
+   integer(I8P), allocatable, intent(in)            :: rhs(:,:,:) !< Right hand side of assignement.
+   character(*),              intent(in), optional  :: msg        !< Message to be printed in verbose mode.
+   logical,                   intent(in), optional  :: verbose    !< Flag to activate verbose mode.
+
+   if (allocated(lhs)) deallocate(lhs)
+   if (allocated(rhs)) then
+      if (size(rhs, dim=1)*size(rhs, dim=2)>0) then
+         call alloc_var_cpu(var=lhs,                                                  &
+                            ulb=reshape([lbound(rhs,dim=1),ubound(rhs,dim=1),         &
+                                         lbound(rhs,dim=2),ubound(rhs,dim=2),         &
+                                         lbound(rhs,dim=3),ubound(rhs,dim=3)],[2,3]), &
+                            msg=msg, verbose=verbose)
+         lhs = rhs
+      endif
+   endif
+   endsubroutine assign_allocatable_cpu_I8P_3D
+
    subroutine assign_allocatable_cpu_I4P_1D(lhs, rhs, msg, verbose)
    !< Assign CPU variable with memory checking (kind I4P, rank 1).
    !< Variable is returned not allocated if right hand side is not allocated.
@@ -300,7 +323,7 @@ contains
    integer(I4P)                       :: file_unit           !< File unit.
 
    tag_ = '' ; if (present(tag)) tag_ = trim(tag)
-   call getmemory(mem_free, mem_total)
+   call cpuMemGetInfo(mem_free, mem_total)
    open(newunit=file_unit, file=trim(file_name), position="append")
    write(file_unit,*) tag_, mem_free, mem_total
    close(file_unit)
