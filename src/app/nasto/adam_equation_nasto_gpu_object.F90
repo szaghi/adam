@@ -431,7 +431,7 @@ contains
    call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false.)
 
    self%nv_aux = 9
-   call self%base_gpu%initialize(field=self%adam%field, nv_aux=self%nv_aux, verbose=.true.)
+   call self%base_gpu%initialize(tree=self%adam%tree, field=self%adam%field, nv_aux=self%nv_aux, verbose=.true.)
 
    call load_equation_from_ini_file
 

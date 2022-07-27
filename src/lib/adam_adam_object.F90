@@ -335,20 +335,6 @@ contains
 
    call self%tree%make_comm_local_maps_ghost(nv=self%field%nv)
    call self%tree%make_local_maps_bc
-   call self%field%set_comm_local_ghost(local_map_ghost          = self%tree%local_map_ghost,         &
-                                        local_map_ghost_cell     = self%tree%local_map_ghost_cell,    &
-                                        comm_map_n_send_ghost    = self%tree%comm_map_n_send_ghost,   &
-                                        comm_map_n_recv_ghost    = self%tree%comm_map_n_recv_ghost,   &
-                                        comm_map_send_ptr_ghost  = self%tree%comm_map_send_ptr_ghost, &
-                                        comm_map_recv_ptr_ghost  = self%tree%comm_map_recv_ptr_ghost, &
-                                        comm_map_send_ghost      = self%tree%comm_map_send_ghost,     &
-                                        comm_map_send_ghost_cell = self%tree%comm_map_send_ghost_cell,&
-                                        comm_map_recv_ghost      = self%tree%comm_map_recv_ghost,     &
-                                        comm_map_recv_ghost_cell = self%tree%comm_map_recv_ghost_cell)
-   call self%field%set_local_bc(local_map_bc_face   = self%tree%local_map_bc_face,   &
-                                local_map_bc_edge   = self%tree%local_map_bc_edge,   &
-                                local_map_bc_corner = self%tree%local_map_bc_corner, &
-                                local_map_bc_crown  = self%tree%local_map_bc_crown)
    endsubroutine make_comm_local_maps_ghost_bc
 
    subroutine mpi_gather_refinement_needed(self, is_marked_by_field, is_marked_by_tree)

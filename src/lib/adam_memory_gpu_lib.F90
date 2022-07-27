@@ -8,7 +8,6 @@ use CUDAFOR
 implicit none
 save
 private
-! public :: alloc_var_gpu
 public :: assign_allocatable_gpu
 public :: save_memory_gpu_status
 

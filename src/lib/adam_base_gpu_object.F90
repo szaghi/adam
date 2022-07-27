@@ -3,12 +3,13 @@ module adam_base_gpu_object
 !< ADAM, base GPU class definition: provide methods for GPU backend handling.
 
 use adam_field_object, only : field_object
-use adam_mpih_object, only : mpih_object
+use adam_mpih_object,  only : mpih_object
+use adam_tree_object,  only : tree_object
 use adam_memory_gpu_lib
 use adam_parameters
-use PENF
-use MPI
-use CUDAFOR
+use penf
+use mpi
+use cudafor
 use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
 
 implicit none
@@ -21,6 +22,7 @@ type :: base_gpu_object
    !<
    !< Provide methods for GPU backend.
    type(mpih_object)           :: mpih           !< MPI handler.
+   type(tree_object),  pointer :: tree=>null()   !< The tree.
    type(field_object), pointer :: field=>null()  !< The field.
    real(R8P), allocatable      :: q_t(:,:,:,:,:) !< Transposed cell centered variables on CPU.
    ! MPI data
@@ -63,11 +65,11 @@ contains
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) print '(A)', self%mpih%myrankstr//'base_gpu%copy_cpu_gpu start'
-   call assign_allocatable_gpu(lhs=      self%send_buffer_ghost_gpu, &
-                               rhs=self%field%send_buffer_ghost,     &
+   call assign_allocatable_gpu(lhs=     self%send_buffer_ghost_gpu, &
+                               rhs=self%tree%send_buffer_ghost,     &
                                msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(send_buffer_ghost_gpu) ', verbose=verbose)
-   call assign_allocatable_gpu(lhs=      self%recv_buffer_ghost_gpu, &
-                               rhs=self%field%recv_buffer_ghost,     &
+   call assign_allocatable_gpu(lhs=     self%recv_buffer_ghost_gpu, &
+                               rhs=self%tree%recv_buffer_ghost,     &
                                msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(recv_buffer_ghost_gpu) ', verbose=verbose)
    call assign_allocatable_gpu(lhs=      self%x_cell_gpu, &
                                rhs=self%field%x_cell,     &
@@ -81,17 +83,17 @@ contains
    call assign_allocatable_gpu(lhs=      self%dxyz_gpu, &
                                rhs=self%field%dxyz,     &
                                transposed=.true., msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(dxyz_gpu) ', verbose=verbose)
-   call assign_allocatable_gpu(lhs=      self%local_map_ghost_cell_gpu, &
-                               rhs=self%field%local_map_ghost_cell,     &
+   call assign_allocatable_gpu(lhs=     self%local_map_ghost_cell_gpu, &
+                               rhs=self%tree%local_map_ghost_cell,     &
                                msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(local_map_ghost_cell_gpu) ', verbose=verbose)
    call assign_allocatable_gpu(lhs=  self%comm_map_send_ghost_cell_gpu, &
-                               rhs=self%field%comm_map_send_ghost_cell, &
+                               rhs=self%tree%comm_map_send_ghost_cell, &
                                msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(comm_map_send_ghost_cell_gpu) ', verbose=verbose)
-   call assign_allocatable_gpu(lhs=      self%comm_map_recv_ghost_cell_gpu, &
-                               rhs=self%field%comm_map_recv_ghost_cell,     &
+   call assign_allocatable_gpu(lhs=     self%comm_map_recv_ghost_cell_gpu, &
+                               rhs=self%tree%comm_map_recv_ghost_cell,     &
                                msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(comm_map_recv_ghost_cell_gpu) ', verbose=verbose)
-   call assign_allocatable_gpu(lhs=      self%local_map_bc_crown_gpu, &
-                               rhs=self%field%local_map_bc_crown,     &
+   call assign_allocatable_gpu(lhs=     self%local_map_bc_crown_gpu, &
+                               rhs=self%tree%local_map_bc_crown,     &
                                msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(local_map_bc_crown_gpu) ', verbose=verbose)
    if (verbose_) print '(A)', self%mpih%myrankstr//'base_gpu%copy_cpu_gpu finish'
    endsubroutine copy_cpu_gpu
@@ -161,10 +163,11 @@ contains
    endassociate
    endsubroutine copy_transpose_gpu_cpu
 
-   subroutine initialize(self, field, nv_aux, verbose)
+   subroutine initialize(self, tree, field, nv_aux, verbose)
    !< Initialize base backend.
    class(base_gpu_object), intent(inout)        :: self             !< The base backend.
-   type(field_object),     intent(in), target   :: field            !< Field variable array.
+   type(tree_object),      intent(in), target   :: tree             !< The tree.
+   type(field_object),     intent(in), target   :: field            !< The field.
    integer(I4P),           intent(in), optional :: nv_aux           !< Number of auxiliary variables.
    logical,                intent(in), optional :: verbose          !< Flag to activate verbose mode.
    integer(I4P)                                 :: nv_aux_          !< Number of auxiliary variables (local var).
@@ -172,6 +175,7 @@ contains
 
    print '(A)', self%mpih%myrankstr//'base_gpu%initialize start'
    allocate(fec_1_6_array(26))
+   self%tree  => tree
    self%field => field
    allocate(self%req_send_recv(0:self%mpih%procs_number*2-1))
    fec_1_6_array([1,7,9,11,13,19,21,23,25])  = 1
@@ -269,8 +273,10 @@ contains
 
    call update_ghost_mpi_gpu_cuf(procs_number=self%mpih%procs_number,                            &
                                  req_send_recv=self%field%req_send_recv,                         &
-                                 comm_map_send_ptr_ghost=self%field%comm_map_send_ptr_ghost,     &
-                                 comm_map_recv_ptr_ghost=self%field%comm_map_recv_ptr_ghost,     &
+                                 ! comm_map_send_ptr_ghost=self%field%comm_map_send_ptr_ghost,     &
+                                 ! comm_map_recv_ptr_ghost=self%field%comm_map_recv_ptr_ghost,     &
+                                 comm_map_send_ptr_ghost=self%tree%comm_map_send_ptr_ghost,      &
+                                 comm_map_recv_ptr_ghost=self%tree%comm_map_recv_ptr_ghost,      &
                                  comm_map_send_ghost_cell_gpu=self%comm_map_send_ghost_cell_gpu, &
                                  comm_map_recv_ghost_cell_gpu=self%comm_map_recv_ghost_cell_gpu, &
                                  recv_buffer_ghost_gpu=self%recv_buffer_ghost_gpu,               &

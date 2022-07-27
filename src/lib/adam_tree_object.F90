@@ -211,6 +211,9 @@ type :: tree_object
    integer(I8P), allocatable :: comm_map_send_ghost_cell(:,:) !< Communication map, send ghost cells, cells order.
    integer(I8P), allocatable :: comm_map_recv_ghost(:,:)      !< Communication map, recv ghost cells, fec order.
    integer(I8P), allocatable :: comm_map_recv_ghost_cell(:,:) !< Communication map, recv ghost cells, cells order.
+   ! MPI send/recv ghost buffers
+   real(R8P), allocatable :: send_buffer_ghost(:) !< Send buffer of ghost cells.
+   real(R8P), allocatable :: recv_buffer_ghost(:) !< Receive buffer of ghost cells.
    ! STL surfaces data
    type(surface_stl_object)  :: surface_stl !< STL surface.
 
@@ -1613,6 +1616,13 @@ contains
          endif
       enddo
    enddo
+
+   ! mpi buffers
+   if (allocated(self%send_buffer_ghost)) deallocate(self%send_buffer_ghost)
+   if (allocated(self%comm_map_n_send_ghost)) allocate(self%send_buffer_ghost(1:sum(self%comm_map_n_send_ghost, dim=1)*nv))
+   if (allocated(self%recv_buffer_ghost)) deallocate(self%recv_buffer_ghost)
+   if (allocated(self%comm_map_n_recv_ghost)) allocate(self%recv_buffer_ghost(1:sum(self%comm_map_n_recv_ghost, dim=1)*nv))
+
    ! maps in cells order
    if (allocated(self%local_map_ghost_cell)) deallocate(self%local_map_ghost_cell)
    if (allocated(self%local_map_ghost)) then
