@@ -127,6 +127,7 @@ type :: equation_nasto_gpu_object
    integer(I4P)                      :: nrk=4_I4P       !< Runge-Kutta stages number.
    real(R8P), allocatable            :: ark(:)          !< RK alpha coefficients.
    real(R8P), allocatable            :: brk(:)          !< RK beta coefficients.
+   real(R8P), allocatable            :: crk(:)          !< RK beta coefficients.
    ! Immersed boundary
    character(999)                    :: solid_name      !< Name of solid off file.
    integer(I4P)                      :: solid_bc_type   !< Solid bc.
@@ -186,6 +187,7 @@ type :: equation_nasto_gpu_object
    real(R8P), allocatable, device :: fd_conv_gpu(:,:)        !< Second order derivatives coeffs.
    real(R8P), allocatable, device :: q_aux_gpu(:,:,:,:,:)    !< Auxiliary cell centered variables.
    real(R8P), allocatable, device :: q_gpu(:,:,:,:,:)        !< Field cell centered variables.
+   real(R8P), allocatable, device :: q_old_gpu(:,:,:,:,:)    !< Field cell centered variables (old iteration).
    real(R8P), allocatable, device :: q_invert_gpu(:,:,:,:,:) !< Field cell with boundary set on immersed bodies.
    real(R8P), allocatable, device :: gplus_x(:,:,:,:,:)      !< For weno-x.
    real(R8P), allocatable, device :: gminus_x(:,:,:,:,:)     !< For weno-x.
@@ -210,6 +212,7 @@ type :: equation_nasto_gpu_object
       procedure, pass(self) :: load_restart_files      !< Load restart files.
       procedure, pass(self) :: mark_by_grad_var        !< Mark blocks to be refined/derefined by a `grad(var)` value.
       procedure, pass(self) :: mark_by_geo             !< Mark blocks to be refined/derefined by a `grad(var)` value.
+      procedure, pass(self) :: old_integrate               !< Runge Kutta integration of equation.
       procedure, pass(self) :: integrate               !< Runge Kutta integration of equation.
       procedure, pass(self) :: print_progress          !< Print simulation progress.
       procedure, pass(self) :: refine_uniform          !< Refine all blocks uniformly.
@@ -464,6 +467,7 @@ contains
    allocate(self%q_gpu(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv))
    ! call alloc_var_gpu(var=self%q_aux_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(q_aux_gpu) ', verbose=.true.,&
    !                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv_aux],[2,5]))
+   allocate(self%q_old_gpu(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv))
    allocate(self%q_aux_gpu(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv_aux))
    ! call alloc_var_gpu(var=self%fl_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(fl_gpu) ', verbose=.true.,&
    !                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
@@ -755,6 +759,95 @@ contains
              ngc=>self%ngc, nv=>self%nv, nrk=>self%nrk, ns=>self%ns, blocks_number=>self%blocks_number,  &
              inner_blocks_number=>self%field%inner_blocks_number, n_solids=>self%n_solids, bcs_type=>self%bcs_type(1))
 
+   self%q_old_gpu = self%q_gpu
+
+   do s=1, nrk
+      ! ------------------------------------------------------------------------------------------------
+      ! ANDREA IB
+      ! ------------------------------------------------------------------------------------------------
+      if (n_solids > 0) then
+         call self%update_ghost_gpu(q_gpu=self%q_gpu)
+         do i_eikonal=1,n_eikonal
+            call MPI_Barrier(MPI_COMM_WORLD, iermpi)
+
+            !self%mpih%error = cudaGetLastError()
+            !if (self%mpih%error /= cudaSuccess) then
+            !   print*,'BEFORE EIK POST FRA CUDA ERROR ',cudaGetErrorString(self%mpih%error)
+            !   call MPI_Abort(MPI_COMM_WORLD, -15,self%mpih%error) ; STOP
+            !endif
+            call evolve_eikonal_q_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
+                                          phi_gpu=self%phi_gpu,                                             &
+                                          dx_gpu=self%base_gpu%dxyz_gpu(:,1),                               &
+                                          dy_gpu=self%base_gpu%dxyz_gpu(:,2),                               &
+                                          dz_gpu=self%base_gpu%dxyz_gpu(:,3),                               &
+                                          dq_gpu=self%dq_gpu,                                               &
+                                          q_gpu=self%q_gpu)
+
+            !self%mpih%error = cudaGetLastError()
+            !if (self%mpih%error /= cudaSuccess) then
+            !   print*,'AFTER EIK POST FRA CUDA ERROR ',cudaGetErrorString(self%mpih%error)
+            !   call MPI_Abort(MPI_COMM_WORLD, -15,self%mpih%error) ; STOP
+            !endif
+            call self%update_ghost_gpu(q_gpu=self%q_gpu)
+         enddo
+         call invert_eikonal_field(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,        &
+                                   q_gpu=self%q_gpu(:,:,:,:,:), q_invert_gpu=self%q_invert_gpu(:,:,:,:,:),  &
+                                   phi_gpu=self%phi_gpu, bcs_type=bcs_type)
+      else
+         ! added for restart debug...
+         self%q_invert_gpu = self%q_gpu
+      endif
+      call MPI_Barrier(MPI_COMM_WORLD, iermpi)
+
+      call self%compute_aux(q_gpu=self%q_invert_gpu, q_aux_gpu=self%q_aux_gpu)
+
+      t_s = t + dt*self%ark(s)
+      call self%compute_residuals_gpu(ni=ni, nj=nj, nk=nk, ngc=ngc, ns=ns, blocks_number=blocks_number,                      &
+                                      dx_gpu = self%base_gpu%dxyz_gpu(:,1),                                                  &
+                                      dy_gpu = self%base_gpu%dxyz_gpu(:,2),                                                  &
+                                      dz_gpu = self%base_gpu%dxyz_gpu(:,3),                                                  &
+                                      q_aux_gpu = self%q_aux_gpu,  phi_gpu = self%phi_gpu,      fl_gpu = self%fl_gpu,        &
+                                      flx_gpu   = self%flx_gpu,    fly_gpu = self%fly_gpu,      flz_gpu = self%flz_gpu,      &
+                                      fd_conv_gpu = self%fd_conv_gpu, fd_coeff1_gpu = self%fd_coeff1_gpu,                    &
+                                      fd_coeff2_gpu = self%fd_coeff2_gpu,                                                    &
+                                      gminus_x = self%gminus_x, gminus_y = self%gminus_y, gminus_z = self%gminus_z,          &
+                                      gplus_x = self%gplus_x,   gplus_y  = self%gplus_y,  gplus_z  = self%gplus_z,           &
+                                      euler_scheme = self%euler_scheme, visc_scheme = self%visc_scheme,                      &
+                                      lmax = self%lmax, iweno = self%iweno, visc_order = self%visc_order,                    &
+                                      visc_law = self%visc_law,                                                              &
+                                      cp_star       = self%cp_star,  cv_star = self%cv_star, gamma_fluid = self%gamma_fluid, &
+                                      R_star        = self%R_star,   mu_star = self%mu_star, k_star      = self%k_star,      &
+                                      dha_star      = self%dha_star, Lewis   = self%Lewis,   Zeldovich   = self%Zeldovich,   &
+                                      Damkohler     = self%Damkohler)
+
+      call compute_rk_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,    &
+                                   dt=dt, s=s, q_gpu=self%q_gpu, q_old_gpu=self%q_old_gpu,                &
+                                   fl_gpu=self%fl_gpu, phi_gpu=self%phi_gpu, & 
+                                   ark=self%ark(s), brk=self%brk(s), crk=self%crk(s))
+
+   enddo
+   endassociate
+   endsubroutine integrate
+
+   subroutine old_integrate(self, t, do_ghost_syncro, residual)
+   !< Runge Kutta integration of field.
+   class(equation_nasto_gpu_object), intent(inout)         :: self             !< The equation.
+   real(R8P),                        intent(in)            :: t                !< Time.
+   logical,                          intent(in),  optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
+   real(R8P),                        intent(out), optional :: residual         !< Global residual.
+   logical                                                 :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
+   integer(I4P)                                            :: s                !< Counter.
+   integer(I4P)                                            :: i_eikonal        !< Counter.
+   integer(I4P), parameter                                 :: n_eikonal=2      !< Counter.
+   real(R8P)                                               :: t_s
+   real(R8P)                                               :: qnrk
+   integer(I4P)                                            :: iermpi
+
+   do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
+   associate(dt=>self%dt, ni=>self%ni, nj=>self%nj, nk=>self%nk,                                         &
+             ngc=>self%ngc, nv=>self%nv, nrk=>self%nrk, ns=>self%ns, blocks_number=>self%blocks_number,  &
+             inner_blocks_number=>self%field%inner_blocks_number, n_solids=>self%n_solids, bcs_type=>self%bcs_type(1))
+
    do s=1, nrk
       call MPI_Barrier(MPI_COMM_WORLD, iermpi)
       t_s = t + dt*(self%ark(s)+self%brk(s))
@@ -843,7 +936,7 @@ contains
                                      fl_gpu=self%fl_gpu, phi_gpu=self%phi_gpu, qnrk=dt*self%ark(s))
    enddo
    endassociate
-   endsubroutine integrate
+   endsubroutine old_integrate
 
    subroutine load_restart_files(self, t, time)
    !< Save restart files.
@@ -1198,14 +1291,23 @@ contains
    class(equation_nasto_gpu_object), intent(inout) :: self !< The equation.
 
    call self%file_input%get(section_name='time', option_name='nrk', val=self%nrk)
-   allocate(self%ark(self%nrk), self%brk(self%nrk))
+   allocate(self%ark(self%nrk), self%brk(self%nrk), self%crk(self%nrk))
    select case(self%nrk)
-   case(3_I4P)
-      self%ark(:)=[8._R8P  /15._R8P, 5._R8P  /12._R8P, 3._R8P  /4._R8P]
-      self%brk(:)=[0._R8P, -17._R8P/60._R8P , -5._R8P /12._R8P]
-   case(4_I4P)
-      self%ark(:) = [8._R8P/17._R8P,17._R8P /60._R8P,5._R8P /12._R8P,3._R8P/4._R8P]
-      self%brk(:) = [0._R8P,-15._R8P/68._R8P,-17._R8P/60._R8P,-5._R8P/12._R8P]
+   !case(3_I4P)
+   !   self%ark(:)=[8._R8P  /15._R8P, 5._R8P  /12._R8P, 3._R8P  /4._R8P]
+   !   self%brk(:)=[0._R8P, -17._R8P/60._R8P , -5._R8P /12._R8P]
+   !case(4_I4P)
+   !   self%ark(:) = [8._R8P/17._R8P,17._R8P /60._R8P,5._R8P /12._R8P,3._R8P/4._R8P]
+   !   self%brk(:) = [0._R8P,-15._R8P/68._R8P,-17._R8P/60._R8P,-5._R8P/12._R8P]
+       case (1_I4P)   ! Eulero
+           self%ark(1) = 1d0  ; self%brk(1) = 0d0; self%crk(1) = 1d0
+       case (2_I4P)   ! secondo ordine TVD
+           self%ark(1) = 1d0    ; self%brk(1) = 0d0  ; self%crk(1) = 1d0
+           self%ark(2) = 0.5d0  ; self%brk(2) = 0.5d0; self%crk(2) = 0.5d0
+       case (3_I4P)  ! terzo ordine TV
+           self%ark(1) = 1d0     ; self%brk(1) = 0d0     ; self%crk(1) = 1d0
+           self%ark(2) = 0.75d0  ; self%brk(2) = 0.25d0  ; self%crk(2) = 0.25d0
+           self%ark(3) = 1d0/3d0 ; self%brk(3) = 2d0/3d0 ; self%crk(3) = 2d0/3d0
    endselect
    endsubroutine runge_kutta_initialize
 
@@ -2983,6 +3085,41 @@ contains
    enddo
    !@cuf iercuda=cudaDeviceSynchronize()
    endsubroutine compute_rk_linear_gpu_cuf
+
+   subroutine compute_rk_gpu_cuf(ni, nj, nk, ngc, nv, blocks_number, dt, s, q_gpu, q_old_gpu, fl_gpu, phi_gpu, ark, brk, crk)
+   !< Initialize RK stage with q_gpu.
+   integer(I4P), intent(in)            :: ni                                     !< Grid cells number in I direction.
+   integer(I4P), intent(in)            :: nj                                     !< Grid cells number in J direction.
+   integer(I4P), intent(in)            :: nk                                     !< Grid cells number in K direction.
+   integer(I4P), intent(in)            :: ngc                                    !< Ghost cells number.
+   integer(I4P), intent(in)            :: nv                                     !< Number of conservative varibales.
+   integer(I4P), intent(in)            :: blocks_number                          !< Number of blocks.
+   real(R8P),    intent(in)            :: dt                                     !< Time step.
+   real(R8P),    intent(in)            :: ark, brk, crk                          !< Time step.
+   integer(I4P), intent(in)            :: s                                      !< Stage to initialize.
+   real(R8P),    intent(inout), device ::   q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Conservative field.
+   real(R8P),    intent(in),    device ::  fl_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Conservative field.
+   real(R8P),    intent(in),    device :: phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Conservative field.
+   real(R8P),    intent(in), device    :: q_old_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< RK stage.
+   integer(I4P)                        :: i, j, k, b, v, ss                      !< Counter.
+   integer(I4P)                        :: iercuda                                !< Error trapping flag for CUDAFortran.
+
+   !$cuf kernel do(5) <<<*,*>>>
+   do v=1, nv
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               do b=1, blocks_number
+                  if(phi_gpu(b,i,j,k,1) < 0.) then
+                     q_gpu(b,i,j,k,v) = ark * q_old_gpu(b,i,j,k,v) + brk * q_gpu(b,i,j,k,v) + dt * crk * fl_gpu(b,i,j,k,v)
+                  endif
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+   !@cuf iercuda=cudaDeviceSynchronize()
+   endsubroutine compute_rk_gpu_cuf
 
    subroutine compute_rk_prhs_gpu_cuf(ni, nj, nk, ngc, nv, blocks_number, dt, s, q_gpu, prhs_gpu, fl_gpu, phi_gpu, qnrk)
    !< Initialize RK stage with q_gpu.
