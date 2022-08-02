@@ -96,7 +96,8 @@ colors       = True
 quiet        = False
 log          = True
 jobs         = 4
-exclude_dirs = references/
+exclude_dirs = src/lib_experimental/
+               references/
                BeFoR64/src/tests/
                BeFoR64/src/third_party/
                FACE/src/tests/
@@ -133,7 +134,8 @@ jobs         = 4
 mpi          = True
 preproc      = -D_NVF -D_MPI_
 ext_libs     = dl m
-exclude_dirs = references/
+exclude_dirs = src/lib_experimental/
+               references/
                BeFoR64/src/tests/
                BeFoR64/src/third_party/
                FACE/src/tests/

@@ -17,7 +17,8 @@ $DEBUG_GNU   = -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -
 $DEBUG_INT   = -O0 -debug all -check all -warn all -extend-source 132 -traceback -gen-interfaces#-fpe-all=0 -fp-stack-check -fstack-protector-all -ftrapuv -no-ftz -std08
 $DEBUG_NVF   = -O0 -g -C
 $OPTIMIZE    = -O2
-$EXDIRS      = references/
+$EXDIRS      = src/lib_experimental/
+               references/
                BeFoR64/src/tests/
                BeFoR64/src/third_party/
                FACE/src/tests/
@@ -296,9 +297,9 @@ fc           = mpif90
 #fc           = mpipgifort
 modsw        = -module=
 mpi          = True
-#cflags       = $CSTATIC_CUDA_NVF -O0 
+#cflags       = $CSTATIC_CUDA_NVF -O0
 #lflags       = $LSTATIC_CUDA_NVF -O0
-cflags       = $CSTATIC_CUDA_NVF -O3 
+cflags       = $CSTATIC_CUDA_NVF -O3
 lflags       = $LSTATIC_CUDA_NVF -O3
 exclude_dirs = $EXDIRS
 preproc      = -D_NVF -D_MPI_

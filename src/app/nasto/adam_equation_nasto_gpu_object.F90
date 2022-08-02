@@ -226,6 +226,7 @@ type :: equation_nasto_gpu_object
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation.
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions of equation.
       procedure, pass(self) :: update_ghost_gpu        !< Update ghost cells and set boundary conditions.
+      procedure, pass(self) :: update_ghost_fluxes_gpu !< Update fluxes cells and set boundary conditions.
       procedure, pass(self) :: compute_residuals_gpu   !< Compute residuals.
       ! operators
       generic :: assignment(=) => eq_assign_eq      !< Overload `=`.
@@ -434,7 +435,7 @@ contains
    call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false.)
 
    self%nv_aux = 9
-   call self%base_gpu%initialize(tree=self%adam%tree, field=self%adam%field, nv_aux=self%nv_aux, verbose=.true.)
+   call self%base_gpu%initialize(field=self%adam%field, nv_aux=self%nv_aux, verbose=.true.)
 
    call load_equation_from_ini_file
 
@@ -1587,6 +1588,40 @@ contains
    if (do_set_bc)       call self%set_boundary_conditions(q_gpu=q_gpu)
    endsubroutine update_ghost_gpu
 
+   subroutine update_ghost_fluxes_gpu(self, flx_gpu, fly_gpu, flz_gpu, step)
+   !< Update ghost cells.
+   !< If not specified all steps are perfermod, syncronous computation
+   class(equation_nasto_gpu_object), intent(inout)         :: self            !< The equation.
+   real(R8P),                        intent(inout), device :: flx_gpu(1:,         &
+                                                                      1-self%ngc:,&
+                                                                      1-self%ngc:,&
+                                                                      1-self%ngc:,&
+                                                                      1:)       !< Conservative variables.
+   real(R8P),                        intent(inout), device :: fly_gpu(1:,         &
+                                                                      1-self%ngc:,&
+                                                                      1-self%ngc:,&
+                                                                      1-self%ngc:,&
+                                                                      1:)       !< Conservative variables.
+   real(R8P),                        intent(inout), device :: flz_gpu(1:,         &
+                                                                      1-self%ngc:,&
+                                                                      1-self%ngc:,&
+                                                                      1-self%ngc:,&
+                                                                      1:)       !< Conservative variables.
+   integer(I4P),                     intent(in), optional  :: step            !< Step to be perfordmed in asyncronous comp.
+   logical                                                 :: do_local_update !< Flag for triggering local update.
+
+   ! perform local update if step is not speficied or if first step is selected
+   do_local_update = .false.
+   if (.not.present(step)) then
+      do_local_update = .true.
+   else
+      if (step==1) do_local_update = .true.
+   endif
+
+   if (do_local_update) call self%base_gpu%update_ghost_fluxes_local_gpu(flx_gpu=flx_gpu, fly_gpu=fly_gpu, flz_gpu=flz_gpu)
+   !TODO                     call self%base_gpu%update_ghost_fluxes_mpi_gpu(q_gpu=q_gpu, step=step)
+   endsubroutine update_ghost_fluxes_gpu
+
    subroutine update_phi(self)
    !< Update x/y/z_cell_gpu
    class(equation_nasto_gpu_object), intent(inout) :: self                      !< The equation.
@@ -1630,7 +1665,7 @@ contains
             !if(inside) print*,'Point inside!!!!!!!!!!!!!!!!'
             ! RIMETTERE CGAL
 
-            distance = - (sqrt((query_x-10._R8P)**2+(query_y-10._R8P)**2+(query_z-10._R8P)**2)-0.5_R8P)
+            distance = - (sqrt((query_x-10._R8P)**2+(query_y-10._R8P)**2+(query_z-10._R8P)**2)-1.0_R8P)
 
             phi(b,i,j,k,ib) = distance
          enddo
@@ -1959,6 +1994,21 @@ contains
        endif
    endif
 
+   ! ! debug restart
+   ! if (self%itt == 51) then
+   ! print*, ' cazzo residual euler 1'
+   ! self%pbuffer = flx_gpu
+   ! print '(A)', 'debug-restart flx_gpu[rho*v,ni-3:ni,1   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 1, 4, 3)))
+   ! print '(A)', 'debug-restart flx_gpu[rho*v,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
+   ! self%pbuffer = fly_gpu
+   ! print '(A)', 'debug-restart fly_gpu[rho*v,ni-3:ni,1   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 1, 4, 3)))
+   ! print '(A)', 'debug-restart fly_gpu[rho*v,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
+   ! self%pbuffer = flz_gpu
+   ! print '(A)', 'debug-restart flz_gpu[rho*v,ni-3:ni,1   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 1, 4, 3)))
+   ! print '(A)', 'debug-restart flz_gpu[rho*v,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
+   ! endif
+   ! ! debug restart
+
       self%mpih%error = cudaGetLastError()
       if(self%mpih%error /= cudaSuccess) then
          print*,'FRA-2 CUDA ERROR ',cudaGetErrorString(self%mpih%error)
@@ -1976,12 +2026,29 @@ contains
    endif
       !@cuf iercuda=cudaDeviceSynchronize()
 
+   ! ! debug restart
+   ! if (self%itt == 51) then
+   ! print*, ' cazzo residual visc 2'
+   ! self%pbuffer = flx_gpu
+   ! print '(A)', 'debug-restart flx_gpu[rho*v,ni-3:ni,1   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 1, 4, 3)))
+   ! print '(A)', 'debug-restart flx_gpu[rho*v,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
+   ! self%pbuffer = fly_gpu
+   ! print '(A)', 'debug-restart fly_gpu[rho*v,ni-3:ni,1   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 1, 4, 3)))
+   ! print '(A)', 'debug-restart fly_gpu[rho*v,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
+   ! self%pbuffer = flz_gpu
+   ! print '(A)', 'debug-restart flz_gpu[rho*v,ni-3:ni,1   ,nk/2]'//trim(str(self%pbuffer(296, 6:8, 1, 4, 3)))
+   ! print '(A)', 'debug-restart flz_gpu[rho*v,ni-3:ni,nj  ,nk/2]'//trim(str(self%pbuffer(167, 6:8, 8, 4, 3)))
+   ! endif
+   ! ! debug restart
+
       self%mpih%error = cudaGetLastError()
       if(self%mpih%error /= cudaSuccess) then
          print*,'FRA-3 CUDA ERROR ',cudaGetErrorString(self%mpih%error)
          call MPI_Abort(MPI_COMM_WORLD, -15,self%mpih%error)
          STOP
       endif
+
+   !RIMETTEREcall self%update_ghost_fluxes_gpu(flx_gpu, fly_gpu, flz_gpu)
 
    ib_eps = 1.e-12_R8P
    call compute_flux_diff(blocks_number, ni, nj, nk, ngc, ns+4, &

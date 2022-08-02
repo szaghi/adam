@@ -2,23 +2,58 @@
 module adam_parameters
 !< ADAM, general parameters.
 
-use PENF
+use penf
 
 implicit none
 save
 private
 public :: BC_PERIODIC
-public :: TO_BE_REFINED,   &
-          TO_BE_DEREFINED, &
-          TO_NOT_TOUCH
+public :: TO_BE_REFINED
+public :: TO_BE_DEREFINED
+public :: TO_NOT_TOUCH
+public :: FEC_1_6_ARRAY
 public :: FEC_TO_DELTA
 public :: DELTA_TO_FEC
 
 integer(I4P), parameter :: BC_PERIODIC = -1_I4P !< Flag (reserved) for periodical boundary conditions.
 
-integer(I4P), parameter :: TO_BE_REFINED=1_I4P    !< Flag for node/block to be refined.
-integer(I4P), parameter :: TO_BE_DEREFINED=-1_I4P !< Flag for node/block to be derefined.
-integer(I4P), parameter :: TO_NOT_TOUCH=0_I4P     !< Flag for node/block to be untouched.
+integer(I4P), parameter :: TO_BE_REFINED   =  1_I4P !< Flag for node/block to be refined.
+integer(I4P), parameter :: TO_BE_DEREFINED = -1_I4P !< Flag for node/block to be derefined.
+integer(I4P), parameter :: TO_NOT_TOUCH    =  0_I4P !< Flag for node/block to be untouched.
+
+integer(I4P), parameter :: FEC_1_6_ARRAY(26) = [1, & ! 1
+                                                2, & ! 2
+                                                3, & ! 3
+                                                4, & ! 4
+                                                5, & ! 5
+                                                6, & ! 6
+                                                1, & ! 7
+                                                2, & ! 8
+                                                1, & ! 9
+                                                2, & ! 10
+                                                1, & ! 11
+                                                2, & ! 12
+                                                1, & ! 13
+                                                2, & ! 14
+                                                3, & ! 15
+                                                4, & ! 16
+                                                3, & ! 17
+                                                4, & ! 18
+                                                1, & ! 19
+                                                2, & ! 20
+                                                1, & ! 21
+                                                2, & ! 22
+                                                1, & ! 23
+                                                2, & ! 24
+                                                1, & ! 25
+                                                2]   ! 26
+                                                !< Mapping fec(1-26) to fec(1-6) for boundaries.
+                                                ! fec_1_6_array([1,7,9,11,13,19,21,23,25])  = 1
+                                                ! fec_1_6_array([2,8,10,12,14,20,22,24,26]) = 2
+                                                ! fec_1_6_array([3,15,17])                  = 3
+                                                ! fec_1_6_array([4,16,18])                  = 4
+                                                ! fec_1_6_array([5])                        = 5
+                                                ! fec_1_6_array([6])                        = 6
 
 integer(I4P), parameter :: FEC_TO_DELTA(3, 26) = reshape([-1,  0,  0, &! face 1
                                                            1,  0,  0, &! face 2
