@@ -165,28 +165,18 @@ contains
 
    subroutine initialize(self, tree, field, nv_aux, verbose)
    !< Initialize base backend.
-   class(base_gpu_object), intent(inout)        :: self             !< The base backend.
-   type(tree_object),      intent(in), target   :: tree             !< The tree.
-   type(field_object),     intent(in), target   :: field            !< The field.
-   integer(I4P),           intent(in), optional :: nv_aux           !< Number of auxiliary variables.
-   logical,                intent(in), optional :: verbose          !< Flag to activate verbose mode.
-   integer(I4P)                                 :: nv_aux_          !< Number of auxiliary variables (local var).
-   integer(I4P), allocatable                    :: fec_1_6_array(:) !< Mapping fec1-26 to fec1-6 for boundaries.
+   class(base_gpu_object), intent(inout)        :: self    !< The base backend.
+   type(tree_object),      intent(in), target   :: tree    !< The tree.
+   type(field_object),     intent(in), target   :: field   !< The field.
+   integer(I4P),           intent(in), optional :: nv_aux  !< Number of auxiliary variables.
+   logical,                intent(in), optional :: verbose !< Flag to activate verbose mode.
+   integer(I4P)                                 :: nv_aux_ !< Number of auxiliary variables (local var).
 
    print '(A)', self%mpih%myrankstr//'base_gpu%initialize start'
-   allocate(fec_1_6_array(26))
    self%tree  => tree
    self%field => field
    allocate(self%req_send_recv(0:self%mpih%procs_number*2-1))
-   fec_1_6_array([1,7,9,11,13,19,21,23,25])  = 1
-   fec_1_6_array([2,8,10,12,14,20,22,24,26]) = 2
-   fec_1_6_array([3,15,17])                  = 3
-   fec_1_6_array([4,16,18])                  = 4
-   fec_1_6_array([5])                        = 5
-   fec_1_6_array([6])                        = 6
-   call assign_allocatable_gpu(lhs=self%fec_1_6_array_gpu, &
-                               rhs=     fec_1_6_array,     &
-                               msg=self%mpih%myrankstr//'base_gpu%initialize(fec_1_6_array_gpu)', verbose=verbose)
+   self%fec_1_6_array_gpu = FEC_1_6_ARRAY
    nv_aux_ = self%field%nv
    if (present(nv_aux)) nv_aux_ = max(nv_aux_, nv_aux)
    ! allocate buffers for copy-transposes performed by equation
@@ -194,20 +184,12 @@ contains
                      1-field%grid%ngc:field%grid%ni+field%grid%ngc, &
                      1-field%grid%ngc:field%grid%nj+field%grid%ngc, &
                      1-field%grid%ngc:field%grid%nk+field%grid%ngc, 1:nv_aux_))
-   ! call alloc_var_gpu(var=self%q_t_gpu,                                          &
-   !                    ulb=reshape([1,nv_aux_,                                    &
-   !                                 1-field%grid%ngc,field%grid%ni+field%grid%ngc,&
-   !                                 1-field%grid%ngc,field%grid%nj+field%grid%ngc,&
-   !                                 1-field%grid%ngc,field%grid%nk+field%grid%ngc,&
-   !                                 1,field%nb],[2,5]),                           &
-   !                    msg=self%mpih%myrankstr//'base_gpu%alloc(q_t_gpu) ', verbose=verbose)
    allocate(self%q_t_gpu(1:nv_aux_,                                     &
                          1-field%grid%ngc:field%grid%ni+field%grid%ngc, &
                          1-field%grid%ngc:field%grid%nj+field%grid%ngc, &
                          1-field%grid%ngc:field%grid%nk+field%grid%ngc, 1:field%nb))
    ! copy CPU-to-GPU of base_gpu variables (maps and cells, not q_gpu)
    call self%copy_cpu_gpu
-   deallocate(fec_1_6_array)
    print '(A)', self%mpih%myrankstr//'base_gpu%initialize finish'
    endsubroutine initialize
 
