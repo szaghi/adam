@@ -96,8 +96,7 @@ colors       = True
 quiet        = False
 log          = True
 jobs         = 4
-exclude_dirs = src/lib_experimental/
-               references/
+exclude_dirs = references/
                BeFoR64/src/tests/
                BeFoR64/src/third_party/
                FACE/src/tests/
