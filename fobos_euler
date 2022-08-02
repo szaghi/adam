@@ -43,8 +43,7 @@ libs         = $HDF5_gnu/lib/libhdf5hl_fortran.a
                $ZLIB
                $SZIP
                ./exe/obj/getmemory.o
-exclude_dirs = src/lib/
-               references/
+exclude_dirs = references/
                BeFoR64/src/tests/
                BeFoR64/src/third_party/
                FACE/src/tests/

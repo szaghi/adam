@@ -58,7 +58,7 @@ module adam_field_object
 !<     /    /    /    /    /    /                   |
 !<   1+ ...*----*----*----*----*...                 |
 !<   /     .    .    .    .    .                    |
-!<  /      .    .    .    .    .               _____
+!<  /      .    .    .    .    .               _____|
 !< O-------+----+----+----+----+-------------> I
 !<         1    2    3    4    5
 !<```
@@ -79,45 +79,30 @@ public :: field_object
 type :: field_object
    !< Field class definition.
    ! mesh related data, unrelated to field equations
-   type(mpih_object)          :: mpih                     !< MPI handler.
-   type(grid_object), pointer :: grid=>null()             !< Grid data.
-   integer(I4P)               :: nv=1_I4P                 !< Number of field variables.
-   integer(I4P)               :: block_weight=0_I4P       !< Block weight, `cells_number * variables_number`.
-   integer(I4P)               :: nb=0_I4P                 !< Number of all blocks that can be stored.
-   integer(I4P)               :: blocks_number=0_I4P      !< Number of blocks actually stored.
-   integer(I8P), allocatable  :: code(:)                  !< Morton codes [nb].
-   integer(I4P), allocatable  :: coordinates(:,:)         !< Coordinates IJKL for each block [nb,4].
-   real(R8P),    allocatable  :: emin(:,:)                !< Coordinates of minimum abscissa of each block [3,nb].
-   real(R8P),    allocatable  :: emax(:,:)                !< Coordinates of maximum abscissa of each block [3,nb].
-   real(R8P),    allocatable  :: dxyz(:,:)                !< Space steps of each block [3,nb].
-   real(R8P),    allocatable  :: x_node(:,:)              !< X node coordinates.
-   real(R8P),    allocatable  :: y_node(:,:)              !< Y node coordinates.
-   real(R8P),    allocatable  :: z_node(:,:)              !< Z node coordinates.
-   real(R8P),    allocatable  :: x_cell(:,:)              !< X cell coordinates.
-   real(R8P),    allocatable  :: y_cell(:,:)              !< Y cell coordinates.
-   real(R8P),    allocatable  :: z_cell(:,:)              !< Z cell coordinates.
-   integer(I8P), allocatable  :: local_map_ghost(:,:)     !< Local map for ghost cells updating.
-   integer(I8P), allocatable  :: local_map_bc_face(:,:)   !< Local map for face BC ghost cells.
-   integer(I8P), allocatable  :: local_map_bc_edge(:,:)   !< Local map for edge BC ghost cells.
-   integer(I8P), allocatable  :: local_map_bc_corner(:,:) !< Local map for corner BC ghost cells.
+   type(mpih_object)          :: mpih                !< MPI handler.
+   type(grid_object), pointer :: grid=>null()        !< Grid data.
+   integer(I4P)               :: nv=1_I4P            !< Number of field variables.
+   integer(I4P)               :: block_weight=0_I4P  !< Block weight, `cells_number * variables_number`.
+   integer(I4P)               :: nb=0_I4P            !< Number of all blocks that can be stored.
+   integer(I4P)               :: blocks_number=0_I4P !< Number of blocks actually stored.
+   integer(I8P), allocatable  :: code(:)             !< Morton codes [nb].
+   integer(I4P), allocatable  :: coordinates(:,:)    !< Coordinates IJKL for each block [nb,4].
+   real(R8P),    allocatable  :: emin(:,:)           !< Coordinates of minimum abscissa of each block [3,nb].
+   real(R8P),    allocatable  :: emax(:,:)           !< Coordinates of maximum abscissa of each block [3,nb].
+   real(R8P),    allocatable  :: dxyz(:,:)           !< Space steps of each block [3,nb].
+   real(R8P),    allocatable  :: x_node(:,:)         !< X node coordinates.
+   real(R8P),    allocatable  :: y_node(:,:)         !< Y node coordinates.
+   real(R8P),    allocatable  :: z_node(:,:)         !< Z node coordinates.
+   real(R8P),    allocatable  :: x_cell(:,:)         !< X cell coordinates.
+   real(R8P),    allocatable  :: y_cell(:,:)         !< Y cell coordinates.
+   real(R8P),    allocatable  :: z_cell(:,:)         !< Z cell coordinates.
    ! MPI data, unrelated to field equations
-   integer(I4P), allocatable :: blocks_numbers(:)            !< Number of blocks actually stored in all processes.
-   integer(I4P), allocatable :: refinements_needed(:)        !< Refinements needed of my blocks.
-   integer(I4P), allocatable :: refinements_needed_all(:)    !< Refinements needed of all blocks.
-   integer(I4P), allocatable :: disp_count(:)                !< Displacement of blocks that are received from process.
-   integer(I4P)              :: inner_blocks_number=0_I4P    !< Number of inner blocks where I need fecs.
-   integer(I4P), allocatable :: req_send_recv(:)             !< MPI request receive flags.
-   integer(I4P), allocatable :: comm_map_n_send_ghost(:)     !< Communication map, number of cells to send [procs_number].
-   integer(I4P), allocatable :: comm_map_n_recv_ghost(:)     !< Communication map, number of cells to recv [procs_number].
-   integer(I4P), allocatable :: comm_map_send_ptr_ghost(:)   !< Communication map, pointers in list to send [procs_number+1].
-   integer(I4P), allocatable :: comm_map_recv_ptr_ghost(:)   !< Communication map, pointers in list to recv [procs_number+1].
-   integer(I4P), allocatable :: comm_map_send_ptr_ghost_s(:) !< Communication map, pointers in list to send, single var.
-   integer(I4P), allocatable :: comm_map_recv_ptr_ghost_s(:) !< Communication map, pointers in list to recv, single var.
-   integer(I8P), allocatable :: comm_map_send_ghost(:,:)     !< Communication map, `fec` information [fec_number, 15].
-   integer(I8P), allocatable :: comm_map_recv_ghost(:,:)     !< Communication map, `fec` information [fec_number, 15].
-   ! MPI data, related to field equations
-   real(R8P), allocatable :: send_buffer_ghost(:)            !< Send buffer of ghost cells.
-   real(R8P), allocatable :: recv_buffer_ghost(:)            !< Receive buffer of ghost cells.
+   integer(I4P), allocatable :: blocks_numbers(:)         !< Number of blocks actually stored in all processes.
+   integer(I4P), allocatable :: refinements_needed(:)     !< Refinements needed of my blocks.
+   integer(I4P), allocatable :: refinements_needed_all(:) !< Refinements needed of all blocks.
+   integer(I4P), allocatable :: disp_count(:)             !< Displacement of blocks that are received from process.
+   integer(I4P)              :: inner_blocks_number=0_I4P !< Number of inner blocks where I need fecs.
+   integer(I4P), allocatable :: req_send_recv(:)          !< MPI request receive flags.
    ! field equations data
    real(R8P), allocatable :: q(     :,:,:,:,:) !< Field cell centered variables.
    real(R8P), allocatable :: q_work(:,:,:,:,:) !< Field cell centered variables, working buffer memory.
@@ -136,8 +121,6 @@ type :: field_object
       procedure, pass(self) :: mark_sphere                   !< Mark blocks to be refined/derefined by sphere distance.
       procedure, pass(self) :: mpi_gather_refinements_needed !< Gather blocks refinement needed status between MPI processes.
       procedure, pass(self) :: mpi_redistribute              !< Redistribute blocks to processes.
-      procedure, pass(self) :: prepare_comm_local_ghost      !< Prepare communication and local maps/buffers for ghosts update.
-      procedure, pass(self) :: prepare_local_bc              !< Prepare local maps for boundary conditions.
       procedure, pass(self) :: print_status                  !< Print status of main data.
       procedure, pass(self) :: save_blocks                   !< Save blocks data, used for restarting.
       ! private methods
@@ -668,84 +651,6 @@ contains
    self%code(1:self%blocks_number) = code
    call self%compute_metrics
    endsubroutine mpi_redistribute
-
-   subroutine prepare_comm_local_ghost(self,                    &
-                                       local_map_ghost,         &
-                                       comm_map_n_send_ghost,   &
-                                       comm_map_n_recv_ghost,   &
-                                       comm_map_send_ptr_ghost, &
-                                       comm_map_recv_ptr_ghost, &
-                                       comm_map_send_ghost,     &
-                                       comm_map_recv_ghost,     &
-                                       verbose)
-   !< Prepare communication and local maps for ghosts update and send/receive buffer.
-   class(field_object),       intent(inout)        :: self                       !< The field.
-   integer(I8P), allocatable, intent(in)           :: local_map_ghost(:,:)       !< Local map for ghost cells updating [1:,1:].
-   integer(I4P), allocatable, intent(in)           :: comm_map_n_send_ghost(:)   !< Comm map, number of ghost celss to send [0:].
-   integer(I4P), allocatable, intent(in)           :: comm_map_n_recv_ghost(:)   !< Comm map, number of ghost celss to recv [0:].
-   integer(I4P), allocatable, intent(in)           :: comm_map_send_ptr_ghost(:) !< Comm map, pointers in list to send [0:].
-   integer(I4P), allocatable, intent(in)           :: comm_map_recv_ptr_ghost(:) !< Comm map, pointers in list to recv [0:].
-   integer(I8P), allocatable, intent(in)           :: comm_map_send_ghost(:,:)   !< Comm map, `fec` information [1:,1:].
-   integer(I8P), allocatable, intent(in)           :: comm_map_recv_ghost(:,:)   !< Comm map, `fec` information [1:,1:].
-   logical,                   intent(in), optional :: verbose                    !< Flag to activate verbose mode.
-
-   call assign_allocatable_cpu(lhs=self%local_map_ghost, &
-                               rhs=     local_map_ghost, &
-                               msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(local_map_ghost) ', verbose=verbose)
-   call assign_allocatable_cpu(lhs=self%comm_map_n_send_ghost, &
-                               rhs=     comm_map_n_send_ghost, &
-                               msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(comm_map_n_send_ghost) ', verbose=verbose)
-   call assign_allocatable_cpu(lhs=self%comm_map_n_recv_ghost, &
-                               rhs=     comm_map_n_recv_ghost, &
-                               msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(comm_map_n_recv_ghost) ', verbose=verbose)
-   call assign_allocatable_cpu(lhs=self%comm_map_send_ptr_ghost, &
-                               rhs=     comm_map_send_ptr_ghost, &
-                               msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(comm_map_send_ptr_ghost) ', verbose=verbose)
-   call assign_allocatable_cpu(lhs=self%comm_map_recv_ptr_ghost, &
-                               rhs=     comm_map_recv_ptr_ghost, &
-                               msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(comm_map_recv_ptr_ghost) ', verbose=verbose)
-   call assign_allocatable_cpu(lhs=self%comm_map_send_ghost, &
-                               rhs=     comm_map_send_ghost, &
-                               msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(comm_map_send_ghost) ', verbose=verbose)
-   call assign_allocatable_cpu(lhs=self%comm_map_recv_ghost, &
-                               rhs=     comm_map_recv_ghost, &
-                               msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(comm_map_recv_ghost) ', verbose=verbose)
-   if (allocated(self%comm_map_send_ghost)) self%comm_map_send_ghost(:,15) = self%comm_map_send_ghost(:,15) * self%nv
-   if (allocated(self%comm_map_recv_ghost)) self%comm_map_recv_ghost(:,15) = self%comm_map_recv_ghost(:,15) * self%nv
-   if (allocated(self%comm_map_send_ptr_ghost)) self%comm_map_send_ptr_ghost = self%comm_map_send_ptr_ghost * self%nv
-   if (allocated(self%comm_map_recv_ptr_ghost)) self%comm_map_recv_ptr_ghost = self%comm_map_recv_ptr_ghost * self%nv
-   if (allocated(self%send_buffer_ghost)) deallocate(self%send_buffer_ghost)
-   if (allocated(self%comm_map_n_send_ghost)) then
-      call alloc_var_cpu(var=self%send_buffer_ghost,                              &
-                         ulb=[1, sum(self%comm_map_n_send_ghost, dim=1)*self%nv], &
-                         msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(send_buffer_ghost) ', verbose=verbose)
-   endif
-   if (allocated(self%recv_buffer_ghost)) deallocate(self%recv_buffer_ghost)
-   if (allocated(self%comm_map_n_recv_ghost)) then
-      call alloc_var_cpu(var=self%recv_buffer_ghost,                              &
-                         ulb=[1, sum(self%comm_map_n_recv_ghost, dim=1)*self%nv], &
-                         msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(recv_buffer_ghost) ', verbose=verbose)
-   endif
-   endsubroutine prepare_comm_local_ghost
-
-   subroutine prepare_local_bc(self, local_map_bc_face, local_map_bc_edge, local_map_bc_corner, verbose)
-   !< Prepare local maps of boundary conditions.
-   class(field_object),       intent(inout)        :: self                     !< The field.
-   integer(I8P), allocatable, intent(in)           :: local_map_bc_face(:,:)   !< Local map for face BC ghost cells.
-   integer(I8P), allocatable, intent(in)           :: local_map_bc_edge(:,:)   !< Local map for edge BC ghost cells.
-   integer(I8P), allocatable, intent(in)           :: local_map_bc_corner(:,:) !< Local map for corner BC ghost cells.
-   logical,                   intent(in), optional :: verbose                  !< Flag to activate verbose mode.
-
-   call assign_allocatable_cpu(lhs=self%local_map_bc_face, &
-                               rhs=     local_map_bc_face, &
-                               msg=self%mpih%myrankstr//'field%prepare_local_bc(local_map_bc_face) ', verbose=verbose)
-   call assign_allocatable_cpu(lhs=self%local_map_bc_edge, &
-                               rhs=     local_map_bc_edge, &
-                               msg=self%mpih%myrankstr//'field%prepare_local_bc(local_map_bc_edge) ', verbose=verbose)
-   call assign_allocatable_cpu(lhs=self%local_map_bc_corner, &
-                               rhs=     local_map_bc_corner, &
-                               msg=self%mpih%myrankstr//'field%prepare_local_bc(local_map_bc_corner) ', verbose=verbose)
-   endsubroutine prepare_local_bc
 
    subroutine print_status(self)
    !< Print status of main data.
