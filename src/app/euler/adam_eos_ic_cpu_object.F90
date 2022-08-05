@@ -23,17 +23,20 @@ type :: eos_ic_cpu_object
    real(R8P) :: eta   = 0._R8P !< `2 * gamma / (gamma - 1)`.
    contains
       ! public methods
-      procedure, pass(self) :: compute_derivate !< Compute derivate quantities (from `cp` and `cv`).
+      procedure, pass(self) :: compute_derivate       !< Compute derivate quantities (from `cp` and `cv`).
+      procedure, pass(self) :: description            !< Return pretty-printed object description.
+      procedure, pass(self) :: destroy                !< Destroy eos.
+      procedure, pass(self) :: initialize             !< initialize eos.
+      procedure, pass(self) :: load_from_file         !< Load from finer file.
+      procedure, pass(self) :: primitive2conservative !< Return conservative variables from primitive ones.
+      procedure, pass(self) :: save_into_file         !< Save into finer file.
+      ! states functions
       procedure, pass(self) :: density          !< Return density.
-      procedure, pass(self) :: description      !< Return pretty-printed object description.
-      procedure, pass(self) :: destroy          !< Destroy eos.
-      procedure, pass(self) :: initialize       !< initialize eos.
       procedure, pass(self) :: internal_energy  !< Return specific internal energy.
-      procedure, pass(self) :: load_from_file   !< Load from finer file.
       procedure, pass(self) :: pressure         !< Return pressure.
-      procedure, pass(self) :: save_into_file   !< Save into finer file.
       procedure, pass(self) :: speed_of_sound   !< Return speed of sound.
       procedure, pass(self) :: temperature      !< Return temperature.
+      procedure, pass(self) :: total_energy     !< Return total specific energy.
       procedure, pass(self) :: total_entalpy    !< Return total specific entalpy.
       ! operators
       generic :: assignment(=) => eos_assign_eos !< Overload `=`.
@@ -59,15 +62,20 @@ contains
    self%eta   = 2._R8P * self%g / (self%g - 1._R8P)
    endsubroutine compute_derivate
 
-   elemental function density(self, pressure, speed_of_sound) result(density_)
-   !< Return density.
-   class(eos_ic_cpu_object), intent(in) :: self           !< Equation of state.
-   real(R8P),                intent(in) :: pressure       !< Pressure value.
-   real(R8P),                intent(in) :: speed_of_sound !< Speed of sound value.
-   real(R8P)                            :: density_       !< Density value.
+   pure function primitive2conservative(self, primitive) result(conservative)
+   !< Return conservative variables (r, ru, rv, rw, rE)    from primitive variables (r, u, v, w, p).
+   class(eos_ic_cpu_object), intent(in) :: self            !< Equation of state.
+   real(R8P),                intent(in) :: primitive(5)    !< Primitive variables
+   real(R8P)                            :: conservative(5) !< Conservative variables
 
-   density_ = self%g * pressure / (speed_of_sound * speed_of_sound)
-   endfunction density
+   conservative(1) = primitive(1)
+   conservative(2) = primitive(1) * primitive(2)
+   conservative(3) = primitive(1) * primitive(3)
+   conservative(4) = primitive(1) * primitive(4)
+   conservative(5) = primitive(1) * self%total_energy(density          = primitive(1), &
+                                                      pressure         = primitive(5), &
+                                                      velocity_sq_norm = primitive(2)**2+primitive(3)**2+primitive(4)**2)
+   endfunction primitive2conservative
 
    pure function description(self, prefix) result(desc)
    !< Return a pretty-formatted object description.
@@ -107,22 +115,6 @@ contains
    endif
    endsubroutine initialize
 
-   elemental function internal_energy(self, density, pressure, temperature) result(energy_)
-   !< Return specific internal energy.
-   class(eos_ic_cpu_object), intent(in)           :: self        !< Equation of state.
-   real(R8P),                intent(in), optional :: density     !< Density value.
-   real(R8P),                intent(in), optional :: pressure    !< Pressure value.
-   real(R8P),                intent(in), optional :: temperature !< Temperature value.
-   real(R8P)                                      :: energy_     !< Energy value.
-
-   energy_ = 0._R8P
-   if (present(density).and.present(pressure)) then
-      energy_ = pressure / ((self%g - 1._R8P) * density)
-   elseif (present(temperature)) then
-      energy_ = self%cv * temperature
-   endif
-   endfunction internal_energy
-
    subroutine load_from_file(self, fini, go_on_fail)
    !< Load from file.
    class(eos_ic_cpu_object), intent(inout)        :: self        !< Equation of state.
@@ -135,27 +127,11 @@ contains
 
    call self%destroy
    call fini%get(section_name=INI_SECTION_NAME, option_name='cp', val=self%cp, error=error)
-   if (.not.go_on_fail_.and.error>0) error stop 'error: failed to load ['//INI_SECTION_NAME//'].(cp)'
+   ! if (.not.go_on_fail_.and.error>0) error stop 'error: failed to load ['//INI_SECTION_NAME//'].(cp)'
    call fini%get(section_name=INI_SECTION_NAME, option_name='cv', val=self%cv, error=error)
-   if (.not.go_on_fail_.and.error>0) error stop 'error: failed to load ['//INI_SECTION_NAME//'].(cv)'
+   ! if (.not.go_on_fail_.and.error>0) error stop 'error: failed to load ['//INI_SECTION_NAME//'].(cv)'
    call self%compute_derivate
    endsubroutine load_from_file
-
-   elemental function pressure(self, density, energy, temperature) result(pressure_)
-   !< Return pressure.
-   class(eos_ic_cpu_object), intent(in)           :: self        !< Equation of state.
-   real(R8P),                intent(in), optional :: density     !< Density value.
-   real(R8P),                intent(in), optional :: energy      !< Specific internal energy value.
-   real(R8P),                intent(in), optional :: temperature !< Temperature value.
-   real(R8P)                                      :: pressure_   !< Pressure value.
-
-   pressure_ = 0._R8P
-   if (present(density).and.present(energy)) then
-      pressure_ = density * (self%g - 1._R8P) * energy
-   elseif (present(density).and.present(temperature)) then
-      pressure_ = density * self%R * temperature
-   endif
-   endfunction pressure
 
    subroutine save_into_file(self, fini)
    !< Save into file.
@@ -165,6 +141,37 @@ contains
    call fini%add(section_name=INI_SECTION_NAME, option_name='cp', val=self%cp)
    call fini%add(section_name=INI_SECTION_NAME, option_name='cv', val=self%cv)
    endsubroutine save_into_file
+
+   ! states functions
+   elemental function density(self, pressure, speed_of_sound) result(density_)
+   !< Return density.
+   class(eos_ic_cpu_object), intent(in) :: self           !< Equation of state.
+   real(R8P),                intent(in) :: pressure       !< Pressure value.
+   real(R8P),                intent(in) :: speed_of_sound !< Speed of sound value.
+   real(R8P)                            :: density_       !< Density value.
+
+   density_ = self%g * pressure / (speed_of_sound * speed_of_sound)
+   endfunction density
+
+   elemental function internal_energy(self, density, pressure) result(energy_)
+   !< Return specific internal energy.
+   class(eos_ic_cpu_object), intent(in) :: self     !< Equation of state.
+   real(R8P),                intent(in) :: density  !< Density value.
+   real(R8P),                intent(in) :: pressure !< Pressure value.
+   real(R8P)                            :: energy_  !< Energy value.
+
+   energy_ = pressure / (self%gm1 * density)
+   endfunction internal_energy
+
+   elemental function pressure(self, density, energy) result(pressure_)
+   !< Return pressure.
+   class(eos_ic_cpu_object), intent(in) :: self      !< Equation of state.
+   real(R8P),                intent(in) :: density   !< Density value.
+   real(R8P),                intent(in) :: energy    !< Specific internal energy value.
+   real(R8P)                            :: pressure_ !< Pressure value.
+
+   pressure_ = density * self%gm1 * energy
+   endfunction pressure
 
    elemental function speed_of_sound(self, density, pressure) result(speed_of_sound_)
    !< Return speed of sound.
@@ -176,21 +183,26 @@ contains
    speed_of_sound_ = sqrt(self%g * pressure / density)
    endfunction speed_of_sound
 
-   elemental function temperature(self, density, energy, pressure) result(temperature_)
+   elemental function temperature(self, density, pressure) result(temperature_)
    !< Return temperature.
-   class(eos_ic_cpu_object), intent(in)           :: self         !< Equation of state.
-   real(R8P),                intent(in), optional :: density      !< Density value.
-   real(R8P),                intent(in), optional :: energy       !< Specific internal energy value.
-   real(R8P),                intent(in), optional :: pressure     !< Pressure value.
-   real(R8P)                                      :: temperature_ !< Temperature value.
+   class(eos_ic_cpu_object), intent(in) :: self         !< Equation of state.
+   real(R8P),                intent(in) :: density      !< Density value.
+   real(R8P),                intent(in) :: pressure     !< Pressure value.
+   real(R8P)                            :: temperature_ !< Temperature value.
 
-   temperature_ = 0._R8P
-   if (present(density).and.present(pressure)) then
-      temperature_ = pressure / (self%R * density)
-   elseif (present(energy)) then
-      temperature_ = energy / self%cv
-   endif
+   temperature_ = pressure / (self%R * density)
    endfunction temperature
+
+   elemental function total_energy(self, density, pressure, velocity_sq_norm) result(energy_)
+   !< Return total specific energy.
+   class(eos_ic_cpu_object), intent(in) :: self             !< Equation of state.
+   real(R8P),                intent(in) :: density          !< Density value.
+   real(R8P),                intent(in) :: pressure         !< Pressure value.
+   real(R8P),                intent(in) :: velocity_sq_norm !< Velocity vector square norm `||velocity||^2`.
+   real(R8P)                            :: energy_          !< Total specific energy (per unit of mass).
+
+   energy_ = self%internal_energy(density=density, pressure=pressure) + 0.5_R8P * velocity_sq_norm
+   endfunction total_energy
 
    elemental function total_entalpy(self, density, pressure, velocity_sq_norm) result(entalpy_)
    !< Return total specific entalpy.

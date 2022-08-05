@@ -111,6 +111,7 @@ type :: field_object
       procedure, pass(self) :: adapt                         !< Adapt field accordingly to refine/derefine necessity.
       procedure, pass(self) :: blocks_reorder                !< Reorder blocks indexes in field.
       procedure, pass(self) :: compute_metrics               !< Compute metrics of each block.
+      procedure, pass(self) :: description                   !< Return pretty-printed object description.
       procedure, pass(self) :: do_caxis_intersect            !< Return true if a block is intersected by coordinate-axis.
       procedure, pass(self) :: do_cplane_intersect           !< Return true if a block is intersected by coordinate-plane.
       procedure, pass(self) :: do_ray_intersect              !< Return true if a block is intersected by ray.
@@ -121,7 +122,6 @@ type :: field_object
       procedure, pass(self) :: mark_sphere                   !< Mark blocks to be refined/derefined by sphere distance.
       procedure, pass(self) :: mpi_gather_refinements_needed !< Gather blocks refinement needed status between MPI processes.
       procedure, pass(self) :: mpi_redistribute              !< Redistribute blocks to processes.
-      procedure, pass(self) :: print_status                  !< Print status of main data.
       procedure, pass(self) :: save_blocks                   !< Save blocks data, used for restarting.
       ! private methods
       procedure, pass(self), private :: derefine !< Derefine blocks.
@@ -183,6 +183,20 @@ contains
                                      x_cell=self%x_cell(:,b), y_cell=self%y_cell(:,b), z_cell=self%z_cell(:,b))
    enddo
    endsubroutine compute_metrics
+
+   pure function description(self) result(desc)
+   !< Return a pretty-formatted object description.
+   class(field_object), intent(in) :: self             !< The field.
+   character(len=:), allocatable   :: desc             !< Description.
+   character(len=1), parameter     :: NL=new_line('a') !< New line character.
+
+   desc =       self%mpih%myrankstr//'field main data'                                               //NL
+   desc = desc//self%mpih%myrankstr//'  field variables number (nv): '//trim(str(self%nv           ))//NL
+   desc = desc//self%mpih%myrankstr//'  all blocks number (nb):      '//trim(str(self%nb           ))//NL
+   desc = desc//self%mpih%myrankstr//'  blocks number:               '//trim(str(self%blocks_number))//NL
+   desc = desc//self%mpih%myrankstr//'  block weight:                '//trim(str(self%block_weight ))//NL
+   desc = desc//self%mpih%myrankstr//'  q shape:                     '//trim(str(shape(self%q)     ))
+   endfunction description
 
    function do_caxis_intersect(self, b, caxis_origin, caxis_direction, caxis_block_indexes) result(do_intersect)
    !< Return true if a block is intersected by coordinate-axis.
@@ -392,6 +406,7 @@ contains
    call alloc_var_cpu(var=self%req_send_recv,  &
                       ulb=[0,self%mpih%procs_number*2-1],&
                       msg=self%mpih%myrankstr//'field%initialize(req_send_recv) ', verbose=.true.)
+   print '(A)', self%description()
    print '(A)', self%mpih%myrankstr//'field%initialize finish'
    endsubroutine initialize
 
@@ -651,18 +666,6 @@ contains
    self%code(1:self%blocks_number) = code
    call self%compute_metrics
    endsubroutine mpi_redistribute
-
-   subroutine print_status(self)
-   !< Print status of main data.
-   class(field_object), intent(in) :: self !< The field.
-
-   print '(A)', self%mpih%myrankstr//'field status of main data'
-   print '(A)', self%mpih%myrankstr//'  field variables number (nv): '//trim(str(self%nv           ))
-   print '(A)', self%mpih%myrankstr//'  all blocks number (nb):      '//trim(str(self%nb           ))
-   print '(A)', self%mpih%myrankstr//'  blocks number:               '//trim(str(self%blocks_number))
-   print '(A)', self%mpih%myrankstr//'  block weight:                '//trim(str(self%block_weight ))
-   print '(A)', self%mpih%myrankstr//''
-   endsubroutine print_status
 
    subroutine save_blocks(self, basename)
    !< Save blocks data, used for restarting.

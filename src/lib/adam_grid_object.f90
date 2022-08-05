@@ -28,8 +28,8 @@ type :: grid_object
    integer(I4P)              :: weight_neighbor(26)=0_I4P             !< Weight of neighbors (cells number).
    integer(I4P)              :: bc_type(6)=0_I4P                      !< Type of boundary conditions in the 6 faces of grid.
    logical                   :: is_ijk_periodic(3)=.false.            !< Flag to indicate if the direction i, j or k is periodic.
-   real(R8P),    allocatable :: block_dxyz(:,:)                       !< Blocks space steps for each level [3,MAX_REF_LEVELS].
-   real(R8P),    allocatable :: cell_dxyz(:,:)                        !< Cells  space steps for each level [3,MAX_REF_LEVELS].
+   real(R8P),    allocatable :: block_dxyz(:,:)                       !< Blocks space steps for each level [3,0:MAX_REF_LEVELS].
+   real(R8P),    allocatable :: cell_dxyz(:,:)                        !< Cells  space steps for each level [3,0:MAX_REF_LEVELS].
    integer(I4P), allocatable :: nb_max(:)                             !< Number of maximum blocks in each direction for each level.
    real(R8P),    allocatable :: lin_space_x(:,:)                      !< Lin. space x for each level [0-ngc:ni+ngc,MAX_REF_LEVELS].
    real(R8P),    allocatable :: lin_space_y(:,:)                      !< Lin. space y for each level [0-ngc:nj+ngc,MAX_REF_LEVELS].
@@ -41,12 +41,12 @@ type :: grid_object
       procedure, pass(self) :: cell_xyz                !< Return cells xyz abscissa given block coordinates.
       procedure, pass(self) :: compute_metrics         !< Compute metrics of a block.
       procedure, pass(self) :: compute_weight_neighbor !< Compute weight of neighbors.
+      procedure, pass(self) :: description             !< Return pretty-printed object description.
       procedure, pass(self) :: do_cplane_intersect     !< Return true if a block is intersected by coordinate-plane.
       procedure, pass(self) :: get_closest_block       !< Get the closest block to a given point at a given level.
       procedure, pass(self) :: initialize              !< Initialize the field.
       procedure, pass(self) :: load_from_ini_file      !< Load object data from INI file.
       procedure, pass(self) :: node_xyz                !< Return nodes xyz abscissa given block coordinates.
-      procedure, pass(self) :: print_status            !< Print status of main data.
 endtype grid_object
 
 contains
@@ -83,21 +83,6 @@ contains
    if (present(x_node)) x_node(:) = emin(1) + self%lin_space_x(:,coordinates(4))
    if (present(y_node)) y_node(:) = emin(2) + self%lin_space_y(:,coordinates(4))
    if (present(z_node)) z_node(:) = emin(3) + self%lin_space_z(:,coordinates(4))
-   ! if (present(x_node)) then
-   !    do i=0-self%ngc, self%ni+self%ngc
-   !       x_node(i) = emin(1) + i * self%cell_dxyz(1,coordinates(4))
-   !    enddo
-   ! endif
-   ! if (present(y_node)) then
-   !    do j=0-self%ngc, self%nj+self%ngc
-   !       y_node(j) = emin(2) + j * self%cell_dxyz(2,coordinates(4))
-   !    enddo
-   ! endif
-   ! if (present(z_node)) then
-   !    do k=0-self%ngc, self%nk+self%ngc
-   !       z_node(k) = emin(3) + k * self%cell_dxyz(3,coordinates(4))
-   !    enddo
-   ! endif
    endsubroutine node_xyz
 
    subroutine cell_xyz(self, coordinates, x_cell, y_cell, z_cell)
@@ -114,21 +99,6 @@ contains
    if (present(x_cell)) x_cell(:) = emin(1) + self%lin_space_x(1-self%ngc:self%ni+self%ngc,coordinates(4))
    if (present(y_cell)) y_cell(:) = emin(2) + self%lin_space_y(1-self%ngc:self%nj+self%ngc,coordinates(4))
    if (present(z_cell)) z_cell(:) = emin(3) + self%lin_space_z(1-self%ngc:self%nk+self%ngc,coordinates(4))
-   ! if (present(x_cell)) then
-   !    do i=1-self%ngc, self%ni+self%ngc
-   !       x_cell(i) = emin(1) + (i-0.5_R8P) * self%cell_dxyz(1,coordinates(4))
-   !    enddo
-   ! endif
-   ! if (present(y_cell)) then
-   !    do j=1-self%ngc, self%nj+self%ngc
-   !       y_cell(j) = emin(2) + (j-0.5_R8P) * self%cell_dxyz(2,coordinates(4))
-   !    enddo
-   ! endif
-   ! if (present(z_cell)) then
-   !    do k=1-self%ngc, self%nk+self%ngc
-   !       z_cell(k) = emin(3) + (k-0.5_R8P) * self%cell_dxyz(3,coordinates(4))
-   !    enddo
-   ! endif
    endsubroutine cell_xyz
 
    subroutine compute_metrics(self, coordinates,      &
@@ -175,6 +145,26 @@ contains
       enddo
    enddo
    endsubroutine compute_weight_neighbor
+
+   pure function description(self) result(desc)
+   !< Return a pretty-formatted object description.
+   class(grid_object), intent(in) :: self             !< The grid.
+   character(len=:), allocatable  :: desc             !< Description.
+   character(len=1), parameter    :: NL=new_line('a') !< New line character.
+
+   desc =       self%mpih%myrankstr//'grid main data'                                            //NL
+   desc = desc//self%mpih%myrankstr//'  domain minimum extent: '//trim(str(self%domain_emin    ))//NL
+   desc = desc//self%mpih%myrankstr//'  domain maximum extent: '//trim(str(self%domain_emax    ))//NL
+   desc = desc//self%mpih%myrankstr//'  ni:                    '//trim(str(self%ni             ))//NL
+   desc = desc//self%mpih%myrankstr//'  nj:                    '//trim(str(self%nj             ))//NL
+   desc = desc//self%mpih%myrankstr//'  nk:                    '//trim(str(self%nk             ))//NL
+   desc = desc//self%mpih%myrankstr//'  ngc:                   '//trim(str(self%ngc            ))//NL
+   desc = desc//self%mpih%myrankstr//'  boundary conditions:   '//trim(str(self%bc_type        ))//NL
+   desc = desc//self%mpih%myrankstr//'  block weight:          '//trim(str(self%block_weight   ))//NL
+   desc = desc//self%mpih%myrankstr//'  IJK periodic:          '//str(self%is_ijk_periodic(1))//' '//&
+                                                                  str(self%is_ijk_periodic(2))//' '//&
+                                                                  str(self%is_ijk_periodic(3))
+   endfunction description
 
    function do_cplane_intersect(self, emin, emax, dxyz, cplane_origin, cplane_normal, cplane_block_indexes) result(do_intersect)
    !< Return true if a block is intersected by coordinate-plane.
@@ -262,13 +252,13 @@ contains
    if (any(self%bc_type(5:6)==BC_PERIODIC)) self%is_ijk_periodic(3) = .true.
 
    nijk = [self%ni, self%nj, self%nk]
-   allocate(self%block_dxyz(3,                           MAX_REF_LEVELS))
-   allocate(self%cell_dxyz( 3,                           MAX_REF_LEVELS))
-   allocate(self%nb_max(                                 MAX_REF_LEVELS))
-   allocate(self%lin_space_x(0-self%ngc:self%ni+self%ngc,MAX_REF_LEVELS))
-   allocate(self%lin_space_y(0-self%ngc:self%nj+self%ngc,MAX_REF_LEVELS))
-   allocate(self%lin_space_z(0-self%ngc:self%nk+self%ngc,MAX_REF_LEVELS))
-   do l=1, MAX_REF_LEVELS
+   allocate(self%block_dxyz(3,                           0:MAX_REF_LEVELS))
+   allocate(self%cell_dxyz( 3,                           0:MAX_REF_LEVELS))
+   allocate(self%nb_max(                                 0:MAX_REF_LEVELS))
+   allocate(self%lin_space_x(0-self%ngc:self%ni+self%ngc,0:MAX_REF_LEVELS))
+   allocate(self%lin_space_y(0-self%ngc:self%nj+self%ngc,0:MAX_REF_LEVELS))
+   allocate(self%lin_space_z(0-self%ngc:self%nk+self%ngc,0:MAX_REF_LEVELS))
+   do l=0, MAX_REF_LEVELS
       self%nb_max(l) = 2**l
       self%block_dxyz(:,l) = (self%domain_emax(:) - self%domain_emin(:)) / self%nb_max(l)
       self%cell_dxyz(:,l) = self%block_dxyz(:,l) / nijk(:)
@@ -283,7 +273,7 @@ contains
       enddo
    enddo
    if (present(verbose)) then
-      if (verbose) call self%print_status
+      if (verbose) print '(A)', self%description()
    endif
    print '(A)', self%mpih%myrankstr//'grid%initialize finish'
    endsubroutine initialize
@@ -312,20 +302,4 @@ contains
    call file_parameters%get(section_name='bc_z_min', option_name='type'  , val=buff_I4P) ; self%bc_type(5)    =buff_I4P
    call file_parameters%get(section_name='bc_z_max', option_name='type'  , val=buff_I4P) ; self%bc_type(6)    =buff_I4P
    endsubroutine load_from_ini_file
-
-   subroutine print_status(self)
-   !< Print status of main data.
-   class(grid_object), intent(in) :: self !< The field.
-
-   print '(A)',          self%mpih%myrankstr//'grid status of main data'
-   print '(A)',          self%mpih%myrankstr//'  domain minimum extent: '//trim(str(self%domain_emin    ))
-   print '(A)',          self%mpih%myrankstr//'  domain maximum extent: '//trim(str(self%domain_emax    ))
-   print '(A)',          self%mpih%myrankstr//'  ni:                    '//trim(str(self%ni             ))
-   print '(A)',          self%mpih%myrankstr//'  nj:                    '//trim(str(self%nj             ))
-   print '(A)',          self%mpih%myrankstr//'  nk:                    '//trim(str(self%nk             ))
-   print '(A)',          self%mpih%myrankstr//'  ngc:                   '//trim(str(self%ngc            ))
-   print '(A)',          self%mpih%myrankstr//'  boundary conditions:   '//trim(str(self%bc_type        ))
-   print '(A,3(L1,1X))', self%mpih%myrankstr//'  IJK periodic:          ',          self%is_ijk_periodic
-   print '(A)',          self%mpih%myrankstr//''
-   endsubroutine print_status
 endmodule adam_grid_object

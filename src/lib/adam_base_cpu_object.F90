@@ -57,6 +57,7 @@ contains
    print '(A)', self%mpih%myrankstr//'base_cpu%initialize_cpu start'
    call cpuMemGetInfo(mem_total, mem_free)
    self%memory_avail = real(mem_total, R8P)/1e9
+   print '(A)', self%mpih%myrankstr//'base_cpu%initialize_cpu avail memory: '//trim(str(fm='(F4.1)',n=self%memory_avail))//' [GB]'
    print '(A)', self%mpih%myrankstr//'base_cpu%initialize_cpu finish'
    endsubroutine initialize_cpu
 

@@ -9,12 +9,12 @@ use adam_parameters
 use adam_tree_node_object, only : tree_node_object
 use adam_tree_bucket_object, only : tree_bucket_object
 use adam_tree_object, only : tree_object
-use FINER, only : file_ini
-use PENF
-use STRINGIFOR
-use VTK_FORTRAN
-use HDF5
-use MPI
+use finer, only : file_ini
+use penf
+use stringifor
+use vtk_fortraN
+use hdf5
+use mpi
 
 implicit none
 private
@@ -33,13 +33,13 @@ type :: adam_object
       procedure, pass(self) :: blocks_reorder                !< Reorder blocks (for asyncrhonous MPI)
       procedure, pass(self) :: check_blocks_number           !< Check if blocks number is groving too much.
       procedure, pass(self) :: compute_blocks_number         !< Compute maximum blocks number allocatable on memory available.
+      procedure, pass(self) :: description                   !< Return pretty-printed object description.
       procedure, pass(self) :: initialize                    !< Initialize ADAM.
       procedure, pass(self) :: interpolate_at_point          !< Interpolate a scalar variable at a given point.
       procedure, pass(self) :: load_restart_files            !< Load restart files.
       procedure, pass(self) :: make_comm_local_maps_ghost_bc !< Make communication/local maps of ghost cells.
       procedure, pass(self) :: mpi_gather_refinement_needed  !< Gather refinement needed.
       procedure, pass(self) :: mpi_redistribute              !< Redistribute nodes/blocks to processes, load balancing.
-      procedure, pass(self) :: print_status                  !< Print status of main data.
       procedure, pass(self) :: prune                         !< Prune nodes/blocks.
       procedure, pass(self) :: refine_uniform                !< Refine all blocks uniformly.
       procedure, pass(self) :: save_hdf5                     !< Save ADAM in HDF5 format.
@@ -109,7 +109,7 @@ contains
    !< Check if blocks number is groving too much.
    class(adam_object), intent(inout) :: self     !< ADAM.
    type(tree_node_object), pointer   :: node_ptr !< Pointer to current node.
-   integer(I4P)                      :: max_nb   !< Maximum number of blocks desidered.
+   integer(I8P)                      :: max_nb   !< Maximum number of blocks desidered.
 
    max_nb = 0
    do while(self%tree%loop(node_ptr=node_ptr))
@@ -127,11 +127,11 @@ contains
    subroutine compute_blocks_number(self, memory_avail, fields_number, nb, nodes_number)
    !< Compute maximum blocks number allocatable on memory available.
    class(adam_object), intent(in)           :: self          !< ADAM.
-   real(R8P),          intent(in)           :: memory_avail  !< Memory available for single MPI process.
+   real(R8P),          intent(in)           :: memory_avail  !< Memory available for single MPI process (GBytes).
    integer(I4P),       intent(in)           :: fields_number !< Fields number.
    integer(I4P),       intent(out)          :: nb            !< Maximum blocks number for single MPI process.
    integer(I8P),       intent(out)          :: nodes_number  !< Maximum blocks number for all MPI processes (nodes).
-   integer(I4P)                             :: size_of_real  !< Size of real.
+   integer(I4P)                             :: size_of_real  !< Size (bytes) of (one) real.
    real(R8P)                                :: save_factor   !< Factor to avoid memory completely full.
 
    size_of_real = storage_size(1._R8P)/8._R8P
@@ -139,6 +139,15 @@ contains
    nb = nint(save_factor * memory_avail*1e9 / (fields_number * self%grid%block_weight * size_of_real))
    nodes_number  = nb * self%mpih%procs_number
    endsubroutine compute_blocks_number
+
+   pure function description(self) result(desc)
+   !< Return a pretty-formatted object description.
+   class(adam_object), intent(in) :: self             !< Adam.
+   character(len=:), allocatable  :: desc             !< Description.
+   character(len=1), parameter    :: NL=new_line('a') !< New line character.
+
+   desc = self%grid%description()//NL//self%tree%description()//NL//self%field%description()
+   endfunction description
 
    subroutine load_restart_files(self, basename, t, time)
    !< Load restart files.
@@ -155,13 +164,14 @@ contains
    call self%field%load_blocks(basename=basename)
    endsubroutine load_restart_files
 
-   subroutine initialize(self, file_parameters,                                              &
+   subroutine initialize(self, nb, file_parameters,                                          &
                          ni, nj, nk, ngc, emin, emax, bc_type, do_grid_init,                 &
                          max_load, nodes_number, buckets_number, ratio, max_level, add_adam, &
                          iu_ref_levels, i_prune, j_prune, k_prune, l_prune, do_tree_init,    &
-                         nv, nb, do_field_init)
+                         nv, do_field_init)
    !< Initialize ADAM.
    class(adam_object), intent(inout)           :: self               !< ADAM.
+   integer(I4P),       intent(in)              :: nb                 !< Number of all blocks that can be stored in field.
    type(file_ini),     intent(inout), optional :: file_parameters    !< INI file handler.
    ! grid options
    integer(I4P),       intent(in),    optional :: ni                 !< Number of cells in X direction.
@@ -187,7 +197,6 @@ contains
    logical,            intent(in),    optional :: do_tree_init       !< Flag to activate tree initialize.
    ! field options
    integer(I4P),       intent(in),    optional :: nv                 !< Number of field variables.
-   integer(I4P),       intent(in),    optional :: nb                 !< Number of all blocks that can be stored in field.
    logical,            intent(in),    optional :: do_field_init      !< Flag to activate field initialize.
    ! local var
    logical                                     :: do_grid_init_      !< Flag to activate grid initialize, local var.
@@ -199,6 +208,7 @@ contains
    do_field_init_ = .false. ; if (present(do_field_init)) do_field_init_ = do_field_init
    call self%mpih%initialize
    print '(A)', self%mpih%myrankstr//'adam%initialize start'
+   print '(A)', self%mpih%myrankstr//'blocks number for single MPI [nb]: '//trim(str(nb))
    if (do_grid_init_) &
       call self%grid%initialize(file_parameters=file_parameters, &
                                 ni=ni,                           &
@@ -222,10 +232,9 @@ contains
                                 j_prune=j_prune,                 &
                                 k_prune=k_prune,                 &
                                 l_prune=l_prune)
+   print '(A)', self%mpih%myrankstr//'blocks number for all MPI [nodes_number]: '//trim(str(self%tree%nodes_number))
    if (do_field_init_) &
       call self%field%initialize(grid=self%grid, file_parameters=file_parameters, nv=nv, nb=nb)
-   print '(A)', self%mpih%myrankstr//'blocks number for single MPI [nb]: '//trim(str(self%field%nb))
-   print '(A)', self%mpih%myrankstr//'blocks number for all MPI [nodes_number]: '//trim(str(self%tree%nodes_number))
    call self%amr_update
    print '(A)', self%mpih%myrankstr//'adam%initialize finish'
    endsubroutine initialize
@@ -376,15 +385,6 @@ contains
                                     coordinates=self%tree%block_coordinates,       &
                                     code=self%tree%block_code)
    endsubroutine mpi_redistribute
-
-   subroutine print_status(self)
-   !< Print status of main data.
-   class(adam_object), intent(in) :: self !< Adam.
-
-   call self%grid%print_status
-   call self%tree%print_status
-   call self%field%print_status
-   endsubroutine print_status
 
    subroutine prune(self, ijkl_prune, print_mpi_stats, do_blocks_reorder)
    !< Prune nodes/blocks.

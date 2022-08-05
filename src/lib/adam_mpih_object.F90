@@ -19,12 +19,21 @@ type :: mpih_object
    integer(I4P)              :: tictoc=1_I4P       !< Next is tic or toc?
    contains
       ! public methods
+      procedure, pass(self) :: abort         !< Handy MPI abort wrapper.
       procedure, pass(self) :: barrier       !< Handy MPI barrier wrapper.
+      procedure, pass(self) :: finalize      !< Handy MPI finalize wrapper.
       procedure, pass(self) :: initialize    !< Initialize MPI handler data.
       procedure, pass(self) :: tictoc_timing !< Return the last tic toc timing.
 endtype mpih_object
 
 contains
+   subroutine abort(self)
+   !< Handy MPI abort wrapper.
+   class(mpih_object) , intent(inout) :: self !< MPI handler.
+
+   call MPI_ABORT(MPI_COMM_WORLD, -101, self%error)
+   endsubroutine abort
+
    subroutine barrier(self, tictoc, timing, single)
    !< Handy MPI barrier wrapper.
    class(mpih_object) , intent(inout)         :: self    !< MPI handler.
@@ -49,6 +58,13 @@ contains
       endif
    endif
    endsubroutine barrier
+
+   subroutine finalize(self)
+   !< Handy MPI finalize wrapper.
+   class(mpih_object) , intent(inout) :: self !< MPI handler.
+
+   call MPI_FINALIZE(self%error)
+   endsubroutine finalize
 
    subroutine initialize(self, do_mpi_init)
    !< Initialize MPI handler data.

@@ -2,17 +2,21 @@
 module adam_equation_euler_cpu_object
 !< ADAM, Euler equations system class definition and solver, CPU backend.
 
-use adam_adam_object,       only : adam_object
-use adam_base_cpu_object,   only : base_cpu_object
-use adam_eos_ic_cpu_object, only : eos_ic_cpu_object
-use adam_field_object,      only : field_object
-use adam_grid_object,       only : grid_object
-use adam_ib_cpu_object,     only : ib_cpu_object
-use adam_mpih_object,       only : mpih_object
-use adam_rk_cpu_object,     only : rk_cpu_object
-use adam_slices_cpu_object, only : slices_cpu_object
-use adam_tree_object,       only : tree_object
-use adam_weno_cpu_object,   only : weno_cpu_object
+use adam_adam_object,        only : adam_object
+use adam_amr_cpu_object,     only : amr_cpu_object, amr_marker_cpu_object, AMR_GEO, AMR_GRAD
+use adam_base_cpu_object,    only : base_cpu_object
+use adam_bc_cpu_object,      only : bc_cpu_object, BC_EXTRAPOLATION, BC_INFLOW
+use adam_eos_ic_cpu_object,  only : eos_ic_cpu_object
+use adam_field_object,       only : field_object
+use adam_physics_cpu_object, only : physics_cpu_object, IR, IU, IV, IW, IG, IP
+use adam_grid_object,        only : grid_object
+use adam_ib_cpu_object,      only : ib_cpu_object, BCS_VISCOUS, BCS_EULER
+use adam_ic_cpu_object,      only : ic_cpu_object
+use adam_mpih_object,        only : mpih_object
+use adam_rk_cpu_object,      only : rk_cpu_object
+use adam_slices_cpu_object,  only : slices_cpu_object
+use adam_tree_object,        only : tree_object
+use adam_weno_cpu_object,    only : weno_cpu_object
 use adam_memory_cpu_lib
 use adam_parameters
 use finer
@@ -22,44 +26,6 @@ use mpi
 implicit none
 private
 public :: equation_euler_cpu_object
-
-! Initial conditions parameters.
-integer(I4P), parameter :: IC_UNIFORM         = 1_I4P           !< Uniform IC.
-integer(I4P), parameter :: IC_LEFTRIGHT       = 2_I4P           !< Discontinous left/right IC.
-integer(I4P), parameter :: IC_VARS_NUMBER(2)  = [6_I4P, 11_I4P] !< Number of IC variables for admitted cases.
-integer(I4P), parameter :: IC_VARS_NUMBER_MAX = 11              !< Maximum number of IC variables, maxval(IC_VARS_NUMBER).
-
-! Boundary conditions parameters.
-integer(I4P), parameter :: BC_EXTRAPOLATION   = 1_I4P          !< Extrapolation.
-integer(I4P), parameter :: BC_INFLOW          = 2_I4P          !< Supersonic inflow.
-integer(I4P), parameter :: BC_VARS_NUMBER(2)  = [0_I4P, 5_I4P] !< Number of BC variables for admitted cases.
-integer(I4P), parameter :: BC_VARS_NUMBER_MAX = 5_I4P          !< Maximum number of BC variables, maxval(BC_VARS_NUMBER).
-
-! Immersed boundary conditions parameters.
-integer(I4P), parameter :: BCS_VISCOUS = 1_I4P !< Visous wall.
-integer(I4P), parameter :: BCS_EULER   = 2_I4P !< Inviscid wall.
-
-! Named indexes of q_aux variables, to be initialized when ns is known.
-integer(I4P) :: IRHO = 2_I4P
-integer(I4P) :: IU   = 3_I4P
-integer(I4P) :: IV   = 4_I4P
-integer(I4P) :: IW   = 5_I4P
-integer(I4P) :: IG   = 6_I4P
-integer(I4P) :: IP   = 7_I4P
-
-! AMR marker modes parameters.
-integer(I4P), parameter :: AMR_GEO  = 1_I4P
-integer(I4P), parameter :: AMR_GRAD = 2_I4P
-
-type :: amr_marker_object
-   !< AMR marker object.
-   integer(I4P) :: mode         !< Marker mode.
-   integer(I4P) :: solid        !< Solid number.
-   real(R8P)    :: delta_fine   !< Fine cell space step.
-   real(R8P)    :: delta_coarse !< Coarse cell space step.
-   integer(I4P) :: ivar         !< ivar.
-   real(R8P)    :: tol          !< Tolerance.
-endtype amr_marker_object
 
 type :: equation_euler_cpu_object
    !< Euler equations system class definition and solver, base backend.
@@ -94,44 +60,23 @@ type :: equation_euler_cpu_object
    !< q_aux(ns+5): g               specific heats ratio
    !< q_aux(ns+6): p               pressure
    !<```
-   ! Objects.
-   type(mpih_object)           :: mpih          !< MPI handler.
-   type(file_ini)              :: file_input    !< Nasto input file handler.
-   type(adam_object)           :: adam          !< ADAM.
-   type(tree_object),  pointer :: tree=>null()  !< The tree.
-   type(field_object), pointer :: field=>null() !< The field.
-   type(grid_object),  pointer :: grid=>null()  !< The grid.
-   type(base_cpu_object)       :: base_cpu      !< The base CPU handler.
-   type(rk_cpu_object)         :: rk            !< Runge Kutta solver.
-   type(weno_cpu_object)       :: weno          !< WENO Kutta solver.
-   type(ib_cpu_object)         :: ib            !< Immersed Boundary solver.
-   type(slices_cpu_object)     :: slices        !< Slices handler.
-   ! Pointers to ADAM data for easy handling.
-   integer(I4P), pointer :: ngc          =>null() !< Number of ghost cells.
-   integer(I4P), pointer :: ni           =>null() !< Number of cells in i direction.
-   integer(I4P), pointer :: nj           =>null() !< Number of cells in j direction.
-   integer(I4P), pointer :: nk           =>null() !< Number of cells in k direction.
-   integer(I4P), pointer :: nb           =>null() !< Total blocks number for MPI.
-   integer(I4P), pointer :: blocks_number=>null() !< Actual blocks number.
-   ! Physics.
-   integer(I4P)                         :: ns=1_I4P     !< Number of species.
-   integer(I4P)                         :: nv=5_I4P     !< Number of variables.
-   integer(I4P)                         :: nv_aux=7_I4P !< Number of auxiliary variables.
-   type(eos_ic_cpu_object), allocatable :: eos(:)       !< Equations of state (cp, cv...) of each specie [1:ns].
-   ! AMR.
-   integer(I4P)                         :: amr_iters=5_I4P          !< AMR updates iterations number.
-   integer(I4P)                         :: amr_frequency=100_I4P    !< AMR update time step frequency.
-   integer(I4P)                         :: amr_markers_number=1_I4P !< AMR number of markers.
-   type(amr_marker_object), allocatable :: amr_markers(:)           !< AMR array of marker objects.
-   ! Initial conditions.
-   integer(I4P) :: ic_type                     !< Initial condition type.
-   real(R8P)    :: ic_vars(IC_VARS_NUMBER_MAX) !< Variables array for initial conditions.
-   ! Boundary conditions.
-   integer(I4P), pointer     :: bc_type(:)=>null()             !< Boundary condition type.
-   real(R8P)                 :: bc_vars(BC_VARS_NUMBER_MAX, 6) !< Variables' array for boundary conditions.
-   integer(I4P), allocatable :: bcs_type(:)                    !< Immersed boundary condition type.
-   real(R8P),    allocatable :: bcs_vars(:, :)                 !< Variables' array for immersed boundary conditions.
-   ! Solver data.
+   ! Main objects.
+   type(mpih_object)           :: mpih            !< MPI handler.
+   type(adam_object)           :: adam            !< ADAM.
+   type(tree_object),  pointer :: tree=>null()    !< The tree.
+   type(field_object), pointer :: field=>null()   !< The field.
+   type(grid_object),  pointer :: grid=>null()    !< The grid.
+   type(file_ini)              :: file_parameters !< Input simulation parameters file handler.
+   type(base_cpu_object)       :: base_cpu        !< The base CPU handler.
+   type(physics_cpu_object)    :: physics         !< Boundary conditions handler.
+   type(bc_cpu_object)         :: bc              !< Boundary conditions handler.
+   type(ic_cpu_object)         :: ic              !< Initial conditions handler.
+   type(rk_cpu_object)         :: rk              !< Runge Kutta solver.
+   type(weno_cpu_object)       :: weno            !< WENO Kutta solver.
+   type(ib_cpu_object)         :: ib              !< Immersed Boundary handler.
+   type(amr_cpu_object)        :: amr             !< AMR markers handler.
+   type(slices_cpu_object)     :: slices          !< Slices handler.
+   ! Other simulation data.
    logical        :: null_xyz(3)=[.false.,&
                                   .false.,&
                                   .false.]      !< Flag triggering 1D/2D simulations.
@@ -149,11 +94,9 @@ type :: equation_euler_cpu_object
    character(999) :: output_basename='euler'    !< Output file basename.
    logical        :: save_memory_status=.false. !< Flag to activate memory status saving.
    ! Large arrays.
-   real(R8P), pointer     ::     q(:,:,:,:,:)=>null() !< Conservative cell centerd variables, allocated in field object.
-   real(R8P), allocatable :: q_aux(:,:,:,:,:)         !< Auxiliary cell centered variables.
-   real(R8P), allocatable ::  q_ib(:,:,:,:,:)         !< Field cell with boundary set on immersed bodies.
-   real(R8P), allocatable :: dq_ib(:,:,:,:,:)         !< Difference field cell with boundary set on immersed bodies.
-   real(R8P), allocatable ::   q_s(:,:,:,:,:,:)       !< RK stage.
+   real(R8P), allocatable :: q_aux(:,:,:,:,:) !< Auxiliary cell centered variables.
+   real(R8P), allocatable ::  q_ib(:,:,:,:,:) !< Field cell with boundary set on immersed bodies.
+   real(R8P), allocatable ::    rq(:,:,:,:,:) !< Field residuals.
    contains
       ! public methods
       procedure, pass(self) :: amr_update              !< Do AMR update.
@@ -174,8 +117,9 @@ type :: equation_euler_cpu_object
       procedure, pass(self) :: solve                   !< Solve Euler system.
       procedure, pass(self) :: update_ghost            !< Update ghost cells.
       ! private methods
-      procedure, pass(self) :: compute_residuals         !< Compute residuals of equation.
-      procedure, pass(self) :: compute_fluxes_convective !< Compute the conservative fluxes on a slice along a coordinate direction.
+      procedure, pass(self), private :: apply_immersed_boundary   !< Apply immersed boundary to q.
+      procedure, pass(self), private :: compute_residuals         !< Compute residuals of equation.
+      procedure, pass(self), private :: compute_fluxes_convective !< Compute convective fluxes on a coordinate direction.
 endtype equation_euler_cpu_object
 
 contains
@@ -185,20 +129,28 @@ contains
    class(equation_euler_cpu_object), intent(inout) :: self                !< The equation.
    logical                                         :: is_grid_changed     !< Flag to check grid changes for each marker.
    logical                                         :: is_grid_changed_all !< Flag to check grid changes for each iter.
-   type(amr_marker_object)                         :: amr_marker          !< Current amr marker.
+   type(amr_marker_cpu_object)                     :: amr_marker          !< Current amr marker.
    integer(I4P)                                    :: i, i_marker         !< Counter.
 
-   amr: do i=1, self%amr_iters
+   amr : do i=1, self%amr%iters
       is_grid_changed_all = .false.
-      do i_marker=1, self%amr_markers_number
-         amr_marker = self%amr_markers(i_marker)
-         call self%update_ghost(q=self%q)
-         if(amr_marker%mode == AMR_GEO) then
+      do i_marker=1, self%amr%markers_number
+         amr_marker = self%amr%markers(i_marker)
+         call self%update_ghost(q=self%field%q)
+         select case(amr_marker%mode)
+         case(AMR_GEO)
             call self%mark_by_geo(delta_fine=amr_marker%delta_fine, delta_coarse=amr_marker%delta_coarse)
-         elseif(amr_marker%mode == AMR_GRAD) then
-            call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_fine=amr_marker%delta_fine, &
-                                       delta_coarse=amr_marker%delta_coarse, q=self%q, ivar=amr_marker%ivar)
-         endif
+         case(AMR_GRAD)
+            select case(amr_marker%field)
+            case(1)
+               call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_fine=amr_marker%delta_fine, &
+                                          delta_coarse=amr_marker%delta_coarse, q=self%field%q, ivar=amr_marker%ivar)
+            case(2)
+               call self%compute_aux(q=self%field%q, q_aux=self%q_aux)
+               call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_fine=amr_marker%delta_fine, &
+                                          delta_coarse=amr_marker%delta_coarse, q=self%q_aux, ivar=amr_marker%ivar)
+            endselect
+         endselect
          call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed)
          call self%ib%update_phi
          is_grid_changed_all = is_grid_changed_all.or.is_grid_changed
@@ -206,7 +158,7 @@ contains
       if (.not.is_grid_changed_all) then
           print '(A)', self%mpih%myrankstr//'AMR Grid stabilized after : '//trim(str(i))//' AMR iterations'
           exit amr
-       elseif (i==self%amr_iters) then
+       elseif (i==self%amr%iters) then
           print '(A)', self%mpih%myrankstr//'AMR Grid is NOT stabilized after : '//trim(str(i))//' AMR iterations'
       endif
    enddo amr
@@ -214,21 +166,22 @@ contains
 
    subroutine compute_aux(self, q, q_aux)
    !< Compute auxiliary variables.
-   class(equation_euler_cpu_object), intent(in)  :: self             !< The equation.
+   class(equation_euler_cpu_object), intent(in)  :: self       !< The equation.
    real(R8P),                        intent(in)  :: q(1:,         &
-                                                      1-self%ngc:,&
-                                                      1-self%ngc:,&
-                                                      1-self%ngc:,&
-                                                      1:)            !< Conservative variables.
+                                                      1-self%grid%ngc:,&
+                                                      1-self%grid%ngc:,&
+                                                      1-self%grid%ngc:,&
+                                                      1:)      !< Conservative variables.
    real(R8P),                        intent(out) :: q_aux(1:,         &
-                                                          1-self%ngc:,&
-                                                          1-self%ngc:,&
-                                                          1-self%ngc:,&
-                                                          1:)        !< Auxiliary variables.
-   integer(I4P)                                  :: b, i, j, k       !< Counter.
+                                                          1-self%grid%ngc:,&
+                                                          1-self%grid%ngc:,&
+                                                          1-self%grid%ngc:,&
+                                                          1:)  !< Auxiliary variables.
+   integer(I4P)                                  :: b, i, j, k !< Counter.
 
-   associate(blocks_number=>self%blocks_number, q=>self%q, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
-             ns=>self%ns, eos=>self%eos)
+   associate(blocks_number=>self%field%blocks_number, q=>self%field%q, &
+             ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, &
+             ns=>self%physics%ns, eos=>self%physics%eos)
    do b=1, blocks_number
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
@@ -257,16 +210,16 @@ contains
    real(R8P)                                       :: ss      !< Speed of sound.
    integer(I4P)                                    :: b,i,j,k !< Counter.
 
-   associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
-             ngc=>self%ngc, dxyz=>self%field%dxyz, dt=>self%dt, CFL=>self%CFL)
-      call self%compute_aux(q=self%q, q_aux=self%q_aux)
+   associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, &
+             ngc=>self%grid%ngc, dxyz=>self%field%dxyz, dt=>self%dt, CFL=>self%CFL)
+      call self%compute_aux(q=self%field%q, q_aux=self%q_aux)
       dt = huge(1._R8P)
       do b=1, blocks_number
          umax = 0._R8P
          do k=1, nk
             do j=1, nj
                do i=1, ni
-                  ss = a(p=self%q_aux(IP,i,j,k,b), r=self%q_aux(IRHO,i,j,k,b), g=self%q_aux(IG,i,j,k,b))
+                  ss = a(p=self%q_aux(IP,i,j,k,b), r=self%q_aux(IR,i,j,k,b), g=self%q_aux(IG,i,j,k,b))
                   umax = max(umax, &
                              (abs(self%q_aux(IU,i,j,k,b)) + ss)/dxyz(1,b), &
                              (abs(self%q_aux(IV,i,j,k,b)) + ss)/dxyz(2,b), &
@@ -284,203 +237,94 @@ contains
    subroutine initialize(self, filename)
    !< Initialize the equation.
    class(equation_euler_cpu_object), intent(inout) :: self         !< The equation.
-   character(*),                     intent(in)    :: filename     !< Input file name.
+   character(*),                     intent(in)    :: filename     !< File name of input simulation parameters..
    integer(I8P)                                    :: nodes_number !< Allocated nodes on tree.
    integer(I4P)                                    :: nb           !< Number of allocated blocks.
 
    call self%mpih%initialize(do_mpi_init=.true.)
-
-   print '(A)', self%mpih%myrankstr//'equation_euler_cpu_object%initialize start'
+   print '(A)', self%mpih%myrankstr//'equation_euler_cpu%initialize start'
 
    call self%base_cpu%initialize_cpu
 
-   call self%file_input%initialize(filename=trim(filename))
-   call self%file_input%load
+   call self%file_parameters%initialize(filename=trim(filename))
+   call self%file_parameters%load
 
-   call self%adam%grid%initialize(file_parameters=self%file_input, verbose=.true.)
+   call self%physics%initialize(file_parameters=self%file_parameters)
+
+   call self%adam%grid%initialize(file_parameters=self%file_parameters, verbose=.true.)
 
    call self%adam%compute_blocks_number(memory_avail=self%base_cpu%memory_avail,  &
                                         fields_number=80,                         &
                                         nb=nb,                                    &
                                         nodes_number=nodes_number)
 
-   call self%adam%initialize(file_parameters=self%file_input, &
-                             do_tree_init=.true.,             &
-                             do_field_init=.true.,            &
-                             nv=self%nv, nb=nb, nodes_number=nodes_number)
+   call self%adam%initialize(nb=nb, file_parameters=self%file_parameters, &
+                             do_tree_init=.true.,                         &
+                             do_field_init=.true.,                        &
+                             nv=self%physics%nv, nodes_number=nodes_number)
 
-   call forward_main_adam_data(grid=self%adam%grid, tree=self%adam%tree, field=self%adam%field)
+   call self%base_cpu%initialize(tree=self%adam%tree, field=self%adam%field)
 
    call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_blocks_reorder=.false.)
 
    call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false.)
 
-   call self%base_cpu%initialize(tree=self%adam%tree, field=self%adam%field)
+   call self%bc%initialize(grid=self%adam%grid, file_parameters=self%file_parameters)
 
-   call self%ib%initialize(grid=self%adam%grid, field=self%adam%field, file_parameters=self%file_input)
+   call self%ic%initialize(file_parameters=self%file_parameters)
 
-   call self%rk%initialize(file_parameters=self%file_input)
+   call self%ib%initialize(grid=self%adam%grid, field=self%adam%field, file_parameters=self%file_parameters)
 
-   call self%weno%initialize(file_parameters=self%file_input)
+   call self%rk%initialize(file_parameters=self%file_parameters, grid=self%adam%grid, field=self%adam%field)
 
-   call self%slices%initialize(file_parameters=self%file_input)
+   call self%weno%initialize(file_parameters=self%file_parameters)
 
-   call load_equation_from_ini_file
+   call self%slices%initialize(file_parameters=self%file_parameters)
 
-   call load_physics_from_ini_file
+   call self%amr%initialize(file_parameters=self%file_parameters)
 
-   call load_amr_from_ini_file
+   call load_simulation_from_ini_file
 
-   call load_timing_from_ini_file
-
-   call load_ic_from_ini_file
-
-   call load_bc_from_ini_file
+   call link_objects_data(grid=self%adam%grid, tree=self%adam%tree, field=self%adam%field)
 
    ! allocate large arrays
-   associate(nv=>self%nv, nv_aux=>self%nv_aux, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb, nrk=>self%rk%nrk)
-   allocate(self%q_aux(1:nv_aux, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb       ))
-   allocate(self%dq_ib(1:nv,     1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb       ))
-   allocate(self%q_s(  1:nv,     1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb, 1:nrk))
+   associate(nv=>self%physics%nv, nv_aux=>self%physics%nv_aux, &
+             ngc=>self%grid%ngc, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, &
+             nb=>self%field%nb, nrk=>self%rk%nrk)
+   allocate(self%q_aux(1:nv_aux, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
+   allocate(self%q_ib( 1:nv,     1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
+   allocate(self%rq(   1:nv,     1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
    endassociate
-
-   print '(A)', self%mpih%myrankstr//'equation_euler_cpu_object%initialize finish'
+   print '(A)', self%mpih%myrankstr//'equation_euler_cpu%initialize finish'
    contains
-      subroutine forward_main_adam_data(grid, tree, field)
+      subroutine link_objects_data(grid, tree, field)
       !< Forward main ADAM data to equation for easy handling.
       type(grid_object),  intent(in), target :: grid  !< The grid.
       type(tree_object),  intent(in), target :: tree  !< The tree.
       type(field_object), intent(in), target :: field !< The field.
 
-      self%grid          => grid
-      self%tree          => tree
-      self%field         => field
-      self%q             => field%q
-      self%blocks_number => field%blocks_number
-      self%ni            => field%grid%ni
-      self%nj            => field%grid%nj
-      self%nk            => field%grid%nk
-      self%ngc           => field%grid%ngc
-      self%nb            => field%nb
-      self%bc_type       => grid%bc_type
-      endsubroutine forward_main_adam_data
+      self%grid  => grid
+      self%tree  => tree
+      self%field => field
+      endsubroutine link_objects_data
 
-      subroutine load_equation_from_ini_file
-      !< Parse equation setting from input file.
-      logical :: buf_LOG !< Logical buffer.
+      subroutine load_simulation_from_ini_file
+      !< Load (other) simulation configs from input file.
 
-      call self%file_input%get(section_name='equation', option_name='save_memory_status', val=buf_LOG)
-      self%save_memory_status = buf_LOG
-      print '(A)', self%mpih%myrankstr//'save memory status: '//trim(str(self%save_memory_status))
-      endsubroutine load_equation_from_ini_file
-
-      subroutine load_physics_from_ini_file
-      !< Parse physics setting from input file.
-      integer(I4P) :: ns     !< Number of initial species.
-      real(R8P)    :: cp, cv !< Constant specific heats.
-      integer(I4P) :: s      !< Counter.
-
-      call self%file_input%get(section_name='physics', option_name='ns', val=ns)
-      self%ns = ns
-      ! initialize named index of q_aux array
-      IRHO = ns + 1
-      IU   = ns + 2
-      IV   = ns + 3
-      IW   = ns + 4
-      IG   = ns + 5
-      IP   = ns + 6
-      allocate(self%eos(1:ns))
-      do s=1, self%ns
-         call self%file_input%get(section_name='physics_specie_'//trim(str(s,.true.)), option_name='cp', val=cp)
-         call self%file_input%get(section_name='physics_specie_'//trim(str(s,.true.)), option_name='cv', val=cv)
-         call self%eos(s)%initialize(cp=cp, cv=cv)
-      enddo
-      endsubroutine load_physics_from_ini_file
-
-      subroutine load_amr_from_ini_file
-      !< Parse AMR setting from input file.
-      integer(I4P)   :: buf_I4   !< I4 buffer.
-      real(R8P)      :: buf_R8   !< R8 buffer.
-      character(999) :: sname    !< Section name.
-      integer(I4P)   :: i_marker !< Counter.
-      integer(I4P)   :: mode     !< AMR mode.
-
-      call self%file_input%get(section_name='amr', option_name='frequency', val=buf_I4) ; self%amr_frequency = buf_I4
-      call self%file_input%get(section_name='amr', option_name='iters',     val=buf_I4) ; self%amr_iters     = buf_I4
-      call self%file_input%get(section_name='amr', option_name='n_markers', val=buf_I4) ; self%amr_markers_number = buf_I4
-      allocate(self%amr_markers(self%amr_markers_number))
-      do i_marker=1,self%amr_markers_number
-         sname = 'amr_marker_'//trim(str(i_marker,.true.))
-         call self%file_input%get(section_name=sname, option_name='mode', val=mode)
-         self%amr_markers(i_marker)%mode = mode
-         call self%file_input%get(section_name=sname, option_name='delta_fine', val=buf_R8)
-         self%amr_markers(i_marker)%delta_fine = buf_R8
-         call self%file_input%get(section_name=sname, option_name='delta_coarse', val=buf_R8)
-         self%amr_markers(i_marker)%delta_coarse = buf_R8
-         if     (mode == AMR_GEO) then
-            call self%file_input%get(section_name=sname, option_name='solid', val=buf_I4)
-            self%amr_markers(i_marker)%solid = buf_I4
-         elseif (mode == AMR_GRAD) then
-            call self%file_input%get(section_name=sname, option_name='var', val=buf_I4)
-            self%amr_markers(i_marker)%ivar = buf_I4
-            call self%file_input%get(section_name=sname, option_name='tol', val=buf_R8)
-            self%amr_markers(i_marker)%tol = buf_R8
-         endif
-      enddo
-      endsubroutine load_amr_from_ini_file
-
-      subroutine load_timing_from_ini_file
-      !< Parse timing setting from input file.
-      logical        :: buf_BOOL !< Logical buffer.
-      character(999) :: buf_CHAR !< String buffer.
-      integer(I4P)   :: buf_I4   !< I4 buffer.
-      real(R8P)      :: buf_R8   !< R8 buffer.
-
-      call self%file_input%get(section_name="time", option_name="restart",         val=buf_BOOL) ; self%restart          = buf_BOOL
-      call self%file_input%get(section_name="time", option_name="restart_basename",val=buf_CHAR) ; self%restart_basename = buf_CHAR
-      call self%file_input%get(section_name="time", option_name="restart_save",    val=buf_I4)   ; self%restart_save     = buf_I4
-      call self%file_input%get(section_name="time", option_name="it_max",          val=buf_I4)   ; self%it_max           = buf_I4
-      call self%file_input%get(section_name="time", option_name="it_save",         val=buf_I4)   ; self%it_save          = buf_I4
-      call self%file_input%get(section_name="time", option_name="time_max",        val=buf_R8)   ; self%time_max         = buf_R8
-      call self%file_input%get(section_name="time", option_name="time_save",       val=buf_R8)   ; self%time_save        = buf_R8
-      call self%file_input%get(section_name="time", option_name="output_basename", val=buf_CHAR) ; self%output_basename  = buf_CHAR
-      call self%file_input%get(section_name='time', option_name='CFL',             val=buf_R8)   ; self%CFL              = buf_R8
-      endsubroutine load_timing_from_ini_file
-
-      subroutine load_ic_from_ini_file
-      !< Parse initial conditions setting from input file.
-      integer(I4P)   :: buf_I4 !< I4 buffer.
-      real(R8P)      :: buf_R8 !< R8 buffer.
-      character(999) :: oname  !< Option name.
-      integer(I4P)   :: i_var  !< Counter.
-      integer(I4P)   :: n_vars !< Number of vars.
-
-      call self%file_input%get(section_name="initial_conditions", option_name='ic_type', val=buf_I4) ; self%ic_type = buf_I4
-      n_vars = IC_VARS_NUMBER(self%ic_type)
-      do i_var=1,n_vars
-         oname = "var"//trim(str(i_var,.true.))
-         call self%file_input%get(section_name="initial_conditions", option_name=oname, val=buf_R8) ; self%ic_vars(i_var) = buf_R8
-      enddo
-      endsubroutine load_ic_from_ini_file
-
-      subroutine load_bc_from_ini_file
-      !< Parse boundary conditions setting from input file.
-      real(R8P)      :: buf_R8       !< R8 buffer.
-      integer(I4P)   :: bc_type_item !< Boundary condition type element.
-      integer(I4P)   :: i_var, i_bc  !< Counter.
-      integer(I4P)   :: n_vars       !< Number of vars.
-
-      snames_bc(:) = ["bc_x_min", "bc_x_max", "bc_y_min", "bc_y_max", "bc_z_min", "bc_z_max"]
-      do i_bc=1,6
-         sname = snames_bc(i_bc)
-         call self%file_input%get(section_name=sname, option_name='type', val=bc_type_item)
-         n_vars = BC_VARS_NUMBER(bc_type_item)
-         do i_var=1,n_vars
-             call self%file_input%get(section_name=sname, option_name="var"//trim(str(i_var,.true.)), val=buf_R8)
-             self%bc_vars(i_var, i_bc) = buf_R8
-         enddo
-      enddo
-      endsubroutine load_bc_from_ini_file
+      call self%file_parameters%get(section_name="simulation", option_name="restart",            val=self%restart           )
+      call self%file_parameters%get(section_name="simulation", option_name="restart_basename",   val=self%restart_basename  )
+      call self%file_parameters%get(section_name="simulation", option_name="restart_save",       val=self%restart_save      )
+      call self%file_parameters%get(section_name="simulation", option_name="it_max",             val=self%it_max            )
+      call self%file_parameters%get(section_name="simulation", option_name="it_save",            val=self%it_save           )
+      call self%file_parameters%get(section_name="simulation", option_name="time_max",           val=self%time_max          )
+      call self%file_parameters%get(section_name="simulation", option_name="time_save",          val=self%time_save         )
+      call self%file_parameters%get(section_name="simulation", option_name="output_basename",    val=self%output_basename   )
+      call self%file_parameters%get(section_name="simulation", option_name='CFL',                val=self%CFL               )
+      call self%file_parameters%get(section_name="simulation", option_name='save_memory_status', val=self%save_memory_status)
+      call self%file_parameters%get(section_name="simulation", option_name='null_x',             val=self%null_xyz(1)       )
+      call self%file_parameters%get(section_name="simulation", option_name='null_y',             val=self%null_xyz(2)       )
+      call self%file_parameters%get(section_name="simulation", option_name='null_z',             val=self%null_xyz(3)       )
+      endsubroutine load_simulation_from_ini_file
    endsubroutine initialize
 
    subroutine integrate(self, do_ghost_syncro, residual)
@@ -490,34 +334,33 @@ contains
    real(R8P),                        intent(out), optional :: residual         !< Global residual.
    logical                                                 :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
    integer(I4P)                                            :: s                !< Counter.
-   integer(I4P)                                            :: i_eikonal        !< Counter.
-   integer(I4P), parameter                                 :: n_eikonal=2      !< Counter.
 
    do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
-   associate(time=>self%time, dt=>self%dt, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
-             ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number,       &
-             ! nrk=>self%rk%nrk, alph=>self%alph, beta=>self%beta,                  &
-             inner_blocks_number=>self%field%inner_blocks_number, solids_number=>self%ib%solids_number, bcs_type=>self%bcs_type(1))
-
-   do s=1, self%rk%nrk
-      call MPI_Barrier(MPI_COMM_WORLD, self%mpih%error)
-      ! call compute_rk_stage(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
-                            ! alph=alph, dt=dt, s=s, q=self%q, q_s=self%q_s)
-
-      call self%update_ghost(q=self%q_s(:,:,:,:,:,s))
-      if (solids_number > 0) then
-         do i_eikonal=1, n_eikonal
-            call MPI_Barrier(MPI_COMM_WORLD, self%mpih%error)
-            call self%ib%evolve_eikonal_q(dq=self%dq_ib, q=self%q_s(:,:,:,:,:,s))
-            call self%update_ghost(q=self%q_s(:,:,:,:,:,s))
-         enddo
-         call set_bc_ib(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
-                        q=self%q_s(:,:,:,:,:,s), phi=self%ib%phi, bcs_type=bcs_type)
-      endif
-      call self%compute_residuals(q=self%q_s(:,:,:,:,:,s), time=time)
-   enddo
-   ! call advance_q(ni=ni, nj=nj, nk=nk, ngc=ngc, nrk=nrk, nv=nv, blocks_number=blocks_number, &
-                  ! beta=beta, dt=dt, q_s=self%q_s, q=self%q)
+   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, blocks_number=>self%field%blocks_number, &
+             nv=>self%physics%nv, dt=>self%dt)
+   select case(self%rk%scheme(1:5))
+   case('rk-ls') ! low storage schemes
+      call self%rk%initialize_stage(ngc=self%grid%ngc, q=self%field%q)
+      do s=1, self%rk%nrk
+         call self%apply_immersed_boundary(q=self%field%q, q_ib=self%q_ib)
+         call self%mpih%barrier
+         call self%compute_aux(q=self%q_ib, q_aux=self%q_aux)
+         call self%compute_residuals(q_aux=self%q_aux, rq=self%rq)
+         call self%rk%compute_stage(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, dt=dt, s=s, &
+                                    phi=self%ib%phi, rq=self%rq, q=self%field%q)
+      enddo
+   case('rk-ns') ! normal storage schemes
+      call self%rk%initialize_stage(ngc=self%grid%ngc, q=self%field%q)
+      do s=1, self%rk%nrk
+         ! call self%apply_immersed_boundary(q=self%rk%q_s(:,:,:,:,:,s), q_ib=self%q_ib)
+         call self%mpih%barrier
+         call self%rk%compute_stage(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, dt=dt, s=s, &
+                                    phi=self%ib%phi, rq=self%rq, q=self%rk%q_s(:,:,:,:,:,s))
+         call self%compute_aux(q=self%rk%q_s(:,:,:,:,:,s), q_aux=self%q_aux)
+         call self%compute_residuals(q_aux=self%q_aux, rq=self%rk%q_s(:,:,:,:,:,s))
+      enddo
+      call self%rk%sum_stages(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, dt=dt, q=self%field%q)
+   endselect
    endassociate
    endsubroutine integrate
 
@@ -546,9 +389,9 @@ contains
 
    do_init_ = .true.    ; if (present(do_init)) do_init_ = do_init
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
-   if(do_init_) self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
-   associate (ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
-              blocks_number=>self%blocks_number, dxyz=>self%field%dxyz, phi=>self%ib%phi)
+   if(do_init_) self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%field%blocks_number)]
+   associate (ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, &
+              blocks_number=>self%field%blocks_number, dxyz=>self%field%dxyz, phi=>self%ib%phi)
       do b=1, blocks_number
          distance = 1._R8P
          if (maxval(phi(1,:,:,:,b))*minval(phi(1,:,:,:,b)) < 0._R8P) then
@@ -581,15 +424,15 @@ contains
 
    subroutine mark_by_grad_var(self, grad_tol, delta_fine, delta_coarse, q, ivar, threshold, do_init)
    !< Mark blocks to be refined/derefined by a `gradient` value.
-   !< @Note Field q to which apply gradient musht have ghost cells updated.
+   !< @note Field q to which apply gradient musht have ghost cells updated.
    class(equation_euler_cpu_object), intent(inout)        :: self           !< The equation.
    real(R8P),                        intent(in)           :: grad_tol       !< Gradiend tolerance value.
    real(R8P),                        intent(in)           :: delta_fine     !< Maximum cell delta in fine grids.
    real(R8P),                        intent(in)           :: delta_coarse   !< Minimum cell delta in coarse grids.
    real(R8P),                        intent(in)           :: q(1:,          &
-                                                               1-self%ngc:, &
-                                                               1-self%ngc:, &
-                                                               1-self%ngc:, &
+                                                               1-self%grid%ngc:, &
+                                                               1-self%grid%ngc:, &
+                                                               1-self%grid%ngc:, &
                                                                1:)          !< Field component to which apply gradient.
    integer(I4P),                     intent(in)           :: ivar           !< Variable for marking.
    real(R8P),                        intent(in), optional :: threshold      !< Threshold for sphere proximity.
@@ -603,8 +446,9 @@ contains
 
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
    do_init_   = .true.  ; if (present(do_init))   do_init_   = do_init
-   if (do_init_) self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
-   associate (ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, dxyz=>self%field%dxyz)
+   if (do_init_) self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%field%blocks_number)]
+   associate (ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, blocks_number=>self%field%blocks_number, &
+              dxyz=>self%field%dxyz)
       do b=1, blocks_number
          grad_var = gradient(b=b, ni=ni, nj=nj, nk=nk, ngc=ngc, dx=dxyz(1,b), dy=dxyz(2,b), dz=dxyz(3,b))
 
@@ -704,7 +548,7 @@ contains
    call self%save_restart_files(is_update_ghost_done=is_update_ghost_done)
    if (self%slices%is_to_save(it=self%it,it_max=self%it_max,time=self%time,time_max=self%time_max).and.&
        .not.is_update_ghost_done) then
-      call self%update_ghost(q=self%q)
+      call self%update_ghost(q=self%field%q)
       is_update_ghost_done = .true.
     endif
    call self%slices%save_mat(basename=self%output_basename, &
@@ -713,7 +557,7 @@ contains
                              time=self%time,                &
                              time_max=self%time_max,        &
                              adam=self%adam,                &
-                             q=self%q,                      &
+                             q=self%field%q,                &
                              q_name=['rho','rhu','rhv','rhw','rhe'])
    endsubroutine save_simulation_data
 
@@ -727,8 +571,8 @@ contains
    if (mod(self%it,self%it_save)==0.or.self%it==self%it_max.or.&
       (((self%it_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%it_max).and.(self%it_max > 0)))) then
       if (.not.is_update_ghost_done) then
-         call self%update_ghost(q=self%q)
-         call self%compute_aux(q=self%q, q_aux=self%q_aux)
+         call self%update_ghost(q=self%field%q)
+         call self%compute_aux(q=self%field%q, q_aux=self%q_aux)
          is_update_ghost_done = .true.
       endif
       call self%mpih%barrier(tictoc=.true.)
@@ -736,11 +580,11 @@ contains
                    trim(str(self%time,.true.))
       output_basename_ = trim(self%output_basename)//'-'//trim(strz(self%it,9))
       if (present(output_basename)) output_basename_ = trim(output_basename)
-      call self%adam%save_hdf5(basename=trim(output_basename_),                   &
-                               q=self%field%q,                                    &
-                               q_aux=self%q_aux,                                  &
-                               q_name=['rho','rhu','rhv','rhw','rhe'],            &
-                               q_aux_name=['r','u','v','w','y','t','p','h','c'],  &
+      call self%adam%save_hdf5(basename=trim(output_basename_),          &
+                               q=self%field%q,                           &
+                               q_aux=self%q_aux,                         &
+                               q_name=['rho','rhu','rhv','rhw','rhe'],   &
+                               q_aux_name=['c','r','u','v','w','g','p'], &
                                with_cell_morton=.true.)
       call self%mpih%barrier(tictoc=.true.)
       print '(A, F18.10)', self%mpih%myrankstr//'step timing (save HDF5): ', self%mpih%tictoc_timing()
@@ -754,7 +598,7 @@ contains
 
    if (mod(self%it,self%restart_save)==0) then
       if (.not.is_update_ghost_done) then
-         call self%update_ghost(q=self%q)
+         call self%update_ghost(q=self%field%q)
          is_update_ghost_done = .true.
       endif
       call self%mpih%barrier(tictoc=.true.)
@@ -771,9 +615,9 @@ contains
    !< Set boundary conditions of equation.
    class(equation_euler_cpu_object), intent(in)    :: self              !< The equation.
    real(R8P),                        intent(inout) :: q(1:,         &
-                                                        1-self%ngc:,&
-                                                        1-self%ngc:,&
-                                                        1-self%ngc:,1:) !< Conservative variables.
+                                                        1-self%grid%ngc:,&
+                                                        1-self%grid%ngc:,&
+                                                        1-self%grid%ngc:,1:) !< Conservative variables.
    integer(I4P)                                    :: crown             !< Crown counter.
    integer(I4P)                                    :: fec               !< Boundary fec (1 to 26).
    integer(I4P)                                    :: fec_1_6           !< Boundary fec (1 to 6).
@@ -782,8 +626,9 @@ contains
    integer(I4P)                                    :: jdelta            !< IJK delta step for extrapolation.
    integer(I4P)                                    :: kdelta            !< IJK delta step for extrapolation.
    integer(I4P)                                    :: bc_type           !< Boundary condition type.
+   integer(I4P)                                    :: s_bc              !< Specie index of BC.
 
-   associate(ngc=>self%ngc)
+   associate(ngc=>self%grid%ngc, q_bc=>self%bc%q)
    if (allocated(self%tree%local_map_bc_crown)) then
       do crown=1, ngc
          do c=1, size(self%tree%local_map_bc_crown, dim=1)
@@ -800,15 +645,10 @@ contains
                fec_1_6 = FEC_1_6_ARRAY(fec)
                select case(bc_type)
                case(BC_EXTRAPOLATION)
-                   q(:,i,j,k,b) = q(:,i-idelta,j-jdelta,k-kdelta,b)
+                  q(:,i,j,k,b) = q(:,i-idelta,j-jdelta,k-kdelta,b)
                case(BC_INFLOW)
-                   ! q(1,i,j,k,b) = q_bc_vars(1, fec_1_6)
-                   ! q(2,i,j,k,b) = q_bc_vars(1, fec_1_6) * q_bc_vars(2, fec_1_6)
-                   ! q(3,i,j,k,b) = q_bc_vars(1, fec_1_6) * q_bc_vars(3, fec_1_6)
-                   ! q(4,i,j,k,b) = q_bc_vars(1, fec_1_6) * q_bc_vars(4, fec_1_6)
-                   ! q(5,i,j,k,b) = q_bc_vars(1, fec_1_6)*                         &
-                   !     (cv_star*q_bc_vars(5, fec_1_6)/(q_bc_vars(1, fec_1_6)*R_star)+ &
-                   !     0.5_R8P*(q_bc_vars(2, fec_1_6)**2+q_bc_vars(3, fec_1_6)**2+q_bc_vars(4, fec_1_6)**2))
+                  s_bc = int(q_bc(6, fec_1_6))
+                  q(1:5,i,j,k,b) = self%physics%eos(s_bc)%primitive2conservative(primitive=q_bc(1:5, fec_1_6))
                endselect
             endif
          enddo
@@ -819,58 +659,37 @@ contains
 
    subroutine set_initial_conditions(self)
    !< Set initial conditions of field.
-   class(equation_euler_cpu_object), intent(inout) :: self       !< The equation.
-   integer(I4P)                                    :: b, i, j, k !< Counter.
-   real(R8P)                                       :: x_split    !< Scalar.
-   real(R8P)                                       :: uu, vv, ww !< Scalar.
-   real(R8P)                                       :: rn         !< Scalar.
+   class(equation_euler_cpu_object), intent(inout) :: self          !< The equation.
+   integer(I4P)                                    :: b, i, j, k, r !< Counter.
+   integer(I4P)                                    :: s_ic          !< Specie index of IC.
 
-   associate(blocks_number=>self%blocks_number, q=>self%q, ni=>self%ni, nj=>self%nj, nk=>self%nk,              &
-             ngc=>self%ngc, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell,   &
-             R=>self%eos(1)%R, cv=>self%eos(1)%cv, ic_vars=>self%ic_vars)
+   associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, &
+             q=>self%field%q, q_ic=>self%ic%q, &
+             x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell)
 
-      if     (self%ic_type == IC_UNIFORM) then
-         do b=1, blocks_number
-            do k=1, nk
-               do j=1, nj
-                  do i=1, ni
-                  enddo
+   do b=1, blocks_number
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               do r=1, self%ic%regions_number
+                  if ((x_cell(i,b) >= self%ic%emin(1,r).and.x_cell(i,b) <= self%ic%emax(1,r)).and. &
+                      (y_cell(j,b) >= self%ic%emin(2,r).and.y_cell(j,b) <= self%ic%emax(2,r)).and. &
+                      (z_cell(k,b) >= self%ic%emin(3,r).and.z_cell(k,b) <= self%ic%emax(3,r))) then
+                     s_ic = int(q_ic(6, r))
+                     q(1:5,i,j,k,b) = self%physics%eos(s_ic)%primitive2conservative(primitive=q_ic(1:5, r))
+                  endif
                enddo
             enddo
          enddo
-      elseif (self%ic_type == IC_LEFTRIGHT) then
-         x_split = ic_vars(11)
-         do b=1, blocks_number
-            do k=1, nk
-               do j=1, nj
-                  do i=1, ni
-                     if(x_cell(i,b) <= x_split) then
-                        q(1,i,j,k,b) = ic_vars(1)
-                        q(2,i,j,k,b) = ic_vars(1)*ic_vars(2)
-                        q(3,i,j,k,b) = ic_vars(1)*ic_vars(3)
-                        q(4,i,j,k,b) = ic_vars(1)*ic_vars(4)
-                        q(5,i,j,k,b) = ic_vars(1)*(cv*ic_vars(5)/(ic_vars(1)*R)+ &
-                            0.5_R8P*(ic_vars(2)**2+ic_vars(3)**2+ic_vars(4)**2))
-                     else
-                        q(1,i,j,k,b) = ic_vars(6)
-                        q(2,i,j,k,b) = ic_vars(6)*ic_vars(7)
-                        q(3,i,j,k,b) = ic_vars(6)*ic_vars(8)
-                        q(4,i,j,k,b) = ic_vars(6)*ic_vars(9)
-                        q(5,i,j,k,b) = ic_vars(6)*(cv*ic_vars(10)/(ic_vars(6)*R)+&
-                            0.5_R8P*(ic_vars(7)**2+ic_vars(8)**2+ic_vars(9)**2))
-                     endif
-                  enddo
-               enddo
-            enddo
-         enddo
-      endif
+      enddo
+   enddo
    endassociate
    endsubroutine set_initial_conditions
 
    subroutine solve(self, filename)
    !< Solve Euler system.
    class(equation_euler_cpu_object), intent(inout) :: self             !< The equation.
-   character(*),                     intent(in)    :: filename         !< Input file name.
+   character(*),                     intent(in)    :: filename         !< File name of input simulation parameters..
    real(R8P)                                       :: timing(1:2)      !< Tic toc timing.
    real(R8P)                                       :: timing_step(1:2) !< Tic toc timing.
 
@@ -880,7 +699,7 @@ contains
       call self%load_restart_files(t=self%it, time=self%time)
       print '(A)', self%mpih%myrankstr//'restart [t, time]: '//trim(str(self%it))//', '//trim(str(self%time))
    else
-      call self%set_initial_conditions()
+      call self%set_initial_conditions
       self%time = 0._R8P
       self%it = 0
    endif
@@ -899,7 +718,7 @@ contains
          call save_memory_cpu_status(file_name='memory_cpu-'//self%mpih%myrankstr//'.dat', tag=str(self%it,.true.))
       endif
 
-      if (mod(self%it,self%amr_frequency)==0) then
+      if (mod(self%it,self%amr%frequency)==0) then
          call self%mpih%barrier(tictoc=.true.)
          call self%amr_update
          call self%mpih%barrier(tictoc=.true.)
@@ -925,6 +744,7 @@ contains
    print '(A, F18.10)', self%mpih%myrankstr//'averaged timing: ', (timing(2) - timing(1))/self%it
 
    call self%save_simulation_data
+   call self%mpih%finalize
    endsubroutine solve
 
    subroutine update_ghost(self, q, step)
@@ -932,9 +752,9 @@ contains
    !< If not specified all steps are perfermod, syncronous computation
    class(equation_euler_cpu_object), intent(inout)        :: self            !< The equation.
    real(R8P),                        intent(inout)        :: q(1:,         &
-                                                               1-self%ngc:,&
-                                                               1-self%ngc:,&
-                                                               1-self%ngc:,&
+                                                               1-self%grid%ngc:,&
+                                                               1-self%grid%ngc:,&
+                                                               1-self%grid%ngc:,&
                                                                1:)           !< Conservative variables.
    integer(I4P),                     intent(in), optional :: step            !< Step to be perfordmed in asyncronous comp.
    logical                                                :: do_local_update !< Flag for triggering local update.
@@ -957,33 +777,68 @@ contains
    endsubroutine update_ghost
 
    ! private methods
-   subroutine compute_residuals(self, q, time)
+   subroutine apply_immersed_boundary(self, q, q_ib)
+   !< Apply immersed boundary to q.
+   class(equation_euler_cpu_object), intent(inout) :: self        !< The equation.
+   real(R8P),                        intent(in   ) :: q(1:,              &
+                                                        1-self%grid%ngc:,&
+                                                        1-self%grid%ngc:,&
+                                                        1-self%grid%ngc:,&
+                                                        1:)       !< Conservative variables.
+   real(R8P),                        intent(inout) :: q_ib(1:,              &
+                                                           1-self%grid%ngc:,&
+                                                           1-self%grid%ngc:,&
+                                                           1-self%grid%ngc:,&
+                                                           1:)    !< Conservative variables with applied IB.
+   integer(I4P)                                    :: i_eikonal   !< Counter.
+   integer(I4P), parameter                         :: n_eikonal=2 !< Counter.
+
+   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, blocks_number=>self%field%blocks_number, &
+             ns=>self%physics%ns)
+   q_ib = q
+   if (self%ib%solids_number > 0) then
+      call self%update_ghost(q=q_ib)
+      do i_eikonal=1, n_eikonal
+         call MPI_BARRIER(MPI_COMM_WORLD, self%mpih%error)
+         call self%ib%evolve_eikonal_q(q=q_ib)
+         call self%update_ghost(q_ib)
+      enddo
+      call set_bc_ib(ni=ni, nj=nj, nk=nk, ngc=ngc, ns=ns, blocks_number=blocks_number, &
+                     bcs_type=self%ib%bcs_type, phi=self%ib%phi, q=self%q_ib)
+   endif
+   endassociate
+   endsubroutine apply_immersed_boundary
+
+   subroutine compute_residuals(self, q_aux, rq)
    !< Compute residuals of equation.
-   class(equation_euler_cpu_object), intent(inout) :: self                          !< The equation.
-   real(R8P),                        intent(inout) :: q(1:,                    &
-                                                        1-self%field%grid%ngc:,&
-                                                        1-self%field%grid%ngc:,&
-                                                        1-self%field%grid%ngc:,&
-                                                        1:)                         !< Conservative variables.
-   real(R8P),                        intent(in)    :: time                          !< Time.
-   real(R8P)                                       :: fluxes_x(1:self%field%nv,     &
-                                                               0:self%field%grid%ni,&
-                                                               1:self%field%grid%nj,&
-                                                               1:self%field%grid%nk)!< Convective fluxes in x direction.
-   real(R8P)                                       :: fluxes_y(1:self%field%nv,     &
-                                                               1:self%field%grid%ni,&
-                                                               0:self%field%grid%nj,&
-                                                               1:self%field%grid%nk)!< Convective fluxes in y direction.
-   real(R8P)                                       :: fluxes_z(1:self%field%nv,     &
-                                                               1:self%field%grid%ni,&
-                                                               1:self%field%grid%nj,&
-                                                               0:self%field%grid%nk)!< Convective fluxes in z direction.
-   integer(I4P)                                    :: b, i, j, k                    !< Counter.
+   class(equation_euler_cpu_object), intent(inout) :: self               !< The equation.
+   real(R8P),                        intent(in)    :: q_aux(1:,         &
+                                                            1-self%grid%ngc:,&
+                                                            1-self%grid%ngc:,&
+                                                            1-self%grid%ngc:,&
+                                                            1:)          !< Auxiliary variables.
+   real(R8P),                        intent(inout) ::    rq(1:,         &
+                                                            1-self%grid%ngc:,&
+                                                            1-self%grid%ngc:,&
+                                                            1-self%grid%ngc:,&
+                                                            1:)          !< Residuals.
+   real(R8P)                                       :: fluxes_x(1:self%physics%nv,&
+                                                               0:self%grid%ni,&
+                                                               1:self%grid%nj,&
+                                                               1:self%grid%nk)!< Convective fluxes in x direction.
+   real(R8P)                                       :: fluxes_y(1:self%physics%nv,&
+                                                               1:self%grid%ni,&
+                                                               0:self%grid%nj,&
+                                                               1:self%grid%nk)!< Convective fluxes in y direction.
+   real(R8P)                                       :: fluxes_z(1:self%physics%nv,&
+                                                               1:self%grid%ni,&
+                                                               1:self%grid%nj,&
+                                                               0:self%grid%nk)!< Convective fluxes in z direction.
+   integer(I4P)                                    :: b, i, j, k         !< Counter.
 
    associate(ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk, &
              ngc=>self%field%grid%ngc, blocks_number=>self%field%blocks_number,      &
-             dxyz=>self%field%dxyz, ns=>self%ns, q_aux=>self%q_aux)
-   call self%compute_aux(q=q, q_aux=q_aux)
+             dxyz=>self%field%dxyz, ns=>self%physics%ns)
    fluxes_x = 0._R8P
    fluxes_y = 0._R8P
    fluxes_z = 0._R8P
@@ -993,12 +848,12 @@ contains
             do j=1, nj
                call self%compute_fluxes_convective(gc=ngc, n=ni,                          &
                                                    c         =    q_aux(1:ns, :,  j,k,b), &
-                                                   rho       =    q_aux(ns+1, :,  j,k,b), &
-                                                   un        =    q_aux(ns+2, :,  j,k,b), & ! u
-                                                   ut1       =    q_aux(ns+3, :,  j,k,b), & ! v
-                                                   ut2       =    q_aux(ns+4, :,  j,k,b), & ! w
-                                                   g         =    q_aux(ns+5, :,  j,k,b), &
-                                                   p         =    q_aux(ns+6, :,  j,k,b), &
+                                                   rho       =    q_aux(IR  , :,  j,k,b), &
+                                                   un        =    q_aux(IU  , :,  j,k,b), & ! u
+                                                   ut1       =    q_aux(IV  , :,  j,k,b), & ! v
+                                                   ut2       =    q_aux(IW  , :,  j,k,b), & ! w
+                                                   g         =    q_aux(IG  , :,  j,k,b), &
+                                                   p         =    q_aux(IP  , :,  j,k,b), &
                                                    f_rho     = fluxes_x(1:ns,0:ni,j,k),   &
                                                    f_rho_un  = fluxes_x(ns+1,0:ni,j,k),   & ! u
                                                    f_rho_ut1 = fluxes_x(ns+2,0:ni,j,k),   & ! v
@@ -1012,12 +867,12 @@ contains
             do i=1, ni
                call self%compute_fluxes_convective(gc=ngc, n=nj,                          &
                                                    c         =    q_aux(1:ns,i, :,  k,b), &
-                                                   rho       =    q_aux(ns+1,i, :,  k,b), &
-                                                   un        =    q_aux(ns+3,i, :,  k,b), & ! v
-                                                   ut1       =    q_aux(ns+2,i, :,  k,b), & ! u
-                                                   ut2       =    q_aux(ns+4,i, :,  k,b), & ! w
-                                                   g         =    q_aux(ns+5,i, :,  k,b), &
-                                                   p         =    q_aux(ns+6,i, :,  k,b), &
+                                                   rho       =    q_aux(IR  ,i, :,  k,b), &
+                                                   un        =    q_aux(IV  ,i, :,  k,b), & ! v
+                                                   ut1       =    q_aux(IU  ,i, :,  k,b), & ! u
+                                                   ut2       =    q_aux(IW  ,i, :,  k,b), & ! w
+                                                   g         =    q_aux(IG  ,i, :,  k,b), &
+                                                   p         =    q_aux(IP  ,i, :,  k,b), &
                                                    f_rho     = fluxes_y(1:ns,i,0:nj,k),   &
                                                    f_rho_un  = fluxes_y(ns+2,i,0:nj,k),   & ! v
                                                    f_rho_ut1 = fluxes_y(ns+1,i,0:nj,k),   & ! u
@@ -1031,12 +886,12 @@ contains
             do i=1, ni
                call self%compute_fluxes_convective(gc=ngc, n=nk,                          &
                                                    c         =    q_aux(1:ns,i,j, :,  b), &
-                                                   rho       =    q_aux(ns+1,i,j, :,  b), &
-                                                   un        =    q_aux(ns+4,i,j, :,  b), & ! w
-                                                   ut1       =    q_aux(ns+2,i,j, :,  b), & ! u
-                                                   ut2       =    q_aux(ns+3,i,j, :,  b), & ! v
-                                                   g         =    q_aux(ns+5,i,j, :,  b), &
-                                                   p         =    q_aux(ns+6,i,j, :,  b), &
+                                                   rho       =    q_aux(IR  ,i,j, :,  b), &
+                                                   un        =    q_aux(IW  ,i,j, :,  b), & ! w
+                                                   ut1       =    q_aux(IU  ,i,j, :,  b), & ! u
+                                                   ut2       =    q_aux(IV  ,i,j, :,  b), & ! v
+                                                   g         =    q_aux(IG  ,i,j, :,  b), &
+                                                   p         =    q_aux(IP  ,i,j, :,  b), &
                                                    f_rho     = fluxes_z(1:ns,i,j,0:nk),   &
                                                    f_rho_un  = fluxes_z(ns+3,i,j,0:nk),   & ! w
                                                    f_rho_ut1 = fluxes_z(ns+1,i,j,0:nk),   & ! u
@@ -1046,12 +901,13 @@ contains
          enddo
       endif
       ! residuals
+      rq = 0._R8P
       do k=1, nk
          do j=1, nj
             do i=1, ni
-               q(:,i,j,k,b) = (fluxes_x(:,i-1,j  ,k  ) - fluxes_x(:,i,j,k)) / dxyz(1,b) + &
-                              (fluxes_y(:,i  ,j-1,k  ) - fluxes_y(:,i,j,k)) / dxyz(2,b) + &
-                              (fluxes_z(:,i  ,j  ,k-1) - fluxes_z(:,i,j,k)) / dxyz(3,b)
+               rq(:,i,j,k,b) = (fluxes_x(:,i-1,j  ,k  ) - fluxes_x(:,i,j,k)) / dxyz(1,b) + &
+                               (fluxes_y(:,i  ,j-1,k  ) - fluxes_y(:,i,j,k)) / dxyz(2,b) + &
+                               (fluxes_z(:,i  ,j  ,k-1) - fluxes_z(:,i,j,k)) / dxyz(3,b)
             enddo
          enddo
       enddo
@@ -1062,17 +918,17 @@ contains
    subroutine compute_fluxes_convective(self, gc, n,                &
                                         c, rho, un, ut1, ut2, g, p, &
                                         f_rho, f_rho_un, f_rho_ut1, f_rho_ut2, f_rho_e)
-   !< Compute the conservative fluxes on a slice of cells along a coordinate direction.
+   !< Compute convective fluxes on coordinate direction.
    class(equation_euler_cpu_object), intent(in)    :: self              !< The equation.
    integer(I4P),                     intent(in)    :: gc                !< Number of ghost cells used.
    integer(I4P),                     intent(in)    :: n                 !< Number of cells.
-   real(R8P),                        intent(in)    ::      c(1:,1-gc:)  !< Species concentration        [1-gc:n+gc,1:ns].
-   real(R8P),                        intent(in)    ::       rho(1-gc:)  !< Density                      [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::        un(1-gc:)  !< Normal velocity              [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::       ut1(1-gc:)  !< Tangential velocity 1        [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::       ut2(1-gc:)  !< Tangential velocity 2        [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::         g(1-gc:)  !< Specific heats ratio         [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::         p(1-gc:)  !< Pressure                     [1-gc:n+gc].
+   real(R8P),                        intent(in)    :: c(1:,1-gc:)       !< Species concentration        [1-gc:n+gc,1:ns].
+   real(R8P),                        intent(in)    ::  rho(1-gc:)       !< Density                      [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::   un(1-gc:)       !< Normal velocity              [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::  ut1(1-gc:)       !< Tangential velocity 1        [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::  ut2(1-gc:)       !< Tangential velocity 2        [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::    g(1-gc:)       !< Specific heats ratio         [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::    p(1-gc:)       !< Pressure                     [1-gc:n+gc].
    real(R8P),                        intent(inout) :: f_rho(1:, 0:)     !< Flux of mass                 [0:n,1:ns].
    real(R8P),                        intent(inout) ::  f_rho_un(0:)     !< Flux normal momentums        [0:n].
    real(R8P),                        intent(inout) :: f_rho_ut1(0:)     !< Flux of tangential1 momentum [0:n].
@@ -1332,104 +1188,53 @@ contains
    entalpy = g * p / ((g - 1._R_P) * r) + 0.5_R_P * u*u
    endfunction H
 
-   ! RK
-   subroutine advance_q(ni, nj, nk, ngc, nv, nrk, blocks_number, beta, dt, q_s, q)
-   !< Advance q by means of RK stages.
-   integer(I4P), intent(in)    :: ni                                 !< Grid cells number in I direction.
-   integer(I4P), intent(in)    :: nj                                 !< Grid cells number in J direction.
-   integer(I4P), intent(in)    :: nk                                 !< Grid cells number in K direction.
-   integer(I4P), intent(in)    :: ngc                                !< Ghost grid number.
-   integer(I4P), intent(in)    :: nv                                 !< Number of conservative varibales.
-   integer(I4P), intent(in)    :: nrk                                !< Number of RK stages.
-   integer(I4P), intent(in)    :: blocks_number                      !< Number of blocks.
-   real(R8P),    intent(in)    :: beta(:)                            !< RK betaa coefficients.
-   real(R8P),    intent(in)    :: dt                                 !< Time step.
-   real(R8P),    intent(in)    :: q_s(1:,1-ngc:,1-ngc:,1-ngc:,1:,1:) !< RK stage.
-   real(R8P),    intent(inout) ::   q(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Conservative variables.
-   integer(I4P)                :: s                                  !< Counter.
-
-   do s=1, nrk
-      q(1:nv,1:ni,1:nj,1:nk,1:blocks_number) =   q(1:nv,1:ni,1:nj,1:nk,1:blocks_number  ) + &
-                                               q_s(1:nv,1:ni,1:nj,1:nk,1:blocks_number,s) * dt * beta(s)
-   enddo
-   endsubroutine advance_q
-
-   subroutine compute_rk_stage(ni, nj, nk, ngc, nv, blocks_number, alph, dt, s, q, q_s)
-   !< Initialize RK stage with q.
-   integer(I4P), intent(in)    :: ni                                 !< Grid cells number in I direction.
-   integer(I4P), intent(in)    :: nj                                 !< Grid cells number in J direction.
-   integer(I4P), intent(in)    :: nk                                 !< Grid cells number in K direction.
-   integer(I4P), intent(in)    :: ngc                                !< Ghost cells number.
-   integer(I4P), intent(in)    :: nv                                 !< Number of conservative varibales.
-   integer(I4P), intent(in)    :: blocks_number                      !< Number of blocks.
-   real(R8P),    intent(in)    :: alph(:,:)                          !< RK alpha coefficients.
-   real(R8P),    intent(in)    :: dt                                 !< Time step.
-   integer(I4P), intent(in)    :: s                                  !< Stage to initialize.
-   real(R8P),    intent(in)    ::   q(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Conservative field.
-   real(R8P),    intent(inout) :: q_s(1:,1-ngc:,1-ngc:,1-ngc:,1:,1:) !< RK stage.
-   integer(I4P)                :: ss                                 !< Counter.
-
-   q_s(1:nv,1:ni,1:nj,1:nk,1:blocks_number,s) = q(1:nv,1:ni,1:nj,1:nk,1:blocks_number)
-   do ss=1, s - 1
-      q_s(1:nv,1:ni,1:nj,1:nk,1:blocks_number,s) = q_s(1:nv,1:ni,1:nj,1:nk,1:blocks_number,s ) + &
-                                                  (q_s(1:nv,1:ni,1:nj,1:nk,1:blocks_number,ss) * (dt * alph(s, ss)))
-   enddo
-   endsubroutine compute_rk_stage
-
    ! IB
-   subroutine set_bc_ib(ni, nj, nk, ngc, nv, blocks_number, q, phi, bcs_type)
+   subroutine set_bc_ib(ni, nj, nk, ngc, ns, blocks_number, bcs_type, phi, q)
    !< Set BC on IB cells.
    integer(I4P), intent(in)    :: ni                              !< Grid cells number in I direction.
    integer(I4P), intent(in)    :: nj                              !< Grid cells number in J direction.
    integer(I4P), intent(in)    :: nk                              !< Grid cells number in K direction.
    integer(I4P), intent(in)    :: ngc                             !< Ghost cells number.
-   integer(I4P), intent(in)    :: nv                              !< Number of conservative varibales.
+   integer(I4P), intent(in)    :: ns                              !< Number of species.
    integer(I4P), intent(in)    :: blocks_number                   !< Number of blocks.
-   integer(I4P), intent(in)    :: bcs_type                        !< Immersed boundary type.
+   integer(I4P), intent(in)    :: bcs_type(1:)                    !< Immersed boundary type.
    real(R8P),    intent(in)    :: phi(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Distance field.
    real(R8P),    intent(inout) ::   q(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative field.
-   integer(I4P)                :: i, j, k, b, v                   !< Counter.
+   integer(I4P)                :: i, j, k, b, v, s                !< Counter.
    real(R8P)                   :: n_phi_x, n_phi_y, n_phi_z       !< Distance function normals.
    real(R8P)                   :: n_phi_mod, un_mod               !< Distance abs normal and normal velocity.
 
-   select case(bcs_type)
-   case(BCS_VISCOUS)
+   do b=1, blocks_number
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
-               do b=1, blocks_number
-                  if (phi(1,i,j,k,b) >= 0) then
-                     q(2,i,j,k,b) = - q(2,i,j,k,b)
-                     q(3,i,j,k,b) = - q(3,i,j,k,b)
-                     q(4,i,j,k,b) = - q(4,i,j,k,b)
-                  endif
-               enddo
-            enddo
-         enddo
-      enddo
-   case(BCS_EULER)
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               do b=1, blocks_number
-                  if (phi(1,i,j,k,b) >= 0) then
-                     n_phi_x = phi(1,i+1,j,k,b) - phi(1,i-1,j,k,b)
-                     n_phi_y = phi(1,i,j+1,k,b) - phi(1,i,j-1,k,b)
-                     n_phi_z = phi(1,i,j,k+1,b) - phi(1,i,j,k-1,b)
-                     n_phi_mod = sqrt(n_phi_x**2 + n_phi_y**2 + n_phi_z**2)
-                     n_phi_x = n_phi_x/n_phi_mod
-                     n_phi_y = n_phi_y/n_phi_mod
-                     n_phi_z = n_phi_z/n_phi_mod
-                     un_mod = q(2,i,j,k,b)*n_phi_x + q(3,i,j,k,b)*n_phi_y + q(4,i,j,k,b)*n_phi_z
+               solids_loop : do s=1, size(bcs_type, dim=1)
+                  if (phi(s,i,j,k,b) >= 0) then
+                     select case(bcs_type(s))
+                     case(BCS_VISCOUS)
+                        q(ns+1,i,j,k,b) = - q(ns+1,i,j,k,b)
+                        q(ns+2,i,j,k,b) = - q(ns+2,i,j,k,b)
+                        q(ns+3,i,j,k,b) = - q(ns+3,i,j,k,b)
+                     case(BCS_EULER)
+                        n_phi_x = phi(s,i+1,j,k,b) - phi(s,i-1,j,k,b)
+                        n_phi_y = phi(s,i,j+1,k,b) - phi(s,i,j-1,k,b)
+                        n_phi_z = phi(s,i,j,k+1,b) - phi(s,i,j,k-1,b)
+                        n_phi_mod = sqrt(n_phi_x**2 + n_phi_y**2 + n_phi_z**2)
+                        n_phi_x = n_phi_x/n_phi_mod
+                        n_phi_y = n_phi_y/n_phi_mod
+                        n_phi_z = n_phi_z/n_phi_mod
+                        un_mod = q(ns+1,i,j,k,b)*n_phi_x + q(ns+2,i,j,k,b)*n_phi_y + q(ns+3,i,j,k,b)*n_phi_z
 
-                     q(2,i,j,k,b) = q(2,i,j,k,b) - 2*un_mod*n_phi_x
-                     q(3,i,j,k,b) = q(3,i,j,k,b) - 2*un_mod*n_phi_y
-                     q(4,i,j,k,b) = q(4,i,j,k,b) - 2*un_mod*n_phi_z
+                        q(ns+1,i,j,k,b) = q(ns+1,i,j,k,b) - 2 * un_mod*n_phi_x
+                        q(ns+2,i,j,k,b) = q(ns+2,i,j,k,b) - 2 * un_mod*n_phi_y
+                        q(ns+3,i,j,k,b) = q(ns+3,i,j,k,b) - 2 * un_mod*n_phi_z
+                     endselect
+                     exit solids_loop
                   endif
-               enddo
+               enddo solids_loop
             enddo
          enddo
       enddo
-   endselect
+   enddo
    endsubroutine set_bc_ib
 endmodule adam_equation_euler_cpu_object

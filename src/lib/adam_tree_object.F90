@@ -225,6 +225,7 @@ type :: tree_object
       procedure, pass(self) :: blocks_reorder               !< Reorder blocks indexes in field.
       procedure, pass(self) :: codes                        !< Return the list of (sorted) codes actually stored in the tree.
       procedure, pass(self) :: compute_surface_stl_distance !< Compute signed distance of nodes from a STL surface.
+      procedure, pass(self) :: description                  !< Return pretty-printed object description.
       procedure, pass(self) :: get_closest_block            !< Get the closest block to a given point.
       procedure, pass(self) :: get_closest_cells            !< Get the closest cells to a given point.
       procedure, pass(self) :: hash                         !< Hash the key.
@@ -240,7 +241,6 @@ type :: tree_object
       procedure, pass(self) :: max_cell_delta               !< Return the maximum cell delta given a comparison distance.
       procedure, pass(self) :: node                         !< Return a pointer to a node.
       procedure, pass(self) :: prime_buckets_number         !< Return the buckets number as nearest prime number given nodes number.
-      procedure, pass(self) :: print_status                 !< Print status of main data.
       procedure, pass(self) :: prune                        !< Prune nodes.
       procedure, pass(self) :: resize                       !< Resize the tree.
       procedure, pass(self) :: save_nodes                   !< Save nodes data, used for restart.
@@ -515,6 +515,22 @@ contains
    endassociate
    endsubroutine compute_surface_stl_distance
 
+   pure function description(self) result(desc)
+   !< Return a pretty-formatted object description.
+   class(tree_object), intent(in) :: self             !< The tree.
+   character(len=:), allocatable  :: desc             !< Description.
+   character(len=1), parameter    :: NL=new_line('a') !< New line character.
+
+   desc =       self%mpih%myrankstr//'tree main data'                                    //NL
+   desc = desc//self%mpih%myrankstr//'  buckets number: '//trim(str(self%buckets_number))//NL
+   desc = desc//self%mpih%myrankstr//'  nodes number:   '//trim(str(self%nodes_number  ))//NL
+   desc = desc//self%mpih%myrankstr//'  max load:       '//trim(str(self%max_load      ))//NL
+   desc = desc//self%mpih%myrankstr//'  ratio:          '//trim(str(self%ratio         ))//NL
+   desc = desc//self%mpih%myrankstr//'  max level:      '//trim(str(self%max_level     ))//NL
+   desc = desc//self%mpih%myrankstr//'  ijkl_prune:     '//trim(str(self%ijkl_prune    ))//NL
+   desc = desc//self%mpih%myrankstr//'  iu_ref_levels:  '//trim(str(self%iu_ref_levels ))
+   endfunction description
+
    function get_closest_block(self, point) result(code)
    !< Get the closest block to a given point.
    class(tree_object), intent(in) :: self        !< The tree.
@@ -697,6 +713,7 @@ contains
    allocate(self%comm_map_n_recv_ghost(0:self%mpih%procs_number-1))
    allocate(self%comm_map_send_ptr_ghost(0:self%mpih%procs_number))
    allocate(self%comm_map_recv_ptr_ghost(0:self%mpih%procs_number))
+   print '(A)', self%description()
    print '(A)', self%mpih%myrankstr//'tree%initialize finish'
    endsubroutine initialize
 
@@ -956,21 +973,6 @@ contains
    enddo
    buckets_number = b
    endfunction prime_buckets_number
-
-   subroutine print_status(self)
-   !< Print status of main data.
-   class(tree_object), intent(in) :: self !< The tree.
-
-   print '(A)', self%mpih%myrankstr//'tree status of main data'
-   print '(A)', self%mpih%myrankstr//'  buckets number: '//trim(str(self%buckets_number))
-   print '(A)', self%mpih%myrankstr//'  nodes number:   '//trim(str(self%nodes_number  ))
-   print '(A)', self%mpih%myrankstr//'  max load:       '//trim(str(self%max_load      ))
-   print '(A)', self%mpih%myrankstr//'  ratio:          '//trim(str(self%ratio         ))
-   print '(A)', self%mpih%myrankstr//'  max level:      '//trim(str(self%max_level     ))
-   print '(A)', self%mpih%myrankstr//'  ijkl_prune:     '//trim(str(self%ijkl_prune    ))
-   print '(A)', self%mpih%myrankstr//'  iu_ref_levels:  '//trim(str(self%iu_ref_levels ))
-   print '(A)', self%mpih%myrankstr//''
-   endsubroutine print_status
 
    subroutine prune(self, ijkl_prune)
    !< Prune nodes.
@@ -1616,6 +1618,10 @@ contains
          endif
       enddo
    enddo
+   if (allocated(self%comm_map_send_ghost)) self%comm_map_send_ghost(:,15) = self%comm_map_send_ghost(:,15) * nv
+   if (allocated(self%comm_map_recv_ghost)) self%comm_map_recv_ghost(:,15) = self%comm_map_recv_ghost(:,15) * nv
+   if (allocated(self%comm_map_send_ptr_ghost)) self%comm_map_send_ptr_ghost = self%comm_map_send_ptr_ghost * nv
+   if (allocated(self%comm_map_recv_ptr_ghost)) self%comm_map_recv_ptr_ghost = self%comm_map_recv_ptr_ghost * nv
 
    ! mpi buffers
    if (allocated(self%send_buffer_ghost)) deallocate(self%send_buffer_ghost)

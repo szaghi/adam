@@ -10,15 +10,21 @@ use penf
 implicit none
 private
 public :: bc_cpu_object
+public :: BC_EXTRAPOLATION
+public :: BC_INFLOW
 
 character(len=8), parameter :: INI_SECTION_NAMES(6)=["bc_x_min", "bc_x_max", &
                                                      "bc_y_min", "bc_y_max", &
                                                      "bc_z_min", "bc_z_max"] !< INI (config) file section name containing BC configs.
 
+integer(I4P), parameter :: BC_EXTRAPOLATION   = 1_I4P !< Extrapolation.
+integer(I4P), parameter :: BC_INFLOW          = 2_I4P !< Supersonic inflow.
+
 type :: bc_cpu_object
    !< Boundary Conditions class definition, CPU backend.
    type(mpih_object)           :: mpih         !< MPI handler.
    type(grid_object),  pointer :: grid=>null() !< The grid.
+   real(R8P)                   :: q(6,6)       !< Primitive variables (r,u,v,w,p,s with s being the speccie index) at BC.
    contains
       ! public methods
       procedure, pass(self) :: initialize     !< Initialize BC.
@@ -47,23 +53,30 @@ contains
    logical,              intent(in), optional :: go_on_fail      !< Go on if load fails.
    logical                                    :: go_on_fail_     !< Go on if load fails.
    character(8)                               :: sname           !< Section name.
-   character(99)                              :: char_buff       !< Character buffer.
+   integer(I4P)                               :: bc_type         !< BC type.
+   integer(I4P)                               :: b               !< Counter.
    integer(I4P)                               :: error           !< Error status.
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
-
-   do i_bc=1,6
-      sname = INI_SECTION_NAMES(i_bc)
-      call file_parameters%get(section_name=sname, option_name='type', val=char_buff, error=error)
-      call self%file_input%get(section_name=sname, option_name='type', val=bc_type_item)
-      n_vars = BC_VARS_NUMBER(bc_type_item)
-      do i_var=1,n_vars
-          call self%file_input%get(section_name=sname, option_name="var"//trim(str(i_var,.true.)), val=buf_R8)
-          self%bc_vars(i_var, i_bc) = buf_R8
-      enddo
+   do b=1,6
+      sname = INI_SECTION_NAMES(b)
+      call file_parameters%get(section_name=sname, option_name='type', val=bc_type, error=error)
+      ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//sname//'].(type)'
+      select case(bc_type)
+      case(BC_INFLOW)
+         call file_parameters%get(section_name=sname, option_name='r', val=self%q(1,b), error=error)
+         ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//sname//'].(r)'
+         call file_parameters%get(section_name=sname, option_name='u', val=self%q(2,b), error=error)
+         ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//sname//'].(u)'
+         call file_parameters%get(section_name=sname, option_name='v', val=self%q(3,b), error=error)
+         ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//sname//'].(v)'
+         call file_parameters%get(section_name=sname, option_name='w', val=self%q(4,b), error=error)
+         ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//sname//'].(w)'
+         call file_parameters%get(section_name=sname, option_name='p', val=self%q(5,b), error=error)
+         ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//sname//'].(p)'
+         call file_parameters%get(section_name=sname, option_name='s', val=self%q(6,b), error=error)
+         ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//sname//'].(s)'
+      endselect
    enddo
-
-   if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//INI_SECTION_NAME//'].(runge_kutta)'
-
    endsubroutine load_from_file
 endmodule adam_bc_cpu_object

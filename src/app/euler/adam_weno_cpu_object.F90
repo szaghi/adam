@@ -45,135 +45,127 @@ contains
    call self%mpih%initialize(do_mpi_init=.false.)
    print '(A)', self%mpih%myrankstr//'weno_cpu_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters)
-   associate(s=>self%weno_s, &
-             weno_exp=>self%weno_exp, &
-             weno_odd=>self%weno_odd, &
-             weno_eps=>self%weno_eps, &
-             weno_c=>self%weno_c,     &
-             weno_a=>self%weno_a,     &
-             weno_p=>self%weno_p,     &
-             weno_d=>self%weno_d)
-   if (s/=1) then
+   print*, 'cazzo ', self%weno_s
+   if (self%weno_s/=1) then
       ! initialize weno_exp
-      weno_exp = s
-      if (s>4) weno_exp = s - 1
+      self%weno_exp = self%weno_s
+      if (self%weno_s>4) self%weno_exp = self%weno_s - 1
       ! compute weno_odd
-      weno_odd = mod(self%weno_s,2)
-      weno_eps = 0.00000000001_R8P
+      self%weno_odd = mod(self%weno_s,2)
+      self%weno_eps = 0.00000000001_R8P
       ! allocate variables
-      if (allocated(self%weno_c)) deallocate(self%weno_c) ; allocate(self%weno_c(1:2,1:2*s))
-      if (allocated(self%weno_a)) deallocate(self%weno_a) ; allocate(self%weno_a(1:2,0:s-1))
-      if (allocated(self%weno_p)) deallocate(self%weno_p) ; allocate(self%weno_p(1:2,0:s-1,0:s-1))
-      if (allocated(self%weno_d)) deallocate(self%weno_d) ; allocate(self%weno_d(0:s-1,0:s-1,0:s-1))
+      if (allocated(self%weno_c)) deallocate(self%weno_c) ; allocate(self%weno_c(1:2,1:2*self%weno_s))
+      if (allocated(self%weno_a)) deallocate(self%weno_a) ; allocate(self%weno_a(1:2,0:self%weno_s-1))
+      if (allocated(self%weno_p)) deallocate(self%weno_p) ; allocate(self%weno_p(1:2,0:self%weno_s-1,0:self%weno_s-1))
+      if (allocated(self%weno_d)) deallocate(self%weno_d) ; allocate(self%weno_d(0:self%weno_s-1,0:self%weno_s-1,0:self%weno_s-1))
       ! inizialize the coefficients
-      select case(s)
+      select case(self%weno_s)
       case(2) ! 3rd order WENO reconstruction
         ! central difference coefficients
         ! 1 => left interface (i-1/2)
-        weno_c(1,1) = -1._R8P/12._R8P ! cell -2
-        weno_c(1,2) =  7._R8P/12._R8P ! cell -1
-        weno_c(1,3) =  7._R8P/12._R8P ! cell  0
-        weno_c(1,4) = -1._R8P/12._R8P ! cell  1
+        self%weno_c(1,1) = -1._R8P/12._R8P ! cell -2
+        self%weno_c(1,2) =  7._R8P/12._R8P ! cell -1
+        self%weno_c(1,3) =  7._R8P/12._R8P ! cell  0
+        self%weno_c(1,4) = -1._R8P/12._R8P ! cell  1
         ! 2 => right interface (i+1/2)
-        weno_c(2,1) = -1._R8P/12._R8P ! cell -1
-        weno_c(2,2) =  7._R8P/12._R8P ! cell  0
-        weno_c(2,3) =  7._R8P/12._R8P ! cell  1
-        weno_c(2,4) = -1._R8P/12._R8P ! cell  2
+        self%weno_c(2,1) = -1._R8P/12._R8P ! cell -1
+        self%weno_c(2,2) =  7._R8P/12._R8P ! cell  0
+        self%weno_c(2,3) =  7._R8P/12._R8P ! cell  1
+        self%weno_c(2,4) = -1._R8P/12._R8P ! cell  2
 
         ! optimal weights
         ! 1 => left interface (i-1/2)
-        weno_a(1,0) = 2._R8P/3._R8P ! stencil 0
-        weno_a(1,1) = 1._R8P/3._R8P ! stencil 1
+        self%weno_a(1,0) = 2._R8P/3._R8P ! stencil 0
+        self%weno_a(1,1) = 1._R8P/3._R8P ! stencil 1
         ! 2 => right interface (i+1/2)
-        weno_a(2,0) = 1._R8P/3._R8P ! stencil 0
-        weno_a(2,1) = 2._R8P/3._R8P ! stencil 1
+        self%weno_a(2,0) = 1._R8P/3._R8P ! stencil 0
+        self%weno_a(2,1) = 2._R8P/3._R8P ! stencil 1
 
         ! polinomials coefficients
         ! 1 => left interface (i-1/2)
         !  cell  0               ;    cell  1
-        weno_p(1,0,0) =  0.5_R8P ; weno_p(1,1,0) =  0.5_R8P ! stencil 0
-        weno_p(1,0,1) = -0.5_R8P ; weno_p(1,1,1) =  1.5_R8P ! stencil 1
+        self%weno_p(1,0,0) =  0.5_R8P ; self%weno_p(1,1,0) =  0.5_R8P ! stencil 0
+        self%weno_p(1,0,1) = -0.5_R8P ; self%weno_p(1,1,1) =  1.5_R8P ! stencil 1
         ! 2 => right interface (i+1/2)
         !  cell  0               ;    cell  1
-        weno_p(2,0,0) =  1.5_R8P ; weno_p(2,1,0) = -0.5_R8P ! stencil 0
-        weno_p(2,0,1) =  0.5_R8P ; weno_p(2,1,1) =  0.5_R8P ! stencil 1
+        self%weno_p(2,0,0) =  1.5_R8P ; self%weno_p(2,1,0) = -0.5_R8P ! stencil 0
+        self%weno_p(2,0,1) =  0.5_R8P ; self%weno_p(2,1,1) =  0.5_R8P ! stencil 1
 
         ! smoothness indicators coefficients
         ! stencil 0
-        !      i*i             ;       (i-1)*i
-        weno_d(0,0,0) = 1._R8P ; weno_d(1,0,0) =-2._R8P
-        !      /               ;       (i-1)*(i-1)
-        weno_d(0,1,0) = 0._R8P ; weno_d(1,1,0) = 1._R8P
+        !      i*i                  ;       (i-1)*i
+        self%weno_d(0,0,0) = 1._R8P ; self%weno_d(1,0,0) =-2._R8P
+        !      /                    ;       (i-1)*(i-1)
+        self%weno_d(0,1,0) = 0._R8P ; self%weno_d(1,1,0) = 1._R8P
         ! stencil 1
-        !     (i+1)*(i+1)      ;       (i+1)*i
-        weno_d(0,0,1) = 1._R8P ; weno_d(1,0,1) =-2._R8P
-        !      /               ;        i*i
-        weno_d(0,1,1) = 0._R8P ; weno_d(1,1,1) = 1._R8P
+        !     (i+1)*(i+1)           ;       (i+1)*i
+        self%weno_d(0,0,1) = 1._R8P ; self%weno_d(1,0,1) =-2._R8P
+        !      /                    ;        i*i
+        self%weno_d(0,1,1) = 0._R8P ; self%weno_d(1,1,1) = 1._R8P
       case(3) ! 5th order WENO reconstruction
         ! central difference coefficients
         ! 1 => left interface (i-1/2)
-        weno_c(1,1) =  1._R8P/60._R8P ! cell -3
-        weno_c(1,2) = -7.5_R8P        ! cell -2
-        weno_c(1,3) = 37._R8P/60._R8P ! cell -1
-        weno_c(1,4) = 37._R8P/60._R8P ! cell  0
-        weno_c(1,5) = -7.5_R8P        ! cell  1
-        weno_c(1,6) =  1._R8P/60._R8P ! cell  2
+        self%weno_c(1,1) =  1._R8P/60._R8P ! cell -3
+        self%weno_c(1,2) = -7.5_R8P        ! cell -2
+        self%weno_c(1,3) = 37._R8P/60._R8P ! cell -1
+        self%weno_c(1,4) = 37._R8P/60._R8P ! cell  0
+        self%weno_c(1,5) = -7.5_R8P        ! cell  1
+        self%weno_c(1,6) =  1._R8P/60._R8P ! cell  2
         ! 2 => right interface (i+1/2)
-        weno_c(1,1) =  1._R8P/60._R8P ! cell -2
-        weno_c(1,2) = -7.5_R8P        ! cell -1
-        weno_c(1,3) = 37._R8P/60._R8P ! cell  0
-        weno_c(1,4) = 37._R8P/60._R8P ! cell  1
-        weno_c(1,5) = -7.5_R8P        ! cell  2
-        weno_c(1,6) =  1._R8P/60._R8P ! cell  3
+        self%weno_c(1,1) =  1._R8P/60._R8P ! cell -2
+        self%weno_c(1,2) = -7.5_R8P        ! cell -1
+        self%weno_c(1,3) = 37._R8P/60._R8P ! cell  0
+        self%weno_c(1,4) = 37._R8P/60._R8P ! cell  1
+        self%weno_c(1,5) = -7.5_R8P        ! cell  2
+        self%weno_c(1,6) =  1._R8P/60._R8P ! cell  3
 
         ! optimal weights
         ! 1 => left interface (i-1/2)
-        weno_a(1,0) = 0.3_R8P ! stencil 0
-        weno_a(1,1) = 0.6_R8P ! stencil 1
-        weno_a(1,2) = 0.1_R8P ! stencil 2
+        self%weno_a(1,0) = 0.3_R8P ! stencil 0
+        self%weno_a(1,1) = 0.6_R8P ! stencil 1
+        self%weno_a(1,2) = 0.1_R8P ! stencil 2
         ! 2 => right interface (i+1/2)
-        weno_a(2,0) = 0.1_R8P ! stencil 0
-        weno_a(2,1) = 0.6_R8P ! stencil 1
-        weno_a(2,2) = 0.3_R8P ! stencil 2
+        self%weno_a(2,0) = 0.1_R8P ! stencil 0
+        self%weno_a(2,1) = 0.6_R8P ! stencil 1
+        self%weno_a(2,2) = 0.3_R8P ! stencil 2
 
         ! polinomials coefficients
         ! 1 => left interface (i-1/2)
-        !  cell  0                     ;    cell  1                     ;    cell  2
-        weno_p(1,0,0) =  1._R8P/3._R8P ; weno_p(1,1,0) =  5._R8P/6._R8P ; weno_p(1,2,0) = -1._R8P/6._R8P ! stencil 0
-        weno_p(1,0,1) = -1._R8P/6._R8P ; weno_p(1,1,1) =  5._R8P/6._R8P ; weno_p(1,2,1) =  1._R8P/3._R8P ! stencil 1
-        weno_p(1,0,2) =  1._R8P/3._R8P ; weno_p(1,1,2) = -7._R8P/6._R8P ; weno_p(1,2,2) = 11._R8P/6._R8P ! stencil 2
+        !  cell  0                          ;    cell  1                          ;    cell  2
+        self%weno_p(1,0,0) =  1._R8P/3._R8P ; self%weno_p(1,1,0) =  5._R8P/6._R8P ; self%weno_p(1,2,0) = -1._R8P/6._R8P ! stencil 0
+        self%weno_p(1,0,1) = -1._R8P/6._R8P ; self%weno_p(1,1,1) =  5._R8P/6._R8P ; self%weno_p(1,2,1) =  1._R8P/3._R8P ! stencil 1
+        self%weno_p(1,0,2) =  1._R8P/3._R8P ; self%weno_p(1,1,2) = -7._R8P/6._R8P ; self%weno_p(1,2,2) = 11._R8P/6._R8P ! stencil 2
         ! 2 => right interface (i+1/2)
-        !  cell  0                     ;    cell  1                     ;    cell  2
-        weno_p(2,0,0) = 11._R8P/6._R8P ; weno_p(2,1,0) = -7._R8P/6._R8P ; weno_p(2,2,0) =  1._R8P/3._R8P ! stencil 0
-        weno_p(2,0,1) =  1._R8P/3._R8P ; weno_p(2,1,1) =  5._R8P/6._R8P ; weno_p(2,2,1) = -1._R8P/6._R8P ! stencil 1
-        weno_p(2,0,2) = -1._R8P/6._R8P ; weno_p(2,1,2) =  5._R8P/6._R8P ; weno_p(2,2,2) =  1._R8P/3._R8P ! stencil 2
+        !  cell  0                          ;    cell  1                          ;    cell  2
+        self%weno_p(2,0,0) = 11._R8P/6._R8P ; self%weno_p(2,1,0) = -7._R8P/6._R8P ; self%weno_p(2,2,0) =  1._R8P/3._R8P ! stencil 0
+        self%weno_p(2,0,1) =  1._R8P/3._R8P ; self%weno_p(2,1,1) =  5._R8P/6._R8P ; self%weno_p(2,2,1) = -1._R8P/6._R8P ! stencil 1
+        self%weno_p(2,0,2) = -1._R8P/6._R8P ; self%weno_p(2,1,2) =  5._R8P/6._R8P ; self%weno_p(2,2,2) =  1._R8P/3._R8P ! stencil 2
 
         ! smoothness indicators coefficients
         ! stencil 0
-        !      i*i                      ;       (i-1)*i                   ;       (i-2)*i
-        weno_d(0,0,0) =  10._R8P/3._R8P ; weno_d(1,0,0) = -31._R8P/3._R8P ; weno_d(2,0,0) =  11._R8P/3._R8P
-        !      /                        ;       (i-1)*(i-1)               ;       (i-2)*(i-1)
-        weno_d(0,1,0) =   0._R8P        ; weno_d(1,1,0) =  25._R8P/3._R8P ; weno_d(2,1,0) = -19._R8P/3._R8P
-        !      /                        ;        /                        ;       (i-2)*(i-2)
-        weno_d(0,2,0) =   0._R8P        ; weno_d(1,2,0) =   0._R8P        ; weno_d(2,2,0) =   4._R8P/3._R8P
+        !      i*i                           ;       (i-1)*i                        ;       (i-2)*i
+        self%weno_d(0,0,0) =  10._R8P/3._R8P ; self%weno_d(1,0,0) = -31._R8P/3._R8P ; self%weno_d(2,0,0) =  11._R8P/3._R8P
+        !      /                             ;       (i-1)*(i-1)                    ;       (i-2)*(i-1)
+        self%weno_d(0,1,0) =   0._R8P        ; self%weno_d(1,1,0) =  25._R8P/3._R8P ; self%weno_d(2,1,0) = -19._R8P/3._R8P
+        !      /                             ;        /                             ;       (i-2)*(i-2)
+        self%weno_d(0,2,0) =   0._R8P        ; self%weno_d(1,2,0) =   0._R8P        ; self%weno_d(2,2,0) =   4._R8P/3._R8P
         ! stencil 1
-        !     (i+1)*(i+1)               ;        i*(i+1)                  ;       (i-1)*(i+1)
-        weno_d(0,0,1) =   4._R8P/3._R8P ; weno_d(1,0,1) = -13._R8P/3._R8P ; weno_d(2,0,1) =   5._R8P/3._R8P
-        !      /                        ;        i*i                      ;       (i-1)*i
-        weno_d(0,1,1) =   0._R8P        ; weno_d(1,1,1) =  13._R8P/3._R8P ; weno_d(2,1,1) = -13._R8P/3._R8P
-        !      /                        ;        /                        ;       (i-1)*(i-1)
-        weno_d(0,2,1) =   0._R8P        ; weno_d(1,2,1) =   0._R8P        ; weno_d(2,2,1) =   4._R8P/3._R8P
+        !     (i+1)*(i+1)                    ;        i*(i+1)                       ;       (i-1)*(i+1)
+        self%weno_d(0,0,1) =   4._R8P/3._R8P ; self%weno_d(1,0,1) = -13._R8P/3._R8P ; self%weno_d(2,0,1) =   5._R8P/3._R8P
+        !      /                             ;        i*i                           ;       (i-1)*i
+        self%weno_d(0,1,1) =   0._R8P        ; self%weno_d(1,1,1) =  13._R8P/3._R8P ; self%weno_d(2,1,1) = -13._R8P/3._R8P
+        !      /                             ;        /                             ;       (i-1)*(i-1)
+        self%weno_d(0,2,1) =   0._R8P        ; self%weno_d(1,2,1) =   0._R8P        ; self%weno_d(2,2,1) =   4._R8P/3._R8P
         ! stencil 2
-        !     (i+2)*(i+2)               ;       (i+1)*(i+2)               ;        i*(i+2)
-        weno_d(0,0,2) =   4._R8P/3._R8P ; weno_d(1,0,2) = -19._R8P/3._R8P ; weno_d(2,0,2) =  11._R8P/3._R8P
-        !      /                        ;       (i+1)*(i+1)               ;        i*(i+1)
-        weno_d(0,1,2) =   0._R8P        ; weno_d(1,1,2) =  25._R8P/3._R8P ; weno_d(2,1,2) = -31._R8P/3._R8P
-        !      /                        ;        /                        ;        i*i
-        weno_d(0,2,2) =   0._R8P        ; weno_d(1,2,2) =   0._R8P        ; weno_d(2,2,2) =  10._R8P/3._R8P
+        !     (i+2)*(i+2)                    ;       (i+1)*(i+2)                    ;        i*(i+2)
+        self%weno_d(0,0,2) =   4._R8P/3._R8P ; self%weno_d(1,0,2) = -19._R8P/3._R8P ; self%weno_d(2,0,2) =  11._R8P/3._R8P
+        !      /                             ;       (i+1)*(i+1)                    ;        i*(i+1)
+        self%weno_d(0,1,2) =   0._R8P        ; self%weno_d(1,1,2) =  25._R8P/3._R8P ; self%weno_d(2,1,2) = -31._R8P/3._R8P
+        !      /                             ;        /                             ;        i*i
+        self%weno_d(0,2,2) =   0._R8P        ; self%weno_d(1,2,2) =   0._R8P        ; self%weno_d(2,2,2) =  10._R8P/3._R8P
       endselect
    endif
    print '(A)', self%mpih%myrankstr//'weno_cpu_object%initialize finish'
-   endassociate
    endsubroutine initialize
 
    subroutine load_from_file(self, file_parameters, go_on_fail)
@@ -188,7 +180,7 @@ contains
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='weno', val=char_buff, error=error)
-   if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//INI_SECTION_NAME//'].(weno)'
+   ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//INI_SECTION_NAME//'].(weno)'
    self%scheme = trim(adjustl(char_buff))
    select case(trim(adjustl(self%scheme)))
    case('weno-1')

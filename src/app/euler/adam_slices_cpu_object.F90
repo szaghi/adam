@@ -86,7 +86,7 @@ contains
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='slices_number', val=self%slices_number, error=error)
-   if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//INI_SECTION_NAME//'].(runge_kutta)'
+   ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//INI_SECTION_NAME//'].(runge_kutta)'
    if (self%slices_number > 0) then
       allocate(self%slice(self%slices_number))
       do s=1, self%slices_number
