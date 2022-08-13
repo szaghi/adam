@@ -40,6 +40,8 @@ integer(I4P), parameter :: BCS_EULER = 2_I4P
 integer(I4P), parameter :: BCS_VARS_NUMBER(2)  = [3, 0]
 integer(I4P), parameter :: BCS_VARS_NUMBER_MAX = 3 !maxval(BCS_VARS_NUMBER)  !< Maximum number of variables needed for BCS.
 
+integer(I4P), parameter :: IWENO_FROM_SCHEME(6) = [1,2,3,4,3,3]
+
 ! q_aux indexes
 integer(I4P), parameter :: IRHO  = 1
 integer(I4P), parameter :: IU    = 2
@@ -112,17 +114,27 @@ type :: equation_nasto_gpu_object
    integer(I4P)                :: field_gpu_number=12_I4P !< Number of nv fields used in memory.
    logical                     :: save_memory_status      !< Flag to activate memory status saving.
    ! equation data
-   real(R8P), allocatable      :: fd_coeff1(:)       !< First order derivatives coeffs.
-   real(R8P), allocatable      :: fd_coeff2(:)       !< Second order derivatives coeffs.
-   real(R8P), allocatable      :: fd_conv(:,:)       !< Second order derivatives coeffs.
-   integer(I4P)                :: visc_scheme=2_I4P  !< Laplacian viscosity scheme.
-   integer(I4P)                :: euler_scheme=2_I4P !< Centered euler scheme scheme.
-   integer(I4P)                :: visc_order=4_I4P   !< Laplacian viscosity order.
-   integer(I4P)                :: euler_order=4_I4P  !< Centered euler scheme order.
-   integer(I4P)                :: ns=1_I4P           !< Number of fluid species.
-   integer(I4P)                :: iweno=2_I4P        !< WENO order.
-   integer(I4P)                :: lmax=2_I4P         !< Central convective half stencil.
-   integer(I4P)                :: visc_law=0_I4P     !< Diffusivity type (0=constant, 1=power, 2=Sutherland)
+   real(R8P), allocatable      :: fd_coeff1(:)        !< First order derivatives coeffs.
+   real(R8P), allocatable      :: fd_coeff2(:)        !< Second order derivatives coeffs.
+   real(R8P), allocatable      :: fd_conv(:,:)        !< Second order derivatives coeffs.
+   integer(I4P)                :: visc_scheme=2_I4P   !< Laplacian viscosity scheme.
+   integer(I4P)                :: euler_scheme=2_I4P  !< Centered (1) or weno (2) euler scheme.
+   integer(I4P)                :: central_order=4_I4P !< Centered euler scheme order.
+   integer(I4P)                :: lmax=2_I4P          !< Central convective half stencil.
+   integer(I4P)                :: weno_n_ror=1_I4P    !< Number of ror weno (1 disables ror).
+   integer(I4P), allocatable   :: weno_schemes(:)     !< Weno schemes.
+   integer(I4P), allocatable, device :: weno_schemes_gpu(:)     !< Weno schemes (GPU).
+   real(R8P)                   :: ror_threshold       !< Threshold for ror check.
+   integer(I4P)                :: ror_n_indexes=2_I4P !< Number of variables checked by ror.
+   integer(I4P), allocatable   :: ror_indexes(:)      !< Ror variable indexes.
+   integer(I4P), allocatable, device :: ror_indexes_gpu(:)  !< Ror variable indexes (GPU).
+   integer(I4P)                :: enable_ror_stats=0_I4P     !< Ror stats (0=disable, 1=enable)
+   integer(I4P), allocatable   :: ror_stats(:,:,:,:,:)
+   integer(I4P), allocatable, device  :: ror_stats_gpu(:,:,:,:,:)
+   integer(I4P)                :: iweno=2_I4P         !< WENO order.
+   integer(I4P)                :: visc_order=4_I4P    !< Laplacian viscosity order.
+   integer(I4P)                :: ns=1_I4P            !< Number of fluid species.
+   integer(I4P)                :: visc_law=0_I4P      !< Diffusivity type (0=constant, 1=power, 2=Sutherland)
    ! Runge-Kutta data
    integer(I4P)                      :: nrk=4_I4P       !< Runge-Kutta stages number.
    real(R8P), allocatable            :: ark(:)          !< RK alpha coefficients.
@@ -175,29 +187,33 @@ type :: equation_nasto_gpu_object
    real(R8P) :: k_star=0.0013_R8P   !< Thermal diffusivity.
    real(R8P) :: dha_star=10000._R8P !< Entalpy formation.
    ! Fields
-   real(R8P), allocatable         :: q_aux(:,:,:,:,:)        !< Auxiliary cell centered variables.
-   real(R8P), allocatable, device :: dq_gpu(:,:,:,:,:)       !< Eikonal right hand side.
-   real(R8P), allocatable, device :: fl_gpu(:,:,:,:,:)       !< Residuals.
-   real(R8P), allocatable, device :: flx_gpu(:,:,:,:,:)      !< Fluxes along x.
-   real(R8P), allocatable, device :: fly_gpu(:,:,:,:,:)      !< Fluxes along y.
-   real(R8P), allocatable, device :: flz_gpu(:,:,:,:,:)      !< Fluxes along z.
-   real(R8P), allocatable, device :: prhs_gpu(:,:,:,:,:)     !< Prhs for Runge-Kutta.
-   real(R8P), allocatable, device :: fd_coeff1_gpu(:)        !< First order derivatives coeffs.
-   real(R8P), allocatable, device :: fd_coeff2_gpu(:)        !< Second order derivatives coeffs.
-   real(R8P), allocatable, device :: fd_conv_gpu(:,:)        !< Second order derivatives coeffs.
-   real(R8P), allocatable, device :: q_aux_gpu(:,:,:,:,:)    !< Auxiliary cell centered variables.
-   real(R8P), allocatable, device :: q_gpu(:,:,:,:,:)        !< Field cell centered variables.
-   real(R8P), allocatable, device :: q_old_gpu(:,:,:,:,:)    !< Field cell centered variables (old iteration).
-   real(R8P), allocatable, device :: q_invert_gpu(:,:,:,:,:) !< Field cell with boundary set on immersed bodies.
-   real(R8P), allocatable, device :: gplus_x(:,:,:,:,:)      !< For weno-x.
-   real(R8P), allocatable, device :: gminus_x(:,:,:,:,:)     !< For weno-x.
-   real(R8P), allocatable, device :: gplus_y(:,:,:,:,:)      !< For weno-y.
-   real(R8P), allocatable, device :: gminus_y(:,:,:,:,:)     !< For weno-y.
-   real(R8P), allocatable, device :: gplus_z(:,:,:,:,:)      !< For weno-z.
-   real(R8P), allocatable, device :: gminus_z(:,:,:,:,:)     !< For weno-z.
-   real(R8P), allocatable, device :: phi_gpu(:,:,:,:,:)      !< Distance function on GPU.
-   real(R8P), allocatable, device :: bc_vars_gpu(:, :)       !< Variables' array for boundary conditions on GPU.
-   real(R8P), allocatable, device :: bcs_vars_gpu(:, :)      !< Variables' array for immersed boundary on GPU.
+   real(R8P), allocatable         :: q_aux(:,:,:,:,:)            !< Auxiliary cell centered variables.
+   real(R8P), allocatable, device :: dq_gpu(:,:,:,:,:)           !< Eikonal right hand side.
+   real(R8P), allocatable, device :: fl_gpu(:,:,:,:,:)           !< Residuals.
+   real(R8P), allocatable, device :: flx_gpu(:,:,:,:,:)          !< Fluxes along x.
+   real(R8P), allocatable, device :: fly_gpu(:,:,:,:,:)          !< Fluxes along y.
+   real(R8P), allocatable, device :: flz_gpu(:,:,:,:,:)          !< Fluxes along z.
+   real(R8P), allocatable, device :: prhs_gpu(:,:,:,:,:)         !< Prhs for Runge-Kutta.
+   real(R8P), allocatable, device :: fd_coeff1_gpu(:)            !< First order derivatives coeffs.
+   real(R8P), allocatable, device :: fd_coeff2_gpu(:)            !< Second order derivatives coeffs.
+   real(R8P), allocatable, device :: fd_conv_gpu(:,:)            !< Second order derivatives coeffs.
+   real(R8P), allocatable, device :: q_aux_gpu(:,:,:,:,:)        !< Auxiliary cell centered variables.
+   real(R8P), allocatable, device :: q_gpu(:,:,:,:,:)            !< Field cell centered variables.
+   real(R8P), allocatable, device :: q_old_gpu(:,:,:,:,:)        !< Field cell centered variables (old iteration).
+   real(R8P), allocatable, device :: q_invert_gpu(:,:,:,:,:)     !< Field cell with boundary set on immersed bodies.
+   real(R8P), allocatable, device :: gplus_x(:,:,:,:,:)          !< For weno-x.
+   real(R8P), allocatable, device :: gminus_x(:,:,:,:,:)         !< For weno-x.
+   real(R8P), allocatable, device :: gplus_y(:,:,:,:,:)          !< For weno-y.
+   real(R8P), allocatable, device :: gminus_y(:,:,:,:,:)         !< For weno-y.
+   real(R8P), allocatable, device :: gplus_z(:,:,:,:,:)          !< For weno-z.
+   real(R8P), allocatable, device :: gminus_z(:,:,:,:,:)         !< For weno-z.
+   real(R8P), allocatable, device :: phi_gpu(:,:,:,:,:)          !< Distance function on GPU.
+   real(R8P), allocatable, device :: bc_vars_gpu(:, :)           !< Variables' array for boundary conditions on GPU.
+   real(R8P), allocatable, device :: bcs_vars_gpu(:, :)          !< Variables' array for immersed boundary on GPU.
+   integer(I4P)                   :: reduction_extent            !< Length of stencil to consider to reduce weno order close to solids.
+   integer(I4P)                   :: reduced_order               !< Weno reduced order close to solids.
+   integer, allocatable           :: order_modify(:,:,:,:,:)     !< Modified order close to solids. 
+   integer, allocatable, device   :: order_modify_gpu(:,:,:,:,:) !< Modified order close to solids (GPU variable).
    contains
       ! public methods
       procedure, pass(self) :: amr_update              !< Do AMR update.
@@ -510,6 +526,17 @@ contains
    allocate(self%gminus_y(nv, 2*iweno, ni, nk, nb))
    allocate(self%gplus_z (nv, 2*iweno, ni, nj, nb))
    allocate(self%gminus_z(nv, 2*iweno, ni, nj, nb))
+
+   allocate(self%order_modify(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:3))
+   allocate(self%order_modify_gpu(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:3))
+   self%order_modify = 0
+   self%order_modify_gpu = 0
+   if(self%enable_ror_stats > 0) then
+      allocate(self%ror_stats(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:3))
+      allocate(self%ror_stats_gpu(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:3))
+      open(unit=88, file="ror_stats.dat") ! delete previous stats
+      close(88)
+   endif
    endassociate
    print '(A)', self%mpih%myrankstr//'equation_nasto_gpu_object%initialize finish'
    contains
@@ -540,14 +567,68 @@ contains
 
       subroutine load_schemes_from_ini_file
       !< Parse schemes setting from input file.
-      integer(I4P) :: buf_I4 !< I4 buffer.
+      integer(I4P)              :: buf_I4 !< I4 buffer.
+      integer(I4P), allocatable :: buf_array_I4(:) !< I4 buffer array.
+      real(R8P)                 :: buf_R8 !< R8 buffer.
+      integer(I4P)              :: i
+      character(128)            :: oname
 
+      print*,'starting scheme ini file read'
       call self%file_input%get(section_name='schemes', option_name='euler_scheme', val=buf_I4) ; self%euler_scheme = buf_I4
-      call self%file_input%get(section_name='schemes', option_name='euler_order' , val=buf_I4) ; self%euler_order  = buf_I4
-      self%iweno = (self%euler_order+1)/2
-      self%lmax  = (self%euler_order)/2
+      print*,'1'
+
+      call self%file_input%get(section_name='schemes', option_name='central_order' , val=buf_I4) ; self%central_order  = buf_I4
+      self%lmax  = (self%central_order)/2
+      print*,'2'
+
+      call self%file_input%get(section_name='schemes', option_name='weno_n_ror' , val=buf_I4) ; self%weno_n_ror  = buf_I4
+      print*,'3'
+      allocate(buf_array_I4(1:self%weno_n_ror))
+      print*,'4: ',self%weno_n_ror
+      self%weno_schemes = buf_array_I4
+      !call self%file_input%get(section_name='schemes', option_name='weno_schemes' , val=buf_array_I4) 
+      do i=1,self%weno_n_ror
+         oname = 'weno_schemes_'//trim(str(i,.true.))
+         print*,'oname: ',trim(oname)
+         call self%file_input%get(section_name='schemes', option_name=trim(oname), val=buf_I4)  
+         print*,'i,buf_I4: ',i,buf_I4
+         self%weno_schemes(i) = buf_I4
+      enddo
+      print*,'5'
+      !self%weno_schemes  = buf_array_I4
+      print*,'6'
+      deallocate(buf_array_I4)
+      print*,'7'
+      self%iweno = IWENO_FROM_SCHEME(self%weno_schemes(1))
+      print*,'8'
+      print*,'weno_schemes: ',self%weno_schemes,' - iweno: ',self%iweno
+
+      call self%file_input%get(section_name='schemes', option_name='ror_threshold' , val=buf_R8) ; self%ror_threshold = buf_R8
+      call self%file_input%get(section_name='schemes', option_name='ror_n_indexes' , val=buf_I4) ; self%ror_n_indexes = buf_I4
+      allocate(buf_array_I4(1:self%ror_n_indexes))
+      self%ror_indexes = buf_array_I4
+      do i=1,self%ror_n_indexes
+         oname = 'ror_indexes_'//trim(str(i,.true.))
+         print*,'oname: ',trim(oname)
+         call self%file_input%get(section_name='schemes', option_name=trim(oname), val=buf_I4)  
+         print*,'i,buf_I4: ',i,buf_I4
+         self%ror_indexes(i) = buf_I4
+      enddo
+      !call self%file_input%get(section_name='schemes', option_name='ror_indexes' , val=buf_array_I4) 
+      !self%ror_indexes = buf_array_I4
+      deallocate(buf_array_I4)
+      call self%file_input%get(section_name='schemes', option_name='enable_ror_stats' , val=buf_I4) ; self%enable_ror_stats = buf_I4
+      print*,'ror_threshold: ',self%ror_threshold,' - ror_indexes: ',self%ror_indexes, 'enable_ror_stats: ',self%enable_ror_stats
+
+      self%weno_schemes_gpu = self%weno_schemes
+      self%ror_indexes_gpu  = self%ror_indexes
+
+      call self%file_input%get(section_name='schemes', option_name='reduction_extent' , val=buf_I4) ; self%reduction_extent = buf_I4
+      call self%file_input%get(section_name='schemes', option_name='reduced_order'    , val=buf_I4) ; self%reduced_order    = buf_I4
+
       call self%file_input%get(section_name='schemes', option_name='visc_scheme' , val=buf_I4) ; self%visc_scheme = buf_I4
       call self%file_input%get(section_name='schemes', option_name='visc_order'  , val=buf_I4) ; self%visc_order  = buf_I4
+
       call self%fd_initialize
       self%fd_coeff1_gpu = self%fd_coeff1
       self%fd_coeff2_gpu = self%fd_coeff2
@@ -813,6 +894,10 @@ contains
                                       fd_coeff2_gpu = self%fd_coeff2_gpu,                                                    &
                                       gminus_x = self%gminus_x, gminus_y = self%gminus_y, gminus_z = self%gminus_z,          &
                                       gplus_x = self%gplus_x,   gplus_y  = self%gplus_y,  gplus_z  = self%gplus_z,           &
+                                      order_modify_gpu = self%order_modify_gpu,    &
+                                      weno_schemes_gpu = self%weno_schemes_gpu, ror_indexes_gpu = self%ror_indexes_gpu, &
+                                      ror_threshold = self%ror_threshold, enable_ror_stats = self%enable_ror_stats, &
+                                      ror_stats_gpu = self%ror_stats_gpu, &
                                       euler_scheme = self%euler_scheme, visc_scheme = self%visc_scheme,                      &
                                       lmax = self%lmax, iweno = self%iweno, visc_order = self%visc_order,                    &
                                       visc_law = self%visc_law,                                                              &
@@ -913,23 +998,24 @@ contains
       call self%compute_aux(q_gpu=self%q_invert_gpu, q_aux_gpu=self%q_aux_gpu)
 
       call MPI_Barrier(MPI_COMM_WORLD, iermpi)
-      call self%compute_residuals_gpu(ni=ni, nj=nj, nk=nk, ngc=ngc, ns=ns, blocks_number=blocks_number,                      &
-                                      dx_gpu = self%base_gpu%dxyz_gpu(:,1),                                                  &
-                                      dy_gpu = self%base_gpu%dxyz_gpu(:,2),                                                  &
-                                      dz_gpu = self%base_gpu%dxyz_gpu(:,3),                                                  &
-                                      q_aux_gpu = self%q_aux_gpu,  phi_gpu = self%phi_gpu,      fl_gpu = self%fl_gpu,        &
-                                      flx_gpu   = self%flx_gpu,    fly_gpu = self%fly_gpu,      flz_gpu = self%flz_gpu,      &
-                                      fd_conv_gpu = self%fd_conv_gpu, fd_coeff1_gpu = self%fd_coeff1_gpu,                    &
-                                      fd_coeff2_gpu = self%fd_coeff2_gpu,                                                    &
-                                      gminus_x = self%gminus_x, gminus_y = self%gminus_y, gminus_z = self%gminus_z,          &
-                                      gplus_x = self%gplus_x,   gplus_y  = self%gplus_y,  gplus_z  = self%gplus_z,           &
-                                      euler_scheme = self%euler_scheme, visc_scheme = self%visc_scheme,                      &
-                                      lmax = self%lmax, iweno = self%iweno, visc_order = self%visc_order,                    &
-                                      visc_law = self%visc_law,                                                              &
-                                      cp_star       = self%cp_star,  cv_star = self%cv_star, gamma_fluid = self%gamma_fluid, &
-                                      R_star        = self%R_star,   mu_star = self%mu_star, k_star      = self%k_star,      &
-                                      dha_star      = self%dha_star, Lewis   = self%Lewis,   Zeldovich   = self%Zeldovich,   &
-                                      Damkohler     = self%Damkohler)
+      !TOBEUPDATEDcall self%compute_residuals_gpu(ni=ni, nj=nj, nk=nk, ngc=ngc, ns=ns, blocks_number=blocks_number,                      &
+      !TOBEUPDATED                                dx_gpu = self%base_gpu%dxyz_gpu(:,1),                                                  &
+      !TOBEUPDATED                                dy_gpu = self%base_gpu%dxyz_gpu(:,2),                                                  &
+      !TOBEUPDATED                                dz_gpu = self%base_gpu%dxyz_gpu(:,3),                                                  &
+      !TOBEUPDATED                                q_aux_gpu = self%q_aux_gpu,  phi_gpu = self%phi_gpu,      fl_gpu = self%fl_gpu,        &
+      !TOBEUPDATED                                flx_gpu   = self%flx_gpu,    fly_gpu = self%fly_gpu,      flz_gpu = self%flz_gpu,      &
+      !TOBEUPDATED                                fd_conv_gpu = self%fd_conv_gpu, fd_coeff1_gpu = self%fd_coeff1_gpu,                    &
+      !TOBEUPDATED                                fd_coeff2_gpu = self%fd_coeff2_gpu,                                                    &
+      !TOBEUPDATED                                gminus_x = self%gminus_x, gminus_y = self%gminus_y, gminus_z = self%gminus_z,          &
+      !TOBEUPDATED                                gplus_x = self%gplus_x,   gplus_y  = self%gplus_y,  gplus_z  = self%gplus_z,           &
+      !TOBEUPDATED                                order_modify_gpu = self%order_modify_gpu,    &
+      !TOBEUPDATED                                euler_scheme = self%euler_scheme, visc_scheme = self%visc_scheme,                      &
+      !TOBEUPDATED                                lmax = self%lmax, iweno = self%iweno, visc_order = self%visc_order,                    &
+      !TOBEUPDATED                                visc_law = self%visc_law,                                                              &
+      !TOBEUPDATED                                cp_star       = self%cp_star,  cv_star = self%cv_star, gamma_fluid = self%gamma_fluid, &
+      !TOBEUPDATED                                R_star        = self%R_star,   mu_star = self%mu_star, k_star      = self%k_star,      &
+      !TOBEUPDATED                                dha_star      = self%dha_star, Lewis   = self%Lewis,   Zeldovich   = self%Zeldovich,   &
+      !TOBEUPDATED                                Damkohler     = self%Damkohler)
       !call self%set_bc_rhs(q_gpu=self%fl_gpu(:,:,:,:,:), q_aux_gpu=self%q_aux_gpu)
 
       call compute_rk_linear_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,      &
@@ -1625,7 +1711,7 @@ contains
    subroutine update_phi(self)
    !< Update x/y/z_cell_gpu
    class(equation_nasto_gpu_object), intent(inout) :: self                      !< The equation.
-   integer(I4P)                                    :: b, i, j, k, ib            !< Counter.
+   integer(I4P)                                    :: b, i, j, k, ib, l         !< Counter.
    real(R8P)                                       :: query_x, query_y, query_z !< Query point coordinates.
    real(R8P)                                       :: near_x, near_y, near_z    !< Nearest point coordinates.
    real(R8P)                                       :: distance                  !< Distance from solid.
@@ -1633,7 +1719,8 @@ contains
 
    associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
              x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell,         &
-             ptree => self%ptree, phi=>self%phi, phi_gpu=>self%phi_gpu, n_solids=>self%n_solids)
+             ptree => self%ptree, phi=>self%phi, phi_gpu=>self%phi_gpu, n_solids=>self%n_solids,      &
+             reduction_extent => self%reduction_extent, reduced_order => self%reduced_order)
    print '(A)', self%mpih%myrankstr//'update IB distance start'
    do ib=1,n_solids
       do b=1,blocks_number
@@ -1672,8 +1759,59 @@ contains
          enddo
          enddo
       enddo
+
+      self%order_modify = self%weno_schemes(1)
+
+      if(reduction_extent > 0) then
+          print*,'Reduced order close to solids. Extent/base/reduced-order: ',reduction_extent, self%weno_schemes(1), reduced_order
+
+          do b=1,blocks_number
+             do j=1,nj
+             do k=1,nk
+             idir: do i=0,ni
+             do l=1,reduction_extent
+                if(phi(b,i+l,j,k,ib)>0 .or. phi(b,i-l+1,j,k,ib)>0) then
+                    self%order_modify(b,i,j,k,1) = reduced_order
+                    cycle idir
+                endif
+             enddo
+             enddo idir
+             enddo
+             enddo
+          enddo
+          do b=1,blocks_number
+             do i=1,ni
+             do k=1,nk
+             jdir: do j=0,nj
+             do l=1,reduction_extent
+                if(phi(b,i,j+l,k,ib)>0 .or. phi(b,i,j-l+1,k,ib)>0) then
+                    self%order_modify(b,i,j,k,2) = reduced_order
+                    cycle jdir
+                endif
+             enddo
+             enddo jdir
+             enddo
+             enddo
+          enddo
+          do b=1,blocks_number
+             do j=1,nj
+             do i=1,ni
+             kdir: do k=0,nk
+             do l=1,reduction_extent
+                if(phi(b,i,j,k+l,ib)>0 .or. phi(b,i,j,k-l+1,ib)>0) then
+                    self%order_modify(b,i,j,k,3) = reduced_order
+                    cycle kdir
+                endif
+             enddo
+             enddo kdir
+             enddo
+             enddo
+          enddo
+      endif
    enddo
+   ! TODO: next assignments should be reduced only to blocks_number.
    phi_gpu = phi
+   self%order_modify_gpu = self%order_modify
    endassociate
    print '(A)', self%mpih%myrankstr//'update IB distance finish'
    endsubroutine update_phi
@@ -1910,6 +2048,9 @@ contains
                                     fd_coeff2_gpu ,                             &
                                     gminus_x , gminus_y , gminus_z ,            &
                                     gplus_x ,   gplus_y  ,  gplus_z  ,          &
+                                    order_modify_gpu,                           &
+                                    weno_schemes_gpu, ror_indexes_gpu,          &
+                                    ror_threshold, enable_ror_stats, ror_stats_gpu, &
                                     euler_scheme , visc_scheme ,                &
                                     lmax , iweno , visc_order ,                 &
                                     visc_law ,                                  &
@@ -1943,6 +2084,11 @@ contains
    real(R8P),    intent(inout), device :: gminus_y(1:,1:,1:,1:,1:)              !< Auxiliary variables.
    real(R8P),    intent(inout), device :: gplus_z(1:,1:,1:,1:,1:)               !< Auxiliary variables.
    real(R8P),    intent(inout), device :: gminus_z(1:,1:,1:,1:,1:)              !< Auxiliary variables.
+   integer,    intent(inout), device :: order_modify_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Positive fluxes.
+   integer(I4P), intent(in), device  :: weno_schemes_gpu(1:), ror_indexes_gpu(1:)
+   real(R8P), intent(in)             :: ror_threshold
+   integer(I4P), intent(in)          :: enable_ror_stats
+   integer(I4P), intent(inout), device  :: ror_stats_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  
    integer(I4P),  intent(in)           :: euler_scheme                          !< Euler scheme.
    integer(I4P),  intent(in)           :: visc_scheme                           !< Diffusive terms scheme.
    integer(I4P), intent(in)            :: lmax                                  !< Conservative stencil size.
@@ -1962,6 +2108,10 @@ contains
    real(R8P)                           :: ib_eps                                !< Tolerance immersed boundary delta ratio.
    integer(I4P)                        :: iercuda                               !< Error trapping flag for CUDAFortran.
    type(dim3)                          :: grid, tBlock                          !< CUDA grid and block.
+   real(R8P)                           :: ror_x_1, ror_x_2, ror_x_3, ror_x_4, ror_tot
+   real(R8P)                           :: ror_y_1, ror_y_2, ror_y_3, ror_y_4
+   real(R8P)                           :: ror_z_1, ror_z_2, ror_z_3, ror_z_4
+   integer(I4P)                        :: i,j,k,b
 
       self%mpih%error = cudaGetLastError()
       if(self%mpih%error /= cudaSuccess) then
@@ -1983,14 +2133,111 @@ contains
                                                         blocks_number, ni, nj, nk, ngc, ns+4, lmax)
        else
           tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(nj)/tBlock%y),1)
-          call euler_x_kernel<<<grid, tBlock>>>(q_aux_gpu, flx_gpu, gplus_x, gminus_x,                                       &
+          call euler_x_kernel<<<grid, tBlock>>>(q_aux_gpu, flx_gpu, gplus_x, gminus_x, order_modify_gpu, &
+                                                weno_schemes_gpu, ror_indexes_gpu, ror_threshold, enable_ror_stats, ror_stats_gpu, &
                                                 blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha_star, gamma_fluid, R_star, cv_star)
           tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(ni)/tBlock%y),1)
-          call euler_y_kernel<<<grid, tBlock>>>(q_aux_gpu, fly_gpu, gplus_y, gminus_y,                                        &
+          call euler_y_kernel<<<grid, tBlock>>>(q_aux_gpu, fly_gpu, gplus_y, gminus_y, order_modify_gpu,              &
+                                                weno_schemes_gpu, ror_indexes_gpu, ror_threshold, enable_ror_stats, ror_stats_gpu, &
                                                 blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha_star, gamma_fluid, R_star, cv_star)
           tBlock = dim3(32,8,1) ; grid = dim3(ceiling(real(blocks_number)/tBlock%x),ceiling(real(ni)/tBlock%y),1)
-          call euler_z_kernel<<<grid, tBlock>>>(q_aux_gpu, flz_gpu, gplus_z, gminus_z,                                        &
+          call euler_z_kernel<<<grid, tBlock>>>(q_aux_gpu, flz_gpu, gplus_z, gminus_z, order_modify_gpu,             &
+                                                weno_schemes_gpu, ror_indexes_gpu, ror_threshold, enable_ror_stats, ror_stats_gpu, &
                                                 blocks_number, ni, nj, nk, ngc, ns+4, iweno, dha_star, gamma_fluid, R_star, cv_star)
+       endif
+   endif
+
+   if(enable_ror_stats > 0) then
+       ror_x_1 = 0._R8P ; ror_x_2 = 0._R8P ; ror_x_3 = 0._R8P ; ror_x_4 = 0._R8P
+       ror_y_1 = 0._R8P ; ror_y_2 = 0._R8P ; ror_y_3 = 0._R8P ; ror_y_4 = 0._R8P
+       ror_z_1 = 0._R8P ; ror_z_2 = 0._R8P ; ror_z_3 = 0._R8P ; ror_z_4 = 0._R8P
+       !$cuf kernel do(4) <<<*,*>>> reduction(+: ror_x_1, ror_x_2, ror_x_3, ror_x_4)
+       do k=1,nk
+          do i=0,ni
+             do j=1,nj 
+                do b=1,blocks_number
+                   if(ror_stats_gpu(b,i,j,k,1) == weno_schemes_gpu(1)) ror_x_1 = ror_x_1 + 1
+                   if(size(weno_schemes_gpu)>1) then
+                       if(ror_stats_gpu(b,i,j,k,1) == weno_schemes_gpu(2)) ror_x_2 = ror_x_2 + 1
+                   endif
+                   if(size(weno_schemes_gpu)>2) then
+                       if(ror_stats_gpu(b,i,j,k,1) == weno_schemes_gpu(3)) ror_x_3 = ror_x_3 + 1
+                   endif
+                   if(size(weno_schemes_gpu)>3) then
+                       if(ror_stats_gpu(b,i,j,k,1) == weno_schemes_gpu(4)) ror_x_4 = ror_x_4 + 1
+                   endif
+                enddo
+             enddo
+          enddo
+       enddo
+       !@cuf iercuda=cudaDeviceSynchronize()
+       !$cuf kernel do(4) <<<*,*>>> reduction(+: ror_y_1, ror_y_2, ror_y_3, ror_y_4)
+       do k=1,nk
+          do i=1,ni
+             do j=0,nj 
+                do b=1,blocks_number
+                   if(ror_stats_gpu(b,i,j,k,2) == weno_schemes_gpu(1)) ror_y_1 = ror_y_1 + 1
+                   if(size(weno_schemes_gpu)>1) then
+                       if(ror_stats_gpu(b,i,j,k,2) == weno_schemes_gpu(2)) ror_y_2 = ror_y_2 + 1
+                   endif
+                   if(size(weno_schemes_gpu)>2) then
+                       if(ror_stats_gpu(b,i,j,k,2) == weno_schemes_gpu(3)) ror_y_3 = ror_y_3 + 1
+                   endif
+                   if(size(weno_schemes_gpu)>3) then
+                       if(ror_stats_gpu(b,i,j,k,2) == weno_schemes_gpu(4)) ror_y_4 = ror_y_4 + 1
+                   endif
+                enddo
+             enddo
+          enddo
+       enddo
+       !@cuf iercuda=cudaDeviceSynchronize()
+       !$cuf kernel do(4) <<<*,*>>> reduction(+: ror_z_1, ror_z_2, ror_z_3, ror_z_4)
+       do k=0,nk
+          do i=1,ni
+             do j=1,nj 
+                do b=1,blocks_number
+                   if(ror_stats_gpu(b,i,j,k,3) == weno_schemes_gpu(1)) ror_z_1 = ror_z_1 + 1
+                   if(size(weno_schemes_gpu)>1) then
+                       if(ror_stats_gpu(b,i,j,k,3) == weno_schemes_gpu(2)) ror_z_2 = ror_z_2 + 1
+                   endif
+                   if(size(weno_schemes_gpu)>2) then
+                       if(ror_stats_gpu(b,i,j,k,3) == weno_schemes_gpu(3)) ror_z_3 = ror_z_3 + 1
+                   endif
+                   if(size(weno_schemes_gpu)>3) then
+                       if(ror_stats_gpu(b,i,j,k,3) == weno_schemes_gpu(4)) ror_z_4 = ror_z_4 + 1
+                   endif
+                enddo
+             enddo
+          enddo
+       enddo
+       !@cuf iercuda=cudaDeviceSynchronize()
+       ror_tot = ror_x_1+ror_x_2+ror_x_3+ror_x_4
+       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_tot, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_x_1, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_x_2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_x_3, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_x_4, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_y_1, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_y_2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_y_3, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_y_4, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_z_1, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_z_2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_z_3, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_z_4, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+       ror_x_1 = ror_x_1 / ror_tot * 100 ; ror_x_2 = ror_x_2 / ror_tot * 100
+       ror_x_3 = ror_x_3 / ror_tot * 100 ; ror_x_4 = ror_x_4 / ror_tot * 100
+       ror_y_1 = ror_y_1 / ror_tot * 100 ; ror_y_2 = ror_y_2 / ror_tot * 100
+       ror_y_3 = ror_y_3 / ror_tot * 100 ; ror_y_4 = ror_y_4 / ror_tot * 100
+       ror_z_1 = ror_z_1 / ror_tot * 100 ; ror_z_2 = ror_z_2 / ror_tot * 100
+       ror_z_3 = ror_z_3 / ror_tot * 100 ; ror_z_4 = ror_z_4 / ror_tot * 100
+       if(self%mpih%myrank == 0) then
+           open(unit=88, file="ror_stats.dat", position="append")
+           write(88,'(100(F18.10,2x))') ror_tot, &
+                                        ror_x_1,ror_x_2,ror_x_3,ror_x_4, &
+                                        ror_y_1,ror_y_2,ror_y_3,ror_y_4, &
+                                        ror_z_1,ror_z_2,ror_z_3,ror_z_4
+           close(88)
        endif
    endif
 
@@ -2276,11 +2523,17 @@ contains
    enddo
    endsubroutine euler_z_central_kernel
 
-   attributes(global) subroutine euler_x_kernel(q_aux_gpu, flx_gpu, gplus, gminus,  &
+   attributes(global) subroutine euler_x_kernel(q_aux_gpu, flx_gpu, gplus, gminus, order_modify_gpu, &
+                                                weno_schemes_gpu, ror_indexes_gpu, ror_threshold, enable_ror_stats, ror_stats_gpu, &
                                                 blocks_number, ni, nj, nk, ngc, nv, iweno, dha_star, gamma_fluid, R_star, cv_star)
 
    real(R8P), intent(in), device     :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(inout), device  ::   flx_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
+   integer(I4P), intent(in), device  :: order_modify_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Positive fluxes.
+   integer(I4P), intent(in), device  :: weno_schemes_gpu(1:), ror_indexes_gpu(1:)
+   real(R8P), intent(in), value      :: ror_threshold
+   integer(I4P), intent(in), value   :: enable_ror_stats
+   integer(I4P), intent(inout), device  :: ror_stats_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  
    real(R8P), intent(inout), device  ::     gplus(1:, 1:, 1:, 1:, 1:)
    real(R8P), intent(inout), device  ::    gminus(1:, 1:, 1:, 1:, 1:)
    integer, intent(in), value        :: blocks_number, ni, nj, nk, ngc, nv, iweno
@@ -2291,6 +2544,8 @@ contains
    !real(R8P)                         :: er(nv,nv), el(nv,nv), ev(nv), evmax(nv), ghat(nv), gl(nv), gr(nv), fi(nv), vi(nv)
    real(R8P)                         :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
    real(R8P)                         :: gc, wc
+   integer                           :: wenorec_scheme, index_var
+   logical                           :: ror_to_recompute
 
    b = blockDim%x * (blockIdx%x - 1) + threadIdx%x
    j = blockDim%y * (blockIdx%y - 1) + threadIdx%y
@@ -2387,7 +2642,27 @@ contains
          enddo
 
          ! Reconstruction of the + and - fluxes
-         call weno_reconstruction(nv, gplus(1,1,j,k,b), gminus(1,1,j,k,b), gl, gr, iweno)
+         wenorec_scheme = order_modify_gpu(b,i,j,k,1)
+         call weno_reconstruction(nv, gplus(1,1,j,k,b), gminus(1,1,j,k,b), gl, gr, iweno, wenorec_scheme)
+
+         ror_x: do m = 2, size(weno_schemes_gpu)
+            ror_to_recompute = .false.
+            do mm = 1,size(ror_indexes_gpu)
+                index_var = ror_indexes_gpu(mm)
+                if((abs(gl(index_var)-gplus(index_var,iweno,j,k,b))    > ror_threshold*abs(gplus(index_var,iweno,j,k,b))   ) .or. &
+                   (abs(gr(index_var)-gminus(index_var,iweno+1,j,k,b)) > ror_threshold*abs(gminus(index_var,iweno+1,j,k,b))) ) then
+                   ror_to_recompute = .true.
+                endif
+            enddo
+            if(ror_to_recompute) then
+               wenorec_scheme = weno_schemes_gpu(m)
+               call weno_reconstruction(nv, gplus(1,1,j,k,b), gminus(1,1,j,k,b), gl, gr, iweno, wenorec_scheme)
+            else
+               exit ror_x
+            endif
+         enddo ror_x
+
+         if(enable_ror_stats > 0) ror_stats_gpu(b,i,j,k,1) = wenorec_scheme
 
          ! Reassemble + and - characteristic fluxes
          do m=1,nv
@@ -2636,13 +2911,19 @@ contains
 
    endsubroutine viscous_part
 
-   attributes(global) subroutine euler_y_kernel(q_aux_gpu, fly_gpu, gplus, gminus, &
+   attributes(global) subroutine euler_y_kernel(q_aux_gpu, fly_gpu, gplus, gminus, order_modify_gpu, &
+                                                weno_schemes_gpu, ror_indexes_gpu, ror_threshold, enable_ror_stats, ror_stats_gpu, &
                                                 blocks_number, ni, nj, nk, ngc, nv, iweno, dha_star, gamma_fluid, R_star, cv_star)
 
    real(R8P), intent(in), device     :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(inout), device  ::   fly_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(inout), device  ::     gplus(1:, 1:, 1:, 1:, 1:)
    real(R8P), intent(inout), device  ::    gminus(1:, 1:, 1:, 1:, 1:)
+   integer,    intent(inout), device :: order_modify_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Positive fluxes.
+   integer(I4P), intent(in), device  :: weno_schemes_gpu(1:), ror_indexes_gpu(1:)
+   real(R8P), intent(in), value      :: ror_threshold
+   integer(I4P), intent(in), value   :: enable_ror_stats
+   integer(I4P), intent(inout), device  :: ror_stats_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  
    integer, intent(in), value        :: blocks_number, ni, nj, nk, ngc, nv, iweno
    real(R8P), intent(in), value      :: dha_star, gamma_fluid, R_star, cv_star
    integer                           :: b, i, j, k, l, ll, m, mm, v
@@ -2650,6 +2931,8 @@ contains
    !real(R8P)                         :: er(nv,nv), el(nv,nv), ev(nv), evmax(nv), ghat(nv), gl(nv), gr(nv), fi(nv), vi(nv)
    real(R8P)                         :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
    real(R8P)                         :: gc, wc
+   integer                           :: wenorec_scheme, index_var
+   logical                           :: ror_to_recompute
 
    b = blockDim%x * (blockIdx%x - 1) + threadIdx%x
    i = blockDim%y * (blockIdx%y - 1) + threadIdx%y
@@ -2746,7 +3029,27 @@ contains
          enddo
 
          ! Reconstruction of the + and - fluxes
-         call weno_reconstruction(nv, gplus(1,1,i,k,b), gminus(1,1,i,k,b), gl, gr, iweno)
+         wenorec_scheme = order_modify_gpu(b,i,j,k,2)
+         call weno_reconstruction(nv, gplus(1,1,i,k,b), gminus(1,1,i,k,b), gl, gr, iweno, wenorec_scheme)
+
+         ror_y: do m = 2, size(weno_schemes_gpu)
+            ror_to_recompute = .false.
+            do mm = 1,size(ror_indexes_gpu)
+                index_var = ror_indexes_gpu(mm)
+                if((abs(gl(index_var)-gplus(index_var,iweno,i,k,b))    > ror_threshold*abs(gplus(index_var,iweno,i,k,b)   )) .or. &
+                   (abs(gr(index_var)-gminus(index_var,iweno+1,i,k,b)) > ror_threshold*abs(gminus(index_var,iweno+1,i,k,b))) ) then
+                   ror_to_recompute = .true.
+                endif
+            enddo
+            if(ror_to_recompute) then
+               wenorec_scheme = weno_schemes_gpu(m)
+               call weno_reconstruction(nv, gplus(1,1,i,k,b), gminus(1,1,i,k,b), gl, gr, iweno, wenorec_scheme)
+            else
+               exit ror_y
+            endif
+         enddo ror_y
+
+         if(enable_ror_stats > 0) ror_stats_gpu(b,i,j,k,2) = wenorec_scheme
 
          ! Reassemble + and - characteristic fluxes
          do m=1,nv
@@ -2765,13 +3068,19 @@ contains
    enddo
    endsubroutine euler_y_kernel
 
-   attributes(global) subroutine euler_z_kernel(q_aux_gpu, flz_gpu, gplus, gminus, &
+   attributes(global) subroutine euler_z_kernel(q_aux_gpu, flz_gpu, gplus, gminus, order_modify_gpu, &
+                                                weno_schemes_gpu, ror_indexes_gpu, ror_threshold, enable_ror_stats, ror_stats_gpu, &
                                                 blocks_number, ni, nj, nk, ngc, nv, iweno, dha_star, gamma_fluid, R_star, cv_star)
 
    real(R8P), intent(in), device     :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(inout), device  ::   flz_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P), intent(inout), device  ::     gplus(1:, 1:, 1:, 1:, 1:)
    real(R8P), intent(inout), device  ::    gminus(1:, 1:, 1:, 1:, 1:)
+   integer,    intent(inout), device :: order_modify_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Positive fluxes.
+   integer(I4P), intent(in), device  :: weno_schemes_gpu(1:), ror_indexes_gpu(1:)
+   real(R8P), intent(in), value      :: ror_threshold
+   integer(I4P), intent(in), value   :: enable_ror_stats
+   integer(I4P), intent(inout), device  :: ror_stats_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  
    integer, intent(in), value        :: blocks_number, ni, nj, nk, ngc, nv, iweno
    real(R8P), intent(in), value      :: dha_star, gamma_fluid, R_star, cv_star
    integer                           :: b, i, j, k, l, ll, m, mm, v
@@ -2779,6 +3088,8 @@ contains
    !real(R8P)                         :: er(nv,nv), el(nv,nv), ev(nv), evmax(nv), ghat(nv), gl(nv), gr(nv), fi(nv), vi(nv)
    real(R8P)                         :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
    real(R8P)                         :: gc, wc
+   integer                           :: wenorec_scheme, index_var
+   logical                           :: ror_to_recompute
 
    b = blockDim%x * (blockIdx%x - 1) + threadIdx%x
    i = blockDim%y * (blockIdx%y - 1) + threadIdx%y
@@ -2875,7 +3186,27 @@ contains
          enddo
 
          ! Reconstruction of the + and - fluxes
-         call weno_reconstruction(nv, gplus(1,1,i,j,b), gminus(1,1,i,j,b), gl, gr, iweno)
+         wenorec_scheme = order_modify_gpu(b,i,j,k,3)
+         call weno_reconstruction(nv, gplus(1,1,i,j,b), gminus(1,1,i,j,b), gl, gr, iweno, wenorec_scheme)
+
+         ror_z: do m = 2, size(weno_schemes_gpu)
+            ror_to_recompute = .false.
+            do mm = 1,size(ror_indexes_gpu)
+                index_var = ror_indexes_gpu(mm)
+                if((abs(gl(index_var)-gplus(index_var,iweno,i,j,b))    > ror_threshold*abs(gplus(index_var,iweno,i,j,b)   )) .or. &
+                   (abs(gr(index_var)-gminus(index_var,iweno+1,i,j,b)) > ror_threshold*abs(gminus(index_var,iweno+1,i,j,b))) ) then
+                   ror_to_recompute = .true.
+                endif
+            enddo
+            if(ror_to_recompute) then
+               wenorec_scheme = weno_schemes_gpu(m)
+               call weno_reconstruction(nv, gplus(1,1,i,j,b), gminus(1,1,i,j,b), gl, gr, iweno, wenorec_scheme)
+            else
+               exit ror_z
+            endif
+         enddo ror_z
+
+         if(enable_ror_stats > 0) ror_stats_gpu(b,i,j,k,3) = wenorec_scheme
 
          ! Reassemble + and - characteristic fluxes
          do m=1,nv
@@ -2934,10 +3265,10 @@ contains
 
    endsubroutine compute_roe_average
 
-   attributes(device) subroutine weno_reconstruction(nvar,vp,vm,vminus,vplus,iweno)
+   attributes(device) subroutine weno_reconstruction(nvar,vp,vm,vminus,vplus,iweno,wenorec_ord)
 
    implicit none
-   integer, intent(in)                             :: nvar, iweno
+   integer, intent(in)                             :: nvar, iweno, wenorec_ord
    !real(R8P), dimension(nvar,2*iweno), intent(in)  :: vm,vp
    real(R8P), dimension(1:nvar,1:*) :: vm,vp
    real(R8P), dimension(nvar), intent(out)         :: vminus,vplus
@@ -2951,14 +3282,14 @@ contains
    real(R8P)                  :: c0,c1,c2,c3,c4,d0,d1,d2,d3,d4,summ,sump
    real(R8P)                  :: x,y,y2
 
-   if (iweno==1) then ! Godunov
+   if (wenorec_ord==1) then ! Godunov
 
        i = iweno ! index of intermediate node to perform reconstruction
 
        vminus(1:nvar) = vp(1:nvar,i)
        vplus (1:nvar) = vm(1:nvar,i+1)
 
-   elseif (iweno==2) then ! WENO-3
+   elseif (wenorec_ord==2) then ! WENO-3
 
        i = iweno ! index of intermediate node to perform reconstruction
 
@@ -2995,7 +3326,7 @@ contains
            vplus(m)  = 0.5_R8P*vplus(m)
        enddo
 
-     elseif (iweno==3) then ! WENO-5
+     elseif (wenorec_ord==3) then ! WENO-5
 !
       i = iweno ! index of intermediate node to perform reconstruction
 !
@@ -3042,7 +3373,7 @@ contains
 !
       enddo ! end of m-loop
 !
-   elseif (iweno==4) then ! WENO-7
+   elseif (wenorec_ord==4) then ! WENO-7
 !
       i = iweno ! index of intermediate node to perform reconstruction
 !
@@ -3117,6 +3448,179 @@ contains
    endif
 
    endsubroutine weno_reconstruction
+
+   attributes(device) subroutine weno5z(nvar,vp,vm,vminus,vplus,iweno)
+!
+     implicit none
+!
+!    Passed arguments
+     integer :: nvar, iweno
+     real(R8P), dimension(1:nvar,1:*) :: vm,vp
+     real(R8P),dimension(nvar) :: vminus,vplus
+!
+!    Local variables
+     real(R8P),dimension(-1:4) :: dwe           ! linear weights
+     real(R8P),dimension(-1:4) :: alfp,alfm     ! alpha_l
+     real(R8P),dimension(-1:4) :: alfp_map,alfm_map ! alpha_l
+     real(R8P),dimension(-1:4) :: betap,betam   ! beta_l
+     real(R8P),dimension(-1:4) :: betazp,betazm ! betaz_l
+     real(R8P),dimension(-1:4) :: omp,omm       ! WENO weights
+!
+     integer :: r,i,j,k,l,m
+     real(R8P) :: c0,c1,c2,c3,c4,d0,d1,d2,d3,d4,summ,sump,eps40,tau5p,tau5m
+!
+     if (iweno==3) then ! WENO-5 Z
+!
+      i = iweno ! index of intermediate node to perform reconstruction
+!
+      dwe( 0) = 1._R8P/10._R8P
+      dwe( 1) = 6._R8P/10._R8P
+      dwe( 2) = 3._R8P/10._R8P
+!     JS
+      d0 = 13._R8P/12._R8P
+      d1 = 1._R8P/4._R8P
+!     Weights for polynomial reconstructions
+      c0 = 1._R8P/3._R8P
+      c1 = 5._R8P/6._R8P
+      c2 =-1._R8P/6._R8P
+      c3 =-7._R8P/6._R8P
+      c4 =11._R8P/6._R8P
+!
+      do m=1,nvar
+!
+       betap(2) = d0*(     vp(m,i)-2._R8P*vp(m,i+1)+vp(m,i+2))**2+d1*(3._R8P*vp(m,i)-4._R8P*vp(m,i+1)+vp(m,i+2))**2
+       betap(1) = d0*(     vp(m,i-1)-2._R8P*vp(m,i)+vp(m,i+1))**2+d1*(     vp(m,i-1)-vp(m,i+1) )**2
+       betap(0) = d0*(     vp(m,i)-2._R8P*vp(m,i-1)+vp(m,i-2))**2+d1*(3._R8P*vp(m,i)-4._R8P*vp(m,i-1)+vp(m,i-2))**2
+!
+       betam(2) = d0*(     vm(m,i+1)-2._R8P*vm(m,i)+vm(m,i-1))**2+d1*(3._R8P*vm(m,i+1)-4._R8P*vm(m,i)+vm(m,i-1))**2
+       betam(1) = d0*(     vm(m,i+2)-2._R8P*vm(m,i+1)+vm(m,i))**2+d1*(     vm(m,i+2)-vm(m,i) )**2
+       betam(0) = d0*(     vm(m,i+1)-2._R8P*vm(m,i+2)+vm(m,i+3))**2+d1*(3._R8P*vm(m,i+1)-4._R8P*vm(m,i+2)+vm(m,i+3))**2
+!
+       tau5p = abs(betap(0)-betap(2))
+       tau5m = abs(betam(0)-betam(2))
+       eps40 = 1.D-40
+!
+       do l=0,2
+        betazp(l) = (betap(l)+eps40)/(betap(l)+eps40+tau5p)
+        betazm(l) = (betam(l)+eps40)/(betam(l)+eps40+tau5m)
+       enddo
+!
+       sump = 0._R8P
+       summ = 0._R8P
+       do l=0,2
+        alfp(l) = dwe(l)/betazp(l)
+        alfm(l) = dwe(l)/betazm(l)
+        sump = sump + alfp(l)
+        summ = summ + alfm(l)
+       enddo
+       do l=0,2
+        omp(l) = alfp(l)/sump
+        omm(l) = alfm(l)/summ
+       enddo
+!
+       vminus(m)   = omp(2)*(c0*vp(m,i  )+c1*vp(m,i+1)+c2*vp(m,i+2)) + &
+         & omp(1)*(c2*vp(m,i-1)+c1*vp(m,i  )+c0*vp(m,i+1)) + omp(0)*(c0*vp(m,i-2)+c3*vp(m,i-1)+c4*vp(m,i  ))
+       vplus(m)   = omm(2)*(c0*vm(m,i+1)+c1*vm(m,i  )+c2*vm(m,i-1)) +  &
+         & omm(1)*(c2*vm(m,i+2)+c1*vm(m,i+1)+c0*vm(m,i  )) + omm(0)*(c0*vm(m,i+3)+c3*vm(m,i+2)+c4*vm(m,i+1))
+!
+      enddo ! end of m-loop
+!
+     endif
+!
+   endsubroutine weno5z
+
+   attributes(device) subroutine weno5map(nvar,vp,vm,vminus,vplus,iweno)
+!
+     implicit none
+!
+!    Passed arguments
+     integer :: nvar, iweno
+     real(R8P), dimension(1:nvar,1:*) :: vm,vp
+     real(R8P),dimension(nvar) :: vminus,vplus
+!
+!    Local variables
+     real(R8P),dimension(-1:4) :: dwe           ! linear weights
+     real(R8P),dimension(-1:4) :: alfp,alfm     ! alpha_l
+     real(R8P),dimension(-1:4) :: alfp_map,alfm_map ! alpha_l
+     real(R8P),dimension(-1:4) :: betap,betam   ! beta_l
+     real(R8P),dimension(-1:4) :: omp,omm       ! WENO weights
+!
+     integer :: r,i,j,k,l,m
+     real(R8P) :: c0,c1,c2,c3,c4,d0,d1,d2,d3,d4,summ,sump
+     real(R8P) :: x,y,y2
+!
+     if (iweno==3) then ! WENO-5 mapped
+!
+      i = iweno ! index of intermediate node to perform reconstruction
+!
+      dwe( 0) = 1._R8P/10._R8P
+      dwe( 1) = 6._R8P/10._R8P
+      dwe( 2) = 3._R8P/10._R8P
+!     JS
+      d0 = 13._R8P/12._R8P
+      d1 = 1._R8P/4._R8P
+!     Weights for polynomial reconstructions
+      c0 = 1._R8P/3._R8P
+      c1 = 5._R8P/6._R8P
+      c2 =-1._R8P/6._R8P
+      c3 =-7._R8P/6._R8P
+      c4 =11._R8P/6._R8P
+!
+      do m=1,nvar
+!
+       betap(2) = d0*(     vp(m,i)-2._R8P*vp(m,i+1)+vp(m,i+2))**2+d1*(3._R8P*vp(m,i)-4._R8P*vp(m,i+1)+vp(m,i+2))**2
+       betap(1) = d0*(     vp(m,i-1)-2._R8P*vp(m,i)+vp(m,i+1))**2+d1*(     vp(m,i-1)-vp(m,i+1) )**2
+       betap(0) = d0*(     vp(m,i)-2._R8P*vp(m,i-1)+vp(m,i-2))**2+d1*(3._R8P*vp(m,i)-4._R8P*vp(m,i-1)+vp(m,i-2))**2
+!
+       betam(2) = d0*(     vm(m,i+1)-2._R8P*vm(m,i)+vm(m,i-1))**2+d1*(3._R8P*vm(m,i+1)-4._R8P*vm(m,i)+vm(m,i-1))**2
+       betam(1) = d0*(     vm(m,i+2)-2._R8P*vm(m,i+1)+vm(m,i))**2+d1*(     vm(m,i+2)-vm(m,i) )**2
+       betam(0) = d0*(     vm(m,i+1)-2._R8P*vm(m,i+2)+vm(m,i+3))**2+d1*(3._R8P*vm(m,i+1)-4._R8P*vm(m,i+2)+vm(m,i+3))**2
+!
+       sump = 0._R8P
+       summ = 0._R8P
+       do l=0,2
+        alfp(l) = dwe(  l)/(0.000001_R8P+betap(l))**2
+        alfm(l) = dwe(  l)/(0.000001_R8P+betam(l))**2
+        sump = sump + alfp(l)
+        summ = summ + alfm(l)
+       enddo
+       do l=0,2
+        omp(l) = alfp(l)/sump
+        omm(l) = alfm(l)/summ
+       enddo
+!
+!********************************************
+!      Mapping procedure
+       do l=0,2
+        x  = omp(l)
+        y  = dwe(l)
+        y2 = y*y
+        alfp_map(l) = x*(y+y2-3._R8P*y*x+x*x)/(y2+x*(1._R8P-2._R8P*y))
+        x = omm(l)
+        alfm_map(l) = x*(y+y2-3._R8P*y*x+x*x)/(y2+x*(1._R8P-2._R8P*y))
+       enddo
+!
+       sump = 0._R8P
+       summ = 0._R8P
+       do l=0,2
+        sump = sump + alfp_map(l)
+        summ = summ + alfm_map(l)
+       enddo
+       do l=0,2
+        omp(l) = alfp_map(l)/sump
+        omm(l) = alfm_map(l)/summ
+       enddo
+!*********************************************
+       vminus(m)   = omp(2)*(c0*vp(m,i  )+c1*vp(m,i+1)+c2*vp(m,i+2)) + &
+         & omp(1)*(c2*vp(m,i-1)+c1*vp(m,i  )+c0*vp(m,i+1)) + omp(0)*(c0*vp(m,i-2)+c3*vp(m,i-1)+c4*vp(m,i  ))
+       vplus(m)   = omm(2)*(c0*vm(m,i+1)+c1*vm(m,i  )+c2*vm(m,i-1)) +  &
+         & omm(1)*(c2*vm(m,i+2)+c1*vm(m,i+1)+c0*vm(m,i  )) + omm(0)*(c0*vm(m,i+3)+c3*vm(m,i+2)+c4*vm(m,i+1))
+!
+      enddo ! end of m-loop
+!
+     endif
+!
+   endsubroutine weno5map
 
    subroutine compute_rk_linear_gpu_cuf(ni, nj, nk, ngc, nv, blocks_number, dt, q_gpu, prhs_gpu, fl_gpu, phi_gpu, qnrk)
 
