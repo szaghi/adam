@@ -2,21 +2,21 @@
 module adam_equation_euler_cpu_object
 !< ADAM, Euler equations system class definition and solver, CPU backend.
 
-use adam_adam_object,        only : adam_object
-use adam_amr_cpu_object,     only : amr_cpu_object, amr_marker_cpu_object, AMR_GEO, AMR_GRAD
-use adam_base_cpu_object,    only : base_cpu_object
-use adam_bc_cpu_object,      only : bc_cpu_object, BC_EXTRAPOLATION, BC_INFLOW
-use adam_eos_ic_cpu_object,  only : eos_ic_cpu_object
-use adam_field_object,       only : field_object
-use adam_physics_cpu_object, only : physics_cpu_object, IR, IU, IV, IW, IG, IP
-use adam_grid_object,        only : grid_object
-use adam_ib_cpu_object,      only : ib_cpu_object, BCS_VISCOUS, BCS_EULER
-use adam_ic_cpu_object,      only : ic_cpu_object
-use adam_mpih_object,        only : mpih_object
-use adam_rk_cpu_object,      only : rk_cpu_object
-use adam_slices_cpu_object,  only : slices_cpu_object
-use adam_tree_object,        only : tree_object
-use adam_weno_cpu_object,    only : weno_cpu_object
+use adam_adam_object,              only : adam_object
+use adam_amr_cpu_object,           only : amr_cpu_object, amr_marker_cpu_object, AMR_GEO, AMR_GRAD
+use adam_base_cpu_object,          only : base_cpu_object
+use adam_bc_cpu_object,            only : bc_cpu_object, BC_EXTRAPOLATION, BC_INFLOW
+use adam_eos_ic_cpu_object,        only : eos_ic_cpu_object
+use adam_field_object,             only : field_object
+use adam_euler_physics_cpu_object, only : euler_physics_cpu_object, IR, IU, IV, IW, IG, IP
+use adam_grid_object,              only : grid_object
+use adam_ib_cpu_object,            only : ib_cpu_object, BCS_VISCOUS, BCS_EULER
+use adam_ic_cpu_object,            only : ic_cpu_object
+use adam_mpih_object,              only : mpih_object
+use adam_rk_cpu_object,            only : rk_cpu_object
+use adam_slices_cpu_object,        only : slices_cpu_object
+use adam_tree_object,              only : tree_object
+use adam_weno_cpu_object,          only : weno_cpu_object
 use adam_memory_cpu_lib
 use adam_parameters
 use finer
@@ -49,10 +49,10 @@ type :: equation_euler_cpu_object
    !<```
    !< The auxiliary variables are arranged as follows:
    !<```
-   !< q_aux(1):    c(1)            specie concentration of 1st specie
-   !< q_aux(2):    c(2)            specie concentration of 2nd specie
+   !< q_aux(1):    rho(1)          partial density of 1st specie
+   !< q_aux(2):    rho(2)          partial density of 2nd specie
    !< ...
-   !< q_aux(ns):   c(ns)           specie concentration of last specie
+   !< q_aux(ns):   rho(ns)         partial density of last specie
    !< q_aux(ns+1): rho=sum(rho(s)) density
    !< q_aux(ns+2): u               velocity x
    !< q_aux(ns+3): v               velocity y
@@ -61,21 +61,21 @@ type :: equation_euler_cpu_object
    !< q_aux(ns+6): p               pressure
    !<```
    ! Main objects.
-   type(mpih_object)           :: mpih            !< MPI handler.
-   type(adam_object)           :: adam            !< ADAM.
-   type(tree_object),  pointer :: tree=>null()    !< The tree.
-   type(field_object), pointer :: field=>null()   !< The field.
-   type(grid_object),  pointer :: grid=>null()    !< The grid.
-   type(file_ini)              :: file_parameters !< Input simulation parameters file handler.
-   type(base_cpu_object)       :: base_cpu        !< The base CPU handler.
-   type(physics_cpu_object)    :: physics         !< Boundary conditions handler.
-   type(bc_cpu_object)         :: bc              !< Boundary conditions handler.
-   type(ic_cpu_object)         :: ic              !< Initial conditions handler.
-   type(rk_cpu_object)         :: rk              !< Runge Kutta solver.
-   type(weno_cpu_object)       :: weno            !< WENO Kutta solver.
-   type(ib_cpu_object)         :: ib              !< Immersed Boundary handler.
-   type(amr_cpu_object)        :: amr             !< AMR markers handler.
-   type(slices_cpu_object)     :: slices          !< Slices handler.
+   type(mpih_object)              :: mpih            !< MPI handler.
+   type(adam_object)              :: adam            !< ADAM.
+   type(tree_object),  pointer    :: tree=>null()    !< The tree.
+   type(field_object), pointer    :: field=>null()   !< The field.
+   type(grid_object),  pointer    :: grid=>null()    !< The grid.
+   type(file_ini)                 :: file_parameters !< Input simulation parameters file handler.
+   type(base_cpu_object)          :: base_cpu        !< The base CPU handler.
+   type(euler_physics_cpu_object) :: physics         !< Boundary conditions handler.
+   type(bc_cpu_object)            :: bc              !< Boundary conditions handler.
+   type(ic_cpu_object)            :: ic              !< Initial conditions handler.
+   type(rk_cpu_object)            :: rk              !< Runge Kutta solver.
+   type(weno_cpu_object)          :: weno            !< WENO Kutta solver.
+   type(ib_cpu_object)            :: ib              !< Immersed Boundary handler.
+   type(amr_cpu_object)           :: amr             !< AMR markers handler.
+   type(slices_cpu_object)        :: slices          !< Slices handler.
    ! Other simulation data.
    logical        :: null_xyz(3)=[.false.,&
                                   .false.,&
@@ -102,6 +102,7 @@ type :: equation_euler_cpu_object
       procedure, pass(self) :: amr_update              !< Do AMR update.
       procedure, pass(self) :: compute_aux             !< Compute auxiliary variables.
       procedure, pass(self) :: compute_dt              !< Compute time step.
+      procedure, pass(self) :: description             !< Return pretty-printed object description.
       procedure, pass(self) :: initialize              !< Initialize the equation.
       procedure, pass(self) :: load_restart_files      !< Load restart files.
       procedure, pass(self) :: mark_by_grad_var        !< Mark blocks to be refined/derefined by a `grad(var)` value.
@@ -132,52 +133,55 @@ contains
    type(amr_marker_cpu_object)                     :: amr_marker          !< Current amr marker.
    integer(I4P)                                    :: i, i_marker         !< Counter.
 
-   amr : do i=1, self%amr%iters
-      is_grid_changed_all = .false.
-      do i_marker=1, self%amr%markers_number
-         amr_marker = self%amr%markers(i_marker)
-         call self%update_ghost(q=self%field%q)
-         select case(amr_marker%mode)
-         case(AMR_GEO)
-            call self%mark_by_geo(delta_fine=amr_marker%delta_fine, delta_coarse=amr_marker%delta_coarse)
-         case(AMR_GRAD)
-            select case(amr_marker%field)
-            case(1)
-               call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_fine=amr_marker%delta_fine, &
-                                          delta_coarse=amr_marker%delta_coarse, q=self%field%q, ivar=amr_marker%ivar)
-            case(2)
-               call self%compute_aux(q=self%field%q, q_aux=self%q_aux)
-               call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_fine=amr_marker%delta_fine, &
-                                          delta_coarse=amr_marker%delta_coarse, q=self%q_aux, ivar=amr_marker%ivar)
+   if (self%amr%markers_number>0) then
+      amr : do i=1, self%amr%iters
+         is_grid_changed_all = .false.
+         do i_marker=1, self%amr%markers_number
+            amr_marker = self%amr%markers(i_marker)
+            call self%update_ghost(q=self%field%q)
+            select case(amr_marker%mode)
+            case(AMR_GEO)
+               call self%mark_by_geo(delta_fine=amr_marker%delta_fine, delta_coarse=amr_marker%delta_coarse)
+            case(AMR_GRAD)
+               select case(amr_marker%field)
+               case(1)
+                  call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_fine=amr_marker%delta_fine, &
+                                             delta_coarse=amr_marker%delta_coarse, q=self%field%q, ivar=amr_marker%ivar)
+               case(2)
+                  call self%compute_aux(q=self%field%q, q_aux=self%q_aux)
+                  call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_fine=amr_marker%delta_fine, &
+                                             delta_coarse=amr_marker%delta_coarse, q=self%q_aux, ivar=amr_marker%ivar)
+               endselect
             endselect
-         endselect
-         call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed)
-         call self%ib%update_phi
-         is_grid_changed_all = is_grid_changed_all.or.is_grid_changed
-      enddo
-      if (.not.is_grid_changed_all) then
-          print '(A)', self%mpih%myrankstr//'AMR Grid stabilized after : '//trim(str(i))//' AMR iterations'
-          exit amr
-       elseif (i==self%amr%iters) then
-          print '(A)', self%mpih%myrankstr//'AMR Grid is NOT stabilized after : '//trim(str(i))//' AMR iterations'
-      endif
-   enddo amr
+            call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed)
+            call self%ib%update_phi
+            is_grid_changed_all = is_grid_changed_all.or.is_grid_changed
+         enddo
+         if (.not.is_grid_changed_all) then
+             print '(A)', self%mpih%myrankstr//'AMR Grid stabilized after : '//trim(str(i))//' AMR iterations'
+             exit amr
+          elseif (i==self%amr%iters) then
+             print '(A)', self%mpih%myrankstr//'AMR Grid is NOT stabilized after : '//trim(str(i))//' AMR iterations'
+         endif
+      enddo amr
+   endif
    endsubroutine amr_update
 
    subroutine compute_aux(self, q, q_aux)
    !< Compute auxiliary variables.
-   class(equation_euler_cpu_object), intent(in)  :: self       !< The equation.
+   class(equation_euler_cpu_object), intent(in)  :: self                 !< The equation.
    real(R8P),                        intent(in)  :: q(1:,         &
                                                       1-self%grid%ngc:,&
                                                       1-self%grid%ngc:,&
                                                       1-self%grid%ngc:,&
-                                                      1:)      !< Conservative variables.
+                                                      1:)                !< Conservative variables.
    real(R8P),                        intent(out) :: q_aux(1:,         &
                                                           1-self%grid%ngc:,&
                                                           1-self%grid%ngc:,&
                                                           1-self%grid%ngc:,&
-                                                          1:)  !< Auxiliary variables.
-   integer(I4P)                                  :: b, i, j, k !< Counter.
+                                                          1:)            !< Auxiliary variables.
+   integer(I4P)                                  :: b, i, j, k           !< Counter.
+   ! real(R8P)                                     :: c(1:self%physics%ns) !< Species concentration.
 
    associate(blocks_number=>self%field%blocks_number, q=>self%field%q, &
              ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, &
@@ -186,16 +190,7 @@ contains
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
-               q_aux(ns+1,i,j,k,b) = sum(q(1:ns,i,j,k,b))
-               q_aux(1:ns,i,j,k,b) = q(1:ns,i,j,k,b) / q_aux(ns+1,i,j,k,b)
-               q_aux(ns+2,i,j,k,b) = q(ns+1,i,j,k,b) / q_aux(ns+1,i,j,k,b)
-               q_aux(ns+3,i,j,k,b) = q(ns+2,i,j,k,b) / q_aux(ns+1,i,j,k,b)
-               q_aux(ns+4,i,j,k,b) = q(ns+3,i,j,k,b) / q_aux(ns+1,i,j,k,b)
-               q_aux(ns+5,i,j,k,b) = dot_product(q_aux(1:ns,i,j,k,b), eos%cp) / dot_product(q_aux(1:ns,i,j,k,b), eos%cv)
-               q_aux(ns+6,i,j,k,b) = (q(ns+4,i,j,k,b) - 0.5_R8P * q_aux(ns+1,i,j,k,b) * (q_aux(ns+2,i,j,k,b)**2 +   &
-                                                                                         q_aux(ns+3,i,j,k,b)**2 +   &
-                                                                                         q_aux(ns+4,i,j,k,b)**2)) * &
-                                     (q_aux(ns+5,i,j,k,b) - 1._R8P)
+               q_aux(:,i,j,k,b) = self%physics%conservative2primitive(conservative=q(:,i,j,k,b))
             enddo
          enddo
       enddo
@@ -234,6 +229,29 @@ contains
    if ((self%it_max <= 0).and.(self%time + self%dt > self%time_max)) self%dt = self%time_max - self%time
    endsubroutine compute_dt
 
+   pure function description(self) result(desc)
+   !< Return a pretty-formatted object description.
+   class(equation_euler_cpu_object), intent(in) :: self             !< IC.
+   character(len=:), allocatable                :: desc             !< Description.
+   character(len=1), parameter                  :: NL=new_line('a') !< New line character.
+   integer(I4P)                                 :: r, v             !< Counter.
+
+   desc =       self%mpih%myrankstr//'equation main data'//NL
+   desc = desc//self%mpih%myrankstr//'  restart:            '//trim(str(self%restart           ))//NL
+   desc = desc//self%mpih%myrankstr//'  restart basename:   '//trim(    self%restart_basename   )//NL
+   desc = desc//self%mpih%myrankstr//'  restart save:       '//trim(str(self%restart_save      ))//NL
+   desc = desc//self%mpih%myrankstr//'  it max:             '//trim(str(self%it_max            ))//NL
+   desc = desc//self%mpih%myrankstr//'  it save:            '//trim(str(self%it_save           ))//NL
+   desc = desc//self%mpih%myrankstr//'  time max:           '//trim(str(self%time_max          ))//NL
+   desc = desc//self%mpih%myrankstr//'  time save:          '//trim(str(self%time_save         ))//NL
+   desc = desc//self%mpih%myrankstr//'  output basename:    '//trim(    self%output_basename    )//NL
+   desc = desc//self%mpih%myrankstr//'  CFL:                '//trim(str(self%CFL               ))//NL
+   desc = desc//self%mpih%myrankstr//'  save memory status: '//trim(str(self%save_memory_status))//NL
+   desc = desc//self%mpih%myrankstr//'  null X direction:   '//trim(str(self%null_xyz(1)       ))//NL
+   desc = desc//self%mpih%myrankstr//'  null Y direction:   '//trim(str(self%null_xyz(2)       ))//NL
+   desc = desc//self%mpih%myrankstr//'  null Z direction:   '//trim(str(self%null_xyz(3)       ))
+   endfunction description
+
    subroutine initialize(self, filename)
    !< Initialize the equation.
    class(equation_euler_cpu_object), intent(inout) :: self         !< The equation.
@@ -265,10 +283,6 @@ contains
 
    call self%base_cpu%initialize(tree=self%adam%tree, field=self%adam%field)
 
-   call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_blocks_reorder=.false.)
-
-   call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false.)
-
    call self%bc%initialize(grid=self%adam%grid, file_parameters=self%file_parameters)
 
    call self%ic%initialize(file_parameters=self%file_parameters)
@@ -283,6 +297,10 @@ contains
 
    call self%amr%initialize(file_parameters=self%file_parameters)
 
+   call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_blocks_reorder=.false.)
+
+   call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false.)
+
    call load_simulation_from_ini_file
 
    call link_objects_data(grid=self%adam%grid, tree=self%adam%tree, field=self%adam%field)
@@ -295,6 +313,7 @@ contains
    allocate(self%q_ib( 1:nv,     1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
    allocate(self%rq(   1:nv,     1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
    endassociate
+   print '(A)', self%description()
    print '(A)', self%mpih%myrankstr//'equation_euler_cpu%initialize finish'
    contains
       subroutine link_objects_data(grid, tree, field)
@@ -336,6 +355,7 @@ contains
    integer(I4P)                                            :: s                !< Counter.
 
    do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
+   call self%update_ghost(q=self%field%q)
    associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, blocks_number=>self%field%blocks_number, &
              nv=>self%physics%nv, dt=>self%dt)
    select case(self%rk%scheme(1:5))
@@ -344,11 +364,13 @@ contains
       do s=1, self%rk%nrk
          call self%apply_immersed_boundary(q=self%field%q, q_ib=self%q_ib)
          call self%mpih%barrier
+         call self%update_ghost(q=self%q_ib)
          call self%compute_aux(q=self%q_ib, q_aux=self%q_aux)
          call self%compute_residuals(q_aux=self%q_aux, rq=self%rq)
          call self%rk%compute_stage(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, dt=dt, s=s, &
                                     phi=self%ib%phi, rq=self%rq, q=self%field%q)
       enddo
+   ! stop
    case('rk-ns') ! normal storage schemes
       call self%rk%initialize_stage(ngc=self%grid%ngc, q=self%field%q)
       do s=1, self%rk%nrk
@@ -512,14 +534,15 @@ contains
 
    associate(r=>self%mpih%myrankstr)
       print '(A)', r//''
-      print '(A)', r//'t:             '//trim(str(self%it,.true.))
-      print '(A)', r//'blocks number: '//trim(str(self%adam%tree%nodes_number, .true.))
-      print '(A)', r//'time step:     '//trim(str(self%dt, .true.))
-      print '(A)', r//'time:          '//trim(str(self%time, .true.))
+      print '(A)', r//'t:                     '//trim(str(self%it,.true.))
+      print '(A)', r//'blocks number:         '//trim(str(self%adam%tree%nodes_number, .true.))
+      print '(A)', r//'process blocks number: '//trim(str(self%adam%field%blocks_number, .true.))
+      print '(A)', r//'time step:             '//trim(str(self%dt, .true.))
+      print '(A)', r//'time:                  '//trim(str(self%time, .true.))
    if (self%it_max <= 0) then
-      print '(A)', r//'progress:      '//trim(str(int(self%time/self%time_max * 100), .true.))//'%'
+      print '(A)', r//'progress:              '//trim(str(int(self%time/self%time_max * 100), .true.))//'%'
    else
-      print '(A)', r//'progress:      '//trim(str(int((self%it*1._R8P)/self%it_max * 100), .true.))//'%'
+      print '(A)', r//'progress:              '//trim(str(int((self%it*1._R8P)/self%it_max * 100), .true.))//'%'
    endif
       print '(A)', r//''
    endassociate
@@ -613,20 +636,21 @@ contains
 
    subroutine set_boundary_conditions(self, q)
    !< Set boundary conditions of equation.
-   class(equation_euler_cpu_object), intent(in)    :: self              !< The equation.
+   class(equation_euler_cpu_object), intent(in)    :: self                      !< The equation.
    real(R8P),                        intent(inout) :: q(1:,         &
                                                         1-self%grid%ngc:,&
                                                         1-self%grid%ngc:,&
-                                                        1-self%grid%ngc:,1:) !< Conservative variables.
-   integer(I4P)                                    :: crown             !< Crown counter.
-   integer(I4P)                                    :: fec               !< Boundary fec (1 to 26).
-   integer(I4P)                                    :: fec_1_6           !< Boundary fec (1 to 6).
-   integer(I4P)                                    :: c, i, j, k, b     !< Counter.
-   integer(I4P)                                    :: idelta            !< IJK delta step for extrapolation.
-   integer(I4P)                                    :: jdelta            !< IJK delta step for extrapolation.
-   integer(I4P)                                    :: kdelta            !< IJK delta step for extrapolation.
-   integer(I4P)                                    :: bc_type           !< Boundary condition type.
-   integer(I4P)                                    :: s_bc              !< Specie index of BC.
+                                                        1-self%grid%ngc:,1:)    !< Conservative variables.
+   integer(I4P)                                    :: crown                     !< Crown counter.
+   integer(I4P)                                    :: fec                       !< Boundary fec (1 to 26).
+   integer(I4P)                                    :: fec_1_6                   !< Boundary fec (1 to 6).
+   integer(I4P)                                    :: c, i, j, k, b             !< Counter.
+   integer(I4P)                                    :: idelta                    !< IJK delta step for extrapolation.
+   integer(I4P)                                    :: jdelta                    !< IJK delta step for extrapolation.
+   integer(I4P)                                    :: kdelta                    !< IJK delta step for extrapolation.
+   integer(I4P)                                    :: bc_type                   !< Boundary condition type.
+   integer(I4P)                                    :: s_bc                      !< Specie index of BC.
+   real(R8P)                                       :: p_bc(self%physics%nv_aux) !< Primitive variables of BC.
 
    associate(ngc=>self%grid%ngc, q_bc=>self%bc%q)
    if (allocated(self%tree%local_map_bc_crown)) then
@@ -647,8 +671,19 @@ contains
                case(BC_EXTRAPOLATION)
                   q(:,i,j,k,b) = q(:,i-idelta,j-jdelta,k-kdelta,b)
                case(BC_INFLOW)
+                  ! initial specie index
                   s_bc = int(q_bc(6, fec_1_6))
-                  q(1:5,i,j,k,b) = self%physics%eos(s_bc)%primitive2conservative(primitive=q_bc(1:5, fec_1_6))
+                  ! build primitive variables array
+                  p_bc = 0._R8P
+                  p_bc(s_bc) = q_bc(1, fec_1_6)
+                  p_bc(IR)   = q_bc(1, fec_1_6)
+                  p_bc(IU)   = q_bc(2, fec_1_6)
+                  p_bc(IV)   = q_bc(3, fec_1_6)
+                  p_bc(IW)   = q_bc(4, fec_1_6)
+                  p_bc(IP)   = q_bc(5, fec_1_6)
+                  p_bc(IG)   = self%physics%eos(s_bc)%g
+                  ! set BC in conservative variables
+                  q(:,i,j,k,b) = self%physics%primitive2conservative(primitive=p_bc)
                endselect
             endif
          enddo
@@ -659,9 +694,10 @@ contains
 
    subroutine set_initial_conditions(self)
    !< Set initial conditions of field.
-   class(equation_euler_cpu_object), intent(inout) :: self          !< The equation.
-   integer(I4P)                                    :: b, i, j, k, r !< Counter.
-   integer(I4P)                                    :: s_ic          !< Specie index of IC.
+   class(equation_euler_cpu_object), intent(inout) :: self                      !< The equation.
+   integer(I4P)                                    :: b, i, j, k, r             !< Counter.
+   integer(I4P)                                    :: s_ic                      !< Specie index of IC.
+   real(R8P)                                       :: p_ic(self%physics%nv_aux) !< Primitive variables of IC.
 
    associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, &
              q=>self%field%q, q_ic=>self%ic%q, &
@@ -672,11 +708,22 @@ contains
          do j=1, nj
             do i=1, ni
                do r=1, self%ic%regions_number
-                  if ((x_cell(i,b) >= self%ic%emin(1,r).and.x_cell(i,b) <= self%ic%emax(1,r)).and. &
-                      (y_cell(j,b) >= self%ic%emin(2,r).and.y_cell(j,b) <= self%ic%emax(2,r)).and. &
-                      (z_cell(k,b) >= self%ic%emin(3,r).and.z_cell(k,b) <= self%ic%emax(3,r))) then
+                  if ((x_cell(i,b) > self%ic%emin(1,r).and.x_cell(i,b) <= self%ic%emax(1,r)).and. &
+                      (y_cell(j,b) > self%ic%emin(2,r).and.y_cell(j,b) <= self%ic%emax(2,r)).and. &
+                      (z_cell(k,b) > self%ic%emin(3,r).and.z_cell(k,b) <= self%ic%emax(3,r))) then
+                     ! initial specie index
                      s_ic = int(q_ic(6, r))
-                     q(1:5,i,j,k,b) = self%physics%eos(s_ic)%primitive2conservative(primitive=q_ic(1:5, r))
+                     ! build primitive variables array
+                     p_ic = 0._R8P
+                     p_ic(s_ic) = q_ic(1, r)
+                     p_ic(IR)   = q_ic(1, r)
+                     p_ic(IU)   = q_ic(2, r)
+                     p_ic(IV)   = q_ic(3, r)
+                     p_ic(IW)   = q_ic(4, r)
+                     p_ic(IP)   = q_ic(5, r)
+                     p_ic(IG)   = self%physics%eos(s_ic)%g
+                     ! set IC in conservative variables
+                     q(:,i,j,k,b) = self%physics%primitive2conservative(primitive=p_ic)
                   endif
                enddo
             enddo
@@ -797,31 +844,141 @@ contains
              ns=>self%physics%ns)
    q_ib = q
    if (self%ib%solids_number > 0) then
-      call self%update_ghost(q=q_ib)
       do i_eikonal=1, n_eikonal
          call MPI_BARRIER(MPI_COMM_WORLD, self%mpih%error)
          call self%ib%evolve_eikonal_q(q=q_ib)
-         call self%update_ghost(q_ib)
+         call self%update_ghost(q=q_ib)
       enddo
       call set_bc_ib(ni=ni, nj=nj, nk=nk, ngc=ngc, ns=ns, blocks_number=blocks_number, &
-                     bcs_type=self%ib%bcs_type, phi=self%ib%phi, q=self%q_ib)
+                     bcs_type=self%ib%bcs_type, phi=self%ib%phi, q=q_ib)
    endif
    endassociate
    endsubroutine apply_immersed_boundary
 
+   subroutine compute_fluxes_convective(self, gc, n, ns, np,           &
+                                        rhos, rho, un, ut1, ut2, g, p, &
+                                        f_rho, f_rho_un, f_rho_ut1, f_rho_ut2, f_rho_e)
+   !< Compute convective fluxes on coordinate direction.
+   class(equation_euler_cpu_object), intent(in)    :: self                !< The equation.
+   integer(I4P),                     intent(in)    :: gc                  !< Number of ghost cells used.
+   integer(I4P),                     intent(in)    :: n                   !< Number of cells.
+   integer(I4P),                     intent(in)    :: ns                  !< Number of species.
+   integer(I4P),                     intent(in)    :: np                  !< Number of 1D primitive varibales.
+   real(R8P),                        intent(in)    :: rhos(1:,1-gc:)      !< Partial densities       [1:ns,1-gc:n+gc].
+   real(R8P),                        intent(in)    ::     rho(1-gc:)      !< Density                      [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::      un(1-gc:)      !< Normal velocity              [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::     ut1(1-gc:)      !< Tangential velocity 1        [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::     ut2(1-gc:)      !< Tangential velocity 2        [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::       g(1-gc:)      !< Specific heats ratio         [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::       p(1-gc:)      !< Pressure                     [1-gc:n+gc].
+   real(R8P),                        intent(inout) :: f_rho(1:, 0:)       !< Flux of mass                 [0:n,1:ns].
+   real(R8P),                        intent(inout) ::  f_rho_un(0:)       !< Flux normal momentums        [0:n].
+   real(R8P),                        intent(inout) :: f_rho_ut1(0:)       !< Flux of tangential1 momentum [0:n].
+   real(R8P),                        intent(inout) :: f_rho_ut2(0:)       !< Flux of tangential2 momentum [0:n].
+   real(R8P),                        intent(inout) ::   f_rho_e(0:)       !< Flux energy                  [0:n].
+   real(R8P)                                       ::   fluxes(3)         !< 1D fluxes.
+   real(R8P)                                       :: q (1:np, 1-gc:n+gc) !< 1D primitive variables.
+   real(R8P)                                       :: qr(1:np,1:2,0:n+1)  !< Reconstructed 1D primitive variables.
+   integer(I4P)                                    :: i                   !< Counter.
+
+   ! assembly 1D primitive variables array
+   do i=1-gc, n+gc
+      q(:, i) = [rhos(:,i), un(i), p(i), rho(i), g(i)]
+   enddo
+   call reconstruct_interfaces
+   do i=0, n
+      ! computing normal fluxes solving Riemann problem
+      call solve_riemann(r1=qr(ns+3,2,i  ), u1=qr(ns+1,2,i  ), p1=qr(ns+2,2,i  ), g1=qr(ns+4,2,i  ), &
+                         r4=qr(ns+3,1,i+1), u4=qr(ns+1,1,i+1), p4=qr(ns+2,1,i+1), g4=qr(ns+4,1,i+1), F=fluxes)
+      if (fluxes(1)>0._R8P) then
+           f_rho(:,i) = fluxes(1) * qr(1:ns,2,i) / qr(ns+3,2,i)
+          f_rho_un(i) = fluxes(2)
+         f_rho_ut1(i) = fluxes(1) * ut1(i)
+         f_rho_ut2(i) = fluxes(1) * ut2(i)
+           f_rho_e(i) = fluxes(3) + 0.5_R8P * fluxes(1) * (ut1(i)**2 + ut2(i)**2)
+      else
+           f_rho(:,i) = fluxes(1) * qr(1:ns,1,i+1) / qr(ns+3,1,i+1)
+          f_rho_un(i) = fluxes(2)
+         f_rho_ut1(i) = fluxes(1) * ut1(i+1)
+         f_rho_ut2(i) = fluxes(1) * ut2(i+1)
+           f_rho_e(i) = fluxes(3) + 0.5_R8P * fluxes(1) * (ut1(i+1)**2 + ut2(i+1)**2)
+      endif
+   enddo
+   contains
+      subroutine reconstruct_interfaces
+      !< The reconstruction is done in pseudo characteristic variables.
+      real(R8P)    :: qm(1:np,1:2)             !< Mean primitive variables.
+      real(R8P)    :: Lqm(1:ns+2,1:ns+2,1:2)   !< Left eigenvalues matrix of mean primitive variables.
+      real(R8P)    :: Rqm(1:ns+2,1:ns+2,1:2)   !< Right eigenvalues matrix of mean primitive variables.
+      real(R8P)    :: c(1:ns+2,1:2,1-gc:-1+gc) !< Pseudo characteristic variables.
+      real(R8P)    :: cr(1:ns+2,1:2)           !< Pseudo characteristic variables reconstructed.
+      integer(I4P) :: i, j, f, v               !< Counter.
+
+      select case(self%weno%weno_s)
+      case(1_I4P)
+         do i=0, n+1
+            qr(:,1,i) = q(:,i)
+            qr(:,2,i) = qr(:,1,i)
+         enddo
+      case(2_I4P,3_I4P,4_I4P)
+      ! compute WENO reconstruction
+         do i=0, n+1
+            ! compute pseudo characteristic variables
+            do f=1, 2
+               if (i==0  .and.f==1) cycle
+               if (i==n+1.and.f==2) cycle
+               qm(:,f) = 0.5_R8P * (q(:,i+f-2) + q(:,i+f-1))
+            enddo
+            do f=1, 2
+               if (i==0  .and.f==1) cycle
+               if (i==n+1.and.f==2) cycle
+               Lqm(:, :, f) =  left_eigenvectors(ns=ns, np=np, q=qm(:,f))
+               Rqm(:, :, f) = right_eigenvectors(ns=ns, np=np, q=qm(:,f))
+            enddo
+            do j=i+1-gc, i-1+gc
+               do f=1, 2
+                  if (i==0  .and.f==1) cycle
+                  if (i==n+1.and.f==2) cycle
+                  do v=1, ns+2
+                     c(v,f,j-i) = dot_product(Lqm(v,1:ns+2,f), q(1:ns+2,j))
+                  enddo
+               enddo
+            enddo
+
+            ! compute WENO reconstruction of pseudo charteristic variables
+            do v=1, ns+2
+               cr(v,:) = self%weno%reconstructed(s=self%weno%weno_s, v=c(v,:,1-self%weno%weno_s:-1+self%weno%weno_s))
+            enddo
+
+            ! trasform back reconstructed pseudo charteristic variables to primitive ones
+            do f=1, 2
+               if (i==0  .and.f==1) cycle
+               if (i==n+1.and.f==2) cycle
+               do v=1, ns+2
+                  qr(v,f,i) = dot_product(Rqm(v,1:ns+2,f), cr(1:ns+2,f))
+               enddo
+               qr(ns+3,f,i) = sum(qr(1:ns, f, i))
+               qr(ns+4,f,i) = dot_product(qr(1:ns,f,i) / qr(ns+3,f,i), self%physics%eos%cp) / &
+                              dot_product(qr(1:ns,f,i) / qr(ns+3,f,i), self%physics%eos%cv)
+            enddo
+         enddo
+      endselect
+      endsubroutine reconstruct_interfaces
+   endsubroutine compute_fluxes_convective
+
    subroutine compute_residuals(self, q_aux, rq)
    !< Compute residuals of equation.
-   class(equation_euler_cpu_object), intent(inout) :: self               !< The equation.
+   class(equation_euler_cpu_object), intent(inout) :: self                    !< The equation.
    real(R8P),                        intent(in)    :: q_aux(1:,         &
                                                             1-self%grid%ngc:,&
                                                             1-self%grid%ngc:,&
                                                             1-self%grid%ngc:,&
-                                                            1:)          !< Auxiliary variables.
+                                                            1:)               !< Auxiliary variables.
    real(R8P),                        intent(inout) ::    rq(1:,         &
                                                             1-self%grid%ngc:,&
                                                             1-self%grid%ngc:,&
                                                             1-self%grid%ngc:,&
-                                                            1:)          !< Residuals.
+                                                            1:)               !< Residuals.
    real(R8P)                                       :: fluxes_x(1:self%physics%nv,&
                                                                0:self%grid%ni,&
                                                                1:self%grid%nj,&
@@ -834,20 +991,25 @@ contains
                                                                1:self%grid%ni,&
                                                                1:self%grid%nj,&
                                                                0:self%grid%nk)!< Convective fluxes in z direction.
-   integer(I4P)                                    :: b, i, j, k         !< Counter.
+   integer(I4P)                                    :: b, i, j, k              !< Counter.
+   integer(I4P)                                    :: ii(2), jj(2), kk(2)     !< Loops bounds.
 
    associate(ni=>self%field%grid%ni, nj=>self%field%grid%nj, nk=>self%field%grid%nk, &
              ngc=>self%field%grid%ngc, blocks_number=>self%field%blocks_number,      &
-             dxyz=>self%field%dxyz, ns=>self%physics%ns)
-   fluxes_x = 0._R8P
-   fluxes_y = 0._R8P
-   fluxes_z = 0._R8P
+             dxyz=>self%field%dxyz, ns=>self%physics%ns, np=>self%physics%np)
+   ii = [1,ni] ; if (self%null_xyz(1)) ii = [1,1]
+   jj = [1,nj] ; if (self%null_xyz(2)) jj = [1,1]
+   kk = [1,nk] ; if (self%null_xyz(3)) kk = [1,1]
+   rq = 0._R8P
    do b=1, blocks_number
+      fluxes_x = 0._R8P
+      fluxes_y = 0._R8P
+      fluxes_z = 0._R8P
       if (.not.self%null_xyz(1)) then ! convective fluxes along x direction
-         do k=1, nk
-            do j=1, nj
-               call self%compute_fluxes_convective(gc=ngc, n=ni,                          &
-                                                   c         =    q_aux(1:ns, :,  j,k,b), &
+         do k=kk(1), kk(2)
+            do j=jj(1), jj(2)
+               call self%compute_fluxes_convective(gc=ngc, n=ni, ns=ns, np=np,            &
+                                                   rhos      =    q_aux(1:ns, :,  j,k,b), &
                                                    rho       =    q_aux(IR  , :,  j,k,b), &
                                                    un        =    q_aux(IU  , :,  j,k,b), & ! u
                                                    ut1       =    q_aux(IV  , :,  j,k,b), & ! v
@@ -863,10 +1025,10 @@ contains
          enddo
       endif
       if (.not.self%null_xyz(2)) then ! convective fluxes along y direction
-         do k=1, nk
-            do i=1, ni
-               call self%compute_fluxes_convective(gc=ngc, n=nj,                          &
-                                                   c         =    q_aux(1:ns,i, :,  k,b), &
+         do k=kk(1), kk(2)
+            do i=ii(1), ii(2)
+               call self%compute_fluxes_convective(gc=ngc, n=nj, ns=ns, np=np,            &
+                                                   rhos      =    q_aux(1:ns,i, :,  k,b), &
                                                    rho       =    q_aux(IR  ,i, :,  k,b), &
                                                    un        =    q_aux(IV  ,i, :,  k,b), & ! v
                                                    ut1       =    q_aux(IU  ,i, :,  k,b), & ! u
@@ -882,10 +1044,10 @@ contains
          enddo
       endif
       if (.not.self%null_xyz(3)) then ! convective fluxes along z direction
-         do j=1, nj
-            do i=1, ni
-               call self%compute_fluxes_convective(gc=ngc, n=nk,                          &
-                                                   c         =    q_aux(1:ns,i,j, :,  b), &
+         do j=jj(1), jj(2)
+            do i=ii(1), ii(2)
+               call self%compute_fluxes_convective(gc=ngc, n=nk, ns=ns, np=np,            &
+                                                   rhos      =    q_aux(1:ns,i,j, :,  b), &
                                                    rho       =    q_aux(IR  ,i,j, :,  b), &
                                                    un        =    q_aux(IW  ,i,j, :,  b), & ! w
                                                    ut1       =    q_aux(IU  ,i,j, :,  b), & ! u
@@ -901,7 +1063,6 @@ contains
          enddo
       endif
       ! residuals
-      rq = 0._R8P
       do k=1, nk
          do j=1, nj
             do i=1, ni
@@ -914,109 +1075,6 @@ contains
    enddo
    endassociate
    endsubroutine compute_residuals
-
-   subroutine compute_fluxes_convective(self, gc, n,                &
-                                        c, rho, un, ut1, ut2, g, p, &
-                                        f_rho, f_rho_un, f_rho_ut1, f_rho_ut2, f_rho_e)
-   !< Compute convective fluxes on coordinate direction.
-   class(equation_euler_cpu_object), intent(in)    :: self              !< The equation.
-   integer(I4P),                     intent(in)    :: gc                !< Number of ghost cells used.
-   integer(I4P),                     intent(in)    :: n                 !< Number of cells.
-   real(R8P),                        intent(in)    :: c(1:,1-gc:)       !< Species concentration        [1-gc:n+gc,1:ns].
-   real(R8P),                        intent(in)    ::  rho(1-gc:)       !< Density                      [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::   un(1-gc:)       !< Normal velocity              [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::  ut1(1-gc:)       !< Tangential velocity 1        [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::  ut2(1-gc:)       !< Tangential velocity 2        [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::    g(1-gc:)       !< Specific heats ratio         [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::    p(1-gc:)       !< Pressure                     [1-gc:n+gc].
-   real(R8P),                        intent(inout) :: f_rho(1:, 0:)     !< Flux of mass                 [0:n,1:ns].
-   real(R8P),                        intent(inout) ::  f_rho_un(0:)     !< Flux normal momentums        [0:n].
-   real(R8P),                        intent(inout) :: f_rho_ut1(0:)     !< Flux of tangential1 momentum [0:n].
-   real(R8P),                        intent(inout) :: f_rho_ut2(0:)     !< Flux of tangential2 momentum [0:n].
-   real(R8P),                        intent(inout) ::   f_rho_e(0:)     !< Flux energy                  [0:n].
-   real(R8P)                                       ::   fluxes(3)       !< 1D fluxes.
-   real(R8P)                                       :: qr(1:3,1:2,0:n+1) !< Reconstructed variables.
-   integer(I4P)                                    :: i                 !< Counter.
-
-   call reconstruct_interfaces
-   do i=0, n
-      ! computing normal fluxes solving Riemann problem
-      call solve_riemann(r1=qr(1,2,i  ), u1=qr(2,2,i  ), p1=qr(3,2,i  ), g1=g(i  ), &
-                         r4=qr(1,1,i+1), u4=qr(2,1,i+1), p4=qr(3,1,i+1), g4=g(i+1), F=fluxes)
-      if (fluxes(1)>0._R8P) then
-           f_rho(:,i) = fluxes(1) * c(:,i)
-          f_rho_un(i) = fluxes(2)
-         f_rho_ut1(i) = fluxes(1) * ut1(i)
-         f_rho_ut2(i) = fluxes(1) * ut2(i)
-           f_rho_e(i) = fluxes(3) + 0.5_R8P * fluxes(1) * (ut1(i)**2 + ut2(i)**2)
-      else
-           f_rho(:,i) = fluxes(1) * c(:,i+1)
-          f_rho_un(i) = fluxes(2)
-         f_rho_ut1(i) = fluxes(1) * ut1(i+1)
-         f_rho_ut2(i) = fluxes(1) * ut2(i+1)
-           f_rho_e(i) = fluxes(3) + 0.5_R8P * fluxes(1) * (ut1(i+1)**2 + ut2(i+1)**2)
-      endif
-   enddo
-   contains
-      subroutine reconstruct_interfaces
-      !< The reconstruction is done in pseudo characteristic variables.
-      integer(I4P) :: i, j, f, v            !< Counter.
-      real(R8P)    :: qm(1:3,1:2)           !< Mean primitive variables.
-      real(R8P)    :: Lqm(1:3,1:3,1:2)      !< Left eigenvalues matrix of mean primitive variables.
-      real(R8P)    :: Rqm(1:3,1:3,1:2)      !< Right eigenvalues matrix of mean primitive variables.
-      real(R8P)    :: c(1:3,1:2,1-gc:-1+gc) !< Pseudo characteristic variables.
-      real(R8P)    :: cr(1:3,1:2)           !< Pseudo characteristic variables reconstructed.
-
-      select case(self%weno%weno_s)
-      case(1_I4P)
-         do i=0, n+1
-            qr(:,1,i) = [rho(i),un(i),p(i)]
-            qr(:,2,i) = qr(:,1,i)
-         enddo
-      case(2_I4P,3_I4P)
-      ! compute WENO reconstruction
-         do i=0, n+1
-            ! compute pseudo characteristic variables
-            do f=1, 2
-               if (i==0  .and.f==1) cycle
-               if (i==n+1.and.f==2) cycle
-               qm(:,f) = [0.5_R8P * (rho(i+f-2) + rho(i+f-1)), &
-                          0.5_R8P * ( un(i+f-2) +  un(i+f-1)), &
-                          0.5_R8P * (  p(i+f-2) +   p(i+f-1))]
-            enddo
-            do f=1, 2
-               if (i==0  .and.f==1) cycle
-               if (i==n+1.and.f==2) cycle
-               Lqm(:, :, f) =  left_eigenvectors(q=qm(:,f), g=g(i))
-               Rqm(:, :, f) = right_eigenvectors(q=qm(:,f), g=g(i))
-            enddo
-            do j=i+1-gc, i-1+gc
-               do f=1, 2
-                  if (i==0  .and.f==1) cycle
-                  if (i==n+1.and.f==2) cycle
-                  do v=1, 3
-                     c(v,f,j-i) = dot_product(Lqm(v, :, f), [rho(j), un(j), p(j)])
-                  enddo
-               enddo
-            enddo
-
-            ! compute WENO reconstruction of pseudo charteristic variables
-            do v=1, 3
-               cr(v,:) = self%weno%reconstructed(s=self%weno%weno_s, v=c(v,:,1-self%weno%weno_s:-1+self%weno%weno_s))
-            enddo
-
-            ! trasform back reconstructed pseudo charteristic variables to primitive ones
-            do f=1, 2
-               if (i==0  .and.f==1) cycle
-               if (i==n+1.and.f==2) cycle
-               do v=1, 3
-                  qr(v,f,i) = dot_product(Rqm(v,:,f), cr(:,f))
-               enddo
-            enddo
-         enddo
-      endselect
-      endsubroutine reconstruct_interfaces
-   endsubroutine compute_fluxes_convective
 
    ! non TBP methods
    subroutine solve_riemann(r1, u1, p1, g1, r4, u4, p4, g4, F)
@@ -1068,7 +1126,7 @@ contains
       real(R8P)              :: a1             !< Speed of sound of state 1.
       real(R8P)              :: a4             !< Speed of sound of state 4.
       real(R8P)              :: ram            !< Mean value of rho*a.
-      real(R8P), parameter   :: toll=1e-10_R_P !< Tollerance.
+      real(R8P), parameter   :: toll=1e-10_R8P !< Tollerance.
 
       ! evaluation of the intermediate states pressure and velocity
       a1  = sqrt(g1 * p1 / r1)                              ! left speed of sound
@@ -1095,39 +1153,46 @@ contains
       endsubroutine compute_inter_states
    endsubroutine solve_riemann
 
-   pure function left_eigenvectors(q, g) result(eig)
+   pure function left_eigenvectors(ns, np, q) result(eig)
    !< Return the left eigenvectors matrix `L` as `dF/dP = A = R ^ L` `P`` being the primitive variables and `F` the fluxes.
-   !<
-   !< Primitive variables `q` are: density `q(1)`, normal velocity `q(2)`, pressure `q(3)`.
-   real(R8P), intent(in) :: q(3)          !< Primitive variables.
-   real(R8P), intent(in) :: g             !< Specific heats ratio.
-   real(R8P)             :: eig(1:3, 1:3) !< Eigenvectors.
-   real(R8P)             :: gp            !< `g*p`.
-   real(R8P)             :: gp_a          !< `g*p/a`.
+   integer(I4P), intent(in) :: ns                  !< Number of species.
+   integer(I4P), intent(in) :: np                  !< Number of 1D primitive varibales.
+   real(R8P),    intent(in) :: q(1:np)             !< Primitive variables.
+   real(R8P)                :: eig(1:ns+2, 1:ns+2) !< Eigenvectors.
+   real(R8P)                :: gp                  !< `g*p`.
+   real(R8P)                :: gp_a                !< `g*p/a`.
+   integer(I4P)             :: s                   !< Counter.
 
-   gp = g * q(3)
-   gp_a = gp / a(p=q(3), r=q(1), g=g)
+   gp = q(ns+4) * q(ns+2)
+   gp_a = gp / a(p=q(ns+2), r=q(ns+3), g=q(ns+4))
    eig = 0._R8P
-               eig(1, 1) = 0._R8P    ; eig(1, 2) = -gp_a  ; eig(1, 3) =  1._R8P
-   if (q(1)>0) eig(2, 1) = gp / q(1) ; eig(2, 2) = 0._R8P ; eig(2, 3) = -1._R8P
-               eig(3, 1) = 0._R8P    ; eig(3, 2) =  gp_a  ; eig(3, 3) =  1._R8P
+
+      eig(1,    ns+1) = -gp_a      ; eig(1,    ns+2) =  1._R8P
+   do s=2, ns+1
+      eig(s,    s-1 ) =  gp/q(s-1) ; eig(s,    ns+2) = -1._R8P
+   enddo
+      eig(ns+2, ns+1) =  gp_a      ; eig(ns+2, ns+2) =  1._R8P
    endfunction left_eigenvectors
 
-   pure function right_eigenvectors(q, g) result(eig)
+   pure function right_eigenvectors(ns, np, q) result(eig)
    !< Return the right eigenvectors matrix `R` as `dF/dP = A = R ^ L` `P`` being the primitive variables and `F` the fluxes.
-   !<
-   !< Primitive variables `q` are: density `q(1)`, normal velocity `q(2)`, pressure `q(3)`.
-   real(R8P), intent(in) :: q(3)          !< Primitive variables.
-   real(R8P), intent(in) :: g             !< Specific heats ratio.
-   real(R8P)             :: eig(1:3, 1:3) !< Eigenvectors.
-   real(R8P)             :: gp            !< `g*p`.
-   real(R8P)             :: gp_inv        !< `1/(g*p)`.
+   integer(I4P), intent(in) :: ns                  !< Number of species.
+   integer(I4P), intent(in) :: np                  !< Number of 1D primitive varibales.
+   real(R8P),    intent(in) :: q(1:np)             !< Primitive variables.
+   real(R8P)                :: eig(1:ns+2, 1:ns+2) !< Eigenvectors.
+   real(R8P)                :: gp                  !< `g*p`.
+   real(R8P)                :: gp_inv              !< `1/(g*p)`.
+   integer(I4P)             :: s                   !< Counter.
 
-   gp = g * q(3)
+   gp = q(ns+4) * q(ns+2)
    gp_inv = 1._R8P / gp
-   eig(1, 1) =  0.5_R8P * q(1) * gp_inv                   ; eig(1, 2) = q(1) * gp_inv ; eig(1, 3) =  eig(1, 1)
-   eig(2, 1) = -0.5_R8P * a(p=q(3), r=q(1), g=g) * gp_inv ; eig(2, 2) = 0._R8P        ; eig(2, 3) = -eig(2, 1)
-   eig(3, 1) =  0.5_R8P                                   ; eig(3, 2) = 0._R8P        ; eig(3, 3) =  eig(3, 1)
+   eig = 0._R8P
+
+   do s=1, ns
+     eig(s,   1) =  0.5_R8P * q(s) * gp_inv                             ; eig(s,s+1) = q(s) * gp_inv ; eig(s,   ns+2) =  eig(s,   1)
+   enddo
+     eig(ns+1,1) = -0.5_R8P * a(p=q(ns+2),r=q(ns+3),g=q(ns+4)) * gp_inv ;                              eig(ns+1,ns+2) = -eig(ns+1,1)
+     eig(ns+2,1) =  0.5_R8P                                             ;                              eig(ns+2,ns+2) =  eig(ns+2,1)
    endfunction right_eigenvectors
 
    elemental function p(r, a, g) result(pressure)
@@ -1185,7 +1250,7 @@ contains
    real(R8P), intent(in) :: u       !< Module of velocity vector.
    real(R8P)             :: entalpy !< Total specific entalpy (per unit of mass).
 
-   entalpy = g * p / ((g - 1._R_P) * r) + 0.5_R_P * u*u
+   entalpy = g * p / ((g - 1._R8P) * r) + 0.5_R8P * u*u
    endfunction H
 
    ! IB

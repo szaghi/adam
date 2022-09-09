@@ -15,19 +15,21 @@ public :: rk_cpu_object
 
 character(len=7), parameter :: INI_SECTION_NAME='schemes' !< INI (config) file section name containing RK configs.
 
-character(len=11), parameter :: RK_SUPPORTED_SCHEMES(7)=['rk-ls-qn-11', &
+character(len=11), parameter :: RK_SUPPORTED_SCHEMES(8)=['rk-ls-qn-11', &
                                                          'rk-ls-qn-22', &
                                                          'rk-ls-qn-33', &
                                                          'rk-ls-qs-54', &
                                                          'rk-ls-qs-64', &
                                                          'rk-ls-qs-74', &
+                                                         'rk-ns-qs-33', &
                                                          'rk-ns-qs-54'] !< List of supported schemes.
-integer(I4P),      parameter :: RK_NRK_SUPPORTED_SCHEMES(7)=[1, &
+integer(I4P),      parameter :: RK_NRK_SUPPORTED_SCHEMES(8)=[1, &
                                                              2, &
                                                              3, &
                                                              5, &
                                                              6, &
                                                              7, &
+                                                             3, &
                                                              5]         !< List RK stages number of supported schemes.
 
 type :: rk_cpu_object
@@ -60,7 +62,6 @@ type :: rk_cpu_object
       procedure, pass(self), private :: compute_stage_ls_q_n     !< Compute RK (low storage) stage without IB, q_n=q(tn).
       procedure, pass(self), private :: compute_stage_ls_phi_q_s !< Compute RK (low storage) stage with IB, q_n=q(s).
       procedure, pass(self), private :: compute_stage_ls_q_s     !< Compute RK (low storage) stage without IB, q_n=q(s).
-      ! procedure, pass(self), private :: compute_stage_ns_phi_q_s !< Compute RK (normal storage) stage with IB, q_n=q(s).
       procedure, pass(self), private :: compute_stage_ns_q_s     !< Compute RK (normal storage) stage without IB, q_n=q(s).
 endtype rk_cpu_object
 
@@ -106,7 +107,7 @@ contains
          ! call self%compute_stage_phi_ns_q_s(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
                                             ! dt=dt, s=s, phi=phi, rq=rq, q=q)
       else                     ! without IB
-         call self%compute_stage_ns_q_s(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, dt=dt, s=s, q=q)
+         call self%compute_stage_ns_q_s(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, dt=dt, s=s)
       endif
    endselect
    endsubroutine compute_stage
@@ -142,7 +143,7 @@ contains
    call self%mpih%initialize(do_mpi_init=.false.)
    print '(A)', self%mpih%myrankstr//'rk_cpu_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters)
-   select case(trim(adjustl(self%scheme)))
+   select case(self%scheme)
    case('rk-ls-qn-11') ! low storage euler 1st order
       allocate(self%ark(self%nrk), self%brk(self%nrk), self%crk(self%nrk))
       self%ark(1) = 1._R8P ; self%brk(1) = 0._R8P ; self%crk(1) = 1._R8P
@@ -197,6 +198,21 @@ contains
       self%ark(6) = -1.906532255913_R8P ; self%brk(6) = 0.371499414620_R8P ; self%crk(6) = 0.858664273599_R8P
       self%ark(7) = -1.450000000000_R8P ; self%brk(7) = 0.136670099385_R8P ; self%crk(7) = 0.868664273599_R8P
       allocate(self%q_n(1:field%nv,1-grid%ngc:grid%ni+grid%ngc,1-grid%ngc:grid%nj+grid%ngc,1-grid%ngc:grid%nk+grid%ngc,1:field%nb))
+   case('rk-ns-qs-33') ! normal storage 3rd order SSP 3 stages
+      allocate(self%nbrk(1:self%nrk            )) ; self%nbrk = 0._R_P
+      allocate(self%nark(1:self%nrk, 1:self%nrk)) ; self%nark = 0._R_P
+      allocate(self%ncrk(            1:self%nrk)) ; self%ncrk = 0._R_P
+      self%nbrk(1) = 1._R8P/6._R8P
+      self%nbrk(2) = 1._R8P/6._R8P
+      self%nbrk(3) = 2._R8P/3._R8P
+
+      self%nark(2,1) = 1._R8P
+      self%nark(3,1) = 0.25_R8P ; self%nark(3,2) = 0.25_R8P
+
+      self%ncrk(2) = 1._R8P
+      self%ncrk(3) = 0.5_R8P
+      allocate(self%q_s(1:field%nv,&
+                        1-grid%ngc:grid%ni+grid%ngc,1-grid%ngc:grid%nj+grid%ngc,1-grid%ngc:grid%nk+grid%ngc,1:field%nb,1:self%nrk))
    case('rk-ns-qs-54') ! normal storage 4th order SSP 5 stages
       allocate(self%nbrk(1:self%nrk            )) ; self%nbrk = 0._R_P
       allocate(self%nark(1:self%nrk, 1:self%nrk)) ; self%nark = 0._R_P
@@ -277,12 +293,10 @@ contains
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='runge_kutta', val=char_buff, error=error)
-   ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//INI_SECTION_NAME//'].(runge_kutta)'
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(runge_kutta)')
    self%scheme = trim(adjustl(char_buff))
    if (.not.self%is_supported(scheme=trim(adjustl(self%scheme)), nrk=self%nrk)) then ! check if scheme is supported and assign nrk
-      write(stderr, '(A)') self%mpih%myrankstr//' error: RK schemes "'//trim(adjustl(self%scheme)) //'" is unknown'
-      call self%mpih%abort
-      stop
+      call self%mpih%error_stop(msg=': unknown RK scheme "'//self%scheme//'"')
    endif
    endsubroutine load_from_file
 
@@ -436,19 +450,18 @@ contains
    endassociate
    endsubroutine compute_stage_ls_q_s
 
-   subroutine compute_stage_ns_q_s(self, ni, nj, nk, ngc, nv, blocks_number, dt, s, q)
+   subroutine compute_stage_ns_q_s(self, ni, nj, nk, ngc, nv, blocks_number, dt, s)
    !< Compute RK (normal storage) stage without IB, q_n being the s-th stage evolved within q.
-   class(rk_cpu_object), intent(inout) :: self                          !< RK.
-   integer(I4P),         intent(in)    :: ni                            !< Grid cells number in I direction.
-   integer(I4P),         intent(in)    :: nj                            !< Grid cells number in J direction.
-   integer(I4P),         intent(in)    :: nk                            !< Grid cells number in K direction.
-   integer(I4P),         intent(in)    :: ngc                           !< Ghost cells number.
-   integer(I4P),         intent(in)    :: nv                            !< Number of conservative variables.
-   integer(I4P),         intent(in)    :: blocks_number                 !< Number of blocks.
-   real(R8P),            intent(in)    :: dt                            !< Time step.
-   integer(I4P),         intent(in)    :: s                             !< RK stage.
-   real(R8P),            intent(inout) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative field.
-   integer(I4P)                        :: i, j, k, b, ss                !< Counter.
+   class(rk_cpu_object), intent(inout) :: self           !< RK.
+   integer(I4P),         intent(in)    :: ni             !< Grid cells number in I direction.
+   integer(I4P),         intent(in)    :: nj             !< Grid cells number in J direction.
+   integer(I4P),         intent(in)    :: nk             !< Grid cells number in K direction.
+   integer(I4P),         intent(in)    :: ngc            !< Ghost cells number.
+   integer(I4P),         intent(in)    :: nv             !< Number of conservative variables.
+   integer(I4P),         intent(in)    :: blocks_number  !< Number of blocks.
+   real(R8P),            intent(in)    :: dt             !< Time step.
+   integer(I4P),         intent(in)    :: s              !< RK stage.
+   integer(I4P)                        :: i, j, k, b, ss !< Counter.
 
    associate(nark=>self%nark)
    do ss=1, s - 1

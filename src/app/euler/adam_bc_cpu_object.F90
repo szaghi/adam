@@ -24,7 +24,7 @@ type :: bc_cpu_object
    !< Boundary Conditions class definition, CPU backend.
    type(mpih_object)           :: mpih         !< MPI handler.
    type(grid_object),  pointer :: grid=>null() !< The grid.
-   real(R8P)                   :: q(6,6)       !< Primitive variables (r,u,v,w,p,s with s being the speccie index) at BC.
+   real(R8P)                   :: q(6,6)       !< Primitive variables (r,u,v,w,p,s with s being the specie index) at BC.
    contains
       ! public methods
       procedure, pass(self) :: initialize     !< Initialize BC.

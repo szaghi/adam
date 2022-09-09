@@ -2,8 +2,9 @@
 module adam_mpih_object
 !< ADAM, MPI handler object.
 
-use PENF
-use MPI
+use penf
+use mpi
+use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
 
 implicit none
 save
@@ -21,6 +22,7 @@ type :: mpih_object
       ! public methods
       procedure, pass(self) :: abort         !< Handy MPI abort wrapper.
       procedure, pass(self) :: barrier       !< Handy MPI barrier wrapper.
+      procedure, pass(self) :: error_stop    !< Stop run with error output.
       procedure, pass(self) :: finalize      !< Handy MPI finalize wrapper.
       procedure, pass(self) :: initialize    !< Initialize MPI handler data.
       procedure, pass(self) :: tictoc_timing !< Return the last tic toc timing.
@@ -58,6 +60,18 @@ contains
       endif
    endif
    endsubroutine barrier
+
+   subroutine error_stop(self, msg)
+   !< Stop run with error output.
+   class(mpih_object), intent(inout)        :: self !< MPI handler.
+   character(*),       intent(in), optional :: msg  !< Error message.
+   character(:), allocatable                :: msg_ !< Error message, local variable.
+
+   msg_ = '' ; if (present(msg)) msg_ = msg
+   write(stderr, '(A)') self%myrankstr//'error stop'//msg_
+   call self%finalize
+   stop
+   endsubroutine error_stop
 
    subroutine finalize(self)
    !< Handy MPI finalize wrapper.

@@ -993,6 +993,7 @@ contains
          if (ijkl(4)/=self%ijkl_prune(4)) then
             print '(A)', self%mpih%myrankstr//'ERROR: cannot prune nodes at different prune-level, node: '//&
                          trim(str(node_ptr%code))
+            call self%mpih%abort
          endif
          if (ijkl(1)>self%ijkl_prune(1).or.ijkl(2)>self%ijkl_prune(2).or.ijkl(3)>self%ijkl_prune(3)) then
             call self%remove_node(code=node_ptr%code)
@@ -1568,7 +1569,7 @@ contains
                      self%local_map_ghost(mf, 4) = -neighbor_portion
                   endif
                   call compute_ijk_min_max_delta(fec=fec, portion=self%local_map_ghost(mf, 4), &
-                                                 ijk_min_max_delta=self%local_map_ghost(mf, 5:))
+                                                 ijk_min_max_delta=self%local_map_ghost(mf, 5:13))
                elseif ((self%mpih%myrank /= neigh%myrank).and.(self%mpih%myrank == node_ptr%myrank)) then
                   rf = rf + 1
                   self%comm_map_recv_ghost(rf, 15) = comm_map_recv_ctr_ghost(neigh%myrank)
@@ -1590,7 +1591,7 @@ contains
                                                              self%grid%weight_neighbor(fec)
                   endif
                   call compute_ijk_min_max_delta(fec=fec, portion=self%comm_map_recv_ghost(rf, 5), &
-                                                 ijk_min_max_delta=self%comm_map_recv_ghost(rf, 6:))
+                                                 ijk_min_max_delta=self%comm_map_recv_ghost(rf, 6:14))
                elseif ((self%mpih%myrank == neigh%myrank).and.(self%mpih%myrank /= node_ptr%myrank)) then
                   sf = sf + 1
                   self%comm_map_send_ghost(sf, 15) = comm_map_send_ctr_ghost(node_ptr%myrank)
@@ -1612,7 +1613,7 @@ contains
                                                                 self%grid%weight_neighbor(fec)
                   endif
                   call compute_ijk_min_max_delta(fec=fec, portion=self%comm_map_send_ghost(sf, 5), &
-                                                 ijk_min_max_delta=self%comm_map_send_ghost(sf, 6:))
+                                                 ijk_min_max_delta=self%comm_map_send_ghost(sf, 6:14))
                endif
             enddo
          endif

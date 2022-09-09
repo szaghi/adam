@@ -24,6 +24,7 @@ type :: eos_ic_cpu_object
    contains
       ! public methods
       procedure, pass(self) :: compute_derivate       !< Compute derivate quantities (from `cp` and `cv`).
+      procedure, pass(self) :: conservative2primitive !< Return primitive variables from conservative ones.
       procedure, pass(self) :: description            !< Return pretty-printed object description.
       procedure, pass(self) :: destroy                !< Destroy eos.
       procedure, pass(self) :: initialize             !< initialize eos.
@@ -62,20 +63,18 @@ contains
    self%eta   = 2._R8P * self%g / (self%g - 1._R8P)
    endsubroutine compute_derivate
 
-   pure function primitive2conservative(self, primitive) result(conservative)
-   !< Return conservative variables (r, ru, rv, rw, rE)    from primitive variables (r, u, v, w, p).
+   pure function conservative2primitive(self, conservative) result(primitive)
+   !< Return primitive variables (r, u, v, w, p) from conservative variables (r, ru, rv, rw, rE).
    class(eos_ic_cpu_object), intent(in) :: self            !< Equation of state.
-   real(R8P),                intent(in) :: primitive(5)    !< Primitive variables
-   real(R8P)                            :: conservative(5) !< Conservative variables
+   real(R8P),                intent(in) :: conservative(5) !< Conservative variables
+   real(R8P)                            :: primitive(5)    !< Primitive variables
 
-   conservative(1) = primitive(1)
-   conservative(2) = primitive(1) * primitive(2)
-   conservative(3) = primitive(1) * primitive(3)
-   conservative(4) = primitive(1) * primitive(4)
-   conservative(5) = primitive(1) * self%total_energy(density          = primitive(1), &
-                                                      pressure         = primitive(5), &
-                                                      velocity_sq_norm = primitive(2)**2+primitive(3)**2+primitive(4)**2)
-   endfunction primitive2conservative
+   primitive(1) =  conservative(1)
+   primitive(2) =  conservative(2) / primitive(1)
+   primitive(3) =  conservative(3) / primitive(1)
+   primitive(4) =  conservative(4) / primitive(1)
+   primitive(5) = (conservative(5) - 0.5_R8P * primitive(1) * (primitive(2)**2+primitive(3)**2+primitive(4)**2)) * self%gm1
+   endfunction conservative2primitive
 
    pure function description(self, prefix) result(desc)
    !< Return a pretty-formatted object description.
@@ -132,6 +131,21 @@ contains
    ! if (.not.go_on_fail_.and.error>0) error stop 'error: failed to load ['//INI_SECTION_NAME//'].(cv)'
    call self%compute_derivate
    endsubroutine load_from_file
+
+   pure function primitive2conservative(self, primitive) result(conservative)
+   !< Return conservative variables (r, ru, rv, rw, rE) from primitive variables (r, u, v, w, p).
+   class(eos_ic_cpu_object), intent(in) :: self            !< Equation of state.
+   real(R8P),                intent(in) :: primitive(5)    !< Primitive variables
+   real(R8P)                            :: conservative(5) !< Conservative variables
+
+   conservative(1) = primitive(1)
+   conservative(2) = primitive(1) * primitive(2)
+   conservative(3) = primitive(1) * primitive(3)
+   conservative(4) = primitive(1) * primitive(4)
+   conservative(5) = primitive(1) * self%total_energy(density          = primitive(1), &
+                                                      pressure         = primitive(5), &
+                                                      velocity_sq_norm = primitive(2)**2+primitive(3)**2+primitive(4)**2)
+   endfunction primitive2conservative
 
    subroutine save_into_file(self, fini)
    !< Save into file.

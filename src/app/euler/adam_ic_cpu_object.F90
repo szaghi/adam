@@ -71,8 +71,7 @@ contains
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, error=error)
-   ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//&
-                                                ! 'error: failed to load ['//INI_SECTION_NAME//'].(regions_number)'
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(regions_number)')
 
    if (self%regions_number>=1) then
       allocate(   self%q(1:6, 1:self%regions_number))
@@ -81,29 +80,29 @@ contains
       do i=1, self%regions_number
          sname = INI_SECTION_NAME//'_region_'//trim(str(i,.true.))
          call file_parameters%get(section_name=sname, option_name='r', val=self%q(1,i), error=error)
-         ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//sname//'].(r)'
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(r)')
          call file_parameters%get(section_name=sname, option_name='u', val=self%q(2,i), error=error)
-         ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//sname//'].(u)'
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(u)')
          call file_parameters%get(section_name=sname, option_name='v', val=self%q(3,i), error=error)
-         ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//sname//'].(v)'
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(v)')
          call file_parameters%get(section_name=sname, option_name='w', val=self%q(4,i), error=error)
-         ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//sname//'].(w)'
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(w)')
          call file_parameters%get(section_name=sname, option_name='p', val=self%q(5,i), error=error)
-         ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//sname//'].(p)'
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(p)')
          call file_parameters%get(section_name=sname, option_name='s', val=self%q(6,i), error=error)
-         ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//sname//'].(s)'
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(s)')
          call file_parameters%get(section_name=sname, option_name='emin_x', val=self%emin(1,i), error=error)
-         ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//sname//'].(emin_x)'
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(emin_x)')
          call file_parameters%get(section_name=sname, option_name='emin_y', val=self%emin(2,i), error=error)
-         ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//sname//'].(emin_y)'
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(emin_y)')
          call file_parameters%get(section_name=sname, option_name='emin_z', val=self%emin(3,i), error=error)
-         ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//sname//'].(emin_z)'
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(emin_z)')
          call file_parameters%get(section_name=sname, option_name='emax_x', val=self%emax(1,i), error=error)
-         ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//sname//'].(emax_x)'
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(emax_x)')
          call file_parameters%get(section_name=sname, option_name='emax_y', val=self%emax(2,i), error=error)
-         ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//sname//'].(emax_y)'
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(emax_y)')
          call file_parameters%get(section_name=sname, option_name='emax_z', val=self%emax(3,i), error=error)
-         ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//sname//'].(emax_z)'
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(emax_z)')
       enddo
    endif
    endsubroutine load_from_file

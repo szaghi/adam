@@ -68,10 +68,8 @@ contains
                                               1-self%field%grid%ngc:,&
                                               1-self%field%grid%ngc:,&
                                               1-self%field%grid%ngc:,1:) !< Field component to be updated.
-   integer(I4P)                          :: i, j, k, mf                  !< Counter.
-   integer(I4P)                          :: iii, jjj, kkk                !< Counter.
+   integer(I4P)                          :: mf                           !< Counter.
    integer(I4P)                          :: fec                          !< Ghost direction, faces/edges/corners.
-   integer(I4P)                          :: portion                      !< Portion of fec updated (0=>whole fec).
    integer(I4P)                          :: b_recv                       !< Index of receiving block.
    integer(I4P)                          :: b_send                       !< Index of sending block.
    integer(I4P)                          :: ic, jc, kc                   !< Counter.
@@ -83,17 +81,17 @@ contains
    integer(I4P)                          :: k_send                       !< K send index.
    integer(I4P)                          :: one_or_eight                 !< Flag triggering 8 cells mean.
 
-   if (.not.allocated(self%tree%local_map_ghost)) return
+   if (.not.allocated(self%tree%local_map_ghost_cell)) return
    do mf=1, size(self%tree%local_map_ghost_cell, dim=1)
-      b_send       = self%tree%local_map_ghost(mf,1)
-      b_recv       = self%tree%local_map_ghost(mf,2)
-      i_send       = self%tree%local_map_ghost(mf,3)
-      j_send       = self%tree%local_map_ghost(mf,4)
-      k_send       = self%tree%local_map_ghost(mf,5)
-      i_recv       = self%tree%local_map_ghost(mf,6)
-      j_recv       = self%tree%local_map_ghost(mf,7)
-      k_recv       = self%tree%local_map_ghost(mf,8)
-      one_or_eight = self%tree%local_map_ghost(mf,9)
+      b_send       = self%tree%local_map_ghost_cell(mf,1)
+      b_recv       = self%tree%local_map_ghost_cell(mf,2)
+      i_send       = self%tree%local_map_ghost_cell(mf,3)
+      j_send       = self%tree%local_map_ghost_cell(mf,4)
+      k_send       = self%tree%local_map_ghost_cell(mf,5)
+      i_recv       = self%tree%local_map_ghost_cell(mf,6)
+      j_recv       = self%tree%local_map_ghost_cell(mf,7)
+      k_recv       = self%tree%local_map_ghost_cell(mf,8)
+      one_or_eight = self%tree%local_map_ghost_cell(mf,9)
       if (one_or_eight==1) then
          q(:,i_recv,j_recv,k_recv,b_recv) = q(:,i_send,j_send,k_send,b_send)
       else
@@ -117,19 +115,14 @@ contains
                                                      1:)                                  !< Field component to be updated.
    integer(I4P),           intent(in), optional :: step                                   !< Step to be perfordmed in async.
    logical                                      :: do_step(3)                             !< Steps to be performed in async.
-   integer(I4P)                                 :: i, j, k                                !< Counter.
    integer(I4P)                                 :: ic, jc, kc                             !< Counter.
-   integer(I4P)                                 :: fec, mf, rf, sf, n, p, v               !< Counter.
-   integer(I4P)                                 :: portion                                !< Portion of fec updated (0=>whole).
+   integer(I4P)                                 :: rf, sf, p                              !< Counter.
    integer(I4P)                                 :: b_send, i_send, j_send, k_send, v_send !< Send indexes.
    integer(I4P)                                 :: b_recv, i_recv, j_recv, k_recv, v_recv !< Receive indexes.
-   integer(I4P)                                 :: ptr_start, ptr_end                     !< Counter.
-   integer(I4P)                                 :: n_recv, n_send                         !< Counter.
-   integer(I4P)                                 :: recv_rank                              !< Rank of receiving block.
-   integer(I4P)                                 :: send_ptr, send_ctr                     !< Counter.
-   integer(I4P)                                 :: recv_ptr, recv_ctr                     !< Counter.
    integer(I4P)                                 :: c_send, c_recv                         !< Counter.
    integer(I4P)                                 :: one_or_eight                           !< Flag triggering 8 cells mean.
+   integer(I4P)                                 :: ptr_start, ptr_end                     !< Counter.
+   integer(I4P)                                 :: n_recv, n_send                         !< Counter.
 
    associate(comm_map_send_ptr_ghost=>self%tree%comm_map_send_ptr_ghost, &
              comm_map_recv_ptr_ghost=>self%tree%comm_map_recv_ptr_ghost, &
