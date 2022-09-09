@@ -188,7 +188,7 @@ contains
    if (do_step(3)) then
       call MPI_WAITALL(procs_number * 2, req_send_recv, MPI_STATUSES_IGNORE, error)
 
-      call MPI_Barrier(MPI_COMM_WORLD, error)
+      call self%mpih%barrier
       !RIMETTERE SENZA
 
       if (allocated(self%tree%comm_map_recv_ghost_cell)) then
@@ -204,7 +204,7 @@ contains
          enddo
       endif
    endif
-   call MPI_Barrier(MPI_COMM_WORLD, error)
+   call self%mpih%barrier
    endassociate
    endsubroutine update_ghost_mpi
 endmodule adam_base_cpu_object

@@ -234,7 +234,7 @@ contains
                                 l_prune=l_prune)
    print '(A)', self%mpih%myrankstr//'blocks number for all MPI [nodes_number]: '//trim(str(self%tree%nodes_number))
    if (do_field_init_) &
-      call self%field%initialize(grid=self%grid, file_parameters=file_parameters, nv=nv, nb=nb)
+      call self%field%initialize(grid=self%grid, tree=self%tree, file_parameters=file_parameters, nv=nv, nb=nb)
    call self%amr_update
    print '(A)', self%mpih%myrankstr//'adam%initialize finish'
    endsubroutine initialize

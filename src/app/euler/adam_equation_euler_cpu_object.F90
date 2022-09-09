@@ -4,7 +4,6 @@ module adam_equation_euler_cpu_object
 
 use adam_adam_object,              only : adam_object
 use adam_amr_cpu_object,           only : amr_cpu_object, amr_marker_cpu_object, AMR_GEO, AMR_GRAD
-use adam_base_cpu_object,          only : base_cpu_object
 use adam_bc_cpu_object,            only : bc_cpu_object, BC_EXTRAPOLATION, BC_INFLOW
 use adam_eos_ic_cpu_object,        only : eos_ic_cpu_object
 use adam_field_object,             only : field_object
@@ -67,7 +66,6 @@ type :: equation_euler_cpu_object
    type(field_object), pointer    :: field=>null()   !< The field.
    type(grid_object),  pointer    :: grid=>null()    !< The grid.
    type(file_ini)                 :: file_parameters !< Input simulation parameters file handler.
-   type(base_cpu_object)          :: base_cpu        !< The base CPU handler.
    type(euler_physics_cpu_object) :: physics         !< Boundary conditions handler.
    type(bc_cpu_object)            :: bc              !< Boundary conditions handler.
    type(ic_cpu_object)            :: ic              !< Initial conditions handler.
@@ -262,8 +260,6 @@ contains
    call self%mpih%initialize(do_mpi_init=.true.)
    print '(A)', self%mpih%myrankstr//'equation_euler_cpu%initialize start'
 
-   call self%base_cpu%initialize_cpu
-
    call self%file_parameters%initialize(filename=trim(filename))
    call self%file_parameters%load
 
@@ -271,17 +267,15 @@ contains
 
    call self%adam%grid%initialize(file_parameters=self%file_parameters, verbose=.true.)
 
-   call self%adam%compute_blocks_number(memory_avail=self%base_cpu%memory_avail,  &
-                                        fields_number=80,                         &
-                                        nb=nb,                                    &
+   call self%adam%compute_blocks_number(memory_avail=self%mpih%memory_avail, &
+                                        fields_number=80,                    &
+                                        nb=nb,                               &
                                         nodes_number=nodes_number)
 
    call self%adam%initialize(nb=nb, file_parameters=self%file_parameters, &
                              do_tree_init=.true.,                         &
                              do_field_init=.true.,                        &
                              nv=self%physics%nv, nodes_number=nodes_number)
-
-   call self%base_cpu%initialize(tree=self%adam%tree, field=self%adam%field)
 
    call self%bc%initialize(grid=self%adam%grid, file_parameters=self%file_parameters)
 
@@ -818,8 +812,8 @@ contains
       if (step==3) do_set_bc       = .true.
    endif
 
-   if (do_local_update) call self%base_cpu%update_ghost_local(q=q)
-                        call self%base_cpu%update_ghost_mpi(q=q, step=step)
+   if (do_local_update) call self%field%update_ghost_local(q=q)
+                        call self%field%update_ghost_mpi(q=q, step=step)
    if (do_set_bc)       call self%set_boundary_conditions(q=q)
    endsubroutine update_ghost
 
