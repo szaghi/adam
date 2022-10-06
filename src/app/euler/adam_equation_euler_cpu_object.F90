@@ -119,6 +119,7 @@ type :: equation_euler_cpu_object
       procedure, pass(self), private :: apply_immersed_boundary   !< Apply immersed boundary to q.
       procedure, pass(self), private :: compute_residuals         !< Compute residuals of equation.
       procedure, pass(self), private :: compute_fluxes_convective !< Compute convective fluxes on a coordinate direction.
+      procedure, pass(self), private :: compute_fluxes_convective_fvs !< Compute convective fluxes on a coordinate direction.
 endtype equation_euler_cpu_object
 
 contains
@@ -960,6 +961,59 @@ contains
       endsubroutine reconstruct_interfaces
    endsubroutine compute_fluxes_convective
 
+   subroutine compute_fluxes_convective_fvs(self, gc, n, ns, np,           &
+                                            rhos, rho, un, ut1, ut2, g, p, &
+                                            f_rho, f_rho_un, f_rho_ut1, f_rho_ut2, f_rho_e)
+   !< Compute convective fluxes on coordinate direction by means of Flux Vector Splitting (FVS).
+   class(equation_euler_cpu_object), intent(in)    :: self                 !< The equation.
+   integer(I4P),                     intent(in)    :: gc                   !< Number of ghost cells used.
+   integer(I4P),                     intent(in)    :: n                    !< Number of cells.
+   integer(I4P),                     intent(in)    :: ns                   !< Number of species.
+   integer(I4P),                     intent(in)    :: np                   !< Number of 1D primitive varibales.
+   real(R8P),                        intent(in)    :: rhos(1:,1-gc:)       !< Partial densities       [1:ns,1-gc:n+gc].
+   real(R8P),                        intent(in)    ::     rho(1-gc:)       !< Density                      [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::      un(1-gc:)       !< Normal velocity              [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::     ut1(1-gc:)       !< Tangential velocity 1        [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::     ut2(1-gc:)       !< Tangential velocity 2        [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::       g(1-gc:)       !< Specific heats ratio         [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::       p(1-gc:)       !< Pressure                     [1-gc:n+gc].
+   real(R8P),                        intent(inout) :: f_rho(1:, 0:)        !< Flux of mass                 [0:n,1:ns].
+   real(R8P),                        intent(inout) ::  f_rho_un(0:)        !< Flux normal momentums        [0:n].
+   real(R8P),                        intent(inout) :: f_rho_ut1(0:)        !< Flux of tangential1 momentum [0:n].
+   real(R8P),                        intent(inout) :: f_rho_ut2(0:)        !< Flux of tangential2 momentum [0:n].
+   real(R8P),                        intent(inout) ::   f_rho_e(0:)        !< Flux energy                  [0:n].
+   real(R8P)                                       :: fm(1:ns+2,1-gc:n+gc) !< Negative (minus direction) fluxes.
+   real(R8P)                                       :: fp(1:ns+2,1-gc:n+gc) !< Positive (plus direction) fluxes.
+   real(R8P)                                       :: fr(1:ns+2,0:n)       !< Reconstructed fluxes.
+   real(R8P)                                       :: fluxes(3)            !< 1D fluxes.
+   integer(I4P)                                    :: i                    !< Counter.
+
+   ! compute fluxes vector splitting at cell center
+   call compute_fvs(ns=ns, gc=gc, n=n, rs=rhos, r=rho, u=un, p=p, g=g, fm=fm, fp=fp)
+
+   ! reconstruct fluxes at intefaces by WENO
+   call weno_reconstruct_fvs(weno=self%weno, gc=gc, n=n, ns=ns, np=np, rhos=rhos, rho=rho, un=un, g=g, p=p, fp=fp, fm=fm, fr=fr)
+
+   ! assemble 3D fluxed from 1D ones
+   do i=0, n
+      fluxes(1) = sum(fr(1:ns, i))
+      fluxes(2) =     fr(ns+1, i)
+      fluxes(3) =     fr(ns+2, i)
+
+      f_rho(:, i) = fr(1:ns, i)
+      f_rho_un(i) = fluxes(2)
+      if (fluxes(1)>0._R8P) then
+         f_rho_ut1(i) = fluxes(1) * ut1(i)
+         f_rho_ut2(i) = fluxes(1) * ut2(i)
+           f_rho_e(i) = fluxes(3) + 0.5_R8P * fluxes(1) * (ut1(i)**2 + ut2(i)**2)
+      else
+         f_rho_ut1(i) = fluxes(1) * ut1(i+1)
+         f_rho_ut2(i) = fluxes(1) * ut2(i+1)
+           f_rho_e(i) = fluxes(3) + 0.5_R8P * fluxes(1) * (ut1(i+1)**2 + ut2(i+1)**2)
+      endif
+   enddo
+   endsubroutine compute_fluxes_convective_fvs
+
    subroutine compute_residuals(self, q_aux, rq)
    !< Compute residuals of equation.
    class(equation_euler_cpu_object), intent(inout) :: self                    !< The equation.
@@ -1003,6 +1057,7 @@ contains
          do k=kk(1), kk(2)
             do j=jj(1), jj(2)
                call self%compute_fluxes_convective(gc=ngc, n=ni, ns=ns, np=np,            &
+               ! call self%compute_fluxes_convective_fvs(gc=ngc, n=ni, ns=ns, np=np,            &
                                                    rhos      =    q_aux(1:ns, :,  j,k,b), &
                                                    rho       =    q_aux(IR  , :,  j,k,b), &
                                                    un        =    q_aux(IU  , :,  j,k,b), & ! u
@@ -1071,6 +1126,77 @@ contains
    endsubroutine compute_residuals
 
    ! non TBP methods
+   subroutine compute_fvs_van_leer(ns, r, rs, u, p, g, fm, fp)
+   !< Compute fluxes vector splitting by means of van Leer method.
+   integer(I4P), intent(in)  :: ns         !< Number of species.
+   real(R8P),    intent(in)  :: r          !< Density.
+   real(R8P),    intent(in)  :: rs(1:ns)   !< Partial densities.
+   real(R8P),    intent(in)  :: u          !< Velocity.
+   real(R8P),    intent(in)  :: p          !< Pressure.
+   real(R8P),    intent(in)  :: g          !< Specific heats ratio.
+   real(R8P),    intent(out) :: fm(1:ns+2) !< Negative (minus direction) fluxes.
+   real(R8P),    intent(out) :: fp(1:ns+2) !< Positive (plus direction) fluxes.
+   real(R8P)                 :: frm, frp   !< Negative (minus direction) mass fluxes.
+   real(R8P)                 :: a          !< Speed of sound.
+   real(R8P)                 :: M          !< Mach number.
+   real(R8P)                 :: gm1_2      !< `(g-1)/2`.
+   real(R8P)                 :: ra_4       !< `rho*a/4`.
+   real(R8P)                 :: c1         !< `2*a/g`.
+   real(R8P)                 :: c2         !< `2*a**2/(g**2-1)`.
+
+   gm1_2 = (g - 1._R8P) * 0.5_R8P
+   a = sqrt(g * p / r)
+   M = u / a
+   ra_4 = r * a * 0.25_R8P
+   c1 = 2._R8P * a / g
+   c2 = 2._R8P * a**2 / (g**2 - 1._R8P)
+
+   frm      = - ra_4 * ((1 - M)**2)                ; frp      = ra_4 * ((1 + M)**2)
+   fm(1:ns) = frm * rs(1:ns)/r                     ; fp(1:ns) = frp * rs(1:ns)/r
+   fm(2)    = frm * (c1 * (gm1_2 * M - 1._R8P))    ; fp(2)    = frp * (c1 * (gm1_2 * M + 1._R8P))
+   fm(3)    = frm * (c2 * (gm1_2 * M - 1._R8P)**2) ; fp(3)    = frp * (c2 * (gm1_2 * M + 1._R8P)**2)
+   endsubroutine compute_fvs_van_leer
+
+   subroutine compute_fvs(ns, gc, n, r, rs, u, p, g, fm, fp)
+   !< Compute fluxes vector splitting.
+   integer(I4P), intent(in)  :: ns           !< Number of species.
+   integer(I4P), intent(in)  :: gc           !< Number of ghost cells used.
+   integer(I4P), intent(in)  :: n            !< Number of cells.
+   real(R8P),    intent(in)  :: r(1-gc:)     !< Density.
+   real(R8P),    intent(in)  :: rs(1:,1-gc:) !< Partial densities.
+   real(R8P),    intent(in)  :: u(1-gc:)     !< Velocity.
+   real(R8P),    intent(in)  :: p(1-gc:)     !< Pressure.
+   real(R8P),    intent(in)  :: g(1-gc:)     !< Specific heats ratio.
+   real(R8P),    intent(out) :: fm(1:,1-gc:) !< Negative (minus direction) fluxes.
+   real(R8P),    intent(out) :: fp(1:,1-gc:) !< Positive (plus direction) fluxes.
+   integer(I4P)              :: i            !< Counter.
+
+   do i=1-gc, n+gc
+      call compute_fvs_van_leer(ns=ns, rs=rs(:,i), r=r(i), u=u(i), p=p(i), g=g(i), fm=fm(:,i), fp=fp(:,i))
+   enddo
+   endsubroutine compute_fvs
+
+   function roe_averages(ns, np, ql, qr) result(qa)
+   integer(I4P), intent(in) :: ns         !< Number of species.
+   integer(I4P), intent(in) :: np         !< Number of 1D primitive varibales.
+   real(R8P),    intent(in) :: ql(1:np)   !< Left primitive variables.
+   real(R8P),    intent(in) :: qr(1:np)   !< Right primitive variables.
+   real(R8P)                :: qa(1:np)   !< Roe averaged primitive variables.
+   real(R8P)                :: hl, hr, ha !< Left, rigth and average states entalpy.
+   real(R8P)                :: sigma      !< Roe's sigma factor.
+
+   hl    = H(p=ql(ns+2), r=ql(ns+3), u=ql(ns+1), g=ql(Ns+4))
+   hr    = H(p=qr(ns+2), r=qr(ns+3), u=qr(ns+1), g=qr(Ns+4))
+   sigma = sqrt(ql(ns+3)) / (sqrt(ql(ns+3)) + sqrt(qr(ns+3)))
+   ha    = sigma * hl + (1._R8P - sigma) * hr
+
+   qa(1:ns) = sqrt(ql(1:ns)*qr(1:ns))
+   qa(ns+3) = sqrt(ql(ns+3)*qr(ns+3))
+   qa(ns+1) = sigma * ql(ns+1) + (1._R8P - sigma) * qr(ns+1)
+   qa(ns+4) = sigma * ql(ns+4) + (1._R8P - sigma) * qr(ns+4)
+   qa(ns+2) = (ha - 0.5_R8P*qa(ns+1)**2)*(qa(ns+4)-1._R8P)*qa(ns+3)/qa(ns+4)
+   endfunction roe_averages
+
    subroutine solve_riemann(r1, u1, p1, g1, r4, u4, p4, g4, F)
    !< Solve the Riemann problem between the state $1$ and $4$ using the (local) Lax Friedrichs (Rusanov) solver.
    real(R8P), intent(in)  :: r1      !< Density of state 1.
@@ -1246,6 +1372,84 @@ contains
 
    entalpy = g * p / ((g - 1._R8P) * r) + 0.5_R8P * u*u
    endfunction H
+
+   subroutine weno_reconstruct_fvs(weno, gc, n, ns, np, rhos, rho, un, g, p, fp, fm, fr)
+   !< Reconstruct FVS fluxes in pseudo characteristic variables by WENO methods.
+   type(weno_cpu_object), intent(in)  :: weno                     !< WENO solver.
+   integer(I4P),          intent(in)  :: gc                       !< Number of ghost cells used.
+   integer(I4P),          intent(in)  :: n                        !< Number of cells.
+   integer(I4P),          intent(in)  :: ns                       !< Number of species.
+   integer(I4P),          intent(in)  :: np                       !< Number of 1D primitive varibales.
+   real(R8P),             intent(in)  :: rhos(1:,1-gc:)           !< Partial densities       [1:ns,1-gc:n+gc].
+   real(R8P),             intent(in)  ::     rho(1-gc:)           !< Density                      [1-gc:n+gc].
+   real(R8P),             intent(in)  ::      un(1-gc:)           !< Normal velocity              [1-gc:n+gc].
+   real(R8P),             intent(in)  ::       g(1-gc:)           !< Specific heats ratio         [1-gc:n+gc].
+   real(R8P),             intent(in)  ::       p(1-gc:)           !< Pressure                     [1-gc:n+gc].
+   real(R8P),             intent(in)  :: fm(1:ns+2,1-gc:n+gc)     !< Negative (minus direction) fluxes.
+   real(R8P),             intent(in)  :: fp(1:ns+2,1-gc:n+gc)     !< Positive (plus direction) fluxes.
+   real(R8P),             intent(out) :: fr(1:ns+2,0:n)           !< Reconstructed fluxes.
+   real(R8P)                          :: qa(1:np,1:2)             !< Roe averaged primitive variables.
+   real(R8P)                          :: Lqm(1:ns+2,1:ns+2,1:2)   !< Left eigenvalues matrix of mean primitive var.
+   real(R8P)                          :: Rqm(1:ns+2,1:ns+2,1:2)   !< Right eigenvalues matrix of mean primitive var.
+   real(R8P)                          :: c(1:ns+2,1:2,1-gc:-1+gc) !< Pseudo characteristic fluxes.
+   real(R8P)                          :: cr(1:ns+2,1:2)           !< Pseudo characteristic reconstructed fluxes.
+   real(R8P)                          :: ffr(1:ns+2,1:2,0:n+1)    !< Reconstructed fluxes.
+   integer(I4P)                       :: i, j, v, f               !< Counter.
+
+   select case(weno%weno_s)
+   case(1_I4P)
+      ! first order, no reconstruction
+      do i=0, n
+         fr(:,i) = fp(:,i) + fm(:,i+1)
+      enddo
+   case(2_I4P,3_I4P,4_I4P)
+      ! compute WENO reconstruction
+      do i=0, n+1
+         do f=1, 2
+            if (i==0  .and.f==1) cycle
+            if (i==n+1.and.f==2) cycle
+            qa(:,f) = roe_averages(ns=ns, np=np,                                                  &
+                                   ql=[rhos(:,i+f-2), un(i+f-2), p(i+f-2), rho(i+f-2), g(i+f-2)], &
+                                   qr=[rhos(:,i+f-1), un(i+f-1), p(i+f-1), rho(i+f-1), g(i+f-1)])
+            Lqm(:,:,f) =  left_eigenvectors(ns=ns, np=np, q=qa(:,f))
+            Rqm(:,:,f) = right_eigenvectors(ns=ns, np=np, q=qa(:,f))
+         enddo
+
+         do j=i+1-gc, i-1+gc
+            do f=1, 2
+               if (i==0  .and.f==1) cycle
+               if (i==n+1.and.f==2) cycle
+               if (f==1) then ! left interface, reconstruct negative fluxes
+                  do v=1, ns+2
+                     c(v,f,j-i) = dot_product(Lqm(v,1:ns+2,f), fm(1:ns+2,j))
+                  enddo
+               else           ! right interface, reconstruct positive fluxes
+                  do v=1, ns+2
+                     c(v,f,j-i) = dot_product(Lqm(v,1:ns+2,f), fp(1:ns+2,j))
+                  enddo
+               endif
+            enddo
+         enddo
+
+         ! compute WENO reconstruction of pseudo charteristic fluxes
+         do v=1, ns+2
+            cr(v,:) = weno%reconstructed(s=weno%weno_s, v=c(v,:,1-weno%weno_s:-1+weno%weno_s))
+         enddo
+
+         ! trasform back reconstructed pseudo charteristic fluxes to primitive ones
+         do f=1, 2
+            if (i==0  .and.f==1) cycle
+            if (i==n+1.and.f==2) cycle
+            do v=1, ns+2
+               ffr(v,f,i) = dot_product(Rqm(v,1:ns+2,f), cr(1:ns+2,f))
+            enddo
+         enddo
+      enddo
+      do i=0, n
+         fr(:,i) = ffr(:,2,i) + ffr(:,1,i+1)
+      enddo
+   endselect
+   endsubroutine weno_reconstruct_fvs
 
    ! IB
    subroutine set_bc_ib(ni, nj, nk, ngc, ns, blocks_number, bcs_type, phi, q)
