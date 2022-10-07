@@ -212,7 +212,7 @@ type :: equation_nasto_gpu_object
    real(R8P), allocatable, device :: bcs_vars_gpu(:, :)          !< Variables' array for immersed boundary on GPU.
    integer(I4P)                   :: reduction_extent            !< Length of stencil to consider to reduce weno order close to solids.
    integer(I4P)                   :: reduced_order               !< Weno reduced order close to solids.
-   integer, allocatable           :: order_modify(:,:,:,:,:)     !< Modified order close to solids. 
+   integer, allocatable           :: order_modify(:,:,:,:,:)     !< Modified order close to solids.
    integer, allocatable, device   :: order_modify_gpu(:,:,:,:,:) !< Modified order close to solids (GPU variable).
    contains
       ! public methods
@@ -586,11 +586,11 @@ contains
       allocate(buf_array_I4(1:self%weno_n_ror))
       print*,'4: ',self%weno_n_ror
       self%weno_schemes = buf_array_I4
-      !call self%file_input%get(section_name='schemes', option_name='weno_schemes' , val=buf_array_I4) 
+      !call self%file_input%get(section_name='schemes', option_name='weno_schemes' , val=buf_array_I4)
       do i=1,self%weno_n_ror
          oname = 'weno_schemes_'//trim(str(i,.true.))
          print*,'oname: ',trim(oname)
-         call self%file_input%get(section_name='schemes', option_name=trim(oname), val=buf_I4)  
+         call self%file_input%get(section_name='schemes', option_name=trim(oname), val=buf_I4)
          print*,'i,buf_I4: ',i,buf_I4
          self%weno_schemes(i) = buf_I4
       enddo
@@ -610,11 +610,11 @@ contains
       do i=1,self%ror_n_indexes
          oname = 'ror_indexes_'//trim(str(i,.true.))
          print*,'oname: ',trim(oname)
-         call self%file_input%get(section_name='schemes', option_name=trim(oname), val=buf_I4)  
+         call self%file_input%get(section_name='schemes', option_name=trim(oname), val=buf_I4)
          print*,'i,buf_I4: ',i,buf_I4
          self%ror_indexes(i) = buf_I4
       enddo
-      !call self%file_input%get(section_name='schemes', option_name='ror_indexes' , val=buf_array_I4) 
+      !call self%file_input%get(section_name='schemes', option_name='ror_indexes' , val=buf_array_I4)
       !self%ror_indexes = buf_array_I4
       deallocate(buf_array_I4)
       call self%file_input%get(section_name='schemes', option_name='enable_ror_stats' , val=buf_I4) ; self%enable_ror_stats = buf_I4
@@ -908,7 +908,7 @@ contains
 
       call compute_rk_gpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number,    &
                                    dt=dt, s=s, q_gpu=self%q_gpu, q_old_gpu=self%q_old_gpu,                &
-                                   fl_gpu=self%fl_gpu, phi_gpu=self%phi_gpu, & 
+                                   fl_gpu=self%fl_gpu, phi_gpu=self%phi_gpu, &
                                    ark=self%ark(s), brk=self%brk(s), crk=self%crk(s))
 
    enddo
@@ -1318,6 +1318,7 @@ contains
    character(*),                     intent(in)    :: filename         !< Input file name.
    real(R8P)                                       :: timing(1:2)      !< Tic toc timing.
    real(R8P)                                       :: timing_step(1:2) !< Tic toc timing.
+   integer(I4P)                                    :: i                !< Counter.
 
    call self%initialize(filename=filename)
    if (self%restart) then
@@ -1325,6 +1326,11 @@ contains
       call self%load_restart_files(t=self%it, time=self%time)
       print '(A)', self%mpih%myrankstr//'restart [t, time]: '//trim(str(self%it))//', '//trim(str(self%time))
    else
+      do i=1, 10
+         call self%set_initial_conditions()
+         if (self%n_solids > 0) call self%update_phi()
+         call self%amr_update()
+      enddo
       call self%set_initial_conditions()
       self%time = 0._R8P
       self%it = 0
@@ -2088,7 +2094,7 @@ contains
    integer(I4P), intent(in), device  :: weno_schemes_gpu(1:), ror_indexes_gpu(1:)
    real(R8P), intent(in)             :: ror_threshold
    integer(I4P), intent(in)          :: enable_ror_stats
-   integer(I4P), intent(inout), device  :: ror_stats_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  
+   integer(I4P), intent(inout), device  :: ror_stats_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
    integer(I4P),  intent(in)           :: euler_scheme                          !< Euler scheme.
    integer(I4P),  intent(in)           :: visc_scheme                           !< Diffusive terms scheme.
    integer(I4P), intent(in)            :: lmax                                  !< Conservative stencil size.
@@ -2154,7 +2160,7 @@ contains
        !$cuf kernel do(4) <<<*,*>>> reduction(+: ror_x_1, ror_x_2, ror_x_3, ror_x_4)
        do k=1,nk
           do i=0,ni
-             do j=1,nj 
+             do j=1,nj
                 do b=1,blocks_number
                    if(ror_stats_gpu(b,i,j,k,1) == weno_schemes_gpu(1)) ror_x_1 = ror_x_1 + 1
                    if(size(weno_schemes_gpu)>1) then
@@ -2174,7 +2180,7 @@ contains
        !$cuf kernel do(4) <<<*,*>>> reduction(+: ror_y_1, ror_y_2, ror_y_3, ror_y_4)
        do k=1,nk
           do i=1,ni
-             do j=0,nj 
+             do j=0,nj
                 do b=1,blocks_number
                    if(ror_stats_gpu(b,i,j,k,2) == weno_schemes_gpu(1)) ror_y_1 = ror_y_1 + 1
                    if(size(weno_schemes_gpu)>1) then
@@ -2194,7 +2200,7 @@ contains
        !$cuf kernel do(4) <<<*,*>>> reduction(+: ror_z_1, ror_z_2, ror_z_3, ror_z_4)
        do k=0,nk
           do i=1,ni
-             do j=1,nj 
+             do j=1,nj
                 do b=1,blocks_number
                    if(ror_stats_gpu(b,i,j,k,3) == weno_schemes_gpu(1)) ror_z_1 = ror_z_1 + 1
                    if(size(weno_schemes_gpu)>1) then
@@ -2533,7 +2539,7 @@ contains
    integer(I4P), intent(in), device  :: weno_schemes_gpu(1:), ror_indexes_gpu(1:)
    real(R8P), intent(in), value      :: ror_threshold
    integer(I4P), intent(in), value   :: enable_ror_stats
-   integer(I4P), intent(inout), device  :: ror_stats_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  
+   integer(I4P), intent(inout), device  :: ror_stats_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
    real(R8P), intent(inout), device  ::     gplus(1:, 1:, 1:, 1:, 1:)
    real(R8P), intent(inout), device  ::    gminus(1:, 1:, 1:, 1:, 1:)
    integer, intent(in), value        :: blocks_number, ni, nj, nk, ngc, nv, iweno
@@ -2923,7 +2929,7 @@ contains
    integer(I4P), intent(in), device  :: weno_schemes_gpu(1:), ror_indexes_gpu(1:)
    real(R8P), intent(in), value      :: ror_threshold
    integer(I4P), intent(in), value   :: enable_ror_stats
-   integer(I4P), intent(inout), device  :: ror_stats_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  
+   integer(I4P), intent(inout), device  :: ror_stats_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
    integer, intent(in), value        :: blocks_number, ni, nj, nk, ngc, nv, iweno
    real(R8P), intent(in), value      :: dha_star, gamma_fluid, R_star, cv_star
    integer                           :: b, i, j, k, l, ll, m, mm, v
@@ -3080,7 +3086,7 @@ contains
    integer(I4P), intent(in), device  :: weno_schemes_gpu(1:), ror_indexes_gpu(1:)
    real(R8P), intent(in), value      :: ror_threshold
    integer(I4P), intent(in), value   :: enable_ror_stats
-   integer(I4P), intent(inout), device  :: ror_stats_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  
+   integer(I4P), intent(inout), device  :: ror_stats_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
    integer, intent(in), value        :: blocks_number, ni, nj, nk, ngc, nv, iweno
    real(R8P), intent(in), value      :: dha_star, gamma_fluid, R_star, cv_star
    integer                           :: b, i, j, k, l, ll, m, mm, v
