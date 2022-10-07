@@ -91,6 +91,9 @@ type :: equation_euler_cpu_object
    real(R8P)      :: dt=0.0001_R8P              !< Maximum time step accordingly to CFL criterion.
    character(999) :: output_basename='euler'    !< Output file basename.
    logical        :: save_memory_status=.false. !< Flag to activate memory status saving.
+   character(999) :: residuals_scheme           !< Residuals computation scheme: finite difference or finite volume.
+   ! procedures pointer
+   procedure(compute_fluxes_convective_int), pass(self), pointer :: compute_fluxes_convective =>null() !< Compute convective fluxes.
    ! Large arrays.
    real(R8P), allocatable :: q_aux(:,:,:,:,:) !< Auxiliary cell centered variables.
    real(R8P), allocatable ::  q_ib(:,:,:,:,:) !< Field cell with boundary set on immersed bodies.
@@ -116,11 +119,37 @@ type :: equation_euler_cpu_object
       procedure, pass(self) :: solve                   !< Solve Euler system.
       procedure, pass(self) :: update_ghost            !< Update ghost cells.
       ! private methods
-      procedure, pass(self), private :: apply_immersed_boundary   !< Apply immersed boundary to q.
-      procedure, pass(self), private :: compute_residuals         !< Compute residuals of equation.
-      procedure, pass(self), private :: compute_fluxes_convective !< Compute convective fluxes on a coordinate direction.
-      procedure, pass(self), private :: compute_fluxes_convective_fvs !< Compute convective fluxes on a coordinate direction.
+      procedure, pass(self), private :: apply_immersed_boundary      !< Apply immersed boundary to q.
+      procedure, pass(self), private :: compute_residuals            !< Compute residuals of equation.
+      procedure, pass(self), private :: compute_fluxes_convective_fd !< Compute convective fluxes, finite difference.
+      procedure, pass(self), private :: compute_fluxes_convective_fv !< Compute convective fluxes, finite volume.
 endtype equation_euler_cpu_object
+
+interface
+   subroutine compute_fluxes_convective_int(self, gc, n, ns, np,           &
+                                            rhos, rho, un, ut1, ut2, g, p, &
+                                            f_rho, f_rho_un, f_rho_ut1, f_rho_ut2, f_rho_e)
+   !< Compute convective fluxes on a coordinate direction, interface.
+   import :: equation_euler_cpu_object, I4P, R8P
+   class(equation_euler_cpu_object), intent(in)    :: self           !< The equation.
+   integer(I4P),                     intent(in)    :: gc             !< Number of ghost cells used.
+   integer(I4P),                     intent(in)    :: n              !< Number of cells.
+   integer(I4P),                     intent(in)    :: ns             !< Number of species.
+   integer(I4P),                     intent(in)    :: np             !< Number of 1D primitive varibales.
+   real(R8P),                        intent(in)    :: rhos(1:,1-gc:) !< Partial densities       [1:ns,1-gc:n+gc].
+   real(R8P),                        intent(in)    ::     rho(1-gc:) !< Density                      [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::      un(1-gc:) !< Normal velocity              [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::     ut1(1-gc:) !< Tangential velocity 1        [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::     ut2(1-gc:) !< Tangential velocity 2        [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::       g(1-gc:) !< Specific heats ratio         [1-gc:n+gc].
+   real(R8P),                        intent(in)    ::       p(1-gc:) !< Pressure                     [1-gc:n+gc].
+   real(R8P),                        intent(inout) :: f_rho(1:, 0:)  !< Flux of mass                 [0:n,1:ns].
+   real(R8P),                        intent(inout) ::  f_rho_un(0:)  !< Flux normal momentums        [0:n].
+   real(R8P),                        intent(inout) :: f_rho_ut1(0:)  !< Flux of tangential1 momentum [0:n].
+   real(R8P),                        intent(inout) :: f_rho_ut2(0:)  !< Flux of tangential2 momentum [0:n].
+   real(R8P),                        intent(inout) ::   f_rho_e(0:)  !< Flux energy                  [0:n].
+   endsubroutine compute_fluxes_convective_int
+endinterface
 
 contains
    ! public methods
@@ -338,6 +367,14 @@ contains
       call self%file_parameters%get(section_name="simulation", option_name='null_x',             val=self%null_xyz(1)       )
       call self%file_parameters%get(section_name="simulation", option_name='null_y',             val=self%null_xyz(2)       )
       call self%file_parameters%get(section_name="simulation", option_name='null_z',             val=self%null_xyz(3)       )
+
+      call self%file_parameters%get(section_name="schemes", option_name='residuals', val=self%residuals_scheme)
+      select case(trim(adjustl(self%residuals_scheme)))
+      case('finite-difference')
+         self%compute_fluxes_convective => compute_fluxes_convective_fd
+      case('finite-volume')
+         self%compute_fluxes_convective => compute_fluxes_convective_fv
+      endselect
       endsubroutine load_simulation_from_ini_file
    endsubroutine initialize
 
@@ -850,10 +887,10 @@ contains
    endassociate
    endsubroutine apply_immersed_boundary
 
-   subroutine compute_fluxes_convective(self, gc, n, ns, np,           &
-                                        rhos, rho, un, ut1, ut2, g, p, &
-                                        f_rho, f_rho_un, f_rho_ut1, f_rho_ut2, f_rho_e)
-   !< Compute convective fluxes on coordinate direction.
+   subroutine compute_fluxes_convective_fv(self, gc, n, ns, np,           &
+                                           rhos, rho, un, ut1, ut2, g, p, &
+                                           f_rho, f_rho_un, f_rho_ut1, f_rho_ut2, f_rho_e)
+   !< Compute convective fluxes on coordinate direction, finite volume scheme.
    class(equation_euler_cpu_object), intent(in)    :: self                !< The equation.
    integer(I4P),                     intent(in)    :: gc                  !< Number of ghost cells used.
    integer(I4P),                     intent(in)    :: n                   !< Number of cells.
@@ -959,12 +996,12 @@ contains
          enddo
       endselect
       endsubroutine reconstruct_interfaces
-   endsubroutine compute_fluxes_convective
+   endsubroutine compute_fluxes_convective_fv
 
-   subroutine compute_fluxes_convective_fvs(self, gc, n, ns, np,           &
+   subroutine compute_fluxes_convective_fd(self, gc, n, ns, np,           &
                                             rhos, rho, un, ut1, ut2, g, p, &
                                             f_rho, f_rho_un, f_rho_ut1, f_rho_ut2, f_rho_e)
-   !< Compute convective fluxes on coordinate direction by means of Flux Vector Splitting (FVS).
+   !< Compute convective fluxes on coordinate direction by means of Flux Vector Splitting (FVS), finite difference scheme.
    class(equation_euler_cpu_object), intent(in)    :: self                 !< The equation.
    integer(I4P),                     intent(in)    :: gc                   !< Number of ghost cells used.
    integer(I4P),                     intent(in)    :: n                    !< Number of cells.
@@ -1012,7 +1049,7 @@ contains
            f_rho_e(i) = fluxes(3) + 0.5_R8P * fluxes(1) * (ut1(i+1)**2 + ut2(i+1)**2)
       endif
    enddo
-   endsubroutine compute_fluxes_convective_fvs
+   endsubroutine compute_fluxes_convective_fd
 
    subroutine compute_residuals(self, q_aux, rq)
    !< Compute residuals of equation.
@@ -1126,6 +1163,26 @@ contains
    endsubroutine compute_residuals
 
    ! non TBP methods
+   subroutine compute_fvs_llf(ns, r, rs, u, p, g, fm, fp)
+   !< Compute fluxes vector splitting by means of (local) Lax Friedrichs (Rusanov) solver.
+   integer(I4P), intent(in)  :: ns         !< Number of species.
+   real(R8P),    intent(in)  :: r          !< Density.
+   real(R8P),    intent(in)  :: rs(1:ns)   !< Partial densities.
+   real(R8P),    intent(in)  :: u          !< Velocity.
+   real(R8P),    intent(in)  :: p          !< Pressure.
+   real(R8P),    intent(in)  :: g          !< Specific heats ratio.
+   real(R8P),    intent(out) :: fm(1:ns+2) !< Negative (minus direction) fluxes.
+   real(R8P),    intent(out) :: fp(1:ns+2) !< Positive (plus direction) fluxes.
+   real(R8P)                 :: frm, frp   !< Negative (minus direction) mass fluxes.
+   real(R8P)                 :: a          !< Speed of sound.
+   real(R8P)                 :: M          !< Mach number.
+   real(R8P)                 :: gm1_2      !< `(g-1)/2`.
+   real(R8P)                 :: ra_4       !< `rho*a/4`.
+   real(R8P)                 :: c1         !< `2*a/g`.
+   real(R8P)                 :: c2         !< `2*a**2/(g**2-1)`.
+
+   endsubroutine compute_fvs_llf
+
    subroutine compute_fvs_van_leer(ns, r, rs, u, p, g, fm, fp)
    !< Compute fluxes vector splitting by means of van Leer method.
    integer(I4P), intent(in)  :: ns         !< Number of species.
@@ -1405,6 +1462,7 @@ contains
    case(2_I4P,3_I4P,4_I4P)
       ! compute WENO reconstruction
       do i=0, n+1
+        ! compute L/R eigenvectors approximation at interfaces
          do f=1, 2
             if (i==0  .and.f==1) cycle
             if (i==n+1.and.f==2) cycle
@@ -1415,6 +1473,7 @@ contains
             Rqm(:,:,f) = right_eigenvectors(ns=ns, np=np, q=qa(:,f))
          enddo
 
+         ! compute pseudo characteristic fluxes
          do j=i+1-gc, i-1+gc
             do f=1, 2
                if (i==0  .and.f==1) cycle
@@ -1445,6 +1504,8 @@ contains
             enddo
          enddo
       enddo
+
+      ! assemble fuxes at interfaces
       do i=0, n
          fr(:,i) = ffr(:,2,i) + ffr(:,1,i+1)
       enddo
