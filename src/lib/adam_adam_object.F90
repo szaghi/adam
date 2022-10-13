@@ -209,6 +209,7 @@ contains
    call self%mpih%initialize
    print '(A)', self%mpih%myrankstr//'adam%initialize start'
    print '(A)', self%mpih%myrankstr//'blocks number for single MPI [nb]: '//trim(str(nb))
+
    if (do_grid_init_) &
       call self%grid%initialize(file_parameters=file_parameters, &
                                 ni=ni,                           &
@@ -218,6 +219,7 @@ contains
                                 emin=emin,                       &
                                 emax=emax,                       &
                                 bc_type=bc_type)
+
    if (do_tree_init_) &
       call self%tree%initialize(grid=self%grid, &
                                 file_parameters=file_parameters, &
@@ -233,9 +235,13 @@ contains
                                 k_prune=k_prune,                 &
                                 l_prune=l_prune)
    print '(A)', self%mpih%myrankstr//'blocks number for all MPI [nodes_number]: '//trim(str(self%tree%nodes_number))
+
    if (do_field_init_) &
       call self%field%initialize(grid=self%grid, tree=self%tree, file_parameters=file_parameters, nv=nv, nb=nb)
+
    call self%amr_update
+   call self%refine_uniform(refinement_levels=self%tree%iu_ref_levels, do_blocks_reorder=.false.)
+   call self%prune(ijkl_prune=self%tree%ijkl_prune, do_blocks_reorder=.false.)
    print '(A)', self%mpih%myrankstr//'adam%initialize finish'
    endsubroutine initialize
 

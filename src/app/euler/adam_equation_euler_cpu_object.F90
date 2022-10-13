@@ -5,7 +5,8 @@ module adam_equation_euler_cpu_object
 use adam_adam_object,              only : adam_object
 use adam_amr_cpu_object,           only : amr_cpu_object, amr_marker_cpu_object, AMR_GEO, AMR_GRAD
 use adam_bc_cpu_object,            only : bc_cpu_object, BC_EXTRAPOLATION, BC_INFLOW
-use adam_eos_ic_cpu_object,        only : eos_ic_cpu_object
+use adam_eos_ic_cpu_object,        only : eos_ic_cpu_object, ic_speed_of_sound
+use adam_s_solvers_cpu_object,     only : s_solvers_cpu_object
 use adam_field_object,             only : field_object
 use adam_euler_physics_cpu_object, only : euler_physics_cpu_object, IR, IU, IV, IW, IG, IP
 use adam_grid_object,              only : grid_object
@@ -15,7 +16,6 @@ use adam_mpih_object,              only : mpih_object
 use adam_rk_cpu_object,            only : rk_cpu_object
 use adam_slices_cpu_object,        only : slices_cpu_object
 use adam_tree_object,              only : tree_object
-use adam_weno_cpu_object,          only : weno_cpu_object
 use adam_memory_cpu_lib
 use adam_parameters
 use finer
@@ -66,11 +66,11 @@ type :: equation_euler_cpu_object
    type(field_object), pointer    :: field=>null()   !< The field.
    type(grid_object),  pointer    :: grid=>null()    !< The grid.
    type(file_ini)                 :: file_parameters !< Input simulation parameters file handler.
-   type(euler_physics_cpu_object) :: physics         !< Boundary conditions handler.
+   type(euler_physics_cpu_object) :: physics         !< Fluids physics.
    type(bc_cpu_object)            :: bc              !< Boundary conditions handler.
    type(ic_cpu_object)            :: ic              !< Initial conditions handler.
    type(rk_cpu_object)            :: rk              !< Runge Kutta solver.
-   type(weno_cpu_object)          :: weno            !< WENO Kutta solver.
+   type(s_solvers_cpu_object)     :: s_solvers       !< Space operator solvers.
    type(ib_cpu_object)            :: ib              !< Immersed Boundary handler.
    type(amr_cpu_object)           :: amr             !< AMR markers handler.
    type(slices_cpu_object)        :: slices          !< Slices handler.
@@ -91,9 +91,6 @@ type :: equation_euler_cpu_object
    real(R8P)      :: dt=0.0001_R8P              !< Maximum time step accordingly to CFL criterion.
    character(999) :: output_basename='euler'    !< Output file basename.
    logical        :: save_memory_status=.false. !< Flag to activate memory status saving.
-   character(999) :: residuals_scheme           !< Residuals computation scheme: finite difference or finite volume.
-   ! procedures pointer
-   procedure(compute_fluxes_convective_int), pass(self), pointer :: compute_fluxes_convective =>null() !< Compute convective fluxes.
    ! Large arrays.
    real(R8P), allocatable :: q_aux(:,:,:,:,:) !< Auxiliary cell centered variables.
    real(R8P), allocatable ::  q_ib(:,:,:,:,:) !< Field cell with boundary set on immersed bodies.
@@ -119,37 +116,9 @@ type :: equation_euler_cpu_object
       procedure, pass(self) :: solve                   !< Solve Euler system.
       procedure, pass(self) :: update_ghost            !< Update ghost cells.
       ! private methods
-      procedure, pass(self), private :: apply_immersed_boundary      !< Apply immersed boundary to q.
-      procedure, pass(self), private :: compute_residuals            !< Compute residuals of equation.
-      procedure, pass(self), private :: compute_fluxes_convective_fd !< Compute convective fluxes, finite difference.
-      procedure, pass(self), private :: compute_fluxes_convective_fv !< Compute convective fluxes, finite volume.
+      procedure, pass(self), private :: apply_immersed_boundary !< Apply immersed boundary to q.
+      procedure, pass(self), private :: compute_residuals       !< Compute residuals of equation.
 endtype equation_euler_cpu_object
-
-interface
-   subroutine compute_fluxes_convective_int(self, gc, n, ns, np,           &
-                                            rhos, rho, un, ut1, ut2, g, p, &
-                                            f_rho, f_rho_un, f_rho_ut1, f_rho_ut2, f_rho_e)
-   !< Compute convective fluxes on a coordinate direction, interface.
-   import :: equation_euler_cpu_object, I4P, R8P
-   class(equation_euler_cpu_object), intent(in)    :: self           !< The equation.
-   integer(I4P),                     intent(in)    :: gc             !< Number of ghost cells used.
-   integer(I4P),                     intent(in)    :: n              !< Number of cells.
-   integer(I4P),                     intent(in)    :: ns             !< Number of species.
-   integer(I4P),                     intent(in)    :: np             !< Number of 1D primitive varibales.
-   real(R8P),                        intent(in)    :: rhos(1:,1-gc:) !< Partial densities       [1:ns,1-gc:n+gc].
-   real(R8P),                        intent(in)    ::     rho(1-gc:) !< Density                      [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::      un(1-gc:) !< Normal velocity              [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::     ut1(1-gc:) !< Tangential velocity 1        [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::     ut2(1-gc:) !< Tangential velocity 2        [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::       g(1-gc:) !< Specific heats ratio         [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::       p(1-gc:) !< Pressure                     [1-gc:n+gc].
-   real(R8P),                        intent(inout) :: f_rho(1:, 0:)  !< Flux of mass                 [0:n,1:ns].
-   real(R8P),                        intent(inout) ::  f_rho_un(0:)  !< Flux normal momentums        [0:n].
-   real(R8P),                        intent(inout) :: f_rho_ut1(0:)  !< Flux of tangential1 momentum [0:n].
-   real(R8P),                        intent(inout) :: f_rho_ut2(0:)  !< Flux of tangential2 momentum [0:n].
-   real(R8P),                        intent(inout) ::   f_rho_e(0:)  !< Flux energy                  [0:n].
-   endsubroutine compute_fluxes_convective_int
-endinterface
 
 contains
    ! public methods
@@ -242,7 +211,7 @@ contains
          do k=1, nk
             do j=1, nj
                do i=1, ni
-                  ss = a(p=self%q_aux(IP,i,j,k,b), r=self%q_aux(IR,i,j,k,b), g=self%q_aux(IG,i,j,k,b))
+                  ss = ic_speed_of_sound(g=self%q_aux(IG,i,j,k,b), density=self%q_aux(IR,i,j,k,b), pressure=self%q_aux(IP,i,j,k,b))
                   umax = max(umax, &
                              (abs(self%q_aux(IU,i,j,k,b)) + ss)/dxyz(1,b), &
                              (abs(self%q_aux(IV,i,j,k,b)) + ss)/dxyz(2,b), &
@@ -265,19 +234,19 @@ contains
    integer(I4P)                                 :: r, v             !< Counter.
 
    desc =       self%mpih%myrankstr//'equation main data'//NL
-   desc = desc//self%mpih%myrankstr//'  restart:            '//trim(str(self%restart           ))//NL
-   desc = desc//self%mpih%myrankstr//'  restart basename:   '//trim(    self%restart_basename   )//NL
-   desc = desc//self%mpih%myrankstr//'  restart save:       '//trim(str(self%restart_save      ))//NL
-   desc = desc//self%mpih%myrankstr//'  it max:             '//trim(str(self%it_max            ))//NL
-   desc = desc//self%mpih%myrankstr//'  it save:            '//trim(str(self%it_save           ))//NL
-   desc = desc//self%mpih%myrankstr//'  time max:           '//trim(str(self%time_max          ))//NL
-   desc = desc//self%mpih%myrankstr//'  time save:          '//trim(str(self%time_save         ))//NL
-   desc = desc//self%mpih%myrankstr//'  output basename:    '//trim(    self%output_basename    )//NL
-   desc = desc//self%mpih%myrankstr//'  CFL:                '//trim(str(self%CFL               ))//NL
-   desc = desc//self%mpih%myrankstr//'  save memory status: '//trim(str(self%save_memory_status))//NL
-   desc = desc//self%mpih%myrankstr//'  null X direction:   '//trim(str(self%null_xyz(1)       ))//NL
-   desc = desc//self%mpih%myrankstr//'  null Y direction:   '//trim(str(self%null_xyz(2)       ))//NL
-   desc = desc//self%mpih%myrankstr//'  null Z direction:   '//trim(str(self%null_xyz(3)       ))
+   desc = desc//self%mpih%myrankstr//'  restart:               '//trim(str(self%restart           ))//NL
+   desc = desc//self%mpih%myrankstr//'  restart basename:      '//trim(    self%restart_basename   )//NL
+   desc = desc//self%mpih%myrankstr//'  restart save:          '//trim(str(self%restart_save      ))//NL
+   desc = desc//self%mpih%myrankstr//'  it max:                '//trim(str(self%it_max            ))//NL
+   desc = desc//self%mpih%myrankstr//'  it save:               '//trim(str(self%it_save           ))//NL
+   desc = desc//self%mpih%myrankstr//'  time max:              '//trim(str(self%time_max          ))//NL
+   desc = desc//self%mpih%myrankstr//'  time save:             '//trim(str(self%time_save         ))//NL
+   desc = desc//self%mpih%myrankstr//'  output basename:       '//trim(    self%output_basename    )//NL
+   desc = desc//self%mpih%myrankstr//'  CFL:                   '//trim(str(self%CFL               ))//NL
+   desc = desc//self%mpih%myrankstr//'  save memory status:    '//trim(str(self%save_memory_status))//NL
+   desc = desc//self%mpih%myrankstr//'  null X direction:      '//trim(str(self%null_xyz(1)       ))//NL
+   desc = desc//self%mpih%myrankstr//'  null Y direction:      '//trim(str(self%null_xyz(2)       ))//NL
+   desc = desc//self%mpih%myrankstr//'  null Z direction:      '//trim(str(self%null_xyz(3)       ))
    endfunction description
 
    subroutine initialize(self, filename)
@@ -315,15 +284,11 @@ contains
 
    call self%rk%initialize(file_parameters=self%file_parameters, grid=self%adam%grid, field=self%adam%field)
 
-   call self%weno%initialize(file_parameters=self%file_parameters)
+   call self%s_solvers%initialize(file_parameters=self%file_parameters)
 
    call self%slices%initialize(file_parameters=self%file_parameters)
 
    call self%amr%initialize(file_parameters=self%file_parameters)
-
-   call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_blocks_reorder=.false.)
-
-   call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false.)
 
    call load_simulation_from_ini_file
 
@@ -367,14 +332,6 @@ contains
       call self%file_parameters%get(section_name="simulation", option_name='null_x',             val=self%null_xyz(1)       )
       call self%file_parameters%get(section_name="simulation", option_name='null_y',             val=self%null_xyz(2)       )
       call self%file_parameters%get(section_name="simulation", option_name='null_z',             val=self%null_xyz(3)       )
-
-      call self%file_parameters%get(section_name="schemes", option_name='residuals', val=self%residuals_scheme)
-      select case(trim(adjustl(self%residuals_scheme)))
-      case('finite-difference')
-         self%compute_fluxes_convective => compute_fluxes_convective_fd
-      case('finite-volume')
-         self%compute_fluxes_convective => compute_fluxes_convective_fv
-      endselect
       endsubroutine load_simulation_from_ini_file
    endsubroutine initialize
 
@@ -887,170 +844,6 @@ contains
    endassociate
    endsubroutine apply_immersed_boundary
 
-   subroutine compute_fluxes_convective_fv(self, gc, n, ns, np,           &
-                                           rhos, rho, un, ut1, ut2, g, p, &
-                                           f_rho, f_rho_un, f_rho_ut1, f_rho_ut2, f_rho_e)
-   !< Compute convective fluxes on coordinate direction, finite volume scheme.
-   class(equation_euler_cpu_object), intent(in)    :: self                !< The equation.
-   integer(I4P),                     intent(in)    :: gc                  !< Number of ghost cells used.
-   integer(I4P),                     intent(in)    :: n                   !< Number of cells.
-   integer(I4P),                     intent(in)    :: ns                  !< Number of species.
-   integer(I4P),                     intent(in)    :: np                  !< Number of 1D primitive varibales.
-   real(R8P),                        intent(in)    :: rhos(1:,1-gc:)      !< Partial densities       [1:ns,1-gc:n+gc].
-   real(R8P),                        intent(in)    ::     rho(1-gc:)      !< Density                      [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::      un(1-gc:)      !< Normal velocity              [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::     ut1(1-gc:)      !< Tangential velocity 1        [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::     ut2(1-gc:)      !< Tangential velocity 2        [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::       g(1-gc:)      !< Specific heats ratio         [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::       p(1-gc:)      !< Pressure                     [1-gc:n+gc].
-   real(R8P),                        intent(inout) :: f_rho(1:, 0:)       !< Flux of mass                 [0:n,1:ns].
-   real(R8P),                        intent(inout) ::  f_rho_un(0:)       !< Flux normal momentums        [0:n].
-   real(R8P),                        intent(inout) :: f_rho_ut1(0:)       !< Flux of tangential1 momentum [0:n].
-   real(R8P),                        intent(inout) :: f_rho_ut2(0:)       !< Flux of tangential2 momentum [0:n].
-   real(R8P),                        intent(inout) ::   f_rho_e(0:)       !< Flux energy                  [0:n].
-   real(R8P)                                       ::   fluxes(3)         !< 1D fluxes.
-   real(R8P)                                       :: q (1:np, 1-gc:n+gc) !< 1D primitive variables.
-   real(R8P)                                       :: qr(1:np,1:2,0:n+1)  !< Reconstructed 1D primitive variables.
-   integer(I4P)                                    :: i                   !< Counter.
-
-   ! assembly 1D primitive variables array
-   do i=1-gc, n+gc
-      q(:, i) = [rhos(:,i), un(i), p(i), rho(i), g(i)]
-   enddo
-   call reconstruct_interfaces
-   do i=0, n
-      ! computing normal fluxes solving Riemann problem
-      call solve_riemann(r1=qr(ns+3,2,i  ), u1=qr(ns+1,2,i  ), p1=qr(ns+2,2,i  ), g1=qr(ns+4,2,i  ), &
-                         r4=qr(ns+3,1,i+1), u4=qr(ns+1,1,i+1), p4=qr(ns+2,1,i+1), g4=qr(ns+4,1,i+1), F=fluxes)
-      if (fluxes(1)>0._R8P) then
-           f_rho(:,i) = fluxes(1) * qr(1:ns,2,i) / qr(ns+3,2,i)
-          f_rho_un(i) = fluxes(2)
-         f_rho_ut1(i) = fluxes(1) * ut1(i)
-         f_rho_ut2(i) = fluxes(1) * ut2(i)
-           f_rho_e(i) = fluxes(3) + 0.5_R8P * fluxes(1) * (ut1(i)**2 + ut2(i)**2)
-      else
-           f_rho(:,i) = fluxes(1) * qr(1:ns,1,i+1) / qr(ns+3,1,i+1)
-          f_rho_un(i) = fluxes(2)
-         f_rho_ut1(i) = fluxes(1) * ut1(i+1)
-         f_rho_ut2(i) = fluxes(1) * ut2(i+1)
-           f_rho_e(i) = fluxes(3) + 0.5_R8P * fluxes(1) * (ut1(i+1)**2 + ut2(i+1)**2)
-      endif
-   enddo
-   contains
-      subroutine reconstruct_interfaces
-      !< The reconstruction is done in pseudo characteristic variables.
-      real(R8P)    :: qm(1:np,1:2)             !< Mean primitive variables.
-      real(R8P)    :: Lqm(1:ns+2,1:ns+2,1:2)   !< Left eigenvalues matrix of mean primitive variables.
-      real(R8P)    :: Rqm(1:ns+2,1:ns+2,1:2)   !< Right eigenvalues matrix of mean primitive variables.
-      real(R8P)    :: c(1:ns+2,1:2,1-gc:-1+gc) !< Pseudo characteristic variables.
-      real(R8P)    :: cr(1:ns+2,1:2)           !< Pseudo characteristic variables reconstructed.
-      integer(I4P) :: i, j, f, v               !< Counter.
-
-      select case(self%weno%weno_s)
-      case(1_I4P)
-         do i=0, n+1
-            qr(:,1,i) = q(:,i)
-            qr(:,2,i) = qr(:,1,i)
-         enddo
-      case(2_I4P,3_I4P,4_I4P)
-      ! compute WENO reconstruction
-         do i=0, n+1
-            ! compute pseudo characteristic variables
-            do f=1, 2
-               if (i==0  .and.f==1) cycle
-               if (i==n+1.and.f==2) cycle
-               qm(:,f) = 0.5_R8P * (q(:,i+f-2) + q(:,i+f-1))
-            enddo
-            do f=1, 2
-               if (i==0  .and.f==1) cycle
-               if (i==n+1.and.f==2) cycle
-               Lqm(:, :, f) =  left_eigenvectors(ns=ns, np=np, q=qm(:,f))
-               Rqm(:, :, f) = right_eigenvectors(ns=ns, np=np, q=qm(:,f))
-            enddo
-            do j=i+1-gc, i-1+gc
-               do f=1, 2
-                  if (i==0  .and.f==1) cycle
-                  if (i==n+1.and.f==2) cycle
-                  do v=1, ns+2
-                     c(v,f,j-i) = dot_product(Lqm(v,1:ns+2,f), q(1:ns+2,j))
-                  enddo
-               enddo
-            enddo
-
-            ! compute WENO reconstruction of pseudo charteristic variables
-            do v=1, ns+2
-               cr(v,:) = self%weno%reconstructed(s=self%weno%weno_s, v=c(v,:,1-self%weno%weno_s:-1+self%weno%weno_s))
-            enddo
-
-            ! trasform back reconstructed pseudo charteristic variables to primitive ones
-            do f=1, 2
-               if (i==0  .and.f==1) cycle
-               if (i==n+1.and.f==2) cycle
-               do v=1, ns+2
-                  qr(v,f,i) = dot_product(Rqm(v,1:ns+2,f), cr(1:ns+2,f))
-               enddo
-               qr(ns+3,f,i) = sum(qr(1:ns, f, i))
-               qr(ns+4,f,i) = dot_product(qr(1:ns,f,i) / qr(ns+3,f,i), self%physics%eos%cp) / &
-                              dot_product(qr(1:ns,f,i) / qr(ns+3,f,i), self%physics%eos%cv)
-            enddo
-         enddo
-      endselect
-      endsubroutine reconstruct_interfaces
-   endsubroutine compute_fluxes_convective_fv
-
-   subroutine compute_fluxes_convective_fd(self, gc, n, ns, np,           &
-                                            rhos, rho, un, ut1, ut2, g, p, &
-                                            f_rho, f_rho_un, f_rho_ut1, f_rho_ut2, f_rho_e)
-   !< Compute convective fluxes on coordinate direction by means of Flux Vector Splitting (FVS), finite difference scheme.
-   class(equation_euler_cpu_object), intent(in)    :: self                 !< The equation.
-   integer(I4P),                     intent(in)    :: gc                   !< Number of ghost cells used.
-   integer(I4P),                     intent(in)    :: n                    !< Number of cells.
-   integer(I4P),                     intent(in)    :: ns                   !< Number of species.
-   integer(I4P),                     intent(in)    :: np                   !< Number of 1D primitive varibales.
-   real(R8P),                        intent(in)    :: rhos(1:,1-gc:)       !< Partial densities       [1:ns,1-gc:n+gc].
-   real(R8P),                        intent(in)    ::     rho(1-gc:)       !< Density                      [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::      un(1-gc:)       !< Normal velocity              [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::     ut1(1-gc:)       !< Tangential velocity 1        [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::     ut2(1-gc:)       !< Tangential velocity 2        [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::       g(1-gc:)       !< Specific heats ratio         [1-gc:n+gc].
-   real(R8P),                        intent(in)    ::       p(1-gc:)       !< Pressure                     [1-gc:n+gc].
-   real(R8P),                        intent(inout) :: f_rho(1:, 0:)        !< Flux of mass                 [0:n,1:ns].
-   real(R8P),                        intent(inout) ::  f_rho_un(0:)        !< Flux normal momentums        [0:n].
-   real(R8P),                        intent(inout) :: f_rho_ut1(0:)        !< Flux of tangential1 momentum [0:n].
-   real(R8P),                        intent(inout) :: f_rho_ut2(0:)        !< Flux of tangential2 momentum [0:n].
-   real(R8P),                        intent(inout) ::   f_rho_e(0:)        !< Flux energy                  [0:n].
-   real(R8P)                                       :: fm(1:ns+2,1-gc:n+gc) !< Negative (minus direction) fluxes.
-   real(R8P)                                       :: fp(1:ns+2,1-gc:n+gc) !< Positive (plus direction) fluxes.
-   real(R8P)                                       :: fr(1:ns+2,0:n)       !< Reconstructed fluxes.
-   real(R8P)                                       :: fluxes(3)            !< 1D fluxes.
-   integer(I4P)                                    :: i                    !< Counter.
-
-   ! compute fluxes vector splitting at cell center
-   call compute_fvs(ns=ns, gc=gc, n=n, rs=rhos, r=rho, u=un, p=p, g=g, fm=fm, fp=fp)
-
-   ! reconstruct fluxes at intefaces by WENO
-   call weno_reconstruct_fvs(weno=self%weno, gc=gc, n=n, ns=ns, np=np, rhos=rhos, rho=rho, un=un, g=g, p=p, fp=fp, fm=fm, fr=fr)
-
-   ! assemble 3D fluxed from 1D ones
-   do i=0, n
-      fluxes(1) = sum(fr(1:ns, i))
-      fluxes(2) =     fr(ns+1, i)
-      fluxes(3) =     fr(ns+2, i)
-
-      f_rho(:, i) = fr(1:ns, i)
-      f_rho_un(i) = fluxes(2)
-      if (fluxes(1)>0._R8P) then
-         f_rho_ut1(i) = fluxes(1) * ut1(i)
-         f_rho_ut2(i) = fluxes(1) * ut2(i)
-           f_rho_e(i) = fluxes(3) + 0.5_R8P * fluxes(1) * (ut1(i)**2 + ut2(i)**2)
-      else
-         f_rho_ut1(i) = fluxes(1) * ut1(i+1)
-         f_rho_ut2(i) = fluxes(1) * ut2(i+1)
-           f_rho_e(i) = fluxes(3) + 0.5_R8P * fluxes(1) * (ut1(i+1)**2 + ut2(i+1)**2)
-      endif
-   enddo
-   endsubroutine compute_fluxes_convective_fd
-
    subroutine compute_residuals(self, q_aux, rq)
    !< Compute residuals of equation.
    class(equation_euler_cpu_object), intent(inout) :: self                    !< The equation.
@@ -1093,58 +886,63 @@ contains
       if (.not.self%null_xyz(1)) then ! convective fluxes along x direction
          do k=kk(1), kk(2)
             do j=jj(1), jj(2)
-               call self%compute_fluxes_convective(gc=ngc, n=ni, ns=ns, np=np,            &
-               ! call self%compute_fluxes_convective_fvs(gc=ngc, n=ni, ns=ns, np=np,            &
-                                                   rhos      =    q_aux(1:ns, :,  j,k,b), &
-                                                   rho       =    q_aux(IR  , :,  j,k,b), &
-                                                   un        =    q_aux(IU  , :,  j,k,b), & ! u
-                                                   ut1       =    q_aux(IV  , :,  j,k,b), & ! v
-                                                   ut2       =    q_aux(IW  , :,  j,k,b), & ! w
-                                                   g         =    q_aux(IG  , :,  j,k,b), &
-                                                   p         =    q_aux(IP  , :,  j,k,b), &
-                                                   f_rho     = fluxes_x(1:ns,0:ni,j,k),   &
-                                                   f_rho_un  = fluxes_x(ns+1,0:ni,j,k),   & ! u
-                                                   f_rho_ut1 = fluxes_x(ns+2,0:ni,j,k),   & ! v
-                                                   f_rho_ut2 = fluxes_x(ns+3,0:ni,j,k),   & ! w
-                                                   f_rho_e   = fluxes_x(ns+4,0:ni,j,k))
+               call self%s_solvers%compute_fluxes_convective(gc=ngc, n=ni, ns=ns, np=np,            &
+                                                             cp0       = self%physics%eos(:)%cp,    &
+                                                             cv0       = self%physics%eos(:)%cv,    &
+                                                             rhos      =    q_aux(1:ns, :,  j,k,b), &
+                                                             rho       =    q_aux(IR  , :,  j,k,b), &
+                                                             un        =    q_aux(IU  , :,  j,k,b), & ! u
+                                                             ut1       =    q_aux(IV  , :,  j,k,b), & ! v
+                                                             ut2       =    q_aux(IW  , :,  j,k,b), & ! w
+                                                             g         =    q_aux(IG  , :,  j,k,b), &
+                                                             p         =    q_aux(IP  , :,  j,k,b), &
+                                                             f_rho     = fluxes_x(1:ns,0:ni,j,k),   &
+                                                             f_rho_un  = fluxes_x(ns+1,0:ni,j,k),   & ! u
+                                                             f_rho_ut1 = fluxes_x(ns+2,0:ni,j,k),   & ! v
+                                                             f_rho_ut2 = fluxes_x(ns+3,0:ni,j,k),   & ! w
+                                                             f_rho_e   = fluxes_x(ns+4,0:ni,j,k))
             enddo
          enddo
       endif
       if (.not.self%null_xyz(2)) then ! convective fluxes along y direction
          do k=kk(1), kk(2)
             do i=ii(1), ii(2)
-               call self%compute_fluxes_convective(gc=ngc, n=nj, ns=ns, np=np,            &
-                                                   rhos      =    q_aux(1:ns,i, :,  k,b), &
-                                                   rho       =    q_aux(IR  ,i, :,  k,b), &
-                                                   un        =    q_aux(IV  ,i, :,  k,b), & ! v
-                                                   ut1       =    q_aux(IU  ,i, :,  k,b), & ! u
-                                                   ut2       =    q_aux(IW  ,i, :,  k,b), & ! w
-                                                   g         =    q_aux(IG  ,i, :,  k,b), &
-                                                   p         =    q_aux(IP  ,i, :,  k,b), &
-                                                   f_rho     = fluxes_y(1:ns,i,0:nj,k),   &
-                                                   f_rho_un  = fluxes_y(ns+2,i,0:nj,k),   & ! v
-                                                   f_rho_ut1 = fluxes_y(ns+1,i,0:nj,k),   & ! u
-                                                   f_rho_ut2 = fluxes_y(ns+3,i,0:nj,k),   & ! w
-                                                   f_rho_e   = fluxes_y(ns+4,i,0:nj,k))
+               call self%s_solvers%compute_fluxes_convective(gc=ngc, n=nj, ns=ns, np=np,            &
+                                                             cp0       = self%physics%eos(:)%cp,    &
+                                                             cv0       = self%physics%eos(:)%cv,    &
+                                                             rhos      =    q_aux(1:ns,i, :,  k,b), &
+                                                             rho       =    q_aux(IR  ,i, :,  k,b), &
+                                                             un        =    q_aux(IV  ,i, :,  k,b), & ! v
+                                                             ut1       =    q_aux(IU  ,i, :,  k,b), & ! u
+                                                             ut2       =    q_aux(IW  ,i, :,  k,b), & ! w
+                                                             g         =    q_aux(IG  ,i, :,  k,b), &
+                                                             p         =    q_aux(IP  ,i, :,  k,b), &
+                                                             f_rho     = fluxes_y(1:ns,i,0:nj,k),   &
+                                                             f_rho_un  = fluxes_y(ns+2,i,0:nj,k),   & ! v
+                                                             f_rho_ut1 = fluxes_y(ns+1,i,0:nj,k),   & ! u
+                                                             f_rho_ut2 = fluxes_y(ns+3,i,0:nj,k),   & ! w
+                                                             f_rho_e   = fluxes_y(ns+4,i,0:nj,k))
             enddo
          enddo
       endif
       if (.not.self%null_xyz(3)) then ! convective fluxes along z direction
          do j=jj(1), jj(2)
             do i=ii(1), ii(2)
-               call self%compute_fluxes_convective(gc=ngc, n=nk, ns=ns, np=np,            &
-                                                   rhos      =    q_aux(1:ns,i,j, :,  b), &
-                                                   rho       =    q_aux(IR  ,i,j, :,  b), &
-                                                   un        =    q_aux(IW  ,i,j, :,  b), & ! w
-                                                   ut1       =    q_aux(IU  ,i,j, :,  b), & ! u
-                                                   ut2       =    q_aux(IV  ,i,j, :,  b), & ! v
-                                                   g         =    q_aux(IG  ,i,j, :,  b), &
-                                                   p         =    q_aux(IP  ,i,j, :,  b), &
-                                                   f_rho     = fluxes_z(1:ns,i,j,0:nk),   &
-                                                   f_rho_un  = fluxes_z(ns+3,i,j,0:nk),   & ! w
-                                                   f_rho_ut1 = fluxes_z(ns+1,i,j,0:nk),   & ! u
-                                                   f_rho_ut2 = fluxes_z(ns+2,i,j,0:nk),   & ! v
-                                                   f_rho_e   = fluxes_z(ns+4,i,j,0:nk))
+               call self%s_solvers%compute_fluxes_convective(gc=ngc, n=nk, ns=ns, np=np,            &
+                                                             cp0       = self%physics%eos(:)%cp,    &
+                                                             cv0       = self%physics%eos(:)%cv,    &
+                                                             rhos      =    q_aux(1:ns,i,j, :,  b), &
+                                                             rho       =    q_aux(IR  ,i,j, :,  b), &
+                                                             un        =    q_aux(IW  ,i,j, :,  b), & ! w
+                                                             ut1       =    q_aux(IU  ,i,j, :,  b), & ! u
+                                                             ut2       =    q_aux(IV  ,i,j, :,  b), & ! v
+                                                             g         =    q_aux(IG  ,i,j, :,  b), &
+                                                             p         =    q_aux(IP  ,i,j, :,  b), &
+                                                             f_rho     = fluxes_z(1:ns,i,j,0:nk),   &
+                                                             f_rho_un  = fluxes_z(ns+3,i,j,0:nk),   & ! w
+                                                             f_rho_ut1 = fluxes_z(ns+1,i,j,0:nk),   & ! u
+                                                             f_rho_ut2 = fluxes_z(ns+2,i,j,0:nk),   & ! v
+                                                             f_rho_e   = fluxes_z(ns+4,i,j,0:nk))
             enddo
          enddo
       endif
@@ -1163,355 +961,6 @@ contains
    endsubroutine compute_residuals
 
    ! non TBP methods
-   subroutine compute_fvs_llf(ns, r, rs, u, p, g, fm, fp)
-   !< Compute fluxes vector splitting by means of (local) Lax Friedrichs (Rusanov) solver.
-   integer(I4P), intent(in)  :: ns         !< Number of species.
-   real(R8P),    intent(in)  :: r          !< Density.
-   real(R8P),    intent(in)  :: rs(1:ns)   !< Partial densities.
-   real(R8P),    intent(in)  :: u          !< Velocity.
-   real(R8P),    intent(in)  :: p          !< Pressure.
-   real(R8P),    intent(in)  :: g          !< Specific heats ratio.
-   real(R8P),    intent(out) :: fm(1:ns+2) !< Negative (minus direction) fluxes.
-   real(R8P),    intent(out) :: fp(1:ns+2) !< Positive (plus direction) fluxes.
-   real(R8P)                 :: frm, frp   !< Negative (minus direction) mass fluxes.
-   real(R8P)                 :: a          !< Speed of sound.
-   real(R8P)                 :: M          !< Mach number.
-   real(R8P)                 :: gm1_2      !< `(g-1)/2`.
-   real(R8P)                 :: ra_4       !< `rho*a/4`.
-   real(R8P)                 :: c1         !< `2*a/g`.
-   real(R8P)                 :: c2         !< `2*a**2/(g**2-1)`.
-
-   endsubroutine compute_fvs_llf
-
-   subroutine compute_fvs_van_leer(ns, r, rs, u, p, g, fm, fp)
-   !< Compute fluxes vector splitting by means of van Leer method.
-   integer(I4P), intent(in)  :: ns         !< Number of species.
-   real(R8P),    intent(in)  :: r          !< Density.
-   real(R8P),    intent(in)  :: rs(1:ns)   !< Partial densities.
-   real(R8P),    intent(in)  :: u          !< Velocity.
-   real(R8P),    intent(in)  :: p          !< Pressure.
-   real(R8P),    intent(in)  :: g          !< Specific heats ratio.
-   real(R8P),    intent(out) :: fm(1:ns+2) !< Negative (minus direction) fluxes.
-   real(R8P),    intent(out) :: fp(1:ns+2) !< Positive (plus direction) fluxes.
-   real(R8P)                 :: frm, frp   !< Negative (minus direction) mass fluxes.
-   real(R8P)                 :: a          !< Speed of sound.
-   real(R8P)                 :: M          !< Mach number.
-   real(R8P)                 :: gm1_2      !< `(g-1)/2`.
-   real(R8P)                 :: ra_4       !< `rho*a/4`.
-   real(R8P)                 :: c1         !< `2*a/g`.
-   real(R8P)                 :: c2         !< `2*a**2/(g**2-1)`.
-
-   gm1_2 = (g - 1._R8P) * 0.5_R8P
-   a = sqrt(g * p / r)
-   M = u / a
-   ra_4 = r * a * 0.25_R8P
-   c1 = 2._R8P * a / g
-   c2 = 2._R8P * a**2 / (g**2 - 1._R8P)
-
-   frm      = - ra_4 * ((1 - M)**2)                ; frp      = ra_4 * ((1 + M)**2)
-   fm(1:ns) = frm * rs(1:ns)/r                     ; fp(1:ns) = frp * rs(1:ns)/r
-   fm(2)    = frm * (c1 * (gm1_2 * M - 1._R8P))    ; fp(2)    = frp * (c1 * (gm1_2 * M + 1._R8P))
-   fm(3)    = frm * (c2 * (gm1_2 * M - 1._R8P)**2) ; fp(3)    = frp * (c2 * (gm1_2 * M + 1._R8P)**2)
-   endsubroutine compute_fvs_van_leer
-
-   subroutine compute_fvs(ns, gc, n, r, rs, u, p, g, fm, fp)
-   !< Compute fluxes vector splitting.
-   integer(I4P), intent(in)  :: ns           !< Number of species.
-   integer(I4P), intent(in)  :: gc           !< Number of ghost cells used.
-   integer(I4P), intent(in)  :: n            !< Number of cells.
-   real(R8P),    intent(in)  :: r(1-gc:)     !< Density.
-   real(R8P),    intent(in)  :: rs(1:,1-gc:) !< Partial densities.
-   real(R8P),    intent(in)  :: u(1-gc:)     !< Velocity.
-   real(R8P),    intent(in)  :: p(1-gc:)     !< Pressure.
-   real(R8P),    intent(in)  :: g(1-gc:)     !< Specific heats ratio.
-   real(R8P),    intent(out) :: fm(1:,1-gc:) !< Negative (minus direction) fluxes.
-   real(R8P),    intent(out) :: fp(1:,1-gc:) !< Positive (plus direction) fluxes.
-   integer(I4P)              :: i            !< Counter.
-
-   do i=1-gc, n+gc
-      call compute_fvs_van_leer(ns=ns, rs=rs(:,i), r=r(i), u=u(i), p=p(i), g=g(i), fm=fm(:,i), fp=fp(:,i))
-   enddo
-   endsubroutine compute_fvs
-
-   function roe_averages(ns, np, ql, qr) result(qa)
-   integer(I4P), intent(in) :: ns         !< Number of species.
-   integer(I4P), intent(in) :: np         !< Number of 1D primitive varibales.
-   real(R8P),    intent(in) :: ql(1:np)   !< Left primitive variables.
-   real(R8P),    intent(in) :: qr(1:np)   !< Right primitive variables.
-   real(R8P)                :: qa(1:np)   !< Roe averaged primitive variables.
-   real(R8P)                :: hl, hr, ha !< Left, rigth and average states entalpy.
-   real(R8P)                :: sigma      !< Roe's sigma factor.
-
-   hl    = H(p=ql(ns+2), r=ql(ns+3), u=ql(ns+1), g=ql(Ns+4))
-   hr    = H(p=qr(ns+2), r=qr(ns+3), u=qr(ns+1), g=qr(Ns+4))
-   sigma = sqrt(ql(ns+3)) / (sqrt(ql(ns+3)) + sqrt(qr(ns+3)))
-   ha    = sigma * hl + (1._R8P - sigma) * hr
-
-   qa(1:ns) = sqrt(ql(1:ns)*qr(1:ns))
-   qa(ns+3) = sqrt(ql(ns+3)*qr(ns+3))
-   qa(ns+1) = sigma * ql(ns+1) + (1._R8P - sigma) * qr(ns+1)
-   qa(ns+4) = sigma * ql(ns+4) + (1._R8P - sigma) * qr(ns+4)
-   qa(ns+2) = (ha - 0.5_R8P*qa(ns+1)**2)*(qa(ns+4)-1._R8P)*qa(ns+3)/qa(ns+4)
-   endfunction roe_averages
-
-   subroutine solve_riemann(r1, u1, p1, g1, r4, u4, p4, g4, F)
-   !< Solve the Riemann problem between the state $1$ and $4$ using the (local) Lax Friedrichs (Rusanov) solver.
-   real(R8P), intent(in)  :: r1      !< Density of state 1.
-   real(R8P), intent(in)  :: u1      !< Velocity of state 1.
-   real(R8P), intent(in)  :: p1      !< Pressure of state 1.
-   real(R8P), intent(in)  :: g1      !< Specific heats ratio of state 1.
-   real(R8P), intent(in)  :: r4      !< Density of state 4.
-   real(R8P), intent(in)  :: u4      !< Velocity of state 4.
-   real(R8P), intent(in)  :: p4      !< Pressure of state 4.
-   real(R8P), intent(in)  :: g4      !< Specific heats ratio of state 4.
-   real(R8P), intent(out) :: F(1:3)  !< Resulting fluxes.
-   real(R8P)              :: lmax    !< Maximum wave speed estimation.
-   real(R8P)              :: F1(1:3) !< State 1 fluxes.
-   real(R8P)              :: F4(1:3) !< State 4 fluxes.
-   real(R8P)              :: u       !< Velocity of the intermediate states.
-   real(R8P)              :: p       !< Pressure of the intermediate states.
-   real(R8P)              :: S1      !< Maximum wave speed of state 1 and 4.
-   real(R8P)              :: S4      !< Maximum wave speed of state 1 and 4.
-
-   ! evaluating the intermediates states 2 and 3 from the known states U1,U4 using the PVRS approximation
-   call compute_inter_states
-   ! evalutaing the maximum waves speed
-   lmax = max(abs(S1), abs(u), abs(S4))
-   ! computing the fluxes of state 1 and 4
-   F1 = fluxes(p = p1, r = r1, u = u1, g = g1)
-   F4 = fluxes(p = p4, r = r4, u = u4, g = g4)
-   ! computing the Lax-Friedrichs fluxes approximation
-   F(1) = 0.5_R8P*(F1(1) + F4(1) - lmax*(r4                        - r1                       ))
-   F(2) = 0.5_R8P*(F1(2) + F4(2) - lmax*(r4*u4                     - r1*u1                    ))
-   F(3) = 0.5_R8P*(F1(3) + F4(3) - lmax*(r4*E(p=p4,r=r4,u=u4,g=g4) - r1*E(p=p1,r=r1,u=u1,g=g1)))
-   contains
-      pure function fluxes(p, r, u, g) result(Fc)
-      !< 1D Euler fluxes from primitive variables.
-      real(R8P), intent(in) :: p       !< Pressure.
-      real(R8P), intent(in) :: r       !< Density.
-      real(R8P), intent(in) :: u       !< Velocity.
-      real(R8P), intent(in) :: g       !< Specific heats ratio.
-      real(R8P)             :: Fc(1:3) !< State fluxes.
-
-      Fc(1) = r*u
-      Fc(2) = Fc(1)*u + p
-      Fc(3) = Fc(1)*H(p=p, r=r, u=u, g=g)
-      endfunction fluxes
-
-      subroutine compute_inter_states
-      !< Compute inter states (23*-states) from state1 and state4.
-      real(R8P)              :: a1             !< Speed of sound of state 1.
-      real(R8P)              :: a4             !< Speed of sound of state 4.
-      real(R8P)              :: ram            !< Mean value of rho*a.
-      real(R8P), parameter   :: toll=1e-10_R8P !< Tollerance.
-
-      ! evaluation of the intermediate states pressure and velocity
-      a1  = sqrt(g1 * p1 / r1)                              ! left speed of sound
-      a4  = sqrt(g4 * p4 / r4)                              ! right speed of sound
-      ram = 0.5_R8P * (r1 + r4) * 0.5_R8P * (a1 + a4)       ! product of mean density for mean speed of sound
-      u   = 0.5_R8P * (u1 + u4) - 0.5_R8P * (p4 - p1) / ram ! evaluation of the contact wave speed (velocity of intermediate states)
-      p   = 0.5_R8P * (p1 + p4) - 0.5_R8P * (u4 - u1) * ram ! evaluation of the pressure of the intermediate states
-      ! evaluation of the left wave speeds
-      if (p<=p1*(1._R8P + toll)) then
-        ! rarefaction
-        S1 = u1 - a1
-      else
-        ! shock
-        S1 = u1 - a1 * sqrt(1._R8P + (g1 + 1._R8P) / (2._R8P * g1) * (p / p1 - 1._R8P))
-      endif
-      ! evaluation of the right wave speeds
-      if (p<=p4 * (1._R8P + toll)) then
-        ! rarefaction
-        S4 = u4 + a4
-      else
-        ! shock
-        S4 = u4 + a4 * sqrt(1._R8P + (g4 + 1._R8P) / (2._R8P * g4) * ( p / p4 - 1._R8P))
-      endif
-      endsubroutine compute_inter_states
-   endsubroutine solve_riemann
-
-   pure function left_eigenvectors(ns, np, q) result(eig)
-   !< Return the left eigenvectors matrix `L` as `dF/dP = A = R ^ L` `P`` being the primitive variables and `F` the fluxes.
-   integer(I4P), intent(in) :: ns                  !< Number of species.
-   integer(I4P), intent(in) :: np                  !< Number of 1D primitive varibales.
-   real(R8P),    intent(in) :: q(1:np)             !< Primitive variables.
-   real(R8P)                :: eig(1:ns+2, 1:ns+2) !< Eigenvectors.
-   real(R8P)                :: gp                  !< `g*p`.
-   real(R8P)                :: gp_a                !< `g*p/a`.
-   integer(I4P)             :: s                   !< Counter.
-
-   gp = q(ns+4) * q(ns+2)
-   gp_a = gp / a(p=q(ns+2), r=q(ns+3), g=q(ns+4))
-   eig = 0._R8P
-
-      eig(1,    ns+1) = -gp_a      ; eig(1,    ns+2) =  1._R8P
-   do s=2, ns+1
-      eig(s,    s-1 ) =  gp/q(s-1) ; eig(s,    ns+2) = -1._R8P
-   enddo
-      eig(ns+2, ns+1) =  gp_a      ; eig(ns+2, ns+2) =  1._R8P
-   endfunction left_eigenvectors
-
-   pure function right_eigenvectors(ns, np, q) result(eig)
-   !< Return the right eigenvectors matrix `R` as `dF/dP = A = R ^ L` `P`` being the primitive variables and `F` the fluxes.
-   integer(I4P), intent(in) :: ns                  !< Number of species.
-   integer(I4P), intent(in) :: np                  !< Number of 1D primitive varibales.
-   real(R8P),    intent(in) :: q(1:np)             !< Primitive variables.
-   real(R8P)                :: eig(1:ns+2, 1:ns+2) !< Eigenvectors.
-   real(R8P)                :: gp                  !< `g*p`.
-   real(R8P)                :: gp_inv              !< `1/(g*p)`.
-   integer(I4P)             :: s                   !< Counter.
-
-   gp = q(ns+4) * q(ns+2)
-   gp_inv = 1._R8P / gp
-   eig = 0._R8P
-
-   do s=1, ns
-     eig(s,   1) =  0.5_R8P * q(s) * gp_inv                             ; eig(s,s+1) = q(s) * gp_inv ; eig(s,   ns+2) =  eig(s,   1)
-   enddo
-     eig(ns+1,1) = -0.5_R8P * a(p=q(ns+2),r=q(ns+3),g=q(ns+4)) * gp_inv ;                              eig(ns+1,ns+2) = -eig(ns+1,1)
-     eig(ns+2,1) =  0.5_R8P                                             ;                              eig(ns+2,ns+2) =  eig(ns+2,1)
-   endfunction right_eigenvectors
-
-   elemental function p(r, a, g) result(pressure)
-   !< Return pressure for an ideal calorically perfect gas.
-   real(R8P), intent(in) :: r        !< Density.
-   real(R8P), intent(in) :: a        !< Speed of sound.
-   real(R8P), intent(in) :: g        !< Specific heats ratio \(\frac{{c_p}}{{c_v}}\).
-   real(R8P)             :: pressure !< Pressure.
-
-   pressure = r*a*a/g
-   endfunction p
-
-   elemental function r(p, a, g) result(density)
-   !< Return density for an ideal calorically perfect gas.
-   real(R8P), intent(in) :: p       !< Pressure.
-   real(R8P), intent(in) :: a       !< Speed of sound.
-   real(R8P), intent(in) :: g       !< Specific heats ratio \(\frac{{c_p}}{{c_v}}\).
-   real(R8P)             :: density !< Density.
-
-   density = g*p/(a*a)
-   endfunction r
-
-   elemental function a(p, r, g) result(ss)
-   !< Return speed of sound for an ideal calorically perfect gas.
-   real(R8P), intent(in) :: p  !< Pressure.
-   real(R8P), intent(in) :: r  !< Density.
-   real(R8P), intent(in) :: g  !< Specific heats ratio \(\frac{{c_p}}{{c_v}}\).
-   real(R8P)             :: ss !< Speed of sound.
-
-   ss = sqrt(g*p/r)
-   endfunction a
-
-   elemental function E(p, r, u, g) result(energy)
-   !< Return total specific energy (per unit of mass).
-   !<$$
-   !<  E = \frac{p}{{\left( {\g  - 1} \right)\r }} + \frac{{u^2 }}{2}
-   !<$$
-   real(R8P), intent(in) :: p      !< Pressure.
-   real(R8P), intent(in) :: r      !< Density.
-   real(R8P), intent(in) :: u      !< Module of velocity vector.
-   real(R8P), intent(in) :: g      !< Specific heats ratio \(\frac{{c_p}}{{c_v}}\).
-   real(R8P)             :: energy !< Total specific energy (per unit of mass).
-
-   energy = p/((g - 1._R8P) * r) + 0.5_R8P * u*u
-   endfunction E
-
-   elemental function H(p, r, u, g) result(entalpy)
-   !< Return total specific entalpy (per unit of mass).
-   !<$$
-   !<  H = \frac{{\g p}}{{\left( {\g  - 1} \right)\r }} + \frac{{u^2 }}{2}
-   !<$$
-   real(R8P), intent(in) :: g       !< Specific heats ratio \(\frac{{c_p}}{{c_v}}\).
-   real(R8P), intent(in) :: p       !< Pressure.
-   real(R8P), intent(in) :: r       !< Density.
-   real(R8P), intent(in) :: u       !< Module of velocity vector.
-   real(R8P)             :: entalpy !< Total specific entalpy (per unit of mass).
-
-   entalpy = g * p / ((g - 1._R8P) * r) + 0.5_R8P * u*u
-   endfunction H
-
-   subroutine weno_reconstruct_fvs(weno, gc, n, ns, np, rhos, rho, un, g, p, fp, fm, fr)
-   !< Reconstruct FVS fluxes in pseudo characteristic variables by WENO methods.
-   type(weno_cpu_object), intent(in)  :: weno                     !< WENO solver.
-   integer(I4P),          intent(in)  :: gc                       !< Number of ghost cells used.
-   integer(I4P),          intent(in)  :: n                        !< Number of cells.
-   integer(I4P),          intent(in)  :: ns                       !< Number of species.
-   integer(I4P),          intent(in)  :: np                       !< Number of 1D primitive varibales.
-   real(R8P),             intent(in)  :: rhos(1:,1-gc:)           !< Partial densities       [1:ns,1-gc:n+gc].
-   real(R8P),             intent(in)  ::     rho(1-gc:)           !< Density                      [1-gc:n+gc].
-   real(R8P),             intent(in)  ::      un(1-gc:)           !< Normal velocity              [1-gc:n+gc].
-   real(R8P),             intent(in)  ::       g(1-gc:)           !< Specific heats ratio         [1-gc:n+gc].
-   real(R8P),             intent(in)  ::       p(1-gc:)           !< Pressure                     [1-gc:n+gc].
-   real(R8P),             intent(in)  :: fm(1:ns+2,1-gc:n+gc)     !< Negative (minus direction) fluxes.
-   real(R8P),             intent(in)  :: fp(1:ns+2,1-gc:n+gc)     !< Positive (plus direction) fluxes.
-   real(R8P),             intent(out) :: fr(1:ns+2,0:n)           !< Reconstructed fluxes.
-   real(R8P)                          :: qa(1:np,1:2)             !< Roe averaged primitive variables.
-   real(R8P)                          :: Lqm(1:ns+2,1:ns+2,1:2)   !< Left eigenvalues matrix of mean primitive var.
-   real(R8P)                          :: Rqm(1:ns+2,1:ns+2,1:2)   !< Right eigenvalues matrix of mean primitive var.
-   real(R8P)                          :: c(1:ns+2,1:2,1-gc:-1+gc) !< Pseudo characteristic fluxes.
-   real(R8P)                          :: cr(1:ns+2,1:2)           !< Pseudo characteristic reconstructed fluxes.
-   real(R8P)                          :: ffr(1:ns+2,1:2,0:n+1)    !< Reconstructed fluxes.
-   integer(I4P)                       :: i, j, v, f               !< Counter.
-
-   select case(weno%weno_s)
-   case(1_I4P)
-      ! first order, no reconstruction
-      do i=0, n
-         fr(:,i) = fp(:,i) + fm(:,i+1)
-      enddo
-   case(2_I4P,3_I4P,4_I4P)
-      ! compute WENO reconstruction
-      do i=0, n+1
-        ! compute L/R eigenvectors approximation at interfaces
-         do f=1, 2
-            if (i==0  .and.f==1) cycle
-            if (i==n+1.and.f==2) cycle
-            qa(:,f) = roe_averages(ns=ns, np=np,                                                  &
-                                   ql=[rhos(:,i+f-2), un(i+f-2), p(i+f-2), rho(i+f-2), g(i+f-2)], &
-                                   qr=[rhos(:,i+f-1), un(i+f-1), p(i+f-1), rho(i+f-1), g(i+f-1)])
-            Lqm(:,:,f) =  left_eigenvectors(ns=ns, np=np, q=qa(:,f))
-            Rqm(:,:,f) = right_eigenvectors(ns=ns, np=np, q=qa(:,f))
-         enddo
-
-         ! compute pseudo characteristic fluxes
-         do j=i+1-gc, i-1+gc
-            do f=1, 2
-               if (i==0  .and.f==1) cycle
-               if (i==n+1.and.f==2) cycle
-               if (f==1) then ! left interface, reconstruct negative fluxes
-                  do v=1, ns+2
-                     c(v,f,j-i) = dot_product(Lqm(v,1:ns+2,f), fm(1:ns+2,j))
-                  enddo
-               else           ! right interface, reconstruct positive fluxes
-                  do v=1, ns+2
-                     c(v,f,j-i) = dot_product(Lqm(v,1:ns+2,f), fp(1:ns+2,j))
-                  enddo
-               endif
-            enddo
-         enddo
-
-         ! compute WENO reconstruction of pseudo charteristic fluxes
-         do v=1, ns+2
-            cr(v,:) = weno%reconstructed(s=weno%weno_s, v=c(v,:,1-weno%weno_s:-1+weno%weno_s))
-         enddo
-
-         ! trasform back reconstructed pseudo charteristic fluxes to primitive ones
-         do f=1, 2
-            if (i==0  .and.f==1) cycle
-            if (i==n+1.and.f==2) cycle
-            do v=1, ns+2
-               ffr(v,f,i) = dot_product(Rqm(v,1:ns+2,f), cr(1:ns+2,f))
-            enddo
-         enddo
-      enddo
-
-      ! assemble fuxes at interfaces
-      do i=0, n
-         fr(:,i) = ffr(:,2,i) + ffr(:,1,i+1)
-      enddo
-   endselect
-   endsubroutine weno_reconstruct_fvs
-
    ! IB
    subroutine set_bc_ib(ni, nj, nk, ngc, ns, blocks_number, bcs_type, phi, q)
    !< Set BC on IB cells.

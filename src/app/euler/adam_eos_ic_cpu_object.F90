@@ -2,25 +2,34 @@
 module adam_eos_ic_cpu_object
 !< ADAM, **EOS** (Equation of State) of ideal compressible fluid, class definition, CPU backend.
 
+use adam_mpih_object, only : mpih_object
 use finer, only : file_ini
 use penf, only : I4P, R8P, str
 
 implicit none
 private
 public :: eos_ic_cpu_object
+public :: ic_density
+public :: ic_internal_energy
+public :: ic_pressure
+public :: ic_speed_of_sound
+public :: ic_temperature
+public :: ic_total_energy
+public :: ic_total_entalpy
 
 character(len=3), parameter :: INI_SECTION_NAME='eos' !< INI (config) file section name containing equation of state conditions.
 
 type :: eos_ic_cpu_object
    !< Equation of state (EOS) of ideal compressible object class.
-   real(R8P) :: cp    = 0._R8P !< Specific heat at constant pressure `cp`.
-   real(R8P) :: cv    = 0._R8P !< Specific heat at constant volume `cv`.
-   real(R8P) :: g     = 0._R8P !< Specific heats ratio `gamma = cp / cv`.
-   real(R8P) :: R     = 0._R8P !< Fluid constant `R = cp - cv`.
-   real(R8P) :: gm1   = 0._R8P !< `gamma - 1`.
-   real(R8P) :: gp1   = 0._R8P !< `gamma + 1`.
-   real(R8P) :: delta = 0._R8P !< `(gamma - 1) / 2`.
-   real(R8P) :: eta   = 0._R8P !< `2 * gamma / (gamma - 1)`.
+   type(mpih_object) :: mpih           !< MPI handler.
+   real(R8P)         :: cp    = 0._R8P !< Specific heat at constant pressure `cp`.
+   real(R8P)         :: cv    = 0._R8P !< Specific heat at constant volume `cv`.
+   real(R8P)         :: g     = 0._R8P !< Specific heats ratio `gamma = cp / cv`.
+   real(R8P)         :: R     = 0._R8P !< Fluid constant `R = cp - cv`.
+   real(R8P)         :: gm1   = 0._R8P !< `gamma - 1`.
+   real(R8P)         :: gp1   = 0._R8P !< `gamma + 1`.
+   real(R8P)         :: delta = 0._R8P !< `(gamma - 1) / 2`.
+   real(R8P)         :: eta   = 0._R8P !< `2 * gamma / (gamma - 1)`.
    contains
       ! public methods
       procedure, pass(self) :: compute_derivate       !< Compute derivate quantities (from `cp` and `cv`).
@@ -98,7 +107,7 @@ contains
    self = fresh
    endsubroutine destroy
 
-   elemental subroutine initialize(self, eos, cp, cv, gam, R)
+   subroutine initialize(self, eos, cp, cv, gam, R)
    !< Initialize equation of state.
    class(eos_ic_cpu_object), intent(inout)        :: self !< Equation of state.
    type(eos_ic_cpu_object),  intent(in), optional :: eos  !< Equation of state.
@@ -107,6 +116,7 @@ contains
    real(R8P),                intent(in), optional :: gam  !< Specific heats ratio `gamma=cp/cv` value.
    real(R8P),                intent(in), optional :: R    !< Fluid constant `R=cp-cv` value.
 
+   call self%mpih%initialize
    if (present(eos)) then
       self = eos
    else
@@ -126,9 +136,9 @@ contains
 
    call self%destroy
    call fini%get(section_name=INI_SECTION_NAME, option_name='cp', val=self%cp, error=error)
-   ! if (.not.go_on_fail_.and.error>0) error stop 'error: failed to load ['//INI_SECTION_NAME//'].(cp)'
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cp)')
    call fini%get(section_name=INI_SECTION_NAME, option_name='cv', val=self%cv, error=error)
-   ! if (.not.go_on_fail_.and.error>0) error stop 'error: failed to load ['//INI_SECTION_NAME//'].(cv)'
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(cv)')
    call self%compute_derivate
    endsubroutine load_from_file
 
@@ -164,7 +174,7 @@ contains
    real(R8P),                intent(in) :: speed_of_sound !< Speed of sound value.
    real(R8P)                            :: density_       !< Density value.
 
-   density_ = self%g * pressure / (speed_of_sound * speed_of_sound)
+   density_ = ic_density(g=self%g, pressure=pressure, speed_of_sound=speed_of_sound)
    endfunction density
 
    elemental function internal_energy(self, density, pressure) result(energy_)
@@ -174,7 +184,7 @@ contains
    real(R8P),                intent(in) :: pressure !< Pressure value.
    real(R8P)                            :: energy_  !< Energy value.
 
-   energy_ = pressure / (self%gm1 * density)
+   energy_ = ic_internal_energy(gm1=self%gm1, density=density, pressure=pressure)
    endfunction internal_energy
 
    elemental function pressure(self, density, energy) result(pressure_)
@@ -184,7 +194,7 @@ contains
    real(R8P),                intent(in) :: energy    !< Specific internal energy value.
    real(R8P)                            :: pressure_ !< Pressure value.
 
-   pressure_ = density * self%gm1 * energy
+   pressure_ = ic_pressure(gm1=self%gm1, density=density, energy=energy)
    endfunction pressure
 
    elemental function speed_of_sound(self, density, pressure) result(speed_of_sound_)
@@ -194,7 +204,7 @@ contains
    real(R8P),                intent(in) :: pressure        !< Pressure value.
    real(R8P)                            :: speed_of_sound_ !< Speed of sound value.
 
-   speed_of_sound_ = sqrt(self%g * pressure / density)
+   speed_of_sound_ = ic_speed_of_sound(g=self%g, density=density, pressure=pressure)
    endfunction speed_of_sound
 
    elemental function temperature(self, density, pressure) result(temperature_)
@@ -204,7 +214,7 @@ contains
    real(R8P),                intent(in) :: pressure     !< Pressure value.
    real(R8P)                            :: temperature_ !< Temperature value.
 
-   temperature_ = pressure / (self%R * density)
+   temperature_ = ic_temperature(R=self%R, density=density, pressure=pressure)
    endfunction temperature
 
    elemental function total_energy(self, density, pressure, velocity_sq_norm) result(energy_)
@@ -215,7 +225,7 @@ contains
    real(R8P),                intent(in) :: velocity_sq_norm !< Velocity vector square norm `||velocity||^2`.
    real(R8P)                            :: energy_          !< Total specific energy (per unit of mass).
 
-   energy_ = self%internal_energy(density=density, pressure=pressure) + 0.5_R8P * velocity_sq_norm
+   energy_ = ic_total_energy(gm1=self%gm1, density=density, pressure=pressure, velocity_sq_norm=velocity_sq_norm)
    endfunction total_energy
 
    elemental function total_entalpy(self, density, pressure, velocity_sq_norm) result(entalpy_)
@@ -226,7 +236,7 @@ contains
    real(R8P),                intent(in) :: velocity_sq_norm !< Velocity vector square norm `||velocity||^2`.
    real(R8P)                            :: entalpy_         !< Total specific entalpy (per unit of mass).
 
-   entalpy_ = self%g * pressure/(self%gm1 * density) + 0.5_R8P * velocity_sq_norm
+   entalpy_ = ic_total_entalpy(g=self%g, density=density, pressure=pressure, velocity_sq_norm=velocity_sq_norm)
    endfunction total_entalpy
 
    ! operators
@@ -244,6 +254,79 @@ contains
    lhs%gm1   = rhs%gm1
    lhs%gp1   = rhs%gp1
    endsubroutine eos_assign_eos
+
+   ! public non TBP
+   elemental function ic_density(g, pressure, speed_of_sound) result(density_)
+   !< Return density.
+   real(R8P), intent(in) :: g              !< Specific heats ratio.
+   real(R8P), intent(in) :: pressure       !< Pressure value.
+   real(R8P), intent(in) :: speed_of_sound !< Speed of sound value.
+   real(R8P)             :: density_       !< Density value.
+
+   density_ = g * pressure / (speed_of_sound * speed_of_sound)
+   endfunction ic_density
+
+   elemental function ic_internal_energy(gm1, density, pressure) result(energy_)
+   !< Return specific internal energy.
+   real(R8P), intent(in) :: gm1      !< Specific heats ratio minus 1.
+   real(R8P), intent(in) :: density  !< Density value.
+   real(R8P), intent(in) :: pressure !< Pressure value.
+   real(R8P)             :: energy_  !< Energy value.
+
+   energy_ = pressure / (gm1 * density)
+   endfunction ic_internal_energy
+
+   elemental function ic_pressure(gm1, density, energy) result(pressure_)
+   !< Return pressure.
+   real(R8P), intent(in) :: gm1       !< Specific heats ratio minus 1.
+   real(R8P), intent(in) :: density   !< Density value.
+   real(R8P), intent(in) :: energy    !< Specific internal energy value.
+   real(R8P)             :: pressure_ !< Pressure value.
+
+   pressure_ = density * gm1 * energy
+   endfunction ic_pressure
+
+   elemental function ic_speed_of_sound(g, density, pressure) result(speed_of_sound_)
+   !< Return speed of sound.
+   real(R8P), intent(in) :: g               !< Specific heats ratio.
+   real(R8P), intent(in) :: density         !< Density value.
+   real(R8P), intent(in) :: pressure        !< Pressure value.
+   real(R8P)             :: speed_of_sound_ !< Speed of sound value.
+
+   speed_of_sound_ = sqrt(g * pressure / density)
+   endfunction ic_speed_of_sound
+
+   elemental function ic_temperature(R, density, pressure) result(temperature_)
+   !< Return temperature.
+   real(R8P), intent(in) :: R            !< Fluid constant.
+   real(R8P), intent(in) :: density      !< Density value.
+   real(R8P), intent(in) :: pressure     !< Pressure value.
+   real(R8P)             :: temperature_ !< Temperature value.
+
+   temperature_ = pressure / (R * density)
+   endfunction ic_temperature
+
+   elemental function ic_total_energy(gm1, density, pressure, velocity_sq_norm) result(energy_)
+   !< Return total specific energy.
+   real(R8P), intent(in) :: gm1              !< Specific heats ratio minus 1.
+   real(R8P), intent(in) :: density          !< Density value.
+   real(R8P), intent(in) :: pressure         !< Pressure value.
+   real(R8P), intent(in) :: velocity_sq_norm !< Velocity vector square norm `||velocity||^2`.
+   real(R8P)             :: energy_          !< Total specific energy (per unit of mass).
+
+   energy_ = ic_internal_energy(gm1=gm1, density=density, pressure=pressure) + 0.5_R8P * velocity_sq_norm
+   endfunction ic_total_energy
+
+   elemental function ic_total_entalpy(g, density, pressure, velocity_sq_norm) result(entalpy_)
+   !< Return total specific entalpy.
+   real(R8P), intent(in) :: g                !< Specific heats ratio.
+   real(R8P), intent(in) :: density          !< Density value.
+   real(R8P), intent(in) :: pressure         !< Pressure value.
+   real(R8P), intent(in) :: velocity_sq_norm !< Velocity vector square norm `||velocity||^2`.
+   real(R8P)             :: entalpy_         !< Total specific entalpy (per unit of mass).
+
+   entalpy_ = g * pressure/((g-1._R8P) * density) + 0.5_R8P * velocity_sq_norm
+   endfunction ic_total_entalpy
 
    ! private non TBP
    elemental function eos_ic_cpu_instance(cp, cv, gam, R) result(instance)

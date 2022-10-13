@@ -125,14 +125,14 @@ contains
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ns', val=self%ns, error=error)
-   ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//INI_SECTION_NAME//'].(ns)'
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ns)')
    allocate(self%eos(1:self%ns))
    do s=1, self%ns
       sname = INI_SECTION_NAME//'_specie_'//trim(str(s,.true.))
       call file_parameters%get(section_name=sname, option_name='cp', val=cp, error=error)
-      ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//sname//'].(cp)'
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(cp)')
       call file_parameters%get(section_name=sname, option_name='cv', val=cv, error=error)
-      ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//sname//'].(cv)'
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(cv)')
       call self%eos(s)%initialize(cp=cp, cv=cv)
    enddo
    endsubroutine load_from_file

@@ -1,0 +1,25 @@
+from paraview.simple import *
+#### disable automatic camera reset on 'Show'
+paraview.simple._DisableFirstRenderCameraReset()
+# create a new 'XDMF Reader'
+filexdmf = XDMFReader(FileNames=['./BBFILENAMEXDMF'])
+filexdmf.CellArrayStatus = ['csp', 'enta', 'morton', 'pres', 'rhe', 'rho', 'rhob', 'rhu', 'rhv', 'rhw', 'tem', 'u', 'v', 'w', 'ya']
+# Properties modified on filexdmf
+filexdmf.CellArrayStatus = ['morton', 'pres', 'rhe', 'rho', 'u', 'v', 'w']
+# get active view
+renderView1 = GetActiveViewOrCreate('RenderView')
+# create a new 'Slice'
+slice1 = Slice(Input=filexdmf)
+slice1.SliceType = 'Plane'
+slice1.HyperTreeGridSlicer = 'Plane'
+slice1.SliceOffsetValues = [0.0]
+# init the 'Plane' selected for 'SliceType'
+slice1.SliceType.Origin = [10.0, 10.0, 10.0]
+# init the 'Plane' selected for 'HyperTreeGridSlicer'
+slice1.HyperTreeGridSlicer.Origin = [10.0, 10.0, 10.0]
+# Properties modified on slice1
+slice1.Triangulatetheslice = 0
+# Properties modified on slice1.SliceType
+slice1.SliceType.Normal = [0.0, 0.0, 1.0]
+# save data
+SaveData('./z-sliceAAAIT.vtm', proxy=slice1, CellDataArrays=['rho'], FieldDataArrays=['Morton', 'block-index', 'myrank'])

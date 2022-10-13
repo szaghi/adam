@@ -68,12 +68,11 @@ contains
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='frequency', val=self%frequency, error=error)
-   ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//INI_SECTION_NAME//'].(frequency)'
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(frequency)')
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='iters', val=self%iters, error=error)
-   ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//'error: failed to load ['//INI_SECTION_NAME//'].(iters)'
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(iters)')
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='markers_number', val=self%markers_number, error=error)
-   ! if (.not.go_on_fail_.and.error>0) error stop self%mpih%myrankstr//&
-                                                ! 'error: failed to load ['//INI_SECTION_NAME//'].(markers_number)'
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(markers_number)')
 
    allocate(self%markers(self%markers_number))
    do i_marker=1, self%markers_number
