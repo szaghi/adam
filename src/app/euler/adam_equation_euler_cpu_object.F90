@@ -359,15 +359,15 @@ contains
          call self%rk%compute_stage(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, dt=dt, s=s, &
                                     phi=self%ib%phi, rq=self%rq, q=self%field%q)
       enddo
-   ! stop
    case('rk-ns') ! normal storage schemes
       call self%rk%initialize_stage(ngc=self%grid%ngc, q=self%field%q)
       do s=1, self%rk%nrk
-         ! call self%apply_immersed_boundary(q=self%rk%q_s(:,:,:,:,:,s), q_ib=self%q_ib)
-         call self%mpih%barrier
          call self%rk%compute_stage(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, dt=dt, s=s, &
                                     phi=self%ib%phi, rq=self%rq, q=self%rk%q_s(:,:,:,:,:,s))
-         call self%compute_aux(q=self%rk%q_s(:,:,:,:,:,s), q_aux=self%q_aux)
+         call self%apply_immersed_boundary(q=self%rk%q_s(:,:,:,:,:,s), q_ib=self%q_ib)
+         call self%mpih%barrier
+         call self%update_ghost(q=self%q_ib)
+         call self%compute_aux(q=self%q_ib, q_aux=self%q_aux)
          call self%compute_residuals(q_aux=self%q_aux, rq=self%rk%q_s(:,:,:,:,:,s))
       enddo
       call self%rk%sum_stages(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, dt=dt, q=self%field%q)
@@ -597,7 +597,8 @@ contains
                                q_aux=self%q_aux,                         &
                                q_name=['rho','rhu','rhv','rhw','rhe'],   &
                                q_aux_name=['c','r','u','v','w','g','p'], &
-                               with_cell_morton=.true.)
+                               with_cell_morton=.true.,                  &
+                               t=self%it, time=self%time)
       call self%mpih%barrier(tictoc=.true.)
       print '(A, F18.10)', self%mpih%myrankstr//'step timing (save HDF5): ', self%mpih%tictoc_timing()
    endif

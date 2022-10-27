@@ -14,15 +14,33 @@ public :: ib_cpu_object
 public :: BCS_VISCOUS
 public :: BCS_EULER
 
+character(len=5), parameter :: INI_SECTION_NAME="solid" !< INI (config) file section name containing IB configs.
+
+character(len=19), parameter :: ANALYTICAL_SPHERE   = 'analytical_sphere  ' !< Analytical sphere solid.
+character(len=19), parameter :: ANALYTICAL_CYLINDER = 'analytical_cylinder' !< Analytical cylinder solid.
+character(len=19), parameter :: SOLID_DEFINITIONS(3)=[ANALYTICAL_SPHERE,   &
+                                                      ANALYTICAL_CYLINDER, &
+                                                      'file.off           ']  !< Available solid definitions.
+
 integer(I4P), parameter :: BCS_VISCOUS = 1_I4P !< Visous wall.
 integer(I4P), parameter :: BCS_EULER   = 2_I4P !< Inviscid wall.
 
+type :: analytical_sphere_object
+   !< Analytical sphere (or cylinder) solid class.
+   real(R8P)    :: center(3) = [0._R8P,0._R8P,0._R8P] !< Sphere center.
+   real(R8P)    :: radius    =  0._R8P                !< Sphere radius.
+   character(1) :: axis      =  ' '                   !< Axis (x,y,z) in case of cylynder solid.
+endtype analytical_sphere_object
+
 type :: ib_cpu_object
    !< IB class definition, CPU backend.
-   type(mpih_object)         :: mpih            !< MPI handler.
-   integer(I4P)              :: solids_number=0 !< Number of solids (only 1 supported now).
-   integer(I4P), allocatable :: bcs_type(:)     !< Immersed boundary condition type.
-   real(R8P),    allocatable :: bcs_vars(:, :)  !< Variables' array for immersed boundary conditions.
+   type(mpih_object)                           :: mpih            !< MPI handler.
+   integer(I4P)                                :: solids_number=0 !< Number of solids (only 1 supported now).
+   character(99),                  allocatable :: s_name(:)       !< Solid name.
+   integer(I4P),                   allocatable :: bcs_type(:)     !< Boundary condition type.
+   real(R8P),                      allocatable :: bcs_vars(:, :)  !< Variables array for boundary conditions.
+   character(99),                  allocatable :: definition(:)   !< (Type of) Solid definition.
+   type(analytical_sphere_object), allocatable :: sphere(:)       !< Analytical sphere solid.
    ! Pointers to ADAM data for easy handling.
    type(field_object), pointer :: field=>null() !< The field.
    type(grid_object),  pointer :: grid =>null() !< The grid.
@@ -33,8 +51,12 @@ type :: ib_cpu_object
       procedure, pass(self) :: description      !< Return pretty-printed object description.
       procedure, pass(self) :: evolve_eikonal_q !< Evolve eikonal q.
       procedure, pass(self) :: initialize       !< Initialize IB.
+      procedure, pass(self) :: load_from_file   !< Load config from file.
       procedure, pass(self) :: move_phi         !< Move phi and the actual ptree representation.
-      procedure, pass(self) :: update_phi       !< Update IB distance function.
+      procedure, pass(self) :: update_phi       !< Update distance function.
+      ! private methods
+      procedure, pass(self), private :: update_phi_analytical_sphere   !< Update distance function for analytical sphere solids.
+      procedure, pass(self), private :: update_phi_analytical_cylinder !< Update distance function for analytical cylinder solids.
 endtype ib_cpu_object
 
 contains
@@ -65,10 +87,10 @@ contains
    print '(A)', self%mpih%myrankstr//'ib_cpu_object%initialize start'
 
    ! associate ADAM main data
-   self%field         => field
-   self%grid          => grid
+   self%field => field
+   self%grid  => grid
 
-   call load_solids_from_ini_file
+   call self%load_from_file(file_parameters=file_parameters)
 
    ! allocate large arrays
    associate(ngc=>self%grid%ngc, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, nb=>self%field%nb, &
@@ -81,28 +103,61 @@ contains
 
    print '(A)', self%description()
    print '(A)', self%mpih%myrankstr//'ib_cpu_object%initialize finish'
-   contains
-      subroutine load_solids_from_ini_file
-      !< Parse immersed boundary solids setting from input file.
-      character(999) :: buf_CHAR !< String buffer.
-      integer(I4P)   :: buf_I4   !< I4 buffer.
-      character(999) :: sname    !< Section name.
-      integer(I4P)   :: i_solid  !< Counter.
-
-      call file_parameters%get(section_name='solids', option_name='solids_number', val=buf_I4)
-      self%solids_number = buf_I4
-      if (self%solids_number > 0) then
-         allocate(self%bcs_type(self%solids_number))
-         allocate(self%bcs_vars(6,self%solids_number))
-         do i_solid=1, self%solids_number
-            sname = 'solid_'//trim(str(i_solid,.true.))
-            call file_parameters%get(section_name=sname, option_name='name', val=buf_CHAR)
-            call file_parameters%get(section_name=sname, option_name='bcs_type', val=buf_I4)
-            self%bcs_type(i_solid) = buf_I4
-         enddo
-      endif
-      endsubroutine load_solids_from_ini_file
    endsubroutine initialize
+
+   subroutine load_from_file(self, file_parameters, go_on_fail)
+   !< Load config from file.
+   class(ib_cpu_object), intent(inout)        :: self            !< IB.
+   type(file_ini),       intent(in)           :: file_parameters !< Simulation parameters ini file handler.
+   logical,              intent(in), optional :: go_on_fail      !< Go on if load fails.
+   logical                                    :: go_on_fail_     !< Go on if load fails.
+   character(:), allocatable                  :: sname           !< Section name.
+   integer(I4P)                               :: i               !< Counter.
+   integer(I4P)                               :: error           !< Error status.
+
+   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
+   call file_parameters%get(section_name=INI_SECTION_NAME//'s', option_name='number', val=self%solids_number, error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'s].(number)')
+
+   if (self%solids_number>=1) then
+      allocate(self%s_name(self%solids_number))
+      allocate(self%bcs_type(self%solids_number))
+      allocate(self%bcs_vars(6,self%solids_number))
+      allocate(self%definition(self%solids_number))
+      allocate(self%sphere(self%solids_number))
+      do i=1, self%solids_number
+         sname = INI_SECTION_NAME//'_'//trim(str(i,.true.))
+         call file_parameters%get(section_name=sname, option_name='name', val=self%s_name(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(name)')
+         call file_parameters%get(section_name=sname, option_name='bc_type', val=self%bcs_type(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(bc_type)')
+         call file_parameters%get(section_name=sname, option_name='definition', val=self%definition(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(definition)')
+         select case(trim(adjustl(self%definition(i))))
+         case(trim(ANALYTICAL_SPHERE))
+            call file_parameters%get(section_name=sname, option_name='sphere_center_x', val=self%sphere(i)%center(1), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(sphere_center_x)')
+            call file_parameters%get(section_name=sname, option_name='sphere_center_y', val=self%sphere(i)%center(2), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(sphere_center_y)')
+            call file_parameters%get(section_name=sname, option_name='sphere_center_z', val=self%sphere(i)%center(3), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(sphere_center_z)')
+            call file_parameters%get(section_name=sname, option_name='sphere_radius', val=self%sphere(i)%radius, error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(sphere_radius)')
+         case(trim(ANALYTICAL_CYLINDER))
+            call file_parameters%get(section_name=sname, option_name='cylinder_center_x', val=self%sphere(i)%center(1), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(cylinder_center_x)')
+            call file_parameters%get(section_name=sname, option_name='cylinder_center_y', val=self%sphere(i)%center(2), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(cylinder_center_y)')
+            call file_parameters%get(section_name=sname, option_name='cylinder_center_z', val=self%sphere(i)%center(3), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(cylinder_center_z)')
+            call file_parameters%get(section_name=sname, option_name='cylinder_radius', val=self%sphere(i)%radius, error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(cylinder_radius)')
+            call file_parameters%get(section_name=sname, option_name='cylinder_axis', val=self%sphere(i)%axis, error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(cylinder_axis)')
+         endselect
+      enddo
+   endif
+   endsubroutine load_from_file
 
    subroutine move_phi(self, velocity, s)
    !< Move phi.
@@ -160,29 +215,22 @@ contains
    endsubroutine move_phi
 
    subroutine update_phi(self)
-   !< Update phi.
-   class(ib_cpu_object), intent(inout) :: self           !< IB.
-   integer(I4P)                        :: b, i, j, k, ib !< Counter.
+   !< Update distance function.
+   class(ib_cpu_object), intent(inout) :: self !< IB.
+   integer(I4P)                        :: ib   !< Counter.
 
-   associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, &
-             x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell,                                   &
-             phi=>self%phi, solids_number=>self%solids_number)
-   if (solids_number > 0) then
+   if (self%solids_number > 0) then
       print '(A)', self%mpih%myrankstr//'ib_cpu_object%update IB distance start'
-      do b=1,blocks_number
-         do i=1-ngc,ni+ngc
-            do j=1-ngc,nj+ngc
-               do k=1-ngc,nk+ngc
-                  do ib=1, solids_number
-                     phi(ib,i,j,k,b) = - (sqrt((x_cell(i,b)-10._R8P)**2+(y_cell(j,b)-10._R8P)**2+(z_cell(k,b)-10._R8P)**2)-1.0_R8P)
-                  enddo
-               enddo
-            enddo
-         enddo
+      do ib=1, self%solids_number
+         select case(trim(adjustl(self%definition(ib))))
+         case(trim(ANALYTICAL_SPHERE))
+            call self%update_phi_analytical_sphere(solid=ib, sphere=self%sphere(ib))
+         case(trim(ANALYTICAL_CYLINDER))
+            call self%update_phi_analytical_cylinder(solid=ib, sphere=self%sphere(ib))
+         endselect
       enddo
       print '(A)', self%mpih%myrankstr//'ib_cpu_object%update IB distance finish'
    endif
-   endassociate
    endsubroutine update_phi
 
    subroutine evolve_eikonal_q(self, q)
@@ -241,4 +289,75 @@ contains
    enddo
    endassociate
    endsubroutine evolve_eikonal_q
+
+   ! private methods
+   subroutine update_phi_analytical_sphere(self, solid, sphere)
+   !< Update distance function for analytical sphere solid.
+   class(ib_cpu_object),           intent(inout) :: self       !< IB.
+   integer(I4P),                   intent(in)    :: solid      !< Solid index.
+   type(analytical_sphere_object), intent(in)    :: sphere     !< Analytical sphere solid.
+   integer(I4P)                                  :: b, i, j, k !< Counter.
+
+   associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, &
+             x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell, phi=>self%phi)
+   do b=1, blocks_number
+      do i=1-ngc, ni+ngc
+         do j=1-ngc, nj+ngc
+            do k=1-ngc, nk+ngc
+               phi(solid,i,j,k,b) = - (sqrt((x_cell(i,b)-sphere%center(1))**2 + &
+                                            (y_cell(j,b)-sphere%center(2))**2 + &
+                                            (z_cell(k,b)-sphere%center(3))**2) - sphere%radius)
+            enddo
+         enddo
+      enddo
+   enddo
+   endassociate
+   endsubroutine update_phi_analytical_sphere
+
+   subroutine update_phi_analytical_cylinder(self, solid, sphere)
+   !< Update distance function for analytical cylinder solid.
+   class(ib_cpu_object),           intent(inout) :: self       !< IB.
+   integer(I4P),                   intent(in)    :: solid      !< Solid index.
+   type(analytical_sphere_object), intent(in)    :: sphere     !< Analytical cylinder solid.
+   integer(I4P)                                  :: b, i, j, k !< Counter.
+
+   associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, &
+             x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell, phi=>self%phi)
+   select case(sphere%axis)
+   case('x')
+      do b=1, blocks_number
+         do i=1-ngc, ni+ngc
+            do j=1-ngc, nj+ngc
+               do k=1-ngc, nk+ngc
+                  phi(solid,i,j,k,b) = - (sqrt((y_cell(j,b)-sphere%center(2))**2 + &
+                                               (z_cell(k,b)-sphere%center(3))**2) - sphere%radius)
+               enddo
+            enddo
+         enddo
+      enddo
+   case('y')
+      do b=1, blocks_number
+         do i=1-ngc, ni+ngc
+            do j=1-ngc, nj+ngc
+               do k=1-ngc, nk+ngc
+                  phi(solid,i,j,k,b) = - (sqrt((x_cell(i,b)-sphere%center(1))**2 + &
+                                               (z_cell(k,b)-sphere%center(3))**2) - sphere%radius)
+               enddo
+            enddo
+         enddo
+      enddo
+   case('z')
+      do b=1, blocks_number
+         do i=1-ngc, ni+ngc
+            do j=1-ngc, nj+ngc
+               do k=1-ngc, nk+ngc
+                  phi(solid,i,j,k,b) = - (sqrt((x_cell(i,b)-sphere%center(1))**2 + &
+                                               (y_cell(j,b)-sphere%center(2))**2) - sphere%radius)
+               enddo
+            enddo
+         enddo
+      enddo
+   endselect
+   endassociate
+   endsubroutine update_phi_analytical_cylinder
 endmodule adam_ib_cpu_object

@@ -1,10 +1,32 @@
 [modes]
-modes = euler-gnu-mpi euler-gnu-mpi-debug
+modes = euler-gnu-mpi euler-gnu-mpi-debug euler-intel-mpi
 
 [common-variables]
 $HDF5_gnu = /opt/HDF5/bin/1.12.2/openmpi/4.1.4/gnu/11.2.0
 $ZLIB     = /opt/zlib/bin/1.2.11/lib/libz.a
 $SZIP     = /opt/szip/bin/2.1.1/lib/libsz.a
+$EXC_DIRS = references/
+            BeFoR64/src/tests/
+            BeFoR64/src/third_party/
+            FACE/src/tests/
+            FACE/src/third_party/
+            FiNeR/src/tests/
+            FiNeR/src/third_party/
+            FOSSIL/src/app/
+            FOSSIL/src/tests/
+            FOSSIL/src/third_party/
+            FoXy/src/tests/
+            FoXy/src/third_party/
+            MORTIF/src/tests/
+            MORTIF/src/third_party/
+            PENF/src/tests/
+            StringiFor/src/tests/
+            StringiFor/src/third_party/
+            VecFor/src/tests/
+            VecFor/src/third_party/
+            VTKFortran/src/tests/
+            VTKFortran/src/third_party/
+            third_party_manual/
 
 # main modes
 [euler-gnu-mpi]
@@ -19,6 +41,11 @@ template = template-euler-gnu-mpi
 cflags   = -cpp -c -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fcheck=all -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan -std=f2018 -fall-intrinsics
 lflags   = -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fcheck=all -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan -std=f2018 -fall-intrinsics
 
+[euler-intel-mpi]
+help     = Build euler app with INTEL MPI on SZ laptop
+template = template-euler-intel-mpi
+cflags   = -cpp -c -O2
+lflags   = -O2
 
 # templates
 [template-euler-gnu-mpi]
@@ -44,28 +71,35 @@ libs         = $HDF5_gnu/lib/libhdf5hl_fortran.a
                $ZLIB
                $SZIP
                ./exe/obj/getmemory.o
-exclude_dirs = references/
-               BeFoR64/src/tests/
-               BeFoR64/src/third_party/
-               FACE/src/tests/
-               FACE/src/third_party/
-               FiNeR/src/tests/
-               FiNeR/src/third_party/
-               FOSSIL/src/app/
-               FOSSIL/src/tests/
-               FOSSIL/src/third_party/
-               FoXy/src/tests/
-               FoXy/src/third_party/
-               MORTIF/src/tests/
-               MORTIF/src/third_party/
-               PENF/src/tests/
-               StringiFor/src/tests/
-               StringiFor/src/third_party/
-               VecFor/src/tests/
-               VecFor/src/third_party/
-               VTKFortran/src/tests/
-               VTKFortran/src/third_party/
-               third_party_manual/
+exclude_dirs = $EXC_DIRS
+
+[template-euler-intel-mpi]
+compiler     = intel
+; compiler     = custom
+; fc           = mpiifort
+; modsw        = "-module "
+mod_dir      = ./mod/
+obj_dir      = ./obj/
+src          = ./src/
+build_dir    = ./exe/
+target       = adam_euler_cpu.F90
+colors       = True
+quiet        = False
+log          = True
+jobs         = 4
+mpi          = True
+preproc      = -D_MPI_
+ext_libs     = dl m
+lib_dir      = $HDF5_gnu/lib
+include      = $HDF5_gnu/include
+libs         = $HDF5_gnu/lib/libhdf5hl_fortran.a
+               $HDF5_gnu/lib/libhdf5_hl.a
+               $HDF5_gnu/lib/libhdf5_fortran.a
+               $HDF5_gnu/lib/libhdf5.a
+               $ZLIB
+               $SZIP
+               ./exe/obj/getmemory.o
+exclude_dirs = $EXC_DIRS
 
 # aux rules
 [rule-makethirdpartymanual]
