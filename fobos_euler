@@ -2,31 +2,32 @@
 modes = euler-gnu-mpi euler-gnu-mpi-debug euler-intel-mpi
 
 [common-variables]
-$HDF5_gnu = /opt/HDF5/bin/1.12.2/openmpi/4.1.4/gnu/11.2.0
-$ZLIB     = /opt/zlib/bin/1.2.11/lib/libz.a
-$SZIP     = /opt/szip/bin/2.1.1/lib/libsz.a
-$EXC_DIRS = references/
-            BeFoR64/src/tests/
-            BeFoR64/src/third_party/
-            FACE/src/tests/
-            FACE/src/third_party/
-            FiNeR/src/tests/
-            FiNeR/src/third_party/
-            FOSSIL/src/app/
-            FOSSIL/src/tests/
-            FOSSIL/src/third_party/
-            FoXy/src/tests/
-            FoXy/src/third_party/
-            MORTIF/src/tests/
-            MORTIF/src/third_party/
-            PENF/src/tests/
-            StringiFor/src/tests/
-            StringiFor/src/third_party/
-            VecFor/src/tests/
-            VecFor/src/third_party/
-            VTKFortran/src/tests/
-            VTKFortran/src/third_party/
-            third_party_manual/
+$HDF5_gnu   = /opt/HDF5/bin/1.12.2/openmpi/4.1.4/gnu/11.2.0
+$HDF5_intel = /opt/HDF5/bin/1.12.2/openmpi/4.1.4/intel/2021.5.0
+$ZLIB       = /opt/zlib/bin/1.2.11/lib/libz.a
+$SZIP       = /opt/szip/bin/2.1.1/lib/libsz.a
+$EXC_DIRS   = references/
+              BeFoR64/src/tests/
+              BeFoR64/src/third_party/
+              FACE/src/tests/
+              FACE/src/third_party/
+              FiNeR/src/tests/
+              FiNeR/src/third_party/
+              FOSSIL/src/app/
+              FOSSIL/src/tests/
+              FOSSIL/src/third_party/
+              FoXy/src/tests/
+              FoXy/src/third_party/
+              MORTIF/src/tests/
+              MORTIF/src/third_party/
+              PENF/src/tests/
+              StringiFor/src/tests/
+              StringiFor/src/third_party/
+              VecFor/src/tests/
+              VecFor/src/third_party/
+              VTKFortran/src/tests/
+              VTKFortran/src/third_party/
+              third_party_manual/
 
 # main modes
 [euler-gnu-mpi]
@@ -74,10 +75,9 @@ libs         = $HDF5_gnu/lib/libhdf5hl_fortran.a
 exclude_dirs = $EXC_DIRS
 
 [template-euler-intel-mpi]
-compiler     = intel
-; compiler     = custom
-; fc           = mpiifort
-; modsw        = "-module "
+compiler     = custom
+fc           = mpif90
+modsw        = '-module '
 mod_dir      = ./mod/
 obj_dir      = ./obj/
 src          = ./src/
@@ -90,12 +90,12 @@ jobs         = 4
 mpi          = True
 preproc      = -D_MPI_
 ext_libs     = dl m
-lib_dir      = $HDF5_gnu/lib
-include      = $HDF5_gnu/include
-libs         = $HDF5_gnu/lib/libhdf5hl_fortran.a
-               $HDF5_gnu/lib/libhdf5_hl.a
-               $HDF5_gnu/lib/libhdf5_fortran.a
-               $HDF5_gnu/lib/libhdf5.a
+lib_dir      = $HDF5_intel/lib
+include      = $HDF5_intel/include
+libs         = $HDF5_intel/lib/libhdf5hl_fortran.a
+               $HDF5_intel/lib/libhdf5_hl.a
+               $HDF5_intel/lib/libhdf5_fortran.a
+               $HDF5_intel/lib/libhdf5.a
                $ZLIB
                $SZIP
                ./exe/obj/getmemory.o
