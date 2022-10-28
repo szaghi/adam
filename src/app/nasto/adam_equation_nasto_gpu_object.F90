@@ -2153,99 +2153,99 @@ contains
        endif
    endif
 
-   if(enable_ror_stats > 0) then
-       ror_x_1 = 0._R8P ; ror_x_2 = 0._R8P ; ror_x_3 = 0._R8P ; ror_x_4 = 0._R8P
-       ror_y_1 = 0._R8P ; ror_y_2 = 0._R8P ; ror_y_3 = 0._R8P ; ror_y_4 = 0._R8P
-       ror_z_1 = 0._R8P ; ror_z_2 = 0._R8P ; ror_z_3 = 0._R8P ; ror_z_4 = 0._R8P
-       !$cuf kernel do(4) <<<*,*>>> reduction(+: ror_x_1, ror_x_2, ror_x_3, ror_x_4)
-       do k=1,nk
-          do i=0,ni
-             do j=1,nj
-                do b=1,blocks_number
-                   if(ror_stats_gpu(b,i,j,k,1) == weno_schemes_gpu(1)) ror_x_1 = ror_x_1 + 1
-                   if(size(weno_schemes_gpu)>1) then
-                       if(ror_stats_gpu(b,i,j,k,1) == weno_schemes_gpu(2)) ror_x_2 = ror_x_2 + 1
-                   endif
-                   if(size(weno_schemes_gpu)>2) then
-                       if(ror_stats_gpu(b,i,j,k,1) == weno_schemes_gpu(3)) ror_x_3 = ror_x_3 + 1
-                   endif
-                   if(size(weno_schemes_gpu)>3) then
-                       if(ror_stats_gpu(b,i,j,k,1) == weno_schemes_gpu(4)) ror_x_4 = ror_x_4 + 1
-                   endif
-                enddo
-             enddo
-          enddo
-       enddo
-       !@cuf iercuda=cudaDeviceSynchronize()
-       !$cuf kernel do(4) <<<*,*>>> reduction(+: ror_y_1, ror_y_2, ror_y_3, ror_y_4)
-       do k=1,nk
-          do i=1,ni
-             do j=0,nj
-                do b=1,blocks_number
-                   if(ror_stats_gpu(b,i,j,k,2) == weno_schemes_gpu(1)) ror_y_1 = ror_y_1 + 1
-                   if(size(weno_schemes_gpu)>1) then
-                       if(ror_stats_gpu(b,i,j,k,2) == weno_schemes_gpu(2)) ror_y_2 = ror_y_2 + 1
-                   endif
-                   if(size(weno_schemes_gpu)>2) then
-                       if(ror_stats_gpu(b,i,j,k,2) == weno_schemes_gpu(3)) ror_y_3 = ror_y_3 + 1
-                   endif
-                   if(size(weno_schemes_gpu)>3) then
-                       if(ror_stats_gpu(b,i,j,k,2) == weno_schemes_gpu(4)) ror_y_4 = ror_y_4 + 1
-                   endif
-                enddo
-             enddo
-          enddo
-       enddo
-       !@cuf iercuda=cudaDeviceSynchronize()
-       !$cuf kernel do(4) <<<*,*>>> reduction(+: ror_z_1, ror_z_2, ror_z_3, ror_z_4)
-       do k=0,nk
-          do i=1,ni
-             do j=1,nj
-                do b=1,blocks_number
-                   if(ror_stats_gpu(b,i,j,k,3) == weno_schemes_gpu(1)) ror_z_1 = ror_z_1 + 1
-                   if(size(weno_schemes_gpu)>1) then
-                       if(ror_stats_gpu(b,i,j,k,3) == weno_schemes_gpu(2)) ror_z_2 = ror_z_2 + 1
-                   endif
-                   if(size(weno_schemes_gpu)>2) then
-                       if(ror_stats_gpu(b,i,j,k,3) == weno_schemes_gpu(3)) ror_z_3 = ror_z_3 + 1
-                   endif
-                   if(size(weno_schemes_gpu)>3) then
-                       if(ror_stats_gpu(b,i,j,k,3) == weno_schemes_gpu(4)) ror_z_4 = ror_z_4 + 1
-                   endif
-                enddo
-             enddo
-          enddo
-       enddo
-       !@cuf iercuda=cudaDeviceSynchronize()
-       ror_tot = ror_x_1+ror_x_2+ror_x_3+ror_x_4
-       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_tot, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
-       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_x_1, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
-       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_x_2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
-       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_x_3, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
-       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_x_4, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
-       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_y_1, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
-       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_y_2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
-       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_y_3, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
-       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_y_4, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
-       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_z_1, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
-       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_z_2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
-       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_z_3, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
-       call MPI_ALLREDUCE(MPI_IN_PLACE, ror_z_4, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
-       ror_x_1 = ror_x_1 / ror_tot * 100 ; ror_x_2 = ror_x_2 / ror_tot * 100
-       ror_x_3 = ror_x_3 / ror_tot * 100 ; ror_x_4 = ror_x_4 / ror_tot * 100
-       ror_y_1 = ror_y_1 / ror_tot * 100 ; ror_y_2 = ror_y_2 / ror_tot * 100
-       ror_y_3 = ror_y_3 / ror_tot * 100 ; ror_y_4 = ror_y_4 / ror_tot * 100
-       ror_z_1 = ror_z_1 / ror_tot * 100 ; ror_z_2 = ror_z_2 / ror_tot * 100
-       ror_z_3 = ror_z_3 / ror_tot * 100 ; ror_z_4 = ror_z_4 / ror_tot * 100
-       if(self%mpih%myrank == 0) then
-           open(unit=88, file="ror_stats.dat", position="append")
-           write(88,'(100(F18.10,2x))') ror_tot, &
-                                        ror_x_1,ror_x_2,ror_x_3,ror_x_4, &
-                                        ror_y_1,ror_y_2,ror_y_3,ror_y_4, &
-                                        ror_z_1,ror_z_2,ror_z_3,ror_z_4
-           close(88)
-       endif
-   endif
+  !if(enable_ror_stats > 0) then
+  !    ror_x_1 = 0._R8P ; ror_x_2 = 0._R8P ; ror_x_3 = 0._R8P ; ror_x_4 = 0._R8P
+  !    ror_y_1 = 0._R8P ; ror_y_2 = 0._R8P ; ror_y_3 = 0._R8P ; ror_y_4 = 0._R8P
+  !    ror_z_1 = 0._R8P ; ror_z_2 = 0._R8P ; ror_z_3 = 0._R8P ; ror_z_4 = 0._R8P
+  !    !$cuf kernel do(4) <<<*,*>>> reduction(+: ror_x_1, ror_x_2, ror_x_3, ror_x_4)
+  !    do k=1,nk
+  !       do i=0,ni
+  !          do j=1,nj
+  !             do b=1,blocks_number
+  !                if(ror_stats_gpu(b,i,j,k,1) == weno_schemes_gpu(1)) ror_x_1 = ror_x_1 + 1
+  !                if(size(weno_schemes_gpu)>1) then
+  !                    if(ror_stats_gpu(b,i,j,k,1) == weno_schemes_gpu(2)) ror_x_2 = ror_x_2 + 1
+  !                endif
+  !                if(size(weno_schemes_gpu)>2) then
+  !                    if(ror_stats_gpu(b,i,j,k,1) == weno_schemes_gpu(3)) ror_x_3 = ror_x_3 + 1
+  !                endif
+  !                if(size(weno_schemes_gpu)>3) then
+  !                    if(ror_stats_gpu(b,i,j,k,1) == weno_schemes_gpu(4)) ror_x_4 = ror_x_4 + 1
+  !                endif
+  !             enddo
+  !          enddo
+  !       enddo
+  !    enddo
+  !    !@cuf iercuda=cudaDeviceSynchronize()
+  !    !$cuf kernel do(4) <<<*,*>>> reduction(+: ror_y_1, ror_y_2, ror_y_3, ror_y_4)
+  !    do k=1,nk
+  !       do i=1,ni
+  !          do j=0,nj
+  !             do b=1,blocks_number
+  !                if(ror_stats_gpu(b,i,j,k,2) == weno_schemes_gpu(1)) ror_y_1 = ror_y_1 + 1
+  !                if(size(weno_schemes_gpu)>1) then
+  !                    if(ror_stats_gpu(b,i,j,k,2) == weno_schemes_gpu(2)) ror_y_2 = ror_y_2 + 1
+  !                endif
+  !                if(size(weno_schemes_gpu)>2) then
+  !                    if(ror_stats_gpu(b,i,j,k,2) == weno_schemes_gpu(3)) ror_y_3 = ror_y_3 + 1
+  !                endif
+  !                if(size(weno_schemes_gpu)>3) then
+  !                    if(ror_stats_gpu(b,i,j,k,2) == weno_schemes_gpu(4)) ror_y_4 = ror_y_4 + 1
+  !                endif
+  !             enddo
+  !          enddo
+  !       enddo
+  !    enddo
+  !    !@cuf iercuda=cudaDeviceSynchronize()
+  !    !$cuf kernel do(4) <<<*,*>>> reduction(+: ror_z_1, ror_z_2, ror_z_3, ror_z_4)
+  !    do k=0,nk
+  !       do i=1,ni
+  !          do j=1,nj
+  !             do b=1,blocks_number
+  !                if(ror_stats_gpu(b,i,j,k,3) == weno_schemes_gpu(1)) ror_z_1 = ror_z_1 + 1
+  !                if(size(weno_schemes_gpu)>1) then
+  !                    if(ror_stats_gpu(b,i,j,k,3) == weno_schemes_gpu(2)) ror_z_2 = ror_z_2 + 1
+  !                endif
+  !                if(size(weno_schemes_gpu)>2) then
+  !                    if(ror_stats_gpu(b,i,j,k,3) == weno_schemes_gpu(3)) ror_z_3 = ror_z_3 + 1
+  !                endif
+  !                if(size(weno_schemes_gpu)>3) then
+  !                    if(ror_stats_gpu(b,i,j,k,3) == weno_schemes_gpu(4)) ror_z_4 = ror_z_4 + 1
+  !                endif
+  !             enddo
+  !          enddo
+  !       enddo
+  !    enddo
+  !    !@cuf iercuda=cudaDeviceSynchronize()
+  !    ror_tot = ror_x_1+ror_x_2+ror_x_3+ror_x_4
+  !    call MPI_ALLREDUCE(MPI_IN_PLACE, ror_tot, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+  !    call MPI_ALLREDUCE(MPI_IN_PLACE, ror_x_1, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+  !    call MPI_ALLREDUCE(MPI_IN_PLACE, ror_x_2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+  !    call MPI_ALLREDUCE(MPI_IN_PLACE, ror_x_3, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+  !    call MPI_ALLREDUCE(MPI_IN_PLACE, ror_x_4, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+  !    call MPI_ALLREDUCE(MPI_IN_PLACE, ror_y_1, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+  !    call MPI_ALLREDUCE(MPI_IN_PLACE, ror_y_2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+  !    call MPI_ALLREDUCE(MPI_IN_PLACE, ror_y_3, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+  !    call MPI_ALLREDUCE(MPI_IN_PLACE, ror_y_4, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+  !    call MPI_ALLREDUCE(MPI_IN_PLACE, ror_z_1, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+  !    call MPI_ALLREDUCE(MPI_IN_PLACE, ror_z_2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+  !    call MPI_ALLREDUCE(MPI_IN_PLACE, ror_z_3, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+  !    call MPI_ALLREDUCE(MPI_IN_PLACE, ror_z_4, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+  !    ror_x_1 = ror_x_1 / ror_tot * 100 ; ror_x_2 = ror_x_2 / ror_tot * 100
+  !    ror_x_3 = ror_x_3 / ror_tot * 100 ; ror_x_4 = ror_x_4 / ror_tot * 100
+  !    ror_y_1 = ror_y_1 / ror_tot * 100 ; ror_y_2 = ror_y_2 / ror_tot * 100
+  !    ror_y_3 = ror_y_3 / ror_tot * 100 ; ror_y_4 = ror_y_4 / ror_tot * 100
+  !    ror_z_1 = ror_z_1 / ror_tot * 100 ; ror_z_2 = ror_z_2 / ror_tot * 100
+  !    ror_z_3 = ror_z_3 / ror_tot * 100 ; ror_z_4 = ror_z_4 / ror_tot * 100
+  !    if(self%mpih%myrank == 0) then
+  !        open(unit=88, file="ror_stats.dat", position="append")
+  !        write(88,'(100(F18.10,2x))') ror_tot, &
+  !                                     ror_x_1,ror_x_2,ror_x_3,ror_x_4, &
+  !                                     ror_y_1,ror_y_2,ror_y_3,ror_y_4, &
+  !                                     ror_z_1,ror_z_2,ror_z_3,ror_z_4
+  !        close(88)
+  !    endif
+  !endif
 
    ! ! debug restart
    ! if (self%itt == 51) then
