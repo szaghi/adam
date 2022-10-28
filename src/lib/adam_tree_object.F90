@@ -311,11 +311,23 @@ contains
    ! public methods
    subroutine adapt(self)
    !< Adapt tree accordingly to refine/derefine necessity.
-   class(tree_object), intent(inout) :: self !< The tree.
+   class(tree_object), intent(inout) :: self        !< The tree.
+   real(R8P)                         :: timing(1:2) !< Tic toc timing.
 
+   timing(1) = MPI_WTIME()
    call self%sanitize
+   timing(2) = MPI_WTIME()
+   print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%ADAPT%SANITIZE: ', timing(2) - timing(1)
+
+   timing(1) = MPI_WTIME()
    call self%refine
+   timing(2) = MPI_WTIME()
+   print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%ADAPT%REFINE: ', timing(2) - timing(1)
+
+   timing(1) = MPI_WTIME()
    call self%derefine
+   timing(2) = MPI_WTIME()
+   print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%ADAPT%DEREFINE: ', timing(2) - timing(1)
    endsubroutine adapt
 
    function codes(self, only_mine, sort_by_level)
@@ -1754,6 +1766,7 @@ contains
    integer(I4P)                      :: child_local_code !< Local numbering.
    integer(I8P)                      :: n_keep           !< Number of keept nodes.
    integer(I8P)                      :: n_recv           !< Number of nodes that I have to receive.
+   real(R8P)                         :: timing(2)        !< Tic toc timing.
 
    codes_sorted = self%codes() ! sorted list of codes
    my_codes_number = nint(real(size(codes_sorted, dim=1),R8P) / self%mpih%procs_number)
@@ -1762,6 +1775,7 @@ contains
    block_index_new = 0_I8P
    ! loop over all codes
    c = 1
+   timing(1) = MPI_WTIME()
    do while(c<=size(codes_sorted, dim=1))
       if (block_index_new > my_codes_number.and.p < self%mpih%procs_number-1) then ! I would like to split...
          if (can_split()) then
@@ -1804,6 +1818,8 @@ contains
       endif
       c = c + 1
    enddo
+   timing(2) = MPI_WTIME()
+   print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%MPI_REDISTRIBUTE%newrank_loop: ', timing(2) - timing(1)
 
    ! create communication/local maps
    call self%make_comm_local_maps
@@ -1812,6 +1828,7 @@ contains
    n_recv = 0_I8P ; if (allocated(self%comm_map_recv)) n_recv = size(self%comm_map_recv, dim=1)
    if (allocated(self%block_coordinates)) deallocate(self%block_coordinates) ; allocate(self%block_coordinates(4, n_keep + n_recv))
    if (allocated(self%block_code)) deallocate(self%block_code) ; allocate(self%block_code(n_keep + n_recv))
+   timing(1) = MPI_WTIME()
    do while(self%loop(node_ptr=node_ptr))
       node_ptr%myrank = node_ptr%myrank_new
       node_ptr%block_index = node_ptr%block_index_new
@@ -1829,6 +1846,8 @@ contains
          self%block_code(node_ptr%block_index) = node_ptr%code
       endif
    enddo
+   timing(2) = MPI_WTIME()
+   print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%MPI_REDISTRIBUTE%create_coordinate: ', timing(2) - timing(1)
 
    self%last_block_index = n_keep + n_recv
    contains
@@ -2864,21 +2883,25 @@ contains
    integer(I4P)                                    :: new_level            !< New level counter.
    integer(I4P)                                    :: new_level_n          !< Neighbor new level counter.
    integer(I4P)                                    :: s, sib, f, n         !< Counter.
-
-   !integer(I8P)                                    :: old_size
+   real(R8P)                                       :: timing(4)            !< Tic toc timing.
 
    iterations_number_ = TREE_MAX_SANITIZE_ITERATIONS ; if (present(iterations_number)) iterations_number_ = iterations_number
 
+   timing(1) = MPI_WTIME()
    min_max_check_loop : do while(self%loop(node_ptr=node_ptr))
       new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
       if ((new_level > self%max_level).or.(new_level < 0)) then
          node_ptr%refinement_needed = TO_NOT_TOUCH
       endif
    enddo min_max_check_loop
+   timing(2) = MPI_WTIME()
+   print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%SANITIZE%min_max_check_loop: ', timing(2) - timing(1)
 
    !MEMORYLEAK LEVAREallocate(self%temp_array_i8(10000))
 
+   timing(1) = MPI_WTIME()
    sanitize_loop : do s=1, iterations_number_
+      print '(A)', self%mpih%myrankstr//'sanitize iteration '//trim(str(s,.true.))
       is_sanitize_complete = .true.
 
       ! check for the sanity of derefinement
@@ -2886,6 +2909,7 @@ contains
       if (allocated(self%node_to_derefine)) deallocate(self%node_to_derefine) ; allocate(self%node_to_derefine(0))
       if (allocated(codes_analyzed)) deallocate(codes_analyzed) ; allocate(codes_analyzed(0))
       !MEMORYLEAKLEVAREif (allocated(self%codes_analyzed)) deallocate(self%codes_analyzed) ; allocate(self%codes_analyzed(0))
+      timing(3) = MPI_WTIME()
       derefine_loop : do while(self%loop(node_ptr=node_ptr))
          ! check if I want to be derefined and I have not been analyzed yet
          if (node_ptr%refinement_needed == TO_BE_DEREFINED) then
@@ -2929,35 +2953,38 @@ contains
             endif
          endif
       enddo derefine_loop
+      timing(4) = MPI_WTIME()
+      print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%SANITIZE%sanitize_loop%derefine_loop: ', timing(4) - timing(3)
 
-     ! check for the sanity of refinement (2:1 rule)
-     refine_loop : do while(self%loop(node_ptr=node_ptr))
-        new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
-        face_loop : do f=1, 26
-           call self%get_neighbor_all(code=node_ptr%code, face=f, neighbor=neighbor, neighbor_type=neighbor_type)
-           if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
-              neighbor_loop : do n=1, size(neighbor, dim=1)
-                 ! check level
-                 neigh => self%node(code=neighbor(n))
-                 new_level_n = self%level(code=neighbor(n)) + neigh%refinement_needed
-                 if (new_level_n > new_level + 1) then
-                    ! a neighbour want to be refined 2 levels more than me, I have to refine more too
-                    is_sanitize_complete = .false.
-                    if     (new_level_n - new_level == 3) then ! node want to derefine, but it must be refined
-                       node_ptr%refinement_needed = 1
-                    elseif (new_level_n - new_level == 2) then
-                       node_ptr%refinement_needed = node_ptr%refinement_needed + 1
-                    else
-                       print '(A)', self%mpih%myrankstr//'SOMETHING WENT TERRIBLY WRONG. EXIT!'
-                       print '(A)', self%mpih%myrankstr//'REFINEMENT NEEDED '//trim(str(node_ptr%refinement_needed,.true.))
-                       print '(A)', self%mpih%myrankstr//'SANITIZE ITERATIONS '//trim(str(s,.true.))
-                       stop
-                    endif
-                    new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
-                 endif
-              enddo neighbor_loop
-           endif
-        enddo face_loop
+      ! check for the sanity of refinement (2:1 rule)
+      timing(3) = MPI_WTIME()
+      refine_loop : do while(self%loop(node_ptr=node_ptr))
+         new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
+         face_loop : do f=1, 26
+            call self%get_neighbor_all(code=node_ptr%code, face=f, neighbor=neighbor, neighbor_type=neighbor_type)
+            if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
+               neighbor_loop : do n=1, size(neighbor, dim=1)
+                  ! check level
+                  neigh => self%node(code=neighbor(n))
+                  new_level_n = self%level(code=neighbor(n)) + neigh%refinement_needed
+                  if (new_level_n > new_level + 1) then
+                     ! a neighbour want to be refined 2 levels more than me, I have to refine more too
+                     is_sanitize_complete = .false.
+                     if     (new_level_n - new_level == 3) then ! node want to derefine, but it must be refined
+                        node_ptr%refinement_needed = 1
+                     elseif (new_level_n - new_level == 2) then
+                        node_ptr%refinement_needed = node_ptr%refinement_needed + 1
+                     else
+                        print '(A)', self%mpih%myrankstr//'SOMETHING WENT TERRIBLY WRONG. EXIT!'
+                        print '(A)', self%mpih%myrankstr//'REFINEMENT NEEDED '//trim(str(node_ptr%refinement_needed,.true.))
+                        print '(A)', self%mpih%myrankstr//'SANITIZE ITERATIONS '//trim(str(s,.true.))
+                        stop
+                     endif
+                     new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
+                  endif
+               enddo neighbor_loop
+            endif
+         enddo face_loop
 
         if (node_ptr%refinement_needed > 1) then
            print '(A)', self%mpih%myrankstr//'CANNOT REFINE TWICE IN A ROW. SOMETHING WENT TERRIBLY WRONG. EXIT!'
@@ -2970,9 +2997,14 @@ contains
            print '(A)', self%mpih%myrankstr//'CANNOT REFINE MORE. SOMETHING WENT TERRIBLY WRONG. EXIT!'
            stop
         endif
-     enddo refine_loop
-     if (is_sanitize_complete) exit sanitize_loop
+      enddo refine_loop
+      timing(4) = MPI_WTIME()
+      print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%SANITIZE%sanitize_loop%refine_loop: ', timing(4) - timing(3)
+
+      if (is_sanitize_complete) exit sanitize_loop
    enddo sanitize_loop
+   timing(2) = MPI_WTIME()
+   print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%SANITIZE%sanitize_loop: ', timing(2) - timing(1)
 
    if (.not.is_sanitize_complete) then
       print '(A)', self%mpih%myrankstr//'SANITZE CANNOT BE COMPLETED. SOMETHING WENT TERRIBLY WRONG. EXIT!'
@@ -2982,11 +3014,14 @@ contains
    ! update to_refine list
    self%n_my_refine = 0
    if (allocated(self%node_to_refine)) deallocate(self%node_to_refine) ; allocate(self%node_to_refine(0))
+   timing(1) = MPI_WTIME()
    do while(self%loop(node_ptr=node_ptr))
       if (node_ptr%refinement_needed==TO_BE_REFINED) then
          self%node_to_refine = [self%node_to_refine, [node_ptr%code]]
          if (self%mpih%myrank==node_ptr%myrank) self%n_my_refine = self%n_my_refine + 1
       endif
    enddo
+   timing(2) = MPI_WTIME()
+   print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%SANITIZE%to_refine_loop: ', timing(2) - timing(1)
    endsubroutine sanitize
 endmodule adam_tree_object

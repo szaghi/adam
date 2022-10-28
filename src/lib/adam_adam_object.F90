@@ -52,13 +52,25 @@ contains
    ! public methods
    subroutine adapt(self)
    !< Adapt tree/field accordingly to refine/derefine necessity.
-   class(adam_object), intent(inout) :: self !< ADAM.
+   class(adam_object), intent(inout) :: self      !< ADAM.
+   real(R8P)                         :: timing(2) !< Tic toc timing.
 
+   timing(1) = MPI_WTIME()
    call self%tree%adapt
+   timing(2) = MPI_WTIME()
+   print '(A, F18.10)', self%mpih%myrankstr//'step timing ADAM%ADAPT%TREE%ADAPT: ', timing(2) - timing(1)
+
+   timing(1) = MPI_WTIME()
    call self%check_blocks_number
+   timing(2) = MPI_WTIME()
+   print '(A, F18.10)', self%mpih%myrankstr//'step timing ADAM%ADAPT%CHECK_BLOCKS: ', timing(2) - timing(1)
+
+   timing(1) = MPI_WTIME()
    call self%field%adapt(ratio=self%tree%ratio,                                                            &
                          block_to_refine=self%tree%block_to_refine, block_refined=self%tree%block_refined, &
                          block_to_derefine=self%tree%block_to_derefine, block_derefined=self%tree%block_derefined)
+   timing(2) = MPI_WTIME()
+   print '(A, F18.10)', self%mpih%myrankstr//'step timing ADAM%FIELD%ADAPT: ', timing(2) - timing(1)
    endsubroutine adapt
 
    subroutine amr_update(self, is_marked_by_field, is_marked_by_tree, do_mpi_redistribute, do_blocks_reorder, &
@@ -78,22 +90,35 @@ contains
    logical,            intent(out), optional :: is_grid_changed      !< Flag to check if grid is changed.
    logical                                   :: do_mpi_redistribute_ !< Flag to activate MPI redistribute, local var.
    logical                                   :: do_blocks_reorder_   !< Flag to activate blocks reorder, local var.
+   real(R8P)                                 :: timing(2)            !< Tic toc timing.
 
    do_mpi_redistribute_ = .true. ; if (present(do_mpi_redistribute )) do_mpi_redistribute_ = do_mpi_redistribute
    do_blocks_reorder_ = .true. ; if (present(do_blocks_reorder)) do_blocks_reorder_ = do_blocks_reorder
 
+   timing(1) = MPI_WTIME()
    call self%mpi_gather_refinement_needed(is_marked_by_field=is_marked_by_field, is_marked_by_tree=is_marked_by_tree)
+   timing(2) = MPI_WTIME()
+   print '(A, F18.10)', self%mpih%myrankstr//'step timing ADAM%AMR_UPDATE%MPI_GATHER_REF: ', timing(2) - timing(1)
 
+   timing(1) = MPI_WTIME()
    call self%adapt
+   timing(2) = MPI_WTIME()
+   print '(A, F18.10)', self%mpih%myrankstr//'step timing ADAM%AMR_UPDATE%ADAPT: ', timing(2) - timing(1)
 
    if (present(is_grid_changed)) is_grid_changed = (size(self%tree%node_to_refine,   dim=1)>0_I4P).or.&
                                                    (size(self%tree%node_to_derefine, dim=1)>0_I4P)
 
+   timing(1) = MPI_WTIME()
    if (do_mpi_redistribute_) call self%mpi_redistribute(print_mpi_stats=print_mpi_stats)
+   timing(2) = MPI_WTIME()
+   print '(A, F18.10)', self%mpih%myrankstr//'step timing ADAM%AMR_UPDATE%MPI_REDISTRIBUTE: ', timing(2) - timing(1)
 
    if (do_blocks_reorder_) call self%blocks_reorder
 
+   timing(1) = MPI_WTIME()
    call self%make_comm_local_maps_ghost_bc
+   timing(2) = MPI_WTIME()
+   print '(A, F18.10)', self%mpih%myrankstr//'step timing ADAM%AMR_UPDATE%MAKE_COMM_LOC_MAP_GHOST_BC: ', timing(2) - timing(1)
    endsubroutine amr_update
 
    subroutine blocks_reorder(self)
@@ -331,10 +356,20 @@ contains
 
    subroutine make_comm_local_maps_ghost_bc(self)
    !< Make communication/local maps of ghost cells and boundary conditions.
-   class(adam_object), intent(inout) :: self !< ADAM.
+   class(adam_object), intent(inout) :: self      !< ADAM.
+   real(R8P)                         :: timing(2) !< Tic toc timing.
 
+   timing(1) = MPI_WTIME()
    call self%tree%make_comm_local_maps_ghost
+   timing(2) = MPI_WTIME()
+   print '(A, F18.10)', self%mpih%myrankstr//'step timing ADAM%MAKE_COMM_LOC_MAP_GHOST_BC%TREE%MAKE_COM...: ', timing(2) - timing(1)
+
+   timing(1) = MPI_WTIME()
    call self%tree%make_local_maps_bc
+   timing(2) = MPI_WTIME()
+   print '(A, F18.10)', self%mpih%myrankstr//'step timing ADAM%MAKE_COMM_LOC_MAP_GHOST_BC%TREE%MAKE_LOC_BC: ', timing(2) - timing(1)
+
+   timing(1) = MPI_WTIME()
    call self%field%prepare_comm_local_ghost(local_map_ghost         = self%tree%local_map_ghost,         &
                                             comm_map_n_send_ghost   = self%tree%comm_map_n_send_ghost,   &
                                             comm_map_n_recv_ghost   = self%tree%comm_map_n_recv_ghost,   &
@@ -342,9 +377,15 @@ contains
                                             comm_map_recv_ptr_ghost = self%tree%comm_map_recv_ptr_ghost, &
                                             comm_map_send_ghost     = self%tree%comm_map_send_ghost,     &
                                             comm_map_recv_ghost     = self%tree%comm_map_recv_ghost)
+   timing(2) = MPI_WTIME()
+   print '(A, F18.10)', self%mpih%myrankstr//'step timing ADAM%MAKE_COMM_LOC_MAP_GHOST_BC%FIELD%PREPARE_COM: ',timing(2) - timing(1)
+
+   timing(1) = MPI_WTIME()
    call self%field%prepare_local_bc(local_map_bc_face   = self%tree%local_map_bc_face, &
                                     local_map_bc_edge   = self%tree%local_map_bc_edge, &
                                     local_map_bc_corner = self%tree%local_map_bc_corner)
+   timing(2) = MPI_WTIME()
+   print '(A, F18.10)', self%mpih%myrankstr//'step timing ADAM%MAKE_COMM_LOC_MAP_GHOST_BC%FIELD%PREPARE_BC: ',timing(2) - timing(1)
    endsubroutine make_comm_local_maps_ghost_bc
 
    subroutine mpi_gather_refinement_needed(self, is_marked_by_field, is_marked_by_tree)
