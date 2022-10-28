@@ -4,7 +4,7 @@ module adam_equation_euler_cpu_object
 
 use adam_adam_object,              only : adam_object
 use adam_amr_cpu_object,           only : amr_cpu_object, amr_marker_cpu_object, AMR_GEO, AMR_GRAD
-use adam_bc_cpu_object,            only : bc_cpu_object, BC_EXTRAPOLATION, BC_INFLOW
+use adam_bc_cpu_object,            only : bc_cpu_object, BC_EXTRAPOLATION, BC_INFLOW, BC_WALL_INVISCID
 use adam_eos_ic_cpu_object,        only : eos_ic_cpu_object, ic_speed_of_sound
 use adam_s_solvers_cpu_object,     only : s_solvers_cpu_object
 use adam_field_object,             only : field_object
@@ -592,13 +592,24 @@ contains
                    trim(str(self%time,.true.))
       output_basename_ = trim(self%output_basename)//'-'//trim(strz(self%it,9))
       if (present(output_basename)) output_basename_ = trim(output_basename)
-      call self%adam%save_hdf5(basename=trim(output_basename_),          &
-                               q=self%field%q,                           &
-                               q_aux=self%q_aux,                         &
-                               q_name=['rho','rhu','rhv','rhw','rhe'],   &
-                               q_aux_name=['c','r','u','v','w','g','p'], &
-                               with_cell_morton=.true.,                  &
-                               t=self%it, time=self%time)
+      if (self%ib%solids_number>0) then
+         call self%adam%save_hdf5(basename=trim(output_basename_),          &
+                                  q=self%field%q,                           &
+                                  q_aux=self%q_aux,                         &
+                                  q_name=['rho','rhu','rhv','rhw','rhe'],   &
+                                  q_aux_name=['c','r','u','v','w','g','p'], &
+                                  with_cell_morton=.true.,                  &
+                                  phi=self%ib%phi,                          &
+                                  t=self%it, time=self%time)
+      else
+         call self%adam%save_hdf5(basename=trim(output_basename_),          &
+                                  q=self%field%q,                           &
+                                  q_aux=self%q_aux,                         &
+                                  q_name=['rho','rhu','rhv','rhw','rhe'],   &
+                                  q_aux_name=['c','r','u','v','w','g','p'], &
+                                  with_cell_morton=.true.,                  &
+                                  t=self%it, time=self%time)
+      endif
       call self%mpih%barrier(tictoc=.true.)
       print '(A, F18.10)', self%mpih%myrankstr//'step timing (save HDF5): ', self%mpih%tictoc_timing()
    endif
@@ -674,6 +685,16 @@ contains
                   p_bc(IG)   = self%physics%eos(s_bc)%g
                   ! set BC in conservative variables
                   q(:,i,j,k,b) = self%physics%primitive2conservative(primitive=p_bc)
+               case(BC_WALL_INVISCID)
+                  q(:,i,j,k,b) = q(:,i-idelta,j-jdelta,k-kdelta,b)
+                  select case(fec_1_6)
+                  case(1,2)
+                     q(IU,i,j,k,b) = -q(IU,i-idelta,j-jdelta,k-kdelta,b)
+                  case(3,4)
+                     q(IV,i,j,k,b) = -q(IV,i-idelta,j-jdelta,k-kdelta,b)
+                  case(5,6)
+                     q(IW,i,j,k,b) = -q(IW,i-idelta,j-jdelta,k-kdelta,b)
+                  endselect
                endselect
             endif
          enddo
@@ -978,18 +999,28 @@ contains
    real(R8P)                   :: n_phi_x, n_phi_y, n_phi_z       !< Distance function normals.
    real(R8P)                   :: n_phi_mod, un_mod               !< Distance abs normal and normal velocity.
 
-   do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               solids_loop : do s=1, size(bcs_type, dim=1)
-                  if (phi(s,i,j,k,b) >= 0) then
-                     select case(bcs_type(s))
-                     case(BCS_VISCOUS)
-                        q(ns+1,i,j,k,b) = - q(ns+1,i,j,k,b)
-                        q(ns+2,i,j,k,b) = - q(ns+2,i,j,k,b)
-                        q(ns+3,i,j,k,b) = - q(ns+3,i,j,k,b)
-                     case(BCS_EULER)
+   solids_loop : do s=1, size(bcs_type, dim=1)
+      select case(bcs_type(s))
+      case(BCS_VISCOUS)
+         do b=1, blocks_number
+            do k=1-ngc, nk+ngc
+               do j=1-ngc, nj+ngc
+                  do i=1-ngc, ni+ngc
+                     if (phi(s,i,j,k,b) >= 0) then
+                        q(IU,i,j,k,b) = - q(IU,i,j,k,b)
+                        q(IV,i,j,k,b) = - q(IV,i,j,k,b)
+                        q(IW,i,j,k,b) = - q(IW,i,j,k,b)
+                     endif
+                  enddo
+               enddo
+            enddo
+         enddo
+      case(BCS_EULER)
+         do b=1, blocks_number
+            do k=1-ngc, nk+ngc
+               do j=1-ngc, nj+ngc
+                  do i=1-ngc, ni+ngc
+                     if (phi(s,i,j,k,b) >= 0) then
                         n_phi_x = phi(s,i+1,j,k,b) - phi(s,i-1,j,k,b)
                         n_phi_y = phi(s,i,j+1,k,b) - phi(s,i,j-1,k,b)
                         n_phi_z = phi(s,i,j,k+1,b) - phi(s,i,j,k-1,b)
@@ -997,18 +1028,17 @@ contains
                         n_phi_x = n_phi_x/n_phi_mod
                         n_phi_y = n_phi_y/n_phi_mod
                         n_phi_z = n_phi_z/n_phi_mod
-                        un_mod = q(ns+1,i,j,k,b)*n_phi_x + q(ns+2,i,j,k,b)*n_phi_y + q(ns+3,i,j,k,b)*n_phi_z
+                        un_mod = q(IU,i,j,k,b)*n_phi_x + q(IV,i,j,k,b)*n_phi_y + q(IW,i,j,k,b)*n_phi_z
 
-                        q(ns+1,i,j,k,b) = q(ns+1,i,j,k,b) - 2 * un_mod*n_phi_x
-                        q(ns+2,i,j,k,b) = q(ns+2,i,j,k,b) - 2 * un_mod*n_phi_y
-                        q(ns+3,i,j,k,b) = q(ns+3,i,j,k,b) - 2 * un_mod*n_phi_z
-                     endselect
-                     exit solids_loop
-                  endif
-               enddo solids_loop
+                        q(IU,i,j,k,b) = q(IU,i,j,k,b) - 2.0_R8P * un_mod*n_phi_x
+                        q(IV,i,j,k,b) = q(IV,i,j,k,b) - 2.0_R8P * un_mod*n_phi_y
+                        q(IW,i,j,k,b) = q(IW,i,j,k,b) - 2.0_R8P * un_mod*n_phi_z
+                     endif
+                  enddo
+               enddo
             enddo
          enddo
-      enddo
-   enddo
+      endselect
+   enddo solids_loop
    endsubroutine set_bc_ib
 endmodule adam_equation_euler_cpu_object

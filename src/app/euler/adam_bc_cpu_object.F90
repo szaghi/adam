@@ -12,6 +12,7 @@ private
 public :: bc_cpu_object
 public :: BC_EXTRAPOLATION
 public :: BC_INFLOW
+public :: BC_WALL_INVISCID
 
 character(len=8), parameter :: INI_SECTION_NAMES(6)=["bc_x_min", "bc_x_max", &
                                                      "bc_y_min", "bc_y_max", &
@@ -19,6 +20,7 @@ character(len=8), parameter :: INI_SECTION_NAMES(6)=["bc_x_min", "bc_x_max", &
 
 integer(I4P), parameter :: BC_EXTRAPOLATION   = 1_I4P !< Extrapolation.
 integer(I4P), parameter :: BC_INFLOW          = 2_I4P !< Supersonic inflow.
+integer(I4P), parameter :: BC_WALL_INVISCID   = 3_I4P !< Inviscid wall.
 
 type :: bc_cpu_object
    !< Boundary Conditions class definition, CPU backend.

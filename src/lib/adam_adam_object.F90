@@ -443,7 +443,7 @@ contains
    call self%field%save_blocks(basename=basename)
    endsubroutine save_restart_files
 
-   subroutine save_hdf5(self, basename, q, q_aux, q_name, q_aux_name, directory, with_ghost, with_cell_morton, t, time)
+   subroutine save_hdf5(self, basename, q, q_aux, q_name, q_aux_name, phi, directory, with_ghost, with_cell_morton, t, time)
    !< Save ADAM in HDF5 format.
    class(adam_object), intent(inout)        :: self                    !< ADAM.
    character(*),       intent(in)           :: basename                !< Base name of output files.
@@ -459,6 +459,11 @@ contains
                                                      1:)               !< Q auxiliary variables to be saved.
    character(*),       intent(in), optional :: q_name(:)               !< Q variables names.
    character(*),       intent(in), optional :: q_aux_name(:)           !< Q auxiliary variables names.
+   real(R8P),          intent(in), optional :: phi(1:,              &
+                                                   1-self%grid%ngc:,&
+                                                   1-self%grid%ngc:,&
+                                                   1-self%grid%ngc:,&
+                                                   1:)                 !< (IB) distance function.
    character(*),       intent(in), optional :: directory               !< Directory name of output files.
    logical,            intent(in), optional :: with_ghost              !< Flag to save ghost cells.
    logical,            intent(in), optional :: with_cell_morton        !< Flag to save Morton code also in cells.
@@ -469,6 +474,7 @@ contains
    character(:), allocatable                :: directory_              !< Directory name of output files, local var.
    logical                                  :: with_ghost_             !< Flag to save ghost cells, local var.
    logical                                  :: with_cell_morton_       !< Flag to save Morton code also in cells, local var.
+   integer(I4P)                             :: solids_number           !< Number of IB solids.
    type(tree_node_object), pointer          :: node                    !< Pointer to node.
    real(R8P)                                :: emin(3)                 !< Minimum abscissa of current block.
    real(R8P)                                :: emax(3)                 !< Maximum abscissa of current block.
@@ -507,6 +513,7 @@ contains
    directory_ = '' ; if (present(directory)) directory_ = trim(directory)
    with_ghost_ = .false. ; if (present(with_ghost)) with_ghost_ = with_ghost
    with_cell_morton_ = .false. ; if (present(with_cell_morton)) with_cell_morton_ = with_cell_morton
+   solids_number = 0 ; if (present(phi)) solids_number = size(phi, dim=1)
    if (with_ghost_) then
       ngc = self%grid%ngc
    else
@@ -528,19 +535,20 @@ contains
                   h5_dspace_id=h5_dspace_id)
    ! save all blocks in process
    do b=1, self%field%blocks_number
-      call save_hdf5_block(h5_file_id=h5_file_id,                                          &
-                           h5_dspace_id=h5_dspace_id,                                      &
-                           myrank=self%mpih%myrank,                                        &
-                           code=self%field%code(b),                                        &
-                           block_index=b,                                                  &
-                           ii=ijk(:,1),                                                    &
-                           jj=ijk(:,2),                                                    &
-                           kk=ijk(:,3),                                                    &
-                           q=q(:,ijk(1,1):ijk(2,1),ijk(1,2):ijk(2,2),ijk(1,3):ijk(2,3),b), &
-                           q_name=q_name_,                                                 &
-                           with_cell_morton=with_cell_morton_,                             &
-                           q_aux_name=q_aux_name_,                                         &
-                           q_aux=q_aux(:,ijk(1,1):ijk(2,1),ijk(1,2):ijk(2,2),ijk(1,3):ijk(2,3),b))
+      call save_hdf5_block(h5_file_id=h5_file_id,                                                  &
+                           h5_dspace_id=h5_dspace_id,                                              &
+                           myrank=self%mpih%myrank,                                                &
+                           code=self%field%code(b),                                                &
+                           block_index=b,                                                          &
+                           ii=ijk(:,1),                                                            &
+                           jj=ijk(:,2),                                                            &
+                           kk=ijk(:,3),                                                            &
+                           q=q(:,ijk(1,1):ijk(2,1),ijk(1,2):ijk(2,2),ijk(1,3):ijk(2,3),b),         &
+                           q_name=q_name_,                                                         &
+                           with_cell_morton=with_cell_morton_,                                     &
+                           q_aux_name=q_aux_name_,                                                 &
+                           q_aux=q_aux(:,ijk(1,1):ijk(2,1),ijk(1,2):ijk(2,2),ijk(1,3):ijk(2,3),b), &
+                           phi=phi(:,ijk(1,1):ijk(2,1),ijk(1,2):ijk(2,2),ijk(1,3):ijk(2,3),b))
    enddo
    call close_hdf5(h5_file_id=h5_file_id, h5_dspace_id=h5_dspace_id)
 
@@ -572,6 +580,7 @@ contains
                               q_name=q_name_,                                                     &
                               with_cell_morton=with_cell_morton_,                                 &
                               q_aux_name=q_aux_name_,                                             &
+                              solids_number=solids_number,                                        &
                               t=t,                                                                &
                               time=time)
       enddo
@@ -813,7 +822,7 @@ contains
    endsubroutine open_hdf5
 
    subroutine save_hdf5_block(h5_file_id, h5_dspace_id, &
-                              myrank, code, block_index, ii, jj, kk, q, q_name, with_cell_morton, q_aux_name, q_aux)
+                              myrank, code, block_index, ii, jj, kk, q, q_name, with_cell_morton, q_aux_name, q_aux, phi)
    !< Save block into HDF5 file.
    integer(HID_T), intent(in)           :: h5_file_id                     !< H5 File identifier.
    integer(HID_T), intent(in)           :: h5_dspace_id                   !< H5 Dataspace identifier.
@@ -828,6 +837,7 @@ contains
    logical,        intent(in)           :: with_cell_morton               !< Flag to save Morton code also in cells.
    character(*),   intent(in)           :: q_aux_name(:)                  !< Q auxiliary variables names.
    real(R8P),      intent(in), optional :: q_aux(1:,ii(1):,jj(1):,kk(1):) !< Q auxiliary variables to be saved.
+   real(R8P),      intent(in), optional :: phi(  1:,ii(1):,jj(1):,kk(1):) !< (IB) distance function.
    character(len=:), allocatable        :: h5_dset_name                   !< H5 Dataset name.
    integer(HID_T)                       :: h5_dset_id                     !< H5 Dataset identifier.
    integer(I4P)                         :: v, i                           !< Counter.
@@ -845,6 +855,15 @@ contains
          h5_dset_name = trim(q_aux_name(v))//'-'//trim(str(myrank,.true.))//'-'//trim(str(block_index,.true.))
          call h5dcreate_f(h5_file_id, h5_dset_name, H5T_NATIVE_DOUBLE, h5_dspace_id, h5_dset_id, error)
          call h5dwrite_f(h5_dset_id, H5T_NATIVE_DOUBLE, q_aux(v,ii(1):ii(2),jj(1):jj(2),kk(1):kk(2)), &
+                         [int(ii(2)-ii(1)+1,I8P),int(jj(2)-jj(1)+1,I8P),int(kk(2)-kk(1)+1,I8P)], error)
+         call h5dclose_f(h5_dset_id, error)
+      enddo
+   endif
+   if (present(phi)) then
+      do v=1, size(phi, dim=1)
+         h5_dset_name = 'phi_'//trim(str(v,.true.))//'-'//trim(str(myrank,.true.))//'-'//trim(str(block_index,.true.))
+         call h5dcreate_f(h5_file_id, h5_dset_name, H5T_NATIVE_DOUBLE, h5_dspace_id, h5_dset_id, error)
+         call h5dwrite_f(h5_dset_id, H5T_NATIVE_DOUBLE, phi(v,ii(1):ii(2),jj(1):jj(2),kk(1):kk(2)), &
                          [int(ii(2)-ii(1)+1,I8P),int(jj(2)-jj(1)+1,I8P),int(kk(2)-kk(1)+1,I8P)], error)
          call h5dclose_f(h5_dset_id, error)
       enddo
@@ -884,7 +903,7 @@ contains
    endsubroutine open_xdmf
 
    subroutine save_xdmf_block(file_unit, h5_file_name, rank, code, block_index, emin, dxyz, nijk, &
-                              q_name, with_cell_morton, q_aux_name, t, time)
+                              q_name, with_cell_morton, q_aux_name, solids_number, t, time)
    !< Save XDMF block.
    integer(I4P),              intent(in)           :: file_unit        !< XDMF file unit.
    character(*),              intent(in)           :: h5_file_name     !< H5 file name.
@@ -897,6 +916,7 @@ contains
    character(*),              intent(in)           :: q_name(:)        !< Q variables names.
    logical,                   intent(in)           :: with_cell_morton !< Flag to save Morton code also in cells.
    character(:), allocatable, intent(in)           :: q_aux_name(:)    !< Q auxiliary variables names.
+   integer(I4P),              intent(in)           :: solids_number    !< Number of IB solids.
    integer(I4P),              intent(in), optional :: t                !< Time iteration.
    real(R8P),                 intent(in), optional :: time             !< Time.
    character(:), allocatable                       :: h5_dset_name     !< Dataset name.
@@ -924,6 +944,17 @@ contains
       do v=1, size(q_aux_name, dim=1)
          h5_dset_name = trim(q_aux_name(v))//'-'//trim(str(rank,.true.))//'-'//trim(str(block_index,.true.))
          write(file_unit, '(A)') '          <Attribute Name="'//trim(q_aux_name(v))//&
+                            '" Center="Cell" ElementDegree="0" Type="Scalar">'
+         write(file_unit, '(A)') '            <DataItem DataType="Float" Dimensions="'//&
+                                 trim(str([nijk(3),nijk(2),nijk(1)],separator=' '))//   &
+                                 '" Format="HDF" Precision="8">'//h5_file_name//':'//h5_dset_name//'</DataItem>'
+         write(file_unit, '(A)') '          </Attribute>'
+      enddo
+   endif
+   if (solids_number>0) then
+      do v=1, solids_number
+         h5_dset_name = 'phi_'//trim(str(v,.true.))//'-'//trim(str(rank,.true.))//'-'//trim(str(block_index,.true.))
+         write(file_unit, '(A)') '          <Attribute Name="'//'phi_'//trim(str(v,.true.))//&
                             '" Center="Cell" ElementDegree="0" Type="Scalar">'
          write(file_unit, '(A)') '            <DataItem DataType="Float" Dimensions="'//&
                                  trim(str([nijk(3),nijk(2),nijk(1)],separator=' '))//   &
