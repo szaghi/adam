@@ -1833,12 +1833,7 @@ contains
       node_ptr%myrank = node_ptr%myrank_new
       node_ptr%block_index = node_ptr%block_index_new
       if (node_ptr%myrank == self%mpih%myrank) then
-         select case(self%ratio)
-         case(4_I4P)
-            call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, l=l)
-         case(8_I4P)
-            call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
-         endselect
+         call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
          self%block_coordinates(1, node_ptr%block_index) = i
          self%block_coordinates(2, node_ptr%block_index) = j
          self%block_coordinates(3, node_ptr%block_index) = k
@@ -1917,22 +1912,14 @@ contains
    integer(I8P),       intent(in) :: code        !< Morton code.
    integer(I8P), allocatable      :: children(:) !< Children Morton code.
 
-   select case(self%ratio)
-   case(4_I4P)
-      children = [self%child(code=code, i=0), &
-                  self%child(code=code, i=1), &
-                  self%child(code=code, i=2), &
-                  self%child(code=code, i=3)]
-   case(8_I4P)
-      children = [self%child(code=code, i=0), &
-                  self%child(code=code, i=1), &
-                  self%child(code=code, i=2), &
-                  self%child(code=code, i=3), &
-                  self%child(code=code, i=4), &
-                  self%child(code=code, i=5), &
-                  self%child(code=code, i=6), &
-                  self%child(code=code, i=7)]
-   endselect
+   children = [self%child(code=code, i=0), &
+               self%child(code=code, i=1), &
+               self%child(code=code, i=2), &
+               self%child(code=code, i=3), &
+               self%child(code=code, i=4), &
+               self%child(code=code, i=5), &
+               self%child(code=code, i=6), &
+               self%child(code=code, i=7)]
    endfunction children
 
    elemental function finest_at_level(self, code, level) result(finest)
@@ -2022,12 +2009,7 @@ contains
    integer(I4P)                                 :: k_dn_offset            !< K coordinate offset of direct neighbor l+1.
 
    ! compute coordinates of code
-   select case(self%ratio)
-   case(4_I4P)
-      call self%morton_to_coordinates(code=code, i=i_dn(1), j=j_dn(1), l=l_dn)
-   case(8_I4P)
-      call self%morton_to_coordinates(code=code, i=i_dn(1), j=j_dn(1), k=k_dn(1), l=l_dn)
-   endselect
+   call self%morton_to_coordinates(code=code, i=i_dn(1), j=j_dn(1), k=k_dn(1), l=l_dn)
 
    ! compute coordinates of direct neighbor and check if it falls outside the ancestor, in case
    ! it is a boundary condition node
@@ -2240,74 +2222,11 @@ contains
    if (present(neighbor_portion)) neighbor_portion = 1
 
    ! compute coordinates of code
-   select case(self%ratio)
-   case(4_I4P)
-      call self%morton_to_coordinates(code=code, i=i, j=j, l=l)
-   case(8_I4P)
-      call self%morton_to_coordinates(code=code, i=i, j=j, k=k, l=l)
-   endselect
+   call self%morton_to_coordinates(code=code, i=i, j=j, k=k, l=l)
 
    ! compute coordinates of direct neighbor and check if it falls outside the ancestor, in case
    ! it is a boundary condition node
-   select case(face)
-   case(1_I4P)
-      delta =   [-1,  0,  0]
-   case(2_I4P)
-      delta =   [ 1,  0,  0]
-   case(3_I4P)
-      delta =   [ 0, -1,  0]
-   case(4_I4P)
-      delta =   [ 0,  1,  0]
-   case(5_I4P)
-      delta =   [ 0,  0, -1]
-   case(6_I4P)
-      delta =   [ 0,  0,  1]
-
-   case(7_I4P)
-      delta =   [-1, -1, 0]
-   case(8_I4P)
-      delta =   [ 1, -1, 0]
-   case(9_I4P)
-      delta =   [-1,  1, 0]
-   case(10_I4P)
-      delta =   [ 1,  1, 0]
-
-   case(11_I4P)
-      delta =   [-1, 0, -1]
-   case(12_I4P)
-      delta =   [ 1, 0, -1]
-   case(13_I4P)
-      delta =   [-1, 0,  1]
-   case(14_I4P)
-      delta =   [ 1, 0,  1]
-
-   case(15_I4P)
-      delta =   [0, -1, -1]
-   case(16_I4P)
-      delta =   [0,  1, -1]
-   case(17_I4P)
-      delta =   [0, -1,  1]
-   case(18_I4P)
-      delta =   [0,  1,  1]
-
-   case(19_I4P)
-      delta =   [-1, -1, -1]
-   case(20_I4P)
-      delta =   [ 1, -1, -1]
-   case(21_I4P)
-      delta =   [-1,  1, -1]
-   case(22_I4P)
-      delta =   [ 1,  1, -1]
-   case(23_I4P)
-      delta =   [-1, -1,  1]
-   case(24_I4P)
-      delta =   [ 1, -1,  1]
-   case(25_I4P)
-      delta =   [-1,  1,  1]
-   case(26_I4P)
-      delta =   [ 1,  1,  1]
-   endselect
-   ijk = [i, j, k] + delta
+   ijk = [i, j, k] + FEC_TO_DELTA(1:3, face)
 
    if (all(self%ijkl_prune>=0)) then
       ijk_size(1:3) = 2**(l - self%ijkl_prune(4)) * (self%ijkl_prune(1:3) + 1)
@@ -2338,12 +2257,7 @@ contains
    endif
 
    ! compute direct neighbor code
-   select case(self%ratio)
-   case(4_I4P)
-      direct_neighbor = self%coordinates_to_morton(i=ijk(1), j=ijk(2), l=l)
-   case(8_I4P)
-      direct_neighbor = self%coordinates_to_morton(i=ijk(1), j=ijk(2), k=ijk(3), l=l)
-   endselect
+   direct_neighbor = self%coordinates_to_morton(i=ijk(1), j=ijk(2), k=ijk(3), l=l)
 
    ! direct neighbor is not a sibling, check if it exists
    if (self%has_code(code=direct_neighbor)) then
@@ -2615,12 +2529,7 @@ contains
       endif
    enddo
 
-   select case(self%ratio)
-   case(4_I4P)
-      call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, l=l)
-   case(8_I4P)
-      call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
-   endselect
+   call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
    topology = ' code: '//trim(str(code))
    if (coordinates_.or.whole_) topology = topology//' coordinates: '//trim(str([i,j,k,l],.true.))
    if (level_.or.whole_      ) topology = topology//' level: '//trim(str(self%level(code=code),.true.))
