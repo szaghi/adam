@@ -2226,7 +2226,8 @@ contains
 
    ! compute coordinates of direct neighbor and check if it falls outside the ancestor, in case
    ! it is a boundary condition node
-   ijk = [i, j, k] + FEC_TO_DELTA(1:3, face)
+   delta = FEC_TO_DELTA(1:3, face)
+   ijk = [i, j, k] + delta
 
    if (all(self%ijkl_prune>=0)) then
       ijk_size(1:3) = 2**(l - self%ijkl_prune(4)) * (self%ijkl_prune(1:3) + 1)
