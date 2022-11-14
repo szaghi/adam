@@ -8,6 +8,15 @@ implicit none
 private
 public :: destroy_tree_node
 public :: tree_node_object
+public :: tree_node_neighbor_object
+
+type :: tree_node_neighbor_object
+   !< Tree node neighbor class definition
+   integer(I4P)              :: ntype    !< Type of neighbor.
+   integer(I8P), allocatable :: codes(:) !< Neighbors Morton codes list, [1] or [ratio/2].
+   integer(I4P), allocatable :: portion  !< Neighbors portion.
+   integer(I4P), allocatable :: bc_fec   !< Neighbors fec for BC.
+endtype tree_node_neighbor_object
 
 type :: tree_node_object
    !< Tree node class definition.
@@ -17,6 +26,7 @@ type :: tree_node_object
    integer(I4P),                    public :: myrank_new=-1_I4P                 !< New MPI rank process.
    integer(I8P),                    public :: block_index=1_I8P                 !< Block index in the field array.
    integer(I8P),                    public :: block_index_new=0_I8P             !< New block index in the field array.
+   type(tree_node_neighbor_object), public :: neighbor(26)                      !< Neighborhood data.
    real(R8P),                       public :: surface_stl_distance=huge(0._R8P) !< Distance from STL surface.
    type(tree_node_object), pointer, public :: next=>null()                      !< The next node in the tree.
    type(tree_node_object), pointer, public :: previous=>null()                  !< The previous node in the tree.
@@ -74,6 +84,7 @@ contains
    !< Operator `=`.
    class(tree_node_object), intent(inout) :: lhs !< Left hand side.
    type(tree_node_object),  intent(in)    :: rhs !< Right hand side.
+   integer(I4P)                           :: fec !< Counter.
 
    lhs%code = rhs%code
    lhs%refinement_needed = rhs%refinement_needed
@@ -82,5 +93,14 @@ contains
    lhs%block_index = rhs%block_index
    lhs%block_index_new = rhs%block_index_new
    lhs%surface_stl_distance = rhs%surface_stl_distance
+   do fec=1, 26
+      lhs%neighbor(fec)%ntype = rhs%neighbor(fec)%ntype
+      if (allocated(lhs%neighbor(fec)%codes)) deallocate(lhs%neighbor(fec)%codes)
+      if (allocated(rhs%neighbor(fec)%codes)) lhs%neighbor(fec)%codes = rhs%neighbor(fec)%codes
+      if (allocated(lhs%neighbor(fec)%portion)) deallocate(lhs%neighbor(fec)%portion)
+      if (allocated(rhs%neighbor(fec)%portion)) lhs%neighbor(fec)%portion = rhs%neighbor(fec)%portion
+      if (allocated(lhs%neighbor(fec)%bc_fec)) deallocate(lhs%neighbor(fec)%bc_fec)
+      if (allocated(rhs%neighbor(fec)%bc_fec)) lhs%neighbor(fec)%bc_fec = rhs%neighbor(fec)%bc_fec
+   enddo
    endsubroutine tree_node_assign_tree_node
 endmodule adam_tree_node_object

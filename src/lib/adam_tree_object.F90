@@ -226,6 +226,7 @@ type :: tree_object
       procedure, pass(self) :: load_surface_stl             !< Load surface from STL file.
       procedure, pass(self) :: loop                         !< Sentinel while-loop on nodes returning the code.
       procedure, pass(self) :: make_local_maps_bc           !< Make local maps of boundary conditions.
+      procedure, pass(self) :: make_neighborhood            !< Make neighborhood all whole tree and store it in nodes.
       procedure, pass(self) :: mark_all_nodes               !< Mark all nodes to be refined, derefined, ecc.
       procedure, pass(self) :: mark_sphere                  !< Mark nodes to be refined/derefined by sphere distance.
       procedure, pass(self) :: mark_surface_stl             !< Mark all nodes inside a surface defined by STL triangulation.
@@ -328,6 +329,11 @@ contains
    call self%derefine
    timing(2) = MPI_WTIME()
    print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%ADAPT%DEREFINE: ', timing(2) - timing(1)
+
+   timing(1) = MPI_WTIME()
+   call self%make_neighborhood
+   timing(2) = MPI_WTIME()
+   print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%ADAPT%MAKE_NEIGHBORHOOD: ', timing(2) - timing(1)
    endsubroutine adapt
 
    function codes(self, only_mine, sort_by_level)
@@ -699,6 +705,8 @@ contains
    allocate(self%comm_map_n_recv_ghost(0:self%mpih%procs_number-1))
    allocate(self%comm_map_send_ptr_ghost(0:self%mpih%procs_number))
    allocate(self%comm_map_recv_ptr_ghost(0:self%mpih%procs_number))
+
+   call self%make_neighborhood
    print '(A)', self%mpih%myrankstr//'tree%initialize finish'
    endsubroutine initialize
 
@@ -833,11 +841,14 @@ contains
    do while(self%loop(node_ptr=node_ptr))
       if (node_ptr%myrank==self%mpih%myrank) then
          do fec=1, 26
-            call self%get_neighbor_all(code=node_ptr%code,          &
-                                       face=fec,                    &
-                                       neighbor=neighbor,           &
-                                       neighbor_type=neighbor_type, &
-                                       neighbor_bc_fec=neighbor_bc_fec)
+            ! call self%get_neighbor_all(code=node_ptr%code,          &
+            !                            face=fec,                    &
+            !                            neighbor=neighbor,           &
+            !                            neighbor_type=neighbor_type, &
+            !                            neighbor_bc_fec=neighbor_bc_fec)
+            neighbor        = node_ptr%neighbor(fec)%codes
+            neighbor_type   = node_ptr%neighbor(fec)%ntype
+            neighbor_bc_fec = node_ptr%neighbor(fec)%bc_fec
             if (neighbor_type == NODE_BOUNDARY_CONDITION) then
                if (fec<=6)             fec_bc_faces_number   = fec_bc_faces_number   + 1_I4P
                if (fec>=7.and.fec<=18) fec_bc_edges_number   = fec_bc_edges_number   + 1_I4P
@@ -856,11 +867,14 @@ contains
       do while(self%loop(node_ptr=node_ptr))
          if (node_ptr%myrank==self%mpih%myrank) then
             do fec=1, 26
-               call self%get_neighbor_all(code=node_ptr%code,          &
-                                          face=fec,                    &
-                                          neighbor=neighbor,           &
-                                          neighbor_type=neighbor_type, &
-                                          neighbor_bc_fec=neighbor_bc_fec)
+               ! call self%get_neighbor_all(code=node_ptr%code,          &
+               !                            face=fec,                    &
+               !                            neighbor=neighbor,           &
+               !                            neighbor_type=neighbor_type, &
+               !                            neighbor_bc_fec=neighbor_bc_fec)
+               neighbor        = node_ptr%neighbor(fec)%codes
+               neighbor_type   = node_ptr%neighbor(fec)%ntype
+               neighbor_bc_fec = node_ptr%neighbor(fec)%bc_fec
                if (neighbor_type == NODE_BOUNDARY_CONDITION) then
                   select case(neighbor_bc_fec)
                   case(1,7,9,11,13,19,21,23,25)
@@ -944,6 +958,24 @@ contains
       endassociate
       endsubroutine
    endsubroutine make_local_maps_bc
+
+   subroutine make_neighborhood(self)
+   !< Make neighborhood all whole tree and store it in nodes.
+   class(tree_object), intent(inout) :: self     !< The tree.
+   type(tree_node_object), pointer   :: node_ptr !< Pointer to current node.
+   integer(I4P)                      :: fec      !< Counter.
+
+   do while(self%loop(node_ptr=node_ptr))
+      do fec=1, 26
+         call self%get_neighbor_all(code             = node_ptr%code,                  &
+                                    face             = fec,                            &
+                                    neighbor         = node_ptr%neighbor(fec)%codes,   &
+                                    neighbor_type    = node_ptr%neighbor(fec)%ntype,   &
+                                    neighbor_portion = node_ptr%neighbor(fec)%portion, &
+                                    neighbor_bc_fec  = node_ptr%neighbor(fec)%bc_fec)
+      enddo
+   enddo
+   endsubroutine make_neighborhood
 
    function max_cell_delta(self, distance) result(delta)
    !< Return the maximum cell delta given a comparison distance.
@@ -1267,7 +1299,9 @@ contains
       if (self%mpih%myrank == node_ptr%myrank) then
          is_inner_block = .true.
          do fec=1, 26
-            call self%get_neighbor_all(code=node_ptr%code, face=fec, neighbor=neighbor, neighbor_type=neighbor_type)
+            ! call self%get_neighbor_all(code=node_ptr%code, face=fec, neighbor=neighbor, neighbor_type=neighbor_type)
+            neighbor      = node_ptr%neighbor(fec)%codes
+            neighbor_type = node_ptr%neighbor(fec)%ntype
             if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
                do n=1, size(neighbor, dim=1)
                   neigh => self%node(code=neighbor(n))
@@ -1469,7 +1503,9 @@ contains
    do while(self%loop(node_ptr=node_ptr))
       do fec=1, 26
          weight_reduction = 2 ** count(FEC_TO_DELTA(:, fec)==0_I4P, dim=1)
-         call self%get_neighbor_all(code=node_ptr%code, face=fec, neighbor=neighbor, neighbor_type=neighbor_type)
+         ! call self%get_neighbor_all(code=node_ptr%code, face=fec, neighbor=neighbor, neighbor_type=neighbor_type)
+         neighbor      = node_ptr%neighbor(fec)%codes
+         neighbor_type = node_ptr%neighbor(fec)%ntype
          if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
             do n=1, size(neighbor, dim=1)
                neigh => self%node(code=neighbor(n))
@@ -1522,8 +1558,11 @@ contains
    do while(self%loop(node_ptr=node_ptr))
       do fec=1, 26
          weight_reduction = 2 ** count(FEC_TO_DELTA(:, fec)==0_I4P, dim=1)
-         call self%get_neighbor_all(code=node_ptr%code, face=fec, neighbor=neighbor, &
-                                    neighbor_type=neighbor_type, neighbor_portion=neighbor_portion)
+         ! call self%get_neighbor_all(code=node_ptr%code, face=fec, neighbor=neighbor, &
+                                    ! neighbor_type=neighbor_type, neighbor_portion=neighbor_portion)
+         neighbor         = node_ptr%neighbor(fec)%codes
+         neighbor_type    = node_ptr%neighbor(fec)%ntype
+         neighbor_portion = node_ptr%neighbor(fec)%portion
          if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
             do n=1, size(neighbor, dim=1)
                neigh => self%node(code=neighbor(n))
@@ -2521,7 +2560,9 @@ contains
    neighbors_str = ''
    do f=1, 6
       if (self%ratio==4_I4P.and.f>4) exit
-      call self%get_neighbor_all(code=code, neighbor=neighbors, face=f, neighbor_type=neighbor_type)
+      ! call self%get_neighbor_all(code=code, neighbor=neighbors, face=f, neighbor_type=neighbor_type)
+      neighbors        = node_ptr%neighbor(f)%codes
+      neighbor_type    = node_ptr%neighbor(f)%ntype
       if (allocated(neighbors)) then
          neighbors_str = neighbors_str//' f_'//trim(str(f,.true.))//' '//trim(str(neighbors,.true.))//&
                          ' type-'//trim(str(neighbor_type,.true.))
@@ -2871,7 +2912,9 @@ contains
       refine_loop : do while(self%loop(node_ptr=node_ptr))
          new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
          face_loop : do f=1, 26
-            call self%get_neighbor_all(code=node_ptr%code, face=f, neighbor=neighbor, neighbor_type=neighbor_type)
+            ! call self%get_neighbor_all(code=node_ptr%code, face=f, neighbor=neighbor, neighbor_type=neighbor_type)
+            neighbor         = node_ptr%neighbor(f)%codes
+            neighbor_type    = node_ptr%neighbor(f)%ntype
             if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
                neighbor_loop : do n=1, size(neighbor, dim=1)
                   ! check level
