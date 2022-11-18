@@ -966,14 +966,30 @@ contains
    integer(I4P)                      :: fec      !< Counter.
 
    do while(self%loop(node_ptr=node_ptr))
-      do fec=1, 26
-         call self%get_neighbor_all(code             = node_ptr%code,                  &
-                                    face             = fec,                            &
-                                    neighbor         = node_ptr%neighbor(fec)%codes,   &
-                                    neighbor_type    = node_ptr%neighbor(fec)%ntype,   &
-                                    neighbor_portion = node_ptr%neighbor(fec)%portion, &
-                                    neighbor_bc_fec  = node_ptr%neighbor(fec)%bc_fec)
-      enddo
+      if (node_ptr%i_am_new) then
+         do fec=1, 26
+            call self%get_neighbor_all(code             = node_ptr%code,                  &
+                                       face             = fec,                            &
+                                       neighbor         = node_ptr%neighbor(fec)%codes,   &
+                                       neighbor_type    = node_ptr%neighbor(fec)%ntype,   &
+                                       neighbor_portion = node_ptr%neighbor(fec)%portion, &
+                                       neighbor_bc_fec  = node_ptr%neighbor(fec)%bc_fec)
+         enddo
+         node_ptr%i_am_new = .false.
+      else
+         do fec=1, 26
+            if (allocated(node_ptr%neighbor(fec)%codes)) then
+               if (.not.self%has_code(code=node_ptr%neighbor(fec)%codes(1))) then
+                  call self%get_neighbor_all(code             = node_ptr%code,                  &
+                                             face             = fec,                            &
+                                             neighbor         = node_ptr%neighbor(fec)%codes,   &
+                                             neighbor_type    = node_ptr%neighbor(fec)%ntype,   &
+                                             neighbor_portion = node_ptr%neighbor(fec)%portion, &
+                                             neighbor_bc_fec  = node_ptr%neighbor(fec)%bc_fec)
+               endif
+            endif
+         enddo
+      endif
    enddo
    endsubroutine make_neighborhood
 

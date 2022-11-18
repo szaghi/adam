@@ -20,6 +20,7 @@ endtype tree_node_neighbor_object
 
 type :: tree_node_object
    !< Tree node class definition.
+   logical,                         public :: i_am_new=.true.                   !< Flag to check if the node is just born.
    integer(I8P),                    public :: code=-2_I8P                       !< The Morton code.
    integer(I4P),                    public :: refinement_needed=0_I4P           !< Flag for refinement/derefinement algorithm.
    integer(I4P),                    public :: myrank=0_I4P                      !< MPI rank process.
