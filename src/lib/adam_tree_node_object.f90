@@ -14,8 +14,8 @@ type :: tree_node_neighbor_object
    !< Tree node neighbor class definition
    integer(I4P)              :: ntype    !< Type of neighbor.
    integer(I8P), allocatable :: codes(:) !< Neighbors Morton codes list, [1] or [ratio/2].
-   integer(I4P), allocatable :: portion  !< Neighbors portion.
-   integer(I4P), allocatable :: bc_fec   !< Neighbors fec for BC.
+   integer(I4P)              :: portion  !< Neighbors portion.
+   integer(I4P)              :: bc_fec   !< Neighbors fec for BC.
 endtype tree_node_neighbor_object
 
 type :: tree_node_object
@@ -97,10 +97,8 @@ contains
       lhs%neighbor(fec)%ntype = rhs%neighbor(fec)%ntype
       if (allocated(lhs%neighbor(fec)%codes)) deallocate(lhs%neighbor(fec)%codes)
       if (allocated(rhs%neighbor(fec)%codes)) lhs%neighbor(fec)%codes = rhs%neighbor(fec)%codes
-      if (allocated(lhs%neighbor(fec)%portion)) deallocate(lhs%neighbor(fec)%portion)
-      if (allocated(rhs%neighbor(fec)%portion)) lhs%neighbor(fec)%portion = rhs%neighbor(fec)%portion
-      if (allocated(lhs%neighbor(fec)%bc_fec)) deallocate(lhs%neighbor(fec)%bc_fec)
-      if (allocated(rhs%neighbor(fec)%bc_fec)) lhs%neighbor(fec)%bc_fec = rhs%neighbor(fec)%bc_fec
+      lhs%neighbor(fec)%portion = rhs%neighbor(fec)%portion
+      lhs%neighbor(fec)%bc_fec = rhs%neighbor(fec)%bc_fec
    enddo
    endsubroutine tree_node_assign_tree_node
 endmodule adam_tree_node_object
