@@ -738,6 +738,7 @@ contains
          enddo
       endif
       close(file_unit)
+      call self%make_neighborhood
       print '(A)', self%mpih%myrankstr//'load tree nodes from file '//trim(adjustl(file_name))//' completed'
    else
       write(stderr, '(A)') self%mpih%myrankstr//'ERROR: file "'//trim(adjustl(file_name))//'" does not exist!'
