@@ -28,7 +28,7 @@ integer(I4P), parameter :: IC_UNIFORM         = 1_I4P
 integer(I4P), parameter :: IC_LEFTRIGHT       = 2_I4P
 integer(I4P), parameter :: IC_FLAME           = 3_I4P
 integer(I4P), parameter :: IC_VORTEX          = 4_I4P
-integer(I4P), parameter :: IC_VARS_NUMBER(4)  = [6, 11, 12, 0]
+integer(I4P), parameter :: IC_VARS_NUMBER(4)  = [6, 11, 12, 3]
 integer(I4P), parameter :: IC_VARS_NUMBER_MAX = 12 !maxval(IC_VARS_NUMBER)    !< Maximum number of variables needed for IC.
 
 integer(I4P), parameter :: BC_EXTRAPOLATION   = 1_I4P
@@ -1601,8 +1601,12 @@ contains
    real(R8P) :: rho, u, v, p, e
    real(R8P) :: r2
    real(R8P) :: expr2
-   real(R8P), parameter :: xc=0d0, yc=0d0
-   real(R8P), parameter :: Rv = 1.0d0, Rv2 = Rv**2
+   !real(R8P), parameter :: xc=10d0, yc=10d0
+   !real(R8P), parameter :: Rv = 1.0d0, Rv2 = Rv**2
+
+   real(R8P) :: xc, yc
+   real(R8P) :: Rv, Rv2
+
    real(R8P), parameter :: gam=1.4d0, delta = (gam-1d0)/2d0 , unosgm1 = 1d0/(gam-1d0)
    real(R8P), parameter :: rho0 = 1.226d0,  p0 = 101325d0
    real(R8P), parameter :: Ainf = sqrt(gam*p0/rho0)
@@ -1660,6 +1664,11 @@ contains
          enddo
       elseif(self%ic_type == IC_FLAME) then
       elseif(self%ic_type == IC_VORTEX) then
+         xc = ic_vars(1)
+         yc = ic_vars(2)
+         Rv = ic_vars(3)
+         Rv2 = Rv**2
+
          do b=1, blocks_number
             do k=1, nk
                do j=1, nj
@@ -1668,7 +1677,7 @@ contains
                      expr2  = exp((1d0-r2)*0.5d0)
                      rho    = rho0*( 1d0-deltaMv2*expr2**2)**unosgm1
                      u      = (Minf  - Mv*(y_cell(j,b)-yc)/Rv*expr2)*Ainf
-                     v      = (       Mv*(x_cell(i,b)-xc)/Rv*expr2)*Ainf
+                     v      = (        Mv*(x_cell(i,b)-xc)/Rv*expr2)*Ainf
                      p      = p0*(rho/rho0)**gam
                      e      = p/(gam-1d0)+0.5d0*rho*(u**2+v**2)
        
