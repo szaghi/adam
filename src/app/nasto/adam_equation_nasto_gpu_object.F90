@@ -1680,7 +1680,7 @@ contains
                      v      = (        Mv*(x_cell(i,b)-xc)/Rv*expr2)*Ainf
                      p      = p0*(rho/rho0)**gam
                      e      = p/(gam-1d0)+0.5d0*rho*(u**2+v**2)
-       
+
                      q(1,i,j,k,b) = rho
                      q(2,i,j,k,b) = rho*u
                      q(3,i,j,k,b) = rho*v
@@ -1802,8 +1802,7 @@ contains
             !if(inside) print*,'Point inside!!!!!!!!!!!!!!!!'
             ! RIMETTERE CGAL
 
-            !distance = - (sqrt((query_x-10._R8P)**2+(query_y-10._R8P)**2+(query_z-10._R8P)**2)-1.0_R8P)
-            distance = -1._R8P 
+            distance = - (sqrt((query_x-10._R8P)**2+(query_y-10._R8P)**2+(query_z-10._R8P)**2)-1.0_R8P)
 
             phi(b,i,j,k,ib) = distance
          enddo
