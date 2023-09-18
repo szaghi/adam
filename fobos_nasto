@@ -10,8 +10,8 @@ $HDF5_cuda_20_7 = /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7
 help     = Build nasto app with NVF-MPI-CUDA on SZ laptop
 template = template-nvf-mpi-cuda-nasto
 compiler = nvfortran
-cflags   = -cpp -c -Mcuda=cc75,cuda11.6,ptxinfo -O2
-lflags   = -Mcuda=cc75,cuda11.6,ptxinfo -O2
+cflags   = -cpp -c -Mcuda=cc75,cuda12.0,ptxinfo -O2
+lflags   = -Mcuda=cc75,cuda12.0,ptxinfo -O2
 lib_dir  = $HDF5_cuda_22_3/lib
 include  = $HDF5_cuda_22_3/include
 libs     = $HDF5_cuda_22_3/lib/libhdf5hl_fortran.a
@@ -28,8 +28,8 @@ libs     = $HDF5_cuda_22_3/lib/libhdf5hl_fortran.a
 help     = Build nasto app with NVF-MPI-CUDA on SZ laptop
 template = template-nvf-mpi-cuda-nasto
 compiler = nvfortran
-cflags   = -cpp -c -Mcuda=cc75,cuda11.6,ptxinfo -C -gopt -Mbounds -traceback
-lflags   = -Mcuda=cc75,cuda11.6,ptxinfo -C -gopt -Mbounds -traceback
+cflags   = -cpp -c -Mcuda=cc75,cuda12.0,ptxinfo -C -gopt -Mbounds -traceback
+lflags   = -Mcuda=cc75,cuda12.0,ptxinfo -C -gopt -Mbounds -traceback
 lib_dir  = $HDF5_cuda_22_3/lib
 include  = $HDF5_cuda_22_3/include
 libs     = $HDF5_cuda_22_3/lib/libhdf5hl_fortran.a
@@ -84,8 +84,8 @@ libs     = ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5hl_fortran.a
 
 [ascot-nvf-mpi-cuda]
 compiler     = nvfortran
-cflags       = -cpp -c -Mcuda=cc75,cuda11.6,ptxinfo -O2
-lflags       = -Mcuda=cc75,cuda11.6,ptxinfo -O2
+cflags       = -cpp -c -Mcuda=cc75,cuda12.0,ptxinfo -O2
+lflags       = -Mcuda=cc75,cuda12.0,ptxinfo -O2
 preproc      = -D_NVF
 mod_dir      = ./mod/
 obj_dir      = ./obj/
