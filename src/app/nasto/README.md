@@ -196,17 +196,35 @@ Go to [Top](#top)
 
 Currently, NASTO (CUDA) app is made by the following source files:
 
-+ `adam_nasto_gpu.F90`
-+ `adam_equation_nasto_gpu_object.F90`
++ `adam_nasto_parameters.F90`
++ `adam_nasto_common_object.F90 `
++ `adam_nasto_cpu_object.F90`
++ `adam_nasto_nvf_object.F90`
++ `adam_nasto_nvf_kernels.F90`
++ `adam_nasto_nvf.F90`
 
-### `adam_nasto_gpu.F90`
+### `adam_nasto_parameters.F90`
 
-This is only the main program that instantiates a `type(equation_nasto_gpu_object)` object and invoke its `run` method.
+This contains the main global parameters of NASTO.
 
-### `adam_equation_nasto_gpu_object.F90`
+### `adam_nasto_common_object.F90`
 
-This contains the definition of NASTO equation using the CUDA GPU backend.
+This contains the definition of NASTO common class, a class that is used (extended) by all NASTO backends.
 
-To be continued.
+### `adam_nasto_cpu_object.F90`
+
+This contains the definition of NASTO using the CPU backend.
+
+### `adam_nasto_nvf_object.F90`
+
+This contains the definition of NASTO using the CUDAFortran GPU backend.
+
+### `adam_nasto_nvf_kernels.F90`
+
+This contains the definition of all NASTO CUDAFortran kernels.
+
+### `adam_nasto_nvf.F90`
+
+This is only the main program that instantiates a `type(nasto_nvf_object)` object and invoke its `simulate` method.
 
 Go to [Top](#top)
