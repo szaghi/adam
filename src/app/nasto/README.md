@@ -210,7 +210,7 @@ This contains the main global parameters of NASTO.
 ### `adam_nasto_common_object.F90`
 
 This contains the definition of NASTO common class, a class that is used (extended) by all NASTO backends.
-See [nasto common object API documentantion](doc/html/type/nasto_common_object.html) for more details.
+See [nasto common object API documentantion](https://szaghi.github.io/adam/type/nasto_common_object.html) for more details.
 
 ### `adam_nasto_cpu_object.F90`
 
@@ -219,7 +219,7 @@ This contains the definition of NASTO using the CPU backend.
 ### `adam_nasto_nvf_object.F90`
 
 This contains the definition of NASTO using the CUDAFortran GPU backend.
-See [nasto NVF object API documentantion](doc/html/type/nasto_nvf_object.html) for more details.
+See [nasto NVF object API documentantion](https://szaghi.github.io/adam/type/nasto_common_object.html) for more details.
 
 ### `adam_nasto_nvf_kernels.F90`
 
