@@ -7,3 +7,4 @@ src/third_party_manual/memeval/*.mod
 src/third_party_manual/CGAL/*.o
 run/
 tests/
+doc/html/
