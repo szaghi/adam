@@ -1,0 +1,4938 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="description" content="Adaptive Mesh Refinement (AMR) with Immersed Boundary (IB) fluid dynamic solver tailored for High Performance GPU Computing">
+    <meta name="author" content="Stefano Zaghi" >
+    <link rel="icon" href="../favicon.png">
+
+    <title>adam_nasto_nvf_object &ndash; ADAM</title>
+
+    <link href="../css/bootstrap.min.css" rel="stylesheet">
+    <link href="../css/pygments.css" rel="stylesheet">
+    <link href="../css/font-awesome.min.css" rel="stylesheet">
+    <link href="../css/local.css" rel="stylesheet">
+      <link  href="../tipuesearch/tipuesearch.css" rel="stylesheet">
+
+    <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
+    <!--[if lt IE 9]>
+        <script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
+        <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+        <![endif]-->
+
+         <script src="../js/jquery-2.1.3.min.js"></script>
+         <script src="../js/svg-pan-zoom.min.js"></script>
+
+  </head>
+
+  <body>
+
+    <!-- Fixed navbar -->
+    <nav class="navbar navbar-inverse navbar-fixed-top">
+      <div class="container">
+        <div class="navbar-header">
+          <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar" aria-expanded="false" aria-controls="navbar">
+            <span class="sr-only">Toggle navigation</span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </button>
+          <a class="navbar-brand" href="../index.html">ADAM </a>
+        </div>
+        <div id="navbar" class="navbar-collapse collapse">
+          <ul class="nav navbar-nav">
+            <li class="dropdown hidden-xs visible-sm visible-md hidden-lg">
+              <a href="#" class="dropdown-toggle"
+                 data-toggle="dropdown" role="button"
+                 aria-haspopup="true"
+                 aria-expanded="false">
+                 Contents <span class="caret"></span>
+              </a>
+              <ul class="dropdown-menu">
+                    <li><a href="../lists/files.html">Source Files</a></li>
+                  <li><a href="../lists/modules.html">Modules</a></li>
+                  <li><a href="../lists/procedures.html">Procedures</a></li>
+                  <li><a href="../lists/types.html">Derived Types</a></li>
+                  <li><a href="../program/adam_nasto_nvf.html">Program</a></li>
+              </ul>
+            </li>
+                <li class="visible-xs hidden-sm visible-lg">
+                  <a href="../lists/files.html">Source Files</a>
+                </li>
+              <li class="visible-xs hidden-sm visible-lg">
+                <a href="../lists/modules.html">Modules</a>
+              </li>
+              <li class="visible-xs hidden-sm visible-lg">
+                <a href="../lists/procedures.html">Procedures</a>
+              </li>
+              <li class="visible-xs hidden-sm visible-lg">
+                <a href="../lists/types.html">Derived Types</a>
+              </li>
+              <li class="visible-xs hidden-sm visible-lg">
+                <a href="../program/adam_nasto_nvf.html">Program</a>
+              </li>
+          </ul>
+            <form action="../search.html" class="navbar-form navbar-right" role="search">
+              <div class="form-group">
+                <input type="text" class="form-control" placeholder="Search" name="q" id="tipue_search_input" autocomplete="off" required>
+              </div>
+              <!--
+                  <button type="submit" class="btn btn-default">Submit</button>
+                  -->
+            </form>
+        </div><!--/.nav-collapse -->
+      </div>
+    </nav>
+
+    <div class="container">
+  <div class="row">
+    <h1>adam_nasto_nvf_object
+      <small>Module</small>
+      
+    </h1>
+      <div class="row" id="info-bar">
+    <div class="col-lg-12">
+      <div class="well well-sm">
+        <ul class="list-inline" style="margin-bottom:0px;display:inline">
+
+          <li id="statements"><i class="fa fa-list-ol"></i>
+            <a data-toggle="tooltip"
+               data-placement="bottom" data-html="true"
+               title="39.3% of total for modules and submodules.">1129 statements</a>
+          </li>
+
+            <li id="source-file">
+              <i class="fa fa-code"></i>
+              <a href="../src/adam_nasto_nvf_object.F90"> Source File</a>
+            </li>
+        </ul>
+        <ol class="breadcrumb in-well text-right">
+              <li><a href='../sourcefile/adam_nasto_nvf_object.f90.html'>adam_nasto_nvf_object.F90</a></li>
+          <li class="active">adam_nasto_nvf_object</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+  <script>
+    $(function () {
+    $('[data-toggle="tooltip"]').tooltip()
+    })
+  </script>
+
+  </div>
+
+  <div class="row">
+    <div class="col-md-3 hidden-xs hidden-sm visible-md visible-lg">
+        <div id="sidebar">
+      <h3>Contents</h3>
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+      <div class="panel panel-primary">
+      <div class="panel-heading text-left">
+        <h3 class="panel-title">
+          <a data-toggle="collapse" href="#types-0">Derived Types</a>
+        </h3>
+      </div>
+      <div id="types-0" class="panel-collapse collapse">
+        <div class="list-group">
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#type-nasto_nvf_object">nasto_nvf_object</a>
+        </div>
+      </div>
+    </div>
+
+  
+      <div class="panel panel-primary">
+      <div class="panel-heading text-left">
+        <h3 class="panel-title">
+          <a data-toggle="collapse" href="#subs-0">Subroutines</a>
+        </h3>
+      </div>
+      <div id="subs-0" class="panel-collapse collapse">
+        <div class="list-group">
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-check_cuda_error">check_cuda_error</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-compute_cuda_dimensions">compute_cuda_dimensions</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-copy_cpu_gpu">copy_cpu_gpu</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-copy_gpu_cpu">copy_gpu_cpu</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-destroy">destroy</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-fd_initialize">fd_initialize</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-initialize~2">initialize</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-runge_kutta_initialize">runge_kutta_initialize</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-amr_update">amr_update</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-mark_by_geo">mark_by_geo</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-mark_by_grad_var">mark_by_grad_var</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-move_phi">move_phi</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-refine_uniform">refine_uniform</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-update_phi">update_phi</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-evolve_eikonal_q_gpu">evolve_eikonal_q_gpu</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-invert_eikonal_q_gpu">invert_eikonal_q_gpu</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-load_restart_files">load_restart_files</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-print_progress">print_progress</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-save_simulation_data">save_simulation_data</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-save_hdf5">save_hdf5</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-save_restart_files">save_restart_files</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-save_slices">save_slices</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-set_boundary_conditions">set_boundary_conditions</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-set_initial_conditions">set_initial_conditions</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-update_ghost_gpu">update_ghost_gpu</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-update_ghost_fluxes_gpu">update_ghost_fluxes_gpu</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-compute_q_aux_gpu">compute_q_aux_gpu</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-compute_dt">compute_dt</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-compute_residuals">compute_residuals</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-compute_rk_q_gpu">compute_rk_q_gpu</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-integrate">integrate</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-simulate">simulate</a>
+        </div>
+      </div>
+    </div>
+
+  
+  
+  
+  
+  
+  
+
+
+  </div>
+
+    </div>
+
+    <div class="col-md-9" id='text'>
+      <p>ADAM, Navier-Stokes equations system class definition, GPU (NVF) backend.</p>
+<br>          <div class="panel panel-default">
+      <div class="panel-heading">
+        <h3 class="panel-title">Uses</h3>
+      </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+            <ul class="list-inline">
+                <li>adam_tree_node_object</li>
+                <li>adam_adam_object</li>
+                <li>adam_grid_object</li>
+                <li>adam_amr_marker_object</li>
+                <li><a href='<a href="https://gcc.gnu.org/onlinedocs/gfortran/ISO_005fFORTRAN_005fENV.html">iso_fortran_env</a>'>iso_fortran_env</a></li>
+                <li>adam_memory_cpu_lib</li>
+                <li>adam_memory_gpu_lib</li>
+                <li><a href='../module/adam_nasto_parameters.html'>adam_nasto_parameters</a></li>
+                <li>PENF</li>
+                <li><a href='../module/adam_nasto_common_object.html'>adam_nasto_common_object</a></li>
+                <li>CUDAFOR</li>
+                <li><a href='<a href="http://www.mpi-forum.org/docs/mpi-3.1/mpi31-report/node410.htm">mpi</a>'>mpi</a></li>
+                <li>adam_base_gpu_object</li>
+                <li>adam_parameters</li>
+                <li>adam_weno_library_gpu</li>
+                <li>cgal_wrappers</li>
+                <li><a href='<a href="http://fortranwiki.org/fortran/show/iso_c_binding">iso_c_binding</a>'>iso_c_binding</a></li>
+                <li><a href='../module/adam_nasto_nvf_kernels.html'>adam_nasto_nvf_kernels</a></li>
+                <li>FiNeR</li>
+                <li>adam_field_object</li>
+                <li>adam_slice_object</li>
+                <li>adam_mpih_object</li>
+            </ul>
+          </li>
+          <li class="list-group-item">
+            <div class="depgraph"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: module~~adam_nasto_nvf_object~~UsesGraph Pages: 1 -->
+<svg id="moduleadam_nasto_nvf_objectUsesGraph" width="590pt" height="774pt"
+ viewBox="0.00 0.00 590.00 774.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="module~~adam_nasto_nvf_object~~UsesGraph" class="graph" transform="scale(1 1) rotate(0) translate(4 770)">
+<title>module~~adam_nasto_nvf_object~~UsesGraph</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-770 586,-770 586,4 -4,4"/>
+<!-- module~adam_nasto_nvf_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_node1" class="node">
+<title>module~adam_nasto_nvf_object</title>
+<polygon fill="none" stroke="black" points="582,-276 455,-276 455,-252 582,-252 582,-276"/>
+<text text-anchor="middle" x="518.5" y="-261.6" font-family="Helvetica,sans-Serif" font-size="10.50">adam_nasto_nvf_object</text>
+</g>
+<!-- CUDAFOR -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_node2" class="node">
+<title>CUDAFOR</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="191.5,-724 127.5,-724 127.5,-700 191.5,-700 191.5,-724"/>
+<text text-anchor="middle" x="159.5" y="-709.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">CUDAFOR</text>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;CUDAFOR -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge1" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;CUDAFOR</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M516.08,-276.21C508.59,-338.87 472.02,-624.12 419,-693 395.72,-723.25 374.39,-711.28 343,-733"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M341,-733C319.13,-748.14 247.75,-734.22 201.58,-722.96"/>
+<polygon fill="#000000" stroke="#000000" points="202.4,-719.56 191.85,-720.54 200.71,-726.35 202.4,-719.56"/>
+</g>
+<!-- FiNeR -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_node3" class="node">
+<title>FiNeR</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="186.5,-564 132.5,-564 132.5,-540 186.5,-540 186.5,-564"/>
+<text text-anchor="middle" x="159.5" y="-549.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">FiNeR</text>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;FiNeR -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge2" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;FiNeR</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M341,-552C295.1,-574.2 234.63,-568.18 196.66,-560.85"/>
+<polygon fill="#000000" stroke="#000000" points="197.08,-557.36 186.57,-558.76 195.66,-564.21 197.08,-557.36"/>
+</g>
+<!-- PENF -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_node4" class="node">
+<title>PENF</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="54,-644 0,-644 0,-620 54,-620 54,-644"/>
+<text text-anchor="middle" x="27" y="-629.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">PENF</text>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;PENF -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge3" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;PENF</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M341,-552C237.84,-601.9 200.17,-579.47 90,-611 81.44,-613.45 72.31,-616.37 63.77,-619.24"/>
+<polygon fill="#000000" stroke="#000000" points="62.4,-616 54.07,-622.55 64.67,-622.63 62.4,-616"/>
+</g>
+<!-- adam_adam_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_node5" class="node">
+<title>adam_adam_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="213,-522 106,-522 106,-498 213,-498 213,-522"/>
+<text text-anchor="middle" x="159.5" y="-507.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_adam_object</text>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;adam_adam_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge4" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;adam_adam_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M341,-552C329.21,-557.7 259.43,-539.17 210.18,-524.92"/>
+<polygon fill="#000000" stroke="#000000" points="210.9,-521.48 200.32,-522.04 208.94,-528.2 210.9,-521.48"/>
+</g>
+<!-- adam_amr_marker_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_node6" class="node">
+<title>adam_amr_marker_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="229,-480 90,-480 90,-456 229,-456 229,-480"/>
+<text text-anchor="middle" x="159.5" y="-465.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_amr_marker_object</text>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;adam_amr_marker_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge5" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;adam_amr_marker_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M341,-552C289.59,-576.87 281.49,-511.5 229,-489 224.33,-487 219.41,-485.1 214.44,-483.33"/>
+<polygon fill="#000000" stroke="#000000" points="215.45,-479.98 204.85,-480.07 213.19,-486.6 215.45,-479.98"/>
+</g>
+<!-- adam_base_gpu_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_node7" class="node">
+<title>adam_base_gpu_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="405.5,-318 278.5,-318 278.5,-294 405.5,-294 405.5,-318"/>
+<text text-anchor="middle" x="342" y="-303.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_base_gpu_object</text>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;adam_base_gpu_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge6" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;adam_base_gpu_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M467.5,-276.04C447.32,-280.89 423.88,-286.53 402.82,-291.6"/>
+<polygon fill="#000000" stroke="#000000" points="401.92,-288.22 393.01,-293.96 403.55,-295.03 401.92,-288.22"/>
+</g>
+<!-- adam_field_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_node8" class="node">
+<title>adam_field_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="209.5,-438 109.5,-438 109.5,-414 209.5,-414 209.5,-438"/>
+<text text-anchor="middle" x="159.5" y="-423.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_field_object</text>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;adam_field_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge7" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;adam_field_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M514.99,-276.16C504.44,-323.55 458.78,-496 343,-552"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M341,-552C279.58,-581.71 288.03,-481.22 229,-447 225.8,-445.14 222.42,-443.44 218.94,-441.87"/>
+<polygon fill="#000000" stroke="#000000" points="220.15,-438.58 209.57,-438.03 217.49,-445.06 220.15,-438.58"/>
+</g>
+<!-- adam_grid_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_node9" class="node">
+<title>adam_grid_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="208.5,-358 110.5,-358 110.5,-334 208.5,-334 208.5,-358"/>
+<text text-anchor="middle" x="159.5" y="-343.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_grid_object</text>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;adam_grid_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge8" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;adam_grid_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M341,-346C300.27,-348.09 254.3,-348.05 218.94,-347.52"/>
+<polygon fill="#000000" stroke="#000000" points="218.86,-344.01 208.8,-347.34 218.74,-351.01 218.86,-344.01"/>
+</g>
+<!-- adam_memory_cpu_lib -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_node10" class="node">
+<title>adam_memory_cpu_lib</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="404,-276 280,-276 280,-252 404,-252 404,-276"/>
+<text text-anchor="middle" x="342" y="-261.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_memory_cpu_lib</text>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;adam_memory_cpu_lib -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge9" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;adam_memory_cpu_lib</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M454.99,-264C441.82,-264 427.83,-264 414.37,-264"/>
+<polygon fill="#000000" stroke="#000000" points="414.19,-260.5 404.19,-264 414.19,-267.5 414.19,-260.5"/>
+</g>
+<!-- adam_memory_gpu_lib -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_node11" class="node">
+<title>adam_memory_gpu_lib</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="404.5,-234 279.5,-234 279.5,-210 404.5,-210 404.5,-234"/>
+<text text-anchor="middle" x="342" y="-219.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_memory_gpu_lib</text>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;adam_memory_gpu_lib -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge10" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;adam_memory_gpu_lib</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M467.5,-251.96C447.32,-247.11 423.88,-241.47 402.82,-236.4"/>
+<polygon fill="#000000" stroke="#000000" points="403.55,-232.97 393.01,-234.04 401.92,-239.78 403.55,-232.97"/>
+</g>
+<!-- adam_mpih_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_node12" class="node">
+<title>adam_mpih_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="211,-316 108,-316 108,-292 211,-292 211,-316"/>
+<text text-anchor="middle" x="159.5" y="-301.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_mpih_object</text>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;adam_mpih_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge11" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;adam_mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M341,-346C315.98,-347.28 254.61,-331.46 210.37,-318.88"/>
+<polygon fill="#000000" stroke="#000000" points="211.23,-315.48 200.65,-316.08 209.3,-322.21 211.23,-315.48"/>
+</g>
+<!-- adam_parameters -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_node13" class="node">
+<title>adam_parameters</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="392,-192 292,-192 292,-168 392,-168 392,-192"/>
+<text text-anchor="middle" x="342" y="-177.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_parameters</text>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;adam_parameters -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge12" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;adam_parameters</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M501.96,-251.96C483.22,-237.95 450.33,-214.97 419,-201 413.55,-198.57 407.76,-196.36 401.89,-194.37"/>
+<polygon fill="#000000" stroke="#000000" points="402.6,-190.92 392.01,-191.21 400.47,-197.59 402.6,-190.92"/>
+</g>
+<!-- adam_slice_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_node14" class="node">
+<title>adam_slice_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="210,-274 109,-274 109,-250 210,-250 210,-274"/>
+<text text-anchor="middle" x="159.5" y="-259.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_slice_object</text>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;adam_slice_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge13" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;adam_slice_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M341,-346C306.23,-347.78 294.41,-345.64 265,-327 243.66,-313.47 249.98,-297.08 229,-283 225.93,-280.94 222.64,-279.07 219.24,-277.38"/>
+<polygon fill="#000000" stroke="#000000" points="220.57,-274.14 210.01,-273.32 217.75,-280.55 220.57,-274.14"/>
+</g>
+<!-- adam_tree_node_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_node15" class="node">
+<title>adam_tree_node_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="406.5,-150 277.5,-150 277.5,-126 406.5,-126 406.5,-150"/>
+<text text-anchor="middle" x="342" y="-135.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_tree_node_object</text>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;adam_tree_node_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge14" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;adam_tree_node_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M509.58,-251.9C494.58,-229.98 459.86,-183.69 419,-159 415.98,-157.18 412.8,-155.5 409.51,-153.98"/>
+<polygon fill="#000000" stroke="#000000" points="410.63,-150.65 400.05,-150.03 407.94,-157.11 410.63,-150.65"/>
+</g>
+<!-- adam_weno_library_gpu -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_node16" class="node">
+<title>adam_weno_library_gpu</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="407,-108 277,-108 277,-84 407,-84 407,-108"/>
+<text text-anchor="middle" x="342" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_weno_library_gpu</text>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;adam_weno_library_gpu -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge15" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;adam_weno_library_gpu</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M512.92,-251.98C501.56,-223.84 469.32,-153.31 419,-117 416.86,-115.46 414.62,-114.03 412.29,-112.71"/>
+<polygon fill="#000000" stroke="#000000" points="413.5,-109.4 402.99,-108.1 410.4,-115.67 413.5,-109.4"/>
+</g>
+<!-- cgal_wrappers -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_node17" class="node">
+<title>cgal_wrappers</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="383,-66 301,-66 301,-42 383,-42 383,-66"/>
+<text text-anchor="middle" x="342" y="-51.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">cgal_wrappers</text>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;cgal_wrappers -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge16" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;cgal_wrappers</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M514.72,-251.66C506.47,-217.92 478.85,-123.39 419,-75 411.49,-68.93 402.36,-64.61 393.06,-61.54"/>
+<polygon fill="#000000" stroke="#000000" points="393.95,-58.15 383.37,-58.77 392.02,-64.88 393.95,-58.15"/>
+</g>
+<!-- iso_c_binding -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_node18" class="node">
+<title>iso_c_binding</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="198.5,-232 120.5,-232 120.5,-208 198.5,-208 198.5,-232"/>
+<text text-anchor="middle" x="159.5" y="-217.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">iso_c_binding</text>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;iso_c_binding -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge17" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;iso_c_binding</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M502.02,-276.18C483.34,-290.31 450.5,-313.42 419,-327 387.03,-340.78 377.77,-344.22 343,-346"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M341,-346C306.23,-347.78 291.41,-349.69 265,-327 233.57,-300 259.71,-268.81 229,-241 223.1,-235.66 215.87,-231.67 208.35,-228.7"/>
+<polygon fill="#000000" stroke="#000000" points="209.33,-225.34 198.73,-225.46 207.09,-231.97 209.33,-225.34"/>
+</g>
+<!-- iso_fortran_env -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_node19" class="node">
+<title>iso_fortran_env</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="385.5,-24 298.5,-24 298.5,0 385.5,0 385.5,-24"/>
+<text text-anchor="middle" x="342" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">iso_fortran_env</text>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;iso_fortran_env -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge18" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;iso_fortran_env</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M516.01,-251.81C510.67,-213.45 488.9,-94.14 419,-33 412.26,-27.11 404.01,-22.85 395.45,-19.79"/>
+<polygon fill="#000000" stroke="#000000" points="396.31,-16.39 385.73,-16.81 394.26,-23.08 396.31,-16.39"/>
+</g>
+<!-- module~adam_nasto_common_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_node20" class="node">
+<title>module~adam_nasto_common_object</title>
+<g id="a_module~~adam_nasto_nvf_object~~UsesGraph_node20"><a xlink:href=".././module/adam_nasto_common_object.html" xlink:title="adam_nasto_common_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="419,-398 265,-398 265,-374 419,-374 419,-398"/>
+<text text-anchor="middle" x="342" y="-383.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_common_object</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;module~adam_nasto_common_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge19" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;module~adam_nasto_common_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M508.18,-276.07C492.07,-296.17 457.04,-336.62 419,-360 412.71,-363.87 405.77,-367.24 398.72,-370.17"/>
+<polygon fill="#000000" stroke="#000000" points="397.16,-367.02 389.09,-373.89 399.68,-373.55 397.16,-367.02"/>
+</g>
+<!-- module~adam_nasto_nvf_kernels -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_node21" class="node">
+<title>module~adam_nasto_nvf_kernels</title>
+<g id="a_module~~adam_nasto_nvf_object~~UsesGraph_node21"><a xlink:href=".././module/adam_nasto_nvf_kernels.html" xlink:title="adam_nasto_nvf_kernels">
+<polygon fill="#337ab7" stroke="#337ab7" points="408.5,-684 275.5,-684 275.5,-660 408.5,-660 408.5,-684"/>
+<text text-anchor="middle" x="342" y="-669.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_nvf_kernels</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;module~adam_nasto_nvf_kernels -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge20" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;module~adam_nasto_nvf_kernels</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M514.98,-276.03C505.94,-317.79 472.81,-459.72 419,-566 402.64,-598.32 377.05,-631.63 360.16,-652.08"/>
+<polygon fill="#000000" stroke="#000000" points="357.46,-649.85 353.71,-659.77 362.82,-654.35 357.46,-649.85"/>
+</g>
+<!-- module~adam_nasto_parameters -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_node22" class="node">
+<title>module~adam_nasto_parameters</title>
+<g id="a_module~~adam_nasto_nvf_object~~UsesGraph_node22"><a xlink:href=".././module/adam_nasto_parameters.html" xlink:title="adam_nasto_parameters">
+<polygon fill="#337ab7" stroke="#337ab7" points="226,-766 93,-766 93,-742 226,-742 226,-766"/>
+<text text-anchor="middle" x="159.5" y="-751.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_parameters</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;module~adam_nasto_parameters -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge21" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;module~adam_nasto_parameters</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M341,-733C310.9,-753.84 271,-760.1 236.37,-760.72"/>
+<polygon fill="#000000" stroke="#000000" points="236.27,-757.22 226.28,-760.74 236.29,-764.22 236.27,-757.22"/>
+</g>
+<!-- mpi -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_node23" class="node">
+<title>mpi</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="186.5,-644 132.5,-644 132.5,-620 186.5,-620 186.5,-644"/>
+<text text-anchor="middle" x="159.5" y="-629.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">mpi</text>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;mpi -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge22" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;mpi</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M341,-552C291.25,-576.06 279.77,-584.17 229,-606 218.44,-610.54 206.81,-615.11 196.17,-619.13"/>
+<polygon fill="#000000" stroke="#000000" points="194.88,-615.87 186.73,-622.65 197.33,-622.43 194.88,-615.87"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;FiNeR -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge23" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;FiNeR</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M334.99,-398.17C320.64,-425.98 281.58,-494.62 229,-531 219.37,-537.67 207.55,-542.27 196.46,-545.42"/>
+<polygon fill="#000000" stroke="#000000" points="195.4,-542.08 186.57,-547.93 197.12,-548.87 195.4,-542.08"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;PENF -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge24" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;PENF</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M288.72,-373.97C233.01,-364.43 145.37,-359.32 90,-405 58.15,-431.28 37.94,-557.62 30.85,-609.59"/>
+<polygon fill="#000000" stroke="#000000" points="27.34,-609.39 29.5,-619.76 34.28,-610.31 27.34,-609.39"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_adam_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge25" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_adam_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M331.19,-398.03C313.15,-419.39 272.54,-464.04 229,-489 225.79,-490.84 222.4,-492.54 218.92,-494.1"/>
+<polygon fill="#000000" stroke="#000000" points="217.48,-490.9 209.54,-497.92 220.12,-497.39 217.48,-490.9"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_amr_marker_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge26" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_amr_marker_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M321.77,-398.03C299.91,-411.33 262.88,-432.75 229,-447 224.25,-449 219.24,-450.9 214.18,-452.68"/>
+<polygon fill="#000000" stroke="#000000" points="212.81,-449.45 204.45,-455.96 215.05,-456.09 212.81,-449.45"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_field_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge27" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_field_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M286.84,-398C265.69,-402.69 241.36,-408.08 219.74,-412.87"/>
+<polygon fill="#000000" stroke="#000000" points="218.7,-409.52 209.7,-415.1 220.22,-416.35 218.7,-409.52"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_grid_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge28" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_grid_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M286.84,-374C265.32,-369.23 240.52,-363.73 218.62,-358.88"/>
+<polygon fill="#000000" stroke="#000000" points="219.31,-355.45 208.79,-356.7 217.79,-362.28 219.31,-355.45"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_mpih_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge29" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M294.91,-373.88C284.67,-370.21 274.15,-365.62 265,-360 245.98,-348.33 248.2,-336.37 229,-325 225.96,-323.2 222.76,-321.55 219.46,-320.02"/>
+<polygon fill="#000000" stroke="#000000" points="220.56,-316.69 209.98,-316.06 217.86,-323.15 220.56,-316.69"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_slice_object -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge30" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_slice_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M287.69,-373.96C279.46,-370.42 271.54,-365.87 265,-360 236.89,-334.76 257.51,-307.78 229,-283 226.11,-280.49 222.92,-278.27 219.55,-276.32"/>
+<polygon fill="#000000" stroke="#000000" points="220.79,-273.04 210.27,-271.76 217.7,-279.32 220.79,-273.04"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;iso_c_binding -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge31" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;iso_c_binding</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M285.01,-373.85C277.59,-370.34 270.62,-365.82 265,-360 226.63,-320.23 268,-280.14 229,-241 223.2,-235.17 215.82,-230.96 208.07,-227.91"/>
+<polygon fill="#000000" stroke="#000000" points="209.11,-224.56 198.52,-224.73 206.9,-231.21 209.11,-224.56"/>
+</g>
+<!-- module~adam_nasto_nvf_kernels&#45;&gt;CUDAFOR -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge32" class="edge">
+<title>module~adam_nasto_nvf_kernels&#45;&gt;CUDAFOR</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M286.84,-684C259.46,-690.07 226.78,-697.31 201.51,-702.91"/>
+<polygon fill="#000000" stroke="#000000" points="200.53,-699.54 191.52,-705.13 202.04,-706.38 200.53,-699.54"/>
+</g>
+<!-- module~adam_nasto_nvf_kernels&#45;&gt;PENF -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge33" class="edge">
+<title>module~adam_nasto_nvf_kernels&#45;&gt;PENF</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M275.37,-671.52C224.37,-670.07 152.09,-665.66 90,-653 81.36,-651.24 72.25,-648.61 63.77,-645.81"/>
+<polygon fill="#000000" stroke="#000000" points="64.74,-642.45 54.15,-642.48 62.45,-649.06 64.74,-642.45"/>
+</g>
+<!-- module~adam_nasto_nvf_kernels&#45;&gt;module~adam_nasto_parameters -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge34" class="edge">
+<title>module~adam_nasto_nvf_kernels&#45;&gt;module~adam_nasto_parameters</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M321.77,-684.03C299.91,-697.33 262.88,-718.75 229,-733 224.25,-735 219.24,-736.9 214.18,-738.68"/>
+<polygon fill="#000000" stroke="#000000" points="212.81,-735.45 204.45,-741.96 215.05,-742.09 212.81,-735.45"/>
+</g>
+<!-- module~adam_nasto_nvf_kernels&#45;&gt;mpi -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge35" class="edge">
+<title>module~adam_nasto_nvf_kernels&#45;&gt;mpi</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M286.84,-660C257.82,-653.57 222.84,-645.81 197.05,-640.1"/>
+<polygon fill="#000000" stroke="#000000" points="197.47,-636.61 186.95,-637.86 195.95,-643.44 197.47,-636.61"/>
+</g>
+<!-- module~adam_nasto_parameters&#45;&gt;PENF -->
+<g id="module~~adam_nasto_nvf_object~~UsesGraph_edge36" class="edge">
+<title>module~adam_nasto_parameters&#45;&gt;PENF</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M104.97,-741.86C99.63,-739.43 94.52,-736.5 90,-733 63.34,-712.35 45.4,-676.75 35.95,-653.8"/>
+<polygon fill="#000000" stroke="#000000" points="39.11,-652.27 32.2,-644.24 32.59,-654.83 39.11,-652.27"/>
+</g>
+</g>
+</svg>
+</div>        <div><a type="button" class="graph-help" data-toggle="modal" href="#graph-help-text">Help</a></div>
+          <div class="modal fade" id="graph-help-text" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                  </button>
+                  <h4 class="modal-title" id="-graph-help-label">Graph Key</h4>
+                </div>
+              <div class="modal-body">
+<p>Nodes of different colours represent the following: </p>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: Graph Key Pages: 1 -->
+<svg width="490pt" height="32pt"
+ viewBox="0.00 0.00 489.50 32.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 28)">
+<title>Graph Key</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 485.5,-28 485.5,4 -4,4"/>
+<!-- Module -->
+<g id="node1" class="node">
+<title>Module</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="54,-24 0,-24 0,0 54,0 54,-24"/>
+<text text-anchor="middle" x="27" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Module</text>
+</g>
+<!-- Submodule -->
+<g id="node2" class="node">
+<title>Submodule</title>
+<polygon fill="#5bc0de" stroke="#5bc0de" points="139.5,-24 72.5,-24 72.5,0 139.5,0 139.5,-24"/>
+<text text-anchor="middle" x="106" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Submodule</text>
+</g>
+<!-- Subroutine -->
+<g id="node3" class="node">
+<title>Subroutine</title>
+<polygon fill="#d9534f" stroke="#d9534f" points="222,-24 158,-24 158,0 222,0 222,-24"/>
+<text text-anchor="middle" x="190" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Subroutine</text>
+</g>
+<!-- Function -->
+<g id="node4" class="node">
+<title>Function</title>
+<polygon fill="#d94e8f" stroke="#d94e8f" points="294,-24 240,-24 240,0 294,0 294,-24"/>
+<text text-anchor="middle" x="267" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Function</text>
+</g>
+<!-- Program -->
+<g id="node5" class="node">
+<title>Program</title>
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="366,-24 312,-24 312,0 366,0 366,-24"/>
+<text text-anchor="middle" x="339" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Program</text>
+</g>
+<!-- This Page&#39;s Entity -->
+<g id="node6" class="node">
+<title>This Page&#39;s Entity</title>
+<polygon fill="none" stroke="black" points="481.5,-24 384.5,-24 384.5,0 481.5,0 481.5,-24"/>
+<text text-anchor="middle" x="433" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">This Page&#39;s Entity</text>
+</g>
+</g>
+</svg>
+
+<p>Solid arrows point from a submodule to the (sub)module which it is
+descended from. Dashed arrows point from a module or program unit to 
+modules which it uses.
+</p>
+ </div>
+            </div>
+          </div>
+        </div>
+          </li>
+      </ul>
+    </div>
+
+          <div class="panel panel-default">
+      <div class="panel-heading">
+        <h3 class="panel-title">Used by</h3>
+      </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+            <div class="depgraph"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: module~~adam_nasto_nvf_object~~UsedByGraph Pages: 1 -->
+<svg id="moduleadam_nasto_nvf_objectUsedByGraph" width="263pt" height="32pt"
+ viewBox="0.00 0.00 263.00 32.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="module~~adam_nasto_nvf_object~~UsedByGraph" class="graph" transform="scale(1 1) rotate(0) translate(4 28)">
+<title>module~~adam_nasto_nvf_object~~UsedByGraph</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 259,-28 259,4 -4,4"/>
+<!-- module~adam_nasto_nvf_object -->
+<g id="module~~adam_nasto_nvf_object~~UsedByGraph_node1" class="node">
+<title>module~adam_nasto_nvf_object</title>
+<polygon fill="none" stroke="black" points="127,-24 0,-24 0,0 127,0 127,-24"/>
+<text text-anchor="middle" x="63.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">adam_nasto_nvf_object</text>
+</g>
+<!-- program~adam_nasto_nvf -->
+<g id="module~~adam_nasto_nvf_object~~UsedByGraph_node2" class="node">
+<title>program~adam_nasto_nvf</title>
+<g id="a_module~~adam_nasto_nvf_object~~UsedByGraph_node2"><a xlink:href=".././program/adam_nasto_nvf.html" xlink:title="adam_nasto_nvf">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="255,-24 163,-24 163,0 255,0 255,-24"/>
+<text text-anchor="middle" x="209" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_nvf</text>
+</a>
+</g>
+</g>
+<!-- program~adam_nasto_nvf&#45;&gt;module~adam_nasto_nvf_object -->
+<g id="module~~adam_nasto_nvf_object~~UsedByGraph_edge1" class="edge">
+<title>program~adam_nasto_nvf&#45;&gt;module~adam_nasto_nvf_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M162.99,-12C154.84,-12 146.15,-12 137.43,-12"/>
+<polygon fill="#000000" stroke="#000000" points="137.22,-8.5 127.22,-12 137.22,-15.5 137.22,-8.5"/>
+</g>
+</g>
+</svg>
+</div>        <div><a type="button" class="graph-help" data-toggle="modal" href="#graph-help-text">Help</a></div>
+          <div class="modal fade" id="graph-help-text" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                  </button>
+                  <h4 class="modal-title" id="-graph-help-label">Graph Key</h4>
+                </div>
+              <div class="modal-body">
+<p>Nodes of different colours represent the following: </p>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: Graph Key Pages: 1 -->
+<svg width="490pt" height="32pt"
+ viewBox="0.00 0.00 489.50 32.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 28)">
+<title>Graph Key</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 485.5,-28 485.5,4 -4,4"/>
+<!-- Module -->
+<g id="node1" class="node">
+<title>Module</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="54,-24 0,-24 0,0 54,0 54,-24"/>
+<text text-anchor="middle" x="27" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Module</text>
+</g>
+<!-- Submodule -->
+<g id="node2" class="node">
+<title>Submodule</title>
+<polygon fill="#5bc0de" stroke="#5bc0de" points="139.5,-24 72.5,-24 72.5,0 139.5,0 139.5,-24"/>
+<text text-anchor="middle" x="106" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Submodule</text>
+</g>
+<!-- Subroutine -->
+<g id="node3" class="node">
+<title>Subroutine</title>
+<polygon fill="#d9534f" stroke="#d9534f" points="222,-24 158,-24 158,0 222,0 222,-24"/>
+<text text-anchor="middle" x="190" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Subroutine</text>
+</g>
+<!-- Function -->
+<g id="node4" class="node">
+<title>Function</title>
+<polygon fill="#d94e8f" stroke="#d94e8f" points="294,-24 240,-24 240,0 294,0 294,-24"/>
+<text text-anchor="middle" x="267" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Function</text>
+</g>
+<!-- Program -->
+<g id="node5" class="node">
+<title>Program</title>
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="366,-24 312,-24 312,0 366,0 366,-24"/>
+<text text-anchor="middle" x="339" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Program</text>
+</g>
+<!-- This Page&#39;s Entity -->
+<g id="node6" class="node">
+<title>This Page&#39;s Entity</title>
+<polygon fill="none" stroke="black" points="481.5,-24 384.5,-24 384.5,0 481.5,0 481.5,-24"/>
+<text text-anchor="middle" x="433" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">This Page&#39;s Entity</text>
+</g>
+</g>
+</svg>
+
+<p>Solid arrows point from a submodule to the (sub)module which it is
+descended from. Dashed arrows point from a module or program unit to 
+modules which it uses.
+</p>
+ </div>
+            </div>
+          </div>
+        </div>
+          </li>
+      </ul>
+    </div>
+
+      <br>
+
+      <section class="visible-xs visible-sm hidden-md">
+          <h3>Contents</h3>
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+      <div class="panel panel-primary">
+      <div class="panel-heading text-left">
+        <h3 class="panel-title">
+          <a data-toggle="collapse" href="#types-1">Derived Types</a>
+        </h3>
+      </div>
+      <div id="types-1" class="panel-collapse collapse">
+        <div class="list-group">
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#type-nasto_nvf_object">nasto_nvf_object</a>
+        </div>
+      </div>
+    </div>
+
+  
+      <div class="panel panel-primary">
+      <div class="panel-heading text-left">
+        <h3 class="panel-title">
+          <a data-toggle="collapse" href="#subs-1">Subroutines</a>
+        </h3>
+      </div>
+      <div id="subs-1" class="panel-collapse collapse">
+        <div class="list-group">
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-check_cuda_error">check_cuda_error</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-compute_cuda_dimensions">compute_cuda_dimensions</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-copy_cpu_gpu">copy_cpu_gpu</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-copy_gpu_cpu">copy_gpu_cpu</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-destroy">destroy</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-fd_initialize">fd_initialize</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-initialize~2">initialize</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-runge_kutta_initialize">runge_kutta_initialize</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-amr_update">amr_update</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-mark_by_geo">mark_by_geo</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-mark_by_grad_var">mark_by_grad_var</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-move_phi">move_phi</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-refine_uniform">refine_uniform</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-update_phi">update_phi</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-evolve_eikonal_q_gpu">evolve_eikonal_q_gpu</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-invert_eikonal_q_gpu">invert_eikonal_q_gpu</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-load_restart_files">load_restart_files</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-print_progress">print_progress</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-save_simulation_data">save_simulation_data</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-save_hdf5">save_hdf5</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-save_restart_files">save_restart_files</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-save_slices">save_slices</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-set_boundary_conditions">set_boundary_conditions</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-set_initial_conditions">set_initial_conditions</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-update_ghost_gpu">update_ghost_gpu</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-update_ghost_fluxes_gpu">update_ghost_fluxes_gpu</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-compute_q_aux_gpu">compute_q_aux_gpu</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-compute_dt">compute_dt</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-compute_residuals">compute_residuals</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-compute_rk_q_gpu">compute_rk_q_gpu</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-integrate">integrate</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-simulate">simulate</a>
+        </div>
+      </div>
+    </div>
+
+  
+  
+  
+  
+  
+  
+
+
+      </section>
+      <br class="visible-xs visible-sm hidden-md">
+
+
+
+
+
+
+        <section>
+          <h2>Derived Types</h2>
+              <div class="panel panel-default">
+    <div class="panel-heading codesum">
+      <span class="anchor" id="type-nasto_nvf_object"></span>
+      <h3>
+        type, public, extends(<a href='../type/nasto_common_object.html'>nasto_common_object</a>)&nbsp;::&nbsp;
+        <a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>
+        
+      </h3>
+    </div>
+    <div class="panel-body">
+      <p>Navier-Stokes equations system class definition, GPU (NVF) backend.</p>
+
+        <h4>Components</h4>
+          <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Visibility</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+<th></th><th>Initial</th>        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-mpih"></span>
+              type(mpih_object),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>mpih</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>MPI handler.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-adam"></span>
+              type(adam_object),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>adam</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>ADAM.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-field"></span>
+              type(field_object),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>field</strong></td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+<p>The field.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-grid"></span>
+              type(grid_object),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>grid</strong></td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+<p>The grid.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-ngc~12"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>ngc</strong></td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+<p>Number of ghost cells.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-ni~11"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>ni</strong></td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+<p>Number of cells in i direction.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-nj~11"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>nj</strong></td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+<p>Number of cells in j direction.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-nk~11"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>nk</strong></td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+<p>Number of cells in k direction.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-nb"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>nb</strong></td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+<p>Total blocks number for MPI.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-blocks_number~9"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>blocks_number</strong></td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+<p>Actual blocks number.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-nv~8"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>nv</strong></td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+<p>Number of variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-nv_aux"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>nv_aux</strong></td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+<p>Number of auxiliary variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-file_input"></span>
+              type(file_ini),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>file_input</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Nasto input file handler.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-save_memory_status"></span>
+              logical,
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>save_memory_status</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Flag to activate memory status saving.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-slices_number"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>slices_number</strong></td>
+<td> =</td>
+                <td>0</td>
+            <td>
+<p>Number of slices to be save.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-slice"></span>
+              type(slice_object),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable
+            </td>
+            <td>::</td>
+            <td><strong>slice</strong>(:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Slices data.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-fd_coeff1"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable
+            </td>
+            <td>::</td>
+            <td><strong>fd_coeff1</strong>(:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>First order derivatives coeffs.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-fd_coeff2"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable
+            </td>
+            <td>::</td>
+            <td><strong>fd_coeff2</strong>(:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Second order derivatives coeffs.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-fd_conv"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable
+            </td>
+            <td>::</td>
+            <td><strong>fd_conv</strong>(:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Second order derivatives coeffs.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-visc_scheme"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>visc_scheme</strong></td>
+<td> =</td>
+                <td>2_I4P</td>
+            <td>
+<p>Laplacian viscosity scheme.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-euler_scheme"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>euler_scheme</strong></td>
+<td> =</td>
+                <td>2_I4P</td>
+            <td>
+<p>Centered (1) or weno (2) euler scheme.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-central_order"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>central_order</strong></td>
+<td> =</td>
+                <td>4_I4P</td>
+            <td>
+<p>Centered euler scheme order.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-lmax"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>lmax</strong></td>
+<td> =</td>
+                <td>2_I4P</td>
+            <td>
+<p>Central convective half stencil.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-weno_n_ror"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>weno_n_ror</strong></td>
+<td> =</td>
+                <td>1_I4P</td>
+            <td>
+<p>Number of ror weno (1 disables ror).</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-weno_schemes"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable
+            </td>
+            <td>::</td>
+            <td><strong>weno_schemes</strong>(:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Weno schemes.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-ror_threshold"></span>
+              real(kind=R8P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>ror_threshold</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Threshold for ror check.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-ror_n_indexes"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>ror_n_indexes</strong></td>
+<td> =</td>
+                <td>2_I4P</td>
+            <td>
+<p>Number of variables checked by ror.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-ror_indexes"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable
+            </td>
+            <td>::</td>
+            <td><strong>ror_indexes</strong>(:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Ror variable indexes.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-enable_ror_stats"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>enable_ror_stats</strong></td>
+<td> =</td>
+                <td>0_I4P</td>
+            <td>
+<p>Ror stats (0=disable, 1=enable)</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-ror_stats"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable
+            </td>
+            <td>::</td>
+            <td><strong>ror_stats</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>ROR statistics.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-reduction_extent"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>reduction_extent</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Length of stencil to consider to reduce weno order close to solids.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-reduced_order"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>reduced_order</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Weno reduced order close to solids.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-order_modify"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable
+            </td>
+            <td>::</td>
+            <td><strong>order_modify</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Modified order close to solids.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-iweno"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>iweno</strong></td>
+<td> =</td>
+                <td>2_I4P</td>
+            <td>
+<p>WENO order.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-visc_order"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>visc_order</strong></td>
+<td> =</td>
+                <td>4_I4P</td>
+            <td>
+<p>Laplacian viscosity order.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-ns~3"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>ns</strong></td>
+<td> =</td>
+                <td>1_I4P</td>
+            <td>
+<p>Number of fluid species.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-visc_law"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>visc_law</strong></td>
+<td> =</td>
+                <td>0_I4P</td>
+            <td>
+<p>Diffusivity type (0=constant, 1=power, 2=Sutherland).</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-nrk"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>nrk</strong></td>
+<td> =</td>
+                <td>4_I4P</td>
+            <td>
+<p>Runge-Kutta stages number.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-ark~2"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable
+            </td>
+            <td>::</td>
+            <td><strong>ark</strong>(:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Runge-Kutta alpha coefficients.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-brk~2"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable
+            </td>
+            <td>::</td>
+            <td><strong>brk</strong>(:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Runge-Kutta beta coefficients.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-crk~2"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable
+            </td>
+            <td>::</td>
+            <td><strong>crk</strong>(:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Runge-Kutta beta coefficients.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-solid_name"></span>
+              character(len=999),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>solid_name</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Name of solid off file.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-solid_bc_type"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>solid_bc_type</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Solid bc.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-n_solids"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>n_solids</strong></td>
+<td> =</td>
+                <td>0</td>
+            <td>
+<p>Number of solids (only 1 supported now).</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-ptree"></span>
+              type(c_ptr),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable
+            </td>
+            <td>::</td>
+            <td><strong>ptree</strong>(:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>CGAL trees for solids.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-phi"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable
+            </td>
+            <td>::</td>
+            <td><strong>phi</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Distance function.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-amr_iters"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>amr_iters</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>AMR number of iterations.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-amr_frequency"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>amr_frequency</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>AMR time step interval.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-amr_n_markers"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>amr_n_markers</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>AMR number of markers.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-amr_markers"></span>
+              type(amr_marker_object),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable
+            </td>
+            <td>::</td>
+            <td><strong>amr_markers</strong>(:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>AMR array of marker objects.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-it"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>it</strong></td>
+<td> =</td>
+                <td>0</td>
+            <td>
+<p>Time iteration counter.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-time"></span>
+              real(kind=R8P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>time</strong></td>
+<td> =</td>
+                <td>0.0_R8P</td>
+            <td>
+<p>Time.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-restart"></span>
+              logical,
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>restart</strong></td>
+<td> =</td>
+                <td>.false.</td>
+            <td>
+<p>Restart flag.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-restart_basename"></span>
+              character(len=999),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>restart_basename</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Restart file basename.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-restart_save"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>restart_save</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Iteration interval between subsequent restart saves.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-time_max"></span>
+              real(kind=R8P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>time_max</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Maximum time of run.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-t_max"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>t_max</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Maximum number of iterations of run.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-time_save"></span>
+              real(kind=R8P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>time_save</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Time interval between subsequent saves.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-n_save"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>n_save</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Iteration interval between subsequent saves.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-output_basename"></span>
+              character(len=999),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>output_basename</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Output file basename.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-cfl"></span>
+              real(kind=R8P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>CFL</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>CFL time limit.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-dt~4"></span>
+              real(kind=R8P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>dt</strong></td>
+<td> =</td>
+                <td>0.0001_R8P</td>
+            <td>
+<p>Maximum time step accordingly to CFL criterion.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-ic_type"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>ic_type</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Initial condition type.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-ic_vars"></span>
+              real(kind=R8P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>ic_vars</strong>(IC_VARS_NUMBER_MAX)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Variables&rsquo; array for initial conditions.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-bc_type~2"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>bc_type</strong>(6)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Boundary condition type.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-bc_vars"></span>
+              real(kind=R8P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>bc_vars</strong>(BC_VARS_NUMBER_MAX,6)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Variables&rsquo; array for boundary conditions.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-bcs_type~2"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable
+            </td>
+            <td>::</td>
+            <td><strong>bcs_type</strong>(:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Immersed boundary condition type.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-bcs_vars"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable
+            </td>
+            <td>::</td>
+            <td><strong>bcs_vars</strong>(:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Variables&rsquo; array for immersed boundary conditions.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-lewis"></span>
+              real(kind=R8P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>Lewis</strong></td>
+<td> =</td>
+                <td>1._R8P</td>
+            <td>
+<p>Lewis number.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-zeldovich"></span>
+              real(kind=R8P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>Zeldovich</strong></td>
+<td> =</td>
+                <td>1060._R8P</td>
+            <td>
+<p>Zeldovich number.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-damkohler"></span>
+              real(kind=R8P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>Damkohler</strong></td>
+<td> =</td>
+                <td>1800._R8P</td>
+            <td>
+<p>Damkohler number.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-gamma_fluid"></span>
+              real(kind=R8P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>gamma_fluid</strong></td>
+<td> =</td>
+                <td>1.4_R8P</td>
+            <td>
+<p>Gamma.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-r_star~2"></span>
+              real(kind=R8P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>R_star</strong></td>
+<td> =</td>
+                <td>287._R8P</td>
+            <td>
+<p>Gas constant.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-cv_star~2"></span>
+              real(kind=R8P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>cv_star</strong></td>
+<td> =</td>
+                <td>714._R8P</td>
+            <td>
+<p>Constant volume specific heat.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-mu_star"></span>
+              real(kind=R8P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>mu_star</strong></td>
+<td> =</td>
+                <td>0.001_R8P</td>
+            <td>
+<p>Dynamic viscosity.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-cp_star"></span>
+              real(kind=R8P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>cp_star</strong></td>
+<td> =</td>
+                <td>1000._R8P</td>
+            <td>
+<p>Constant pressure specific heat.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-k_star"></span>
+              real(kind=R8P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>k_star</strong></td>
+<td> =</td>
+                <td>0.0013_R8P</td>
+            <td>
+<p>Thermal diffusivity.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-dha_star"></span>
+              real(kind=R8P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>dha_star</strong></td>
+<td> =</td>
+                <td>10000._R8P</td>
+            <td>
+<p>Entalpy formation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-q_aux"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable
+            </td>
+            <td>::</td>
+            <td><strong>q_aux</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Auxiliary cell centered variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-base_gpu"></span>
+              type(base_gpu_object),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>base_gpu</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>The base GPU handler.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-weno_schemes_gpu"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>weno_schemes_gpu</strong>(:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Weno schemes (GPU).</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-ror_indexes_gpu"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>ror_indexes_gpu</strong>(:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Ror variable indexes (GPU).</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-ror_stats_gpu"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>ror_stats_gpu</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>ROS statistics (GPU.)</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-dq_gpu"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>dq_gpu</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Eikonal right hand side.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-fl_gpu~4"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>fl_gpu</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Residuals.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-flx_gpu~2"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>flx_gpu</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Fluxes along x.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-fly_gpu~2"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>fly_gpu</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Fluxes along y.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-flz_gpu~2"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>flz_gpu</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Fluxes along z.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-prhs_gpu~3"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>prhs_gpu</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Prhs for Runge-Kutta.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-fd_coeff1_gpu"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>fd_coeff1_gpu</strong>(:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>First order derivatives coeffs.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-fd_coeff2_gpu"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>fd_coeff2_gpu</strong>(:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Second order derivatives coeffs.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-fd_conv_gpu"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>fd_conv_gpu</strong>(:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Second order derivatives coeffs.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-q_aux_gpu~4"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>q_aux_gpu</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Auxiliary cell centered variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-q_gpu~13"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>q_gpu</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Field cell centered variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-q_old_gpu~2"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>q_old_gpu</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Field cell centered variables (old iteration).</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-q_invert_gpu~2"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>q_invert_gpu</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Field cell with boundary set on immersed bodies.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-gplus_x"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>gplus_x</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>For weno-x.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-gminus_x"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>gminus_x</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>For weno-x.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-gplus_y"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>gplus_y</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>For weno-y.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-gminus_y"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>gminus_y</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>For weno-y.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-gplus_z"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>gplus_z</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>For weno-z.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-gminus_z"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>gminus_z</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>For weno-z.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-phi_gpu~8"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>phi_gpu</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Distance function on GPU.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-bc_vars_gpu"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>bc_vars_gpu</strong>(:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Variables&rsquo; array for boundary conditions on GPU.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-bcs_vars_gpu"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>bcs_vars_gpu</strong>(:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Variables&rsquo; array for immersed boundary on GPU.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-order_modify_gpu"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable, device
+            </td>
+            <td>::</td>
+            <td><strong>order_modify_gpu</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Modified order close to solids (GPU variable).</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+
+
+        <h4>Type-Bound Procedures</h4>
+        <table class="table table-striped varlist">
+          <tbody>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-check_cuda_error'>check_cuda_error</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Check if CUDA error occurs and abort in case.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, nopass                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-compute_cuda_dimensions'>compute_cuda_dimensions</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Compute CUDA grid dimensions for GPU parallel computations.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-copy_cpu_gpu'>copy_cpu_gpu</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Copy data from CPU to GPU.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-copy_gpu_cpu'>copy_gpu_cpu</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Copy data from GPU to CPU.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-destroy'>destroy</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Destroy the equation.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-fd_initialize'>fd_initialize</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Initialize Finite Difference Coefficients.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-initialize~2'>initialize</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Initialize the equation.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-runge_kutta_initialize'>runge_kutta_initialize</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Initialize Runge-Kutta data.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-amr_update'>amr_update</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Do AMR update.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-mark_by_grad_var'>mark_by_grad_var</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Mark blocks to be refined/derefined by a <code>grad(var)</code> value.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-mark_by_geo'>mark_by_geo</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Mark blocks to be refined/derefined by a <code>grad(var)</code> value.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-move_phi'>move_phi</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Move phi and the actual ptree representation.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-refine_uniform'>refine_uniform</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Refine all blocks uniformly.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-update_phi'>update_phi</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Update IB distance.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-evolve_eikonal_q_gpu'>evolve_eikonal_q_gpu</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Evolve eikonal equation over q.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-invert_eikonal_q_gpu'>invert_eikonal_q_gpu</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Invert eikonal equation over q.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-load_restart_files'>load_restart_files</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Load restart files.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-print_progress'>print_progress</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Print simulation progress.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-save_simulation_data'>save_simulation_data</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Save all simulation data.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-save_restart_files'>save_restart_files</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Save restart files.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-save_hdf5'>save_hdf5</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Save simulation data in HDF5 format.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-save_slices'>save_slices</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Save simulation data slices.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-set_boundary_conditions'>set_boundary_conditions</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Set boundary conditions of equation.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-set_initial_conditions'>set_initial_conditions</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Set initial conditions of equation.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-update_ghost_gpu'>update_ghost_gpu</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Update ghost cells and set boundary conditions.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-update_ghost_fluxes_gpu'>update_ghost_fluxes_gpu</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Update fluxes cells and set boundary conditions.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-compute_dt'>compute_dt</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Compute time step.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-compute_q_aux_gpu'>compute_q_aux_gpu</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Compute auxiliary variables.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-compute_residuals'>compute_residuals</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Compute residuals.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-compute_rk_q_gpu'>compute_rk_q_gpu</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Compute RK approximation over q.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-integrate'>integrate</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Perform one step integration.</p></td>
+              </tr>
+              <tr>
+                <td>
+                    procedure
+                    ,                  public
+, pass(self)                  :: <strong><a href='../type/nasto_nvf_object.html#boundprocedure-simulate'>simulate</a></strong>
+<small>Subroutine</small>                </td>
+                <td><p>Perform the simulation.</p></td>
+              </tr>
+          </tbody>
+        </table>
+    </div>
+  </div>
+
+        </section>
+        <br>
+
+
+        <section>
+          <h2>Subroutines</h2>
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-check_cuda_error"></span><h3>private  subroutine <a href='../proc/check_cuda_error.html'>check_cuda_error</a>(self, error_code, msg)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Check if CUDA error occurs and abort in case.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>error_code</strong></td>
+            <td>
+<p>Abort error code.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              character(len=*),
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>msg</strong></td>
+            <td>
+<p>Error message.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-compute_cuda_dimensions"></span><h3>private  subroutine <a href='../proc/compute_cuda_dimensions.html'>compute_cuda_dimensions</a>(grid_x, grid_y, grid, tBlock)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Compute CUDA grid dimensions for GPU parallel computations.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>grid_x</strong></td>
+            <td>
+<p>CUDA grid xy dimensions.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>grid_y</strong></td>
+            <td>
+<p>CUDA grid xy dimensions.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              type(dim3),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>grid</strong></td>
+            <td>
+<p>CUDA grid and block.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              type(dim3),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>tBlock</strong></td>
+            <td>
+<p>CUDA grid and block.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-copy_cpu_gpu"></span><h3>private  subroutine <a href='../proc/copy_cpu_gpu.html'>copy_cpu_gpu</a>(self)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Copy data from CPU to GPU.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-copy_gpu_cpu"></span><h3>private  subroutine <a href='../proc/copy_gpu_cpu.html'>copy_gpu_cpu</a>(self, compute_q_aux)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Copy data from GPU to CPU.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              logical,
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>compute_q_aux</strong></td>
+            <td>
+<p>Flag to compute auxiliary variables.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-destroy"></span><h3>private  subroutine <a href='../proc/destroy.html'>destroy</a>(self)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Destroy the equation.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-fd_initialize"></span><h3>private  subroutine <a href='../proc/fd_initialize.html'>fd_initialize</a>(self)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Initialize Finite-Difference coefficients.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-initialize~2"></span><h3>private  subroutine <a href='../proc/initialize~2.html'>initialize</a>(self, filename)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Initialize the equation.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              character(len=*),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>filename</strong></td>
+            <td>
+<p>Input file name.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-runge_kutta_initialize"></span><h3>private  subroutine <a href='../proc/runge_kutta_initialize.html'>runge_kutta_initialize</a>(self)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Initialize Runge-Kutta data.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-amr_update"></span><h3>private  subroutine <a href='../proc/amr_update.html'>amr_update</a>(self)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Do AMR update.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-mark_by_geo"></span><h3>private  subroutine <a href='../proc/mark_by_geo.html'>mark_by_geo</a>(self, delta_fine, delta_coarse, threshold, do_init)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Mark blocks to be refined/derefined by a <code>grad(rho)</code> value.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>delta_fine</strong></td>
+            <td>
+<p>Maximum cell delta in fine grids.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>delta_coarse</strong></td>
+            <td>
+<p>Minimum cell delta in coarse grids.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>threshold</strong></td>
+            <td>
+<p>Threshold for sphere proximity.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              logical,
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>do_init</strong></td>
+            <td>
+
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-mark_by_grad_var"></span><h3>private  subroutine <a href='../proc/mark_by_grad_var.html'>mark_by_grad_var</a>(self, grad_tol, delta_fine, delta_coarse, ivar, threshold, do_init)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Mark blocks to be refined/derefined by a <code>grad(rho)</code> value.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>grad_tol</strong></td>
+            <td>
+<p>Gradiend tolerance value.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>delta_fine</strong></td>
+            <td>
+<p>Maximum cell delta in fine grids.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>delta_coarse</strong></td>
+            <td>
+<p>Minimum cell delta in coarse grids.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>ivar</strong></td>
+            <td>
+<p>Variable for marking.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>threshold</strong></td>
+            <td>
+<p>Threshold for sphere proximity.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              logical,
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>do_init</strong></td>
+            <td>
+
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-move_phi"></span><h3>private  subroutine <a href='../proc/move_phi.html'>move_phi</a>(self, velocity)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Move phi and the actual ptree representation.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>velocity</strong>(3)</td>
+            <td>
+<p>Velocity of the movement.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-refine_uniform"></span><h3>private  subroutine <a href='../proc/refine_uniform.html'>refine_uniform</a>(self, refinement_levels)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Refine all blocks uniformly.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>refinement_levels</strong></td>
+            <td>
+<p>Number of refinement to be performed.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-update_phi"></span><h3>private  subroutine <a href='../proc/update_phi.html'>update_phi</a>(self)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Update IB distance.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-evolve_eikonal_q_gpu"></span><h3>private  subroutine <a href='../proc/evolve_eikonal_q_gpu.html'>evolve_eikonal_q_gpu</a>(self)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Evolve eikonal equation over q.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-invert_eikonal_q_gpu"></span><h3>private  subroutine <a href='../proc/invert_eikonal_q_gpu.html'>invert_eikonal_q_gpu</a>(self)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Invert eikonal equation over q.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-load_restart_files"></span><h3>private  subroutine <a href='../proc/load_restart_files.html'>load_restart_files</a>(self, t, time)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Save restart files.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(out)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>t</strong></td>
+            <td>
+<p>Time iteration.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(out)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>time</strong></td>
+            <td>
+<p>Time.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-print_progress"></span><h3>private  subroutine <a href='../proc/print_progress.html'>print_progress</a>(self, t, time, t_max, time_max)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Print simulation progress.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>t</strong></td>
+            <td>
+<p>Time iteration.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>time</strong></td>
+            <td>
+<p>Time.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>t_max</strong></td>
+            <td>
+<p>Maximum time iteration.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>time_max</strong></td>
+            <td>
+<p>Maximum time of integration.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-save_simulation_data"></span><h3>private  subroutine <a href='../proc/save_simulation_data.html'>save_simulation_data</a>(self)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Save all simulation data.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-save_hdf5"></span><h3>private  subroutine <a href='../proc/save_hdf5.html'>save_hdf5</a>(self, output_basename)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Save simulation data in HDF5 format.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              character(len=*),
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>output_basename</strong></td>
+            <td>
+<p>Output basename.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-save_restart_files"></span><h3>private  subroutine <a href='../proc/save_restart_files.html'>save_restart_files</a>(self)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Save restart files.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-save_slices"></span><h3>private  subroutine <a href='../proc/save_slices.html'>save_slices</a>(self)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Save simulation data slices.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-set_boundary_conditions"></span><h3>private  subroutine <a href='../proc/set_boundary_conditions.html'>set_boundary_conditions</a>(self, q_gpu)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Set boundary conditions of equation.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(inout),</td>
+              <td></td>            <td>
+              device
+            </td>
+            <td>::</td>
+            <td><strong>q_gpu</strong>(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)</td>
+            <td>
+<p>Conservative variables.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-set_initial_conditions"></span><h3>private  subroutine <a href='../proc/set_initial_conditions.html'>set_initial_conditions</a>(self)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Set initial conditions of field.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-update_ghost_gpu"></span><h3>private  subroutine <a href='../proc/update_ghost_gpu.html'>update_ghost_gpu</a>(self, q_gpu, step)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Update ghost cells.
+If not specified all steps are perfermod, syncronous computation</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(inout),</td>
+              <td></td>            <td>
+              device
+            </td>
+            <td>::</td>
+            <td><strong>q_gpu</strong>(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)</td>
+            <td>
+<p>Conservative variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>step</strong></td>
+            <td>
+<p>Step to be perfordmed in asyncronous comp.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-update_ghost_fluxes_gpu"></span><h3>private  subroutine <a href='../proc/update_ghost_fluxes_gpu.html'>update_ghost_fluxes_gpu</a>(self, flx_gpu, fly_gpu, flz_gpu, step)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Update ghost cells.
+If not specified all steps are perfermod, syncronous computation</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(inout),</td>
+              <td></td>            <td>
+              device
+            </td>
+            <td>::</td>
+            <td><strong>flx_gpu</strong>(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)</td>
+            <td>
+<p>Conservative variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(inout),</td>
+              <td></td>            <td>
+              device
+            </td>
+            <td>::</td>
+            <td><strong>fly_gpu</strong>(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)</td>
+            <td>
+<p>Conservative variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(inout),</td>
+              <td></td>            <td>
+              device
+            </td>
+            <td>::</td>
+            <td><strong>flz_gpu</strong>(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)</td>
+            <td>
+<p>Conservative variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>step</strong></td>
+            <td>
+<p>Step to be perfordmed in asyncronous comp.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-compute_q_aux_gpu"></span><h3>private  subroutine <a href='../proc/compute_q_aux_gpu.html'>compute_q_aux_gpu</a>(self, q_gpu, q_aux_gpu)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Compute auxiliary variables.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in),</td>
+              <td></td>            <td>
+              device
+            </td>
+            <td>::</td>
+            <td><strong>q_gpu</strong>(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)</td>
+            <td>
+<p>Conservative variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(out),</td>
+              <td></td>            <td>
+              device
+            </td>
+            <td>::</td>
+            <td><strong>q_aux_gpu</strong>(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)</td>
+            <td>
+<p>Auxiliary variables.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-compute_dt"></span><h3>private  subroutine <a href='../proc/compute_dt.html'>compute_dt</a>(self)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Compute maximum time step accordingly to CFL stabilty criterion.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-compute_residuals"></span><h3>private  subroutine <a href='../proc/compute_residuals.html'>compute_residuals</a>(self)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Compute residuals of equation.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-compute_rk_q_gpu"></span><h3>private  subroutine <a href='../proc/compute_rk_q_gpu.html'>compute_rk_q_gpu</a>(self, s)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Compute RK approximation over q.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>s</strong></td>
+            <td>
+<p>Current RK stage.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-integrate"></span><h3>private  subroutine <a href='../proc/integrate.html'>integrate</a>(self, t, do_ghost_syncro, residual)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Perform one step integration.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>t</strong></td>
+            <td>
+<p>Time.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              logical,
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>do_ghost_syncro</strong></td>
+            <td>
+<p>Flag to do syncrous ghost update.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(out),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>residual</strong></td>
+            <td>
+<p>Global residual.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="panel panel-default">
+    <div class="panel-heading codesum"><span class="anchor" id="proc-simulate"></span><h3>private  subroutine <a href='../proc/simulate.html'>simulate</a>(self, filename)  
+</h3></div>
+    <div class="panel-body">
+          
+  <p>Perform the simulation.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th>Type</th>
+<th>Intent</th><th>Optional</th>        <th>Attributes</th>
+        <th></th>
+        <th>Name</th>
+        <th></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              character(len=*),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>filename</strong></td>
+            <td>
+<p>Input file name.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+        </section>
+        <br>
+
+
+
+    </div>
+  </div>
+
+      <hr>
+    </div> <!-- /container -->
+    <footer>
+      <div class="container">
+        <div class="row">
+          <div class="col-xs-6 col-md-6"><p>ADAM was developed by Stefano Zaghi<br>&copy; 2023 
+</p>
+          </div>
+          <div class="col-xs-6 col-md-6">
+            <p class="text-right">
+              Documentation generated by
+              <a href="https://github.com/Fortran-FOSS-Programmers/ford">FORD</a>
+            </p>
+          </div>
+        </div>
+        <br>
+      </div> <!-- /container -->
+    </footer>
+
+    <!-- Bootstrap core JavaScript
+         ================================================== -->
+         <!-- Placed at the end of the document so the pages load faster -->
+    <!--
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+        -->
+        <script src="../js/bootstrap.min.js"></script>
+        <!-- IE10 viewport hack for Surface/desktop Windows 8 bug -->
+        <script src="../js/ie10-viewport-bug-workaround.js"></script>
+
+        <!-- MathJax JavaScript
+             ================================================== -->
+             <!-- Placed at the end of the document so the pages load faster -->
+        <script type="text/x-mathjax-config">
+          MathJax.Hub.Config({
+          TeX: { extensions: ['AMSmath.js','AMSsymbols.js','noErrors.js','noUndefined.js'], equationNumbers: { autoNumber: 'AMS' } },
+          jax: ['input/TeX','input/MathML','output/HTML-CSS'],
+          extensions: ['tex2jax.js','mml2jax.js','MathMenu.js','MathZoom.js']
+          });
+        </script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+          <script src="../tipuesearch/tipuesearch_content.js"></script>
+          <script src="../tipuesearch/tipuesearch_set.js"></script>
+          <script src="../tipuesearch/tipuesearch.js"></script>
+
+  </body>
+</html>

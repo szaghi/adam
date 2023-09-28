@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="description" content="Adaptive Mesh Refinement (AMR) with Immersed Boundary (IB) fluid dynamic solver tailored for High Performance GPU Computing">
+    <meta name="author" content="Stefano Zaghi" >
+    <link rel="icon" href="./favicon.png">
+
+    <title> ADAM </title>
+
+    <link href="./css/bootstrap.min.css" rel="stylesheet">
+    <link href="./css/pygments.css" rel="stylesheet">
+    <link href="./css/font-awesome.min.css" rel="stylesheet">
+    <link href="./css/local.css" rel="stylesheet">
+      <link  href="./tipuesearch/tipuesearch.css" rel="stylesheet">
+
+    <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
+    <!--[if lt IE 9]>
+        <script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
+        <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+        <![endif]-->
+
+         <script src="./js/jquery-2.1.3.min.js"></script>
+         <script src="./js/svg-pan-zoom.min.js"></script>
+
+  </head>
+
+  <body>
+
+    <!-- Fixed navbar -->
+    <nav class="navbar navbar-inverse navbar-fixed-top">
+      <div class="container">
+        <div class="navbar-header">
+          <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar" aria-expanded="false" aria-controls="navbar">
+            <span class="sr-only">Toggle navigation</span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </button>
+          <a class="navbar-brand" href="./index.html">ADAM </a>
+        </div>
+        <div id="navbar" class="navbar-collapse collapse">
+          <ul class="nav navbar-nav">
+            <li class="dropdown hidden-xs visible-sm visible-md hidden-lg">
+              <a href="#" class="dropdown-toggle"
+                 data-toggle="dropdown" role="button"
+                 aria-haspopup="true"
+                 aria-expanded="false">
+                 Contents <span class="caret"></span>
+              </a>
+              <ul class="dropdown-menu">
+                    <li><a href="./lists/files.html">Source Files</a></li>
+                  <li><a href="./lists/modules.html">Modules</a></li>
+                  <li><a href="./lists/procedures.html">Procedures</a></li>
+                  <li><a href="./lists/types.html">Derived Types</a></li>
+                  <li><a href="./program/adam_nasto_nvf.html">Program</a></li>
+              </ul>
+            </li>
+                <li class="visible-xs hidden-sm visible-lg">
+                  <a href="./lists/files.html">Source Files</a>
+                </li>
+              <li class="visible-xs hidden-sm visible-lg">
+                <a href="./lists/modules.html">Modules</a>
+              </li>
+              <li class="visible-xs hidden-sm visible-lg">
+                <a href="./lists/procedures.html">Procedures</a>
+              </li>
+              <li class="visible-xs hidden-sm visible-lg">
+                <a href="./lists/types.html">Derived Types</a>
+              </li>
+              <li class="visible-xs hidden-sm visible-lg">
+                <a href="./program/adam_nasto_nvf.html">Program</a>
+              </li>
+          </ul>
+            <form action="./search.html" class="navbar-form navbar-right" role="search">
+              <div class="form-group">
+                <input type="text" class="form-control" placeholder="Search" name="q" id="tipue_search_input" autocomplete="off" required>
+              </div>
+              <!--
+                  <button type="submit" class="btn btn-default">Submit</button>
+                  -->
+            </form>
+        </div><!--/.nav-collapse -->
+      </div>
+    </nav>
+
+    <div class="container">
+      <!-- Main component for a primary marketing message or call to action -->
+      <div class="jumbotron">
+        <p>Adaptive Mesh Refinement (AMR) with Immersed Boundary (IB) fluid dynamic solver tailored for High Performance GPU Computing</p>
+	<p> Find us on&hellip;</p>
+        <p>
+          <a class="btn btn-lg btn-primary" href="https://github.com/szaghi/adam" role="button">GitHub</a>
+        </p>
+      </div>
+
+      <div class="row" id='text'>
+        <div class="col-md-8">
+          <h1>ADAM</h1>
+          <h1 id="adam">ADAM</h1>
+<blockquote>
+<p>ADAM, Adaptive Mesh Refinement (AMR) with Immersed Boundary (IB) fluid dynamic solver tailored for High Performance GPU Computing</p>
+</blockquote>
+<h3 id="authors">Authors</h3>
+<ul>
+<li>Francesco Salvadore, <a href="mailto:f.salvadore@cineca.it">f.salvadore@cineca.it</a></li>
+<li>Andrea di Mascio, <a href="andrea.dimascio@univaq.it">andrea.dimascio@univaq.it</a></li>
+<li>Giacomo Rossi, <a href="giacomo.rossi@intel.com">giacomo.rossi@intel.com</a></li>
+<li>Stefano Zaghi, <a href="stefano.zaghi@cnr.it">stefano.zaghi@cnr.it</a></li>
+</ul>
+<h3 id="features">Features</h3>
+<ul>
+<li>KISS, keep it simple and stupid;</li>
+<li>simulate different types of flows;</li>
+<li>use high order finite difference scheme;</li>
+<li>exploit Adaptive Mesh Refinement (AMR) to accurate simulate complex geometries;</li>
+<li>exploit Immersed Boundary (IB) techniques to easy handle complex moving geometries;</li>
+<li>ready for very High Performance Computing (HPC) by means of GPU parallel paradigm exploitation;</li>
+</ul>
+<h2 id="contributing">Contributing</h2>
+<p>The project home is hosted on GitHub and the development is organized by means of multiple branches as described in the following.</p>
+<h3 id="branches-organization">Branches Organization</h3>
+<p>Currently, ADAM development tree contains the following branches:</p>
+<ul>
+<li>master</li>
+<li>develop</li>
+<li>fortran-cuda-stable</li>
+<li>fortran-cuda-develop</li>
+<li>openmp-gpu-develop</li>
+<li>euler-cpu-develop</li>
+</ul>
+<h4 id="master">master</h4>
+<p>Soon or later a stable v1.0.0 will born and <code>master</code> branch will be its home, for now it is an empty branch.</p>
+<h4 id="develop">develop</h4>
+<p>It has been the home for the Fortran-CUDA development until now. In 15th September 2023 it has been copied into branch <code>fortran-cuda-stable</code> and it is currently freeze.</p>
+<h4 id="fortran-cuda-stable">fortran-cuda-stable</h4>
+<p>It is a <strong>reference</strong> branch, used for comparison reason, a sort of <em>named commit</em>.</p>
+<h4 id="fortran-cuda-develop">fortran-cuda-develop</h4>
+<p>It contains the ongoing Fortran-CUDA development.</p>
+<p>Currently, the main CUDA development is focused into the NASTO (CUDA) application. More details about NASTO app can be found in its <a href="src/app/nasto/README.md">readme</a>.</p>
+<h4 id="openmp-gpu-develop">openmp-gpu-develop</h4>
+<p>It contains the ongoing OpenMP development, GPU offloading.</p>
+<h4 id="euler-cpu-develop">euler-cpu-develop</h4>
+<p>It contains the ongoing development of a very simplified application for Euler flows simulation with a simple CPU backend.</p>
+        </div>
+        <div class="col-md-4">
+	  <div class="well">
+          <h2>Developer Info</h2>
+          <h4>Stefano Zaghi</h4>
+          
+            <div class="text-center"><div class="btn-group" role="group">
+              <a class="btn btn-lg btn-primary" href="mailto:stefano.zaghi@gmail.com"><i class="fa fa-envelope fa-lg"></i></a>
+              <a class="btn btn-lg btn-primary" href="https://github.com/szaghi"><i class="fa fa-github fa-lg"></i></a>
+            </div></div>
+       </div>
+       </div>
+      </div>
+        <div class="row">
+          <hr>
+          <div class="col-xs-6 col-sm-3">
+            <div>
+              <h3>Source Files</h3>
+              <ul><li><a href='./sourcefile/adam_nasto_common_object.f90.html'>adam_nasto_common_object.F90</a></li><li><a href='./sourcefile/adam_nasto_cpu_object.f90.html'>adam_nasto_cpu_object.F90</a></li><li><a href='./sourcefile/adam_nasto_nvf.f90.html'>adam_nasto_nvf.F90</a></li><li><a href='./sourcefile/adam_nasto_nvf_kernels.f90.html'>adam_nasto_nvf_kernels.F90</a></li><li><a href='./sourcefile/adam_nasto_nvf_object.f90.html'>adam_nasto_nvf_object.F90</a></li><li><a href='./sourcefile/adam_nasto_parameters.f90.html'>adam_nasto_parameters.F90</a></li></ul>
+            </div>
+            <div>
+              <ul>
+                <li><a href="./lists/files.html"><em>All source files&hellip;</em></a></li>
+              </ul>
+            </div>
+          </div>
+          <div class="col-xs-6 col-sm-3">
+            <div>
+              <h3>Modules</h3>
+              <ul><li><a href='./module/adam_nasto_common_object.html'>adam_nasto_common_object</a></li><li><a href='./module/adam_nasto_cpu_object.html'>adam_nasto_cpu_object</a></li><li><a href='./module/adam_nasto_nvf_kernels.html'>adam_nasto_nvf_kernels</a></li><li><a href='./module/adam_nasto_nvf_object.html'>adam_nasto_nvf_object</a></li><li><a href='./module/adam_nasto_parameters.html'>adam_nasto_parameters</a></li></ul>
+            </div>
+            <div>
+              <ul>
+                <li><a href="./lists/modules.html"><em>All modules&hellip;</em></a></li>
+              </ul>
+            </div>
+          </div>
+          <div class="col-xs-6 col-sm-3">
+            <div>
+              <h3>Procedures</h3>
+              <ul><li><a href='./proc/amr_update.html'>amr_update</a></li><li><a href='./proc/check_cuda_error.html'>check_cuda_error</a></li><li><a href='./proc/compute_cuda_dimensions.html'>compute_cuda_dimensions</a></li><li><a href='./proc/compute_dt.html'>compute_dt</a></li><li><a href='./proc/compute_eikonal_dq_gpu.html'>compute_eikonal_dq_gpu</a></li><li><a href='./proc/compute_flux_conv_x_central_kernel.html'>compute_flux_conv_x_central_kernel</a></li><li><a href='./proc/compute_flux_conv_x_kernel.html'>compute_flux_conv_x_kernel</a></li><li><a href='./proc/compute_flux_conv_y_central_kernel.html'>compute_flux_conv_y_central_kernel</a></li><li><a href='./proc/compute_flux_conv_y_kernel.html'>compute_flux_conv_y_kernel</a></li><li><a href='./proc/compute_flux_conv_z_central_kernel.html'>compute_flux_conv_z_central_kernel</a></li></ul>
+            </div>
+            <div>
+              <ul>
+                <li><a href="./lists/procedures.html"><em>All procedures&hellip;</em></a></li>
+              </ul>
+            </div>
+          </div>
+          <div class="col-xs-6 col-sm-3">
+            <div>
+              <h3>Derived Types</h3>
+              <ul><li><a href='./type/nasto_common_object.html'>nasto_common_object</a></li><li><a href='./type/nasto_nvf_object.html'>nasto_nvf_object</a></li></ul>
+            </div>
+            <div>
+              <ul>
+                <li><a href="./lists/types.html"><em>All derived types&hellip;</em></a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      <hr>
+    </div> <!-- /container -->
+    <footer>
+      <div class="container">
+        <div class="row">
+          <div class="col-xs-6 col-md-6"><p>ADAM was developed by Stefano Zaghi<br>&copy; 2023 
+</p>
+          </div>
+          <div class="col-xs-6 col-md-6">
+            <p class="text-right">
+              Documentation generated by
+              <a href="https://github.com/Fortran-FOSS-Programmers/ford">FORD</a>
+            </p>
+          </div>
+        </div>
+        <br>
+      </div> <!-- /container -->
+    </footer>
+
+    <!-- Bootstrap core JavaScript
+         ================================================== -->
+         <!-- Placed at the end of the document so the pages load faster -->
+    <!--
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+        -->
+        <script src="./js/bootstrap.min.js"></script>
+        <!-- IE10 viewport hack for Surface/desktop Windows 8 bug -->
+        <script src="./js/ie10-viewport-bug-workaround.js"></script>
+
+        <!-- MathJax JavaScript
+             ================================================== -->
+             <!-- Placed at the end of the document so the pages load faster -->
+        <script type="text/x-mathjax-config">
+          MathJax.Hub.Config({
+          TeX: { extensions: ['AMSmath.js','AMSsymbols.js','noErrors.js','noUndefined.js'], equationNumbers: { autoNumber: 'AMS' } },
+          jax: ['input/TeX','input/MathML','output/HTML-CSS'],
+          extensions: ['tex2jax.js','mml2jax.js','MathMenu.js','MathZoom.js']
+          });
+        </script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+          <script src="./tipuesearch/tipuesearch_content.js"></script>
+          <script src="./tipuesearch/tipuesearch_set.js"></script>
+          <script src="./tipuesearch/tipuesearch.js"></script>
+
+  </body>
+</html>
