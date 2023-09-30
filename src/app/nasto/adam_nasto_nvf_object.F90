@@ -51,26 +51,25 @@ type, extends(nasto_common_object) :: nasto_nvf_object
    real(R8P),    allocatable, device :: q_gpu(:,:,:,:,:)            !< Field cell centered variables.
    real(R8P),    allocatable, device :: q_old_gpu(:,:,:,:,:)        !< Field cell centered variables (old iteration).
    real(R8P),    allocatable, device :: q_invert_gpu(:,:,:,:,:)     !< Field cell with boundary set on immersed bodies.
-   real(R8P),    allocatable, device :: gplus_x(:,:,:,:,:)          !< For weno-x.
-   real(R8P),    allocatable, device :: gminus_x(:,:,:,:,:)         !< For weno-x.
-   real(R8P),    allocatable, device :: gplus_y(:,:,:,:,:)          !< For weno-y.
-   real(R8P),    allocatable, device :: gminus_y(:,:,:,:,:)         !< For weno-y.
-   real(R8P),    allocatable, device :: gplus_z(:,:,:,:,:)          !< For weno-z.
-   real(R8P),    allocatable, device :: gminus_z(:,:,:,:,:)         !< For weno-z.
+   real(R8P),    allocatable, device :: gplus_x_gpu(:,:,:,:,:)          !< For weno-x.
+   real(R8P),    allocatable, device :: gminus_x_gpu(:,:,:,:,:)         !< For weno-x.
+   real(R8P),    allocatable, device :: gplus_y_gpu(:,:,:,:,:)          !< For weno-y.
+   real(R8P),    allocatable, device :: gminus_y_gpu(:,:,:,:,:)         !< For weno-y.
+   real(R8P),    allocatable, device :: gplus_z_gpu(:,:,:,:,:)          !< For weno-z.
+   real(R8P),    allocatable, device :: gminus_z_gpu(:,:,:,:,:)         !< For weno-z.
    real(R8P),    allocatable, device :: phi_gpu(:,:,:,:,:)          !< Distance function on GPU.
    real(R8P),    allocatable, device :: bc_vars_gpu(:, :)           !< Variables' array for boundary conditions on GPU.
    real(R8P),    allocatable, device :: bcs_vars_gpu(:, :)          !< Variables' array for immersed boundary on GPU.
    integer(I4P), allocatable, device :: order_modify_gpu(:,:,:,:,:) !< Modified order close to solids (GPU variable).
    contains
       ! auxiliary methods
+      procedure, pass(self) :: allocate_gpu            !< Allocate GPU data.
       procedure, pass(self) :: check_cuda_error        !< Check if CUDA error occurs and abort in case.
       procedure, nopass     :: compute_cuda_dimensions !< Compute CUDA grid dimensions for GPU parallel computations.
       procedure, pass(self) :: copy_cpu_gpu            !< Copy data from CPU to GPU.
       procedure, pass(self) :: copy_gpu_cpu            !< Copy data from GPU to CPU.
       procedure, pass(self) :: destroy                 !< Destroy the equation.
-      procedure, pass(self) :: fd_initialize           !< Initialize Finite Difference Coefficients.
       procedure, pass(self) :: initialize              !< Initialize the equation.
-      procedure, pass(self) :: runge_kutta_initialize  !< Initialize Runge-Kutta data.
       ! AMR methods
       procedure, pass(self) :: amr_update       !< Do AMR update.
       procedure, pass(self) :: mark_by_grad_var !< Mark blocks to be refined/derefined by a `grad(var)` value.
@@ -104,6 +103,65 @@ endtype nasto_nvf_object
 
 contains
    ! auxiliary methods
+   subroutine allocate_gpu(self)
+   !< Allocate common data.
+   class(nasto_nvf_object), intent(inout) :: self !< The equation.
+
+   print '(A)', self%mpih%myrankstr//'nasto_nvf_object%allocate_gpu start'
+   ! allocate by CPU data copy
+   self%weno_schemes_gpu = self%weno_schemes
+   self%ror_indexes_gpu  = self%ror_indexes
+
+   self%fd_coeff1_gpu = self%fd_coeff1
+   self%fd_coeff2_gpu = self%fd_coeff2
+   self%fd_conv_gpu   = self%fd_conv
+
+   self%bc_vars_gpu  = self%bc_vars
+   self%bcs_vars_gpu = self%bcs_vars
+
+   if (self%n_solids > 0) self%phi_gpu = self%phi
+
+   ! allocate standalone
+   associate(nv=>self%nv, ns=>self%ns, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
+             nb=>self%nb, nrk=>self%nrk, nv_aux=>self%nv_aux, n_solids=>self%n_solids, iweno=>self%iweno)
+
+   ! call alloc_var_gpu(var=self%q_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(q_gpu) ', verbose=.true.,&
+   !                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
+
+   !< @NOTE gplus e gminus hanno Nb e Nv invertiti rispetto a tutti gli altri array GPU, errore o voluto?
+                                  allocate(self%gplus_x_gpu (    1:nv, 1:2*iweno,    1:nj,         1:nk,         1:nb    ))
+                                  allocate(self%gminus_x_gpu(    1:nv, 1:2*iweno,    1:nj,         1:nk,         1:nb    ))
+                                  allocate(self%gplus_y_gpu (    1:nv, 1:2*iweno,    1:ni,         1:nk,         1:nb    ))
+                                  allocate(self%gminus_y_gpu(    1:nv, 1:2*iweno,    1:ni,         1:nk,         1:nb    ))
+                                  allocate(self%gplus_z_gpu (    1:nv, 1:2*iweno,    1:ni,         1:nj,         1:nb    ))
+                                  allocate(self%gminus_z_gpu(    1:nv, 1:2*iweno,    1:ni,         1:nj,         1:nb    ))
+                                  allocate(self%q_gpu(           1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
+                                  allocate(self%q_aux_gpu(       1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv_aux))
+                                  allocate(self%q_old_gpu(       1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
+                                  allocate(self%q_invert_gpu(    1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
+                                  allocate(self%fl_gpu(          1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
+                                  allocate(self%flx_gpu(         1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
+                                  allocate(self%fly_gpu(         1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
+                                  allocate(self%flz_gpu(         1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
+                                  allocate(self%dq_gpu(          1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
+                                  allocate(self%prhs_gpu(        1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
+                                  allocate(self%order_modify_gpu(1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:3     ))
+   if (self%enable_ror_stats > 0) allocate(self%ror_stats_gpu(   1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:3     ))
+   self%q_gpu            = 0._R8P
+   self%q_aux_gpu        = 0._R8P
+   self%q_old_gpu        = 0._R8P
+   self%q_invert_gpu     = 0._R8P
+   self%fl_gpu           = 0._R8P
+   self%flx_gpu          = 0._R8P
+   self%fly_gpu          = 0._R8P
+   self%flz_gpu          = 0._R8P
+   self%dq_gpu           = 0._R8P
+   self%prhs_gpu         = 0._R8P
+   self%order_modify_gpu = 0
+   endassociate
+   print '(A)', self%mpih%myrankstr//'nasto_nvf_object%allocate_gpu finish'
+   endsubroutine allocate_gpu
+
    subroutine check_cuda_error(self, error_code, msg)
    !< Check if CUDA error occurs and abort in case.
    class(nasto_nvf_object), intent(inout)        :: self       !< The equation.
@@ -157,57 +215,6 @@ contains
    ! TODO to be implemented
    endsubroutine destroy
 
-   subroutine fd_initialize(self)
-   !< Initialize Finite-Difference coefficients.
-   class(nasto_nvf_object), intent(inout) :: self !< The equation.
-
-   allocate(self%fd_conv(4,4), self%fd_coeff1(3), self%fd_coeff2(0:3))
-   associate(fd_conv=>self%fd_conv, fd_coeff1=>self%fd_coeff1,fd_coeff2=>self%fd_coeff2)
-   ! Coefficients for computation of convective terms
-   fd_conv(1,1) = 1._R8P/2._R8P
-
-   fd_conv(1,2) =  2._R8P/3._R8P
-   fd_conv(2,2) = -1._R8P/12._R8P
-
-   fd_conv(1,3) =  3._R8P/4._R8P
-   fd_conv(2,3) = -3._R8P/20._R8P
-   fd_conv(3,3) =  1._R8P/60._R8P
-
-   fd_conv(1,4) =  4._R8P/5._R8P
-   fd_conv(2,4) = -1._R8P/5._R8P
-   fd_conv(3,4) =  4._R8P/105._R8P
-   fd_conv(4,4) = -1._R8P/280._R8P
-
-   ! Coefficients for computation of viscous terms
-   select case (self%visc_order/2)
-   case (1)
-    fd_coeff1(1) = 0.5_R8P
-   case (2)
-    fd_coeff1(1) = 2._R8P/3._R8P
-    fd_coeff1(2) = -1._R8P/12._R8P
-   case (3)
-    fd_coeff1(1) = 0.75_R8P
-    fd_coeff1(2) = -0.15_R8P
-    fd_coeff1(3) = 1._R8P/60._R8P
-   end select
-
-   select case (self%visc_order/2)
-   case (1)
-    fd_coeff2(0) = -2._R8P
-    fd_coeff2(1) =  1._R8P
-   case (2)
-    fd_coeff2(0) = -2.5_R8P
-    fd_coeff2(1) = 4._R8P/3._R8P
-    fd_coeff2(2) = -1._R8P/12._R8P
-   case (3)
-    fd_coeff2(0) = -245._R8P/90._R8P
-    fd_coeff2(1) = 1.5_R8P
-    fd_coeff2(2) = -0.15_R8P
-    fd_coeff2(3) = 1._R8P/90._R8P
-   endselect
-   endassociate
-   endsubroutine fd_initialize
-
    subroutine initialize(self, filename)
    !< Initialize the equation.
    class(nasto_nvf_object), intent(inout) :: self         !< The equation.
@@ -215,422 +222,16 @@ contains
    integer(I8P)                           :: nodes_number !< Allocated nodes on tree.
    integer(I4P)                           :: nb           !< Number of allocated blocks.
    integer(I4P)                           :: nv           !< Number of evolved variables.
-   integer(I4P)                           :: ns           !< Number of species.
 
-   call self%nasto_common_object%initialize(filename=filename)
+   call self%base_gpu%initialize_gpu(do_mpi_init=.true.)
    print '(A)', self%mpih%myrankstr//'nasto_nvf_object%initialize start'
-   call self%base_gpu%initialize_gpu
-
-   ! TO BE CONTINUED from here
-   call self%adam%compute_blocks_number(memory_avail=self%base_gpu%memory_avail,  &
-                                        fields_number=80,                         &
-                                        nb=nb,                                    &
-                                        nodes_number=nodes_number)
-
-   call self%file_input%get(section_name='physics', option_name='ns', val=ns)
-   nv = ns + 4
-
-   call self%adam%initialize(file_parameters=self%file_input, &
-                             do_tree_init=.true.,             &
-                             do_field_init=.true.,            &
-                             nv=nv, nb=nb, nodes_number=nodes_number)
-   call forward_main_adam_data(grid=self%adam%grid, field=self%adam%field)
-
-   call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_blocks_reorder=.false.)
-
-   call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false.)
-
+   call self%adam%compute_blocks_number(memory_avail=self%base_gpu%memory_avail, fields_number=80, &
+                                        nb=nb, nodes_number=nodes_number)
+   call self%initialize_common(filename=filename, nv=5, nb=nb, nodes_number=nodes_number)
    call self%base_gpu%initialize(field=self%adam%field, nv_aux=self%nv_aux, verbose=.true.)
-
-   call load_equation_from_ini_file
-
-   call load_schemes_from_ini_file
-
-   call load_physics_from_ini_file
-
-   call load_amr_from_ini_file
-
-   call load_timing_from_ini_file
-
-   call load_ic_from_ini_file
-
-   call load_bc_from_ini_file
-
-   call load_slices_from_ini_file
-
-   call load_solids_from_ini_file
-
-   call self%runge_kutta_initialize
-
-   ! allocate equation data
-   associate(nv=>self%nv, ns=>self%ns, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
-             nb=>self%nb, nrk=>self%nrk, nv_aux=>self%nv_aux, n_solids=>self%n_solids, iweno=>self%iweno)
-   ! CPU data
-   allocate(self%q_aux(1:nv_aux, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
-   ! GPU data
-   ! call alloc_var_gpu(var=self%q_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(q_gpu) ', verbose=.true.,&
-   !                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
-   allocate(self%q_gpu(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv))
-   ! call alloc_var_gpu(var=self%q_aux_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(q_aux_gpu) ', verbose=.true.,&
-   !                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv_aux],[2,5]))
-   allocate(self%q_old_gpu(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv))
-   allocate(self%q_aux_gpu(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv_aux))
-   ! call alloc_var_gpu(var=self%fl_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(fl_gpu) ', verbose=.true.,&
-   !                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
-   allocate(self%fl_gpu(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv))
-   ! call alloc_var_gpu(var=self%flx_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(flx_gpu) ', verbose=.true.,&
-                      ! ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
-   allocate(self%flx_gpu(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv))
-   ! call alloc_var_gpu(var=self%fly_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(fly_gpu) ', verbose=.true.,&
-   !                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
-   allocate(self%fly_gpu(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv))
-   ! call alloc_var_gpu(var=self%flz_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(flz_gpu) ', verbose=.true.,&
-   !                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
-   allocate(self%flz_gpu(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv))
-   ! call alloc_var_gpu(var=self%prhs_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(prhs_gpu) ', verbose=.true.,&
-   !                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
-   allocate(self%prhs_gpu(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv))
-   ! call alloc_var_gpu(var=self%dq_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(dq_gpu) ', verbose=.true.,&
-                      ! ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
-   allocate(self%dq_gpu(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv))
-   ! call alloc_var_gpu(var=self%q_invert_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(q_invert_gpu) ', verbose=.true.,&
-                      ! ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
-   allocate(self%q_invert_gpu(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv))
-   self%prhs_gpu = 0._R8P
-   self%fl_gpu   = 0._R8P
-   self%flx_gpu  = 0._R8P
-   self%fly_gpu  = 0._R8P
-   self%flz_gpu  = 0._R8P
-   if (self%n_solids > 0) then
-      allocate(self%phi(1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:n_solids))
-      ! call alloc_var_gpu(var=self%phi_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(phi_gpu) ', verbose=.true.,&
-                         ! ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,n_solids],[2,5]))
-      allocate(self%phi_gpu(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:n_solids))
-      self%phi     = -1._R8P
-      self%phi_gpu = self%phi
-   endif
-   allocate(self%gplus_x (nv, 2*iweno, nj, nk, nb))
-   allocate(self%gminus_x(nv, 2*iweno, nj, nk, nb))
-   allocate(self%gplus_y (nv, 2*iweno, ni, nk, nb))
-   allocate(self%gminus_y(nv, 2*iweno, ni, nk, nb))
-   allocate(self%gplus_z (nv, 2*iweno, ni, nj, nb))
-   allocate(self%gminus_z(nv, 2*iweno, ni, nj, nb))
-
-   allocate(self%order_modify(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:3))
-   allocate(self%order_modify_gpu(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:3))
-   self%order_modify = 0
-   self%order_modify_gpu = 0
-   if(self%enable_ror_stats > 0) then
-      allocate(self%ror_stats(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:3))
-      allocate(self%ror_stats_gpu(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:3))
-      open(unit=88, file="ror_stats.dat") ! delete previous stats
-      close(88)
-   endif
-   endassociate
+   call self%allocate_gpu
    print '(A)', self%mpih%myrankstr//'nasto_nvf_object%initialize finish'
-   contains
-      subroutine forward_main_adam_data(grid, field)
-      !< Forward main ADAM data to equation for easy handling.
-      type(grid_object),  intent(in), target :: grid  !< The grid.
-      type(field_object), intent(in), target :: field !< The field.
-
-      self%grid          => grid
-      self%field         => field
-      self%blocks_number => field%blocks_number
-      self%ni            => field%grid%ni
-      self%nj            => field%grid%nj
-      self%nk            => field%grid%nk
-      self%ngc           => field%grid%ngc
-      self%nb            => field%nb
-      self%nv            => field%nv
-
-      allocate(self%nv_aux) ; self%nv_aux = 9
-      endsubroutine forward_main_adam_data
-
-      subroutine load_equation_from_ini_file
-      !< Parse equation setting from input file.
-      logical :: buf_LOG !< Logical buffer.
-
-      call self%file_input%get(section_name='equation', option_name='save_memory_status', val=buf_LOG)
-      self%save_memory_status = buf_LOG
-      print '(A)', self%mpih%myrankstr//'save memory status: '//trim(str(self%save_memory_status))
-      endsubroutine load_equation_from_ini_file
-
-      subroutine load_schemes_from_ini_file
-      !< Parse schemes setting from input file.
-      integer(I4P)              :: buf_I4 !< I4 buffer.
-      integer(I4P), allocatable :: buf_array_I4(:) !< I4 buffer array.
-      real(R8P)                 :: buf_R8 !< R8 buffer.
-      integer(I4P)              :: i
-      character(128)            :: oname
-
-      print*,'starting scheme ini file read'
-      call self%file_input%get(section_name='schemes', option_name='euler_scheme', val=buf_I4) ; self%euler_scheme = buf_I4
-      print*,'1'
-
-      call self%file_input%get(section_name='schemes', option_name='central_order' , val=buf_I4) ; self%central_order  = buf_I4
-      self%lmax  = (self%central_order)/2
-      print*,'2'
-
-      call self%file_input%get(section_name='schemes', option_name='weno_n_ror' , val=buf_I4) ; self%weno_n_ror  = buf_I4
-      print*,'3'
-      allocate(buf_array_I4(1:self%weno_n_ror))
-      print*,'4: ',self%weno_n_ror
-      self%weno_schemes = buf_array_I4
-      !call self%file_input%get(section_name='schemes', option_name='weno_schemes' , val=buf_array_I4)
-      do i=1,self%weno_n_ror
-         oname = 'weno_schemes_'//trim(str(i,.true.))
-         print*,'oname: ',trim(oname)
-         call self%file_input%get(section_name='schemes', option_name=trim(oname), val=buf_I4)
-         print*,'i,buf_I4: ',i,buf_I4
-         self%weno_schemes(i) = buf_I4
-      enddo
-      print*,'5'
-      !self%weno_schemes  = buf_array_I4
-      print*,'6'
-      deallocate(buf_array_I4)
-      print*,'7'
-      self%iweno = IWENO_FROM_SCHEME(self%weno_schemes(1))
-      print*,'8'
-      print*,'weno_schemes: ',self%weno_schemes,' - iweno: ',self%iweno
-
-      call self%file_input%get(section_name='schemes', option_name='ror_threshold' , val=buf_R8) ; self%ror_threshold = buf_R8
-      call self%file_input%get(section_name='schemes', option_name='ror_n_indexes' , val=buf_I4) ; self%ror_n_indexes = buf_I4
-      allocate(buf_array_I4(1:self%ror_n_indexes))
-      self%ror_indexes = buf_array_I4
-      do i=1,self%ror_n_indexes
-         oname = 'ror_indexes_'//trim(str(i,.true.))
-         print*,'oname: ',trim(oname)
-         call self%file_input%get(section_name='schemes', option_name=trim(oname), val=buf_I4)
-         print*,'i,buf_I4: ',i,buf_I4
-         self%ror_indexes(i) = buf_I4
-      enddo
-      !call self%file_input%get(section_name='schemes', option_name='ror_indexes' , val=buf_array_I4)
-      !self%ror_indexes = buf_array_I4
-      deallocate(buf_array_I4)
-      call self%file_input%get(section_name='schemes', option_name='enable_ror_stats' , val=buf_I4) ; self%enable_ror_stats = buf_I4
-      print*,'ror_threshold: ',self%ror_threshold,' - ror_indexes: ',self%ror_indexes, 'enable_ror_stats: ',self%enable_ror_stats
-
-      self%weno_schemes_gpu = self%weno_schemes
-      self%ror_indexes_gpu  = self%ror_indexes
-
-      call self%file_input%get(section_name='schemes', option_name='reduction_extent' , val=buf_I4) ; self%reduction_extent = buf_I4
-      call self%file_input%get(section_name='schemes', option_name='reduced_order'    , val=buf_I4) ; self%reduced_order    = buf_I4
-
-      call self%file_input%get(section_name='schemes', option_name='visc_scheme' , val=buf_I4) ; self%visc_scheme = buf_I4
-      call self%file_input%get(section_name='schemes', option_name='visc_order'  , val=buf_I4) ; self%visc_order  = buf_I4
-
-      call self%fd_initialize
-      self%fd_coeff1_gpu = self%fd_coeff1
-      self%fd_coeff2_gpu = self%fd_coeff2
-      self%fd_conv_gpu   = self%fd_conv
-      endsubroutine load_schemes_from_ini_file
-
-      subroutine load_physics_from_ini_file
-      !< Parse physics setting from input file.
-      integer(I4P) :: buf_I4 !< I4 buffer.
-      real(R8P)    :: buf_R8 !< R8 buffer.
-
-      call self%file_input%get(section_name='physics', option_name='cp',        val=buf_R8) ; self%cp_star   = buf_R8
-      call self%file_input%get(section_name='physics', option_name='cv',        val=buf_R8) ; self%cv_star   = buf_R8
-      call self%file_input%get(section_name='physics', option_name='mu',        val=buf_R8) ; self%mu_star   = buf_R8
-      call self%file_input%get(section_name='physics', option_name='k',         val=buf_R8) ; self%k_star    = buf_R8
-      call self%file_input%get(section_name='physics', option_name='dha',       val=buf_R8) ; self%dha_star  = buf_R8
-      call self%file_input%get(section_name='physics', option_name='Zeldovich', val=buf_R8) ; self%Zeldovich = buf_R8
-      call self%file_input%get(section_name='physics', option_name='Damkohler', val=buf_R8) ; self%Damkohler = buf_R8
-      call self%file_input%get(section_name='physics', option_name='Lewis',     val=buf_R8) ; self%Lewis     = buf_R8
-      call self%file_input%get(section_name='physics', option_name='visc_law',  val=buf_I4) ; self%visc_law  = buf_I4
-      self%gamma_fluid = self%cp_star/self%cv_star
-      self%R_star      = self%cp_star-self%cv_star
-      endsubroutine load_physics_from_ini_file
-
-      subroutine load_amr_from_ini_file
-      !< Parse AMR setting from input file.
-      integer(I4P)   :: buf_I4   !< I4 buffer.
-      real(R8P)      :: buf_R8   !< R8 buffer.
-      character(999) :: sname    !< Section name.
-      integer(I4P)   :: i_marker !< Counter.
-      integer(I4P)   :: mode     !< AMR mode.
-
-      call self%file_input%get(section_name='amr', option_name='frequency', val=buf_I4) ; self%amr_frequency = buf_I4
-      call self%file_input%get(section_name='amr', option_name='iters',     val=buf_I4) ; self%amr_iters     = buf_I4
-      call self%file_input%get(section_name='amr', option_name='n_markers', val=buf_I4) ; self%amr_n_markers = buf_I4
-      allocate(self%amr_markers(self%amr_n_markers))
-      do i_marker=1,self%amr_n_markers
-         sname = 'amr_marker_'//trim(str(i_marker,.true.))
-         call self%file_input%get(section_name=sname, option_name='mode', val=mode)
-         self%amr_markers(i_marker)%mode = mode
-         call self%file_input%get(section_name=sname, option_name='delta_fine', val=buf_R8)
-         self%amr_markers(i_marker)%delta_fine = buf_R8
-         call self%file_input%get(section_name=sname, option_name='delta_coarse', val=buf_R8)
-         self%amr_markers(i_marker)%delta_coarse = buf_R8
-         if(mode == 1) then
-            call self%file_input%get(section_name=sname, option_name='solid', val=buf_I4)
-            self%amr_markers(i_marker)%solid = buf_I4
-         elseif(mode == 2) then
-            call self%file_input%get(section_name=sname, option_name='var', val=buf_I4)
-            self%amr_markers(i_marker)%ivar = buf_I4
-            call self%file_input%get(section_name=sname, option_name='tol', val=buf_R8)
-            self%amr_markers(i_marker)%tol = buf_R8
-         endif
-      enddo
-      endsubroutine load_amr_from_ini_file
-
-      subroutine load_timing_from_ini_file
-      !< Parse timing setting from input file.
-      logical        :: buf_BOOL !< Logical buffer.
-      character(999) :: buf_CHAR !< String buffer.
-      integer(I4P)   :: buf_I4   !< I4 buffer.
-      real(R8P)      :: buf_R8   !< R8 buffer.
-
-      call self%file_input%get(section_name="time", option_name="restart",         val=buf_BOOL) ; self%restart          = buf_BOOL
-      call self%file_input%get(section_name="time", option_name="restart_basename",val=buf_CHAR) ; self%restart_basename = buf_CHAR
-      call self%file_input%get(section_name="time", option_name="restart_save",    val=buf_I4)   ; self%restart_save     = buf_I4
-      call self%file_input%get(section_name="time", option_name="time_max",        val=buf_R8)   ; self%time_max         = buf_R8
-      call self%file_input%get(section_name="time", option_name="t_max",           val=buf_I4)   ; self%t_max            = buf_I4
-      call self%file_input%get(section_name="time", option_name="time_save",       val=buf_R8)   ; self%time_save        = buf_R8
-      call self%file_input%get(section_name="time", option_name="n_save",          val=buf_I4)   ; self%n_save           = buf_I4
-      call self%file_input%get(section_name="time", option_name="output_basename", val=buf_CHAR) ; self%output_basename  = buf_CHAR
-      call self%file_input%get(section_name='time', option_name='CFL',             val=buf_R8)   ; self%CFL              = buf_R8
-      endsubroutine load_timing_from_ini_file
-
-      subroutine load_ic_from_ini_file
-      !< Parse initial conditions setting from input file.
-      integer(I4P)   :: buf_I4 !< I4 buffer.
-      real(R8P)      :: buf_R8 !< R8 buffer.
-      character(999) :: oname  !< Option name.
-      integer(I4P)   :: i_var  !< Counter.
-      integer(I4P)   :: n_vars !< Number of vars.
-
-      call self%file_input%get(section_name="initial_conditions", option_name='ic_type', val=buf_I4) ; self%ic_type = buf_I4
-      n_vars = IC_VARS_NUMBER(self%ic_type)
-      do i_var=1,n_vars
-         oname = "var"//trim(str(i_var,.true.))
-         call self%file_input%get(section_name="initial_conditions", option_name=oname, val=buf_R8) ; self%ic_vars(i_var) = buf_R8
-      enddo
-      endsubroutine load_ic_from_ini_file
-
-      subroutine load_bc_from_ini_file
-      !< Parse boundary conditions setting from input file.
-      real(R8P)      :: buf_R8       !< R8 buffer.
-      character(999) :: sname        !< Section name.
-      character(999) :: snames_bc(6) !< Section names bc.
-      integer(I4P)   :: bc_type_item !< Boundary condition type element.
-      integer(I4P)   :: i_var, i_bc  !< Counter.
-      integer(I4P)   :: n_vars       !< Number of vars.
-
-      snames_bc(:) = ["bc_x_min", "bc_x_max", "bc_y_min", "bc_y_max", "bc_z_min", "bc_z_max"]
-      do i_bc=1,6
-         sname = snames_bc(i_bc)
-         call self%file_input%get(section_name=sname, option_name='type', val=bc_type_item)
-         n_vars = BC_VARS_NUMBER(bc_type_item)
-         do i_var=1,n_vars
-             call self%file_input%get(section_name=sname, option_name="var"//trim(str(i_var,.true.)), val=buf_R8)
-             self%bc_vars(i_var, i_bc) = buf_R8
-         enddo
-      enddo
-      self%bc_vars_gpu = self%bc_vars
-      endsubroutine load_bc_from_ini_file
-
-      subroutine load_slices_from_ini_file
-      !< Parse slices setting from input file.
-      character(999) :: buf_CHAR   !< String buffer.
-      integer(I4P)   :: buf_I4     !< I4 buffer.
-      real(R8P)      :: buf_R8     !< R8 buffer.
-      character(999) :: sname      !< Section name.
-      real(R8P)      :: dxyz(3)    !< Space steps.
-      integer(I4P)   :: i, j, k, s !< Counter.
-
-      call self%file_input%get(section_name="time", option_name="slices_number", val=buf_I4) ; self%slices_number = buf_I4
-      if (self%slices_number > 0) then
-         allocate(self%slice(self%slices_number))
-         do s=1, self%slices_number
-            sname = 'slice_'//trim(str(s,.true.))
-            call self%file_input%get(section_name=sname, option_name='slice_itype',  val=buf_CHAR)
-            self%slice(s)%slice_itype  =buf_CHAR
-            call self%file_input%get(section_name=sname, option_name='slice_save',   val=buf_I4)
-            self%slice(s)%slice_save   =buf_I4
-            call self%file_input%get(section_name=sname, option_name='slice_ni',     val=buf_I4)
-            self%slice(s)%slice_nijk(1)=buf_I4
-            call self%file_input%get(section_name=sname, option_name='slice_nj',     val=buf_I4)
-            self%slice(s)%slice_nijk(2)=buf_I4
-            call self%file_input%get(section_name=sname, option_name='slice_nk',     val=buf_I4)
-            self%slice(s)%slice_nijk(3)=buf_I4
-            call self%file_input%get(section_name=sname, option_name='slice_emin_x', val=buf_R8)
-            self%slice(s)%slice_emin(1)=buf_R8
-            call self%file_input%get(section_name=sname, option_name='slice_emin_y', val=buf_R8)
-            self%slice(s)%slice_emin(2)=buf_R8
-            call self%file_input%get(section_name=sname, option_name='slice_emin_z', val=buf_R8)
-            self%slice(s)%slice_emin(3)=buf_R8
-            call self%file_input%get(section_name=sname, option_name='slice_emax_x', val=buf_R8)
-            self%slice(s)%slice_emax(1)=buf_R8
-            call self%file_input%get(section_name=sname, option_name='slice_emax_y', val=buf_R8)
-            self%slice(s)%slice_emax(2)=buf_R8
-            call self%file_input%get(section_name=sname, option_name='slice_emax_z', val=buf_R8)
-            self%slice(s)%slice_emax(3)=buf_R8
-            allocate(self%slice(s)%slice_points(3,self%slice(s)%slice_nijk(1),&
-                                                  self%slice(s)%slice_nijk(2),&
-                                                  self%slice(s)%slice_nijk(3)))
-            dxyz(1) = (self%slice(s)%slice_emax(1) - self%slice(s)%slice_emin(1)) / self%slice(s)%slice_nijk(1)
-            dxyz(2) = (self%slice(s)%slice_emax(2) - self%slice(s)%slice_emin(2)) / self%slice(s)%slice_nijk(2)
-            dxyz(3) = (self%slice(s)%slice_emax(3) - self%slice(s)%slice_emin(3)) / self%slice(s)%slice_nijk(3)
-            do k=1, self%slice(s)%slice_nijk(3)
-               do j=1, self%slice(s)%slice_nijk(2)
-                  do i=1, self%slice(s)%slice_nijk(1)
-                     self%slice(s)%slice_points(1,i,j,k) = self%slice(s)%slice_emin(1) + (i - 0.5_R8P) * dxyz(1)
-                     self%slice(s)%slice_points(2,i,j,k) = self%slice(s)%slice_emin(2) + (j - 0.5_R8P) * dxyz(2)
-                     self%slice(s)%slice_points(3,i,j,k) = self%slice(s)%slice_emin(3) + (k - 0.5_R8P) * dxyz(3)
-                  enddo
-               enddo
-            enddo
-         enddo
-      endif
-      endsubroutine load_slices_from_ini_file
-
-      subroutine load_solids_from_ini_file
-      !< Parse immersed boundary solids setting from input file.
-      character(999) :: buf_CHAR !< String buffer.
-      integer(I4P)   :: buf_I4   !< I4 buffer.
-      character(999) :: sname    !< Section name.
-      integer(I4P)   :: i_solid  !< Counter.
-
-      call self%file_input%get(section_name='solids', option_name='n_solids', val=buf_I4)
-      self%n_solids = buf_I4
-      allocate(self%bcs_type(self%n_solids))
-      allocate(self%bcs_vars(BCS_VARS_NUMBER_MAX, self%n_solids))
-      allocate(self%ptree(self%n_solids))
-      do i_solid=1,self%n_solids
-         sname = 'solid_'//trim(str(i_solid,.true.))
-         call self%file_input%get(section_name=sname, option_name='name', val=buf_CHAR)
-         self%solid_name = buf_CHAR
-         call self%file_input%get(section_name=sname, option_name='bcs_type', val=buf_I4)
-         self%solid_bc_type = buf_I4
-         self%bcs_type(i_solid) = self%solid_bc_type
-         ! RIMETTERE CGAL
-         ! call cgal_polyhedron_read(self%ptree(i_solid), self%solid_name)
-      enddo
-      self%bcs_vars_gpu = self%bcs_vars
-      endsubroutine load_solids_from_ini_file
    endsubroutine initialize
-
-   subroutine runge_kutta_initialize(self)
-   !< Initialize Runge-Kutta data.
-   class(nasto_nvf_object), intent(inout) :: self !< The equation.
-
-   call self%file_input%get(section_name='time', option_name='nrk', val=self%nrk)
-   allocate(self%ark(self%nrk), self%brk(self%nrk), self%crk(self%nrk))
-   select case(self%nrk)
-      case(1_I4P) ! Eulero
-         self%ark(1) = 1d0  ; self%brk(1) = 0d0; self%crk(1) = 1d0
-      case(2_I4P) ! secondo ordine TVD
-         self%ark(1) = 1d0    ; self%brk(1) = 0d0  ; self%crk(1) = 1d0
-         self%ark(2) = 0.5d0  ; self%brk(2) = 0.5d0; self%crk(2) = 0.5d0
-      case(3_I4P) ! terzo ordine TVD
-         self%ark(1) = 1d0     ; self%brk(1) = 0d0     ; self%crk(1) = 1d0
-         self%ark(2) = 0.75d0  ; self%brk(2) = 0.25d0  ; self%crk(2) = 0.25d0
-         self%ark(3) = 1d0/3d0 ; self%brk(3) = 2d0/3d0 ; self%crk(3) = 2d0/3d0
-   endselect
-   endsubroutine runge_kutta_initialize
 
    ! AMR methods
    subroutine amr_update(self)
@@ -722,9 +323,9 @@ contains
    real(R8P),               intent(in)           :: delta_coarse   !< Minimum cell delta in coarse grids.
    integer(I4P),            intent(in), optional :: ivar           !< Variable for marking.
    real(R8P),               intent(in), optional :: threshold      !< Threshold for sphere proximity.
-   logical,                 intent(in), optional :: do_init
+   logical,                 intent(in), optional :: do_init        !< Re-initialize refinements queries.
    integer(I4P)                                  :: ivar_          !< Variable for marking (local var).
-   logical                                       :: do_init_
+   logical                                       :: do_init_       !< Re-initialize refinements queries, local var.
    real(R8P)                                     :: threshold_     !< Threshold for sphere proximity, local var.
    real(R8P)                                     :: max_cell_delta !< Maximum cell delta.
    real(R8P)                                     :: grad_var       !< Value (max) of gradient of var.
@@ -1300,22 +901,22 @@ contains
    integer(I4P)                           :: iercuda      !< Error trapping flag for CUDAFortran.
    type(dim3)                             :: grid, tBlock !< CUDA grid and block.
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk,                                          &
-             ngc=>self%ngc, ns=>self%ns, blocks_number=>self%blocks_number,                  &
-             dx_gpu=>self%base_gpu%dxyz_gpu(:,1),                                            &
-             dy_gpu=>self%base_gpu%dxyz_gpu(:,2),                                            &
-             dz_gpu=>self%base_gpu%dxyz_gpu(:,3),                                            &
-             q_aux_gpu=>self%q_aux_gpu, phi_gpu=>self%phi_gpu, fl_gpu=>self%fl_gpu,          &
-             flx_gpu=>self%flx_gpu, fly_gpu=>self%fly_gpu, flz_gpu=>self%flz_gpu,            &
-             order_modify_gpu=>self%order_modify_gpu, ror_stats_gpu=>self%ror_stats_gpu,     &
-             fd_conv_gpu=>self%fd_conv_gpu,                                                  &
-             gminus_x=>self%gminus_x, gminus_y=>self%gminus_y, gminus_z=>self%gminus_z,      &
-             gplus_x=>self%gplus_x, gplus_y=>self%gplus_y, gplus_z=>self%gplus_z,            &
-             weno_schemes_gpu=>self%weno_schemes_gpu, ror_indexes_gpu=>self%ror_indexes_gpu, &
-             ror_threshold=>self%ror_threshold, enable_ror_stats=>self%enable_ror_stats,     &
-             euler_scheme=>self%euler_scheme,                                                &
-             lmax=>self%lmax, iweno=>self%iweno,                                             &
-             cv_star=>self%cv_star, gamma_fluid=>self%gamma_fluid, R_star=>self%R_star,      &
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk,                                                             &
+             ngc=>self%ngc, ns=>self%ns, blocks_number=>self%blocks_number,                                     &
+             dx_gpu=>self%base_gpu%dxyz_gpu(:,1),                                                               &
+             dy_gpu=>self%base_gpu%dxyz_gpu(:,2),                                                               &
+             dz_gpu=>self%base_gpu%dxyz_gpu(:,3),                                                               &
+             q_aux_gpu=>self%q_aux_gpu, phi_gpu=>self%phi_gpu, fl_gpu=>self%fl_gpu,                             &
+             flx_gpu=>self%flx_gpu, fly_gpu=>self%fly_gpu, flz_gpu=>self%flz_gpu,                               &
+             order_modify_gpu=>self%order_modify_gpu, ror_stats_gpu=>self%ror_stats_gpu,                        &
+             fd_conv_gpu=>self%fd_conv_gpu,                                                                     &
+             gminus_x_gpu=>self%gminus_x_gpu, gminus_y_gpu=>self%gminus_y_gpu, gminus_z_gpu=>self%gminus_z_gpu, &
+             gplus_x_gpu=>self%gplus_x_gpu, gplus_y_gpu=>self%gplus_y_gpu, gplus_z_gpu=>self%gplus_z_gpu,       &
+             weno_schemes_gpu=>self%weno_schemes_gpu, ror_indexes_gpu=>self%ror_indexes_gpu,                    &
+             ror_threshold=>self%ror_threshold, enable_ror_stats=>self%enable_ror_stats,                        &
+             euler_scheme=>self%euler_scheme,                                                                   &
+             lmax=>self%lmax, iweno=>self%iweno,                                                                &
+             cv_star=>self%cv_star, gamma_fluid=>self%gamma_fluid, R_star=>self%R_star,                         &
              mu_star=>self%mu_star, k_star=>self%k_star, dha_star=>self%dha_star)
 
    call self%check_cuda_error(error_code=-15, msg='CUDA error at start residuals computation')
@@ -1345,7 +946,7 @@ contains
                                                            order_modify_gpu=order_modify_gpu, ror_indexes_gpu=ror_indexes_gpu, &
                                                            weno_schemes_gpu=weno_schemes_gpu, q_aux_gpu=q_aux_gpu,             &
                                                            ror_stats_gpu=ror_stats_gpu,                                        &
-                                                           gplus=gplus_x, gminus=gminus_x, flx_gpu=flx_gpu)
+                                                           gplus=gplus_x_gpu, gminus=gminus_x_gpu, flx_gpu=flx_gpu)
 
          call self%compute_cuda_dimensions(grid_x=blocks_number, grid_y=ni, grid=grid, tBlock=tBlock)
          call compute_flux_conv_y_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=ns+4, &
@@ -1355,7 +956,7 @@ contains
                                                            order_modify_gpu=order_modify_gpu, ror_indexes_gpu=ror_indexes_gpu, &
                                                            weno_schemes_gpu=weno_schemes_gpu, q_aux_gpu=q_aux_gpu,             &
                                                            ror_stats_gpu=ror_stats_gpu,                                        &
-                                                           gplus=gplus_y, gminus=gminus_y, fly_gpu=fly_gpu)
+                                                           gplus=gplus_y_gpu, gminus=gminus_y_gpu, fly_gpu=fly_gpu)
 
          call self%compute_cuda_dimensions(grid_x=blocks_number, grid_y=ni, grid=grid, tBlock=tBlock)
          call compute_flux_conv_z_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=ns+4, &
@@ -1365,7 +966,7 @@ contains
                                                            order_modify_gpu=order_modify_gpu, ror_indexes_gpu=ror_indexes_gpu, &
                                                            weno_schemes_gpu=weno_schemes_gpu, q_aux_gpu=q_aux_gpu,             &
                                                            ror_stats_gpu=ror_stats_gpu,                                        &
-                                                           gplus=gplus_z, gminus=gminus_z, flz_gpu=flz_gpu)
+                                                           gplus=gplus_z_gpu, gminus=gminus_z_gpu, flz_gpu=flz_gpu)
       endif
    endif
 

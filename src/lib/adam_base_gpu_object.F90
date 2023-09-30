@@ -789,13 +789,14 @@ contains
    print '(A)', self%mpih%myrankstr//'base_gpu%initialize finish'
    endsubroutine initialize
 
-   subroutine initialize_gpu(self)
+   subroutine initialize_gpu(self, do_mpi_init)
    !< Initialize GPU main data.
    !< @Note This must be the first routine called before.
-   class(base_gpu_object), intent(inout) :: self              !< The base backend.
-   type(cudadeviceprop)                  :: device_properties !< Device properties.
+   class(base_gpu_object), intent(inout)        :: self              !< The base backend.
+   logical,                intent(in), optional :: do_mpi_init       !< Flag to activate MPI init call.
+   type(cudadeviceprop)                         :: device_properties !< Device properties.
 
-   call self%mpih%initialize
+   call self%mpih%initialize(do_mpi_init=do_mpi_init)
    print '(A)', self%mpih%myrankstr//'base_gpu%initialize_gpu start'
    call MPI_COMM_SPLIT_TYPE(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, self%local_comm, self%mpih%error)
    call MPI_COMM_RANK(self%local_comm, self%mydev, self%mpih%error)
