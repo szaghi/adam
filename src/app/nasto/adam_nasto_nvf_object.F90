@@ -51,12 +51,12 @@ type, extends(nasto_common_object) :: nasto_nvf_object
    real(R8P),    allocatable, device :: q_gpu(:,:,:,:,:)            !< Field cell centered variables.
    real(R8P),    allocatable, device :: q_old_gpu(:,:,:,:,:)        !< Field cell centered variables (old iteration).
    real(R8P),    allocatable, device :: q_invert_gpu(:,:,:,:,:)     !< Field cell with boundary set on immersed bodies.
-   real(R8P),    allocatable, device :: gplus_x_gpu(:,:,:,:,:)          !< For weno-x.
-   real(R8P),    allocatable, device :: gminus_x_gpu(:,:,:,:,:)         !< For weno-x.
-   real(R8P),    allocatable, device :: gplus_y_gpu(:,:,:,:,:)          !< For weno-y.
-   real(R8P),    allocatable, device :: gminus_y_gpu(:,:,:,:,:)         !< For weno-y.
-   real(R8P),    allocatable, device :: gplus_z_gpu(:,:,:,:,:)          !< For weno-z.
-   real(R8P),    allocatable, device :: gminus_z_gpu(:,:,:,:,:)         !< For weno-z.
+   real(R8P),    allocatable, device :: gplus_x_gpu(:,:,:,:,:)      !< Positive fluxes for weno-x.
+   real(R8P),    allocatable, device :: gminus_x_gpu(:,:,:,:,:)     !< Negative fluxes for weno-x.
+   real(R8P),    allocatable, device :: gplus_y_gpu(:,:,:,:,:)      !< Positive fluxes for weno-y.
+   real(R8P),    allocatable, device :: gminus_y_gpu(:,:,:,:,:)     !< Negative fluxes for weno-y.
+   real(R8P),    allocatable, device :: gplus_z_gpu(:,:,:,:,:)      !< Positive fluxes for weno-z.
+   real(R8P),    allocatable, device :: gminus_z_gpu(:,:,:,:,:)     !< Negative fluxes for weno-z.
    real(R8P),    allocatable, device :: phi_gpu(:,:,:,:,:)          !< Distance function on GPU.
    real(R8P),    allocatable, device :: bc_vars_gpu(:, :)           !< Variables' array for boundary conditions on GPU.
    real(R8P),    allocatable, device :: bcs_vars_gpu(:, :)          !< Variables' array for immersed boundary on GPU.
@@ -682,115 +682,18 @@ contains
                                                            1-self%ngc:,1:) !< Conservative variables.
 
    if (allocated(self%base_gpu%local_map_bc_crown_gpu)) &
-      call set_bc_q_gpu_cuf(nv=self%nv, ngc=self%ngc, cv_star=self%cv_star, R_star=self%R_star, &
-                            local_map_bc_gpu=self%base_gpu%local_map_bc_crown_gpu,              &
-                            fec_1_6_array_gpu=self%base_gpu%fec_1_6_array_gpu,                  &
-                            q_bc_vars_gpu=self%bc_vars_gpu,                                     &
+      call set_bc_q_gpu_cuf(nv=self%nv, ngc=self%ngc, cv=self%fluids_physics(1)%cv, R=self%fluids_physics(1)%R, &
+                            local_map_bc_gpu=self%base_gpu%local_map_bc_crown_gpu,                              &
+                            fec_1_6_array_gpu=self%base_gpu%fec_1_6_array_gpu,                                  &
+                            q_bc_vars_gpu=self%bc_vars_gpu,                                                     &
                             q_gpu=q_gpu)
    endsubroutine set_boundary_conditions
 
    subroutine set_initial_conditions(self)
    !< Set initial conditions of field.
-   class(nasto_nvf_object), intent(inout) :: self       !< The equation.
-   integer(I4P)                           :: b, i, j, k !< Counter.
-   real(R8P)                              :: x_split    !< Scalar.
-   real(R8P)                              :: uu, vv, ww !< Scalar.
-   real(R8P)                              :: rn         !< Scalar.
-   ! isentropic vortex case
-   real(R8P) :: rho, u, v, p, e
-   real(R8P) :: r2
-   real(R8P) :: expr2
-   !real(R8P), parameter :: xc=10d0, yc=10d0
-   !real(R8P), parameter :: Rv = 1.0d0, Rv2 = Rv**2
+   class(nasto_nvf_object), intent(inout) :: self !< The equation.
 
-   real(R8P) :: xc, yc
-   real(R8P) :: Rv, Rv2
-
-   real(R8P), parameter :: gam=1.4d0, delta = (gam-1d0)/2d0 , unosgm1 = 1d0/(gam-1d0)
-   real(R8P), parameter :: rho0 = 1.226d0,  p0 = 101325d0
-   real(R8P), parameter :: Ainf = sqrt(gam*p0/rho0)
-   real(R8P), parameter :: Uinf = 0.1d0*Ainf , Minf = Uinf/Ainf
-   real(R8P), parameter :: Vvor = 0.1d0*Ainf , Mv = Vvor/Ainf
-   real(R8P), parameter :: deltaMv2 = delta*Mv**2
-
-   associate(blocks_number=>self%blocks_number, q=>self%field%q, ni=>self%ni, nj=>self%nj, nk=>self%nk,        &
-             ngc=>self%ngc, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell,   &
-             gamma_fluid=>self%gamma_fluid, R_star=>self%R_star, cv_star=>self%cv_star, cp_star=>self%cp_star, &
-             dha_star=>self%dha_star, ic_vars => self%ic_vars)
-
-      if(self%ic_type == IC_UNIFORM) then
-         do b=1, blocks_number
-            do k=1, nk
-               do j=1, nj
-                  do i=1, ni
-                     q(1,i,j,k,b) = ic_vars(1)
-                     call random_number(rn) ; rn = rn*ic_vars(6) ; uu = ic_vars(2)+rn
-                     q(2,i,j,k,b) = ic_vars(1)*uu
-                     call random_number(rn) ; rn = rn*ic_vars(6) ; vv = ic_vars(3)+rn
-                     q(3,i,j,k,b) = ic_vars(1)*vv
-                     call random_number(rn) ; rn = rn*ic_vars(6) ; ww = ic_vars(4)+rn
-                     q(4,i,j,k,b) = ic_vars(1)*ww
-                     q(5,i,j,k,b) = ic_vars(1)*(cv_star*ic_vars(5)/(ic_vars(1)*R_star)+&
-                         0.5_R8P*(uu**2+vv**2+ww**2))
-                  enddo
-               enddo
-            enddo
-         enddo
-      elseif(self%ic_type == IC_LEFTRIGHT) then
-         x_split = ic_vars(11)
-         do b=1, blocks_number
-            do k=1, nk
-               do j=1, nj
-                  do i=1, ni
-                     if(x_cell(i,b) <= x_split) then
-                        q(1,i,j,k,b) = ic_vars(1)
-                        q(2,i,j,k,b) = ic_vars(1)*ic_vars(2)
-                        q(3,i,j,k,b) = ic_vars(1)*ic_vars(3)
-                        q(4,i,j,k,b) = ic_vars(1)*ic_vars(4)
-                        q(5,i,j,k,b) = ic_vars(1)*(cv_star*ic_vars(5)/(ic_vars(1)*R_star)+ &
-                            0.5_R8P*(ic_vars(2)**2+ic_vars(3)**2+ic_vars(4)**2))
-                     else
-                        q(1,i,j,k,b) = ic_vars(6)
-                        q(2,i,j,k,b) = ic_vars(6)*ic_vars(7)
-                        q(3,i,j,k,b) = ic_vars(6)*ic_vars(8)
-                        q(4,i,j,k,b) = ic_vars(6)*ic_vars(9)
-                        q(5,i,j,k,b) = ic_vars(6)*(cv_star*ic_vars(10)/(ic_vars(6)*R_star)+&
-                            0.5_R8P*(ic_vars(7)**2+ic_vars(8)**2+ic_vars(9)**2))
-                     endif
-                  enddo
-               enddo
-            enddo
-         enddo
-      elseif(self%ic_type == IC_FLAME) then
-      elseif(self%ic_type == IC_VORTEX) then
-         xc = ic_vars(1)
-         yc = ic_vars(2)
-         Rv = ic_vars(3)
-         Rv2 = Rv**2
-
-         do b=1, blocks_number
-            do k=1, nk
-               do j=1, nj
-                  do i=1, ni
-                     r2     = ( (x_cell(i,b)-xc)**2+(y_cell(j,b)-yc)**2 )/Rv2
-                     expr2  = exp((1d0-r2)*0.5d0)
-                     rho    = rho0*( 1d0-deltaMv2*expr2**2)**unosgm1
-                     u      = (Minf  - Mv*(y_cell(j,b)-yc)/Rv*expr2)*Ainf
-                     v      = (        Mv*(x_cell(i,b)-xc)/Rv*expr2)*Ainf
-                     p      = p0*(rho/rho0)**gam
-                     e      = p/(gam-1d0)+0.5d0*rho*(u**2+v**2)
-
-                     q(1,i,j,k,b) = rho
-                     q(2,i,j,k,b) = rho*u
-                     q(3,i,j,k,b) = rho*v
-                     q(4,i,j,k,b) = 0._R8P
-                     q(5,i,j,k,b) = e
-                  enddo
-               enddo
-            enddo
-         enddo
-      endif
-   endassociate
+   call self%ic%set_initial_conditions(fluids_physics=self%fluids_physics, field=self%field)
    call self%copy_cpu_gpu
    endsubroutine set_initial_conditions
 
@@ -873,7 +776,8 @@ contains
                                                              1:) !< Auxiliary variables.
 
    call compute_q_aux_cuf(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, ns=self%ns, blocks_number=self%blocks_number, &
-                          R=self%R_star, cv=self%cv_star, g=self%gamma_fluid, dha=self%dha_star, q_gpu=q_gpu, q_aux_gpu=q_aux_gpu)
+                          R=self%fluids_physics(1)%R, cv=self%fluids_physics(1)%cv, g=self%fluids_physics(1)%g,           &
+                          dha=self%fluids_physics(1)%dha, q_gpu=q_gpu, q_aux_gpu=q_aux_gpu)
    endsubroutine compute_q_aux_gpu
 
    subroutine compute_dt(self)
@@ -888,7 +792,7 @@ contains
    do b=1, self%field%blocks_number
       call compute_umax_cuf(b, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, ns=self%ns,           &
                             dx=self%field%dxyz(1,b), dy=self%field%dxyz(2,b), dz=self%field%dxyz(3,b), &
-                            q_aux_gpu=self%q_aux_gpu, umax=umax, mu=self%mu_star)
+                            q_aux_gpu=self%q_aux_gpu, umax=umax, mu=self%fluids_physics(1)%mu)
       self%dt = min(self%dt, self%CFL / umax)
    enddo
    call MPI_ALLREDUCE(MPI_IN_PLACE, self%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih%error)
@@ -916,8 +820,8 @@ contains
              ror_threshold=>self%ror_threshold, enable_ror_stats=>self%enable_ror_stats,                        &
              euler_scheme=>self%euler_scheme,                                                                   &
              lmax=>self%lmax, iweno=>self%iweno,                                                                &
-             cv_star=>self%cv_star, gamma_fluid=>self%gamma_fluid, R_star=>self%R_star,                         &
-             mu_star=>self%mu_star, k_star=>self%k_star, dha_star=>self%dha_star)
+             cv=>self%fluids_physics(1)%cv, g=>self%fluids_physics(1)%g, R=>self%fluids_physics(1)%R,           &
+             mu=>self%fluids_physics(1)%mu, kd=>self%fluids_physics(1)%kd, dha=>self%fluids_physics(1)%dha)
 
    call self%check_cuda_error(error_code=-15, msg='CUDA error at start residuals computation')
 
@@ -940,8 +844,7 @@ contains
       else
          call self%compute_cuda_dimensions(grid_x=blocks_number, grid_y=nj, grid=grid, tBlock=tBlock)
          call compute_flux_conv_x_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=ns+4, &
-                                                           iweno=iweno, dha_star=dha_star, gamma_fluid=gamma_fluid,            &
-                                                           R_star=R_star, cv_star=cv_star,                                     &
+                                                           iweno=iweno, dha=dha, g=g, R=R, cv=cv,                              &
                                                            ror_threshold=ror_threshold, enable_ror_stats=enable_ror_stats,     &
                                                            order_modify_gpu=order_modify_gpu, ror_indexes_gpu=ror_indexes_gpu, &
                                                            weno_schemes_gpu=weno_schemes_gpu, q_aux_gpu=q_aux_gpu,             &
@@ -950,8 +853,7 @@ contains
 
          call self%compute_cuda_dimensions(grid_x=blocks_number, grid_y=ni, grid=grid, tBlock=tBlock)
          call compute_flux_conv_y_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=ns+4, &
-                                                           iweno=iweno, dha_star=dha_star, gamma_fluid=gamma_fluid,            &
-                                                           R_star=R_star, cv_star=cv_star,                                     &
+                                                           iweno=iweno, dha=dha, g=g, R=R, cv=cv,                              &
                                                            ror_threshold=ror_threshold, enable_ror_stats=enable_ror_stats,     &
                                                            order_modify_gpu=order_modify_gpu, ror_indexes_gpu=ror_indexes_gpu, &
                                                            weno_schemes_gpu=weno_schemes_gpu, q_aux_gpu=q_aux_gpu,             &
@@ -960,8 +862,7 @@ contains
 
          call self%compute_cuda_dimensions(grid_x=blocks_number, grid_y=ni, grid=grid, tBlock=tBlock)
          call compute_flux_conv_z_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=ns+4, &
-                                                           iweno=iweno, dha_star=dha_star, gamma_fluid=gamma_fluid,            &
-                                                           R_star=R_star, cv_star=cv_star,                                     &
+                                                           iweno=iweno, dha=dha, g=g, R=R, cv=cv,                              &
                                                            ror_threshold=ror_threshold, enable_ror_stats=enable_ror_stats,     &
                                                            order_modify_gpu=order_modify_gpu, ror_indexes_gpu=ror_indexes_gpu, &
                                                            weno_schemes_gpu=weno_schemes_gpu, q_aux_gpu=q_aux_gpu,             &
@@ -972,10 +873,10 @@ contains
 
    call self%check_cuda_error(error_code=-15, msg='CUDA error after convective fluxes computation')
 
-   if (mu_star > 0.) call compute_fluxes_diffusive_cuf(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=ns+4, &
-                                                       mu_star=mu_star, k_star=k_star, q_aux_gpu=q_aux_gpu,                &
-                                                       dx_gpu=dx_gpu, dy_gpu=dy_gpu, dz_gpu=dz_gpu,                        &
-                                                       flx_gpu=flx_gpu, fly_gpu=fly_gpu, flz_gpu=flz_gpu)
+   if (mu > 0.) call compute_fluxes_diffusive_cuf(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=ns+4, &
+                                                  mu=mu, kd=kd, q_aux_gpu=q_aux_gpu,                                  &
+                                                  dx_gpu=dx_gpu, dy_gpu=dy_gpu, dz_gpu=dz_gpu,                        &
+                                                  flx_gpu=flx_gpu, fly_gpu=fly_gpu, flz_gpu=flz_gpu)
    !@cuf iercuda=cudaDeviceSynchronize()
 
    call self%check_cuda_error(error_code=-15, msg='CUDA error after diffusive fluxes computation')
@@ -1047,11 +948,11 @@ contains
       print '(A)', self%mpih%myrankstr//'restart [t, time]: '//trim(str(self%it))//', '//trim(str(self%time))
    else
       do i=1, 10
-         call self%set_initial_conditions()
+         call self%set_initial_conditions
          if (self%n_solids > 0) call self%update_phi()
          call self%amr_update()
       enddo
-      call self%set_initial_conditions()
+      call self%set_initial_conditions
       self%time = 0._R8P
       self%it = 0
    endif

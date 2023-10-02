@@ -8,6 +8,8 @@ use adam_field_object
 use adam_grid_object
 use adam_mpih_object
 use adam_slice_object
+use adam_nasto_ic_object
+use adam_nasto_physics_object
 use adam_nasto_parameters
 use FiNeR
 use PENF
@@ -59,8 +61,6 @@ type :: nasto_common_object
    integer(I4P), allocatable :: order_modify(:,:,:,:,:) !< Modified order close to solids.
    integer(I4P)              :: iweno=2_I4P             !< WENO order.
    integer(I4P)              :: visc_order=4_I4P        !< Laplacian viscosity order.
-   integer(I4P)              :: ns=1_I4P                !< Number of fluid species.
-   integer(I4P)              :: visc_law=0_I4P          !< Diffusivity type (0=constant, 1=power, 2=Sutherland).
    integer(I4P)              :: nrk=4_I4P               !< Runge-Kutta stages number.
    real(R8P), allocatable    :: ark(:)                  !< Runge-Kutta alpha coefficients.
    real(R8P), allocatable    :: brk(:)                  !< Runge-Kutta beta coefficients.
@@ -89,28 +89,21 @@ type :: nasto_common_object
    character(999) :: output_basename  !< Output file basename.
    real(R8P)      :: CFL              !< CFL time limit.
    real(R8P)      :: dt=0.0001_R8P    !< Maximum time step accordingly to CFL criterion.
-   ! Initial Conditions (IC) data
-   integer(I4P) :: ic_type                     !< Initial condition type.
-   real(R8P)    :: ic_vars(IC_VARS_NUMBER_MAX) !< Variables' array for initial conditions.
-   ! real(R8P)    :: ic_vars(12                ) !< Variables' array for initial conditions.
    ! Boundary Conditions (BC) data
    integer(I4P)              :: bc_type(6)                     !< Boundary condition type.
    real(R8P)                 :: bc_vars(BC_VARS_NUMBER_MAX, 6) !< Variables' array for boundary conditions.
    integer(I4P), allocatable :: bcs_type(:)                    !< Immersed boundary condition type.
    real(R8P),    allocatable :: bcs_vars(:, :)                 !< Variables' array for immersed boundary conditions.
-   ! physics data
-   real(R8P) :: Lewis=1._R8P        !< Lewis number.
-   real(R8P) :: Zeldovich=1060._R8P !< Zeldovich number.
-   real(R8P) :: Damkohler=1800._R8P !< Damkohler number.
-   real(R8P) :: gamma_fluid=1.4_R8P !< Gamma.
-   real(R8P) :: R_star=287._R8P     !< Gas constant.
-   real(R8P) :: cv_star=714._R8P    !< Constant volume specific heat.
-   real(R8P) :: mu_star=0.001_R8P   !< Dynamic viscosity.
-   real(R8P) :: cp_star=1000._R8P   !< Constant pressure specific heat.
-   real(R8P) :: k_star=0.0013_R8P   !< Thermal diffusivity.
-   real(R8P) :: dha_star=10000._R8P !< Entalpy formation.
    ! Fields data: see nasto parameters definition for the arrangement of conservative and auxiliary variables
    real(R8P), allocatable :: q_aux(:,:,:,:,:) !< Auxiliary cell centered variables.
+   ! fluids physics
+   integer(I4P)                            :: ns=1_I4P          !< Number of fluid species.
+   type(nasto_physics_object), allocatable :: fluids_physics(:) !< Fluids physiscs.
+   ! initial conditions
+   type(nasto_ic_object) :: ic !< Initial Conditions.
+   ! integer(I4P) :: ic_type                     !< Initial condition type.
+   ! real(R8P)    :: ic_vars(IC_VARS_NUMBER_MAX) !< Variables' array for initial conditions.
+   ! real(R8P)    :: ic_vars(12                ) !< Variables' array for initial conditions.
    contains
       procedure, pass(self) :: allocate_common            !< Allocate common data.
       procedure, pass(self) :: initialize_common          !< Initialize the equation common data.
@@ -161,7 +154,7 @@ contains
    call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false.)
    call load_amr_from_ini_file
    call load_bc_from_ini_file
-   call load_ic_from_ini_file
+   call self%ic%initialize(file_parameters=self%file_input)
    call load_physics_from_ini_file
    call load_schemes_from_ini_file
    call load_slices_from_ini_file
@@ -243,38 +236,18 @@ contains
       enddo
       endsubroutine load_bc_from_ini_file
 
-      subroutine load_ic_from_ini_file
-      !< Parse initial conditions setting from input file.
-      integer(I4P)   :: buf_I4 !< I4 buffer.
-      real(R8P)      :: buf_R8 !< R8 buffer.
-      character(999) :: oname  !< Option name.
-      integer(I4P)   :: i_var  !< Counter.
-      integer(I4P)   :: n_vars !< Number of vars.
-
-      call self%file_input%get(section_name="initial_conditions", option_name='ic_type', val=buf_I4) ; self%ic_type = buf_I4
-      n_vars = IC_VARS_NUMBER(self%ic_type)
-      do i_var=1,n_vars
-         oname = "var"//trim(str(i_var,.true.))
-         call self%file_input%get(section_name="initial_conditions", option_name=oname, val=buf_R8) ; self%ic_vars(i_var) = buf_R8
-      enddo
-      endsubroutine load_ic_from_ini_file
-
       subroutine load_physics_from_ini_file
-      !< Parse physics setting from input file.
-      integer(I4P) :: buf_I4 !< I4 buffer.
-      real(R8P)    :: buf_R8 !< R8 buffer.
+      !< Parse fluids physics setting from input file.
+      integer(I4P) :: s !< Counter.
 
-      call self%file_input%get(section_name='physics', option_name='cp',        val=buf_R8) ; self%cp_star   = buf_R8
-      call self%file_input%get(section_name='physics', option_name='cv',        val=buf_R8) ; self%cv_star   = buf_R8
-      call self%file_input%get(section_name='physics', option_name='mu',        val=buf_R8) ; self%mu_star   = buf_R8
-      call self%file_input%get(section_name='physics', option_name='k',         val=buf_R8) ; self%k_star    = buf_R8
-      call self%file_input%get(section_name='physics', option_name='dha',       val=buf_R8) ; self%dha_star  = buf_R8
-      call self%file_input%get(section_name='physics', option_name='Zeldovich', val=buf_R8) ; self%Zeldovich = buf_R8
-      call self%file_input%get(section_name='physics', option_name='Damkohler', val=buf_R8) ; self%Damkohler = buf_R8
-      call self%file_input%get(section_name='physics', option_name='Lewis',     val=buf_R8) ; self%Lewis     = buf_R8
-      call self%file_input%get(section_name='physics', option_name='visc_law',  val=buf_I4) ; self%visc_law  = buf_I4
-      self%gamma_fluid = self%cp_star/self%cv_star
-      self%R_star      = self%cp_star-self%cv_star
+      call self%file_input%get(section_name='physics', option_name='ns', val=self%ns, error=self%mpih%error)
+      if (self%mpih%error>0) call self%mpih%error_stop(msg=': failed to load [physics].(ns)')
+      if (self%ns<1) call self%mpih%error_stop(msg=': error [physics].(ns) must be >=1')
+
+      allocate(self%fluids_physics(1:self%ns))
+      do s=1, self%ns
+         call self%fluids_physics(s)%load_from_file(fini=self%file_input, s=s)
+      enddo
       endsubroutine load_physics_from_ini_file
 
       subroutine load_schemes_from_ini_file

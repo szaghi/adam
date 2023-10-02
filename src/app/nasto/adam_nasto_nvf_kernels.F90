@@ -120,13 +120,12 @@ contains
    endsubroutine move_phi_cuf
 
    ! numerical procedures
-   attributes(global) subroutine compute_flux_conv_x_kernel(blocks_number, ni, nj, nk, ngc, nv, iweno,                          &
-                                                            dha_star, gamma_fluid, R_star, cv_star,                             &
+   attributes(global) subroutine compute_flux_conv_x_kernel(blocks_number, ni, nj, nk, ngc, nv, iweno, dha, g, R, cv,           &
                                                             ror_threshold, enable_ror_stats, order_modify_gpu, ror_indexes_gpu, &
                                                             weno_schemes_gpu, q_aux_gpu, ror_stats_gpu, gplus, gminus, flx_gpu)
    !< Compute convective fluxes by means of upwind WENO reconstruction, x axis direction.
    integer,      intent(in),    value  :: blocks_number, ni, nj, nk, ngc, nv, iweno
-   real(R8P),    intent(in),    value  :: dha_star, gamma_fluid, R_star, cv_star
+   real(R8P),    intent(in),    value  :: dha, g, R, cv
    real(R8P),    intent(in),    value  :: ror_threshold
    integer(I4P), intent(in),    value  :: enable_ror_stats
    integer(I4P), intent(in),    device :: order_modify_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
@@ -150,8 +149,7 @@ contains
    do k=1,nk
       do i=0,ni ! loop on faces
          ! compute Roe average
-         call compute_roe_average(q_aux_gpu, dha_star, gamma_fluid, R_star, &
-                                  ngc, b, i, j, k, i+1, j, k, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
+         call compute_roe_average(q_aux_gpu, dha, g, R, ngc, b, i, j, k, i+1, j, k, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
          ! compute right and left eigenvectors matrices (at Roe state)
          er(1,1)=1._R8P ; er(1,2)=uu-c   ; er(1,3)=vv     ; er(1,4)=ww     ; er(1,5)=h-uu*c
          er(2,1)=1._R8P ; er(2,2)=uu     ; er(2,3)=vv     ; er(2,4)=ww     ; er(2,5)=qq
@@ -186,9 +184,9 @@ contains
             vi(2) = vi(1)*q_aux_gpu(b,ll,j,k,2)
             vi(3) = vi(1)*q_aux_gpu(b,ll,j,k,3)
             vi(4) = vi(1)*q_aux_gpu(b,ll,j,k,4)
-            vi(5) = vi(1)*(cv_star*q_aux_gpu(b,ll,j,k,6)+                                                 &
+            vi(5) = vi(1)*(cv*q_aux_gpu(b,ll,j,k,6)+                                                      &
                     0.5_R8P*(q_aux_gpu(b,ll,j,k,2)**2+q_aux_gpu(b,ll,j,k,3)**2+q_aux_gpu(b,ll,j,k,4)**2)+ &
-                    q_aux_gpu(b,ll,j,k,5)*dha_star)
+                    q_aux_gpu(b,ll,j,k,5)*dha)
             fi(1) = vi(2)
             fi(2) = fi(1) * q_aux_gpu(b,ll,j,k,2) + q_aux_gpu(b,ll,j,k,7)
             fi(3) = fi(1) * q_aux_gpu(b,ll,j,k,3)
@@ -246,13 +244,12 @@ contains
    enddo
    endsubroutine compute_flux_conv_x_kernel
 
-   attributes(global) subroutine compute_flux_conv_y_kernel(blocks_number, ni, nj, nk, ngc, nv, iweno,                          &
-                                                            dha_star, gamma_fluid, R_star, cv_star,                             &
+   attributes(global) subroutine compute_flux_conv_y_kernel(blocks_number, ni, nj, nk, ngc, nv, iweno, dha, g, R, cv,           &
                                                             ror_threshold, enable_ror_stats, order_modify_gpu, ror_indexes_gpu, &
                                                             weno_schemes_gpu, q_aux_gpu, ror_stats_gpu, gplus, gminus, fly_gpu)
    !< Compute convective fluxes by means of upwind WENO reconstruction, y axis direction.
    integer,      intent(in),    value  :: blocks_number, ni, nj, nk, ngc, nv, iweno
-   real(R8P),    intent(in),    value  :: dha_star, gamma_fluid, R_star, cv_star
+   real(R8P),    intent(in),    value  :: dha, g, R, cv
    real(R8P),    intent(in),    value  :: ror_threshold
    integer(I4P), intent(in),    value  :: enable_ror_stats
    integer(I4P), intent(in),    device :: order_modify_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
@@ -276,8 +273,7 @@ contains
    do k=1,nk
       do j=0,nj ! loop on faces
          ! Compute Roe average
-         call compute_roe_average(q_aux_gpu, dha_star, gamma_fluid, R_star, &
-            ngc, b, i, j, k, i, j+1, k, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
+         call compute_roe_average(q_aux_gpu, dha, g, R, ngc, b, i, j, k, i, j+1, k, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
 
          ! Compute right and left eigenvectors matrices (at Roe state)
          er(1,1)=1._R8P ; er(1,2)=uu     ; er(1,3)=vv-c   ; er(1,4)=ww     ; er(1,5)=h-vv*c
@@ -313,9 +309,9 @@ contains
             vi(2) = vi(1)*q_aux_gpu(b,i,ll,k,2)
             vi(3) = vi(1)*q_aux_gpu(b,i,ll,k,3)
             vi(4) = vi(1)*q_aux_gpu(b,i,ll,k,4)
-            vi(5) = vi(1)*(cv_star*q_aux_gpu(b,i,ll,k,6)+                                             &
+            vi(5) = vi(1)*(cv*q_aux_gpu(b,i,ll,k,6)+                                                  &
                 0.5_R8P*(q_aux_gpu(b,i,ll,k,2)**2+q_aux_gpu(b,i,ll,k,3)**2+q_aux_gpu(b,i,ll,k,4)**2)+ &
-                q_aux_gpu(b,i,ll,k,5)*dha_star)
+                q_aux_gpu(b,i,ll,k,5)*dha)
             fi(1) = vi(3)
             fi(2) = fi(1) * q_aux_gpu(b,i,ll,k,2)
             fi(3) = fi(1) * q_aux_gpu(b,i,ll,k,3) + q_aux_gpu(b,i,ll,k,7)
@@ -372,13 +368,12 @@ contains
    enddo
    endsubroutine compute_flux_conv_y_kernel
 
-   attributes(global) subroutine compute_flux_conv_z_kernel(blocks_number, ni, nj, nk, ngc, nv, iweno,                          &
-                                                            dha_star, gamma_fluid, R_star, cv_star,                             &
+   attributes(global) subroutine compute_flux_conv_z_kernel(blocks_number, ni, nj, nk, ngc, nv, iweno, dha, g, R, cv,           &
                                                             ror_threshold, enable_ror_stats, order_modify_gpu, ror_indexes_gpu, &
                                                             weno_schemes_gpu, q_aux_gpu, ror_stats_gpu, gplus, gminus, flz_gpu)
    !< Compute convective fluxes by means of upwind WENO reconstruction, z axis direction.
    integer,      intent(in),    value  :: blocks_number, ni, nj, nk, ngc, nv, iweno
-   real(R8P),    intent(in),    value  :: dha_star, gamma_fluid, R_star, cv_star
+   real(R8P),    intent(in),    value  :: dha, g, R, cv
    real(R8P),    intent(in),    value  :: ror_threshold
    integer(I4P), intent(in),    value  :: enable_ror_stats
    integer(I4P), intent(in),    device :: order_modify_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
@@ -402,8 +397,7 @@ contains
    do j=1,nj
       do k=0,nk ! loop on faces
          ! Compute Roe average
-         call compute_roe_average(q_aux_gpu, dha_star, gamma_fluid, R_star, &
-            ngc, b, i, j, k, i, j, k+1, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
+         call compute_roe_average(q_aux_gpu, dha, g, R, ngc, b, i, j, k, i, j, k+1, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
 
          ! Compute right and left eigenvectors matrices (at Roe state)
          er(1,1)=1._R8P ; er(1,2)=uu     ; er(1,3)=vv     ; er(1,4)=ww-c   ; er(1,5)=h-ww*c
@@ -439,9 +433,9 @@ contains
             vi(2) = vi(1)*q_aux_gpu(b,i,j,ll,2)
             vi(3) = vi(1)*q_aux_gpu(b,i,j,ll,3)
             vi(4) = vi(1)*q_aux_gpu(b,i,j,ll,4)
-            vi(5) = vi(1)*(cv_star*q_aux_gpu(b,i,j,ll,6)+                                             &
+            vi(5) = vi(1)*(cv*q_aux_gpu(b,i,j,ll,6)+                                                  &
                 0.5_R8P*(q_aux_gpu(b,i,j,ll,2)**2+q_aux_gpu(b,i,j,ll,3)**2+q_aux_gpu(b,i,j,ll,4)**2)+ &
-                q_aux_gpu(b,i,j,ll,5)*dha_star)
+                q_aux_gpu(b,i,j,ll,5)*dha)
             fi(1) = vi(4)
             fi(2) = fi(1) * q_aux_gpu(b,i,j,ll,2)
             fi(3) = fi(1) * q_aux_gpu(b,i,j,ll,3)
@@ -770,11 +764,11 @@ contains
    !@cuf iercuda=cudaDeviceSynchronize()
    endsubroutine compute_fluxes_difference_cuf
 
-   subroutine compute_fluxes_diffusive_cuf(blocks_number, ni, nj, nk, ngc, nv, mu_star, k_star, &
+   subroutine compute_fluxes_diffusive_cuf(blocks_number, ni, nj, nk, ngc, nv, mu, kd, &
                                            q_aux_gpu, dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu)
    !< Compute diffusive fluxes.
    integer(I4P), intent(in)            :: blocks_number, ni, nj, nk, ngc, nv
-   real(R8P),    intent(in)            :: mu_star, k_star
+   real(R8P),    intent(in)            :: mu, kd
    real(R8P),    intent(in),    device :: dx_gpu(1:), dy_gpu(1:), dz_gpu(1:)
    real(R8P),    intent(in),    device :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P),    intent(inout), device ::   flx_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
@@ -789,11 +783,7 @@ contains
    real(R8P)                           :: tau_1_2, tau_2_2, tau_3_2, dT_dy
    real(R8P)                           :: tau_1_3, tau_2_3, tau_3_3, dT_dz
    real(R8P)                           :: vel_u, vel_v, vel_w
-   real(R8P)                           :: mu, k_coeff
    real(R8P), parameter                :: ib_eps=1.e-12_R8P
-
-   mu      = mu_star
-   k_coeff = k_star
 
    !$cuf kernel do(3) <<<*,*>>>
    do k=1,nk
@@ -824,7 +814,7 @@ contains
 
                 dT_dx = (q_aux_gpu(b,i+1,j,k,6)-q_aux_gpu(b,i,j,k,6))/dx_gpu(b)
 
-                sigq = k_coeff*dT_dx
+                sigq = kd*dT_dx
                 sigl = vel_u*tau_1_1+vel_v*tau_2_1+vel_w*tau_3_1
 
                 flx_gpu(b,i,j,k,2) = flx_gpu(b,i,j,k,2) - tau_1_1
@@ -832,7 +822,6 @@ contains
                 flx_gpu(b,i,j,k,4) = flx_gpu(b,i,j,k,4) - tau_3_1
                 flx_gpu(b,i,j,k,5) = flx_gpu(b,i,j,k,5) - sigq + sigl
             enddo
-
          enddo
       enddo
    enddo
@@ -867,7 +856,7 @@ contains
 
                 dT_dy = (q_aux_gpu(b,i,j+1,k,6)-q_aux_gpu(b,i,j,k,6))/dy_gpu(b)
 
-                sigq = k_coeff*dT_dy
+                sigq = kd*dT_dy
                 sigl = vel_u*tau_1_2+vel_v*tau_2_2+vel_w*tau_3_2
 
                 fly_gpu(b,i,j,k,2) = fly_gpu(b,i,j,k,2) - tau_1_2
@@ -875,7 +864,6 @@ contains
                 fly_gpu(b,i,j,k,4) = fly_gpu(b,i,j,k,4) - tau_3_2
                 fly_gpu(b,i,j,k,5) = fly_gpu(b,i,j,k,5) - sigq + sigl
             enddo
-
          enddo
       enddo
    enddo
@@ -910,7 +898,7 @@ contains
 
                 dT_dz = (q_aux_gpu(b,i,j,k+1,6)-q_aux_gpu(b,i,j,k,6))/dz_gpu(b)
 
-                sigq = k_coeff*dT_dz
+                sigq = kd*dT_dz
                 sigl = vel_u*tau_1_3+vel_v*tau_2_3+vel_w*tau_3_3
 
                 flz_gpu(b,i,j,k,2) = flz_gpu(b,i,j,k,2) - tau_1_3
@@ -918,7 +906,6 @@ contains
                 flz_gpu(b,i,j,k,4) = flz_gpu(b,i,j,k,4) - tau_3_3
                 flz_gpu(b,i,j,k,5) = flz_gpu(b,i,j,k,5) - sigq + sigl
             enddo
-
          enddo
       enddo
    enddo
@@ -1048,11 +1035,11 @@ contains
    !@cuf iercuda=cudaDeviceSynchronize()
    endsubroutine compute_umax_cuf
 
-   attributes(device) subroutine compute_roe_average(q_aux_gpu, dha_star, gamma_fluid, R_star, &
+   attributes(device) subroutine compute_roe_average(q_aux_gpu, dha, g, R, &
                                                      ngc, b, i, j, k, ip, jp, kp, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
    !< Compute Roe averaged quantities.
    real(R8P),    intent(in), device :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P),    intent(in)         :: dha_star, gamma_fluid, R_star
+   real(R8P),    intent(in)         :: dha, g, R
    integer(I4P), intent(in)         :: ngc, b, i, j, k, ip, jp, kp
    real(R8P),    intent(out)        :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
    real(R8P)                        :: ri, up, vp, wp, hp, yap, r, rp1, cc
@@ -1078,21 +1065,21 @@ contains
    h         =  (r*hp+h)*rp1
    ya        =  (r*yap+ya)*rp1
    qq        =  0.5_R8P * (uu*uu+vv*vv+ww*ww)
-   cc        =  (gamma_fluid-1._R8P) * (h - qq - ya*dha_star)
-   !ERRATODIREIcc        =  gamma_fluid * (gamma_fluid-1._R8P) * (h - qq - ya*dha_star)
+   cc        =  (g-1._R8P) * (h - qq - ya*dha)
+   !ERRATODIREIcc        =  g * (g-1._R8P) * (h - qq - ya*dha)
    c         =  sqrt(cc)
    ci        =  1._R8P/c
-   b2        = (gamma_fluid-1)/cc  ! alias 1/(cp*theta)
-   b1        = b2 * qq             ! alias q/(cp*theta)
+   b2        = (g-1)/cc  ! alias 1/(cp*theta)
+   b1        = b2 * qq   ! alias q/(cp*theta)
 
    endsubroutine compute_roe_average
 
-   subroutine set_bc_q_gpu_cuf(nv, ngc, cv_star, R_star, local_map_bc_gpu, fec_1_6_array_gpu, q_bc_vars_gpu, q_gpu)
+   subroutine set_bc_q_gpu_cuf(nv, ngc, cv, R, local_map_bc_gpu, fec_1_6_array_gpu, q_bc_vars_gpu, q_gpu)
    !< Set BC over q.
    integer(I4P), intent(in)            :: nv                      !< Number of variables.
    integer(I4P), intent(in)            :: ngc                     !< Ghost cells number.
-   real(R8P),    intent(in)            :: cv_star                 !< Constant volume specific heat.
-   real(R8P),    intent(in)            :: R_star                  !< Gas constant.
+   real(R8P),    intent(in)            :: cv                      !< Constant volume specific heat.
+   real(R8P),    intent(in)            :: R                       !< Gas constant.
    integer(I8P), intent(in),    device :: local_map_bc_gpu(:,:,:) !< Local map for BC ghost cells.
    integer(I4P), intent(in),    device :: fec_1_6_array_gpu(:)    !< Local map for BC ghost cells.
    real(R8P),    intent(in),    device :: q_bc_vars_gpu(:,:)      !< Boundary variables.
@@ -1134,8 +1121,8 @@ contains
                 q_gpu(b,i,j,k,2) = q_bc_vars_gpu(1, fec_1_6)* q_bc_vars_gpu(2, fec_1_6)
                 q_gpu(b,i,j,k,3) = q_bc_vars_gpu(1, fec_1_6)* q_bc_vars_gpu(3, fec_1_6)
                 q_gpu(b,i,j,k,4) = q_bc_vars_gpu(1, fec_1_6)* q_bc_vars_gpu(4, fec_1_6)
-                q_gpu(b,i,j,k,5) = q_bc_vars_gpu(1, fec_1_6)*                         &
-                    (cv_star*q_bc_vars_gpu(5, fec_1_6)/(q_bc_vars_gpu(1, fec_1_6)*R_star)+ &
+                q_gpu(b,i,j,k,5) = q_bc_vars_gpu(1, fec_1_6)*                                   &
+                                   (cv*q_bc_vars_gpu(5, fec_1_6)/(q_bc_vars_gpu(1, fec_1_6)*R)+ &
                     0.5_R8P*(q_bc_vars_gpu(2, fec_1_6)**2+q_bc_vars_gpu(3, fec_1_6)**2+q_bc_vars_gpu(4, fec_1_6)**2))
             endif
          endif
