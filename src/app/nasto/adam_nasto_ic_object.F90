@@ -121,10 +121,10 @@ contains
    endif
    endsubroutine load_from_file
 
-   subroutine set_initial_conditions(self, fluids_physics, field)
+   subroutine set_initial_conditions(self, physics, field)
    !< Set initial conditions on NASTO fields.
    class(nasto_ic_object),     intent(in)    :: self                 !< IC.
-   type(nasto_physics_object), intent(in)    :: fluids_physics(1:)   !< Fluids physiscs.
+   type(nasto_physics_object), intent(in)    :: physics              !< Fluids physiscs.
    type(field_object),         intent(inout) :: field                !< Field object.
    integer(I4P)                              :: b, i, j, k, s, ri    !< Counter.
    real(R8P)                                 :: rn                   !< Random number.
@@ -139,8 +139,8 @@ contains
              q=>field%q, x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
    select case(self%ic_type)
    case(IC_TYPE_UNIFORM) ! uniform, only one region (s=1); q(6,1) is the base level for random velocity perturbation
-      cv = fluids_physics(1)%cv
-      R  = fluids_physics(1)%R
+      cv = physics%eos(1)%cv
+      R  = physics%eos(1)%R
       do b=1, blocks_number
          do k=1, nk
             do j=1, nj
@@ -160,11 +160,11 @@ contains
          enddo
       enddo
    case(IC_TYPE_IVORTEX) ! isentropic vortex, only one region (s=1); q(6,1) is the vortex radius and emin(x,y) is the vortex center
-      cv    = fluids_physics(1)%cv
-      R     = fluids_physics(1)%R
-      g     = fluids_physics(1)%g
-      delta = fluids_physics(1)%delta
-      gm1   = fluids_physics(1)%gm1
+      cv    = physics%eos(1)%cv
+      R     = physics%eos(1)%R
+      g     = physics%eos(1)%g
+      delta = physics%eos(1)%delta
+      gm1   = physics%eos(1)%gm1
 
       xc  = self%emin(1,1)
       yc  = self%emin(2,1)
@@ -204,7 +204,7 @@ contains
                      if ((x_cell(i,b) > self%emin(1,ri).and.x_cell(i,b) <= self%emax(1,ri)).and. &
                          (y_cell(j,b) > self%emin(2,ri).and.y_cell(j,b) <= self%emax(2,ri)).and. &
                          (z_cell(k,b) > self%emin(3,ri).and.z_cell(k,b) <= self%emax(3,ri))) then
-                        q(1:5,i,j,k,b) = fluids_physics(int(self%q(6,ri)))%primitive2conservative(primitive=self%q(1:5,ri))
+                        q(1:5,i,j,k,b) = physics%eos(int(self%q(6,ri)))%primitive2conservative(primitive=self%q(1:5,ri))
                      endif
                   enddo
                enddo

@@ -3,12 +3,12 @@ module adam_nasto_nvf_object
 !< ADAM, Navier-Stokes equations system class definition, GPU (NVF) backend.
 
 use adam_adam_object
-use adam_amr_marker_object
+use adam_amr_object
 use adam_base_gpu_object
 use adam_field_object
 use adam_grid_object
 use adam_mpih_object
-use adam_slice_object
+use adam_slices_object
 use adam_tree_node_object
 use adam_memory_cpu_lib
 use adam_memory_gpu_lib
@@ -58,8 +58,8 @@ type, extends(nasto_common_object) :: nasto_nvf_object
    real(R8P),    allocatable, device :: gplus_z_gpu(:,:,:,:,:)      !< Positive fluxes for weno-z.
    real(R8P),    allocatable, device :: gminus_z_gpu(:,:,:,:,:)     !< Negative fluxes for weno-z.
    real(R8P),    allocatable, device :: phi_gpu(:,:,:,:,:)          !< Distance function on GPU.
-   real(R8P),    allocatable, device :: bc_vars_gpu(:, :)           !< Variables' array for boundary conditions on GPU.
-   real(R8P),    allocatable, device :: bcs_vars_gpu(:, :)          !< Variables' array for immersed boundary on GPU.
+   real(R8P),    allocatable, device :: q_bc_vars_gpu(:, :)         !< Variables array for boundary conditions on GPU.
+   real(R8P),    allocatable, device :: q_bcs_vars_gpu(:, :)        !< Variables array for immersed boundary on GPU.
    integer(I4P), allocatable, device :: order_modify_gpu(:,:,:,:,:) !< Modified order close to solids (GPU variable).
    contains
       ! auxiliary methods
@@ -86,7 +86,6 @@ type, extends(nasto_common_object) :: nasto_nvf_object
       procedure, pass(self) :: save_simulation_data !< Save all simulation data.
       procedure, pass(self) :: save_restart_files   !< Save restart files.
       procedure, pass(self) :: save_hdf5            !< Save simulation data in HDF5 format.
-      procedure, pass(self) :: save_slices          !< Save simulation data slices.
       ! IC/BC
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation.
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions of equation.
@@ -116,8 +115,8 @@ contains
    self%fd_coeff2_gpu = self%fd_coeff2
    self%fd_conv_gpu   = self%fd_conv
 
-   self%bc_vars_gpu  = self%bc_vars
-   self%bcs_vars_gpu = self%bcs_vars
+   self%q_bc_vars_gpu  = self%bc%q
+   self%q_bcs_vars_gpu = self%ib%q
 
    if (self%n_solids > 0) self%phi_gpu = self%phi
 
@@ -227,7 +226,7 @@ contains
    print '(A)', self%mpih%myrankstr//'nasto_nvf_object%initialize start'
    call self%adam%compute_blocks_number(memory_avail=self%base_gpu%memory_avail, fields_number=80, &
                                         nb=nb, nodes_number=nodes_number)
-   call self%initialize_common(filename=filename, nv=5, nb=nb, nodes_number=nodes_number)
+   call self%initialize_common(filename=filename, nb=nb, nodes_number=nodes_number)
    call self%base_gpu%initialize(field=self%adam%field, nv_aux=self%nv_aux, verbose=.true.)
    call self%allocate_gpu
    print '(A)', self%mpih%myrankstr//'nasto_nvf_object%initialize finish'
@@ -243,26 +242,35 @@ contains
    integer(I4P)                           :: b, i, j, k, i_marker !< Counter.
    type(amr_marker_object)                :: amr_marker           !< Current amr marker.
 
-   amr: do i=1, self%amr_iters
+   amr: do i=1, self%amr%iters
       is_grid_changed_all = .false.
-      do i_marker=1, self%amr_n_markers
-         amr_marker = self%amr_markers(i_marker)
+      do i_marker=1, self%amr%markers_number
+         amr_marker = self%amr%markers(i_marker)
          call self%update_ghost_gpu(q_gpu=self%q_gpu)
-         if(amr_marker%mode == 1) then ! marker "geo"
+         select case(amr_marker%mode)
+         case(AMR_GEO)
             call self%mark_by_geo(delta_fine=amr_marker%delta_fine, delta_coarse=amr_marker%delta_coarse)
-         elseif(amr_marker%mode == 2) then ! marker "grad"
-            call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_fine=amr_marker%delta_fine, &
-                                       delta_coarse=amr_marker%delta_coarse, ivar=amr_marker%ivar)
-         endif
-         call self%copy_gpu_cpu() ! needed for adam%amr_update
+         case(AMR_GRAD)
+            select case(amr_marker%field)
+            case(1)
+               call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_fine=amr_marker%delta_fine, &
+                                          delta_coarse=amr_marker%delta_coarse, ivar=amr_marker%ivar)
+            case(2)
+               call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_fine=amr_marker%delta_fine, &
+                                          delta_coarse=amr_marker%delta_coarse, ivar=amr_marker%ivar)
+            endselect
+         endselect
+         call self%copy_gpu_cpu ! needed for adam%amr_update
          call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed)
-         if(self%n_solids > 0) call self%update_phi()
+         if (self%n_solids > 0) call self%update_phi()
          call self%copy_cpu_gpu
          is_grid_changed_all = is_grid_changed_all.or.is_grid_changed
       enddo
       if (.not.is_grid_changed_all) then
           print '(A)', self%mpih%myrankstr//'AMR Grid stabilized after : '//trim(str(i))//' AMR iterations'
           exit amr
+       elseif (i==self%amr%iters) then
+          print '(A)', self%mpih%myrankstr//'AMR Grid is NOT stabilized after : '//trim(str(i))//' AMR iterations'
       endif
    enddo amr
    endsubroutine amr_update
@@ -530,7 +538,7 @@ contains
 
    call invert_eikonal_q_gpu_cuf(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, blocks_number=self%blocks_number, &
                                  q_gpu=self%q_gpu(:,:,:,:,:), q_invert_gpu=self%q_invert_gpu(:,:,:,:,:),                         &
-                                 phi_gpu=self%phi_gpu, bcs_type=self%bcs_type(1))
+                                 phi_gpu=self%phi_gpu, bcs_type=self%ib%bc_type(1))
    endsubroutine invert_eikonal_q_gpu
 
    ! IO methods
@@ -572,36 +580,44 @@ contains
    !< Save all simulation data.
    class(nasto_nvf_object), intent(inout) :: self                     !< The equation.
    logical                                :: is_update_ghost_gpu_done !< Flag to minimize ghosts-update-calls for IO.
-   logical                                :: is_alo_slice_to_save     !< Flag to check if at least one slice is to save.
    integer(I4P)                           :: s                        !< Slices counter.
 
    ! update ghost cells if necessary
    is_update_ghost_gpu_done = .false.
-   is_alo_slice_to_save     = .false.
-   if (self%slices_number>0) then
-      do s=1, self%slices_number
-         if (mod(self%it,self%slice(s)%slice_save)==0.or.self%it==self%t_max.or.&
-            (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0)))) then
-            is_alo_slice_to_save = .true.
-            if (.not.is_update_ghost_gpu_done) then
-               is_update_ghost_gpu_done = .true.
-               call self%update_ghost_gpu(q_gpu=self%q_gpu)
-               call self%update_ghost_gpu(q_gpu=self%q_aux_gpu)
-            endif
-         endif
-      enddo
+   if (self%it==self%t_max.or.&
+      (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0)))) then
+      if (.not.is_update_ghost_gpu_done) then
+         is_update_ghost_gpu_done = .true.
+         call self%update_ghost_gpu(q_gpu=self%q_gpu)
+         call self%update_ghost_gpu(q_gpu=self%q_aux_gpu)
+      endif
    endif
+
+   ! if (self%slices%is_to_save(it=self%it,it_max=self%it_max,time=self%time,time_max=self%time_max).and.&
+   !     .not.is_update_ghost_done) then
+   !    is_update_ghost_done = .true.
+   !    call self%update_ghost_gpu(q_gpu=self%q_gpu)
+   !    call self%update_ghost_gpu(q_gpu=self%q_aux_gpu)
+   !    call self%copy_gpu_cpu(compute_q_aux=.true.)
+   !  endif
+
    ! copy GPU data to CPU
    if (mod(self%it,self%n_save)==0.or.self%it==self%t_max.or.& ! HDF5 output
       (mod(self%it,self%restart_save)==0).or.                & ! restart output
-      is_alo_slice_to_save.or.                               & ! slices output
       (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0)))) then
       call self%copy_gpu_cpu(compute_q_aux=.true.)
    endif
    ! save data
    call self%save_hdf5
    call self%save_restart_files
-   call self%save_slices
+   ! call self%slices%save_mat(basename='',&!self%output_basename, &
+   !                           it=self%it,                    &
+   !                           it_max=self%it_max,            &
+   !                           time=self%time,                &
+   !                           time_max=self%time_max,        &
+   !                           adam=self%adam,                &
+   !                           q=self%field%q,                &
+   !                           q_name=['rho','rhu','rhv','rhw','rhe'])
    endsubroutine save_simulation_data
 
    subroutine save_hdf5(self, output_basename)
@@ -643,35 +659,6 @@ contains
    endif
    endsubroutine save_restart_files
 
-   subroutine save_slices(self)
-   !< Save simulation data slices.
-   class(nasto_nvf_object), intent(inout) :: self !< The equation.
-   integer(I4P)                           :: s    !< Slices counter.
-
-   if (self%slices_number>0) then
-      do s=1, self%slices_number
-         if (self%it>0) then
-            if (mod(self%it,self%slice(s)%slice_save)==0.or.self%it==self%t_max.or.&
-               (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0)))) then
-               call self%mpih%barrier(tictoc=.true.)
-               print '(A)', self%mpih%myrankstr//'save slice n: '//trim(str(s,.true.))//&
-                            ', t: '//trim(str(self%it,.true.))//', time: '//trim(str(self%time,.true.))
-               call self%adam%save_slice(points=self%slice(s)%slice_points,                               &
-                                         itype=trim(self%slice(s)%slice_itype),                           &
-                                         basename=trim(self%output_basename)//                            &
-                                                  '-slice_'//trim(strz(s,2))//'-'//trim(strz(self%it,9)), &
-                                         q=self%field%q,                                                  &
-                                         q_name=['rho','rhu','rhv','rhw','rhe'],                          &
-                                         phi=self%phi(:,:,:,:,1))
-               call self%mpih%barrier(tictoc=.true.)
-               print '(A, F18.10)', self%mpih%myrankstr//'step timing (save slice-'//trim(str(s,.true.)) //'): ', &
-                                    self%mpih%tictoc_timing()
-            endif
-         endif
-      enddo
-   endif
-   endsubroutine save_slices
-
    ! IC/BC
    subroutine set_boundary_conditions(self, q_gpu)
    !< Set boundary conditions of equation.
@@ -682,10 +669,10 @@ contains
                                                            1-self%ngc:,1:) !< Conservative variables.
 
    if (allocated(self%base_gpu%local_map_bc_crown_gpu)) &
-      call set_bc_q_gpu_cuf(nv=self%nv, ngc=self%ngc, cv=self%fluids_physics(1)%cv, R=self%fluids_physics(1)%R, &
-                            local_map_bc_gpu=self%base_gpu%local_map_bc_crown_gpu,                              &
-                            fec_1_6_array_gpu=self%base_gpu%fec_1_6_array_gpu,                                  &
-                            q_bc_vars_gpu=self%bc_vars_gpu,                                                     &
+      call set_bc_q_gpu_cuf(nv=self%nv, ngc=self%ngc, cv=self%physics%eos(1)%cv, R=self%physics%eos(1)%R, &
+                            local_map_bc_gpu=self%base_gpu%local_map_bc_crown_gpu,                        &
+                            fec_1_6_array_gpu=self%base_gpu%fec_1_6_array_gpu,                            &
+                            q_bc_vars_gpu=self%q_bc_vars_gpu,                                             &
                             q_gpu=q_gpu)
    endsubroutine set_boundary_conditions
 
@@ -693,7 +680,7 @@ contains
    !< Set initial conditions of field.
    class(nasto_nvf_object), intent(inout) :: self !< The equation.
 
-   call self%ic%set_initial_conditions(fluids_physics=self%fluids_physics, field=self%field)
+   call self%ic%set_initial_conditions(physics=self%physics, field=self%field)
    call self%copy_cpu_gpu
    endsubroutine set_initial_conditions
 
@@ -776,8 +763,8 @@ contains
                                                              1:) !< Auxiliary variables.
 
    call compute_q_aux_cuf(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, ns=self%ns, blocks_number=self%blocks_number, &
-                          R=self%fluids_physics(1)%R, cv=self%fluids_physics(1)%cv, g=self%fluids_physics(1)%g,           &
-                          dha=self%fluids_physics(1)%dha, q_gpu=q_gpu, q_aux_gpu=q_aux_gpu)
+                          R=self%physics%eos(1)%R, cv=self%physics%eos(1)%cv, g=self%physics%eos(1)%g,                    &
+                          dha=self%physics%eos(1)%dha, q_gpu=q_gpu, q_aux_gpu=q_aux_gpu)
    endsubroutine compute_q_aux_gpu
 
    subroutine compute_dt(self)
@@ -792,7 +779,7 @@ contains
    do b=1, self%field%blocks_number
       call compute_umax_cuf(b, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, ns=self%ns,           &
                             dx=self%field%dxyz(1,b), dy=self%field%dxyz(2,b), dz=self%field%dxyz(3,b), &
-                            q_aux_gpu=self%q_aux_gpu, umax=umax, mu=self%fluids_physics(1)%mu)
+                            q_aux_gpu=self%q_aux_gpu, umax=umax, mu=self%physics%eos(1)%mu)
       self%dt = min(self%dt, self%CFL / umax)
    enddo
    call MPI_ALLREDUCE(MPI_IN_PLACE, self%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih%error)
@@ -820,8 +807,8 @@ contains
              ror_threshold=>self%ror_threshold, enable_ror_stats=>self%enable_ror_stats,                        &
              euler_scheme=>self%euler_scheme,                                                                   &
              lmax=>self%lmax, iweno=>self%iweno,                                                                &
-             cv=>self%fluids_physics(1)%cv, g=>self%fluids_physics(1)%g, R=>self%fluids_physics(1)%R,           &
-             mu=>self%fluids_physics(1)%mu, kd=>self%fluids_physics(1)%kd, dha=>self%fluids_physics(1)%dha)
+             cv=>self%physics%eos(1)%cv, g=>self%physics%eos(1)%g, R=>self%physics%eos(1)%R,                    &
+             mu=>self%physics%eos(1)%mu, kd=>self%physics%eos(1)%kd, dha=>self%physics%eos(1)%dha)
 
    call self%check_cuda_error(error_code=-15, msg='CUDA error at start residuals computation')
 
@@ -972,7 +959,7 @@ contains
          call save_memory_gpu_status(file_name='memory_gpu-'//self%mpih%myrankstr//'.dat', tag=str(self%it,.true.))
       endif
 
-      if (mod(self%it,self%amr_frequency)==0) then
+      if (mod(self%it,self%amr%frequency)==0) then
          call self%mpih%barrier(tictoc=.true.)
          call self%amr_update()
          call self%mpih%barrier(tictoc=.true.)
