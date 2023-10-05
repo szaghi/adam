@@ -56,16 +56,20 @@ contains
    logical,                intent(in), optional :: go_on_fail      !< Go on if load fails.
    logical                                      :: go_on_fail_     !< Go on if load fails.
    character(8)                                 :: sname           !< Section name.
+   character(99)                                :: buff_c          !< Character buffer.
    integer(I4P)                                 :: b               !< Counter.
    integer(I4P)                                 :: error           !< Error status.
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
    do b=1, 6
       sname = INI_SECTION_NAMES(b)
-      call file_parameters%get(section_name=sname, option_name='type', val=self%bc_type(b), error=error)
+      call file_parameters%get(section_name=sname, option_name='type', val=buff_c, error=error)
       if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(type)')
-      select case(self%bc_type(b))
-      case(BC_INFLOW)
+      select case(trim(adjustl(buff_c)))
+      case('extrapolation')
+         self%bc_type(b) = BC_EXTRAPOLATION
+      case('inflow')
+         self%bc_type(b) = BC_INFLOW
          call file_parameters%get(section_name=sname, option_name='r', val=self%q(1,b), error=error)
          if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(r)')
          call file_parameters%get(section_name=sname, option_name='u', val=self%q(2,b), error=error)
@@ -78,6 +82,8 @@ contains
          if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(p)')
          call file_parameters%get(section_name=sname, option_name='s', val=self%q(6,b), error=error)
          if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(s)')
+      case('wall-inviscid')
+         self%bc_type(b) = BC_WALL_INVISCID
       endselect
    enddo
    endsubroutine load_from_file

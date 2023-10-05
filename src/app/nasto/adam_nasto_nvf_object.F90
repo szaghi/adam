@@ -15,13 +15,14 @@ use adam_memory_gpu_lib
 use adam_parameters
 use adam_weno_library_gpu
 use adam_nasto_common_object
+use adam_nasto_schemesh_object
 use adam_nasto_parameters
 use adam_nasto_nvf_kernels
-use FiNeR
-use PENF
+use finer
+use penf
+use cgal_wrappers
 use MPI
 use CUDAFOR
-use cgal_wrappers
 use ISO_C_BINDING
 use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
 
@@ -35,32 +36,32 @@ type, extends(nasto_common_object) :: nasto_nvf_object
    ! ADAM library objects
    type(base_gpu_object) :: base_gpu !< The base GPU handler.
    ! GPU data
-   integer(I4P), allocatable, device :: weno_schemes_gpu(:)         !< Weno schemes (GPU).
-   integer(I4P), allocatable, device :: ror_indexes_gpu(:)          !< Ror variable indexes (GPU).
-   integer(I4P), allocatable, device :: ror_stats_gpu(:,:,:,:,:)    !< ROS statistics (GPU.)
-   real(R8P),    allocatable, device :: dq_gpu(:,:,:,:,:)           !< Eikonal right hand side.
-   real(R8P),    allocatable, device :: fl_gpu(:,:,:,:,:)           !< Residuals.
-   real(R8P),    allocatable, device :: flx_gpu(:,:,:,:,:)          !< Fluxes along x.
-   real(R8P),    allocatable, device :: fly_gpu(:,:,:,:,:)          !< Fluxes along y.
-   real(R8P),    allocatable, device :: flz_gpu(:,:,:,:,:)          !< Fluxes along z.
-   real(R8P),    allocatable, device :: prhs_gpu(:,:,:,:,:)         !< Prhs for Runge-Kutta.
-   real(R8P),    allocatable, device :: fd_coeff1_gpu(:)            !< First order derivatives coeffs.
-   real(R8P),    allocatable, device :: fd_coeff2_gpu(:)            !< Second order derivatives coeffs.
-   real(R8P),    allocatable, device :: fd_conv_gpu(:,:)            !< Second order derivatives coeffs.
-   real(R8P),    allocatable, device :: q_aux_gpu(:,:,:,:,:)        !< Auxiliary cell centered variables.
-   real(R8P),    allocatable, device :: q_gpu(:,:,:,:,:)            !< Field cell centered variables.
-   real(R8P),    allocatable, device :: q_old_gpu(:,:,:,:,:)        !< Field cell centered variables (old iteration).
-   real(R8P),    allocatable, device :: q_invert_gpu(:,:,:,:,:)     !< Field cell with boundary set on immersed bodies.
-   real(R8P),    allocatable, device :: gplus_x_gpu(:,:,:,:,:)      !< Positive fluxes for weno-x.
-   real(R8P),    allocatable, device :: gminus_x_gpu(:,:,:,:,:)     !< Negative fluxes for weno-x.
-   real(R8P),    allocatable, device :: gplus_y_gpu(:,:,:,:,:)      !< Positive fluxes for weno-y.
-   real(R8P),    allocatable, device :: gminus_y_gpu(:,:,:,:,:)     !< Negative fluxes for weno-y.
-   real(R8P),    allocatable, device :: gplus_z_gpu(:,:,:,:,:)      !< Positive fluxes for weno-z.
-   real(R8P),    allocatable, device :: gminus_z_gpu(:,:,:,:,:)     !< Negative fluxes for weno-z.
-   real(R8P),    allocatable, device :: phi_gpu(:,:,:,:,:)          !< Distance function on GPU.
-   real(R8P),    allocatable, device :: q_bc_vars_gpu(:, :)         !< Variables array for boundary conditions on GPU.
-   real(R8P),    allocatable, device :: q_bcs_vars_gpu(:, :)        !< Variables array for immersed boundary on GPU.
-   integer(I4P), allocatable, device :: order_modify_gpu(:,:,:,:,:) !< Modified order close to solids (GPU variable).
+   integer(I4P), allocatable, device :: ror_schemes_gpu(:)         !< ROR WENO schemes (GPU).
+   integer(I4P), allocatable, device :: ror_ivar_gpu(:)            !< ROR variables indexes (GPU).
+   integer(I4P), allocatable, device :: ror_stats_gpu(:,:,:,:,:)   !< ROR statistics (GPU.)
+   real(R8P),    allocatable, device :: dq_gpu(:,:,:,:,:)          !< Eikonal right hand side.
+   real(R8P),    allocatable, device :: fl_gpu(:,:,:,:,:)          !< Residuals.
+   real(R8P),    allocatable, device :: flx_gpu(:,:,:,:,:)         !< Fluxes along x.
+   real(R8P),    allocatable, device :: fly_gpu(:,:,:,:,:)         !< Fluxes along y.
+   real(R8P),    allocatable, device :: flz_gpu(:,:,:,:,:)         !< Fluxes along z.
+   real(R8P),    allocatable, device :: prhs_gpu(:,:,:,:,:)        !< Prhs for Runge-Kutta.
+   real(R8P),    allocatable, device :: fd_coeff1_gpu(:)           !< Diffusive fluxes integration coefficients, first order.
+   real(R8P),    allocatable, device :: fd_coeff2_gpu(:)           !< Diffusive fluxes integration coefficients, second order.
+   real(R8P),    allocatable, device :: fc_coeff_gpu(:,:)          !< Convective fluxes integration coefficients.
+   real(R8P),    allocatable, device :: q_aux_gpu(:,:,:,:,:)       !< Auxiliary cell centered variables.
+   real(R8P),    allocatable, device :: q_gpu(:,:,:,:,:)           !< Field cell centered variables.
+   real(R8P),    allocatable, device :: q_old_gpu(:,:,:,:,:)       !< Field cell centered variables (old iteration).
+   real(R8P),    allocatable, device :: q_invert_gpu(:,:,:,:,:)    !< Field cell with boundary set on immersed bodies.
+   real(R8P),    allocatable, device :: gplus_x_gpu(:,:,:,:,:)     !< Positive fluxes for weno-x.
+   real(R8P),    allocatable, device :: gminus_x_gpu(:,:,:,:,:)    !< Negative fluxes for weno-x.
+   real(R8P),    allocatable, device :: gplus_y_gpu(:,:,:,:,:)     !< Positive fluxes for weno-y.
+   real(R8P),    allocatable, device :: gminus_y_gpu(:,:,:,:,:)    !< Negative fluxes for weno-y.
+   real(R8P),    allocatable, device :: gplus_z_gpu(:,:,:,:,:)     !< Positive fluxes for weno-z.
+   real(R8P),    allocatable, device :: gminus_z_gpu(:,:,:,:,:)    !< Negative fluxes for weno-z.
+   real(R8P),    allocatable, device :: phi_gpu(:,:,:,:,:)         !< Distance function on GPU.
+   real(R8P),    allocatable, device :: q_bc_vars_gpu(:, :)        !< Variables array for boundary conditions on GPU.
+   real(R8P),    allocatable, device :: q_bcs_vars_gpu(:, :)       !< Variables array for immersed boundary on GPU.
+   integer(I4P), allocatable, device :: cell_scheme_gpu(:,:,:,:,:) !< Modified order close to solids (GPU variable).
    contains
       ! auxiliary methods
       procedure, pass(self) :: allocate_gpu            !< Allocate GPU data.
@@ -82,7 +83,6 @@ type, extends(nasto_common_object) :: nasto_nvf_object
       procedure, pass(self) :: invert_eikonal_q_gpu !< Invert eikonal equation over q.
       ! IO methods
       procedure, pass(self) :: load_restart_files   !< Load restart files.
-      procedure, pass(self) :: print_progress       !< Print simulation progress.
       procedure, pass(self) :: save_simulation_data !< Save all simulation data.
       procedure, pass(self) :: save_restart_files   !< Save restart files.
       procedure, pass(self) :: save_hdf5            !< Save simulation data in HDF5 format.
@@ -108,55 +108,55 @@ contains
 
    print '(A)', self%mpih%myrankstr//'nasto_nvf_object%allocate_gpu start'
    ! allocate by CPU data copy
-   self%weno_schemes_gpu = self%weno_schemes
-   self%ror_indexes_gpu  = self%ror_indexes
+   self%ror_schemes_gpu = self%schemesh%ror_schemes
+   self%ror_ivar_gpu    = self%schemesh%ror_ivar
 
-   self%fd_coeff1_gpu = self%fd_coeff1
-   self%fd_coeff2_gpu = self%fd_coeff2
-   self%fd_conv_gpu   = self%fd_conv
+   self%fc_coeff_gpu  = self%schemesh%fc_coeff
+   self%fd_coeff1_gpu = self%schemesh%fd_coeff1
+   self%fd_coeff2_gpu = self%schemesh%fd_coeff2
 
    self%q_bc_vars_gpu  = self%bc%q
    self%q_bcs_vars_gpu = self%ib%q
 
-   if (self%n_solids > 0) self%phi_gpu = self%phi
+   if (self%ib%solids_number > 0) self%phi_gpu = self%phi
 
    ! allocate standalone
    associate(nv=>self%nv, ns=>self%ns, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
-             nb=>self%nb, nrk=>self%nrk, nv_aux=>self%nv_aux, n_solids=>self%n_solids, iweno=>self%iweno)
+             nb=>self%nb, nv_aux=>self%nv_aux, iweno=>self%schemesh%iweno)
 
    ! call alloc_var_gpu(var=self%q_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(q_gpu) ', verbose=.true.,&
    !                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
 
    !< @NOTE gplus e gminus hanno Nb e Nv invertiti rispetto a tutti gli altri array GPU, errore o voluto?
-                                  allocate(self%gplus_x_gpu (    1:nv, 1:2*iweno,    1:nj,         1:nk,         1:nb    ))
-                                  allocate(self%gminus_x_gpu(    1:nv, 1:2*iweno,    1:nj,         1:nk,         1:nb    ))
-                                  allocate(self%gplus_y_gpu (    1:nv, 1:2*iweno,    1:ni,         1:nk,         1:nb    ))
-                                  allocate(self%gminus_y_gpu(    1:nv, 1:2*iweno,    1:ni,         1:nk,         1:nb    ))
-                                  allocate(self%gplus_z_gpu (    1:nv, 1:2*iweno,    1:ni,         1:nj,         1:nb    ))
-                                  allocate(self%gminus_z_gpu(    1:nv, 1:2*iweno,    1:ni,         1:nj,         1:nb    ))
-                                  allocate(self%q_gpu(           1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
-                                  allocate(self%q_aux_gpu(       1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv_aux))
-                                  allocate(self%q_old_gpu(       1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
-                                  allocate(self%q_invert_gpu(    1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
-                                  allocate(self%fl_gpu(          1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
-                                  allocate(self%flx_gpu(         1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
-                                  allocate(self%fly_gpu(         1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
-                                  allocate(self%flz_gpu(         1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
-                                  allocate(self%dq_gpu(          1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
-                                  allocate(self%prhs_gpu(        1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
-                                  allocate(self%order_modify_gpu(1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:3     ))
-   if (self%enable_ror_stats > 0) allocate(self%ror_stats_gpu(   1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:3     ))
-   self%q_gpu            = 0._R8P
-   self%q_aux_gpu        = 0._R8P
-   self%q_old_gpu        = 0._R8P
-   self%q_invert_gpu     = 0._R8P
-   self%fl_gpu           = 0._R8P
-   self%flx_gpu          = 0._R8P
-   self%fly_gpu          = 0._R8P
-   self%flz_gpu          = 0._R8P
-   self%dq_gpu           = 0._R8P
-   self%prhs_gpu         = 0._R8P
-   self%order_modify_gpu = 0
+                                           allocate(self%gplus_x_gpu (    1:nv, 1:2*iweno,    1:nj,         1:nk,         1:nb    ))
+                                           allocate(self%gminus_x_gpu(    1:nv, 1:2*iweno,    1:nj,         1:nk,         1:nb    ))
+                                           allocate(self%gplus_y_gpu (    1:nv, 1:2*iweno,    1:ni,         1:nk,         1:nb    ))
+                                           allocate(self%gminus_y_gpu(    1:nv, 1:2*iweno,    1:ni,         1:nk,         1:nb    ))
+                                           allocate(self%gplus_z_gpu (    1:nv, 1:2*iweno,    1:ni,         1:nj,         1:nb    ))
+                                           allocate(self%gminus_z_gpu(    1:nv, 1:2*iweno,    1:ni,         1:nj,         1:nb    ))
+                                           allocate(self%q_gpu(           1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
+                                           allocate(self%q_aux_gpu(       1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv_aux))
+                                           allocate(self%q_old_gpu(       1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
+                                           allocate(self%q_invert_gpu(    1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
+                                           allocate(self%fl_gpu(          1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
+                                           allocate(self%flx_gpu(         1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
+                                           allocate(self%fly_gpu(         1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
+                                           allocate(self%flz_gpu(         1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
+                                           allocate(self%dq_gpu(          1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
+                                           allocate(self%prhs_gpu(        1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nv    ))
+                                           allocate(self%cell_scheme_gpu( 1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:3     ))
+   if (self%schemesh%enable_ror_stats > 0) allocate(self%ror_stats_gpu(   1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:3     ))
+   self%q_gpu           = 0._R8P
+   self%q_aux_gpu       = 0._R8P
+   self%q_old_gpu       = 0._R8P
+   self%q_invert_gpu    = 0._R8P
+   self%fl_gpu          = 0._R8P
+   self%flx_gpu         = 0._R8P
+   self%fly_gpu         = 0._R8P
+   self%flz_gpu         = 0._R8P
+   self%dq_gpu          = 0._R8P
+   self%prhs_gpu        = 0._R8P
+   self%cell_scheme_gpu = self%schemesh%iweno
    endassociate
    print '(A)', self%mpih%myrankstr//'nasto_nvf_object%allocate_gpu finish'
    endsubroutine allocate_gpu
@@ -262,7 +262,7 @@ contains
          endselect
          call self%copy_gpu_cpu ! needed for adam%amr_update
          call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed)
-         if (self%n_solids > 0) call self%update_phi()
+         if (self%ib%solids_number > 0) call self%update_phi()
          call self%copy_cpu_gpu
          is_grid_changed_all = is_grid_changed_all.or.is_grid_changed
       enddo
@@ -404,12 +404,12 @@ contains
    real(R8P)                              :: distance                  !< Distance from solid.
    logical                                :: inside                    !< Inside/outside boolean.
 
-   associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
-             x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell,         &
-             ptree => self%ptree, phi=>self%phi, phi_gpu=>self%phi_gpu, n_solids=>self%n_solids,      &
-             reduction_extent => self%reduction_extent, reduced_order => self%reduced_order)
+   associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc,         &
+             x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell,                 &
+             ptree => self%ptree, phi=>self%phi, phi_gpu=>self%phi_gpu, solids_number=>self%ib%solids_number, &
+             ib_reduction_extent => self%schemesh%ib_reduction_extent, ib_reduced_order => self%schemesh%ib_reduced_order)
    print '(A)', self%mpih%myrankstr//'update IB distance start'
-   do ib=1,n_solids
+   do ib=1, solids_number
       do b=1,blocks_number
          do i=1-ngc,ni+ngc
          do j=1-ngc,nj+ngc
@@ -447,18 +447,19 @@ contains
          enddo
       enddo
 
-      self%order_modify = self%weno_schemes(1)
+      self%schemesh%cell_scheme = self%schemesh%iweno
 
-      if (reduction_extent > 0) then
-          print*,'Reduced order close to solids. Extent/base/reduced-order: ',reduction_extent, self%weno_schemes(1), reduced_order
+      if (ib_reduction_extent > 0) then
+          print*,'Reduced order close to solids. Extent/base/reduced-order: ',ib_reduction_extent, &
+             self%schemesh%ror_schemes(1), ib_reduced_order
 
           do b=1,blocks_number
              do j=1,nj
              do k=1,nk
              idir: do i=0,ni
-             do l=1,reduction_extent
+             do l=1,ib_reduction_extent
                 if(phi(b,i+l,j,k,ib)>0 .or. phi(b,i-l+1,j,k,ib)>0) then
-                    self%order_modify(b,i,j,k,1) = reduced_order
+                    self%schemesh%cell_scheme(b,i,j,k,1) = ib_reduced_order
                     cycle idir
                 endif
              enddo
@@ -470,9 +471,9 @@ contains
              do i=1,ni
              do k=1,nk
              jdir: do j=0,nj
-             do l=1,reduction_extent
+             do l=1,ib_reduction_extent
                 if(phi(b,i,j+l,k,ib)>0 .or. phi(b,i,j-l+1,k,ib)>0) then
-                    self%order_modify(b,i,j,k,2) = reduced_order
+                    self%schemesh%cell_scheme(b,i,j,k,2) = ib_reduced_order
                     cycle jdir
                 endif
              enddo
@@ -484,9 +485,9 @@ contains
              do j=1,nj
              do i=1,ni
              kdir: do k=0,nk
-             do l=1,reduction_extent
+             do l=1,ib_reduction_extent
                 if(phi(b,i,j,k+l,ib)>0 .or. phi(b,i,j,k-l+1,ib)>0) then
-                    self%order_modify(b,i,j,k,3) = reduced_order
+                    self%schemesh%cell_scheme(b,i,j,k,3) = ib_reduced_order
                     cycle kdir
                 endif
              enddo
@@ -498,7 +499,7 @@ contains
    enddo
    ! TODO: next assignments should be reduced only to blocks_number.
    phi_gpu = phi
-   self%order_modify_gpu = self%order_modify
+   self%cell_scheme_gpu = self%schemesh%cell_scheme
    endassociate
    print '(A)', self%mpih%myrankstr//'update IB distance finish'
    endsubroutine update_phi
@@ -536,7 +537,8 @@ contains
    !< Invert eikonal equation over q.
    class(nasto_nvf_object), intent(inout) :: self !< The equation.
 
-   call invert_eikonal_q_gpu_cuf(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, blocks_number=self%blocks_number, &
+   call invert_eikonal_q_gpu_cuf(BCS_VISCOUS=BCS_VISCOUS, BCS_EULER=BCS_EULER,                                                   &
+                                 ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, blocks_number=self%blocks_number, &
                                  q_gpu=self%q_gpu(:,:,:,:,:), q_invert_gpu=self%q_invert_gpu(:,:,:,:,:),                         &
                                  phi_gpu=self%phi_gpu, bcs_type=self%ib%bc_type(1))
    endsubroutine invert_eikonal_q_gpu
@@ -548,76 +550,33 @@ contains
    integer(I4P),            intent(out)   :: t    !< Time iteration.
    real(R8P),               intent(out)   :: time !< Time.
 
-   call self%adam%load_restart_files(basename=self%restart_basename, t=t, time=time)
+   call self%adam%load_restart_files(basename=self%io%restart_basename, t=t, time=time)
    call self%adam%make_comm_local_maps_ghost_bc
    call self%copy_cpu_gpu
    endsubroutine load_restart_files
 
-   subroutine print_progress(self, t, time, t_max, time_max)
-   !< Print simulation progress.
-   class(nasto_nvf_object), intent(in) :: self     !< The equation.
-   integer(I4P),            intent(in) :: t        !< Time iteration.
-   real(R8P),               intent(in) :: time     !< Time.
-   integer(I4P),            intent(in) :: t_max    !< Maximum time iteration.
-   real(R8P),               intent(in) :: time_max !< Maximum time of integration.
-
-   associate(r=>self%mpih%myrankstr)
-      print '(A)', r//''
-      print '(A)', r//'t:             '//trim(str(t,.true.))
-      print '(A)', r//'blocks number: '//trim(str(self%adam%tree%nodes_number, .true.))
-      print '(A)', r//'time step:     '//trim(str(self%dt, .true.))
-      print '(A)', r//'time:          '//trim(str(time, .true.))
-   if (t_max <= 0) then
-      print '(A)', r//'progress:      '//trim(str(int(time/time_max * 100), .true.))//'%'
-   else
-      print '(A)', r//'progress:      '//trim(str(int((t*1._R8P)/t_max * 100), .true.))//'%'
-   endif
-      print '(A)', r//''
-   endassociate
-   endsubroutine print_progress
-
    subroutine save_simulation_data(self)
    !< Save all simulation data.
-   class(nasto_nvf_object), intent(inout) :: self                     !< The equation.
-   logical                                :: is_update_ghost_gpu_done !< Flag to minimize ghosts-update-calls for IO.
-   integer(I4P)                           :: s                        !< Slices counter.
+   class(nasto_nvf_object), intent(inout) :: self !< The equation.
 
-   ! update ghost cells if necessary
-   is_update_ghost_gpu_done = .false.
-   if (self%it==self%t_max.or.&
-      (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0)))) then
-      if (.not.is_update_ghost_gpu_done) then
-         is_update_ghost_gpu_done = .true.
-         call self%update_ghost_gpu(q_gpu=self%q_gpu)
-         call self%update_ghost_gpu(q_gpu=self%q_aux_gpu)
-      endif
-   endif
-
-   ! if (self%slices%is_to_save(it=self%it,it_max=self%it_max,time=self%time,time_max=self%time_max).and.&
-   !     .not.is_update_ghost_done) then
-   !    is_update_ghost_done = .true.
-   !    call self%update_ghost_gpu(q_gpu=self%q_gpu)
-   !    call self%update_ghost_gpu(q_gpu=self%q_aux_gpu)
-   !    call self%copy_gpu_cpu(compute_q_aux=.true.)
-   !  endif
-
-   ! copy GPU data to CPU
-   if (mod(self%it,self%n_save)==0.or.self%it==self%t_max.or.& ! HDF5 output
-      (mod(self%it,self%restart_save)==0).or.                & ! restart output
-      (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0)))) then
+   if ((self%timeh%is_to_save(it_save=self%io%it_save)).or. &
+       (mod(self%timeh%it,self%io%restart_save)==0).or.    &
+       (self%slices%is_to_save(it=self%timeh%it,it_max=self%timeh%it_max,time=self%timeh%time,time_max=self%timeh%time_max))) then
+      call self%update_ghost_gpu(q_gpu=self%q_gpu)
       call self%copy_gpu_cpu(compute_q_aux=.true.)
+
+      if (self%timeh%is_to_save(it_save=self%io%it_save)) call self%save_hdf5
+      if (mod(self%timeh%it,self%io%restart_save)==0) call self%save_restart_files
+      if (self%slices%is_to_save(it=self%timeh%it,it_max=self%timeh%it_max,time=self%timeh%time,time_max=self%timeh%time_max))&
+         call self%slices%save_mat(basename=self%io%output_basename, &
+                                   it=self%timeh%it,                 &
+                                   it_max=self%timeh%it_max,         &
+                                   time=self%timeh%time,             &
+                                   time_max=self%timeh%time_max,     &
+                                   adam=self%adam,                   &
+                                   q=self%field%q,                   &
+                                   q_name=['rho','rhu','rhv','rhw','rhe'])
    endif
-   ! save data
-   call self%save_hdf5
-   call self%save_restart_files
-   ! call self%slices%save_mat(basename='',&!self%output_basename, &
-   !                           it=self%it,                    &
-   !                           it_max=self%it_max,            &
-   !                           time=self%time,                &
-   !                           time_max=self%time_max,        &
-   !                           adam=self%adam,                &
-   !                           q=self%field%q,                &
-   !                           q_name=['rho','rhu','rhv','rhw','rhe'])
    endsubroutine save_simulation_data
 
    subroutine save_hdf5(self, output_basename)
@@ -626,37 +585,32 @@ contains
    character(*),            intent(in), optional :: output_basename  !< Output basename.
    character(:), allocatable                     :: output_basename_ !< Output basename, local var.
 
-   if (mod(self%it,self%n_save)==0.or.self%it==self%t_max.or.&
-      (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0)))) then
-      call self%mpih%barrier(tictoc=.true.)
-      print '(A)', self%mpih%myrankstr//'save HDF5 files t: '//trim(str(self%it,.true.))//', time: '//&
-                   trim(str(self%time,.true.))
-      output_basename_ = trim(self%output_basename)//'-'//trim(strz(self%it,9))
-      if (present(output_basename)) output_basename_ = trim(output_basename)
-      call self%adam%save_hdf5(basename=trim(output_basename_),                                  &
-                               q=self%field%q,                                                   &
-                               q_aux=self%q_aux,                                                 &
-                               q_name=['rho','rhu','rhv','rhw','rhe'],                           &
-                               q_aux_name=['rhob','u','v','w','ya','tem','pres','ental','csp'],  &
-                               with_cell_morton=.true.)
-      call self%mpih%barrier(tictoc=.true.)
-      print '(A, F18.10)', self%mpih%myrankstr//'step timing (save HDF5): ', self%mpih%tictoc_timing()
-   endif
+   call self%mpih%barrier(tictoc=.true.)
+   print '(A)', self%mpih%myrankstr//'save HDF5 files t: '//trim(str(self%timeh%it,.true.))//', time: '//&
+                trim(str(self%timeh%time,.true.))
+   output_basename_ = trim(self%io%output_basename)//'-'//trim(strz(self%timeh%it,9))
+   if (present(output_basename)) output_basename_ = trim(output_basename)
+   call self%adam%save_hdf5(basename=trim(output_basename_),                                  &
+                            q=self%field%q,                                                   &
+                            q_aux=self%q_aux,                                                 &
+                            q_name=['rho','rhu','rhv','rhw','rhe'],                           &
+                            q_aux_name=['rhob','u','v','w','ya','tem','pres','ental','csp'],  &
+                            with_cell_morton=.true.)
+   call self%mpih%barrier(tictoc=.true.)
+   print '(A, F18.10)', self%mpih%myrankstr//'step timing (save HDF5): ', self%mpih%tictoc_timing()
    endsubroutine save_hdf5
 
    subroutine save_restart_files(self)
    !< Save restart files.
    class(nasto_nvf_object), intent(inout) :: self !< The equation.
 
-   if (mod(self%it,self%restart_save)==0) then
-      call self%mpih%barrier(tictoc=.true.)
-      print '(A)', self%mpih%myrankstr//'save restart files t: '//trim(str(self%it,.true.))//', time: '//&
-                   trim(str(self%time,.true.))
-      call self%adam%save_restart_files(basename=self%restart_basename, t=self%it, time=self%time)
-      call self%save_hdf5(output_basename=self%restart_basename)
-      call self%mpih%barrier(tictoc=.true.)
-      print '(A, F18.10)', self%mpih%myrankstr//'step timing (save restart): ', self%mpih%tictoc_timing()
-   endif
+   call self%mpih%barrier(tictoc=.true.)
+   print '(A)', self%mpih%myrankstr//'save restart files t: '//trim(str(self%timeh%it,.true.))//', time: '//&
+                trim(str(self%timeh%time,.true.))
+   call self%adam%save_restart_files(basename=self%io%restart_basename, t=self%timeh%it, time=self%timeh%time)
+   call self%save_hdf5(output_basename=self%io%restart_basename)
+   call self%mpih%barrier(tictoc=.true.)
+   print '(A, F18.10)', self%mpih%myrankstr//'step timing (save restart): ', self%mpih%tictoc_timing()
    endsubroutine save_restart_files
 
    ! IC/BC
@@ -669,7 +623,8 @@ contains
                                                            1-self%ngc:,1:) !< Conservative variables.
 
    if (allocated(self%base_gpu%local_map_bc_crown_gpu)) &
-      call set_bc_q_gpu_cuf(nv=self%nv, ngc=self%ngc, cv=self%physics%eos(1)%cv, R=self%physics%eos(1)%R, &
+      call set_bc_q_gpu_cuf(BC_EXTRAPOLATION=BC_EXTRAPOLATION, BC_INFLOW=BC_INFLOW, &
+                            nv=self%nv, ngc=self%ngc, cv=self%physics%eos(1)%cv, R=self%physics%eos(1)%R, &
                             local_map_bc_gpu=self%base_gpu%local_map_bc_crown_gpu,                        &
                             fec_1_6_array_gpu=self%base_gpu%fec_1_6_array_gpu,                            &
                             q_bc_vars_gpu=self%q_bc_vars_gpu,                                             &
@@ -774,15 +729,15 @@ contains
    integer(I4P)                           :: b    !< Counter.
 
    call self%compute_q_aux_gpu(q_gpu=self%q_gpu, q_aux_gpu=self%q_aux_gpu)
-   self%dt = huge(1._R8P)
+   self%timeh%dt = huge(1._R8P)
    ! PERCHÈ NON ABBIAMO PARALLELIZATO DENTRO IL CUF ANCHE L'INDICE DI BLOCCO?
    do b=1, self%field%blocks_number
       call compute_umax_cuf(b, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, ns=self%ns,           &
                             dx=self%field%dxyz(1,b), dy=self%field%dxyz(2,b), dz=self%field%dxyz(3,b), &
                             q_aux_gpu=self%q_aux_gpu, umax=umax, mu=self%physics%eos(1)%mu)
-      self%dt = min(self%dt, self%CFL / umax)
+      self%timeh%dt = min(self%timeh%dt, self%timeh%CFL / umax)
    enddo
-   call MPI_ALLREDUCE(MPI_IN_PLACE, self%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, self%timeh%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih%error)
    endsubroutine compute_dt
 
    subroutine compute_residuals(self)
@@ -799,42 +754,42 @@ contains
              dz_gpu=>self%base_gpu%dxyz_gpu(:,3),                                                               &
              q_aux_gpu=>self%q_aux_gpu, phi_gpu=>self%phi_gpu, fl_gpu=>self%fl_gpu,                             &
              flx_gpu=>self%flx_gpu, fly_gpu=>self%fly_gpu, flz_gpu=>self%flz_gpu,                               &
-             order_modify_gpu=>self%order_modify_gpu, ror_stats_gpu=>self%ror_stats_gpu,                        &
-             fd_conv_gpu=>self%fd_conv_gpu,                                                                     &
+             cell_scheme_gpu=>self%cell_scheme_gpu, ror_stats_gpu=>self%ror_stats_gpu,                          &
+             fc_coeff_gpu=>self%fc_coeff_gpu,                                                                   &
              gminus_x_gpu=>self%gminus_x_gpu, gminus_y_gpu=>self%gminus_y_gpu, gminus_z_gpu=>self%gminus_z_gpu, &
              gplus_x_gpu=>self%gplus_x_gpu, gplus_y_gpu=>self%gplus_y_gpu, gplus_z_gpu=>self%gplus_z_gpu,       &
-             weno_schemes_gpu=>self%weno_schemes_gpu, ror_indexes_gpu=>self%ror_indexes_gpu,                    &
-             ror_threshold=>self%ror_threshold, enable_ror_stats=>self%enable_ror_stats,                        &
-             euler_scheme=>self%euler_scheme,                                                                   &
-             lmax=>self%lmax, iweno=>self%iweno,                                                                &
+             ror_schemes_gpu=>self%ror_schemes_gpu, ror_ivar_gpu=>self%ror_ivar_gpu,                            &
+             ror_threshold=>self%schemesh%ror_threshold, enable_ror_stats=>self%schemesh%enable_ror_stats,      &
+             lmax=>self%schemesh%lmax, iweno=>self%schemesh%iweno,                                              &
              cv=>self%physics%eos(1)%cv, g=>self%physics%eos(1)%g, R=>self%physics%eos(1)%R,                    &
              mu=>self%physics%eos(1)%mu, kd=>self%physics%eos(1)%kd, dha=>self%physics%eos(1)%dha)
 
    call self%check_cuda_error(error_code=-15, msg='CUDA error at start residuals computation')
 
    if (blocks_number > 0) then
-      if (euler_scheme == 1) then
+      select case(self%schemesh%fluxes_convective)
+      case(SCHEME_FCONV_WENO_CENTRAL_2,SCHEME_FCONV_WENO_CENTRAL_4,SCHEME_FCONV_WENO_CENTRAL_6)
          call self%compute_cuda_dimensions(grid_x=blocks_number, grid_y=nj, grid=grid, tBlock=tBlock)
-         call compute_flux_conv_x_central_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc,     &
-                                                                   nv=ns+4,lmax=lmax,fd_conv_gpu=fd_conv_gpu,q_aux_gpu=q_aux_gpu, &
+         call compute_flux_conv_x_central_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc,      &
+                                                                   nv=ns+4,lmax=lmax,fc_coeff_gpu=fc_coeff_gpu,q_aux_gpu=q_aux_gpu,&
                                                                    dx_gpu=dx_gpu, flx_gpu=flx_gpu)
 
          call self%compute_cuda_dimensions(grid_x=blocks_number, grid_y=ni, grid=grid, tBlock=tBlock)
-         call compute_flux_conv_y_central_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc,     &
-                                                                   nv=ns+4,lmax=lmax,fd_conv_gpu=fd_conv_gpu,q_aux_gpu=q_aux_gpu, &
+         call compute_flux_conv_y_central_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc,      &
+                                                                   nv=ns+4,lmax=lmax,fc_coeff_gpu=fc_coeff_gpu,q_aux_gpu=q_aux_gpu,&
                                                                    dy_gpu=dy_gpu, fly_gpu=fly_gpu)
 
          call self%compute_cuda_dimensions(grid_x=blocks_number, grid_y=ni, grid=grid, tBlock=tBlock)
-         call compute_flux_conv_z_central_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc,     &
-                                                                   nv=ns+4,lmax=lmax,fd_conv_gpu=fd_conv_gpu,q_aux_gpu=q_aux_gpu, &
+         call compute_flux_conv_z_central_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc,      &
+                                                                   nv=ns+4,lmax=lmax,fc_coeff_gpu=fc_coeff_gpu,q_aux_gpu=q_aux_gpu,&
                                                                    dz_gpu=dz_gpu, flz_gpu=flz_gpu)
-      else
+      case(SCHEME_FCONV_WENO_UPWIND)
          call self%compute_cuda_dimensions(grid_x=blocks_number, grid_y=nj, grid=grid, tBlock=tBlock)
          call compute_flux_conv_x_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=ns+4, &
                                                            iweno=iweno, dha=dha, g=g, R=R, cv=cv,                              &
                                                            ror_threshold=ror_threshold, enable_ror_stats=enable_ror_stats,     &
-                                                           order_modify_gpu=order_modify_gpu, ror_indexes_gpu=ror_indexes_gpu, &
-                                                           weno_schemes_gpu=weno_schemes_gpu, q_aux_gpu=q_aux_gpu,             &
+                                                           cell_scheme_gpu=cell_scheme_gpu, ror_ivar_gpu=ror_ivar_gpu,         &
+                                                           ror_schemes_gpu=ror_schemes_gpu, q_aux_gpu=q_aux_gpu,               &
                                                            ror_stats_gpu=ror_stats_gpu,                                        &
                                                            gplus=gplus_x_gpu, gminus=gminus_x_gpu, flx_gpu=flx_gpu)
 
@@ -842,8 +797,8 @@ contains
          call compute_flux_conv_y_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=ns+4, &
                                                            iweno=iweno, dha=dha, g=g, R=R, cv=cv,                              &
                                                            ror_threshold=ror_threshold, enable_ror_stats=enable_ror_stats,     &
-                                                           order_modify_gpu=order_modify_gpu, ror_indexes_gpu=ror_indexes_gpu, &
-                                                           weno_schemes_gpu=weno_schemes_gpu, q_aux_gpu=q_aux_gpu,             &
+                                                           cell_scheme_gpu=cell_scheme_gpu, ror_ivar_gpu=ror_ivar_gpu,         &
+                                                           ror_schemes_gpu=ror_schemes_gpu, q_aux_gpu=q_aux_gpu,               &
                                                            ror_stats_gpu=ror_stats_gpu,                                        &
                                                            gplus=gplus_y_gpu, gminus=gminus_y_gpu, fly_gpu=fly_gpu)
 
@@ -851,11 +806,11 @@ contains
          call compute_flux_conv_z_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=ns+4, &
                                                            iweno=iweno, dha=dha, g=g, R=R, cv=cv,                              &
                                                            ror_threshold=ror_threshold, enable_ror_stats=enable_ror_stats,     &
-                                                           order_modify_gpu=order_modify_gpu, ror_indexes_gpu=ror_indexes_gpu, &
-                                                           weno_schemes_gpu=weno_schemes_gpu, q_aux_gpu=q_aux_gpu,             &
+                                                           cell_scheme_gpu=cell_scheme_gpu, ror_ivar_gpu=ror_ivar_gpu,         &
+                                                           ror_schemes_gpu=ror_schemes_gpu, q_aux_gpu=q_aux_gpu,               &
                                                            ror_stats_gpu=ror_stats_gpu,                                        &
                                                            gplus=gplus_z_gpu, gminus=gminus_z_gpu, flz_gpu=flz_gpu)
-      endif
+      endselect
    endif
 
    call self%check_cuda_error(error_code=-15, msg='CUDA error after convective fluxes computation')
@@ -882,9 +837,10 @@ contains
    class(nasto_nvf_object), intent(inout) :: self !< The equation.
    integer(I4P),            intent(in)    :: s    !< Current RK stage.
 
-   call compute_rk_q_gpu_cuf(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, blocks_number=self%blocks_number,       &
-                             dt=self%dt, s=s, q_gpu=self%q_gpu, q_old_gpu=self%q_old_gpu, fl_gpu=self%fl_gpu, phi_gpu=self%phi_gpu,&
-                             ark=self%ark(s), brk=self%brk(s), crk=self%crk(s))
+   call compute_rk_q_gpu_cuf(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, blocks_number=self%blocks_number, &
+                             dt=self%timeh%dt, s=s, q_gpu=self%q_gpu, q_old_gpu=self%q_old_gpu,                              &
+                             fl_gpu=self%fl_gpu, phi_gpu=self%phi_gpu,                                                       &
+                             ark=self%schemesh%ark(s), brk=self%schemesh%brk(s), crk=self%schemesh%crk(s))
    endsubroutine compute_rk_q_gpu
 
    subroutine integrate(self, t, do_ghost_syncro, residual)
@@ -900,8 +856,8 @@ contains
 
    do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
    self%q_old_gpu = self%q_gpu
-   do s=1, self%nrk
-      if (self%n_solids > 0) then
+   do s=1, self%schemesh%nrk
+      if (self%ib%solids_number > 0) then
          call self%update_ghost_gpu(q_gpu=self%q_gpu)
          do i_eikonal=1,n_eikonal
             call MPI_Barrier(MPI_COMM_WORLD, self%mpih%error)
@@ -929,21 +885,21 @@ contains
    integer(I4P)                           :: i                !< Counter.
 
    call self%initialize(filename=filename)
-   if (self%restart) then
-      print '(A)', self%mpih%myrankstr//'restart simulation from "'//trim(self%restart_basename)//'" files'
-      call self%load_restart_files(t=self%it, time=self%time)
-      print '(A)', self%mpih%myrankstr//'restart [t, time]: '//trim(str(self%it))//', '//trim(str(self%time))
+   if (self%io%restart) then
+      print '(A)', self%mpih%myrankstr//'restart simulation from "'//trim(self%io%restart_basename)//'" files'
+      call self%load_restart_files(t=self%timeh%it, time=self%timeh%time)
+      print '(A)', self%mpih%myrankstr//'restart [t, time]: '//trim(str(self%timeh%it))//', '//trim(str(self%timeh%time))
    else
       do i=1, 10
          call self%set_initial_conditions
-         if (self%n_solids > 0) call self%update_phi()
+         if (self%ib%solids_number > 0) call self%update_phi()
          call self%amr_update()
       enddo
       call self%set_initial_conditions
-      self%time = 0._R8P
-      self%it = 0
+      self%timeh%time = 0._R8P
+      self%timeh%it = 0
    endif
-   if (self%n_solids > 0) call self%update_phi()
+   if (self%ib%solids_number > 0) call self%update_phi()
 
    call self%amr_update()
 
@@ -952,14 +908,14 @@ contains
    call self%mpih%barrier(tictoc=.true., timing=timing(1), single=.true.)
    integration: do
       call self%mpih%barrier(tictoc=.true., timing=timing_step(1), single=.true.)
-      self%it = self%it + 1
+      self%timeh%it = self%timeh%it + 1
 
-      if (self%save_memory_status) then
-         call save_memory_cpu_status(file_name='memory_cpu-'//self%mpih%myrankstr//'.dat', tag=str(self%it,.true.))
-         call save_memory_gpu_status(file_name='memory_gpu-'//self%mpih%myrankstr//'.dat', tag=str(self%it,.true.))
+      if (self%io%save_memory_status) then
+         call save_memory_cpu_status(file_name='memory_cpu-'//self%mpih%myrankstr//'.dat', tag=str(self%timeh%it,.true.))
+         call save_memory_gpu_status(file_name='memory_gpu-'//self%mpih%myrankstr//'.dat', tag=str(self%timeh%it,.true.))
       endif
 
-      if (mod(self%it,self%amr%frequency)==0) then
+      if (mod(self%timeh%it,self%amr%frequency)==0) then
          call self%mpih%barrier(tictoc=.true.)
          call self%amr_update()
          call self%mpih%barrier(tictoc=.true.)
@@ -967,22 +923,24 @@ contains
       endif
 
       call self%compute_dt()
-      if ((self%t_max <= 0).and.(self%time + self%dt > self%time_max)) self%dt = self%time_max - self%time
+      if ((self%timeh%it_max <= 0).and.(self%timeh%time+self%timeh%dt > self%timeh%time_max)) &
+         self%timeh%dt=self%timeh%time_max-self%timeh%time
 
-      call self%integrate(t=self%time)
+      call self%integrate(t=self%timeh%time)
 
-      self%time = self%time + self%dt
-      call self%print_progress(t=self%it, time=self%time, t_max=self%t_max, time_max=self%time_max)
+      self%timeh%time = self%timeh%time + self%timeh%dt
+      call self%timeh%print_progress(nodes_number=self%adam%tree%nodes_number)
 
       call self%save_simulation_data
 
-      if (((self%t_max <= 0).and.(self%time >= self%time_max)).or.((self%it>=self%t_max).and.(self%t_max > 0))) exit integration
+      if (((self%timeh%it_max <= 0).and.(self%timeh%time >= self%timeh%time_max)).or.&
+         ((self%timeh%it>=self%timeh%it_max).and.(self%timeh%it_max > 0))) exit integration
 
       call self%mpih%barrier(tictoc=.true., timing=timing_step(2), single=.true.)
       print '(A, F18.10)', self%mpih%myrankstr//'step timing: ', timing_step(2) - timing_step(1)
    enddo integration
    call self%mpih%barrier(tictoc=.true., timing=timing(2), single=.true.)
-   print '(A, F18.10)', self%mpih%myrankstr//'averaged timing: ', (timing(2) - timing(1))/self%it
+   print '(A, F18.10)', self%mpih%myrankstr//'averaged timing: ', (timing(2) - timing(1))/self%timeh%it
 
    call self%save_simulation_data
    endsubroutine simulate

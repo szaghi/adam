@@ -10,11 +10,14 @@ use adam_ib_object
 use adam_mpih_object
 use adam_slices_object
 use adam_nasto_ic_object
+use adam_nasto_io_object
 use adam_nasto_bc_object
 use adam_nasto_physics_object
 use adam_nasto_parameters
-use FiNeR
-use PENF
+use adam_nasto_schemesh_object
+use adam_nasto_timeh_object
+use finer
+use penf
 use ISO_C_BINDING
 
 implicit none
@@ -23,7 +26,6 @@ public :: nasto_common_object
 
 type :: nasto_common_object
    !< Navier-Stokes equations system class definition, common data to all backends.
-
    ! ADAM library objects
    type(mpih_object)           :: mpih          !< MPI handler.
    type(adam_object)           :: adam          !< ADAM.
@@ -32,7 +34,13 @@ type :: nasto_common_object
    type(amr_object)            :: amr           !< AMR marker handler.
    type(ib_object)             :: ib            !< Immersed Boundary (IB) handler.
    type(slices_object)         :: slices        !< Slices handler.
-
+   ! NASTO library objects
+   type(nasto_io_object)       :: io       !< IO handler.
+   type(nasto_physics_object)  :: physics  !< Fluids physiscs handler.
+   type(nasto_ic_object)       :: ic       !< Initial Conditions (IC) handler.
+   type(nasto_bc_object)       :: bc       !< Boundary Conditions (BC) handler.
+   type(nasto_timeh_object)    :: timeh    !< Time handler.
+   type(nasto_schemesh_object) :: schemesh !< Schemes handler.
    ! grid/field data replica for easy handling
    integer(I4P), pointer :: ngc=>null()           !< Number of ghost cells.
    integer(I4P), pointer :: ni=>null()            !< Number of cells in i direction.
@@ -43,63 +51,15 @@ type :: nasto_common_object
    integer(I4P), pointer :: ns=>null()            !< Number of fluids specie.
    integer(I4P), pointer :: nv=>null()            !< Number of conservative variables.
    integer(I4P), pointer :: nv_aux=>null()        !< Number of auxiliary variables.
-   ! IO data
-   type(file_ini)                  :: file_parameters         !< Nasto input file handler.
-   logical                         :: save_memory_status !< Flag to activate memory status saving.
-   ! numerics data
-   real(R8P), allocatable    :: fd_coeff1(:)            !< First order derivatives coeffs.
-   real(R8P), allocatable    :: fd_coeff2(:)            !< Second order derivatives coeffs.
-   real(R8P), allocatable    :: fd_conv(:,:)            !< Second order derivatives coeffs.
-   integer(I4P)              :: visc_scheme=2_I4P       !< Laplacian viscosity scheme.
-   integer(I4P)              :: euler_scheme=2_I4P      !< Centered (1) or weno (2) euler scheme.
-   integer(I4P)              :: central_order=4_I4P     !< Centered euler scheme order.
-   integer(I4P)              :: lmax=2_I4P              !< Central convective half stencil.
-   integer(I4P)              :: weno_n_ror=1_I4P        !< Number of ror weno (1 disables ror).
-   integer(I4P), allocatable :: weno_schemes(:)         !< Weno schemes.
-   real(R8P)                 :: ror_threshold           !< Threshold for ror check.
-   integer(I4P)              :: ror_n_indexes=2_I4P     !< Number of variables checked by ror.
-   integer(I4P), allocatable :: ror_indexes(:)          !< Ror variable indexes.
-   integer(I4P)              :: enable_ror_stats=0_I4P  !< Ror stats (0=disable, 1=enable)
-   integer(I4P), allocatable :: ror_stats(:,:,:,:,:)    !< ROR statistics.
-   integer(I4P)              :: reduction_extent        !< Length of stencil to consider to reduce weno order close to solids.
-   integer(I4P)              :: reduced_order           !< Weno reduced order close to solids.
-   integer(I4P), allocatable :: order_modify(:,:,:,:,:) !< Modified order close to solids.
-   integer(I4P)              :: iweno=2_I4P             !< WENO order.
-   integer(I4P)              :: visc_order=4_I4P        !< Laplacian viscosity order.
-   integer(I4P)              :: nrk=4_I4P               !< Runge-Kutta stages number.
-   real(R8P), allocatable    :: ark(:)                  !< Runge-Kutta alpha coefficients.
-   real(R8P), allocatable    :: brk(:)                  !< Runge-Kutta beta coefficients.
-   real(R8P), allocatable    :: crk(:)                  !< Runge-Kutta beta coefficients.
-   ! Immersed Boundary (IB) data
-   character(999)           :: solid_name     !< Name of solid off file.
-   integer(I4P)             :: solid_bc_type  !< Solid bc.
-   integer(I4P)             :: n_solids=0     !< Number of solids (only 1 supported now).
-   type(c_ptr), allocatable :: ptree(:)       !< CGAL trees for solids.
-   real(R8P),   allocatable :: phi(:,:,:,:,:) !< Distance function.
-   ! simulation iterations data
-   integer(I4P)   :: it = 0           !< Time iteration counter.
-   real(R8P)      :: time = 0.0_R8P   !< Time.
-   logical        :: restart=.false.  !< Restart flag.
-   character(999) :: restart_basename !< Restart file basename.
-   integer(I4P)   :: restart_save     !< Iteration interval between subsequent restart saves.
-   real(R8P)      :: time_max         !< Maximum time of run.
-   integer(I4P)   :: t_max            !< Maximum number of iterations of run.
-   real(R8P)      :: time_save        !< Time interval between subsequent saves.
-   integer(I4P)   :: n_save           !< Iteration interval between subsequent saves.
-   character(999) :: output_basename  !< Output file basename.
-   real(R8P)      :: CFL              !< CFL time limit.
-   real(R8P)      :: dt=0.0001_R8P    !< Maximum time step accordingly to CFL criterion.
-
-   type(nasto_physics_object) :: physics !< Fluids physiscs handler.
-   type(nasto_ic_object)      :: ic      !< Initial Conditions (IC) handler.
-   type(nasto_bc_object)      :: bc      !< Boundary Conditions (BC) handler.
    ! auxiliary fields data: see nasto parameters definition for the arrangement of conservative and auxiliary variables
    real(R8P), allocatable :: q_aux(:,:,:,:,:) !< Auxiliary cell centered variables.
+   real(R8P), allocatable ::   phi(:,:,:,:,:) !< Distance function cell centered.
+
+   type(c_ptr), allocatable :: ptree(:) !< CGAL trees for solids.
+
    contains
-      procedure, pass(self) :: allocate_common            !< Allocate common data.
-      procedure, pass(self) :: initialize_common          !< Initialize the equation common data.
-      procedure, pass(self) :: initialize_fd_coefficients !< Initialize Finite Difference coefficients.
-      procedure, pass(self) :: runge_kutta_initialize     !< Initialize Runge-Kutta data.
+      procedure, pass(self) :: allocate_common   !< Allocate common data.
+      procedure, pass(self) :: initialize_common !< Initialize the equation common data.
 endtype nasto_common_object
 
 contains
@@ -107,17 +67,14 @@ contains
    !< Allocate common data.
    class(nasto_common_object), intent(inout) :: self !< The equation.
 
-   associate(nv=>self%nv, ns=>self%ns, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
-             nb=>self%nb, nrk=>self%nrk, nv_aux=>self%nv_aux, n_solids=>self%n_solids, iweno=>self%iweno)
+   associate(nv_aux=>self%nv_aux, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb, &
+             solids_number=>self%ib%solids_number)
    allocate(self%q_aux(1:nv_aux, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
    self%q_aux = 0._R8P
-   if (self%n_solids > 0) then
-      allocate(self%phi(1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:n_solids))
+   if (solids_number > 0) then
+      allocate(self%phi(1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:solids_number))
       self%phi = -1._R8P
    endif
-   allocate(self%order_modify(1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:3))
-   self%order_modify = 0
-   if (self%enable_ror_stats > 0) allocate(self%ror_stats(1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:3))
    endassociate
    endsubroutine allocate_common
 
@@ -131,26 +88,25 @@ contains
 
    call self%mpih%initialize(do_mpi_init=do_mpi_init)
    print '(A)', self%mpih%myrankstr//'nasto_common_object%initialize start'
-   call self%file_parameters%initialize(filename=trim(filename))
-   call self%file_parameters%load
-   call self%physics%initialize(file_parameters=self%file_parameters)
-   call self%adam%grid%initialize(file_parameters=self%file_parameters, verbose=.true.)
-   call self%adam%initialize(file_parameters=self%file_parameters, &
+   call self%io%initialize(filename=trim(filename))
+   associate(file_parameters=>self%io%file_parameters)
+   call self%physics%initialize(file_parameters=file_parameters)
+   call self%adam%grid%initialize(file_parameters=file_parameters, verbose=.true.)
+   call self%adam%initialize(file_parameters=file_parameters, &
                              do_tree_init=.true.,                  &
                              do_field_init=.true.,                 &
                              nv=self%physics%nv, nb=nb, nodes_number=nodes_number)
    call associate_adam_data(grid=self%adam%grid, field=self%adam%field, physics=self%physics)
    call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_blocks_reorder=.false.)
    call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false.)
-   call self%amr%initialize(file_parameters=self%file_parameters)
-   call self%ic%initialize(file_parameters=self%file_parameters)
-   call self%bc%initialize(file_parameters=self%file_parameters, grid=self%grid)
-   call self%ib%initialize(file_parameters=self%file_parameters, grid=self%grid, field=self%field)
-   call self%slices%initialize(file_parameters=self%file_parameters)
-   call load_schemes_from_ini_file
-   call load_timing_from_ini_file
-   call self%initialize_fd_coefficients
-   call self%runge_kutta_initialize
+   call self%amr%initialize(file_parameters=file_parameters)
+   call self%timeh%initialize(file_parameters=file_parameters)
+   call self%ic%initialize(file_parameters=file_parameters)
+   call self%bc%initialize(file_parameters=file_parameters, grid=self%grid)
+   call self%ib%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
+   call self%slices%initialize(file_parameters=file_parameters)
+   call self%schemesh%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
+   endassociate
    call self%allocate_common
    print '(A)', self%mpih%myrankstr//'nasto_common_object%initialize finish'
    contains
@@ -172,134 +128,5 @@ contains
       self%nv            => physics%nv
       self%nv_aux        => physics%nv_aux
       endsubroutine associate_adam_data
-
-      subroutine load_schemes_from_ini_file
-      !< Parse schemes setting from input file.
-      integer(I4P)              :: buf_I4          !< I4 buffer.
-      integer(I4P), allocatable :: buf_array_I4(:) !< I4 buffer array.
-      real(R8P)                 :: buf_R8          !< R8 buffer.
-      integer(I4P)              :: i               !< Counter.
-      character(128)            :: oname           !< Option name buffer.
-
-      call self%file_parameters%get(section_name='schemes', option_name='euler_scheme',  val=buf_I4) ; self%euler_scheme  = buf_I4
-      call self%file_parameters%get(section_name='schemes', option_name='central_order', val=buf_I4) ; self%central_order = buf_I4
-      self%lmax  = (self%central_order)/2
-      call self%file_parameters%get(section_name='schemes', option_name='weno_n_ror' , val=buf_I4) ; self%weno_n_ror  = buf_I4
-      allocate(buf_array_I4(1:self%weno_n_ror))
-      self%weno_schemes = buf_array_I4
-      do i=1,self%weno_n_ror
-         oname = 'weno_schemes_'//trim(str(i,.true.))
-         call self%file_parameters%get(section_name='schemes', option_name=trim(oname), val=buf_I4)
-         self%weno_schemes(i) = buf_I4
-      enddo
-      deallocate(buf_array_I4)
-      self%iweno = IWENO_FROM_SCHEME(self%weno_schemes(1))
-      call self%file_parameters%get(section_name='schemes', option_name='ror_threshold' , val=buf_R8) ; self%ror_threshold = buf_R8
-      call self%file_parameters%get(section_name='schemes', option_name='ror_n_indexes' , val=buf_I4) ; self%ror_n_indexes = buf_I4
-      allocate(buf_array_I4(1:self%ror_n_indexes))
-      self%ror_indexes = buf_array_I4
-      do i=1,self%ror_n_indexes
-         oname = 'ror_indexes_'//trim(str(i,.true.))
-         call self%file_parameters%get(section_name='schemes', option_name=trim(oname), val=buf_I4)
-         self%ror_indexes(i) = buf_I4
-      enddo
-      deallocate(buf_array_I4)
-      call self%file_parameters%get(section_name='schemes',option_name='enable_ror_stats',val=buf_I4);self%enable_ror_stats=buf_I4
-      call self%file_parameters%get(section_name='schemes',option_name='reduction_extent',val=buf_I4);self%reduction_extent=buf_I4
-      call self%file_parameters%get(section_name='schemes',option_name='reduced_order'   ,val=buf_I4);self%reduced_order   =buf_I4
-      call self%file_parameters%get(section_name='schemes',option_name='visc_scheme'     ,val=buf_I4);self%visc_scheme     =buf_I4
-      call self%file_parameters%get(section_name='schemes',option_name='visc_order'      ,val=buf_I4);self%visc_order      =buf_I4
-      endsubroutine load_schemes_from_ini_file
-
-      subroutine load_timing_from_ini_file
-      !< Parse timing setting from input file.
-      logical        :: buf_BOOL !< Logical buffer.
-      character(999) :: buf_CHAR !< String buffer.
-      integer(I4P)   :: buf_I4   !< I4 buffer.
-      real(R8P)      :: buf_R8   !< R8 buffer.
-
-      call self%file_parameters%get(section_name="time",option_name="restart",         val=buf_BOOL);self%restart         =buf_BOOL
-      call self%file_parameters%get(section_name="time",option_name="restart_basename",val=buf_CHAR);self%restart_basename=buf_CHAR
-      call self%file_parameters%get(section_name="time",option_name="restart_save",    val=buf_I4)  ;self%restart_save    =buf_I4
-      call self%file_parameters%get(section_name="time",option_name="time_max",        val=buf_R8)  ;self%time_max        =buf_R8
-      call self%file_parameters%get(section_name="time",option_name="t_max",           val=buf_I4)  ;self%t_max           =buf_I4
-      call self%file_parameters%get(section_name="time",option_name="time_save",       val=buf_R8)  ;self%time_save       =buf_R8
-      call self%file_parameters%get(section_name="time",option_name="n_save",          val=buf_I4)  ;self%n_save          =buf_I4
-      call self%file_parameters%get(section_name="time",option_name="output_basename", val=buf_CHAR);self%output_basename =buf_CHAR
-      call self%file_parameters%get(section_name='time',option_name='CFL',             val=buf_R8)  ;self%CFL             =buf_R8
-
-      call self%file_parameters%get(section_name='equation', option_name='save_memory_status', val=buf_BOOL)
-      self%save_memory_status = buf_BOOL
-      endsubroutine load_timing_from_ini_file
    endsubroutine initialize_common
-
-   subroutine initialize_fd_coefficients(self)
-   !< Initialize Finite Difference coefficients.
-   class(nasto_common_object), intent(inout) :: self !< The equation.
-
-   allocate(self%fd_conv(4,4), self%fd_coeff1(3), self%fd_coeff2(0:3))
-   associate(fd_conv=>self%fd_conv, fd_coeff1=>self%fd_coeff1,fd_coeff2=>self%fd_coeff2)
-   ! Coefficients for computation of convective terms
-   fd_conv(1,1) = 1._R8P/2._R8P
-
-   fd_conv(1,2) =  2._R8P/3._R8P
-   fd_conv(2,2) = -1._R8P/12._R8P
-
-   fd_conv(1,3) =  3._R8P/4._R8P
-   fd_conv(2,3) = -3._R8P/20._R8P
-   fd_conv(3,3) =  1._R8P/60._R8P
-
-   fd_conv(1,4) =  4._R8P/5._R8P
-   fd_conv(2,4) = -1._R8P/5._R8P
-   fd_conv(3,4) =  4._R8P/105._R8P
-   fd_conv(4,4) = -1._R8P/280._R8P
-
-   ! Coefficients for computation of viscous terms
-   select case (self%visc_order/2)
-   case (1)
-    fd_coeff1(1) = 0.5_R8P
-   case (2)
-    fd_coeff1(1) = 2._R8P/3._R8P
-    fd_coeff1(2) = -1._R8P/12._R8P
-   case (3)
-    fd_coeff1(1) = 0.75_R8P
-    fd_coeff1(2) = -0.15_R8P
-    fd_coeff1(3) = 1._R8P/60._R8P
-   end select
-
-   select case (self%visc_order/2)
-   case (1)
-    fd_coeff2(0) = -2._R8P
-    fd_coeff2(1) =  1._R8P
-   case (2)
-    fd_coeff2(0) = -2.5_R8P
-    fd_coeff2(1) = 4._R8P/3._R8P
-    fd_coeff2(2) = -1._R8P/12._R8P
-   case (3)
-    fd_coeff2(0) = -245._R8P/90._R8P
-    fd_coeff2(1) = 1.5_R8P
-    fd_coeff2(2) = -0.15_R8P
-    fd_coeff2(3) = 1._R8P/90._R8P
-   endselect
-   endassociate
-   endsubroutine initialize_fd_coefficients
-
-   subroutine runge_kutta_initialize(self)
-   !< Initialize Runge-Kutta data.
-   class(nasto_common_object), intent(inout) :: self !< The equation.
-
-   call self%file_parameters%get(section_name='time', option_name='nrk', val=self%nrk)
-   allocate(self%ark(self%nrk), self%brk(self%nrk), self%crk(self%nrk))
-   select case(self%nrk)
-      case(1_I4P) ! Eulero
-         self%ark(1) = 1d0  ; self%brk(1) = 0d0; self%crk(1) = 1d0
-      case(2_I4P) ! secondo ordine TVD
-         self%ark(1) = 1d0    ; self%brk(1) = 0d0  ; self%crk(1) = 1d0
-         self%ark(2) = 0.5d0  ; self%brk(2) = 0.5d0; self%crk(2) = 0.5d0
-      case(3_I4P) ! terzo ordine TVD
-         self%ark(1) = 1d0     ; self%brk(1) = 0d0     ; self%crk(1) = 1d0
-         self%ark(2) = 0.75d0  ; self%brk(2) = 0.25d0  ; self%crk(2) = 0.25d0
-         self%ark(3) = 1d0/3d0 ; self%brk(3) = 2d0/3d0 ; self%crk(3) = 2d0/3d0
-   endselect
-   endsubroutine runge_kutta_initialize
 endmodule adam_nasto_common_object

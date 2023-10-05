@@ -2,9 +2,7 @@
 module adam_nasto_nvf_kernels
 !< ADAM, NASTO NVF application kernels.
 
-use adam_nasto_parameters
-use PENF
-use MPI
+use PENF, only : I4P, I8P, R8P
 use CUDAFOR
 
 implicit none
@@ -20,7 +18,6 @@ public :: compute_flux_conv_y_central_kernel
 public :: compute_flux_conv_z_central_kernel
 public :: compute_fluxes_difference_cuf
 public :: compute_fluxes_diffusive_cuf
-public :: compute_roe_average
 public :: compute_q_aux_cuf
 public :: compute_q_gradient_cuf
 public :: compute_umax_cuf
@@ -29,10 +26,6 @@ public :: set_bc_q_gpu_cuf
 public :: evolve_eikonal_q_gpu_cuf
 public :: invert_eikonal_q_gpu_cuf
 public :: compute_eikonal_dq_gpu
-! WENO procedures
-public :: weno_reconstruction
-public :: weno5z
-public :: weno5map
 ! RK procedures
 public :: compute_rk_linear_gpu_cuf
 public :: compute_rk_q_gpu_cuf
@@ -120,17 +113,17 @@ contains
    endsubroutine move_phi_cuf
 
    ! numerical procedures
-   attributes(global) subroutine compute_flux_conv_x_kernel(blocks_number, ni, nj, nk, ngc, nv, iweno, dha, g, R, cv,           &
-                                                            ror_threshold, enable_ror_stats, order_modify_gpu, ror_indexes_gpu, &
-                                                            weno_schemes_gpu, q_aux_gpu, ror_stats_gpu, gplus, gminus, flx_gpu)
+   attributes(global) subroutine compute_flux_conv_x_kernel(blocks_number, ni, nj, nk, ngc, nv, iweno, dha, g, R, cv,       &
+                                                            ror_threshold, enable_ror_stats, cell_scheme_gpu, ror_ivar_gpu, &
+                                                            ror_schemes_gpu, q_aux_gpu, ror_stats_gpu, gplus, gminus, flx_gpu)
    !< Compute convective fluxes by means of upwind WENO reconstruction, x axis direction.
    integer,      intent(in),    value  :: blocks_number, ni, nj, nk, ngc, nv, iweno
    real(R8P),    intent(in),    value  :: dha, g, R, cv
    real(R8P),    intent(in),    value  :: ror_threshold
-   integer(I4P), intent(in),    value  :: enable_ror_stats
-   integer(I4P), intent(in),    device :: order_modify_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
-   integer(I4P), intent(in),    device :: ror_indexes_gpu(1:)
-   integer(I4P), intent(in),    device :: weno_schemes_gpu(1:)
+   logical,      intent(in),    value  :: enable_ror_stats
+   integer(I4P), intent(in),    device :: cell_scheme_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   integer(I4P), intent(in),    device :: ror_ivar_gpu(1:)
+   integer(I4P), intent(in),    device :: ror_schemes_gpu(1:)
    real(R8P),    intent(in),    device :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    integer(I4P), intent(inout), device :: ror_stats_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
    real(R8P),    intent(inout), device ::  gplus(1:, 1:, 1:, 1:, 1:)
@@ -149,7 +142,8 @@ contains
    do k=1,nk
       do i=0,ni ! loop on faces
          ! compute Roe average
-         call compute_roe_average(q_aux_gpu, dha, g, R, ngc, b, i, j, k, i+1, j, k, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
+         call compute_roe_average(q_aux_gpu=q_aux_gpu, dha=dha, g=g, ngc=ngc, b=b, i=i, j=j, k=k, ip=i+1, jp=j, kp=k, &
+                                  uu=uu, vv=vv, ww=ww, h=h, ya=ya, qq=qq, c=c, ci=ci, b1=b1, b2=b2)
          ! compute right and left eigenvectors matrices (at Roe state)
          er(1,1)=1._R8P ; er(1,2)=uu-c   ; er(1,3)=vv     ; er(1,4)=ww     ; er(1,5)=h-uu*c
          er(2,1)=1._R8P ; er(2,2)=uu     ; er(2,3)=vv     ; er(2,4)=ww     ; er(2,5)=qq
@@ -205,27 +199,27 @@ contains
          enddo
 
          ! Reconstruction of the + and - fluxes
-         wenorec_scheme = order_modify_gpu(b,i,j,k,1)
-         call weno_reconstruction(nv, gplus(1,1,j,k,b), gminus(1,1,j,k,b), gl, gr, iweno, wenorec_scheme)
+         wenorec_scheme = cell_scheme_gpu(b,i,j,k,1)
+         call weno_reconstruction_kernel(nvar=nv, vp=gplus(1,1,j,k,b), vm=gminus(1,1,j,k,b), vminus=gl, vplus=gr, iweno=iweno, wenorec_ord=wenorec_scheme)
 
-         ror_x: do m = 2, size(weno_schemes_gpu)
+         ror_x: do m = 2, size(ror_schemes_gpu)
             ror_to_recompute = .false.
-            do mm = 1,size(ror_indexes_gpu)
-                index_var = ror_indexes_gpu(mm)
+            do mm = 1,size(ror_ivar_gpu)
+                index_var = ror_ivar_gpu(mm)
                 if((abs(gl(index_var)-gplus(index_var,iweno,j,k,b))    > ror_threshold*abs(gplus(index_var,iweno,j,k,b))   ) .or. &
                    (abs(gr(index_var)-gminus(index_var,iweno+1,j,k,b)) > ror_threshold*abs(gminus(index_var,iweno+1,j,k,b))) ) then
                    ror_to_recompute = .true.
                 endif
             enddo
             if(ror_to_recompute) then
-               wenorec_scheme = weno_schemes_gpu(m)
-               call weno_reconstruction(nv, gplus(1,1,j,k,b), gminus(1,1,j,k,b), gl, gr, iweno, wenorec_scheme)
+               wenorec_scheme = ror_schemes_gpu(m)
+               call weno_reconstruction_kernel(nvar=nv, vp=gplus(1,1,j,k,b), vm=gminus(1,1,j,k,b), vminus=gl, vplus=gr, iweno=iweno, wenorec_ord=wenorec_scheme)
             else
                exit ror_x
             endif
          enddo ror_x
 
-         if(enable_ror_stats > 0) ror_stats_gpu(b,i,j,k,1) = wenorec_scheme
+         if (enable_ror_stats) ror_stats_gpu(b,i,j,k,1) = wenorec_scheme
 
          ! Reassemble + and - characteristic fluxes
          do m=1,nv
@@ -244,17 +238,17 @@ contains
    enddo
    endsubroutine compute_flux_conv_x_kernel
 
-   attributes(global) subroutine compute_flux_conv_y_kernel(blocks_number, ni, nj, nk, ngc, nv, iweno, dha, g, R, cv,           &
-                                                            ror_threshold, enable_ror_stats, order_modify_gpu, ror_indexes_gpu, &
-                                                            weno_schemes_gpu, q_aux_gpu, ror_stats_gpu, gplus, gminus, fly_gpu)
+   attributes(global) subroutine compute_flux_conv_y_kernel(blocks_number, ni, nj, nk, ngc, nv, iweno, dha, g, R, cv,       &
+                                                            ror_threshold, enable_ror_stats, cell_scheme_gpu, ror_ivar_gpu, &
+                                                            ror_schemes_gpu, q_aux_gpu, ror_stats_gpu, gplus, gminus, fly_gpu)
    !< Compute convective fluxes by means of upwind WENO reconstruction, y axis direction.
    integer,      intent(in),    value  :: blocks_number, ni, nj, nk, ngc, nv, iweno
    real(R8P),    intent(in),    value  :: dha, g, R, cv
    real(R8P),    intent(in),    value  :: ror_threshold
-   integer(I4P), intent(in),    value  :: enable_ror_stats
-   integer(I4P), intent(in),    device :: order_modify_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
-   integer(I4P), intent(in),    device :: ror_indexes_gpu(1:)
-   integer(I4P), intent(in),    device :: weno_schemes_gpu(1:)
+   logical,      intent(in),    value  :: enable_ror_stats
+   integer(I4P), intent(in),    device :: cell_scheme_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   integer(I4P), intent(in),    device :: ror_ivar_gpu(1:)
+   integer(I4P), intent(in),    device :: ror_schemes_gpu(1:)
    real(R8P),    intent(in),    device :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    integer(I4P), intent(inout), device :: ror_stats_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
    real(R8P),    intent(inout), device ::  gplus(1:, 1:, 1:, 1:, 1:)
@@ -273,8 +267,8 @@ contains
    do k=1,nk
       do j=0,nj ! loop on faces
          ! Compute Roe average
-         call compute_roe_average(q_aux_gpu, dha, g, R, ngc, b, i, j, k, i, j+1, k, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
-
+         call compute_roe_average(q_aux_gpu=q_aux_gpu, dha=dha, g=g, ngc=ngc, b=b, i=i, j=j, k=k, ip=i, jp=j+1, kp=k, &
+                                  uu=uu, vv=vv, ww=ww, h=h, ya=ya, qq=qq, c=c, ci=ci, b1=b1, b2=b2)
          ! Compute right and left eigenvectors matrices (at Roe state)
          er(1,1)=1._R8P ; er(1,2)=uu     ; er(1,3)=vv-c   ; er(1,4)=ww     ; er(1,5)=h-vv*c
          er(2,1)=1._R8P ; er(2,2)=uu     ; er(2,3)=vv     ; er(2,4)=ww     ; er(2,5)=qq
@@ -330,27 +324,27 @@ contains
          enddo
 
          ! Reconstruction of the + and - fluxes
-         wenorec_scheme = order_modify_gpu(b,i,j,k,2)
-         call weno_reconstruction(nv, gplus(1,1,i,k,b), gminus(1,1,i,k,b), gl, gr, iweno, wenorec_scheme)
+         wenorec_scheme = cell_scheme_gpu(b,i,j,k,2)
+         call weno_reconstruction_kernel(nvar=nv, vp=gplus(1,1,i,k,b), vm=gminus(1,1,i,k,b), vminus=gl, vplus=gr, iweno=iweno, wenorec_ord=wenorec_scheme)
 
-         ror_y: do m = 2, size(weno_schemes_gpu)
+         ror_y: do m = 2, size(ror_schemes_gpu)
             ror_to_recompute = .false.
-            do mm = 1,size(ror_indexes_gpu)
-                index_var = ror_indexes_gpu(mm)
+            do mm = 1,size(ror_ivar_gpu)
+                index_var = ror_ivar_gpu(mm)
                 if((abs(gl(index_var)-gplus(index_var,iweno,i,k,b))    > ror_threshold*abs(gplus(index_var,iweno,i,k,b)   )) .or. &
                    (abs(gr(index_var)-gminus(index_var,iweno+1,i,k,b)) > ror_threshold*abs(gminus(index_var,iweno+1,i,k,b))) ) then
                    ror_to_recompute = .true.
                 endif
             enddo
             if(ror_to_recompute) then
-               wenorec_scheme = weno_schemes_gpu(m)
-               call weno_reconstruction(nv, gplus(1,1,i,k,b), gminus(1,1,i,k,b), gl, gr, iweno, wenorec_scheme)
+               wenorec_scheme = ror_schemes_gpu(m)
+               call weno_reconstruction_kernel(nvar=nv, vp=gplus(1,1,i,k,b), vm=gminus(1,1,i,k,b), vminus=gl, vplus=gr, iweno=iweno, wenorec_ord=wenorec_scheme)
             else
                exit ror_y
             endif
          enddo ror_y
 
-         if(enable_ror_stats > 0) ror_stats_gpu(b,i,j,k,2) = wenorec_scheme
+         if (enable_ror_stats) ror_stats_gpu(b,i,j,k,2) = wenorec_scheme
 
          ! Reassemble + and - characteristic fluxes
          do m=1,nv
@@ -368,17 +362,17 @@ contains
    enddo
    endsubroutine compute_flux_conv_y_kernel
 
-   attributes(global) subroutine compute_flux_conv_z_kernel(blocks_number, ni, nj, nk, ngc, nv, iweno, dha, g, R, cv,           &
-                                                            ror_threshold, enable_ror_stats, order_modify_gpu, ror_indexes_gpu, &
-                                                            weno_schemes_gpu, q_aux_gpu, ror_stats_gpu, gplus, gminus, flz_gpu)
+   attributes(global) subroutine compute_flux_conv_z_kernel(blocks_number, ni, nj, nk, ngc, nv, iweno, dha, g, R, cv,       &
+                                                            ror_threshold, enable_ror_stats, cell_scheme_gpu, ror_ivar_gpu, &
+                                                            ror_schemes_gpu, q_aux_gpu, ror_stats_gpu, gplus, gminus, flz_gpu)
    !< Compute convective fluxes by means of upwind WENO reconstruction, z axis direction.
    integer,      intent(in),    value  :: blocks_number, ni, nj, nk, ngc, nv, iweno
    real(R8P),    intent(in),    value  :: dha, g, R, cv
    real(R8P),    intent(in),    value  :: ror_threshold
-   integer(I4P), intent(in),    value  :: enable_ror_stats
-   integer(I4P), intent(in),    device :: order_modify_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
-   integer(I4P), intent(in),    device :: ror_indexes_gpu(1:)
-   integer(I4P), intent(in),    device :: weno_schemes_gpu(1:)
+   logical,      intent(in),    value  :: enable_ror_stats
+   integer(I4P), intent(in),    device :: cell_scheme_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
+   integer(I4P), intent(in),    device :: ror_ivar_gpu(1:)
+   integer(I4P), intent(in),    device :: ror_schemes_gpu(1:)
    real(R8P),    intent(in),    device :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    integer(I4P), intent(inout), device :: ror_stats_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
    real(R8P),    intent(inout), device ::  gplus(1:, 1:, 1:, 1:, 1:)
@@ -397,8 +391,8 @@ contains
    do j=1,nj
       do k=0,nk ! loop on faces
          ! Compute Roe average
-         call compute_roe_average(q_aux_gpu, dha, g, R, ngc, b, i, j, k, i, j, k+1, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
-
+         call compute_roe_average(q_aux_gpu=q_aux_gpu, dha=dha, g=g, ngc=ngc, b=b, i=i, j=j, k=k, ip=i, jp=j, kp=k+1, &
+                                  uu=uu, vv=vv, ww=ww, h=h, ya=ya, qq=qq, c=c, ci=ci, b1=b1, b2=b2)
          ! Compute right and left eigenvectors matrices (at Roe state)
          er(1,1)=1._R8P ; er(1,2)=uu     ; er(1,3)=vv     ; er(1,4)=ww-c   ; er(1,5)=h-ww*c
          er(2,1)=1._R8P ; er(2,2)=uu     ; er(2,3)=vv     ; er(2,4)=ww     ; er(2,5)=qq
@@ -454,27 +448,27 @@ contains
          enddo
 
          ! Reconstruction of the + and - fluxes
-         wenorec_scheme = order_modify_gpu(b,i,j,k,3)
-         call weno_reconstruction(nv, gplus(1,1,i,j,b), gminus(1,1,i,j,b), gl, gr, iweno, wenorec_scheme)
+         wenorec_scheme = cell_scheme_gpu(b,i,j,k,3)
+         call weno_reconstruction_kernel(nvar=nv, vp=gplus(1,1,i,j,b), vm=gminus(1,1,i,j,b), vminus=gl, vplus=gr, iweno=iweno, wenorec_ord=wenorec_scheme)
 
-         ror_z: do m = 2, size(weno_schemes_gpu)
+         ror_z: do m = 2, size(ror_schemes_gpu)
             ror_to_recompute = .false.
-            do mm = 1,size(ror_indexes_gpu)
-                index_var = ror_indexes_gpu(mm)
+            do mm = 1,size(ror_ivar_gpu)
+                index_var = ror_ivar_gpu(mm)
                 if((abs(gl(index_var)-gplus(index_var,iweno,i,j,b))    > ror_threshold*abs(gplus(index_var,iweno,i,j,b)   )) .or. &
                    (abs(gr(index_var)-gminus(index_var,iweno+1,i,j,b)) > ror_threshold*abs(gminus(index_var,iweno+1,i,j,b))) ) then
                    ror_to_recompute = .true.
                 endif
             enddo
             if(ror_to_recompute) then
-               wenorec_scheme = weno_schemes_gpu(m)
-               call weno_reconstruction(nv, gplus(1,1,i,j,b), gminus(1,1,i,j,b), gl, gr, iweno, wenorec_scheme)
+               wenorec_scheme = ror_schemes_gpu(m)
+               call weno_reconstruction_kernel(nvar=nv, vp=gplus(1,1,i,j,b), vm=gminus(1,1,i,j,b), vminus=gl, vplus=gr, iweno=iweno, wenorec_ord=wenorec_scheme)
             else
                exit ror_z
             endif
          enddo ror_z
 
-         if(enable_ror_stats > 0) ror_stats_gpu(b,i,j,k,3) = wenorec_scheme
+         if (enable_ror_stats) ror_stats_gpu(b,i,j,k,3) = wenorec_scheme
 
          ! Reassemble + and - characteristic fluxes
          do m=1,nv
@@ -493,10 +487,10 @@ contains
    endsubroutine compute_flux_conv_z_kernel
 
    attributes(global) subroutine compute_flux_conv_x_central_kernel(blocks_number, ni, nj, nk, ngc, nv, lmax, &
-                                                                    fd_conv_gpu, q_aux_gpu, dx_gpu, flx_gpu)
+                                                                    fc_coeff_gpu, q_aux_gpu, dx_gpu, flx_gpu)
    !< Compute convective fluxes by means of central WENO reconstruction, x axis direction.
    integer(I4P), intent(in),    value  :: blocks_number, ni, nj, nk, ngc, nv, lmax
-   real(R8P),    intent(in),    device :: fd_conv_gpu(1:, 1:)
+   real(R8P),    intent(in),    device :: fc_coeff_gpu(1:, 1:)
    real(R8P),    intent(in),    device :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P),    intent(in),    device :: dx_gpu(1:)
    real(R8P),    intent(inout), device :: flx_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
@@ -540,13 +534,13 @@ contains
                  uvs6    = uvs6 + (2._R8P)*(ppi+ppip)
                  uvs7    = uvs7 + uv_part * (yai+yaip)
              enddo
-             ft1 = ft1 + fd_conv_gpu(l,lmax)*uvs1
-             ft2 = ft2 + fd_conv_gpu(l,lmax)*uvs2
-             ft3 = ft3 + fd_conv_gpu(l,lmax)*uvs3
-             ft4 = ft4 + fd_conv_gpu(l,lmax)*uvs4
-             ft5 = ft5 + fd_conv_gpu(l,lmax)*uvs5
-             ft6 = ft6 + fd_conv_gpu(l,lmax)*uvs6
-             ft7 = ft7 + fd_conv_gpu(l,lmax)*uvs7
+             ft1 = ft1 + fc_coeff_gpu(l,lmax)*uvs1
+             ft2 = ft2 + fc_coeff_gpu(l,lmax)*uvs2
+             ft3 = ft3 + fc_coeff_gpu(l,lmax)*uvs3
+             ft4 = ft4 + fc_coeff_gpu(l,lmax)*uvs4
+             ft5 = ft5 + fc_coeff_gpu(l,lmax)*uvs5
+             ft6 = ft6 + fc_coeff_gpu(l,lmax)*uvs6
+             ft7 = ft7 + fc_coeff_gpu(l,lmax)*uvs7
          enddo
          flx_gpu(b,i,j,k,1) = 0.25_R8P*ft1
          flx_gpu(b,i,j,k,2) = 0.25_R8P*ft2 + 0.5_R8P*ft6
@@ -559,10 +553,10 @@ contains
    endsubroutine compute_flux_conv_x_central_kernel
 
    attributes(global) subroutine compute_flux_conv_y_central_kernel(blocks_number, ni, nj, nk, ngc, nv, lmax, &
-                                                                    fd_conv_gpu, q_aux_gpu, dy_gpu, fly_gpu)
+                                                                    fc_coeff_gpu, q_aux_gpu, dy_gpu, fly_gpu)
    !< Compute convective fluxes by means of central WENO reconstruction, y axis direction.
    integer(I4P), intent(in),    value  :: blocks_number, ni, nj, nk, ngc, nv, lmax
-   real(R8P),    intent(in),    device :: fd_conv_gpu(1:, 1:)
+   real(R8P),    intent(in),    device :: fc_coeff_gpu(1:, 1:)
    real(R8P),    intent(in),    device :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P),    intent(in),    device :: dy_gpu(1:)
    real(R8P),    intent(inout), device :: fly_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
@@ -606,13 +600,13 @@ contains
                  uvs6    = uvs6 + (2._R8P)*(ppi+ppip)
                  uvs7    = uvs7 + uv_part * (yai+yaip)
              enddo
-             ft1 = ft1 + fd_conv_gpu(l,lmax)*uvs1
-             ft2 = ft2 + fd_conv_gpu(l,lmax)*uvs2
-             ft3 = ft3 + fd_conv_gpu(l,lmax)*uvs3
-             ft4 = ft4 + fd_conv_gpu(l,lmax)*uvs4
-             ft5 = ft5 + fd_conv_gpu(l,lmax)*uvs5
-             ft6 = ft6 + fd_conv_gpu(l,lmax)*uvs6
-             ft7 = ft7 + fd_conv_gpu(l,lmax)*uvs7
+             ft1 = ft1 + fc_coeff_gpu(l,lmax)*uvs1
+             ft2 = ft2 + fc_coeff_gpu(l,lmax)*uvs2
+             ft3 = ft3 + fc_coeff_gpu(l,lmax)*uvs3
+             ft4 = ft4 + fc_coeff_gpu(l,lmax)*uvs4
+             ft5 = ft5 + fc_coeff_gpu(l,lmax)*uvs5
+             ft6 = ft6 + fc_coeff_gpu(l,lmax)*uvs6
+             ft7 = ft7 + fc_coeff_gpu(l,lmax)*uvs7
          enddo
          fly_gpu(b,i,j,k,1) = 0.25_R8P*ft1
          fly_gpu(b,i,j,k,2) = 0.25_R8P*ft2
@@ -625,10 +619,10 @@ contains
    endsubroutine compute_flux_conv_y_central_kernel
 
    attributes(global) subroutine compute_flux_conv_z_central_kernel(blocks_number, ni, nj, nk, ngc, nv, lmax, &
-                                                                    fd_conv_gpu, q_aux_gpu, dz_gpu, flz_gpu)
+                                                                    fc_coeff_gpu, q_aux_gpu, dz_gpu, flz_gpu)
    !< Compute convective fluxes by means of central WENO reconstruction, z axis direction.
    integer(I4P), intent(in),    value  :: blocks_number, ni, nj, nk, ngc, nv, lmax
-   real(R8P),    intent(in),    device :: fd_conv_gpu(1:, 1:)
+   real(R8P),    intent(in),    device :: fc_coeff_gpu(1:, 1:)
    real(R8P),    intent(in),    device :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P),    intent(in),    device :: dz_gpu(1:)
    real(R8P),    intent(inout), device :: flz_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
@@ -672,13 +666,13 @@ contains
                  uvs6    = uvs6 + (2._R8P)*(ppi+ppip)
                  uvs7    = uvs7 + uv_part * (yai+yaip)
              enddo
-             ft1 = ft1 + fd_conv_gpu(l,lmax)*uvs1
-             ft2 = ft2 + fd_conv_gpu(l,lmax)*uvs2
-             ft3 = ft3 + fd_conv_gpu(l,lmax)*uvs3
-             ft4 = ft4 + fd_conv_gpu(l,lmax)*uvs4
-             ft5 = ft5 + fd_conv_gpu(l,lmax)*uvs5
-             ft6 = ft6 + fd_conv_gpu(l,lmax)*uvs6
-             ft7 = ft7 + fd_conv_gpu(l,lmax)*uvs7
+             ft1 = ft1 + fc_coeff_gpu(l,lmax)*uvs1
+             ft2 = ft2 + fc_coeff_gpu(l,lmax)*uvs2
+             ft3 = ft3 + fc_coeff_gpu(l,lmax)*uvs3
+             ft4 = ft4 + fc_coeff_gpu(l,lmax)*uvs4
+             ft5 = ft5 + fc_coeff_gpu(l,lmax)*uvs5
+             ft6 = ft6 + fc_coeff_gpu(l,lmax)*uvs6
+             ft7 = ft7 + fc_coeff_gpu(l,lmax)*uvs7
          enddo
          flz_gpu(b,i,j,k,1) = 0.25_R8P*ft1
          flz_gpu(b,i,j,k,2) = 0.25_R8P*ft2
@@ -1035,11 +1029,11 @@ contains
    !@cuf iercuda=cudaDeviceSynchronize()
    endsubroutine compute_umax_cuf
 
-   attributes(device) subroutine compute_roe_average(q_aux_gpu, dha, g, R, &
+   attributes(device) subroutine compute_roe_average(q_aux_gpu, dha, g, &
                                                      ngc, b, i, j, k, ip, jp, kp, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
    !< Compute Roe averaged quantities.
    real(R8P),    intent(in), device :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P),    intent(in)         :: dha, g, R
+   real(R8P),    intent(in)         :: dha, g
    integer(I4P), intent(in)         :: ngc, b, i, j, k, ip, jp, kp
    real(R8P),    intent(out)        :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
    real(R8P)                        :: ri, up, vp, wp, hp, yap, r, rp1, cc
@@ -1074,8 +1068,11 @@ contains
 
    endsubroutine compute_roe_average
 
-   subroutine set_bc_q_gpu_cuf(nv, ngc, cv, R, local_map_bc_gpu, fec_1_6_array_gpu, q_bc_vars_gpu, q_gpu)
+   subroutine set_bc_q_gpu_cuf(BC_EXTRAPOLATION, BC_INFLOW, nv, ngc, cv, R, &
+                               local_map_bc_gpu, fec_1_6_array_gpu, q_bc_vars_gpu, q_gpu)
    !< Set BC over q.
+   integer(I4P), intent(in)            :: BC_EXTRAPOLATION        !< Extrapolation BC parameter.
+   integer(I4P), intent(in)            :: BC_INFLOW               !< Inflow BC parameter.
    integer(I4P), intent(in)            :: nv                      !< Number of variables.
    integer(I4P), intent(in)            :: ngc                     !< Ghost cells number.
    real(R8P),    intent(in)            :: cv                      !< Constant volume specific heat.
@@ -1166,8 +1163,10 @@ contains
    !@cuf iercuda=cudaDeviceSynchronize()
    endsubroutine evolve_eikonal_q_gpu_cuf
 
-   subroutine invert_eikonal_q_gpu_cuf(ni, nj, nk, ngc, nv, blocks_number, q_gpu, q_invert_gpu, phi_gpu, bcs_type)
+   subroutine invert_eikonal_q_gpu_cuf(BCS_VISCOUS, BCS_EULER, ni, nj, nk, ngc, nv, blocks_number, q_gpu, q_invert_gpu, phi_gpu, bcs_type)
    !< Invert eikonal field.
+   integer(I4P), intent(in)            :: BCS_VISCOUS                               !< Viscous wall BCS parameter.
+   integer(I4P), intent(in)            :: BCS_EULER                                 !< Euler wall BCS parameter.
    integer(I4P), intent(in)            :: ni                                        !< Grid cells number in I direction.
    integer(I4P), intent(in)            :: nj                                        !< Grid cells number in J direction.
    integer(I4P), intent(in)            :: nk                                        !< Grid cells number in K direction.
@@ -1416,7 +1415,7 @@ contains
    endsubroutine compute_rk_prhs_gpu_cuf
 
    ! WENO procedures
-   attributes(device) subroutine weno_reconstruction(nvar,vp,vm,vminus,vplus,iweno,wenorec_ord)
+   attributes(device) subroutine weno_reconstruction_kernel(nvar, vp, vm, vminus, vplus, iweno, wenorec_ord)
    !< Compute WENO reconstruction.
    integer, intent(in)                     :: nvar, iweno, wenorec_ord
    !real(R8P), dimension(nvar,2*iweno), intent(in)  :: vm,vp
@@ -1596,178 +1595,5 @@ contains
       stop
    endif
 
-   endsubroutine weno_reconstruction
-
-   attributes(device) subroutine weno5z(nvar,vp,vm,vminus,vplus,iweno)
-!
-     implicit none
-!
-!    Passed arguments
-     integer :: nvar, iweno
-     real(R8P), dimension(1:nvar,1:*) :: vm,vp
-     real(R8P),dimension(nvar) :: vminus,vplus
-!
-!    Local variables
-     real(R8P),dimension(-1:4) :: dwe           ! linear weights
-     real(R8P),dimension(-1:4) :: alfp,alfm     ! alpha_l
-     real(R8P),dimension(-1:4) :: alfp_map,alfm_map ! alpha_l
-     real(R8P),dimension(-1:4) :: betap,betam   ! beta_l
-     real(R8P),dimension(-1:4) :: betazp,betazm ! betaz_l
-     real(R8P),dimension(-1:4) :: omp,omm       ! WENO weights
-!
-     integer :: r,i,j,k,l,m
-     real(R8P) :: c0,c1,c2,c3,c4,d0,d1,d2,d3,d4,summ,sump,eps40,tau5p,tau5m
-!
-     if (iweno==3) then ! WENO-5 Z
-!
-      i = iweno ! index of intermediate node to perform reconstruction
-!
-      dwe( 0) = 1._R8P/10._R8P
-      dwe( 1) = 6._R8P/10._R8P
-      dwe( 2) = 3._R8P/10._R8P
-!     JS
-      d0 = 13._R8P/12._R8P
-      d1 = 1._R8P/4._R8P
-!     Weights for polynomial reconstructions
-      c0 = 1._R8P/3._R8P
-      c1 = 5._R8P/6._R8P
-      c2 =-1._R8P/6._R8P
-      c3 =-7._R8P/6._R8P
-      c4 =11._R8P/6._R8P
-!
-      do m=1,nvar
-!
-       betap(2) = d0*(     vp(m,i)-2._R8P*vp(m,i+1)+vp(m,i+2))**2+d1*(3._R8P*vp(m,i)-4._R8P*vp(m,i+1)+vp(m,i+2))**2
-       betap(1) = d0*(     vp(m,i-1)-2._R8P*vp(m,i)+vp(m,i+1))**2+d1*(     vp(m,i-1)-vp(m,i+1) )**2
-       betap(0) = d0*(     vp(m,i)-2._R8P*vp(m,i-1)+vp(m,i-2))**2+d1*(3._R8P*vp(m,i)-4._R8P*vp(m,i-1)+vp(m,i-2))**2
-!
-       betam(2) = d0*(     vm(m,i+1)-2._R8P*vm(m,i)+vm(m,i-1))**2+d1*(3._R8P*vm(m,i+1)-4._R8P*vm(m,i)+vm(m,i-1))**2
-       betam(1) = d0*(     vm(m,i+2)-2._R8P*vm(m,i+1)+vm(m,i))**2+d1*(     vm(m,i+2)-vm(m,i) )**2
-       betam(0) = d0*(     vm(m,i+1)-2._R8P*vm(m,i+2)+vm(m,i+3))**2+d1*(3._R8P*vm(m,i+1)-4._R8P*vm(m,i+2)+vm(m,i+3))**2
-!
-       tau5p = abs(betap(0)-betap(2))
-       tau5m = abs(betam(0)-betam(2))
-       eps40 = 1.D-40
-!
-       do l=0,2
-        betazp(l) = (betap(l)+eps40)/(betap(l)+eps40+tau5p)
-        betazm(l) = (betam(l)+eps40)/(betam(l)+eps40+tau5m)
-       enddo
-!
-       sump = 0._R8P
-       summ = 0._R8P
-       do l=0,2
-        alfp(l) = dwe(l)/betazp(l)
-        alfm(l) = dwe(l)/betazm(l)
-        sump = sump + alfp(l)
-        summ = summ + alfm(l)
-       enddo
-       do l=0,2
-        omp(l) = alfp(l)/sump
-        omm(l) = alfm(l)/summ
-       enddo
-!
-       vminus(m)   = omp(2)*(c0*vp(m,i  )+c1*vp(m,i+1)+c2*vp(m,i+2)) + &
-         & omp(1)*(c2*vp(m,i-1)+c1*vp(m,i  )+c0*vp(m,i+1)) + omp(0)*(c0*vp(m,i-2)+c3*vp(m,i-1)+c4*vp(m,i  ))
-       vplus(m)   = omm(2)*(c0*vm(m,i+1)+c1*vm(m,i  )+c2*vm(m,i-1)) +  &
-         & omm(1)*(c2*vm(m,i+2)+c1*vm(m,i+1)+c0*vm(m,i  )) + omm(0)*(c0*vm(m,i+3)+c3*vm(m,i+2)+c4*vm(m,i+1))
-!
-      enddo ! end of m-loop
-!
-     endif
-!
-   endsubroutine weno5z
-
-   attributes(device) subroutine weno5map(nvar,vp,vm,vminus,vplus,iweno)
-!
-     implicit none
-!
-!    Passed arguments
-     integer :: nvar, iweno
-     real(R8P), dimension(1:nvar,1:*) :: vm,vp
-     real(R8P),dimension(nvar) :: vminus,vplus
-!
-!    Local variables
-     real(R8P),dimension(-1:4) :: dwe           ! linear weights
-     real(R8P),dimension(-1:4) :: alfp,alfm     ! alpha_l
-     real(R8P),dimension(-1:4) :: alfp_map,alfm_map ! alpha_l
-     real(R8P),dimension(-1:4) :: betap,betam   ! beta_l
-     real(R8P),dimension(-1:4) :: omp,omm       ! WENO weights
-!
-     integer :: r,i,j,k,l,m
-     real(R8P) :: c0,c1,c2,c3,c4,d0,d1,d2,d3,d4,summ,sump
-     real(R8P) :: x,y,y2
-!
-     if (iweno==3) then ! WENO-5 mapped
-!
-      i = iweno ! index of intermediate node to perform reconstruction
-!
-      dwe( 0) = 1._R8P/10._R8P
-      dwe( 1) = 6._R8P/10._R8P
-      dwe( 2) = 3._R8P/10._R8P
-!     JS
-      d0 = 13._R8P/12._R8P
-      d1 = 1._R8P/4._R8P
-!     Weights for polynomial reconstructions
-      c0 = 1._R8P/3._R8P
-      c1 = 5._R8P/6._R8P
-      c2 =-1._R8P/6._R8P
-      c3 =-7._R8P/6._R8P
-      c4 =11._R8P/6._R8P
-!
-      do m=1,nvar
-!
-       betap(2) = d0*(     vp(m,i)-2._R8P*vp(m,i+1)+vp(m,i+2))**2+d1*(3._R8P*vp(m,i)-4._R8P*vp(m,i+1)+vp(m,i+2))**2
-       betap(1) = d0*(     vp(m,i-1)-2._R8P*vp(m,i)+vp(m,i+1))**2+d1*(     vp(m,i-1)-vp(m,i+1) )**2
-       betap(0) = d0*(     vp(m,i)-2._R8P*vp(m,i-1)+vp(m,i-2))**2+d1*(3._R8P*vp(m,i)-4._R8P*vp(m,i-1)+vp(m,i-2))**2
-!
-       betam(2) = d0*(     vm(m,i+1)-2._R8P*vm(m,i)+vm(m,i-1))**2+d1*(3._R8P*vm(m,i+1)-4._R8P*vm(m,i)+vm(m,i-1))**2
-       betam(1) = d0*(     vm(m,i+2)-2._R8P*vm(m,i+1)+vm(m,i))**2+d1*(     vm(m,i+2)-vm(m,i) )**2
-       betam(0) = d0*(     vm(m,i+1)-2._R8P*vm(m,i+2)+vm(m,i+3))**2+d1*(3._R8P*vm(m,i+1)-4._R8P*vm(m,i+2)+vm(m,i+3))**2
-!
-       sump = 0._R8P
-       summ = 0._R8P
-       do l=0,2
-        alfp(l) = dwe(  l)/(0.000001_R8P+betap(l))**2
-        alfm(l) = dwe(  l)/(0.000001_R8P+betam(l))**2
-        sump = sump + alfp(l)
-        summ = summ + alfm(l)
-       enddo
-       do l=0,2
-        omp(l) = alfp(l)/sump
-        omm(l) = alfm(l)/summ
-       enddo
-!
-!********************************************
-!      Mapping procedure
-       do l=0,2
-        x  = omp(l)
-        y  = dwe(l)
-        y2 = y*y
-        alfp_map(l) = x*(y+y2-3._R8P*y*x+x*x)/(y2+x*(1._R8P-2._R8P*y))
-        x = omm(l)
-        alfm_map(l) = x*(y+y2-3._R8P*y*x+x*x)/(y2+x*(1._R8P-2._R8P*y))
-       enddo
-!
-       sump = 0._R8P
-       summ = 0._R8P
-       do l=0,2
-        sump = sump + alfp_map(l)
-        summ = summ + alfm_map(l)
-       enddo
-       do l=0,2
-        omp(l) = alfp_map(l)/sump
-        omm(l) = alfm_map(l)/summ
-       enddo
-!*********************************************
-       vminus(m)   = omp(2)*(c0*vp(m,i  )+c1*vp(m,i+1)+c2*vp(m,i+2)) + &
-         & omp(1)*(c2*vp(m,i-1)+c1*vp(m,i  )+c0*vp(m,i+1)) + omp(0)*(c0*vp(m,i-2)+c3*vp(m,i-1)+c4*vp(m,i  ))
-       vplus(m)   = omm(2)*(c0*vm(m,i+1)+c1*vm(m,i  )+c2*vm(m,i-1)) +  &
-         & omm(1)*(c2*vm(m,i+2)+c1*vm(m,i+1)+c0*vm(m,i  )) + omm(0)*(c0*vm(m,i+3)+c3*vm(m,i+2)+c4*vm(m,i+1))
-!
-      enddo ! end of m-loop
-!
-     endif
-!
-   endsubroutine weno5map
+   endsubroutine weno_reconstruction_kernel
 endmodule adam_nasto_nvf_kernels
