@@ -1,14 +1,29 @@
 [modes]
-modes = nasto-nvf-mpi-cuda nasto-nvf-mpi-cuda-debug nasto-nvf-mpi-cuda-m100 nasto-nvf-mpi-cuda-m100-debug ascot-nvf-mpi-cuda
+modes = nasto-nvf-mpi-cuda
+        nasto-nvf-mpi-cuda-debug
+        nasto-nvf-mpi-cuda-m100
+        nasto-nvf-mpi-cuda-m100-debug
+        nasto-cpu-mpi-gnu
+        nasto-cpu-mpi-gnu-debug
+        nasto-gmp-mpi-ifx
+        nasto-gmp-mpi-ifx-debug
+        ascot-nvf-mpi-cuda
 
 [common-variables]
 $HDF5_cuda_22_3 = /opt/HDF5/bin/1.12.1/openmpi/3.1.5/nvidia/22.3
 $HDF5_cuda_20_7 = /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7
+$HDF5_gnu       = /opt/HDF5/bin/1.12.2/openmpi/4.1.4/gnu/11.2.0
+$ZLIB           = /opt/zlib/bin/1.2.11/lib/libz.a
+$SZIP           = /opt/szip/bin/2.1.1/lib/libsz.a
+$GETMEMORY      = ./exe/obj/getmemory.o
+$CGAL           = ./exe/obj/cgal_c_wrappers.o
 
 # main modes
 [nasto-nvf-mpi-cuda]
-help     = Build nasto app with NVF-MPI-CUDA on SZ laptop
-template = template-nvf-mpi-cuda-nasto
+help     = Build NASTO NVF app with NVF-MPI-CUDA on SZ laptop
+template = template-base
+target   = adam_nasto_nvf.F90
+preproc  = -D_NVF -D_MPI_
 compiler = nvfortran
 cflags   = -cpp -c -Mcuda=cc75,cuda12.0,ptxinfo -O2
 lflags   = -Mcuda=cc75,cuda12.0,ptxinfo -O2
@@ -19,14 +34,16 @@ libs     = $HDF5_cuda_22_3/lib/libhdf5hl_fortran.a
            $HDF5_cuda_22_3/lib/libhdf5_fortran.a
            $HDF5_cuda_22_3/lib/libhdf5.a
            -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/11 /usr/lib/gcc/x86_64-linux-gnu/11/libstdc++.so
-           /opt/zlib/bin/1.2.11/lib/libz.a
-           /opt/szip/bin/2.1.1/lib/libsz.a
-           ./exe/obj/cgal_c_wrappers.o
-           ./exe/obj/getmemory.o
+           $ZLIB
+           $SZIP
+           $GETMEMORY
+           $CGAL
 
 [nasto-nvf-mpi-cuda-debug]
-help     = Build nasto app with NVF-MPI-CUDA on SZ laptop
-template = template-nvf-mpi-cuda-nasto
+help     = Build NASTO NVF app (debug) with NVF-MPI-CUDA on SZ laptop
+template = template-base
+target   = adam_nasto_nvf.F90
+preproc  = -D_NVF -D_MPI_
 compiler = nvfortran
 cflags   = -cpp -c -Mcuda=cc75,cuda12.0,ptxinfo -C -gopt -Mbounds -traceback
 lflags   = -Mcuda=cc75,cuda12.0,ptxinfo -C -gopt -Mbounds -traceback
@@ -37,14 +54,16 @@ libs     = $HDF5_cuda_22_3/lib/libhdf5hl_fortran.a
            $HDF5_cuda_22_3/lib/libhdf5_fortran.a
            $HDF5_cuda_22_3/lib/libhdf5.a
            -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/11 /usr/lib/gcc/x86_64-linux-gnu/11/libstdc++.so
-           /opt/zlib/bin/1.2.11/lib/libz.a
-           /opt/szip/bin/2.1.1/lib/libsz.a
-           ./exe/obj/cgal_c_wrappers.o
-           ./exe/obj/getmemory.o
+           $ZLIB
+           $SZIP
+           $GETMEMORY
+           $CGAL
 
 [nasto-nvf-mpi-cuda-m100]
-help     = Build nasto app with NVF-MPI-CUDA on marconi100 cluster
-template = template-nvf-mpi-cuda-nasto
+help     = Build NASTO NVF app with NVF-MPI-CUDA on marconi100 cluster
+template = template-base
+target   = adam_nasto_nvf.F90
+preproc  = -D_NVF -D_MPI_
 compiler = custom
 fc       = mpipgifort
 modsw    = -module=
@@ -59,12 +78,14 @@ libs     = ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5hl_fortran.a
            -Wl,-rpath,/cineca/prod/opt/compilers/gnu/8.4.0/none/lib64 /cineca/prod/opt/compilers/gnu/8.4.0/none/lib64/libstdc++.so.6.0.25
            /cineca/prod/opt/libraries/zlib/1.2.11/gnu--8.4.0/lib/libz.a
            /cineca/prod/opt/libraries/szip/2.1.1/gnu--8.4.0/lib/libsz.a
-           ./exe/obj/cgal_c_wrappers.o
-           ./exe/obj/getmemory.o
+           $GETMEMORY
+           $CGAL
 
 [nasto-nvf-mpi-cuda-m100-debug]
-help     = Build nasto app with NVF-MPI-CUDA on marconi100 cluster
-template = template-nvf-mpi-cuda-nasto
+help     = Build NASTO NVF app (debug) with NVF-MPI-CUDA on marconi100 cluster
+template = template-base
+target   = adam_nasto_nvf.F90
+preproc  = -D_NVF -D_MPI_
 compiler = custom
 fc       = mpipgifort
 modsw    = -module=
@@ -79,59 +100,109 @@ libs     = ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5hl_fortran.a
            -Wl,-rpath,/cineca/prod/opt/compilers/gnu/8.4.0/none/lib64 /cineca/prod/opt/compilers/gnu/8.4.0/none/lib64/libstdc++.so.6.0.25
            /cineca/prod/opt/libraries/zlib/1.2.11/gnu--8.4.0/lib/libz.a
            /cineca/prod/opt/libraries/szip/2.1.1/gnu--8.4.0/lib/libsz.a
-           ./exe/obj/cgal_c_wrappers.o
-           ./exe/obj/getmemory.o
+           $GETMEMORY
+           $CGAL
+
+[nasto-cpu-mpi-gnu]
+help     = Build NASTO CPU app with GNU-MPI on SZ laptop
+template = template-base
+target   = adam_nasto_cpu.F90
+preproc  = -D_MPI_
+compiler = gnu
+mpi      = True
+cflags   = -cpp -c -O2
+lflags   = -O2
+ext_libs = dl m
+lib_dir  = $HDF5_gnu/lib
+include  = $HDF5_gnu/include
+libs     = $HDF5_gnu/lib/libhdf5hl_fortran.a
+           $HDF5_gnu/lib/libhdf5_hl.a
+           $HDF5_gnu/lib/libhdf5_fortran.a
+           $HDF5_gnu/lib/libhdf5.a
+           $ZLIB
+           $SZIP
+           $GETMEMORY
+
+[nasto-cpu-mpi-gnu-debug]
+help     = Build NASTO CPU app (debug) with GNU-MPI on SZ laptop
+template = template-base
+target   = adam_nasto_cpu.F90
+preproc  = -D_MPI_
+compiler = gnu
+mpi      = True
+cflags   = -C -g -O0
+lflags   = -O0
+ext_libs = dl m
+lib_dir  = $HDF5_gnu/lib
+include  = $HDF5_gnu/include
+libs     = $HDF5_gnu/lib/libhdf5hl_fortran.a
+           $HDF5_gnu/lib/libhdf5_hl.a
+           $HDF5_gnu/lib/libhdf5_fortran.a
+           $HDF5_gnu/lib/libhdf5.a
+           $ZLIB
+           $SZIP
+           $GETMEMORY
+
+[nasto-gmp-mpi-ifx]
+help     = Build NASTO GMP app with IFX-MPI on SZ laptop (placeholder with GNU compiler, must be changed for actual IFX)
+template = template-base
+target   = adam_nasto_gmp.F90
+preproc  = -D_MPI_
+compiler = gnu
+mpi      = True
+cflags   = -cpp -c -O2
+lflags   = -O2
+ext_libs = dl m
+lib_dir  = $HDF5_gnu/lib
+include  = $HDF5_gnu/include
+libs     = $HDF5_gnu/lib/libhdf5hl_fortran.a
+           $HDF5_gnu/lib/libhdf5_hl.a
+           $HDF5_gnu/lib/libhdf5_fortran.a
+           $HDF5_gnu/lib/libhdf5.a
+           $ZLIB
+           $SZIP
+           $GETMEMORY
+
+[nasto-gmp-mpi-ifx-debug]
+help     = Build NASTO GMP app (debug) with IFX-MPI on SZ laptop (placeholder with GNU compiler, must be changed for actual IFX)
+template = template-base
+target   = adam_nasto_gmp.F90
+preproc  = -D_MPI_
+compiler = gnu
+mpi      = True
+cflags   = -C -g -O0
+lflags   = -O0
+ext_libs = dl m
+lib_dir  = $HDF5_gnu/lib
+include  = $HDF5_gnu/include
+libs     = $HDF5_gnu/lib/libhdf5hl_fortran.a
+           $HDF5_gnu/lib/libhdf5_hl.a
+           $HDF5_gnu/lib/libhdf5_fortran.a
+           $HDF5_gnu/lib/libhdf5.a
+           $ZLIB
+           $SZIP
+           $GETMEMORY
 
 [ascot-nvf-mpi-cuda]
+help         = Build ascot app with NVF-CUDA on SZ laptop
+template     = template-base
+target       = ascot.F90
+preproc      = -D_NVF
 compiler     = nvfortran
 cflags       = -cpp -c -Mcuda=cc75,cuda12.0,ptxinfo -O2
 lflags       = -Mcuda=cc75,cuda12.0,ptxinfo -O2
-preproc      = -D_NVF
-mod_dir      = ./mod/
-obj_dir      = ./obj/
-src          = ./src/
-build_dir    = ./exe/
-target       = ascot.F90
-colors       = True
-quiet        = False
-log          = True
-jobs         = 4
-exclude_dirs = references/
-               BeFoR64/src/tests/
-               BeFoR64/src/third_party/
-               FACE/src/tests/
-               FACE/src/third_party/
-               FiNeR/src/tests/
-               FiNeR/src/third_party/
-               FOSSIL/src/app/
-               FOSSIL/src/tests/
-               FOSSIL/src/third_party/
-               FoXy/src/tests/
-               FoXy/src/third_party/
-               MORTIF/src/tests/
-               MORTIF/src/third_party/
-               PENF/src/tests/
-               StringiFor/src/tests/
-               StringiFor/src/third_party/
-               VecFor/src/tests/
-               VecFor/src/third_party/
-               VTKFortran/src/tests/
-               VTKFortran/src/third_party/
-               third_party_manual/
 
 # templates
-[template-nvf-mpi-cuda-nasto]
+[template-base]
 mod_dir      = ./mod/
 obj_dir      = ./obj/
 src          = ./src/
 build_dir    = ./exe/
-target       = adam_nasto_nvf.F90
 colors       = True
 quiet        = False
 log          = True
 jobs         = 4
 mpi          = True
-preproc      = -D_NVF -D_MPI_
 ext_libs     = dl m
 exclude_dirs = src/lib_experimental/
                references/

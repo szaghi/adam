@@ -1,6 +1,6 @@
 <a name="top"></a>
 
-# NASTO (common)
+# NASTO common
 
 > ADAM for Navier-Stokes equations, common data.
 

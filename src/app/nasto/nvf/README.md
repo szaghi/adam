@@ -1,6 +1,6 @@
 <a name="top"></a>
 
-# NASTO (NVF)
+# NASTO NVF
 
 > ADAM for Navier-Stokes equations, GPU-Nvidia CUDAFortran (NVF) backend.
 
@@ -39,7 +39,7 @@ NASTO, like the ADAM framework, is provided as source files archive and it must 
 
 ### Compile
 
-To compile NASTO GMP application the preferred method is to use [FoBiS](https://github.com/szaghi/FoBiS).
+To compile NASTO NVF application the preferred method is to use [FoBiS](https://github.com/szaghi/FoBiS).
 
 The root of ADAM framework should look like:
 
@@ -121,7 +121,7 @@ Executing rule "makethirdpartymanual"
    Command => mv src/third_party_manual/CGAL/*.o exe/obj/
 ```
 
-#### Compile NASTO (CUDA)
+#### Compile NASTO NVF
 
 After the third-part libraries are compiled, you can compule NASTO by
 

@@ -1244,7 +1244,7 @@ contains
          open(newunit=file_unit, file=trim(adjustl(file_name)), form='FORMATTED')
          do i1=lbound(self%local_map_ghost, dim=1), ubound(self%local_map_ghost, dim=1)
             ! do i2=lbound(self%local_map_ghost, dim=2), ubound(self%local_map_ghost, dim=2)
-               write(unit=file_unit, '(13(I6,1X))') self%local_map_ghost(i1, :)
+               write(unit=file_unit, fmt='(13(I6,1X))') self%local_map_ghost(i1, :)
             ! enddo
          enddo
          close(file_unit)

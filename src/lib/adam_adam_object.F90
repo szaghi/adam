@@ -432,7 +432,7 @@ contains
    !< Print status of main data.
    class(adam_object), intent(in) :: self !< Adam.
 
-   call self%grid%print_status
+   print '(A)', self%grid%description()
    call self%tree%print_status
    call self%field%print_status
    endsubroutine print_status
@@ -529,7 +529,7 @@ contains
    integer(I8P)                             :: c                       !< Codes counter.
    integer(I4P)                             :: node_level              !< Node level counter.
    integer(I4P)                             :: i, j, k, l              !< Counter.
-   integer(I4P)                             :: ijk(3,2)                !< Blocks extents.
+   integer(I4P)                             :: ijk(2,3)                !< Blocks extents.
 
    if (present(q_name)) then
       allocate(character(len(q_name(1))):: q_name_(size(q, dim=1)))
@@ -559,16 +559,16 @@ contains
    endif
 
    associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
-   ijk(1,:) = [1-ngc,ni+ngc]
-   ijk(2,:) = [1-ngc,nj+ngc]
-   ijk(3,:) = [1-ngc,nk+ngc]
+   ijk(:,1) = [1-ngc,ni+ngc]
+   ijk(:,2) = [1-ngc,nj+ngc]
+   ijk(:,3) = [1-ngc,nk+ngc]
    endassociate
 
    ! save H5 file (one for each process)
    call open_hdf5(h5_file_name=directory_//trim(basename)//'-proc'//trim(strz(self%mpih%myrank,6))//'.h5', &
-                  ni=int(ijk(1,2)-ijk(1,1)+1,I8P),                                                         &
-                  nj=int(ijk(2,2)-ijk(2,1)+1,I8P),                                                         &
-                  nk=int(ijk(3,2)-ijk(3,1)+1,I8P),                                                         &
+                  ni=int(ijk(2,1)-ijk(1,1)+1,I8P),                                                         &
+                  nj=int(ijk(2,2)-ijk(1,2)+1,I8P),                                                         &
+                  nk=int(ijk(2,3)-ijk(1,3)+1,I8P),                                                         &
                   h5_file_id=h5_file_id,                                                                   &
                   h5_dspace_id=h5_dspace_id)
    ! save all blocks in process
@@ -578,14 +578,14 @@ contains
                            myrank=self%mpih%myrank,                                        &
                            code=self%field%code(b),                                        &
                            block_index=b,                                                  &
-                           ii=ijk(1,:),                                                    &
-                           jj=ijk(2,:),                                                    &
-                           kk=ijk(3,:),                                                    &
-                           q=q(:,ijk(1,1):ijk(1,2),ijk(2,1):ijk(2,2),ijk(3,1):ijk(3,2),b), &
+                           ii=ijk(:,1),                                                    &
+                           jj=ijk(:,2),                                                    &
+                           kk=ijk(:,3),                                                    &
+                           q=q(:,ijk(1,1):ijk(2,1),ijk(1,2):ijk(2,2),ijk(1,3):ijk(2,3),b), &
                            q_name=q_name_,                                                 &
                            with_cell_morton=with_cell_morton_,                             &
                            q_aux_name=q_aux_name_,                                         &
-                           q_aux=q_aux(:,ijk(1,1):ijk(1,2),ijk(2,1):ijk(2,2),ijk(3,1):ijk(3,2),b))
+                           q_aux=q_aux(:,ijk(1,1):ijk(2,1),ijk(1,2):ijk(2,2),ijk(1,3):ijk(2,3),b))
    enddo
    call close_hdf5(h5_file_id=h5_file_id, h5_dspace_id=h5_dspace_id)
 
@@ -613,7 +613,7 @@ contains
                               block_index=node%block_index,                                       &
                               emin=emin,                                                          &
                               dxyz=dxyz,                                                          &
-                              nijk=[ijk(1,2)-ijk(1,1)+2,ijk(2,2)-ijk(2,1)+2,ijk(3,2)-ijk(3,1)+2], &
+                              nijk=[ijk(2,1)-ijk(1,1)+2,ijk(2,2)-ijk(1,2)+2,ijk(2,3)-ijk(1,3)+2], &
                               q_name=q_name_,                                                     &
                               with_cell_morton=with_cell_morton_,                                 &
                               q_aux_name=q_aux_name_,                                             &
@@ -860,23 +860,23 @@ contains
    subroutine save_hdf5_block(h5_file_id, h5_dspace_id, &
                               myrank, code, block_index, ii, jj, kk, q, q_name, with_cell_morton, q_aux_name, q_aux)
    !< Save block into HDF5 file.
-   integer(HID_T),            intent(in)           :: h5_file_id                     !< H5 File identifier.
-   integer(HID_T),            intent(in)           :: h5_dspace_id                   !< H5 Dataspace identifier.
-   integer(I4P),              intent(in)           :: myrank                         !< MPI rank process.
-   integer(I8P),              intent(in)           :: code                           !< Block Morton code.
-   integer(I8P),              intent(in)           :: block_index                    !< Block index.
-   integer(I4P),              intent(in)           :: ii(2)                          !< First and last i indexes.
-   integer(I4P),              intent(in)           :: jj(2)                          !< First and last j indexes.
-   integer(I4P),              intent(in)           :: kk(2)                          !< First and last k indexes.
-   real(R8P),                 intent(in)           :: q(1:,ii(1):,jj(1):,kk(1):)     !< Q variables to be saved.
-   character(*),              intent(in)           :: q_name(:)                      !< Q variables names.
-   logical,                   intent(in)           :: with_cell_morton               !< Flag to save Morton code also in cells.
-   character(*), allocatable, intent(in)           :: q_aux_name(:)                  !< Q auxiliary variables names.
-   real(R8P),                 intent(in), optional :: q_aux(1:,ii(1):,jj(1):,kk(1):) !< Q auxiliary variables to be saved.
-   character(len=:), allocatable                   :: h5_dset_name                   !< H5 Dataset name.
-   integer(HID_T)                                  :: h5_dset_id                     !< H5 Dataset identifier.
-   integer(I4P)                                    :: v, i                           !< Counter.
-   integer(I4P)                                    :: error                          !< Error traping flag.
+   integer(HID_T), intent(in)           :: h5_file_id                     !< H5 File identifier.
+   integer(HID_T), intent(in)           :: h5_dspace_id                   !< H5 Dataspace identifier.
+   integer(I4P),   intent(in)           :: myrank                         !< MPI rank process.
+   integer(I8P),   intent(in)           :: code                           !< Block Morton code.
+   integer(I8P),   intent(in)           :: block_index                    !< Block index.
+   integer(I4P),   intent(in)           :: ii(2)                          !< First and last i indexes.
+   integer(I4P),   intent(in)           :: jj(2)                          !< First and last j indexes.
+   integer(I4P),   intent(in)           :: kk(2)                          !< First and last k indexes.
+   real(R8P),      intent(in)           :: q(1:,ii(1):,jj(1):,kk(1):)     !< Q variables to be saved.
+   character(*),   intent(in)           :: q_name(:)                      !< Q variables names.
+   logical,        intent(in)           :: with_cell_morton               !< Flag to save Morton code also in cells.
+   character(*),   intent(in)           :: q_aux_name(:)                  !< Q auxiliary variables names.
+   real(R8P),      intent(in), optional :: q_aux(1:,ii(1):,jj(1):,kk(1):) !< Q auxiliary variables to be saved.
+   character(len=:), allocatable        :: h5_dset_name                   !< H5 Dataset name.
+   integer(HID_T)                       :: h5_dset_id                     !< H5 Dataset identifier.
+   integer(I4P)                         :: v, i                           !< Counter.
+   integer(I4P)                         :: error                          !< Error traping flag.
 
    do v=1, size(q, dim=1)
       h5_dset_name = trim(q_name(v))//'-'//trim(str(myrank,.true.))//'-'//trim(str(block_index,.true.))
@@ -898,7 +898,7 @@ contains
       h5_dset_name = 'morton-'//trim(str(myrank,.true.))//'-'//trim(str(block_index,.true.))
       call h5dcreate_f(h5_file_id, h5_dset_name, H5T_NATIVE_DOUBLE, h5_dspace_id, h5_dset_id, error)
       call h5dwrite_f(h5_dset_id, H5T_NATIVE_DOUBLE,                                                  &
-                      reshape([(real(code,R8P),i=1,(ii(2)-ii(1)+1)*(ii(2)-ii(1)+1)*(ii(2)-ii(1)+1))], &
+                      reshape([(real(code,R8P),i=1,(ii(2)-ii(1)+1)*(jj(2)-jj(1)+1)*(kk(2)-kk(1)+1))], &
                               [ii(2)-ii(1)+1,jj(2)-jj(1)+1,kk(2)-kk(1)+1]),                           &
                       [int(ii(2)-ii(1)+1,I8P),int(jj(2)-jj(1)+1,I8P),int(kk(2)-kk(1)+1,I8P)], error)
       call h5dclose_f(h5_dset_id, error)
@@ -941,9 +941,9 @@ contains
    integer(I4P),              intent(in)           :: nijk(3)          !< Block dimensions.
    character(*),              intent(in)           :: q_name(:)        !< Q variables names.
    logical,                   intent(in)           :: with_cell_morton !< Flag to save Morton code also in cells.
-   character(*), allocatable, intent(in)           :: q_aux_name(:)    !< Q auxiliary variables names.
-   integer(I4P),              intent(in), optional :: t                !< Time iteration.
-   real(R8P),                 intent(in), optional :: time             !< Time.
+   character(:), allocatable, intent(in)           :: q_aux_name(:)    !< Q auxiliary variables names.
+   integer(I4P), intent(in),  optional             :: t                !< Time iteration.
+   real(R8P),    intent(in),  optional             :: time             !< Time.
    character(:), allocatable                       :: h5_dset_name     !< Dataset name.
    integer(I4P)                                    :: v                !< Counter.
 
@@ -984,15 +984,15 @@ contains
                               '" Format="HDF" Precision="8">'//h5_file_name//':'//h5_dset_name//'</DataItem>'
       write(file_unit, '(A)') '          </Attribute>'
    endif
-   write(file_unit, '(A)') '          <Attribute Name="Morton" Center="Grid">'
-   write(file_unit, '(A)') '            <DataItem Dimensions="1" Format="XML" DataType="Int">'//trim(str(code))//'</DataItem>'
-   write(file_unit, '(A)') '          </Attribute>'
-   write(file_unit, '(A)') '          <Attribute Name="block-index" Center="Grid">'
-   write(file_unit, '(A)') '            <DataItem Dimensions="1" Format="XML" DataType="Int">'//trim(str(block_index))//'</DataItem>'
-   write(file_unit, '(A)') '          </Attribute>'
-   write(file_unit, '(A)') '          <Attribute Name="myrank" Center="Grid">'
-   write(file_unit, '(A)') '            <DataItem Dimensions="1" Format="XML" DataType="Int">'//trim(str(rank))//'</DataItem>'
-   write(file_unit, '(A)') '          </Attribute>'
+   write(file_unit,'(A)') '          <Attribute Name="Morton" Center="Grid">'
+   write(file_unit,'(A)') '            <DataItem Dimensions="1" Format="XML" DataType="Int">'//trim(str(code))//'</DataItem>'
+   write(file_unit,'(A)') '          </Attribute>'
+   write(file_unit,'(A)') '          <Attribute Name="block-index" Center="Grid">'
+   write(file_unit,'(A)') '            <DataItem Dimensions="1" Format="XML" DataType="Int">'//trim(str(block_index))//'</DataItem>'
+   write(file_unit,'(A)') '          </Attribute>'
+   write(file_unit,'(A)') '          <Attribute Name="myrank" Center="Grid">'
+   write(file_unit,'(A)') '            <DataItem Dimensions="1" Format="XML" DataType="Int">'//trim(str(rank))//'</DataItem>'
+   write(file_unit,'(A)') '          </Attribute>'
    if (present(t)) then
       write(file_unit, '(A)') '          <Attribute Name="t" Center="Grid">'
       write(file_unit, '(A)') '            <DataItem Dimensions="1" Format="XML" DataType="Int">'//trim(str(t))//'</DataItem>'

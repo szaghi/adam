@@ -15,7 +15,6 @@ use penf
 use MPI
 use CUDAFOR
 use ISO_C_BINDING
-use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
 
 implicit none
 private
@@ -23,7 +22,6 @@ public :: nasto_nvf_object
 
 type, extends(nasto_common_object) :: nasto_nvf_object
    !< Navier-Stokes equations system class definition, GPU (NVF) backend.
-
    ! ADAM library objects
    type(base_gpu_object) :: base_gpu !< The base GPU handler.
    ! GPU data
