@@ -1,5 +1,5 @@
 !< ADAM, Navier-Stokes schemes handler class definition, CPU backend.
-module adam_nasto_schemesh_object
+module adam_nasto_schemes_object
 !< ADAM, Navier-Stokes schemes handler class definition, CPU backend.
 
 use adam_mpih_object
@@ -9,7 +9,7 @@ use penf
 
 implicit none
 private
-public :: nasto_schemesh_object
+public :: nasto_schemes_object
 public :: SCHEME_TIME_RK_1
 public :: SCHEME_TIME_RK_2
 public :: SCHEME_TIME_RK_3
@@ -34,7 +34,7 @@ character(len=9),  parameter :: SCHEME_FDIFF_CENTRAL_2     ="central-2"     !< P
 character(len=9),  parameter :: SCHEME_FDIFF_CENTRAL_4     ="central-4"     !< Parameter of central 4 fluxes diffusive scheme.
 character(len=9),  parameter :: SCHEME_FDIFF_CENTRAL_6     ="central-6"     !< Parameter of central 6 fluxes diffusive scheme.
 
-type :: nasto_schemesh_object
+type :: nasto_schemes_object
    !< NASTO schemes handler class definition.
    type(mpih_object) :: mpih                              !< MPI handler.
    character(:), allocatable :: time                      !< Scheme for time integration.
@@ -67,18 +67,18 @@ type :: nasto_schemesh_object
       procedure, pass(self) :: initialize_coefficients !< Initialize fluxes integration coefficients.
       procedure, pass(self) :: initialize_runge_kutta  !< Initialize Runge-Kutta data.
       procedure, pass(self) :: load_from_file          !< Load config from file.
-endtype nasto_schemesh_object
+endtype nasto_schemes_object
 
 contains
    ! public methods
    subroutine allocate_cellc_arrays(self, nb, ngc, ni, nj, nk)
    !< Allocate cell-centered arrays.
-   class(nasto_schemesh_object), intent(inout) :: self !< Schemes handler.
-   integer(I4P),                 intent(in)    :: nb   !< Total blocks number for MPI.
-   integer(I4P),                 intent(in)    :: ngc  !< Number of ghost cells.
-   integer(I4P),                 intent(in)    :: ni   !< Number of cells in i direction.
-   integer(I4P),                 intent(in)    :: nj   !< Number of cells in j direction.
-   integer(I4P),                 intent(in)    :: nk   !< Number of cells in k direction.
+   class(nasto_schemes_object), intent(inout) :: self !< Schemes handler.
+   integer(I4P),                intent(in)    :: nb   !< Total blocks number for MPI.
+   integer(I4P),                intent(in)    :: ngc  !< Number of ghost cells.
+   integer(I4P),                intent(in)    :: ni   !< Number of cells in i direction.
+   integer(I4P),                intent(in)    :: nj   !< Number of cells in j direction.
+   integer(I4P),                intent(in)    :: nk   !< Number of cells in k direction.
 
    allocate(self%cell_scheme(1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:3))
    self%cell_scheme = self%iweno
@@ -87,9 +87,9 @@ contains
 
    pure function description(self) result(desc)
    !< Return a pretty-formatted object description.
-   class(nasto_schemesh_object), intent(in) :: self             !< Schemes handler.
-   character(len=:), allocatable            :: desc             !< Description.
-   character(len=1), parameter              :: NL=new_line('a') !< New line character.
+   class(nasto_schemes_object), intent(in) :: self             !< Schemes handler.
+   character(len=:), allocatable           :: desc             !< Description.
+   character(len=1), parameter             :: NL=new_line('a') !< New line character.
 
    desc =       self%mpih%myrankstr//'Schemes main data'//NL
    if (allocated(self%time)) &
@@ -120,27 +120,27 @@ contains
 
    subroutine initialize(self, file_parameters, nb, ngc, ni, nj, nk)
    !< Initialize time handler.
-   class(nasto_schemesh_object), intent(inout) :: self            !< Schemes handler.
-   type(file_ini),               intent(in)    :: file_parameters !< Simulation parameters ini file handler.
-   integer(I4P),                 intent(in)    :: nb              !< Total blocks number for MPI.
-   integer(I4P),                 intent(in)    :: ngc             !< Number of ghost cells.
-   integer(I4P),                 intent(in)    :: ni              !< Number of cells in i direction.
-   integer(I4P),                 intent(in)    :: nj              !< Number of cells in j direction.
-   integer(I4P),                 intent(in)    :: nk              !< Number of cells in k direction.
+   class(nasto_schemes_object), intent(inout) :: self            !< Schemes handler.
+   type(file_ini),              intent(in)    :: file_parameters !< Simulation parameters ini file handler.
+   integer(I4P),                intent(in)    :: nb              !< Total blocks number for MPI.
+   integer(I4P),                intent(in)    :: ngc             !< Number of ghost cells.
+   integer(I4P),                intent(in)    :: ni              !< Number of cells in i direction.
+   integer(I4P),                intent(in)    :: nj              !< Number of cells in j direction.
+   integer(I4P),                intent(in)    :: nk              !< Number of cells in k direction.
 
    call self%mpih%initialize(do_mpi_init=.false.)
-   print '(A)', self%mpih%myrankstr//'nasto_schemesh_object%initialize start'
+   print '(A)', self%mpih%myrankstr//'nasto_schemes_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters)
    call self%allocate_cellc_arrays(nb=nb, ngc=ngc, ni=ni, nj=nj, nk=nk)
    call self%initialize_coefficients
    call self%initialize_runge_kutta
    print '(A)', self%description()
-   print '(A)', self%mpih%myrankstr//'nasto_schemesh_object%initialize finish'
+   print '(A)', self%mpih%myrankstr//'nasto_schemes_object%initialize finish'
    endsubroutine initialize
 
    subroutine initialize_coefficients(self)
    !< Initialize fluxes integration coefficients.
-   class(nasto_schemesh_object), intent(inout) :: self !< Schemes handler.
+   class(nasto_schemes_object), intent(inout) :: self !< Schemes handler.
 
    ! convective fluxes coefficients
    select case(self%fluxes_convective)
@@ -181,7 +181,7 @@ contains
 
    subroutine initialize_runge_kutta(self)
    !< Initialize Runge-Kutta data.
-   class(nasto_schemesh_object), intent(inout) :: self !< Schemes handler.
+   class(nasto_schemes_object), intent(inout) :: self !< Schemes handler.
 
    select case(self%time)
    case(SCHEME_TIME_RK_1)
@@ -207,15 +207,15 @@ contains
 
    subroutine load_from_file(self, file_parameters, go_on_fail)
    !< Load config from file.
-   class(nasto_schemesh_object), intent(inout)        :: self            !< Schemes handler.
-   type(file_ini),               intent(in)           :: file_parameters !< Simulation parameters ini file handler.
-   logical,                      intent(in), optional :: go_on_fail      !< Go on if load fails.
-   logical                                            :: go_on_fail_     !< Go on if load fails.
-   character(99)                                      :: buff_c          !< Character buffer.
-   character(:), allocatable                          :: sname           !< Section name.
-   character(:), allocatable                          :: oname           !< Option name.
-   integer(I4P)                                       :: error           !< Error status.
-   integer(I4P)                                       :: r               !< Counter.
+   class(nasto_schemes_object), intent(inout)        :: self            !< Schemes handler.
+   type(file_ini),              intent(in)           :: file_parameters !< Simulation parameters ini file handler.
+   logical,                     intent(in), optional :: go_on_fail      !< Go on if load fails.
+   logical                                           :: go_on_fail_     !< Go on if load fails.
+   character(99)                                     :: buff_c          !< Character buffer.
+   character(:), allocatable                         :: sname           !< Section name.
+   character(:), allocatable                         :: oname           !< Option name.
+   integer(I4P)                                      :: error           !< Error status.
+   integer(I4P)                                      :: r               !< Counter.
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
@@ -271,4 +271,4 @@ contains
       if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(ib_reduced_order)')
    endselect
    endsubroutine load_from_file
-endmodule adam_nasto_schemesh_object
+endmodule adam_nasto_schemes_object

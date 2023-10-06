@@ -14,9 +14,8 @@ use adam_nasto_io_object
 use adam_nasto_bc_object
 use adam_nasto_physics_object
 use adam_nasto_parameters
-use adam_nasto_schemesh_object
-use adam_nasto_timeh_object
-use finer
+use adam_nasto_schemes_object
+use adam_nasto_time_object
 use penf
 use ISO_C_BINDING
 
@@ -35,12 +34,12 @@ type :: nasto_common_object
    type(ib_object)             :: ib            !< Immersed Boundary (IB) handler.
    type(slices_object)         :: slices        !< Slices handler.
    ! NASTO library objects
-   type(nasto_io_object)       :: io       !< IO handler.
-   type(nasto_physics_object)  :: physics  !< Fluids physiscs handler.
-   type(nasto_ic_object)       :: ic       !< Initial Conditions (IC) handler.
-   type(nasto_bc_object)       :: bc       !< Boundary Conditions (BC) handler.
-   type(nasto_timeh_object)    :: timeh    !< Time handler.
-   type(nasto_schemesh_object) :: schemesh !< Schemes handler.
+   type(nasto_io_object)      :: io      !< IO handler.
+   type(nasto_physics_object) :: physics !< Fluids physiscs handler.
+   type(nasto_ic_object)      :: ic      !< Initial Conditions (IC) handler.
+   type(nasto_bc_object)      :: bc      !< Boundary Conditions (BC) handler.
+   type(nasto_time_object)    :: time    !< Time handler.
+   type(nasto_schemes_object) :: schemes !< Schemes handler.
    ! grid/field data replica for easy handling
    integer(I4P), pointer :: ngc=>null()           !< Number of ghost cells.
    integer(I4P), pointer :: ni=>null()            !< Number of cells in i direction.
@@ -93,19 +92,19 @@ contains
    call self%physics%initialize(file_parameters=file_parameters)
    call self%adam%grid%initialize(file_parameters=file_parameters, verbose=.true.)
    call self%adam%initialize(file_parameters=file_parameters, &
-                             do_tree_init=.true.,                  &
-                             do_field_init=.true.,                 &
+                             do_tree_init=.true.,             &
+                             do_field_init=.true.,            &
                              nv=self%physics%nv, nb=nb, nodes_number=nodes_number)
    call associate_adam_data(grid=self%adam%grid, field=self%adam%field, physics=self%physics)
    call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_blocks_reorder=.false.)
    call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false.)
    call self%amr%initialize(file_parameters=file_parameters)
-   call self%timeh%initialize(file_parameters=file_parameters)
+   call self%time%initialize(file_parameters=file_parameters)
    call self%ic%initialize(file_parameters=file_parameters)
    call self%bc%initialize(file_parameters=file_parameters, grid=self%grid)
    call self%ib%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    call self%slices%initialize(file_parameters=file_parameters)
-   call self%schemesh%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
+   call self%schemes%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
    endassociate
    call self%allocate_common
    print '(A)', self%mpih%myrankstr//'nasto_common_object%initialize finish'

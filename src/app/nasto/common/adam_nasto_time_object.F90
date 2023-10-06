@@ -1,5 +1,5 @@
 !< ADAM, Navier-Stokes time handler class definition, CPU backend.
-module adam_nasto_timeh_object
+module adam_nasto_time_object
 !< ADAM, Navier-Stokes time handler class definition, CPU backend.
 
 use adam_mpih_object
@@ -8,11 +8,11 @@ use penf
 
 implicit none
 private
-public :: nasto_timeh_object
+public :: nasto_time_object
 
 character(len=4), parameter :: INI_SECTION_NAME="time" !< INI (config) file section name containing time configs.
 
-type :: nasto_timeh_object
+type :: nasto_time_object
    !< NASTO time handler class definition, CPU backend.
    type(mpih_object) :: mpih            !< MPI handler.
    integer(I4P)      :: it_max=-1_I4P   !< Maximum number of integration time steps.
@@ -27,15 +27,15 @@ type :: nasto_timeh_object
       procedure, pass(self) :: is_to_save     !< Return true if data are to save.
       procedure, pass(self) :: load_from_file !< Load config from file.
       procedure, pass(self) :: print_progress !< Print simulation progress.
-endtype nasto_timeh_object
+endtype nasto_time_object
 
 contains
    ! public methods
    pure function description(self) result(desc)
    !< Return a pretty-formatted object description.
-   class(nasto_timeh_object), intent(in) :: self             !< Time handler.
-   character(len=:), allocatable         :: desc             !< Description.
-   character(len=1), parameter           :: NL=new_line('a') !< New line character.
+   class(nasto_time_object), intent(in) :: self             !< Time handler.
+   character(len=:), allocatable        :: desc             !< Description.
+   character(len=1), parameter          :: NL=new_line('a') !< New line character.
 
    desc =       self%mpih%myrankstr//'Time main data'//NL
    desc = desc//self%mpih%myrankstr//'  it_max: '  //trim(str(self%it_max  ))//NL
@@ -45,21 +45,21 @@ contains
 
    subroutine initialize(self, file_parameters)
    !< Initialize time handler.
-   class(nasto_timeh_object), intent(inout) :: self            !< Time handler.
-   type(file_ini),            intent(in)    :: file_parameters !< Simulation parameters ini file handler.
+   class(nasto_time_object), intent(inout) :: self            !< Time handler.
+   type(file_ini),           intent(in)    :: file_parameters !< Simulation parameters ini file handler.
 
    call self%mpih%initialize(do_mpi_init=.false.)
-   print '(A)', self%mpih%myrankstr//'nasto_timeh_object%initialize start'
+   print '(A)', self%mpih%myrankstr//'nasto_time_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters)
    print '(A)', self%description()
-   print '(A)', self%mpih%myrankstr//'nasto_timeh_object%initialize finish'
+   print '(A)', self%mpih%myrankstr//'nasto_time_object%initialize finish'
    endsubroutine initialize
 
    function is_to_save(self, it_save)
    !< Return true if slices are to save.
-   class(nasto_timeh_object), intent(inout) :: self       !< Time handler.
-   integer(I4P),              intent(in)    :: it_save    !< Save iterations frequency.
-   logical                                  :: is_to_save !< Check result.
+   class(nasto_time_object), intent(inout) :: self       !< Time handler.
+   integer(I4P),             intent(in)    :: it_save    !< Save iterations frequency.
+   logical                                 :: is_to_save !< Check result.
 
    is_to_save = .false.
    if (mod(self%it,it_save)==0.or.self%it==self%it_max.or.   &
@@ -69,11 +69,11 @@ contains
 
    subroutine load_from_file(self, file_parameters, go_on_fail)
    !< Load config from file.
-   class(nasto_timeh_object), intent(inout)        :: self            !< Time handler.
-   type(file_ini),            intent(in)           :: file_parameters !< Simulation parameters ini file handler.
-   logical,                   intent(in), optional :: go_on_fail      !< Go on if load fails.
-   logical                                         :: go_on_fail_     !< Go on if load fails.
-   integer(I4P)                                    :: error           !< Error status.
+   class(nasto_time_object), intent(inout)        :: self            !< Time handler.
+   type(file_ini),           intent(in)           :: file_parameters !< Simulation parameters ini file handler.
+   logical,                  intent(in), optional :: go_on_fail      !< Go on if load fails.
+   logical                                        :: go_on_fail_     !< Go on if load fails.
+   integer(I4P)                                   :: error           !< Error status.
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
@@ -87,8 +87,8 @@ contains
 
    subroutine print_progress(self, nodes_number)
    !< Print simulation progress.
-   class(nasto_timeh_object), intent(in) :: self         !< Time handler.
-   integer(I4P),              intent(in) :: nodes_number !< Nodes number, global blocks number.
+   class(nasto_time_object), intent(in) :: self         !< Time handler.
+   integer(I4P),             intent(in) :: nodes_number !< Nodes number, global blocks number.
 
    associate(r=>self%mpih%myrankstr, it=>self%it, time=>self%time, dt=>self%dt, it_max=>self%it_max, time_max=>self%time_max)
       print '(A)', r//''
@@ -104,4 +104,4 @@ contains
       print '(A)', r//''
    endassociate
    endsubroutine print_progress
-endmodule adam_nasto_timeh_object
+endmodule adam_nasto_time_object

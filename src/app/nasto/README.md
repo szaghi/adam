@@ -1,10 +1,10 @@
 <a name="top"></a>
 
-# NASTO (CUDA)
+# NASTO
 
-> ADAM for Navier-Stokes equations, GPU backend.
+> ADAM for Navier-Stokes equations.
 
-NASTO is an application developed on top of ADAM framework to solve compressible Navier-Stokes conservation equations. This is the GPU-based backend.
+NASTO is an application developed on top of ADAM framework to solve compressible Navier-Stokes conservation equations.
 
 The main NASTO documentation is contained in the following sections:
 
@@ -14,7 +14,7 @@ Go to [Top](#top)
 
 # Main Features
 
-The main features of NASTO (CUDA) application are:
+The main features of NASTO application are:
 
 + the mathematical model is the compressible, ideal gas 3D Navier-Stokes conservation laws;
 + finite difference numerical approximation is used for the spatial discretization:
@@ -91,98 +91,24 @@ src/
 ├───╼ ~/fortran/adam
 └──────╼ tree src/app/nasto/
 src/app/nasto/
-├── adam_equation_nasto_gpu_object.F90
-├── adam_nasto_gpu.F90
-├── adam_nasto_sphere_shock.ini
+├── common/
+├── cpu/
+├── gmp/
+├── nvf/
 └── README.md
 ```
 
-Currently, NASTO (CUDA) app is contained into the above sources. The `adam_nastro_sphere_shock.ini` contains an example of the `ini` input.
+Each subdirectory, contains a specific sources type:
 
-To compile NASTO use FoBiS tool as in the following examplesr.
++ `common` contains sources that are in common to all backends;
++ `cpu` contains sources specific for CPU only backend, namely MPI/OpneMP only;
++ `gmp` contains sources specific for GPU accelerated backend by means of OpenMP offloading and MPI communications;
++ `nvf` contains sources specific for GPU accelerated backend by means of Nvidia CUDAFortran offloading and MPI communications.
 
-#### Prepare some third-party libraries
+Typically, a specific backend uses its own sources and the common ones. Currently, NASTO has only the `nvf` backend completed. The
+development of `gmp` backend is ongoing.
 
-```bash
-FoBiS.py rule -ex makethirdpartymanual
-```
-
-This should produce something like the following:
-
-```bash
-┌╼ stefano@enlil
-├───╼ ~/fortran/adam
-└──────╼ FoBiS.py rule -ex makethirdpartymanual
-Executing rule "makethirdpartymanual"
-   Command => mkdir -p exe/mod exe/obj
-   Command => cd src/third_party_manual/CGAL/ ; g++ -std=c++17 -frounding-math -O2 -I/opt/cgal/5.2.1/include/ -c cgal_c_wrappers.cpp ; cd -
-   Command => cd src/third_party_manual/getmemory/ ; gcc -c getmemory.c ; cd -
-   Command => mv src/third_party_manual/getmemory/*.o exe/obj/
-   Command => mv src/third_party_manual/CGAL/*.o exe/obj/
-```
-
-#### Compile NASTO (CUDA)
-
-After the third-part libraries are compiled, you can compule NASTO by
-
-```bash
-FoBiS.py rule -ex makethirdpartymanual
-```
-
-This should produce something like the following:
-
-```bash
-┌╼ stefano@enlil
-├───╼ ~/fortran/adam
-└──────╼ FoBiS.py build -mode nasto-nvf-mpi-cuda
-Builder options
-  Directories
-    Building directory: "exe"
-    Compiled-objects .o   directory: "exe/obj"
-    Compiled-objects .mod directory: "exe/mod"
-  External libraries directories: /opt/HDF5/bin/1.12.1/openmpi/3.1.5/nvidia/22.3/lib
-  Included paths: /opt/HDF5/bin/1.12.1/openmpi/3.1.5/nvidia/22.3/include src/third_party/VecFor/src/lib
-  Linked libraries with full path: /opt/HDF5/bin/1.12.1/openmpi/3.1.5/nvidia/22.3/lib/libhdf5hl_fortran.a /opt/HDF5/bin/1.12.1/openmpi/3.1.5/nvidia/22.3/lib/libhdf5_hl.a /opt/HDF5/bin/1.12.1/openmpi/3.1.5/nvidia/22.3/lib/libhdf5_fortran.a /opt/HDF5/bin/1.12.1/openmpi/3.1.5/nvidia/22.3/lib/libhdf5.a -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/11 /usr/lib/gcc/x86_64-linux-gnu/11/libstdc++.so /opt/zlib/bin/1.2.11/lib/libz.a /opt/szip/bin/2.1.1/lib/libsz.a ./exe/obj/cgal_c_wrappers.o ./exe/obj/getmemory.o
-  Linked libraries in path: dl m
-  Compiler options
-    Vendor: "nvfortran"
-    Compiler command: "mpif90"
-    Module directory switch: "-module"
-    Compiling flags: "-cpp -c -Mcuda=cc75,cuda12.0,ptxinfo -O2 -D_NVF -D_MPI_"
-    Linking flags: "-Mcuda=cc75,cuda12.0,ptxinfo -O2"
-    Preprocessing flags: "-D_NVF -D_MPI_"
-    Coverage: False
-    Profile: False
-  Preprocessor used: None
-  Preprocessor output directory: None
-  Preprocessor extensions processed: []
-
-Building src/app/nasto/adam_nasto_gpu.F90
-Compiling src/third_party/PENF/src/lib/penf_global_parameters_variables.F90 serially
-ptxas info    : 128 bytes gmem
-
-Compiling src/third_party/PENF/src/lib/penf_b_size.F90 serially
-ptxas info    : 4 bytes gmem
-
-Compiling src/third_party/PENF/src/lib/penf_stringify.F90 serially
-ptxas info    : 4 bytes gmem
-...
-...
-...
-Linking exe/adam_nasto_gpu
-Target src/app/nasto/adam_nasto_gpu.F90 has been successfully built
-```
-
-NASTO executable is now present into subdirectory `exe`
-
-```bash
-┌╼ stefano@enlil
-├───╼ ~/fortran/adam
-└──────╼ ls exe/
-adam_nasto_gpu  build_adam_nasto_gpu.log  mod  obj
-```
-
-Note that the `exe` subdirectory contains also the compiled objects, i.e. files into the subrdirectories `exe/mod` and `exe/obj`, as well as the compilation log file.
+To compile NASTO use FoBiS tool as in the examples contained into each backend sources subdirectory.
 
 Go to [Top](#top)
 
@@ -194,39 +120,11 @@ Go to [Top](#top)
 
 # API Documentation
 
-Currently, NASTO (CUDA) app is made by the following source files:
+Refer to the documentation contained into each backend sources subdirectory:
 
-+ `adam_nasto_parameters.F90`
-+ `adam_nasto_common_object.F90 `
-+ `adam_nasto_cpu_object.F90`
-+ `adam_nasto_nvf_object.F90`
-+ `adam_nasto_nvf_kernels.F90`
-+ `adam_nasto_nvf.F90`
-
-### `adam_nasto_parameters.F90`
-
-This contains the main global parameters of NASTO.
-
-### `adam_nasto_common_object.F90`
-
-This contains the definition of NASTO common class, a class that is used (extended) by all NASTO backends.
-See [nasto common object API documentantion](https://szaghi.github.io/adam/type/nasto_common_object.html) for more details.
-
-### `adam_nasto_cpu_object.F90`
-
-This contains the definition of NASTO using the CPU backend.
-
-### `adam_nasto_nvf_object.F90`
-
-This contains the definition of NASTO using the CUDAFortran GPU backend.
-See [nasto NVF object API documentantion](https://szaghi.github.io/adam/type/nasto_common_object.html) for more details.
-
-### `adam_nasto_nvf_kernels.F90`
-
-This contains the definition of all NASTO CUDAFortran kernels.
-
-### `adam_nasto_nvf.F90`
-
-This is only the main program that instantiates a `type(nasto_nvf_object)` object and invoke its `simulate` method.
++ [`common`](./nasto/common/README.md)
++ [`cpu`](./nasto/cpu/README.md)
++ [`gmp`](./nasto/gmp/README.md)
++ [`nvf`](./nasto/nvf/README.md)
 
 Go to [Top](#top)
