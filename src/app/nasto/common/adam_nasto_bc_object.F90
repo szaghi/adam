@@ -2,8 +2,7 @@
 module adam_nasto_bc_object
 !< ADAM, NASTO Boundary Conditions class definition, CPU backend.
 
-use adam_grid_object, only : grid_object
-use adam_mpih_object, only : mpih_object
+use adam_mpih_object
 use finer
 use penf
 
@@ -25,7 +24,6 @@ integer(I4P), parameter :: BC_WALL_INVISCID   = 3_I4P !< Inviscid wall.
 type :: nasto_bc_object
    !< Boundary Conditions class definition, CPU backend.
    type(mpih_object)           :: mpih         !< MPI handler.
-   type(grid_object),  pointer :: grid=>null() !< The grid.
    integer(I4P)                :: bc_type(6)   !< Boundary condition type.
    real(R8P)                   :: q(6,6)       !< Primitive variables (r,u,v,w,p,s with s being the specie index) at BC.
    contains
@@ -36,15 +34,13 @@ endtype nasto_bc_object
 
 contains
    ! public methods
-   subroutine initialize(self, file_parameters, grid)
+   subroutine initialize(self, file_parameters)
    !< Initialize the equation.
-   class(nasto_bc_object), intent(inout)      :: self            !< BC.
-   type(file_ini),         intent(in)         :: file_parameters !< Simulation parameters ini file handler.
-   type(grid_object),      intent(in), target :: grid            !< The grid.
+   class(nasto_bc_object), intent(inout) :: self            !< BC.
+   type(file_ini),         intent(in)    :: file_parameters !< Simulation parameters ini file handler.
 
    call self%mpih%initialize(do_mpi_init=.false.)
    print '(A)', self%mpih%myrankstr//'nasto_bc_object%initialize start'
-   self%grid => grid
    call self%load_from_file(file_parameters=file_parameters)
    print '(A)', self%mpih%myrankstr//'nasto_bc_object%initialize finish'
    endsubroutine initialize

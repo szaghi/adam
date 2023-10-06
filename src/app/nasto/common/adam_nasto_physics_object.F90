@@ -10,12 +10,6 @@ use penf, only : I4P, R8P, str
 implicit none
 private
 public :: nasto_physics_object
-public :: IR
-public :: IU
-public :: IV
-public :: IW
-public :: IG
-public :: IP
 
 character(len=7), parameter :: INI_SECTION_NAME='physics' !< INI file section name containing fluid physics.
 
@@ -27,12 +21,30 @@ integer(I4P) :: IW = 5_I4P
 integer(I4P) :: IG = 6_I4P
 integer(I4P) :: IP = 7_I4P
 
+! conservative variables are arranged as follows:
+! q(1): rho
+! q(2): rho * u
+! q(3): rho * v
+! q(4): rho * w
+! q(5): rho * E
+! q(6): rho * Ya (specific density of specie)
+! auxiliary variables are arranged as follows:
+! q_aux(1): density
+! q_aux(2): u
+! q_aux(3): v
+! q_aux(4): w
+! q_aux(5): ya (species concentration)
+! q_aux(6): temperature
+! q_aux(7): pressure
+! q_aux(8): entalpy
+! q_aux(9): sound speed
+
 type :: nasto_physics_object
    !< NASTO fluid physics class definition.
    type(mpih_object)                   :: mpih         !< MPI handler.
    integer(I4P)                        :: ns=1_I4P     !< Number of species.
    integer(I4P)                        :: nv=5_I4P     !< Number of variables (rns+ru+rv+rw+rE=ns+4).
-   integer(I4P)                        :: nv_aux=7_I4P !< Number of auxiliary variables (rns+r+u+v+w+p+g=ns+6).
+   integer(I4P)                        :: nv_aux=9_I4P !< Number of auxiliary variables (rns+r+u+v+w+p+g=ns+6).
    integer(I4P)                        :: np=5_I4P     !< Number of 1D primitive variables (rns+r+un+p+g=ns+4).
    type(nasto_eos_object), allocatable :: eos(:)       !< Equations of state of each specie [1:ns].
    contains
@@ -72,21 +84,22 @@ contains
    character(len=1), parameter             :: NL=new_line('a') !< New line character.
    integer(I4P)                            :: s                !< Counter.
 
-   desc =       self%mpih%myrankstr//'nasto_physics_object ns:     '//trim(str(self%ns    ))//NL
-   desc = desc//self%mpih%myrankstr//'nasto_physics_object nv:     '//trim(str(self%nv    ))//NL
-   desc = desc//self%mpih%myrankstr//'nasto_physics_object nv_aux: '//trim(str(self%nv_aux))//NL
-   desc = desc//self%mpih%myrankstr//'nasto_physics_object np:     '//trim(str(self%np    ))//NL
-   desc = desc//self%mpih%myrankstr//'nasto_physics_object IR:     '//trim(str(IR         ))//NL
-   desc = desc//self%mpih%myrankstr//'nasto_physics_object IU:     '//trim(str(IU         ))//NL
-   desc = desc//self%mpih%myrankstr//'nasto_physics_object IV:     '//trim(str(IV         ))//NL
-   desc = desc//self%mpih%myrankstr//'nasto_physics_object IW:     '//trim(str(IW         ))//NL
-   desc = desc//self%mpih%myrankstr//'nasto_physics_object IG:     '//trim(str(IG         ))//NL
-   desc = desc//self%mpih%myrankstr//'nasto_physics_object IP:     '//trim(str(IP         ))
+   desc =       self%mpih%myrankstr//'Physics main data:'                                     //NL
+   desc = desc//self%mpih%myrankstr//'  nasto_physics_object ns:     '//trim(str(self%ns    ))//NL
+   desc = desc//self%mpih%myrankstr//'  nasto_physics_object nv:     '//trim(str(self%nv    ))//NL
+   desc = desc//self%mpih%myrankstr//'  nasto_physics_object nv_aux: '//trim(str(self%nv_aux))//NL
+   desc = desc//self%mpih%myrankstr//'  nasto_physics_object np:     '//trim(str(self%np    ))//NL
+   desc = desc//self%mpih%myrankstr//'  nasto_physics_object IR:     '//trim(str(IR         ))//NL
+   desc = desc//self%mpih%myrankstr//'  nasto_physics_object IU:     '//trim(str(IU         ))//NL
+   desc = desc//self%mpih%myrankstr//'  nasto_physics_object IV:     '//trim(str(IV         ))//NL
+   desc = desc//self%mpih%myrankstr//'  nasto_physics_object IW:     '//trim(str(IW         ))//NL
+   desc = desc//self%mpih%myrankstr//'  nasto_physics_object IG:     '//trim(str(IG         ))//NL
+   desc = desc//self%mpih%myrankstr//'  nasto_physics_object IP:     '//trim(str(IP         ))
    do s=1, self%ns
-      desc = desc//NL//self%mpih%myrankstr//'nasto_physics_object cp('//trim(str(s,.true.))//'):  '//trim(str(self%eos(s)%cp))
-      desc = desc//NL//self%mpih%myrankstr//'nasto_physics_object cv('//trim(str(s,.true.))//'):  '//trim(str(self%eos(s)%cv))
-      desc = desc//NL//self%mpih%myrankstr//'nasto_physics_object  g('//trim(str(s,.true.))//'):  '//trim(str(self%eos(s)%g ))
-      desc = desc//NL//self%mpih%myrankstr//'nasto_physics_object  R('//trim(str(s,.true.))//'):  '//trim(str(self%eos(s)%R ))
+      desc = desc//NL//self%mpih%myrankstr//'  nasto_physics_object cp('//trim(str(s,.true.))//'):  '//trim(str(self%eos(s)%cp))
+      desc = desc//NL//self%mpih%myrankstr//'  nasto_physics_object cv('//trim(str(s,.true.))//'):  '//trim(str(self%eos(s)%cv))
+      desc = desc//NL//self%mpih%myrankstr//'  nasto_physics_object  g('//trim(str(s,.true.))//'):  '//trim(str(self%eos(s)%g ))
+      desc = desc//NL//self%mpih%myrankstr//'  nasto_physics_object  R('//trim(str(s,.true.))//'):  '//trim(str(self%eos(s)%R ))
    enddo
    endfunction description
 
@@ -99,7 +112,7 @@ contains
    print '(A)', self%mpih%myrankstr//'nasto_physics_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters)
    self%nv     = self%ns + 4
-   self%nv_aux = self%ns + 6
+   self%nv_aux = self%ns + 8
    self%np     = self%ns + 4
    ! initialize named index of q_aux array
    IR = self%ns + 1

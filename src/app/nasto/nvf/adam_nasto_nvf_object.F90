@@ -4,12 +4,13 @@ module adam_nasto_nvf_object
 
 use adam_amr_object
 use adam_base_gpu_object
+use adam_ib_object
 use adam_memory_cpu_lib
 use adam_memory_gpu_lib
 use adam_parameters
+use adam_nasto_bc_object
 use adam_nasto_common_object
 use adam_nasto_schemes_object
-use adam_nasto_parameters
 use adam_nasto_nvf_kernels
 use penf
 use MPI
@@ -328,7 +329,7 @@ contains
    real(R8P)                                     :: grad_var       !< Value (max) of gradient of var.
    integer(I4P)                                  :: b              !< Counter.
 
-   ivar_     = IRHO     ; if (present(ivar)) ivar_ = ivar
+   ivar_     = 1_R4P    ; if (present(ivar)) ivar_ = ivar
    do_init_ = .true.    ; if (present(do_init)) do_init_ = do_init
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
    if(do_init_) self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]

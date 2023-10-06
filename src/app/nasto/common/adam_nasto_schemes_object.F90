@@ -3,7 +3,6 @@ module adam_nasto_schemes_object
 !< ADAM, Navier-Stokes schemes handler class definition, CPU backend.
 
 use adam_mpih_object
-use adam_nasto_parameters
 use finer
 use penf
 
@@ -33,6 +32,8 @@ character(len=14), parameter :: SCHEME_FCONV_WENO_CENTRAL_6="weno-central-6"!< P
 character(len=9),  parameter :: SCHEME_FDIFF_CENTRAL_2     ="central-2"     !< Parameter of central 2 fluxes diffusive scheme.
 character(len=9),  parameter :: SCHEME_FDIFF_CENTRAL_4     ="central-4"     !< Parameter of central 4 fluxes diffusive scheme.
 character(len=9),  parameter :: SCHEME_FDIFF_CENTRAL_6     ="central-6"     !< Parameter of central 6 fluxes diffusive scheme.
+
+integer(I4P), parameter :: IWENO_FROM_SCHEME(6) = [1,2,3,4,3,3]
 
 type :: nasto_schemes_object
    !< NASTO schemes handler class definition.

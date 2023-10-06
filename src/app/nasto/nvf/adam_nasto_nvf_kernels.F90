@@ -934,7 +934,7 @@ contains
                vvv = q_gpu(b,i,j,k,3)/rho
                www = q_gpu(b,i,j,k,4)/rho
                rhe = q_gpu(b,i,j,k,5)
-               if(ns == 2) then
+               if (ns==2) then
                    rya = q_gpu(b,i,j,k,ns+4)
                else
                    rya = 0._R8P

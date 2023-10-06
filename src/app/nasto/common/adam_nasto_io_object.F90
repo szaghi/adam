@@ -36,14 +36,14 @@ contains
    character(len=:), allocatable      :: desc             !< Description.
    character(len=1), parameter        :: NL=new_line('a') !< New line character.
 
-   desc =       self%mpih%myrankstr//'Time main data'                                            //NL
+   desc =       self%mpih%myrankstr//'IO main data'                                              //NL
    desc = desc//self%mpih%myrankstr//'  file parameters:    '//self%file_parameters%filename     //NL
    desc = desc//self%mpih%myrankstr//'  it save:            '//trim(str(self%it_save))           //NL
    desc = desc//self%mpih%myrankstr//'  output basename:    '//self%output_basename              //NL
    desc = desc//self%mpih%myrankstr//'  restart:            '//trim(str(self%restart))           //NL
    desc = desc//self%mpih%myrankstr//'  restart basename:   '//self%restart_basename             //NL
    desc = desc//self%mpih%myrankstr//'  restart save:       '//trim(str(self%restart_save))      //NL
-   desc = desc//self%mpih%myrankstr//'  save memory status: '//trim(str(self%save_memory_status))//NL
+   desc = desc//self%mpih%myrankstr//'  save memory status: '//trim(str(self%save_memory_status))
    endfunction description
 
    subroutine initialize(self, filename)

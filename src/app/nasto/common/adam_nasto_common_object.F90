@@ -13,7 +13,6 @@ use adam_nasto_ic_object
 use adam_nasto_io_object
 use adam_nasto_bc_object
 use adam_nasto_physics_object
-use adam_nasto_parameters
 use adam_nasto_schemes_object
 use adam_nasto_time_object
 use penf
@@ -89,8 +88,9 @@ contains
    print '(A)', self%mpih%myrankstr//'nasto_common_object%initialize start'
    call self%io%initialize(filename=trim(filename))
    associate(file_parameters=>self%io%file_parameters)
+   call self%bc%initialize(file_parameters=file_parameters)
    call self%physics%initialize(file_parameters=file_parameters)
-   call self%adam%grid%initialize(file_parameters=file_parameters, verbose=.true.)
+   call self%adam%grid%initialize(file_parameters=file_parameters,bc_type=self%bc%bc_type, verbose=.true.)
    call self%adam%initialize(file_parameters=file_parameters, &
                              do_tree_init=.true.,             &
                              do_field_init=.true.,            &
@@ -101,7 +101,6 @@ contains
    call self%amr%initialize(file_parameters=file_parameters)
    call self%time%initialize(file_parameters=file_parameters)
    call self%ic%initialize(file_parameters=file_parameters)
-   call self%bc%initialize(file_parameters=file_parameters, grid=self%grid)
    call self%ib%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    call self%slices%initialize(file_parameters=file_parameters)
    call self%schemes%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
