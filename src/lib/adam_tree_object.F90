@@ -318,22 +318,22 @@ contains
    timing(1) = MPI_WTIME()
    call self%sanitize
    timing(2) = MPI_WTIME()
-   print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%ADAPT%SANITIZE: ', timing(2) - timing(1)
+   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%ADAPT%SANITIZE: ', timing(2) - timing(1)
 
    timing(1) = MPI_WTIME()
    call self%refine
    timing(2) = MPI_WTIME()
-   print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%ADAPT%REFINE: ', timing(2) - timing(1)
+   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%ADAPT%REFINE: ', timing(2) - timing(1)
 
    timing(1) = MPI_WTIME()
    call self%derefine
    timing(2) = MPI_WTIME()
-   print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%ADAPT%DEREFINE: ', timing(2) - timing(1)
+   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%ADAPT%DEREFINE: ', timing(2) - timing(1)
 
    timing(1) = MPI_WTIME()
    call self%make_neighborhood
    timing(2) = MPI_WTIME()
-   print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%ADAPT%MAKE_NEIGHBORHOOD: ', timing(2) - timing(1)
+   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%ADAPT%MAKE_NEIGHBORHOOD: ', timing(2) - timing(1)
    endsubroutine adapt
 
    function codes(self, only_mine, sort_by_level)
@@ -655,7 +655,7 @@ contains
    logical,            intent(in),    optional :: add_adam        !< Add ADAM node, the ancestor of all nodes.
    logical                                     :: add_adam_       !< Add ADAM node, the ancestor of all nodes, local var.
 
-   call self%mpih%initialize
+   call self%mpih%initialize(do_mpi_init=.false.)
    print '(A)', self%mpih%myrankstr//'tree%initialize start'
    self%grid => grid
    if (present(file_parameters)) call self%load_from_ini_file(file_parameters)
@@ -1875,7 +1875,7 @@ contains
       c = c + 1
    enddo
    timing(2) = MPI_WTIME()
-   print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%MPI_REDISTRIBUTE%newrank_loop: ', timing(2) - timing(1)
+   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%MPI_REDISTRIBUTE%newrank_loop: ', timing(2) - timing(1)
 
    ! create communication/local maps
    call self%make_comm_local_maps
@@ -1898,7 +1898,7 @@ contains
       endif
    enddo
    timing(2) = MPI_WTIME()
-   print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%MPI_REDISTRIBUTE%create_coordinate: ', timing(2) - timing(1)
+   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%MPI_REDISTRIBUTE%create_coordinate: ', timing(2) - timing(1)
 
    self%last_block_index = n_keep + n_recv
    contains
@@ -2863,7 +2863,7 @@ contains
       endif
    enddo min_max_check_loop
    timing(2) = MPI_WTIME()
-   print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%SANITIZE%min_max_check_loop: ', timing(2) - timing(1)
+   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%SANITIZE%min_max_check_loop: ', timing(2) - timing(1)
 
    !MEMORYLEAK LEVAREallocate(self%temp_array_i8(10000))
 
@@ -2922,7 +2922,7 @@ contains
          endif
       enddo derefine_loop
       timing(4) = MPI_WTIME()
-      print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%SANITIZE%sanitize_loop%derefine_loop: ', timing(4) - timing(3)
+      ! print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%SANITIZE%sanitize_loop%derefine_loop: ', timing(4) - timing(3)
 
       ! check for the sanity of refinement (2:1 rule)
       timing(3) = MPI_WTIME()
@@ -2969,12 +2969,12 @@ contains
         endif
       enddo refine_loop
       timing(4) = MPI_WTIME()
-      print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%SANITIZE%sanitize_loop%refine_loop: ', timing(4) - timing(3)
+      ! print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%SANITIZE%sanitize_loop%refine_loop: ', timing(4) - timing(3)
 
       if (is_sanitize_complete) exit sanitize_loop
    enddo sanitize_loop
    timing(2) = MPI_WTIME()
-   print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%SANITIZE%sanitize_loop: ', timing(2) - timing(1)
+   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%SANITIZE%sanitize_loop: ', timing(2) - timing(1)
 
    if (.not.is_sanitize_complete) then
       print '(A)', self%mpih%myrankstr//'SANITZE CANNOT BE COMPLETED. SOMETHING WENT TERRIBLY WRONG. EXIT!'
@@ -2992,6 +2992,6 @@ contains
       endif
    enddo
    timing(2) = MPI_WTIME()
-   print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%SANITIZE%to_refine_loop: ', timing(2) - timing(1)
+   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%SANITIZE%to_refine_loop: ', timing(2) - timing(1)
    endsubroutine sanitize
 endmodule adam_tree_object

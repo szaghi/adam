@@ -699,17 +699,16 @@ contains
    real(R8P)                           :: delta_x, delta_y, delta_z, dx_locale, dy_locale, dz_locale
    integer(I4P)                        :: b, i, j, k, v, iercuda
 
+   ! Update net flux (procedura alternativa all'interpolazione proposta nel paper, utilizza dx_locale).
    !$cuf kernel do(4) <<<*,*>>>
    do k=1,nk
    do j=1,nj
    do i=1,ni
    do b=1,blocks_number
-
       dx_locale = dx_gpu(b)
-      ! Update net flux (procedura alternativa all'interpolazione proposta nel paper, utilizza dx_locale).
-      if(phi_gpu(b,i,j,k,1)<0.) then
-          if(phi_gpu(b,i+1,j,k,1)*phi_gpu(b,i-1,j,k,1)<0) then
-              if(phi_gpu(b,i+1,j,k,1)>0.) then
+      if (phi_gpu(b,i,j,k,1)<0.) then
+          if (phi_gpu(b,i+1,j,k,1)*phi_gpu(b,i-1,j,k,1)<0) then
+              if (phi_gpu(b,i+1,j,k,1)>0.) then
                   delta_x = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i+1,j,k,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dx_gpu(b)
                   dx_locale = dx_gpu(b)/2 + delta_x
               else !if(phi_gpu(b,i-1,j,k,1)>0) then
@@ -718,11 +717,10 @@ contains
               endif
           endif
       endif
-
       dy_locale = dy_gpu(b)
-      if(phi_gpu(b,i,j,k,1)<0.) then
-          if(phi_gpu(b,i,j+1,k,1)*phi_gpu(b,i,j-1,k,1)<0) then
-              if(phi_gpu(b,i,j+1,k,1)>0.) then
+      if (phi_gpu(b,i,j,k,1)<0.) then
+          if (phi_gpu(b,i,j+1,k,1)*phi_gpu(b,i,j-1,k,1)<0) then
+              if (phi_gpu(b,i,j+1,k,1)>0.) then
                   delta_y = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j+1,k,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dy_gpu(b)
                   dy_locale = dy_gpu(b)/2 + delta_y
               else !if(phi_gpu(b,i-1,j,k,1)>0) then
@@ -731,11 +729,10 @@ contains
               endif
           endif
       endif
-
       dz_locale = dz_gpu(b)
-      if(phi_gpu(b,i,j,k,1)<0.) then
-          if(phi_gpu(b,i,j,k+1,1)*phi_gpu(b,i,j,k-1,1)<0) then
-              if(phi_gpu(b,i,j,k+1,1)>0.) then
+      if (phi_gpu(b,i,j,k,1)<0.) then
+          if (phi_gpu(b,i,j,k+1,1)*phi_gpu(b,i,j,k-1,1)<0) then
+              if (phi_gpu(b,i,j,k+1,1)>0.) then
                   delta_z = -phi_gpu(b,i,j,k,1)/(phi_gpu(b,i,j,k+1,1)-phi_gpu(b,i,j,k,1)+ib_eps)*dz_gpu(b)
                   dz_locale = dz_gpu(b)/2 + delta_z
               else !if(phi_gpu(b,i,j,k-1,1)>0) then
@@ -750,7 +747,6 @@ contains
                              - (fly_gpu(b,i,j,k,v)-fly_gpu(b,i,j-1,k,v))/dy_locale &
                              - (flz_gpu(b,i,j,k,v)-flz_gpu(b,i,j,k-1,v))/dz_locale
       enddo
-
    enddo
    enddo
    enddo

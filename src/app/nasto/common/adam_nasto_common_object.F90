@@ -76,13 +76,14 @@ contains
    endassociate
    endsubroutine allocate_common
 
-   subroutine initialize_common(self, filename, nb, nodes_number, do_mpi_init)
+   subroutine initialize_common(self, filename, memory_avail, do_mpi_init)
    !< Initialize the equation common data.
    class(nasto_common_object), intent(inout)        :: self         !< The equation.
    character(*),               intent(in)           :: filename     !< Input file name.
-   integer(I8P),               intent(in)           :: nodes_number !< Allocated nodes on tree.
-   integer(I4P),               intent(in)           :: nb           !< Number of allocated blocks.
+   real(R8P),                  intent(in)           :: memory_avail !< Memory available for single MPI process.
    logical,                    intent(in), optional :: do_mpi_init  !< Flag to activate MPI init call.
+   integer(I8P)                                     :: nodes_number !< Allocated nodes on tree.
+   integer(I4P)                                     :: nb           !< Number of allocated blocks.
 
    call self%mpih%initialize(do_mpi_init=do_mpi_init)
    print '(A)', self%mpih%myrankstr//'nasto_common_object%initialize start'
@@ -91,6 +92,7 @@ contains
    call self%bc%initialize(file_parameters=file_parameters)
    call self%physics%initialize(file_parameters=file_parameters)
    call self%adam%grid%initialize(file_parameters=file_parameters,bc_type=self%bc%bc_type, verbose=.true.)
+   call self%adam%compute_blocks_number(memory_avail=memory_avail, fields_number=80, nb=nb, nodes_number=nodes_number)
    call self%adam%initialize(file_parameters=file_parameters, &
                              do_tree_init=.true.,             &
                              do_field_init=.true.,            &

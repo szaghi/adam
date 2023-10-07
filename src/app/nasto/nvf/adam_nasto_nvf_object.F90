@@ -114,7 +114,7 @@ contains
    associate(nv=>self%nv, ns=>self%ns, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
              nb=>self%nb, nv_aux=>self%nv_aux, iweno=>self%schemes%iweno)
 
-   ! call alloc_var_gpu(var=self%q_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(q_gpu) ', verbose=.true.,&
+   ! call alloc_var_gpu(var=self%q_gpu, msg=self%mpih%myrankstr//'equation_nasto_gpu%alloc(q_gpu) ', verbose=.false.,&
    !                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
 
    !< @NOTE gplus e gminus hanno Nb e Nv invertiti rispetto a tutti gli altri array GPU, errore o voluto?
@@ -160,7 +160,7 @@ contains
 
    self%mpih%error = cudaGetLastError()
    if (self%mpih%error /= cudaSuccess) then
-      msg_ = cudaGetErrorString(self%mpih%error) ; if (present(msg)) msg_ = msg//'"'//msg_//'"'
+      msg_ = cudaGetErrorString(self%mpih%error) ; if (present(msg)) msg_ = '"'//msg//'": '//msg_
       call self%mpih%abort(error_code=error_code, msg=msg_)
    endif
    endsubroutine
@@ -179,7 +179,7 @@ contains
    class(nasto_nvf_object), intent(inout) :: self !< The equation.
 
    call self%base_gpu%copy_transpose_cpu_gpu(nv=self%nv, q_cpu=self%field%q, q_gpu=self%q_gpu)
-   call self%base_gpu%copy_cpu_gpu(verbose=.true.)
+   call self%base_gpu%copy_cpu_gpu(verbose=.false.)
    endsubroutine copy_cpu_gpu
 
    subroutine copy_gpu_cpu(self, compute_q_aux)
@@ -208,16 +208,11 @@ contains
    !< Initialize the equation.
    class(nasto_nvf_object), intent(inout) :: self         !< The equation.
    character(*),            intent(in)    :: filename     !< Input file name.
-   integer(I8P)                           :: nodes_number !< Allocated nodes on tree.
-   integer(I4P)                           :: nb           !< Number of allocated blocks.
-   integer(I4P)                           :: nv           !< Number of evolved variables.
 
    call self%base_gpu%initialize_gpu(do_mpi_init=.true.)
    print '(A)', self%base_gpu%mpih%myrankstr//'nasto_nvf_object%initialize start'
-   call self%adam%compute_blocks_number(memory_avail=self%base_gpu%memory_avail, fields_number=80, &
-                                        nb=nb, nodes_number=nodes_number)
-   call self%initialize_common(filename=filename, nb=nb, nodes_number=nodes_number)
-   call self%base_gpu%initialize(field=self%adam%field, nv_aux=self%nv_aux, verbose=.true.)
+   call self%initialize_common(filename=filename, memory_avail=self%base_gpu%memory_avail)
+   call self%base_gpu%initialize(field=self%adam%field, nv_aux=self%nv_aux, verbose=.false.)
    call self%allocate_gpu
    print '(A)', self%mpih%myrankstr//'nasto_nvf_object%initialize finish'
    endsubroutine initialize
@@ -587,7 +582,7 @@ contains
                             q_aux_name=['rhob','u','v','w','ya','tem','pres','ental','csp'],  &
                             with_cell_morton=.true.)
    call self%mpih%barrier(tictoc=.true.)
-   print '(A, F18.10)', self%mpih%myrankstr//'step timing (save HDF5): ', self%mpih%tictoc_timing()
+   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing (save HDF5): ', self%mpih%tictoc_timing()
    endsubroutine save_hdf5
 
    subroutine save_restart_files(self)
@@ -600,7 +595,7 @@ contains
    call self%adam%save_restart_files(basename=self%io%restart_basename, t=self%time%it, time=self%time%time)
    call self%save_hdf5(output_basename=self%io%restart_basename)
    call self%mpih%barrier(tictoc=.true.)
-   print '(A, F18.10)', self%mpih%myrankstr//'step timing (save restart): ', self%mpih%tictoc_timing()
+   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing (save restart): ', self%mpih%tictoc_timing()
    endsubroutine save_restart_files
 
    ! IC/BC
@@ -814,9 +809,9 @@ contains
    call self%check_cuda_error(error_code=-15, msg='CUDA error after diffusive fluxes computation')
 
    ib_eps = 1.e-12_R8P
-   call compute_fluxes_difference_cuf(blocks_number, ni, nj, nk, ngc, ns+4,       &
-                                      fl_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, &
-                                      dx_gpu, dy_gpu, dz_gpu, ib_eps)
+   call compute_fluxes_difference_cuf(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=ns+4,                &
+                                      fl_gpu=fl_gpu, flx_gpu=flx_gpu, fly_gpu=fly_gpu, flz_gpu=flz_gpu, phi_gpu=phi_gpu, &
+                                      dx_gpu=dx_gpu, dy_gpu=dy_gpu, dz_gpu=dz_gpu, ib_eps=ib_eps)
 
    call self%check_cuda_error(error_code=-15, msg='CUDA error after fluxes difference computation')
    endassociate
@@ -909,7 +904,7 @@ contains
          call self%mpih%barrier(tictoc=.true.)
          call self%amr_update()
          call self%mpih%barrier(tictoc=.true.)
-         print '(A, F18.10)', self%mpih%myrankstr//'step timing (AMR): ', self%mpih%tictoc_timing()
+         ! print '(A, F18.10)', self%mpih%myrankstr//'step timing (AMR): ', self%mpih%tictoc_timing()
       endif
 
       call self%compute_dt()
@@ -927,10 +922,10 @@ contains
          ((self%time%it>=self%time%it_max).and.(self%time%it_max > 0))) exit integration
 
       call self%mpih%barrier(tictoc=.true., timing=timing_step(2), single=.true.)
-      print '(A, F18.10)', self%mpih%myrankstr//'step timing: ', timing_step(2) - timing_step(1)
+      ! print '(A, F18.10)', self%mpih%myrankstr//'step timing: ', timing_step(2) - timing_step(1)
    enddo integration
    call self%mpih%barrier(tictoc=.true., timing=timing(2), single=.true.)
-   print '(A, F18.10)', self%mpih%myrankstr//'averaged timing: ', (timing(2) - timing(1))/self%time%it
+   ! print '(A, F18.10)', self%mpih%myrankstr//'averaged timing: ', (timing(2) - timing(1))/self%time%it
 
    call self%save_simulation_data
    endsubroutine simulate
