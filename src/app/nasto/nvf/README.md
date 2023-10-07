@@ -22,7 +22,7 @@ Go to [Top](#top)
 
 # Copyrights
 
-ADAM-NASTO is currently a closed project:
+ADAM is currently a closed project:
 
 > Copyright (C) Di Mascio/Rossi/Salvadore/Zaghi, Inc - All Rights Reserved.
 >
@@ -189,7 +189,19 @@ Go to [Top](#top)
 
 # Test
 
-To be written.
+NASTO NVF tests are contained into the following subdirectory:
+
+```bash
+┌╼ stefano@enlil
+├───╼ ~/fortran/adam/src/tests/nasto/nvf
+└──────╼ tree
+.
+├── i-vortex
+└── shock-sphere
+```
+
++ `i-vortes` contains the isentropic vortex test, see [its own documentation](../../../tests/nasto/nvf/i-vortex/README.md) for more details;
++ `shock-sphere` contains the shock-sphere interaction test, see [its own documentation](../../../tests/nasto/nvf/shock-sphere/README.md) for more details.
 
 Go to [Top](#top)
 
