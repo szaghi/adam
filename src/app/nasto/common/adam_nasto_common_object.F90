@@ -51,7 +51,7 @@ type :: nasto_common_object
    integer(I4P), pointer :: nv_aux=>null()        !< Number of auxiliary variables.
    ! auxiliary fields data: see nasto parameters definition for the arrangement of conservative and auxiliary variables
    real(R8P), allocatable :: q_aux(:,:,:,:,:) !< Auxiliary cell centered variables.
-   real(R8P), allocatable ::   phi(:,:,:,:,:) !< Distance function cell centered.
+   ! real(R8P), allocatable ::   phi(:,:,:,:,:) !< Distance function cell centered.
 
    type(c_ptr), allocatable :: ptree(:) !< CGAL trees for solids.
 
@@ -69,10 +69,10 @@ contains
              solids_number=>self%ib%solids_number)
    allocate(self%q_aux(1:nv_aux, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
    self%q_aux = 0._R8P
-   if (solids_number > 0) then
-      allocate(self%phi(1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:solids_number))
-      self%phi = -1._R8P
-   endif
+   ! if (solids_number > 0) then
+   !    allocate(self%phi(1:nb, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:solids_number))
+   !    self%phi = -1._R8P
+   ! endif
    endassociate
    endsubroutine allocate_common
 

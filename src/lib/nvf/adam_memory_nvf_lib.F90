@@ -1,8 +1,8 @@
-!< ADAM, GPU-memory handling library.
-module adam_memory_gpu_lib
-!< ADAM, GPU-memory handling library.
+!< ADAM, NVF memory handling library.
+module adam_memory_nvf_lib
+!< ADAM, NVF memory handling library.
 
-use PENF
+use penf
 use CUDAFOR
 
 implicit none
@@ -347,4 +347,4 @@ contains
       enddo
    enddo
    endsubroutine transpose_a_R8P_2D
-endmodule adam_memory_gpu_lib
+endmodule adam_memory_nvf_lib

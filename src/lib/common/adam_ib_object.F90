@@ -13,16 +13,17 @@ private
 public :: ib_object
 public :: BCS_VISCOUS
 public :: BCS_EULER
+public :: IB_ANALYTICAL_SPHERE
 
 character(len=5), parameter :: INI_SECTION_NAME="solid" !< INI (config) file section name containing IB configs.
 
-character(len=20), parameter :: ANALYTICAL_SPHERE   = 'analytical_sphere   ' !< Analytical sphere solid.
-character(len=20), parameter :: ANALYTICAL_CIRCLE   = 'analytical_circle   ' !< Analytical circle solid.
-character(len=20), parameter :: ANALYTICAL_RECTANGLE= 'analytical_rectangle' !< Analytical rectangle solid.
-character(len=20), parameter :: SOLID_DEFINITIONS(4)=[ANALYTICAL_SPHERE,    &
-                                                      ANALYTICAL_CIRCLE,    &
-                                                      ANALYTICAL_RECTANGLE, &
-                                                      'file.off            ']!< Available solid definitions.
+character(len=20), parameter :: IB_ANALYTICAL_SPHERE   = 'analytical_sphere   ' !< Analytical sphere solid.
+character(len=20), parameter :: IB_ANALYTICAL_CIRCLE   = 'analytical_circle   ' !< Analytical circle solid.
+character(len=20), parameter :: IB_ANALYTICAL_RECTANGLE= 'analytical_rectangle' !< Analytical rectangle solid.
+character(len=20), parameter :: IB_DEFINITIONS(4)=[IB_ANALYTICAL_SPHERE,    &
+                                                   IB_ANALYTICAL_CIRCLE,    &
+                                                   IB_ANALYTICAL_RECTANGLE, &
+                                                   'file.off            ']      !< Available solid definitions.
 
 integer(I4P), parameter :: BCS_VISCOUS = 1_I4P !< Visous wall.
 integer(I4P), parameter :: BCS_EULER   = 2_I4P !< Inviscid wall.
@@ -63,6 +64,7 @@ type :: ib_object
       procedure, pass(self) :: initialize       !< Initialize IB.
       procedure, pass(self) :: load_from_file   !< Load config from file.
       procedure, pass(self) :: move_phi         !< Move phi and the actual ptree representation.
+      procedure, pass(self) :: sphere_to_array  !< Convert analytical sphere class data to array data.
       procedure, pass(self) :: update_phi       !< Update distance function.
       ! private methods
       procedure, pass(self), private :: update_phi_analytical_sphere    !< Update distance function for analytical sphere solids.
@@ -85,6 +87,15 @@ contains
       desc = desc//NL//self%mpih%myrankstr//'  Solid '//trim(str(s,.true.))
       desc = desc//NL//self%mpih%myrankstr//'    BC type:    '//trim(str(self%bc_type(s)))
       desc = desc//NL//self%mpih%myrankstr//'    definition: '//trim(self%definition(s))
+      select case(trim(adjustl(self%definition(s))))
+      case(trim(IB_ANALYTICAL_SPHERE))
+      desc = desc//NL//self%mpih%myrankstr//'    sphere_center_x: '//trim(str(self%sphere(s)%center(1)))
+      desc = desc//NL//self%mpih%myrankstr//'    sphere_center_y: '//trim(str(self%sphere(s)%center(2)))
+      desc = desc//NL//self%mpih%myrankstr//'    sphere_center_z: '//trim(str(self%sphere(s)%center(3)))
+      desc = desc//NL//self%mpih%myrankstr//'    sphere_radius  : '//trim(str(self%sphere(s)%radius   ))
+      case(trim(IB_ANALYTICAL_CIRCLE))
+      case(trim(IB_ANALYTICAL_RECTANGLE))
+      endselect
    enddo
    endfunction description
 
@@ -148,7 +159,7 @@ contains
          call file_parameters%get(section_name=sname, option_name='definition', val=self%definition(i), error=err)
          if (.not.go_on_fail_.and.err>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(definition)')
          select case(trim(adjustl(self%definition(i))))
-         case(trim(ANALYTICAL_SPHERE))
+         case(trim(IB_ANALYTICAL_SPHERE))
             call file_parameters%get(section_name=sname, option_name='sphere_center_x', val=self%sphere(i)%center(1), error=err)
             if (.not.go_on_fail_.and.err>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(sphere_center_x)')
             call file_parameters%get(section_name=sname, option_name='sphere_center_y', val=self%sphere(i)%center(2), error=err)
@@ -157,7 +168,7 @@ contains
             if (.not.go_on_fail_.and.err>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(sphere_center_z)')
             call file_parameters%get(section_name=sname, option_name='sphere_radius', val=self%sphere(i)%radius, error=err)
             if (.not.go_on_fail_.and.err>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(sphere_radius)')
-         case(trim(ANALYTICAL_CIRCLE))
+         case(trim(IB_ANALYTICAL_CIRCLE))
             call file_parameters%get(section_name=sname, option_name='circle_center_x', val=self%sphere(i)%center(1), error=err)
             if (.not.go_on_fail_.and.err>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(circle_center_x)')
             call file_parameters%get(section_name=sname, option_name='circle_center_y', val=self%sphere(i)%center(2), error=err)
@@ -168,7 +179,7 @@ contains
             if (.not.go_on_fail_.and.err>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(circle_radius)')
             call file_parameters%get(section_name=sname, option_name='circle_axis', val=self%sphere(i)%axis, error=err)
             if (.not.go_on_fail_.and.err>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(circle_axis)')
-         case(trim(ANALYTICAL_RECTANGLE))
+         case(trim(IB_ANALYTICAL_RECTANGLE))
             call file_parameters%get(section_name=sname,option_name='rectangle_center_x',val=self%rectangle(i)%center(1),error=err)
             if (.not.go_on_fail_.and.err>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(rectangle_center_x)')
             call file_parameters%get(section_name=sname,option_name='rectangle_center_y',val=self%rectangle(i)%center(2),error=err)
@@ -241,6 +252,15 @@ contains
    ! endassociate
    endsubroutine move_phi
 
+   function sphere_to_array(self, ib) result(array)
+   !< Convert analytical sphere class data to array data.
+   class(ib_object), intent(in) :: self       !< IB.
+   integer(I4P),     intent(in) :: ib         !< Index of IB solid.
+   real(R8P)                    :: array(1:4) !< Data array.
+
+   array = [self%sphere(ib)%center(1), self%sphere(ib)%center(2), self%sphere(ib)%center(3), self%sphere(ib)%radius]
+   endfunction sphere_to_array
+
    subroutine update_phi(self)
    !< Update distance function.
    class(ib_object), intent(inout) :: self !< IB.
@@ -250,11 +270,11 @@ contains
       print '(A)', self%mpih%myrankstr//'ib_object%update IB distance start'
       do ib=1, self%solids_number
          select case(trim(adjustl(self%definition(ib))))
-         case(trim(ANALYTICAL_SPHERE))
+         case(trim(IB_ANALYTICAL_SPHERE))
             call self%update_phi_analytical_sphere(solid=ib, sphere=self%sphere(ib))
-         case(trim(ANALYTICAL_CIRCLE))
+         case(trim(IB_ANALYTICAL_CIRCLE))
             call self%update_phi_analytical_circle(solid=ib, sphere=self%sphere(ib))
-         case(trim(ANALYTICAL_RECTANGLE))
+         case(trim(IB_ANALYTICAL_RECTANGLE))
             call self%update_phi_analytical_rectangle(solid=ib, rectangle=self%rectangle(ib))
          endselect
       enddo

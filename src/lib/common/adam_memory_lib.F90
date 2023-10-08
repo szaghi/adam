@@ -1,8 +1,8 @@
-!< ADAM, CPU-memory handling library.
-module adam_memory_cpu_lib
-!< ADAM, CPU-memory handling library.
+!< ADAM, CPU memory handling library.
+module adam_memory_lib
+!< ADAM, CPU memory handling library.
 
-use PENF
+use penf
 use, intrinsic :: iso_c_binding
 
 implicit none
@@ -328,4 +328,4 @@ contains
    write(file_unit,*) tag_, mem_free, mem_total
    close(file_unit)
    endsubroutine save_memory_cpu_status
-endmodule adam_memory_cpu_lib
+endmodule adam_memory_lib

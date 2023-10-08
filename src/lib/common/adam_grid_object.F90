@@ -137,7 +137,7 @@ contains
    character(len=:), allocatable  :: desc             !< Description.
    character(len=1), parameter    :: NL=new_line('a') !< New line character.
 
-   desc =       self%mpih%myrankstr//'Grid main data'                                            //NL
+   desc =       self%mpih%myrankstr//'grid main data'                                            //NL
    desc = desc//self%mpih%myrankstr//'  domain minimum extent: '//trim(str(self%domain_emin    ))//NL
    desc = desc//self%mpih%myrankstr//'  domain maximum extent: '//trim(str(self%domain_emax    ))//NL
    desc = desc//self%mpih%myrankstr//'  ni:                    '//trim(str(self%ni             ))//NL
@@ -282,14 +282,6 @@ contains
    call file_parameters%get(section_name='grid',     option_name='emax_z', val=buff_R8P) ; self%domain_emax(3)=buff_R8P
    endsubroutine load_from_ini_file
 
-   subroutine set_bc_type(self, bc_type)
-   !< Set grid boundary conditions accordingly with app'equation object.
-   class(grid_object), intent(inout) :: self       !< The grid.
-   integer(I4P),       intent(in)    :: bc_type(6) !< Type of boundary conditions in the 6 faces of grid.
-
-   self%bc_type = bc_type
-   endsubroutine set_bc_type
-
    subroutine node_xyz(self, coordinates, x_node, y_node, z_node)
    !< Return nodes xyz abscissa given block coordinates.
    class(grid_object), intent(in)            :: self                                !< The grid.
@@ -305,4 +297,12 @@ contains
    if (present(y_node)) y_node(:) = emin(2) + self%lin_space_y(:,coordinates(4))
    if (present(z_node)) z_node(:) = emin(3) + self%lin_space_z(:,coordinates(4))
    endsubroutine node_xyz
+
+   subroutine set_bc_type(self, bc_type)
+   !< Set grid boundary conditions accordingly with app'equation object.
+   class(grid_object), intent(inout) :: self       !< The grid.
+   integer(I4P),       intent(in)    :: bc_type(6) !< Type of boundary conditions in the 6 faces of grid.
+
+   self%bc_type = bc_type
+   endsubroutine set_bc_type
 endmodule adam_grid_object

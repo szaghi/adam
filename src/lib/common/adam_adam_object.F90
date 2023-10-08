@@ -9,12 +9,12 @@ use adam_parameters
 use adam_tree_node_object, only : tree_node_object
 use adam_tree_bucket_object, only : tree_bucket_object
 use adam_tree_object, only : tree_object
-use FINER, only : file_ini
-use PENF
-use STRINGIFOR
-use VTK_FORTRAN
-use HDF5
-use MPI
+use finer, only : file_ini
+use penf
+use stringifor
+use vtk_fortran
+use hdf5
+use mpi
 
 implicit none
 private
@@ -33,13 +33,13 @@ type :: adam_object
       procedure, pass(self) :: blocks_reorder                !< Reorder blocks (for asyncrhonous MPI)
       procedure, pass(self) :: check_blocks_number           !< Check if blocks number is groving too much.
       procedure, pass(self) :: compute_blocks_number         !< Compute maximum blocks number allocatable on memory available.
+      procedure, pass(self) :: description                   !< Return pretty-printed object description.
       procedure, pass(self) :: initialize                    !< Initialize ADAM.
       procedure, pass(self) :: interpolate_at_point          !< Interpolate a scalar variable at a given point.
       procedure, pass(self) :: load_restart_files            !< Load restart files.
       procedure, pass(self) :: make_comm_local_maps_ghost_bc !< Make communication/local maps of ghost cells.
       procedure, pass(self) :: mpi_gather_refinement_needed  !< Gather refinement needed.
       procedure, pass(self) :: mpi_redistribute              !< Redistribute nodes/blocks to processes, load balancing.
-      procedure, pass(self) :: print_status                  !< Print status of main data.
       procedure, pass(self) :: prune                         !< Prune nodes/blocks.
       procedure, pass(self) :: refine_uniform                !< Refine all blocks uniformly.
       procedure, pass(self) :: save_hdf5                     !< Save ADAM in HDF5 format.
@@ -53,24 +53,14 @@ contains
    subroutine adapt(self)
    !< Adapt tree/field accordingly to refine/derefine necessity.
    class(adam_object), intent(inout) :: self      !< ADAM.
-   real(R8P)                         :: timing(2) !< Tic toc timing.
 
-   timing(1) = MPI_WTIME()
    call self%tree%adapt
-   timing(2) = MPI_WTIME()
-   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing ADAM%ADAPT%TREE%ADAPT: ', timing(2) - timing(1)
 
-   timing(1) = MPI_WTIME()
    call self%check_blocks_number
-   timing(2) = MPI_WTIME()
-   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing ADAM%ADAPT%CHECK_BLOCKS: ', timing(2) - timing(1)
 
-   timing(1) = MPI_WTIME()
    call self%field%adapt(ratio=self%tree%ratio,                                                            &
                          block_to_refine=self%tree%block_to_refine, block_refined=self%tree%block_refined, &
                          block_to_derefine=self%tree%block_to_derefine, block_derefined=self%tree%block_derefined)
-   timing(2) = MPI_WTIME()
-   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing ADAM%FIELD%ADAPT: ', timing(2) - timing(1)
    endsubroutine adapt
 
    subroutine amr_update(self, is_marked_by_field, is_marked_by_tree, do_mpi_redistribute, do_blocks_reorder, &
@@ -90,35 +80,22 @@ contains
    logical,            intent(out), optional :: is_grid_changed      !< Flag to check if grid is changed.
    logical                                   :: do_mpi_redistribute_ !< Flag to activate MPI redistribute, local var.
    logical                                   :: do_blocks_reorder_   !< Flag to activate blocks reorder, local var.
-   real(R8P)                                 :: timing(2)            !< Tic toc timing.
 
    do_mpi_redistribute_ = .true. ; if (present(do_mpi_redistribute )) do_mpi_redistribute_ = do_mpi_redistribute
    do_blocks_reorder_ = .true. ; if (present(do_blocks_reorder)) do_blocks_reorder_ = do_blocks_reorder
 
-   timing(1) = MPI_WTIME()
    call self%mpi_gather_refinement_needed(is_marked_by_field=is_marked_by_field, is_marked_by_tree=is_marked_by_tree)
-   timing(2) = MPI_WTIME()
-   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing ADAM%AMR_UPDATE%MPI_GATHER_REF: ', timing(2) - timing(1)
 
-   timing(1) = MPI_WTIME()
    call self%adapt
-   timing(2) = MPI_WTIME()
-   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing ADAM%AMR_UPDATE%ADAPT: ', timing(2) - timing(1)
 
    if (present(is_grid_changed)) is_grid_changed = (size(self%tree%node_to_refine,   dim=1)>0_I4P).or.&
                                                    (size(self%tree%node_to_derefine, dim=1)>0_I4P)
 
-   timing(1) = MPI_WTIME()
    if (do_mpi_redistribute_) call self%mpi_redistribute(print_mpi_stats=print_mpi_stats)
-   timing(2) = MPI_WTIME()
-   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing ADAM%AMR_UPDATE%MPI_REDISTRIBUTE: ', timing(2) - timing(1)
 
    if (do_blocks_reorder_) call self%blocks_reorder
 
-   timing(1) = MPI_WTIME()
    call self%make_comm_local_maps_ghost_bc
-   timing(2) = MPI_WTIME()
-   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing ADAM%AMR_UPDATE%MAKE_COMM_LOC_MAP_GHOST_BC: ', timing(2) - timing(1)
    endsubroutine amr_update
 
    subroutine blocks_reorder(self)
@@ -134,7 +111,7 @@ contains
    !< Check if blocks number is groving too much.
    class(adam_object), intent(inout) :: self     !< ADAM.
    type(tree_node_object), pointer   :: node_ptr !< Pointer to current node.
-   integer(I4P)                      :: max_nb   !< Maximum number of blocks desidered.
+   integer(I8P)                      :: max_nb   !< Maximum number of blocks desidered.
 
    max_nb = 0
    do while(self%tree%loop(node_ptr=node_ptr))
@@ -152,11 +129,11 @@ contains
    subroutine compute_blocks_number(self, memory_avail, fields_number, nb, nodes_number)
    !< Compute maximum blocks number allocatable on memory available.
    class(adam_object), intent(in)           :: self          !< ADAM.
-   real(R8P),          intent(in)           :: memory_avail  !< Memory available for single MPI process.
+   real(R8P),          intent(in)           :: memory_avail  !< Memory available for single MPI process (GBytes).
    integer(I4P),       intent(in)           :: fields_number !< Fields number.
    integer(I4P),       intent(out)          :: nb            !< Maximum blocks number for single MPI process.
    integer(I8P),       intent(out)          :: nodes_number  !< Maximum blocks number for all MPI processes (nodes).
-   integer(I4P)                             :: size_of_real  !< Size of real.
+   integer(I4P)                             :: size_of_real  !< Size (bytes) of (one) real.
    real(R8P)                                :: save_factor   !< Factor to avoid memory completely full.
 
    size_of_real = storage_size(1._R8P)/8._R8P
@@ -164,6 +141,15 @@ contains
    nb = nint(save_factor * memory_avail*1e9 / (fields_number * self%grid%block_weight * size_of_real))
    nodes_number  = nb * self%mpih%procs_number
    endsubroutine compute_blocks_number
+
+   pure function description(self) result(desc)
+   !< Return a pretty-formatted object description.
+   class(adam_object), intent(in) :: self             !< Adam.
+   character(len=:), allocatable  :: desc             !< Description.
+   character(len=1), parameter    :: NL=new_line('a') !< New line character.
+
+   desc = self%grid%description()//NL//self%tree%description()//NL//self%field%description()
+   endfunction description
 
    subroutine load_restart_files(self, basename, t, time)
    !< Load restart files.
@@ -180,13 +166,14 @@ contains
    call self%field%load_blocks(basename=basename)
    endsubroutine load_restart_files
 
-   subroutine initialize(self, file_parameters,                                              &
+   subroutine initialize(self, nb, file_parameters,                                              &
                          ni, nj, nk, ngc, emin, emax, bc_type, do_grid_init,                 &
                          max_load, nodes_number, buckets_number, ratio, max_level, add_adam, &
                          iu_ref_levels, i_prune, j_prune, k_prune, l_prune, do_tree_init,    &
-                         nv, nb, do_field_init)
+                         nv, do_field_init)
    !< Initialize ADAM.
    class(adam_object), intent(inout)           :: self               !< ADAM.
+   integer(I4P),       intent(in)              :: nb                 !< Number of all blocks that can be stored in field.
    type(file_ini),     intent(inout), optional :: file_parameters    !< INI file handler.
    ! grid options
    integer(I4P),       intent(in),    optional :: ni                 !< Number of cells in X direction.
@@ -212,7 +199,6 @@ contains
    logical,            intent(in),    optional :: do_tree_init       !< Flag to activate tree initialize.
    ! field options
    integer(I4P),       intent(in),    optional :: nv                 !< Number of field variables.
-   integer(I4P),       intent(in),    optional :: nb                 !< Number of all blocks that can be stored in field.
    logical,            intent(in),    optional :: do_field_init      !< Flag to activate field initialize.
    ! local var
    logical                                     :: do_grid_init_      !< Flag to activate grid initialize, local var.
@@ -249,7 +235,7 @@ contains
                                 l_prune=l_prune)
    if (do_field_init_) &
       call self%field%initialize(grid=self%grid, file_parameters=file_parameters, nv=nv, nb=nb)
-   print '(A)', self%mpih%myrankstr//'blocks number for single MPI [nb]: '//trim(str(self%field%nb))
+   print '(A)', self%mpih%myrankstr//'blocks number (maximum) for single MPI [nb]: '//trim(str(self%field%nb))
    print '(A)', self%mpih%myrankstr//'blocks number for all MPI [nodes_number]: '//trim(str(self%tree%nodes_number))
    call self%amr_update
    print '(A)', self%mpih%myrankstr//'adam%initialize finish'
@@ -357,19 +343,11 @@ contains
    subroutine make_comm_local_maps_ghost_bc(self)
    !< Make communication/local maps of ghost cells and boundary conditions.
    class(adam_object), intent(inout) :: self      !< ADAM.
-   real(R8P)                         :: timing(2) !< Tic toc timing.
 
-   timing(1) = MPI_WTIME()
    call self%tree%make_comm_local_maps_ghost
-   timing(2) = MPI_WTIME()
-   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing ADAM%MAKE_COMM_LOC_MAP_GHOST_BC%TREE%MAKE_COM...: ', timing(2) - timing(1)
 
-   timing(1) = MPI_WTIME()
    call self%tree%make_local_maps_bc
-   timing(2) = MPI_WTIME()
-   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing ADAM%MAKE_COMM_LOC_MAP_GHOST_BC%TREE%MAKE_LOC_BC: ', timing(2) - timing(1)
 
-   timing(1) = MPI_WTIME()
    call self%field%prepare_comm_local_ghost(local_map_ghost         = self%tree%local_map_ghost,         &
                                             comm_map_n_send_ghost   = self%tree%comm_map_n_send_ghost,   &
                                             comm_map_n_recv_ghost   = self%tree%comm_map_n_recv_ghost,   &
@@ -377,15 +355,10 @@ contains
                                             comm_map_recv_ptr_ghost = self%tree%comm_map_recv_ptr_ghost, &
                                             comm_map_send_ghost     = self%tree%comm_map_send_ghost,     &
                                             comm_map_recv_ghost     = self%tree%comm_map_recv_ghost)
-   timing(2) = MPI_WTIME()
-   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing ADAM%MAKE_COMM_LOC_MAP_GHOST_BC%FIELD%PREPARE_COM: ',timing(2) - timing(1)
 
-   timing(1) = MPI_WTIME()
    call self%field%prepare_local_bc(local_map_bc_face   = self%tree%local_map_bc_face, &
                                     local_map_bc_edge   = self%tree%local_map_bc_edge, &
                                     local_map_bc_corner = self%tree%local_map_bc_corner)
-   timing(2) = MPI_WTIME()
-   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing ADAM%MAKE_COMM_LOC_MAP_GHOST_BC%FIELD%PREPARE_BC: ',timing(2) - timing(1)
    endsubroutine make_comm_local_maps_ghost_bc
 
    subroutine mpi_gather_refinement_needed(self, is_marked_by_field, is_marked_by_tree)
@@ -427,15 +400,6 @@ contains
                                     coordinates=self%tree%block_coordinates,       &
                                     code=self%tree%block_code)
    endsubroutine mpi_redistribute
-
-   subroutine print_status(self)
-   !< Print status of main data.
-   class(adam_object), intent(in) :: self !< Adam.
-
-   print '(A)', self%grid%description()
-   call self%tree%print_status
-   call self%field%print_status
-   endsubroutine print_status
 
    subroutine prune(self, ijkl_prune, print_mpi_stats, do_blocks_reorder)
    !< Prune nodes/blocks.
@@ -488,7 +452,7 @@ contains
    call self%field%save_blocks(basename=basename)
    endsubroutine save_restart_files
 
-   subroutine save_hdf5(self, basename, q, q_aux, q_name, q_aux_name, directory, with_ghost, with_cell_morton, t, time)
+   subroutine save_hdf5(self, basename, q, q_aux, q_name, q_aux_name, phi, directory, with_ghost, with_cell_morton, t, time)
    !< Save ADAM in HDF5 format.
    class(adam_object), intent(inout)        :: self                    !< ADAM.
    character(*),       intent(in)           :: basename                !< Base name of output files.
@@ -504,6 +468,11 @@ contains
                                                      1:)               !< Q auxiliary variables to be saved.
    character(*),       intent(in), optional :: q_name(:)               !< Q variables names.
    character(*),       intent(in), optional :: q_aux_name(:)           !< Q auxiliary variables names.
+   real(R8P),          intent(in), optional :: phi(1:,              &
+                                                   1-self%grid%ngc:,&
+                                                   1-self%grid%ngc:,&
+                                                   1-self%grid%ngc:,&
+                                                   1:)                 !< (IB) distance function.
    character(*),       intent(in), optional :: directory               !< Directory name of output files.
    logical,            intent(in), optional :: with_ghost              !< Flag to save ghost cells.
    logical,            intent(in), optional :: with_cell_morton        !< Flag to save Morton code also in cells.
@@ -514,6 +483,7 @@ contains
    character(:), allocatable                :: directory_              !< Directory name of output files, local var.
    logical                                  :: with_ghost_             !< Flag to save ghost cells, local var.
    logical                                  :: with_cell_morton_       !< Flag to save Morton code also in cells, local var.
+   integer(I4P)                             :: solids_number           !< Number of IB solids.
    type(tree_node_object), pointer          :: node                    !< Pointer to node.
    real(R8P)                                :: emin(3)                 !< Minimum abscissa of current block.
    real(R8P)                                :: emax(3)                 !< Maximum abscissa of current block.
@@ -552,6 +522,7 @@ contains
    directory_ = '' ; if (present(directory)) directory_ = trim(directory)
    with_ghost_ = .false. ; if (present(with_ghost)) with_ghost_ = with_ghost
    with_cell_morton_ = .false. ; if (present(with_cell_morton)) with_cell_morton_ = with_cell_morton
+   solids_number = 0 ; if (present(phi)) solids_number = size(phi, dim=1)
    if (with_ghost_) then
       ngc = self%grid%ngc
    else
@@ -573,19 +544,20 @@ contains
                   h5_dspace_id=h5_dspace_id)
    ! save all blocks in process
    do b=1, self%field%blocks_number
-      call save_hdf5_block(h5_file_id=h5_file_id,                                          &
-                           h5_dspace_id=h5_dspace_id,                                      &
-                           myrank=self%mpih%myrank,                                        &
-                           code=self%field%code(b),                                        &
-                           block_index=b,                                                  &
-                           ii=ijk(:,1),                                                    &
-                           jj=ijk(:,2),                                                    &
-                           kk=ijk(:,3),                                                    &
-                           q=q(:,ijk(1,1):ijk(2,1),ijk(1,2):ijk(2,2),ijk(1,3):ijk(2,3),b), &
-                           q_name=q_name_,                                                 &
-                           with_cell_morton=with_cell_morton_,                             &
-                           q_aux_name=q_aux_name_,                                         &
-                           q_aux=q_aux(:,ijk(1,1):ijk(2,1),ijk(1,2):ijk(2,2),ijk(1,3):ijk(2,3),b))
+      call save_hdf5_block(h5_file_id=h5_file_id,                                                  &
+                           h5_dspace_id=h5_dspace_id,                                              &
+                           myrank=self%mpih%myrank,                                                &
+                           code=self%field%code(b),                                                &
+                           block_index=b,                                                          &
+                           ii=ijk(:,1),                                                            &
+                           jj=ijk(:,2),                                                            &
+                           kk=ijk(:,3),                                                            &
+                           q=q(:,ijk(1,1):ijk(2,1),ijk(1,2):ijk(2,2),ijk(1,3):ijk(2,3),b),         &
+                           q_name=q_name_,                                                         &
+                           with_cell_morton=with_cell_morton_,                                     &
+                           q_aux_name=q_aux_name_,                                                 &
+                           q_aux=q_aux(:,ijk(1,1):ijk(2,1),ijk(1,2):ijk(2,2),ijk(1,3):ijk(2,3),b), &
+                           phi=phi(:,ijk(1,1):ijk(2,1),ijk(1,2):ijk(2,2),ijk(1,3):ijk(2,3),b))
    enddo
    call close_hdf5(h5_file_id=h5_file_id, h5_dspace_id=h5_dspace_id)
 
@@ -617,6 +589,7 @@ contains
                               q_name=q_name_,                                                     &
                               with_cell_morton=with_cell_morton_,                                 &
                               q_aux_name=q_aux_name_,                                             &
+                              solids_number=solids_number,                                        &
                               t=t,                                                                &
                               time=time)
       enddo
@@ -858,7 +831,7 @@ contains
    endsubroutine open_hdf5
 
    subroutine save_hdf5_block(h5_file_id, h5_dspace_id, &
-                              myrank, code, block_index, ii, jj, kk, q, q_name, with_cell_morton, q_aux_name, q_aux)
+                              myrank, code, block_index, ii, jj, kk, q, q_name, with_cell_morton, q_aux_name, q_aux, phi)
    !< Save block into HDF5 file.
    integer(HID_T), intent(in)           :: h5_file_id                     !< H5 File identifier.
    integer(HID_T), intent(in)           :: h5_dspace_id                   !< H5 Dataspace identifier.
@@ -873,6 +846,7 @@ contains
    logical,        intent(in)           :: with_cell_morton               !< Flag to save Morton code also in cells.
    character(*),   intent(in)           :: q_aux_name(:)                  !< Q auxiliary variables names.
    real(R8P),      intent(in), optional :: q_aux(1:,ii(1):,jj(1):,kk(1):) !< Q auxiliary variables to be saved.
+   real(R8P),      intent(in), optional :: phi(  1:,ii(1):,jj(1):,kk(1):) !< (IB) distance function.
    character(len=:), allocatable        :: h5_dset_name                   !< H5 Dataset name.
    integer(HID_T)                       :: h5_dset_id                     !< H5 Dataset identifier.
    integer(I4P)                         :: v, i                           !< Counter.
@@ -890,6 +864,15 @@ contains
          h5_dset_name = trim(q_aux_name(v))//'-'//trim(str(myrank,.true.))//'-'//trim(str(block_index,.true.))
          call h5dcreate_f(h5_file_id, h5_dset_name, H5T_NATIVE_DOUBLE, h5_dspace_id, h5_dset_id, error)
          call h5dwrite_f(h5_dset_id, H5T_NATIVE_DOUBLE, q_aux(v,ii(1):ii(2),jj(1):jj(2),kk(1):kk(2)), &
+                         [int(ii(2)-ii(1)+1,I8P),int(jj(2)-jj(1)+1,I8P),int(kk(2)-kk(1)+1,I8P)], error)
+         call h5dclose_f(h5_dset_id, error)
+      enddo
+   endif
+   if (present(phi)) then
+      do v=1, size(phi, dim=1)
+         h5_dset_name = 'phi_'//trim(str(v,.true.))//'-'//trim(str(myrank,.true.))//'-'//trim(str(block_index,.true.))
+         call h5dcreate_f(h5_file_id, h5_dset_name, H5T_NATIVE_DOUBLE, h5_dspace_id, h5_dset_id, error)
+         call h5dwrite_f(h5_dset_id, H5T_NATIVE_DOUBLE, phi(v,ii(1):ii(2),jj(1):jj(2),kk(1):kk(2)), &
                          [int(ii(2)-ii(1)+1,I8P),int(jj(2)-jj(1)+1,I8P),int(kk(2)-kk(1)+1,I8P)], error)
          call h5dclose_f(h5_dset_id, error)
       enddo
@@ -929,7 +912,7 @@ contains
    endsubroutine open_xdmf
 
    subroutine save_xdmf_block(file_unit, h5_file_name, rank, code, block_index, emin, dxyz, nijk, &
-                              q_name, with_cell_morton, q_aux_name, t, time)
+                              q_name, with_cell_morton, q_aux_name, solids_number, t, time)
    !< Save XDMF block.
    integer(I4P),              intent(in)           :: file_unit        !< XDMF file unit.
    character(*),              intent(in)           :: h5_file_name     !< H5 file name.
@@ -942,8 +925,9 @@ contains
    character(*),              intent(in)           :: q_name(:)        !< Q variables names.
    logical,                   intent(in)           :: with_cell_morton !< Flag to save Morton code also in cells.
    character(:), allocatable, intent(in)           :: q_aux_name(:)    !< Q auxiliary variables names.
-   integer(I4P), intent(in),  optional             :: t                !< Time iteration.
-   real(R8P),    intent(in),  optional             :: time             !< Time.
+   integer(I4P),              intent(in)           :: solids_number    !< Number of IB solids.
+   integer(I4P),              intent(in), optional :: t                !< Time iteration.
+   real(R8P),                 intent(in), optional :: time             !< Time.
    character(:), allocatable                       :: h5_dset_name     !< Dataset name.
    integer(I4P)                                    :: v                !< Counter.
 
@@ -969,6 +953,17 @@ contains
       do v=1, size(q_aux_name, dim=1)
          h5_dset_name = trim(q_aux_name(v))//'-'//trim(str(rank,.true.))//'-'//trim(str(block_index,.true.))
          write(file_unit, '(A)') '          <Attribute Name="'//trim(q_aux_name(v))//&
+                            '" Center="Cell" ElementDegree="0" Type="Scalar">'
+         write(file_unit, '(A)') '            <DataItem DataType="Float" Dimensions="'//&
+                                 trim(str([nijk(3),nijk(2),nijk(1)],separator=' '))//   &
+                                 '" Format="HDF" Precision="8">'//h5_file_name//':'//h5_dset_name//'</DataItem>'
+         write(file_unit, '(A)') '          </Attribute>'
+      enddo
+   endif
+   if (solids_number>0) then
+      do v=1, solids_number
+         h5_dset_name = 'phi_'//trim(str(v,.true.))//'-'//trim(str(rank,.true.))//'-'//trim(str(block_index,.true.))
+         write(file_unit, '(A)') '          <Attribute Name="'//'phi_'//trim(str(v,.true.))//&
                             '" Center="Cell" ElementDegree="0" Type="Scalar">'
          write(file_unit, '(A)') '            <DataItem DataType="Float" Dimensions="'//&
                                  trim(str([nijk(3),nijk(2),nijk(1)],separator=' '))//   &

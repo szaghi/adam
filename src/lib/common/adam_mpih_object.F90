@@ -2,7 +2,7 @@
 module adam_mpih_object
 !< ADAM, MPI handler object.
 
-use adam_memory_cpu_lib
+use adam_memory_lib
 use penf
 use mpi
 use, intrinsic :: iso_c_binding, only : C_LONG
@@ -28,6 +28,7 @@ type :: mpih_object
       procedure, pass(self) :: error_stop    !< Stop run with error output.
       procedure, pass(self) :: finalize      !< Handy MPI finalize wrapper.
       procedure, pass(self) :: initialize    !< Initialize MPI handler data.
+      procedure, pass(self) :: print_message !< Print a message on stdout with rank prefix.
       procedure, pass(self) :: tictoc_timing !< Return the last tic toc timing.
 endtype mpih_object
 
@@ -106,6 +107,14 @@ contains
    call cpuMemGetInfo(mem_total, mem_free)
    self%memory_avail = real(mem_total, R8P)/1e9/self%procs_number
    endsubroutine initialize
+
+   subroutine print_message(self, msg)
+   !< Print a message on stdout with rank prefix.
+   class(mpih_object) , intent(in) :: self !< MPI handler.
+   character(*),        intent(in) :: msg  !< Message to print.
+
+   print '(A)', self%myrankstr//trim(adjustl(msg))
+   endsubroutine print_message
 
    function tictoc_timing(self) result(timing)
    !< Return the last tic toc timing.

@@ -1,10 +1,10 @@
-!< ADAM, base GPU class definition.
-module adam_base_gpu_object
-!< ADAM, base GPU class definition: provide methods for GPU backend handling.
+!< ADAM, base NVF class definition.
+module adam_base_nvf_object
+!< ADAM, base NVF class definition: provide methods for NVF GPU offloading backend.
 
 use adam_field_object, only : field_object
 use adam_mpih_object, only : mpih_object
-use adam_memory_gpu_lib
+use adam_memory_nvf_lib
 use adam_parameters
 use PENF
 use MPI
@@ -14,12 +14,12 @@ use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
 implicit none
 save
 private
-public :: base_gpu_object
+public :: base_nvf_object
 
-type :: base_gpu_object
-   !< Base GPU class definition.
+type :: base_nvf_object
+   !< Base NVF class definition.
    !<
-   !< Provide methods for GPU backend.
+   !< Provide methods for NVF GPU offloading backend.
    type(mpih_object)           :: mpih           !< MPI handler.
    type(field_object), pointer :: field=>null()  !< The field.
    real(R8P), allocatable      :: q_t(:,:,:,:,:) !< Transposed cell centered variables on CPU.
@@ -60,13 +60,13 @@ type :: base_gpu_object
       procedure, pass(self) :: update_ghost_local_gpu        !< Update ghosts locally.
       procedure, pass(self) :: update_ghost_fluxes_local_gpu !< Update ghosts locally.
       procedure, pass(self) :: update_ghost_mpi_gpu          !< Update ghosts MPI.
-endtype base_gpu_object
+endtype base_nvf_object
 
 contains
    ! public methods
    subroutine copy_cpu_gpu(self, verbose)
    !< Copy data from (field) CPU to (base_gpu) GPU.
-   class(base_gpu_object), intent(inout)        :: self     !< The base backend.
+   class(base_nvf_object), intent(inout)        :: self     !< The base backend.
    logical,                intent(in), optional :: verbose  !< Flag to activate verbose mode.
    logical                                      :: verbose_ !< Flag to activate verbose mode, local var.
 
@@ -116,7 +116,7 @@ contains
    subroutine copy_transpose_cpu_gpu(self, nv, q_cpu, q_gpu)
    !< Copy transposed data from CPU to GPU.
    !< This routine is called by equation typically passing either q_gpu or q_aux_gpu.
-   class(base_gpu_object), intent(inout)       :: self          !< The equation.
+   class(base_nvf_object), intent(inout)       :: self          !< The equation.
    integer(I4P),           intent(in)          :: nv            !< Number of varibales.
    real(R8P),              intent(in)          :: q_cpu(1:,                    &
                                                         1-self%field%grid%ngc:,&
@@ -154,7 +154,7 @@ contains
    subroutine copy_transpose_gpu_cpu(self, nv, q_gpu, q_cpu)
    !< Copy transposed data from GPU to CPU.
    !< This routine is called by equation typically passing either q_gpu or q_aux_gpu.
-   class(base_gpu_object), intent(inout)      :: self      !< The equation.
+   class(base_nvf_object), intent(inout)      :: self      !< The equation.
    integer(I4P),           intent(in)         :: nv        !< Number of varibales.
    real(R8P),              intent(in), device :: q_gpu(1:,                    &
                                                        1-self%field%grid%ngc:,&
@@ -180,7 +180,7 @@ contains
 
    subroutine create_maps_cell(self, verbose)
    !< Create maps in cells order form the fecs ordered ones.
-   class(base_gpu_object), intent(inout)        :: self                          !< The base backend.
+   class(base_nvf_object), intent(inout)        :: self                          !< The base backend.
    logical,                intent(in), optional :: verbose                       !< Flag to activate verbose mode.
    logical                                      :: verbose_                      !< Flag to activate verbose mode, local var.
    integer(I8P), allocatable                    :: local_map_ghost_cell(:,:)     !< Local map ghost cells update, cells order.
@@ -629,7 +629,7 @@ contains
 
    subroutine create_maps_fluxes_cell(self, verbose)
    !< Create maps in cells order form the fecs ordered ones.
-   class(base_gpu_object), intent(inout)        :: self                             !< The base backend.
+   class(base_nvf_object), intent(inout)        :: self                             !< The base backend.
    logical,                intent(in), optional :: verbose                          !< Flag to activate verbose mode.
    logical                                      :: verbose_                         !< Flag to activate verbose mode, local var.
    integer(I8P), allocatable                    :: local_map_ghost_fluxes_cell(:,:) !< Local map ghost cells update, cells order.
@@ -745,7 +745,7 @@ contains
 
    subroutine initialize(self, field, nv_aux, verbose)
    !< Initialize base backend.
-   class(base_gpu_object), intent(inout)        :: self             !< The base backend.
+   class(base_nvf_object), intent(inout)        :: self             !< The base backend.
    type(field_object),     intent(in), target   :: field            !< Field variable array.
    integer(I4P),           intent(in), optional :: nv_aux           !< Number of auxiliary variables.
    logical,                intent(in), optional :: verbose          !< Flag to activate verbose mode.
@@ -792,7 +792,7 @@ contains
    subroutine initialize_gpu(self, do_mpi_init)
    !< Initialize GPU main data.
    !< @Note This must be the first routine called before.
-   class(base_gpu_object), intent(inout)        :: self              !< The base backend.
+   class(base_nvf_object), intent(inout)        :: self              !< The base backend.
    logical,                intent(in), optional :: do_mpi_init       !< Flag to activate MPI init call.
    type(cudadeviceprop)                         :: device_properties !< Device properties.
 
@@ -809,7 +809,7 @@ contains
 
    subroutine print_device_properties(self, device_properties)
    !< Pretty print device properties.
-   class(base_gpu_object), intent(in) :: self               !< The base backend.
+   class(base_nvf_object), intent(in) :: self               !< The base backend.
    type(cudadeviceprop),   intent(in) :: device_properties  !< Device properties.
 
    associate(r=>self%mpih%myrankstr)
@@ -831,7 +831,7 @@ contains
 
    subroutine update_ghost_local_gpu(self, q_gpu)
    !< Update (local) ghost cells.
-   class(base_gpu_object), intent(in)            :: self      !< The base backend.
+   class(base_nvf_object), intent(in)            :: self      !< The base backend.
    real(R8P),              intent(inout), device :: q_gpu(1:,                    &
                                                           1-self%field%grid%ngc:,&
                                                           1-self%field%grid%ngc:,&
@@ -842,7 +842,7 @@ contains
 
    subroutine update_ghost_fluxes_local_gpu(self, flx_gpu, fly_gpu, flz_gpu)
    !< Update (local) ghost cells.
-   class(base_gpu_object), intent(in)            :: self      !< The base backend.
+   class(base_nvf_object), intent(in)            :: self      !< The base backend.
    real(R8P),              intent(inout), device :: flx_gpu(1:,                    &
                                                             1-self%field%grid%ngc:,&
                                                             1-self%field%grid%ngc:,&
@@ -864,7 +864,7 @@ contains
 
    subroutine update_ghost_mpi_gpu(self, q_gpu, step)
    !< Update ghost cells within other processes.
-   class(base_gpu_object), intent(inout)         :: self      !< The base backend.
+   class(base_nvf_object), intent(inout)         :: self      !< The base backend.
    real(R8P),              intent(inout), device :: q_gpu(1:,                    &
                                                           1-self%field%grid%ngc:,&
                                                           1-self%field%grid%ngc:,&
@@ -1240,4 +1240,4 @@ contains
       stop
    endif
    endsubroutine update_ghost_mpi_gpu_cuf
-endmodule adam_base_gpu_object
+endmodule adam_base_nvf_object

@@ -65,10 +65,10 @@ module adam_field_object
 
 use adam_grid_object, only : grid_object
 use adam_mpih_object, only : mpih_object
-use adam_memory_cpu_lib
+use adam_memory_lib
 use adam_parameters
-use FINER, only : file_ini
-use PENF
+use finer, only : file_ini
+use penf
 use MPI
 use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
 
@@ -85,17 +85,18 @@ type :: field_object
    integer(I4P)               :: block_weight=0_I4P       !< Block weight, `cells_number * variables_number`.
    integer(I4P)               :: nb=0_I4P                 !< Number of all blocks that can be stored.
    integer(I4P)               :: blocks_number=0_I4P      !< Number of blocks actually stored.
+   ! mesh related data, unrelated to field equations
    integer(I8P), allocatable  :: code(:)                  !< Morton codes [nb].
    integer(I4P), allocatable  :: coordinates(:,:)         !< Coordinates IJKL for each block [nb,4].
    real(R8P),    allocatable  :: emin(:,:)                !< Coordinates of minimum abscissa of each block [3,nb].
    real(R8P),    allocatable  :: emax(:,:)                !< Coordinates of maximum abscissa of each block [3,nb].
    real(R8P),    allocatable  :: dxyz(:,:)                !< Space steps of each block [3,nb].
-   real(R8P),    allocatable  :: x_node(:,:)              !< X node coordinates.
-   real(R8P),    allocatable  :: y_node(:,:)              !< Y node coordinates.
-   real(R8P),    allocatable  :: z_node(:,:)              !< Z node coordinates.
-   real(R8P),    allocatable  :: x_cell(:,:)              !< X cell coordinates.
-   real(R8P),    allocatable  :: y_cell(:,:)              !< Y cell coordinates.
-   real(R8P),    allocatable  :: z_cell(:,:)              !< Z cell coordinates.
+   real(R8P),    allocatable  :: x_node(:,:)              !< X node coordinates [3,nb].
+   real(R8P),    allocatable  :: y_node(:,:)              !< Y node coordinates [3,nb].
+   real(R8P),    allocatable  :: z_node(:,:)              !< Z node coordinates [3,nb].
+   real(R8P),    allocatable  :: x_cell(:,:)              !< X cell coordinates [3,nb].
+   real(R8P),    allocatable  :: y_cell(:,:)              !< Y cell coordinates [3,nb].
+   real(R8P),    allocatable  :: z_cell(:,:)              !< Z cell coordinates [3,nb].
    integer(I8P), allocatable  :: local_map_ghost(:,:)     !< Local map for ghost cells updating.
    integer(I8P), allocatable  :: local_map_bc_face(:,:)   !< Local map for face BC ghost cells.
    integer(I8P), allocatable  :: local_map_bc_edge(:,:)   !< Local map for edge BC ghost cells.
@@ -126,6 +127,7 @@ type :: field_object
       procedure, pass(self) :: adapt                         !< Adapt field accordingly to refine/derefine necessity.
       procedure, pass(self) :: blocks_reorder                !< Reorder blocks indexes in field.
       procedure, pass(self) :: compute_metrics               !< Compute metrics of each block.
+      procedure, pass(self) :: description                   !< Return pretty-printed object description.
       procedure, pass(self) :: do_caxis_intersect            !< Return true if a block is intersected by coordinate-axis.
       procedure, pass(self) :: do_cplane_intersect           !< Return true if a block is intersected by coordinate-plane.
       procedure, pass(self) :: do_ray_intersect              !< Return true if a block is intersected by ray.
@@ -138,7 +140,6 @@ type :: field_object
       procedure, pass(self) :: mpi_redistribute              !< Redistribute blocks to processes.
       procedure, pass(self) :: prepare_comm_local_ghost      !< Prepare communication and local maps/buffers for ghosts update.
       procedure, pass(self) :: prepare_local_bc              !< Prepare local maps for boundary conditions.
-      procedure, pass(self) :: print_status                  !< Print status of main data.
       procedure, pass(self) :: save_blocks                   !< Save blocks data, used for restarting.
       ! private methods
       procedure, pass(self), private :: derefine !< Derefine blocks.
@@ -200,6 +201,20 @@ contains
                                      x_cell=self%x_cell(:,b), y_cell=self%y_cell(:,b), z_cell=self%z_cell(:,b))
    enddo
    endsubroutine compute_metrics
+
+   pure function description(self) result(desc)
+   !< Return a pretty-formatted object description.
+   class(field_object), intent(in) :: self             !< The field.
+   character(len=:), allocatable   :: desc             !< Description.
+   character(len=1), parameter     :: NL=new_line('a') !< New line character.
+
+   desc =       self%mpih%myrankstr//'field main data'                                               //NL
+   desc = desc//self%mpih%myrankstr//'  field variables number (nv): '//trim(str(self%nv           ))//NL
+   desc = desc//self%mpih%myrankstr//'  all blocks number (nb):      '//trim(str(self%nb           ))//NL
+   desc = desc//self%mpih%myrankstr//'  blocks number:               '//trim(str(self%blocks_number))//NL
+   desc = desc//self%mpih%myrankstr//'  block weight:                '//trim(str(self%block_weight ))//NL
+   desc = desc//self%mpih%myrankstr//'  q shape:                     '//trim(str(shape(self%q)     ))
+   endfunction description
 
    function do_caxis_intersect(self, b, caxis_origin, caxis_direction, caxis_block_indexes) result(do_intersect)
    !< Return true if a block is intersected by coordinate-axis.

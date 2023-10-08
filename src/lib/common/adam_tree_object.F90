@@ -129,15 +129,15 @@ module adam_tree_object
 
 use adam_grid_object, only : grid_object
 use adam_mpih_object, only : mpih_object
-use adam_parameters
 use adam_tree_node_object, only : tree_node_object
 use adam_tree_bucket_object, only : tree_bucket_object, iterator_interface
-use FINER, only : file_ini
-use FOSSIL
-use MORTIF
-use PENF
-use VECFOR
-use MPI
+use adam_parameters
+use finer, only : file_ini
+use fossil
+use mortif
+use penf
+use vecfor
+use mpi
 use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
 
 implicit none
@@ -145,14 +145,14 @@ private
 public :: tree_object
 
 ! tree node parameters
-integer(I4P), parameter :: NODE_LESS_REFINED = -1_I4P      !< More refined node type.
-integer(I4P), parameter :: NODE_STANDARD     =  0_I4P      !< Standard node type.
-integer(I4P), parameter :: NODE_MORE_REFINED =  1_I4P      !< More refined node type.
-integer(I4P), parameter :: NODE_BOUNDARY_CONDITION = 2_I4P !< Boundary condition node type.
+integer(I4P), parameter :: NODE_LESS_REFINED       = -1_I4P !< Less refined node type.
+integer(I4P), parameter :: NODE_STANDARD           =  0_I4P !< Standard node type.
+integer(I4P), parameter :: NODE_MORE_REFINED       =  1_I4P !< More refined node type.
+integer(I4P), parameter :: NODE_BOUNDARY_CONDITION =  2_I4P !< Boundary condition node type.
 ! tree parameters
-integer(I8P), parameter :: TREE_BUCKETS_NUMBER_DEF = 9973_I8P    !< Default number of buckets of hash table.
-real(R8P),    parameter :: TREE_MAX_LOAD = 0.9_R8P               !< Maximum load of hash table buckets.
-integer(I4P), parameter :: TREE_MAX_SANITIZE_ITERATIONS = 10_I4P !< Default number of tree sanitize iterations.
+integer(I8P), parameter :: TREE_BUCKETS_NUMBER_DEF      = 9973_I8P !< Default number of buckets of hash table.
+real(R8P),    parameter :: TREE_MAX_LOAD                = 0.9_R8P  !< Maximum load of hash table buckets.
+integer(I4P), parameter :: TREE_MAX_SANITIZE_ITERATIONS = 10_I4P   !< Default number of tree sanitize iterations.
 
 type :: tree_object
    !< Tree class definition.
@@ -180,12 +180,16 @@ type :: tree_object
    integer(I8P), allocatable :: block_derefined(:,:)     !< List of field derefined blocks with Morton code.
    integer(I4P), allocatable :: block_coordinates(:,:)   !< Block coordinates of redistributed blocks [4,blocks_number].
    integer(I8P), allocatable :: block_code(:)            !< Block Morton code of redistributed blocks [blocks_number].
+   ! MAPS
+   ! Local maps
    integer(I8P), allocatable :: local_map(:,:)           !< Local map, list block index changes of my nodes.
    integer(I8P), allocatable :: local_map_ghost(:,:)     !< Local map for ghost cells updating [fec_number, 4].
+   ! integer(I8P), allocatable :: local_map_ghost_cell(:,:) !< Local map ghost cells update, cells order.
    integer(I8P), allocatable :: local_map_bc_face(:,:)   !< Local map for face BC ghost cells.
    integer(I8P), allocatable :: local_map_bc_edge(:,:)   !< Local map for edge BC ghost cells.
    integer(I8P), allocatable :: local_map_bc_corner(:,:) !< Local map for corner BC ghost cells.
-   ! MPI data of nodes
+   ! integer(I8P), allocatable :: local_map_bc_crown(:,:,:) !< Local map for face BC ghost cells, crown order.
+   ! MPI send/recv maps
    integer(I4P)              :: my_nodes_number=0_I4P     !< Number of my nodes, keep_nodes_number + recv_nodes_number.
    integer(I4P)              :: send_nodes_number=0_I4P   !< Number of nodes to be sent.
    integer(I4P)              :: recv_nodes_number=0_I4P   !< Number of nodes to be received.
@@ -198,13 +202,18 @@ type :: tree_object
    integer(I4P), allocatable :: comm_map_recv_ptr(:)      !< Communication map, pointers in list to recv [procs_number+1].
    integer(I8P), allocatable :: comm_map_send(:)          !< Communication map, blocks to send [sum(comm_map_n_send)].
    integer(I8P), allocatable :: comm_map_recv(:)          !< Communication map, blocks to receive [sum(comm_map_n_recv)].
-   ! MPI data of ghost cells
+   ! MPI send/recv ghost cells maps
    integer(I4P), allocatable :: comm_map_n_send_ghost(:)   !< Communication map, number of ghost celss to send [procs_number].
    integer(I4P), allocatable :: comm_map_n_recv_ghost(:)   !< Communication map, number of ghost celss to recv [procs_number].
    integer(I4P), allocatable :: comm_map_send_ptr_ghost(:) !< Communication map, pointers in list to send [procs_number+1].
    integer(I4P), allocatable :: comm_map_recv_ptr_ghost(:) !< Communication map, pointers in list to recv [procs_number+1].
-   integer(I8P), allocatable :: comm_map_send_ghost(:,:)   !< Communication map, `fec` information [fec_number, 5].
-   integer(I8P), allocatable :: comm_map_recv_ghost(:,:)   !< Communication map, `fec` information [fec_number, 5].
+   integer(I8P), allocatable :: comm_map_send_ghost(:,:)      !< Communication map, send ghost cells, fec order.
+   ! integer(I8P), allocatable :: comm_map_send_ghost_cell(:,:) !< Communication map, send ghost cells, cells order.
+   integer(I8P), allocatable :: comm_map_recv_ghost(:,:)      !< Communication map, recv ghost cells, fec order.
+   ! integer(I8P), allocatable :: comm_map_recv_ghost_cell(:,:) !< Communication map, recv ghost cells, cells order.
+   ! MPI send/recv ghost buffers
+   real(R8P), allocatable :: send_buffer_ghost(:) !< Send buffer of ghost cells.
+   real(R8P), allocatable :: recv_buffer_ghost(:) !< Receive buffer of ghost cells.
    ! STL surfaces data
    type(surface_stl_object)  :: surface_stl !< STL surface.
 
@@ -216,6 +225,7 @@ type :: tree_object
       procedure, pass(self) :: blocks_reorder               !< Reorder blocks indexes in field.
       procedure, pass(self) :: codes                        !< Return the list of (sorted) codes actually stored in the tree.
       procedure, pass(self) :: compute_surface_stl_distance !< Compute signed distance of nodes from a STL surface.
+      procedure, pass(self) :: description                  !< Return pretty-printed object description.
       procedure, pass(self) :: get_closest_block            !< Get the closest block to a given point.
       procedure, pass(self) :: get_closest_cells            !< Get the closest cells to a given point.
       procedure, pass(self) :: hash                         !< Hash the key.
@@ -225,7 +235,6 @@ type :: tree_object
       procedure, pass(self) :: load_from_ini_file           !< Load object data from INI file.
       procedure, pass(self) :: load_surface_stl             !< Load surface from STL file.
       procedure, pass(self) :: loop                         !< Sentinel while-loop on nodes returning the code.
-      procedure, pass(self) :: make_local_maps_bc           !< Make local maps of boundary conditions.
       procedure, pass(self) :: make_neighborhood            !< Make neighborhood all whole tree and store it in nodes.
       procedure, pass(self) :: mark_all_nodes               !< Mark all nodes to be refined, derefined, ecc.
       procedure, pass(self) :: mark_sphere                  !< Mark nodes to be refined/derefined by sphere distance.
@@ -233,16 +242,17 @@ type :: tree_object
       procedure, pass(self) :: max_cell_delta               !< Return the maximum cell delta given a comparison distance.
       procedure, pass(self) :: node                         !< Return a pointer to a node.
       procedure, pass(self) :: prime_buckets_number         !< Return the buckets number as nearest prime number given nodes number.
-      procedure, pass(self) :: print_status                 !< Print status of main data.
       procedure, pass(self) :: prune                        !< Prune nodes.
       procedure, pass(self) :: resize                       !< Resize the tree.
       procedure, pass(self) :: save_nodes                   !< Save nodes data, used for restart.
-      procedure, pass(self) :: save_local_map               !< Save local map.
       procedure, pass(self) :: traverse                     !< Traverse tree calling the iterator procedure.
-      ! MPI methods
-      procedure, pass(self) :: import_refinements_needed  !< Import refinements needed status changed externally.
+      ! MAPS methods
+      procedure, pass(self) :: make_local_maps_bc           !< Make local maps of boundary conditions.
       procedure, pass(self) :: make_comm_local_maps       !< Make communication/local maps.
       procedure, pass(self) :: make_comm_local_maps_ghost !< Make communication/local maps of ghost cells.
+      procedure, pass(self) :: save_local_map               !< Save local map.
+      ! MPI methods
+      procedure, pass(self) :: import_refinements_needed  !< Import refinements needed status changed externally.
       procedure, pass(self) :: mpi_gather_nodes_data      !< Gather nodes data between MPI processes.
       procedure, pass(self) :: mpi_print_stats            !< Print MPI stats.
       procedure, pass(self) :: mpi_redistribute           !< Redistribute nodes to MPI processes, load balancing.
@@ -312,28 +322,15 @@ contains
    ! public methods
    subroutine adapt(self)
    !< Adapt tree accordingly to refine/derefine necessity.
-   class(tree_object), intent(inout) :: self        !< The tree.
-   real(R8P)                         :: timing(1:2) !< Tic toc timing.
+   class(tree_object), intent(inout) :: self !< The tree.
 
-   timing(1) = MPI_WTIME()
    call self%sanitize
-   timing(2) = MPI_WTIME()
-   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%ADAPT%SANITIZE: ', timing(2) - timing(1)
 
-   timing(1) = MPI_WTIME()
    call self%refine
-   timing(2) = MPI_WTIME()
-   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%ADAPT%REFINE: ', timing(2) - timing(1)
 
-   timing(1) = MPI_WTIME()
    call self%derefine
-   timing(2) = MPI_WTIME()
-   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%ADAPT%DEREFINE: ', timing(2) - timing(1)
 
-   timing(1) = MPI_WTIME()
    call self%make_neighborhood
-   timing(2) = MPI_WTIME()
-   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%ADAPT%MAKE_NEIGHBORHOOD: ', timing(2) - timing(1)
    endsubroutine adapt
 
    function codes(self, only_mine, sort_by_level)
@@ -522,6 +519,22 @@ contains
    endif
    endassociate
    endsubroutine compute_surface_stl_distance
+
+   pure function description(self) result(desc)
+   !< Return a pretty-formatted object description.
+   class(tree_object), intent(in) :: self             !< The tree.
+   character(len=:), allocatable  :: desc             !< Description.
+   character(len=1), parameter    :: NL=new_line('a') !< New line character.
+
+   desc =       self%mpih%myrankstr//'tree main data'                                    //NL
+   desc = desc//self%mpih%myrankstr//'  buckets number: '//trim(str(self%buckets_number))//NL
+   desc = desc//self%mpih%myrankstr//'  nodes number:   '//trim(str(self%nodes_number  ))//NL
+   desc = desc//self%mpih%myrankstr//'  max load:       '//trim(str(self%max_load      ))//NL
+   desc = desc//self%mpih%myrankstr//'  ratio:          '//trim(str(self%ratio         ))//NL
+   desc = desc//self%mpih%myrankstr//'  max level:      '//trim(str(self%max_level     ))//NL
+   desc = desc//self%mpih%myrankstr//'  ijkl_prune:     '//trim(str(self%ijkl_prune    ))//NL
+   desc = desc//self%mpih%myrankstr//'  iu_ref_levels:  '//trim(str(self%iu_ref_levels ))
+   endfunction description
 
    function get_closest_block(self, point) result(code)
    !< Get the closest block to a given point.
@@ -1145,21 +1158,6 @@ contains
    buckets_number = b
    endfunction prime_buckets_number
 
-   subroutine print_status(self)
-   !< Print status of main data.
-   class(tree_object), intent(in) :: self !< The tree.
-
-   print '(A)', self%mpih%myrankstr//'tree status of main data'
-   print '(A)', self%mpih%myrankstr//'  buckets number: '//trim(str(self%buckets_number))
-   print '(A)', self%mpih%myrankstr//'  nodes number:   '//trim(str(self%nodes_number  ))
-   print '(A)', self%mpih%myrankstr//'  max load:       '//trim(str(self%max_load      ))
-   print '(A)', self%mpih%myrankstr//'  ratio:          '//trim(str(self%ratio         ))
-   print '(A)', self%mpih%myrankstr//'  max level:      '//trim(str(self%max_level     ))
-   print '(A)', self%mpih%myrankstr//'  ijkl_prune:     '//trim(str(self%ijkl_prune    ))
-   print '(A)', self%mpih%myrankstr//'  iu_ref_levels:  '//trim(str(self%iu_ref_levels ))
-   print '(A)', self%mpih%myrankstr//''
-   endsubroutine print_status
-
    subroutine prune(self, ijkl_prune)
    !< Prune nodes.
    class(tree_object), intent(inout) :: self          !< The tree.
@@ -1179,6 +1177,7 @@ contains
          if (ijkl(4)/=self%ijkl_prune(4)) then
             print '(A)', self%mpih%myrankstr//'ERROR: cannot prune nodes at different prune-level, node: '//&
                          trim(str(node_ptr%code))
+            call self%mpih%abort
          endif
          if (ijkl(1)>self%ijkl_prune(1).or.ijkl(2)>self%ijkl_prune(2).or.ijkl(3)>self%ijkl_prune(3)) then
             call self%remove_node(code=node_ptr%code)
@@ -1822,7 +1821,6 @@ contains
    integer(I4P)                      :: child_local_code !< Local numbering.
    integer(I8P)                      :: n_keep           !< Number of keept nodes.
    integer(I8P)                      :: n_recv           !< Number of nodes that I have to receive.
-   real(R8P)                         :: timing(2)        !< Tic toc timing.
 
    codes_sorted = self%codes() ! sorted list of codes
    my_codes_number = nint(real(size(codes_sorted, dim=1),R8P) / self%mpih%procs_number)
@@ -1831,7 +1829,6 @@ contains
    block_index_new = 0_I8P
    ! loop over all codes
    c = 1
-   timing(1) = MPI_WTIME()
    do while(c<=size(codes_sorted, dim=1))
       if (block_index_new > my_codes_number.and.p < self%mpih%procs_number-1) then ! I would like to split...
          if (can_split()) then
@@ -1874,8 +1871,6 @@ contains
       endif
       c = c + 1
    enddo
-   timing(2) = MPI_WTIME()
-   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%MPI_REDISTRIBUTE%newrank_loop: ', timing(2) - timing(1)
 
    ! create communication/local maps
    call self%make_comm_local_maps
@@ -1884,7 +1879,6 @@ contains
    n_recv = 0_I8P ; if (allocated(self%comm_map_recv)) n_recv = size(self%comm_map_recv, dim=1)
    if (allocated(self%block_coordinates)) deallocate(self%block_coordinates) ; allocate(self%block_coordinates(4, n_keep + n_recv))
    if (allocated(self%block_code)) deallocate(self%block_code) ; allocate(self%block_code(n_keep + n_recv))
-   timing(1) = MPI_WTIME()
    do while(self%loop(node_ptr=node_ptr))
       node_ptr%myrank = node_ptr%myrank_new
       node_ptr%block_index = node_ptr%block_index_new
@@ -1897,8 +1891,6 @@ contains
          self%block_code(node_ptr%block_index) = node_ptr%code
       endif
    enddo
-   timing(2) = MPI_WTIME()
-   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%MPI_REDISTRIBUTE%create_coordinate: ', timing(2) - timing(1)
 
    self%last_block_index = n_keep + n_recv
    contains
@@ -2855,21 +2847,16 @@ contains
 
    iterations_number_ = TREE_MAX_SANITIZE_ITERATIONS ; if (present(iterations_number)) iterations_number_ = iterations_number
 
-   timing(1) = MPI_WTIME()
    min_max_check_loop : do while(self%loop(node_ptr=node_ptr))
       new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
       if ((new_level > self%max_level).or.(new_level < 0)) then
          node_ptr%refinement_needed = TO_NOT_TOUCH
       endif
    enddo min_max_check_loop
-   timing(2) = MPI_WTIME()
-   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%SANITIZE%min_max_check_loop: ', timing(2) - timing(1)
 
    !MEMORYLEAK LEVAREallocate(self%temp_array_i8(10000))
 
-   timing(1) = MPI_WTIME()
    sanitize_loop : do s=1, iterations_number_
-      print '(A)', self%mpih%myrankstr//'sanitize iteration '//trim(str(s,.true.))
       is_sanitize_complete = .true.
 
       ! check for the sanity of derefinement
@@ -2877,7 +2864,6 @@ contains
       if (allocated(self%node_to_derefine)) deallocate(self%node_to_derefine) ; allocate(self%node_to_derefine(0))
       if (allocated(codes_analyzed)) deallocate(codes_analyzed) ; allocate(codes_analyzed(0))
       !MEMORYLEAKLEVAREif (allocated(self%codes_analyzed)) deallocate(self%codes_analyzed) ; allocate(self%codes_analyzed(0))
-      timing(3) = MPI_WTIME()
       derefine_loop : do while(self%loop(node_ptr=node_ptr))
          ! check if I want to be derefined and I have not been analyzed yet
          if (node_ptr%refinement_needed == TO_BE_DEREFINED) then
@@ -2921,11 +2907,8 @@ contains
             endif
          endif
       enddo derefine_loop
-      timing(4) = MPI_WTIME()
-      ! print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%SANITIZE%sanitize_loop%derefine_loop: ', timing(4) - timing(3)
 
       ! check for the sanity of refinement (2:1 rule)
-      timing(3) = MPI_WTIME()
       refine_loop : do while(self%loop(node_ptr=node_ptr))
          new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
          face_loop : do f=1, 26
@@ -2968,13 +2951,9 @@ contains
            stop
         endif
       enddo refine_loop
-      timing(4) = MPI_WTIME()
-      ! print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%SANITIZE%sanitize_loop%refine_loop: ', timing(4) - timing(3)
 
       if (is_sanitize_complete) exit sanitize_loop
    enddo sanitize_loop
-   timing(2) = MPI_WTIME()
-   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%SANITIZE%sanitize_loop: ', timing(2) - timing(1)
 
    if (.not.is_sanitize_complete) then
       print '(A)', self%mpih%myrankstr//'SANITZE CANNOT BE COMPLETED. SOMETHING WENT TERRIBLY WRONG. EXIT!'
@@ -2984,14 +2963,11 @@ contains
    ! update to_refine list
    self%n_my_refine = 0
    if (allocated(self%node_to_refine)) deallocate(self%node_to_refine) ; allocate(self%node_to_refine(0))
-   timing(1) = MPI_WTIME()
    do while(self%loop(node_ptr=node_ptr))
       if (node_ptr%refinement_needed==TO_BE_REFINED) then
          self%node_to_refine = [self%node_to_refine, [node_ptr%code]]
          if (self%mpih%myrank==node_ptr%myrank) self%n_my_refine = self%n_my_refine + 1
       endif
    enddo
-   timing(2) = MPI_WTIME()
-   ! print '(A, F18.10)', self%mpih%myrankstr//'step timing TREE%SANITIZE%to_refine_loop: ', timing(2) - timing(1)
    endsubroutine sanitize
 endmodule adam_tree_object
