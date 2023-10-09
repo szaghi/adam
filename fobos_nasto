@@ -1,8 +1,7 @@
 [modes]
 modes = nasto-nvf-mpi-cuda
         nasto-nvf-mpi-cuda-debug
-        nasto-nvf-mpi-cuda-m100
-        nasto-nvf-mpi-cuda-m100-debug
+        nasto-nvf-mpi-cuda-leo
         nasto-cpu-mpi-gnu
         nasto-cpu-mpi-gnu-debug
         nasto-gmp-mpi-ifx
@@ -17,6 +16,7 @@ $ZLIB           = /opt/zlib/bin/1.2.11/lib/libz.a
 $SZIP           = /opt/szip/bin/2.1.1/lib/libsz.a
 $GETMEMORY      = ./exe/obj/getmemory.o
 $CGAL           = ./exe/obj/cgal_c_wrappers.o
+$HDF5_cuda_23_1_leo = /leonardo/prod/spack/03/install/0.19/linux-rhel8-icelake/nvhpc-23.1/hdf5-1.12.2-6a3ddj2hipc7tm4xrdqh4ijifigxq3bq/
 
 # main modes
 [nasto-nvf-mpi-cuda]
@@ -59,47 +59,26 @@ libs     = $HDF5_cuda_22_3/lib/libhdf5hl_fortran.a
            $GETMEMORY
            $CGAL
 
-[nasto-nvf-mpi-cuda-m100]
-help     = Build NASTO NVF app with NVF-MPI-CUDA on marconi100 cluster
+# module load anaconda3/2023.03 zlib/1.2.13--gcc--11.3.0 nvhpc/23.1 openmpi/4.1.4--nvhpc--23.1-cuda-11.8 hdf5/1.12.2--openmpi--4.1.4--nvhpc--23.1
+[nasto-nvf-mpi-cuda-leo]
+help     = Build nasto app with NVF-MPI-CUDA on marconi100 cluster
 template = template-base
 target   = adam_nasto_nvf.F90
 preproc  = -D_NVF -D_MPI_
 compiler = custom
-fc       = mpipgifort
+fc       = mpif90
 modsw    = -module=
-cflags   = -cpp -c -Mcuda=cc70,cuda11.0,ptxinfo -O2
-lflags   = -Mcuda=cc70,cuda11.0,ptxinfo -O2
-lib_dir  = ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib
-include  = ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/include
-libs     = ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5hl_fortran.a
-           ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5_hl.a
-           ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5_fortran.a
-           ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5.a
-           -Wl,-rpath,/cineca/prod/opt/compilers/gnu/8.4.0/none/lib64 /cineca/prod/opt/compilers/gnu/8.4.0/none/lib64/libstdc++.so.6.0.25
-           /cineca/prod/opt/libraries/zlib/1.2.11/gnu--8.4.0/lib/libz.a
-           /cineca/prod/opt/libraries/szip/2.1.1/gnu--8.4.0/lib/libsz.a
-           $GETMEMORY
-           $CGAL
-
-[nasto-nvf-mpi-cuda-m100-debug]
-help     = Build NASTO NVF app (debug) with NVF-MPI-CUDA on marconi100 cluster
-template = template-base
-target   = adam_nasto_nvf.F90
-preproc  = -D_NVF -D_MPI_
-compiler = custom
-fc       = mpipgifort
-modsw    = -module=
-cflags   = -cpp -c -Mcuda=cc70,cuda11.0,ptxinfo -C -gopt -Mbounds -traceback
-lflags   = -Mcuda=cc70,cuda11.0,ptxinfo -C -gopt -Mbounds -traceback
-lib_dir  = ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib
-include  = ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/include
-libs     = ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5hl_fortran.a
-           ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5_hl.a
-           ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5_fortran.a
-           ./lib/HDF5_NVFORTRAN/install_hdf5-1.12.0/lib/libhdf5.a
-           -Wl,-rpath,/cineca/prod/opt/compilers/gnu/8.4.0/none/lib64 /cineca/prod/opt/compilers/gnu/8.4.0/none/lib64/libstdc++.so.6.0.25
-           /cineca/prod/opt/libraries/zlib/1.2.11/gnu--8.4.0/lib/libz.a
-           /cineca/prod/opt/libraries/szip/2.1.1/gnu--8.4.0/lib/libsz.a
+cflags   = -cpp -c -Mcuda=cc80,cuda11.8,ptxinfo -O2
+lflags   = -Mcuda=cc80,cuda11.8,ptxinfo -O2
+lib_dir  = $HDF5_cuda_23_1_leo/lib
+include  = $HDF5_cuda_23_1_leo/include
+libs     = $HDF5_cuda_23_1_leo/lib/libhdf5_hl_fortran.a
+           $HDF5_cuda_23_1_leo/lib/libhdf5_fortran.a
+           $HDF5_cuda_23_1_leo/lib/libhdf5_hl.a
+           $HDF5_cuda_23_1_leo/lib/libhdf5_f90cstub.a
+           $HDF5_cuda_23_1_leo/lib/libhdf5.a
+           -Wl,-rpath,/leonardo/prod/spack/03/install/0.19/linux-rhel8-icelake/gcc-8.5.0/gcc-11.3.0-tm6phj7wkcw7cuy6gjixemkvh5x2mhza/lib64 /leonardo/prod/spack/03/install/0.19/linux-rhel8-icelake/gcc-8.5.0/gcc-11.3.0-tm6phj7wkcw7cuy6gjixemkvh5x2mhza/lib64/libstdc++.so.6.0.29
+           /leonardo/prod/spack/03/install/0.19/linux-rhel8-icelake/gcc-11.3.0/zlib-1.2.13-noknejuy3uxqyxfetsmtnvb6zna3zaxk/lib/libz.a
            $GETMEMORY
            $CGAL
 
@@ -237,10 +216,10 @@ rule_3 = cd src/third_party_manual/getmemory/ ; gcc -c getmemory.c ; cd -
 rule_4 = mv src/third_party_manual/getmemory/*.o exe/obj/
 rule_5 = mv src/third_party_manual/CGAL/*.o exe/obj/
 
-[rule-makethirdpartymanual-m100]
+[rule-makethirdpartymanual-leo]
 help   = Make third party manual-compiling libraries on marconi100 cluster
 rule_1 = mkdir -p exe/mod exe/obj
-rule_2 = cd src/third_party_manual/CGAL/ ; g++ -std=c++17 -frounding-math -O2 -I/cineca/prod/opt/libraries/boost/1.76.0/spectrum_mpi--10.4.0--binary/include -I../../../lib/CGAL-5.0.2-INSTALL/include/ -I /cineca/prod/opt/libraries/mpfr/4.0.2/gnu--8.4.0/include -c cgal_c_wrappers.cpp ; cd -
+rule_2 = cd src/third_party_manual/CGAL/ ; g++ -std=c++17 -frounding-math -O2 -I/leonardo/prod/spack/03/install/0.19/linux-rhel8-icelake/nvhpc-23.1/boost-1.80.0-iq4pew7yycxkz2wcx6ckm2ix25cuozqv/include -I/leonardo/home/userinternal/fsalvado/ADAM/CGAL/CGAL-5.0.2/include/ -c cgal_c_wrappers.cpp ; cd -
 rule_3 = cd src/third_party_manual/getmemory/ ; gcc -c getmemory.c ; cd -
 rule_4 = mv src/third_party_manual/getmemory/*.o exe/obj/
 rule_5 = mv src/third_party_manual/CGAL/*.o exe/obj/
