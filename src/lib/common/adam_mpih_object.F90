@@ -30,6 +30,8 @@ type :: mpih_object
       procedure, pass(self) :: initialize    !< Initialize MPI handler data.
       procedure, pass(self) :: print_message !< Print a message on stdout with rank prefix.
       procedure, pass(self) :: tictoc_timing !< Return the last tic toc timing.
+      procedure, pass(self) :: tic           !< Start a tic toc timing.
+      procedure, pass(self) :: toc           !< Stop  a tic toc timing.
 endtype mpih_object
 
 contains
@@ -123,4 +125,20 @@ contains
 
    timing = self%timing(2) - self%timing(1)
    endfunction tictoc_timing
+
+   subroutine tic(self)
+   !< Start a tic toc timing.
+   class(mpih_object) , intent(inout) :: self !< MPI handler.
+
+   self%timing(1) = MPI_WTIME()
+   endsubroutine tic
+
+   function toc(self) result(timing)
+   !< Stop a tic toc timing.
+   class(mpih_object) , intent(inout) :: self !< MPI handler.
+   real(R8P)                          :: timing !< Tic toc timing.
+
+   self%timing(2) = MPI_WTIME()
+   timing = self%tictoc_timing()
+   endfunction toc
 endmodule adam_mpih_object

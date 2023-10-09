@@ -1,5 +1,5 @@
 !< ADAM, Navier-Stokes equations system class definition, common data to all backends.
-module adam_nasto_common_object
+module adam_mhd_common_object
 !< ADAM, Navier-Stokes equations system class definition, common data to all backends.
 
 use adam_adam_object
@@ -9,20 +9,20 @@ use adam_grid_object
 use adam_ib_object
 use adam_mpih_object
 use adam_slices_object
-use adam_nasto_ic_object
-use adam_nasto_io_object
-use adam_nasto_bc_object
-use adam_nasto_physics_object
-use adam_nasto_schemes_object
-use adam_nasto_time_object
+use adam_mhd_ic_object
+use adam_mhd_io_object
+use adam_mhd_bc_object
+use adam_mhd_physics_object
+use adam_mhd_schemes_object
+use adam_mhd_time_object
 use penf
 use ISO_C_BINDING
 
 implicit none
 private
-public :: nasto_common_object
+public :: mhd_common_object
 
-type :: nasto_common_object
+type :: mhd_common_object
    !< Navier-Stokes equations system class definition, common data to all backends.
    ! ADAM library objects
    type(mpih_object)           :: mpih          !< MPI handler.
@@ -32,13 +32,13 @@ type :: nasto_common_object
    type(amr_object)            :: amr           !< AMR marker handler.
    type(ib_object)             :: ib            !< Immersed Boundary (IB) handler.
    type(slices_object)         :: slices        !< Slices handler.
-   ! NASTO library objects
-   type(nasto_io_object)      :: io      !< IO handler.
-   type(nasto_physics_object) :: physics !< Fluids physiscs handler.
-   type(nasto_ic_object)      :: ic      !< Initial Conditions (IC) handler.
-   type(nasto_bc_object)      :: bc      !< Boundary Conditions (BC) handler.
-   type(nasto_time_object)    :: time    !< Time handler.
-   type(nasto_schemes_object) :: schemes !< Schemes handler.
+   ! MHD library objects
+   type(mhd_io_object)      :: io      !< IO handler.
+   type(mhd_physics_object) :: physics !< Fluids physiscs handler.
+   type(mhd_ic_object)      :: ic      !< Initial Conditions (IC) handler.
+   type(mhd_bc_object)      :: bc      !< Boundary Conditions (BC) handler.
+   type(mhd_time_object)    :: time    !< Time handler.
+   type(mhd_schemes_object) :: schemes !< Schemes handler.
    ! grid/field data replica for easy handling
    integer(I4P), pointer :: ngc=>null()           !< Number of ghost cells.
    integer(I4P), pointer :: ni=>null()            !< Number of cells in i direction.
@@ -49,7 +49,7 @@ type :: nasto_common_object
    integer(I4P), pointer :: ns=>null()            !< Number of fluids specie.
    integer(I4P), pointer :: nv=>null()            !< Number of conservative variables.
    integer(I4P), pointer :: nv_aux=>null()        !< Number of auxiliary variables.
-   ! auxiliary fields data: see nasto parameters definition for the arrangement of conservative and auxiliary variables
+   ! auxiliary fields data: see mhd parameters definition for the arrangement of conservative and auxiliary variables
    real(R8P), allocatable :: q_aux(:,:,:,:,:) !< Auxiliary cell centered variables.
 
    type(c_ptr), allocatable :: ptree(:) !< CGAL trees for solids.
@@ -57,12 +57,12 @@ type :: nasto_common_object
    contains
       procedure, pass(self) :: allocate_common   !< Allocate common data.
       procedure, pass(self) :: initialize_common !< Initialize the equation common data.
-endtype nasto_common_object
+endtype mhd_common_object
 
 contains
    subroutine allocate_common(self)
    !< Allocate common data.
-   class(nasto_common_object), intent(inout) :: self !< The equation.
+   class(mhd_common_object), intent(inout) :: self !< The equation.
 
    associate(nv_aux=>self%nv_aux, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb, &
              solids_number=>self%ib%solids_number)
@@ -73,7 +73,7 @@ contains
 
    subroutine initialize_common(self, filename, memory_avail, do_mpi_init)
    !< Initialize the equation common data.
-   class(nasto_common_object), intent(inout)        :: self         !< The equation.
+   class(mhd_common_object), intent(inout)        :: self         !< The equation.
    character(*),               intent(in)           :: filename     !< Input file name.
    real(R8P),                  intent(in)           :: memory_avail !< Memory available for single MPI process.
    logical,                    intent(in), optional :: do_mpi_init  !< Flag to activate MPI init call.
@@ -81,7 +81,7 @@ contains
    integer(I4P)                                     :: nb           !< Number of allocated blocks.
 
    call self%mpih%initialize(do_mpi_init=do_mpi_init)
-   call self%mpih%print_message('nasto_common_object%initialize start')
+   call self%mpih%print_message('mhd_common_object%initialize start')
    call self%io%initialize(filename=trim(filename))
    associate(file_parameters=>self%io%file_parameters)
    call self%bc%initialize(file_parameters=file_parameters)
@@ -103,13 +103,13 @@ contains
    call self%schemes%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
    endassociate
    call self%allocate_common
-   call self%mpih%print_message('nasto_common_object%initialize finish')
+   call self%mpih%print_message('mhd_common_object%initialize finish')
    contains
       subroutine associate_adam_data(grid, field, physics)
       !< Associate objects data to equation for easy handling.
       type(grid_object),          intent(in), target :: grid    !< The grid.
       type(field_object),         intent(in), target :: field   !< The field.
-      type(nasto_physics_object), intent(in), target :: physics !< The physics.
+      type(mhd_physics_object), intent(in), target :: physics !< The physics.
 
       self%grid          => grid
       self%field         => field
@@ -124,4 +124,4 @@ contains
       self%nv_aux        => physics%nv_aux
       endsubroutine associate_adam_data
    endsubroutine initialize_common
-endmodule adam_nasto_common_object
+endmodule adam_mhd_common_object

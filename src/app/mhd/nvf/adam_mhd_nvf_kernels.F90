@@ -1,6 +1,6 @@
-!< ADAM, NASTO NVF application kernels.
-module adam_nasto_nvf_kernels
-!< ADAM, NASTO NVF application kernels.
+!< ADAM, MHD NVF application kernels.
+module adam_mhd_nvf_kernels
+!< ADAM, MHD NVF application kernels.
 
 use PENF, only : I4P, I8P, R8P
 use CUDAFOR
@@ -1325,4 +1325,4 @@ contains
    endif
 
    endsubroutine weno_reconstruction_kernel
-endmodule adam_nasto_nvf_kernels
+endmodule adam_mhd_nvf_kernels

@@ -59,21 +59,46 @@ type :: ib_object
    real(R8P), allocatable ::  phi(:,:,:,:,:) !< IB distance function.
    contains
       ! public methods
+      procedure, pass(self) :: compute_phi      !< Update distance function.
       procedure, pass(self) :: description      !< Return pretty-printed object description.
       procedure, pass(self) :: evolve_eikonal_q !< Evolve eikonal q.
       procedure, pass(self) :: initialize       !< Initialize IB.
       procedure, pass(self) :: load_from_file   !< Load config from file.
       procedure, pass(self) :: move_phi         !< Move phi and the actual ptree representation.
       procedure, pass(self) :: sphere_to_array  !< Convert analytical sphere class data to array data.
-      procedure, pass(self) :: update_phi       !< Update distance function.
       ! private methods
-      procedure, pass(self), private :: update_phi_analytical_sphere    !< Update distance function for analytical sphere solids.
-      procedure, pass(self), private :: update_phi_analytical_circle    !< Update distance function for analytical circle solids.
-      procedure, pass(self), private :: update_phi_analytical_rectangle !< Update distance function for analytical rectangle solids.
+      procedure, pass(self), private :: compute_phi_analytical_sphere    !< Compute distance for analytical sphere solids.
+      procedure, pass(self), private :: compute_phi_analytical_circle    !< Compute distance for analytical circle solids.
+      procedure, pass(self), private :: compute_phi_analytical_rectangle !< Compute distance for analytical rectangle solids.
 endtype ib_object
 
 contains
    ! public methods
+   subroutine compute_phi(self, verbose)
+   !< Compute phi, distance from IB solid.
+   class(ib_object), intent(inout)        :: self     !< IB.
+   logical,          intent(in), optional :: verbose  !< Flag to trigger verbose prints.
+   logical                                :: verbose_ !< Flag to trigger verbose prints, local variable.
+   integer(I4P)                           :: ib       !< Counter.
+
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   if (self%solids_number > 0) then
+      if (verbose_) call self%mpih%print_message('ib_object%compute_phi start')
+      do ib=1, self%solids_number
+         select case(trim(adjustl(self%definition(ib))))
+         case(trim(IB_ANALYTICAL_SPHERE))
+            call self%compute_phi_analytical_sphere(solid=ib, sphere=self%sphere(ib))
+         case(trim(IB_ANALYTICAL_CIRCLE))
+            call self%compute_phi_analytical_circle(solid=ib, sphere=self%sphere(ib))
+         case(trim(IB_ANALYTICAL_RECTANGLE))
+            call self%compute_phi_analytical_rectangle(solid=ib, rectangle=self%rectangle(ib))
+         endselect
+      enddo
+      print '(A)', self%mpih%myrankstr//'ib_object%update IB distance finish'
+      if (verbose_) call self%mpih%print_message('ib_object%compute_phi finish')
+   endif
+   endsubroutine compute_phi
+
    pure function description(self) result(desc)
    !< Return a pretty-formatted object description.
    class(ib_object), intent(in)  :: self             !< IB.
@@ -261,27 +286,6 @@ contains
    array = [self%sphere(ib)%center(1), self%sphere(ib)%center(2), self%sphere(ib)%center(3), self%sphere(ib)%radius]
    endfunction sphere_to_array
 
-   subroutine update_phi(self)
-   !< Update distance function.
-   class(ib_object), intent(inout) :: self !< IB.
-   integer(I4P)                    :: ib   !< Counter.
-
-   if (self%solids_number > 0) then
-      print '(A)', self%mpih%myrankstr//'ib_object%update IB distance start'
-      do ib=1, self%solids_number
-         select case(trim(adjustl(self%definition(ib))))
-         case(trim(IB_ANALYTICAL_SPHERE))
-            call self%update_phi_analytical_sphere(solid=ib, sphere=self%sphere(ib))
-         case(trim(IB_ANALYTICAL_CIRCLE))
-            call self%update_phi_analytical_circle(solid=ib, sphere=self%sphere(ib))
-         case(trim(IB_ANALYTICAL_RECTANGLE))
-            call self%update_phi_analytical_rectangle(solid=ib, rectangle=self%rectangle(ib))
-         endselect
-      enddo
-      print '(A)', self%mpih%myrankstr//'ib_object%update IB distance finish'
-   endif
-   endsubroutine update_phi
-
    subroutine evolve_eikonal_q(self, q)
    !< Evolve eikonal q.
    class(ib_object), intent(in)    :: self                             !< IB.
@@ -340,8 +344,8 @@ contains
    endsubroutine evolve_eikonal_q
 
    ! private methods
-   subroutine update_phi_analytical_sphere(self, solid, sphere)
-   !< Update distance function for analytical sphere solid.
+   subroutine compute_phi_analytical_sphere(self, solid, sphere)
+   !< Compute distance for analytical sphere solid.
    class(ib_object),               intent(inout) :: self       !< IB.
    integer(I4P),                   intent(in)    :: solid      !< Solid index.
    type(analytical_sphere_object), intent(in)    :: sphere     !< Analytical sphere solid.
@@ -361,10 +365,10 @@ contains
       enddo
    enddo
    endassociate
-   endsubroutine update_phi_analytical_sphere
+   endsubroutine compute_phi_analytical_sphere
 
-   subroutine update_phi_analytical_circle(self, solid, sphere)
-   !< Update distance function for analytical circle (2D) solid.
+   subroutine compute_phi_analytical_circle(self, solid, sphere)
+   !< Compute distance function for analytical circle (2D) solid.
    class(ib_object),               intent(inout) :: self       !< IB.
    integer(I4P),                   intent(in)    :: solid      !< Solid index.
    type(analytical_sphere_object), intent(in)    :: sphere     !< Analytical circle solid.
@@ -408,10 +412,10 @@ contains
       enddo
    endselect
    endassociate
-   endsubroutine update_phi_analytical_circle
+   endsubroutine compute_phi_analytical_circle
 
-   subroutine update_phi_analytical_rectangle(self, solid, rectangle)
-   !< Update distance function for analytical rectangle (2D) solid.
+   subroutine compute_phi_analytical_rectangle(self, solid, rectangle)
+   !< Compute distance function for analytical rectangle (2D) solid.
    class(ib_object),                  intent(inout) :: self         !< IB.
    integer(I4P),                      intent(in)    :: solid        !< Solid index.
    type(analytical_rectangle_object), intent(in)    :: rectangle    !< Analytical rectangle solid.
@@ -491,5 +495,5 @@ contains
       if (d(1)>=0._R8P.and.d(2)>=0._R8P) d(1) = - d(1)
       distance = sign(sqrt(d(1)*d(1) + d(2)*d(2)), d(1)*d(2))
       endfunction edges_distance
-   endsubroutine update_phi_analytical_rectangle
+   endsubroutine compute_phi_analytical_rectangle
 endmodule adam_ib_object

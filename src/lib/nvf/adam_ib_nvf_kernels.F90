@@ -157,7 +157,6 @@ contains
    !@cuf iercuda=cudaDeviceSynchronize()
    endsubroutine evolve_eikonal_q_phi_cuf
 
-   ! subroutine invert_eikonal_q_phi_cuf(BCS_VISCOUS,BCS_EULER,ib,ni,nj,nk,ngc,nv,blocks_number,bcs_type,phi_gpu,q_gpu,q_invert_gpu)
    subroutine invert_eikonal_q_phi_cuf(BCS_VISCOUS,BCS_EULER,ib,ni,nj,nk,ngc,nv,blocks_number,bcs_type,phi_gpu,q_gpu)
    !< Invert eikonal equation over q inside IB.
    integer(I4P), intent(in)            :: BCS_VISCOUS                              !< Viscous wall BCS parameter.
@@ -172,7 +171,6 @@ contains
    integer(I4P), intent(in)            :: bcs_type                                 !< Immersed boundary type.
    real(R8P),    intent(in),    device :: phi_gpu(     1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Distance field.
    real(R8P),    intent(inout), device :: q_gpu(       1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative field.
-   ! real(R8P),    intent(inout), device :: q_invert_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Inverted internal field.
    integer(I4P)                        :: i, j, k, b, v, ss                        !< Counter.
    real(R8P)                           :: n_phi_x, n_phi_y, n_phi_z                !< Distance function normals.
    real(R8P)                           :: n_phi_mod, un_mod                        !< Distance abs normal and normal velocity.
@@ -185,13 +183,9 @@ contains
             do i=1-ngc, ni+ngc
                do b=1, blocks_number
                   do v=1,nv
-                     ! q_invert_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v)
                      q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v)
                   enddo
                   if (phi_gpu(b,i,j,k,ib) > 0) then
-                     ! q_invert_gpu(b,i,j,k,2) = - q_gpu(b,i,j,k,2)
-                     ! q_invert_gpu(b,i,j,k,3) = - q_gpu(b,i,j,k,3)
-                     ! q_invert_gpu(b,i,j,k,4) = - q_gpu(b,i,j,k,4)
                      q_gpu(b,i,j,k,2) = - q_gpu(b,i,j,k,2)
                      q_gpu(b,i,j,k,3) = - q_gpu(b,i,j,k,3)
                      q_gpu(b,i,j,k,4) = - q_gpu(b,i,j,k,4)
@@ -208,7 +202,6 @@ contains
             do i=1-ngc, ni+ngc
                do b=1, blocks_number
                   do v=1,nv
-                     ! q_invert_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v)
                      q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v)
                   enddo
                   if (phi_gpu(b,i,j,k,ib) > 0) then
@@ -221,9 +214,6 @@ contains
                      n_phi_z = n_phi_z/n_phi_mod
                      un_mod = q_gpu(b,i,j,k,2)*n_phi_x + q_gpu(b,i,j,k,3)*n_phi_y + q_gpu(b,i,j,k,4)*n_phi_z
 
-                     ! q_invert_gpu(b,i,j,k,2) = q_gpu(b,i,j,k,2) - 2*un_mod*n_phi_x
-                     ! q_invert_gpu(b,i,j,k,3) = q_gpu(b,i,j,k,3) - 2*un_mod*n_phi_y
-                     ! q_invert_gpu(b,i,j,k,4) = q_gpu(b,i,j,k,4) - 2*un_mod*n_phi_z
                      q_gpu(b,i,j,k,2) = q_gpu(b,i,j,k,2) - 2*un_mod*n_phi_x
                      q_gpu(b,i,j,k,3) = q_gpu(b,i,j,k,3) - 2*un_mod*n_phi_y
                      q_gpu(b,i,j,k,4) = q_gpu(b,i,j,k,4) - 2*un_mod*n_phi_z
