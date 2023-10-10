@@ -59,13 +59,14 @@ type :: ib_object
    real(R8P), allocatable ::  phi(:,:,:,:,:) !< IB distance function.
    contains
       ! public methods
-      procedure, pass(self) :: compute_phi      !< Update distance function.
-      procedure, pass(self) :: description      !< Return pretty-printed object description.
-      procedure, pass(self) :: evolve_eikonal_q !< Evolve eikonal q.
-      procedure, pass(self) :: initialize       !< Initialize IB.
-      procedure, pass(self) :: load_from_file   !< Load config from file.
-      procedure, pass(self) :: move_phi         !< Move phi and the actual ptree representation.
-      procedure, pass(self) :: sphere_to_array  !< Convert analytical sphere class data to array data.
+      procedure, pass(self) :: compute_phi            !< Compute distance function.
+      procedure, pass(self) :: compute_phi_all_solids !< Compute last phi index, all solids summary.
+      procedure, pass(self) :: description            !< Return pretty-printed object description.
+      procedure, pass(self) :: evolve_eikonal_q       !< Evolve eikonal q.
+      procedure, pass(self) :: initialize             !< Initialize IB.
+      procedure, pass(self) :: load_from_file         !< Load config from file.
+      procedure, pass(self) :: move_phi               !< Move phi and the actual ptree representation.
+      procedure, pass(self) :: sphere_to_array        !< Convert analytical sphere class data to array data.
       ! private methods
       procedure, pass(self), private :: compute_phi_analytical_sphere    !< Compute distance for analytical sphere solids.
       procedure, pass(self), private :: compute_phi_analytical_circle    !< Compute distance for analytical circle solids.
@@ -94,10 +95,41 @@ contains
             call self%compute_phi_analytical_rectangle(solid=ib, rectangle=self%rectangle(ib))
          endselect
       enddo
-      print '(A)', self%mpih%myrankstr//'ib_object%update IB distance finish'
+      call self%compute_phi_all_solids(verbose=verbose)
       if (verbose_) call self%mpih%print_message('ib_object%compute_phi finish')
    endif
    endsubroutine compute_phi
+
+   subroutine compute_phi_all_solids(self, verbose)
+   !< Compute phi, distance from IB solid.
+   class(ib_object), intent(inout)        :: self          !< IB.
+   logical,          intent(in), optional :: verbose       !< Flag to trigger verbose prints.
+   logical                                :: verbose_      !< Flag to trigger verbose prints, local variable.
+   integer(I4P)                           :: b, i, j, k, s !< Counter.
+   integer(I4P)                           :: all_solids    !< Last phi index, all solids summary.
+
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   if (self%solids_number > 0) then
+      if (verbose_) call self%mpih%print_message('ib_object%compute_phi_all_solids start')
+      all_solids = ubound(self%phi, dim=1)
+      do b=1, self%field%blocks_number
+         do k=1, self%grid%nk
+            do j=1, self%grid%nj
+               do i=1, self%grid%ni
+                  self%phi(all_solids,i,j,k,b) = -1._R8P
+                  solids_loop : do s=1, all_solids -1
+                     if (self%phi(s,i,j,k,b)>0) then
+                        self%phi(all_solids,i,j,k,b) = self%phi(s,i,j,k,b)
+                        exit solids_loop
+                     endif
+                  enddo solids_loop
+               enddo
+            enddo
+         enddo
+      enddo
+      if (verbose_) call self%mpih%print_message('ib_object%compute_phi_all_solids finish')
+   endif
+   endsubroutine compute_phi_all_solids
 
    pure function description(self) result(desc)
    !< Return a pretty-formatted object description.
@@ -145,7 +177,9 @@ contains
    associate(ngc=>self%grid%ngc, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, nb=>self%field%nb, &
              solids_number=>self%solids_number)
    if (solids_number > 0) then
-      allocate(self%phi(1:solids_number, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
+      ! the phi array is allocated with solids_number + 1 elements: in the last element there is the all-solids-summary, namely it
+      ! contains the information if the cell is outside all IB solids or inside of at least one solid
+      allocate(self%phi(1:solids_number+1, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
       self%phi = -1._R8P
    endif
    endassociate
@@ -224,57 +258,11 @@ contains
 
    subroutine move_phi(self, velocity, s)
    !< Move phi.
-   class(ib_object), intent(inout) :: self                             !< IB.
-   real(R8P),        intent(in)    :: velocity(3)                      !< Velocity of the movement.
-   integer(I4P),     intent(in)    :: s                                !< Solid index.
-   ! real(R8P)                       :: n_phi_x, n_phi_y, n_phi_z, n_phi !< Eikonal direction.
-   ! integer(I4P)                    :: b, i, j, k                       !< Counter.
+   class(ib_object), intent(inout) :: self        !< IB.
+   real(R8P),        intent(in)    :: velocity(3) !< Velocity of the movement.
+   integer(I4P),     intent(in)    :: s           !< Solid index.
 
-   ! associate (ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, blocks_number=>self%field%blocks_number, phi=>self%phi)
-   ! n_phi_x = velocity(1)
-   ! n_phi_y = velocity(2)
-   ! n_phi_z = velocity(3)
-   ! n_phi = abs(n_phi_x) + abs(n_phi_y) + abs(n_phi_z) + 10e-12
-   ! n_phi = 0.9_R8P / n_phi
-   ! n_phi_x = n_phi_x * n_phi
-   ! n_phi_y = n_phi_y * n_phi
-   ! n_phi_z = n_phi_z * n_phi
-
-   ! do b=1, blocks_number
-   ! do k=1, nk
-   ! do j=1, nj
-   ! do i=1, ni
-   !    dphi(i,j,k,b) = 0._R8P
-   !    if (n_phi_x > 0._R8P) then
-   !       dphi(i,j,k,b) = dphi(i,j,k,b) + abs(n_phi_x) * (phi(s,i,j,k,b) - phi(s,i-1,j,k,b))
-   !    else
-   !       dphi(i,j,k,b) = dphi(i,j,k,b) + abs(n_phi_x) * (phi(s,i,j,k,b) - phi(s,i+1,j,k,b))
-   !    endif
-   !    if (n_phi_y > 0._R8P) then
-   !       dphi(i,j,k,b) = dphi(i,j,k,b) + abs(n_phi_y) * (phi(s,i,j,k,b) - phi(s,i,j-1,k,b))
-   !    else
-   !       dphi(i,j,k,b) = dphi(i,j,k,b) + abs(n_phi_y) * (phi(s,i,j,k,b) - phi(s,i,j+1,k,b))
-   !    endif
-   !    if (n_phi_z > 0._R8P) then
-   !       dphi(i,j,k,b) = dphi(i,j,k,b) + abs(n_phi_z) * (phi(s,i,j,k,b) - phi(s,i,j,k-1,b))
-   !    else
-   !       dphi(i,j,k,b) = dphi(i,j,k,b) + abs(n_phi_z) * (phi(s,i,j,k,b) - phi(s,i,j,k+1,b))
-   !    endif
-   ! enddo
-   ! enddo
-   ! enddo
-   ! enddo
-
-   ! do b=1, blocks_number
-   ! do k=1, nk
-   ! do j=1, nj
-   ! do i=1, ni
-   !    phi(s,i,j,k,b) = phi(s,i,j,k,b) - dphi(i,j,k,b)
-   ! enddo
-   ! enddo
-   ! enddo
-   ! enddo
-   ! endassociate
+   ! to be implemented
    endsubroutine move_phi
 
    function sphere_to_array(self, ib) result(array)
@@ -304,7 +292,7 @@ contains
       do k=1, nk
          do j=1, nj
             do i=1,ni
-               solids_loop : do s=1, size(phi, dim=1)
+               solids_loop : do s=1, solids_number
                   if (phi(s,i,j,k,b) > 0._R8P) then
                      ! compute dq
                      n_phi_x = (phi(s,i+1,j,k,b) - phi(s,i-1,j,k,b))

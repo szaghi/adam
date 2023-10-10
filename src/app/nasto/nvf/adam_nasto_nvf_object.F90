@@ -114,24 +114,24 @@ contains
    !                    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv],[2,5]))
 
    !< @NOTE gplus e gminus hanno Nb e Nv invertiti rispetto a tutti gli altri array GPU, errore o voluto?
-                                        allocate(self%gplus_x_gpu (   1:nv,1:2*iweno,   1:nj,        1:nk,        1:nb           ))
-                                        allocate(self%gminus_x_gpu(   1:nv,1:2*iweno,   1:nj,        1:nk,        1:nb           ))
-                                        allocate(self%gplus_y_gpu (   1:nv,1:2*iweno,   1:ni,        1:nk,        1:nb           ))
-                                        allocate(self%gminus_y_gpu(   1:nv,1:2*iweno,   1:ni,        1:nk,        1:nb           ))
-                                        allocate(self%gplus_z_gpu (   1:nv,1:2*iweno,   1:ni,        1:nj,        1:nb           ))
-                                        allocate(self%gminus_z_gpu(   1:nv,1:2*iweno,   1:ni,        1:nj,        1:nb           ))
-                                        allocate(self%q_gpu(          1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv           ))
-                                        allocate(self%q_aux_gpu(      1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv_aux       ))
-                                        allocate(self%q_old_gpu(      1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv           ))
-                                        allocate(self%fl_gpu(         1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv           ))
-                                        allocate(self%flx_gpu(        1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv           ))
-                                        allocate(self%fly_gpu(        1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv           ))
-                                        allocate(self%flz_gpu(        1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv           ))
-                                        allocate(self%dq_gpu(         1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv           ))
-                                        allocate(self%prhs_gpu(       1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv           ))
-                                        allocate(self%cell_scheme_gpu(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:3            ))
-   if (self%schemes%enable_ror_stats>0) allocate(self%ror_stats_gpu(  1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:3            ))
-   if (solids_number>0)                 allocate(self%phi_gpu(        1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:solids_number))
+                                       allocate(self%gplus_x_gpu (   1:nv,1:2*iweno,   1:nj,        1:nk,        1:nb             ))
+                                       allocate(self%gminus_x_gpu(   1:nv,1:2*iweno,   1:nj,        1:nk,        1:nb             ))
+                                       allocate(self%gplus_y_gpu (   1:nv,1:2*iweno,   1:ni,        1:nk,        1:nb             ))
+                                       allocate(self%gminus_y_gpu(   1:nv,1:2*iweno,   1:ni,        1:nk,        1:nb             ))
+                                       allocate(self%gplus_z_gpu (   1:nv,1:2*iweno,   1:ni,        1:nj,        1:nb             ))
+                                       allocate(self%gminus_z_gpu(   1:nv,1:2*iweno,   1:ni,        1:nj,        1:nb             ))
+                                       allocate(self%q_gpu(          1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv             ))
+                                       allocate(self%q_aux_gpu(      1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv_aux         ))
+                                       allocate(self%q_old_gpu(      1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv             ))
+                                       allocate(self%fl_gpu(         1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv             ))
+                                       allocate(self%flx_gpu(        1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv             ))
+                                       allocate(self%fly_gpu(        1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv             ))
+                                       allocate(self%flz_gpu(        1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv             ))
+                                       allocate(self%dq_gpu(         1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv             ))
+                                       allocate(self%prhs_gpu(       1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv             ))
+                                       allocate(self%cell_scheme_gpu(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:3              ))
+   if (self%schemes%enable_ror_stats>0)allocate(self%ror_stats_gpu(  1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:3              ))
+   if (solids_number>0)                allocate(self%phi_gpu(        1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:solids_number+1))
                                       self%gplus_x_gpu     = 0._R8P
                                       self%gminus_x_gpu    = 0._R8P
                                       self%gplus_y_gpu     = 0._R8P
@@ -200,7 +200,7 @@ contains
    endif
    if (present(copy_phi)) then
       if (copy_phi) then
-         if (self%ib%solids_number>0) call self%base_gpu%copy_transpose_gpu_cpu(nv=self%ib%solids_number, &
+         if (self%ib%solids_number>0) call self%base_gpu%copy_transpose_gpu_cpu(nv=self%ib%solids_number+1, &
                                                                                 q_gpu=self%phi_gpu, q_cpu=self%ib%phi)
       endif
    endif
@@ -415,6 +415,7 @@ contains
                                                    x_cell_gpu=x_cell_gpu, y_cell_gpu=y_cell_gpu, z_cell_gpu=z_cell_gpu, &
                                                    phi_gpu=phi_gpu)
          endselect
+         call compute_phi_all_solids_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number,phi_gpu=phi_gpu)
          ! reduce local order of spatial operator close to solids if requested
          if (ib_reduction_extent > 0) call reduce_cell_order_phi_cuf(ib=ib,ni=ni,nj=nj,nk=nk,ngc=ngc,blocks_number=blocks_number, &
                                                                      iweno=iweno, ib_reduced_order=ib_reduced_order,              &
@@ -675,12 +676,11 @@ contains
    subroutine compute_residuals(self)
    !< Compute residuals of equation.
    class(nasto_nvf_object), intent(inout) :: self         !< The equation.
-   real(R8P)                              :: ib_eps       !< Tolerance ib delta ratio.
    integer(I4P)                           :: iercuda      !< Error trapping flag for CUDAFortran.
    type(dim3)                             :: grid, tBlock !< CUDA grid and block.
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk,                                                             &
-             ngc=>self%ngc, ns=>self%ns, blocks_number=>self%blocks_number,                                     &
+             ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number,                                     &
              dx_gpu=>self%base_gpu%dxyz_gpu(:,1),                                                               &
              dy_gpu=>self%base_gpu%dxyz_gpu(:,2),                                                               &
              dz_gpu=>self%base_gpu%dxyz_gpu(:,3),                                                               &
@@ -702,63 +702,61 @@ contains
       select case(self%schemes%fluxes_convective)
       case(SCHEME_FCONV_WENO_CENTRAL_2,SCHEME_FCONV_WENO_CENTRAL_4,SCHEME_FCONV_WENO_CENTRAL_6)
          call self%compute_cuda_dimensions(grid_x=blocks_number, grid_y=nj, grid=grid, tBlock=tBlock)
-         call compute_flux_conv_x_central_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc,      &
-                                                                   nv=ns+4,lmax=lmax,fc_coeff_gpu=fc_coeff_gpu,q_aux_gpu=q_aux_gpu,&
+         call compute_flux_conv_x_central_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc,     &
+                                                                   nv=nv,lmax=lmax,fc_coeff_gpu=fc_coeff_gpu,q_aux_gpu=q_aux_gpu, &
                                                                    dx_gpu=dx_gpu, flx_gpu=flx_gpu)
 
          call self%compute_cuda_dimensions(grid_x=blocks_number, grid_y=ni, grid=grid, tBlock=tBlock)
-         call compute_flux_conv_y_central_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc,      &
-                                                                   nv=ns+4,lmax=lmax,fc_coeff_gpu=fc_coeff_gpu,q_aux_gpu=q_aux_gpu,&
+         call compute_flux_conv_y_central_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc,     &
+                                                                   nv=nv,lmax=lmax,fc_coeff_gpu=fc_coeff_gpu,q_aux_gpu=q_aux_gpu, &
                                                                    dy_gpu=dy_gpu, fly_gpu=fly_gpu)
 
          call self%compute_cuda_dimensions(grid_x=blocks_number, grid_y=ni, grid=grid, tBlock=tBlock)
-         call compute_flux_conv_z_central_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc,      &
-                                                                   nv=ns+4,lmax=lmax,fc_coeff_gpu=fc_coeff_gpu,q_aux_gpu=q_aux_gpu,&
+         call compute_flux_conv_z_central_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc,     &
+                                                                   nv=nv,lmax=lmax,fc_coeff_gpu=fc_coeff_gpu,q_aux_gpu=q_aux_gpu, &
                                                                    dz_gpu=dz_gpu, flz_gpu=flz_gpu)
       case(SCHEME_FCONV_WENO_UPWIND)
          call self%compute_cuda_dimensions(grid_x=blocks_number, grid_y=nj, grid=grid, tBlock=tBlock)
-         call compute_flux_conv_x_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=ns+4, &
-                                                           iweno=iweno, dha=dha, g=g, R=R, cv=cv,                              &
-                                                           ror_threshold=ror_threshold, enable_ror_stats=enable_ror_stats,     &
-                                                           cell_scheme_gpu=cell_scheme_gpu, ror_ivar_gpu=ror_ivar_gpu,         &
-                                                           ror_schemes_gpu=ror_schemes_gpu, q_aux_gpu=q_aux_gpu,               &
-                                                           ror_stats_gpu=ror_stats_gpu,                                        &
+         call compute_flux_conv_x_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
+                                                           iweno=iweno, dha=dha, g=g, R=R, cv=cv,                            &
+                                                           ror_threshold=ror_threshold, enable_ror_stats=enable_ror_stats,   &
+                                                           cell_scheme_gpu=cell_scheme_gpu, ror_ivar_gpu=ror_ivar_gpu,       &
+                                                           ror_schemes_gpu=ror_schemes_gpu, q_aux_gpu=q_aux_gpu,             &
+                                                           ror_stats_gpu=ror_stats_gpu,                                      &
                                                            gplus=gplus_x_gpu, gminus=gminus_x_gpu, flx_gpu=flx_gpu)
 
          call self%compute_cuda_dimensions(grid_x=blocks_number, grid_y=ni, grid=grid, tBlock=tBlock)
-         call compute_flux_conv_y_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=ns+4, &
-                                                           iweno=iweno, dha=dha, g=g, R=R, cv=cv,                              &
-                                                           ror_threshold=ror_threshold, enable_ror_stats=enable_ror_stats,     &
-                                                           cell_scheme_gpu=cell_scheme_gpu, ror_ivar_gpu=ror_ivar_gpu,         &
-                                                           ror_schemes_gpu=ror_schemes_gpu, q_aux_gpu=q_aux_gpu,               &
-                                                           ror_stats_gpu=ror_stats_gpu,                                        &
+         call compute_flux_conv_y_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
+                                                           iweno=iweno, dha=dha, g=g, R=R, cv=cv,                            &
+                                                           ror_threshold=ror_threshold, enable_ror_stats=enable_ror_stats,   &
+                                                           cell_scheme_gpu=cell_scheme_gpu, ror_ivar_gpu=ror_ivar_gpu,       &
+                                                           ror_schemes_gpu=ror_schemes_gpu, q_aux_gpu=q_aux_gpu,             &
+                                                           ror_stats_gpu=ror_stats_gpu,                                      &
                                                            gplus=gplus_y_gpu, gminus=gminus_y_gpu, fly_gpu=fly_gpu)
 
          call self%compute_cuda_dimensions(grid_x=blocks_number, grid_y=ni, grid=grid, tBlock=tBlock)
-         call compute_flux_conv_z_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=ns+4, &
-                                                           iweno=iweno, dha=dha, g=g, R=R, cv=cv,                              &
-                                                           ror_threshold=ror_threshold, enable_ror_stats=enable_ror_stats,     &
-                                                           cell_scheme_gpu=cell_scheme_gpu, ror_ivar_gpu=ror_ivar_gpu,         &
-                                                           ror_schemes_gpu=ror_schemes_gpu, q_aux_gpu=q_aux_gpu,               &
-                                                           ror_stats_gpu=ror_stats_gpu,                                        &
+         call compute_flux_conv_z_kernel<<<grid, tBlock>>>(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
+                                                           iweno=iweno, dha=dha, g=g, R=R, cv=cv,                            &
+                                                           ror_threshold=ror_threshold, enable_ror_stats=enable_ror_stats,   &
+                                                           cell_scheme_gpu=cell_scheme_gpu, ror_ivar_gpu=ror_ivar_gpu,       &
+                                                           ror_schemes_gpu=ror_schemes_gpu, q_aux_gpu=q_aux_gpu,             &
+                                                           ror_stats_gpu=ror_stats_gpu,                                      &
                                                            gplus=gplus_z_gpu, gminus=gminus_z_gpu, flz_gpu=flz_gpu)
       endselect
    endif
 
    call self%check_cuda_error(error_code=-15, msg='CUDA error after convective fluxes computation')
 
-   if (mu > 0.) call compute_fluxes_diffusive_cuf(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=ns+4, &
-                                                  mu=mu, kd=kd, q_aux_gpu=q_aux_gpu,                                  &
-                                                  dx_gpu=dx_gpu, dy_gpu=dy_gpu, dz_gpu=dz_gpu,                        &
+   if (mu > 0.) call compute_fluxes_diffusive_cuf(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
+                                                  mu=mu, kd=kd, q_aux_gpu=q_aux_gpu,                                &
+                                                  dx_gpu=dx_gpu, dy_gpu=dy_gpu, dz_gpu=dz_gpu,                      &
                                                   flx_gpu=flx_gpu, fly_gpu=fly_gpu, flz_gpu=flz_gpu)
-   !@cuf iercuda=cudaDeviceSynchronize()
 
    call self%check_cuda_error(error_code=-15, msg='CUDA error after diffusive fluxes computation')
 
-   ib_eps = 1.e-12_R8P
-   call compute_fluxes_difference_cuf(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=ns+4,                &
-                                      fl_gpu=fl_gpu, flx_gpu=flx_gpu, fly_gpu=fly_gpu, flz_gpu=flz_gpu, phi_gpu=phi_gpu, &
-                                      dx_gpu=dx_gpu, dy_gpu=dy_gpu, dz_gpu=dz_gpu, ib_eps=ib_eps)
+   call compute_fluxes_difference_cuf(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, ib_eps=1.e-12_R8P, &
+                                      dx_gpu=dx_gpu, dy_gpu=dy_gpu, dz_gpu=dz_gpu,                                         &
+                                      flx_gpu=flx_gpu, fly_gpu=fly_gpu, flz_gpu=flz_gpu, phi_gpu=phi_gpu, fl_gpu=fl_gpu)
 
    call self%check_cuda_error(error_code=-15, msg='CUDA error after fluxes difference computation')
    endassociate

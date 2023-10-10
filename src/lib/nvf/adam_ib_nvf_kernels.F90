@@ -8,6 +8,7 @@ use CUDAFOR
 implicit none
 private
 public :: compute_eikonal_dq_phi_cuf
+public :: compute_phi_all_solids_cuf
 public :: compute_phi_analytical_sphere_cuf
 public :: evolve_eikonal_q_phi_cuf
 public :: invert_eikonal_q_phi_cuf
@@ -85,6 +86,38 @@ contains
    enddo
    !@cuf iercuda=cudaDeviceSynchronize()
    endsubroutine compute_eikonal_dq_phi_cuf
+
+   subroutine compute_phi_all_solids_cuf(ni, nj, nk, ngc, blocks_number, phi_gpu)
+   !< Compute last phi index, all solids summary.
+   integer(I4P), intent(in)            :: ni                                  !< Grid cells number in I direction.
+   integer(I4P), intent(in)            :: nj                                  !< Grid cells number in J direction.
+   integer(I4P), intent(in)            :: nk                                  !< Grid cells number in K direction.
+   integer(I4P), intent(in)            :: ngc                                 !< Ghost grid number.
+   integer(I4P), intent(in)            :: blocks_number                       !< Number of blocks.
+   real(R8P),    intent(inout), device :: phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Distance function.
+   integer(I4P)                        :: b, i, j, k, s                       !< Counter.
+   integer(I4P)                        :: all_solids                          !< Last phi index, all solids summary.
+   integer(I4P)                        :: iercuda                             !< Error trapping flag for CUDAFortran.
+
+   all_solids = ubound(phi_gpu, dim=5)
+   !$cuf kernel do(4) <<<*,*>>>
+   do k=1, nk
+      do j=1, nj
+         do i=1, ni
+            do b=1, blocks_number
+               phi_gpu(b,i,j,k,all_solids) = -1._R8P
+               solids_loop : do s=1, all_solids -1
+                  if (phi_gpu(b,i,j,k,s)>0) then
+                     phi_gpu(b,i,j,k,all_solids) = phi_gpu(b,i,j,k,s)
+                     exit solids_loop
+                  endif
+               enddo solids_loop
+            enddo
+         enddo
+      enddo
+   enddo
+   !@cuf iercuda=cudaDeviceSynchronize()
+   endsubroutine compute_phi_all_solids_cuf
 
    subroutine compute_phi_analytical_sphere_cuf(ib,ni,nj,nk,ngc,blocks_number,sphere,x_cell_gpu,y_cell_gpu,z_cell_gpu,phi_gpu)
    !< Compute phi, distance from ib solid, analytical sphere solid.
@@ -238,6 +271,7 @@ contains
    real(R8P),    intent(inout), device :: dphi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Distance function gradient.
    real(R8P)                           :: n_phi_x, n_phi_y, n_phi_z, n_phi     !< Eikonal direction.
    integer(I4P)                        :: b, i, j, k, v                        !< Counter.
+   integer(I4P)                        :: solids_number                        !< Solids number.
    integer(I4P)                        :: iercuda                              !< Error trapping flag for CUDAFortran.
 
    n_phi_x = velocity(1)
@@ -249,38 +283,39 @@ contains
    n_phi_y = n_phi_y * n_phi
    n_phi_z = n_phi_z * n_phi
 
+   solids_number = ubound(phi_gpu, dim=5)
    !$cuf kernel do(4) <<<*,*>>>
    do k=1, nk
    do j=1, nj
    do i=1, ni
    do b=1, blocks_number
-      do v=1, 1
+      do v=1, solids_number
          dphi_gpu(b,i,j,k,v) = 0._R8P
       enddo
       if (n_phi_x > 0._R8P) then
-         do v=1, 1
+         do v=1, solids_number
             dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_x) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i-1,j,k,v))
          enddo
       else
-         do v=1, 1
+         do v=1, solids_number
             dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_x) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i+1,j,k,v))
          enddo
       endif
       if (n_phi_y > 0._R8P) then
-         do v=1, 1
+         do v=1, solids_number
             dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_y) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i,j-1,k,v))
          enddo
       else
-         do v=1, 1
+         do v=1, solids_number
             dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_y) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i,j+1,k,v))
          enddo
       endif
       if (n_phi_z > 0._R8P) then
-         do v=1, 1
+         do v=1, solids_number
             dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_z) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i,j,k-1,v))
          enddo
       else
-         do v=1, 1
+         do v=1, solids_number
             dphi_gpu(b,i,j,k,v) = dphi_gpu(b,i,j,k,v) + abs(n_phi_z) * (phi_gpu(b,i,j,k,v) - phi_gpu(b,i,j,k+1,v))
          enddo
       endif
@@ -295,7 +330,7 @@ contains
    do j=1, nj
    do i=1, ni
    do b=1, blocks_number
-      do v=1, 1
+      do v=1, solids_number
          phi_gpu(b,i,j,k,v) = phi_gpu(b,i,j,k,v) - dphi_gpu(b,i,j,k,v)
       enddo
    enddo
