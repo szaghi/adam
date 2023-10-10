@@ -26,27 +26,32 @@ integer(I4P) :: IP = 7_I4P
 ! q(2): rho * u
 ! q(3): rho * v
 ! q(4): rho * w
-! q(5): rho * E
-! q(6): rho * Ya (specific density of specie)
+! q(5): Bx
+! q(6): By
+! q(7): Bz
+! q(8): rho * E
+! q(9): psi
 ! auxiliary variables are arranged as follows:
-! q_aux(1): density
-! q_aux(2): u
-! q_aux(3): v
-! q_aux(4): w
-! q_aux(5): ya (species concentration)
-! q_aux(6): temperature
-! q_aux(7): pressure
-! q_aux(8): entalpy
-! q_aux(9): sound speed
+! q_aux(1 ): density
+! q_aux(2 ): u
+! q_aux(3 ): v
+! q_aux(4 ): w
+! q_aux(5 ): pressure
+! q_aux(6 ): ca Alfven speed
+! q_aux(7 ): cf fast magneto sonic speed
+! q_aux(8 ): cs slow magneto sonic speed
+! q_aux(9 ): Bx
+! q_aux(10): By
+! q_aux(11): Bz
+! q_aux(12): psi gauss unphysical potential for divergence-free of B
 
 type :: mhd_physics_object
    !< mhd fluid physics class definition.
-   type(mpih_object)                   :: mpih         !< MPI handler.
-   integer(I4P)                        :: ns=1_I4P     !< Number of species.
-   integer(I4P)                        :: nv=5_I4P     !< Number of variables (rns+ru+rv+rw+rE=ns+4).
-   integer(I4P)                        :: nv_aux=9_I4P !< Number of auxiliary variables (rns+r+u+v+w+p+g=ns+6).
-   integer(I4P)                        :: np=5_I4P     !< Number of 1D primitive variables (rns+r+un+p+g=ns+4).
-   type(mhd_eos_object), allocatable :: eos(:)       !< Equations of state of each specie [1:ns].
+   type(mpih_object)    :: mpih          !< MPI handler.
+   integer(I4P)         :: nv=9_I4P      !< Number of variables.
+   integer(I4P)         :: nv_aux=12_I4P !< Number of auxiliary variables.
+   integer(I4P)         :: np=6_I4P      !< Number of 1D primitive variables.
+   type(mhd_eos_object) :: eos           !< Equations of state.
    contains
       ! public methods
       procedure, pass(self) :: conservative2primitive !< Return primitive variables from conservative ones.
