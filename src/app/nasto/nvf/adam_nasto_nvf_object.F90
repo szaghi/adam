@@ -4,6 +4,7 @@ module adam_nasto_nvf_object
 
 use adam_amr_object
 use adam_base_nvf_object
+use adam_field_nvf_kernels
 use adam_ib_object
 use adam_ib_nvf_kernels
 use adam_memory_lib
@@ -71,9 +72,10 @@ type, extends(nasto_common_object) :: nasto_nvf_object
       procedure, pass(self) :: invert_eikonal_q_gpu    !< Invert momentum eikonal equation over q.
       ! IO methods
       procedure, pass(self) :: load_restart_files   !< Load restart files.
-      procedure, pass(self) :: save_simulation_data !< Save all simulation data.
-      procedure, pass(self) :: save_restart_files   !< Save restart files.
       procedure, pass(self) :: save_hdf5            !< Save simulation data in HDF5 format.
+      procedure, pass(self) :: save_residuals       !< Save residuals history.
+      procedure, pass(self) :: save_restart_files   !< Save restart files.
+      procedure, pass(self) :: save_simulation_data !< Save all simulation data.
       ! IC/BC
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation.
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions of equation.
@@ -415,13 +417,13 @@ contains
                                                    x_cell_gpu=x_cell_gpu, y_cell_gpu=y_cell_gpu, z_cell_gpu=z_cell_gpu, &
                                                    phi_gpu=phi_gpu)
          endselect
-         call compute_phi_all_solids_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number,phi_gpu=phi_gpu)
          ! reduce local order of spatial operator close to solids if requested
          if (ib_reduction_extent > 0) call reduce_cell_order_phi_cuf(ib=ib,ni=ni,nj=nj,nk=nk,ngc=ngc,blocks_number=blocks_number, &
                                                                      iweno=iweno, ib_reduced_order=ib_reduced_order,              &
                                                                      ib_reduction_extent=ib_reduction_extent, phi_gpu=phi_gpu,    &
                                                                      cell_scheme_gpu=cell_scheme_gpu)
       enddo
+      call compute_phi_all_solids_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number,phi_gpu=phi_gpu)
       call self%mpih%print_message('compute IB distance finish')
    endif
    endassociate
@@ -481,30 +483,6 @@ contains
    call self%copy_cpu_gpu
    endsubroutine load_restart_files
 
-   subroutine save_simulation_data(self)
-   !< Save all simulation data.
-   class(nasto_nvf_object), intent(inout) :: self !< The equation.
-
-   if ((self%time%is_to_save(it_save=self%io%it_save)).or. &
-       (mod(self%time%it,self%io%restart_save)==0).or.     &
-       (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))) then
-      call self%update_ghost_gpu(q_gpu=self%q_gpu)
-      call self%copy_gpu_cpu(compute_copy_q_aux=.true., copy_phi=.true.)
-
-      if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_hdf5
-      if (mod(self%time%it,self%io%restart_save)==0) call self%save_restart_files
-      if (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))&
-         call self%slices%save_mat(basename=self%io%output_basename, &
-                                   it=self%time%it,                  &
-                                   it_max=self%time%it_max,          &
-                                   time=self%time%time,              &
-                                   time_max=self%time%time_max,      &
-                                   adam=self%adam,                   &
-                                   q=self%field%q,                   &
-                                   q_name=['rho','rhu','rhv','rhw','rhe'])
-   endif
-   endsubroutine save_simulation_data
-
    subroutine save_hdf5(self, output_basename)
    !< Save simulation data in HDF5 format.
    class(nasto_nvf_object), intent(inout)        :: self             !< The equation.
@@ -534,6 +512,23 @@ contains
    call self%mpih%barrier(tictoc=.true.)
    endsubroutine save_hdf5
 
+   subroutine save_residuals(self)
+   !< Save residuals history.
+   class(nasto_nvf_object), intent(inout) :: self !< The equation.
+   integer(I4P)                           :: v    !< Counter.
+
+   if (self%time%is_to_save(it_save=self%io%residuals_save)) then
+      call compute_normL2_residuals_cuf(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, &
+                                        blocks_number=self%blocks_number, dq_gpu=self%fl_gpu, norm=self%field%residuals)
+      do v=1, self%nv
+         call MPI_ALLREDUCE(MPI_IN_PLACE, self%field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+         self%field%residuals(v) = sqrt(self%field%residuals(v))
+      enddo
+      if (self%mpih%myrank==0) call self%io%save_residuals(it=self%time%it, time=self%time%time, blocks_number=self%blocks_number, &
+                                                           residuals=self%field%residuals)
+   endif
+   endsubroutine save_residuals
+
    subroutine save_restart_files(self)
    !< Save restart files.
    class(nasto_nvf_object), intent(inout) :: self !< The equation.
@@ -545,6 +540,30 @@ contains
    call self%save_hdf5(output_basename=self%io%restart_basename)
    call self%mpih%barrier(tictoc=.true.)
    endsubroutine save_restart_files
+
+   subroutine save_simulation_data(self)
+   !< Save all simulation data.
+   class(nasto_nvf_object), intent(inout) :: self !< The equation.
+
+   if ((self%time%is_to_save(it_save=self%io%it_save)).or.      &
+       (self%time%is_to_save(it_save=self%io%restart_save)).or. &
+       (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))) then
+      call self%update_ghost_gpu(q_gpu=self%q_gpu)
+      call self%copy_gpu_cpu(compute_copy_q_aux=.true., copy_phi=.true.)
+
+      if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_hdf5
+      if (mod(self%time%it,self%io%restart_save)==0) call self%save_restart_files
+      if (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))&
+         call self%slices%save_mat(basename=self%io%output_basename, &
+                                   it=self%time%it,                  &
+                                   it_max=self%time%it_max,          &
+                                   time=self%time%time,              &
+                                   time_max=self%time%time_max,      &
+                                   adam=self%adam,                   &
+                                   q=self%field%q,                   &
+                                   q_name=['rho','rhu','rhv','rhw','rhe'])
+   endif
+   endsubroutine save_simulation_data
 
    ! IC/BC
    subroutine set_boundary_conditions(self, q_gpu)
@@ -663,13 +682,10 @@ contains
 
    call self%compute_q_aux_gpu(q_gpu=self%q_gpu, q_aux_gpu=self%q_aux_gpu)
    self%time%dt = huge(1._R8P)
-   ! PERCHÈ NON ABBIAMO PARALLELIZATO DENTRO IL CUF ANCHE L'INDICE DI BLOCCO?
-   do b=1, self%field%blocks_number
-      call compute_umax_cuf(b, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, ns=self%ns,           &
-                            dx=self%field%dxyz(1,b), dy=self%field%dxyz(2,b), dz=self%field%dxyz(3,b), &
-                            q_aux_gpu=self%q_aux_gpu, umax=umax, mu=self%physics%eos(1)%mu)
-      self%time%dt = min(self%time%dt, self%time%CFL / umax)
-   enddo
+   call compute_umax_cuf(ni=self%ni,nj=self%nj,nk=self%nk,ngc=self%ngc,blocks_number=self%blocks_number,mu=self%physics%eos(1)%mu,&
+                         dx_gpu=self%base_gpu%dxyz_gpu(:,1),dy_gpu=self%base_gpu%dxyz_gpu(:,2),dz_gpu=self%base_gpu%dxyz_gpu(:,3),&
+                         q_aux_gpu=self%q_aux_gpu,umax=umax)
+   self%time%dt = min(self%time%dt, self%time%CFL / umax)
    call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih%error)
    endsubroutine compute_dt
 
@@ -768,21 +784,21 @@ contains
    integer(I4P),            intent(in)    :: s    !< Current RK stage.
 
    call compute_rk_q_gpu_cuf(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, blocks_number=self%blocks_number, &
-                             dt=self%time%dt, s=s, q_gpu=self%q_gpu, q_old_gpu=self%q_old_gpu,                               &
+                             dt=self%time%dt, q_gpu=self%q_gpu, q_old_gpu=self%q_old_gpu,                                    &
                              fl_gpu=self%fl_gpu, phi_gpu=self%phi_gpu,                                                       &
                              ark=self%schemes%ark(s), brk=self%schemes%brk(s), crk=self%schemes%crk(s))
    endsubroutine compute_rk_q_gpu
 
    subroutine integrate(self, t, do_ghost_syncro, residual)
    !< Perform one step integration.
-   class(nasto_nvf_object), intent(inout)         :: self             !< The equation.
-   real(R8P),               intent(in)            :: t                !< Time.
-   logical,                 intent(in),  optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
-   real(R8P),               intent(out), optional :: residual         !< Global residual.
-   logical                                        :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
-   integer(I4P)                                   :: s                !< Counter.
-   integer(I4P)                                   :: i_eikonal        !< Counter.
-   integer(I4P), parameter                        :: n_eikonal=2      !< Counter.
+   class(nasto_nvf_object), intent(inout)         :: self                  !< The equation.
+   real(R8P),               intent(in)            :: t                     !< Time.
+   logical,                 intent(in),  optional :: do_ghost_syncro       !< Flag to do syncrous ghost update.
+   real(R8P),               intent(out), optional :: residual              !< Global residual.
+   logical                                        :: do_ghost_syncro_      !< Flag to do syncrous ghost update, local var.
+   integer(I4P)                                   :: s                     !< Counter.
+   integer(I4P)                                   :: i_eikonal             !< Counter.
+   integer(I4P), parameter                        :: n_eikonal=2           !< Counter.
 
    do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
    self%q_old_gpu = self%q_gpu ! store previous conservative variables for RK integration
@@ -799,6 +815,7 @@ contains
       call MPI_Barrier(MPI_COMM_WORLD, self%mpih%error)
       call self%compute_q_aux_gpu(q_gpu=self%q_gpu, q_aux_gpu=self%q_aux_gpu)
       call self%compute_residuals
+      if (s==1) call self%save_residuals
       call self%compute_rk_q_gpu(s=s)
    enddo
    endsubroutine integrate
@@ -830,6 +847,7 @@ contains
    if (self%ib%solids_number > 0) call self%compute_phi()
    call self%amr_update()
    call self%save_simulation_data
+   if (self%mpih%myrank==0) call self%io%open_file_residuals(nv=self%nv)
 
    ! integration
    call self%mpih%barrier(tictoc=.true., timing=timing(1), single=.true.)
@@ -866,5 +884,6 @@ contains
    enddo integration
    call self%mpih%barrier(tictoc=.true., timing=timing(2), single=.true.)
    call self%save_simulation_data
+   if (self%mpih%myrank==0) call self%io%close_file_residuals
    endsubroutine simulate
 endmodule adam_nasto_nvf_object

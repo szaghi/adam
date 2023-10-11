@@ -906,37 +906,38 @@ contains
    !@cuf iercuda=cudaDeviceSynchronize()
    endsubroutine compute_q_gradient_cuf
 
-   subroutine compute_umax_cuf(b, ni, nj, nk, ngc, ns, dx, dy, dz, mu, q_aux_gpu, umax)
+   subroutine compute_umax_cuf(ni, nj, nk, ngc, blocks_number, mu, dx_gpu, dy_gpu, dz_gpu, q_aux_gpu, umax)
    !< Compute maximum speed.
-   integer(I4P), intent(in)         :: b                                     !< Block index.
    integer(I4P), intent(in)         :: ni                                    !< Grid cells number in I direction.
    integer(I4P), intent(in)         :: nj                                    !< Grid cells number in J direction.
    integer(I4P), intent(in)         :: nk                                    !< Grid cells number in K direction.
    integer(I4P), intent(in)         :: ngc                                   !< Ghost cells number.
-   integer(I4P), intent(in)         :: ns                                    !< Number of species.
-   real(R8P),    intent(in)         :: dx                                    !< X space step.
-   real(R8P),    intent(in)         :: dy                                    !< Y space step.
-   real(R8P),    intent(in)         :: dz                                    !< Z space step.
+   integer(I4P), intent(in)         :: blocks_number                         !< Number of blocks.
    real(R8P),    intent(in)         :: mu                                    !< Dynamic viscosity.
+   real(R8P),    intent(in), device :: dx_gpu(1:)                            !< X space step.
+   real(R8P),    intent(in), device :: dy_gpu(1:)                            !< Y space step.
+   real(R8P),    intent(in), device :: dz_gpu(1:)                            !< Z space step.
    real(R8P),    intent(in), device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary varibales.
    real(R8P),    intent(out)        :: umax                                  !< Maximum speed.
    real(R8P)                        :: ss                                    !< Speed of sound.
-   integer(I4P)                     :: i, j, k                               !< Counter.
+   integer(I4P)                     :: i, j, k, b                            !< Counter.
    integer(I4P)                     :: iercuda                               !< Error trapping flag for CUDAFortran.
    real(R8P)                        :: dx_locale, dy_locale, dz_locale       !< Local space steps.
 
    umax = 0._R8P
-   dx_locale = dx*0.5_R8P
-   dy_locale = dy*0.5_R8P
-   dz_locale = dz*0.5_R8P
-   !$cuf kernel do(3) <<<*,*>>>
+   !$cuf kernel do(4) <<<*,*>>> reduce(max:umax)
    do k=1, nk
       do j=1, nj
          do i=1, ni
-            ss = q_aux_gpu(b,i,j,k,9)
-            umax = max(umax, (abs(q_aux_gpu(b,i,j,k,2)) + ss)/dx_locale + 2._R8P*mu/(q_aux_gpu(b,i,j,k,1))/dx_locale**2 + &
-                             (abs(q_aux_gpu(b,i,j,k,3)) + ss)/dy_locale + 2._R8P*mu/(q_aux_gpu(b,i,j,k,1))/dy_locale**2 + &
-                             (abs(q_aux_gpu(b,i,j,k,4)) + ss)/dz_locale + 2._R8P*mu/(q_aux_gpu(b,i,j,k,1))/dz_locale**2)
+            do b=1, blocks_number
+               dx_locale = dx_gpu(b)*0.5_R8P
+               dy_locale = dy_gpu(b)*0.5_R8P
+               dz_locale = dz_gpu(b)*0.5_R8P
+               ss = q_aux_gpu(b,i,j,k,9)
+               umax = max(umax, (abs(q_aux_gpu(b,i,j,k,2)) + ss)/dx_locale + 2._R8P*mu/(q_aux_gpu(b,i,j,k,1))/dx_locale**2 + &
+                                (abs(q_aux_gpu(b,i,j,k,3)) + ss)/dy_locale + 2._R8P*mu/(q_aux_gpu(b,i,j,k,1))/dy_locale**2 + &
+                                (abs(q_aux_gpu(b,i,j,k,4)) + ss)/dz_locale + 2._R8P*mu/(q_aux_gpu(b,i,j,k,1))/dz_locale**2)
+            enddo
          enddo
       enddo
    enddo
@@ -1042,42 +1043,7 @@ contains
    enddo
    endsubroutine set_bc_q_gpu_cuf
 
-   ! RK procedures
-   !subroutine compute_rk_linear_gpu_cuf(ni, nj, nk, ngc, nv, blocks_number, dt, q_gpu, prhs_gpu, fl_gpu, phi_gpu, qnrk)
-   !!< Compute RK linear stages.
-   !integer(I4P), intent(in)            :: ni                                   !< Grid cells number in I direction.
-   !integer(I4P), intent(in)            :: nj                                   !< Grid cells number in J direction.
-   !integer(I4P), intent(in)            :: nk                                   !< Grid cells number in K direction.
-   !integer(I4P), intent(in)            :: ngc                                  !< Ghost cells number.
-   !integer(I4P), intent(in)            :: nv                                   !< Number of conservative varibales.
-   !integer(I4P), intent(in)            :: blocks_number                        !< Number of blocks.
-   !real(R8P),    intent(in)            :: dt                                   !< Time step.
-   !real(R8P),    intent(in)            :: qnrk                                 !< Time step.
-   !real(R8P),    intent(inout), device ::   q_gpu( 1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative varibales.
-   !real(R8P),    intent(in),    device ::  fl_gpu( 1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative field.
-   !real(R8P),    intent(in),    device :: phi_gpu( 1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative field.
-   !real(R8P),    intent(inout), device :: prhs_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< RK stage.
-   !integer(I4P)                        :: i, j, k, b, v, ss                    !< Counter.
-   !integer(I4P)                        :: iercuda                              !< Error trapping flag for CUDAFortran.
-
-   !!$cuf kernel do(5) <<<*,*>>>
-   !do v=1, nv
-   !   do k=1, nk
-   !      do j=1, nj
-   !         do i=1, ni
-   !            do b=1, blocks_number
-   !               if (phi_gpu(b,i,j,k,1) < 0.) then
-   !                  q_gpu(b,i,j,k,v) = prhs_gpu(b,i,j,k,v) + qnrk * fl_gpu(b,i,j,k,v)
-   !               endif
-   !            enddo
-   !         enddo
-   !      enddo
-   !   enddo
-   !enddo
-   !!@cuf iercuda=cudaDeviceSynchronize()
-   !endsubroutine compute_rk_linear_gpu_cuf
-
-   subroutine compute_rk_q_gpu_cuf(ni,nj,nk,ngc,nv,blocks_number,dt,s,q_gpu,q_old_gpu,fl_gpu,phi_gpu,ark,brk,crk)
+   subroutine compute_rk_q_gpu_cuf(ni,nj,nk,ngc,nv,blocks_number,dt,q_gpu,q_old_gpu,fl_gpu,phi_gpu,ark,brk,crk)
    !< Compute RK approximation over q.
    integer(I4P), intent(in)                      :: ni                                    !< Grid cells number in I direction.
    integer(I4P), intent(in)                      :: nj                                    !< Grid cells number in J direction.
@@ -1087,13 +1053,12 @@ contains
    integer(I4P), intent(in)                      :: blocks_number                         !< Number of blocks.
    real(R8P),    intent(in)                      :: dt                                    !< Time step.
    real(R8P),    intent(in)                      :: ark, brk, crk                         !< Time step.
-   integer(I4P), intent(in)                      :: s                                     !< Stage to initialize.
    real(R8P),    intent(inout), device           ::     q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative field.
    real(R8P),    intent(in),    device           ::    fl_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative field.
    real(R8P),    intent(in),    device, optional ::   phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative field.
    real(R8P),    intent(in),    device           :: q_old_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< RK stage.
    integer(I4P)                                  :: all_solids                            !< Last phi index, all solids summary.
-   integer(I4P)                                  :: i, j, k, b, v, ss                     !< Counter.
+   integer(I4P)                                  :: i, j, k, b, v                         !< Counter.
    integer(I4P)                                  :: iercuda                               !< Error trapping flag for CUDAFortran.
 
    if (present(phi_gpu)) then
@@ -1129,41 +1094,6 @@ contains
       !@cuf iercuda=cudaDeviceSynchronize()
    endif
    endsubroutine compute_rk_q_gpu_cuf
-
-   !subroutine compute_rk_prhs_gpu_cuf(ni, nj, nk, ngc, nv, blocks_number, dt, s, q_gpu, prhs_gpu, fl_gpu, phi_gpu, qnrk)
-   !!< Compute RK approximation with Immersed Boundary.
-   !integer(I4P), intent(in)            :: ni                                   !< Grid cells number in I direction.
-   !integer(I4P), intent(in)            :: nj                                   !< Grid cells number in J direction.
-   !integer(I4P), intent(in)            :: nk                                   !< Grid cells number in K direction.
-   !integer(I4P), intent(in)            :: ngc                                  !< Ghost cells number.
-   !integer(I4P), intent(in)            :: nv                                   !< Number of conservative varibales.
-   !integer(I4P), intent(in)            :: blocks_number                        !< Number of blocks.
-   !real(R8P),    intent(in)            :: dt                                   !< Time step.
-   !real(R8P),    intent(in)            :: qnrk                                 !< Time step.
-   !integer(I4P), intent(in)            :: s                                    !< Stage to initialize.
-   !real(R8P),    intent(in),    device ::    q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative field.
-   !real(R8P),    intent(in),    device ::   fl_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative field.
-   !real(R8P),    intent(in),    device ::  phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative field.
-   !real(R8P),    intent(inout), device :: prhs_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< RK stage.
-   !integer(I4P)                        :: i, j, k, b, v, ss                    !< Counter.
-   !integer(I4P)                        :: iercuda                              !< Error trapping flag for CUDAFortran.
-
-   !!$cuf kernel do(5) <<<*,*>>>
-   !do v=1, nv
-   !   do k=1, nk
-   !      do j=1, nj
-   !         do i=1, ni
-   !            do b=1, blocks_number
-   !               if(phi_gpu(b,i,j,k,1) < 0.) then
-   !                  prhs_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) + qnrk * fl_gpu(b,i,j,k,v)
-   !               endif
-   !            enddo
-   !         enddo
-   !      enddo
-   !   enddo
-   !enddo
-   !!@cuf iercuda=cudaDeviceSynchronize()
-   !endsubroutine compute_rk_prhs_gpu_cuf
 
    ! WENO procedures
    attributes(device) subroutine weno_reconstruction_kernel(nvar, vp, vm, vminus, vplus, iweno, wenorec_ord)

@@ -22,10 +22,16 @@ type :: nasto_io_object
    character(:), allocatable :: restart_basename           !< Basename of restart files.
    integer(I4P)              :: restart_save=100_I4P       !< Restart output iteration save frequency.
    logical                   :: save_memory_status=.false. !< Enable save of memory status during allocations.
+   integer(I4P)              :: residuals_save=10_I4P      !< Residuals (norm) output iteration save frequency.
+   integer(I4P)              :: residuals_unit             !< Residuals file unit.
    contains
-      procedure, pass(self) :: description    !< Return pretty-printed object description.
-      procedure, pass(self) :: initialize     !< Initialize time handler.
-      procedure, pass(self) :: load_from_file !< Load config from file.
+      procedure, pass(self) :: description          !< Return pretty-printed object description.
+      procedure, pass(self) :: initialize           !< Initialize time handler.
+      procedure, pass(self) :: load_from_file       !< Load config from file.
+      ! residuals IO
+      procedure, pass(self) :: close_file_residuals !< Close file for saving residuals history.
+      procedure, pass(self) :: open_file_residuals  !< Open file for saving residuals history.
+      procedure, pass(self) :: save_residuals       !< Save residuals history.
 endtype nasto_io_object
 
 contains
@@ -36,14 +42,15 @@ contains
    character(len=:), allocatable      :: desc             !< Description.
    character(len=1), parameter        :: NL=new_line('a') !< New line character.
 
-   desc =       self%mpih%myrankstr//'IO main data'                                              //NL
-   desc = desc//self%mpih%myrankstr//'  file parameters:    '//self%file_parameters%filename     //NL
-   desc = desc//self%mpih%myrankstr//'  it save:            '//trim(str(self%it_save))           //NL
-   desc = desc//self%mpih%myrankstr//'  output basename:    '//self%output_basename              //NL
-   desc = desc//self%mpih%myrankstr//'  restart:            '//trim(str(self%restart))           //NL
-   desc = desc//self%mpih%myrankstr//'  restart basename:   '//self%restart_basename             //NL
-   desc = desc//self%mpih%myrankstr//'  restart save:       '//trim(str(self%restart_save))      //NL
-   desc = desc//self%mpih%myrankstr//'  save memory status: '//trim(str(self%save_memory_status))
+   desc =       self%mpih%myrankstr//'IO main data'                                               //NL
+   desc = desc//self%mpih%myrankstr//'  file parameters:     '//self%file_parameters%filename     //NL
+   desc = desc//self%mpih%myrankstr//'  it save:             '//trim(str(self%it_save))           //NL
+   desc = desc//self%mpih%myrankstr//'  output basename:     '//self%output_basename              //NL
+   desc = desc//self%mpih%myrankstr//'  restart:             '//trim(str(self%restart))           //NL
+   desc = desc//self%mpih%myrankstr//'  restart basename:    '//self%restart_basename             //NL
+   desc = desc//self%mpih%myrankstr//'  restart (it) save:   '//trim(str(self%restart_save))      //NL
+   desc = desc//self%mpih%myrankstr//'  save memory status:  '//trim(str(self%save_memory_status))//NL
+   desc = desc//self%mpih%myrankstr//'  residuals (it) save: '//trim(str(self%residuals_save))
    endfunction description
 
    subroutine initialize(self, filename)
@@ -83,7 +90,46 @@ contains
    self%restart_basename = trim(adjustl(buff_c))
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='restart_save', val=self%restart_save, error=error)
    if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(restart_save)')
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='residuals_save', val=self%residuals_save, error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(residuals_save)')
    call file_parameters%get(section_name=INI_SECTION_NAME,option_name='save_memory_status',val=self%save_memory_status,error=error)
    if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(save_memory_status)')
    endsubroutine load_from_file
+
+      ! residuals IO
+   subroutine  close_file_residuals(self)
+   !< Close file for saving residuals history.
+   class(nasto_io_object), intent(in) :: self !< IO handler.
+
+   close(self%residuals_unit)
+   endsubroutine close_file_residuals
+
+   subroutine open_file_residuals(self, nv)
+   !< Open file for saving residuals history.
+   class(nasto_io_object), intent(inout) :: self !< IO handler.
+   integer(I4P),           intent(in)    :: nv   !< Number of residuals variables.
+   character(:), allocatable             :: rqs  !< String buffer.
+   integer(I4P)                          :: v    !< Counter.
+
+   rqs = ''
+   do v=1, nv
+      rqs = rqs//' "rq'//trim(str(v,.true.))//'"'
+   enddo
+   open(newunit=self%residuals_unit, file=self%output_basename//'-residuals.dat')
+   write(self%residuals_unit, '(A)') 'VARIABLES="it" "time" "blocks_number"'//rqs
+   endsubroutine open_file_residuals
+
+   subroutine save_residuals(self, it, time, blocks_number, residuals)
+   !< Save residuals history.
+   class(nasto_io_object), intent(in) :: self          !< IO handler.
+   integer(I4P),           intent(in) :: it            !< Current iteration.
+   real(R8P),              intent(in) :: time          !< Current time.
+   integer(I4P),           intent(in) :: blocks_number !< Current number of blocks.
+   real(R8P),              intent(in) :: residuals(1:) !< Residuals (norm) [1:nv].
+
+   write(self%residuals_unit, '(A)') trim(str(it           ))//' '//&
+                                     trim(str(time         ))//' '//&
+                                     trim(str(blocks_number))//' '//&
+                                     trim(str(residuals(1:)))
+   endsubroutine save_residuals
 endmodule adam_nasto_io_object

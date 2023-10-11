@@ -122,11 +122,13 @@ type :: field_object
    ! field equations data
    real(R8P), allocatable :: q(     :,:,:,:,:) !< Field cell centered variables.
    real(R8P), allocatable :: q_work(:,:,:,:,:) !< Field cell centered variables, working buffer memory.
+   real(R8P), allocatable :: residuals(:)      !< Field residuals, normalized.
    contains
       ! public methods
       procedure, pass(self) :: adapt                         !< Adapt field accordingly to refine/derefine necessity.
       procedure, pass(self) :: blocks_reorder                !< Reorder blocks indexes in field.
       procedure, pass(self) :: compute_metrics               !< Compute metrics of each block.
+      procedure, pass(self) :: compute_normL2_residuals      !< Compute L2 norm of residuals.
       procedure, pass(self) :: description                   !< Return pretty-printed object description.
       procedure, pass(self) :: do_caxis_intersect            !< Return true if a block is intersected by coordinate-axis.
       procedure, pass(self) :: do_cplane_intersect           !< Return true if a block is intersected by coordinate-plane.
@@ -201,6 +203,33 @@ contains
                                      x_cell=self%x_cell(:,b), y_cell=self%y_cell(:,b), z_cell=self%z_cell(:,b))
    enddo
    endsubroutine compute_metrics
+
+   subroutine compute_normL2_residuals(self, dq, norm)
+   !< Compute L2 norm of residuals.
+   class(field_object), intent(in)    :: self       !< The field.
+   real(R8P),           intent(in)    :: dq(1:,               &
+                                            1-self%grid%ngc:, &
+                                            1-self%grid%ngc:, &
+                                            1-self%grid%ngc:, &
+                                            1:)     !< Residuals.
+   real(R8P),           intent(inout) :: norm(1:)   !< Residuals norm.
+   real(R8P)                          :: volume     !< Total volume.
+   integer(I4P)                       :: b, i, j, k !< Counter.
+
+   norm   = 0._R8P
+   volume = 0._R8P
+   do b=1, self%blocks_number
+      volume = volume + (self%dxyz(1,b) * self%dxyz(2,b) * self%dxyz(3,b))*self%grid%ni*self%grid%nj*self%grid%nk
+      do k=1, self%grid%nk
+         do j=1, self%grid%nj
+            do i=1, self%grid%ni
+               norm(:) = norm(:) + dq(:, i, j, k, b)**2
+            enddo
+         enddo
+      enddo
+   enddo
+   norm = sqrt(norm)/volume
+   endsubroutine compute_normL2_residuals
 
    pure function description(self) result(desc)
    !< Return a pretty-formatted object description.
@@ -415,8 +444,12 @@ contains
                                       1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
                                       1,self%nb],[2,5]),                          &
                          msg=self%mpih%myrankstr//'field%initialize(q_work) ', verbose=.true.)
+      call alloc_var_cpu(var=self%residuals, &
+                         ulb=[1,self%nv],    &
+                         msg=self%mpih%myrankstr//'field%initialize(residuals) ', verbose=.true.)
       self%q = 0._R8P
       self%q_work = 0._R8P
+      self%residuals = 0._R8P
    endif
    call alloc_var_cpu(var=self%blocks_numbers, &
                       ulb=[0,self%mpih%procs_number-1],  &
