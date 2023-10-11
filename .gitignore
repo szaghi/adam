@@ -6,4 +6,6 @@ src/third_party_manual/memeval/*.o
 src/third_party_manual/memeval/*.mod
 src/third_party_manual/CGAL/*.o
 run/
-tests/
+src/tests/backup
+src/tests/euler_cpu
+doc/html/

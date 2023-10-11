@@ -1,1 +1,236 @@
-fobos_nasto
+[modes]
+modes = nasto-nvf-mpi-cuda
+        nasto-nvf-mpi-cuda-debug
+        nasto-nvf-mpi-cuda-leo
+        nasto-cpu-mpi-gnu
+        nasto-cpu-mpi-gnu-debug
+        nasto-gmp-mpi-ifx
+        nasto-gmp-mpi-ifx-debug
+        ascot-nvf-mpi-cuda
+
+[common-variables]
+$HDF5_cuda_22_3 = /opt/HDF5/bin/1.12.1/openmpi/3.1.5/nvidia/22.3
+$HDF5_cuda_20_7 = /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7
+$HDF5_gnu       = /opt/HDF5/bin/1.12.2/openmpi/4.1.4/gnu/11.2.0
+$ZLIB           = /opt/zlib/bin/1.2.11/lib/libz.a
+$SZIP           = /opt/szip/bin/2.1.1/lib/libsz.a
+$GETMEMORY      = ./exe/obj/getmemory.o
+$CGAL           = ./exe/obj/cgal_c_wrappers.o
+$HDF5_cuda_23_1_leo = /leonardo/prod/spack/03/install/0.19/linux-rhel8-icelake/nvhpc-23.1/hdf5-1.12.2-6a3ddj2hipc7tm4xrdqh4ijifigxq3bq/
+
+# main modes
+[nasto-nvf-mpi-cuda]
+help     = Build NASTO NVF app with NVF-MPI-CUDA on SZ laptop
+template = template-base
+target   = adam_nasto_nvf.F90
+preproc  = -D_NVF -D_MPI_
+compiler = nvfortran
+cflags   = -cpp -c -Mcuda=cc75,cuda12.0,ptxinfo -O2
+lflags   = -Mcuda=cc75,cuda12.0,ptxinfo -O2
+lib_dir  = $HDF5_cuda_22_3/lib
+include  = $HDF5_cuda_22_3/include
+libs     = $HDF5_cuda_22_3/lib/libhdf5hl_fortran.a
+           $HDF5_cuda_22_3/lib/libhdf5_hl.a
+           $HDF5_cuda_22_3/lib/libhdf5_fortran.a
+           $HDF5_cuda_22_3/lib/libhdf5.a
+           -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/11 /usr/lib/gcc/x86_64-linux-gnu/11/libstdc++.so
+           $ZLIB
+           $SZIP
+           $GETMEMORY
+           $CGAL
+
+[nasto-nvf-mpi-cuda-debug]
+help     = Build NASTO NVF app (debug) with NVF-MPI-CUDA on SZ laptop
+template = template-base
+target   = adam_nasto_nvf.F90
+preproc  = -D_NVF -D_MPI_
+compiler = nvfortran
+cflags   = -cpp -c -Mcuda=cc75,cuda12.0,ptxinfo -C -gopt -Mbounds -traceback
+lflags   = -Mcuda=cc75,cuda12.0,ptxinfo -C -gopt -Mbounds -traceback
+lib_dir  = $HDF5_cuda_22_3/lib
+include  = $HDF5_cuda_22_3/include
+libs     = $HDF5_cuda_22_3/lib/libhdf5hl_fortran.a
+           $HDF5_cuda_22_3/lib/libhdf5_hl.a
+           $HDF5_cuda_22_3/lib/libhdf5_fortran.a
+           $HDF5_cuda_22_3/lib/libhdf5.a
+           -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/11 /usr/lib/gcc/x86_64-linux-gnu/11/libstdc++.so
+           $ZLIB
+           $SZIP
+           $GETMEMORY
+           $CGAL
+
+# module load anaconda3/2023.03 zlib/1.2.13--gcc--11.3.0 nvhpc/23.1 openmpi/4.1.4--nvhpc--23.1-cuda-11.8 hdf5/1.12.2--openmpi--4.1.4--nvhpc--23.1
+[nasto-nvf-mpi-cuda-leo]
+help     = Build nasto app with NVF-MPI-CUDA on marconi100 cluster
+template = template-base
+target   = adam_nasto_nvf.F90
+preproc  = -D_NVF -D_MPI_
+compiler = custom
+fc       = mpif90
+modsw    = -module=
+cflags   = -cpp -c -Mcuda=cc80,cuda11.8,ptxinfo -O2
+lflags   = -Mcuda=cc80,cuda11.8,ptxinfo -O2
+lib_dir  = $HDF5_cuda_23_1_leo/lib
+include  = $HDF5_cuda_23_1_leo/include
+libs     = $HDF5_cuda_23_1_leo/lib/libhdf5_hl_fortran.a
+           $HDF5_cuda_23_1_leo/lib/libhdf5_fortran.a
+           $HDF5_cuda_23_1_leo/lib/libhdf5_hl.a
+           $HDF5_cuda_23_1_leo/lib/libhdf5_f90cstub.a
+           $HDF5_cuda_23_1_leo/lib/libhdf5.a
+           -Wl,-rpath,/leonardo/prod/spack/03/install/0.19/linux-rhel8-icelake/gcc-8.5.0/gcc-11.3.0-tm6phj7wkcw7cuy6gjixemkvh5x2mhza/lib64 /leonardo/prod/spack/03/install/0.19/linux-rhel8-icelake/gcc-8.5.0/gcc-11.3.0-tm6phj7wkcw7cuy6gjixemkvh5x2mhza/lib64/libstdc++.so.6.0.29
+           /leonardo/prod/spack/03/install/0.19/linux-rhel8-icelake/gcc-11.3.0/zlib-1.2.13-noknejuy3uxqyxfetsmtnvb6zna3zaxk/lib/libz.a
+           $GETMEMORY
+           $CGAL
+
+[nasto-cpu-mpi-gnu]
+help     = Build NASTO CPU app with GNU-MPI on SZ laptop
+template = template-base
+target   = adam_nasto_cpu.F90
+preproc  = -D_MPI_
+compiler = gnu
+mpi      = True
+cflags   = -cpp -c -O2
+lflags   = -O2
+ext_libs = dl m
+lib_dir  = $HDF5_gnu/lib
+include  = $HDF5_gnu/include
+libs     = $HDF5_gnu/lib/libhdf5hl_fortran.a
+           $HDF5_gnu/lib/libhdf5_hl.a
+           $HDF5_gnu/lib/libhdf5_fortran.a
+           $HDF5_gnu/lib/libhdf5.a
+           $ZLIB
+           $SZIP
+           $GETMEMORY
+
+[nasto-cpu-mpi-gnu-debug]
+help     = Build NASTO CPU app (debug) with GNU-MPI on SZ laptop
+template = template-base
+target   = adam_nasto_cpu.F90
+preproc  = -D_MPI_
+compiler = gnu
+mpi      = True
+cflags   = -C -g -O0
+lflags   = -O0
+ext_libs = dl m
+lib_dir  = $HDF5_gnu/lib
+include  = $HDF5_gnu/include
+libs     = $HDF5_gnu/lib/libhdf5hl_fortran.a
+           $HDF5_gnu/lib/libhdf5_hl.a
+           $HDF5_gnu/lib/libhdf5_fortran.a
+           $HDF5_gnu/lib/libhdf5.a
+           $ZLIB
+           $SZIP
+           $GETMEMORY
+
+[nasto-gmp-mpi-ifx]
+help     = Build NASTO GMP app with IFX-MPI on SZ laptop (placeholder with GNU compiler, must be changed for actual IFX)
+template = template-base
+target   = adam_nasto_gmp.F90
+preproc  = -D_MPI_
+compiler = gnu
+mpi      = True
+cflags   = -cpp -c -O2
+lflags   = -O2
+ext_libs = dl m
+lib_dir  = $HDF5_gnu/lib
+include  = $HDF5_gnu/include
+libs     = $HDF5_gnu/lib/libhdf5hl_fortran.a
+           $HDF5_gnu/lib/libhdf5_hl.a
+           $HDF5_gnu/lib/libhdf5_fortran.a
+           $HDF5_gnu/lib/libhdf5.a
+           $ZLIB
+           $SZIP
+           $GETMEMORY
+
+[nasto-gmp-mpi-ifx-debug]
+help     = Build NASTO GMP app (debug) with IFX-MPI on SZ laptop (placeholder with GNU compiler, must be changed for actual IFX)
+template = template-base
+target   = adam_nasto_gmp.F90
+preproc  = -D_MPI_
+compiler = gnu
+mpi      = True
+cflags   = -C -g -O0
+lflags   = -O0
+ext_libs = dl m
+lib_dir  = $HDF5_gnu/lib
+include  = $HDF5_gnu/include
+libs     = $HDF5_gnu/lib/libhdf5hl_fortran.a
+           $HDF5_gnu/lib/libhdf5_hl.a
+           $HDF5_gnu/lib/libhdf5_fortran.a
+           $HDF5_gnu/lib/libhdf5.a
+           $ZLIB
+           $SZIP
+           $GETMEMORY
+
+[ascot-nvf-mpi-cuda]
+help         = Build ascot app with NVF-CUDA on SZ laptop
+template     = template-base
+target       = ascot.F90
+preproc      = -D_NVF
+compiler     = nvfortran
+cflags       = -cpp -c -Mcuda=cc75,cuda12.0,ptxinfo -O2
+lflags       = -Mcuda=cc75,cuda12.0,ptxinfo -O2
+
+# templates
+[template-base]
+mod_dir      = ./mod/
+obj_dir      = ./obj/
+src          = ./src/
+build_dir    = ./exe/
+colors       = True
+quiet        = False
+log          = True
+jobs         = 4
+mpi          = True
+ext_libs     = dl m
+exclude_dirs = src/lib_experimental/
+               references/
+               BeFoR64/src/tests/
+               BeFoR64/src/third_party/
+               FACE/src/tests/
+               FACE/src/third_party/
+               FiNeR/src/tests/
+               FiNeR/src/third_party/
+               FOSSIL/src/app/
+               FOSSIL/src/tests/
+               FOSSIL/src/third_party/
+               FoXy/src/tests/
+               FoXy/src/third_party/
+               MORTIF/src/tests/
+               MORTIF/src/third_party/
+               PENF/src/tests/
+               StringiFor/src/tests/
+               StringiFor/src/third_party/
+               VecFor/src/tests/
+               VecFor/src/third_party/
+               VTKFortran/src/tests/
+               VTKFortran/src/third_party/
+               third_party_manual/
+
+# aux rules
+[rule-makethirdpartymanual]
+help   = Make third party manual-compiling libraries on SZ laptop
+rule_1 = mkdir -p exe/mod exe/obj
+rule_2 = cd src/third_party_manual/CGAL/ ; g++ -std=c++17 -frounding-math -O2 -I/opt/cgal/5.2.1/include/ -c cgal_c_wrappers.cpp ; cd -
+rule_3 = cd src/third_party_manual/getmemory/ ; gcc -c getmemory.c ; cd -
+rule_4 = mv src/third_party_manual/getmemory/*.o exe/obj/
+rule_5 = mv src/third_party_manual/CGAL/*.o exe/obj/
+
+[rule-makethirdpartymanual-leo]
+help   = Make third party manual-compiling libraries on marconi100 cluster
+rule_1 = mkdir -p exe/mod exe/obj
+rule_2 = cd src/third_party_manual/CGAL/ ; g++ -std=c++17 -frounding-math -O2 -I/leonardo/prod/spack/03/install/0.19/linux-rhel8-icelake/nvhpc-23.1/boost-1.80.0-iq4pew7yycxkz2wcx6ckm2ix25cuozqv/include -I/leonardo/home/userinternal/fsalvado/ADAM/CGAL/CGAL-5.0.2/include/ -c cgal_c_wrappers.cpp ; cd -
+rule_3 = cd src/third_party_manual/getmemory/ ; gcc -c getmemory.c ; cd -
+rule_4 = mv src/third_party_manual/getmemory/*.o exe/obj/
+rule_5 = mv src/third_party_manual/CGAL/*.o exe/obj/
+
+[rule-makedoc]
+help   = Build documentation from source files
+rule_1 = rm -rf doc/html/*
+rule_2 = ford doc/main_page.md --debug
+rule_3 = cp -r doc/html/publish/* doc/html/
+rule_4 = rm -rf doc/html/publish
+
+[rule-deldoc]
+help = Delete documentation
+rule = rm -rf doc/html/*
