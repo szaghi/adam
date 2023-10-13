@@ -6,12 +6,15 @@ modes = nasto-nvf-mpi-cuda
         nasto-cpu-mpi-gnu-debug
         nasto-gmp-mpi-ifx
         nasto-gmp-mpi-ifx-debug
+        adam-gmp-mpi-ifx
+        adam-gmp-mpi-ifx-debug
         ascot-nvf-mpi-cuda
 
 [common-variables]
 $HDF5_cuda_22_3 = /opt/HDF5/bin/1.12.1/openmpi/3.1.5/nvidia/22.3
 $HDF5_cuda_20_7 = /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7
 $HDF5_gnu       = /opt/HDF5/bin/1.12.2/openmpi/4.1.4/gnu/11.2.0
+$HDF5_intel     = /home/grossi/Projects/ADAM/hdf5_install/1.12.2
 $ZLIB           = /opt/zlib/bin/1.2.11/lib/libz.a
 $SZIP           = /opt/szip/bin/2.1.1/lib/libsz.a
 $GETMEMORY      = ./exe/obj/getmemory.o
@@ -123,43 +126,83 @@ libs     = $HDF5_gnu/lib/libhdf5hl_fortran.a
            $GETMEMORY
 
 [nasto-gmp-mpi-ifx]
-help     = Build NASTO GMP app with IFX-MPI on SZ laptop (placeholder with GNU compiler, must be changed for actual IFX)
+help     = Build NASTO GMP app with Intel IFX-MPI on Intel Florence cluster
 template = template-base
 target   = adam_nasto_gmp.F90
 preproc  = -D_MPI_
-compiler = gnu
+compiler = intel_nextgen
 mpi      = True
+openmp   = True
+openmp_offload = True
 cflags   = -cpp -c -O2
 lflags   = -O2
 ext_libs = dl m
-lib_dir  = $HDF5_gnu/lib
-include  = $HDF5_gnu/include
-libs     = $HDF5_gnu/lib/libhdf5hl_fortran.a
-           $HDF5_gnu/lib/libhdf5_hl.a
-           $HDF5_gnu/lib/libhdf5_fortran.a
-           $HDF5_gnu/lib/libhdf5.a
-           $ZLIB
-           $SZIP
+lib_dir  = $HDF5_intel/lib
+include  = $HDF5_intel/include
+libs     = $HDF5_intel/lib/libhdf5hl_fortran.a
+           $HDF5_intel/lib/libhdf5_hl.a
+           $HDF5_intel/lib/libhdf5_fortran.a
+           $HDF5_intel/lib/libhdf5.a
            $GETMEMORY
 
 [nasto-gmp-mpi-ifx-debug]
-help     = Build NASTO GMP app (debug) with IFX-MPI on SZ laptop (placeholder with GNU compiler, must be changed for actual IFX)
+help     = Build NASTO GMP app (debug) with Intel IFX-MPI on Intel Florence cluster
 template = template-base
 target   = adam_nasto_gmp.F90
 preproc  = -D_MPI_
-compiler = gnu
+compiler = intel_nextgen
 mpi      = True
+openmp   = True
+openmp_offload = True
 cflags   = -C -g -O0
 lflags   = -O0
 ext_libs = dl m
-lib_dir  = $HDF5_gnu/lib
-include  = $HDF5_gnu/include
-libs     = $HDF5_gnu/lib/libhdf5hl_fortran.a
-           $HDF5_gnu/lib/libhdf5_hl.a
-           $HDF5_gnu/lib/libhdf5_fortran.a
-           $HDF5_gnu/lib/libhdf5.a
-           $ZLIB
-           $SZIP
+lib_dir  = $HDF5_intel/lib
+include  = $HDF5_intel/include
+libs     = $HDF5_intel/lib/libhdf5hl_fortran.a
+           $HDF5_intel/lib/libhdf5_hl.a
+           $HDF5_intel/lib/libhdf5_fortran.a
+           $HDF5_intel/lib/libhdf5.a
+           $GETMEMORY
+
+[adam-gmp-mpi-ifx]
+help     = Build ADAM GMP lib with Intel IFX-MPI on Intel Florence cluster
+template = template-base
+target   = adam_base_gmp_object.F90
+preproc  = -D_MPI_
+compiler = intel_nextgen
+mpi      = True
+openmp   = True
+openmp_offload = True
+cflags   = -cpp -c -O2
+lflags   = -O2
+ext_libs = dl m
+lib_dir  = $HDF5_intel/lib
+include  = $HDF5_intel/include
+libs     = $HDF5_intel/lib/libhdf5hl_fortran.a
+           $HDF5_intel/lib/libhdf5_hl.a
+           $HDF5_intel/lib/libhdf5_fortran.a
+           $HDF5_intel/lib/libhdf5.a
+           $GETMEMORY
+
+[adam-gmp-mpi-ifx-debug]
+help     = Build ADAM GMP lib with Intel IFX-MPI on Intel Florence cluster
+template = template-base
+target   = adam_base_gmp_object.F90
+preproc  = -D_MPI_
+compiler = intel_nextgen
+mpi      = True
+openmp   = True
+openmp_offload = True
+cflags   = -C -g -O0
+lflags   = -O0
+ext_libs = dl m
+lib_dir  = $HDF5_intel/lib
+include  = $HDF5_intel/include
+libs     = $HDF5_intel/lib/libhdf5hl_fortran.a
+           $HDF5_intel/lib/libhdf5_hl.a
+           $HDF5_intel/lib/libhdf5_fortran.a
+           $HDF5_intel/lib/libhdf5.a
            $GETMEMORY
 
 [ascot-nvf-mpi-cuda]
