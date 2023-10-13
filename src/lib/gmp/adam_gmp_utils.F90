@@ -47,15 +47,18 @@ module adam_gmp_utils
   endinterface omp_target_memcpy_f
 
 contains
-  subroutine omp_target_alloc_R8P_1D(fptr_dev, ubounds, omp_dev, ierr, lbounds)
+  subroutine omp_target_alloc_R8P_1D(fptr_dev, ubounds, omp_dev, ierr, lbounds, init_value)
     real(R8P), pointer, intent(out) :: fptr_dev(:)
     integer(I4P), intent(in) :: ubounds(1)
     integer(I4P), intent(in), optional :: omp_dev
     integer(I4P), intent(in), optional :: lbounds(1)
+    real(R8P),    intent(in), optional :: init_value
     integer(I4P), intent(out) :: ierr
     real(R8P), pointer :: fptr(:)
     type(c_ptr) :: cptr_dev
     integer(I8P) :: sizes
+    integer(I4P) :: i
+    real(R8P)    :: init_value_
 !
     if (present(lbounds)) then
       sizes = ubounds(1) - lbounds(1) + 1
@@ -64,6 +67,13 @@ contains
         call c_f_pointer(cptr_dev, fptr, shape=[sizes])
         fptr_dev(lbounds(1):) => fptr
         ierr = 0
+        if (present(init_value)) then
+           init_value_ = init_value
+           !$omp target teams distribute parallel do has_device_addr(fptr_dev)
+           do i=lbounds(1), ubounds(1)
+              fptr_dev(i) = init_value_
+           enddo
+        endif
       else
         fptr_dev => null()
         ierr = 1000
@@ -73,6 +83,13 @@ contains
       if (c_associated(cptr_dev)) then
         call c_f_pointer(cptr_dev, fptr_dev, shape=[ubounds(1)])
         ierr = 0
+        if (present(init_value)) then
+           init_value_ = init_value
+           !$omp target teams distribute parallel do has_device_addr(fptr_dev)
+           do i=1, ubounds(1)
+              fptr_dev(i) = init_value_
+           enddo
+        endif
       else
         fptr_dev => null()
         ierr = 1000
@@ -81,15 +98,18 @@ contains
 !
   endsubroutine omp_target_alloc_R8P_1D
 
-  subroutine omp_target_alloc_R8P_2D(fptr_dev, ubounds, omp_dev, ierr, lbounds)
+  subroutine omp_target_alloc_R8P_2D(fptr_dev, ubounds, omp_dev, ierr, lbounds, init_value)
     real(R8P), pointer, intent(out) :: fptr_dev(:,:)
     integer(I4P), intent(in) :: ubounds(2)
     integer(I4P), intent(in), optional :: omp_dev
     integer(I4P), intent(in), optional :: lbounds(2)
+    real(R8P),    intent(in), optional :: init_value
     integer(I4P), intent(out) :: ierr
     real(R8P), pointer :: fptr(:,:)
     type(c_ptr) :: cptr_dev
     integer(I8P) :: sizes(2)
+    integer(I4P) :: i, j
+    real(R8P)    :: init_value_
 !
     if (present(lbounds)) then
       sizes = ubounds - lbounds + 1
@@ -98,6 +118,15 @@ contains
         call c_f_pointer(cptr_dev, fptr, shape=sizes)
         fptr_dev(lbounds(1):, lbounds(2):) => fptr
         ierr = 0
+        if (present(init_value)) then
+           init_value_ = init_value
+           !$omp target teams distribute parallel do collapse(2) has_device_addr(fptr_dev)
+           do j=lbounds(2), ubounds(2)
+              do i=lbounds(1), ubounds(1)
+                 fptr_dev(i,j) = init_value_
+              enddo
+           enddo
+        endif
       else
         fptr_dev => null()
         ierr = 1000
@@ -107,6 +136,15 @@ contains
       if (c_associated(cptr_dev)) then
         call c_f_pointer(cptr_dev, fptr_dev, shape=ubounds)
         ierr = 0
+        if (present(init_value)) then
+           init_value_ = init_value
+           !$omp target teams distribute parallel do collapse(2) has_device_addr(fptr_dev)
+           do j=1, ubounds(2)
+              do i=1, ubounds(1)
+                 fptr_dev(i,j) = init_value_
+              enddo
+           enddo
+        endif
       else
         fptr_dev => null()
         ierr = 1000
@@ -115,15 +153,18 @@ contains
 !
   endsubroutine omp_target_alloc_R8P_2D
 
-  subroutine omp_target_alloc_R8P_5D(fptr_dev, ubounds, omp_dev, ierr, lbounds)
+  subroutine omp_target_alloc_R8P_5D(fptr_dev, ubounds, omp_dev, ierr, lbounds, init_value)
     real(R8P), pointer, intent(out) :: fptr_dev(:,:,:,:,:)
     integer(I4P), intent(in) :: ubounds(5)
     integer(I4P), intent(in), optional :: omp_dev
     integer(I4P), intent(in), optional :: lbounds(5)
+    real(R8P),    intent(in), optional :: init_value
     integer(I4P), intent(out) :: ierr
     real(R8P), pointer :: fptr(:,:,:,:,:)
     type(c_ptr) :: cptr_dev
     integer(I8P) :: sizes(5)
+    integer(I4P) :: i, j, k, l, m
+    real(R8P)    :: init_value_
 !
     if (present(lbounds)) then
       sizes = ubounds - lbounds + 1
@@ -132,6 +173,21 @@ contains
         call c_f_pointer(cptr_dev, fptr, shape=sizes)
         fptr_dev(lbounds(1):, lbounds(2):, lbounds(3):, lbounds(4):, lbounds(5):) => fptr
         ierr = 0
+        if (present(init_value)) then
+           init_value_ = init_value
+           !$omp target teams distribute parallel do collapse(4) has_device_addr(fptr_dev)
+           do m=lbounds(5), ubounds(5)
+              do l=lbounds(4), ubounds(4)
+                 do k=lbounds(3), ubounds(3)
+                    do j=lbounds(2), ubounds(2)
+                       do i=lbounds(1), ubounds(1)
+                          fptr_dev(i,j,k,l,m) = init_value_
+                       enddo
+                    enddo
+                 enddo
+              enddo
+           enddo
+        endif
       else
         fptr_dev => null()
         ierr = 1000
@@ -141,6 +197,21 @@ contains
       if (c_associated(cptr_dev)) then
         call c_f_pointer(cptr_dev, fptr_dev, shape=ubounds)
         ierr = 0
+        if (present(init_value)) then
+           init_value_ = init_value
+           !$omp target teams distribute parallel do collapse(4) has_device_addr(fptr_dev)
+           do m=1, ubounds(5)
+              do l=1, ubounds(4)
+                 do k=1, ubounds(3)
+                    do j=1, ubounds(2)
+                       do i=1, ubounds(1)
+                          fptr_dev(i,j,k,l,m) = init_value_
+                       enddo
+                    enddo
+                 enddo
+              enddo
+           enddo
+        endif
       else
         fptr_dev => null()
         ierr = 1000
@@ -149,15 +220,18 @@ contains
 !
   endsubroutine omp_target_alloc_R8P_5D
 
-  subroutine omp_target_alloc_I4P_1D(fptr_dev, ubounds, omp_dev, ierr, lbounds)
+  subroutine omp_target_alloc_I4P_1D(fptr_dev, ubounds, omp_dev, ierr, lbounds, init_value)
     integer(I4P), pointer, intent(out) :: fptr_dev(:)
     integer(I4P), intent(in) :: ubounds(1)
     integer(I4P), intent(in) :: omp_dev
     integer(I4P), intent(in), optional :: lbounds(1)
+    integer(I4P), intent(in), optional :: init_value
     integer(I4P), intent(out) :: ierr
     integer(I4P), pointer :: fptr(:)
     type(c_ptr) :: cptr_dev
     integer(I8P) :: sizes
+    integer(I4P) :: i
+    integer(I4P) :: init_value_
 !
     if (present(lbounds)) then
       sizes = ubounds(1) - lbounds(1) + 1
@@ -166,6 +240,13 @@ contains
         call c_f_pointer(cptr_dev, fptr, shape=[sizes])
         fptr_dev(lbounds(1):) => fptr
         ierr = 0
+        if (present(init_value)) then
+           init_value_ = init_value
+           !$omp target teams distribute parallel do has_device_addr(fptr_dev)
+           do i=lbounds(1), ubounds(1)
+              fptr_dev(i) = init_value_
+           enddo
+        endif
       else
         fptr_dev => null()
         ierr = 1000
@@ -175,6 +256,13 @@ contains
       if (c_associated(cptr_dev)) then
         call c_f_pointer(cptr_dev, fptr_dev, shape=[ubounds(1)])
         ierr = 0
+        if (present(init_value)) then
+           init_value_ = init_value
+           !$omp target teams distribute parallel do has_device_addr(fptr_dev)
+           do i=1, ubounds(1)
+              fptr_dev(i) = init_value_
+           enddo
+        endif
       else
         fptr_dev => null()
         ierr = 1000
@@ -183,15 +271,18 @@ contains
 !
   endsubroutine omp_target_alloc_I4P_1D
 
-  subroutine omp_target_alloc_I8P_1D(fptr_dev, ubounds, omp_dev, ierr, lbounds)
+  subroutine omp_target_alloc_I8P_1D(fptr_dev, ubounds, omp_dev, ierr, lbounds, init_value)
     integer(I8P), pointer, intent(out) :: fptr_dev(:)
     integer(I4P), intent(in) :: ubounds(1)
     integer(I4P), intent(in) :: omp_dev
     integer(I4P), intent(in), optional :: lbounds(1)
+    integer(I8P), intent(in), optional :: init_value
     integer(I4P), intent(out) :: ierr
     integer(I8P), pointer :: fptr(:)
     type(c_ptr) :: cptr_dev
     integer(I8P) :: sizes
+    integer(I4P) :: i
+    integer(I8P) :: init_value_
 !
     if (present(lbounds)) then
       sizes = ubounds(1) - lbounds(1) + 1
@@ -200,6 +291,13 @@ contains
         call c_f_pointer(cptr_dev, fptr, shape=[sizes])
         fptr_dev(lbounds(1):) => fptr
         ierr = 0
+        if (present(init_value)) then
+           init_value_ = init_value
+           !$omp target teams distribute parallel do has_device_addr(fptr_dev)
+           do i=lbounds(1), ubounds(1)
+              fptr_dev(i) = init_value_
+           enddo
+        endif
       else
         fptr_dev => null()
         ierr = 1000
@@ -209,6 +307,13 @@ contains
       if (c_associated(cptr_dev)) then
         call c_f_pointer(cptr_dev, fptr_dev, shape=[ubounds(1)])
         ierr = 0
+        if (present(init_value)) then
+           init_value_ = init_value
+           !$omp target teams distribute parallel do has_device_addr(fptr_dev)
+           do i=1, ubounds(1)
+              fptr_dev(i) = init_value_
+           enddo
+        endif
       else
         fptr_dev => null()
         ierr = 1000
@@ -217,15 +322,18 @@ contains
 !
   endsubroutine omp_target_alloc_I8P_1D
 
-  subroutine omp_target_alloc_I8P_2D(fptr_dev, ubounds, omp_dev, ierr, lbounds)
+  subroutine omp_target_alloc_I8P_2D(fptr_dev, ubounds, omp_dev, ierr, lbounds, init_value)
     integer(I8P), pointer, intent(out) :: fptr_dev(:,:)
     integer(I4P), intent(in) :: ubounds(2)
     integer(I4P), intent(in) :: omp_dev
     integer(I4P), intent(in), optional :: lbounds(2)
+    integer(I8P), intent(in), optional :: init_value
     integer(I4P), intent(out) :: ierr
     integer(I8P), pointer :: fptr(:,:)
     type(c_ptr) :: cptr_dev
     integer(I8P) :: sizes(2)
+    integer(I4P) :: i, j
+    integer(I8P) :: init_value_
 !
     if (present(lbounds)) then
       sizes = ubounds - lbounds + 1
@@ -234,6 +342,15 @@ contains
         call c_f_pointer(cptr_dev, fptr, shape=sizes)
         fptr_dev(lbounds(1):, lbounds(2):) => fptr
         ierr = 0
+        if (present(init_value)) then
+           init_value_ = init_value
+           !$omp target teams distribute parallel do collapse(2) has_device_addr(fptr_dev)
+           do j=lbounds(2), ubounds(2)
+              do i=lbounds(1), ubounds(1)
+                 fptr_dev(i,j) = init_value_
+              enddo
+           enddo
+        endif
       else
         fptr_dev => null()
         ierr = 1000
@@ -243,6 +360,15 @@ contains
       if (c_associated(cptr_dev)) then
         call c_f_pointer(cptr_dev, fptr_dev, shape=ubounds)
         ierr = 0
+        if (present(init_value)) then
+           init_value_ = init_value
+           !$omp target teams distribute parallel do collapse(2) has_device_addr(fptr_dev)
+           do j=1, ubounds(2)
+              do i=1, ubounds(1)
+                 fptr_dev(i,j) = init_value_
+              enddo
+           enddo
+        endif
       else
         fptr_dev => null()
         ierr = 1000
@@ -251,15 +377,18 @@ contains
 !
   endsubroutine omp_target_alloc_I8P_2D
 
-  subroutine omp_target_alloc_I8P_3D(fptr_dev, ubounds, omp_dev, ierr, lbounds)
+  subroutine omp_target_alloc_I8P_3D(fptr_dev, ubounds, omp_dev, ierr, lbounds, init_value)
     integer(I8P), pointer, intent(out) :: fptr_dev(:,:,:)
     integer(I4P), intent(in) :: ubounds(3)
     integer(I4P), intent(in) :: omp_dev
     integer(I4P), intent(in), optional :: lbounds(3)
+    integer(I8P), intent(in), optional :: init_value
     integer(I4P), intent(out) :: ierr
     integer(I8P), pointer :: fptr(:,:,:)
     type(c_ptr) :: cptr_dev
     integer(I8P) :: sizes(3)
+    integer(I4P) :: i, j, k
+    integer(I8P) :: init_value_
 !
     if (present(lbounds)) then
       sizes = ubounds - lbounds + 1
@@ -268,6 +397,17 @@ contains
         call c_f_pointer(cptr_dev, fptr, shape=sizes)
         fptr_dev(lbounds(1):, lbounds(2):, lbounds(3):) => fptr
         ierr = 0
+        if (present(init_value)) then
+           init_value_ = init_value
+           !$omp target teams distribute parallel do collapse(2) has_device_addr(fptr_dev)
+           do k=lbounds(3), ubounds(3)
+              do j=lbounds(2), ubounds(2)
+                 do i=lbounds(1), ubounds(1)
+                    fptr_dev(i,j,k) = init_value_
+                 enddo
+              enddo
+           enddo
+        endif
       else
         fptr_dev => null()
         ierr = 1000
@@ -277,6 +417,17 @@ contains
       if (c_associated(cptr_dev)) then
         call c_f_pointer(cptr_dev, fptr_dev, shape=ubounds)
         ierr = 0
+        if (present(init_value)) then
+           init_value_ = init_value
+           !$omp target teams distribute parallel do collapse(2) has_device_addr(fptr_dev)
+           do k=1, ubounds(3)
+              do j=1, ubounds(2)
+                 do i=1, ubounds(1)
+                    fptr_dev(i,j,k) = init_value_
+                 enddo
+              enddo
+           enddo
+        endif
       else
         fptr_dev => null()
         ierr = 1000
