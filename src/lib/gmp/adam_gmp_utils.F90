@@ -15,6 +15,7 @@ module adam_gmp_utils
                      omp_target_alloc_R8P_2D, &
                      omp_target_alloc_R8P_5D, &
                      omp_target_alloc_I4P_1D, &
+                     omp_target_alloc_I4P_5D, &
                      omp_target_alloc_I8P_1D, &
                      omp_target_alloc_I8P_2D, &
                      omp_target_alloc_I8P_3D
@@ -25,6 +26,7 @@ module adam_gmp_utils
                      omp_target_free_R8P_2D, &
                      omp_target_free_R8P_5D, &
                      omp_target_free_I4P_1D, &
+                     omp_target_free_I4P_5D, &
                      omp_target_free_I8P_1D, &
                      omp_target_free_I8P_2D, &
                      omp_target_free_I8P_3D
@@ -35,6 +37,7 @@ module adam_gmp_utils
                      omp_target_is_present_R8P_2D, &
                      omp_target_is_present_R8P_5D, &
                      omp_target_is_present_I4P_1D, &
+                     omp_target_is_present_I4P_5D, &
                      omp_target_is_present_I8P_1D, &
                      omp_target_is_present_I8P_2D, &
                      omp_target_is_present_I8P_3D
@@ -271,6 +274,73 @@ contains
 !
   endsubroutine omp_target_alloc_I4P_1D
 
+  subroutine omp_target_alloc_I4P_5D(fptr_dev, ubounds, omp_dev, ierr, lbounds, init_value)
+    integer(I4P), pointer, intent(out) :: fptr_dev(:,:,:,:,:)
+    integer(I4P), intent(in) :: ubounds(5)
+    integer(I4P), intent(in) :: omp_dev
+    integer(I4P), intent(in), optional :: lbounds(5)
+    integer(I4P), intent(in), optional :: init_value
+    integer(I4P), intent(out) :: ierr
+    integer(I4P), pointer :: fptr(:,:,:,:,:)
+    type(c_ptr) :: cptr_dev
+    integer(I8P) :: sizes(5)
+    integer(I4P) :: i, j, k, l, m
+    integer(I4P) :: init_value_
+!
+    if (present(lbounds)) then
+      sizes = ubounds(1) - lbounds(1) + 1
+      cptr_dev = omp_target_alloc(int(product(sizes) * byte_size(1_I4P), c_size_t), int(omp_dev, c_int))
+      if (c_associated(cptr_dev)) then
+        call c_f_pointer(cptr_dev, fptr, shape=[sizes])
+        fptr_dev(lbounds(1):, lbounds(2):, lbounds(3):, lbounds(4):, lbounds(5):) => fptr
+        ierr = 0
+        if (present(init_value)) then
+           init_value_ = init_value
+           !$omp target teams distribute parallel do collapse(4) has_device_addr(fptr_dev)
+           do m=lbounds(5), ubounds(5)
+              do l=lbounds(4), ubounds(4)
+                 do k=lbounds(3), ubounds(3)
+                    do j=lbounds(2), ubounds(2)
+                       do i=lbounds(1), ubounds(1)
+                          fptr_dev(i,j,k,l,m) = init_value_
+                       enddo
+                    enddo
+                 enddo
+              enddo
+           enddo
+        endif
+      else
+        fptr_dev => null()
+        ierr = 1000
+      endif
+    else
+      cptr_dev = omp_target_alloc(int(int(ubounds(1),I8P) * byte_size(1_I4P), c_size_t), int(omp_dev, c_int))
+      if (c_associated(cptr_dev)) then
+        call c_f_pointer(cptr_dev, fptr_dev, shape=ubounds)
+        ierr = 0
+        if (present(init_value)) then
+           init_value_ = init_value
+           !$omp target teams distribute parallel do collapse(4) has_device_addr(fptr_dev)
+           do m=1, ubounds(5)
+              do l=1, ubounds(4)
+                 do k=1, ubounds(3)
+                    do j=1, ubounds(2)
+                       do i=1, ubounds(1)
+                          fptr_dev(i,j,k,l,m) = init_value_
+                       enddo
+                    enddo
+                 enddo
+              enddo
+           enddo
+        endif
+      else
+        fptr_dev => null()
+        ierr = 1000
+      endif
+    endif
+!
+  endsubroutine omp_target_alloc_I4P_5D
+
   subroutine omp_target_alloc_I8P_1D(fptr_dev, ubounds, omp_dev, ierr, lbounds, init_value)
     integer(I8P), pointer, intent(out) :: fptr_dev(:)
     integer(I4P), intent(in) :: ubounds(1)
@@ -472,6 +542,15 @@ contains
     nullify(fptr_dev)
   endsubroutine omp_target_free_I4P_1D
 
+  subroutine omp_target_free_I4P_5D(fptr_dev, omp_dev)
+    integer(I4P), pointer, intent(out) :: fptr_dev(:,:,:,:,:)
+    integer(I4P),          intent(in)  :: omp_dev
+
+    call omp_target_free(c_loc(fptr_dev), int(omp_dev, c_int))
+
+    nullify(fptr_dev)
+  endsubroutine omp_target_free_I4P_5D
+
   subroutine omp_target_free_I8P_1D(fptr_dev, omp_dev)
     integer(I8P), pointer, intent(out) :: fptr_dev(:)
     integer(I4P),          intent(in)  :: omp_dev
@@ -546,6 +625,18 @@ contains
         omp_target_is_present_I4P_1D = .false.
      endif
   endfunction omp_target_is_present_I4P_1D
+
+  function omp_target_is_present_I4P_5D(fptr_dev, omp_dev)
+     logical                            :: omp_target_is_present_I4P_5D
+     integer(I4P), pointer, intent(in)  :: fptr_dev(:,:,:,:,:)
+     integer(I4P), intent(in)           :: omp_dev
+
+     if (omp_target_is_present(c_loc(fptr_dev), int(omp_dev,c_int))/=0) then
+        omp_target_is_present_I4P_5D = .true.
+     else
+        omp_target_is_present_I4P_5D = .false.
+     endif
+  endfunction omp_target_is_present_I4P_5D
 
   function omp_target_is_present_I8P_1D(fptr_dev, omp_dev)
      logical                            :: omp_target_is_present_I8P_1D
