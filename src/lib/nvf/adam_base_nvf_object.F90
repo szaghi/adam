@@ -72,29 +72,29 @@ contains
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) print '(A)', self%mpih%myrankstr//'base_gpu%copy_cpu_gpu start'
-   call assign_allocatable_gpu(lhs=      self%local_map_ghost_gpu, &
-                               rhs=self%field%local_map_ghost,     &
+   call assign_allocatable_gpu(lhs=      self%local_map_ghost_gpu,  &
+                               rhs=self%field%maps%local_map_ghost, &
                                msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(local_map_ghost_gpu) ', verbose=verbose)
-   call assign_allocatable_gpu(lhs=      self%comm_map_recv_ghost_gpu, &
-                               rhs=self%field%comm_map_recv_ghost,     &
+   call assign_allocatable_gpu(lhs=      self%comm_map_recv_ghost_gpu,  &
+                               rhs=self%field%maps%comm_map_recv_ghost, &
                                msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(comm_map_recv_ghost_gpu) ', verbose=verbose)
-   call assign_allocatable_gpu(lhs=      self%comm_map_send_ghost_gpu, &
-                               rhs=self%field%comm_map_send_ghost,     &
+   call assign_allocatable_gpu(lhs=      self%comm_map_send_ghost_gpu,  &
+                               rhs=self%field%maps%comm_map_send_ghost, &
                                msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(comm_map_send_ghost_gpu) ', verbose=verbose)
-   call assign_allocatable_gpu(lhs=      self%send_buffer_ghost_gpu, &
-                               rhs=self%field%send_buffer_ghost,     &
+   call assign_allocatable_gpu(lhs=      self%send_buffer_ghost_gpu,  &
+                               rhs=self%field%maps%send_buffer_ghost, &
                                msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(send_buffer_ghost_gpu) ', verbose=verbose)
-   call assign_allocatable_gpu(lhs=      self%recv_buffer_ghost_gpu, &
-                               rhs=self%field%recv_buffer_ghost,     &
+   call assign_allocatable_gpu(lhs=      self%recv_buffer_ghost_gpu,  &
+                               rhs=self%field%maps%recv_buffer_ghost, &
                                msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(recv_buffer_ghost_gpu) ', verbose=verbose)
-   call assign_allocatable_gpu(lhs=      self%local_map_bc_face_gpu, &
-                               rhs=self%field%local_map_bc_face,     &
+   call assign_allocatable_gpu(lhs=      self%local_map_bc_face_gpu,  &
+                               rhs=self%field%maps%local_map_bc_face, &
                                msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(local_map_bc_face_gpu) ', verbose=verbose)
-   call assign_allocatable_gpu(lhs=      self%local_map_bc_corner_gpu, &
-                               rhs=self%field%local_map_bc_corner,     &
+   call assign_allocatable_gpu(lhs=      self%local_map_bc_corner_gpu,  &
+                               rhs=self%field%maps%local_map_bc_corner, &
                                msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(local_map_bc_corner_gpu) ', verbose=verbose)
-   call assign_allocatable_gpu(lhs=      self%local_map_bc_edge_gpu, &
-                               rhs=self%field%local_map_bc_edge,     &
+   call assign_allocatable_gpu(lhs=      self%local_map_bc_edge_gpu,  &
+                               rhs=self%field%maps%local_map_bc_edge, &
                                msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(local_map_bc_edge_gpu) ', verbose=verbose)
    call assign_allocatable_gpu(lhs=      self%x_cell_gpu, &
                                rhs=self%field%x_cell,     &
@@ -212,16 +212,16 @@ contains
    if (verbose_) print '(A)', self%mpih%myrankstr//'base_gpu%create_maps_cell start'
 
    if (allocated(self%local_map_ghost_cell_gpu)) deallocate(self%local_map_ghost_cell_gpu)
-   if (allocated(self%field%local_map_ghost)) then
+   if (allocated(self%field%maps%local_map_ghost)) then
       c = 0
-      do f=1, size(self%field%local_map_ghost, dim=1)
-         portion = self%field%local_map_ghost(f, 4 )
-         imin    = self%field%local_map_ghost(f, 5 )
-         jmin    = self%field%local_map_ghost(f, 6 )
-         kmin    = self%field%local_map_ghost(f, 7 )
-         imax    = self%field%local_map_ghost(f, 8 )
-         jmax    = self%field%local_map_ghost(f, 9 )
-         kmax    = self%field%local_map_ghost(f, 10)
+      do f=1, size(self%field%maps%local_map_ghost, dim=1)
+         portion = self%field%maps%local_map_ghost(f, 4 )
+         imin    = self%field%maps%local_map_ghost(f, 5 )
+         jmin    = self%field%maps%local_map_ghost(f, 6 )
+         kmin    = self%field%maps%local_map_ghost(f, 7 )
+         imax    = self%field%maps%local_map_ghost(f, 8 )
+         jmax    = self%field%maps%local_map_ghost(f, 9 )
+         kmax    = self%field%maps%local_map_ghost(f, 10)
          if (portion>=0) then
             ! receiving from a block with the same refinement or finer than me
             do k=kmin, kmax
@@ -246,19 +246,19 @@ contains
       enddo
       allocate(local_map_ghost_cell(1:c,1:9))
       c = 1
-      do f=1, size(self%field%local_map_ghost, dim=1)
-         b_recv  = self%field%local_map_ghost(f, 1 )
-         b_send  = self%field%local_map_ghost(f, 2 )
-         portion = self%field%local_map_ghost(f, 4 )
-         imin    = self%field%local_map_ghost(f, 5 )
-         jmin    = self%field%local_map_ghost(f, 6 )
-         kmin    = self%field%local_map_ghost(f, 7 )
-         imax    = self%field%local_map_ghost(f, 8 )
-         jmax    = self%field%local_map_ghost(f, 9 )
-         kmax    = self%field%local_map_ghost(f, 10)
-         idelta  = self%field%local_map_ghost(f, 11)
-         jdelta  = self%field%local_map_ghost(f, 12)
-         kdelta  = self%field%local_map_ghost(f, 13)
+      do f=1, size(self%field%maps%local_map_ghost, dim=1)
+         b_recv  = self%field%maps%local_map_ghost(f, 1 )
+         b_send  = self%field%maps%local_map_ghost(f, 2 )
+         portion = self%field%maps%local_map_ghost(f, 4 )
+         imin    = self%field%maps%local_map_ghost(f, 5 )
+         jmin    = self%field%maps%local_map_ghost(f, 6 )
+         kmin    = self%field%maps%local_map_ghost(f, 7 )
+         imax    = self%field%maps%local_map_ghost(f, 8 )
+         jmax    = self%field%maps%local_map_ghost(f, 9 )
+         kmax    = self%field%maps%local_map_ghost(f, 10)
+         idelta  = self%field%maps%local_map_ghost(f, 11)
+         jdelta  = self%field%maps%local_map_ghost(f, 12)
+         kdelta  = self%field%maps%local_map_ghost(f, 13)
          if     (portion==0) then
             ! receiving from a block with the same refinement
             do k=kmin, kmax
@@ -315,16 +315,16 @@ contains
    endif
 
    if (allocated(self%comm_map_send_ghost_cell_gpu)) deallocate(self%comm_map_send_ghost_cell_gpu)
-   if (allocated(self%field%comm_map_send_ghost)) then
+   if (allocated(self%field%maps%comm_map_send_ghost)) then
       c = 0
-      do f=1, size(self%field%comm_map_send_ghost, dim=1)
-         portion = self%field%comm_map_send_ghost(f, 5 )
-         imin    = self%field%comm_map_send_ghost(f, 6 )
-         jmin    = self%field%comm_map_send_ghost(f, 7 )
-         kmin    = self%field%comm_map_send_ghost(f, 8 )
-         imax    = self%field%comm_map_send_ghost(f, 9 )
-         jmax    = self%field%comm_map_send_ghost(f, 10)
-         kmax    = self%field%comm_map_send_ghost(f, 11)
+      do f=1, size(self%field%maps%comm_map_send_ghost, dim=1)
+         portion = self%field%maps%comm_map_send_ghost(f, 5 )
+         imin    = self%field%maps%comm_map_send_ghost(f, 6 )
+         jmin    = self%field%maps%comm_map_send_ghost(f, 7 )
+         kmin    = self%field%maps%comm_map_send_ghost(f, 8 )
+         imax    = self%field%maps%comm_map_send_ghost(f, 9 )
+         jmax    = self%field%maps%comm_map_send_ghost(f, 10)
+         kmax    = self%field%maps%comm_map_send_ghost(f, 11)
          if (portion>=0_I4P) then
             ! sending to a block at my level or to a block coarser than me
             do k=kmin, kmax
@@ -351,19 +351,19 @@ contains
       ! Nv variables map
       allocate(comm_map_send_ghost_cell(1:c*self%field%nv,1:7))
       c = 1
-      do f=1, size(self%field%comm_map_send_ghost, dim=1)
-         b_send    = self%field%comm_map_send_ghost(f, 2 )
-         portion   = self%field%comm_map_send_ghost(f, 5 )
-         imin      = self%field%comm_map_send_ghost(f, 6 )
-         jmin      = self%field%comm_map_send_ghost(f, 7 )
-         kmin      = self%field%comm_map_send_ghost(f, 8 )
-         imax      = self%field%comm_map_send_ghost(f, 9 )
-         jmax      = self%field%comm_map_send_ghost(f, 10)
-         kmax      = self%field%comm_map_send_ghost(f, 11)
-         idelta    = self%field%comm_map_send_ghost(f, 12)
-         jdelta    = self%field%comm_map_send_ghost(f, 13)
-         kdelta    = self%field%comm_map_send_ghost(f, 14)
-         send_ptr  = self%field%comm_map_send_ghost(f, 15)
+      do f=1, size(self%field%maps%comm_map_send_ghost, dim=1)
+         b_send    = self%field%maps%comm_map_send_ghost(f, 2 )
+         portion   = self%field%maps%comm_map_send_ghost(f, 5 )
+         imin      = self%field%maps%comm_map_send_ghost(f, 6 )
+         jmin      = self%field%maps%comm_map_send_ghost(f, 7 )
+         kmin      = self%field%maps%comm_map_send_ghost(f, 8 )
+         imax      = self%field%maps%comm_map_send_ghost(f, 9 )
+         jmax      = self%field%maps%comm_map_send_ghost(f, 10)
+         kmax      = self%field%maps%comm_map_send_ghost(f, 11)
+         idelta    = self%field%maps%comm_map_send_ghost(f, 12)
+         jdelta    = self%field%maps%comm_map_send_ghost(f, 13)
+         kdelta    = self%field%maps%comm_map_send_ghost(f, 14)
+         send_ptr  = self%field%maps%comm_map_send_ghost(f, 15)
          if (portion==0_I4P) then
             ! sending to a block at my level
             send_ctr = 1
@@ -430,16 +430,16 @@ contains
    endif
 
    if (allocated(self%comm_map_recv_ghost_cell_gpu)) deallocate(self%comm_map_recv_ghost_cell_gpu)
-   if (allocated(self%field%comm_map_recv_ghost)) then
+   if (allocated(self%field%maps%comm_map_recv_ghost)) then
       c = 0
-      do f=1, size(self%field%comm_map_recv_ghost, dim=1)
-         portion = self%field%comm_map_recv_ghost(f, 5 )
-         imin    = self%field%comm_map_recv_ghost(f, 6 )
-         jmin    = self%field%comm_map_recv_ghost(f, 7 )
-         kmin    = self%field%comm_map_recv_ghost(f, 8 )
-         imax    = self%field%comm_map_recv_ghost(f, 9 )
-         jmax    = self%field%comm_map_recv_ghost(f, 10)
-         kmax    = self%field%comm_map_recv_ghost(f, 11)
+      do f=1, size(self%field%maps%comm_map_recv_ghost, dim=1)
+         portion = self%field%maps%comm_map_recv_ghost(f, 5 )
+         imin    = self%field%maps%comm_map_recv_ghost(f, 6 )
+         jmin    = self%field%maps%comm_map_recv_ghost(f, 7 )
+         kmin    = self%field%maps%comm_map_recv_ghost(f, 8 )
+         imax    = self%field%maps%comm_map_recv_ghost(f, 9 )
+         jmax    = self%field%maps%comm_map_recv_ghost(f, 10)
+         kmax    = self%field%maps%comm_map_recv_ghost(f, 11)
          if (portion>=0_I4P) then
             ! receiving from a block at the same level or finer than me
             do k=kmin, kmax
@@ -466,19 +466,19 @@ contains
       ! Nv variables map
       allocate(comm_map_recv_ghost_cell(1:c*self%field%nv,1:6))
       c = 1
-      do f=1, size(self%field%comm_map_recv_ghost, dim=1)
-         b_recv   = self%field%comm_map_recv_ghost(f, 1 )
-         portion  = self%field%comm_map_recv_ghost(f, 5 )
-         imin     = self%field%comm_map_recv_ghost(f, 6 )
-         jmin     = self%field%comm_map_recv_ghost(f, 7 )
-         kmin     = self%field%comm_map_recv_ghost(f, 8 )
-         imax     = self%field%comm_map_recv_ghost(f, 9 )
-         jmax     = self%field%comm_map_recv_ghost(f, 10)
-         kmax     = self%field%comm_map_recv_ghost(f, 11)
-         idelta   = self%field%comm_map_recv_ghost(f, 12)
-         jdelta   = self%field%comm_map_recv_ghost(f, 13)
-         kdelta   = self%field%comm_map_recv_ghost(f, 14)
-         recv_ptr = self%field%comm_map_recv_ghost(f, 15)
+      do f=1, size(self%field%maps%comm_map_recv_ghost, dim=1)
+         b_recv   = self%field%maps%comm_map_recv_ghost(f, 1 )
+         portion  = self%field%maps%comm_map_recv_ghost(f, 5 )
+         imin     = self%field%maps%comm_map_recv_ghost(f, 6 )
+         jmin     = self%field%maps%comm_map_recv_ghost(f, 7 )
+         kmin     = self%field%maps%comm_map_recv_ghost(f, 8 )
+         imax     = self%field%maps%comm_map_recv_ghost(f, 9 )
+         jmax     = self%field%maps%comm_map_recv_ghost(f, 10)
+         kmax     = self%field%maps%comm_map_recv_ghost(f, 11)
+         idelta   = self%field%maps%comm_map_recv_ghost(f, 12)
+         jdelta   = self%field%maps%comm_map_recv_ghost(f, 13)
+         kdelta   = self%field%maps%comm_map_recv_ghost(f, 14)
+         recv_ptr = self%field%maps%comm_map_recv_ghost(f, 15)
          if (portion>=0_I4P) then
             recv_ctr = 1
             do k=kmin, kmax
@@ -523,20 +523,20 @@ contains
    endif
 
    if (allocated(self%local_map_bc_crown_gpu)) deallocate(self%local_map_bc_crown_gpu)
-   if (allocated(self%field%local_map_bc_face  ).or.&
-       allocated(self%field%local_map_bc_edge  ).or.&
-       allocated(self%field%local_map_bc_corner)) then
+   if (allocated(self%field%maps%local_map_bc_face  ).or.&
+       allocated(self%field%maps%local_map_bc_edge  ).or.&
+       allocated(self%field%maps%local_map_bc_corner)) then
       c = 0
-      if (allocated(self%field%local_map_bc_face  )) c = c + bc_cells_number(self%field%local_map_bc_face  )
-      if (allocated(self%field%local_map_bc_edge  )) c = c + bc_cells_number(self%field%local_map_bc_edge  )
-      if (allocated(self%field%local_map_bc_corner)) c = c + bc_cells_number(self%field%local_map_bc_corner)
+      if (allocated(self%field%maps%local_map_bc_face  )) c = c + bc_cells_number(self%field%maps%local_map_bc_face  )
+      if (allocated(self%field%maps%local_map_bc_edge  )) c = c + bc_cells_number(self%field%maps%local_map_bc_edge  )
+      if (allocated(self%field%maps%local_map_bc_corner)) c = c + bc_cells_number(self%field%maps%local_map_bc_corner)
       allocate(local_map_bc_crown(1:c,1:9,1:self%field%grid%ngc))
       allocate(c_crown(1:self%field%grid%ngc))
       local_map_bc_crown = -1
       c_crown = 1
-      if (allocated(self%field%local_map_bc_face  )) call populate_local_map_bc_crown(self%field%local_map_bc_face  )
-      if (allocated(self%field%local_map_bc_edge  )) call populate_local_map_bc_crown(self%field%local_map_bc_edge  )
-      if (allocated(self%field%local_map_bc_corner)) call populate_local_map_bc_crown(self%field%local_map_bc_corner)
+      if (allocated(self%field%maps%local_map_bc_face  )) call populate_local_map_bc_crown(self%field%maps%local_map_bc_face  )
+      if (allocated(self%field%maps%local_map_bc_edge  )) call populate_local_map_bc_crown(self%field%maps%local_map_bc_edge  )
+      if (allocated(self%field%maps%local_map_bc_corner)) call populate_local_map_bc_crown(self%field%maps%local_map_bc_corner)
       deallocate(c_crown)
       call assign_allocatable_gpu(lhs=self%local_map_bc_crown_gpu, &
                                   rhs=     local_map_bc_crown,     &
@@ -661,17 +661,17 @@ contains
    if (verbose_) print '(A)', self%mpih%myrankstr//'base_gpu%create_maps_fluxes_cell start'
 
    if (allocated(self%local_map_ghost_fluxes_cell_gpu)) deallocate(self%local_map_ghost_fluxes_cell_gpu)
-   if (allocated(self%field%local_map_ghost)) then
+   if (allocated(self%field%maps%local_map_ghost)) then
       c = 0
-      do f=1, size(self%field%local_map_ghost, dim=1)
-         fec     = self%field%local_map_ghost(f, 3 ) ! recv fec
-         portion = self%field%local_map_ghost(f, 4 )
-         imin    = self%field%local_map_ghost(f, 5 )
-         jmin    = self%field%local_map_ghost(f, 6 )
-         kmin    = self%field%local_map_ghost(f, 7 )
-         imax    = self%field%local_map_ghost(f, 8 )
-         jmax    = self%field%local_map_ghost(f, 9 )
-         kmax    = self%field%local_map_ghost(f, 10)
+      do f=1, size(self%field%maps%local_map_ghost, dim=1)
+         fec     = self%field%maps%local_map_ghost(f, 3 ) ! recv fec
+         portion = self%field%maps%local_map_ghost(f, 4 )
+         imin    = self%field%maps%local_map_ghost(f, 5 )
+         jmin    = self%field%maps%local_map_ghost(f, 6 )
+         kmin    = self%field%maps%local_map_ghost(f, 7 )
+         imax    = self%field%maps%local_map_ghost(f, 8 )
+         jmax    = self%field%maps%local_map_ghost(f, 9 )
+         kmax    = self%field%maps%local_map_ghost(f, 10)
          if (fec <=6 .and. portion>0) then
             ! receiving from a block finer than me
             if(fec == 1) then ; imin = 0                  ; imax = 0                  ; idelta =  self%field%grid%ni   ; endif
@@ -694,20 +694,20 @@ contains
       if(c>0) then
          allocate(local_map_ghost_fluxes_cell(1:c,1:9))
          c = 1
-         do f=1, size(self%field%local_map_ghost, dim=1)
-            b_recv  = self%field%local_map_ghost(f, 1 )
-            b_send  = self%field%local_map_ghost(f, 2 )
-            fec     = self%field%local_map_ghost(f, 3 ) ! recv fec
-            portion = self%field%local_map_ghost(f, 4 )
-            imin    = self%field%local_map_ghost(f, 5 )
-            jmin    = self%field%local_map_ghost(f, 6 )
-            kmin    = self%field%local_map_ghost(f, 7 )
-            imax    = self%field%local_map_ghost(f, 8 )
-            jmax    = self%field%local_map_ghost(f, 9 )
-            kmax    = self%field%local_map_ghost(f, 10)
-            idelta  = self%field%local_map_ghost(f, 11)
-            jdelta  = self%field%local_map_ghost(f, 12)
-            kdelta  = self%field%local_map_ghost(f, 13)
+         do f=1, size(self%field%maps%local_map_ghost, dim=1)
+            b_recv  = self%field%maps%local_map_ghost(f, 1 )
+            b_send  = self%field%maps%local_map_ghost(f, 2 )
+            fec     = self%field%maps%local_map_ghost(f, 3 ) ! recv fec
+            portion = self%field%maps%local_map_ghost(f, 4 )
+            imin    = self%field%maps%local_map_ghost(f, 5 )
+            jmin    = self%field%maps%local_map_ghost(f, 6 )
+            kmin    = self%field%maps%local_map_ghost(f, 7 )
+            imax    = self%field%maps%local_map_ghost(f, 8 )
+            jmax    = self%field%maps%local_map_ghost(f, 9 )
+            kmax    = self%field%maps%local_map_ghost(f, 10)
+            idelta  = self%field%maps%local_map_ghost(f, 11)
+            jdelta  = self%field%maps%local_map_ghost(f, 12)
+            kdelta  = self%field%maps%local_map_ghost(f, 13)
             if (fec <=6 .and. portion>0) then
                ! receiving from a block finer than me
                if(fec == 1) then ; imin = 0                  ; imax = 0                  ; idelta =  self%field%grid%ni   ; endif
@@ -872,14 +872,14 @@ contains
                                                           1:) !< Field component to be updated.
    integer(I4P),           intent(in), optional  :: step      !< Step to be perfordmed in asyncronous comp.
 
-   call update_ghost_mpi_gpu_cuf(procs_number=self%mpih%procs_number,                            &
-                                 req_send_recv=self%field%req_send_recv,                         &
-                                 comm_map_send_ptr_ghost=self%field%comm_map_send_ptr_ghost,     &
-                                 comm_map_recv_ptr_ghost=self%field%comm_map_recv_ptr_ghost,     &
-                                 comm_map_send_ghost_cell_gpu=self%comm_map_send_ghost_cell_gpu, &
-                                 comm_map_recv_ghost_cell_gpu=self%comm_map_recv_ghost_cell_gpu, &
-                                 recv_buffer_ghost_gpu=self%recv_buffer_ghost_gpu,               &
-                                 send_buffer_ghost_gpu=self%send_buffer_ghost_gpu,               &
+   call update_ghost_mpi_gpu_cuf(procs_number=self%mpih%procs_number,                             &
+                                 req_send_recv=self%field%req_send_recv,                          &
+                                 comm_map_send_ptr_ghost=self%field%maps%comm_map_send_ptr_ghost, &
+                                 comm_map_recv_ptr_ghost=self%field%maps%comm_map_recv_ptr_ghost, &
+                                 comm_map_send_ghost_cell_gpu=self%comm_map_send_ghost_cell_gpu,  &
+                                 comm_map_recv_ghost_cell_gpu=self%comm_map_recv_ghost_cell_gpu,  &
+                                 recv_buffer_ghost_gpu=self%recv_buffer_ghost_gpu,                &
+                                 send_buffer_ghost_gpu=self%send_buffer_ghost_gpu,                &
                                  ngc=self%field%grid%ngc, q_gpu=q_gpu, step=step)
    endsubroutine update_ghost_mpi_gpu
 

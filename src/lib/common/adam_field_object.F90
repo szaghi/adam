@@ -63,8 +63,9 @@ module adam_field_object
 !<         1    2    3    4    5
 !<```
 
-use adam_grid_object, only : grid_object
-use adam_mpih_object, only : mpih_object
+use adam_grid_object
+use adam_maps_object
+use adam_mpih_object
 use adam_memory_lib
 use adam_parameters
 use finer, only : file_ini
@@ -78,47 +79,34 @@ public :: field_object
 
 type :: field_object
    !< Field class definition.
+   ! ADAM objects
+   type(mpih_object)          :: mpih         !< MPI handler.
+   type(grid_object), pointer :: grid=>null() !< The grid.
+   type(maps_object), pointer :: maps=>null() !< The maps.
+   ! field data dimensions
+   integer(I4P)               :: nv=1_I4P            !< Number of field variables.
+   integer(I4P)               :: block_weight=0_I4P  !< Block weight, `cells_number * variables_number`.
+   integer(I4P)               :: nb=0_I4P            !< Number of all blocks that can be stored.
+   integer(I4P)               :: blocks_number=0_I4P !< Number of blocks actually stored.
    ! mesh related data, unrelated to field equations
-   type(mpih_object)          :: mpih                     !< MPI handler.
-   type(grid_object), pointer :: grid=>null()             !< Grid data.
-   integer(I4P)               :: nv=1_I4P                 !< Number of field variables.
-   integer(I4P)               :: block_weight=0_I4P       !< Block weight, `cells_number * variables_number`.
-   integer(I4P)               :: nb=0_I4P                 !< Number of all blocks that can be stored.
-   integer(I4P)               :: blocks_number=0_I4P      !< Number of blocks actually stored.
-   ! mesh related data, unrelated to field equations
-   integer(I8P), allocatable  :: code(:)                  !< Morton codes [nb].
-   integer(I4P), allocatable  :: coordinates(:,:)         !< Coordinates IJKL for each block [nb,4].
-   real(R8P),    allocatable  :: emin(:,:)                !< Coordinates of minimum abscissa of each block [3,nb].
-   real(R8P),    allocatable  :: emax(:,:)                !< Coordinates of maximum abscissa of each block [3,nb].
-   real(R8P),    allocatable  :: dxyz(:,:)                !< Space steps of each block [3,nb].
-   real(R8P),    allocatable  :: x_node(:,:)              !< X node coordinates [3,nb].
-   real(R8P),    allocatable  :: y_node(:,:)              !< Y node coordinates [3,nb].
-   real(R8P),    allocatable  :: z_node(:,:)              !< Z node coordinates [3,nb].
-   real(R8P),    allocatable  :: x_cell(:,:)              !< X cell coordinates [3,nb].
-   real(R8P),    allocatable  :: y_cell(:,:)              !< Y cell coordinates [3,nb].
-   real(R8P),    allocatable  :: z_cell(:,:)              !< Z cell coordinates [3,nb].
-   integer(I8P), allocatable  :: local_map_ghost(:,:)     !< Local map for ghost cells updating.
-   integer(I8P), allocatable  :: local_map_bc_face(:,:)   !< Local map for face BC ghost cells.
-   integer(I8P), allocatable  :: local_map_bc_edge(:,:)   !< Local map for edge BC ghost cells.
-   integer(I8P), allocatable  :: local_map_bc_corner(:,:) !< Local map for corner BC ghost cells.
+   integer(I8P), allocatable  :: code(:)          !< Morton codes [nb].
+   integer(I4P), allocatable  :: coordinates(:,:) !< Coordinates IJKL for each block [nb,4].
+   real(R8P),    allocatable  :: emin(:,:)        !< Coordinates of minimum abscissa of each block [3,nb].
+   real(R8P),    allocatable  :: emax(:,:)        !< Coordinates of maximum abscissa of each block [3,nb].
+   real(R8P),    allocatable  :: dxyz(:,:)        !< Space steps of each block [3,nb].
+   real(R8P),    allocatable  :: x_node(:,:)      !< X node coordinates [3,nb].
+   real(R8P),    allocatable  :: y_node(:,:)      !< Y node coordinates [3,nb].
+   real(R8P),    allocatable  :: z_node(:,:)      !< Z node coordinates [3,nb].
+   real(R8P),    allocatable  :: x_cell(:,:)      !< X cell coordinates [3,nb].
+   real(R8P),    allocatable  :: y_cell(:,:)      !< Y cell coordinates [3,nb].
+   real(R8P),    allocatable  :: z_cell(:,:)      !< Z cell coordinates [3,nb].
    ! MPI data, unrelated to field equations
-   integer(I4P), allocatable :: blocks_numbers(:)            !< Number of blocks actually stored in all processes.
-   integer(I4P), allocatable :: refinements_needed(:)        !< Refinements needed of my blocks.
-   integer(I4P), allocatable :: refinements_needed_all(:)    !< Refinements needed of all blocks.
-   integer(I4P), allocatable :: disp_count(:)                !< Displacement of blocks that are received from process.
-   integer(I4P)              :: inner_blocks_number=0_I4P    !< Number of inner blocks where I need fecs.
-   integer(I4P), allocatable :: req_send_recv(:)             !< MPI request receive flags.
-   integer(I4P), allocatable :: comm_map_n_send_ghost(:)     !< Communication map, number of cells to send [procs_number].
-   integer(I4P), allocatable :: comm_map_n_recv_ghost(:)     !< Communication map, number of cells to recv [procs_number].
-   integer(I4P), allocatable :: comm_map_send_ptr_ghost(:)   !< Communication map, pointers in list to send [procs_number+1].
-   integer(I4P), allocatable :: comm_map_recv_ptr_ghost(:)   !< Communication map, pointers in list to recv [procs_number+1].
-   integer(I4P), allocatable :: comm_map_send_ptr_ghost_s(:) !< Communication map, pointers in list to send, single var.
-   integer(I4P), allocatable :: comm_map_recv_ptr_ghost_s(:) !< Communication map, pointers in list to recv, single var.
-   integer(I8P), allocatable :: comm_map_send_ghost(:,:)     !< Communication map, `fec` information [fec_number, 15].
-   integer(I8P), allocatable :: comm_map_recv_ghost(:,:)     !< Communication map, `fec` information [fec_number, 15].
-   ! MPI data, related to field equations
-   real(R8P), allocatable :: send_buffer_ghost(:)            !< Send buffer of ghost cells.
-   real(R8P), allocatable :: recv_buffer_ghost(:)            !< Receive buffer of ghost cells.
+   integer(I4P), allocatable :: blocks_numbers(:)         !< Number of blocks actually stored in all processes.
+   integer(I4P), allocatable :: refinements_needed(:)     !< Refinements needed of my blocks.
+   integer(I4P), allocatable :: refinements_needed_all(:) !< Refinements needed of all blocks.
+   integer(I4P), allocatable :: disp_count(:)             !< Displacement of blocks that are received from process.
+   integer(I4P)              :: inner_blocks_number=0_I4P !< Number of inner blocks where I need fecs.
+   integer(I4P), allocatable :: req_send_recv(:)          !< MPI request receive flags.
    ! field equations data
    real(R8P), allocatable :: q(     :,:,:,:,:) !< Field cell centered variables.
    real(R8P), allocatable :: q_work(:,:,:,:,:) !< Field cell centered variables, working buffer memory.
@@ -140,8 +128,6 @@ type :: field_object
       procedure, pass(self) :: mark_sphere                   !< Mark blocks to be refined/derefined by sphere distance.
       procedure, pass(self) :: mpi_gather_refinements_needed !< Gather blocks refinement needed status between MPI processes.
       procedure, pass(self) :: mpi_redistribute              !< Redistribute blocks to processes.
-      procedure, pass(self) :: prepare_comm_local_ghost      !< Prepare communication and local maps/buffers for ghosts update.
-      procedure, pass(self) :: prepare_local_bc              !< Prepare local maps for boundary conditions.
       procedure, pass(self) :: save_blocks                   !< Save blocks data, used for restarting.
       ! private methods
       procedure, pass(self), private :: derefine !< Derefine blocks.
@@ -163,28 +149,26 @@ contains
    call self%derefine(ratio=ratio, block_to_derefine=block_to_derefine, block_derefined=block_derefined)
    endsubroutine adapt
 
-   subroutine blocks_reorder(self, inner_outer_block_map, inner_blocks_number)
+   subroutine blocks_reorder(self)
    !< Reorder blocks indexes in field.
-   class(field_object), intent(inout) :: self                     !< The field.
-   integer(I4P),        intent(in)    :: inner_outer_block_map(:) !< Inner/outer blocks map.
-   integer(I4P),        intent(in)    :: inner_blocks_number      !< Number of inner blocks where I need fecs.
-   integer(I4P), allocatable          :: coordinates_new(:,:)     !< Temporary coordinates array.
-   integer(I8P), allocatable          :: code_new(:)              !< Temporary Morton codes.
-   integer(I4P)                       :: b                        !< Counter.
+   class(field_object), intent(inout) :: self                 !< The field.
+   integer(I4P), allocatable          :: coordinates_new(:,:) !< Temporary coordinates array.
+   integer(I8P), allocatable          :: code_new(:)          !< Temporary Morton codes.
+   integer(I4P)                       :: b                    !< Counter.
 
    allocate(coordinates_new(4,self%blocks_number))
    allocate(code_new(self%blocks_number))
    do b=1, self%blocks_number
-      self%q_work(:,:,:,:,b) = self%q(:,:,:,:,inner_outer_block_map(b))
-      coordinates_new(:,b) = self%coordinates(:,inner_outer_block_map(b))
-      code_new(b) = self%code(inner_outer_block_map(b))
+      self%q_work(:,:,:,:,b) = self%q(:,:,:,:,self%maps%inner_outer_block_map(b))
+      coordinates_new(:,b) = self%coordinates(:,self%maps%inner_outer_block_map(b))
+      code_new(b) = self%code(self%maps%inner_outer_block_map(b))
    enddo
    do b=1, self%blocks_number
       self%q(:,:,:,:,b) = self%q_work(:,:,:,:,b)
       self%coordinates(:,b) = coordinates_new(:,b)
       self%code(b) = code_new(b)
    enddo
-   self%inner_blocks_number = inner_blocks_number
+   self%inner_blocks_number = self%maps%inner_blocks_number
    call self%compute_metrics
    if (allocated(coordinates_new)) deallocate(coordinates_new)
    if (allocated(code_new)) deallocate(code_new)
@@ -368,17 +352,19 @@ contains
       endsubroutine check_slab
    endfunction do_ray_intersect
 
-   subroutine initialize(self, grid, file_parameters, nv, nb)
+   subroutine initialize(self, grid, maps, file_parameters, nv, nb)
    !< Initialize field.
    class(field_object), intent(inout)           :: self            !< The field.
-   type(grid_object),   intent(in), target      :: grid            !< Grid data.
+   type(grid_object),   intent(in), target      :: grid            !< The grid.
+   type(maps_object),   intent(in), target      :: maps            !< The maps.
    type(file_ini),      intent(inout), optional :: file_parameters !< INI file handler.
    integer(I4P),        intent(in),    optional :: nv              !< Number of field variables.
    integer(I4P),        intent(in),    optional :: nb              !< Number of all blocks that can be stored.
 
    call self%mpih%initialize
-   print '(A)', self%mpih%myrankstr//'field%initialize start'
+   call self%mpih%print_message('field_object%initialize start')
    self%grid => grid
+   self%maps => maps
    if (present(file_parameters)) call self%load_from_ini_file(file_parameters)
    ! parameters explicitely passed ovveride ones file-passed
    if (present(nv)) self%nv  = nv
@@ -387,77 +373,70 @@ contains
                        (self%grid%ngc+self%grid%nk+self%grid%ngc)*self%nv
    if (present(nb)) self%nb  = nb
    if (self%nb>0) then
-      call alloc_var_cpu(var=self%code,  &
-                         ulb=[1,self%nb],&
-                         msg=self%mpih%myrankstr//'field%initialize(code) ', verbose=.true.)
+      call alloc_var_cpu(var=self%code, ulb=[1,self%nb],&
+                         msg=self%mpih%myrankstr//'field_object%initialize(code) ', verbose=.true.)
       self%code    = -2_I8P
       self%code(1) = -1_I8P ! first block is assumed to be ADAM
-      call alloc_var_cpu(var=self%coordinates,                &
-                         ulb=reshape([1,4, 1,self%nb],[2,2]), &
-                         msg=self%mpih%myrankstr//'field%initialize(coordinates) ', verbose=.true.)
-      call alloc_var_cpu(var=self%emin,                       &
-                         ulb=reshape([1,3, 1,self%nb],[2,2]), &
-                         msg=self%mpih%myrankstr//'field%initialize(emin) ', verbose=.true.)
-      call alloc_var_cpu(var=self%emax,                       &
-                         ulb=reshape([1,3, 1,self%nb],[2,2]), &
-                         msg=self%mpih%myrankstr//'field%initialize(emax) ', verbose=.true.)
+      call alloc_var_cpu(var=self%coordinates, ulb=reshape([1,4, 1,self%nb],[2,2]), &
+                         msg=self%mpih%myrankstr//'field_object%initialize(coordinates) ', verbose=.true.)
+      call alloc_var_cpu(var=self%emin, ulb=reshape([1,3, 1,self%nb],[2,2]), &
+                         msg=self%mpih%myrankstr//'field_object%initialize(emin) ', verbose=.true.)
+      call alloc_var_cpu(var=self%emax, ulb=reshape([1,3, 1,self%nb],[2,2]), &
+                         msg=self%mpih%myrankstr//'field_object%initialize(emax) ', verbose=.true.)
       self%emin(:,1) = self%grid%domain_emin
       self%emax(:,1) = self%grid%domain_emax
-      call alloc_var_cpu(var=self%dxyz,                       &
-                         ulb=reshape([1,3, 1,self%nb],[2,2]), &
-                         msg=self%mpih%myrankstr//'field%initialize(dxyz) ', verbose=.true.)
+      call alloc_var_cpu(var=self%dxyz, ulb=reshape([1,3, 1,self%nb],[2,2]), &
+                         msg=self%mpih%myrankstr//'field_object%initialize(dxyz) ', verbose=.true.)
       call alloc_var_cpu(var=self%x_cell,                                         &
                          ulb=reshape([1-self%grid%ngc,self%grid%ni+self%grid%ngc, &
                                       1,self%nb],[2,2]),                          &
-                         msg=self%mpih%myrankstr//'field%initialize(x_cell) ', verbose=.true.)
+                         msg=self%mpih%myrankstr//'field_object%initialize(x_cell) ', verbose=.true.)
       call alloc_var_cpu(var=self%y_cell,                                         &
                          ulb=reshape([1-self%grid%ngc,self%grid%nj+self%grid%ngc, &
                                       1,self%nb],[2,2]),                          &
-                         msg=self%mpih%myrankstr//'field%initialize(y_cell) ', verbose=.true.)
+                         msg=self%mpih%myrankstr//'field_object%initialize(y_cell) ', verbose=.true.)
       call alloc_var_cpu(var=self%z_cell,                                         &
                          ulb=reshape([1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
                                       1,self%nb],[2,2]),                          &
-                         msg=self%mpih%myrankstr//'field%initialize(z_cell) ', verbose=.true.)
+                         msg=self%mpih%myrankstr//'field_object%initialize(z_cell) ', verbose=.true.)
       call alloc_var_cpu(var=self%x_node,                                         &
                          ulb=reshape([0-self%grid%ngc,self%grid%ni+self%grid%ngc, &
                                       1,self%nb],[2,2]),                          &
-                         msg=self%mpih%myrankstr//'field%initialize(x_node) ', verbose=.true.)
+                         msg=self%mpih%myrankstr//'field_object%initialize(x_node) ', verbose=.true.)
       call alloc_var_cpu(var=self%y_node,                                         &
                          ulb=reshape([0-self%grid%ngc,self%grid%nj+self%grid%ngc, &
                                       1,self%nb],[2,2]),                          &
-                         msg=self%mpih%myrankstr//'field%initialize(y_node) ', verbose=.true.)
+                         msg=self%mpih%myrankstr//'field_object%initialize(y_node) ', verbose=.true.)
       call alloc_var_cpu(var=self%z_node,                                         &
                          ulb=reshape([0-self%grid%ngc,self%grid%nk+self%grid%ngc, &
                                       1,self%nb],[2,2]),                          &
-                         msg=self%mpih%myrankstr//'field%initialize(z_node) ', verbose=.true.)
+                         msg=self%mpih%myrankstr//'field_object%initialize(z_node) ', verbose=.true.)
       call alloc_var_cpu(var=self%q,                                              &
                          ulb=reshape([1,self%nv,                                  &
                                       1-self%grid%ngc,self%grid%ni+self%grid%ngc, &
                                       1-self%grid%ngc,self%grid%nj+self%grid%ngc, &
                                       1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
                                       1,self%nb],[2,5]),                          &
-                         msg=self%mpih%myrankstr//'field%initialize(q) ', verbose=.true.)
+                         msg=self%mpih%myrankstr//'field_object%initialize(q) ', verbose=.true.)
       call alloc_var_cpu(var=self%q_work,                                         &
                          ulb=reshape([1,self%nv,                                  &
                                       1-self%grid%ngc,self%grid%ni+self%grid%ngc, &
                                       1-self%grid%ngc,self%grid%nj+self%grid%ngc, &
                                       1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
                                       1,self%nb],[2,5]),                          &
-                         msg=self%mpih%myrankstr//'field%initialize(q_work) ', verbose=.true.)
+                         msg=self%mpih%myrankstr//'field_object%initialize(q_work) ', verbose=.true.)
       call alloc_var_cpu(var=self%residuals, &
                          ulb=[1,self%nv],    &
-                         msg=self%mpih%myrankstr//'field%initialize(residuals) ', verbose=.true.)
+                         msg=self%mpih%myrankstr//'field_object%initialize(residuals) ', verbose=.true.)
       self%q = 0._R8P
       self%q_work = 0._R8P
       self%residuals = 0._R8P
    endif
-   call alloc_var_cpu(var=self%blocks_numbers, &
-                      ulb=[0,self%mpih%procs_number-1],  &
-                      msg=self%mpih%myrankstr//'field%initialize(blocks_numbers) ', verbose=.true.)
-   call alloc_var_cpu(var=self%req_send_recv,  &
-                      ulb=[0,self%mpih%procs_number*2-1],&
-                      msg=self%mpih%myrankstr//'field%initialize(req_send_recv) ', verbose=.true.)
-   print '(A)', self%mpih%myrankstr//'field%initialize finish'
+   call alloc_var_cpu(var=self%blocks_numbers, ulb=[0,self%mpih%procs_number-1], &
+                      msg=self%mpih%myrankstr//'field_object%initialize(blocks_numbers) ', verbose=.true.)
+   call alloc_var_cpu(var=self%req_send_recv, ulb=[0,self%mpih%procs_number*2-1], &
+                      msg=self%mpih%myrankstr//'field_object%initialize(req_send_recv) ', verbose=.true.)
+   call self%mpih%print_message('field_object%initialize finish')
    endsubroutine initialize
 
    subroutine load_blocks(self, basename)
@@ -634,18 +613,10 @@ contains
                        self%refinements_needed_all, recv_count, self%disp_count, MPI_INTEGER, MPI_COMM_WORLD, self%mpih%error)
    endsubroutine mpi_gather_refinements_needed
 
-   subroutine mpi_redistribute(self, comm_map_send, comm_map_recv, comm_map_send_ptr, comm_map_recv_ptr, &
-                               local_map, coordinates, code)
+   subroutine mpi_redistribute(self)
    !< Redistribute blocks to processes.
    !< @TODO: Morton codes are not yet redistributed, must be fixed.
    class(field_object),       intent(inout) :: self                   !< The field.
-   integer(I8P), allocatable, intent(in)    :: comm_map_send(:)       !< Comm map, blocks to send [sum(comm_map_n_send)].
-   integer(I8P), allocatable, intent(in)    :: comm_map_recv(:)       !< Comm map, blocks to receive [sum(comm_map_n_recv)].
-   integer(I4P), allocatable, intent(in)    :: comm_map_send_ptr(:)   !< Comm map, pointers in list to send [procs_number+1].
-   integer(I4P), allocatable, intent(in)    :: comm_map_recv_ptr(:)   !< Comm map, pointers in list to recv [procs_number+1].
-   integer(I8P), allocatable, intent(in)    :: local_map(:,:)         !< Local map, list block index changes of my blocks.
-   integer(I4P), allocatable, intent(in)    :: coordinates(:,:)       !< Coordinates of redistributed nodes [nb, ijkl].
-   integer(I8P), allocatable, intent(in)    :: code(:)                !< Morton code of redistributed nodes [nb].
    real(R8P),    allocatable                :: send_buffer(:)         !< Send buffer of field cell centered variables.
    real(R8P),    allocatable                :: recv_buffer(:)         !< Recv buffer of field cell centered variables.
    integer(I8P)                             :: send_size, send_offset !< Total size of send buffer.
@@ -659,24 +630,24 @@ contains
    allocate(req_recv(0:self%mpih%procs_number-1))
    req_recv = MPI_REQUEST_NULL
 
-   send_size = 0_I8P ; if (allocated(comm_map_send)) send_size = size(comm_map_send, dim=1) * self%block_weight
-   recv_size = 0_I8P ; if (allocated(comm_map_recv)) recv_size = size(comm_map_recv, dim=1) * self%block_weight
-   n_keep    = 0_I8P ; if (allocated(local_map    )) n_keep    = size(local_map    , dim=1)
+   send_size = 0_I8P ; if (allocated(self%maps%comm_map_send)) send_size = size(self%maps%comm_map_send, dim=1) * self%block_weight
+   recv_size = 0_I8P ; if (allocated(self%maps%comm_map_recv)) recv_size = size(self%maps%comm_map_recv, dim=1) * self%block_weight
+   n_keep    = 0_I8P ; if (allocated(self%maps%local_map    )) n_keep    = size(self%maps%local_map    , dim=1)
    if (send_size > 0_I8P) allocate(send_buffer(send_size))
    if (recv_size > 0_I8P) allocate(recv_buffer(recv_size))
 
    if (send_size > 0_I8P) then
       send_offset = 1
-      do b=1, size(comm_map_send, dim=1)
-         bi = comm_map_send(b)
+      do b=1, size(self%maps%comm_map_send, dim=1)
+         bi = self%maps%comm_map_send(b)
          send_buffer(send_offset:send_offset + self%block_weight - 1) = reshape(self%q(:,:,:,:,bi),[self%block_weight])
          send_offset = send_offset + self%block_weight
       enddo
    endif
 
    do p=0, self%mpih%procs_number - 1_I4P
-      ptr_start = comm_map_recv_ptr(p)   * self%block_weight + 1
-      ptr_end   = comm_map_recv_ptr(p+1) * self%block_weight
+      ptr_start = self%maps%comm_map_recv_ptr(p)   * self%block_weight + 1
+      ptr_end   = self%maps%comm_map_recv_ptr(p+1) * self%block_weight
       n_recv    = ptr_end - ptr_start + 1
       if (n_recv > 0) then
          call MPI_IRECV(recv_buffer(ptr_start), n_recv, MPI_REAL8, p, 100, MPI_COMM_WORLD, req_recv(p), self%mpih%error)
@@ -684,8 +655,8 @@ contains
    enddo
 
    do p=0, self%mpih%procs_number - 1_I4P
-      ptr_start = comm_map_send_ptr(p)   * self%block_weight + 1
-      ptr_end   = comm_map_send_ptr(p+1) * self%block_weight
+      ptr_start = self%maps%comm_map_send_ptr(p)   * self%block_weight + 1
+      ptr_end   = self%maps%comm_map_send_ptr(p+1) * self%block_weight
       n_send    = ptr_end - ptr_start + 1
       if (n_send > 0) then
          call MPI_SEND(send_buffer(ptr_start), n_send, MPI_REAL8, p, 100, MPI_COMM_WORLD, self%mpih%error)
@@ -696,8 +667,8 @@ contains
 
    if (recv_size > 0_I8P) then
       recv_offset = 1
-      do b=1, size(comm_map_recv, dim=1)
-          bi = comm_map_recv(b)
+      do b=1, size(self%maps%comm_map_recv, dim=1)
+          bi = self%maps%comm_map_recv(b)
           self%q_work(:,:,:,:,bi) = reshape(recv_buffer(recv_offset:recv_offset + self%block_weight -1),&
                                             [self%nv,                                                   &
                                              self%grid%ngc+self%grid%ni+self%grid%ngc,                  &
@@ -708,104 +679,14 @@ contains
    endif
 
    do b=1, n_keep
-      self%q_work(:,:,:,:,local_map(b,1)) = self%q(:,:,:,:,local_map(b,2))
+      self%q_work(:,:,:,:,self%maps%local_map(b,1)) = self%q(:,:,:,:,self%maps%local_map(b,2))
    enddo
    self%blocks_number = n_keep  + recv_size / self%block_weight
    self%q(:,:,:,:,1:self%blocks_number) = self%q_work(:,:,:,:,1:self%blocks_number)
-   self%coordinates(:, 1:self%blocks_number) = coordinates
-   self%code(1:self%blocks_number) = code
+   self%coordinates(:, 1:self%blocks_number) = self%maps%tree%block_coordinates
+   self%code(1:self%blocks_number) = self%maps%tree%block_code
    call self%compute_metrics
    endsubroutine mpi_redistribute
-
-   subroutine prepare_comm_local_ghost(self,                    &
-                                       local_map_ghost,         &
-                                       comm_map_n_send_ghost,   &
-                                       comm_map_n_recv_ghost,   &
-                                       comm_map_send_ptr_ghost, &
-                                       comm_map_recv_ptr_ghost, &
-                                       comm_map_send_ghost,     &
-                                       comm_map_recv_ghost,     &
-                                       verbose)
-   !< Prepare communication and local maps for ghosts update and send/receive buffer.
-   class(field_object),       intent(inout)        :: self                       !< The field.
-   integer(I8P), allocatable, intent(in)           :: local_map_ghost(:,:)       !< Local map for ghost cells updating [1:,1:].
-   integer(I4P), allocatable, intent(in)           :: comm_map_n_send_ghost(:)   !< Comm map, number of ghost celss to send [0:].
-   integer(I4P), allocatable, intent(in)           :: comm_map_n_recv_ghost(:)   !< Comm map, number of ghost celss to recv [0:].
-   integer(I4P), allocatable, intent(in)           :: comm_map_send_ptr_ghost(:) !< Comm map, pointers in list to send [0:].
-   integer(I4P), allocatable, intent(in)           :: comm_map_recv_ptr_ghost(:) !< Comm map, pointers in list to recv [0:].
-   integer(I8P), allocatable, intent(in)           :: comm_map_send_ghost(:,:)   !< Comm map, `fec` information [1:,1:].
-   integer(I8P), allocatable, intent(in)           :: comm_map_recv_ghost(:,:)   !< Comm map, `fec` information [1:,1:].
-   logical,                   intent(in), optional :: verbose                    !< Flag to activate verbose mode.
-
-   call assign_allocatable_cpu(lhs=self%local_map_ghost, &
-                               rhs=     local_map_ghost, &
-                               msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(local_map_ghost) ', verbose=verbose)
-   call assign_allocatable_cpu(lhs=self%comm_map_n_send_ghost, &
-                               rhs=     comm_map_n_send_ghost, &
-                               msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(comm_map_n_send_ghost) ', verbose=verbose)
-   call assign_allocatable_cpu(lhs=self%comm_map_n_recv_ghost, &
-                               rhs=     comm_map_n_recv_ghost, &
-                               msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(comm_map_n_recv_ghost) ', verbose=verbose)
-   call assign_allocatable_cpu(lhs=self%comm_map_send_ptr_ghost, &
-                               rhs=     comm_map_send_ptr_ghost, &
-                               msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(comm_map_send_ptr_ghost) ', verbose=verbose)
-   call assign_allocatable_cpu(lhs=self%comm_map_recv_ptr_ghost, &
-                               rhs=     comm_map_recv_ptr_ghost, &
-                               msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(comm_map_recv_ptr_ghost) ', verbose=verbose)
-   call assign_allocatable_cpu(lhs=self%comm_map_send_ghost, &
-                               rhs=     comm_map_send_ghost, &
-                               msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(comm_map_send_ghost) ', verbose=verbose)
-   call assign_allocatable_cpu(lhs=self%comm_map_recv_ghost, &
-                               rhs=     comm_map_recv_ghost, &
-                               msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(comm_map_recv_ghost) ', verbose=verbose)
-   if (allocated(self%comm_map_send_ghost)) self%comm_map_send_ghost(:,15) = self%comm_map_send_ghost(:,15) * self%nv
-   if (allocated(self%comm_map_recv_ghost)) self%comm_map_recv_ghost(:,15) = self%comm_map_recv_ghost(:,15) * self%nv
-   if (allocated(self%comm_map_send_ptr_ghost)) self%comm_map_send_ptr_ghost = self%comm_map_send_ptr_ghost * self%nv
-   if (allocated(self%comm_map_recv_ptr_ghost)) self%comm_map_recv_ptr_ghost = self%comm_map_recv_ptr_ghost * self%nv
-   if (allocated(self%send_buffer_ghost)) deallocate(self%send_buffer_ghost)
-   if (allocated(self%comm_map_n_send_ghost)) then
-      call alloc_var_cpu(var=self%send_buffer_ghost,                              &
-                         ulb=[1, sum(self%comm_map_n_send_ghost, dim=1)*self%nv], &
-                         msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(send_buffer_ghost) ', verbose=verbose)
-   endif
-   if (allocated(self%recv_buffer_ghost)) deallocate(self%recv_buffer_ghost)
-   if (allocated(self%comm_map_n_recv_ghost)) then
-      call alloc_var_cpu(var=self%recv_buffer_ghost,                              &
-                         ulb=[1, sum(self%comm_map_n_recv_ghost, dim=1)*self%nv], &
-                         msg=self%mpih%myrankstr//'field%prepare_comm_local_ghost(recv_buffer_ghost) ', verbose=verbose)
-   endif
-   endsubroutine prepare_comm_local_ghost
-
-   subroutine prepare_local_bc(self, local_map_bc_face, local_map_bc_edge, local_map_bc_corner, verbose)
-   !< Prepare local maps of boundary conditions.
-   class(field_object),       intent(inout)        :: self                     !< The field.
-   integer(I8P), allocatable, intent(in)           :: local_map_bc_face(:,:)   !< Local map for face BC ghost cells.
-   integer(I8P), allocatable, intent(in)           :: local_map_bc_edge(:,:)   !< Local map for edge BC ghost cells.
-   integer(I8P), allocatable, intent(in)           :: local_map_bc_corner(:,:) !< Local map for corner BC ghost cells.
-   logical,                   intent(in), optional :: verbose                  !< Flag to activate verbose mode.
-
-   call assign_allocatable_cpu(lhs=self%local_map_bc_face, &
-                               rhs=     local_map_bc_face, &
-                               msg=self%mpih%myrankstr//'field%prepare_local_bc(local_map_bc_face) ', verbose=verbose)
-   call assign_allocatable_cpu(lhs=self%local_map_bc_edge, &
-                               rhs=     local_map_bc_edge, &
-                               msg=self%mpih%myrankstr//'field%prepare_local_bc(local_map_bc_edge) ', verbose=verbose)
-   call assign_allocatable_cpu(lhs=self%local_map_bc_corner, &
-                               rhs=     local_map_bc_corner, &
-                               msg=self%mpih%myrankstr//'field%prepare_local_bc(local_map_bc_corner) ', verbose=verbose)
-   endsubroutine prepare_local_bc
-
-   subroutine print_status(self)
-   !< Print status of main data.
-   class(field_object), intent(in) :: self !< The field.
-
-   print '(A)', self%mpih%myrankstr//'field status of main data'
-   print '(A)', self%mpih%myrankstr//'  field variables number (nv): '//trim(str(self%nv           ))
-   print '(A)', self%mpih%myrankstr//'  all blocks number (nb):      '//trim(str(self%nb           ))
-   print '(A)', self%mpih%myrankstr//'  blocks number:               '//trim(str(self%blocks_number))
-   print '(A)', self%mpih%myrankstr//'  block weight:                '//trim(str(self%block_weight ))
-   print '(A)', self%mpih%myrankstr//''
-   endsubroutine print_status
 
    subroutine save_blocks(self, basename)
    !< Save blocks data, used for restarting.

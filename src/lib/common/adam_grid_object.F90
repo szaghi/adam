@@ -43,11 +43,12 @@ type :: grid_object
       procedure, pass(self) :: compute_weight_neighbor !< Compute weight of neighbors.
       procedure, pass(self) :: description             !< Return pretty-printed object description.
       procedure, pass(self) :: do_cplane_intersect     !< Return true if a block is intersected by coordinate-plane.
+      procedure, pass(self) :: fec_bc_type             !< Return BC type of given fec.
       procedure, pass(self) :: get_closest_block       !< Get the closest block to a given point at a given level.
       procedure, pass(self) :: initialize              !< Initialize the field.
       procedure, pass(self) :: load_from_ini_file      !< Load object data from INI file.
       procedure, pass(self) :: node_xyz                !< Return nodes xyz abscissa given block coordinates.
-      procedure, pass(self) ::  set_bc_type            !< Set grid boundary conditions accordingly with app'equation object.
+      procedure, pass(self) :: set_bc_type             !< Set grid boundary conditions accordingly with app'equation object.
 endtype grid_object
 
 contains
@@ -185,6 +186,34 @@ contains
       endif
    endif
    endfunction do_cplane_intersect
+
+   function fec_bc_type(self, fec) result(bc_type)
+   !< Return BC type of given fec.
+   class(grid_object), intent(in) :: self    !< The grid.
+   integer(I4P),       intent(in) :: fec     !< Current fec.
+   integer(I4P)                   :: bc_type !< BC type.
+
+   select case(fec)
+   case(1,7,9,11,13,19,21,23,25)
+      ! BC i min
+      bc_type = self%bc_type(1)
+   case(2,8,10,12,14,20,22,24,26)
+      ! BC i max
+      bc_type = self%bc_type(2)
+   case(3,15,17)
+      ! BC j min
+      bc_type = self%bc_type(3)
+   case(4,16,18)
+      ! BC j max
+      bc_type = self%bc_type(4)
+   case(5)
+      ! BC k min
+      bc_type = self%bc_type(5)
+   case(6)
+      ! BC k max
+      bc_type = self%bc_type(6)
+   endselect
+   endfunction fec_bc_type
 
    function get_closest_block(self, point, level) result(ijk)
    !< Get the closest block to a given point at a given level.

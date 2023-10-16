@@ -143,6 +143,10 @@ use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
 implicit none
 private
 public :: tree_object
+public :: NODE_LESS_REFINED
+public :: NODE_STANDARD
+public :: NODE_MORE_REFINED
+public :: NODE_BOUNDARY_CONDITION
 
 ! tree node parameters
 integer(I4P), parameter :: NODE_LESS_REFINED       = -1_I4P !< Less refined node type.
@@ -156,9 +160,10 @@ integer(I4P), parameter :: TREE_MAX_SANITIZE_ITERATIONS = 10_I4P   !< Default nu
 
 type :: tree_object
    !< Tree class definition.
+   ! ADAM objects
+   type(mpih_object)          :: mpih         !< MPI handler.
+   type(grid_object), pointer :: grid=>null() !< Grid data.
    ! tree data
-   type(mpih_object)                     :: mpih                        !< MPI handler.
-   type(grid_object), pointer            :: grid=>null()                !< Grid data.
    type(tree_bucket_object), allocatable :: bucket(:)                   !< Tree buckets.
    integer(I8P)                          :: buckets_number=0_I8P        !< Number of buckets used.
    integer(I4P)                          :: nodes_number=0_I4P          !< Number of nodes actually stored, namely the tree length.
@@ -169,6 +174,7 @@ type :: tree_object
    integer(I4P)                          :: ijkl_prune(4)=[-1,-1,-1,-1] !< IJKL prune indexes for simple-initial-forest.
    integer(I4P)                          :: iu_ref_levels=-1_I4P        !< Initial uniform refinement levels.
    ! AMR data
+   integer(I4P)              :: my_nodes_number=0_I4P    !< Number of my nodes, keep_nodes_number + recv_nodes_number.
    integer(I8P)              :: n_my_derefine=0_I8P      !< Number of my nodes to be derefined.
    integer(I8P)              :: n_my_refine=0_I8P        !< Number of my nodes to be refined.
    integer(I8P)              :: last_block_index=0_I8P   !< Last block index in the field array.
@@ -180,49 +186,11 @@ type :: tree_object
    integer(I8P), allocatable :: block_derefined(:,:)     !< List of field derefined blocks with Morton code.
    integer(I4P), allocatable :: block_coordinates(:,:)   !< Block coordinates of redistributed blocks [4,blocks_number].
    integer(I8P), allocatable :: block_code(:)            !< Block Morton code of redistributed blocks [blocks_number].
-   ! MAPS
-   ! Local maps
-   integer(I8P), allocatable :: local_map(:,:)           !< Local map, list block index changes of my nodes.
-   integer(I8P), allocatable :: local_map_ghost(:,:)     !< Local map for ghost cells updating [fec_number, 4].
-   ! integer(I8P), allocatable :: local_map_ghost_cell(:,:) !< Local map ghost cells update, cells order.
-   integer(I8P), allocatable :: local_map_bc_face(:,:)   !< Local map for face BC ghost cells.
-   integer(I8P), allocatable :: local_map_bc_edge(:,:)   !< Local map for edge BC ghost cells.
-   integer(I8P), allocatable :: local_map_bc_corner(:,:) !< Local map for corner BC ghost cells.
-   ! integer(I8P), allocatable :: local_map_bc_crown(:,:,:) !< Local map for face BC ghost cells, crown order.
-   ! MPI send/recv maps
-   integer(I4P)              :: my_nodes_number=0_I4P     !< Number of my nodes, keep_nodes_number + recv_nodes_number.
-   integer(I4P)              :: send_nodes_number=0_I4P   !< Number of nodes to be sent.
-   integer(I4P)              :: recv_nodes_number=0_I4P   !< Number of nodes to be received.
-   integer(I4P)              :: keep_nodes_number=0_I4P   !< Number of nodes to be keept.
-   integer(I4P)              :: inner_blocks_number=0_I4P !< Number of inner blocks where I need fecs.
-   integer(I4P), allocatable :: inner_outer_block_map(:)  !< Inner/outer blocks map.
-   integer(I4P), allocatable :: comm_map_n_send(:)        !< Communication map, number of blocks to send [procs_number].
-   integer(I4P), allocatable :: comm_map_n_recv(:)        !< Communication map, number of blocks to recv [procs_number].
-   integer(I4P), allocatable :: comm_map_send_ptr(:)      !< Communication map, pointers in list to send [procs_number+1].
-   integer(I4P), allocatable :: comm_map_recv_ptr(:)      !< Communication map, pointers in list to recv [procs_number+1].
-   integer(I8P), allocatable :: comm_map_send(:)          !< Communication map, blocks to send [sum(comm_map_n_send)].
-   integer(I8P), allocatable :: comm_map_recv(:)          !< Communication map, blocks to receive [sum(comm_map_n_recv)].
-   ! MPI send/recv ghost cells maps
-   integer(I4P), allocatable :: comm_map_n_send_ghost(:)   !< Communication map, number of ghost celss to send [procs_number].
-   integer(I4P), allocatable :: comm_map_n_recv_ghost(:)   !< Communication map, number of ghost celss to recv [procs_number].
-   integer(I4P), allocatable :: comm_map_send_ptr_ghost(:) !< Communication map, pointers in list to send [procs_number+1].
-   integer(I4P), allocatable :: comm_map_recv_ptr_ghost(:) !< Communication map, pointers in list to recv [procs_number+1].
-   integer(I8P), allocatable :: comm_map_send_ghost(:,:)      !< Communication map, send ghost cells, fec order.
-   ! integer(I8P), allocatable :: comm_map_send_ghost_cell(:,:) !< Communication map, send ghost cells, cells order.
-   integer(I8P), allocatable :: comm_map_recv_ghost(:,:)      !< Communication map, recv ghost cells, fec order.
-   ! integer(I8P), allocatable :: comm_map_recv_ghost_cell(:,:) !< Communication map, recv ghost cells, cells order.
-   ! MPI send/recv ghost buffers
-   real(R8P), allocatable :: send_buffer_ghost(:) !< Send buffer of ghost cells.
-   real(R8P), allocatable :: recv_buffer_ghost(:) !< Receive buffer of ghost cells.
    ! STL surfaces data
    type(surface_stl_object)  :: surface_stl !< STL surface.
-
-   integer(I8P), allocatable :: temp_array_i8(:)
-   integer(I8P), allocatable :: codes_analyzed(:)    !< List of codes analyzed.
    contains
       ! public methods
       procedure, pass(self) :: adapt                        !< Adapt tree accordingly to refine/derefine necessity.
-      procedure, pass(self) :: blocks_reorder               !< Reorder blocks indexes in field.
       procedure, pass(self) :: codes                        !< Return the list of (sorted) codes actually stored in the tree.
       procedure, pass(self) :: compute_surface_stl_distance !< Compute signed distance of nodes from a STL surface.
       procedure, pass(self) :: description                  !< Return pretty-printed object description.
@@ -235,7 +203,6 @@ type :: tree_object
       procedure, pass(self) :: load_from_ini_file           !< Load object data from INI file.
       procedure, pass(self) :: load_surface_stl             !< Load surface from STL file.
       procedure, pass(self) :: loop                         !< Sentinel while-loop on nodes returning the code.
-      procedure, pass(self) :: make_neighborhood            !< Make neighborhood all whole tree and store it in nodes.
       procedure, pass(self) :: mark_all_nodes               !< Mark all nodes to be refined, derefined, ecc.
       procedure, pass(self) :: mark_sphere                  !< Mark nodes to be refined/derefined by sphere distance.
       procedure, pass(self) :: mark_surface_stl             !< Mark all nodes inside a surface defined by STL triangulation.
@@ -246,56 +213,52 @@ type :: tree_object
       procedure, pass(self) :: resize                       !< Resize the tree.
       procedure, pass(self) :: save_nodes                   !< Save nodes data, used for restart.
       procedure, pass(self) :: traverse                     !< Traverse tree calling the iterator procedure.
-      ! MAPS methods
-      procedure, pass(self) :: make_local_maps_bc           !< Make local maps of boundary conditions.
-      procedure, pass(self) :: make_comm_local_maps       !< Make communication/local maps.
-      procedure, pass(self) :: make_comm_local_maps_ghost !< Make communication/local maps of ghost cells.
-      procedure, pass(self) :: save_local_map               !< Save local map.
+      procedure, pass(self) :: update_blocks_coordinates    !< Update blocks coordinates of redistributed nodes.
       ! MPI methods
-      procedure, pass(self) :: import_refinements_needed  !< Import refinements needed status changed externally.
-      procedure, pass(self) :: mpi_gather_nodes_data      !< Gather nodes data between MPI processes.
-      procedure, pass(self) :: mpi_print_stats            !< Print MPI stats.
-      procedure, pass(self) :: mpi_redistribute           !< Redistribute nodes to MPI processes, load balancing.
-      ! Morton ordering methods
+      procedure, pass(self) :: import_refinements_needed !< Import refinements needed status changed externally.
+      procedure, pass(self) :: mpi_redistribute          !< Redistribute nodes to MPI processes, load balancing.
+      ! Morton ordering
       generic               :: coordinates_to_morton => &
                                coordinates3D_to_morton, &
                                coordinates2D_to_morton !< Return the Morton code given space-level coordinates.
+      procedure, pass(self) :: level                   !< Return the refinement level given the code.
       generic               :: morton_to_coordinates => &
                                morton_to_coordinates3D, &
                                morton_to_coordinates2D !< Return the space-level coordinates given Morton code.
-      procedure, pass(self) :: all_siblings            !< Return all siblings Morton code given Morton code.
-      procedure, pass(self) :: child                   !< Return the i-th child given Morton code.
-      procedure, pass(self) :: child_local             !< Return the child index in the local numbering.
-      procedure, pass(self) :: children                !< Return the children list given Morton code.
-      procedure, pass(self) :: finest_at_level         !< Return the finest node code at given level.
-      procedure, pass(self) :: first_at_level          !< Return the first node code at given level.
-      procedure, pass(self) :: first_common_parent     !< Return the first common parent given two codes.
-      procedure, pass(self) :: get_neighbor            !< Return the neighbor in a given face of given Morton code.
-      procedure, pass(self) :: get_neighbor_all        !< Return the neighbor in a given face/edge/corner of given Morton code.
-      procedure, pass(self) :: greater                 !< Return true if code is greater than other.
-      procedure, pass(self) :: is_greater_by_level     !< Return true if code is greater than other, comparing level.
-      procedure, pass(self) :: is_greater_by_pos       !< Return true if code is greater than other, comparing position
-      procedure, pass(self) :: is_lower_by_level       !< Return true if code is lower than other, comparing level.
-      procedure, pass(self) :: is_lower_by_pos         !< Return true if code is lower than other, comparing position.
-      procedure, pass(self) :: last_at_level           !< Return the last node code at given level.
-      procedure, pass(self) :: level                   !< Return the refinement level given the code.
-      procedure, pass(self) :: lower                   !< Return true if code is lower than other.
-      procedure, pass(self) :: parent                  !< Return the parent given Morton code.
-      procedure, pass(self) :: parent_at_level         !< Return the parent given Morton code at given level.
-      procedure, pass(self) :: path                    !< Return the path codes, the list of codes from given node to root.
-      procedure, pass(self) :: print_code_topology     !< Print all code topology data.
-      procedure, pass(self) :: siblings                !< Return the siblings Morton code given Morton code.
       ! private methods
-      procedure, pass(self), private :: add_node                !< Add a node pointer to the tree.
+      ! Morton ordering
+      procedure, pass(self), private :: all_siblings            !< Return all siblings Morton code given Morton code.
+      procedure, pass(self), private :: child                   !< Return the i-th child given Morton code.
+      procedure, pass(self), private :: child_local             !< Return the child index in the local numbering.
+      procedure, pass(self), private :: children                !< Return the children list given Morton code.
       procedure, pass(self), private :: coordinates3D_to_morton !< Return the Morton code given ijkl coordinates.
       procedure, pass(self), private :: coordinates2D_to_morton !< Return the Morton code given ijl coordinates.
-      procedure, pass(self), private :: derefine                !< Derefine nodes.
-      procedure, pass(self), private :: empty                   !< Empty tree, i.e. remove all nodes, without destroy the tree.
+      procedure, pass(self), private :: finest_at_level         !< Return the finest node code at given level.
+      procedure, pass(self), private :: first_at_level          !< Return the first node code at given level.
+      procedure, pass(self), private :: first_common_parent     !< Return the first common parent given two codes.
+      procedure, pass(self), private :: get_neighbor_all        !< Return the neighbor given face/edge/corner of given Morton code.
+      procedure, pass(self), private :: greater                 !< Return true if code is greater than other.
+      procedure, pass(self), private :: is_greater_by_level     !< Return true if code is greater than other, comparing level.
+      procedure, pass(self), private :: is_greater_by_pos       !< Return true if code is greater than other, comparing position
+      procedure, pass(self), private :: is_lower_by_level       !< Return true if code is lower than other, comparing level.
+      procedure, pass(self), private :: is_lower_by_pos         !< Return true if code is lower than other, comparing position.
+      procedure, pass(self), private :: last_at_level           !< Return the last node code at given level.
+      procedure, pass(self), private :: lower                   !< Return true if code is lower than other.
+      procedure, pass(self), private :: make_neighborhood       !< Make neighborhood all whole tree and store it in nodes.
       procedure, pass(self), private :: morton_to_coordinates3D !< Return the ijkl coordinates given Morton code.
       procedure, pass(self), private :: morton_to_coordinates2D !< Return the ijkl coordinates given Morton code.
-      procedure, pass(self), private :: refine                  !< Refine nodes.
-      procedure, pass(self), private :: remove_node             !< Remove a node from the tree, given the key.
-      procedure, pass(self), private :: sanitize                !< Sanitize the tree.
+      procedure, pass(self), private :: parent                  !< Return the parent given Morton code.
+      procedure, pass(self), private :: parent_at_level         !< Return the parent given Morton code at given level.
+      procedure, pass(self), private :: path                    !< Return the path codes, the list of codes from given node to root.
+      procedure, pass(self), private :: print_code_topology     !< Print all code topology data.
+      procedure, pass(self), private :: siblings                !< Return the siblings Morton code given Morton code.
+      ! tree data
+      procedure, pass(self), private :: add_node         !< Add a node pointer to the tree.
+      procedure, pass(self), private :: derefine         !< Derefine nodes.
+      procedure, pass(self), private :: empty            !< Empty tree, i.e. remove all nodes, without destroy the tree.
+      procedure, pass(self), private :: refine           !< Refine nodes.
+      procedure, pass(self), private :: remove_node      !< Remove a node from the tree, given the key.
+      procedure, pass(self), private :: sanitize         !< Sanitize the tree.
 endtype tree_object
 
 abstract interface
@@ -703,21 +666,7 @@ contains
    if(present(k_prune)) self%ijkl_prune(3)       = k_prune
    if(present(l_prune)) self%ijkl_prune(4)       = l_prune
 
-   ! MPI data
-   allocate(self%comm_map_n_send(0:self%mpih%procs_number-1))
-   allocate(self%comm_map_n_recv(0:self%mpih%procs_number-1))
-   allocate(self%comm_map_send_ptr(0:self%mpih%procs_number))
-   allocate(self%comm_map_recv_ptr(0:self%mpih%procs_number))
-   self%comm_map_n_send = 0_I4P
-   self%comm_map_n_recv = 0_I4P
-   self%comm_map_send_ptr = 0_I4P
-   self%comm_map_recv_ptr = 0_I4P
    call self%mpi_redistribute
-   ! MPI ghost data
-   allocate(self%comm_map_n_send_ghost(0:self%mpih%procs_number-1))
-   allocate(self%comm_map_n_recv_ghost(0:self%mpih%procs_number-1))
-   allocate(self%comm_map_send_ptr_ghost(0:self%mpih%procs_number))
-   allocate(self%comm_map_recv_ptr_ghost(0:self%mpih%procs_number))
 
    call self%make_neighborhood
    print '(A)', self%mpih%myrankstr//'tree%initialize finish'
@@ -829,149 +778,6 @@ contains
       enddo
    endif
    endfunction loop
-
-   subroutine make_local_maps_bc(self)
-   !< Make local maps of boundary conditions.
-   class(tree_object), intent(inout) :: self                  !< The tree.
-   type(tree_node_object), pointer   :: node_ptr              !< Pointer to current node.
-   integer(I8P), allocatable         :: neighbor(:)           !< List of code neighbors.
-   type(tree_node_object), pointer   :: neigh                 !< Pointer to node neighbor.
-   integer(I4P)                      :: neighbor_type         !< Neighbors type.
-   integer(I4P)                      :: neighbor_bc_fec       !< Neighbors fec for BC.
-   integer(I4P)                      :: my_fec_number         !< Number of faces/edges/corners ghost cells locally exchanged.
-   integer(I4P)                      :: fec, mf, rf, sf, n, p !< Counter.
-   integer(I8P)                      :: ijk_min_max_delta(1:9) !< IJK min/max/delta.
-   integer(I4P)                      :: fec_bc_faces_number
-   integer(I4P)                      :: fec_bc_edges_number
-   integer(I4P)                      :: fec_bc_corners_number
-   integer(I4P)                      :: fec_bc_type
-
-   if (allocated(self%local_map_bc_face))   deallocate(self%local_map_bc_face)
-   if (allocated(self%local_map_bc_edge))   deallocate(self%local_map_bc_edge)
-   if (allocated(self%local_map_bc_corner)) deallocate(self%local_map_bc_corner)
-   fec_bc_faces_number = 0_I4P
-   fec_bc_edges_number = 0_I4P
-   fec_bc_corners_number = 0_I4P
-   do while(self%loop(node_ptr=node_ptr))
-      if (node_ptr%myrank==self%mpih%myrank) then
-         do fec=1, 26
-            ! call self%get_neighbor_all(code=node_ptr%code,          &
-            !                            face=fec,                    &
-            !                            neighbor=neighbor,           &
-            !                            neighbor_type=neighbor_type, &
-            !                            neighbor_bc_fec=neighbor_bc_fec)
-            neighbor        = node_ptr%neighbor(fec)%codes
-            neighbor_type   = node_ptr%neighbor(fec)%ntype
-            neighbor_bc_fec = node_ptr%neighbor(fec)%bc_fec
-            if (neighbor_type == NODE_BOUNDARY_CONDITION) then
-               if (fec<=6)             fec_bc_faces_number   = fec_bc_faces_number   + 1_I4P
-               if (fec>=7.and.fec<=18) fec_bc_edges_number   = fec_bc_edges_number   + 1_I4P
-               if (fec>=19)            fec_bc_corners_number = fec_bc_corners_number + 1_I4P
-            endif
-         enddo
-      endif
-   enddo
-   if (fec_bc_faces_number > 0.or.fec_bc_edges_number > 0.or.fec_bc_corners_number > 0) then
-      if (fec_bc_faces_number > 0)   allocate(self%local_map_bc_face(fec_bc_faces_number, 12))
-      if (fec_bc_edges_number > 0)   allocate(self%local_map_bc_edge(fec_bc_edges_number, 12))
-      if (fec_bc_corners_number > 0) allocate(self%local_map_bc_corner(fec_bc_corners_number, 12))
-      fec_bc_faces_number = 0_I4P
-      fec_bc_edges_number = 0_I4P
-      fec_bc_corners_number = 0_I4P
-      do while(self%loop(node_ptr=node_ptr))
-         if (node_ptr%myrank==self%mpih%myrank) then
-            do fec=1, 26
-               ! call self%get_neighbor_all(code=node_ptr%code,          &
-               !                            face=fec,                    &
-               !                            neighbor=neighbor,           &
-               !                            neighbor_type=neighbor_type, &
-               !                            neighbor_bc_fec=neighbor_bc_fec)
-               neighbor        = node_ptr%neighbor(fec)%codes
-               neighbor_type   = node_ptr%neighbor(fec)%ntype
-               neighbor_bc_fec = node_ptr%neighbor(fec)%bc_fec
-               if (neighbor_type == NODE_BOUNDARY_CONDITION) then
-                  select case(neighbor_bc_fec)
-                  case(1,7,9,11,13,19,21,23,25)
-                     ! BC i min
-                     fec_bc_type = self%grid%bc_type(1)
-                  case(2,8,10,12,14,20,22,24,26)
-                     ! BC i max
-                     fec_bc_type = self%grid%bc_type(2)
-                  case(3,15,17)
-                     ! BC j min
-                     fec_bc_type = self%grid%bc_type(3)
-                  case(4,16,18)
-                     ! BC j max
-                     fec_bc_type = self%grid%bc_type(4)
-                  case(5)
-                     ! BC k min
-                     fec_bc_type = self%grid%bc_type(5)
-                  case(6)
-                     ! BC k max
-                     fec_bc_type = self%grid%bc_type(6)
-                  endselect
-                  call compute_ijk_min_max_delta(fec=fec, neighbor_bc_fec=neighbor_bc_fec, ijk_min_max_delta=ijk_min_max_delta)
-                  if (fec<=6) then
-                     fec_bc_faces_number = fec_bc_faces_number + 1_I4P
-                     self%local_map_bc_face(fec_bc_faces_number,1)    = node_ptr%block_index
-                     self%local_map_bc_face(fec_bc_faces_number,2)    = neighbor_bc_fec
-                     self%local_map_bc_face(fec_bc_faces_number,3:11) = ijk_min_max_delta
-                     self%local_map_bc_face(fec_bc_faces_number,12)   = fec_bc_type
-                  endif
-                  if (fec>=7.and.fec<=18) then
-                     fec_bc_edges_number = fec_bc_edges_number + 1_I4P
-                     self%local_map_bc_edge(fec_bc_edges_number,1)    = node_ptr%block_index
-                     self%local_map_bc_edge(fec_bc_edges_number,2)    = neighbor_bc_fec
-                     self%local_map_bc_edge(fec_bc_edges_number,3:11) = ijk_min_max_delta
-                     self%local_map_bc_edge(fec_bc_edges_number,12)   = fec_bc_type
-                  endif
-                  if (fec>=19) then
-                     fec_bc_corners_number = fec_bc_corners_number + 1_I4P
-                     self%local_map_bc_corner(fec_bc_corners_number,1)    = node_ptr%block_index
-                     self%local_map_bc_corner(fec_bc_corners_number,2)    = neighbor_bc_fec
-                     self%local_map_bc_corner(fec_bc_corners_number,3:11) = ijk_min_max_delta
-                     self%local_map_bc_corner(fec_bc_corners_number,12)   = fec_bc_type
-                  endif
-               endif
-            enddo
-         endif
-      enddo
-   endif
-   contains
-      subroutine compute_ijk_min_max_delta(fec, neighbor_bc_fec, ijk_min_max_delta)
-      !< Compute IJK min/max/delta.
-      integer(I4P), intent(in)  :: fec                    !< Current fec number.
-      integer(I4P)              :: neighbor_bc_fec        !< Neighbors fec for BC.
-      integer(I8P), intent(out) :: ijk_min_max_delta(1:9) !< IJK min/max/delta.
-      integer(I4P)              :: ijkmin(3)              !< Lower limit of ijk indexes.
-      integer(I4P)              :: ijkmax(3)              !< Upper limit of ijk indexes.
-      integer(I4P)              :: ijkdelta(3)            !< Delta offset for ghost-inner cells mapping same refinement.
-      integer(I4P)              :: ijkdelta_global(3)     !< Delta offset for ghost-inner cells mapping same refinement.
-      integer(I4P)              :: nijk(3)                !< Ni, Nj , Nk stored in array.
-      integer(I4P)              :: i                      !< Counter.
-
-      associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc)
-         nijk = [ni, nj, nk]
-
-         ijkdelta = FEC_TO_DELTA(1:3, fec)
-         ijkdelta_global = FEC_TO_DELTA(1:3, neighbor_bc_fec)
-
-         do i=1, 3
-            if     (ijkdelta(i)==1) then
-               ijkmin(i) = nijk(i) + 1
-               ijkmax(i) = nijk(i) + ngc
-            elseif (ijkdelta(i)==-1) then
-               ijkmin(i) = 0
-               ijkmax(i) = 1 - ngc
-            elseif (ijkdelta(i)==0) then
-               ijkmin(i) = 1
-               ijkmax(i) = nijk(i)
-            endif
-         enddo
-         ijk_min_max_delta = [ijkmin, ijkmax, ijkdelta_global]
-      endassociate
-      endsubroutine
-   endsubroutine make_local_maps_bc
 
    subroutine make_neighborhood(self)
    !< Make neighborhood all whole tree and store it in nodes.
@@ -1186,21 +992,6 @@ contains
    endif
    endsubroutine prune
 
-   subroutine remove_node(self, code)
-   !< Remove a node from the tree, given the code.
-   class(tree_object), intent(inout) :: self !< The tree.
-   integer(I8P),       intent(in)    :: code !< The Morton code.
-   integer(I4P)                      :: b    !< Bucket index, namely hashed key.
-
-   if (self%is_initialized_) then
-      if (self%has_code(code=code)) then
-         b = self%hash(code=code)
-         call self%bucket(b)%remove_node(code=code)
-         self%nodes_number = self%nodes_number - 1
-      endif
-   endif
-   endsubroutine remove_node
-
    subroutine resize(self, nodes_number, max_load)
    !< Resize the tree.
    class(tree_object), intent(inout)        :: self         !< The tree.
@@ -1230,26 +1021,6 @@ contains
       stop
    endif
    endsubroutine resize
-
-   subroutine save_local_map(self, file_name)
-   !< Save local map.
-   class(tree_object), intent(in)  :: self      !< The tree.
-   character(*),       intent(in)  :: file_name !< Output file name.
-   integer(I4P)                    :: file_unit !< Output file unit.
-   integer(I4P)                    :: i1,i2     !< Counter.
-
-   if (self%is_initialized_) then
-      if (allocated(self%local_map_ghost)) then
-         open(newunit=file_unit, file=trim(adjustl(file_name)), form='FORMATTED')
-         do i1=lbound(self%local_map_ghost, dim=1), ubound(self%local_map_ghost, dim=1)
-            ! do i2=lbound(self%local_map_ghost, dim=2), ubound(self%local_map_ghost, dim=2)
-               write(unit=file_unit, fmt='(13(I6,1X))') self%local_map_ghost(i1, :)
-            ! enddo
-         enddo
-         close(file_unit)
-      endif
-   endif
-   endsubroutine save_local_map
 
    subroutine save_nodes(self, file_name)
    !< Save nodes data, used for restart.
@@ -1290,67 +1061,37 @@ contains
    endif
    endsubroutine traverse
 
+   subroutine update_blocks_coordinates(self, my_nodes_number)
+   !< Update blocks coordinates of redistributed nodes.
+   class(tree_object), intent(inout) :: self            !< The tree.
+   integer(I4P),       intent(in)    :: my_nodes_number !< Number of my nodes, keep_nodes_number + recv_nodes_number.
+   type(tree_node_object), pointer   :: node_ptr        !< Pointer to current node.
+   integer(I4P)                      :: i, j, k, l      !< Counter.
+
+   if (allocated(self%block_coordinates)) deallocate(self%block_coordinates) ; allocate(self%block_coordinates(4, my_nodes_number))
+   if (allocated(self%block_code)) deallocate(self%block_code) ; allocate(self%block_code(my_nodes_number))
+   self%my_nodes_number  = my_nodes_number
+   self%last_block_index = my_nodes_number
+   do while(self%loop(node_ptr=node_ptr))
+      node_ptr%myrank = node_ptr%myrank_new
+      node_ptr%block_index = node_ptr%block_index_new
+      if (node_ptr%myrank == self%mpih%myrank) then
+         select case(self%ratio)
+         case(4_I4P)
+            call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, l=l)
+         case(8_I4P)
+            call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
+         endselect
+         self%block_coordinates(1, node_ptr%block_index) = i
+         self%block_coordinates(2, node_ptr%block_index) = j
+         self%block_coordinates(3, node_ptr%block_index) = k
+         self%block_coordinates(4, node_ptr%block_index) = l
+         self%block_code(node_ptr%block_index) = node_ptr%code
+      endif
+   enddo
+   endsubroutine
+
    ! MPI methods
-   subroutine blocks_reorder(self)
-   !< Reorder blocks indexes in field.
-   class(tree_object), intent(inout) :: self                !< The tree.
-   type(tree_node_object), pointer   :: node_ptr            !< Pointer to current node.
-   integer(I4P)                      :: outer_blocks_number !< Number of outer blocks where I need fecs.
-   integer(I4P)                      :: inner_blocks_number !< Number of inner blocks where I need fecs.
-   logical                           :: is_inner_block      !< Flag to check if a neighbor block is inner or not.
-   integer(I8P), allocatable         :: neighbor(:)         !< List of code neighbors.
-   type(tree_node_object), pointer   :: neigh               !< Pointer to node neighbor.
-   integer(I4P)                      :: neighbor_type       !< Neighbors type.
-   integer(I4P), allocatable         :: inner_block_map(:)  !< Inner blocks map.
-   integer(I4P), allocatable         :: outer_block_map(:)  !< Outer blocks map.
-   integer(I4P)                      :: fec, n              !< Counter.
-
-   outer_blocks_number = 0
-   inner_blocks_number = 0
-   allocate(inner_block_map(self%my_nodes_number))
-   allocate(outer_block_map(self%my_nodes_number))
-   if (allocated(self%inner_outer_block_map)) deallocate(self%inner_outer_block_map)
-   allocate(self%inner_outer_block_map(self%my_nodes_number))
-   do while(self%loop(node_ptr=node_ptr))
-      if (self%mpih%myrank == node_ptr%myrank) then
-         is_inner_block = .true.
-         do fec=1, 26
-            ! call self%get_neighbor_all(code=node_ptr%code, face=fec, neighbor=neighbor, neighbor_type=neighbor_type)
-            neighbor      = node_ptr%neighbor(fec)%codes
-            neighbor_type = node_ptr%neighbor(fec)%ntype
-            if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
-               do n=1, size(neighbor, dim=1)
-                  neigh => self%node(code=neighbor(n))
-                  if (self%mpih%myrank /= neigh%myrank) is_inner_block = .false.
-               enddo
-            endif
-         enddo
-         if (is_inner_block) then
-            inner_blocks_number = inner_blocks_number + 1
-            inner_block_map(inner_blocks_number) = node_ptr%block_index
-            node_ptr%block_index_new = inner_blocks_number
-         else
-            outer_blocks_number = outer_blocks_number + 1
-            outer_block_map(outer_blocks_number) = node_ptr%block_index
-            node_ptr%block_index_new = -outer_blocks_number
-         endif
-      endif
-   enddo
-   self%inner_blocks_number = inner_blocks_number
-   self%inner_outer_block_map(1:inner_blocks_number ) = inner_block_map(1:inner_blocks_number)
-   self%inner_outer_block_map(inner_blocks_number+1:) = outer_block_map(1:outer_blocks_number)
-   do while(self%loop(node_ptr=node_ptr))
-      if (self%mpih%myrank == node_ptr%myrank) then
-         if (node_ptr%block_index_new < 0) then
-            node_ptr%block_index = -node_ptr%block_index_new + inner_blocks_number
-         else
-            node_ptr%block_index =  node_ptr%block_index_new
-         endif
-      endif
-   enddo
-   call self%mpi_gather_nodes_data(node_member='block_index')
-   endsubroutine blocks_reorder
-
    subroutine import_refinements_needed(self, refinements_needed_all, disp_count)
    !< Import refinements needed status changed externally.
    class(tree_object),        intent(inout) :: self                      !< The tree.
@@ -1366,439 +1107,6 @@ contains
       node_ptr%refinement_needed = refinements_needed_all(disp_count(myrank)+b)
    enddo
    endsubroutine import_refinements_needed
-
-   subroutine make_comm_local_maps(self)
-   !< Make communication/local maps.
-   !<```comm_map_send     = [ 17, 511, 92, 3, 54, 56, 11, 12...] (block index).
-   !<                          |   |       |  ||       |
-   !<   comm_map_send_ptr = [  0,  1,  3,  4,  4, 6, (8)]        (pointer to comm_map_send)
-   !<   comm_map_recv     = [ 23, 4, 51, 69, 145, 2, 72, 16, 6]  (block index).
-   !<                         |       |  ||          |       |
-   !<   comm_map_recv_prt = [ 0,  2,  3,  3,  6, 8, (9)]         (pointer to comm_map_recv)```
-   class(tree_object), intent(inout) :: self                 !< The tree.
-   type(tree_node_object), pointer   :: node_ptr             !< Pointer to current node.
-   integer(I8P), allocatable         :: codes_sorted(:)      !< List of (sorted) codes.
-   integer(I4P), allocatable         :: comm_map_send_ctr(:) !< Communication map, counters in list to send [procs_number+1].
-   integer(I4P), allocatable         :: comm_map_recv_ctr(:) !< Communication map, counters in list to recv [procs_number+1].
-   integer(I8P)                      :: my_nodes_number      !< Number of my nodes.
-   integer(I4P)                      :: n_send               !< Number of nodes that I have to send.
-   integer(I4P)                      :: n_recv               !< Number of nodes that I have to receive.
-   integer(I4P)                      :: n_keep               !< Number of nodes that I have to keep.
-   integer(I8P)                      :: c, l                 !< Counter.
-   integer(I4P)                      :: p                    !< Counter.
-
-   ! initialize communication maps
-   self%comm_map_n_send = 0_I4P
-   self%comm_map_n_recv = 0_I4P
-   if (allocated(self%comm_map_send)) deallocate(self%comm_map_send)
-   if (allocated(self%comm_map_recv)) deallocate(self%comm_map_recv)
-   if (allocated(self%local_map    )) deallocate(self%local_map    )
-
-   ! compute the number of blocks to send/receive
-   my_nodes_number = 0_I8P
-   do while(self%loop(node_ptr=node_ptr))
-      if (node_ptr%myrank==self%mpih%myrank) my_nodes_number = my_nodes_number + 1_I8P
-      if     (is_node_to_send(n=node_ptr)) then
-         ! I have this node that must be sent to node_ptr%myrank_new
-         self%comm_map_n_send(node_ptr%myrank_new) = self%comm_map_n_send(node_ptr%myrank_new) + 1
-      elseif (is_node_to_receive(n=node_ptr)) then
-         ! node_ptr%rank has this node that must be sent to me
-         self%comm_map_n_recv(node_ptr%myrank) = self%comm_map_n_recv(node_ptr%myrank) + 1
-      endif
-   enddo
-   n_send = sum(self%comm_map_n_send, dim=1)
-   n_recv = sum(self%comm_map_n_recv, dim=1)
-   n_keep = my_nodes_number - n_send
-   self%my_nodes_number = n_keep + n_recv
-   if (n_keep > 0_I4P) allocate(self%local_map(n_keep,2))
-
-   ! allocate communications maps
-   if (n_send>0_I4P) then
-      allocate(self%comm_map_send(n_send))
-      self%comm_map_send = 0_I8P
-   endif
-   if (n_recv>0_I4P) then
-      allocate(self%comm_map_recv(n_recv))
-      self%comm_map_recv = 0_I8P
-   endif
-
-   ! compute communication maps pointers/counters
-   self%comm_map_send_ptr = 0_I4P
-   self%comm_map_recv_ptr = 0_I4P
-   do p=1, self%mpih%procs_number
-      self%comm_map_send_ptr(p) = self%comm_map_send_ptr(p-1) + self%comm_map_n_send(p-1)
-      self%comm_map_recv_ptr(p) = self%comm_map_recv_ptr(p-1) + self%comm_map_n_recv(p-1)
-   enddo
-   comm_map_send_ctr = self%comm_map_send_ptr
-   comm_map_recv_ctr = self%comm_map_recv_ptr
-
-   ! populate communication maps
-   codes_sorted = self%codes() ! sorted list of Morton codes
-   ! send map
-   if (n_send>0_I4P) then
-      do c=1, size(codes_sorted, dim=1) ! sort blocks in Morton order
-         node_ptr => self%node(code=codes_sorted(c))
-         if (is_node_to_send(n=node_ptr)) then
-            self%comm_map_send(comm_map_send_ctr(node_ptr%myrank_new)+1) = node_ptr%block_index
-            comm_map_send_ctr(node_ptr%myrank_new) = comm_map_send_ctr(node_ptr%myrank_new) + 1
-         endif
-      enddo
-   endif
-   ! receive map
-   if (n_recv>0_I4P) then
-      do c=1, size(codes_sorted, dim=1) ! sort blocks in Morton order
-         node_ptr => self%node(code=codes_sorted(c))
-         if (is_node_to_receive(n=node_ptr)) then
-            self%comm_map_recv(comm_map_recv_ctr(node_ptr%myrank)+1) = node_ptr%block_index_new
-            comm_map_recv_ctr(node_ptr%myrank) = comm_map_recv_ctr(node_ptr%myrank) + 1
-         endif
-      enddo
-   endif
-   ! local maps
-   if (n_keep > 0_I4P) then
-      l = 0
-      do c=1, size(codes_sorted, dim=1) ! sort blocks in Morton order
-         node_ptr => self%node(code=codes_sorted(c))
-         if (is_node_to_keep(n=node_ptr)) then
-            l = l + 1
-            self%local_map(l,1) = node_ptr%block_index_new
-            self%local_map(l,2) = node_ptr%block_index
-         endif
-      enddo
-   endif
-   contains
-      function is_node_to_keep(n)
-      !< Check if node `n` must be kept.
-      type(tree_node_object), intent(in), pointer :: n               !< Pointer to current node.
-      logical                                     :: is_node_to_keep !< Check result.
-
-      is_node_to_keep = ((self%mpih%myrank == n%myrank).and.(n%myrank == n%myrank_new))
-      endfunction is_node_to_keep
-
-      function is_node_to_send(n)
-      !< Check if node `n` must be sent.
-      type(tree_node_object), intent(in), pointer :: n               !< Pointer to current node.
-      logical                                     :: is_node_to_send !< Check result.
-
-      is_node_to_send = ((self%mpih%myrank == n%myrank).and.(n%myrank /= n%myrank_new))
-      endfunction is_node_to_send
-
-      function is_node_to_receive(n)
-      !< Check if node `n` must be received.
-      type(tree_node_object), intent(in), pointer :: n                  !< Pointer to current node.
-      logical                                     :: is_node_to_receive !< Check result.
-
-      is_node_to_receive = ((self%mpih%myrank == n%myrank_new).and.(n%myrank /= n%myrank_new))
-      endfunction is_node_to_receive
-   endsubroutine make_comm_local_maps
-
-   subroutine make_comm_local_maps_ghost(self)
-   !< Make communication/local maps of ghost cells.
-   class(tree_object), intent(inout) :: self                       !< The tree.
-   type(tree_node_object), pointer   :: node_ptr                   !< Pointer to current node.
-   integer(I8P), allocatable         :: neighbor(:)                !< List of code neighbors.
-   type(tree_node_object), pointer   :: neigh                      !< Pointer to node neighbor.
-   integer(I4P)                      :: neighbor_type              !< Neighbors type.
-   integer(I4P)                      :: neighbor_portion           !< Neighbors portion.
-   integer(I4P)                      :: my_fec_number              !< Number of faces/edges/corners ghost cells locally exchanged.
-   integer(I4P)                      :: recv_fec_number            !< Number of faces/edges/corners ghost cells externally received.
-   integer(I4P)                      :: send_fec_number            !< Number of faces/edges/corners ghost cells externally sent.
-   integer(I4P)                      :: fec, mf, rf, sf, n, p      !< Counter.
-   integer(I4P)                      :: weight_reduction           !< Neighbor weight reduction for send/recv at different level.
-   integer(I4P), allocatable         :: comm_map_send_ctr_ghost(:) !< Communication map, counters to send.
-   integer(I4P), allocatable         :: comm_map_recv_ctr_ghost(:) !< Communication map, counters to recv.
-
-   if (allocated(self%local_map_ghost    )) deallocate(self%local_map_ghost    )
-   if (allocated(self%comm_map_send_ghost)) deallocate(self%comm_map_send_ghost)
-   if (allocated(self%comm_map_recv_ghost)) deallocate(self%comm_map_recv_ghost)
-   my_fec_number = 0
-   recv_fec_number = 0
-   send_fec_number = 0
-   self%comm_map_n_recv_ghost = 0
-   self%comm_map_n_send_ghost = 0
-   do while(self%loop(node_ptr=node_ptr))
-      do fec=1, 26
-         weight_reduction = 2 ** count(FEC_TO_DELTA(:, fec)==0_I4P, dim=1)
-         ! call self%get_neighbor_all(code=node_ptr%code, face=fec, neighbor=neighbor, neighbor_type=neighbor_type)
-         neighbor      = node_ptr%neighbor(fec)%codes
-         neighbor_type = node_ptr%neighbor(fec)%ntype
-         if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
-            do n=1, size(neighbor, dim=1)
-               neigh => self%node(code=neighbor(n))
-               if     ((self%mpih%myrank == neigh%myrank).and.(self%mpih%myrank == node_ptr%myrank)) then
-                  my_fec_number = my_fec_number + 1
-               elseif ((self%mpih%myrank /= neigh%myrank).and.(self%mpih%myrank == node_ptr%myrank)) then
-                  ! when receiving from same or less refined than me the size of the message is full, when receiving from
-                  ! more refined the message is an averaged portion (reduced size)
-                  recv_fec_number = recv_fec_number + 1
-                  if (neighbor_type==NODE_MORE_REFINED) then
-                     self%comm_map_n_recv_ghost(neigh%myrank) = self%comm_map_n_recv_ghost(neigh%myrank) + &
-                                                                self%grid%weight_neighbor(fec)/ weight_reduction
-                  else
-                     self%comm_map_n_recv_ghost(neigh%myrank) = self%comm_map_n_recv_ghost(neigh%myrank) + &
-                                                                self%grid%weight_neighbor(fec)
-                  endif
-               elseif ((self%mpih%myrank == neigh%myrank).and.(self%mpih%myrank /= node_ptr%myrank)) then
-                  ! when sending to same or more refined than me the size of the message is full, when sending to less
-                  ! refined the message is an averaged portion (reduced size)
-                  send_fec_number = send_fec_number + 1
-                  if (neighbor_type==NODE_MORE_REFINED) then
-                     self%comm_map_n_send_ghost(node_ptr%myrank) = self%comm_map_n_send_ghost(node_ptr%myrank) + &
-                                                                   self%grid%weight_neighbor(fec)/ weight_reduction
-                  else
-                     self%comm_map_n_send_ghost(node_ptr%myrank) = self%comm_map_n_send_ghost(node_ptr%myrank) + &
-                                                                   self%grid%weight_neighbor(fec)
-                  endif
-               endif
-            enddo
-         endif
-      enddo
-   enddo
-   ! create pointer for each process in the send/recv buffers
-   self%comm_map_send_ptr_ghost = 0_I4P
-   self%comm_map_recv_ptr_ghost = 0_I4P
-   do p=1, self%mpih%procs_number
-      self%comm_map_send_ptr_ghost(p) = self%comm_map_send_ptr_ghost(p-1) + self%comm_map_n_send_ghost(p-1)
-      self%comm_map_recv_ptr_ghost(p) = self%comm_map_recv_ptr_ghost(p-1) + self%comm_map_n_recv_ghost(p-1)
-   enddo
-   ! create counter
-   comm_map_send_ctr_ghost = self%comm_map_send_ptr_ghost
-   comm_map_recv_ctr_ghost = self%comm_map_recv_ptr_ghost
-   ! populate maps
-   if (my_fec_number>0  ) allocate(self%local_map_ghost(    1:my_fec_number,  1:13))
-   if (send_fec_number>0) allocate(self%comm_map_send_ghost(1:send_fec_number,1:15))
-   if (recv_fec_number>0) allocate(self%comm_map_recv_ghost(1:recv_fec_number,1:15))
-   sf = 0
-   rf = 0
-   mf = 0
-   do while(self%loop(node_ptr=node_ptr))
-      do fec=1, 26
-         weight_reduction = 2 ** count(FEC_TO_DELTA(:, fec)==0_I4P, dim=1)
-         ! call self%get_neighbor_all(code=node_ptr%code, face=fec, neighbor=neighbor, &
-                                    ! neighbor_type=neighbor_type, neighbor_portion=neighbor_portion)
-         neighbor         = node_ptr%neighbor(fec)%codes
-         neighbor_type    = node_ptr%neighbor(fec)%ntype
-         neighbor_portion = node_ptr%neighbor(fec)%portion
-         if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
-            do n=1, size(neighbor, dim=1)
-               neigh => self%node(code=neighbor(n))
-               if     ((self%mpih%myrank == neigh%myrank).and.(self%mpih%myrank == node_ptr%myrank)) then
-                  mf = mf + 1
-                  self%local_map_ghost(mf, 1) = node_ptr%block_index
-                  self%local_map_ghost(mf, 2) = neigh%block_index
-                  self%local_map_ghost(mf, 3) = fec
-                  if     (neighbor_type==NODE_STANDARD) then
-                     self%local_map_ghost(mf, 4) = 0
-                  elseif (neighbor_type==NODE_MORE_REFINED) then
-                     self%local_map_ghost(mf, 4) = n
-                  elseif (neighbor_type==NODE_LESS_REFINED) then
-                     self%local_map_ghost(mf, 4) = -neighbor_portion
-                  endif
-                  call compute_ijk_min_max_delta(fec=fec, portion=self%local_map_ghost(mf, 4), &
-                                                 ijk_min_max_delta=self%local_map_ghost(mf, 5:))
-               elseif ((self%mpih%myrank /= neigh%myrank).and.(self%mpih%myrank == node_ptr%myrank)) then
-                  rf = rf + 1
-                  self%comm_map_recv_ghost(rf, 15) = comm_map_recv_ctr_ghost(neigh%myrank)
-                  self%comm_map_recv_ghost(rf, 1) = node_ptr%block_index
-                  self%comm_map_recv_ghost(rf, 2) = neigh%block_index
-                  self%comm_map_recv_ghost(rf, 3) = neigh%myrank
-                  self%comm_map_recv_ghost(rf, 4) = fec
-                  if     (neighbor_type==NODE_STANDARD) then
-                     self%comm_map_recv_ghost(rf, 5) = 0
-                     comm_map_recv_ctr_ghost(neigh%myrank) = comm_map_recv_ctr_ghost(neigh%myrank) + &
-                                                             self%grid%weight_neighbor(fec)
-                  elseif (neighbor_type==NODE_MORE_REFINED) then
-                     self%comm_map_recv_ghost(rf, 5) = n
-                     comm_map_recv_ctr_ghost(neigh%myrank) = comm_map_recv_ctr_ghost(neigh%myrank) + &
-                                                             self%grid%weight_neighbor(fec) / weight_reduction
-                  elseif (neighbor_type==NODE_LESS_REFINED) then
-                     self%comm_map_recv_ghost(rf, 5) = -neighbor_portion
-                     comm_map_recv_ctr_ghost(neigh%myrank) = comm_map_recv_ctr_ghost(neigh%myrank) + &
-                                                             self%grid%weight_neighbor(fec)
-                  endif
-                  call compute_ijk_min_max_delta(fec=fec, portion=self%comm_map_recv_ghost(rf, 5), &
-                                                 ijk_min_max_delta=self%comm_map_recv_ghost(rf, 6:))
-               elseif ((self%mpih%myrank == neigh%myrank).and.(self%mpih%myrank /= node_ptr%myrank)) then
-                  sf = sf + 1
-                  self%comm_map_send_ghost(sf, 15) = comm_map_send_ctr_ghost(node_ptr%myrank)
-                  self%comm_map_send_ghost(sf, 1) = node_ptr%block_index
-                  self%comm_map_send_ghost(sf, 2) = neigh%block_index
-                  self%comm_map_send_ghost(sf, 3) = node_ptr%myrank
-                  self%comm_map_send_ghost(sf, 4) = fec
-                  if     (neighbor_type==NODE_STANDARD) then
-                     self%comm_map_send_ghost(sf, 5) = 0
-                     comm_map_send_ctr_ghost(node_ptr%myrank) = comm_map_send_ctr_ghost(node_ptr%myrank) + &
-                                                                self%grid%weight_neighbor(fec)
-                  elseif (neighbor_type==NODE_MORE_REFINED) then
-                     self%comm_map_send_ghost(sf, 5) = n
-                     comm_map_send_ctr_ghost(node_ptr%myrank) = comm_map_send_ctr_ghost(node_ptr%myrank) + &
-                                                                self%grid%weight_neighbor(fec) / weight_reduction
-                  elseif (neighbor_type==NODE_LESS_REFINED) then
-                     self%comm_map_send_ghost(sf, 5) = -neighbor_portion
-                     comm_map_send_ctr_ghost(node_ptr%myrank) = comm_map_send_ctr_ghost(node_ptr%myrank) + &
-                                                                self%grid%weight_neighbor(fec)
-                  endif
-                  call compute_ijk_min_max_delta(fec=fec, portion=self%comm_map_send_ghost(sf, 5), &
-                                                 ijk_min_max_delta=self%comm_map_send_ghost(sf, 6:))
-               endif
-            enddo
-         endif
-      enddo
-   enddo
-   contains
-      subroutine compute_ijk_min_max_delta(fec, portion, ijk_min_max_delta)
-      !< Compute IJK min/max/delta.
-      integer(I4P), intent(in)  :: fec                    !< Current fec number.
-      integer(I8P), intent(in)  :: portion                !< Current portion.
-      integer(I8P), intent(out) :: ijk_min_max_delta(1:9) !< IJK min/max/delta.
-      integer(I4P)              :: abs_portion            !< ABS of current portion.
-      integer(I4P)              :: portion_cur            !< Current portion of fec updated (0=>whole fec).
-      integer(I4P)              :: ijkmin(3)              !< Lower limit of ijk indexes.
-      integer(I4P)              :: ijkmax(3)              !< Upper limit of ijk indexes.
-      integer(I4P)              :: ijkdelta(3)            !< Delta offset for ghost-inner cells mapping same refinement.
-      integer(I4P)              :: delta(3)               !< Neighbor delta of current fec.
-      integer(I4P)              :: nijk(3)                !< Ni, Nj , Nk stored in array.
-      integer(I4P)              :: portion_array(3)       !< Portion array binary useful for less refined case.
-      integer(I4P)              :: i                      !< Counter.
-
-      associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc)
-      nijk = [ni, nj, nk]
-
-      abs_portion = abs(portion)
-      delta = FEC_TO_DELTA(1:3, fec)
-
-      if     (portion==0) then
-         do i=1, 3
-            if     (delta(i)==1) then
-               ijkmin(i) = nijk(i) + 1
-               ijkmax(i) = nijk(i) + ngc
-               ijkdelta(i) = -nijk(i)
-            elseif (delta(i)==-1) then
-               ijkmin(i) = 1 - ngc
-               ijkmax(i) = 0
-               ijkdelta(i) = nijk(i)
-            elseif (delta(i)==0) then
-               ijkmin(i) = 1
-               ijkmax(i) = nijk(i)
-               ijkdelta(i) = 0
-            endif
-         enddo
-      elseif (portion>0) then
-         do i=1, 3
-            if     (delta(i)==1) then
-               ijkmin(i) = nijk(i) + 1
-               ijkmax(i) = nijk(i) + ngc
-               ijkdelta(i) = -1 - 2 * nijk(i)
-            elseif (delta(i)==-1) then
-               ijkmin(i) = 1 - ngc
-               ijkmax(i) = 0
-               ijkdelta(i) = -1 + nijk(i)
-            elseif (delta(i)==0) then
-               portion_cur = mod(abs_portion-1, 2)
-               abs_portion = 2 * portion_cur + (abs_portion - 1) / 2 + 1
-               ijkmin(i) = portion_cur * nijk(i) / 2 + 1
-               ijkmax(i) = ijkmin(i) + nijk(i) / 2 - 1
-               ijkdelta(i) = -2 * ijkmin(i) + 1
-            endif
-         enddo
-      else
-         portion_array(1) = mod(abs_portion-1,2)
-         portion_array(2) = mod((abs_portion-1)/2,2)
-         portion_array(3) = mod((abs_portion-1)/4,2)
-         do i=1, 3
-            if     (delta(i)==1) then
-               ijkmin(i) = nijk(i) / 2 * portion_array(i) + 1
-               ijkmax(i) = ijkmin(i) + ngc / 2 - 1
-               ijkdelta(i) = - nijk(i) * portion_array(i) + nijk(i) - 1
-            elseif (delta(i)==-1) then
-               ijkmin(i) = nijk(i) / 2 + nijk(i) / 2 * portion_array(i) + 1 - ngc / 2
-               ijkmax(i) = ijkmin(i) + ngc / 2 - 1
-               ijkdelta(i) = - nijk(i) -  nijk(i) * portion_array(i) - 1
-            elseif (delta(i)==0) then
-               ijkmin(i) = nijk(i) / 2 * portion_array(i) + 1
-               ijkmax(i) = ijkmin(i) + nijk(i) / 2 - 1
-               ijkdelta(i) = - nijk(i) * portion_array(i) - 1
-            endif
-         enddo
-      endif
-      ijk_min_max_delta = [ijkmin, ijkmax, ijkdelta]
-      endassociate
-      endsubroutine
-   endsubroutine make_comm_local_maps_ghost
-
-   subroutine mpi_gather_nodes_data(self, node_member)
-   !< Gather nodes data status between MPI processes.
-   class(tree_object), intent(inout) :: self           !< The tree.
-   character(*),       intent(in)    :: node_member    !< Node member to be shared.
-   type(tree_node_object), pointer   :: node_ptr       !< Pointer to current node.
-   integer(I8P), allocatable         :: send_buffer(:) !< Send buffer nodes data.
-   integer(I8P), allocatable         :: recv_buffer(:) !< Recv buffer nodes data.
-   integer(I4P), allocatable         :: recv_count(:)  !< Number of nodes that are received from each process.
-   integer(I4P), allocatable         :: disp_count(:)  !< Displacement of nodes that are received from each process.
-   integer(I8P)                      :: n, p           !< Counter.
-
-   allocate(send_buffer(self%my_nodes_number * 2)) ! [Morton code, refinement_needed]
-   allocate(recv_buffer(self%nodes_number    * 2)) ! [Morton code, refinement_needed]
-   allocate(recv_count(0:self%mpih%procs_number - 1))
-   allocate(disp_count(0:self%mpih%procs_number - 1))
-   ! populating receive counters and send buffer
-   recv_count = 0_I4P
-   n = 0_I8P
-   do while(self%loop(node_ptr=node_ptr))
-      recv_count(node_ptr%myrank) = recv_count(node_ptr%myrank) + 2
-      if (self%mpih%myrank == node_ptr%myrank) then
-         n = n + 1
-         send_buffer(n) = node_ptr%code
-         n = n + 1
-         select case(trim(node_member))
-         case('refinement_needed')
-            send_buffer(n) = node_ptr%refinement_needed
-         case('block_index')
-            send_buffer(n) = node_ptr%block_index
-         endselect
-      endif
-   enddo
-   ! computing displacement counts
-   disp_count = 0_I4P
-   do p=1, self%mpih%procs_number - 1
-      disp_count(p) = disp_count(p-1) + recv_count(p-1)
-   enddo
-
-   call MPI_ALLGATHERV(send_buffer, self%my_nodes_number * 2, MPI_INTEGER8, &
-                       recv_buffer, recv_count, disp_count, MPI_INTEGER8, MPI_COMM_WORLD, self%mpih%error)
-
-   ! update nodes data
-   do n=1, self%nodes_number*2, 2
-      node_ptr => self%node(code=recv_buffer(n))
-      select case(trim(node_member))
-      case('refinement_needed')
-         node_ptr%refinement_needed = int(recv_buffer(n+1), I4P)
-      case('block_index')
-         node_ptr%block_index = recv_buffer(n+1)
-      endselect
-   enddo
-   endsubroutine mpi_gather_nodes_data
-
-   subroutine mpi_print_stats(self)
-   !< Print MPI stats.
-   class(tree_object), intent(in) :: self !< The tree.
-   integer(I4P)                   :: p    !< Counter.
-
-   do p=0, self%mpih%procs_number-1
-      print '(A)', self%mpih%myrankstr//' send to: '//trim(str(p,.true.))//' blocks n.: '//&
-                   trim(str(self%comm_map_n_send(p),.true.))
-   enddo
-   if (allocated(self%comm_map_send)) &
-      print '(A)', self%mpih%myrankstr//' blocks sent: '//trim(str(self%comm_map_send,.true.))
-   do p=0, self%mpih%procs_number-1
-      print '(A)', self%mpih%myrankstr//' recv from: '//trim(str(p,.true.))//' blocks n.: '//&
-                   trim(str(self%comm_map_n_recv(p),.true.))
-   enddo
-   if (allocated(self%comm_map_recv)) &
-      print '(A)', self%mpih%myrankstr//' blocks recv:  '//trim(str(self%comm_map_recv,.true.))
-   if (allocated(self%local_map)) &
-      print '(A)', self%mpih%myrankstr//' blocks kept n.: '//trim(str(size(self%local_map(:,1),dim=1),.true.))
-   endsubroutine mpi_print_stats
 
    subroutine mpi_redistribute(self)
    !< Redistribute nodes to processes, load balancing.
@@ -1871,28 +1179,6 @@ contains
       endif
       c = c + 1
    enddo
-
-   ! create communication/local maps
-   call self%make_comm_local_maps
-   ! update tree status and compute coordinates of redistributed nodes
-   n_keep = 0_I8P ; if (allocated(self%local_map    )) n_keep = size(self%local_map,     dim=1)
-   n_recv = 0_I8P ; if (allocated(self%comm_map_recv)) n_recv = size(self%comm_map_recv, dim=1)
-   if (allocated(self%block_coordinates)) deallocate(self%block_coordinates) ; allocate(self%block_coordinates(4, n_keep + n_recv))
-   if (allocated(self%block_code)) deallocate(self%block_code) ; allocate(self%block_code(n_keep + n_recv))
-   do while(self%loop(node_ptr=node_ptr))
-      node_ptr%myrank = node_ptr%myrank_new
-      node_ptr%block_index = node_ptr%block_index_new
-      if (node_ptr%myrank == self%mpih%myrank) then
-         call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
-         self%block_coordinates(1, node_ptr%block_index) = i
-         self%block_coordinates(2, node_ptr%block_index) = j
-         self%block_coordinates(3, node_ptr%block_index) = k
-         self%block_coordinates(4, node_ptr%block_index) = l
-         self%block_code(node_ptr%block_index) = node_ptr%code
-      endif
-   enddo
-
-   self%last_block_index = n_keep + n_recv
    contains
       function can_split()
       !< Return true if the split can be done.
@@ -1911,6 +1197,27 @@ contains
       endfunction can_split
    endsubroutine mpi_redistribute
 
+   ! Morton ordering methods
+   elemental function level(self, code)
+   !< Return the refinement level given the code.
+   class(tree_object), intent(in) :: self  !< The tree.
+   integer(I8P),       intent(in) :: code  !< Morton code.
+   integer(I4P)                   :: level !< Refinement level.
+   integer(I8P)                   :: c     !< Counter.
+
+   if (code<=-1) then
+      level = 0 ! ancestor of all has level 0
+   else
+      level = 1
+      c = code
+      do while(c>=self%ratio)
+         c = (c - self%ratio) / self%ratio
+         if (c>=0) level = level + 1
+      enddo
+   endif
+   endfunction level
+
+   ! private methods
    ! Morton ordering methods
    pure function all_siblings(self, code) result(siblings)
    !< Return all siblings Morton code given Morton code (included into the list).
@@ -1960,15 +1267,46 @@ contains
    integer(I8P),       intent(in) :: code        !< Morton code.
    integer(I8P), allocatable      :: children(:) !< Children Morton code.
 
-   children = [self%child(code=code, i=0), &
-               self%child(code=code, i=1), &
-               self%child(code=code, i=2), &
-               self%child(code=code, i=3), &
-               self%child(code=code, i=4), &
-               self%child(code=code, i=5), &
-               self%child(code=code, i=6), &
-               self%child(code=code, i=7)]
+   select case(self%ratio)
+   case(4_I4P)
+      children = [self%child(code=code, i=0), &
+                  self%child(code=code, i=1), &
+                  self%child(code=code, i=2), &
+                  self%child(code=code, i=3)]
+   case(8_I4P)
+      children = [self%child(code=code, i=0), &
+                  self%child(code=code, i=1), &
+                  self%child(code=code, i=2), &
+                  self%child(code=code, i=3), &
+                  self%child(code=code, i=4), &
+                  self%child(code=code, i=5), &
+                  self%child(code=code, i=6), &
+                  self%child(code=code, i=7)]
+   endselect
    endfunction children
+
+   function coordinates2D_to_morton(self, i, j, l) result(code)
+   !< Return the Morton code given ijl coordinates.
+   class(tree_object), intent(in) :: self  !< The tree.
+   integer(I4P),       intent(in) :: i     !< I coordinate.
+   integer(I4P),       intent(in) :: j     !< J coordinate.
+   integer(I4P),       intent(in) :: l     !< L coordinate.
+   integer(I8P)                   :: code  !< Morton code.
+
+   code = self%first_at_level(level=l) + morton2D(i=i, j=j)
+   endfunction coordinates2D_to_morton
+
+   function coordinates3D_to_morton(self, i, j, k, l) result(code)
+   !< Return the Morton code given ijkl coordinates.
+   class(tree_object), intent(in) :: self  !< The tree.
+   integer(I4P),       intent(in) :: i     !< I coordinate.
+   integer(I4P),       intent(in) :: j     !< J coordinate.
+   integer(I4P),       intent(in) :: k     !< K coordinate.
+   integer(I4P),       intent(in) :: l     !< L coordinate.
+   integer(I8P)                   :: code  !< Morton code.
+
+   code = self%first_at_level(level=l) + morton3D(i=i, j=j, k=k)
+   endfunction coordinates3D_to_morton
 
    elemental function finest_at_level(self, code, level) result(finest)
    !< Return the inest node code at given level, namely the last child at a given level.
@@ -2036,211 +1374,6 @@ contains
    fc_parent = parent(1)
    endfunction first_common_parent
 
-   subroutine get_neighbor(self, code, face, neighbor, neighbor_type)
-   !< Return the neighbor in a given face of given Morton code.
-   !<
-   !< We define *direct neighbor* the neighbor of given code in the given face at the same level of the given code
-   !< either if it exists or not.
-   class(tree_object), intent(in)               :: self                   !< The tree.
-   integer(I8P),       intent(in)               :: code                   !< Morton code.
-   integer(I4P),       intent(in)               :: face                   !< Face queried.
-   integer(I8P),       intent(out), allocatable :: neighbor(:)            !< Neighbors codes list, [1] or [ratio/2].
-   integer(I4P),       intent(out)              :: neighbor_type          !< Type of neighbor.
-   integer(I8P)                                 :: direct_neighbor        !< Morton code of direct neighbor.
-   integer(I8P)                                 :: direct_neighbor_parent !< Morton code of direct neighbor parent.
-   integer(I4P)                                 :: i_dn(4)                !< I coordinate of direct neighbor, or its 4 children.
-   integer(I4P)                                 :: j_dn(4)                !< J coordinate of direct neighbor, or its 4 children.
-   integer(I4P)                                 :: k_dn(4)                !< K coordinate of direct neighbor, or its 4 children.
-   integer(I4P)                                 :: l_dn                   !< L coordinate of direct neighbor.
-   integer(I4P)                                 :: i_dn_offset            !< I coordinate offset of direct neighbor l+1.
-   integer(I4P)                                 :: j_dn_offset            !< J coordinate offset of direct neighbor l+1.
-   integer(I4P)                                 :: k_dn_offset            !< K coordinate offset of direct neighbor l+1.
-
-   ! compute coordinates of code
-   call self%morton_to_coordinates(code=code, i=i_dn(1), j=j_dn(1), k=k_dn(1), l=l_dn)
-
-   ! compute coordinates of direct neighbor and check if it falls outside the ancestor, in case
-   ! it is a boundary condition node
-   select case(face)
-   case(1_I4P)
-      i_dn(1) = i_dn(1) - 1
-      if (i_dn(1) < 0) then
-         neighbor_type = NODE_BOUNDARY_CONDITION
-         return
-      endif
-   case(2_I4P)
-      i_dn(1) = i_dn(1) + 1
-      if (i_dn(1) > 2**l_dn - 1) then
-         neighbor_type = NODE_BOUNDARY_CONDITION
-         return
-      endif
-   case(3_I4P)
-      j_dn(1) = j_dn(1) - 1
-      if (j_dn(1) < 0) then
-         neighbor_type = NODE_BOUNDARY_CONDITION
-         return
-      endif
-   case(4_I4P)
-      j_dn(1) = j_dn(1) + 1
-      if (j_dn(1) > 2**l_dn - 1) then
-         neighbor_type = NODE_BOUNDARY_CONDITION
-         return
-      endif
-   case(5_I4P)
-      k_dn(1) = k_dn(1) - 1
-      if (k_dn(1) < 0) then
-         neighbor_type = NODE_BOUNDARY_CONDITION
-         return
-      endif
-   case(6_I4P)
-      k_dn(1) = k_dn(1) + 1
-      if (k_dn(1) > 2**l_dn - 1) then
-         neighbor_type = NODE_BOUNDARY_CONDITION
-         return
-      endif
-   endselect
-
-   ! compute direct neighbor code
-   select case(self%ratio)
-   case(4_I4P)
-      direct_neighbor = self%coordinates_to_morton(i=i_dn(1), j=j_dn(1), l=l_dn)
-   case(8_I4P)
-      direct_neighbor = self%coordinates_to_morton(i=i_dn(1), j=j_dn(1), k=k_dn(1), l=l_dn)
-   endselect
-
-   ! direct neighbor is not a sibling, check if it exists
-   if (self%has_code(code=direct_neighbor)) then
-      neighbor = [direct_neighbor]
-      neighbor_type = NODE_STANDARD
-      return
-   endif
-
-   ! direct neighbor does not exist, check if its parent exists
-   direct_neighbor_parent = self%parent(code=direct_neighbor)
-   if (self%has_code(code=direct_neighbor_parent)) then
-      neighbor = [direct_neighbor_parent]
-      neighbor_type = NODE_LESS_REFINED
-      return
-   endif
-
-   ! direct neighbor parent does not exist, its children must exist or 2-1 rule has been broken
-   ! using ijk coordinates at level l one can find the ijk coordinates of neighbor at level l+1
-   l_dn = l_dn + 1
-   i_dn_offset = (i_dn(1) - 1) * 2 + 1
-   j_dn_offset = (j_dn(1) - 1) * 2 + 1
-   k_dn_offset = (k_dn(1) - 1) * 2 + 1
-   select case(face)
-   case(1_I4P)
-      i_dn(1) = i_dn_offset + 2
-      j_dn(1) = j_dn_offset + 1
-      k_dn(1) = k_dn_offset + 1
-
-      i_dn(2) = i_dn_offset + 2
-      j_dn(2) = j_dn_offset + 2
-      k_dn(2) = k_dn_offset + 1
-
-      i_dn(3) = i_dn_offset + 2
-      j_dn(3) = j_dn_offset + 1
-      k_dn(3) = k_dn_offset + 2
-
-      i_dn(4) = i_dn_offset + 2
-      j_dn(4) = j_dn_offset + 2
-      k_dn(4) = k_dn_offset + 2
-   case(2_I4P)
-      i_dn(1) = i_dn_offset + 1
-      j_dn(1) = j_dn_offset + 1
-      k_dn(1) = k_dn_offset + 1
-
-      i_dn(2) = i_dn_offset + 1
-      j_dn(2) = j_dn_offset + 2
-      k_dn(2) = k_dn_offset + 1
-
-      i_dn(3) = i_dn_offset + 1
-      j_dn(3) = j_dn_offset + 1
-      k_dn(3) = k_dn_offset + 2
-
-      i_dn(4) = i_dn_offset + 1
-      j_dn(4) = j_dn_offset + 2
-      k_dn(4) = k_dn_offset + 2
-   case(3_I4P)
-      i_dn(1) = i_dn_offset + 1
-      j_dn(1) = j_dn_offset + 2
-      k_dn(1) = k_dn_offset + 1
-
-      i_dn(2) = i_dn_offset + 2
-      j_dn(2) = j_dn_offset + 2
-      k_dn(2) = k_dn_offset + 1
-
-      i_dn(3) = i_dn_offset + 1
-      j_dn(3) = j_dn_offset + 2
-      k_dn(3) = k_dn_offset + 2
-
-      i_dn(4) = i_dn_offset + 2
-      j_dn(4) = j_dn_offset + 2
-      k_dn(4) = k_dn_offset + 2
-   case(4_I4P)
-      i_dn(1) = i_dn_offset + 1
-      j_dn(1) = j_dn_offset + 1
-      k_dn(1) = k_dn_offset + 1
-
-      i_dn(2) = i_dn_offset + 2
-      j_dn(2) = j_dn_offset + 1
-      k_dn(2) = k_dn_offset + 1
-
-      i_dn(3) = i_dn_offset + 1
-      j_dn(3) = j_dn_offset + 1
-      k_dn(3) = k_dn_offset + 2
-
-      i_dn(4) = i_dn_offset + 2
-      j_dn(4) = j_dn_offset + 1
-      k_dn(4) = k_dn_offset + 2
-   case(5_I4P)
-      i_dn(1) = i_dn_offset + 1
-      j_dn(1) = j_dn_offset + 1
-      k_dn(1) = k_dn_offset + 2
-
-      i_dn(2) = i_dn_offset + 2
-      j_dn(2) = j_dn_offset + 1
-      k_dn(2) = k_dn_offset + 2
-
-      i_dn(3) = i_dn_offset + 1
-      j_dn(3) = j_dn_offset + 2
-      k_dn(3) = k_dn_offset + 2
-
-      i_dn(4) = i_dn_offset + 2
-      j_dn(4) = j_dn_offset + 2
-      k_dn(4) = k_dn_offset + 2
-   case(6_I4P)
-      i_dn(1) = i_dn_offset + 1
-      j_dn(1) = j_dn_offset + 1
-      k_dn(1) = k_dn_offset + 1
-
-      i_dn(2) = i_dn_offset + 2
-      j_dn(2) = j_dn_offset + 1
-      k_dn(2) = k_dn_offset + 1
-
-      i_dn(3) = i_dn_offset + 1
-      j_dn(3) = j_dn_offset + 2
-      k_dn(3) = k_dn_offset + 1
-
-      i_dn(4) = i_dn_offset + 2
-      j_dn(4) = j_dn_offset + 2
-      k_dn(4) = k_dn_offset + 1
-   endselect
-   select case(self%ratio)
-   case(4_I4P)
-      neighbor = [self%coordinates_to_morton(i=i_dn(1), j=j_dn(1), l=l_dn), &
-                  self%coordinates_to_morton(i=i_dn(2), j=j_dn(2), l=l_dn)]
-      neighbor_type = NODE_MORE_REFINED
-   case(8_I4P)
-      neighbor = [self%coordinates_to_morton(i=i_dn(1), j=j_dn(1), k=k_dn(1), l=l_dn), &
-                  self%coordinates_to_morton(i=i_dn(2), j=j_dn(2), k=k_dn(2), l=l_dn), &
-                  self%coordinates_to_morton(i=i_dn(3), j=j_dn(3), k=k_dn(3), l=l_dn), &
-                  self%coordinates_to_morton(i=i_dn(4), j=j_dn(4), k=k_dn(4), l=l_dn)]
-      neighbor_type = NODE_MORE_REFINED
-   endselect
-   endsubroutine get_neighbor
-
    subroutine get_neighbor_all(self, code, face, neighbor, neighbor_type, neighbor_portion, neighbor_bc_fec)
    !< Return the neighbor in a given face/edge/corner of given Morton code.
    !<
@@ -2270,7 +1403,12 @@ contains
    if (present(neighbor_portion)) neighbor_portion = 1
 
    ! compute coordinates of code
-   call self%morton_to_coordinates(code=code, i=i, j=j, k=k, l=l)
+   select case(self%ratio)
+   case(4_I4P)
+      call self%morton_to_coordinates(code=code, i=i, j=j, l=l)
+   case(8_I4P)
+      call self%morton_to_coordinates(code=code, i=i, j=j, k=k, l=l)
+   endselect
 
    ! compute coordinates of direct neighbor and check if it falls outside the ancestor, in case
    ! it is a boundary condition node
@@ -2306,7 +1444,12 @@ contains
    endif
 
    ! compute direct neighbor code
-   direct_neighbor = self%coordinates_to_morton(i=ijk(1), j=ijk(2), k=ijk(3), l=l)
+   select case(self%ratio)
+   case(4_I4P)
+      direct_neighbor = self%coordinates_to_morton(i=ijk(1), j=ijk(2), l=l)
+   case(8_I4P)
+      direct_neighbor = self%coordinates_to_morton(i=ijk(1), j=ijk(2), k=ijk(3), l=l)
+   endselect
 
    ! direct neighbor is not a sibling, check if it exists
    if (self%has_code(code=direct_neighbor)) then
@@ -2418,25 +1561,6 @@ contains
    code = self%first_at_level(level=level) + self%ratio**level - 1
    endfunction last_at_level
 
-   elemental function level(self, code)
-   !< Return the refinement level given the code.
-   class(tree_object), intent(in) :: self  !< The tree.
-   integer(I8P),       intent(in) :: code  !< Morton code.
-   integer(I4P)                   :: level !< Refinement level.
-   integer(I8P)                   :: c     !< Counter.
-
-   if (code<=-1) then
-      level = 0 ! ancestor of all has level 0
-   else
-      level = 1
-      c = code
-      do while(c>=self%ratio)
-         c = (c - self%ratio) / self%ratio
-         if (c>=0) level = level + 1
-      enddo
-   endif
-   endfunction level
-
    elemental function lower(self, lhs, rhs) result(res)
    !< Return true if code is lower than other.
    class(tree_object), intent(in) :: self !< The tree.
@@ -2446,6 +1570,57 @@ contains
 
    res = self%finest_at_level(code=lhs, level=self%max_level) < self%finest_at_level(code=rhs, level=self%max_level)
    endfunction lower
+
+   subroutine morton_to_coordinates2D(self, code, i, j, l)
+   !< Return the ijkl coordinates given Morton code.
+   class(tree_object), intent(in)  :: self     !< The tree.
+   integer(I8P),       intent(in)  :: code     !< Morton code.
+   integer(I4P),       intent(out) :: i        !< I coordinate.
+   integer(I4P),       intent(out) :: j        !< J coordinate.
+   integer(I4P),       intent(out) :: l        !< L coordinate.
+   integer(I4P)                    :: ij(2)    !< IJ local coordinates.
+   integer(I8P), allocatable       :: path_(:) !< Path from code to root.
+   integer(I4P)                    :: p        !< Counter.
+   integer(I8P)                    :: c        !< Counter.
+
+   i = 0_I4P
+   j = 0_I4P
+   l = self%level(code=code)
+   path_ = self%path(code=code)
+   do p=1, size(path_, dim=1)
+      c = path_(p)
+      call demorton2D(code=self%child_local(code=c), i=ij(1), j=ij(2))
+      i = i + ij(1) * 2**(p-1)
+      j = j + ij(2) * 2**(p-1)
+   enddo
+   endsubroutine morton_to_coordinates2D
+
+   subroutine morton_to_coordinates3D(self, code, i, j, k, l)
+   !< Return the ijkl coordinates given Morton code.
+   class(tree_object), intent(in)  :: self     !< The tree.
+   integer(I8P),       intent(in)  :: code     !< Morton code.
+   integer(I4P),       intent(out) :: i        !< I coordinate.
+   integer(I4P),       intent(out) :: j        !< J coordinate.
+   integer(I4P),       intent(out) :: k        !< K coordinate.
+   integer(I4P),       intent(out) :: l        !< L coordinate.
+   integer(I4P)                    :: ijk(3)   !< IJK local coordinates.
+   integer(I8P), allocatable       :: path_(:) !< Path from code to root.
+   integer(I4P)                    :: p        !< Counter.
+   integer(I8P)                    :: c        !< Counter.
+
+   i = 0_I4P
+   j = 0_I4P
+   k = 0_I4P
+   l = self%level(code=code)
+   path_ = self%path(code=code)
+   do p=1, size(path_, dim=1)
+      c = path_(p)
+      call demorton3D(code=self%child_local(code=c), i=ijk(1), j=ijk(2), k=ijk(3))
+      i = i + ijk(1) * 2**(p-1)
+      j = j + ijk(2) * 2**(p-1)
+      k = k + ijk(3) * 2**(p-1)
+   enddo
+   endsubroutine morton_to_coordinates3D
 
    elemental function parent(self, code)
    !< Return the parent given Morton code.
@@ -2569,7 +1744,6 @@ contains
    neighbors_str = ''
    do f=1, 6
       if (self%ratio==4_I4P.and.f>4) exit
-      ! call self%get_neighbor_all(code=code, neighbor=neighbors, face=f, neighbor_type=neighbor_type)
       neighbors        = node_ptr%neighbor(f)%codes
       neighbor_type    = node_ptr%neighbor(f)%ntype
       if (allocated(neighbors)) then
@@ -2580,7 +1754,12 @@ contains
       endif
    enddo
 
-   call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
+   select case(self%ratio)
+   case(4_I4P)
+      call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, l=l)
+   case(8_I4P)
+      call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
+   endselect
    topology = ' code: '//trim(str(code))
    if (coordinates_.or.whole_) topology = topology//' coordinates: '//trim(str([i,j,k,l],.true.))
    if (level_.or.whole_      ) topology = topology//' level: '//trim(str(self%level(code=code),.true.))
@@ -2622,7 +1801,7 @@ contains
    endif
    endfunction siblings
 
-   ! private methods
+   ! tree data
    subroutine add_node(self, code, refinement_needed, rank, block_index, update_last_block_index)
    !< Add a node pointer to the tree.
    !<
@@ -2654,29 +1833,6 @@ contains
       if (update_last_block_index_) self%last_block_index = self%last_block_index + 1
    endif
    endsubroutine add_node
-
-   function coordinates2D_to_morton(self, i, j, l) result(code)
-   !< Return the Morton code given ijl coordinates.
-   class(tree_object), intent(in) :: self  !< The tree.
-   integer(I4P),       intent(in) :: i     !< I coordinate.
-   integer(I4P),       intent(in) :: j     !< J coordinate.
-   integer(I4P),       intent(in) :: l     !< L coordinate.
-   integer(I8P)                   :: code  !< Morton code.
-
-   code = self%first_at_level(level=l) + morton2D(i=i, j=j)
-   endfunction coordinates2D_to_morton
-
-   function coordinates3D_to_morton(self, i, j, k, l) result(code)
-   !< Return the Morton code given ijkl coordinates.
-   class(tree_object), intent(in) :: self  !< The tree.
-   integer(I4P),       intent(in) :: i     !< I coordinate.
-   integer(I4P),       intent(in) :: j     !< J coordinate.
-   integer(I4P),       intent(in) :: k     !< K coordinate.
-   integer(I4P),       intent(in) :: l     !< L coordinate.
-   integer(I8P)                   :: code  !< Morton code.
-
-   code = self%first_at_level(level=l) + morton3D(i=i, j=j, k=k)
-   endfunction coordinates3D_to_morton
 
    subroutine derefine(self)
    !< Derefine nodes.
@@ -2728,57 +1884,6 @@ contains
    self%nodes_number = 0_I4P
    endsubroutine empty
 
-   subroutine morton_to_coordinates2D(self, code, i, j, l)
-   !< Return the ijkl coordinates given Morton code.
-   class(tree_object), intent(in)  :: self     !< The tree.
-   integer(I8P),       intent(in)  :: code     !< Morton code.
-   integer(I4P),       intent(out) :: i        !< I coordinate.
-   integer(I4P),       intent(out) :: j        !< J coordinate.
-   integer(I4P),       intent(out) :: l        !< L coordinate.
-   integer(I4P)                    :: ij(2)    !< IJ local coordinates.
-   integer(I8P), allocatable       :: path_(:) !< Path from code to root.
-   integer(I4P)                    :: p        !< Counter.
-   integer(I8P)                    :: c        !< Counter.
-
-   i = 0_I4P
-   j = 0_I4P
-   l = self%level(code=code)
-   path_ = self%path(code=code)
-   do p=1, size(path_, dim=1)
-      c = path_(p)
-      call demorton2D(code=self%child_local(code=c), i=ij(1), j=ij(2))
-      i = i + ij(1) * 2**(p-1)
-      j = j + ij(2) * 2**(p-1)
-   enddo
-   endsubroutine morton_to_coordinates2D
-
-   subroutine morton_to_coordinates3D(self, code, i, j, k, l)
-   !< Return the ijkl coordinates given Morton code.
-   class(tree_object), intent(in)  :: self     !< The tree.
-   integer(I8P),       intent(in)  :: code     !< Morton code.
-   integer(I4P),       intent(out) :: i        !< I coordinate.
-   integer(I4P),       intent(out) :: j        !< J coordinate.
-   integer(I4P),       intent(out) :: k        !< K coordinate.
-   integer(I4P),       intent(out) :: l        !< L coordinate.
-   integer(I4P)                    :: ijk(3)   !< IJK local coordinates.
-   integer(I8P), allocatable       :: path_(:) !< Path from code to root.
-   integer(I4P)                    :: p        !< Counter.
-   integer(I8P)                    :: c        !< Counter.
-
-   i = 0_I4P
-   j = 0_I4P
-   k = 0_I4P
-   l = self%level(code=code)
-   path_ = self%path(code=code)
-   do p=1, size(path_, dim=1)
-      c = path_(p)
-      call demorton3D(code=self%child_local(code=c), i=ijk(1), j=ijk(2), k=ijk(3))
-      i = i + ijk(1) * 2**(p-1)
-      j = j + ijk(2) * 2**(p-1)
-      k = k + ijk(3) * 2**(p-1)
-   enddo
-   endsubroutine morton_to_coordinates3D
-
    subroutine refine(self)
    !< Refine nodes.
    class(tree_object), intent(inout) :: self           !< The tree.
@@ -2824,6 +1929,21 @@ contains
    endif
    endsubroutine refine
 
+   subroutine remove_node(self, code)
+   !< Remove a node from the tree, given the code.
+   class(tree_object), intent(inout) :: self !< The tree.
+   integer(I8P),       intent(in)    :: code !< The Morton code.
+   integer(I4P)                      :: b    !< Bucket index, namely hashed key.
+
+   if (self%is_initialized_) then
+      if (self%has_code(code=code)) then
+         b = self%hash(code=code)
+         call self%bucket(b)%remove_node(code=code)
+         self%nodes_number = self%nodes_number - 1
+      endif
+   endif
+   endsubroutine remove_node
+
    subroutine sanitize(self, iterations_number)
    !< Sanitize the tree.
    class(tree_object),        intent(inout)        :: self                 !< The tree.
@@ -2854,8 +1974,6 @@ contains
       endif
    enddo min_max_check_loop
 
-   !MEMORYLEAK LEVAREallocate(self%temp_array_i8(10000))
-
    sanitize_loop : do s=1, iterations_number_
       is_sanitize_complete = .true.
 
@@ -2863,12 +1981,10 @@ contains
       self%n_my_derefine = 0
       if (allocated(self%node_to_derefine)) deallocate(self%node_to_derefine) ; allocate(self%node_to_derefine(0))
       if (allocated(codes_analyzed)) deallocate(codes_analyzed) ; allocate(codes_analyzed(0))
-      !MEMORYLEAKLEVAREif (allocated(self%codes_analyzed)) deallocate(self%codes_analyzed) ; allocate(self%codes_analyzed(0))
       derefine_loop : do while(self%loop(node_ptr=node_ptr))
          ! check if I want to be derefined and I have not been analyzed yet
          if (node_ptr%refinement_needed == TO_BE_DEREFINED) then
             if (findloc(codes_analyzed, node_ptr%code, dim=1)==0) then ! avoid to re-analyze already confirmed siblingsi to derefine
-            !MEMORYLEAKLEVAREif (findloc(self%codes_analyzed, node_ptr%code, dim=1)==0) then ! avoid to re-analyze already confirmed siblingsi to derefine
                ! check sibling for derefinement
                can_be_derefined = .true.
                code = node_ptr%code
@@ -2912,7 +2028,6 @@ contains
       refine_loop : do while(self%loop(node_ptr=node_ptr))
          new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
          face_loop : do f=1, 26
-            ! call self%get_neighbor_all(code=node_ptr%code, face=f, neighbor=neighbor, neighbor_type=neighbor_type)
             neighbor         = node_ptr%neighbor(f)%codes
             neighbor_type    = node_ptr%neighbor(f)%ntype
             if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
