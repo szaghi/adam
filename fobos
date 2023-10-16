@@ -15,8 +15,8 @@ $HDF5_cuda_22_3 = /opt/HDF5/bin/1.12.1/openmpi/3.1.5/nvidia/22.3
 $HDF5_cuda_20_7 = /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7
 $HDF5_gnu       = /opt/HDF5/bin/1.12.2/openmpi/4.1.4/gnu/11.2.0
 $HDF5_intel     = /home/grossi/Projects/ADAM/hdf5_install/1.12.2
-$ZLIB           = /opt/zlib/bin/1.2.11/lib/libz.a
-$SZIP           = /opt/szip/bin/2.1.1/lib/libsz.a
+$ZLIB           = /home/grossi/Projects/ADAM/zlib_install/1.2.11/lib/libz.a
+$SZIP           = /home/grossi/Projects/ADAM/szip_install/2.1.1/lib/libsz.a
 $GETMEMORY      = ./exe/obj/getmemory.o
 $CGAL           = ./exe/obj/cgal_c_wrappers.o
 $HDF5_cuda_23_1_leo = /leonardo/prod/spack/03/install/0.19/linux-rhel8-icelake/nvhpc-23.1/hdf5-1.12.2-6a3ddj2hipc7tm4xrdqh4ijifigxq3bq/
@@ -143,6 +143,8 @@ libs     = $HDF5_intel/lib/libhdf5hl_fortran.a
            $HDF5_intel/lib/libhdf5_hl.a
            $HDF5_intel/lib/libhdf5_fortran.a
            $HDF5_intel/lib/libhdf5.a
+           $ZLIB
+           $SZIP
            $GETMEMORY
 
 [nasto-gmp-mpi-ifx-debug]
@@ -154,7 +156,7 @@ compiler = intel_nextgen
 mpi      = True
 openmp   = True
 openmp_offload = True
-cflags   = -C -g -O0
+cflags   = -c -g -O0
 lflags   = -O0
 ext_libs = dl m
 lib_dir  = $HDF5_intel/lib
@@ -163,6 +165,8 @@ libs     = $HDF5_intel/lib/libhdf5hl_fortran.a
            $HDF5_intel/lib/libhdf5_hl.a
            $HDF5_intel/lib/libhdf5_fortran.a
            $HDF5_intel/lib/libhdf5.a
+           $ZLIB
+           $SZIP
            $GETMEMORY
 
 [adam-gmp-mpi-ifx]
