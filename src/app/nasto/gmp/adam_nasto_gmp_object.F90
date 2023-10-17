@@ -172,11 +172,8 @@ contains
    !< Copy data from CPU to GPU.
    class(nasto_gmp_object), intent(inout) :: self !< The equation.
 
-   print *, 'ASSOC FUORI', associated(self%q_gpu)
    call self%base_gpu%copy_transpose_cpu_gpu(nv=self%nv, q_cpu=self%field%q, q_gpu=self%q_gpu)
-   print *, 'TRASPOSTA'
    call self%base_gpu%copy_cpu_gpu(verbose=.false.)
-   print *, 'COPIA'
    endsubroutine copy_cpu_gpu
 
    subroutine copy_gpu_cpu(self, compute_copy_q_aux, copy_phi)
