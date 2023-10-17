@@ -18,8 +18,8 @@ modes = nasto-nvf-mpi-cuda
 $HDF5_cuda_22_3 = /opt/HDF5/bin/1.12.1/openmpi/3.1.5/nvidia/22.3
 $HDF5_cuda_20_7 = /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7
 $HDF5_gnu       = /opt/HDF5/bin/1.12.2/openmpi/4.1.4/gnu/11.2.0
-$ZLIB           = /opt/zlib/bin/1.2.11/lib/libz.a
-$SZIP           = /opt/szip/bin/2.1.1/lib/libsz.a
+$ZLIB_sz        = /opt/zlib/bin/1.2.11/lib/libz.a
+$SZIP_sz        = /opt/szip/bin/2.1.1/lib/libsz.a
 $HDF5_intel_fl  = /home/grossi/Projects/ADAM/hdf5_install/1.12.2
 $ZLIB_intel_fl  = /home/grossi/Projects/ADAM/zlib_install/1.2.11/lib/libz.a
 $SZIP_intel_fl  = /home/grossi/Projects/ADAM/szip_install/2.1.1/lib/libsz.a
@@ -46,8 +46,8 @@ libs     = $HDF5_cuda_22_3/lib/libhdf5hl_fortran.a
            $HDF5_cuda_22_3/lib/libhdf5_fortran.a
            $HDF5_cuda_22_3/lib/libhdf5.a
            -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/11 /usr/lib/gcc/x86_64-linux-gnu/11/libstdc++.so
-           $ZLIB
-           $SZIP
+           $ZLIB_sz
+           $SZIP_sz
            $GETMEMORY
            $CGAL
 
@@ -66,8 +66,8 @@ libs     = $HDF5_cuda_22_3/lib/libhdf5hl_fortran.a
            $HDF5_cuda_22_3/lib/libhdf5_fortran.a
            $HDF5_cuda_22_3/lib/libhdf5.a
            -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/11 /usr/lib/gcc/x86_64-linux-gnu/11/libstdc++.so
-           $ZLIB
-           $SZIP
+           $ZLIB_sz
+           $SZIP_sz
            $GETMEMORY
            $CGAL
 
@@ -110,8 +110,8 @@ libs     = $HDF5_gnu/lib/libhdf5hl_fortran.a
            $HDF5_gnu/lib/libhdf5_hl.a
            $HDF5_gnu/lib/libhdf5_fortran.a
            $HDF5_gnu/lib/libhdf5.a
-           $ZLIB
-           $SZIP
+           $ZLIB_sz
+           $SZIP_sz
            $GETMEMORY
 
 [nasto-cpu-mpi-gnu-debug]
@@ -130,8 +130,8 @@ libs     = $HDF5_gnu/lib/libhdf5hl_fortran.a
            $HDF5_gnu/lib/libhdf5_hl.a
            $HDF5_gnu/lib/libhdf5_fortran.a
            $HDF5_gnu/lib/libhdf5.a
-           $ZLIB
-           $SZIP
+           $ZLIB_sz
+           $SZIP_sz
            $GETMEMORY
 
 [nasto-gmp-mpi-ifx-fl]
@@ -209,7 +209,7 @@ compiler = intel_nextgen
 mpi      = True
 openmp   = True
 openmp_offload = True
-cflags   = -C -g -O0
+cflags   = -c -g -O0
 lflags   = -O0
 ext_libs = dl m
 lib_dir  = $HDF5_intel_fl/lib
@@ -297,7 +297,7 @@ compiler = intel_nextgen
 mpi      = True
 openmp   = True
 openmp_offload = True
-cflags   = -C -g -O0
+cflags   = -c -g -O0
 lflags   = -O0
 ext_libs = dl m
 lib_dir  = $HDF5_intel_or/lib
