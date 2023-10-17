@@ -8,7 +8,7 @@ module adam_gmp_utils
   implicit none
 
   private
-  public :: omp_target_alloc_f, omp_target_free_f, omp_target_is_present_f, omp_target_memcpy_f
+  public :: omp_target_alloc_f, omp_target_free_f, omp_target_memcpy_f
 
   interface omp_target_alloc_f
     module procedure omp_target_alloc_R8P_1D, &
@@ -31,17 +31,6 @@ module adam_gmp_utils
                      omp_target_free_I8P_2D, &
                      omp_target_free_I8P_3D
   endinterface omp_target_free_f
-
-  interface omp_target_is_present_f
-    module procedure omp_target_is_present_R8P_1D, &
-                     omp_target_is_present_R8P_2D, &
-                     omp_target_is_present_R8P_5D, &
-                     omp_target_is_present_I4P_1D, &
-                     omp_target_is_present_I4P_5D, &
-                     omp_target_is_present_I8P_1D, &
-                     omp_target_is_present_I8P_2D, &
-                     omp_target_is_present_I8P_3D
-  endinterface omp_target_is_present_f
 
   interface omp_target_memcpy_f
     module procedure omp_target_memcpy_R8P, &
@@ -288,7 +277,7 @@ contains
     integer(I4P) :: init_value_
 !
     if (present(lbounds)) then
-      sizes = ubounds(1) - lbounds(1) + 1
+      sizes = ubounds - lbounds + 1
       cptr_dev = omp_target_alloc(int(product(sizes) * byte_size(1_I4P), c_size_t), int(omp_dev, c_int))
       if (c_associated(cptr_dev)) then
         call c_f_pointer(cptr_dev, fptr, shape=[sizes])
@@ -577,102 +566,6 @@ contains
 
     nullify(fptr_dev)
   endsubroutine omp_target_free_I8P_3D
-
-  function omp_target_is_present_R8P_1D(fptr_dev, omp_dev)
-     logical                         :: omp_target_is_present_R8P_1D
-     real(R8P), pointer, intent(in)  :: fptr_dev(:)
-     integer(I4P), intent(in)        :: omp_dev
-
-     if (omp_target_is_present(c_loc(fptr_dev), int(omp_dev,c_int))/=0) then
-        omp_target_is_present_R8P_1D = .true.
-     else
-        omp_target_is_present_R8P_1D = .false.
-     endif
-  endfunction omp_target_is_present_R8P_1D
-
-  function omp_target_is_present_R8P_2D(fptr_dev, omp_dev)
-     logical                         :: omp_target_is_present_R8P_2D
-     real(R8P), pointer, intent(in)  :: fptr_dev(:,:)
-     integer(I4P), intent(in)        :: omp_dev
-
-     if (omp_target_is_present(c_loc(fptr_dev), int(omp_dev,c_int))/=0) then
-        omp_target_is_present_R8P_2D = .true.
-     else
-        omp_target_is_present_R8P_2D = .false.
-     endif
-  endfunction omp_target_is_present_R8P_2D
-
-  function omp_target_is_present_R8P_5D(fptr_dev, omp_dev)
-     logical                         :: omp_target_is_present_R8P_5D
-     real(R8P), pointer, intent(in)  :: fptr_dev(:,:,:,:,:)
-     integer(I4P), intent(in)        :: omp_dev
-
-     if (omp_target_is_present(c_loc(fptr_dev), int(omp_dev,c_int))/=0) then
-        omp_target_is_present_R8P_5D = .true.
-     else
-        omp_target_is_present_R8P_5D = .false.
-     endif
-  endfunction omp_target_is_present_R8P_5D
-
-  function omp_target_is_present_I4P_1D(fptr_dev, omp_dev)
-     logical                            :: omp_target_is_present_I4P_1D
-     integer(I4P), pointer, intent(in)  :: fptr_dev(:)
-     integer(I4P), intent(in)           :: omp_dev
-
-     if (omp_target_is_present(c_loc(fptr_dev), int(omp_dev,c_int))/=0) then
-        omp_target_is_present_I4P_1D = .true.
-     else
-        omp_target_is_present_I4P_1D = .false.
-     endif
-  endfunction omp_target_is_present_I4P_1D
-
-  function omp_target_is_present_I4P_5D(fptr_dev, omp_dev)
-     logical                            :: omp_target_is_present_I4P_5D
-     integer(I4P), pointer, intent(in)  :: fptr_dev(:,:,:,:,:)
-     integer(I4P), intent(in)           :: omp_dev
-
-     if (omp_target_is_present(c_loc(fptr_dev), int(omp_dev,c_int))/=0) then
-        omp_target_is_present_I4P_5D = .true.
-     else
-        omp_target_is_present_I4P_5D = .false.
-     endif
-  endfunction omp_target_is_present_I4P_5D
-
-  function omp_target_is_present_I8P_1D(fptr_dev, omp_dev)
-     logical                            :: omp_target_is_present_I8P_1D
-     integer(I8P), pointer, intent(in)  :: fptr_dev(:)
-     integer(I4P), intent(in)           :: omp_dev
-
-     if (omp_target_is_present(c_loc(fptr_dev), int(omp_dev,c_int))/=0) then
-        omp_target_is_present_I8P_1D = .true.
-     else
-        omp_target_is_present_I8P_1D = .false.
-     endif
-  endfunction omp_target_is_present_I8P_1D
-
-  function omp_target_is_present_I8P_2D(fptr_dev, omp_dev)
-     logical                            :: omp_target_is_present_I8P_2D
-     integer(I8P), pointer, intent(in)  :: fptr_dev(:,:)
-     integer(I4P), intent(in)           :: omp_dev
-
-     if (omp_target_is_present(c_loc(fptr_dev), int(omp_dev,c_int))/=0) then
-        omp_target_is_present_I8P_2D = .true.
-     else
-        omp_target_is_present_I8P_2D = .false.
-     endif
-  endfunction omp_target_is_present_I8P_2D
-
-  function omp_target_is_present_I8P_3D(fptr_dev, omp_dev)
-     logical                            :: omp_target_is_present_I8P_3D
-     integer(I8P), pointer, intent(in)  :: fptr_dev(:,:,:)
-     integer(I4P), intent(in)           :: omp_dev
-
-     if (omp_target_is_present(c_loc(fptr_dev), int(omp_dev,c_int))/=0) then
-        omp_target_is_present_I8P_3D = .true.
-     else
-        omp_target_is_present_I8P_3D = .false.
-     endif
-  endfunction omp_target_is_present_I8P_3D
 
   function omp_target_memcpy_R8P(fptr_dst, fptr_src, dst_off, src_off, omp_dst_dev, omp_src_dev)
     integer(I4P) :: omp_target_memcpy_R8P
