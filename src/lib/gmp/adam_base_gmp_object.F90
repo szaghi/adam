@@ -138,13 +138,14 @@ contains
                                                   1-self%field%grid%ngc:,&
                                                   1-self%field%grid%ngc:,&
                                                   1:)     !< Conservative variables on CPU.
-   real(R8P),              intent(out)   :: q_gpu(1:,                    &
-                                                  1-self%field%grid%ngc:,&
-                                                  1-self%field%grid%ngc:,&
-                                                  1-self%field%grid%ngc:,&
-                                                  1:) !< Conservative variables on GPU.
+   real(R8P),              intent(out)   :: q_gpu(1:self%field%nb,                                             &
+                                                  1-self%field%grid%ngc:self%field%grid%ni+self%field%grid%ngc,&
+                                                  1-self%field%grid%ngc:self%field%grid%nj+self%field%grid%ngc,&
+                                                  1-self%field%grid%ngc:self%field%grid%nk+self%field%grid%ngc,&
+                                                  1:nv) !< Conservative variables on GPU.
    integer(I4P)                          :: i, j, k, b, v !< Counter.
    integer(I4P)                          :: error         !< Memcpy output.
+   real(R8P), pointer                    :: q_t_dummy(:,:,:,:,:)
 
    associate(blocks_number=>self%field%blocks_number, &
              ni=>self%field%grid%ni,                  &
@@ -152,18 +153,20 @@ contains
              nk=>self%field%grid%nk,                  &
              ngc=>self%field%grid%ngc,                &
              q_t=>self%q_t)
+      q_t_dummy => q_t(:,:,:,:,1:nv)
       do b=1, blocks_number
          do k=1-ngc, nk+ngc
             do j=1-ngc, nj+ngc
                do i=1-ngc, ni+ngc
                   do v=1, nv
-                     q_t(b,i,j,k,v) = q_cpu(v,i,j,k,b)
+                     q_t_dummy(b,i,j,k,v) = q_cpu(v,i,j,k,b)
                   enddo
                enddo
             enddo
          enddo
       enddo
-      error = omp_target_memcpy_f(fptr_dst=q_gpu, fptr_src=q_t, dst_off=0_I4P, src_off=0_I4P, &
+
+      error = omp_target_memcpy_f(fptr_dst=q_gpu, fptr_src=q_t_dummy, dst_off=0_I4P, src_off=0_I4P, &
                                   omp_dst_dev=self%mydev, omp_src_dev=self%myhos)
       if (error/=0) call self%mpih%abort(error_code=20,msg='Error in copy_transpose_cpu_gpu while copying q_t on q_gpu')
    endassociate
@@ -174,11 +177,11 @@ contains
    !< This routine is called by equation typically passing either q_gpu or q_aux_gpu.
    class(base_gmp_object), intent(inout) :: self      !< The equation.
    integer(I4P),           intent(in)    :: nv        !< Number of varibales.
-   real(R8P),              intent(in)    :: q_gpu(1:,                    &
-                                                  1-self%field%grid%ngc:,&
-                                                  1-self%field%grid%ngc:,&
-                                                  1-self%field%grid%ngc:,&
-                                                  1:) !< Conservative variables on GPU.
+   real(R8P),              intent(in)    :: q_gpu(1:self%field%nb,                                             &
+                                                  1-self%field%grid%ngc:self%field%grid%ni+self%field%grid%ngc,&
+                                                  1-self%field%grid%ngc:self%field%grid%nj+self%field%grid%ngc,&
+                                                  1-self%field%grid%ngc:self%field%grid%nk+self%field%grid%ngc,&
+                                                  1:nv) !< Conservative variables on GPU.
    real(R8P),              intent(out)   :: q_cpu(1:,                    &
                                                   1-self%field%grid%ngc:,&
                                                   1-self%field%grid%ngc:,&
