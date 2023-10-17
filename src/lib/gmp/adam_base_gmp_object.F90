@@ -78,51 +78,51 @@ contains
    call assign_allocatable_gpu(lhs=      self%local_map_ghost_gpu, &
                                rhs=self%field%local_map_ghost,     &
                                omp_dev=self%mydev,                 &
-                               msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(local_map_ghost_gpu) ', verbose=verbose)
+                               varname=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(local_map_ghost_gpu) ', verbose=verbose)
    call assign_allocatable_gpu(lhs=      self%comm_map_recv_ghost_gpu, &
                                rhs=self%field%comm_map_recv_ghost,     &
                                omp_dev=self%mydev,                     &
-                               msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(comm_map_recv_ghost_gpu) ', verbose=verbose)
+                               varname=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(comm_map_recv_ghost_gpu) ', verbose=verbose)
    call assign_allocatable_gpu(lhs=      self%comm_map_send_ghost_gpu, &
                                rhs=self%field%comm_map_send_ghost,     &
                                omp_dev=self%mydev,                     &
-                               msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(comm_map_send_ghost_gpu) ', verbose=verbose)
+                               varname=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(comm_map_send_ghost_gpu) ', verbose=verbose)
    call assign_allocatable_gpu(lhs=      self%send_buffer_ghost_gpu, &
                                rhs=self%field%send_buffer_ghost,     &
                                omp_dev=self%mydev,                   &
-                               msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(send_buffer_ghost_gpu) ', verbose=verbose)
+                               varname=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(send_buffer_ghost_gpu) ', verbose=verbose)
    call assign_allocatable_gpu(lhs=      self%recv_buffer_ghost_gpu, &
                                rhs=self%field%recv_buffer_ghost,     &
                                omp_dev=self%mydev,                   &
-                               msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(recv_buffer_ghost_gpu) ', verbose=verbose)
+                               varname=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(recv_buffer_ghost_gpu) ', verbose=verbose)
    call assign_allocatable_gpu(lhs=      self%local_map_bc_face_gpu, &
                                rhs=self%field%local_map_bc_face,     &
                                omp_dev=self%mydev,                   &
-                               msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(local_map_bc_face_gpu) ', verbose=verbose)
+                               varname=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(local_map_bc_face_gpu) ', verbose=verbose)
    call assign_allocatable_gpu(lhs=      self%local_map_bc_corner_gpu, &
                                rhs=self%field%local_map_bc_corner,     &
                                omp_dev=self%mydev,                     &
-                               msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(local_map_bc_corner_gpu) ', verbose=verbose)
+                               varname=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(local_map_bc_corner_gpu) ', verbose=verbose)
    call assign_allocatable_gpu(lhs=      self%local_map_bc_edge_gpu, &
                                rhs=self%field%local_map_bc_edge,     &
                                omp_dev=self%mydev,                   &
-                               msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(local_map_bc_edge_gpu) ', verbose=verbose)
+                               varname=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(local_map_bc_edge_gpu) ', verbose=verbose)
    call assign_allocatable_gpu(lhs=      self%x_cell_gpu, &
                                rhs=self%field%x_cell,     &
                                omp_dev=self%mydev,        &
-                               transposed=.true., msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(x_cell_gpu) ', verbose=verbose)
+                               transposed=.true., varname=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(x_cell_gpu) ', verbose=verbose)
    call assign_allocatable_gpu(lhs=      self%y_cell_gpu, &
                                rhs=self%field%y_cell,     &
                                omp_dev=self%mydev,        &
-                               transposed=.true., msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(y_cell_gpu) ', verbose=verbose)
+                               transposed=.true., varname=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(y_cell_gpu) ', verbose=verbose)
    call assign_allocatable_gpu(lhs=      self%z_cell_gpu, &
                                rhs=self%field%z_cell,     &
                                omp_dev=self%mydev,        &
-                               transposed=.true., msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(z_cell_gpu) ', verbose=verbose)
+                               transposed=.true., varname=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(z_cell_gpu) ', verbose=verbose)
    call assign_allocatable_gpu(lhs=      self%dxyz_gpu, &
                                rhs=self%field%dxyz,     &
                                omp_dev=self%mydev,      &
-                               transposed=.true., msg=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(dxyz_gpu) ', verbose=verbose)
+                               transposed=.true., varname=self%mpih%myrankstr//'base_gpu%copy_cpu_gpu(dxyz_gpu) ', verbose=verbose)
    call self%create_maps_cell(verbose=verbose)
    call self%create_maps_fluxes_cell(verbose=verbose)
    if (verbose_) print '(A)', self%mpih%myrankstr//'base_gpu%copy_cpu_gpu finish'
@@ -142,7 +142,7 @@ contains
                                                   1-self%field%grid%ngc:,&
                                                   1-self%field%grid%ngc:,&
                                                   1-self%field%grid%ngc:,&
-                                                  1:)     !< Conservative variables on GPU.
+                                                  1:) !< Conservative variables on GPU.
    integer(I4P)                          :: i, j, k, b, v !< Counter.
    integer(I4P)                          :: error         !< Memcpy output.
 
@@ -165,6 +165,7 @@ contains
       enddo
       error = omp_target_memcpy_f(fptr_dst=q_gpu, fptr_src=q_t, dst_off=0_I4P, src_off=0_I4P, &
                                   omp_dst_dev=self%mydev, omp_src_dev=self%myhos)
+      if (error/=0) call self%mpih%abort(error_code=20,msg='Error in copy_transpose_cpu_gpu while copying q_t on q_gpu')
    endassociate
    endsubroutine copy_transpose_cpu_gpu
 
@@ -228,9 +229,7 @@ contains
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) print '(A)', self%mpih%myrankstr//'base_gpu%create_maps_cell start'
 
-   if (omp_target_is_present_f(self%local_map_ghost_cell_gpu,self%mydev)) then
-      call omp_target_free_f(self%local_map_ghost_cell_gpu,self%mydev)
-   endif
+   if (associated(self%local_map_ghost_cell_gpu)) call omp_target_free_f(self%local_map_ghost_cell_gpu,self%mydev)
    if (allocated(self%field%local_map_ghost)) then
       c = 0
       do f=1, size(self%field%local_map_ghost, dim=1)
@@ -330,13 +329,11 @@ contains
       call assign_allocatable_gpu(lhs=self%local_map_ghost_cell_gpu, &
                                   rhs=     local_map_ghost_cell,     &
                                   omp_dev=self%mydev,                &
-                                  msg=self%mpih%myrankstr//'base_gpu%create_maps_cell(local_map_ghost_cell_gpu) ', verbose=verbose)
+                                  varname=self%mpih%myrankstr//'base_gpu%create_maps_cell(local_map_ghost_cell_gpu) ', verbose=verbose)
       deallocate(local_map_ghost_cell)
    endif
 
-   if (omp_target_is_present_f(self%comm_map_send_ghost_cell_gpu,self%mydev)) then
-      call omp_target_free_f(self%comm_map_send_ghost_cell_gpu,self%mydev)
-   endif
+   if (associated(self%comm_map_send_ghost_cell_gpu)) call omp_target_free_f(self%comm_map_send_ghost_cell_gpu,self%mydev)
    if (allocated(self%field%comm_map_send_ghost)) then
       c = 0
       do f=1, size(self%field%comm_map_send_ghost, dim=1)
@@ -447,14 +444,12 @@ contains
       call assign_allocatable_gpu(lhs=self%comm_map_send_ghost_cell_gpu,                                               &
                                   rhs=     comm_map_send_ghost_cell,                                                   &
                                   omp_dev=self%mydev,                                                                  &
-                                  msg=self%mpih%myrankstr//'base_gpu%create_maps_cell(comm_map_send_ghost_cell_gpu) ', &
+                                  varname=self%mpih%myrankstr//'base_gpu%create_maps_cell(comm_map_send_ghost_cell_gpu) ', &
                                   verbose=verbose)
       deallocate(comm_map_send_ghost_cell)
    endif
 
-   if (omp_target_is_present_f(self%comm_map_recv_ghost_cell_gpu,self%mydev)) then
-      call omp_target_free_f(self%comm_map_recv_ghost_cell_gpu,self%mydev)
-   endif
+   if (associated(self%comm_map_recv_ghost_cell_gpu)) call omp_target_free_f(self%comm_map_recv_ghost_cell_gpu,self%mydev)
    if (allocated(self%field%comm_map_recv_ghost)) then
       c = 0
       do f=1, size(self%field%comm_map_recv_ghost, dim=1)
@@ -543,14 +538,12 @@ contains
       call assign_allocatable_gpu(lhs=self%comm_map_recv_ghost_cell_gpu,                                               &
                                   rhs=     comm_map_recv_ghost_cell,                                                   &
                                   omp_dev=self%mydev,                                                                  &
-                                  msg=self%mpih%myrankstr//'base_gpu%create_maps_cell(comm_map_recv_ghost_cell_gpu) ', &
+                                  varname=self%mpih%myrankstr//'base_gpu%create_maps_cell(comm_map_recv_ghost_cell_gpu) ', &
                                   verbose=verbose)
       deallocate(comm_map_recv_ghost_cell)
    endif
 
-   if (omp_target_is_present_f(self%local_map_bc_crown_gpu,self%mydev)) then
-      call omp_target_free_f(self%local_map_bc_crown_gpu,self%mydev)
-   endif
+   if (associated(self%local_map_bc_crown_gpu)) call omp_target_free_f(self%local_map_bc_crown_gpu,self%mydev)
    if (allocated(self%field%local_map_bc_face  ).or.&
        allocated(self%field%local_map_bc_edge  ).or.&
        allocated(self%field%local_map_bc_corner)) then
@@ -569,7 +562,7 @@ contains
       call assign_allocatable_gpu(lhs=self%local_map_bc_crown_gpu, &
                                   rhs=     local_map_bc_crown,     &
                                   omp_dev=self%mydev,              &
-                                  msg=self%mpih%myrankstr//'base_gpu%create_maps_cell(local_map_bc_crown_gpu) ', verbose=verbose)
+                                  varname=self%mpih%myrankstr//'base_gpu%create_maps_cell(local_map_bc_crown_gpu) ', verbose=verbose)
       deallocate(local_map_bc_crown)
    endif
 
@@ -689,9 +682,7 @@ contains
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) print '(A)', self%mpih%myrankstr//'base_gpu%create_maps_fluxes_cell start'
 
-   if (omp_target_is_present_f(self%local_map_ghost_fluxes_cell_gpu,self%mydev)) then
-      call omp_target_free_f(self%local_map_ghost_fluxes_cell_gpu,self%mydev)
-   endif
+   if (associated(self%local_map_ghost_fluxes_cell_gpu)) call omp_target_free_f(self%local_map_ghost_fluxes_cell_gpu,self%mydev)
    if (allocated(self%field%local_map_ghost)) then
       c = 0
       do f=1, size(self%field%local_map_ghost, dim=1)
@@ -765,7 +756,7 @@ contains
          call assign_allocatable_gpu(lhs=self%local_map_ghost_fluxes_cell_gpu,                                                     &
                                      rhs=     local_map_ghost_fluxes_cell,                                                         &
                                      omp_dev=self%mydev,                                                                           &
-                                     msg=self%mpih%myrankstr//'base_gpu%create_maps_fluxes_cell(local_map_ghost_fluxes_cell_gpu) ',&
+                                     varname=self%mpih%myrankstr//'base_gpu%create_maps_fluxes_cell(local_map_ghost_fluxes_cell_gpu) ',&
                                      verbose=verbose)
          deallocate(local_map_ghost_fluxes_cell)
       endif
@@ -796,7 +787,7 @@ contains
    call assign_allocatable_gpu(lhs=self%fec_1_6_array_gpu, &
                                rhs=     fec_1_6_array,     &
                                omp_dev=self%mydev,         &
-                               msg=self%mpih%myrankstr//'base_gpu%initialize(fec_1_6_array_gpu)', verbose=verbose)
+                               varname=self%mpih%myrankstr//'base_gpu%initialize(fec_1_6_array_gpu)', verbose=verbose)
    nv_aux_ = self%field%nv
    if (present(nv_aux)) nv_aux_ = max(nv_aux_, nv_aux)
    ! allocate buffers for copy-transposes performed by equation
@@ -822,6 +813,7 @@ contains
                                                           1-field%grid%ngc,            &
                                                           1],                          &
                            omp_dev=self%mydev,ierr=self%ierr)
+   if (self%ierr/=0) call self%mpih%abort(error_code=10, msg='Error allocation q_t_gpu')
    ! copy CPU-to-GPU of base_gpu variables (maps and cells, not q_gpu)
    call self%copy_cpu_gpu
    deallocate(fec_1_6_array)
@@ -1002,7 +994,7 @@ contains
    integer(I4P)                         :: one_or_eight                  !< Flag triggering 8 cells mean.
    integer(I4P)                         :: error                         !< Error traping flag.
 
-   if (.not. omp_target_is_present_f(local_map_ghost_cell_gpu,omp_dev)) return
+   if (.not. associated(local_map_ghost_cell_gpu)) return
    !$omp target teams distribute parallel do collapse(2) has_device_addr(q_gpu,local_map_ghost_cell_gpu)
    do v=1, size(q_gpu, dim=5)
       do mf=1, size(local_map_ghost_cell_gpu, dim=1)
@@ -1060,7 +1052,7 @@ contains
    integer(I4P)                        :: error                                !< Error traping flag.
    integer(I4P)                        :: fec                                  !< Ghost type.
 
-   if (.not. omp_target_is_present_f(local_map_ghost_fluxes_cell_gpu,omp_dev)) return
+   if (.not. associated(local_map_ghost_fluxes_cell_gpu)) return
    !$omp target teams distribute parallel do collapse(2) has_device_addr(flx_gpu,fly_gpu,flz_gpu,local_map_ghost_fluxes_cell_gpu)
    do v=1, size(flx_gpu, dim=5)
       do mf=1, size(local_map_ghost_fluxes_cell_gpu, dim=1)
@@ -1150,7 +1142,7 @@ contains
       req_send_recv = MPI_REQUEST_NULL
 
       ! populate send buffer
-      if (omp_target_is_present_f(comm_map_send_ghost_cell_gpu,omp_dev)) then
+      if (associated(comm_map_send_ghost_cell_gpu)) then
          !$omp target teams distribute parallel do has_device_addr(q_gpu,comm_map_send_ghost_cell_gpu,send_buffer_ghost_gpu)
          do sf=1, size(comm_map_send_ghost_cell_gpu, dim=1)
             b_send       = comm_map_send_ghost_cell_gpu(sf,1)
@@ -1208,7 +1200,7 @@ contains
       call MPI_Barrier(MPI_COMM_WORLD, error)
       !RIMETTERE SENZA
 
-      if (omp_target_is_present_f(comm_map_recv_ghost_cell_gpu,omp_dev)) then
+      if (associated(comm_map_recv_ghost_cell_gpu)) then
          ! retrive from receive buffer
          !$omp target teams distribute parallel do has_device_addr(q_gpu,comm_map_recv_ghost_cell_gpu,recv_buffer_ghost_gpu)
          do rf=1, size(comm_map_recv_ghost_cell_gpu, dim=1)
