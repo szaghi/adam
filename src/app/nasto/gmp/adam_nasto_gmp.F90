@@ -1,6 +1,6 @@
-!< ADAM, Navier-Stokes application solver, GPU-OpenMP (GMP) backend.
+!< ADAM, Navier-Stokes application solver, GPU (GMP) backend.
 program adam_nasto_gmp
-!< ADAM, Navier-Stokes application solver, GPU-OpenMP (GMP) backend.
+!< ADAM, Navier-Stokes application solver, GPU (GMP) backend.
 
 use adam_nasto_gmp_object, only : nasto_gmp_object
 
