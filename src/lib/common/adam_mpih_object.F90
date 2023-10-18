@@ -1,8 +1,8 @@
-!< ADAM, MPI handler object.
+!< ADAM, MPI handler class definition.
 module adam_mpih_object
-!< ADAM, MPI handler object.
+!< ADAM, MPI handler class definition.
 
-use adam_memory_lib
+use adam_memory_library
 use penf
 use mpi
 use, intrinsic :: iso_c_binding, only : C_LONG
@@ -14,6 +14,7 @@ private
 public :: mpih_object
 
 type :: mpih_object
+   !< MPI handler class.
    integer(I4P)              :: myrank=0_I4P        !< MPI rank process.
    character(:), allocatable :: myrankstr           !< MPI rank process stringified.
    integer(I4P)              :: procs_number=1_I4P  !< Number of MPI processes.
@@ -21,6 +22,7 @@ type :: mpih_object
    integer(I4P)              :: error=0_I4P         !< Error traping flag.
    real(R8P)                 :: timing(1:2)         !< Tic toc timing.
    integer(I4P)              :: tictoc=1_I4P        !< Next is tic or toc?
+   integer(I4P), allocatable :: req_send_recv(:)    !< MPI request receive flags.
    contains
       ! public methods
       procedure, pass(self) :: abort         !< Handy MPI abort wrapper.
@@ -94,10 +96,11 @@ contains
    call MPI_FINALIZE(self%error)
    endsubroutine finalize
 
-   subroutine initialize(self, do_mpi_init)
+   subroutine initialize(self, do_mpi_init, do_device_init)
    !< Initialize MPI handler data.
    class(mpih_object) , intent(inout)        :: self                !< MPI handler.
    logical,             intent(in), optional :: do_mpi_init         !< Flag to activate MPI init call.
+   logical,             intent(in), optional :: do_device_init      !< Flag to activate device init call (used by backends).
    integer(C_LONG)                           :: mem_free, mem_total !< CPU memory.
 
    if (present(do_mpi_init)) then
@@ -106,8 +109,11 @@ contains
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
    self%myrankstr = '[myrank-'//trim(strz(self%myrank,6))//']'
+   call self%print_message('mpih_object%initialize start')
    call cpuMemGetInfo(mem_total, mem_free)
    self%memory_avail = real(mem_total, R8P)/1e9/self%procs_number
+   if (allocated(self%req_send_recv)) deallocate(self%req_send_recv) ; allocate(self%req_send_recv(0:self%procs_number*2-1))
+   call self%print_message('mpih_object%initialize finish')
    endsubroutine initialize
 
    subroutine print_message(self, msg)

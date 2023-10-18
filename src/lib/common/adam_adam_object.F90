@@ -2,14 +2,14 @@
 module adam_adam_object
 !< ADAM, ADAM class definition.
 
-use adam_field_object, only : field_object
-use adam_grid_object, only : grid_object
-use adam_maps_object, only : maps_object
-use adam_mpih_object, only : mpih_object
+use adam_field_object
+use adam_grid_object
+use adam_maps_object
+use adam_mpih_object
 use adam_parameters
-use adam_tree_node_object, only : tree_node_object
-use adam_tree_bucket_object, only : tree_bucket_object
-use adam_tree_object, only : tree_object
+use adam_tree_node_object
+use adam_tree_bucket_object
+use adam_tree_object
 use finer, only : file_ini
 use penf
 use stringifor
@@ -65,8 +65,7 @@ contains
                          block_to_derefine=self%tree%block_to_derefine, block_derefined=self%tree%block_derefined)
    endsubroutine adapt
 
-   subroutine amr_update(self, is_marked_by_field, is_marked_by_tree, do_mpi_redistribute, do_blocks_reorder, &
-                         print_mpi_stats, is_grid_changed)
+   subroutine amr_update(self, is_marked_by_field, is_marked_by_tree, do_mpi_redistribute, do_blocks_reorder, is_grid_changed)
    !< Update AMR status.
    !<
    !< Note: AMR update can be safely called only *after* update_ghost has been called for *q* variables, otherwise
@@ -78,7 +77,6 @@ contains
    logical,            intent(in),  optional :: is_marked_by_tree    !< Flag to check if marker is tree.
    logical,            intent(in),  optional :: do_mpi_redistribute  !< Flag to activate MPI redistribute.
    logical,            intent(in),  optional :: do_blocks_reorder    !< Flag to activate blocks reorder.
-   logical,            intent(in),  optional :: print_mpi_stats      !< Flag to activate MPI statistics print.
    logical,            intent(out), optional :: is_grid_changed      !< Flag to check if grid is changed.
    logical                                   :: do_mpi_redistribute_ !< Flag to activate MPI redistribute, local var.
    logical                                   :: do_blocks_reorder_   !< Flag to activate blocks reorder, local var.
@@ -94,7 +92,7 @@ contains
    if (present(is_grid_changed)) is_grid_changed = (size(self%tree%node_to_refine,   dim=1)>0_I4P).or.&
                                                    (size(self%tree%node_to_derefine, dim=1)>0_I4P)
 
-   if (do_mpi_redistribute_) call self%mpi_redistribute(print_mpi_stats=print_mpi_stats)
+   if (do_mpi_redistribute_) call self%mpi_redistribute
 
    if (do_blocks_reorder_) call self%blocks_reorder
 
@@ -112,21 +110,21 @@ contains
 
    subroutine check_blocks_number(self)
    !< Check if blocks number is groving too much.
-   class(adam_object), intent(inout) :: self     !< ADAM.
-   type(tree_node_object), pointer   :: node_ptr !< Pointer to current node.
-   integer(I8P)                      :: max_nb   !< Maximum number of blocks desidered.
+   class(adam_object), intent(inout) :: self             !< ADAM.
+   type(tree_node_object), pointer   :: node_ptr         !< Pointer to current node.
+   integer(I8P)                      :: max_nb           !< Maximum number of blocks desidered.
+   character(len=1), parameter       :: NL=new_line('a') !< New line character.
 
    max_nb = 0
    do while(self%tree%loop(node_ptr=node_ptr))
       max_nb = max(max_nb, node_ptr%block_index)
    enddo
    if (max_nb > self%field%nb) then
-      print '(A)', self%mpih%myrankstr//'ERROR: the number of new blocks after AMR is greater than Nb'
-      print '(A)', self%mpih%myrankstr//'max blocks numer available [Nb]: '//trim(str(self%field%nb))
-      print '(A)', self%mpih%myrankstr//'blocks numer required after AMR: '//trim(str(node_ptr%block_index))
-      call MPI_ABORT(MPI_COMM_WORLD, -101, self%mpih%error)
+      call self%mpih%abort(error_code=-101, msg='ERROR: the number of new blocks after AMR is greater than Nb'//NL//&
+                                                'max blocks numer available [Nb]: '//trim(str(self%field%nb))//NL//&
+                                                'blocks numer required after AMR: '//trim(str(node_ptr%block_index)))
    endif
-   print '(A)', self%mpih%myrankstr//'maximum number of blocks created after AMR update: '//str(max_nb)//'/'//str(self%field%nb)
+   call self%mpih%print_message('maximum number of blocks created after AMR update: '//str(max_nb)//'/'//str(self%field%nb))
    endsubroutine check_blocks_number
 
    subroutine compute_blocks_number(self, memory_avail, fields_number, nb, nodes_number)
@@ -240,8 +238,8 @@ contains
                                                 l_prune=l_prune)
    if (do_maps_init_) call self%maps%initialize(grid=self%grid, tree=self%tree)
    if (do_field_init_) call self%field%initialize(grid=self%grid, maps=self%maps, file_parameters=file_parameters, nv=nv, nb=nb)
-   print '(A)', self%mpih%myrankstr//'blocks number (maximum) for single MPI [nb]: '//trim(str(self%field%nb))
-   print '(A)', self%mpih%myrankstr//'blocks number for all MPI [nodes_number]: '//trim(str(self%tree%nodes_number))
+   call self%mpih%print_message('blocks number (maximum) for single MPI [nb]: '//trim(str(self%field%nb)))
+   call self%mpih%print_message('blocks number for all MPI [nodes_number]: '//trim(str(self%tree%nodes_number)))
    call self%amr_update
    call self%mpih%print_message('adam_object%initialize finish')
    endsubroutine initialize
@@ -377,34 +375,26 @@ contains
    endif
    endsubroutine mpi_gather_refinement_needed
 
-   subroutine mpi_redistribute(self, print_mpi_stats)
+   subroutine mpi_redistribute(self)
    !< Redistribute nodes/blocks to processes, load balancing.
-   class(adam_object), intent(inout)        :: self             !< ADAM.
-   logical,            intent(in), optional :: print_mpi_stats  !< Flag to activate MPI statistics print.
-   logical                                  :: print_mpi_stats_ !< Flag to activate MPI statistics print, local var.
+   class(adam_object), intent(inout) :: self !< ADAM.
 
-   print_mpi_stats_ = .false. ; if (present(print_mpi_stats)) print_mpi_stats_ = print_mpi_stats
    call self%tree%mpi_redistribute
    call self%maps%make_comm_local_maps
    call self%field%mpi_redistribute
    endsubroutine mpi_redistribute
 
-   subroutine prune(self, ijkl_prune, print_mpi_stats, do_blocks_reorder)
+   subroutine prune(self, ijkl_prune, do_blocks_reorder)
    !< Prune nodes/blocks.
    class(adam_object), intent(inout)        :: self               !< Adam.
    integer(I4P),       intent(inout)        :: ijkl_prune(4)      !< Maximum coordinates after which the prune operates.
-   logical,            intent(in), optional :: print_mpi_stats    !< Flag to activate MPI statistics print.
    logical,            intent(in), optional :: do_blocks_reorder  !< Flag to activate blocks reorder.
    logical                                  :: do_blocks_reorder_ !< Flag to activate blocks reorder, local var.
 
    do_blocks_reorder_ = .true.  ; if (present(do_blocks_reorder)) do_blocks_reorder_ = do_blocks_reorder
-
    call self%tree%prune(ijkl_prune=ijkl_prune)
-
-   call self%mpi_redistribute(print_mpi_stats=print_mpi_stats)
-
+   call self%mpi_redistribute
    if (do_blocks_reorder_) call self%blocks_reorder
-
    call self%make_comm_local_maps_ghost_bc
    endsubroutine prune
 
@@ -416,7 +406,7 @@ contains
    logical,            intent(in), optional :: do_blocks_reorder    !< Flag to activate blocks reorder.
    integer(I4P)                             :: l                    !< Counter.
 
-   print '(A)', self%mpih%myrankstr//'uniformly refine mesh with '//trim(str(refinement_levels))//' levels'
+   call self%mpih%print_message('uniformly refine mesh with '//trim(str(refinement_levels))//' levels')
    do l=1, refinement_levels
       call self%tree%mark_all_nodes(mark=TO_BE_REFINED)
       call self%amr_update(do_mpi_redistribute=do_mpi_redistribute, do_blocks_reorder=do_blocks_reorder)

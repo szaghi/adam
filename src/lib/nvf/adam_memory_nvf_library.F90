@@ -1,14 +1,13 @@
-!< ADAM, NVF memory handling library.
-module adam_memory_nvf_lib
-!< ADAM, NVF memory handling library.
+!< ADAM, memory library, NVF backend.
+module adam_memory_nvf_library
+!< ADAM, memory library.
 
 use penf
-use CUDAFOR
+use cudafor
 
 implicit none
-save
 private
-! public :: alloc_var_gpu
+public :: alloc_var_gpu
 public :: assign_allocatable_gpu
 public :: save_memory_gpu_status
 
@@ -18,6 +17,7 @@ module procedure alloc_var_gpu_R8P_1D, &
                  alloc_var_gpu_R8P_2D, &
                  alloc_var_gpu_R8P_5D, &
                  alloc_var_gpu_I4P_1D, &
+                 alloc_var_gpu_I4P_5D, &
                  alloc_var_gpu_I8P_1D, &
                  alloc_var_gpu_I8P_2D, &
                  alloc_var_gpu_I8P_3D
@@ -25,10 +25,11 @@ endinterface alloc_var_gpu
 
 interface assign_allocatable_gpu
 !< Assign GPU variable with memory checking.
-module procedure  assign_allocatable_gpu_R8P_1D, &
-                  assign_allocatable_gpu_R8P_2D, &
-                  assign_allocatable_gpu_I4P_1D, &
-                  assign_allocatable_gpu_I8P_2D, &
+module procedure  assign_allocatable_gpu_R8P_1D,               &
+                  assign_allocatable_gpu_R8P_2D,               &
+                  assign_allocatable_gpu_I4P_1D,               &
+                  assign_allocatable_gpu_I4P_1D_rhs_allocated, &
+                  assign_allocatable_gpu_I8P_2D,               &
                   assign_allocatable_gpu_I8P_3D
 endinterface assign_allocatable_gpu
 
@@ -136,6 +137,31 @@ contains
       print '(A)', msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_gpu_I4P_1D
+
+   subroutine alloc_var_gpu_I4P_5D(var, ulb, msg, verbose)
+   !< Allocate GPU variable with memory checking (kind I4P, rank 5).
+   integer(I4P), allocatable, intent(inout), device :: var(:,:,:,:,:)      !< Varibale to be allocate on GPU.
+   integer(I4P),              intent(in)            :: ulb(2,5)            !< Upper/lower bounds of variable.
+   character(*),              intent(in), optional  :: msg                 !< Message to be printed in verbose mode.
+   logical,                   intent(in), optional  :: verbose             !< Flag to activate verbose mode.
+   character(:), allocatable                        :: msg_                !< Message to be printed in verbose mode, local var.
+   logical                                          :: verbose_            !< Flag to activate verbose mode, local var.
+   integer(cuda_count_kind)                         :: mem_free, mem_total !< Device memory.
+   integer(I4P)                                     :: error               !< Error traping flag.
+
+   msg_     = ''      ; if (present(msg    )) msg_     = msg
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   if (allocated(var)) deallocate(var)
+   if (verbose_) then
+      error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+   endif
+   allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2), ulb(1,3):ulb(2,3), ulb(1,4):ulb(2,4), ulb(1,5):ulb(2,5)))
+   if (verbose_) then
+      error = cudaMemGetInfo(mem_free, mem_total)
+      print '(A)', msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+   endif
+   endsubroutine alloc_var_gpu_I4P_5D
 
    subroutine alloc_var_gpu_I8P_1D(var, ulb, msg, verbose)
    !< Allocate GPU variable with memory checking (kind I8P, rank 1).
@@ -277,6 +303,20 @@ contains
    endif
    endsubroutine assign_allocatable_gpu_I4P_1D
 
+   subroutine assign_allocatable_gpu_I4P_1D_rhs_allocated(lhs, rhsa, msg, verbose)
+   !< Assign GPU variable with memory checking (kind I4P, rank 1, rhs allocated).
+   integer(I4P), allocatable, intent(inout), device :: lhs(:)  !< Varibale to be allocate on GPU.
+   integer(I4P),              intent(in)            :: rhsa(:) !< Right hand side of assignement.
+   character(*),              intent(in), optional  :: msg     !< Message to be printed in verbose mode.
+   logical,                   intent(in), optional  :: verbose !< Flag to activate verbose mode.
+
+   if (allocated(lhs)) deallocate(lhs)
+   if (size(rhsa, dim=1)>0) then
+      call alloc_var_gpu(var=lhs, ulb=[lbound(rhsa,dim=1),ubound(rhsa,dim=1)], msg=msg, verbose=verbose)
+      lhs = rhsa
+   endif
+   endsubroutine assign_allocatable_gpu_I4P_1D_rhs_allocated
+
    subroutine assign_allocatable_gpu_I8P_2D(lhs, rhs, msg, verbose)
    !< Assign GPU variable with memory checking (kind I8P, rank 2).
    !< Variable is returned not allocated if right hand side is not allocated.
@@ -347,4 +387,4 @@ contains
       enddo
    enddo
    endsubroutine transpose_a_R8P_2D
-endmodule adam_memory_nvf_lib
+endmodule adam_memory_nvf_library

@@ -23,9 +23,9 @@ integer(I4P), parameter :: BC_WALL_INVISCID   = 3_I4P !< Inviscid wall.
 
 type :: nasto_bc_object
    !< Boundary Conditions class definition, CPU backend.
-   type(mpih_object)           :: mpih         !< MPI handler.
-   integer(I4P)                :: bc_type(6)   !< Boundary condition type.
-   real(R8P)                   :: q(6,6)       !< Primitive variables (r,u,v,w,p,s with s being the specie index) at BC.
+   type(mpih_object)      :: mpih       !< MPI handler.
+   integer(I4P)           :: bc_type(6) !< Boundary condition type.
+   real(R8P), allocatable :: q(:,:)     !< Primitive variables (r,u,v,w,p,s with s being the specie index) at BC.
    contains
       ! public methods
       procedure, pass(self) :: initialize     !< Initialize BC.
@@ -41,6 +41,7 @@ contains
 
    call self%mpih%initialize(do_mpi_init=.false.)
    print '(A)', self%mpih%myrankstr//'nasto_bc_object%initialize start'
+   allocate(self%q(6,6))
    call self%load_from_file(file_parameters=file_parameters)
    print '(A)', self%mpih%myrankstr//'nasto_bc_object%initialize finish'
    endsubroutine initialize

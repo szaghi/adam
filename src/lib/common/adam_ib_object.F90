@@ -164,8 +164,7 @@ contains
    type(file_ini),     intent(inout)      :: file_parameters !< INI file handler.
 
    call self%mpih%initialize
-
-   print '(A)', self%mpih%myrankstr//'ib_object%initialize start'
+   call self%mpih%print_message('ib_object%initialize start')
 
    ! associate ADAM main data
    self%field => field
@@ -185,7 +184,7 @@ contains
    endassociate
 
    print '(A)', self%description()
-   print '(A)', self%mpih%myrankstr//'ib_object%initialize finish'
+   call self%mpih%print_message('ib_object%initialize finish')
    endsubroutine initialize
 
    subroutine load_from_file(self, file_parameters, go_on_fail)

@@ -225,8 +225,8 @@ contains
    associate(nb_max=>self%nb_max(level), emin=>self%domain_emin, dxyz=>self%block_dxyz(:,level))
       ijk(:) = int((point(:) - emin(:)) / dxyz(:), I4P)
       if (any(ijk<0).or.any(ijk>2**level-1)) then
-         print '(A)', self%mpih%myrankstr//'ERROR: grid%get_closest block failed ijk: '//str(ijk)//&
-                      ' level:'//str(level)//' point:'//str(point)
+         call self%mpih%abort(error_code=-110, msg='ERROR: grid_object%get_closest block failed ijk: '//str(ijk)//&
+                                                   ' level:'//str(level)//' point:'//str(point))
       endif
    endassociate
    endfunction get_closest_block
@@ -247,7 +247,7 @@ contains
    integer(I4P)                                :: nijk(3)         !< Cells number.
 
    call self%mpih%initialize
-   print '(A)', self%mpih%myrankstr//'grid%initialize start'
+   call self%mpih%print_message('grid_object%initialize start')
    if (present(file_parameters)) call self%load_from_ini_file(file_parameters)
 
    ! parameters explicitely passed ovveride ones file-passed
@@ -289,7 +289,7 @@ contains
    if (present(verbose)) then
       if (verbose) print '(A)', self%description()
    endif
-   print '(A)', self%mpih%myrankstr//'grid%initialize finish'
+   call self%mpih%print_message('grid_object%initialize finish')
    endsubroutine initialize
 
    subroutine load_from_ini_file(self, file_parameters)

@@ -66,7 +66,7 @@ module adam_field_object
 use adam_grid_object
 use adam_maps_object
 use adam_mpih_object
-use adam_memory_lib
+use adam_memory_library
 use adam_parameters
 use finer, only : file_ini
 use penf
@@ -106,7 +106,6 @@ type :: field_object
    integer(I4P), allocatable :: refinements_needed_all(:) !< Refinements needed of all blocks.
    integer(I4P), allocatable :: disp_count(:)             !< Displacement of blocks that are received from process.
    integer(I4P)              :: inner_blocks_number=0_I4P !< Number of inner blocks where I need fecs.
-   integer(I4P), allocatable :: req_send_recv(:)          !< MPI request receive flags.
    ! field equations data
    real(R8P), allocatable :: q(     :,:,:,:,:) !< Field cell centered variables.
    real(R8P), allocatable :: q_work(:,:,:,:,:) !< Field cell centered variables, working buffer memory.
@@ -434,8 +433,6 @@ contains
    endif
    call alloc_var_cpu(var=self%blocks_numbers, ulb=[0,self%mpih%procs_number-1], &
                       msg=self%mpih%myrankstr//'field_object%initialize(blocks_numbers) ', verbose=.true.)
-   call alloc_var_cpu(var=self%req_send_recv, ulb=[0,self%mpih%procs_number*2-1], &
-                      msg=self%mpih%myrankstr//'field_object%initialize(req_send_recv) ', verbose=.true.)
    call self%mpih%print_message('field_object%initialize finish')
    endsubroutine initialize
 
@@ -445,24 +442,22 @@ contains
    !< Note: blocks memory must be already initialized with enough memory (proper nv,ni,nj,nk,ngc and nb>=blocks number).
    class(field_object), intent(inout) :: self                !< The field.
    character(*),        intent(in)    :: basename            !< Output base name.
+   character(:), allocatable          :: filename            !< Output file name.
    integer(I4P)                       :: file_unit           !< Output file unit.
    logical                            :: file_exist          !< Flag to check file's existance.
    integer(I4P)                       :: blocks_number       !< Blocks number.
    integer(I4P)                       :: nv, ni, nj, nk, ngc !< Dimensions.
    integer(I4P)                       :: b                   !< Counter.
 
-   inquire(file=trim(adjustl(basename))//'-proc'//trim(strz(self%mpih%myrank,6))//'.fbd', exist=file_exist)
+   filename = trim(adjustl(basename))//'-proc'//trim(strz(self%mpih%myrank,6))//'.fbd'
+   inquire(file=filename, exist=file_exist)
    if (file_exist) then
-      print '(A)', self%mpih%myrankstr//'load field blocks from file '//trim(adjustl(basename))//&
-                   '-proc'//trim(strz(self%mpih%myrank,6))//'.fbd'
-      open(newunit=file_unit,                                                             &
-           file=trim(adjustl(basename))//'-proc'//trim(strz(self%mpih%myrank,6))//'.fbd', &
-           form='UNFORMATTED',                                                            &
-           access='STREAM')
+      call self%mpih%print_message('field_object%load_blocks from file '//filename)
+      open(newunit=file_unit, file=filename, form='UNFORMATTED', access='STREAM')
       read(unit=file_unit) nv, ni, nj, nk, ngc
       if (nv==self%nv.and.ni==self%grid%ni.and.nj==self%grid%nj.and.nk==self%grid%nk.and.ngc==self%grid%ngc) then
          read(unit=file_unit) blocks_number
-         print '(A)', self%mpih%myrankstr//'field blocks number '//trim(str(blocks_number))
+         call self%mpih%print_message('field blocks number '//trim(str(blocks_number)))
          if (blocks_number <= self%nb) then
             self%blocks_number = blocks_number
             do b=1, self%blocks_number
@@ -475,23 +470,22 @@ contains
             enddo
             call self%compute_metrics
          else
-            write(stderr, '(A)') self%mpih%myrankstr//'ERROR: blocks number to read "'//trim(str(blocks_number))//&
-                                 '" is greater than blocks allocated "'//trim(str(self%nb))//'"!'
+            call self%mpih%abort(error_code=-102, msg='ERROR: blocks number to read "'//trim(str(blocks_number))//&
+                                                      '" is greater than blocks allocated "'//trim(str(self%nb))//'"!')
          endif
       else
-         write(stderr, '(A)') self%mpih%myrankstr//'ERROR: blocks dimensions to read "'//trim(str([nv, ni, nj, nk, ngc]))//&
-                              '" are different than blocks allocated "'//trim(str([self%nv,                                &
-                                                                                   self%grid%ni,                           &
-                                                                                   self%grid%nj,                           &
-                                                                                   self%grid%nk,                           &
-                                                                                   self%grid%ngc]))//'"!'
+         call self%mpih%abort(error_code=-103,                                                            &
+                              msg='ERROR: blocks dimensions to read "'//trim(str([nv, ni, nj, nk, ngc]))//&
+                                  '" are different than blocks allocated "'//trim(str([self%nv,           &
+                                                                                       self%grid%ni,      &
+                                                                                       self%grid%nj,      &
+                                                                                       self%grid%nk,      &
+                                                                                       self%grid%ngc]))//'"!')
       endif
       close(file_unit)
-      print '(A)', self%mpih%myrankstr//'load field blocks from file '//&
-                   trim(adjustl(basename))//'-proc'//trim(strz(self%mpih%myrank,6))//'.fbd completed'
+      call self%mpih%print_message('field_object%load_blocks from file '//filename//' completed')
    else
-      write(stderr, '(A)') self%mpih%myrankstr//'WARNING: file "'//&
-                           trim(adjustl(basename))//'-proc'//trim(strz(self%mpih%myrank,6))//'.fbd" does not exist!'
+      call self%mpih%abort(error_code=-104, msg='WARNING: file "'//filename//'" does not exist!')
    endif
    endsubroutine load_blocks
 

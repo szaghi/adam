@@ -523,9 +523,9 @@ contains
             exit
           endif
       enddo
-      if (.not.block_found) then
-         print '(A)', self%mpih%myrankstr//'ERROR: tree%get_closest block failed, path: '//str(path)//' point: '//str(point)
-      endif
+      if (.not.block_found) call self%mpih%abort(error_code=-111,                                               &
+                                                 msg='ERROR: tree%get_closest block failed, path: '//str(path)//&
+                                                     ' point: '//str(point))
    endif
    endfunction get_closest_block
 
@@ -632,7 +632,7 @@ contains
    logical                                     :: add_adam_       !< Add ADAM node, the ancestor of all nodes, local var.
 
    call self%mpih%initialize(do_mpi_init=.false.)
-   print '(A)', self%mpih%myrankstr//'tree%initialize start'
+   call self%mpih%print_message('tree_object%initialize start')
    self%grid => grid
    if (present(file_parameters)) call self%load_from_ini_file(file_parameters)
 
@@ -669,7 +669,7 @@ contains
    call self%mpi_redistribute
 
    call self%make_neighborhood
-   print '(A)', self%mpih%myrankstr//'tree%initialize finish'
+   call self%mpih%print_message('tree_object%initialize finish')
    endsubroutine initialize
 
    subroutine load_nodes(self, file_name)
@@ -688,10 +688,10 @@ contains
 
    inquire(file=trim(adjustl(file_name)), exist=file_exist)
    if (file_exist) then
-      print '(A)', self%mpih%myrankstr//'load tree nodes from file '//trim(adjustl(file_name))
+      call self%mpih%print_message('tree_object%load_nodes from file '//trim(adjustl(file_name)))
       open(newunit=file_unit, file=trim(adjustl(file_name)), form='UNFORMATTED', access='STREAM')
       read(unit=file_unit) codes_number
-      print '(A)', self%mpih%myrankstr//'tree nodes number '//trim(str(codes_number))
+      call self%mpih%print_message('tree nodes number '//trim(str(codes_number)))
       if (codes_number > 0) then
          call self%empty
          do c=1, codes_number
@@ -701,7 +701,7 @@ contains
       endif
       close(file_unit)
       call self%make_neighborhood
-      print '(A)', self%mpih%myrankstr//'load tree nodes from file '//trim(adjustl(file_name))//' completed'
+      call self%mpih%print_message('tree_object%load_nodes from file '//trim(adjustl(file_name))//' completed')
    else
       write(stderr, '(A)') self%mpih%myrankstr//'ERROR: file "'//trim(adjustl(file_name))//'" does not exist!'
    endif
@@ -727,12 +727,13 @@ contains
    character(*),       intent(in)    :: file_name !< STL file name.
    type(file_stl_object)             :: file_stl  !< STL file handler.
 
-   print '(A)', self%mpih%myrankstr//'ADAM: load STL file: '//trim(adjustl(file_name))
+   call self%mpih%print_message('tree_object%load_surface_stl from file '//trim(adjustl(file_name)))
    call file_stl%load_from_file(facet=self%surface_stl%facet, file_name=trim(adjustl(file_name)), guess_format=.true.)
    call self%surface_stl%analize(aabb_refinement_levels=3)
    call self%surface_stl%sanitize
-   print '(A)', self%mpih%myrankstr//'ADAM: compute distance from STL surface'
+   call self%mpih%print_message('tree_object%load_surface_stl compute distance from STL surface')
    call self%compute_surface_stl_distance(surface_stl=self%surface_stl)
+   call self%mpih%print_message('tree_object%load_surface_stl from file '//trim(adjustl(file_name))//' completed')
    endsubroutine load_surface_stl
 
    function loop(self, code, node_ptr) result(again)
@@ -977,13 +978,12 @@ contains
          ijkl_prune(i) = min(ijkl_prune(i), 2**ijkl_prune(4) - 1)
       enddo
       self%ijkl_prune = ijkl_prune
-      print '(A)', self%mpih%myrankstr//'prune tree with IJKL max: '//trim(str(self%ijkl_prune))
+      call self%mpih%print_message('prune tree with IJKL max: '//trim(str(self%ijkl_prune)))
       do while(self%loop(node_ptr=node_ptr))
          call self%morton_to_coordinates(code=node_ptr%code, i=ijkl(1), j=ijkl(2), k=ijkl(3), l=ijkl(4))
          if (ijkl(4)/=self%ijkl_prune(4)) then
-            print '(A)', self%mpih%myrankstr//'ERROR: cannot prune nodes at different prune-level, node: '//&
-                         trim(str(node_ptr%code))
-            call self%mpih%abort
+            call self%mpih%abort(error_code=-200, msg='ERROR: cannot prune nodes at different prune-level, node: '//&
+                                                       trim(str(node_ptr%code)))
          endif
          if (ijkl(1)>self%ijkl_prune(1).or.ijkl(2)>self%ijkl_prune(2).or.ijkl(3)>self%ijkl_prune(3)) then
             call self%remove_node(code=node_ptr%code)
@@ -1017,8 +1017,7 @@ contains
       self%buckets_number = swap%buckets_number
       self%nodes_number   = swap%nodes_number
    else
-      print '(A)', self%mpih%myrankstr//'ERROR: tree is not initialized, cannot be resized'
-      stop
+      call self%mpih%abort(error_code=-500, msg='ERROR: tree is not initialized, cannot be resized')
    endif
    endsubroutine resize
 
@@ -1036,7 +1035,7 @@ contains
       actual_codes = self%codes()
       codes_number = size(actual_codes, dim=1)
       if (codes_number > 0) then
-         print '(A)', self%mpih%myrankstr//'save tree nodes in file  '//trim(adjustl(file_name))
+         call self%mpih%print_message('tree_object%save_nodes in file '//trim(adjustl(file_name)))
          open(newunit=file_unit, file=trim(adjustl(file_name)), form='UNFORMATTED', access='STREAM')
          write(unit=file_unit) codes_number
          do c=1, codes_number
@@ -1044,6 +1043,7 @@ contains
             write(unit=file_unit) node_ptr%code, node_ptr%myrank, node_ptr%block_index
          enddo
          close(file_unit)
+         call self%mpih%print_message('tree_object%save_nodes in file '//trim(adjustl(file_name))//' completed')
       endif
    endif
    endsubroutine save_nodes
@@ -1774,7 +1774,7 @@ contains
    if (neighbor_.or.whole_   ) topology = topology//' neighbor: '//neighbors_str
    if (block_index_.or.whole_) topology = topology//' block_index: '//trim(str(node_ptr%block_index,.true.))
 
-   print '(A)', self%mpih%myrankstr//topology
+   call self%mpih%print_message(topology)
    endsubroutine print_code_topology
 
    pure function siblings(self, code)
@@ -1816,9 +1816,7 @@ contains
    integer(I4P)                             :: b                        !< Bucket index, namely hashed key.
    integer(I4P)                             :: rank_                    !< MPI rank process, local variable.
 
-   if (.not.self%is_initialized_) then
-      print '(A)', self%mpih%myrankstr//'ERROR: cannot add a node a non initialized tree'
-   endif
+   if (.not.self%is_initialized_) call self%mpih%abort(error_code=-501, msg='ERROR: cannot add node in non initialized tree')
 
    rank_ = 0 ; if (present(rank)) rank_ = rank
 
@@ -2043,10 +2041,10 @@ contains
                      elseif (new_level_n - new_level == 2) then
                         node_ptr%refinement_needed = node_ptr%refinement_needed + 1
                      else
-                        print '(A)', self%mpih%myrankstr//'SOMETHING WENT TERRIBLY WRONG. EXIT!'
-                        print '(A)', self%mpih%myrankstr//'REFINEMENT NEEDED '//trim(str(node_ptr%refinement_needed,.true.))
-                        print '(A)', self%mpih%myrankstr//'SANITIZE ITERATIONS '//trim(str(s,.true.))
-                        stop
+                        call self%mpih%abort(error_code=-503,                                                               &
+                                             msg='ERROR: sanitize tree failed! '//                                          &
+                                                 'Refinement needed "'//trim(str(node_ptr%refinement_needed,.true.))//'" '//&
+                                                 'sanitize iterations "'//trim(str(s,.true.))//'"')
                      endif
                      new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
                   endif
@@ -2054,17 +2052,15 @@ contains
             endif
          enddo face_loop
 
-        if (node_ptr%refinement_needed > 1) then
-           print '(A)', self%mpih%myrankstr//'CANNOT REFINE TWICE IN A ROW. SOMETHING WENT TERRIBLY WRONG. EXIT!'
-           print '(A)', self%mpih%myrankstr//'SANITIZE ITERATIONS '//trim(str(s,.true.))
-           stop
-        endif
+        if (node_ptr%refinement_needed > 1) call self%mpih%abort(error_code=-504,                                           &
+                                                                 msg='ERROR: sanitize tree failed! '//                      &
+                                                                     'Cannot refine twice in a row, sanitize iterations "'//&
+                                                                     trim(str(s,.true.))//'"')
 
         new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
-        if (new_level > self%max_level) then
-           print '(A)', self%mpih%myrankstr//'CANNOT REFINE MORE. SOMETHING WENT TERRIBLY WRONG. EXIT!'
-           stop
-        endif
+        if (new_level > self%max_level) call self%mpih%abort(error_code=-504,                                        &
+                                                             msg='ERROR: sanitize tree failed! Cannot refine more,'//&
+                                                                 ' max ref level '//trim(str(self%max_level,.true.)) //' reached')
       enddo refine_loop
 
       if (is_sanitize_complete) exit sanitize_loop
