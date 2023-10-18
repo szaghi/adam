@@ -128,6 +128,8 @@ type :: field_object
       procedure, pass(self) :: mpi_gather_refinements_needed !< Gather blocks refinement needed status between MPI processes.
       procedure, pass(self) :: mpi_redistribute              !< Redistribute blocks to processes.
       procedure, pass(self) :: save_blocks                   !< Save blocks data, used for restarting.
+      procedure, pass(self) :: update_ghost_local            !< Update ghosts locally.
+      procedure, pass(self) :: update_ghost_mpi              !< Update ghosts MPI.
       ! private methods
       procedure, pass(self), private :: derefine !< Derefine blocks.
       procedure, pass(self), private :: refine   !< Refine blocks.
@@ -196,13 +198,10 @@ contains
                                             1-self%grid%ngc:, &
                                             1:)     !< Residuals.
    real(R8P),           intent(inout) :: norm(1:)   !< Residuals norm.
-   real(R8P)                          :: volume     !< Total volume.
    integer(I4P)                       :: b, i, j, k !< Counter.
 
    norm   = 0._R8P
-   volume = 0._R8P
    do b=1, self%blocks_number
-      volume = volume + (self%dxyz(1,b) * self%dxyz(2,b) * self%dxyz(3,b))*self%grid%ni*self%grid%nj*self%grid%nk
       do k=1, self%grid%nk
          do j=1, self%grid%nj
             do i=1, self%grid%ni
@@ -211,7 +210,6 @@ contains
          enddo
       enddo
    enddo
-   norm = sqrt(norm)/volume
    endsubroutine compute_normL2_residuals
 
    pure function description(self) result(desc)
@@ -707,6 +705,154 @@ contains
       close(file_unit)
    endif
    endsubroutine save_blocks
+
+   subroutine update_ghost_local(self, q)
+   !< Update (local) ghost cells.
+   class(field_object), intent(in)    :: self              !< The base backend.
+   real(R8P),           intent(inout) :: q(1:,              &
+                                           1-self%grid%ngc:,&
+                                           1-self%grid%ngc:,&
+                                           1-self%grid%ngc:,&
+                                           1:)             !< Field component to be updated.
+   integer(I4P)                       :: ic, jc, kc, mf, v !< Counter.
+   integer(I4P)                       :: b_recv            !< Index of receiving block.
+   integer(I4P)                       :: b_send            !< Index of sending block.
+   integer(I4P)                       :: i_recv            !< I recv index.
+   integer(I4P)                       :: j_recv            !< J recv index.
+   integer(I4P)                       :: k_recv            !< K recv index.
+   integer(I4P)                       :: i_send            !< I send index.
+   integer(I4P)                       :: j_send            !< J send index.
+   integer(I4P)                       :: k_send            !< K send index.
+   integer(I4P)                       :: one_or_eight      !< Flag triggering 8 cells mean.
+
+   if (.not.allocated(self%maps%local_map_ghost_cell)) return
+   associate(local_map_ghost_cell=>self%maps%local_map_ghost_cell)
+   do mf=1, size(local_map_ghost_cell, dim=1)
+      do v=1, size(q, dim=1)
+         b_send       = local_map_ghost_cell(mf,1)
+         b_recv       = local_map_ghost_cell(mf,2)
+         i_send       = local_map_ghost_cell(mf,3)
+         j_send       = local_map_ghost_cell(mf,4)
+         k_send       = local_map_ghost_cell(mf,5)
+         i_recv       = local_map_ghost_cell(mf,6)
+         j_recv       = local_map_ghost_cell(mf,7)
+         k_recv       = local_map_ghost_cell(mf,8)
+         one_or_eight = local_map_ghost_cell(mf,9)
+         if (one_or_eight==1) then
+            q(v,i_recv,j_recv,k_recv,b_recv) = q(v,i_send,j_send,k_send,b_send)
+         else
+            q(v,i_recv,j_recv,k_recv,b_recv) = 0._R8P
+            do kc=0,1 ; do jc=0,1 ; do ic=0,1
+               q(v,i_recv,j_recv,k_recv,b_recv) = q(v,i_recv,   j_recv,   k_recv,   b_recv) + &
+                                                  q(v,i_send+ic,j_send+jc,k_send+kc,b_send)
+            enddo ; enddo ; enddo
+            q(v,i_recv,j_recv,k_recv,b_recv) = q(v,i_recv,j_recv,k_recv,b_recv) * 0.125_R8P
+         endif
+      enddo
+   enddo
+   endassociate
+   endsubroutine update_ghost_local
+
+   subroutine update_ghost_mpi(self, q, step)
+   !< Update ghost cells within other processes.
+   class(field_object), intent(inout)        :: self                               !< The base backend.
+   real(R8P),           intent(inout)        :: q(1:,              &
+                                                  1-self%grid%ngc:,&
+                                                  1-self%grid%ngc:,&
+                                                  1-self%grid%ngc:,&
+                                                  1:)                              !< Field component to be updated.
+   integer(I4P),        intent(in), optional :: step                               !< Step to be perfordmed in asyncronous comp.
+   logical                                   :: do_step(3)                         !< Steps performed in async comp.
+   integer(I4P)                              :: p                                  !< Counter.
+   integer(I4P)                              :: ptr_start, ptr_end                 !< Counter.
+   integer(I4P)                              :: n_recv, n_send                     !< Counter.
+   integer(I4P)                              :: ic, jc, kc, sf                     !< Counter.
+   integer(I4P)                              :: b_send,i_send,j_send,k_send,v_send !< Send indexes.
+   integer(I4P)                              :: c_recv                             !< Counter.
+   integer(I4P)                              :: one_or_eight                       !< Flag triggering 8 cells mean.
+   integer(I4P)                              :: rf                                 !< Counter.
+   integer(I4P)                              :: b_recv,i_recv,j_recv,k_recv,v_recv !< Receive indexes.
+   integer(I4P)                              :: c_send                             !< Counter.
+
+   associate(procs_number=>self%mpih%procs_number,                       &
+             error=>self%mpih%error,                                     &
+             req_send_recv=>self%mpih%req_send_recv,                     &
+             comm_map_send_ptr_ghost=>self%maps%comm_map_send_ptr_ghost, &
+             comm_map_recv_ptr_ghost=>self%maps%comm_map_recv_ptr_ghost, &
+             recv_buffer_ghost=>self%maps%recv_buffer_ghost,             &
+             send_buffer_ghost=>self%maps%send_buffer_ghost,             &
+             ngc=>self%grid%ngc)
+   do_step = .true.
+   if (present(step)) then
+      do_step = .false.
+      do_step(step) = .true.
+   endif
+
+   if (do_step(1)) then
+      req_send_recv = MPI_REQUEST_NULL
+      if (allocated(self%maps%comm_map_send_ghost_cell)) then
+         do sf=1, size(self%maps%comm_map_send_ghost_cell, dim=1)
+            b_send       = self%maps%comm_map_send_ghost_cell(sf,1)
+            i_send       = self%maps%comm_map_send_ghost_cell(sf,2)
+            j_send       = self%maps%comm_map_send_ghost_cell(sf,3)
+            k_send       = self%maps%comm_map_send_ghost_cell(sf,4)
+            v_send       = self%maps%comm_map_send_ghost_cell(sf,5)
+            c_recv       = self%maps%comm_map_send_ghost_cell(sf,6)
+            one_or_eight = self%maps%comm_map_send_ghost_cell(sf,7)
+            if (one_or_eight==1) then
+               send_buffer_ghost(c_recv) = q(v_send,i_send,j_send,k_send,b_send)
+            else
+               send_buffer_ghost(c_recv) = 0._R8P
+               do kc=0,1 ; do jc=0,1 ; do ic=0,1
+                  send_buffer_ghost(c_recv) = send_buffer_ghost(c_recv) + q(v_send,i_send+ic,j_send+jc,k_send+kc,b_send)
+               enddo ; enddo ; enddo
+               send_buffer_ghost(c_recv) = send_buffer_ghost(c_recv) * 0.125_R8P
+            endif
+         enddo
+      endif
+   endif
+
+   if (do_step(2)) then
+      ! receive
+      do p=0, procs_number - 1_I4P
+         ptr_start = comm_map_recv_ptr_ghost(p) + 1
+         ptr_end   = comm_map_recv_ptr_ghost(p+1)
+         n_recv    = ptr_end - ptr_start + 1
+         if (n_recv > 0) then
+            call MPI_IRECV(recv_buffer_ghost(ptr_start), n_recv, MPI_REAL8, p, 100, MPI_COMM_WORLD, req_send_recv(p), error)
+         endif
+      enddo
+      ! send
+      do p=0, procs_number - 1_I4P
+         ptr_start = comm_map_send_ptr_ghost(p) + 1
+         ptr_end   = comm_map_send_ptr_ghost(p+1)
+         n_send    = ptr_end - ptr_start + 1
+         if (n_send > 0) then
+            call MPI_ISEND(send_buffer_ghost(ptr_start), n_send, MPI_REAL8, p, 100, MPI_COMM_WORLD, &
+                           req_send_recv(p+procs_number), error)
+         endif
+      enddo
+   endif
+
+   if (do_step(3)) then
+      call MPI_WAITALL(procs_number * 2, req_send_recv, MPI_STATUSES_IGNORE, error)
+      call MPI_Barrier(MPI_COMM_WORLD, error)
+      !RIMETTERE SENZA
+      if (allocated(self%maps%comm_map_recv_ghost_cell)) then
+         do rf=1, size(self%maps%comm_map_recv_ghost_cell, dim=1)
+            c_send = self%maps%comm_map_recv_ghost_cell(rf,1)
+            b_recv = self%maps%comm_map_recv_ghost_cell(rf,2)
+            i_recv = self%maps%comm_map_recv_ghost_cell(rf,3)
+            j_recv = self%maps%comm_map_recv_ghost_cell(rf,4)
+            k_recv = self%maps%comm_map_recv_ghost_cell(rf,5)
+            v_recv = self%maps%comm_map_recv_ghost_cell(rf,6)
+            q(v_recv,i_recv,j_recv,k_recv,b_recv) = recv_buffer_ghost(c_send)
+         enddo
+      endif
+   endif
+   call MPI_Barrier(MPI_COMM_WORLD, error)
+   endassociate
+   endsubroutine update_ghost_mpi
 
    ! private methods
    subroutine derefine(self, ratio, block_to_derefine, block_derefined)

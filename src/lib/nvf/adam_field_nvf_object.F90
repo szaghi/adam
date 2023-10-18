@@ -1,14 +1,12 @@
-!< ADAM, base NVF class definition.
+!< ADAM, field class definition, NVF backend.
 module adam_field_nvf_object
-!< ADAM, base NVF class definition: provide methods for NVF GPU offloading backend.
+!< ADAM, field class definition, NVF backend.
 
-use adam_field_object
+use adam_common_library
 use adam_field_nvf_kernels
 use adam_maps_nvf_object
 use adam_mpih_nvf_object
-use adam_memory_library
 use adam_memory_nvf_library
-use adam_parameters
 use penf
 use mpi
 use cudafor
@@ -19,9 +17,7 @@ private
 public :: field_nvf_object
 
 type :: field_nvf_object
-   !< Base NVF class definition.
-   !<
-   !< Provide methods for NVF GPU offloading backend.
+   !< Field class, NVF backend.
    type(mpih_nvf_object)       :: mpih           !< MPI handler.
    type(maps_nvf_object)       :: maps           !< Maps handler.
    type(field_object), pointer :: field=>null()  !< The field.
@@ -110,17 +106,17 @@ contains
    !< Copy transposed data from GPU to CPU.
    !< This routine is called by equation typically passing either q_gpu or q_aux_gpu.
    class(field_nvf_object), intent(inout)      :: self      !< The equation.
-   integer(I4P),           intent(in)         :: nv        !< Number of varibales.
-   real(R8P),              intent(in), device :: q_gpu(1:,                    &
-                                                       1-self%field%grid%ngc:,&
-                                                       1-self%field%grid%ngc:,&
-                                                       1-self%field%grid%ngc:,&
-                                                       1:) !< Conservative variables on GPU.
-   real(R8P),              intent(out)        :: q_cpu(1:,                    &
-                                                       1-self%field%grid%ngc:,&
-                                                       1-self%field%grid%ngc:,&
-                                                       1-self%field%grid%ngc:,&
-                                                       1:) !< Conservative variables on CPU.
+   integer(I4P),            intent(in)         :: nv        !< Number of varibales.
+   real(R8P),               intent(in), device :: q_gpu(1:,                    &
+                                                        1-self%field%grid%ngc:,&
+                                                        1-self%field%grid%ngc:,&
+                                                        1-self%field%grid%ngc:,&
+                                                        1:) !< Conservative variables on GPU.
+   real(R8P),               intent(out)        :: q_cpu(1:,                    &
+                                                        1-self%field%grid%ngc:,&
+                                                        1-self%field%grid%ngc:,&
+                                                        1-self%field%grid%ngc:,&
+                                                        1:) !< Conservative variables on CPU.
 
    associate(blocks_number=>self%field%blocks_number, &
              ni=>self%field%grid%ni,                  &
@@ -176,11 +172,11 @@ contains
    subroutine update_ghost_local_gpu(self, q_gpu)
    !< Update (local) ghost cells.
    class(field_nvf_object), intent(in)            :: self      !< The base backend.
-   real(R8P),              intent(inout), device :: q_gpu(1:,                    &
-                                                          1-self%field%grid%ngc:,&
-                                                          1-self%field%grid%ngc:,&
-                                                          1-self%field%grid%ngc:,&
-                                                          1:) !< Field component to be updated.
+   real(R8P),               intent(inout), device :: q_gpu(1:,                    &
+                                                           1-self%field%grid%ngc:,&
+                                                           1-self%field%grid%ngc:,&
+                                                           1-self%field%grid%ngc:,&
+                                                           1:) !< Field component to be updated.
    call self%mpih%check_cuda_error(error_code=-15, msg='field_nvf_object%update_ghost_local_gpu start')
    call update_ghost_local_gpu_cuf(local_map_ghost_cell_gpu=self%maps%local_map_ghost_cell_gpu,ngc=self%field%grid%ngc,q_gpu=q_gpu)
    call self%mpih%check_cuda_error(error_code=-15, msg='field_nvf_object%update_ghost_local_gpu finish')
@@ -189,16 +185,16 @@ contains
    subroutine update_ghost_mpi_gpu(self, q_gpu, step)
    !< Update ghost cells within other processes.
    class(field_nvf_object), intent(inout)         :: self      !< The base backend.
-   real(R8P),              intent(inout), device :: q_gpu(1:,                    &
-                                                          1-self%field%grid%ngc:,&
-                                                          1-self%field%grid%ngc:,&
-                                                          1-self%field%grid%ngc:,&
-                                                          1:) !< Field component to be updated.
-   integer(I4P),           intent(in), optional  :: step      !< Step to be perfordmed in asyncronous comp.
-   logical                                       :: do_step(3)!< Steps performed in async comp.
-   integer(I4P)                                  :: p                                      !< Counter.
-   integer(I4P)                                  :: ptr_start, ptr_end                     !< Counter.
-   integer(I4P)                                  :: n_recv, n_send                         !< Counter.
+   real(R8P),               intent(inout), device :: q_gpu(1:,                    &
+                                                           1-self%field%grid%ngc:,&
+                                                           1-self%field%grid%ngc:,&
+                                                           1-self%field%grid%ngc:,&
+                                                           1:) !< Field component to be updated.
+   integer(I4P),            intent(in), optional  :: step      !< Step to be perfordmed in asyncronous comp.
+   logical                                        :: do_step(3)!< Steps performed in async comp.
+   integer(I4P)                                   :: p                                      !< Counter.
+   integer(I4P)                                   :: ptr_start, ptr_end                     !< Counter.
+   integer(I4P)                                   :: n_recv, n_send                         !< Counter.
 
    call self%mpih%check_cuda_error(error_code=-15, msg='field_nvf_object%update_ghost_mpi_gpu start')
    associate(procs_number=>self%mpih%procs_number,                                 &

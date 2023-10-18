@@ -217,10 +217,10 @@ contains
 
    function get_closest_block(self, point, level) result(ijk)
    !< Get the closest block to a given point at a given level.
-   class(grid_object), intent(in) :: self     !< The grid.
-   real(R8P),          intent(in) :: point(3) !< Point xyz coordinates.
-   integer(I4P),       intent(in) :: level    !< Refinement level.
-   integer(I4P)                   :: ijk(3)   !< Indexes of the closest (living or not) block.
+   class(grid_object), intent(inout) :: self     !< The grid.
+   real(R8P),          intent(in)    :: point(3) !< Point xyz coordinates.
+   integer(I4P),       intent(in)    :: level    !< Refinement level.
+   integer(I4P)                      :: ijk(3)   !< Indexes of the closest (living or not) block.
 
    associate(nb_max=>self%nb_max(level), emin=>self%domain_emin, dxyz=>self%block_dxyz(:,level))
       ijk(:) = int((point(:) - emin(:)) / dxyz(:), I4P)

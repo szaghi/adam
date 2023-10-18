@@ -10,4 +10,7 @@ use adam_maps_nvf_object
 use adam_memory_nvf_library
 use adam_mpih_nvf_object
 
+implicit none
+public
+
 endmodule adam_nvf_library

@@ -2,9 +2,10 @@
 module adam_nasto_nvf_object
 !< ADAM, Navier-Stokes equations system class definition, GPU (NVF) backend.
 
+use adam_common_library
+use adam_nvf_library
 use adam_nasto_common_library
 use adam_nasto_nvf_kernels
-use adam_nvf_library
 use penf
 use mpi
 use cudafor
@@ -53,10 +54,11 @@ type, extends(nasto_common_object) :: nasto_nvf_object
       procedure, pass(self) :: initialize   !< Initialize the equation.
       ! AMR methods
       procedure, pass(self) :: amr_update       !< Do AMR update.
-      procedure, pass(self) :: mark_by_grad_var !< Mark blocks to be refined/derefined by a `grad(var)` value.
-      procedure, pass(self) :: mark_by_geo      !< Mark blocks to be refined/derefined by a `grad(var)` value.
-      procedure, pass(self) :: refine_uniform   !< Refine all blocks uniformly.
       procedure, pass(self) :: compute_phi      !< Compute phi, distance from IB solid.
+      procedure, pass(self) :: mark_by_geo      !< Mark blocks to be refined/derefined by a geometric constrain.
+      procedure, pass(self) :: mark_by_grad_var !< Mark blocks to be refined/derefined by a `grad(var)` value.
+      procedure, pass(self) :: move_phi         !< Move phi.
+      procedure, pass(self) :: refine_uniform   !< Refine all blocks uniformly.
       ! IB methods
       procedure, pass(self) :: integrate_eikonal_q_gpu !< Integrate eikonal equation over q.
       procedure, pass(self) :: invert_eikonal_q_gpu    !< Invert momentum eikonal equation over q.
@@ -82,14 +84,14 @@ endtype nasto_nvf_object
 contains
    ! auxiliary methods
    subroutine allocate_gpu(self)
-   !< Allocate common data.
+   !< Allocate GPU data.
    class(nasto_nvf_object), intent(inout) :: self !< The equation.
    character(:), allocatable              :: msg_ !< Allocating message base.
    character(:), allocatable              :: msg  !< Allocating message.
    integer(I4P)                           :: sn1  !< Solids number + 1.
 
    call self%mpih_gpu%print_message('nasto_nvf_object%allocate_gpu start')
-   msg_ = self%mpih%myrankstr//'nasto_nvf_object%initialize alloc_var_gpu '
+   msg_ = self%mpih%myrankstr//'nasto_nvf_object%allocate_gpu '
    associate(nv=>self%nv, ns=>self%ns, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
              nb=>self%nb, nv_aux=>self%nv_aux, iweno=>self%schemes%iweno, solids_number=>self%ib%solids_number)
    call assign_allocatable_gpu(lhs=self%ror_schemes_gpu, rhs=self%schemes%ror_schemes, msg=msg_//' ror_schemes_gpu ')
@@ -206,11 +208,11 @@ contains
    character(*),            intent(in)    :: filename !< Input file name.
 
    call self%mpih_gpu%initialize(do_mpi_init=.true., do_device_init=.true.)
-   call self%mpih_gpu%print_message('nasto_nvf_object%initialize_gpu start')
+   call self%mpih_gpu%print_message('nasto_nvf_object%initialize start')
    call self%initialize_common(filename=filename, memory_avail=self%mpih_gpu%memory_avail)
    call self%field_gpu%initialize(field=self%adam%field, nv_aux=self%nv_aux, verbose=.false.)
    call self%allocate_gpu
-   call self%mpih_gpu%print_message('nasto_nvf_object%initialize_gpu finish')
+   call self%mpih_gpu%print_message('nasto_nvf_object%initialize finish')
    endsubroutine initialize
 
    ! AMR methods
@@ -256,8 +258,44 @@ contains
    enddo amr
    endsubroutine amr_update
 
+   subroutine compute_phi(self)
+   !< Compute phi, distance from IB solid.
+   class(nasto_nvf_object), intent(inout) :: self !< The equation.
+   integer(I4P)                           :: ib   !< Counter.
+
+   associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc,                             &
+             x_cell_gpu=>self%field_gpu%x_cell_gpu, y_cell_gpu=>self%field_gpu%y_cell_gpu, z_cell_gpu=>self%field_gpu%z_cell_gpu, &
+             phi_gpu=>self%phi_gpu, solids_number=>self%ib%solids_number, definition=>self%ib%definition, sphere=>self%ib%sphere, &
+             ib_reduction_extent=>self%schemes%ib_reduction_extent, ib_reduced_order=>self%schemes%ib_reduced_order,              &
+             iweno=>self%schemes%iweno, cell_scheme_gpu=>self%cell_scheme_gpu)
+   if (solids_number>0) then
+      call self%mpih_gpu%print_message('compute IB distance start')
+      do ib=1, solids_number
+         ! compute phi
+         select case(trim(adjustl(definition(ib))))
+         case(trim(IB_ANALYTICAL_SPHERE))
+            call compute_phi_analytical_sphere_cuf(ib=ib, ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number,    &
+                                                   sphere=self%ib%sphere_to_array(ib=ib),                               &
+                                                   x_cell_gpu=x_cell_gpu, y_cell_gpu=y_cell_gpu, z_cell_gpu=z_cell_gpu, &
+                                                   phi_gpu=phi_gpu)
+            call self%mpih_gpu%check_cuda_error(error_code=-15, msg='CUDA error after compute phi analytical sphere')
+         endselect
+         ! reduce local order of spatial operator close to solids if requested
+         if (ib_reduction_extent > 0) call reduce_cell_order_phi_cuf(ib=ib,ni=ni,nj=nj,nk=nk,ngc=ngc,blocks_number=blocks_number, &
+                                                                     iweno=iweno, ib_reduced_order=ib_reduced_order,              &
+                                                                     ib_reduction_extent=ib_reduction_extent, phi_gpu=phi_gpu,    &
+                                                                     cell_scheme_gpu=cell_scheme_gpu)
+         call self%mpih_gpu%check_cuda_error(error_code=-15, msg='CUDA error after reduce cell order phi')
+      enddo
+      call compute_phi_all_solids_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number,phi_gpu=phi_gpu)
+      call self%mpih_gpu%check_cuda_error(error_code=-15, msg='CUDA error after compute phi all solids')
+      call self%mpih_gpu%print_message('compute IB distance finish')
+   endif
+   endassociate
+   endsubroutine compute_phi
+
    subroutine mark_by_geo(self, delta_fine, delta_coarse, threshold, do_init)
-   !< Mark blocks to be refined/derefined by a `grad(rho)` value.
+   !< Mark blocks to be refined/derefined by a geometric constrain.
    class(nasto_nvf_object), intent(inout)        :: self           !< The equation.
    real(R8P),               intent(in)           :: delta_fine     !< Maximum cell delta in fine grids.
    real(R8P),               intent(in)           :: delta_coarse   !< Minimum cell delta in coarse grids.
@@ -272,8 +310,8 @@ contains
    do_init_ = .true.    ; if (present(do_init)) do_init_ = do_init
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
    if (do_init_) self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
-   associate (ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
-              blocks_number=>self%blocks_number, ns=>self%ns, dxyz=>self%field%dxyz, phi=>self%ib%phi)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
+             blocks_number=>self%blocks_number, ns=>self%ns, dxyz=>self%field%dxyz, phi=>self%ib%phi)
       do b=1, blocks_number
          distance = 1._R8P
          if (maxval(phi(1,:,:,:,b))*minval(phi(1,:,:,:,b)) < 0._R8P) then
@@ -305,7 +343,7 @@ contains
    endsubroutine mark_by_geo
 
    subroutine mark_by_grad_var(self, grad_tol, delta_fine, delta_coarse, ivar, threshold, do_init)
-   !< Mark blocks to be refined/derefined by a `grad(rho)` value.
+   !< Mark blocks to be refined/derefined by a `grad(var)` value.
    class(nasto_nvf_object), intent(inout)        :: self           !< The equation.
    real(R8P),               intent(in)           :: grad_tol       !< Gradiend tolerance value.
    real(R8P),               intent(in)           :: delta_fine     !< Maximum cell delta in fine grids.
@@ -323,7 +361,7 @@ contains
    ivar_     = 1_R4P    ; if (present(ivar)) ivar_ = ivar
    do_init_ = .true.    ; if (present(do_init)) do_init_ = do_init
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
-   if(do_init_) self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
+   if (do_init_) self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
    associate (ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
               blocks_number=>self%blocks_number, ns=>self%ns, dxyz=>self%field%dxyz)
       call self%update_ghost_gpu(q_gpu=self%q_gpu)
@@ -357,7 +395,7 @@ contains
    endsubroutine mark_by_grad_var
 
    subroutine move_phi(self, velocity)
-   !< Move phi and the actual ptree representation.
+   !< Move phi.
    class(nasto_nvf_object), intent(inout) :: self        !< The equation.
    real(R8P),               intent(in)    :: velocity(3) !< Velocity of the movement.
 
@@ -378,46 +416,6 @@ contains
    enddo
    endsubroutine
 
-   subroutine compute_phi(self)
-   !< Compute phi, distance from IB solid.
-   class(nasto_nvf_object), intent(inout) :: self                      !< The equation.
-   integer(I4P)                           :: b, i, j, k, ib, l         !< Counter.
-   real(R8P)                              :: query_x, query_y, query_z !< Query point coordinates.
-   real(R8P)                              :: near_x, near_y, near_z    !< Nearest point coordinates.
-   real(R8P)                              :: distance                  !< Distance from solid.
-   logical                                :: inside                    !< Inside/outside boolean.
-
-   associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc,                             &
-             x_cell_gpu=>self%field_gpu%x_cell_gpu, y_cell_gpu=>self%field_gpu%y_cell_gpu, z_cell_gpu=>self%field_gpu%z_cell_gpu, &
-             phi_gpu=>self%phi_gpu, solids_number=>self%ib%solids_number, definition=>self%ib%definition, sphere=>self%ib%sphere, &
-             ib_reduction_extent=>self%schemes%ib_reduction_extent, ib_reduced_order=>self%schemes%ib_reduced_order,              &
-             iweno=>self%schemes%iweno, cell_scheme_gpu=>self%cell_scheme_gpu)
-   if (solids_number>0) then
-      call self%mpih_gpu%print_message('compute IB distance start')
-      do ib=1, solids_number
-         ! compute phi
-         select case(trim(adjustl(definition(ib))))
-         case(trim(IB_ANALYTICAL_SPHERE))
-            call compute_phi_analytical_sphere_cuf(ib=ib, ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number,    &
-                                                   sphere=self%ib%sphere_to_array(ib=ib),                               &
-                                                   x_cell_gpu=x_cell_gpu, y_cell_gpu=y_cell_gpu, z_cell_gpu=z_cell_gpu, &
-                                                   phi_gpu=phi_gpu)
-            call self%mpih_gpu%check_cuda_error(error_code=-15, msg='CUDA error after compute phi analytical sphere')
-         endselect
-         ! reduce local order of spatial operator close to solids if requested
-         if (ib_reduction_extent > 0) call reduce_cell_order_phi_cuf(ib=ib,ni=ni,nj=nj,nk=nk,ngc=ngc,blocks_number=blocks_number, &
-                                                                     iweno=iweno, ib_reduced_order=ib_reduced_order,              &
-                                                                     ib_reduction_extent=ib_reduction_extent, phi_gpu=phi_gpu,    &
-                                                                     cell_scheme_gpu=cell_scheme_gpu)
-         call self%mpih_gpu%check_cuda_error(error_code=-15, msg='CUDA error after reduce cell order phi')
-      enddo
-      call compute_phi_all_solids_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number,phi_gpu=phi_gpu)
-      call self%mpih_gpu%check_cuda_error(error_code=-15, msg='CUDA error after compute phi all solids')
-      call self%mpih_gpu%print_message('compute IB distance finish')
-   endif
-   endassociate
-   endsubroutine compute_phi
-
    ! IB methods
    subroutine integrate_eikonal_q_gpu(self)
    !< Integrate eikonal equation over q.
@@ -428,7 +426,7 @@ contains
              dx_gpu=>self%field_gpu%dxyz_gpu(:,1), dy_gpu=>self%field_gpu%dxyz_gpu(:,2), dz_gpu=>self%field_gpu%dxyz_gpu(:,3), &
              solids_number=>self%ib%solids_number, phi_gpu=>self%phi_gpu, dq_gpu=>self%dq_gpu, q_gpu=>self%q_gpu)
    if (blocks_number > 0) then
-      if (solids_number > 0 ) then
+      if (solids_number > 0) then
          do ib=1, solids_number
             call compute_eikonal_dq_phi_cuf(ib=ib, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
                                             dx_gpu=dx_gpu, dy_gpu=dy_gpu, dz_gpu=dz_gpu,                             &
@@ -451,7 +449,7 @@ contains
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number, &
              bcs_type=>self%ib%bc_type, solids_number=>self%ib%solids_number, phi_gpu=>self%phi_gpu, q_gpu=>self%q_gpu)
    if (blocks_number > 0) then
-      if (solids_number > 0 ) then
+      if (solids_number > 0) then
          do ib=1, solids_number
             call invert_eikonal_q_phi_cuf(BCS_VISCOUS=BCS_VISCOUS, BCS_EULER=BCS_EULER,                            &
                                           ib=ib, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
@@ -487,18 +485,18 @@ contains
    output_basename_ = trim(self%io%output_basename)//'-'//trim(strz(self%time%it,9))
    if (present(output_basename)) output_basename_ = trim(output_basename)
    if (self%ib%solids_number>0) then
-      call self%adam%save_hdf5(basename=trim(output_basename_),                                  &
-                               q=self%field%q,                                                   &
-                               q_aux=self%q_aux,                                                 &
-                               q_name=['rho','rhu','rhv','rhw','rhe'],                           &
-                               q_aux_name=['rhob','u','v','w','ya','tem','pres','ental','csp'],  &
+      call self%adam%save_hdf5(basename=trim(output_basename_),                                                       &
+                               q=self%field%q,                                                                        &
+                               q_aux=self%q_aux,                                                                      &
+                               q_name=['rho','rhu','rhv','rhw','rhe'],                                                &
+                               q_aux_name=['rhob ','u    ','v    ','w    ','ya   ','tem  ','pres ','ental','csp  '],  &
                                with_cell_morton=.true., phi=self%ib%phi)
    else
-      call self%adam%save_hdf5(basename=trim(output_basename_),                                  &
-                               q=self%field%q,                                                   &
-                               q_aux=self%q_aux,                                                 &
-                               q_name=['rho','rhu','rhv','rhw','rhe'],                           &
-                               q_aux_name=['rhob','u','v','w','ya','tem','pres','ental','csp'],  &
+      call self%adam%save_hdf5(basename=trim(output_basename_),                                                       &
+                               q=self%field%q,                                                                        &
+                               q_aux=self%q_aux,                                                                      &
+                               q_name=['rho','rhu','rhv','rhw','rhe'],                                                &
+                               q_aux_name=['rhob ','u    ','v    ','w    ','ya   ','tem  ','pres ','ental','csp  '],  &
                                with_cell_morton=.true.)
    endif
    call self%mpih_gpu%barrier(tictoc=.true.)
@@ -615,6 +613,23 @@ contains
    endsubroutine update_ghost_gpu
 
    ! numerical methods
+   subroutine compute_dt(self)
+   !< Compute maximum time step accordingly to CFL stabilty criterion.
+   class(nasto_nvf_object), intent(inout) :: self !< The equation.
+   real(R8P)                              :: umax !< Maximum speed of waves propagation.
+   integer(I4P)                           :: b    !< Counter.
+
+   call self%compute_q_aux_gpu(q_gpu=self%q_gpu, q_aux_gpu=self%q_aux_gpu)
+   self%time%dt = huge(1._R8P)
+   call compute_umax_cuf(ni=self%ni,nj=self%nj,nk=self%nk,ngc=self%ngc,blocks_number=self%blocks_number,mu=self%physics%eos(1)%mu,&
+                         dx_gpu=self%field_gpu%dxyz_gpu(:,1),                                                                     &
+                         dy_gpu=self%field_gpu%dxyz_gpu(:,2),                                                                     &
+                         dz_gpu=self%field_gpu%dxyz_gpu(:,3), q_aux_gpu=self%q_aux_gpu,umax=umax)
+   call self%mpih_gpu%check_cuda_error(error_code=-15, msg='CUDA error after compute umax')
+   self%time%dt = min(self%time%dt, self%time%CFL / umax)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih_gpu%error)
+   endsubroutine compute_dt
+
    subroutine compute_q_aux_gpu(self, q_gpu, q_aux_gpu)
    !< Compute auxiliary variables.
    class(nasto_nvf_object), intent(in)          :: self          !< The equation.
@@ -634,23 +649,6 @@ contains
                           dha=self%physics%eos(1)%dha, q_gpu=q_gpu, q_aux_gpu=q_aux_gpu)
    call self%mpih_gpu%check_cuda_error(error_code=-15, msg='CUDA error after compute q_aux')
    endsubroutine compute_q_aux_gpu
-
-   subroutine compute_dt(self)
-   !< Compute maximum time step accordingly to CFL stabilty criterion.
-   class(nasto_nvf_object), intent(inout) :: self !< The equation.
-   real(R8P)                              :: umax !< Maximum speed of waves propagation.
-   integer(I4P)                           :: b    !< Counter.
-
-   call self%compute_q_aux_gpu(q_gpu=self%q_gpu, q_aux_gpu=self%q_aux_gpu)
-   self%time%dt = huge(1._R8P)
-   call compute_umax_cuf(ni=self%ni,nj=self%nj,nk=self%nk,ngc=self%ngc,blocks_number=self%blocks_number,mu=self%physics%eos(1)%mu,&
-                         dx_gpu=self%field_gpu%dxyz_gpu(:,1),                                                                     &
-                         dy_gpu=self%field_gpu%dxyz_gpu(:,2),                                                                     &
-                         dz_gpu=self%field_gpu%dxyz_gpu(:,3), q_aux_gpu=self%q_aux_gpu,umax=umax)
-   call self%mpih_gpu%check_cuda_error(error_code=-15, msg='CUDA error after compute umax')
-   self%time%dt = min(self%time%dt, self%time%CFL / umax)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih_gpu%error)
-   endsubroutine compute_dt
 
    subroutine compute_residuals(self)
    !< Compute residuals of equation.

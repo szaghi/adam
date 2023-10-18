@@ -246,7 +246,7 @@ contains
 
    subroutine interpolate_at_point(self, itype, point, q, qp, is_mine, p, qc, ijk, xyz, code, v)
    !< Interpolate a scalar variable at a given point.
-   class(adam_object), intent(in)            :: self      !< ADAM.
+   class(adam_object), intent(inout)         :: self      !< ADAM.
    character(*),       intent(in)            :: itype     !< Type of interpolation.
    real(R8P),          intent(in)            :: point(3)  !< Interpolation point xyz coordinates.
    real(R8P),          intent(in)            :: q(1:,              &

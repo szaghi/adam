@@ -16,4 +16,7 @@ use adam_tree_node_object
 use adam_tree_bucket_object
 use adam_tree_object
 
+implicit none
+public
+
 endmodule adam_common_library

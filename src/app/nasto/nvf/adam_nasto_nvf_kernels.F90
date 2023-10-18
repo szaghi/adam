@@ -873,7 +873,7 @@ contains
    endsubroutine compute_q_aux_cuf
 
    subroutine compute_q_gradient_cuf(b, ni, nj, nk, ngc, dx, dy, dz, q_gpu, ivar, gradient)
-   !< Gradient done by CUF threads.
+   !< Compute gradient of q(ivar).
    integer(I4P), intent(in)         :: b                                 !< Block index.
    integer(I4P), intent(in)         :: ni                                !< Grid cells number in I direction.
    integer(I4P), intent(in)         :: nj                                !< Grid cells number in J direction.

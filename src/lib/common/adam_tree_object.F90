@@ -501,13 +501,13 @@ contains
 
    function get_closest_block(self, point) result(code)
    !< Get the closest block to a given point.
-   class(tree_object), intent(in) :: self        !< The tree.
-   real(R8P),          intent(in) :: point(3)    !< Point xyz coordinates.
-   integer(I8P)                   :: code        !< The Morton code.
-   integer(I4P)                   :: ijkl(4)     !< Indexes.
-   integer(I8P), allocatable      :: path(:)     !< Path codes from node to root.
-   integer(I4P)                   :: c           !< Counter.
-   logical                        :: block_found !< Flag to check if block has been found.
+   class(tree_object), intent(inout) :: self        !< The tree.
+   real(R8P),          intent(in)    :: point(3)    !< Point xyz coordinates.
+   integer(I8P)                      :: code        !< The Morton code.
+   integer(I4P)                      :: ijkl(4)     !< Indexes.
+   integer(I8P), allocatable         :: path(:)     !< Path codes from node to root.
+   integer(I4P)                      :: c           !< Counter.
+   logical                           :: block_found !< Flag to check if block has been found.
 
    ! find the block closest to the point in the finest refinement level
    ijkl(1:3) = self%grid%get_closest_block(point=point, level=self%max_level)

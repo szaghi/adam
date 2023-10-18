@@ -156,8 +156,8 @@ target   = adam_nasto_cpu.F90
 preproc  = -D_MPI_
 compiler = gnu
 mpi      = True
-cflags   = -C -g -O0
-lflags   = -O0
+cflags   = -cpp -c -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fcheck=all -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan
+lflags   = -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fcheck=all -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan
 ext_libs = dl m
 lib_dir  = $HDF5_gnu/lib
 include  = $HDF5_gnu/include

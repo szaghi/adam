@@ -64,6 +64,7 @@ type :: ib_object
       procedure, pass(self) :: description            !< Return pretty-printed object description.
       procedure, pass(self) :: evolve_eikonal_q       !< Evolve eikonal q.
       procedure, pass(self) :: initialize             !< Initialize IB.
+      procedure, pass(self) :: invert_eikonal_q       !< Invert eikonal equation over q inside IB.
       procedure, pass(self) :: load_from_file         !< Load config from file.
       procedure, pass(self) :: move_phi               !< Move phi and the actual ptree representation.
       procedure, pass(self) :: sphere_to_array        !< Convert analytical sphere class data to array data.
@@ -329,6 +330,55 @@ contains
    enddo
    endassociate
    endsubroutine evolve_eikonal_q
+
+   subroutine invert_eikonal_q(self, q)
+   !< Invert eikonal equation over q inside IB.
+   class(ib_object), intent(in)    :: self                  !< IB.
+   real(R8P),        intent(inout) ::  q(1:,               &
+                                         1-self%grid%ngc:, &
+                                         1-self%grid%ngc:, &
+                                         1-self%grid%ngc:, &
+                                         1:)                !< Conservative variables.
+   integer(I4P)                :: i, j, k, b, s             !< Counter.
+   real(R8P)                   :: n_phi_x, n_phi_y, n_phi_z !< Distance function normals.
+   real(R8P)                   :: n_phi_mod, un_mod         !< Distance abs normal and normal velocity.
+
+   associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, &
+             phi=>self%phi, solids_number=>self%solids_number, bcs_type=>self%bc_type)
+   do b=1, blocks_number
+      do k=1, nk
+         do j=1, nj
+            do i=1,ni
+               solids_loop : do s=1, solids_number
+                  if     (bcs_type(s) == BCS_VISCOUS) then
+                     if (phi(s,i,j,k,b) > 0) then
+                        q(2,i,j,k,b) = - q(2,i,j,k,b)
+                        q(3,i,j,k,b) = - q(3,i,j,k,b)
+                        q(4,i,j,k,b) = - q(4,i,j,k,b)
+                     endif
+                  elseif (bcs_type(s) == BCS_EULER  ) then
+                     if (phi(s,i,j,k,b) > 0) then
+                        n_phi_x = phi(s,i+1,j,k,b) - phi(s,i-1,j,k,b)
+                        n_phi_y = phi(s,i,j+1,k,b) - phi(s,i,j-1,k,b)
+                        n_phi_z = phi(s,i,j,k+1,b) - phi(s,i,j,k-1,b)
+                        n_phi_mod = sqrt(n_phi_x**2 + n_phi_y**2 + n_phi_z**2)
+                        n_phi_x = n_phi_x/n_phi_mod
+                        n_phi_y = n_phi_y/n_phi_mod
+                        n_phi_z = n_phi_z/n_phi_mod
+                        un_mod = q(2,i,j,k,b)*n_phi_x + q(3,i,j,k,b)*n_phi_y + q(4,i,j,k,b)*n_phi_z
+
+                        q(2,i,j,k,b) = q(2,i,j,k,b) - 2*un_mod*n_phi_x
+                        q(3,i,j,k,b) = q(3,i,j,k,b) - 2*un_mod*n_phi_y
+                        q(4,i,j,k,b) = q(4,i,j,k,b) - 2*un_mod*n_phi_z
+                     endif
+                  endif
+               enddo solids_loop
+            enddo
+         enddo
+      enddo
+   enddo
+   endassociate
+   endsubroutine invert_eikonal_q
 
    ! private methods
    subroutine compute_phi_analytical_sphere(self, solid, sphere)
