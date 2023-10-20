@@ -867,7 +867,7 @@ contains
                   enddo
                enddo
                ! Reconstruction of the + and - fluxes
-               wenorec_scheme = cell_scheme(1,i,j,k,b)
+               wenorec_scheme = cell_scheme(b,i,j,k,1)
                call weno_reconstruction(nvar=nv, vp=gplus(1:,1:,j,k,b), vm=gminus(1:,1:,j,k,b), &
                                         vminus=gl, vplus=gr, iweno=iweno, wenorec_ord=wenorec_scheme)
                ror_x: do m = 2, size(ror_schemes)
@@ -989,7 +989,7 @@ contains
                   enddo
                enddo
                ! Reconstruction of the + and - fluxes
-               wenorec_scheme = cell_scheme(2,i,j,k,b)
+               wenorec_scheme = cell_scheme(b,i,j,k,2)
                call weno_reconstruction(nvar=nv, vp=gplus(1:,1:,i,k,b), vm=gminus(1:,1:,i,k,b), &
                                         vminus=gl, vplus=gr, iweno=iweno, wenorec_ord=wenorec_scheme)
                ror_y: do m = 2, size(ror_schemes)
@@ -1111,7 +1111,7 @@ contains
                   enddo
                enddo
                ! Reconstruction of the + and - fluxes
-               wenorec_scheme = cell_scheme(3,i,j,k,b)
+               wenorec_scheme = cell_scheme(b,i,j,k,3)
                call weno_reconstruction(nvar=nv, vp=gplus(1:,1:,i,j,b), vm=gminus(1:,1:,i,j,b), &
                                         vminus=gl, vplus=gr, iweno=iweno, wenorec_ord=wenorec_scheme)
                ror_z: do m = 2, size(ror_schemes)
@@ -1425,7 +1425,7 @@ contains
             grad = sqrt(((q(ivar,i+1,j,k,b) - q(ivar,i-1,j,k,b))/(2*dx))**2 + &
                         ((q(ivar,i,j+1,k,b) - q(ivar,i,j-1,k,b))/(2*dy))**2 + &
                         ((q(ivar,i,j,k+1,b) - q(ivar,i,j,k-1,b))/(2*dz))**2)
-            grad = grad/(abs(q(b,i,j,k,ivar))+tol)
+            grad = grad/(abs(q(ivar,i,j,k,b))+tol)
             gradient = max(gradient, grad)
          enddo
       enddo
