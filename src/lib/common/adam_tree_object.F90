@@ -860,13 +860,15 @@ contains
             !                            neighbor=neighbor,           &
             !                            neighbor_type=neighbor_type, &
             !                            neighbor_bc_fec=neighbor_bc_fec)
-            neighbor        = node_ptr%neighbor(fec)%codes
-            neighbor_type   = node_ptr%neighbor(fec)%ntype
-            neighbor_bc_fec = node_ptr%neighbor(fec)%bc_fec
-            if (neighbor_type == NODE_BOUNDARY_CONDITION) then
-               if (fec<=6)             fec_bc_faces_number   = fec_bc_faces_number   + 1_I4P
-               if (fec>=7.and.fec<=18) fec_bc_edges_number   = fec_bc_edges_number   + 1_I4P
-               if (fec>=19)            fec_bc_corners_number = fec_bc_corners_number + 1_I4P
+            if (allocated(node_ptr%neighbor(fec)%codes)) then
+               neighbor        = node_ptr%neighbor(fec)%codes
+               neighbor_type   = node_ptr%neighbor(fec)%ntype
+               neighbor_bc_fec = node_ptr%neighbor(fec)%bc_fec
+               if (neighbor_type == NODE_BOUNDARY_CONDITION) then
+                  if (fec<=6)             fec_bc_faces_number   = fec_bc_faces_number   + 1_I4P
+                  if (fec>=7.and.fec<=18) fec_bc_edges_number   = fec_bc_edges_number   + 1_I4P
+                  if (fec>=19)            fec_bc_corners_number = fec_bc_corners_number + 1_I4P
+               endif
             endif
          enddo
       endif
@@ -886,51 +888,53 @@ contains
                !                            neighbor=neighbor,           &
                !                            neighbor_type=neighbor_type, &
                !                            neighbor_bc_fec=neighbor_bc_fec)
-               neighbor        = node_ptr%neighbor(fec)%codes
-               neighbor_type   = node_ptr%neighbor(fec)%ntype
-               neighbor_bc_fec = node_ptr%neighbor(fec)%bc_fec
-               if (neighbor_type == NODE_BOUNDARY_CONDITION) then
-                  select case(neighbor_bc_fec)
-                  case(1,7,9,11,13,19,21,23,25)
-                     ! BC i min
-                     fec_bc_type = self%grid%bc_type(1)
-                  case(2,8,10,12,14,20,22,24,26)
-                     ! BC i max
-                     fec_bc_type = self%grid%bc_type(2)
-                  case(3,15,17)
-                     ! BC j min
-                     fec_bc_type = self%grid%bc_type(3)
-                  case(4,16,18)
-                     ! BC j max
-                     fec_bc_type = self%grid%bc_type(4)
-                  case(5)
-                     ! BC k min
-                     fec_bc_type = self%grid%bc_type(5)
-                  case(6)
-                     ! BC k max
-                     fec_bc_type = self%grid%bc_type(6)
-                  endselect
-                  call compute_ijk_min_max_delta(fec=fec, neighbor_bc_fec=neighbor_bc_fec, ijk_min_max_delta=ijk_min_max_delta)
-                  if (fec<=6) then
-                     fec_bc_faces_number = fec_bc_faces_number + 1_I4P
-                     self%local_map_bc_face(fec_bc_faces_number,1)    = node_ptr%block_index
-                     self%local_map_bc_face(fec_bc_faces_number,2)    = neighbor_bc_fec
-                     self%local_map_bc_face(fec_bc_faces_number,3:11) = ijk_min_max_delta
-                     self%local_map_bc_face(fec_bc_faces_number,12)   = fec_bc_type
-                  endif
-                  if (fec>=7.and.fec<=18) then
-                     fec_bc_edges_number = fec_bc_edges_number + 1_I4P
-                     self%local_map_bc_edge(fec_bc_edges_number,1)    = node_ptr%block_index
-                     self%local_map_bc_edge(fec_bc_edges_number,2)    = neighbor_bc_fec
-                     self%local_map_bc_edge(fec_bc_edges_number,3:11) = ijk_min_max_delta
-                     self%local_map_bc_edge(fec_bc_edges_number,12)   = fec_bc_type
-                  endif
-                  if (fec>=19) then
-                     fec_bc_corners_number = fec_bc_corners_number + 1_I4P
-                     self%local_map_bc_corner(fec_bc_corners_number,1)    = node_ptr%block_index
-                     self%local_map_bc_corner(fec_bc_corners_number,2)    = neighbor_bc_fec
-                     self%local_map_bc_corner(fec_bc_corners_number,3:11) = ijk_min_max_delta
-                     self%local_map_bc_corner(fec_bc_corners_number,12)   = fec_bc_type
+               if (allocated(node_ptr%neighbor(fec)%codes)) then
+                  neighbor        = node_ptr%neighbor(fec)%codes
+                  neighbor_type   = node_ptr%neighbor(fec)%ntype
+                  neighbor_bc_fec = node_ptr%neighbor(fec)%bc_fec
+                  if (neighbor_type == NODE_BOUNDARY_CONDITION) then
+                     select case(neighbor_bc_fec)
+                     case(1,7,9,11,13,19,21,23,25)
+                        ! BC i min
+                        fec_bc_type = self%grid%bc_type(1)
+                     case(2,8,10,12,14,20,22,24,26)
+                        ! BC i max
+                        fec_bc_type = self%grid%bc_type(2)
+                     case(3,15,17)
+                        ! BC j min
+                        fec_bc_type = self%grid%bc_type(3)
+                     case(4,16,18)
+                        ! BC j max
+                        fec_bc_type = self%grid%bc_type(4)
+                     case(5)
+                        ! BC k min
+                        fec_bc_type = self%grid%bc_type(5)
+                     case(6)
+                        ! BC k max
+                        fec_bc_type = self%grid%bc_type(6)
+                     endselect
+                     call compute_ijk_min_max_delta(fec=fec, neighbor_bc_fec=neighbor_bc_fec, ijk_min_max_delta=ijk_min_max_delta)
+                     if (fec<=6) then
+                        fec_bc_faces_number = fec_bc_faces_number + 1_I4P
+                        self%local_map_bc_face(fec_bc_faces_number,1)    = node_ptr%block_index
+                        self%local_map_bc_face(fec_bc_faces_number,2)    = neighbor_bc_fec
+                        self%local_map_bc_face(fec_bc_faces_number,3:11) = ijk_min_max_delta
+                        self%local_map_bc_face(fec_bc_faces_number,12)   = fec_bc_type
+                     endif
+                     if (fec>=7.and.fec<=18) then
+                        fec_bc_edges_number = fec_bc_edges_number + 1_I4P
+                        self%local_map_bc_edge(fec_bc_edges_number,1)    = node_ptr%block_index
+                        self%local_map_bc_edge(fec_bc_edges_number,2)    = neighbor_bc_fec
+                        self%local_map_bc_edge(fec_bc_edges_number,3:11) = ijk_min_max_delta
+                        self%local_map_bc_edge(fec_bc_edges_number,12)   = fec_bc_type
+                     endif
+                     if (fec>=19) then
+                        fec_bc_corners_number = fec_bc_corners_number + 1_I4P
+                        self%local_map_bc_corner(fec_bc_corners_number,1)    = node_ptr%block_index
+                        self%local_map_bc_corner(fec_bc_corners_number,2)    = neighbor_bc_fec
+                        self%local_map_bc_corner(fec_bc_corners_number,3:11) = ijk_min_max_delta
+                        self%local_map_bc_corner(fec_bc_corners_number,12)   = fec_bc_type
+                     endif
                   endif
                endif
             enddo
@@ -1316,13 +1320,15 @@ contains
          is_inner_block = .true.
          do fec=1, 26
             ! call self%get_neighbor_all(code=node_ptr%code, face=fec, neighbor=neighbor, neighbor_type=neighbor_type)
-            neighbor      = node_ptr%neighbor(fec)%codes
-            neighbor_type = node_ptr%neighbor(fec)%ntype
-            if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
-               do n=1, size(neighbor, dim=1)
-                  neigh => self%node(code=neighbor(n))
-                  if (self%mpih%myrank /= neigh%myrank) is_inner_block = .false.
-               enddo
+            if (allocated(node_ptr%neighbor(fec)%codes)) then
+               neighbor      = node_ptr%neighbor(fec)%codes
+               neighbor_type = node_ptr%neighbor(fec)%ntype
+               if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
+                  do n=1, size(neighbor, dim=1)
+                     neigh => self%node(code=neighbor(n))
+                     if (self%mpih%myrank /= neigh%myrank) is_inner_block = .false.
+                  enddo
+               endif
             endif
          enddo
          if (is_inner_block) then
@@ -1520,37 +1526,39 @@ contains
       do fec=1, 26
          weight_reduction = 2 ** count(FEC_TO_DELTA(:, fec)==0_I4P, dim=1)
          ! call self%get_neighbor_all(code=node_ptr%code, face=fec, neighbor=neighbor, neighbor_type=neighbor_type)
-         neighbor      = node_ptr%neighbor(fec)%codes
-         neighbor_type = node_ptr%neighbor(fec)%ntype
-         if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
-            do n=1, size(neighbor, dim=1)
-               neigh => self%node(code=neighbor(n))
-               if     ((self%mpih%myrank == neigh%myrank).and.(self%mpih%myrank == node_ptr%myrank)) then
-                  my_fec_number = my_fec_number + 1
-               elseif ((self%mpih%myrank /= neigh%myrank).and.(self%mpih%myrank == node_ptr%myrank)) then
-                  ! when receiving from same or less refined than me the size of the message is full, when receiving from
-                  ! more refined the message is an averaged portion (reduced size)
-                  recv_fec_number = recv_fec_number + 1
-                  if (neighbor_type==NODE_MORE_REFINED) then
-                     self%comm_map_n_recv_ghost(neigh%myrank) = self%comm_map_n_recv_ghost(neigh%myrank) + &
-                                                                self%grid%weight_neighbor(fec)/ weight_reduction
-                  else
-                     self%comm_map_n_recv_ghost(neigh%myrank) = self%comm_map_n_recv_ghost(neigh%myrank) + &
-                                                                self%grid%weight_neighbor(fec)
-                  endif
-               elseif ((self%mpih%myrank == neigh%myrank).and.(self%mpih%myrank /= node_ptr%myrank)) then
-                  ! when sending to same or more refined than me the size of the message is full, when sending to less
-                  ! refined the message is an averaged portion (reduced size)
-                  send_fec_number = send_fec_number + 1
-                  if (neighbor_type==NODE_MORE_REFINED) then
-                     self%comm_map_n_send_ghost(node_ptr%myrank) = self%comm_map_n_send_ghost(node_ptr%myrank) + &
+         if (allocated(node_ptr%neighbor(fec)%codes)) then
+            neighbor      = node_ptr%neighbor(fec)%codes
+            neighbor_type = node_ptr%neighbor(fec)%ntype
+            if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
+               do n=1, size(neighbor, dim=1)
+                  neigh => self%node(code=neighbor(n))
+                  if     ((self%mpih%myrank == neigh%myrank).and.(self%mpih%myrank == node_ptr%myrank)) then
+                     my_fec_number = my_fec_number + 1
+                  elseif ((self%mpih%myrank /= neigh%myrank).and.(self%mpih%myrank == node_ptr%myrank)) then
+                     ! when receiving from same or less refined than me the size of the message is full, when receiving from
+                     ! more refined the message is an averaged portion (reduced size)
+                     recv_fec_number = recv_fec_number + 1
+                     if (neighbor_type==NODE_MORE_REFINED) then
+                        self%comm_map_n_recv_ghost(neigh%myrank) = self%comm_map_n_recv_ghost(neigh%myrank) + &
                                                                    self%grid%weight_neighbor(fec)/ weight_reduction
-                  else
-                     self%comm_map_n_send_ghost(node_ptr%myrank) = self%comm_map_n_send_ghost(node_ptr%myrank) + &
+                     else
+                        self%comm_map_n_recv_ghost(neigh%myrank) = self%comm_map_n_recv_ghost(neigh%myrank) + &
                                                                    self%grid%weight_neighbor(fec)
+                     endif
+                  elseif ((self%mpih%myrank == neigh%myrank).and.(self%mpih%myrank /= node_ptr%myrank)) then
+                     ! when sending to same or more refined than me the size of the message is full, when sending to less
+                     ! refined the message is an averaged portion (reduced size)
+                     send_fec_number = send_fec_number + 1
+                     if (neighbor_type==NODE_MORE_REFINED) then
+                        self%comm_map_n_send_ghost(node_ptr%myrank) = self%comm_map_n_send_ghost(node_ptr%myrank) + &
+                                                                      self%grid%weight_neighbor(fec)/ weight_reduction
+                     else
+                        self%comm_map_n_send_ghost(node_ptr%myrank) = self%comm_map_n_send_ghost(node_ptr%myrank) + &
+                                                                      self%grid%weight_neighbor(fec)
+                     endif
                   endif
-               endif
-            enddo
+               enddo
+            endif
          endif
       enddo
    enddo
@@ -1576,72 +1584,74 @@ contains
          weight_reduction = 2 ** count(FEC_TO_DELTA(:, fec)==0_I4P, dim=1)
          ! call self%get_neighbor_all(code=node_ptr%code, face=fec, neighbor=neighbor, &
                                     ! neighbor_type=neighbor_type, neighbor_portion=neighbor_portion)
-         neighbor         = node_ptr%neighbor(fec)%codes
-         neighbor_type    = node_ptr%neighbor(fec)%ntype
-         neighbor_portion = node_ptr%neighbor(fec)%portion
-         if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
-            do n=1, size(neighbor, dim=1)
-               neigh => self%node(code=neighbor(n))
-               if     ((self%mpih%myrank == neigh%myrank).and.(self%mpih%myrank == node_ptr%myrank)) then
-                  mf = mf + 1
-                  self%local_map_ghost(mf, 1) = node_ptr%block_index
-                  self%local_map_ghost(mf, 2) = neigh%block_index
-                  self%local_map_ghost(mf, 3) = fec
-                  if     (neighbor_type==NODE_STANDARD) then
-                     self%local_map_ghost(mf, 4) = 0
-                  elseif (neighbor_type==NODE_MORE_REFINED) then
-                     self%local_map_ghost(mf, 4) = n
-                  elseif (neighbor_type==NODE_LESS_REFINED) then
-                     self%local_map_ghost(mf, 4) = -neighbor_portion
-                  endif
-                  call compute_ijk_min_max_delta(fec=fec, portion=self%local_map_ghost(mf, 4), &
-                                                 ijk_min_max_delta=self%local_map_ghost(mf, 5:))
-               elseif ((self%mpih%myrank /= neigh%myrank).and.(self%mpih%myrank == node_ptr%myrank)) then
-                  rf = rf + 1
-                  self%comm_map_recv_ghost(rf, 15) = comm_map_recv_ctr_ghost(neigh%myrank)
-                  self%comm_map_recv_ghost(rf, 1) = node_ptr%block_index
-                  self%comm_map_recv_ghost(rf, 2) = neigh%block_index
-                  self%comm_map_recv_ghost(rf, 3) = neigh%myrank
-                  self%comm_map_recv_ghost(rf, 4) = fec
-                  if     (neighbor_type==NODE_STANDARD) then
-                     self%comm_map_recv_ghost(rf, 5) = 0
-                     comm_map_recv_ctr_ghost(neigh%myrank) = comm_map_recv_ctr_ghost(neigh%myrank) + &
-                                                             self%grid%weight_neighbor(fec)
-                  elseif (neighbor_type==NODE_MORE_REFINED) then
-                     self%comm_map_recv_ghost(rf, 5) = n
-                     comm_map_recv_ctr_ghost(neigh%myrank) = comm_map_recv_ctr_ghost(neigh%myrank) + &
-                                                             self%grid%weight_neighbor(fec) / weight_reduction
-                  elseif (neighbor_type==NODE_LESS_REFINED) then
-                     self%comm_map_recv_ghost(rf, 5) = -neighbor_portion
-                     comm_map_recv_ctr_ghost(neigh%myrank) = comm_map_recv_ctr_ghost(neigh%myrank) + &
-                                                             self%grid%weight_neighbor(fec)
-                  endif
-                  call compute_ijk_min_max_delta(fec=fec, portion=self%comm_map_recv_ghost(rf, 5), &
-                                                 ijk_min_max_delta=self%comm_map_recv_ghost(rf, 6:))
-               elseif ((self%mpih%myrank == neigh%myrank).and.(self%mpih%myrank /= node_ptr%myrank)) then
-                  sf = sf + 1
-                  self%comm_map_send_ghost(sf, 15) = comm_map_send_ctr_ghost(node_ptr%myrank)
-                  self%comm_map_send_ghost(sf, 1) = node_ptr%block_index
-                  self%comm_map_send_ghost(sf, 2) = neigh%block_index
-                  self%comm_map_send_ghost(sf, 3) = node_ptr%myrank
-                  self%comm_map_send_ghost(sf, 4) = fec
-                  if     (neighbor_type==NODE_STANDARD) then
-                     self%comm_map_send_ghost(sf, 5) = 0
-                     comm_map_send_ctr_ghost(node_ptr%myrank) = comm_map_send_ctr_ghost(node_ptr%myrank) + &
+         if (allocated(node_ptr%neighbor(fec)%codes)) then
+            neighbor         = node_ptr%neighbor(fec)%codes
+            neighbor_type    = node_ptr%neighbor(fec)%ntype
+            neighbor_portion = node_ptr%neighbor(fec)%portion
+            if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
+               do n=1, size(neighbor, dim=1)
+                  neigh => self%node(code=neighbor(n))
+                  if     ((self%mpih%myrank == neigh%myrank).and.(self%mpih%myrank == node_ptr%myrank)) then
+                     mf = mf + 1
+                     self%local_map_ghost(mf, 1) = node_ptr%block_index
+                     self%local_map_ghost(mf, 2) = neigh%block_index
+                     self%local_map_ghost(mf, 3) = fec
+                     if     (neighbor_type==NODE_STANDARD) then
+                        self%local_map_ghost(mf, 4) = 0
+                     elseif (neighbor_type==NODE_MORE_REFINED) then
+                        self%local_map_ghost(mf, 4) = n
+                     elseif (neighbor_type==NODE_LESS_REFINED) then
+                        self%local_map_ghost(mf, 4) = -neighbor_portion
+                     endif
+                     call compute_ijk_min_max_delta(fec=fec, portion=self%local_map_ghost(mf, 4), &
+                                                    ijk_min_max_delta=self%local_map_ghost(mf, 5:))
+                  elseif ((self%mpih%myrank /= neigh%myrank).and.(self%mpih%myrank == node_ptr%myrank)) then
+                     rf = rf + 1
+                     self%comm_map_recv_ghost(rf, 15) = comm_map_recv_ctr_ghost(neigh%myrank)
+                     self%comm_map_recv_ghost(rf, 1) = node_ptr%block_index
+                     self%comm_map_recv_ghost(rf, 2) = neigh%block_index
+                     self%comm_map_recv_ghost(rf, 3) = neigh%myrank
+                     self%comm_map_recv_ghost(rf, 4) = fec
+                     if     (neighbor_type==NODE_STANDARD) then
+                        self%comm_map_recv_ghost(rf, 5) = 0
+                        comm_map_recv_ctr_ghost(neigh%myrank) = comm_map_recv_ctr_ghost(neigh%myrank) + &
                                                                 self%grid%weight_neighbor(fec)
-                  elseif (neighbor_type==NODE_MORE_REFINED) then
-                     self%comm_map_send_ghost(sf, 5) = n
-                     comm_map_send_ctr_ghost(node_ptr%myrank) = comm_map_send_ctr_ghost(node_ptr%myrank) + &
+                     elseif (neighbor_type==NODE_MORE_REFINED) then
+                        self%comm_map_recv_ghost(rf, 5) = n
+                        comm_map_recv_ctr_ghost(neigh%myrank) = comm_map_recv_ctr_ghost(neigh%myrank) + &
                                                                 self%grid%weight_neighbor(fec) / weight_reduction
-                  elseif (neighbor_type==NODE_LESS_REFINED) then
-                     self%comm_map_send_ghost(sf, 5) = -neighbor_portion
-                     comm_map_send_ctr_ghost(node_ptr%myrank) = comm_map_send_ctr_ghost(node_ptr%myrank) + &
+                     elseif (neighbor_type==NODE_LESS_REFINED) then
+                        self%comm_map_recv_ghost(rf, 5) = -neighbor_portion
+                        comm_map_recv_ctr_ghost(neigh%myrank) = comm_map_recv_ctr_ghost(neigh%myrank) + &
                                                                 self%grid%weight_neighbor(fec)
+                     endif
+                     call compute_ijk_min_max_delta(fec=fec, portion=self%comm_map_recv_ghost(rf, 5), &
+                                                    ijk_min_max_delta=self%comm_map_recv_ghost(rf, 6:))
+                  elseif ((self%mpih%myrank == neigh%myrank).and.(self%mpih%myrank /= node_ptr%myrank)) then
+                     sf = sf + 1
+                     self%comm_map_send_ghost(sf, 15) = comm_map_send_ctr_ghost(node_ptr%myrank)
+                     self%comm_map_send_ghost(sf, 1) = node_ptr%block_index
+                     self%comm_map_send_ghost(sf, 2) = neigh%block_index
+                     self%comm_map_send_ghost(sf, 3) = node_ptr%myrank
+                     self%comm_map_send_ghost(sf, 4) = fec
+                     if     (neighbor_type==NODE_STANDARD) then
+                        self%comm_map_send_ghost(sf, 5) = 0
+                        comm_map_send_ctr_ghost(node_ptr%myrank) = comm_map_send_ctr_ghost(node_ptr%myrank) + &
+                                                                   self%grid%weight_neighbor(fec)
+                     elseif (neighbor_type==NODE_MORE_REFINED) then
+                        self%comm_map_send_ghost(sf, 5) = n
+                        comm_map_send_ctr_ghost(node_ptr%myrank) = comm_map_send_ctr_ghost(node_ptr%myrank) + &
+                                                                   self%grid%weight_neighbor(fec) / weight_reduction
+                     elseif (neighbor_type==NODE_LESS_REFINED) then
+                        self%comm_map_send_ghost(sf, 5) = -neighbor_portion
+                        comm_map_send_ctr_ghost(node_ptr%myrank) = comm_map_send_ctr_ghost(node_ptr%myrank) + &
+                                                                   self%grid%weight_neighbor(fec)
+                     endif
+                     call compute_ijk_min_max_delta(fec=fec, portion=self%comm_map_send_ghost(sf, 5), &
+                                                    ijk_min_max_delta=self%comm_map_send_ghost(sf, 6:))
                   endif
-                  call compute_ijk_min_max_delta(fec=fec, portion=self%comm_map_send_ghost(sf, 5), &
-                                                 ijk_min_max_delta=self%comm_map_send_ghost(sf, 6:))
-               endif
-            enddo
+               enddo
+            endif
          endif
       enddo
    enddo
@@ -2913,29 +2923,31 @@ contains
          new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
          face_loop : do f=1, 26
             ! call self%get_neighbor_all(code=node_ptr%code, face=f, neighbor=neighbor, neighbor_type=neighbor_type)
-            neighbor         = node_ptr%neighbor(f)%codes
-            neighbor_type    = node_ptr%neighbor(f)%ntype
-            if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
-               neighbor_loop : do n=1, size(neighbor, dim=1)
-                  ! check level
-                  neigh => self%node(code=neighbor(n))
-                  new_level_n = self%level(code=neighbor(n)) + neigh%refinement_needed
-                  if (new_level_n > new_level + 1) then
-                     ! a neighbour want to be refined 2 levels more than me, I have to refine more too
-                     is_sanitize_complete = .false.
-                     if     (new_level_n - new_level == 3) then ! node want to derefine, but it must be refined
-                        node_ptr%refinement_needed = 1
-                     elseif (new_level_n - new_level == 2) then
-                        node_ptr%refinement_needed = node_ptr%refinement_needed + 1
-                     else
-                        print '(A)', self%mpih%myrankstr//'SOMETHING WENT TERRIBLY WRONG. EXIT!'
-                        print '(A)', self%mpih%myrankstr//'REFINEMENT NEEDED '//trim(str(node_ptr%refinement_needed,.true.))
-                        print '(A)', self%mpih%myrankstr//'SANITIZE ITERATIONS '//trim(str(s,.true.))
-                        stop
+            if (allocated(node_ptr%neighbor(f)%codes)) then
+               neighbor         = node_ptr%neighbor(f)%codes
+               neighbor_type    = node_ptr%neighbor(f)%ntype
+               if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
+                  neighbor_loop : do n=1, size(neighbor, dim=1)
+                     ! check level
+                     neigh => self%node(code=neighbor(n))
+                     new_level_n = self%level(code=neighbor(n)) + neigh%refinement_needed
+                     if (new_level_n > new_level + 1) then
+                        ! a neighbour want to be refined 2 levels more than me, I have to refine more too
+                        is_sanitize_complete = .false.
+                        if     (new_level_n - new_level == 3) then ! node want to derefine, but it must be refined
+                           node_ptr%refinement_needed = 1
+                        elseif (new_level_n - new_level == 2) then
+                           node_ptr%refinement_needed = node_ptr%refinement_needed + 1
+                        else
+                           print '(A)', self%mpih%myrankstr//'SOMETHING WENT TERRIBLY WRONG. EXIT!'
+                           print '(A)', self%mpih%myrankstr//'REFINEMENT NEEDED '//trim(str(node_ptr%refinement_needed,.true.))
+                           print '(A)', self%mpih%myrankstr//'SANITIZE ITERATIONS '//trim(str(s,.true.))
+                           stop
+                        endif
+                        new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
                      endif
-                     new_level = self%level(code=node_ptr%code) + node_ptr%refinement_needed
-                  endif
-               enddo neighbor_loop
+                  enddo neighbor_loop
+               endif
             endif
          enddo face_loop
 
