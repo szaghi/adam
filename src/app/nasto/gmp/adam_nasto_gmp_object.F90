@@ -780,9 +780,12 @@ contains
    integer(I4P)                                   :: s                     !< Counter.
    integer(I4P)                                   :: i_eikonal             !< Counter.
    integer(I4P), parameter                        :: n_eikonal=2           !< Counter.
+   integer(I4P)                                   :: error                 !< Memcpy error.
 
    do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
-   self%q_old_gpu = self%q_gpu ! store previous conservative variables for RK integration
+   error = omp_target_memcpy_f(fptr_dst=self%q_old_gpu, fptr_src=self%q_gpu, dst_off=0_I4P, src_off=0_I4P, &
+                               omp_dst_dev=self%base_gpu%mydev, omp_src_dev=self%base_gpu%mydev)
+   if (error/=0) call self%mpih%abort(error_code=20,msg='Error in integrate while copying q_gpu on q_gpu_old')
    do s=1, self%schemes%nrk
       if (self%ib%solids_number > 0) then ! integrate eikonal equation over q inside solids
          call self%update_ghost_gpu(q_gpu=self%q_gpu)
