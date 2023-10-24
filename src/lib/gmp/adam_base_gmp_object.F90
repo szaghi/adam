@@ -145,19 +145,18 @@ contains
                                                   1:nv) !< Conservative variables on GPU.
    integer(I4P)                          :: i, j, k, b, v !< Counter.
    integer(I4P)                          :: error         !< Memcpy output.
-   real(R8P), pointer                    :: q_t_dummy(:,:,:,:,:)
+   real(R8P), pointer, contiguous        :: q_t_dummy(:,:,:,:,:)
 
-   associate(blocks_number=>self%field%blocks_number, &
-             ni=>self%field%grid%ni,                  &
-             nj=>self%field%grid%nj,                  &
-             nk=>self%field%grid%nk,                  &
-             ngc=>self%field%grid%ngc,                &
-             q_t=>self%q_t)
-      q_t_dummy => q_t(:,:,:,:,1:nv)
-      do b=1, blocks_number
-         do k=1-ngc, nk+ngc
-            do j=1-ngc, nj+ngc
-               do i=1-ngc, ni+ngc
+      q_t_dummy(1:self%field%nb,&
+                1-self%field%grid%ngc:self%field%grid%ni+self%field%grid%ngc,&
+                1-self%field%grid%ngc:self%field%grid%nj+self%field%grid%ngc,&
+                1-self%field%grid%ngc:self%field%grid%nk+self%field%grid%ngc,&
+                1:nv) => self%q_t(:,:,:,:,1:nv)
+
+      do b=1, self%field%blocks_number
+         do k=1-self%field%grid%ngc, self%field%grid%nk+self%field%grid%ngc
+            do j=1-self%field%grid%ngc, self%field%grid%nj+self%field%grid%ngc
+               do i=1-self%field%grid%ngc, self%field%grid%ni+self%field%grid%ngc
                   do v=1, nv
                      q_t_dummy(b,i,j,k,v) = q_cpu(v,i,j,k,b)
                   enddo
@@ -169,7 +168,6 @@ contains
       error = omp_target_memcpy_f(fptr_dst=q_gpu, fptr_src=q_t_dummy, dst_off=0_I4P, src_off=0_I4P, &
                                   omp_dst_dev=self%mydev, omp_src_dev=self%myhos)
       if (error/=0) call self%mpih%abort(error_code=20,msg='Error in copy_transpose_cpu_gpu while copying q_t on q_gpu')
-   endassociate
    endsubroutine copy_transpose_cpu_gpu
 
    subroutine copy_transpose_gpu_cpu(self, nv, q_gpu, q_cpu)
