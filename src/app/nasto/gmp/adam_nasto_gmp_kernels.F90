@@ -45,6 +45,17 @@ contains
    integer                             :: wenorec_scheme, index_var
    logical                             :: ror_to_recompute
 
+   !$omp target
+   print *, 'CAZZO fconv_x q_aux 1',  q_aux_gpu(1,-1:10,1,1,1)
+   print *, 'CAZZO fconv_x q_aux 2',  q_aux_gpu(1,-1:10,1,1,2)
+   print *, 'CAZZO fconv_x q_aux 3',  q_aux_gpu(1,-1:10,1,1,3)
+   print *, 'CAZZO fconv_x q_aux 4',  q_aux_gpu(1,-1:10,1,1,4)
+   print *, 'CAZZO fconv_x q_aux 5',  q_aux_gpu(1,-1:10,1,1,5)
+   print *, 'CAZZO fconv_x q_aux 6',  q_aux_gpu(1,-1:10,1,1,6)
+   print *, 'CAZZO fconv_x q_aux 7',  q_aux_gpu(1,-1:10,1,1,7)
+   print *, 'CAZZO fconv_x q_aux 8',  q_aux_gpu(1,-1:10,1,1,8)
+   print *, 'CAZZO fconv_x q_aux 9',  q_aux_gpu(1,-1:10,1,1,9)
+   !$omp end target
    !$omp target data map(alloc:er,el,ev,evmax,ghat,gl,gr,fi,vi,gp,gm)
    !$omp target teams distribute parallel do collapse(4) has_device_addr(cell_scheme_gpu,ror_ivar_gpu,q_aux_gpu,ror_stats_gpu,&
    !$omp&                                                                flx_gpu)
@@ -55,6 +66,7 @@ contains
                ! compute Roe average
                call compute_roe_average(q_aux_gpu=q_aux_gpu, dha=dha, g=g, ngc=ngc, b=b, i=i, j=j, k=k, ip=i+1, jp=j, kp=k, &
                                         uu=uu, vv=vv, ww=ww, h=h, ya=ya, qq=qq, c=c, ci=ci, b1=b1, b2=b2)
+               if (b==1.and.i==1.and.j==1.and.k==1) print *, 'cazzo roe', uu, vv, ww, h, ya, qq, c, ci, b1, b2
                ! compute right and left eigenvectors matrices (at Roe state)
                er(1,1)=1._R8P ; er(1,2)=uu-c   ; er(1,3)=vv     ; er(1,4)=ww     ; er(1,5)=h-uu*c
                er(2,1)=1._R8P ; er(2,2)=uu     ; er(2,3)=vv     ; er(2,4)=ww     ; er(2,5)=qq
@@ -80,7 +92,9 @@ contains
                   do m=1,nv
                      evmax(m) = max(ev(m),evmax(m))
                   enddo
+                  if (b==1.and.i==1.and.j==1.and.k==1) print *, 'cazzo evmax dentro', l, ll, uu, c
                enddo
+               if (b==1.and.i==1.and.j==1.and.k==1) print *, 'cazzo evmax', evmax(1), evmax(2)
 
                ! Decompose fluxes as + and -
                do l=1,2*iweno ! loop over the stencil centered at face i
@@ -108,6 +122,8 @@ contains
                      gm(m,l) = gc - gp(m,l)
                   enddo
                enddo
+               if (b==1.and.i==1.and.j==1.and.k==1) print *, 'cazzo gp', gp(1,:)
+               if (b==1.and.i==1.and.j==1.and.k==1) print *, 'cazzo gm', gm(1,:)
 
                ! Reconstruction of the + and - fluxes
                wenorec_scheme = cell_scheme_gpu(b,i,j,k,1)
@@ -150,6 +166,11 @@ contains
       enddo
    enddo
    !$omp end target data
+   !$omp target
+   print *, 'CAZZO fconv_x flx rho',  flx_gpu(1,1,1,1,1), flx_gpu(1,2,1,1,1)
+   print *, 'CAZZO fconv_x flx u',    flx_gpu(1,1,1,1,2), flx_gpu(1,2,1,1,2)
+   !$omp end target
+   stop
    endsubroutine compute_flux_conv_x_kernel
 
    subroutine compute_flux_conv_y_kernel(blocks_number, ni, nj, nk, ngc, nv, iweno, dha, g, R, cv,       &
@@ -173,6 +194,10 @@ contains
    integer                             :: wenorec_scheme, index_var
    logical                             :: ror_to_recompute
 
+   !$omp target
+   print *, 'CAZZO fconv_y q_aux rho',  q_aux_gpu(1,1,1,1,1), q_aux_gpu(1,2,1,1,1)
+   print *, 'CAZZO fconv_y q_aux u',    q_aux_gpu(1,1,1,1,2), q_aux_gpu(1,2,1,1,2)
+   !$omp end target
    !$omp target data map(alloc:er,el,ev,evmax,ghat,gl,gr,fi,vi,gp,gm)
    !$omp target teams distribute parallel do collapse(4) has_device_addr(cell_scheme_gpu,ror_ivar_gpu,q_aux_gpu,ror_stats_gpu,&
    !$omp&                                                                fly_gpu)
@@ -277,6 +302,10 @@ contains
       enddo
    enddo
    !$omp end target data
+   !$omp target
+   print *, 'CAZZO fconv_y fly rho',  fly_gpu(1,1,1,1,1), fly_gpu(1,2,1,1,1)
+   print *, 'CAZZO fconv_y fly u',    fly_gpu(1,1,1,1,2), fly_gpu(1,2,1,1,2)
+   !$omp end target
    endsubroutine compute_flux_conv_y_kernel
 
    subroutine compute_flux_conv_z_kernel(blocks_number, ni, nj, nk, ngc, nv, iweno, dha, g, R, cv,       &
@@ -300,6 +329,10 @@ contains
    integer                             :: wenorec_scheme, index_var
    logical                             :: ror_to_recompute
 
+   !$omp target
+   print *, 'CAZZO fconv_z q_aux rho',  q_aux_gpu(1,1,1,1,1), q_aux_gpu(1,2,1,1,1)
+   print *, 'CAZZO fconv_z q_aux u',    q_aux_gpu(1,1,1,1,2), q_aux_gpu(1,2,1,1,2)
+   !$omp end target
    !$omp target data map(alloc:er,el,ev,evmax,ghat,gl,gr,fi,vi,gp,gm)
    !$omp target teams distribute parallel do collapse(4) has_device_addr(cell_scheme_gpu,ror_ivar_gpu,q_aux_gpu,ror_stats_gpu,&
    !$omp&                                                                flz_gpu)
@@ -404,6 +437,10 @@ contains
       enddo
    enddo
    !$omp end target data
+   !$omp target
+   print *, 'CAZZO fconv_z flz rho',  flz_gpu(1,1,1,1,1), flz_gpu(1,2,1,1,1)
+   print *, 'CAZZO fconv_z flz u',    flz_gpu(1,1,1,1,2), flz_gpu(1,2,1,1,2)
+   !$omp end target
    endsubroutine compute_flux_conv_z_kernel
 
    subroutine compute_flux_conv_x_central_kernel(blocks_number, ni, nj, nk, ngc, nv, lmax, &
@@ -683,6 +720,10 @@ contains
    enddo
    enddo
    enddo
+   !$omp target
+   print *, 'CAZZO fdiffe fl rho',  fl_gpu(1,1,1,1,1), fl_gpu(1,2,1,1,1)
+   print *, 'CAZZO fdiffe fl u',    fl_gpu(1,1,1,1,2), fl_gpu(1,2,1,1,2)
+   !$omp end target
    endsubroutine compute_fluxes_difference_gmp
 
    subroutine compute_fluxes_diffusive_gmp(blocks_number, ni, nj, nk, ngc, nv, mu, kd, &
@@ -831,6 +872,14 @@ contains
          enddo
       enddo
    enddo
+   !$omp target
+   print *, 'CAZZO fdiffu flx rho',  flx_gpu(1,1,1,1,1), flx_gpu(1,2,1,1,1)
+   print *, 'CAZZO fdiffu flx u',    flx_gpu(1,1,1,1,2), flx_gpu(1,2,1,1,2)
+   print *, 'CAZZO fdiffu fly rho',  fly_gpu(1,1,1,1,1), fly_gpu(1,2,1,1,1)
+   print *, 'CAZZO fdiffu fly u',    fly_gpu(1,1,1,1,2), fly_gpu(1,2,1,1,2)
+   print *, 'CAZZO fdiffu flz rho',  flz_gpu(1,1,1,1,1), flz_gpu(1,2,1,1,1)
+   print *, 'CAZZO fdiffu flz u',    flz_gpu(1,1,1,1,2), flz_gpu(1,2,1,1,2)
+   !$omp end target
    endsubroutine compute_fluxes_diffusive_gmp
 
    subroutine compute_q_aux_gmp(ni, nj, nk, ngc, ns, blocks_number, R, cv, g, dha, q_gpu, q_aux_gpu)
@@ -1017,6 +1066,7 @@ contains
    integer(I4P)                :: fec                     !< Boundary fec (1 to 26).
    integer(I4P)                :: fec_1_6                 !< Boundary fec (1 to 6).
 
+   print *, ' ***** '
    do crown=1, ngc
    !$omp target teams distribute parallel do has_device_addr(fec_1_6_array_gpu,local_map_bc_gpu,q_bc_vars_gpu,q_gpu)
       do c=1, size(local_map_bc_gpu, dim=1)
@@ -1031,6 +1081,7 @@ contains
             bc_type = local_map_bc_gpu(c, 8 ,crown)
             fec     = local_map_bc_gpu(c, 9 ,crown)
             fec_1_6 = fec_1_6_array_gpu(fec)
+            if (i==0.and.j==1.and.k==1.and.b==1) print *, 'BCBC', q_bc_vars_gpu(1,fec_1_6), q_bc_vars_gpu(2,fec_1_6)
             if (bc_type == BC_EXTRAPOLATION) then
                do v=1, nv
                   q_gpu(b,i,j,k,v) = q_gpu(b,i-idelta,j-jdelta,k-kdelta,v)
@@ -1096,6 +1147,10 @@ contains
          enddo
       enddo
    endif
+   !$omp target
+   print *, 'CAZZO rk_q q rho',  q_gpu(1,1,1,1,1), q_gpu(1,2,1,1,1)
+   print *, 'CAZZO rk_q q u',    q_gpu(1,1,1,1,2), q_gpu(1,2,1,1,2)
+   !$omp end target
    endsubroutine compute_rk_q_gpu_gmp
 
    ! WENO procedures
@@ -1103,7 +1158,7 @@ contains
    !< Compute WENO reconstruction.
    integer, intent(in)                     :: nvar, iweno, wenorec_ord
    !real(R8P), dimension(nvar,2*iweno), intent(in)  :: vm,vp
-   real(R8P), dimension(5,8)               :: vp,vm
+   real(R8P), dimension(5,8), intent(in)   :: vm,vp
    real(R8P), dimension(nvar), intent(out) :: vminus,vplus
    real(R8P), dimension(-1:4)              :: dwe               ! linear weights
    real(R8P), dimension(-1:4)              :: alfp,alfm         ! alpha_l

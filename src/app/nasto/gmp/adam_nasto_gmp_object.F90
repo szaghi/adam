@@ -564,8 +564,8 @@ contains
                                                    1-self%ngc:,&
                                                    1-self%ngc:,1:) !< Conservative variables.
 
-      if (associated(self%base_gpu%local_map_bc_crown_gpu)) then
-      call set_bc_q_gpu_gmp(BC_EXTRAPOLATION=BC_EXTRAPOLATION, BC_INFLOW=BC_INFLOW, &
+   if (associated(self%base_gpu%local_map_bc_crown_gpu)) then
+      call set_bc_q_gpu_gmp(BC_EXTRAPOLATION=BC_EXTRAPOLATION, BC_INFLOW=BC_INFLOW,                       &
                             nv=self%nv, ngc=self%ngc, cv=self%physics%eos(1)%cv, R=self%physics%eos(1)%R, &
                             local_map_bc_gpu=self%base_gpu%local_map_bc_crown_gpu,                        &
                             fec_1_6_array_gpu=self%base_gpu%fec_1_6_array_gpu,                            &
@@ -579,6 +579,11 @@ contains
    class(nasto_gmp_object), intent(inout) :: self !< The equation.
 
    call self%ic%set_initial_conditions(physics=self%physics, field=self%field)
+   print *, 'CAZZO set_init q 1',  self%field%q(1,-1:10,1,1,1)
+   print *, 'CAZZO set_init q 2',  self%field%q(2,-1:10,1,1,1)
+   print *, 'CAZZO set_init q 3',  self%field%q(3,-1:10,1,1,1)
+   print *, 'CAZZO set_init q 4',  self%field%q(4,-1:10,1,1,1)
+   print *, 'CAZZO set_init q 5',  self%field%q(5,-1:10,1,1,1)
    call self%copy_cpu_gpu
    endsubroutine set_initial_conditions
 
@@ -872,4 +877,5 @@ contains
    call self%save_simulation_data
    if (self%mpih%myrank==0) call self%io%close_file_residuals
    endsubroutine simulate
+
 endmodule adam_nasto_gmp_object

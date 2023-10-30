@@ -860,15 +860,12 @@ contains
             !                            neighbor=neighbor,           &
             !                            neighbor_type=neighbor_type, &
             !                            neighbor_bc_fec=neighbor_bc_fec)
-            if (allocated(node_ptr%neighbor(fec)%codes)) then
-               neighbor        = node_ptr%neighbor(fec)%codes
-               neighbor_type   = node_ptr%neighbor(fec)%ntype
-               neighbor_bc_fec = node_ptr%neighbor(fec)%bc_fec
-               if (neighbor_type == NODE_BOUNDARY_CONDITION) then
-                  if (fec<=6)             fec_bc_faces_number   = fec_bc_faces_number   + 1_I4P
-                  if (fec>=7.and.fec<=18) fec_bc_edges_number   = fec_bc_edges_number   + 1_I4P
-                  if (fec>=19)            fec_bc_corners_number = fec_bc_corners_number + 1_I4P
-               endif
+            neighbor_type   = node_ptr%neighbor(fec)%ntype
+            neighbor_bc_fec = node_ptr%neighbor(fec)%bc_fec
+            if (neighbor_type == NODE_BOUNDARY_CONDITION) then
+               if (fec<=6)             fec_bc_faces_number   = fec_bc_faces_number   + 1_I4P
+               if (fec>=7.and.fec<=18) fec_bc_edges_number   = fec_bc_edges_number   + 1_I4P
+               if (fec>=19)            fec_bc_corners_number = fec_bc_corners_number + 1_I4P
             endif
          enddo
       endif
@@ -888,53 +885,50 @@ contains
                !                            neighbor=neighbor,           &
                !                            neighbor_type=neighbor_type, &
                !                            neighbor_bc_fec=neighbor_bc_fec)
-               if (allocated(node_ptr%neighbor(fec)%codes)) then
-                  neighbor        = node_ptr%neighbor(fec)%codes
-                  neighbor_type   = node_ptr%neighbor(fec)%ntype
-                  neighbor_bc_fec = node_ptr%neighbor(fec)%bc_fec
-                  if (neighbor_type == NODE_BOUNDARY_CONDITION) then
-                     select case(neighbor_bc_fec)
-                     case(1,7,9,11,13,19,21,23,25)
-                        ! BC i min
-                        fec_bc_type = self%grid%bc_type(1)
-                     case(2,8,10,12,14,20,22,24,26)
-                        ! BC i max
-                        fec_bc_type = self%grid%bc_type(2)
-                     case(3,15,17)
-                        ! BC j min
-                        fec_bc_type = self%grid%bc_type(3)
-                     case(4,16,18)
-                        ! BC j max
-                        fec_bc_type = self%grid%bc_type(4)
-                     case(5)
-                        ! BC k min
-                        fec_bc_type = self%grid%bc_type(5)
-                     case(6)
-                        ! BC k max
-                        fec_bc_type = self%grid%bc_type(6)
-                     endselect
-                     call compute_ijk_min_max_delta(fec=fec, neighbor_bc_fec=neighbor_bc_fec, ijk_min_max_delta=ijk_min_max_delta)
-                     if (fec<=6) then
-                        fec_bc_faces_number = fec_bc_faces_number + 1_I4P
-                        self%local_map_bc_face(fec_bc_faces_number,1)    = node_ptr%block_index
-                        self%local_map_bc_face(fec_bc_faces_number,2)    = neighbor_bc_fec
-                        self%local_map_bc_face(fec_bc_faces_number,3:11) = ijk_min_max_delta
-                        self%local_map_bc_face(fec_bc_faces_number,12)   = fec_bc_type
-                     endif
-                     if (fec>=7.and.fec<=18) then
-                        fec_bc_edges_number = fec_bc_edges_number + 1_I4P
-                        self%local_map_bc_edge(fec_bc_edges_number,1)    = node_ptr%block_index
-                        self%local_map_bc_edge(fec_bc_edges_number,2)    = neighbor_bc_fec
-                        self%local_map_bc_edge(fec_bc_edges_number,3:11) = ijk_min_max_delta
-                        self%local_map_bc_edge(fec_bc_edges_number,12)   = fec_bc_type
-                     endif
-                     if (fec>=19) then
-                        fec_bc_corners_number = fec_bc_corners_number + 1_I4P
-                        self%local_map_bc_corner(fec_bc_corners_number,1)    = node_ptr%block_index
-                        self%local_map_bc_corner(fec_bc_corners_number,2)    = neighbor_bc_fec
-                        self%local_map_bc_corner(fec_bc_corners_number,3:11) = ijk_min_max_delta
-                        self%local_map_bc_corner(fec_bc_corners_number,12)   = fec_bc_type
-                     endif
+               neighbor_type   = node_ptr%neighbor(fec)%ntype
+               neighbor_bc_fec = node_ptr%neighbor(fec)%bc_fec
+               if (neighbor_type == NODE_BOUNDARY_CONDITION) then
+                  select case(neighbor_bc_fec)
+                  case(1,7,9,11,13,19,21,23,25)
+                     ! BC i min
+                     fec_bc_type = self%grid%bc_type(1)
+                  case(2,8,10,12,14,20,22,24,26)
+                     ! BC i max
+                     fec_bc_type = self%grid%bc_type(2)
+                  case(3,15,17)
+                     ! BC j min
+                     fec_bc_type = self%grid%bc_type(3)
+                  case(4,16,18)
+                     ! BC j max
+                     fec_bc_type = self%grid%bc_type(4)
+                  case(5)
+                     ! BC k min
+                     fec_bc_type = self%grid%bc_type(5)
+                  case(6)
+                     ! BC k max
+                     fec_bc_type = self%grid%bc_type(6)
+                  endselect
+                  call compute_ijk_min_max_delta(fec=fec, neighbor_bc_fec=neighbor_bc_fec, ijk_min_max_delta=ijk_min_max_delta)
+                  if (fec<=6) then
+                     fec_bc_faces_number = fec_bc_faces_number + 1_I4P
+                     self%local_map_bc_face(fec_bc_faces_number,1)    = node_ptr%block_index
+                     self%local_map_bc_face(fec_bc_faces_number,2)    = neighbor_bc_fec
+                     self%local_map_bc_face(fec_bc_faces_number,3:11) = ijk_min_max_delta
+                     self%local_map_bc_face(fec_bc_faces_number,12)   = fec_bc_type
+                  endif
+                  if (fec>=7.and.fec<=18) then
+                     fec_bc_edges_number = fec_bc_edges_number + 1_I4P
+                     self%local_map_bc_edge(fec_bc_edges_number,1)    = node_ptr%block_index
+                     self%local_map_bc_edge(fec_bc_edges_number,2)    = neighbor_bc_fec
+                     self%local_map_bc_edge(fec_bc_edges_number,3:11) = ijk_min_max_delta
+                     self%local_map_bc_edge(fec_bc_edges_number,12)   = fec_bc_type
+                  endif
+                  if (fec>=19) then
+                     fec_bc_corners_number = fec_bc_corners_number + 1_I4P
+                     self%local_map_bc_corner(fec_bc_corners_number,1)    = node_ptr%block_index
+                     self%local_map_bc_corner(fec_bc_corners_number,2)    = neighbor_bc_fec
+                     self%local_map_bc_corner(fec_bc_corners_number,3:11) = ijk_min_max_delta
+                     self%local_map_bc_corner(fec_bc_corners_number,12)   = fec_bc_type
                   endif
                endif
             enddo

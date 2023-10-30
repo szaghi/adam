@@ -147,13 +147,18 @@ contains
    integer(I4P)                          :: error         !< Memcpy output.
    real(R8P), pointer, contiguous        :: q_t_dummy(:,:,:,:,:)
 
-      q_t_dummy(1:self%field%nb,&
+      !q_t_dummy(1:self%field%nb,&
+      !          1-self%field%grid%ngc:self%field%grid%ni+self%field%grid%ngc,&
+      !          1-self%field%grid%ngc:self%field%grid%nj+self%field%grid%ngc,&
+      !          1-self%field%grid%ngc:self%field%grid%nk+self%field%grid%ngc,&
+      !          1:nv) => self%q_t(:,:,:,:,1:nv)
+             allocate(q_t_dummy(1:self%field%nb,&
                 1-self%field%grid%ngc:self%field%grid%ni+self%field%grid%ngc,&
                 1-self%field%grid%ngc:self%field%grid%nj+self%field%grid%ngc,&
                 1-self%field%grid%ngc:self%field%grid%nk+self%field%grid%ngc,&
-                1:nv) => self%q_t(:,:,:,:,1:nv)
+                1:nv))
 
-      do b=1, self%field%blocks_number
+      do b=1, self%field%nb
          do k=1-self%field%grid%ngc, self%field%grid%nk+self%field%grid%ngc
             do j=1-self%field%grid%ngc, self%field%grid%nj+self%field%grid%ngc
                do i=1-self%field%grid%ngc, self%field%grid%ni+self%field%grid%ngc
@@ -164,10 +169,23 @@ contains
             enddo
          enddo
       enddo
+   print *, 'CAZZO transp q_dummy 1',  q_t_dummy(1,-1:10,1,1,1)
+   print *, 'CAZZO transp q_dummy 2',  q_t_dummy(1,-1:10,1,1,2)
+   print *, 'CAZZO transp q_dummy 3',  q_t_dummy(1,-1:10,1,1,3)
+   print *, 'CAZZO transp q_dummy 4',  q_t_dummy(1,-1:10,1,1,4)
+   print *, 'CAZZO transp q_dummy 5',  q_t_dummy(1,-1:10,1,1,5)
 
       error = omp_target_memcpy_f(fptr_dst=q_gpu, fptr_src=q_t_dummy, dst_off=0_I4P, src_off=0_I4P, &
                                   omp_dst_dev=self%mydev, omp_src_dev=self%myhos)
       if (error/=0) call self%mpih%abort(error_code=20,msg='Error in copy_transpose_cpu_gpu while copying q_t on q_gpu')
+      !$omp target
+   print *, 'CAZZO transp q_gpu 1',  q_gpu(1,-1:10,1,1,1)
+   print *, 'CAZZO transp q_gpu 2',  q_gpu(1,-1:10,1,1,2)
+   print *, 'CAZZO transp q_gpu 3',  q_gpu(1,-1:10,1,1,3)
+   print *, 'CAZZO transp q_gpu 4',  q_gpu(1,-1:10,1,1,4)
+   print *, 'CAZZO transp q_gpu 5',  q_gpu(1,-1:10,1,1,5)
+   !$omp end target
+   deallocate(q_t_dummy)
    endsubroutine copy_transpose_cpu_gpu
 
    subroutine copy_transpose_gpu_cpu(self, nv, q_gpu, q_cpu)
@@ -186,15 +204,9 @@ contains
                                                   1-self%field%grid%ngc:,&
                                                   1:) !< Conservative variables on CPU.
 
-   associate(blocks_number=>self%field%blocks_number, &
-             ni=>self%field%grid%ni,                  &
-             nj=>self%field%grid%nj,                  &
-             nk=>self%field%grid%nk,                  &
-             ngc=>self%field%grid%ngc,                &
-             q_t_gpu=>self%q_t_gpu)
-      call copy_transpose_gpu_cpu_gmp(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
-                                      q_gpu=q_gpu, q_t_gpu=q_t_gpu, q_cpu=q_cpu)
-   endassociate
+   call copy_transpose_gpu_cpu_gmp(ni=self%field%grid%ni, nj=self%field%grid%nj, nk=self%field%grid%nk, &
+                                   ngc=self%field%grid%ngc, nv=nv, blocks_number=self%field%blocks_number, &
+                                   q_gpu=q_gpu, q_t_gpu=self%q_t_gpu, q_cpu=q_cpu)
    endsubroutine copy_transpose_gpu_cpu
 
    subroutine create_maps_cell(self, verbose)
@@ -995,6 +1007,13 @@ contains
    integer(I4P)                         :: one_or_eight                  !< Flag triggering 8 cells mean.
    integer(I4P)                         :: error                         !< Error traping flag.
 
+   !$omp target
+   print *, 'CAZZO set_local q_gpu 1',  q_gpu(1,-1:10,1,1,1)
+   print *, 'CAZZO set_local q_gpu 2',  q_gpu(2,-1:10,1,1,1)
+   print *, 'CAZZO set_local q_gpu 3',  q_gpu(3,-1:10,1,1,1)
+   print *, 'CAZZO set_local q_gpu 4',  q_gpu(4,-1:10,1,1,1)
+   print *, 'CAZZO set_local q_gpu 5',  q_gpu(5,-1:10,1,1,1)
+   !$omp end target
    if (.not. associated(local_map_ghost_cell_gpu)) return
    !$omp target teams distribute parallel do collapse(2) has_device_addr(q_gpu,local_map_ghost_cell_gpu)
    do v=1, size(q_gpu, dim=5)
@@ -1020,6 +1039,13 @@ contains
          endif
       enddo
    enddo
+   !$omp target
+   print *, 'CAZZO set_local FINE q_gpu 1',  q_gpu(1,-1:10,1,1,1)
+   print *, 'CAZZO set_local FINE q_gpu 2',  q_gpu(2,-1:10,1,1,1)
+   print *, 'CAZZO set_local FINE q_gpu 3',  q_gpu(3,-1:10,1,1,1)
+   print *, 'CAZZO set_local FINE q_gpu 4',  q_gpu(4,-1:10,1,1,1)
+   print *, 'CAZZO set_local FINE q_gpu 5',  q_gpu(5,-1:10,1,1,1)
+   !$omp end target
 
    endsubroutine update_ghost_local_gpu_gmp
 
