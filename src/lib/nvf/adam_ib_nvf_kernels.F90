@@ -105,8 +105,8 @@ contains
       do j=1, nj
          do i=1, ni
             do b=1, blocks_number
-               phi_gpu(b,i,j,k,all_solids) = -1._R8P
-               solids_loop : do s=1, all_solids -1
+               phi_gpu(b,i,j,k,all_solids) = phi_gpu(b,i,j,k,1)
+               solids_loop : do s=2, all_solids -1
                   phi_gpu(b,i,j,k,all_solids) = max(phi_gpu(b,i,j,k,all_solids), phi_gpu(b,i,j,k,s))
                enddo solids_loop
             enddo
