@@ -107,10 +107,7 @@ contains
             do b=1, blocks_number
                phi_gpu(b,i,j,k,all_solids) = -1._R8P
                solids_loop : do s=1, all_solids -1
-                  if (phi_gpu(b,i,j,k,s)>0) then
-                     phi_gpu(b,i,j,k,all_solids) = phi_gpu(b,i,j,k,s)
-                     exit solids_loop
-                  endif
+                  phi_gpu(b,i,j,k,all_solids) = max(phi_gpu(b,i,j,k,all_solids), phi_gpu(b,i,j,k,s))
                enddo solids_loop
             enddo
          enddo

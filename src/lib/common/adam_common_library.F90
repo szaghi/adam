@@ -15,6 +15,7 @@ use adam_slices_object
 use adam_tree_node_object
 use adam_tree_bucket_object
 use adam_tree_object
+use adam_weno_object
 
 implicit none
 public

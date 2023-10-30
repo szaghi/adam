@@ -106,7 +106,7 @@ contains
    class(ib_object), intent(inout)        :: self          !< IB.
    logical,          intent(in), optional :: verbose       !< Flag to trigger verbose prints.
    logical                                :: verbose_      !< Flag to trigger verbose prints, local variable.
-   integer(I4P)                           :: b, i, j, k, s !< Counter.
+   integer(I4P)                           :: b, i, j, k    !< Counter.
    integer(I4P)                           :: all_solids    !< Last phi index, all solids summary.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
@@ -117,13 +117,7 @@ contains
          do k=1, self%grid%nk
             do j=1, self%grid%nj
                do i=1, self%grid%ni
-                  self%phi(all_solids,i,j,k,b) = -1._R8P
-                  solids_loop : do s=1, all_solids -1
-                     if (self%phi(s,i,j,k,b)>0) then
-                        self%phi(all_solids,i,j,k,b) = self%phi(s,i,j,k,b)
-                        exit solids_loop
-                     endif
-                  enddo solids_loop
+                  self%phi(all_solids,i,j,k,b) = maxval(self%phi(1:all_solids-1,i,j,k,b))
                enddo
             enddo
          enddo

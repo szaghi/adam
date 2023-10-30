@@ -112,7 +112,7 @@ contains
                                                         1-self%field%grid%ngc:,&
                                                         1-self%field%grid%ngc:,&
                                                         1:) !< Conservative variables on GPU.
-   real(R8P),               intent(out)        :: q_cpu(1:,                    &
+   real(R8P),               intent(inout)      :: q_cpu(1:,                    &
                                                         1-self%field%grid%ngc:,&
                                                         1-self%field%grid%ngc:,&
                                                         1-self%field%grid%ngc:,&
@@ -126,8 +126,7 @@ contains
              q_t_gpu=>self%q_t_gpu)
 
       call self%mpih%check_cuda_error(error_code=-15, msg='field_nvf_object%copy_transpose_gpu_cpu start')
-      call copy_transpose_gpu_cpu_cuf(ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
-                                      q_gpu=q_gpu, q_t_gpu=q_t_gpu, q_cpu=q_cpu)
+      call copy_transpose_gpu_cpu_cuf(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,blocks_number=blocks_number,q_gpu=q_gpu,q_t_gpu=q_t_gpu)
       call self%mpih%check_cuda_error(error_code=-15, msg='field_nvf_object%copy_transpose_gpu_cpu finish')
       ! q_t_gpu has nv_aux variables which can be larger than local nv (i.e., nv or nv_aux)
       ! q_cpu   has local nv variables which is lower than nv_aux

@@ -587,7 +587,6 @@ contains
    integer(I4P)                      :: ic, jc, kc         !< Counter.
    integer(I4P)                      :: portion            !< Portion of fec updated (0=>whole fec).
    integer(I4P)                      :: b_recv             !< Index of receiving block.
-   integer(I4P)                      :: b_send             !< Index of sending block.
    integer(I4P)                      :: imin               !< Lower limit of i indexes.
    integer(I4P)                      :: jmin               !< Lower limit of j indexes.
    integer(I4P)                      :: kmin               !< Lower limit of j indexes.

@@ -863,7 +863,6 @@ contains
    integer(I4P),              intent(in)    :: ratio                !< Refinement ratio.
    integer(I8P), allocatable, intent(in)    :: block_to_derefine(:) !< List of blocks to be derefined.
    integer(I8P), allocatable, intent(in)    :: block_derefined(:,:) !< List of derefined blocks with Morton code.
-   real(R8P)                                :: dx, dy, dz           !< Space deltas.
    integer(I4P)                             :: b, ib                !< Counter.
    integer(I4P)                             :: ic1, ic2, ic3, ic4   !< Counter.
    integer(I4P)                             :: ic5, ic6, ic7, ic8   !< Counter.
@@ -950,9 +949,8 @@ contains
    integer(I4P),              intent(in)    :: ratio                     !< Refinement ratio.
    integer(I8P), allocatable, intent(in)    :: block_to_refine(:,:)      !< List of blocks to be refined.
    integer(I8P), allocatable, intent(in)    :: block_refined(:,:)        !< List of refined blocks with Morton code.
-   real(R8P)                                :: dx, dy, dz                !< Space deltas.
    integer(I4P)                             :: b, i, j, k                !< Spatial counter.
-   integer(I4P)                             :: ib, ic, ii, ic_local      !< Counter.
+   integer(I4P)                             :: ib, ic, ic_local          !< Counter.
    integer(I4P)                             :: i_fine, j_fine, k_fine    !< Counter.
    integer(I4P)                             :: i_delta, j_delta, k_delta !< Counter.
    integer(I4P)                             :: ic1, ic2, ic3, ic4        !< Counter.

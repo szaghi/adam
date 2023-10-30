@@ -688,7 +688,7 @@ contains
    type(vtm_file)                           :: vtm                                           !< VTM file handler.
    type(tree_node_object), pointer          :: node                                          !< Pointer to node.
    integer(I4P)                             :: b, l, v                                       !< Counter.
-   integer(I4P)                             :: i, j, k                                       !< Counter.
+   integer(I4P)                             :: i                                             !< Counter.
    integer(I4P)                             :: max_level                                     !< Maximum level.
    integer(I4P)                             :: ngc                                           !< Ghost cells saved.
    integer(I4P)                             :: error                                         !< Error traping flag.

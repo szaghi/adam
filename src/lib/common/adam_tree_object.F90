@@ -206,7 +206,7 @@ type :: tree_object
       procedure, pass(self) :: mark_all_nodes               !< Mark all nodes to be refined, derefined, ecc.
       procedure, pass(self) :: mark_sphere                  !< Mark nodes to be refined/derefined by sphere distance.
       ! procedure, pass(self) :: mark_surface_stl             !< Mark all nodes inside a surface defined by STL triangulation.
-      procedure, pass(self) :: max_cell_delta               !< Return the maximum cell delta given a comparison distance.
+      procedure, nopass     :: max_cell_delta               !< Return the maximum cell delta given a comparison distance.
       procedure, pass(self) :: node                         !< Return a pointer to a node.
       procedure, pass(self) :: prime_buckets_number         !< Return the buckets number as nearest prime number given nodes number.
       procedure, pass(self) :: prune                        !< Prune nodes.
@@ -814,11 +814,10 @@ contains
    enddo
    endsubroutine make_neighborhood
 
-   function max_cell_delta(self, distance) result(delta)
+   function max_cell_delta(distance) result(delta)
    !< Return the maximum cell delta given a comparison distance.
-   class(tree_object), intent(in) :: self     !< The field.
-   real(R8P),          intent(in) :: distance !< Comparison distance.
-   real(R8P)                      :: delta    !< Maximum cell delta admissible.
+   real(R8P), intent(in) :: distance !< Comparison distance.
+   real(R8P)             :: delta    !< Maximum cell delta admissible.
 
    if (abs(distance) < epsilon(0._R8P)) then
       ! delta = 0.001_R8P
@@ -1123,12 +1122,9 @@ contains
    integer(I4P)                      :: p                !< Processes counter.
    integer(I4P)                      :: cl               !< Local child counter.
    integer(I8P)                      :: c                !< Codes counter.
-   integer(I4P)                      :: i, j, k, l       !< Coordinates.
    integer(I8P)                      :: block_index_new  !< New block index counter.
    integer(I8P)                      :: my_codes_number  !< Number of codes for each process for a balanced workload.
    integer(I4P)                      :: child_local_code !< Local numbering.
-   integer(I8P)                      :: n_keep           !< Number of keept nodes.
-   integer(I8P)                      :: n_recv           !< Number of nodes that I have to receive.
 
    codes_sorted = self%codes() ! sorted list of codes
    my_codes_number = nint(real(size(codes_sorted, dim=1),R8P) / self%mpih%procs_number)
@@ -1185,14 +1181,14 @@ contains
       !<
       !< The split is not allowed if all siblings exist and the previous code in the ordered list is one of my siblings.
       logical                   :: can_split   !< Result of test.
-      integer(I8P), allocatable :: siblings(:) !< List of siblings
+      integer(I8P), allocatable :: siblings_(:) !< List of siblings
       integer(I4P)              :: s           !< Counter.
 
       can_split = .true.
       if (c==1_I8P) return
-      siblings = self%siblings(code=codes_sorted(c))
-      if (all([(self%has_code(code=siblings(s)), s=1,self%ratio-1)])) then ! if all siblings exist
-         can_split = .not.(findloc(siblings, codes_sorted(c-1),dim=1) > 0) ! if my predecessor is a sibling the split is not allowed
+      siblings_ = self%siblings(code=codes_sorted(c))
+      if (all([(self%has_code(code=siblings_(s)), s=1,self%ratio-1)])) then ! if all siblings exist
+         can_split = .not.(findloc(siblings_, codes_sorted(c-1),dim=1) > 0) ! if my predecessor is a sib the split is not allowed
       endif
       endfunction can_split
    endsubroutine mpi_redistribute
@@ -1381,24 +1377,21 @@ contains
    !<
    !< We define *direct neighbor* the neighbor of given code in the given face at the same level of the given code
    !< either if it exists or not.
-   class(tree_object), intent(in)               :: self                        !< The tree.
-   integer(I8P),       intent(in)               :: code                        !< Morton code.
-   integer(I4P),       intent(in)               :: face                        !< Face queried.
-   integer(I8P),       intent(out), allocatable :: neighbor(:)                 !< Neighbors codes list, [1] or [ratio/2].
-   integer(I4P),       intent(out)              :: neighbor_type               !< Type of neighbor.
-   integer(I4P),       intent(out), optional    :: neighbor_portion            !< Neighbors portion.
-   integer(I4P),       intent(out), optional    :: neighbor_bc_fec             !< Neighbors fec for BC.
-   integer(I8P)                                 :: direct_neighbor             !< Morton code of direct neighbor.
-   integer(I8P)                                 :: direct_neighbor_parent      !< Morton code of direct neighbor parent.
-   integer(I8P)                                 :: direct_neighbor_first_child !< Morton code of direct neighbor first child.
-   integer(I4P)                                 :: i, j, k, l                  !< Counter.
-   integer(I4P)                                 :: delta(3)                    !< Counter.
-   integer(I4P)                                 :: ijk(3)                      !< Counter.
-   integer(I4P)                                 :: ijkmin(3), ijkmax(3)        !< Counter.
-   integer(I4P)                                 :: cl, cl_neighbor             !< Counter.
-   integer(I4P)                                 :: cl_array(3)                 !< Counter.
-   integer(I4P)                                 :: ijk_bc(3)                   !< Counter.
-   integer(I4P)                                 :: ijk_size(3)                 !< Counter.
+   class(tree_object), intent(in)               :: self                   !< The tree.
+   integer(I8P),       intent(in)               :: code                   !< Morton code.
+   integer(I4P),       intent(in)               :: face                   !< Face queried.
+   integer(I8P),       intent(out), allocatable :: neighbor(:)            !< Neighbors codes list, [1] or [ratio/2].
+   integer(I4P),       intent(out)              :: neighbor_type          !< Type of neighbor.
+   integer(I4P),       intent(out), optional    :: neighbor_portion       !< Neighbors portion.
+   integer(I4P),       intent(out), optional    :: neighbor_bc_fec        !< Neighbors fec for BC.
+   integer(I8P)                                 :: direct_neighbor        !< Morton code of direct neighbor.
+   integer(I8P)                                 :: direct_neighbor_parent !< Morton code of direct neighbor parent.
+   integer(I4P)                                 :: i, j, k, l             !< Counter.
+   integer(I4P)                                 :: delta(3)               !< Counter.
+   integer(I4P)                                 :: ijk(3)                 !< Counter.
+   integer(I4P)                                 :: ijkmin(3), ijkmax(3)   !< Counter.
+   integer(I4P)                                 :: ijk_bc(3)              !< Counter.
+   integer(I4P)                                 :: ijk_size(3)            !< Counter.
 
    if (present(neighbor_portion)) neighbor_portion = 1
 
@@ -1961,7 +1954,6 @@ contains
    integer(I4P)                                    :: new_level            !< New level counter.
    integer(I4P)                                    :: new_level_n          !< Neighbor new level counter.
    integer(I4P)                                    :: s, sib, f, n         !< Counter.
-   real(R8P)                                       :: timing(4)            !< Tic toc timing.
 
    iterations_number_ = TREE_MAX_SANITIZE_ITERATIONS ; if (present(iterations_number)) iterations_number_ = iterations_number
 

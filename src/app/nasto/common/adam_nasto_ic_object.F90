@@ -126,7 +126,7 @@ contains
    class(nasto_ic_object),     intent(in)    :: self                 !< IC.
    type(nasto_physics_object), intent(in)    :: physics              !< Fluids physiscs.
    type(field_object),         intent(inout) :: field                !< Field object.
-   integer(I4P)                              :: b, i, j, k, s, ri    !< Counter.
+   integer(I4P)                              :: b, i, j, k, ri       !< Counter.
    real(R8P)                                 :: rn                   !< Random number.
    real(R8P)                                 :: cv, R, g, delta, gm1 !< Fluid physics constants.
    real(R8P)                                 :: rho, u, v, w, p      !< Primitive variables.

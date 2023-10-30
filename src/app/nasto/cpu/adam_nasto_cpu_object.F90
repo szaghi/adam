@@ -64,12 +64,11 @@ contains
    class(nasto_cpu_object), intent(inout) :: self !< The equation.
    character(:), allocatable              :: msg_ !< Allocating message base.
    character(:), allocatable              :: msg  !< Allocating message.
-   integer(I4P)                           :: sn1  !< Solids number + 1.
 
    call self%mpih%print_message('nasto_cpu_object%allocate_cpu start')
    msg_ = self%mpih%myrankstr//'nasto_cpu_object%allocate_cpu '
    associate(nv=>self%nv, ns=>self%ns, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
-             nb=>self%nb, nv_aux=>self%nv_aux, iweno=>self%schemes%iweno, solids_number=>self%ib%solids_number)
+             nb=>self%nb, nv_aux=>self%nv_aux, weno_s=>self%schemes%weno%S, solids_number=>self%ib%solids_number)
    msg = msg_//' fl '
    call alloc_var_cpu(var=self%fl,       ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
    self%fl = 0._R8P
@@ -83,22 +82,22 @@ contains
    call alloc_var_cpu(var=self%flz,      ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
    self%flz = 0._R8P
    msg = msg_//' gplus_x '
-   call alloc_var_cpu(var=self%gplus_x , ulb=reshape([1,nv,1,2*iweno,   1,nj,        1,nk,        1,nb],[2,5]),msg=msg)
+   call alloc_var_cpu(var=self%gplus_x , ulb=reshape([1,nv,1,2*weno_s,  1,nj,        1,nk,        1,nb],[2,5]),msg=msg)
    self%gplus_x = 0._R8P
    msg = msg_//' gminus_x '
-   call alloc_var_cpu(var=self%gminus_x, ulb=reshape([1,nv,1,2*iweno,   1,nj,        1,nk,        1,nb],[2,5]),msg=msg)
+   call alloc_var_cpu(var=self%gminus_x, ulb=reshape([1,nv,1,2*weno_s,  1,nj,        1,nk,        1,nb],[2,5]),msg=msg)
    self%gminus_x = 0._R8P
    msg = msg_//' gplus_y '
-   call alloc_var_cpu(var=self%gplus_y , ulb=reshape([1,nv,1,2*iweno,   1,ni,        1,nk,        1,nb],[2,5]),msg=msg)
+   call alloc_var_cpu(var=self%gplus_y , ulb=reshape([1,nv,1,2*weno_s,  1,ni,        1,nk,        1,nb],[2,5]),msg=msg)
    self%gplus_y = 0._R8P
    msg = msg_//' gminus_y '
-   call alloc_var_cpu(var=self%gminus_y, ulb=reshape([1,nv,1,2*iweno,   1,ni,        1,nk,        1,nb],[2,5]),msg=msg)
+   call alloc_var_cpu(var=self%gminus_y, ulb=reshape([1,nv,1,2*weno_s,  1,ni,        1,nk,        1,nb],[2,5]),msg=msg)
    self%gminus_y = 0._R8P
    msg = msg_//' gplus_z '
-   call alloc_var_cpu(var=self%gplus_z , ulb=reshape([1,nv,1,2*iweno,   1,ni,        1,nj,        1,nb],[2,5]),msg=msg)
+   call alloc_var_cpu(var=self%gplus_z , ulb=reshape([1,nv,1,2*weno_s,  1,ni,        1,nj,        1,nb],[2,5]),msg=msg)
    self%gplus_z = 0._R8P
    msg = msg_//' gminus_z '
-   call alloc_var_cpu(var=self%gminus_z, ulb=reshape([1,nv,1,2*iweno,   1,ni,        1,nj,        1,nb],[2,5]),msg=msg)
+   call alloc_var_cpu(var=self%gminus_z, ulb=reshape([1,nv,1,2*weno_s,  1,ni,        1,nj,        1,nb],[2,5]),msg=msg)
    self%gminus_z = 0._R8P
    msg = msg_//' q_old '
    call alloc_var_cpu(var=self%q_old,    ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
@@ -130,12 +129,11 @@ contains
    ! AMR methods
    subroutine amr_update(self)
    !< Do AMR update.
-   class(nasto_cpu_object), intent(inout) :: self                 !< The equation.
-   integer(I4P)                           :: iterations_          !< Number of AMR iterations, local var.
-   logical                                :: is_grid_changed      !< Flag to check grid changes for each marker.
-   logical                                :: is_grid_changed_all  !< Flag to check grid changes for each iter.
-   integer(I4P)                           :: b, i, j, k, i_marker !< Counter.
-   type(amr_marker_object)                :: amr_marker           !< Current amr marker.
+   class(nasto_cpu_object), intent(inout) :: self                !< The equation.
+   logical                                :: is_grid_changed     !< Flag to check grid changes for each marker.
+   logical                                :: is_grid_changed_all !< Flag to check grid changes for each iter.
+   integer(I4P)                           :: i, i_marker         !< Counter.
+   type(amr_marker_object)                :: amr_marker          !< Current amr marker.
 
    amr: do i=1, self%amr%iters
       is_grid_changed_all = .false.
@@ -307,7 +305,6 @@ contains
    subroutine integrate_eikonal_q(self)
    !< Integrate eikonal equation over q.
    class(nasto_cpu_object), intent(inout) :: self !< The equation.
-   integer(I4P)                           :: ib   !< Counter.
 
    associate(blocks_number=>self%blocks_number, solids_number=>self%ib%solids_number, q=>self%field%q)
    if (blocks_number > 0) then
@@ -319,7 +316,6 @@ contains
    subroutine invert_eikonal_q(self)
    !< Invert momentum eikonal equation over q.
    class(nasto_cpu_object), intent(inout) :: self !< The equation.
-   integer(I4P)                           :: ib   !< Counter.
 
    associate(blocks_number=>self%blocks_number, solids_number=>self%ib%solids_number, q=>self%field%q)
    if (blocks_number > 0) then
@@ -542,48 +538,26 @@ contains
 
    subroutine compute_q_aux(self, q, q_aux)
    !< Compute auxiliary variables.
-   class(nasto_cpu_object), intent(in)  :: self      !< The equation.
+   class(nasto_cpu_object), intent(in)  :: self       !< The equation.
    real(R8P),               intent(in)  :: q(1:,         &
                                              1-self%ngc:,&
                                              1-self%ngc:,&
                                              1-self%ngc:,&
-                                             1:)     !< Conservative variables.
+                                             1:)      !< Conservative variables.
    real(R8P),               intent(out) :: q_aux(1:,         &
                                                  1-self%ngc:,&
                                                  1-self%ngc:,&
                                                  1-self%ngc:,&
-                                                 1:) !< Auxiliary variables.
-   integer(I4P)                         :: b, i, j, k, s                          !< Counter.
-   real(R8P)                            :: rho, uuu, vvv, www, rhe, rya, yya, tem !< State variables.
+                                                 1:)  !< Auxiliary variables.
+   integer(I4P)                         :: b, i, j, k !< Counter.
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, ns=>self%ns, blocks_number=>self%blocks_number, &
-             R=>self%physics%eos(1)%R, cv=>self%physics%eos(1)%cv, g=>self%physics%eos(1)%g, dha=>self%physics%eos(1)%dha)
+             g=>self%physics%eos(1)%g, R=>self%physics%eos(1)%R, cv=>self%physics%eos(1)%cv)
    do b=1, blocks_number
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
-               rho = q(1,i,j,k,b)
-               uuu = q(2,i,j,k,b)/rho
-               vvv = q(3,i,j,k,b)/rho
-               www = q(4,i,j,k,b)/rho
-               rhe = q(5,i,j,k,b)
-               if (ns==2) then
-                   rya = q(ns+4,i,j,k,b)
-               else
-                   rya = 0._R8P
-               endif
-               yya = rya/rho
-               tem = ((rhe-rya*dha)/rho-0.5*(uuu**2+vvv**2+www**2))/cv
-
-               q_aux(1,i,j,k,b) = rho           ! density
-               q_aux(2,i,j,k,b) = uuu           ! velocity x
-               q_aux(3,i,j,k,b) = vvv           ! velocity y
-               q_aux(4,i,j,k,b) = www           ! velocity z
-               q_aux(5,i,j,k,b) = yya           ! mass fraction
-               q_aux(6,i,j,k,b) = tem           ! temperature
-               q_aux(7,i,j,k,b) = R*rho*tem     ! pressure
-               q_aux(8,i,j,k,b) = rhe/rho+R*tem ! entalpy
-               q_aux(9,i,j,k,b) = sqrt(g*R*tem) ! sound speed
+               call compute_q_auxiliary(cv=cv, g=g, R=R, q=q(:,i,j,k,b), q_aux=q_aux(:,i,j,k,b))
             enddo
          enddo
       enddo
@@ -596,49 +570,54 @@ contains
    class(nasto_cpu_object), intent(inout) :: self         !< The equation.
    ! type(dim3)                             :: grid, tBlock !< CUDA grid and block.
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk,                                                             &
-             ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number,                                     &
-             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),                      &
-             q_aux=>self%q_aux, phi=>self%ib%phi, fl=>self%fl, flx=>self%flx, fly=>self%fly, flz=>self%flz,     &
-             cell_scheme=>self%schemes%cell_scheme, ror_stats=>self%schemes%ror_stats,                          &
-             fc_coeff=>self%schemes%fc_coeff,                                                                   &
-             gminus_x=>self%gminus_x, gminus_y=>self%gminus_y, gminus_z=>self%gminus_z,                         &
-             gplus_x=>self%gplus_x, gplus_y=>self%gplus_y, gplus_z=>self%gplus_z,                               &
-             ror_schemes=>self%schemes%ror_schemes, ror_ivar=>self%schemes%ror_ivar,                            &
-             ror_threshold=>self%schemes%ror_threshold, enable_ror_stats=>self%schemes%enable_ror_stats,        &
-             lmax=>self%schemes%lmax, iweno=>self%schemes%iweno,                                                &
-             cv=>self%physics%eos(1)%cv, g=>self%physics%eos(1)%g, R=>self%physics%eos(1)%R,                    &
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk,                                                                &
+             ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number,                                        &
+             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),                         &
+             q_aux=>self%q_aux, phi=>self%ib%phi, fl=>self%fl, flx=>self%flx, fly=>self%fly, flz=>self%flz,        &
+             cell_scheme=>self%schemes%cell_scheme, ror_stats=>self%schemes%ror_stats,                             &
+             fc_coeff=>self%schemes%fc_coeff,                                                                      &
+             gminus_x=>self%gminus_x, gminus_y=>self%gminus_y, gminus_z=>self%gminus_z,                            &
+             gplus_x=>self%gplus_x, gplus_y=>self%gplus_y, gplus_z=>self%gplus_z,                                  &
+             ror_schemes=>self%schemes%weno%ror_schemes, ror_ivar=>self%schemes%weno%ror_ivar,                     &
+             ror_threshold=>self%schemes%weno%ror_threshold, enable_ror_stats=>self%schemes%weno%enable_ror_stats, &
+             weno_s=>self%schemes%weno%S, weno_a=>self%schemes%weno%a,                                             &
+             weno_p=>self%schemes%weno%p, weno_d=>self%schemes%weno%d, weno_zeps=>self%schemes%weno%zeps,          &
+             cv=>self%physics%eos(1)%cv, g=>self%physics%eos(1)%g, R=>self%physics%eos(1)%R,                       &
              mu=>self%physics%eos(1)%mu, kd=>self%physics%eos(1)%kd, dha=>self%physics%eos(1)%dha)
 
    if (blocks_number > 0) then
       select case(self%schemes%fluxes_convective)
-      case(SCHEME_FCONV_WENO_CENTRAL_2,SCHEME_FCONV_WENO_CENTRAL_4,SCHEME_FCONV_WENO_CENTRAL_6)
-         ! to be implemented
       case(SCHEME_FCONV_WENO_UPWIND)
-         call compute_flux_conv_x(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
-                                  iweno=iweno, dha=dha, g=g, R=R, cv=cv,                            &
-                                  ror_threshold=ror_threshold, enable_ror_stats=enable_ror_stats,   &
-                                  cell_scheme=cell_scheme, ror_ivar=ror_ivar,                       &
-                                  ror_schemes=ror_schemes, q_aux=q_aux, ror_stats=ror_stats,        &
-                                  gplus=gplus_x, gminus=gminus_x, flx=flx)
+         call compute_fluxes_convective(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,weno_s=weno_S, &
+                                        weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,g=g,q_aux=q_aux,fluxes=flx)
+         call compute_fluxes_convective(dir=2,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,weno_s=weno_S, &
+                                        weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,g=g,q_aux=q_aux,fluxes=fly)
+         call compute_fluxes_convective(dir=3,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,weno_s=weno_S, &
+                                        weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,g=g,q_aux=q_aux,fluxes=flz)
+         ! call compute_flux_conv_x(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
+         !                          iweno=weno_s, dha=0._R8P, g=g, R=R, cv=cv,                            &
+         !                          ror_threshold=ror_threshold, enable_ror_stats=enable_ror_stats,   &
+         !                          cell_scheme=cell_scheme, ror_ivar=ror_ivar,                       &
+         !                          ror_schemes=ror_schemes, q_aux=q_aux, ror_stats=ror_stats,        &
+         !                          gplus=gplus_x, gminus=gminus_x, flx=flx)
 
-         call compute_flux_conv_y(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
-                                  iweno=iweno, dha=dha, g=g, R=R, cv=cv,                            &
-                                  ror_threshold=ror_threshold, enable_ror_stats=enable_ror_stats,   &
-                                  cell_scheme=cell_scheme, ror_ivar=ror_ivar,                       &
-                                  ror_schemes=ror_schemes, q_aux=q_aux, ror_stats=ror_stats,        &
-                                  gplus=gplus_y, gminus=gminus_y, fly=fly)
+         ! call compute_flux_conv_y(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
+         !                          iweno=weno_s, dha=0._R8P, g=g, R=R, cv=cv,                            &
+         !                          ror_threshold=ror_threshold, enable_ror_stats=enable_ror_stats,   &
+         !                          cell_scheme=cell_scheme, ror_ivar=ror_ivar,                       &
+         !                          ror_schemes=ror_schemes, q_aux=q_aux, ror_stats=ror_stats,        &
+         !                          gplus=gplus_y, gminus=gminus_y, fly=fly)
 
-         call compute_flux_conv_z(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
-                                  iweno=iweno, dha=dha, g=g, R=R, cv=cv,                            &
-                                  ror_threshold=ror_threshold, enable_ror_stats=enable_ror_stats,   &
-                                  cell_scheme=cell_scheme, ror_ivar=ror_ivar,                       &
-                                  ror_schemes=ror_schemes, q_aux=q_aux, ror_stats=ror_stats,        &
-                                  gplus=gplus_z, gminus=gminus_z, flz=flz)
+         ! call compute_flux_conv_z(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
+         !                          iweno=weno_s, dha=0._R8P, g=g, R=R, cv=cv,                            &
+         !                          ror_threshold=ror_threshold, enable_ror_stats=enable_ror_stats,   &
+         !                          cell_scheme=cell_scheme, ror_ivar=ror_ivar,                       &
+         !                          ror_schemes=ror_schemes, q_aux=q_aux, ror_stats=ror_stats,        &
+         !                          gplus=gplus_z, gminus=gminus_z, flz=flz)
       endselect
    endif
 
-   if (mu > 0.) call compute_fluxes_diffusive(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
+   if (mu > 0.) call compute_fluxes_diffusive(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, &
                                               mu=mu, kd=kd, q_aux=q_aux, dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz)
 
    call compute_fluxes_difference(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, ib_eps=1.e-12_R8P, &
@@ -662,11 +641,11 @@ contains
          do k=1, nk
             do j=1, nj
                do i=1, ni
-                  do v=1, nv
-                     if (phi(all_solids,i,j,k,b) < 0.) then
+                  if (phi(all_solids,i,j,k,b) < 0.) then
+                     do v=1, nv
                         q(v,i,j,k,b) = ark * q_old(v,i,j,k,b) + brk * q(v,i,j,k,b) + dt * crk * fl(v,i,j,k,b)
-                     endif
-                  enddo
+                     enddo
+                  endif
                enddo
             enddo
          enddo
@@ -687,12 +666,11 @@ contains
    endassociate
    endsubroutine compute_rk_q
 
-   subroutine integrate(self, t, do_ghost_syncro, residual)
+   subroutine integrate(self, t, do_ghost_syncro)
    !< Perform one step integration.
    class(nasto_cpu_object), intent(inout)         :: self                  !< The equation.
    real(R8P),               intent(in)            :: t                     !< Time.
    logical,                 intent(in),  optional :: do_ghost_syncro       !< Flag to do syncrous ghost update.
-   real(R8P),               intent(out), optional :: residual              !< Global residual.
    logical                                        :: do_ghost_syncro_      !< Flag to do syncrous ghost update, local var.
    integer(I4P)                                   :: s                     !< Counter.
    integer(I4P)                                   :: i_eikonal             !< Counter.
@@ -785,371 +763,155 @@ contains
    endsubroutine simulate
 
    ! non TBP
-   subroutine compute_flux_conv_x(blocks_number, ni, nj, nk, ngc, nv, iweno, dha, g, R, cv, &
-                                  ror_threshold, enable_ror_stats, cell_scheme, ror_ivar,   &
-                                  ror_schemes, q_aux, ror_stats, gplus, gminus, flx)
-   !< Compute convective fluxes by means of upwind WENO reconstruction, x axis direction.
-   integer(I4P), intent(in)    :: blocks_number, ni, nj, nk, ngc, nv, iweno
-   real(R8P),    intent(in)    :: dha, g, R, cv
-   real(R8P),    intent(in)    :: ror_threshold
-   logical,      intent(in)    :: enable_ror_stats
-   integer(I4P), intent(in)    :: cell_scheme(1:,1-ngc:,1-ngc:,1-ngc:,1:)
-   integer(I4P), intent(in)    :: ror_ivar(1:)
-   integer(I4P), intent(in)    :: ror_schemes(1:)
-   real(R8P),    intent(in)    :: q_aux(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   integer(I4P), intent(inout) :: ror_stats(1:,1-ngc:,1-ngc:,1-ngc:,1:)
-   real(R8P),    intent(inout) ::  gplus(1:, 1:, 1:, 1:, 1:)
-   real(R8P),    intent(inout) :: gminus(1:, 1:, 1:, 1:, 1:)
-   real(R8P),    intent(inout) :: flx(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   integer(I4P)                :: b, i, j, k, l, ll, m, mm, v
-   real(R8P)                   :: er(5,5), el(5,5), ev(5), evmax(5), ghat(5), gl(5), gr(5), fi(5), vi(5)
-   real(R8P)                   :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
-   real(R8P)                   :: gc, wc
-   integer(I4P)                :: wenorec_scheme, index_var
-   logical                     :: ror_to_recompute
+   pure subroutine compute_conservative(q_aux, q)
+   !< Compute convective fluxes given auxiliary varibales.
+   real(R8P), intent(in)  :: q_aux(9) !< Auxiliary variables.
+   real(R8P), intent(out) :: q(5)     !< Conservative variables.
+
+   associate(rho=>q_aux(1), u=>q_aux(2), v=>q_aux(3), w=>q_aux(4), p=>q_aux(7), H=>q_aux(8))
+   q(1) = rho
+   q(2) = rho*u
+   q(3) = rho*v
+   q(4) = rho*w
+   q(5) = rho*H - p
+   endassociate
+   endsubroutine compute_conservative
+
+   pure subroutine compute_cell_convective_fluxes(sir, q_aux, fluxes)
+   !< Compute cell convective fluxes given cell auxiliary varibales.
+   real(R8P), intent(in)  :: sir(3)    !< Stencil increment, real cast.
+   real(R8P), intent(in)  :: q_aux(9)  !< Auxiliary variables.
+   real(R8P), intent(out) :: fluxes(5) !< Fluxes.
+
+   associate(rho=>q_aux(1), u=>q_aux(2), v=>q_aux(3), w=>q_aux(4), p=>q_aux(7), H=>q_aux(8))
+   fluxes(1) = rho*u*sir(1) + rho*v*sir(2) + rho*w*sir(3)
+   fluxes(2) = fluxes(1)*u + p*sir(1)
+   fluxes(3) = fluxes(1)*v + p*sir(2)
+   fluxes(4) = fluxes(1)*w + p*sir(3)
+   fluxes(5) = fluxes(1)*H
+   endassociate
+   endsubroutine compute_cell_convective_fluxes
+
+   subroutine compute_fluxes_convective(dir,blocks_number,ni,nj,nk,ngc,nv,weno_s,weno_a,weno_p,weno_d,weno_zeps,g,q_aux,fluxes)
+   !< Compute convective fluxes along direction `dir`.
+   integer(I4P), intent(in)    :: dir                                !< Direction, 1=X, 2=Y, 3=Z.
+   integer(I4P), intent(in)    :: blocks_number                      !< Number of blocks.
+   integer(I4P), intent(in)    :: ni                                 !< Grid cells number in I direction.
+   integer(I4P), intent(in)    :: nj                                 !< Grid cells number in J direction.
+   integer(I4P), intent(in)    :: nk                                 !< Grid cells number in K direction.
+   integer(I4P), intent(in)    :: ngc                                !< Ghost cells number.
+   integer(I4P), intent(in)    :: nv                                 !< Number of conservative varibales.
+   integer(I4P), intent(in)    :: weno_s                             !< Weno stencils number/dimension.
+   real(R8P),    intent(in)    :: weno_a(1:,0:,1:)                   !< Optimal weights.
+   real(R8P),    intent(in)    :: weno_p(1:,0:,0:,1:)                !< Polinomials coefficients.
+   real(R8P),    intent(in)    :: weno_d(0:,0:,0:,1:)                !< Smoothness indicators coefficients.
+   real(R8P),    intent(in)    :: weno_zeps                          !< Parameter for avoiding division by zero in computing IS.
+   real(R8P),    intent(in)    :: g                                  !< Specific heats ratio.
+   real(R8P),    intent(in)    :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Auxiliary variables.
+   real(R8P),    intent(inout) :: fluxes(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes.
+   real(R8P)                   :: uu, vv, ww, h, qq, c, ci, b1, b2   !< Roe average states.
+   real(R8P)                   :: uvw, uvw_r1, uvw_r2                !< Velocity rotation accordingly dir.
+   real(R8P)                   :: ev(5), evmax(5)                    !< Signals speeds.
+   real(R8P)                   :: ghat(5)                            !< Reconstructed fluxes.
+   real(R8P)                   :: el(nv,nv), er(nv,nv)               !< Left and right eigenvalues.
+   real(R8P)                   :: q(nv), f(nv)                       !< Conservative variables and fluxes.
+   real(R8P)                   :: fp(1:nv,1:2*weno_s)                !< Positive part of conservative fluxes.
+   real(R8P)                   :: fm(1:nv,1:2*weno_s)                !< Negative part of conservative fluxes.
+   real(R8P)                   :: fw(1:nv,1:2,1-weno_s:-1+weno_s)    !< Conservative fluxes to be WENO reconstructed.
+   real(R8P)                   :: fwr(1:2)                           !< Conservative fluxes WENO reconstructed.
+   real(R8P)                   :: fpr(1:nv)
+   real(R8P)                   :: fmr(1:nv)
+   real(R8P)                   :: gc, wc                             !< Increments for fluxes decomposition.
+   integer(I4P)                :: b, i, j, k, l, m, mm               !< Counter.
+   integer(I4P)                :: ip, jp, kp                         !< Counter.
+   integer(I4P)                :: si(3)                              !< Stencil increment.
+   real(R8P)                   :: sir(3)                             !< Stencil increment, real cast.
+
+   select case(dir)
+   case(1)
+      si = [1,0,0]
+   case(2)
+      si = [0,1,0]
+   case(3)
+      si = [0,0,1]
+   endselect
+   sir = real(si,R8P)
 
    do b=1, blocks_number
-      do k=1, nk
-         do j=1, nj
-            do i=0, ni ! loop on faces
-               ! compute Roe average
-               call compute_roe_average(q_aux=q_aux, dha=dha, g=g, ngc=ngc, b=b, i=i, j=j, k=k, ip=i+1, jp=j, kp=k, &
-                                        uu=uu, vv=vv, ww=ww, h=h, ya=ya, qq=qq, c=c, ci=ci, b1=b1, b2=b2)
-               ! compute right and left eigenvectors matrices (at Roe state)
-               er(1,1)=1._R8P ; er(1,2)=uu-c   ; er(1,3)=vv     ; er(1,4)=ww     ; er(1,5)=h-uu*c
-               er(2,1)=1._R8P ; er(2,2)=uu     ; er(2,3)=vv     ; er(2,4)=ww     ; er(2,5)=qq
-               er(3,1)=1._R8P ; er(3,2)=uu+c   ; er(3,3)=vv     ; er(3,4)=ww     ; er(3,5)=h+uu*c
-               er(4,1)=0._R8P ; er(4,2)=0._R8P ; er(4,3)=1._R8P ; er(4,4)=0._R8P ; er(4,5)=vv
-               er(5,1)=0._R8P ; er(5,2)=0._R8P ; er(5,3)=0._R8P ; er(5,4)=1._R8P ; er(5,5)=ww
+   do k=1-si(3), nk
+   do j=1-si(2), nj
+   do i=1-si(1), ni
+      ip = i + si(1) ; jp = j + si(2) ; kp = k + si(3)
 
-               el(1,1)= 0.5_R8P*(b1+uu*ci) ; el(1,2)=1._R8P-b1 ; el(1,3)= 0.5_R8P*(b1-uu*ci) ; el(1,4)=-vv    ; el(1,5)=-ww
-               el(2,1)=-0.5_R8P*(b2*uu+ci) ; el(2,2)=b2*uu     ; el(2,3)=-0.5_R8P*(b2*uu-ci) ; el(2,4)=0._R8P ; el(2,5)=0._R8P
-               el(3,1)=-0.5_R8P*(b2*vv   ) ; el(3,2)=b2*vv     ; el(3,3)=-0.5_R8P*(b2*vv   ) ; el(3,4)=1._R8P ; el(3,5)=0._R8P
-               el(4,1)=-0.5_R8P*(b2*ww   ) ; el(4,2)=b2*ww     ; el(4,3)=-0.5_R8P*(b2*ww   ) ; el(4,4)=0._R8P ; el(4,5)=1._R8P
-               el(5,1)= 0.5_R8P*b2         ; el(5,2)=-b2       ; el(5,3)= 0.5_R8P*b2         ; el(5,4)=0._R8P ; el(5,5)=0._R8P
-               ! Find max eigenvalues on the stencil
-               do m=1,nv  ! loop on characteristic fields
-                  evmax(m) = -1._R8P
-               enddo
-               do l=1,2*iweno ! LLF
-                  ll = i + l - iweno
-                  uu = q_aux(2,ll,j,k,b)
-                  c  = q_aux(9,ll,j,k,b)
-                  ev(1) = abs(uu-c) ; ev(2) = abs(uu) ; ev(3) = abs(uu+c) ; ev(4) = ev(2) ; ev(5) = ev(2)
-                  do m=1,nv
-                     evmax(m) = max(ev(m),evmax(m))
-                  enddo
-               enddo
-               ! Decompose fluxes as + and -
-               do l=1,2*iweno ! loop over the stencil centered at face i
-                  ll = i + l - iweno
-                  vi(1) = q_aux(1,ll,j,k,b)
-                  vi(2) = vi(1)*q_aux(2,ll,j,k,b)
-                  vi(3) = vi(1)*q_aux(3,ll,j,k,b)
-                  vi(4) = vi(1)*q_aux(4,ll,j,k,b)
-                  vi(5) = vi(1)*(cv*q_aux(6,ll,j,k,b)+                                               &
-                          0.5_R8P*(q_aux(2,ll,j,k,b)**2+q_aux(3,ll,j,k,b)**2+q_aux(4,ll,j,k,b)**2) + &
-                          q_aux(5,ll,j,k,b)*dha)
-                  fi(1) = vi(2)
-                  fi(2) = fi(1) * q_aux(2,ll,j,k,b) + q_aux(7,ll,j,k,b)
-                  fi(3) = fi(1) * q_aux(3,ll,j,k,b)
-                  fi(4) = fi(1) * q_aux(4,ll,j,k,b)
-                  fi(5) = fi(1) * vi(5) / vi(1) + q_aux(7,ll,j,k,b)*q_aux(2,ll,j,k,b)
-                  do m=1,nv
-                     wc = 0._R8P
-                     gc = 0._R8P
-                     do mm=1,nv
-                        wc = wc + el(mm,m) * vi(mm)
-                        gc = gc + el(mm,m) * fi(mm)
-                     enddo
-                     gplus (m,l,j,k,b) = 0.5_R8P * (gc + evmax(m) * wc)
-                     gminus(m,l,j,k,b) = gc - gplus(m,l,j,k,b)
-                  enddo
-               enddo
-               ! Reconstruction of the + and - fluxes
-               wenorec_scheme = cell_scheme(b,i,j,k,1)
-               call weno_reconstruction(nvar=nv, vp=gplus(1:,1:,j,k,b), vm=gminus(1:,1:,j,k,b), &
-                                        vminus=gl, vplus=gr, iweno=iweno, wenorec_ord=wenorec_scheme)
-               ror_x: do m = 2, size(ror_schemes)
-                  ror_to_recompute = .false.
-                  do mm = 1,size(ror_ivar)
-                      index_var = ror_ivar(mm)
-                      if ((abs(gl(index_var)-gplus(index_var,iweno,j,k,b))    > &
-                           ror_threshold*abs(gplus(index_var,iweno,j,k,b))).or. &
-                          (abs(gr(index_var)-gminus(index_var,iweno+1,j,k,b)) > &
-                           ror_threshold*abs(gminus(index_var,iweno+1,j,k,b)))) then
-                         ror_to_recompute = .true.
-                      endif
-                  enddo
-                  if(ror_to_recompute) then
-                     wenorec_scheme = ror_schemes(m)
-                     call weno_reconstruction(nvar=nv, vp=gplus(1:,1:,j,k,b), vm=gminus(1:,1:,j,k,b), &
-                                              vminus=gl, vplus=gr, iweno=iweno, wenorec_ord=wenorec_scheme)
-                  else
-                     exit ror_x
-                  endif
-               enddo ror_x
-               if (enable_ror_stats) ror_stats(1,i,j,k,b) = wenorec_scheme
-               ! Reassemble + and - characteristic fluxes
-               do m=1,nv
-                  ghat(m) = gl(m) + gr(m)
-               enddo
-               ! Return to conservative fluxes
-               do m=1,nv
-                  flx(m,i,j,k,b) = 0._R8P
-                  do mm=1,nv
-                     flx(m,i,j,k,b) = flx(m,i,j,k,b) + er(mm,m) * ghat(mm)
-                  enddo
-               enddo
+      call compute_roe_average(q_aux=q_aux, g=g, ngc=ngc, b=b, i=i, j=j, k=k, ip=ip, jp=jp, kp=kp, &
+                               uu=uu, vv=vv, ww=ww, h=h, qq=qq, c=c, ci=ci, b1=b1, b2=b2)
+
+      uvw    =  uu*sir(1)+vv*sir(2)+ww*sir(3)
+      uvw_r1 =  uu*sir(3)+vv*sir(1)+ww*sir(2)
+      uvw_r2 = -uu*sir(2)+vv*sir(3)+ww*sir(1)
+
+      er(1,1)=1._R8P ; er(1,2)=uu-c*sir(1)   ; er(1,3)=vv-c*sir(2) ; er(1,4)=ww-c*sir(3)   ; er(1,5)=h-uvw*c
+      er(2,1)=1._R8P ; er(2,2)=uu            ; er(2,3)=vv          ; er(2,4)=ww            ; er(2,5)=qq
+      er(3,1)=1._R8P ; er(3,2)=uu+c*sir(1)   ; er(3,3)=vv+c*sir(2) ; er(3,4)=ww+c*sir(3)   ; er(3,5)=h+uvw*c
+      er(4,1)=0._R8P ; er(4,2)=sir(2)+sir(3) ; er(4,3)=sir(1)      ; er(4,4)=0._R8P        ; er(4,5)=uvw_r1
+      er(5,1)=0._R8P ; er(5,2)=0._R8P        ; er(5,3)=sir(3)      ; er(5,4)=sir(1)+sir(2) ; er(5,5)=uvw_r2
+
+      el(1,1)= 0.5_R8P*(b1+uvw*ci)      ;el(1,2)= 1._R8P-b1;el(1,3)= 0.5_R8P*(b1-uvw*ci)      ;el(1,4)=-uvw_r1;el(1,5)=-uvw_r2
+      el(2,1)=-0.5_R8P*(b2*uu+ci*sir(1));el(2,2)= b2*uu    ;el(2,3)=-0.5_R8P*(b2*uu-ci*sir(1));el(2,4)= sir(3);el(2,5)=-sir(2)
+      el(3,1)=-0.5_R8P*(b2*vv+ci*sir(2));el(3,2)= b2*vv    ;el(3,3)=-0.5_R8P*(b2*vv-ci*sir(2));el(3,4)= sir(1);el(3,5)= sir(3)
+      el(4,1)=-0.5_R8P*(b2*ww+ci*sir(3));el(4,2)= b2*ww    ;el(4,3)=-0.5_R8P*(b2*ww-ci*sir(3));el(4,4)= sir(2);el(4,5)= sir(1)
+      el(5,1)= 0.5_R8P*b2               ;el(5,2)=-b2       ;el(5,3)= 0.5_R8P*b2               ;el(5,4)= 0._R8P;el(5,5)= 0._R8P
+
+      ! flux vector splitting by local-Lax-Friedrics and pseudo-characteristic projection
+      evmax = -1._R8P
+      do l=1, 2*weno_s
+         ip = i + (l-weno_s) * si(1) ; jp = j + (l-weno_s) * si(2) ; kp = k + (l-weno_s) * si(3)
+         uu = q_aux(1+1*si(1)+2*si(2)+3*si(3),ip,jp,kp,b)
+         c  = q_aux(9,                        ip,jp,kp,b)
+         ev(1) = abs(uu-c) ; ev(2) = abs(uu) ; ev(3) = abs(uu+c) ; ev(4) = ev(2) ; ev(5) = ev(2)
+         do m=1,nv
+            evmax(m) = max(ev(m),evmax(m))
+         enddo
+      enddo
+      do l=1, 2*weno_s
+         ip = i + (l-weno_s) * si(1) ; jp = j + (l-weno_s) * si(2) ; kp = k + (l-weno_s) * si(3)
+         call compute_cell_convective_fluxes(sir=sir, q_aux=q_aux(1:9,ip,jp,kp,b), fluxes=f)
+         call compute_conservative(q_aux=q_aux(1:9,ip,jp,kp,b), q=q)
+         do m=1, nv
+            wc = 0._R8P
+            gc = 0._R8P
+            do mm=1, nv
+               wc = wc + el(mm,m) * q(mm)
+               gc = gc + el(mm,m) * f(mm)
             enddo
+            fp(m,l) = 0.5_R8P * (gc + evmax(m) * wc)
+            fm(m,l) = gc - fp(m,l)
+         enddo
+      enddo
+      ! ! WENO upwind reconstruction
+      ! fw(:,1,1-weno_s:-1+weno_s) = fp(:,1:2*weno_s-1)
+      ! fw(:,2,1-weno_s:-1+weno_s) = fm(:,2:2*weno_s  )
+      ! do m=1, nv
+      !    ! call weno%reconstruct_upwind(S=iweno, V=fw(m,:,:), VR=fwr)
+      !    call weno_reconstruct_upwind(S=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,V=fw(m,:,:),VR=fwr)
+      !    ghat(m) = fwr(1) + fwr(2)
+      ! enddo
+      call weno_reconstruction(nvar=nv,vp=fp(1:,1:), vm=fm(1:,1:), vminus=fmr, vplus=fpr, iweno=weno_s, wenorec_ord=weno_s)
+      do m=1,nv
+         ghat(m) = fpr(m) + fmr(m)
+      enddo
+      ! back projection in conservative variables space
+      do m=1, nv
+         fluxes(m,i,j,k,b) = 0._R8P
+         do mm=1,nv
+            fluxes(m,i,j,k,b) = fluxes(m,i,j,k,b) + er(mm,m) * ghat(mm)
          enddo
       enddo
    enddo
-   endsubroutine compute_flux_conv_x
-
-   subroutine compute_flux_conv_y(blocks_number, ni, nj, nk, ngc, nv, iweno, dha, g, R, cv, &
-                                  ror_threshold, enable_ror_stats, cell_scheme, ror_ivar,   &
-                                  ror_schemes, q_aux, ror_stats, gplus, gminus, fly)
-   !< Compute convective fluxes by means of upwind WENO reconstruction, y axis direction.
-   integer,      intent(in)    :: blocks_number, ni, nj, nk, ngc, nv, iweno
-   real(R8P),    intent(in)    :: dha, g, R, cv
-   real(R8P),    intent(in)    :: ror_threshold
-   logical,      intent(in)    :: enable_ror_stats
-   integer(I4P), intent(in)    :: cell_scheme(1:,1-ngc:,1-ngc:,1-ngc:,1:)
-   integer(I4P), intent(in)    :: ror_ivar(1:)
-   integer(I4P), intent(in)    :: ror_schemes(1:)
-   real(R8P),    intent(in)    :: q_aux(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   integer(I4P), intent(inout) :: ror_stats(1:,1-ngc:,1-ngc:,1-ngc:,1:)
-   real(R8P),    intent(inout) ::  gplus(1:, 1:, 1:, 1:, 1:)
-   real(R8P),    intent(inout) :: gminus(1:, 1:, 1:, 1:, 1:)
-   real(R8P),    intent(inout) :: fly(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   integer                     :: b, i, j, k, l, ll, m, mm, v
-   real(R8P)                   :: er(5,5), el(5,5), ev(5), evmax(5), ghat(5), gl(5), gr(5), fi(5), vi(5)
-   real(R8P)                   :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
-   real(R8P)                   :: gc, wc
-   integer                     :: wenorec_scheme, index_var
-   logical                     :: ror_to_recompute
-
-   do b=1, blocks_number
-      do k=1,nk
-         do j=0,nj ! loop on faces
-            do i=1, ni
-               ! Compute Roe average
-               call compute_roe_average(q_aux=q_aux, dha=dha, g=g, ngc=ngc, b=b, i=i, j=j, k=k, ip=i, jp=j+1, kp=k, &
-                                        uu=uu, vv=vv, ww=ww, h=h, ya=ya, qq=qq, c=c, ci=ci, b1=b1, b2=b2)
-               ! Compute right and left eigenvectors matrices (at Roe state)
-               er(1,1)=1._R8P ; er(1,2)=uu     ; er(1,3)=vv-c   ; er(1,4)=ww     ; er(1,5)=h-vv*c
-               er(2,1)=1._R8P ; er(2,2)=uu     ; er(2,3)=vv     ; er(2,4)=ww     ; er(2,5)=qq
-               er(3,1)=1._R8P ; er(3,2)=uu     ; er(3,3)=vv+c   ; er(3,4)=ww     ; er(3,5)=h+vv*c
-               er(4,1)=0._R8P ; er(4,2)=1._R8P ; er(4,3)=0._R8P ; er(4,4)=0._R8P ; er(4,5)=ww
-               er(5,1)=0._R8P ; er(5,2)=0._R8P ; er(5,3)=0._R8P ; er(5,4)=1._R8P ; er(5,5)=-uu
-
-               el(1,1)= 0.5_R8P*(b1+vv*ci) ; el(1,2)=1._R8P-b1 ; el(1,3)=0.5_R8P*(b1-vv*ci)  ; el(1,4)=-ww    ; el(1,5)=uu
-               el(2,1)=-0.5_R8P*(b2*uu)    ; el(2,2)=b2*uu     ; el(2,3)=-0.5_R8P*(b2*uu)    ; el(2,4)=0._R8P ; el(2,5)=-1._R8P
-               el(3,1)=-0.5_R8P*(b2*vv+ci) ; el(3,2)=b2*vv     ; el(3,3)=-0.5_R8P*(b2*vv-ci) ; el(3,4)=0._R8P ; el(3,5)=0._R8P
-               el(4,1)=-0.5_R8P*(b2*ww)    ; el(4,2)=b2*ww     ; el(4,3)=-0.5_R8P*(b2*ww)    ; el(4,4)=1._R8P ; el(4,5)=0._R8P
-               el(5,1)= 0.5_R8P*b2         ; el(5,2)=-b2       ; el(5,3)=0.5_R8P*b2          ; el(5,4)=0._R8P ; el(5,5)=0._R8P
-               ! Find max eigenvalues on the stencil
-               do m=1,nv  ! loop on characteristic fields
-                  evmax(m) = -1._R8P
-               enddo
-               do l=1,2*iweno ! LLF
-                  ll = j + l - iweno
-                  uu = q_aux(3,i,ll,k,b)
-                  c  = q_aux(9,i,ll,k,b)
-                  ev(1) = abs(uu-c) ; ev(2) = abs(uu) ; ev(3) = abs(uu+c) ; ev(4) = ev(2) ; ev(5) = ev(2) ;
-                  do m=1,nv
-                     evmax(m) = max(ev(m),evmax(m))
-                  enddo
-               enddo
-               ! Decompose fluxes as + and -
-               do l=1,2*iweno ! loop over the stencil centered at face i
-                  ll = j + l - iweno
-                  vi(1) = q_aux(1,i,ll,k,b)
-                  vi(2) = vi(1)*q_aux(2,i,ll,k,b)
-                  vi(3) = vi(1)*q_aux(3,i,ll,k,b)
-                  vi(4) = vi(1)*q_aux(4,i,ll,k,b)
-                  vi(5) = vi(1)*(cv*q_aux(6,i,ll,k,b)+                                           &
-                      0.5_R8P*(q_aux(2,i,ll,k,b)**2+q_aux(3,i,ll,k,b)**2+q_aux(4,i,ll,k,b)**2) + &
-                      q_aux(5,i,ll,k,b)*dha)
-                  fi(1) = vi(3)
-                  fi(2) = fi(1) * q_aux(2,i,ll,k,b)
-                  fi(3) = fi(1) * q_aux(3,i,ll,k,b) + q_aux(7,i,ll,k,b)
-                  fi(4) = fi(1) * q_aux(4,i,ll,k,b)
-                  fi(5) = fi(1) * vi(5) / vi(1) + q_aux(7,i,ll,k,b)*q_aux(3,i,ll,k,b)
-                  do m=1,nv
-                     wc = 0._R8P
-                     gc = 0._R8P
-                     do mm=1,nv
-                        wc = wc + el(mm,m) * vi(mm)
-                        gc = gc + el(mm,m) * fi(mm)
-                     enddo
-                     gplus (m,l,i,k,b) = 0.5_R8P * (gc + evmax(m) * wc)
-                     gminus(m,l,i,k,b) = gc - gplus(m,l,i,k,b)
-                  enddo
-               enddo
-               ! Reconstruction of the + and - fluxes
-               wenorec_scheme = cell_scheme(b,i,j,k,2)
-               call weno_reconstruction(nvar=nv, vp=gplus(1:,1:,i,k,b), vm=gminus(1:,1:,i,k,b), &
-                                        vminus=gl, vplus=gr, iweno=iweno, wenorec_ord=wenorec_scheme)
-               ror_y: do m = 2, size(ror_schemes)
-                  ror_to_recompute = .false.
-                  do mm = 1,size(ror_ivar)
-                      index_var = ror_ivar(mm)
-                      if ((abs(gl(index_var)-gplus(index_var,iweno,i,k,b))    > &
-                           ror_threshold*abs(gplus(index_var,iweno,i,k,b))).or. &
-                          (abs(gr(index_var)-gminus(index_var,iweno+1,i,k,b)) > &
-                           ror_threshold*abs(gminus(index_var,iweno+1,i,k,b)))) then
-                         ror_to_recompute = .true.
-                      endif
-                  enddo
-                  if (ror_to_recompute) then
-                     wenorec_scheme = ror_schemes(m)
-                     call weno_reconstruction(nvar=nv, vp=gplus(1:,1:,i,k,b), vm=gminus(1:,1:,i,k,b), &
-                                              vminus=gl, vplus=gr, iweno=iweno, wenorec_ord=wenorec_scheme)
-                  else
-                     exit ror_y
-                  endif
-               enddo ror_y
-               if (enable_ror_stats) ror_stats(2,i,j,k,b) = wenorec_scheme
-               ! Reassemble + and - characteristic fluxes
-               do m=1,nv
-                  ghat(m) = gl(m) + gr(m)
-               enddo
-               ! Return to conservative fluxes
-               do m=1,nv
-                  fly(m,i,j,k,b) = 0._R8P
-                  do mm=1,nv
-                     fly(m,i,j,k,b) = fly(m,i,j,k,b) + er(mm,m) * ghat(mm)
-                  enddo
-               enddo
-            enddo
-         enddo
-      enddo
    enddo
-   endsubroutine compute_flux_conv_y
-
-   subroutine compute_flux_conv_z(blocks_number, ni, nj, nk, ngc, nv, iweno, dha, g, R, cv, &
-                                  ror_threshold, enable_ror_stats, cell_scheme, ror_ivar,   &
-                                  ror_schemes, q_aux, ror_stats, gplus, gminus, flz)
-   !< Compute convective fluxes by means of upwind WENO reconstruction, z axis direction.
-   integer,      intent(in)    :: blocks_number, ni, nj, nk, ngc, nv, iweno
-   real(R8P),    intent(in)    :: dha, g, R, cv
-   real(R8P),    intent(in)    :: ror_threshold
-   logical,      intent(in)    :: enable_ror_stats
-   integer(I4P), intent(in)    :: cell_scheme(1:,1-ngc:,1-ngc:,1-ngc:,1:)
-   integer(I4P), intent(in)    :: ror_ivar(1:)
-   integer(I4P), intent(in)    :: ror_schemes(1:)
-   real(R8P),    intent(in)    :: q_aux(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   integer(I4P), intent(inout) :: ror_stats(1:,1-ngc:,1-ngc:,1-ngc:,1:)
-   real(R8P),    intent(inout) ::  gplus(1:, 1:, 1:, 1:, 1:)
-   real(R8P),    intent(inout) :: gminus(1:, 1:, 1:, 1:, 1:)
-   real(R8P),    intent(inout) :: flz(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   integer                     :: b, i, j, k, l, ll, m, mm, v
-   real(R8P)                   :: er(5,5), el(5,5), ev(5), evmax(5), ghat(5), gl(5), gr(5), fi(5), vi(5)
-   real(R8P)                   :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
-   real(R8P)                   :: gc, wc
-   integer                     :: wenorec_scheme, index_var
-   logical                     :: ror_to_recompute
-
-   do b=1, blocks_number
-      do k=0,nk ! loop on faces
-         do j=1,nj
-            do i=1,ni
-               ! Compute Roe average
-               call compute_roe_average(q_aux=q_aux, dha=dha, g=g, ngc=ngc, b=b, i=i, j=j, k=k, ip=i, jp=j, kp=k+1, &
-                                        uu=uu, vv=vv, ww=ww, h=h, ya=ya, qq=qq, c=c, ci=ci, b1=b1, b2=b2)
-               ! Compute right and left eigenvectors matrices (at Roe state)
-               er(1,1)=1._R8P ; er(1,2)=uu     ; er(1,3)=vv     ; er(1,4)=ww-c   ; er(1,5)=h-ww*c
-               er(2,1)=1._R8P ; er(2,2)=uu     ; er(2,3)=vv     ; er(2,4)=ww     ; er(2,5)=qq
-               er(3,1)=1._R8P ; er(3,2)=uu     ; er(3,3)=vv     ; er(3,4)=ww+c   ; er(3,5)=h+ww*c
-               er(4,1)=0._R8P ; er(4,2)=1._R8P ; er(4,3)=0._R8P ; er(4,4)=0._R8P ; er(4,5)=uu
-               er(5,1)=0._R8P ; er(5,2)=0._R8P ; er(5,3)=1._R8P ; er(5,4)=0._R8P ; er(5,5)=vv
-
-               el(1,1)=0.5_R8P*(b1+ww*ci)  ; el(1,2)=1._R8P-b1 ; el(1,3)=0.5_R8P*(b1-ww*ci)  ; el(1,4)=-uu    ; el(1,5)=-vv
-               el(2,1)=-0.5_R8P*(b2*uu)    ; el(2,2)=b2*uu     ; el(2,3)=-0.5_R8P*(b2*uu)    ; el(2,4)=1._R8P ; el(2,5)=0._R8P
-               el(3,1)=-0.5_R8P*(b2*vv)    ; el(3,2)=b2*vv     ; el(3,3)=-0.5_R8P*(b2*vv)    ; el(3,4)=0._R8P ; el(3,5)=1._R8P
-               el(4,1)=-0.5_R8P*(b2*ww+ci) ; el(4,2)=b2*ww     ; el(4,3)=-0.5_R8P*(b2*ww-ci) ; el(4,4)=0._R8P ; el(4,5)=0._R8P
-               el(5,1)=0.5_R8P*b2          ; el(5,2)=-b2       ; el(5,3)=0.5_R8P*b2          ; el(5,4)=0._R8P ; el(5,5)=0._R8P
-               ! Find max eigenvalues on the stencil
-               do m=1,nv  ! loop on characteristic fields
-                  evmax(m) = -1._R8P
-               enddo
-               do l=1,2*iweno ! LLF
-                  ll = k + l - iweno
-                  uu = q_aux(4,i,j,ll,b)
-                  c  = q_aux(9,i,j,ll,b)
-                  ev(1) = abs(uu-c) ; ev(2) = abs(uu) ; ev(3) = abs(uu+c) ; ev(4) = ev(2) ; ev(5) = ev(2)
-                  do m=1,nv
-                     evmax(m) = max(ev(m),evmax(m))
-                  enddo
-               enddo
-               ! Decompose fluxes as + and -
-               do l=1,2*iweno ! loop over the stencil centered at face i
-                  ll = k + l - iweno
-                  vi(1) = q_aux(1,i,j,ll,b)
-                  vi(2) = vi(1)*q_aux(2,i,j,ll,b)
-                  vi(3) = vi(1)*q_aux(3,i,j,ll,b)
-                  vi(4) = vi(1)*q_aux(4,i,j,ll,b)
-                  vi(5) = vi(1)*(cv*q_aux(6,i,j,ll,b)+                                           &
-                      0.5_R8P*(q_aux(2,i,j,ll,b)**2+q_aux(3,i,j,ll,b)**2+q_aux(4,i,j,ll,b)**2) + &
-                      q_aux(5,i,j,ll,b)*dha)
-                  fi(1) = vi(4)
-                  fi(2) = fi(1) * q_aux(2,i,j,ll,b)
-                  fi(3) = fi(1) * q_aux(3,i,j,ll,b)
-                  fi(4) = fi(1) * q_aux(4,i,j,ll,b) + q_aux(7,i,j,ll,b)
-                  fi(5) = fi(1) * vi(5) / vi(1) + q_aux(7,i,j,ll,b)*q_aux(4,i,j,ll,b)
-                  do m=1,nv
-                     wc = 0._R8P
-                     gc = 0._R8P
-                     do mm=1,nv
-                        wc = wc + el(mm,m) * vi(mm)
-                        gc = gc + el(mm,m) * fi(mm)
-                     enddo
-                     gplus (m,l,i,j,b) = 0.5_R8P * (gc + evmax(m) * wc)
-                     gminus(m,l,i,j,b) = gc - gplus(m,l,i,j,b)
-                  enddo
-               enddo
-               ! Reconstruction of the + and - fluxes
-               wenorec_scheme = cell_scheme(b,i,j,k,3)
-               call weno_reconstruction(nvar=nv, vp=gplus(1:,1:,i,j,b), vm=gminus(1:,1:,i,j,b), &
-                                        vminus=gl, vplus=gr, iweno=iweno, wenorec_ord=wenorec_scheme)
-               ror_z: do m = 2, size(ror_schemes)
-                  ror_to_recompute = .false.
-                  do mm = 1,size(ror_ivar)
-                      index_var = ror_ivar(mm)
-                      if ((abs(gl(index_var)-gplus(index_var,iweno,i,j,b))    > &
-                           ror_threshold*abs(gplus(index_var,iweno,i,j,b))).or. &
-                          (abs(gr(index_var)-gminus(index_var,iweno+1,i,j,b)) > &
-                           ror_threshold*abs(gminus(index_var,iweno+1,i,j,b)))) then
-                         ror_to_recompute = .true.
-                      endif
-                  enddo
-                  if(ror_to_recompute) then
-                     wenorec_scheme = ror_schemes(m)
-                     call weno_reconstruction(nvar=nv, vp=gplus(1:,1:,i,j,b), vm=gminus(1:,1:,i,j,b), &
-                                              vminus=gl, vplus=gr, iweno=iweno, wenorec_ord=wenorec_scheme)
-                  else
-                     exit ror_z
-                  endif
-               enddo ror_z
-               if (enable_ror_stats) ror_stats(3,i,j,k,b) = wenorec_scheme
-               ! Reassemble + and - characteristic fluxes
-               do m=1,nv
-                  ghat(m) = gl(m) + gr(m)
-               enddo
-               ! Return to conservative fluxes
-               do m=1,nv
-                  flz(m,i,j,k,b) = 0._R8P
-                  do mm=1,nv
-                     flz(m,i,j,k,b) = flz(m,i,j,k,b) + er(mm,m) * ghat(mm)
-                  enddo
-               enddo
-            enddo
-         enddo
-      enddo
    enddo
-   endsubroutine compute_flux_conv_z
+   enddo
+   endsubroutine compute_fluxes_convective
 
    subroutine compute_fluxes_difference(blocks_number, ni, nj, nk, ngc, nv, ib_eps, dx, dy, dz, flx, fly, flz, phi, fl)
    !< Compute fluxes difference.
@@ -1223,19 +985,17 @@ contains
    enddo
    endsubroutine compute_fluxes_difference
 
-   subroutine compute_fluxes_diffusive(blocks_number, ni, nj, nk, ngc, nv, mu, kd, q_aux, dx, dy, dz, flx, fly, flz)
+   subroutine compute_fluxes_diffusive(blocks_number, ni, nj, nk, ngc, mu, kd, q_aux, dx, dy, dz, flx, fly, flz)
    !< Compute diffusive fluxes.
-   integer(I4P), intent(in)    :: blocks_number, ni, nj, nk, ngc, nv
+   integer(I4P), intent(in)    :: blocks_number, ni, nj, nk, ngc
    real(R8P),    intent(in)    :: mu, kd
    real(R8P),    intent(in)    :: dx(1:), dy(1:), dz(1:)
    real(R8P),    intent(in)    :: q_aux(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P),    intent(inout) ::   flx(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P),    intent(inout) ::   fly(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P),    intent(inout) ::   flz(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   integer(I4P)                :: b, i, j, k, v
+   integer(I4P)                :: b, i, j, k
    real(R8P)                   :: du_dx, dv_dx, dw_dx, du_dy, dv_dy, dw_dy, du_dz, dv_dz, dw_dz
-   real(R8P)                   :: dx_locale, dy_locale, dz_locale
-   real(R8P)                   :: delta_x, delta_y, delta_z
    real(R8P)                   :: sigq, sigl
    real(R8P)                   :: tau_1_1, tau_2_1, tau_3_1, dT_dx
    real(R8P)                   :: tau_1_2, tau_2_2, tau_3_2, dT_dy
@@ -1364,26 +1124,51 @@ contains
    enddo
    endsubroutine compute_fluxes_diffusive
 
-   subroutine compute_roe_average(q_aux, dha, g, ngc, b, i, j, k, ip, jp, kp, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
+   pure subroutine compute_q_auxiliary(cv, g, R, q, q_aux)
+   !< Compute auxiliary variables given conservative ones.
+   real(R8P), intent(in)  :: cv                           !< Specific heat at constant volume.
+   real(R8P), intent(in)  :: g                            !< Specific heats ratio.
+   real(R8P), intent(in)  :: R                            !< Specific heats difference, fluid constant.
+   real(R8P), intent(in)  :: q(5)                         !< Conservative variables.
+   real(R8P), intent(out) :: q_aux(9)                     !< Auxiliary variables.
+   real(R8P)              :: rho, uuu, vvv, www, rhe, tem !< State variables.
+
+   rho = q(1)
+   uuu = q(2)/rho
+   vvv = q(3)/rho
+   www = q(4)/rho
+   rhe = q(5)
+   tem = (rhe/rho-0.5*(uuu**2+vvv**2+www**2))/cv
+
+   q_aux(1) = rho           ! density
+   q_aux(2) = uuu           ! velocity x
+   q_aux(3) = vvv           ! velocity y
+   q_aux(4) = www           ! velocity z
+   q_aux(5) = 0._R8P        ! mass fraction
+   q_aux(6) = tem           ! temperature
+   q_aux(7) = R*rho*tem     ! pressure
+   q_aux(8) = rhe/rho+R*tem ! entalpy
+   q_aux(9) = sqrt(g*R*tem) ! sound speed
+   endsubroutine compute_q_auxiliary
+
+   subroutine compute_roe_average(q_aux, g, ngc, b, i, j, k, ip, jp, kp, uu, vv, ww, h, qq, c, ci, b1, b2)
    !< Compute Roe averaged quantities.
    real(R8P),    intent(in)  :: q_aux(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P),    intent(in)  :: dha, g
+   real(R8P),    intent(in)  :: g
    integer(I4P), intent(in)  :: ngc, b, i, j, k, ip, jp, kp
-   real(R8P),    intent(out) :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
-   real(R8P)                 :: ri, up, vp, wp, hp, yap, r, rp1, cc
+   real(R8P),    intent(out) :: uu, vv, ww, h, qq, c, ci, b1, b2
+   real(R8P)                 :: ri, up, vp, wp, hp, r, rp1, cc
    ! Left state (node i)
    ri        =  1._R8P/q_aux(1,i,j,k,b)
    uu        =  q_aux(2,i,j,k,b)
    vv        =  q_aux(3,i,j,k,b)
    ww        =  q_aux(4,i,j,k,b)
    h         =  q_aux(8,i,j,k,b)
-   ya        =  q_aux(5,i,j,k,b)
    ! Right state (node i+1)
    up        =  q_aux(2,ip,jp,kp,b)
    vp        =  q_aux(3,ip,jp,kp,b)
    wp        =  q_aux(4,ip,jp,kp,b)
    hp        =  q_aux(8,ip,jp,kp,b)
-   yap       =  q_aux(5,ip,jp,kp,b)
    ! Average state
    r         =  sqrt(q_aux(1,ip,jp,kp,b)*ri)
    rp1       =  1._R8P/(r+1._R8P)
@@ -1391,10 +1176,8 @@ contains
    vv        =  (r*vp+vv)*rp1
    ww        =  (r*wp+ww)*rp1
    h         =  (r*hp+h)*rp1
-   ya        =  (r*yap+ya)*rp1
    qq        =  0.5_R8P * (uu*uu+vv*vv+ww*ww)
-   cc        =  (g-1._R8P) * (h - qq - ya*dha)
-   !ERRATODIREIcc        =  g * (g-1._R8P) * (h - qq - ya*dha)
+   cc        =  (g-1._R8P) * (h - qq)
    c         =  sqrt(cc)
    ci        =  1._R8P/c
    b2        = (g-1)/cc  ! alias 1/(cp*theta)
@@ -1412,7 +1195,7 @@ contains
    real(R8P),    intent(in)  :: dy                            !< Y space step.
    real(R8P),    intent(in)  :: dz                            !< Z space step.
    real(R8P),    intent(in)  :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field component to which apply gradient.
-   integer(I4P), intent(in)  :: ivar                          !< Ghost cells number.
+   integer(I4P), intent(in)  :: ivar                          !< Index of variable for computing the gradient.
    real(R8P),    intent(out) :: gradient                      !< Maximum gradient of q.
    real(R8P)                 :: grad                          !< Current gradient of q.
    integer(I4P)              :: i, j, k                       !< Counter.
@@ -1432,6 +1215,7 @@ contains
    enddo
    endsubroutine compute_q_gradient
 
+   ! da buttare
    subroutine weno_reconstruction(nvar, vp, vm, vminus, vplus, iweno, wenorec_ord)
    !< Compute WENO reconstruction.
    integer, intent(in)                     :: nvar, iweno, wenorec_ord
@@ -1611,6 +1395,5 @@ contains
       write(*,*) 'Error! WENO scheme not implemented'
       stop
    endif
-
    endsubroutine weno_reconstruction
 endmodule adam_nasto_cpu_object

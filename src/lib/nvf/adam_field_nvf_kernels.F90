@@ -45,7 +45,7 @@ contains
    enddo
    endsubroutine compute_normL2_residuals_cuf
 
-   subroutine copy_transpose_gpu_cpu_cuf(ni, nj, nk, ngc, nv, blocks_number, q_gpu, q_t_gpu, q_cpu)
+   subroutine copy_transpose_gpu_cpu_cuf(ni, nj, nk, ngc, nv, blocks_number, q_gpu, q_t_gpu)
    !< Copy transposed data from GPU to CPU by CUF threads.
    integer(I4P), intent(in)            :: ni            !< Grid cells number in I direction.
    integer(I4P), intent(in)            :: nj            !< Grid cells number in J direction.
@@ -63,11 +63,6 @@ contains
                                                   1-ngc:,&
                                                   1-ngc:,&
                                                   1:)   !< Conservative (transposed) variables on GPU.
-   real(R8P),    intent(out)           :: q_cpu(1:,    &
-                                                1-ngc:,&
-                                                1-ngc:,&
-                                                1-ngc:,&
-                                                1:)     !< Conservative variables on CPU.
    integer(I4P)                        :: i, j, k, b, v !< Counter.
    integer(I4P)                        :: iercuda       !< Error trapping flag for CUDAFortran.
 

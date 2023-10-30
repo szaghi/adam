@@ -13,7 +13,7 @@ private
 public :: grid_object
 
 ! grid parameters
-integer(I4P), parameter :: MAX_REF_LEVELS = 100_I4P !< Maximum refinement levels.
+integer(I4P), parameter :: MAX_REF_LEVELS = 30_I4P !< Maximum refinement levels.
 
 type :: grid_object
    !< Grid class definition.
@@ -42,7 +42,7 @@ type :: grid_object
       procedure, pass(self) :: compute_metrics         !< Compute metrics of a block.
       procedure, pass(self) :: compute_weight_neighbor !< Compute weight of neighbors.
       procedure, pass(self) :: description             !< Return pretty-printed object description.
-      procedure, pass(self) :: do_cplane_intersect     !< Return true if a block is intersected by coordinate-plane.
+      procedure, nopass     :: do_cplane_intersect     !< Return true if a block is intersected by coordinate-plane.
       procedure, pass(self) :: fec_bc_type             !< Return BC type of given fec.
       procedure, pass(self) :: get_closest_block       !< Get the closest block to a given point at a given level.
       procedure, pass(self) :: initialize              !< Initialize the field.
@@ -79,7 +79,6 @@ contains
    real(R8P),          intent(out), optional :: y_cell(1-self%ngc:self%nj+self%ngc) !< Y coordinates.
    real(R8P),          intent(out), optional :: z_cell(1-self%ngc:self%nk+self%ngc) !< Z coordinates.
    real(R8P)                                 :: emin(3)                             !< Min abscissa of block.
-   integer(I4P)                              :: i, j, k                             !< Counter.
 
    emin = self%block_emin(coordinates)
    if (present(x_cell)) x_cell(:) = emin(1) + self%lin_space_x(1-self%ngc:self%ni+self%ngc,coordinates(4))
@@ -152,9 +151,8 @@ contains
                                                                   str(self%is_ijk_periodic(3))
    endfunction description
 
-   function do_cplane_intersect(self, emin, emax, dxyz, cplane_origin, cplane_normal, cplane_block_indexes) result(do_intersect)
+   function do_cplane_intersect(emin, emax, dxyz, cplane_origin, cplane_normal, cplane_block_indexes) result(do_intersect)
    !< Return true if a block is intersected by coordinate-plane.
-   class(grid_object), intent(inout)         :: self                    !< The grid.
    real(R8P),          intent(in)            :: emin(3), emax(3)        !< Block extents.
    real(R8P),          intent(in)            :: dxyz(3)                 !< Block space steps.
    real(R8P),          intent(in)            :: cplane_origin(3)        !< Coordinate-plane origin.
@@ -319,7 +317,6 @@ contains
    real(R8P),          intent(out), optional :: y_node(0-self%ngc:self%nj+self%ngc) !< Y coordinates.
    real(R8P),          intent(out), optional :: z_node(0-self%ngc:self%nk+self%ngc) !< Z coordinates.
    real(R8P)                                 :: emin(3)                             !< Min abscissa of block.
-   integer(I4P)                              :: i, j, k                             !< Counter.
 
    emin = self%block_emin(coordinates)
    if (present(x_node)) x_node(:) = emin(1) + self%lin_space_x(:,coordinates(4))
