@@ -243,24 +243,24 @@ contains
 
      ! polinomials coefficients
      ! 1 => left interface (i-1/2)
-     !  cell  0          ;    cell  1
+     ! cell  0             ;   cell  1
      p(1,0,0,S) =  0.5_R8P ; p(1,1,0,S) =  0.5_R8P ! stencil 0
      p(1,0,1,S) = -0.5_R8P ; p(1,1,1,S) =  1.5_R8P ! stencil 1
      ! 2 => right interface (i+1/2)
-     !  cell  0          ;    cell  1
+     ! cell  0             ;   cell  1
      p(2,0,0,S) =  1.5_R8P ; p(2,1,0,S) = -0.5_R8P ! stencil 0
      p(2,0,1,S) =  0.5_R8P ; p(2,1,1,S) =  0.5_R8P ! stencil 1
 
      ! smoothness indicators coefficients
      ! stencil 0
-     !      i*i        ;       (i-1)*i
+     ! i*i               ;   (i-1)*i
      d(0,0,0,S) = 1._R8P ; d(1,0,0,S) =-2._R8P
-     !      /          ;       (i-1)*(i-1)
+     ! /                 ;   (i-1)*(i-1)
      d(0,1,0,S) = 0._R8P ; d(1,1,0,S) = 1._R8P
      ! stencil 1
-     !     (i+1)*(i+1) ;       (i+1)*i
+     ! (i+1)*(i+1)       ;   (i+1)*i
      d(0,0,1,S) = 1._R8P ; d(1,0,1,S) =-2._R8P
-     !      /          ;        i*i
+     ! /                 ;   i*i
      d(0,1,1,S) = 0._R8P ; d(1,1,1,S) = 1._R8P
    endassociate
    endsubroutine initialize_S2

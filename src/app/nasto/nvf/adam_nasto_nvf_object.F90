@@ -39,6 +39,9 @@ type, extends(nasto_common_object) :: nasto_nvf_object
    real(R8P),    allocatable, device :: q_bc_vars_gpu(:,:)         !< Variables array for boundary conditions on GPU.
    real(R8P),    allocatable, device :: q_bcs_vars_gpu(:,:)        !< Variables array for immersed boundary on GPU.
    integer(I4P), allocatable, device :: cell_scheme_gpu(:,:,:,:,:) !< Modified order close to solids (GPU variable).
+   real(R8P), allocatable, device :: weno_a_gpu(:,:,:)   !< Optimal weights                    [1:2,0:S-1,1:S].
+   real(R8P), allocatable, device :: weno_p_gpu(:,:,:,:) !< Polinomials coefficients           [1:2,0:S-1,0:S-1,1:S].
+   real(R8P), allocatable, device :: weno_d_gpu(:,:,:,:) !< Smoothness indicators coefficients [0:S-1,0:S-1,0:S-1,1:S].
    contains
       ! auxiliary methods
       procedure, pass(self) :: allocate_gpu !< Allocate GPU data.
@@ -136,6 +139,13 @@ contains
    call alloc_var_gpu(var=self%phi_gpu,        ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,sn1   ],[2,5]),msg=msg)
       self%phi_gpu = -1._R8P
    endif
+
+   ! call assign_allocatable_gpu(lhs=self%weno_a_gpu, rhs=self%schemes%weno%a, msg=msg_//' weno_a_gpu ' )
+   ! call assign_allocatable_gpu(lhs=self%weno_p_gpu, rhs=self%schemes%weno%p, msg=msg_//' weno_p_gpu ' )
+   ! call assign_allocatable_gpu(lhs=self%weno_d_gpu, rhs=self%schemes%weno%d, msg=msg_//' weno_f_gpu ' )
+   self%weno_a_gpu =self%schemes%weno%a
+   self%weno_p_gpu =self%schemes%weno%p
+   self%weno_d_gpu =self%schemes%weno%d
    endassociate
    call self%mpih_gpu%print_message('nasto_nvf_object%allocate_gpu finish')
    endsubroutine allocate_gpu
@@ -631,19 +641,20 @@ contains
    integer(I4P)                           :: iercuda      !< Error trapping flag for CUDAFortran.
    type(dim3)                             :: grid, tBlock !< CUDA grid and block.
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk,                                                                &
-             ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number,                                        &
-             dx_gpu=>self%field_gpu%dxyz_gpu(:,1),                                                                 &
-             dy_gpu=>self%field_gpu%dxyz_gpu(:,2),                                                                 &
-             dz_gpu=>self%field_gpu%dxyz_gpu(:,3),                                                                 &
-             q_aux_gpu=>self%q_aux_gpu, phi_gpu=>self%phi_gpu, fl_gpu=>self%fl_gpu,                                &
-             flx_gpu=>self%flx_gpu, fly_gpu=>self%fly_gpu, flz_gpu=>self%flz_gpu,                                  &
-             cell_scheme_gpu=>self%cell_scheme_gpu, ror_stats_gpu=>self%ror_stats_gpu,                             &
-             fc_coeff_gpu=>self%fc_coeff_gpu,                                                                      &
-             ror_schemes_gpu=>self%ror_schemes_gpu, ror_ivar_gpu=>self%ror_ivar_gpu,                               &
-             ror_threshold=>self%schemes%weno%ror_threshold, enable_ror_stats=>self%schemes%weno%enable_ror_stats, &
-             iweno=>self%schemes%weno%S,                                                                           &
-             cv=>self%physics%eos(1)%cv, g=>self%physics%eos(1)%g, R=>self%physics%eos(1)%R,                       &
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk,                                                                              &
+             ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number,                                                      &
+             dx_gpu=>self%field_gpu%dxyz_gpu(:,1),                                                                               &
+             dy_gpu=>self%field_gpu%dxyz_gpu(:,2),                                                                               &
+             dz_gpu=>self%field_gpu%dxyz_gpu(:,3),                                                                               &
+             q_aux_gpu=>self%q_aux_gpu, phi_gpu=>self%phi_gpu, fl_gpu=>self%fl_gpu,                                              &
+             flx_gpu=>self%flx_gpu, fly_gpu=>self%fly_gpu, flz_gpu=>self%flz_gpu,                                                &
+             cell_scheme_gpu=>self%cell_scheme_gpu, ror_stats_gpu=>self%ror_stats_gpu,                                           &
+             fc_coeff_gpu=>self%fc_coeff_gpu,                                                                                    &
+             ror_schemes_gpu=>self%ror_schemes_gpu, ror_ivar_gpu=>self%ror_ivar_gpu,                                             &
+             ror_threshold=>self%schemes%weno%ror_threshold, enable_ror_stats=>self%schemes%weno%enable_ror_stats,               &
+             weno_s=>self%schemes%weno%S, weno_a_gpu=>self%weno_a_gpu, weno_p_gpu=>self%weno_p_gpu, weno_d_gpu=>self%weno_d_gpu, &
+             weno_zeps=>self%schemes%weno%zeps,                                                                                  &
+             cv=>self%physics%eos(1)%cv, g=>self%physics%eos(1)%g, R=>self%physics%eos(1)%R,                                     &
              mu=>self%physics%eos(1)%mu, kd=>self%physics%eos(1)%kd, dha=>self%physics%eos(1)%dha)
 
    call self%mpih_gpu%check_cuda_error(error_code=-15, msg='CUDA error at start residuals computation')
@@ -654,15 +665,21 @@ contains
          call self%mpih_gpu%compute_cuda_dimensions(grid_x=blocks_number, grid_y=nj, grid=grid, tBlock=tBlock)
          call compute_fluxes_convective_kernel<<<grid, tBlock>>>(dir=1,                                     &
                                           blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
-                                          weno_s=iweno, g=g, q_aux_gpu=q_aux_gpu, fluxes_gpu=flx_gpu)
+                                          weno_s=weno_s, weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu,      &
+                                          weno_d_gpu=weno_d_gpu, weno_zeps=weno_zeps,                       &
+                                          g=g, q_aux_gpu=q_aux_gpu, fluxes_gpu=flx_gpu)
          call self%mpih_gpu%compute_cuda_dimensions(grid_x=blocks_number, grid_y=ni, grid=grid, tBlock=tBlock)
          call compute_fluxes_convective_kernel<<<grid, tBlock>>>(dir=2,                                     &
                                           blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
-                                          weno_s=iweno, g=g, q_aux_gpu=q_aux_gpu, fluxes_gpu=fly_gpu)
+                                          weno_s=weno_s, weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu,      &
+                                          weno_d_gpu=weno_d_gpu, weno_zeps=weno_zeps,                       &
+                                          g=g, q_aux_gpu=q_aux_gpu, fluxes_gpu=fly_gpu)
          call self%mpih_gpu%compute_cuda_dimensions(grid_x=blocks_number, grid_y=ni, grid=grid, tBlock=tBlock)
          call compute_fluxes_convective_kernel<<<grid, tBlock>>>(dir=3,                                     &
                                           blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
-                                          weno_s=iweno, g=g, q_aux_gpu=q_aux_gpu, fluxes_gpu=flz_gpu)
+                                          weno_s=weno_s, weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu,      &
+                                          weno_d_gpu=weno_d_gpu, weno_zeps=weno_zeps,                       &
+                                          g=g, q_aux_gpu=q_aux_gpu, fluxes_gpu=flz_gpu)
       endselect
    endif
 

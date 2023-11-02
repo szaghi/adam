@@ -2,6 +2,7 @@
 module adam_nasto_nvf_kernels
 !< ADAM, NASTO NVF application kernels.
 
+use adam_weno_nvf_kernels
 use penf, only : I4P, I8P, R8P
 use cudafor
 
@@ -18,7 +19,9 @@ public :: compute_rk_q_gpu_cuf
 
 contains
    ! public procedures
-   attributes(global) subroutine compute_fluxes_convective_kernel(dir,blocks_number,ni,nj,nk,ngc,nv,weno_s,g,q_aux_gpu,fluxes_gpu)
+   attributes(global) subroutine compute_fluxes_convective_kernel(dir,blocks_number,ni,nj,nk,ngc,nv,                &
+                                                                  weno_s,weno_a_gpu,weno_p_gpu,weno_d_gpu,weno_zeps,&
+                                                                  g,q_aux_gpu,fluxes_gpu)
    !< Compute convective fluxes along x direction.
    integer(I4P), intent(in), value     :: dir                                    !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P), intent(in), value     :: blocks_number                          !< Number of blocks.
@@ -28,6 +31,10 @@ contains
    integer(I4P), intent(in), value     :: ngc                                    !< Ghost cells number.
    integer(I4P), intent(in), value     :: nv                                     !< Number of conservative varibales.
    integer(I4P), intent(in), value     :: weno_s                                 !< Weno stencils number/dimension.
+   real(R8P),    intent(in), device    :: weno_a_gpu(1:,0:,1:)                   !< Optimal weights.
+   real(R8P),    intent(in), device    :: weno_p_gpu(1:,0:,0:,1:)                !< Polinomials coefficients.
+   real(R8P),    intent(in), device    :: weno_d_gpu(0:,0:,0:,1:)                !< Smoothness indicators coefficients.
+   real(R8P),    intent(in), value     :: weno_zeps                              !< Parameter for avoiding division by zero in IS.
    real(R8P),    intent(in), value     :: g                                      !< Specific heats ratio.
    real(R8P),    intent(in),    device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Auxiliary variables.
    real(R8P),    intent(inout), device :: fluxes_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes.
@@ -44,8 +51,10 @@ contains
       sir = real(si,R8P)
       do k=1-si(3), nk
       do i=1-si(1), ni
-         call compute_fluxes_convective_interface(si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv, &
-                                                  weno_s=weno_s,g=g,q_aux_gpu=q_aux_gpu,fluxes_gpu=fluxes_gpu)
+         call compute_fluxes_conv_interface_kernel(si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,               &
+                                                   weno_s=weno_s,weno_a_gpu=weno_a_gpu,weno_p_gpu=weno_p_gpu, &
+                                                   weno_d_gpu=weno_d_gpu,weno_zeps=weno_zeps,                 &
+                                                   g=g,q_aux_gpu=q_aux_gpu,fluxes_gpu=fluxes_gpu)
       enddo
       enddo
    case(2)
@@ -56,8 +65,10 @@ contains
       sir = real(si,R8P)
       do k=1-si(3), nk
       do j=1-si(2), nj
-         call compute_fluxes_convective_interface(si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv, &
-                                                  weno_s=weno_s,g=g,q_aux_gpu=q_aux_gpu,fluxes_gpu=fluxes_gpu)
+         call compute_fluxes_conv_interface_kernel(si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,               &
+                                                   weno_s=weno_s,weno_a_gpu=weno_a_gpu,weno_p_gpu=weno_p_gpu, &
+                                                   weno_d_gpu=weno_d_gpu,weno_zeps=weno_zeps,                 &
+                                                   g=g,q_aux_gpu=q_aux_gpu,fluxes_gpu=fluxes_gpu)
       enddo
       enddo
    case(3)
@@ -68,8 +79,10 @@ contains
       sir = real(si,R8P)
       do j=1-si(2), nj
       do k=1-si(3), nk
-         call compute_fluxes_convective_interface(si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv, &
-                                                  weno_s=weno_s,g=g,q_aux_gpu=q_aux_gpu,fluxes_gpu=fluxes_gpu)
+         call compute_fluxes_conv_interface_kernel(si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,               &
+                                                   weno_s=weno_s,weno_a_gpu=weno_a_gpu,weno_p_gpu=weno_p_gpu, &
+                                                   weno_d_gpu=weno_d_gpu,weno_zeps=weno_zeps,                 &
+                                                   g=g,q_aux_gpu=q_aux_gpu,fluxes_gpu=fluxes_gpu)
       enddo
       enddo
    endselect
@@ -540,37 +553,108 @@ contains
    endsubroutine compute_rk_q_gpu_cuf
 
    ! private procedures
-   attributes(device) subroutine compute_fluxes_convective_interface(si,sir,b,i,j,k,ngc,nv,weno_s,g,q_aux_gpu,fluxes_gpu)
+   attributes(device) subroutine compute_fluxes_conv_interface_kernel(si,sir,b,i,j,k,ngc,nv,                            &
+                                                                      weno_s,weno_a_gpu,weno_p_gpu,weno_d_gpu,weno_zeps,&
+                                                                      g,q_aux_gpu,fluxes_gpu)
    !< Compute convective fluxes at right interface of b,i,j,k.
    integer(I4P), intent(in)            :: si(3)                                  !< Stencil increment.
    real(R8P)   , intent(in)            :: sir(3)                                 !< Stencil increment, real cast.
-   integer(I4P), intent(in)            :: b, i, j, k                             !< Counter.
+   integer(I4P), intent(in), value     :: b, i, j, k                             !< Counter.
    integer(I4P), intent(in), value     :: ngc                                    !< Ghost cells number.
    integer(I4P), intent(in), value     :: nv                                     !< Number of conservative varibales.
    integer(I4P), intent(in), value     :: weno_s                                 !< Weno stencils number/dimension.
+   real(R8P),    intent(in), device    :: weno_a_gpu(1:,0:,1:)                   !< Optimal weights.
+   real(R8P),    intent(in), device    :: weno_p_gpu(1:,0:,0:,1:)                !< Polinomials coefficients.
+   real(R8P),    intent(in), device    :: weno_d_gpu(0:,0:,0:,1:)                !< Smoothness indicators coefficients.
+   real(R8P),    intent(in), value     :: weno_zeps                              !< Parameter for avoiding division by zero in IS.
    real(R8P),    intent(in), value     :: g                                      !< Specific heats ratio.
    real(R8P),    intent(in),    device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Auxiliary variables.
    real(R8P),    intent(inout), device :: fluxes_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes.
-   real(R8P)                           :: uu, vv, ww, h, qq, c, ci, b1, b2       !< Roe average states.
-   real(R8P)                           :: uvw, uvw_r1, uvw_r2                    !< Velocity rotation accordingly dir.
-   real(R8P)                           :: ev(5), evmax(5)                        !< Signals speeds.
    real(R8P)                           :: el(5,5), er(5,5)                       !< Left and right eigenvalues.
-   real(R8P)                           :: q(5), f(5)                             !< Conservative variables and fluxes.
-   real(R8P)                           :: fp(1:5,1:6)                            !< Positive part of conservative fluxes.
-   real(R8P)                           :: fm(1:5,1:6)                            !< Negative part of conservative fluxes.
-   ! real(R8P)                           :: fw(1:5,1:2,-5:5)                       !< Conservative fluxes to be WENO reconstructed.
-   ! real(R8P)                           :: fwr(1:2)                               !< Conservative fluxes WENO reconstructed.
-   real(R8P)                           :: fpr(1:5)
-   real(R8P)                           :: fmr(1:5)
-   real(R8P)                           :: ghat(5)                                !< Reconstructed fluxes.
-   real(R8P)                           :: gc, wc                                 !< Increments for fluxes decomposition.
-   integer(I4P)                        :: l, m, mm                               !< Counter.
-   integer(I4P)                        :: ip, jp, kp                             !< Counter.
+   real(R8P)                           :: fmpc(1:2,-2:2,1:5)                     !< Fluxes -+ decomposition in characteriscs space.
+   real(R8P)                           :: fpmr(1:2,1:5)                          !< Fluxes +- reconstructed.
+   integer(I4P)                        :: v, vv                                  !< Counter.
 
-   ip = i + si(1) ; jp = j + si(2) ; kp = k + si(3)
+   call compute_eigenvectors_kernel(si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,g=g,q_aux_gpu=q_aux_gpu,el=el,er=er)
+   call decompose_fluxes_convective_kernel(si=si,sir=sir,el=el,weno_s=weno_s,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,g=g,q_aux_gpu=q_aux_gpu,&
+                                           fmpc=fmpc)
+   do v=1, nv
+      call weno_reconstruct_upwind_kernel(S=weno_s,weno_a=weno_a_gpu,weno_p=weno_p_gpu,weno_d=weno_d_gpu,weno_zeps=weno_zeps,&
+                                          V=fmpc(:,:,v),VR=fpmr(:,v))
+   enddo
+   ! back projection in conservative variables space
+   do v=1, nv
+      fluxes_gpu(b,i,j,k,v) = 0._R8P
+      do vv=1,nv
+         fluxes_gpu(b,i,j,k,v) = fluxes_gpu(b,i,j,k,v) + er(vv,v) * (fpmr(1,vv) + fpmr(2,vv))
+      enddo
+   enddo
+   endsubroutine compute_fluxes_conv_interface_kernel
 
-   call compute_roe_average(q_aux_gpu=q_aux_gpu, g=g, ngc=ngc, b=b, i=i, j=j, k=k, ip=ip, jp=jp, kp=kp, &
-                            uu=uu, vv=vv, ww=ww, h=h, qq=qq, c=c, ci=ci, b1=b1, b2=b2)
+   attributes(device) subroutine decompose_fluxes_convective_kernel(si,sir,el,weno_s,b,i,j,k,ngc,nv,g,q_aux_gpu,fmpc)
+   !< Decompose convective fluxes.
+   !< Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo-characteristics psace.
+   integer(I4P), intent(in)         :: si(3)                                 !< Stencil increment.
+   real(R8P)   , intent(in)         :: sir(3)                                !< Stencil increment, real cast.
+   real(R8P)   , intent(in)         :: el(1:,1:)                             !< Left eigeinvectors.
+   integer(I4P), intent(in), value  :: weno_s                                !< Weno stencils number/dimension.
+   integer(I4P), intent(in), value  :: b, i, j, k                            !< Counter.
+   integer(I4P), intent(in), value  :: ngc                                   !< Ghost cells number.
+   integer(I4P), intent(in), value  :: nv                                    !< Number of conservative varibales.
+   real(R8P),    intent(in), value  :: g                                     !< Specific heats ratio.
+   real(R8P),    intent(in), device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(inout)      :: fmpc(1:,1-weno_s:,1:)                 !< Fluxes -+ decomposition in characteristics space.
+   real(R8P)                        :: fmp(2)                                !< Fluxes -+ decomposition in each cell stencils.
+   real(R8P)                        :: evmax(5)                              !< Signals speeds.
+   real(R8P)                        :: q(5), f(5)                            !< Conservative variables and fluxes.
+   real(R8P)                        :: gc, wc                                !< Increments for fluxes decomposition.
+   integer(I4P)                     :: v, vv, s, is, js, ks                  !< Counter.
+
+   call compute_max_eigenvalues_kernel(si=si,sir=sir,weno_s=weno_s,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,q_aux_gpu=q_aux_gpu,evmax=evmax)
+   do s=1-weno_s, weno_s
+      is = i + (s) * si(1) ; js = j + (s) * si(2) ; ks = k + (s) * si(3)
+      q(1) =      q_aux_gpu(b,is,js,ks,1)
+      q(2) = q(1)*q_aux_gpu(b,is,js,ks,2)
+      q(3) = q(1)*q_aux_gpu(b,is,js,ks,3)
+      q(4) = q(1)*q_aux_gpu(b,is,js,ks,4)
+      q(5) = q(1)*q_aux_gpu(b,is,js,ks,8) - q_aux_gpu(b,is,js,ks,7)
+      f(1) = q_aux_gpu(b,is,js,ks,1)*q_aux_gpu(b,is,js,ks,2)*sir(1) + &
+             q_aux_gpu(b,is,js,ks,1)*q_aux_gpu(b,is,js,ks,3)*sir(2) + &
+             q_aux_gpu(b,is,js,ks,1)*q_aux_gpu(b,is,js,ks,4)*sir(3)
+      f(2) = f(1)*q_aux_gpu(b,is,js,ks,2) + q_aux_gpu(b,is,js,ks,7)*sir(1)
+      f(3) = f(1)*q_aux_gpu(b,is,js,ks,3) + q_aux_gpu(b,is,js,ks,7)*sir(2)
+      f(4) = f(1)*q_aux_gpu(b,is,js,ks,4) + q_aux_gpu(b,is,js,ks,7)*sir(3)
+      f(5) = f(1)*q_aux_gpu(b,is,js,ks,8)
+      do v=1, nv
+         wc = 0._R8P
+         gc = 0._R8P
+         do vv=1, nv
+            wc = wc + el(vv,v) * q(vv)
+            gc = gc + el(vv,v) * f(vv)
+         enddo
+         fmp(2) = 0.5_R8P * (gc + evmax(v) * wc)
+         fmp(1) = gc - fmp(2)
+         if (s<weno_s)   fmpc(2,s  ,v) = fmp(2)
+         if (s>1-weno_s) fmpc(1,s-1,v) = fmp(1)
+      enddo
+   enddo
+   endsubroutine decompose_fluxes_convective_kernel
+
+   attributes(device) subroutine compute_eigenvectors_kernel(si,sir,b,i,j,k,ngc,nv,g,q_aux_gpu,el,er)
+   ! Compute eigenvectors centered in inteface i,j,k/ip,jp,kp.
+   integer(I4P), intent(in)         :: si(3)                                 !< Stencil increment.
+   real(R8P)   , intent(in)         :: sir(3)                                !< Stencil increment, real cast.
+   integer(I4P), intent(in), value  :: b, i, j, k                            !< Counter.
+   integer(I4P), intent(in), value  :: ngc                                   !< Ghost cells number.
+   integer(I4P), intent(in), value  :: nv                                    !< Number of conservative varibales.
+   real(R8P),    intent(in), value  :: g                                     !< Specific heats ratio.
+   real(R8P),    intent(in), device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(inout)      :: el(1:5,1:5), er(1:5,1:5)              !< Left and right eigenvectors.
+   real(R8P)                           :: uu, vv, ww, h, qq, c, ci, b1, b2   !< Roe average states.
+   real(R8P)                           :: uvw, uvw_r1, uvw_r2                !< Velocity rotation accordingly dir.
+
+   call compute_roe_average_kernel(q_aux_gpu=q_aux_gpu, g=g, ngc=ngc, b=b, i=i, j=j, k=k, ip=i+si(1), jp=j+si(2), kp=k+si(3), &
+                                   uu=uu, vv=vv, ww=ww, h=h, qq=qq, c=c, ci=ci, b1=b1, b2=b2)
 
    uvw    =  uu*sir(1)+vv*sir(2)+ww*sir(3)
    uvw_r1 =  uu*sir(3)+vv*sir(1)+ww*sir(2)
@@ -587,84 +671,56 @@ contains
    el(3,1)=-0.5_R8P*(b2*vv+ci*sir(2));el(3,2)= b2*vv    ;el(3,3)=-0.5_R8P*(b2*vv-ci*sir(2));el(3,4)= sir(1);el(3,5)= sir(3)
    el(4,1)=-0.5_R8P*(b2*ww+ci*sir(3));el(4,2)= b2*ww    ;el(4,3)=-0.5_R8P*(b2*ww-ci*sir(3));el(4,4)= sir(2);el(4,5)= sir(1)
    el(5,1)= 0.5_R8P*b2               ;el(5,2)=-b2       ;el(5,3)= 0.5_R8P*b2               ;el(5,4)= 0._R8P;el(5,5)= 0._R8P
+   endsubroutine compute_eigenvectors_kernel
 
-   ! flux vector splitting by local-Lax-Friedrics and pseudo-characteristic projection
+   attributes(device) subroutine compute_max_eigenvalues_kernel(si,sir,weno_s,b,i,j,k,ngc,nv,q_aux_gpu,evmax)
+   ! Compute maximum eigenvalues in the big stencil.
+   integer(I4P), intent(in)         :: si(3)                                 !< Stencil increment.
+   real(R8P)   , intent(in)         :: sir(3)                                !< Stencil increment, real cast.
+   integer(I4P), intent(in), value  :: weno_s                                !< Weno stencils number/dimension.
+   integer(I4P), intent(in), value  :: b, i, j, k                            !< Counter.
+   integer(I4P), intent(in), value  :: ngc                                   !< Ghost cells number.
+   integer(I4P), intent(in), value  :: nv                                    !< Number of conservative varibales.
+   real(R8P),    intent(in), device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(inout)      :: evmax(1:)                             !< Maximum eigenvalues in the big stencil.
+   real(R8P)                        :: uu, c                                 !< Speeds.
+   real(R8P)                        :: ev(5)                                 !< Signals speeds.
+   integer(I4P)                     :: s, is, js, ks, v                      !< Counter.
+
    evmax = -1._R8P
-   do l=1, 2*weno_s
-      ip = i + (l-weno_s) * si(1) ; jp = j + (l-weno_s) * si(2) ; kp = k + (l-weno_s) * si(3)
-      uu = q_aux_gpu(b,ip,jp,kp,1+1*si(1)+2*si(2)+3*si(3))
-      c  = q_aux_gpu(b,ip,jp,kp,9                        )
+   do s=1, 2*weno_s
+      is = i + (s-weno_s) * si(1) ; js = j + (s-weno_s) * si(2) ; ks = k + (s-weno_s) * si(3)
+      uu = q_aux_gpu(b,is,js,ks,1+1*si(1)+2*si(2)+3*si(3))
+      c  = q_aux_gpu(b,is,js,ks,9                        )
       ev(1) = abs(uu-c) ; ev(2) = abs(uu) ; ev(3) = abs(uu+c) ; ev(4) = ev(2) ; ev(5) = ev(2)
-      do m=1,nv
-         evmax(m) = max(ev(m),evmax(m))
+      do v=1,nv
+         evmax(v) = max(ev(v),evmax(v))
       enddo
    enddo
-   do l=1, 2*weno_s
-      ip = i + (l-weno_s) * si(1) ; jp = j + (l-weno_s) * si(2) ; kp = k + (l-weno_s) * si(3)
-      q(1) =      q_aux_gpu(b,ip,jp,kp,1)
-      q(2) = q(1)*q_aux_gpu(b,ip,jp,kp,2)
-      q(3) = q(1)*q_aux_gpu(b,ip,jp,kp,3)
-      q(4) = q(1)*q_aux_gpu(b,ip,jp,kp,4)
-      q(5) = q(1)*q_aux_gpu(b,ip,jp,kp,8) - q_aux_gpu(b,ip,jp,kp,7)
-      f(1) = q_aux_gpu(b,ip,jp,kp,1)*q_aux_gpu(b,ip,jp,kp,2)*sir(1) + &
-             q_aux_gpu(b,ip,jp,kp,1)*q_aux_gpu(b,ip,jp,kp,3)*sir(2) + &
-             q_aux_gpu(b,ip,jp,kp,1)*q_aux_gpu(b,ip,jp,kp,4)*sir(3)
-      f(2) = f(1)*q_aux_gpu(b,ip,jp,kp,2) + q_aux_gpu(b,ip,jp,kp,7)*sir(1)
-      f(3) = f(1)*q_aux_gpu(b,ip,jp,kp,3) + q_aux_gpu(b,ip,jp,kp,7)*sir(2)
-      f(4) = f(1)*q_aux_gpu(b,ip,jp,kp,4) + q_aux_gpu(b,ip,jp,kp,7)*sir(3)
-      f(5) = f(1)*q_aux_gpu(b,ip,jp,kp,8)
-      do m=1, nv
-         wc = 0._R8P
-         gc = 0._R8P
-         do mm=1, nv
-            wc = wc + el(mm,m) * q(mm)
-            gc = gc + el(mm,m) * f(mm)
-         enddo
-         fp(m,l) = 0.5_R8P * (gc + evmax(m) * wc)
-         fm(m,l) = gc - fp(m,l)
-      enddo
-   enddo
-   ! ! WENO upwind reconstruction
-   ! fw(:,1,1-weno_s:-1+weno_s) = fp(:,1:2*weno_s-1)
-   ! fw(:,2,1-weno_s:-1+weno_s) = fm(:,2:2*weno_s  )
-   ! do m=1, nv
-   !    ! call weno%reconstruct_upwind(S=iweno, V=fw(m,:,:), VR=fwr)
-   !    call weno_reconstruct_upwind(S=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,V=fw(m,:,:),VR=fwr)
-   !    ghat(m) = fwr(1) + fwr(2)
-   ! enddo
-   call weno_reconstruction_kernel(nvar=nv,vp=fp(1:,1:), vm=fm(1:,1:), vminus=fmr, vplus=fpr, iweno=weno_s, wenorec_ord=weno_s)
-   do m=1,nv
-      ghat(m) = fpr(m) + fmr(m)
-   enddo
-   ! back projection in conservative variables space
-   do m=1, nv
-      fluxes_gpu(b,i,j,k,m) = 0._R8P
-      do mm=1,nv
-         fluxes_gpu(b,i,j,k,m) = fluxes_gpu(b,i,j,k,m) + er(mm,m) * ghat(mm)
-      enddo
-   enddo
-   endsubroutine compute_fluxes_convective_interface
+   endsubroutine compute_max_eigenvalues_kernel
 
-   attributes(device) subroutine compute_roe_average(q_aux_gpu, g, &
-                                                     ngc, b, i, j, k, ip, jp, kp, uu, vv, ww, h, qq, c, ci, b1, b2)
+   attributes(device) subroutine compute_roe_average_kernel(ngc, b, i, j, k, ip, jp, kp, g, q_aux_gpu, &
+                                                            uu, vv, ww, h, qq, c, ci, b1, b2)
    !< Compute Roe averaged quantities.
-   real(R8P),    intent(in), device :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P),    intent(in)         :: g
-   integer(I4P), intent(in)         :: ngc, b, i, j, k, ip, jp, kp
-   real(R8P),    intent(out)        :: uu, vv, ww, h, qq, c, ci, b1, b2
-   real(R8P)                        :: ri, up, vp, wp, hp, r, rp1, cc
-   ! Left state (node i)
+   integer(I4P), intent(in)         :: ngc                                       !< Number of ghost cells.
+   integer(I4P), intent(in)         :: b, i, j, k, ip, jp, kp                    !< Left/right cells indexes.
+   real(R8P),    intent(in)         :: g                                         !< Specific heats ratio.
+   real(R8P),    intent(in), device :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:) !< Auxiliary variables.
+   real(R8P),    intent(out)        :: uu, vv, ww, h, qq, c, ci, b1, b2          !< Roe state average variables.
+   real(R8P)                        :: ri, up, vp, wp, hp, r, rp1, cc            !< Local varbiables.
+
+   ! left state (node i)
    ri        =  1._R8P/q_aux_gpu(b,i,j,k,1)
    uu        =  q_aux_gpu(b,i,j,k,2)
    vv        =  q_aux_gpu(b,i,j,k,3)
    ww        =  q_aux_gpu(b,i,j,k,4)
    h         =  q_aux_gpu(b,i,j,k,8)
-   ! Right state (node i+1)
+   ! right state (node i+1)
    up        =  q_aux_gpu(b,ip,jp,kp,2)
    vp        =  q_aux_gpu(b,ip,jp,kp,3)
    wp        =  q_aux_gpu(b,ip,jp,kp,4)
    hp        =  q_aux_gpu(b,ip,jp,kp,8)
-   ! Average state
+   ! Roe average state
    r         =  sqrt(q_aux_gpu(b,ip,jp,kp,1)*ri)
    rp1       =  1._R8P/(r+1._R8P)
    uu        =  (r*up+uu)*rp1
@@ -677,188 +733,5 @@ contains
    ci        =  1._R8P/c
    b2        = (g-1)/cc  ! alias 1/(cp*theta)
    b1        = b2 * qq   ! alias q/(cp*theta)
-
-   endsubroutine compute_roe_average
-
-   attributes(device) subroutine weno_reconstruction_kernel(nvar, vp, vm, vminus, vplus, iweno, wenorec_ord)
-   !< Compute WENO reconstruction.
-   integer, intent(in)                     :: nvar, iweno, wenorec_ord
-   !real(R8P), dimension(nvar,2*iweno), intent(in)  :: vm,vp
-   real(R8P), dimension(1:nvar,1:*)        :: vm,vp
-   real(R8P), dimension(nvar), intent(out) :: vminus,vplus
-   real(R8P), dimension(-1:4)              :: dwe               ! linear weights
-   real(R8P), dimension(-1:4)              :: alfp,alfm         ! alpha_l
-   real(R8P), dimension(-1:4)              :: alfp_map,alfm_map ! alpha_l
-   real(R8P), dimension(-1:4)              :: betap,betam       ! beta_l
-   real(R8P), dimension(-1:4)              :: omp,omm           ! WENO weights
-   integer                                 :: r,i,j,k,l,m
-   real(R8P)                               :: c0,c1,c2,c3,c4,d0,d1,d2,d3,d4,summ,sump
-   real(R8P)                               :: x,y,y2
-
-   if (wenorec_ord==1) then ! Godunov
-
-       i = iweno ! index of intermediate node to perform reconstruction
-
-       vminus(1:nvar) = vp(1:nvar,i)
-       vplus (1:nvar) = vm(1:nvar,i+1)
-
-   elseif (wenorec_ord==2) then ! WENO-3
-
-       i = iweno ! index of intermediate node to perform reconstruction
-
-       dwe(1)   = 2._R8P/3._R8P
-       dwe(0)   = 1._R8P/3._R8P
-
-       do m=1,nvar
-
-           betap(0)  = (vp(m,i  )-vp(m,i-1))**2
-           betap(1)  = (vp(m,i+1)-vp(m,i  ))**2
-           betam(0)  = (vm(m,i+2)-vm(m,i+1))**2
-           betam(1)  = (vm(m,i+1)-vm(m,i  ))**2
-
-           sump = 0._R8P
-           summ = 0._R8P
-           do l=0,1
-               alfp(l) = dwe(l)/(0.000001_R8P+betap(l))**2
-               alfm(l) = dwe(l)/(0.000001_R8P+betam(l))**2
-               sump = sump + alfp(l)
-               summ = summ + alfm(l)
-           enddo
-           do l=0,1
-               omp(l) = alfp(l)/sump
-               omm(l) = alfm(l)/summ
-           enddo
-
-           vminus(m) = omp(0) *(-vp(m,i-1)+3*vp(m,i  )) + omp(1) *( vp(m,i  )+ vp(m,i+1))
-           vplus(m)  = omm(0) *(-vm(m,i+2)+3*vm(m,i+1)) + omm(1) *( vm(m,i  )+ vm(m,i+1))
-
-       enddo
-
-       do m=1,nvar
-           vminus(m) = 0.5_R8P*vminus(m)
-           vplus(m)  = 0.5_R8P*vplus(m)
-       enddo
-
-     elseif (wenorec_ord==3) then ! WENO-5
-!
-      i = iweno ! index of intermediate node to perform reconstruction
-!
-      dwe( 0) = 1._R8P/10._R8P
-      dwe( 1) = 6._R8P/10._R8P
-      dwe( 2) = 3._R8P/10._R8P
-!     JS
-      d0 = 13._R8P/12._R8P
-      d1 = 1._R8P/4._R8P
-!     Weights for polynomial reconstructions
-      c0 = 1._R8P/3._R8P
-      c1 = 5._R8P/6._R8P
-      c2 =-1._R8P/6._R8P
-      c3 =-7._R8P/6._R8P
-      c4 =11._R8P/6._R8P
-!
-      do m=1,nvar
-!
-       betap(2) = d0*(     vp(m,i)-2._R8P*vp(m,i+1)+vp(m,i+2))**2+d1*(3._R8P*vp(m,i)-4._R8P*vp(m,i+1)+vp(m,i+2))**2
-       betap(1) = d0*(     vp(m,i-1)-2._R8P*vp(m,i)+vp(m,i+1))**2+d1*(     vp(m,i-1)-vp(m,i+1) )**2
-       betap(0) = d0*(     vp(m,i)-2._R8P*vp(m,i-1)+vp(m,i-2))**2+d1*(3._R8P*vp(m,i)-4._R8P*vp(m,i-1)+vp(m,i-2))**2
-!
-       betam(2) = d0*(     vm(m,i+1)-2._R8P*vm(m,i)+vm(m,i-1))**2+d1*(3._R8P*vm(m,i+1)-4._R8P*vm(m,i)+vm(m,i-1))**2
-       betam(1) = d0*(     vm(m,i+2)-2._R8P*vm(m,i+1)+vm(m,i))**2+d1*(     vm(m,i+2)-vm(m,i) )**2
-       betam(0) = d0*(     vm(m,i+1)-2._R8P*vm(m,i+2)+vm(m,i+3))**2+d1*(3._R8P*vm(m,i+1)-4._R8P*vm(m,i+2)+vm(m,i+3))**2
-!
-       sump = 0._R8P
-       summ = 0._R8P
-       do l=0,2
-        alfp(l) = dwe(  l)/(0.000001_R8P+betap(l))**2
-        alfm(l) = dwe(  l)/(0.000001_R8P+betam(l))**2
-        sump = sump + alfp(l)
-        summ = summ + alfm(l)
-       enddo
-       do l=0,2
-        omp(l) = alfp(l)/sump
-        omm(l) = alfm(l)/summ
-       enddo
-!
-       vminus(m)   = omp(2)*(c0*vp(m,i  )+c1*vp(m,i+1)+c2*vp(m,i+2)) + &
-         & omp(1)*(c2*vp(m,i-1)+c1*vp(m,i  )+c0*vp(m,i+1)) + omp(0)*(c0*vp(m,i-2)+c3*vp(m,i-1)+c4*vp(m,i  ))
-       vplus(m)   = omm(2)*(c0*vm(m,i+1)+c1*vm(m,i  )+c2*vm(m,i-1)) +  &
-         & omm(1)*(c2*vm(m,i+2)+c1*vm(m,i+1)+c0*vm(m,i  )) + omm(0)*(c0*vm(m,i+3)+c3*vm(m,i+2)+c4*vm(m,i+1))
-!
-      enddo ! end of m-loop
-!
-   elseif (wenorec_ord==4) then ! WENO-7
-!
-      i = iweno ! index of intermediate node to perform reconstruction
-!
-      dwe( 0) = 1._R8P/35._R8P
-      dwe( 1) = 12._R8P/35._R8P
-      dwe( 2) = 18._R8P/35._R8P
-      dwe( 3) = 4._R8P/35._R8P
-!
-!     JS weights
-      d1 = 1._R8P/36._R8P
-      d2 = 13._R8P/12._R8P
-      d3 = 781._R8P/720._R8P
-!
-      do m=1,nvar
-!
-       betap(3)= d1*(-11*vp(m,  i)+18*vp(m,i+1)- 9*vp(m,i+2)+ 2*vp(m,i+3))**2+&
-       &  d2*(  2*vp(m,  i)- 5*vp(m,i+1)+ 4*vp(m,i+2)-   vp(m,i+3))**2+ &
-       & d3*(   -vp(m,  i)+ 3*vp(m,i+1)- 3*vp(m,i+2)+   vp(m,i+3))**2
-       betap(2)= d1*(- 2*vp(m,i-1)- 3*vp(m,i  )+ 6*vp(m,i+1)-   vp(m,i+2))**2+&
-       &  d2*(    vp(m,i-1)- 2*vp(m,i  )+   vp(m,i+1)             )**2+&
-       &  d3*(   -vp(m,i-1)+ 3*vp(m,i  )- 3*vp(m,i+1)+   vp(m,i+2))**2
-       betap(1)= d1*(    vp(m,i-2)- 6*vp(m,i-1)+ 3*vp(m,i  )+ 2*vp(m,i+1))**2+&
-       &  d2*( vp(m,i-1)- 2*vp(m,i  )+   vp(m,i+1))**2+ &
-       &  d3*(   -vp(m,i-2)+ 3*vp(m,i-1)- 3*vp(m,i  )+   vp(m,i+1))**2
-       betap(0)= d1*(- 2*vp(m,i-3)+ 9*vp(m,i-2)-18*vp(m,i-1)+11*vp(m,i  ))**2+&
-       &  d2*(-   vp(m,i-3)+ 4*vp(m,i-2)- 5*vp(m,i-1)+ 2*vp(m,i  ))**2+&
-       &  d3*(   -vp(m,i-3)+ 3*vp(m,i-2)- 3*vp(m,i-1)+   vp(m,i  ))**2
-!
-       betam(3)= d1*(-11*vm(m,i+1)+18*vm(m,i  )- 9*vm(m,i-1)+ 2*vm(m,i-2))**2+&
-       &  d2*(  2*vm(m,i+1)- 5*vm(m,i  )+ 4*vm(m,i-1)-   vm(m,i-2))**2+&
-       &  d3*(   -vm(m,i+1)+ 3*vm(m,i  )- 3*vm(m,i-1)+   vm(m,i-2))**2
-       betam(2)= d1*(- 2*vm(m,i+2)- 3*vm(m,i+1)+ 6*vm(m,i  )-   vm(m,i-1))**2+&
-       &  d2*(    vm(m,i+2)- 2*vm(m,i+1)+   vm(m,i  )             )**2+&
-       &  d3*(   -vm(m,i+2)+ 3*vm(m,i+1)- 3*vm(m,i  )+   vm(m,i-1))**2
-       betam(1)= d1*(    vm(m,i+3)- 6*vm(m,i+2)+ 3*vm(m,i+1)+ 2*vm(m,i  ))**2+&
-       &  d2*(                 vm(m,i+2)- 2*vm(m,i+1)+   vm(m,i  ))**2+&
-       &  d3*(   -vm(m,i+3)+ 3*vm(m,i+2)- 3*vm(m,i+1)+   vm(m,i  ))**2
-       betam(0)= d1*(- 2*vm(m,i+4)+ 9*vm(m,i+3)-18*vm(m,i+2)+11*vm(m,i+1))**2+&
-       &  d2*(-   vm(m,i+4)+ 4*vm(m,i+3)- 5*vm(m,i+2)+ 2*vm(m,i+1))**2+&
-       &  d3*(   -vm(m,i+4)+ 3*vm(m,i+3)- 3*vm(m,i+2)+   vm(m,i+1))**2
-!
-       sump = 0._R8P
-       summ = 0._R8P
-       do l=0,3
-        alfp(l) = dwe(  l)/(0.000001_R8P+betap(l))**2
-        alfm(l) = dwe(  l)/(0.000001_R8P+betam(l))**2
-        sump = sump + alfp(l)
-        summ = summ + alfm(l)
-       enddo
-       do l=0,3
-        omp(l) = alfp(l)/sump
-        omm(l) = alfm(l)/summ
-       enddo
-!
-       vminus(m)   = omp(3)*( 6*vp(m,i  )+26*vp(m,i+1)-10*vp(m,i+2)+ 2*vp(m,i+3))+&
-        omp(2)*(-2*vp(m,i-1)+14*vp(m,i  )+14*vp(m,i+1)- 2*vp(m,i+2))+&
-        omp(1)*( 2*vp(m,i-2)-10*vp(m,i-1)+26*vp(m,i  )+ 6*vp(m,i+1))+&
-        omp(0)*(-6*vp(m,i-3)+26*vp(m,i-2)-46*vp(m,i-1)+50*vp(m,i  ))
-       vplus(m)   =  omm(3)*( 6*vm(m,i+1)+26*vm(m,i  )-10*vm(m,i-1)+ 2*vm(m,i-2))+&
-        omm(2)*(-2*vm(m,i+2)+14*vm(m,i+1)+14*vm(m,i  )- 2*vm(m,i-1))+&
-        omm(1)*( 2*vm(m,i+3)-10*vm(m,i+2)+26*vm(m,i+1)+ 6*vm(m,i  ))+&
-        omm(0)*(-6*vm(m,i+4)+26*vm(m,i+3)-46*vm(m,i+2)+50*vm(m,i+1))
-!
-      enddo ! end of m-loop
-!
-      vminus = vminus/24._R8P
-      vplus  = vplus /24._R8P
-!
-   else
-      write(*,*) 'Error! WENO scheme not implemented'
-      stop
-   endif
-
-   endsubroutine weno_reconstruction_kernel
+   endsubroutine compute_roe_average_kernel
 endmodule adam_nasto_nvf_kernels
