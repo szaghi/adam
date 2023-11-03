@@ -90,6 +90,7 @@ contains
    call self%adam%compute_blocks_number(memory_avail=memory_avail, fields_number=80, nb=nb, nodes_number=nodes_number)
    call self%adam%initialize(file_parameters=file_parameters, &
                              do_tree_init=.true.,             &
+                             do_maps_init=.true.,             &
                              do_field_init=.true.,            &
                              nv=self%physics%nv, nb=nb, nodes_number=nodes_number)
    call associate_adam_data(grid=self%adam%grid, field=self%adam%field, physics=self%physics)

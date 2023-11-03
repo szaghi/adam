@@ -32,7 +32,7 @@ Currently, the following sources compose the subdirectory:
 + `adam_field_object.F90` is the **FIELD** class, see [FIELD object API](https://szaghi.github.io/adam/type/field_object.html) for more details;
 + `adam_grid_object.F90` is the **GRID** class, see [GRID object API](https://szaghi.github.io/adam/type/grid_object.html) for more details;
 + `adam_ib_object.F90` is an **IB handler** for immersed boundary solids markers, see [IB object API](https://szaghi.github.io/adam/type/ib_object.html) for more details;
-+ `adam_memory_lib.F90` is an **memory library** for handling memory (CPU) allocation, see [memory library API](https://szaghi.github.io/adam/module/adam_memory_lib.html) for more details;
++ `adam_memory_library.F90` is an **memory library** for handling memory (CPU) allocation, see [memory library API](https://szaghi.github.io/adam/module/adam_memory_lib.html) for more details;
 + `adam_mpih_object.F90` is an **MPI handler** incorporated into all ADAM classes, see [MPIH object API](https://szaghi.github.io/adam/type/mpih_object.html) for more details;
 + `adam_parameters.f90` is a **global parameter module**, see [ADAM parameters module API](https://szaghi.github.io/adam/module/adam_parameters.html) for more details;
 + `adam_slices_object.F90` is an **slices handler** for easy create IO domain slices, see [SLICES object API](https://szaghi.github.io/adam/type/slices_object.html) for more details;

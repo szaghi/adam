@@ -13,7 +13,7 @@ private
 public :: grid_object
 
 ! grid parameters
-integer(I4P), parameter :: MAX_REF_LEVELS = 100_I4P !< Maximum refinement levels.
+integer(I4P), parameter :: MAX_REF_LEVELS = 30_I4P !< Maximum refinement levels.
 
 type :: grid_object
    !< Grid class definition.
@@ -42,12 +42,13 @@ type :: grid_object
       procedure, pass(self) :: compute_metrics         !< Compute metrics of a block.
       procedure, pass(self) :: compute_weight_neighbor !< Compute weight of neighbors.
       procedure, pass(self) :: description             !< Return pretty-printed object description.
-      procedure, pass(self) :: do_cplane_intersect     !< Return true if a block is intersected by coordinate-plane.
+      procedure, nopass     :: do_cplane_intersect     !< Return true if a block is intersected by coordinate-plane.
+      procedure, pass(self) :: fec_bc_type             !< Return BC type of given fec.
       procedure, pass(self) :: get_closest_block       !< Get the closest block to a given point at a given level.
       procedure, pass(self) :: initialize              !< Initialize the field.
       procedure, pass(self) :: load_from_ini_file      !< Load object data from INI file.
       procedure, pass(self) :: node_xyz                !< Return nodes xyz abscissa given block coordinates.
-      procedure, pass(self) ::  set_bc_type            !< Set grid boundary conditions accordingly with app'equation object.
+      procedure, pass(self) :: set_bc_type             !< Set grid boundary conditions accordingly with app'equation object.
 endtype grid_object
 
 contains
@@ -78,7 +79,6 @@ contains
    real(R8P),          intent(out), optional :: y_cell(1-self%ngc:self%nj+self%ngc) !< Y coordinates.
    real(R8P),          intent(out), optional :: z_cell(1-self%ngc:self%nk+self%ngc) !< Z coordinates.
    real(R8P)                                 :: emin(3)                             !< Min abscissa of block.
-   integer(I4P)                              :: i, j, k                             !< Counter.
 
    emin = self%block_emin(coordinates)
    if (present(x_cell)) x_cell(:) = emin(1) + self%lin_space_x(1-self%ngc:self%ni+self%ngc,coordinates(4))
@@ -151,9 +151,8 @@ contains
                                                                   str(self%is_ijk_periodic(3))
    endfunction description
 
-   function do_cplane_intersect(self, emin, emax, dxyz, cplane_origin, cplane_normal, cplane_block_indexes) result(do_intersect)
+   function do_cplane_intersect(emin, emax, dxyz, cplane_origin, cplane_normal, cplane_block_indexes) result(do_intersect)
    !< Return true if a block is intersected by coordinate-plane.
-   class(grid_object), intent(inout)         :: self                    !< The grid.
    real(R8P),          intent(in)            :: emin(3), emax(3)        !< Block extents.
    real(R8P),          intent(in)            :: dxyz(3)                 !< Block space steps.
    real(R8P),          intent(in)            :: cplane_origin(3)        !< Coordinate-plane origin.
@@ -186,18 +185,46 @@ contains
    endif
    endfunction do_cplane_intersect
 
+   function fec_bc_type(self, fec) result(bc_type)
+   !< Return BC type of given fec.
+   class(grid_object), intent(in) :: self    !< The grid.
+   integer(I4P),       intent(in) :: fec     !< Current fec.
+   integer(I4P)                   :: bc_type !< BC type.
+
+   select case(fec)
+   case(1,7,9,11,13,19,21,23,25)
+      ! BC i min
+      bc_type = self%bc_type(1)
+   case(2,8,10,12,14,20,22,24,26)
+      ! BC i max
+      bc_type = self%bc_type(2)
+   case(3,15,17)
+      ! BC j min
+      bc_type = self%bc_type(3)
+   case(4,16,18)
+      ! BC j max
+      bc_type = self%bc_type(4)
+   case(5)
+      ! BC k min
+      bc_type = self%bc_type(5)
+   case(6)
+      ! BC k max
+      bc_type = self%bc_type(6)
+   endselect
+   endfunction fec_bc_type
+
    function get_closest_block(self, point, level) result(ijk)
    !< Get the closest block to a given point at a given level.
-   class(grid_object), intent(in) :: self     !< The grid.
-   real(R8P),          intent(in) :: point(3) !< Point xyz coordinates.
-   integer(I4P),       intent(in) :: level    !< Refinement level.
-   integer(I4P)                   :: ijk(3)   !< Indexes of the closest (living or not) block.
+   class(grid_object), intent(inout) :: self     !< The grid.
+   real(R8P),          intent(in)    :: point(3) !< Point xyz coordinates.
+   integer(I4P),       intent(in)    :: level    !< Refinement level.
+   integer(I4P)                      :: ijk(3)   !< Indexes of the closest (living or not) block.
 
    associate(nb_max=>self%nb_max(level), emin=>self%domain_emin, dxyz=>self%block_dxyz(:,level))
       ijk(:) = int((point(:) - emin(:)) / dxyz(:), I4P)
       if (any(ijk<0).or.any(ijk>2**level-1)) then
-         print '(A)', self%mpih%myrankstr//'ERROR: grid%get_closest block failed ijk: '//str(ijk)//&
-                      ' level:'//str(level)//' point:'//str(point)
+         call self%mpih%abort(error_code=-110, msg='ERROR: grid_object%get_closest block failed ijk: '//str(ijk)//&
+                                                   ' level:'//str(level)//' point:'//str(point))
       endif
    endassociate
    endfunction get_closest_block
@@ -218,7 +245,7 @@ contains
    integer(I4P)                                :: nijk(3)         !< Cells number.
 
    call self%mpih%initialize
-   print '(A)', self%mpih%myrankstr//'grid%initialize start'
+   call self%mpih%print_message('grid_object%initialize start')
    if (present(file_parameters)) call self%load_from_ini_file(file_parameters)
 
    ! parameters explicitely passed ovveride ones file-passed
@@ -260,7 +287,7 @@ contains
    if (present(verbose)) then
       if (verbose) print '(A)', self%description()
    endif
-   print '(A)', self%mpih%myrankstr//'grid%initialize finish'
+   call self%mpih%print_message('grid_object%initialize finish')
    endsubroutine initialize
 
    subroutine load_from_ini_file(self, file_parameters)
@@ -290,7 +317,6 @@ contains
    real(R8P),          intent(out), optional :: y_node(0-self%ngc:self%nj+self%ngc) !< Y coordinates.
    real(R8P),          intent(out), optional :: z_node(0-self%ngc:self%nk+self%ngc) !< Z coordinates.
    real(R8P)                                 :: emin(3)                             !< Min abscissa of block.
-   integer(I4P)                              :: i, j, k                             !< Counter.
 
    emin = self%block_emin(coordinates)
    if (present(x_node)) x_node(:) = emin(1) + self%lin_space_x(:,coordinates(4))

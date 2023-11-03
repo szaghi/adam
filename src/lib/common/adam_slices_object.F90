@@ -44,9 +44,9 @@ contains
    type(file_ini),       intent(in)    :: file_parameters !< Simulation parameters ini file handler.
 
    call self%mpih%initialize(do_mpi_init=.false.)
-   print '(A)', self%mpih%myrankstr//'slices_object%initialize start'
+   call self%mpih%print_message('slices_object%initialize start')
    call self%load_from_file(file_parameters=file_parameters)
-   print '(A)', self%mpih%myrankstr//'slices_object%initialize finish'
+   call self%mpih%print_message('slices_object%initialize finish')
    endsubroutine initialize
 
    pure function is_to_save(self, it, it_max, time, time_max)
@@ -142,16 +142,14 @@ contains
             if (mod(it,self%slice(s)%n_save)==0.or.it==it_max.or.&
                (((it_max <= 0).and.(time >= time_max)).or.((it>=it_max).and.(it_max > 0)))) then
                call self%mpih%barrier(tictoc=.true.)
-               print '(A)', self%mpih%myrankstr//'save slice n: '//trim(str(s,.true.))//&
-                            ', t: '//trim(str(it,.true.))//', time: '//trim(str(time,.true.))
+               call self%mpih%print_message('save slice n: '//trim(str(s,.true.))//&
+                                            ', t: '//trim(str(it,.true.))//', time: '//trim(str(time,.true.)))
                call adam%save_slice(points=self%slice(s)%points,                                                &
                                     itype=trim(self%slice(s)%itype),                                            &
                                     basename=trim(basename)//'-slice_'//trim(strz(s,2))//'-'//trim(strz(it,9)), &
                                     q=q,                                                                        &
                                     q_name=q_name)
                call self%mpih%barrier(tictoc=.true.)
-               print '(A, F18.10)', self%mpih%myrankstr//'step timing (save slice-'//trim(str(s,.true.)) //'): ', &
-                                    self%mpih%tictoc_timing()
             endif
          endif
       enddo

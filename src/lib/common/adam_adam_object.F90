@@ -2,13 +2,14 @@
 module adam_adam_object
 !< ADAM, ADAM class definition.
 
-use adam_field_object, only : field_object
-use adam_grid_object, only : grid_object
-use adam_mpih_object, only : mpih_object
+use adam_field_object
+use adam_grid_object
+use adam_maps_object
+use adam_mpih_object
 use adam_parameters
-use adam_tree_node_object, only : tree_node_object
-use adam_tree_bucket_object, only : tree_bucket_object
-use adam_tree_object, only : tree_object
+use adam_tree_node_object
+use adam_tree_bucket_object
+use adam_tree_object
 use finer, only : file_ini
 use penf
 use stringifor
@@ -25,6 +26,7 @@ type :: adam_object
    type(mpih_object)  :: mpih  !< The MPI handler.
    type(grid_object)  :: grid  !< The grid.
    type(tree_object)  :: tree  !< The tree.
+   type(maps_object)  :: maps  !< The maps.
    type(field_object) :: field !< The field.
    contains
       ! public methods
@@ -63,8 +65,7 @@ contains
                          block_to_derefine=self%tree%block_to_derefine, block_derefined=self%tree%block_derefined)
    endsubroutine adapt
 
-   subroutine amr_update(self, is_marked_by_field, is_marked_by_tree, do_mpi_redistribute, do_blocks_reorder, &
-                         print_mpi_stats, is_grid_changed)
+   subroutine amr_update(self, is_marked_by_field, is_marked_by_tree, do_mpi_redistribute, do_blocks_reorder, is_grid_changed)
    !< Update AMR status.
    !<
    !< Note: AMR update can be safely called only *after* update_ghost has been called for *q* variables, otherwise
@@ -76,13 +77,13 @@ contains
    logical,            intent(in),  optional :: is_marked_by_tree    !< Flag to check if marker is tree.
    logical,            intent(in),  optional :: do_mpi_redistribute  !< Flag to activate MPI redistribute.
    logical,            intent(in),  optional :: do_blocks_reorder    !< Flag to activate blocks reorder.
-   logical,            intent(in),  optional :: print_mpi_stats      !< Flag to activate MPI statistics print.
    logical,            intent(out), optional :: is_grid_changed      !< Flag to check if grid is changed.
    logical                                   :: do_mpi_redistribute_ !< Flag to activate MPI redistribute, local var.
    logical                                   :: do_blocks_reorder_   !< Flag to activate blocks reorder, local var.
 
+   call self%mpih%print_message('adam_object%amr_update start')
    do_mpi_redistribute_ = .true. ; if (present(do_mpi_redistribute )) do_mpi_redistribute_ = do_mpi_redistribute
-   do_blocks_reorder_ = .true. ; if (present(do_blocks_reorder)) do_blocks_reorder_ = do_blocks_reorder
+   do_blocks_reorder_ = .false. ; if (present(do_blocks_reorder)) do_blocks_reorder_ = do_blocks_reorder
 
    call self%mpi_gather_refinement_needed(is_marked_by_field=is_marked_by_field, is_marked_by_tree=is_marked_by_tree)
 
@@ -91,39 +92,39 @@ contains
    if (present(is_grid_changed)) is_grid_changed = (size(self%tree%node_to_refine,   dim=1)>0_I4P).or.&
                                                    (size(self%tree%node_to_derefine, dim=1)>0_I4P)
 
-   if (do_mpi_redistribute_) call self%mpi_redistribute(print_mpi_stats=print_mpi_stats)
+   if (do_mpi_redistribute_) call self%mpi_redistribute
 
    if (do_blocks_reorder_) call self%blocks_reorder
 
    call self%make_comm_local_maps_ghost_bc
+   call self%mpih%print_message('adam_object%amr_update finish')
    endsubroutine amr_update
 
    subroutine blocks_reorder(self)
    !< Reorder blocks (for asyncrhonous MPI)
    class(adam_object), intent(inout) :: self !< ADAM.
 
-   call self%tree%blocks_reorder
-   call self%field%blocks_reorder(inner_outer_block_map=self%tree%inner_outer_block_map, &
-                                  inner_blocks_number=self%tree%inner_blocks_number)
+   call self%maps%blocks_reorder
+   call self%field%blocks_reorder
    endsubroutine blocks_reorder
 
    subroutine check_blocks_number(self)
    !< Check if blocks number is groving too much.
-   class(adam_object), intent(inout) :: self     !< ADAM.
-   type(tree_node_object), pointer   :: node_ptr !< Pointer to current node.
-   integer(I8P)                      :: max_nb   !< Maximum number of blocks desidered.
+   class(adam_object), intent(inout) :: self             !< ADAM.
+   type(tree_node_object), pointer   :: node_ptr         !< Pointer to current node.
+   integer(I8P)                      :: max_nb           !< Maximum number of blocks desidered.
+   character(len=1), parameter       :: NL=new_line('a') !< New line character.
 
    max_nb = 0
    do while(self%tree%loop(node_ptr=node_ptr))
       max_nb = max(max_nb, node_ptr%block_index)
    enddo
    if (max_nb > self%field%nb) then
-      print '(A)', self%mpih%myrankstr//'ERROR: the number of new blocks after AMR is greater than Nb'
-      print '(A)', self%mpih%myrankstr//'max blocks numer available [Nb]: '//trim(str(self%field%nb))
-      print '(A)', self%mpih%myrankstr//'blocks numer required after AMR: '//trim(str(node_ptr%block_index))
-      call MPI_ABORT(MPI_COMM_WORLD, -101, self%mpih%error)
+      call self%mpih%abort(error_code=-101, msg='ERROR: the number of new blocks after AMR is greater than Nb'//NL//&
+                                                'max blocks numer available [Nb]: '//trim(str(self%field%nb))//NL//&
+                                                'blocks numer required after AMR: '//trim(str(node_ptr%block_index)))
    endif
-   print '(A)', self%mpih%myrankstr//'maximum number of blocks created after AMR update: '//str(max_nb)//'/'//str(self%field%nb)
+   call self%mpih%print_message('maximum number of blocks created after AMR update: '//str(max_nb)//'/'//str(self%field%nb))
    endsubroutine check_blocks_number
 
    subroutine compute_blocks_number(self, memory_avail, fields_number, nb, nodes_number)
@@ -166,84 +167,86 @@ contains
    call self%field%load_blocks(basename=basename)
    endsubroutine load_restart_files
 
-   subroutine initialize(self, nb, file_parameters,                                              &
-                         ni, nj, nk, ngc, emin, emax, bc_type, do_grid_init,                 &
-                         max_load, nodes_number, buckets_number, ratio, max_level, add_adam, &
-                         iu_ref_levels, i_prune, j_prune, k_prune, l_prune, do_tree_init,    &
-                         nv, do_field_init)
+   subroutine initialize(self, nb, file_parameters,                                                        &
+                         do_grid_init, ni, nj, nk, ngc, emin, emax, bc_type,                               &
+                         do_tree_init, max_load, nodes_number, buckets_number, ratio, max_level, add_adam, &
+                         iu_ref_levels, i_prune, j_prune, k_prune, l_prune,                                &
+                         do_maps_init, do_field_init, nv)
    !< Initialize ADAM.
-   class(adam_object), intent(inout)           :: self               !< ADAM.
-   integer(I4P),       intent(in)              :: nb                 !< Number of all blocks that can be stored in field.
-   type(file_ini),     intent(inout), optional :: file_parameters    !< INI file handler.
+   class(adam_object), intent(inout)           :: self            !< ADAM.
+   integer(I4P),       intent(in)              :: nb              !< Number of all blocks that can be stored in field.
+   type(file_ini),     intent(inout), optional :: file_parameters !< INI file handler.
    ! grid options
-   integer(I4P),       intent(in),    optional :: ni                 !< Number of cells in X direction.
-   integer(I4P),       intent(in),    optional :: nj                 !< Number of cells in Y direction.
-   integer(I4P),       intent(in),    optional :: nk                 !< Number of cells in Z direction.
-   integer(I4P),       intent(in),    optional :: ngc                !< Number of ghost cells.
-   real(R8P),          intent(in),    optional :: emin(3)            !< Coordinates of minium abscissa.
-   real(R8P),          intent(in),    optional :: emax(3)            !< Coordinates of maxium abscissa.
-   integer(I4P),       intent(in),    optional :: bc_type(6)         !< Type of boundary conditions in the 6 faces of grid.
-   logical,            intent(in),    optional :: do_grid_init       !< Flag to activate grid initialize.
+   logical,            intent(in),    optional :: do_grid_init !< Flag to activate grid initialize.
+   integer(I4P),       intent(in),    optional :: ni           !< Number of cells in X direction.
+   integer(I4P),       intent(in),    optional :: nj           !< Number of cells in Y direction.
+   integer(I4P),       intent(in),    optional :: nk           !< Number of cells in Z direction.
+   integer(I4P),       intent(in),    optional :: ngc          !< Number of ghost cells.
+   real(R8P),          intent(in),    optional :: emin(3)      !< Coordinates of minium abscissa.
+   real(R8P),          intent(in),    optional :: emax(3)      !< Coordinates of maxium abscissa.
+   integer(I4P),       intent(in),    optional :: bc_type(6)   !< Type of boundary conditions in the 6 faces of grid.
    ! tree options
-   real(R8P),          intent(in),    optional :: max_load           !< Maximum load of tree buckets.
-   integer(I8P),       intent(in),    optional :: nodes_number       !< Nodes number to be stored in the tree.
-   integer(I8P),       intent(in),    optional :: buckets_number     !< Number of buckets for initialize the tree.
-   integer(I4P),       intent(in),    optional :: ratio              !< Refinement ratio.
-   integer(I4P),       intent(in),    optional :: max_level          !< Maximum refinement level.
-   logical,            intent(in),    optional :: add_adam           !< Add ADAM node, the ancestor of all nodes.
-   integer(I4P),       intent(in),    optional :: iu_ref_levels      !< Uniform initial refinement.
-   integer(I4P),       intent(in),    optional :: i_prune            !< Pruning along x.
-   integer(I4P),       intent(in),    optional :: j_prune            !< Pruning along y.
-   integer(I4P),       intent(in),    optional :: k_prune            !< Pruning along z.
-   integer(I4P),       intent(in),    optional :: l_prune            !< Pruning level.
-   logical,            intent(in),    optional :: do_tree_init       !< Flag to activate tree initialize.
+   logical,            intent(in),    optional :: do_tree_init   !< Flag to activate tree initialize.
+   real(R8P),          intent(in),    optional :: max_load       !< Maximum load of tree buckets.
+   integer(I8P),       intent(in),    optional :: nodes_number   !< Nodes number to be stored in the tree.
+   integer(I8P),       intent(in),    optional :: buckets_number !< Number of buckets for initialize the tree.
+   integer(I4P),       intent(in),    optional :: ratio          !< Refinement ratio.
+   integer(I4P),       intent(in),    optional :: max_level      !< Maximum refinement level.
+   logical,            intent(in),    optional :: add_adam       !< Add ADAM node, the ancestor of all nodes.
+   integer(I4P),       intent(in),    optional :: iu_ref_levels  !< Uniform initial refinement.
+   integer(I4P),       intent(in),    optional :: i_prune        !< Pruning along x.
+   integer(I4P),       intent(in),    optional :: j_prune        !< Pruning along y.
+   integer(I4P),       intent(in),    optional :: k_prune        !< Pruning along z.
+   integer(I4P),       intent(in),    optional :: l_prune        !< Pruning level.
+   ! maps options
+   logical,            intent(in),    optional :: do_maps_init !< Flag to activate maps initialize.
    ! field options
-   integer(I4P),       intent(in),    optional :: nv                 !< Number of field variables.
-   logical,            intent(in),    optional :: do_field_init      !< Flag to activate field initialize.
+   logical,            intent(in),    optional :: do_field_init !< Flag to activate field initialize.
+   integer(I4P),       intent(in),    optional :: nv            !< Number of field variables.
    ! local var
-   logical                                     :: do_grid_init_      !< Flag to activate grid initialize, local var.
-   logical                                     :: do_tree_init_      !< Flag to activate tree initialize, local var.
-   logical                                     :: do_field_init_     !< Flag to activate field initialize, local var.
+   logical                                     :: do_grid_init_  !< Flag to activate grid initialize, local var.
+   logical                                     :: do_tree_init_  !< Flag to activate tree initialize, local var.
+   logical                                     :: do_maps_init_  !< Flag to activate maps initialize, local var.
+   logical                                     :: do_field_init_ !< Flag to activate field initialize, local var.
 
    do_grid_init_  = .false. ; if (present(do_grid_init))  do_grid_init_  = do_grid_init
    do_tree_init_  = .false. ; if (present(do_tree_init))  do_tree_init_  = do_tree_init
+   do_maps_init_  = .false. ; if (present(do_maps_init))  do_maps_init_  = do_maps_init
    do_field_init_ = .false. ; if (present(do_field_init)) do_field_init_ = do_field_init
    call self%mpih%initialize
-   print '(A)', self%mpih%myrankstr//'adam%initialize start'
-   if (do_grid_init_) &
-      call self%grid%initialize(file_parameters=file_parameters, &
-                                ni=ni,                           &
-                                nj=nj,                           &
-                                nk=nk,                           &
-                                ngc=ngc,                         &
-                                emin=emin,                       &
-                                emax=emax,                       &
-                                bc_type=bc_type)
-   if (do_tree_init_) &
-      call self%tree%initialize(grid=self%grid, &
-                                file_parameters=file_parameters, &
-                                max_load=max_load,               &
-                                nodes_number=nodes_number,       &
-                                buckets_number=buckets_number,   &
-                                ratio=ratio,                     &
-                                max_level=max_level,             &
-                                add_adam=add_adam,               &
-                                iu_ref_levels=iu_ref_levels,     &
-                                i_prune=i_prune,                 &
-                                j_prune=j_prune,                 &
-                                k_prune=k_prune,                 &
-                                l_prune=l_prune)
-   if (do_field_init_) &
-      call self%field%initialize(grid=self%grid, file_parameters=file_parameters, nv=nv, nb=nb)
-   print '(A)', self%mpih%myrankstr//'blocks number (maximum) for single MPI [nb]: '//trim(str(self%field%nb))
-   print '(A)', self%mpih%myrankstr//'blocks number for all MPI [nodes_number]: '//trim(str(self%tree%nodes_number))
+   call self%mpih%print_message('adam_object%initialize start')
+   if (do_grid_init_) call self%grid%initialize(file_parameters=file_parameters, &
+                                                ni=ni,                           &
+                                                nj=nj,                           &
+                                                nk=nk,                           &
+                                                ngc=ngc,                         &
+                                                emin=emin,                       &
+                                                emax=emax,                       &
+                                                bc_type=bc_type)
+   if (do_tree_init_) call self%tree%initialize(grid=self%grid,                  &
+                                                file_parameters=file_parameters, &
+                                                max_load=max_load,               &
+                                                nodes_number=nodes_number,       &
+                                                buckets_number=buckets_number,   &
+                                                ratio=ratio,                     &
+                                                max_level=max_level,             &
+                                                add_adam=add_adam,               &
+                                                iu_ref_levels=iu_ref_levels,     &
+                                                i_prune=i_prune,                 &
+                                                j_prune=j_prune,                 &
+                                                k_prune=k_prune,                 &
+                                                l_prune=l_prune)
+   if (do_maps_init_) call self%maps%initialize(grid=self%grid, tree=self%tree)
+   if (do_field_init_) call self%field%initialize(grid=self%grid, maps=self%maps, file_parameters=file_parameters, nv=nv, nb=nb)
+   call self%mpih%print_message('blocks number (maximum) for single MPI [nb]: '//trim(str(self%field%nb)))
+   call self%mpih%print_message('blocks number for all MPI [nodes_number]: '//trim(str(self%tree%nodes_number)))
    call self%amr_update
-   print '(A)', self%mpih%myrankstr//'adam%initialize finish'
+   call self%mpih%print_message('adam_object%initialize finish')
    endsubroutine initialize
 
    subroutine interpolate_at_point(self, itype, point, q, qp, is_mine, p, qc, ijk, xyz, code, v)
    !< Interpolate a scalar variable at a given point.
-   class(adam_object), intent(in)            :: self      !< ADAM.
+   class(adam_object), intent(inout)         :: self      !< ADAM.
    character(*),       intent(in)            :: itype     !< Type of interpolation.
    real(R8P),          intent(in)            :: point(3)  !< Interpolation point xyz coordinates.
    real(R8P),          intent(in)            :: q(1:,              &
@@ -342,23 +345,12 @@ contains
 
    subroutine make_comm_local_maps_ghost_bc(self)
    !< Make communication/local maps of ghost cells and boundary conditions.
-   class(adam_object), intent(inout) :: self      !< ADAM.
+   class(adam_object), intent(inout) :: self !< ADAM.
 
-   call self%tree%make_comm_local_maps_ghost
-
-   call self%tree%make_local_maps_bc
-
-   call self%field%prepare_comm_local_ghost(local_map_ghost         = self%tree%local_map_ghost,         &
-                                            comm_map_n_send_ghost   = self%tree%comm_map_n_send_ghost,   &
-                                            comm_map_n_recv_ghost   = self%tree%comm_map_n_recv_ghost,   &
-                                            comm_map_send_ptr_ghost = self%tree%comm_map_send_ptr_ghost, &
-                                            comm_map_recv_ptr_ghost = self%tree%comm_map_recv_ptr_ghost, &
-                                            comm_map_send_ghost     = self%tree%comm_map_send_ghost,     &
-                                            comm_map_recv_ghost     = self%tree%comm_map_recv_ghost)
-
-   call self%field%prepare_local_bc(local_map_bc_face   = self%tree%local_map_bc_face, &
-                                    local_map_bc_edge   = self%tree%local_map_bc_edge, &
-                                    local_map_bc_corner = self%tree%local_map_bc_corner)
+   call self%mpih%print_message('adam_object%make_comm_local_maps_ghost_bc start')
+   call self%maps%make_comm_local_maps_ghost(nv=self%field%nv)
+   call self%maps%make_local_maps_bc
+   call self%mpih%print_message('adam_object%make_comm_local_maps_ghost_bc finish')
    endsubroutine make_comm_local_maps_ghost_bc
 
    subroutine mpi_gather_refinement_needed(self, is_marked_by_field, is_marked_by_tree)
@@ -379,44 +371,30 @@ contains
    endif
 
    if (is_marked_by_tree_) then
-      call self%tree%mpi_gather_nodes_data(node_member='refinement_needed')
+      call self%maps%mpi_gather_nodes_data(node_member='refinement_needed')
    endif
    endsubroutine mpi_gather_refinement_needed
 
-   subroutine mpi_redistribute(self, print_mpi_stats)
+   subroutine mpi_redistribute(self)
    !< Redistribute nodes/blocks to processes, load balancing.
-   class(adam_object), intent(inout)         :: self             !< ADAM.
-   logical,            intent(in),  optional :: print_mpi_stats  !< Flag to activate MPI statistics print.
-   logical                                   :: print_mpi_stats_ !< Flag to activate MPI statistics print, local var.
+   class(adam_object), intent(inout) :: self !< ADAM.
 
-   print_mpi_stats_ = .false. ; if (present(print_mpi_stats)) print_mpi_stats_ = print_mpi_stats
    call self%tree%mpi_redistribute
-   if (print_mpi_stats_) call self%tree%mpi_print_stats
-   call self%field%mpi_redistribute(comm_map_send=self%tree%comm_map_send,         &
-                                    comm_map_recv=self%tree%comm_map_recv,         &
-                                    comm_map_send_ptr=self%tree%comm_map_send_ptr, &
-                                    comm_map_recv_ptr=self%tree%comm_map_recv_ptr, &
-                                    local_map=self%tree%local_map,                 &
-                                    coordinates=self%tree%block_coordinates,       &
-                                    code=self%tree%block_code)
+   call self%maps%make_comm_local_maps
+   call self%field%mpi_redistribute
    endsubroutine mpi_redistribute
 
-   subroutine prune(self, ijkl_prune, print_mpi_stats, do_blocks_reorder)
+   subroutine prune(self, ijkl_prune, do_blocks_reorder)
    !< Prune nodes/blocks.
    class(adam_object), intent(inout)        :: self               !< Adam.
    integer(I4P),       intent(inout)        :: ijkl_prune(4)      !< Maximum coordinates after which the prune operates.
-   logical,            intent(in), optional :: print_mpi_stats    !< Flag to activate MPI statistics print.
    logical,            intent(in), optional :: do_blocks_reorder  !< Flag to activate blocks reorder.
    logical                                  :: do_blocks_reorder_ !< Flag to activate blocks reorder, local var.
 
    do_blocks_reorder_ = .true.  ; if (present(do_blocks_reorder)) do_blocks_reorder_ = do_blocks_reorder
-
    call self%tree%prune(ijkl_prune=ijkl_prune)
-
-   call self%mpi_redistribute(print_mpi_stats=print_mpi_stats)
-
+   call self%mpi_redistribute
    if (do_blocks_reorder_) call self%blocks_reorder
-
    call self%make_comm_local_maps_ghost_bc
    endsubroutine prune
 
@@ -428,7 +406,7 @@ contains
    logical,            intent(in), optional :: do_blocks_reorder    !< Flag to activate blocks reorder.
    integer(I4P)                             :: l                    !< Counter.
 
-   print '(A)', self%mpih%myrankstr//'uniformly refine mesh with '//trim(str(refinement_levels))//' levels'
+   call self%mpih%print_message('uniformly refine mesh with '//trim(str(refinement_levels))//' levels')
    do l=1, refinement_levels
       call self%tree%mark_all_nodes(mark=TO_BE_REFINED)
       call self%amr_update(do_mpi_redistribute=do_mpi_redistribute, do_blocks_reorder=do_blocks_reorder)
@@ -710,7 +688,7 @@ contains
    type(vtm_file)                           :: vtm                                           !< VTM file handler.
    type(tree_node_object), pointer          :: node                                          !< Pointer to node.
    integer(I4P)                             :: b, l, v                                       !< Counter.
-   integer(I4P)                             :: i, j, k                                       !< Counter.
+   integer(I4P)                             :: i                                             !< Counter.
    integer(I4P)                             :: max_level                                     !< Maximum level.
    integer(I4P)                             :: ngc                                           !< Ghost cells saved.
    integer(I4P)                             :: error                                         !< Error traping flag.

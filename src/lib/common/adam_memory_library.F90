@@ -1,5 +1,5 @@
 !< ADAM, CPU memory handling library.
-module adam_memory_lib
+module adam_memory_library
 !< ADAM, CPU memory handling library.
 
 use penf
@@ -328,4 +328,4 @@ contains
    write(file_unit,*) tag_, mem_free, mem_total
    close(file_unit)
    endsubroutine save_memory_cpu_status
-endmodule adam_memory_lib
+endmodule adam_memory_library

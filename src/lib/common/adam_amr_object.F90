@@ -51,9 +51,9 @@ contains
    type(file_ini),    intent(in)    :: file_parameters !< Simulation parameters ini file handler.
 
    call self%mpih%initialize(do_mpi_init=.false.)
-   print '(A)', self%mpih%myrankstr//'amr_cpu_object%initialize start'
+   call self%mpih%print_message('amr_object%initialize start')
    call self%load_from_file(file_parameters=file_parameters)
-   print '(A)', self%mpih%myrankstr//'amr_cpu_object%initialize finish'
+   call self%mpih%print_message('amr_object%initialize finish')
    endsubroutine initialize
 
    subroutine load_from_file(self, file_parameters, go_on_fail)

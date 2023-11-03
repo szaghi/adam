@@ -131,8 +131,6 @@ contains
    type(file_ini),              intent(in)           :: file_parameters !< Simulation parameters ini file handler.
    logical,                     intent(in), optional :: go_on_fail      !< Go on if load fails.
    logical                                           :: go_on_fail_     !< Go on if load fails.
-   character(:), allocatable                         :: sname           !< Section name.
-   real(R8P)                                         :: cp, cv          !< Constant specific heats.
    integer(I4P)                                      :: s               !< Counter.
    integer(I4P)                                      :: error           !< Error status.
 
