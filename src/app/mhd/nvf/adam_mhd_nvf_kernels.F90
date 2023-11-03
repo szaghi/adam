@@ -40,13 +40,14 @@ contains
    integer(I4P), intent(in),    device :: ror_schemes_gpu(1:)
    real(R8P),    intent(in),    device :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    integer(I4P), intent(inout), device :: ror_stats_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
-   real(R8P),    intent(inout), device ::  gplus(1:, 1:, 1:, 1:, 1:)
+   real(R8P),    intent(inout), device :: gplus(1:, 1:, 1:, 1:, 1:)
    real(R8P),    intent(inout), device :: gminus(1:, 1:, 1:, 1:, 1:)
    real(R8P),    intent(inout), device :: flx_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    integer                             :: b, i, j, k, l, ll, m, mm, v
-   real(R8P)                           :: er(5,5), el(5,5), ev(5), evmax(5), ghat(5), gl(5), gr(5), fi(5), vi(5)
+   real(R8P)                           :: er(9,9), el(9,9), ev(9), evmax(9), ghat(9), gl(9), gr(9), fi(9), vi(9)
    real(R8P)                           :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
-   real(R8P)                           :: gc, wc
+   real(R8P)                           :: gc, wc, 
+   real(R8P)                           :: ca, ch, cf, cs  !-------> da aggiungere alle altre subroutine
    integer                             :: wenorec_scheme, index_var
    logical                             :: ror_to_recompute
 
@@ -59,18 +60,25 @@ contains
          call compute_roe_average(q_aux_gpu=q_aux_gpu, dha=dha, g=g, ngc=ngc, b=b, i=i, j=j, k=k, ip=i+1, jp=j, kp=k, &
                                   uu=uu, vv=vv, ww=ww, h=h, ya=ya, qq=qq, c=c, ci=ci, b1=b1, b2=b2)
          ! compute right and left eigenvectors matrices (at Roe state)
-         er(1,1)=1._R8P ; er(1,2)=uu-c   ; er(1,3)=vv     ; er(1,4)=ww     ; er(1,5)=h-uu*c
-         er(2,1)=1._R8P ; er(2,2)=uu     ; er(2,3)=vv     ; er(2,4)=ww     ; er(2,5)=qq
-         er(3,1)=1._R8P ; er(3,2)=uu+c   ; er(3,3)=vv     ; er(3,4)=ww     ; er(3,5)=h+uu*c
-         er(4,1)=0._R8P ; er(4,2)=0._R8P ; er(4,3)=1._R8P ; er(4,4)=0._R8P ; er(4,5)=vv
-         er(5,1)=0._R8P ; er(5,2)=0._R8P ; er(5,3)=0._R8P ; er(5,4)=1._R8P ; er(5,5)=ww
-
-         el(1,1)= 0.5_R8P*(b1+uu*ci) ; el(1,2)=1._R8P-b1 ; el(1,3)= 0.5_R8P*(b1-uu*ci) ; el(1,4)=-vv    ; el(1,5)=-ww
-         el(2,1)=-0.5_R8P*(b2*uu+ci) ; el(2,2)=b2*uu     ; el(2,3)=-0.5_R8P*(b2*uu-ci) ; el(2,4)=0._R8P ; el(2,5)=0._R8P
-         el(3,1)=-0.5_R8P*(b2*vv   ) ; el(3,2)=b2*vv     ; el(3,3)=-0.5_R8P*(b2*vv   ) ; el(3,4)=1._R8P ; el(3,5)=0._R8P
-         el(4,1)=-0.5_R8P*(b2*ww   ) ; el(4,2)=b2*ww     ; el(4,3)=-0.5_R8P*(b2*ww   ) ; el(4,4)=0._R8P ; el(4,5)=1._R8P
-         el(5,1)= 0.5_R8P*b2         ; el(5,2)=-b2       ; el(5,3)= 0.5_R8P*b2         ; el(5,4)=0._R8P ; el(5,5)=0._R8P
-
+         er(1,1)=0._R8P ; er(1,2)=alphaF                ; er(1,3)=0._R8P             ; er(1,4)=alphaS                ; er(1,5)=1._R8P        ; er(1,6)=alphaS                ; er(1,7)=0._R8P             ; er(1,8)=alphaF                ; er(1,9)=0._R8P
+         er(2,1)=0._R8P ; er(2,2)=alphaF*lambda2        ; er(2,3)=0._R8P             ; er(2,4)=alphaS*lamda4         ; er(2,5)=uu            ; er(2,6)=alphaS*lambda6        ; er(2,7)=0._R8P             ; er(2,8)=alphaF*lambda8        ; er(2,9)=0._R8P
+         er(3,1)=0._R8P ; er(3,2)=alphaF*vv + Jf0*betaY ; er(3,3)=-betaZ*S           ; er(3,4)=alphaS*vv - Js0*betaY ; er(3,5)=vv            ; er(3,6)=alphaS*vv + Js0*betaY ; er(3,7)=-betaZ*S           ; er(3,8)=alphaF*vv - Jf0*betaY ; er(3,9)=0._R8P
+         er(4,1)=0._R8P ; er(4,2)=alphaF*ww + Jf0*betaZ ; er(4,3)= betaY*S           ; er(4,4)=alphaS*ww - Js0*betaZ ; er(4,5)=ww            ; er(4,6)=alphaS*ww + Js0*betaZ ; er(4,7)= betaY*S           ; er(4,8)=alphaF*ww - Jf0*betaZ ; er(4,9)=0._R8P
+         er(5,1)=1._R8P ; er(5,2)=0._R8P                ; er(5,3)=0._R8P             ; er(5,4)=0._R8P                ; er(5,5)=0._R8P        ; er(5,6)=0._R8P                ; er(5,7)=0._R8P             ; er(5,8)=0._R8P                ; er(5,9)=1._R8P
+         er(6,1)=0._R8P ; er(6,2)=Jf1*betaY             ; er(6,3)=-betaZ*rho**(-0.5) ; er(6,4)=-Js1*BetaY            ; er(6,5)=0._R8P        ; er(6,6)=-Js1*betaY            ; er(6,7)=betaZ*rho**(-0.5)  ; er(6,8)=Jf1*betaY             ; er(6,9)=0._R8P
+         er(7,1)=0._R8P ; er(7,2)=Jf1*betaZ             ; er(7,3)= betaY*rho**(-0.5) ; er(7,4)=-Js1*BetaZ            ; er(7,5)=0._R8P        ; er(7,6)=-Js1*betaZ            ; er(7,7)=-betaY*rho**(-0.5) ; er(7,8)=Jf1*betaZ             ; er(7,9)=0._R8P
+         er(8,1)=0._R8P ; er(8,2)=Hf-GAMMAf             ; er(8,3)=-GAMMAA            ; er(8,4)=Hs-GAMMAs             ; er(8,5)=0.5_R8P*ni**2 ; er(8,6)=Hs+GAMMAs             ; er(8,7)=-GAMMAa            ; er(8,8)=Hf+GAMMAf             ; er(8,9)=0._R8P
+         er(9,1)=-ch    ; er(9,2)=0._R8P                ; er(9,3)=0._R8P             ; er(9,4)=0._R8P                ; er(9,5)=0._R8P        ; er(9,6)=0._R8P                ; er(9,7)=0._R8P             ; er(9,8)=0._R8P                ; er(9,9)=ch
+         !da scrivere la matrice autovettoriSX + paramteri
+         el(1,1)=0._R8P                                      ; el(1,2)=0._R8P                          ; el(1,3)= 0._R8P                          ; el(1,4)=0._R8P                          ; el(1,5)=0._R8P ; el(1,6)= 0._R8P                              ; el(1,7)= 0._R8P                               ; el(1,8)= 0._R8P                               ; el(1,9)=-1._R8P/(2*ch)    
+         el(2,1)=0.5_R8P/(a**2)*(gamma1*alphaF*ni**2+GAMMAf) ; el(2,2)=0.5_R8P/(a**2)*(Ifuu-alphaF*cf) ; el(2,3)= 0.5_R8P/(a**2)*(Ifvv+Jf0*betaY) ; el(2,4)=0.5_R8P/(a**2)*(Ifww+Jf0*betaZ) ; el(2,5)=0._R8P ; el(2,6)= 0.5_R8P/(a**2)*(IfBY+Jf1*betaY)     ; el(2,7)= 0.5_R8P/(a**2)2*(IfBZ+Jf1*betaZ)     ; el(2,8)= 0.5_R8P/(a**2)*alphaF*(GAMMA-1._R8P) ; el(2,9)= 0._R8P
+         el(3,1)=0.5_R8P*GAMMAa                              ; el(3,2)=0._R8P                          ; el(3,3)=-0.5_R8P*betaZ*S                 ; el(3,4)=0.5_R8P*betaY*S                 ; el(3,5)=0._R8P ; el(3,6)=-0.5_R8P*(rho**0.5)*BetaZ            ; el(3,7)= 0.5_R8P*(rho**0.5)*BetaY             ; el(3,8)= 0._R8P                               ; el(3,9)= 0._R8P   
+         el(4,1)=0.5_R8P/(a**2)*(gamma1*alphaS*ni**2+GAMMAs) ; el(4,2)=0.5_R8P/(a**2)*(Isuu-alphaS*cs) ; el(4,3)= 0.5_R8P/(a**2)*(Isvv-Js0*betaY) ; el(4,4)=0.5_R8P/(a**2)*(Isww-Js0*betaZ) ; el(4,5)=0._R8P ; el(4,6)= 0.5_R8P/(a**2)*(IsBY-Js1*rho*betaY) ; el(4,7)= 0.5_R8P/(a**2)2*(IsBZ-Jf1*rho*betaZ) ; el(4,8)= 0.5_R8P/(a**2)*alphaS*(GAMMA-1._R8P) ; el(4,9)= 0._R8P
+         el(5,1)=1._R8P-0.5_R8P*GAMMAm*bi**2                 ; el(5,2)=GAMMAm*uu                       ; el(5,3)= GAMMAm*vv                       ; el(5,4)=GAMMAm*ww                       ; el(5,5)=0._R8P ; el(5,6)= GAMMA*By                            ; el(5,7)= GAMMAm*Bz                            ; el(5,8)=-GAMMAm                               ; el(5,9)= 0._R8P 
+         el(5,1)=0.5_R8P/(a**2)*(gamma1*alphaS*ni**2-GAMMAs) ; el(6,2)=0.5_R8P/(a**2)*(Isuu+alphaS*cs) ; el(6,3)= 0.5_R8P/(a**2)*(Isvv+Js0*betaY) ; el(6,4)=0.5_R8P/(a**2)*(Isww+Js0*betaZ) ; el(6,5)=0._R8P ; el(6,6)= 0.5_R8P/(a**2)*(IsBY-Js1*rho*betaY) ; el(6,7)= 0.5_R8P/(a**2)2*(IsBZ-Jf1*rho*betaZ) ; el(6,8)= 0.5_R8P/(a**2)*alphaS*(GAMMA-1._R8P) ; el(6,9)= 0._R8P
+         el(7,1)=0.5_R8P*GAMMAa                              ; el(7,2)=0._R8P                          ; el(7,3)=-0.5_R8P*betaZ*S                 ; el(7,4)=0.5_R8P*betaY*S                 ; el(7,5)=0._R8P ; el(7,6)= 0.5_R8P*(rho**0.5)*BetaZ            ; el(7,7)=-0.5_R8P*(rho**0.5)*BetaY             ; el(7,8)= 0._R8P                               ; el(7,9)= 0._R8P   
+         el(8,1)=0.5_R8P/(a**2)*(gamma1*alphaF*ni**2-GAMMAf) ; el(8,2)=0.5_R8P/(a**2)*(Ifuu+alphaF*cf) ; el(8,3)= 0.5_R8P/(a**2)*(Ifvv-Jf0*betaY) ; el(8,4)=0.5_R8P/(a**2)*(Ifww-Jf0*betaZ) ; el(8,5)=0._R8P ; el(8,6)= 0.5_R8P/(a**2)*(IfBY+Jf1*rho*betaY) ; el(8,7)= 0.5_R8P/(a**2)*(IfBZ+Jf1*rho*betaZ)  ; el(8,8)= 0.5_R8P/(a**2)*alphaF*(GAMMA-1._R8P) ; el(8,9)= 0._R8P
+         el(9,1)=0._R8P                                      ; el(9,2)=0._R8P                          ; el(9,3)= 0._R8P                          ; el(9,4)=0.5_R8P                         ; el(9,5)=0._R8P ; el(9,6)= 0._R8P                              ; el(9,7)= 0._R8P                               ; el(9,8)= 0._R8P                               ; el(9,9)= 1._R8P/(2*ch)
          ! Find max eigenvalues on the stencil
          do m=1,nv  ! loop on characteristic fields
             evmax(m) = -1._R8P
@@ -79,13 +87,13 @@ contains
             ll = i + l - iweno
             uu = q_aux_gpu(b,ll,j,k,2)
             c  = q_aux_gpu(b,ll,j,k,9)
-            ev(1) = abs(uu-c) ; ev(2) = abs(uu) ; ev(3) = abs(uu+c) ; ev(4) = ev(2) ; ev(5) = ev(2)
+            ev(1) =-abs(ch) ; ev(2)=-abs(uu-cf) ; ev(3)=-abs(uu-ca) ; ev(4)=-abs(uu-cs) ; ev(5)=abs(uu) ; ev(6)=-ev(4) ; ev(7)=-ev(3) ; ev(8)=-ev(2); ev(9)=-ev(1)
             do m=1,nv
-               evmax(m) = max(ev(m),evmax(m))
+               evmax(m) = max(ev(m),evmax(m)) !---> sarebbe il ch
             enddo
          enddo
 
-         ! Decompose fluxes as + and -
+         ! Decompose fluxes as + and -      -----> da modificiare
          do l=1,2*iweno ! loop over the stencil centered at face i
             ll = i + l - iweno
             vi(1) = q_aux_gpu(b,ll,j,k,1)
@@ -289,7 +297,7 @@ contains
    integer(I4P), intent(in),    device :: ror_schemes_gpu(1:)
    real(R8P),    intent(in),    device :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    integer(I4P), intent(inout), device :: ror_stats_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)
-   real(R8P),    intent(inout), device ::  gplus(1:, 1:, 1:, 1:, 1:)
+   real(R8P),    intent(inout), device :: gplus(1:, 1:, 1:, 1:, 1:)
    real(R8P),    intent(inout), device :: gminus(1:, 1:, 1:, 1:, 1:)
    real(R8P),    intent(inout), device :: flz_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    integer                             :: b, i, j, k, l, ll, m, mm, v
@@ -665,7 +673,7 @@ contains
    enddo
    enddo
    enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
+   !@cuf iercuda=cudaDeviceSynchrowwe()
    endsubroutine compute_fluxes_difference_cuf
 
    subroutine compute_fluxes_diffusive_cuf(blocks_number, ni, nj, nk, ngc, nv, mu, kd, &
@@ -683,9 +691,9 @@ contains
    real(R8P)                           :: dx_locale, dy_locale, dz_locale
    real(R8P)                           :: delta_x, delta_y, delta_z
    real(R8P)                           :: sigq, sigl
-   real(R8P)                           :: tau_1_1, tau_2_1, tau_3_1, dT_dx
-   real(R8P)                           :: tau_1_2, tau_2_2, tau_3_2, dT_dy
-   real(R8P)                           :: tau_1_3, tau_2_3, tau_3_3, dT_dz
+   real(R8P)                           :: GAMMA_1_1, GAMMA_2_1, GAMMA_3_1, dT_dx
+   real(R8P)                           :: GAMMA_1_2, GAMMA_2_2, GAMMA_3_2, dT_dy
+   real(R8P)                           :: GAMMA_1_3, GAMMA_2_3, GAMMA_3_3, dT_dz
    real(R8P)                           :: vel_u, vel_v, vel_w
    real(R8P), parameter                :: ib_eps=1.e-12_R8P
 
@@ -712,24 +720,24 @@ contains
                 vel_v = 0.5*(q_aux_gpu(b,i,j,k,3) + q_aux_gpu(b,i+1,j,k,3))
                 vel_w = 0.5*(q_aux_gpu(b,i,j,k,4) + q_aux_gpu(b,i+1,j,k,4))
 
-                tau_1_1 = 2.0*mu*(du_dx-1./3.*(du_dx+dv_dy+dw_dz))
-                tau_2_1 = mu*(dv_dx+du_dy)
-                tau_3_1 = mu*(dw_dx+du_dz)
+                GAMMA_1_1 = 2.0*mu*(du_dx-1./3.*(du_dx+dv_dy+dw_dz))
+                GAMMA_2_1 = mu*(dv_dx+du_dy)
+                GAMMA_3_1 = mu*(dw_dx+du_dz)
 
                 dT_dx = (q_aux_gpu(b,i+1,j,k,6)-q_aux_gpu(b,i,j,k,6))/dx_gpu(b)
 
                 sigq = kd*dT_dx
-                sigl = vel_u*tau_1_1+vel_v*tau_2_1+vel_w*tau_3_1
+                sigl = vel_u*GAMMA_1_1+vel_v*GAMMA_2_1+vel_w*GAMMA_3_1
 
-                flx_gpu(b,i,j,k,2) = flx_gpu(b,i,j,k,2) - tau_1_1
-                flx_gpu(b,i,j,k,3) = flx_gpu(b,i,j,k,3) - tau_2_1
-                flx_gpu(b,i,j,k,4) = flx_gpu(b,i,j,k,4) - tau_3_1
+                flx_gpu(b,i,j,k,2) = flx_gpu(b,i,j,k,2) - GAMMA_1_1
+                flx_gpu(b,i,j,k,3) = flx_gpu(b,i,j,k,3) - GAMMA_2_1
+                flx_gpu(b,i,j,k,4) = flx_gpu(b,i,j,k,4) - GAMMA_3_1
                 flx_gpu(b,i,j,k,5) = flx_gpu(b,i,j,k,5) - sigq + sigl
             enddo
          enddo
       enddo
    enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
+   !@cuf iercuda=cudaDeviceSynchrowwe()
 
    !$cuf kernel do(3) <<<*,*>>>
    do k=1,nk
@@ -754,24 +762,24 @@ contains
                 vel_v = 0.5*(q_aux_gpu(b,i,j,k,3) + q_aux_gpu(b,i,j+1,k,3))
                 vel_w = 0.5*(q_aux_gpu(b,i,j,k,4) + q_aux_gpu(b,i,j+1,k,4))
 
-                tau_1_2 = mu*(du_dy+dv_dx)
-                tau_2_2 = 2.0*mu*(dv_dy-1./3.*(du_dx+dv_dy+dw_dz))
-                tau_3_2 = mu*(dw_dy+dv_dz)
+                GAMMA_1_2 = mu*(du_dy+dv_dx)
+                GAMMA_2_2 = 2.0*mu*(dv_dy-1./3.*(du_dx+dv_dy+dw_dz))
+                GAMMA_3_2 = mu*(dw_dy+dv_dz)
 
                 dT_dy = (q_aux_gpu(b,i,j+1,k,6)-q_aux_gpu(b,i,j,k,6))/dy_gpu(b)
 
                 sigq = kd*dT_dy
-                sigl = vel_u*tau_1_2+vel_v*tau_2_2+vel_w*tau_3_2
+                sigl = vel_u*GAMMA_1_2+vel_v*GAMMA_2_2+vel_w*GAMMA_3_2
 
-                fly_gpu(b,i,j,k,2) = fly_gpu(b,i,j,k,2) - tau_1_2
-                fly_gpu(b,i,j,k,3) = fly_gpu(b,i,j,k,3) - tau_2_2
-                fly_gpu(b,i,j,k,4) = fly_gpu(b,i,j,k,4) - tau_3_2
+                fly_gpu(b,i,j,k,2) = fly_gpu(b,i,j,k,2) - GAMMA_1_2
+                fly_gpu(b,i,j,k,3) = fly_gpu(b,i,j,k,3) - GAMMA_2_2
+                fly_gpu(b,i,j,k,4) = fly_gpu(b,i,j,k,4) - GAMMA_3_2
                 fly_gpu(b,i,j,k,5) = fly_gpu(b,i,j,k,5) - sigq + sigl
             enddo
          enddo
       enddo
    enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
+   !@cuf iercuda=cudaDeviceSynchrowwe()
 
    !$cuf kernel do(3) <<<*,*>>>
    do j=1,nj
@@ -796,24 +804,24 @@ contains
                 vel_v = 0.5*(q_aux_gpu(b,i,j,k,3) + q_aux_gpu(b,i,j,k+1,3))
                 vel_w = 0.5*(q_aux_gpu(b,i,j,k,4) + q_aux_gpu(b,i,j,k+1,4))
 
-                tau_1_3 = mu*(du_dz+dw_dx)
-                tau_2_3 = mu*(dv_dz+dw_dy)
-                tau_3_3 = 2.0*mu*(dw_dz-1./3.*(du_dx+dv_dy+dw_dz))
+                GAMMA_1_3 = mu*(du_dz+dw_dx)
+                GAMMA_2_3 = mu*(dv_dz+dw_dy)
+                GAMMA_3_3 = 2.0*mu*(dw_dz-1./3.*(du_dx+dv_dy+dw_dz))
 
                 dT_dz = (q_aux_gpu(b,i,j,k+1,6)-q_aux_gpu(b,i,j,k,6))/dz_gpu(b)
 
                 sigq = kd*dT_dz
-                sigl = vel_u*tau_1_3+vel_v*tau_2_3+vel_w*tau_3_3
+                sigl = vel_u*GAMMA_1_3+vel_v*GAMMA_2_3+vel_w*GAMMA_3_3
 
-                flz_gpu(b,i,j,k,2) = flz_gpu(b,i,j,k,2) - tau_1_3
-                flz_gpu(b,i,j,k,3) = flz_gpu(b,i,j,k,3) - tau_2_3
-                flz_gpu(b,i,j,k,4) = flz_gpu(b,i,j,k,4) - tau_3_3
+                flz_gpu(b,i,j,k,2) = flz_gpu(b,i,j,k,2) - GAMMA_1_3
+                flz_gpu(b,i,j,k,3) = flz_gpu(b,i,j,k,3) - GAMMA_2_3
+                flz_gpu(b,i,j,k,4) = flz_gpu(b,i,j,k,4) - GAMMA_3_3
                 flz_gpu(b,i,j,k,5) = flz_gpu(b,i,j,k,5) - sigq + sigl
             enddo
          enddo
       enddo
    enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
+   !@cuf iercuda=cudaDeviceSynchrowwe()
    endsubroutine compute_fluxes_diffusive_cuf
 
    subroutine compute_q_aux_cuf(ni, nj, nk, ngc, ns, blocks_number, R, cv, g, dha, q_gpu, q_aux_gpu)
@@ -865,7 +873,7 @@ contains
          enddo
       enddo
    enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
+   !@cuf iercuda=cudaDeviceSynchrowwe()
    endsubroutine compute_q_aux_cuf
 
    subroutine compute_q_gradient_cuf(b, ni, nj, nk, ngc, dx, dy, dz, q_gpu, ivar, gradient)
@@ -899,7 +907,7 @@ contains
          enddo
       enddo
    enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
+   !@cuf iercuda=cudaDeviceSynchrowwe()
    endsubroutine compute_q_gradient_cuf
 
    subroutine compute_umax_cuf(b, ni, nj, nk, ngc, ns, dx, dy, dz, mu, q_aux_gpu, umax)
@@ -936,16 +944,17 @@ contains
          enddo
       enddo
    enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
+   !@cuf iercuda=cudaDeviceSynchrowwe()
    endsubroutine compute_umax_cuf
 
    attributes(device) subroutine compute_roe_average(q_aux_gpu, dha, g, &
-                                                     ngc, b, i, j, k, ip, jp, kp, uu, vv, ww, h, ya, qq, c, ci, b1, b2)
+                                                     ngc, b, i, j, k, ip, jp, kp, uu, vv, ww, h, ya, qq, c, cf, cs, ca, ci, b1, b2)
    !< Compute Roe averaged quantities.
    real(R8P),    intent(in), device :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
    real(R8P),    intent(in)         :: dha, g
    integer(I4P), intent(in)         :: ngc, b, i, j, k, ip, jp, kp
    real(R8P),    intent(out)        :: uu, vv, ww, h, ya, qq, c, ci, b1, b2
+   real(R8P),    intent(out)        :: cf,cs, ca
    real(R8P)                        :: ri, up, vp, wp, hp, yap, r, rp1, cc
    ! Left state (node i)
    ri        =  1._R8P/q_aux_gpu(b,i,j,k,1)
@@ -975,7 +984,11 @@ contains
    ci        =  1._R8P/c
    b2        = (g-1)/cc  ! alias 1/(cp*theta)
    b1        = b2 * qq   ! alias q/(cp*theta)
-
+   !Magneto-Sonic fast/slow & Alfen waves speed
+   ! GAMMA--->g
+   cf = sqrt((1._R8P/0.5_R8P*rho)*(GAMMA*p+Bm**2 + sqrt((GAMMA*p+Bm**2)**2-4._R8P*GAMMA*p*Bx**2))  
+   cs = sqrt((1._R8P/0.5_R8P*rho)*(GAMMA*p+Bm**2 - sqrt((GAMMA*p+Bm**2)**2-4._R8P*GAMMA*p*Bx**2))  
+   ca = Bmx*rho**-0.5
    endsubroutine compute_roe_average
 
    subroutine set_bc_q_gpu_cuf(BC_EXTRAPOLATION, BC_INFLOW, nv, ngc, cv, R, &
@@ -1034,7 +1047,7 @@ contains
             endif
          endif
       enddo
-      !@cuf iercuda=cudaDeviceSynchronize()
+      !@cuf iercuda=cudaDeviceSynchrowwe()
    enddo
    endsubroutine set_bc_q_gpu_cuf
 
@@ -1070,7 +1083,7 @@ contains
          enddo
       enddo
    enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
+   !@cuf iercuda=cudaDeviceSynchrowwe()
    endsubroutine compute_rk_linear_gpu_cuf
 
    subroutine compute_rk_q_gpu_cuf(ni, nj, nk, ngc, nv, blocks_number, dt, s, q_gpu, q_old_gpu, fl_gpu, phi_gpu, ark, brk, crk)
@@ -1105,7 +1118,7 @@ contains
          enddo
       enddo
    enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
+   !@cuf iercuda=cudaDeviceSynchrowwe()
    endsubroutine compute_rk_q_gpu_cuf
 
    subroutine compute_rk_prhs_gpu_cuf(ni, nj, nk, ngc, nv, blocks_number, dt, s, q_gpu, prhs_gpu, fl_gpu, phi_gpu, qnrk)
@@ -1140,7 +1153,7 @@ contains
          enddo
       enddo
    enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
+   !@cuf iercuda=cudaDeviceSynchrowwe()
    endsubroutine compute_rk_prhs_gpu_cuf
 
    ! WENO procedures
