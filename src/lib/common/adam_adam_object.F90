@@ -521,22 +521,40 @@ contains
                   h5_file_id=h5_file_id,                                                                   &
                   h5_dspace_id=h5_dspace_id)
    ! save all blocks in process
-   do b=1, self%field%blocks_number
-      call save_hdf5_block(h5_file_id=h5_file_id,                                                  &
-                           h5_dspace_id=h5_dspace_id,                                              &
-                           myrank=self%mpih%myrank,                                                &
-                           code=self%field%code(b),                                                &
-                           block_index=b,                                                          &
-                           ii=ijk(:,1),                                                            &
-                           jj=ijk(:,2),                                                            &
-                           kk=ijk(:,3),                                                            &
-                           q=q(:,ijk(1,1):ijk(2,1),ijk(1,2):ijk(2,2),ijk(1,3):ijk(2,3),b),         &
-                           q_name=q_name_,                                                         &
-                           with_cell_morton=with_cell_morton_,                                     &
-                           q_aux_name=q_aux_name_,                                                 &
-                           q_aux=q_aux(:,ijk(1,1):ijk(2,1),ijk(1,2):ijk(2,2),ijk(1,3):ijk(2,3),b), &
-                           phi=phi(:,ijk(1,1):ijk(2,1),ijk(1,2):ijk(2,2),ijk(1,3):ijk(2,3),b))
-   enddo
+   if (present(phi)) then
+      do b=1, self%field%blocks_number
+         call save_hdf5_block(h5_file_id=h5_file_id,                                                  &
+                              h5_dspace_id=h5_dspace_id,                                              &
+                              myrank=self%mpih%myrank,                                                &
+                              code=self%field%code(b),                                                &
+                              block_index=b,                                                          &
+                              ii=ijk(:,1),                                                            &
+                              jj=ijk(:,2),                                                            &
+                              kk=ijk(:,3),                                                            &
+                              q=q(:,ijk(1,1):ijk(2,1),ijk(1,2):ijk(2,2),ijk(1,3):ijk(2,3),b),         &
+                              q_name=q_name_,                                                         &
+                              with_cell_morton=with_cell_morton_,                                     &
+                              q_aux_name=q_aux_name_,                                                 &
+                              q_aux=q_aux(:,ijk(1,1):ijk(2,1),ijk(1,2):ijk(2,2),ijk(1,3):ijk(2,3),b), &
+                              phi=phi(:,ijk(1,1):ijk(2,1),ijk(1,2):ijk(2,2),ijk(1,3):ijk(2,3),b))
+      enddo
+   else
+      do b=1, self%field%blocks_number
+         call save_hdf5_block(h5_file_id=h5_file_id,                                                  &
+                              h5_dspace_id=h5_dspace_id,                                              &
+                              myrank=self%mpih%myrank,                                                &
+                              code=self%field%code(b),                                                &
+                              block_index=b,                                                          &
+                              ii=ijk(:,1),                                                            &
+                              jj=ijk(:,2),                                                            &
+                              kk=ijk(:,3),                                                            &
+                              q=q(:,ijk(1,1):ijk(2,1),ijk(1,2):ijk(2,2),ijk(1,3):ijk(2,3),b),         &
+                              q_name=q_name_,                                                         &
+                              with_cell_morton=with_cell_morton_,                                     &
+                              q_aux_name=q_aux_name_,                                                 &
+                              q_aux=q_aux(:,ijk(1,1):ijk(2,1),ijk(1,2):ijk(2,2),ijk(1,3):ijk(2,3),b))
+      enddo
+   endif
    call close_hdf5(h5_file_id=h5_file_id, h5_dspace_id=h5_dspace_id)
 
    ! save XDMF file (only master process does)

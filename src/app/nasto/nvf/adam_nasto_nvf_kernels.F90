@@ -21,26 +21,33 @@ contains
    ! public procedures
    attributes(global) subroutine compute_fluxes_convective_kernel(dir,blocks_number,ni,nj,nk,ngc,nv,                &
                                                                   weno_s,weno_a_gpu,weno_p_gpu,weno_d_gpu,weno_zeps,&
+                                                                  ror_number,ror_schemes_gpu,ror_threshold,         &
+                                                                  ror_ivar_gpu,ror_stats_gpu,                       &
                                                                   g,q_aux_gpu,fluxes_gpu)
    !< Compute convective fluxes along x direction.
-   integer(I4P), intent(in), value     :: dir                                    !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P), intent(in), value     :: blocks_number                          !< Number of blocks.
-   integer(I4P), intent(in), value     :: ni                                     !< Grid cells number in I direction.
-   integer(I4P), intent(in), value     :: nj                                     !< Grid cells number in J direction.
-   integer(I4P), intent(in), value     :: nk                                     !< Grid cells number in K direction.
-   integer(I4P), intent(in), value     :: ngc                                    !< Ghost cells number.
-   integer(I4P), intent(in), value     :: nv                                     !< Number of conservative varibales.
-   integer(I4P), intent(in), value     :: weno_s                                 !< Weno stencils number/dimension.
-   real(R8P),    intent(in), device    :: weno_a_gpu(1:,0:,1:)                   !< Optimal weights.
-   real(R8P),    intent(in), device    :: weno_p_gpu(1:,0:,0:,1:)                !< Polinomials coefficients.
-   real(R8P),    intent(in), device    :: weno_d_gpu(0:,0:,0:,1:)                !< Smoothness indicators coefficients.
-   real(R8P),    intent(in), value     :: weno_zeps                              !< Parameter for avoiding division by zero in IS.
-   real(R8P),    intent(in), value     :: g                                      !< Specific heats ratio.
-   real(R8P),    intent(in),    device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Auxiliary variables.
-   real(R8P),    intent(inout), device :: fluxes_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes.
-   integer(I4P)                        :: b, i, j, k                             !< Counter.
-   integer(I4P)                        :: si(3)                                  !< Stencil increment.
-   real(R8P)                           :: sir(3)                                 !< Stencil increment, real cast.
+   integer(I4P), intent(in),    value  :: dir                                       !< Direction, 1=X, 2=Y, 3=Z.
+   integer(I4P), intent(in),    value  :: blocks_number                             !< Number of blocks.
+   integer(I4P), intent(in),    value  :: ni                                        !< Grid cells number in I direction.
+   integer(I4P), intent(in),    value  :: nj                                        !< Grid cells number in J direction.
+   integer(I4P), intent(in),    value  :: nk                                        !< Grid cells number in K direction.
+   integer(I4P), intent(in),    value  :: ngc                                       !< Ghost cells number.
+   integer(I4P), intent(in),    value  :: nv                                        !< Number of conservative varibales.
+   integer(I4P), intent(in),    value  :: weno_s                                    !< Weno stencils number/dimension.
+   real(R8P),    intent(in),    device :: weno_a_gpu(1:,0:,1:)                      !< Optimal weights.
+   real(R8P),    intent(in),    device :: weno_p_gpu(1:,0:,0:,1:)                   !< Polinomials coefficients.
+   real(R8P),    intent(in),    device :: weno_d_gpu(0:,0:,0:,1:)                   !< Smoothness indicators coefficients.
+   real(R8P),    intent(in),    value  :: weno_zeps                                 !< Parameter to avoid division by zero.
+   integer(I4P), intent(in),    value  :: ror_number                                !< Number of ROR iterations.
+   integer(I4P), intent(in),    device :: ror_schemes_gpu(1:)                       !< Scheme (S value) for each ROR step.
+   real(R8P),    intent(in),    value  :: ror_threshold                             !< ROR threshold triggering.
+   integer(I4P), intent(in),    device :: ror_ivar_gpu(1:)                          !< Index variables to check in ROR.
+   integer(I4P), intent(inout), device :: ror_stats_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Scheme (S value) for each ROR step.
+   real(R8P),    intent(in),    value  :: g                                         !< Specific heats ratio.
+   real(R8P),    intent(in),    device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Auxiliary variables.
+   real(R8P),    intent(inout), device :: fluxes_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Fluxes.
+   integer(I4P)                        :: b, i, j, k                                !< Counter.
+   integer(I4P)                        :: si(3)                                     !< Stencil increment.
+   real(R8P)                           :: sir(3)                                    !< Stencil increment, real cast.
 
    select case(dir)
    case(1)
@@ -51,9 +58,12 @@ contains
       sir = real(si,R8P)
       do k=1-si(3), nk
       do i=1-si(1), ni
-         call compute_fluxes_conv_interface_kernel(si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,               &
+         call compute_fluxes_conv_interface_kernel(dir=dir,si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,       &
                                                    weno_s=weno_s,weno_a_gpu=weno_a_gpu,weno_p_gpu=weno_p_gpu, &
                                                    weno_d_gpu=weno_d_gpu,weno_zeps=weno_zeps,                 &
+                                                   ror_number=ror_number, ror_schemes_gpu=ror_schemes_gpu,    &
+                                                   ror_threshold=ror_threshold, ror_ivar_gpu=ror_ivar_gpu,    &
+                                                   ror_stats_gpu=ror_stats_gpu,                               &
                                                    g=g,q_aux_gpu=q_aux_gpu,fluxes_gpu=fluxes_gpu)
       enddo
       enddo
@@ -65,9 +75,12 @@ contains
       sir = real(si,R8P)
       do k=1-si(3), nk
       do j=1-si(2), nj
-         call compute_fluxes_conv_interface_kernel(si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,               &
+         call compute_fluxes_conv_interface_kernel(dir=dir,si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,       &
                                                    weno_s=weno_s,weno_a_gpu=weno_a_gpu,weno_p_gpu=weno_p_gpu, &
                                                    weno_d_gpu=weno_d_gpu,weno_zeps=weno_zeps,                 &
+                                                   ror_number=ror_number, ror_schemes_gpu=ror_schemes_gpu,    &
+                                                   ror_threshold=ror_threshold, ror_ivar_gpu=ror_ivar_gpu,    &
+                                                   ror_stats_gpu=ror_stats_gpu,                               &
                                                    g=g,q_aux_gpu=q_aux_gpu,fluxes_gpu=fluxes_gpu)
       enddo
       enddo
@@ -79,9 +92,12 @@ contains
       sir = real(si,R8P)
       do j=1-si(2), nj
       do k=1-si(3), nk
-         call compute_fluxes_conv_interface_kernel(si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,               &
+         call compute_fluxes_conv_interface_kernel(dir=dir,si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,       &
                                                    weno_s=weno_s,weno_a_gpu=weno_a_gpu,weno_p_gpu=weno_p_gpu, &
                                                    weno_d_gpu=weno_d_gpu,weno_zeps=weno_zeps,                 &
+                                                   ror_number=ror_number, ror_schemes_gpu=ror_schemes_gpu,    &
+                                                   ror_threshold=ror_threshold, ror_ivar_gpu=ror_ivar_gpu,    &
+                                                   ror_stats_gpu=ror_stats_gpu,                               &
                                                    g=g,q_aux_gpu=q_aux_gpu,fluxes_gpu=fluxes_gpu)
       enddo
       enddo
@@ -91,77 +107,95 @@ contains
    subroutine compute_fluxes_difference_cuf(blocks_number, ni, nj, nk, ngc, nv, ib_eps, &
                                             dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, fl_gpu)
    !< Compute fluxes difference.
-   integer(I4P), intent(in)            :: blocks_number                       !< Number of blocks.
-   integer(I4P), intent(in)            :: ni                                  !< Grid cells number in I direction.
-   integer(I4P), intent(in)            :: nj                                  !< Grid cells number in J direction.
-   integer(I4P), intent(in)            :: nk                                  !< Grid cells number in K direction.
-   integer(I4P), intent(in)            :: ngc                                 !< Ghost cells number.
-   integer(I4P), intent(in)            :: nv                                  !< Number of conservative varibales.
-   real(R8P),    intent(in)            :: ib_eps                              !< Tolerance IB delta ratio.
-   real(R8P),    intent(in),    device :: dx_gpu(1:), dy_gpu(1:), dz_gpu(1:)  !< Space steps.
-   real(R8P),    intent(in),    device :: flx_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< X direction fluxes.
-   real(R8P),    intent(in),    device :: fly_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Y direction fluxes.
-   real(R8P),    intent(in),    device :: flz_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Z direction fluxes.
-   real(R8P),    intent(in),    device :: phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< IB distance function.
-   real(R8P),    intent(inout), device ::  fl_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes differences.
-   real(R8P)                           :: delta_x, delta_y, delta_z           !< Space steps.
-   real(R8P)                           :: dx_locale, dy_locale, dz_locale     !< Local space steps.
-   integer(I4P)                        :: b, i, j, k, v                       !< Counter.
-   integer(I4P)                        :: iercuda                             !< Error trapping flag for CUDAFortran.
-   integer(I4P)                        :: all_solids                          !< Last phi index, all solids summary.
+   integer(I4P), intent(in)                      :: blocks_number                       !< Number of blocks.
+   integer(I4P), intent(in)                      :: ni                                  !< Grid cells number in I direction.
+   integer(I4P), intent(in)                      :: nj                                  !< Grid cells number in J direction.
+   integer(I4P), intent(in)                      :: nk                                  !< Grid cells number in K direction.
+   integer(I4P), intent(in)                      :: ngc                                 !< Ghost cells number.
+   integer(I4P), intent(in)                      :: nv                                  !< Number of conservative varibales.
+   real(R8P),    intent(in)                      :: ib_eps                              !< Tolerance IB delta ratio.
+   real(R8P),    intent(in),    device           :: dx_gpu(1:), dy_gpu(1:), dz_gpu(1:)  !< Space steps.
+   real(R8P),    intent(in),    device           :: flx_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< X direction fluxes.
+   real(R8P),    intent(in),    device           :: fly_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Y direction fluxes.
+   real(R8P),    intent(in),    device           :: flz_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Z direction fluxes.
+   real(R8P),    intent(in),    device, optional :: phi_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< IB distance function.
+   real(R8P),    intent(inout), device           ::  fl_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes differences.
+   real(R8P)                                     :: delta_x, delta_y, delta_z           !< Space steps.
+   real(R8P)                                     :: dx_locale, dy_locale, dz_locale     !< Local space steps.
+   integer(I4P)                                  :: b, i, j, k, v                       !< Counter.
+   integer(I4P)                                  :: iercuda                             !< Error trapping flag for CUDAFortran.
+   integer(I4P)                                  :: all_solids                          !< Last phi index, all solids summary.
 
-   all_solids = ubound(phi_gpu, dim=5)
-   !$cuf kernel do(4) <<<*,*>>>
-   do k=1,nk
-   do j=1,nj
-   do i=1,ni
-   do b=1,blocks_number
-      dx_locale = dx_gpu(b)
-      if (phi_gpu(b,i,j,k,all_solids)<0.) then
-         if (phi_gpu(b,i+1,j,k,all_solids)*phi_gpu(b,i-1,j,k,all_solids)<0) then
-            if (phi_gpu(b,i+1,j,k,all_solids)>0.) then
-               delta_x = -phi_gpu(b,i,j,k,all_solids)/(phi_gpu(b,i+1,j,k,all_solids)-phi_gpu(b,i,j,k,all_solids)+ib_eps)*dx_gpu(b)
-               dx_locale = dx_gpu(b)/2 + delta_x
-            else
-               delta_x = -phi_gpu(b,i,j,k,all_solids)/(phi_gpu(b,i-1,j,k,all_solids)-phi_gpu(b,i,j,k,all_solids)+ib_eps)*dx_gpu(b)
-               dx_locale = dx_gpu(b)/2 + delta_x
+   if (present(phi_gpu)) then
+      all_solids = ubound(phi_gpu, dim=5)
+      !$cuf kernel do(4) <<<*,*>>>
+      do k=1,nk
+      do j=1,nj
+      do i=1,ni
+      do b=1,blocks_number
+         dx_locale = dx_gpu(b)
+         if (phi_gpu(b,i,j,k,all_solids)<0.) then
+            if (phi_gpu(b,i+1,j,k,all_solids)*phi_gpu(b,i-1,j,k,all_solids)<0) then
+               if (phi_gpu(b,i+1,j,k,all_solids)>0.) then
+                  delta_x= -phi_gpu(b,i,j,k,all_solids)/(phi_gpu(b,i+1,j,k,all_solids)-phi_gpu(b,i,j,k,all_solids)+ib_eps)*dx_gpu(b)
+                  dx_locale = dx_gpu(b)/2 + delta_x
+               else
+                  delta_x= -phi_gpu(b,i,j,k,all_solids)/(phi_gpu(b,i-1,j,k,all_solids)-phi_gpu(b,i,j,k,all_solids)+ib_eps)*dx_gpu(b)
+                  dx_locale = dx_gpu(b)/2 + delta_x
+               endif
             endif
          endif
-      endif
-      dy_locale = dy_gpu(b)
-      if (phi_gpu(b,i,j,k,all_solids)<0.) then
-         if (phi_gpu(b,i,j+1,k,all_solids)*phi_gpu(b,i,j-1,k,all_solids)<0) then
-            if (phi_gpu(b,i,j+1,k,all_solids)>0.) then
-               delta_y = -phi_gpu(b,i,j,k,all_solids)/(phi_gpu(b,i,j+1,k,all_solids)-phi_gpu(b,i,j,k,all_solids)+ib_eps)*dy_gpu(b)
-               dy_locale = dy_gpu(b)/2 + delta_y
-            else
-               delta_y = -phi_gpu(b,i,j,k,all_solids)/(phi_gpu(b,i,j-1,k,all_solids)-phi_gpu(b,i,j,k,all_solids)+ib_eps)*dy_gpu(b)
-               dy_locale = dy_gpu(b)/2 + delta_y
+         dy_locale = dy_gpu(b)
+         if (phi_gpu(b,i,j,k,all_solids)<0.) then
+            if (phi_gpu(b,i,j+1,k,all_solids)*phi_gpu(b,i,j-1,k,all_solids)<0) then
+               if (phi_gpu(b,i,j+1,k,all_solids)>0.) then
+                  delta_y= -phi_gpu(b,i,j,k,all_solids)/(phi_gpu(b,i,j+1,k,all_solids)-phi_gpu(b,i,j,k,all_solids)+ib_eps)*dy_gpu(b)
+                  dy_locale = dy_gpu(b)/2 + delta_y
+               else
+                  delta_y= -phi_gpu(b,i,j,k,all_solids)/(phi_gpu(b,i,j-1,k,all_solids)-phi_gpu(b,i,j,k,all_solids)+ib_eps)*dy_gpu(b)
+                  dy_locale = dy_gpu(b)/2 + delta_y
+               endif
             endif
          endif
-      endif
-      dz_locale = dz_gpu(b)
-      if (phi_gpu(b,i,j,k,all_solids)<0.) then
-         if (phi_gpu(b,i,j,k+1,all_solids)*phi_gpu(b,i,j,k-1,all_solids)<0) then
-            if (phi_gpu(b,i,j,k+1,all_solids)>0.) then
-               delta_z = -phi_gpu(b,i,j,k,all_solids)/(phi_gpu(b,i,j,k+1,all_solids)-phi_gpu(b,i,j,k,all_solids)+ib_eps)*dz_gpu(b)
-               dz_locale = dz_gpu(b)/2 + delta_z
-            else
-               delta_z = -phi_gpu(b,i,j,k,all_solids)/(phi_gpu(b,i,j,k-1,all_solids)-phi_gpu(b,i,j,k,all_solids)+ib_eps)*dz_gpu(b)
-               dz_locale = dz_gpu(b)/2 + delta_z
+         dz_locale = dz_gpu(b)
+         if (phi_gpu(b,i,j,k,all_solids)<0.) then
+            if (phi_gpu(b,i,j,k+1,all_solids)*phi_gpu(b,i,j,k-1,all_solids)<0) then
+               if (phi_gpu(b,i,j,k+1,all_solids)>0.) then
+                  delta_z= -phi_gpu(b,i,j,k,all_solids)/(phi_gpu(b,i,j,k+1,all_solids)-phi_gpu(b,i,j,k,all_solids)+ib_eps)*dz_gpu(b)
+                  dz_locale = dz_gpu(b)/2 + delta_z
+               else
+                  delta_z= -phi_gpu(b,i,j,k,all_solids)/(phi_gpu(b,i,j,k-1,all_solids)-phi_gpu(b,i,j,k,all_solids)+ib_eps)*dz_gpu(b)
+                  dz_locale = dz_gpu(b)/2 + delta_z
+               endif
             endif
          endif
-      endif
-      do v=1, nv
-         fl_gpu(b,i,j,k,v) = - (flx_gpu(b,i,j,k,v)-flx_gpu(b,i-1,j,k,v))/dx_locale &
-                             - (fly_gpu(b,i,j,k,v)-fly_gpu(b,i,j-1,k,v))/dy_locale &
-                             - (flz_gpu(b,i,j,k,v)-flz_gpu(b,i,j,k-1,v))/dz_locale
+         do v=1, nv
+            fl_gpu(b,i,j,k,v) = - (flx_gpu(b,i,j,k,v)-flx_gpu(b,i-1,j,k,v))/dx_locale &
+                                - (fly_gpu(b,i,j,k,v)-fly_gpu(b,i,j-1,k,v))/dy_locale &
+                                - (flz_gpu(b,i,j,k,v)-flz_gpu(b,i,j,k-1,v))/dz_locale
+         enddo
       enddo
-   enddo
-   enddo
-   enddo
-   enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
+      enddo
+      enddo
+      enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
+   else
+      !$cuf kernel do(4) <<<*,*>>>
+      do k=1,nk
+      do j=1,nj
+      do i=1,ni
+      do b=1,blocks_number
+         do v=1, nv
+            fl_gpu(b,i,j,k,v) = - (flx_gpu(b,i,j,k,v)-flx_gpu(b,i-1,j,k,v))/dx_gpu(b) &
+                                - (fly_gpu(b,i,j,k,v)-fly_gpu(b,i,j-1,k,v))/dy_gpu(b) &
+                                - (flz_gpu(b,i,j,k,v)-flz_gpu(b,i,j,k-1,v))/dz_gpu(b)
+         enddo
+      enddo
+      enddo
+      enddo
+      enddo
+      !@cuf iercuda=cudaDeviceSynchronize()
+   endif
    endsubroutine compute_fluxes_difference_cuf
 
    subroutine compute_fluxes_diffusive_cuf(blocks_number, ni, nj, nk, ngc, nv, mu, kd, &
@@ -553,27 +587,36 @@ contains
    endsubroutine compute_rk_q_gpu_cuf
 
    ! private procedures
-   attributes(device) subroutine compute_fluxes_conv_interface_kernel(si,sir,b,i,j,k,ngc,nv,                            &
+   attributes(device) subroutine compute_fluxes_conv_interface_kernel(dir,si,sir,b,i,j,k,ngc,nv,                        &
                                                                       weno_s,weno_a_gpu,weno_p_gpu,weno_d_gpu,weno_zeps,&
+                                                                      ror_number,ror_schemes_gpu,ror_threshold,         &
+                                                                      ror_ivar_gpu,ror_stats_gpu,                       &
                                                                       g,q_aux_gpu,fluxes_gpu)
    !< Compute convective fluxes at right interface of b,i,j,k.
-   integer(I4P), intent(in)            :: si(3)                                  !< Stencil increment.
-   real(R8P)   , intent(in)            :: sir(3)                                 !< Stencil increment, real cast.
-   integer(I4P), intent(in), value     :: b, i, j, k                             !< Counter.
-   integer(I4P), intent(in), value     :: ngc                                    !< Ghost cells number.
-   integer(I4P), intent(in), value     :: nv                                     !< Number of conservative varibales.
-   integer(I4P), intent(in), value     :: weno_s                                 !< Weno stencils number/dimension.
-   real(R8P),    intent(in), device    :: weno_a_gpu(1:,0:,1:)                   !< Optimal weights.
-   real(R8P),    intent(in), device    :: weno_p_gpu(1:,0:,0:,1:)                !< Polinomials coefficients.
-   real(R8P),    intent(in), device    :: weno_d_gpu(0:,0:,0:,1:)                !< Smoothness indicators coefficients.
-   real(R8P),    intent(in), value     :: weno_zeps                              !< Parameter for avoiding division by zero in IS.
-   real(R8P),    intent(in), value     :: g                                      !< Specific heats ratio.
-   real(R8P),    intent(in),    device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Auxiliary variables.
-   real(R8P),    intent(inout), device :: fluxes_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes.
-   real(R8P)                           :: el(5,5), er(5,5)                       !< Left and right eigenvalues.
-   real(R8P)                           :: fmpc(1:2,-2:2,1:5)                     !< Fluxes -+ decomposition in characteriscs space.
-   real(R8P)                           :: fpmr(1:2,1:5)                          !< Fluxes +- reconstructed.
-   integer(I4P)                        :: v, vv                                  !< Counter.
+   integer(I4P), intent(in),    value  :: dir                                       !< Direction, 1=X, 2=Y, 3=Z.
+   integer(I4P), intent(in)            :: si(3)                                     !< Stencil increment.
+   real(R8P)   , intent(in)            :: sir(3)                                    !< Stencil increment, real cast.
+   integer(I4P), intent(in),    value  :: b, i, j, k                                !< Counter.
+   integer(I4P), intent(in),    value  :: ngc                                       !< Ghost cells number.
+   integer(I4P), intent(in),    value  :: nv                                        !< Number of conservative varibales.
+   integer(I4P), intent(in),    value  :: weno_s                                    !< Weno stencils number/dimension.
+   real(R8P),    intent(in),    device :: weno_a_gpu(1:,0:,1:)                      !< Optimal weights.
+   real(R8P),    intent(in),    device :: weno_p_gpu(1:,0:,0:,1:)                   !< Polinomials coefficients.
+   real(R8P),    intent(in),    device :: weno_d_gpu(0:,0:,0:,1:)                   !< Smoothness indicators coefficients.
+   real(R8P),    intent(in),    value  :: weno_zeps                                 !< Parameter to avoid division by zero.
+   integer(I4P), intent(in),    value  :: ror_number                                !< Number of ROR iterations.
+   integer(I4P), intent(in),    device :: ror_schemes_gpu(1:)                       !< Scheme (S value) for each ROR step.
+   real(R8P),    intent(in),    value  :: ror_threshold                             !< ROR threshold triggering.
+   integer(I4P), intent(in),    device :: ror_ivar_gpu(1:)                          !< Index variables to check in ROR.
+   integer(I4P), intent(inout), device :: ror_stats_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Scheme (S value) for each ROR step.
+   real(R8P),    intent(in),    value  :: g                                         !< Specific heats ratio.
+   real(R8P),    intent(in),    device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Auxiliary variables.
+   real(R8P),    intent(inout), device :: fluxes_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Fluxes.
+   real(R8P)                           :: el(5,5), er(5,5)                          !< Left and right eigenvalues.
+   real(R8P)                           :: fmpc(1:2,-2:2,1:5)                        !< Fluxes -+ decomposition in c. space.
+   real(R8P)                           :: fpmr(1:2,1:5)                             !< Fluxes +- reconstructed.
+   logical                             :: ror_recompute                             !< Flag to perform ROR.
+   integer(I4P)                        :: r, v, vv, rv                              !< Counter.
 
    call compute_eigenvectors_kernel(si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,g=g,q_aux_gpu=q_aux_gpu,el=el,er=er)
    call decompose_fluxes_convective_kernel(si=si,sir=sir,el=el,weno_s=weno_s,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,g=g,q_aux_gpu=q_aux_gpu,&
@@ -582,6 +625,25 @@ contains
       call weno_reconstruct_upwind_kernel(S=weno_s,weno_a=weno_a_gpu,weno_p=weno_p_gpu,weno_d=weno_d_gpu,weno_zeps=weno_zeps,&
                                           V=fmpc(:,:,v),VR=fpmr(:,v))
    enddo
+   if (ror_number>0) then
+      ROR : do r=2, ror_number
+         ror_recompute = .false.
+         do vv=1, size(ror_ivar_gpu)
+            rv = ror_ivar_gpu(vv)
+            if ((abs(fpmr(1,rv)-fmpc(1,0,rv))>ror_threshold*abs(fmpc(1,0,rv))) .or. &
+                (abs(fpmr(2,rv)-fmpc(2,1,rv))>ror_threshold*abs(fmpc(2,1,rv)))) ror_recompute = .true.
+         enddo
+         if (ror_recompute) then
+            ror_stats_gpu(b,i,j,k,dir) = ror_schemes_gpu(r)
+            do v=1, nv
+               call weno_reconstruct_upwind_kernel(S=ror_schemes_gpu(r),weno_a=weno_a_gpu,weno_p=weno_p_gpu,weno_d=weno_d_gpu,&
+                                                   weno_zeps=weno_zeps,V=fmpc(:,:,v),VR=fpmr(:,v))
+            enddo
+         else
+            exit ROR
+         endif
+      enddo ROR
+   endif
    ! back projection in conservative variables space
    do v=1, nv
       fluxes_gpu(b,i,j,k,v) = 0._R8P

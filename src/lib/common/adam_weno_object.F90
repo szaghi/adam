@@ -65,6 +65,8 @@ type :: weno_object
       procedure, pass(self) :: initialize_S2       !< Initialize coefficients for S=2.
       procedure, pass(self) :: initialize_S3       !< Initialize coefficients for S=3.
       procedure, pass(self) :: initialize_S4       !< Initialize coefficients for S=4.
+      procedure, pass(self) :: initialize_S5       !< Initialize coefficients for S=5.
+      procedure, pass(self) :: initialize_S6       !< Initialize coefficients for S=6.
       procedure, pass(self) :: compute_polynomials !< Compute WENO polynomials.
       procedure, pass(self) :: compute_weights     !< Compute WENO weights.
 endtype weno_object
@@ -116,7 +118,8 @@ contains
    self%wexp = self%S
    if (self%S>4) self%wexp = self%S - 1
    self%sodd = mod(self%S,2)
-   self%zeps = dxyz_min_**(3*self%S-4)
+   ! self%zeps = dxyz_min_**(3*self%S-4)
+   self%zeps = 1.0e-8_R8P
    if (allocated(self%a)) deallocate(self%a) ; allocate(self%a(1:2,0:self%S-1,1:self%S))
    if (allocated(self%p)) deallocate(self%p) ; allocate(self%p(1:2,0:self%S-1,0:self%S-1,1:self%S))
    if (allocated(self%d)) deallocate(self%d) ; allocate(self%d(0:self%S-1,0:self%S-1,0:self%S-1,1:self%S))
@@ -136,8 +139,21 @@ contains
       call self%initialize_S2
       call self%initialize_S3
       call self%initialize_S4
+   case(5) ! 9th order
+      call self%initialize_S1
+      call self%initialize_S2
+      call self%initialize_S3
+      call self%initialize_S4
+      call self%initialize_S5
+   case(6) ! 11th order
+      call self%initialize_S1
+      call self%initialize_S2
+      call self%initialize_S3
+      call self%initialize_S4
+      call self%initialize_S5
+      call self%initialize_S6
    case default
-      call self%mpih%error_stop(msg=': failed to initialize weno object, S must be in [1,4]')
+      call self%mpih%error_stop(msg=': failed to initialize weno object, S must be in [1,6]')
    endselect
    print '(A)', self%description()
    call self%mpih%print_message('weno_object%initialize finish')
@@ -171,6 +187,9 @@ contains
          if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].('//oname//')')
       enddo
       self%S = self%ror_schemes(1) ! first ROR schemes must be the highest order used
+   else
+      ! allocate anyway a single element array for backends compatibility
+      allocate(self%ror_schemes(1))
    endif
    call file_parameters%get(section_name=sname, option_name='ror_threshold', val=self%ror_threshold, error=error)
    if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(ror_threshold)')
@@ -183,6 +202,9 @@ contains
          call file_parameters%get(section_name=sname, option_name=oname, val=self%ror_ivar(r), error=error)
          if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].('//oname//')')
       enddo
+   else
+      ! allocate anyway a single element array for backends compatibility
+      allocate(self%ror_ivar(1))
    endif
    call file_parameters%get(section_name=sname, option_name='enable_ror_stats', val=self%enable_ror_stats, error=error)
    if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(enable_ror_stats)')
@@ -228,7 +250,7 @@ contains
    endsubroutine initialize_S1
 
    subroutine initialize_S2(self)
-   !< Initialize coefficients for S=2.
+   !< Initialize coefficients for S=2, 2S-1=3rd order.
    class(weno_object), intent(inout) :: self !< WENO object.
    integer(I4P), parameter           :: S=2  !< Number of stencils used.
 
@@ -266,7 +288,7 @@ contains
    endsubroutine initialize_S2
 
    subroutine initialize_S3(self)
-   !< Initialize coefficients for S=3.
+   !< Initialize coefficients for S=3, 2S-1=5th order.
    class(weno_object), intent(inout) :: self !< WENO object.
    integer(I4P), parameter           :: S=3  !< Number of stencils used.
 
@@ -283,43 +305,43 @@ contains
 
      ! polinomials coefficients
      ! 1 => left interface (i-1/2)
-     !  cell  0                ;    cell  1                ;    cell  2
+     ! cell  0                   ;   cell  1                   ;   cell  2
      p(1,0,0,S) =  1._R8P/3._R8P ; p(1,1,0,S) =  5._R8P/6._R8P ; p(1,2,0,S) = -1._R8P/6._R8P ! stencil 0
      p(1,0,1,S) = -1._R8P/6._R8P ; p(1,1,1,S) =  5._R8P/6._R8P ; p(1,2,1,S) =  1._R8P/3._R8P ! stencil 1
      p(1,0,2,S) =  1._R8P/3._R8P ; p(1,1,2,S) = -7._R8P/6._R8P ; p(1,2,2,S) = 11._R8P/6._R8P ! stencil 2
      ! 2 => right interface (i+1/2)
-     !  cell  0                ;    cell  1                ;    cell  2
+     ! cell  0                   ;   cell  1                   ;   cell  2
      p(2,0,0,S) = 11._R8P/6._R8P ; p(2,1,0,S) = -7._R8P/6._R8P ; p(2,2,0,S) =  1._R8P/3._R8P ! stencil 0
      p(2,0,1,S) =  1._R8P/3._R8P ; p(2,1,1,S) =  5._R8P/6._R8P ; p(2,2,1,S) = -1._R8P/6._R8P ! stencil 1
      p(2,0,2,S) = -1._R8P/6._R8P ; p(2,1,2,S) =  5._R8P/6._R8P ; p(2,2,2,S) =  1._R8P/3._R8P ! stencil 2
 
      ! smoothness indicators coefficients
      ! stencil 0
-     !      i*i                 ;       (i-1)*i              ;       (i-2)*i
+     !      i*i                   ;   (i-1)*i                    ;   (i-2)*i
      d(0,0,0,S) =  10._R8P/3._R8P ; d(1,0,0,S) = -31._R8P/3._R8P ; d(2,0,0,S) =  11._R8P/3._R8P
-     !      /                   ;  (i-1)*(i-1)               ;       (i-2)*(i-1)
+     ! /                          ;   (i-1)*(i-1)                ;   (i-2)*(i-1)
      d(0,1,0,S) =   0._R8P        ; d(1,1,0,S) =  25._R8P/3._R8P ; d(2,1,0,S) = -19._R8P/3._R8P
-     !      /                   ;        /                   ;       (i-2)*(i-2)
+     ! /                          ;   /                          ;   (i-2)*(i-2)
      d(0,2,0,S) =   0._R8P        ; d(1,2,0,S) =   0._R8P        ; d(2,2,0,S) =   4._R8P/3._R8P
      ! stencil 1
-     !     (i+1)*(i+1)          ;          i*(i+1)           ;       (i-1)*(i+1)
+     ! (i+1)*(i+1)                ;   i*(i+1)                    ;   (i-1)*(i+1)
      d(0,0,1,S) =   4._R8P/3._R8P ; d(1,0,1,S) = -13._R8P/3._R8P ; d(2,0,1,S) =   5._R8P/3._R8P
-     !      /                   ;        i*i                 ;       (i-1)*i
+     ! /                          ;   i*i                        ;   (i-1)*i
      d(0,1,1,S) =   0._R8P        ; d(1,1,1,S) =  13._R8P/3._R8P ; d(2,1,1,S) = -13._R8P/3._R8P
-     !      /                   ;       /                    ;       (i-1)*(i-1)
+     ! /                          ;   /                          ;   (i-1)*(i-1)
      d(0,2,1,S) =   0._R8P        ; d(1,2,1,S) =   0._R8P        ; d(2,2,1,S) =   4._R8P/3._R8P
      ! stencil 2
-     !     (i+2)*(i+2)          ;       (i+1)*(i+2)          ;          i*(i+2)
+     ! (i+2)*(i+2)                ;   (i+1)*(i+2)                ;   i*(i+2)
      d(0,0,2,S) =   4._R8P/3._R8P ; d(1,0,2,S) = -19._R8P/3._R8P ; d(2,0,2,S) =  11._R8P/3._R8P
-     !      /                   ;       (i+1)*(i+1)          ;          i*(i+1)
+     ! /                          ;   (i+1)*(i+1)                ;   i*(i+1)
      d(0,1,2,S) =   0._R8P        ; d(1,1,2,S) =  25._R8P/3._R8P ; d(2,1,2,S) = -31._R8P/3._R8P
-     !      /                   ;       /                    ;          i*i
+     ! /                          ;   /                          ;   i*i
      d(0,2,2,S) =   0._R8P        ; d(1,2,2,S) =   0._R8P        ; d(2,2,2,S) =  10._R8P/3._R8P
    endassociate
    endsubroutine initialize_S3
 
    subroutine initialize_S4(self)
-   !< Initialize coefficients for S=4.
+   !< Initialize coefficients for S=4, 2S-1=7th order..
    class(weno_object), intent(inout) :: self !< WENO object.
    integer(I4P), parameter           :: S=4  !< Number of stencils used.
 
@@ -352,43 +374,438 @@ contains
 
       ! smoothness indicators coefficients
       ! stencil 0
-      ! i*i                ;  (i-1)*i             ;  (i-2)*i              ;  (i-3)*i
-      d(0,0,0,S) = 2107._R8P ; d(1,0,0,S) =-9402._R8P ; d(2,0,0,S) = 7042._R8P  ; d(3,0,0,S) = -1854._R8P
-      ! /                  ;  (i-1)*(i-1)         ;  (i-2)*(i-1)          ;  (i-3)*(i-1)
-      d(0,1,0,S) =   0._R8P  ; d(1,1,0,S) =11003._R8P ; d(2,1,0,S) =-17246._R8P ; d(3,1,0,S) =  4642._R8P
-      ! /                  ;   /                  ;  (i-2)*(i-2)          ;  (i-3)*(i-2)
-      d(0,2,0,S) =   0._R8P  ; d(1,2,0,S) =   0._R8P  ; d(2,2,0,S) = 7043._R8P  ; d(3,2,0,S) = -3882._R8P
-      ! /                  ;   /                  ;   /                   ;  (i-3)*(i-3)
-      d(0,3,0,S) =   0._R8P  ; d(1,3,0,S) =   0._R8P  ; d(2,3,0,S) =   0._R8P   ; d(3,3,0,S) = 547._R8P
+      ! i*i                           ;  (i-1)*i                       ;  (i-2)*i                ;  (i-3)*i
+      ! /                             ;  (i-1)*(i-1)                   ;  (i-2)*(i-1)            ;  (i-3)*(i-1)
+      ! /                             ;   /                            ;  (i-2)*(i-2)            ;  (i-3)*(i-2)
+      ! /                             ;   /                            ;   /                     ;  (i-3)*(i-3)
+      d(0,0,0,S)=2107._R8P/240._R8P;d(1,0,0,S)=-1567._R8P/40._R8P  ;d(2,0,0,S)= 3521._R8P/120._R8P;d(3,0,0,S)=-309._R8P/40._R8P
+      d(0,1,0,S)=0._R8P            ;d(1,1,0,S)= 11003._R8P/240._R8P;d(2,1,0,S)=-8623._R8P/120._R8P;d(3,1,0,S)= 2321._R8P/120._R8P
+      d(0,2,0,S)=0._R8P            ;d(1,2,0,S)= 0._R8P             ;d(2,2,0,S)= 7043._R8P/240._R8P;d(3,2,0,S)=-647._R8P/40._R8P
+      d(0,3,0,S)=0._R8P            ;d(1,3,0,S)= 0._R8P             ;d(2,3,0,S)= 0._R8P            ;d(3,3,0,S)= 547._R8P/240._R8P
       ! stencil 1
-      !(i+1)*(i+1)         ;   i*(i+1)            ;  (i-1)*(i+1)          ;  (i-2)*(i+1)
-      d(0,0,1,S) =  547._R8P ; d(1,0,1,S) =-2522._R8P ; d(2,0,1,S) = 1922._R8P  ; d(3,0,1,S) = -494._R8P
-      ! /                  ;   i*i                ;  (i-1)*i              ;  (i-2)*i
-      d(0,1,1,S) =   0._R8P  ; d(1,1,1,S) = 3443._R8P ; d(2,1,1,S) = -5966._R8P ; d(3,1,1,S) =  1602._R8P
-      ! /                  ;   /                  ;  (i-1)*(i-1)          ;  (i-2)*(i-1)
-      d(0,2,1,S) =   0._R8P  ; d(1,2,1,S) =   0._R8P  ; d(2,2,1,S) = 2843._R8P  ; d(3,2,1,S) = -1642._R8P
-      ! /                  ;   /                  ;   /                   ;  (i-2)*(i-2)
-      d(0,3,1,S) =   0._R8P  ; d(1,3,1,S) =   0._R8P  ; d(2,3,1,S) =   0._R8P   ; d(3,3,1,S) = 267._R8P
+      !(i+1)*(i+1)                    ;   i*(i+1)                      ;  (i-1)*(i+1)            ;  (i-2)*(i+1)
+      ! /                             ;   i*i                          ;  (i-1)*i                ;  (i-2)*i
+      ! /                             ;   /                            ;  (i-1)*(i-1)            ;  (i-2)*(i-1)
+      ! /                             ;   /                            ;   /                     ;  (i-2)*(i-2)
+      d(0,0,1,S)=547._R8P/240._R8P;d(1,0,1,S)=-1261._R8P/120._R8P;d(2,0,1,S)= 961._R8P/120._R8P ;d(3,0,1,S)=-247._R8P/120._R8P
+      d(0,1,1,S)=0._R8P           ;d(1,1,1,S)= 3443._R8P/240._R8P;d(2,1,1,S)=-2983._R8P/120._R8P;d(3,1,1,S)= 267._R8P/40._R8P
+      d(0,2,1,S)=0._R8P           ;d(1,2,1,S)= 0._R8P            ;d(2,2,1,S)= 2843._R8P/240._R8P;d(3,2,1,S)=-821._R8P/120._R8P
+      d(0,3,1,S)=0._R8P           ;d(1,3,1,S)= 0._R8P            ;d(2,3,1,S)= 0._R8P            ;d(3,3,1,S)= 89._R8P/80._R8P
       ! stencil 2
-      !(i+2)*(i+2)         ;  (i+1)*(i+2)         ;   i*(i+2)             ;  (i-1)*(i+2)
-      d(0,0,2,S) =  267._R8P ; d(1,0,2,S) =-1642._R8P ; d(2,0,2,S) = 1602._R8P  ; d(3,0,2,S) = -494._R8P
-      ! /                  ;  (i+1)*(i+1)         ;   i*(i+1)             ;  (i-1)*(i+1)
-      d(0,1,2,S) =   0._R8P  ; d(1,1,2,S) = 2843._R8P ; d(2,1,2,S) = -5966._R8P ; d(3,1,2,S) =  1922._R8P
-      ! /                  ;   /                  ;   i*i                 ;  (i-1)*i
-      d(0,2,2,S) =   0._R8P  ; d(1,2,2,S) =   0._R8P  ; d(2,2,2,S) = 3443._R8P  ; d(3,2,2,S) = -2522._R8P
-      ! /                  ;   /                  ;   /                   ;  (i-1)*(i-1)
-      d(0,3,2,S) =   0._R8P  ; d(1,3,2,S) =   0._R8P  ; d(2,3,2,S) =   0._R8P   ; d(3,3,2,S) = 547._R8P
+      !(i+2)*(i+2)                    ;  (i+1)*(i+2)                   ;   i*(i+2)               ;  (i-1)*(i+2)
+      ! /                             ;  (i+1)*(i+1)                   ;   i*(i+1)               ;  (i-1)*(i+1)
+      ! /                             ;   /                            ;   i*i                   ;  (i-1)*i
+      ! /                             ;   /                            ;   /                     ;  (i-1)*(i-1)
+      d(0,0,2,S)=89._R8P/80._R8P;d(1,0,2,S)=-821._R8P/120._R8P ;d(2,0,2,S)= 267._R8P/40._R8P  ;d(3,0,2,S)=-247._R8P/120._R8P
+      d(0,1,2,S)=0._R8P         ;d(1,1,2,S)= 2843._R8P/240._R8P;d(2,1,2,S)=-2983._R8P/120._R8P;d(3,1,2,S)= 961._R8P/120._R8P
+      d(0,2,2,S)=0._R8P         ;d(1,2,2,S)=0._R8P             ;d(2,2,2,S)= 3443._R8P/240._R8P;d(3,2,2,S)=-1261._R8P/120._R8P
+      d(0,3,2,S)=0._R8P         ;d(1,3,2,S)=0._R8P             ;d(2,3,2,S)= 0._R8P            ;d(3,3,2,S)= 547._R8P/240._R8P
       ! stencil 3
-      !(i+3)*(i+3)         ;  (i+2)*(i+3)         ;  (i+1)*(i+3)          ;   i*(i+3)
-      d(0,0,3,S) =  547._R8P ; d(1,0,3,S) =-3882._R8P ; d(2,0,3,S) = 4642._R8P  ; d(3,0,3,S) = -1854._R8P
-      ! /                  ;  (i+2)*(i+2)         ;  (i+1)*(i+2)          ;   i*(i+2)
-      d(0,1,3,S) =   0._R8P  ; d(1,1,3,S) = 7043._R8P ; d(2,1,3,S) =-17246._R8P ; d(3,1,3,S) =  7042._R8P
-      ! /                  ;   /                  ;  (i+1)*(i+1)          ;   i*(i+1)
-      d(0,2,3,S) =   0._R8P  ; d(1,2,3,S) =   0._R8P  ; d(2,2,3,S) =11003._R8P  ; d(3,2,3,S) = -9402._R8P
-      ! /                  ;   /                  ;   /                   ;   i*i
-      d(0,3,3,S) =   0._R8P  ; d(1,3,3,S) =   0._R8P  ; d(2,3,3,S) =   0._R8P   ; d(3,3,3,S) = 2107._R8P
+      !(i+3)*(i+3)                    ;  (i+2)*(i+3)                   ;  (i+1)*(i+3)            ;   i*(i+3)
+      ! /                             ;  (i+2)*(i+2)                   ;  (i+1)*(i+2)            ;   i*(i+2)
+      ! /                             ;   /                            ;  (i+1)*(i+1)            ;   i*(i+1)
+      ! /                             ;   /                            ;   /                     ;   i*i
+      d(0,0,3,S)=547._R8P/240._R8P;d(1,0,3,S)=-647._R8P/40._R8P  ;d(2,0,3,S)= 2321._R8P/120._R8P ;d(3,0,3,S)=-309._R8P/40._R8P
+      d(0,1,3,S)=0._R8P           ;d(1,1,3,S)= 7043._R8P/240._R8P;d(2,1,3,S)=-8623._R8P/120._R8P ;d(3,1,3,S)= 3521._R8P/120._R8P
+      d(0,2,3,S)=0._R8P           ;d(1,2,3,S)= 0._R8P            ;d(2,2,3,S)= 11003._R8P/240._R8P;d(3,2,3,S)=-1567._R8P/40._R8P
+      d(0,3,3,S)=0._R8P           ;d(1,3,3,S)= 0._R8P            ;d(2,3,3,S)= 0._R8P             ;d(3,3,3,S)= 2107._R8P/240._R8P
    endassociate
    endsubroutine initialize_S4
+
+   subroutine initialize_S5(self)
+   !< Initialize coefficients for S=5, 2S-1=9th order..
+   class(weno_object), intent(inout) :: self !< WENO object.
+   integer(I4P), parameter           :: S=5  !< Number of stencils used.
+
+   associate(a=>self%a, p=>self%p, d=>self%d)
+      ! optimal weights
+      ! 1 => left interface (i-1/2)
+      a(1,0,S) =  5._R8P/126._R8P ! stencil 0
+      a(1,1,S) = 20._R8P/63._R8P  ! stencil 1
+      a(1,2,S) = 10._R8P/21._R8P  ! stencil 2
+      a(1,3,S) = 10._R8P/63._R8P  ! stencil 3
+      a(1,4,S) =  1._R8P/126._R8P ! stencil 4
+      ! 2 => right interface (i+1/2)
+      a(2,0,S) =  1._R8P/126._R8P ! stencil 0
+      a(2,1,S) = 10._R8P/63._R8P  ! stencil 1
+      a(2,2,S) = 10._R8P/21._R8P  ! stencil 2
+      a(2,3,S) = 20._R8P/63._R8P  ! stencil 3
+      a(2,4,S) =  5._R8P/126._R8P ! stencil 4
+
+      ! polinomials coefficients
+      ! 1 => left interface (i-1/2)
+      !  cell  0                ;    cell  1                ;    cell  2                ;    cell  3
+      p(1,0,0,S)=   1._R8P/5._R8P ;p(1,1,0,S)=  77._R8P/60._R8P;p(1,2,0,S)= -43._R8P/60._R8P;p(1,3,0,S)=  17._R8P/60._R8P! stencil 0
+      p(1,0,1,S)=  -1._R8P/20._R8P;p(1,1,1,S)=   9._R8P/20._R8P;p(1,2,1,S)=  47._R8P/60._R8P;p(1,3,1,S)= -13._R8P/60._R8P! stencil 1
+      p(1,0,2,S)=   1._R8P/30._R8P;p(1,1,2,S)= -13._R8P/60._R8P;p(1,2,2,S)=  47._R8P/60._R8P;p(1,3,2,S)=   9._R8P/20._R8P! stencil 2
+      p(1,0,3,S)=  -1._R8P/20._R8P;p(1,1,3,S)=  17._R8P/60._R8P;p(1,2,3,S)= -43._R8P/60._R8P;p(1,3,3,S)=  77._R8P/60._R8P! stencil 3
+      p(1,0,4,S)=   1._R8P/5._R8P ;p(1,1,4,S)= -21._R8P/20._R8P;p(1,2,4,S)= 137._R8P/60._R8P;p(1,3,4,S)=-163._R8P/60._R8P! stencil 4
+      !  cell  4
+      p(1,4,0,S)=  -1._R8P/20._R8P  ! stencil 0
+      p(1,4,1,S)=   1._R8P/30._R8P  ! stencil 1
+      p(1,4,2,S)=  -1._R8P/20._R8P  ! stencil 2
+      p(1,4,3,S)=   1._R8P/5._R8P   ! stencil 3
+      p(1,4,4,S)= 137._R8P/60._R8P  ! stencil 4
+      ! 2 => right interface (i+1/2)
+      !  cell  0               ;    cell  1               ;   cell  2                ;    cell  3
+      p(2,0,0,S)= 137._R8P/60._R8P;p(2,1,0,S)=-163._R8P/60._R8P;p(2,2,0,S)= 137._R8P/60._R8P;p(2,3,0,S)= -21._R8P/20._R8P! stencil 0
+      p(2,0,1,S)=   1._R8P/5._R8P ;p(2,1,1,S)=  77._R8P/60._R8P;p(2,2,1,S)= -43._R8P/60._R8P;p(2,3,1,S)=  17._R8P/60._R8P! stencil 1
+      p(2,0,2,S)=  -1._R8P/20._R8P;p(2,1,2,S)=   9._R8P/20._R8P;p(2,2,2,S)=  47._R8P/60._R8P;p(2,3,2,S)= -13._R8P/60._R8P! stencil 2
+      p(2,0,3,S)=   1._R8P/30._R8P;p(2,1,3,S)= -13._R8P/60._R8P;p(2,2,3,S)=  47._R8P/60._R8P;p(2,3,3,S)=   9._R8P/20._R8P! stencil 3
+      p(2,0,4,S)=  -1._R8P/20._R8P;p(2,1,4,S)=  17._R8P/60._R8P;p(2,2,4,S)= -43._R8P/60._R8P;p(2,3,4,S)=  77._R8P/60._R8P! stencil 4
+      !  cell  4
+      p(2,4,0,S)=   1._R8P/5._R8P  ! stencil 0
+      p(2,4,1,S)=  -1._R8P/20._R8P ! stencil 1
+      p(2,4,2,S)=   1._R8P/30._R8P ! stencil 2
+      p(2,4,3,S)=  -1._R8P/20._R8P ! stencil 3
+      p(2,4,4,S)=   1._R8P/5._R8P  ! stencil 4
+
+      ! smoothness indicators coefficients
+      ! stencil 0
+      !              i*i                   ;             (i-1)*i                  ;             (i-2)*i
+      d(0,0,0,S) =   53959._R8P / 2520._R8P; d(1,0,0,S) = -649501._R8P / 5040._R8P; d(2,0,0,S) =  252941._R8P / 1680._R8P
+      !          (i-3)*i                   ;             (i-4)*i
+      d(3,0,0,S) = -411487._R8P / 5040._R8P; d(4,0,0,S) =   86329._R8P / 5040._R8P
+      !               /                    ;             (i-1)*(i-1)              ;             (i-2)*(i-1)
+      d(0,1,0,S) =       0._R8P            ; d(1,1,0,S) = 1020563._R8P / 5040._R8P; d(2,1,0,S) =  -68391._R8P /  140._R8P
+      !          (i-3)*(i-1)               ;             (i-4)*(i-1)
+      d(3,1,0,S) =  679229._R8P / 2520._R8P; d(4,1,0,S) = -288007._R8P / 5040._R8P
+      !               /                    ;                  /                   ;             (i-2)*(i-2)
+      d(0,2,0,S) =       0._R8P            ; d(1,2,0,S) =       0._R8P            ; d(2,2,0,S) =  507131._R8P / 1680._R8P
+      !          (i-3)*(i-2)               ;             (i-4)*(i-2)
+      d(3,2,0,S) = -142033._R8P /  420._R8P; d(4,2,0,S) =  121621._R8P / 1680._R8P
+      !               /                    ;                  /                   ;                  /
+      d(0,3,0,S) =       0._R8P            ; d(1,3,0,S) =       0._R8P            ; d(2,3,0,S) =       0._R8P
+      !          (i-3)*(i-3)               ;             (i-4)*(i-3)
+      d(3,3,0,S) =  482963._R8P / 5040._R8P; d(4,3,0,S) = -208501._R8P / 5040._R8P
+      !               /                    ;                  /                   ;                  /
+      d(0,4,0,S) =       0._R8P            ; d(1,4,0,S) =       0._R8P            ; d(2,4,0,S) =       0._R8P
+      !               /                    ;             (i-4)*(i-4)
+      d(3,4,0,S) =       0._R8P            ; d(4,4,0,S) =   11329._R8P / 2520._R8P
+      ! stencil 1
+      !          (i+1)*(i+1)               ;                 i*(i+1)              ;             (i-1)*(i+1)
+      d(0,0,1,S) =   11329._R8P / 2520._R8P; d(1,0,1,S) = -140251._R8P / 5040._R8P; d(2,0,1,S) =   55051._R8P / 1680._R8P
+      !          (i-2)*(i+1)               ;             (i-3)*(i+1)
+      d(3,0,1,S) =  -88297._R8P / 5040._R8P; d(4,0,1,S) =   18079._R8P / 5040._R8P
+      !               /                    ;                 i*i                  ;             (i-1)*i
+      d(0,1,1,S) =       0._R8P            ; d(1,1,1,S) =  242723._R8P / 5040._R8P; d(2,1,1,S) =  -25499._R8P /  210._R8P
+      !          (i-2)*i                   ;             (i-3)*i
+      d(3,1,1,S) =  168509._R8P / 2520._R8P; d(4,1,1,S) =  -70237._R8P / 5040._R8P
+      !               /                    ;                  /                   ;             (i-1)*(i-1)
+      d(0,2,1,S) =       0._R8P            ; d(1,2,1,S) =       0._R8P            ; d(2,2,1,S) =  135431._R8P / 1680._R8P
+      !          (i-2)*(i-1)               ;             (i-3)*(i-1)
+      d(3,2,1,S) =   -3229._R8P /   35._R8P; d(4,2,1,S) =   33071._R8P / 1680._R8P
+      !               /                    ;                  /                   ;                  /
+      d(0,3,1,S) =       0._R8P            ; d(1,3,1,S) =       0._R8P            ; d(2,3,1,S) =       0._R8P
+      !          (i-2)*(i-2)               ;             (i-3)*(i-2)
+      d(3,3,1,S) =  138563._R8P / 5040._R8P; d(4,3,1,S) =  -60871._R8P / 5040._R8P
+      !               /                    ;                  /                   ;                  /
+      d(0,4,1,S) =       0._R8P            ; d(1,4,1,S) =       0._R8P            ; d(2,4,1,S) =       0._R8P
+      !               /                    ;             (i-3)*(i-3)
+      d(3,4,1,S) =       0._R8P            ; d(4,4,1,S) =    1727._R8P / 1260._R8P
+      ! stencil 2
+      !          (i+2)*(i+2)               ;             (i+1)*(i+2)              ;                 i*(i+2)
+      d(0,0,2,S) =    1727._R8P / 1260._R8P; d(1,0,2,S) =  -51001._R8P / 5040._R8P; d(2,0,2,S) =    7547._R8P /  560._R8P
+      !          (i-1)*(i+2)               ;             (i-2)*(i+2)
+      d(3,0,2,S) =  -38947._R8P / 5040._R8P; d(4,0,2,S) =    8209._R8P / 5040._R8P
+      !               /                    ;             (i+1)*(i+1)              ;                 i*(i+1)
+      d(0,1,2,S) =       0._R8P            ; d(1,1,2,S) =  104963._R8P / 5040._R8P; d(2,1,2,S) =  -24923._R8P /  420._R8P
+      !          (i-1)*(i+1)               ;             (i-2)*(i+1)
+      d(3,1,2,S) =   89549._R8P / 2520._R8P; d(4,1,2,S) =  -38947._R8P / 5040._R8P
+      !               /                    ;                  /                   ;                 i*i
+      d(0,2,2,S) =       0._R8P            ; d(1,2,2,S) =       0._R8P            ; d(2,2,2,S) =   77051._R8P / 1680._R8P
+      !          (i-1)*i                   ;             (i-2)*i
+      d(3,2,2,S) =  -24923._R8P /  420._R8P; d(4,2,2,S) =    7547._R8P /  560._R8P
+      !               /                    ;                  /                   ;                  /
+      d(0,3,2,S) =       0._R8P            ; d(1,3,2,S) =       0._R8P            ; d(2,3,2,S) =       0._R8P
+      !          (i-1)*(i-1)               ;             (i-2)*(i-1)
+      d(3,3,2,S) =  104963._R8P / 5040._R8P; d(4,3,2,S) =  -51001._R8P / 5040._R8P
+      !               /                    ;                  /                   ;                  /
+      d(0,4,2,S) =       0._R8P            ; d(1,4,2,S) =       0._R8P            ; d(2,4,2,S) =       0._R8P
+      !               /                    ;             (i-2)*(i-2)
+      d(3,4,2,S) =       0._R8P            ; d(4,4,2,S) =    1727._R8P / 1260._R8P
+      ! stencil 3
+      !          (i+3)*(i+3)               ;             (i+2)*(i+3)              ;             (i+1)*(i+3)
+      d(0,0,3,S) =    1727._R8P / 1260._R8P; d(1,0,3,S) =  -60871._R8P / 5040._R8P; d(2,0,3,S) =   33071._R8P / 1680._R8P
+      !              i*(i+3)               ;             (i-1)*(i+3)
+      d(3,0,3,S) =  -70237._R8P / 5040._R8P; d(4,0,3,S) =   18079._R8P / 5040._R8P
+      !               /                    ;             (i+2)*(i+2)              ;             (i+1)*(i+2)
+      d(0,1,3,S) =       0._R8P            ; d(1,1,3,S) =  138563._R8P / 5040._R8P; d(2,1,3,S) =   -3229._R8P /   35._R8P
+      !              i*(i+2)               ;             (i-1)*(i+2)
+      d(3,1,3,S) =  168509._R8P / 2520._R8P; d(4,1,3,S) =  -88297._R8P / 5040._R8P
+      !               /                    ;                  /                   ;             (i+1)*(i+1)
+      d(0,2,3,S) =       0._R8P            ; d(1,2,3,S) =       0._R8P            ; d(2,2,3,S) =  135431._R8P / 1680._R8P
+      !              i*(i+1)               ;             (i-1)*(i+1)
+      d(3,2,3,S) =  -25499._R8P /  210._R8P; d(4,2,3,S) =   55051._R8P / 1680._R8P
+      !               /                    ;                  /                   ;                  /
+      d(0,3,3,S) =       0._R8P            ; d(1,3,3,S) =       0._R8P            ; d(2,3,3,S) =       0._R8P
+      !              i*i                   ;             (i-1)*i
+      d(3,3,3,S) =  242723._R8P / 5040._R8P; d(4,3,3,S) = -140251._R8P / 5040._R8P
+      !               /                    ;                  /                   ;                  /
+      d(0,4,3,S) =       0._R8P            ; d(1,4,3,S) =       0._R8P            ; d(2,4,3,S) =       0._R8P
+      !               /                    ;             (i-1)*(i-1)
+      d(3,4,3,S) =       0._R8P            ; d(4,4,3,S) =   11329._R8P / 2520._R8P
+      ! stencil 4
+      !          (i+4)*(i+4)               ;             (i+3)*(i+4)              ;             (i+2)*(i+4)
+      d(0,0,4,S) =   11329._R8P / 2520._R8P; d(1,0,4,S) = -208501._R8P / 5040._R8P; d(2,0,4,S) =  121621._R8P / 1680._R8P
+      !          (i+1)*(i+4)               ;                 i*(i+4)
+      d(3,0,4,S) = -288007._R8P / 5040._R8P; d(4,0,4,S) =   86329._R8P / 5040._R8P
+      !               /                    ;             (i+3)*(i+3)              ;             (i+2)*(i+3)
+      d(0,1,4,S) =       0._R8P            ; d(1,1,4,S) =  482963._R8P / 5040._R8P; d(2,1,4,S) = -142033._R8P /  420._R8P
+      !          (i+1)*(i+3)               ;                 i*(i+3)
+      d(3,1,4,S) =  679229._R8P / 2520._R8P; d(4,1,4,S) = -411487._R8P / 5040._R8P
+      !               /                    ;                  /                   ;             (i+1)*(i+2)
+      d(0,2,4,S) =       0._R8P            ; d(1,2,4,S) =       0._R8P            ; d(2,2,4,S) =  507131._R8P / 1680._R8P
+      !          (i+1)*(i+2)               ;                 i*(i+2)
+      d(3,2,4,S) =  -68391._R8P /  140._R8P; d(4,2,4,S) =  252941._R8P / 1680._R8P
+      !               /                    ;                  /                   ;                  /
+      d(0,3,4,S) =       0._R8P            ; d(1,3,4,S) =       0._R8P            ; d(2,3,4,S) =       0._R8P
+      !          (i+1)*(i+1)               ;                 i*(i+1)
+      d(3,3,4,S) = 1020563._R8P / 5040._R8P; d(4,3,4,S) = -649501._R8P / 5040._R8P
+      !               /                    ;                  /                   ;                  /
+      d(0,4,4,S) =       0._R8P            ; d(1,4,4,S) =       0._R8P            ; d(2,4,4,S) =       0._R8P
+      !               /                    ;                 i*i
+      d(3,4,4,S) =       0._R8P            ; d(4,4,4,S) =   53959._R8P / 2520._R8P
+   endassociate
+   endsubroutine initialize_S5
+
+   subroutine initialize_S6(self)
+   !< Initialize coefficients for S=6, 2S-1=11th order..
+   class(weno_object), intent(inout) :: self !< WENO object.
+   integer(I4P), parameter           :: S=6  !< Number of stencils used.
+
+   associate(a=>self%a, p=>self%p, d=>self%d)
+      ! optimal weights
+      ! 1 => left interface (i-1/2)
+      a(1,0,S) =   1._R8P/77._R8P  ! stencil 0
+      a(1,1,S) =  25._R8P/154._R8P ! stencil 1
+      a(1,2,S) = 100._R8P/231._R8P ! stencil 2
+      a(1,3,S) =  25._R8P/77._R8P  ! stencil 3
+      a(1,4,S) =   5._R8P/77._R8P  ! stencil 4
+      a(1,5,S) =   1._R8P/462._R8P ! stencil 5
+      ! 2 => right interface (i+1/2)
+      a(2,0,S) =   1._R8P/462._R8P ! stencil 0
+      a(2,1,S) =   5._R8P/77._R8P  ! stencil 1
+      a(2,2,S) =  25._R8P/77._R8P  ! stencil 2
+      a(2,3,S) = 100._R8P/231._R8P ! stencil 3
+      a(2,4,S) =  25._R8P/154._R8P ! stencil 4
+      a(2,5,S) =   1._R8P/77._R8P  ! stencil 5
+
+      ! polinomials coefficients
+      ! 1 => left interface (i-1/2)
+      !  cell  0                ;    cell  1                ;    cell  2                ;    cell  3
+      p(1,0,0,S)=   1._R8P/6._R8P ;p(1,1,0,S)=  29._R8P/20._R8P;p(1,2,0,S)= -21._R8P/20._R8P;p(1,3,0,S)=  37._R8P/60._R8P! stencil 0
+      p(1,0,1,S)=  -1._R8P/30._R8P;p(1,1,1,S)=  11._R8P/30._R8P;p(1,2,1,S)=  19._R8P/20._R8P;p(1,3,1,S)= -23._R8P/60._R8P! stencil 1
+      p(1,0,2,S)=   1._R8P/60._R8P;p(1,1,2,S)=  -2._R8P/15._R8P;p(1,2,2,S)=  37._R8P/60._R8P;p(1,3,2,S)=  37._R8P/60._R8P! stencil 2
+      p(1,0,3,S)=  -1._R8P/60._R8P;p(1,1,3,S)=   7._R8P/60._R8P;p(1,2,3,S)= -23._R8P/60._R8P;p(1,3,3,S)=  19._R8P/20._R8P! stencil 3
+      p(1,0,4,S)=   1._R8P/30._R8P;p(1,1,4,S)= -13._R8P/60._R8P;p(1,2,4,S)=  37._R8P/60._R8P;p(1,3,4,S)= -21._R8P/20._R8P! stencil 4
+      p(1,0,5,S)=  -1._R8P/6._R8P ;p(1,1,5,S)=  31._R8P/30._R8P;p(1,2,5,S)=-163._R8P/60._R8P;p(1,3,5,S)=  79._R8P/20._R8P! stencil 5
+      !  cell  4                ;    cell  5
+      p(1,4,0,S)= -13._R8P/60._R8P; p(1,5,0,S)=   1._R8P/30._R8P  ! stencil 0
+      p(1,4,1,S)=   7._R8P/60._R8P; p(1,5,1,S)=  -1._R8P/60._R8P  ! stencil 1
+      p(1,4,2,S)=  -2._R8P/15._R8P; p(1,5,2,S)=   1._R8P/60._R8P  ! stencil 2
+      p(1,4,3,S)=  11._R8P/30._R8P; p(1,5,3,S)=  -1._R8P/30._R8P  ! stencil 3
+      p(1,4,4,S)=  29._R8P/20._R8P; p(1,5,4,S)=   1._R8P/6._R8P   ! stencil 4
+      p(1,4,5,S)= -71._R8P/20._R8P; p(1,5,5,S)=  49._R8P/20._R8P  ! stencil 5
+      ! 2 => right interface (i+1/2)
+      !  cell  0                ;    cell  1                ;   cell  2                 ;    cell  3
+      p(2,0,0,S)=  49._R8P/20._R8P;p(2,1,0,S)= -71._R8P/20._R8P;p(2,2,0,S)=  79._R8P/20._R8P;p(2,3,0,S)=-163._R8P/60._R8P! stencil 0
+      p(2,0,1,S)=   1._R8P/6._R8P ;p(2,1,1,S)=  29._R8P/20._R8P;p(2,2,1,S)= -21._R8P/20._R8P;p(2,3,1,S)=  37._R8P/60._R8P! stencil 1
+      p(2,0,2,S)=  -1._R8P/30._R8P;p(2,1,2,S)=  11._R8P/30._R8P;p(2,2,2,S)=  19._R8P/20._R8P;p(2,3,2,S)= -23._R8P/60._R8P! stencil 2
+      p(2,0,3,S)=   1._R8P/60._R8P;p(2,1,3,S)=  -2._R8P/15._R8P;p(2,2,3,S)=  37._R8P/60._R8P;p(2,3,3,S)=  37._R8P/60._R8P! stencil 3
+      p(2,0,4,S)=  -1._R8P/60._R8P;p(2,1,4,S)=   7._R8P/60._R8P;p(2,2,4,S)= -23._R8P/60._R8P;p(2,3,4,S)=  19._R8P/20._R8P! stencil 4
+      p(2,0,5,S)=   1._R8P/30._R8P;p(2,1,5,S)= -13._R8P/60._R8P;p(2,2,5,S)=  37._R8P/60._R8P;p(2,3,5,S)= -21._R8P/20._R8P! stencil 5
+      !  cell  4                ;    cell  5
+      p(2,4,0,S)=  31._R8P/30._R8P; p(2,5,0,S)=  -1._R8P/6._R8P   ! stencil 0
+      p(2,4,1,S)= -13._R8P/60._R8P; p(2,5,1,S)=   1._R8P/30._R8P  ! stencil 1
+      p(2,4,2,S)=   7._R8P/60._R8P; p(2,5,2,S)=  -1._R8P/60._R8P  ! stencil 2
+      p(2,4,3,S)=  -2._R8P/15._R8P; p(2,5,3,S)=   1._R8P/60._R8P  ! stencil 3
+      p(2,4,4,S)=  11._R8P/30._R8P; p(2,5,4,S)=  -1._R8P/30._R8P  ! stencil 4
+      p(2,4,5,S)=  29._R8P/20._R8P; p(2,5,5,S)=   1._R8P/6._R8P   ! stencil 5
+
+      ! smoothness indicators coefficients
+      ! stencil 0
+      !                 i*i                  ;                (i-1)*i                 ;                 (i-2)*i
+      d(0,0,0,S) =  6150211._R8P / 120960._R8P; d(1,0,0,S) =  -2966279._R8P /   7560._R8P; d(2,0,0,S) =   4762921._R8P /   7560._R8P
+      !             (i-3)*i                  ;                (i-4)*i                 ;                 (i-5)*i
+      d(3,0,0,S) =-15848531._R8P /  30240._R8P; d(4,0,0,S) =   2706017._R8P /  12096._R8P; d(5,0,0,S) =   -235637._R8P /   6048._R8P
+
+      !                  /                   ;                (i-1)*(i-1)             ;                 (i-2)*(i-1)
+      d(0,1,0,S) =        0._R8P              ; d(1,1,0,S) =  31617079._R8P /  40320._R8P; d(2,1,0,S) = -25980937._R8P /  10080._R8P
+      !             (i-3)*(i-1)              ;                (i-4)*(i-1)             ;                 (i-5)*(i-1)
+      d(3,1,0,S) = 32862709._R8P /  15120._R8P; d(4,1,0,S) =  -1048211._R8P /   1120._R8P; d(5,1,0,S) =    661145._R8P /   4032._R8P
+
+      !                  /                   ;                     /                  ;                 (i-2)*(i-2)
+      d(0,2,0,S) =        0._R8P              ; d(1,2,0,S) =         0._R8P              ; d(2,2,0,S) =  21703781._R8P /  10080._R8P
+      !              (i-3)*(i-2)             ;                (i-4)*(i-2)             ;                 (i-5)*(i-2)
+      d(3,2,0,S) = -6937561._R8P /   1890._R8P; d(4,2,0,S) =   2674951._R8P /   1680._R8P; d(5,2,0,S) =   -314063._R8P /   1120._R8P
+
+      !                  /                   ;                     /                  ;                      /
+      d(0,3,0,S) =        0._R8P              ; d(1,3,0,S) =         0._R8P              ; d(2,3,0,S) =         0._R8P
+      !             (i-3)*(i-3)              ;                (i-4)*(i-3)             ;                 (i-5)*(i-3)
+      d(3,3,0,S) = 47689393._R8P /  30240._R8P; d(4,3,0,S) = -41615261._R8P /  30240._R8P; d(5,3,0,S) =   1840141._R8P /   7560._R8P
+
+      !                  /                   ;                     /                  ;                      /
+      d(0,4,0,S) =        0._R8P              ; d(1,4,0,S) =         0._R8P              ; d(2,4,0,S) =         0._R8P
+      !                  /                   ;                (i-4)*(i-4)             ;                 (i-5)*(i-4)
+      d(3,4,0,S) =        0._R8P              ; d(4,4,0,S) =  12160229._R8P /  40320._R8P; d(5,4,0,S) =   -539591._R8P /   5040._R8P
+
+      !                  /                   ;                     /                  ;                      /
+      d(0,5,0,S) =        0._R8P              ; d(1,5,0,S) =         0._R8P              ; d(2,5,0,S) =         0._R8P
+      !                  /                   ;                     /                  ;                 (i-5)*(i-5)
+      d(3,5,0,S) =        0._R8P              ; d(4,5,0,S) =         0._R8P              ; d(5,5,0,S) =    384187._R8P /  40320._R8P
+      ! stencil 1
+      !             (i+1)*(i+1)              ;                    i*(i+1)             ;                 (i-1)*(i+1)
+      d(0,0,1,S) =   384187._R8P /  40320._R8P; d(1,0,1,S) =  -1139749._R8P /  15120._R8P; d(2,0,1,S) =     61427._R8P /   504._R8P
+      !             (i-2)*(i+1)              ;                (i-3)*(i+1)             ;                 (i-4)*(i+1)
+      d(3,0,1,S) = -1015303._R8P /  10080._R8P; d(4,0,1,S) =   2567287._R8P /  60480._R8P; d(5,0,1,S) =    -73379._R8P / 10080._R8P
+
+      !                  /                   ;                    i*i                 ;                 (i-1)*i
+      d(0,1,1,S) =        0._R8P              ; d(1,1,1,S) =  19365967._R8P / 120960._R8P; d(2,1,1,S) = -16306061._R8P /  30240._R8P
+      !             (i-2)*i                  ;                (i-3)*i                 ;                 (i-4)*i
+      d(3,1,1,S) =  6881719._R8P /  15120._R8P; d(4,1,1,S) =  -5877617._R8P /  30240._R8P; d(5,1,1,S) =   2033509._R8P /  60480._R8P
+
+      !                  /                   ;                     /                  ;                 (i-1)*(i-1)
+      d(0,2,1,S) =        0._R8P              ; d(1,2,1,S) =         0._R8P              ; d(2,2,1,S) =   4721851._R8P /  10080._R8P
+      !             (i-2)*(i-1)              ;                (i-3)*(i-1)             ;                 (i-4)*(i-1)
+      d(3,2,1,S) =  -169859._R8P /    210._R8P; d(4,2,1,S) =   5300629._R8P /  15120._R8P; d(5,2,1,S) =    -68601._R8P /   1120._R8P
+
+      !                  /                   ;                     /                  ;                      /
+      d(0,3,1,S) =        0._R8P              ; d(1,3,1,S) =         0._R8P              ; d(2,3,1,S) =         0._R8P
+      !             (i-2)*(i-2)              ;                (i-3)*(i-2)             ;                 (i-4)*(i-2)
+      d(3,3,1,S) =  1197047._R8P /   3360._R8P; d(4,3,1,S) =  -9478331._R8P /  30240._R8P; d(5,3,1,S) =    139471._R8P /   2520._R8P
+
+      !                  /                   ;                     /                  ;                      /
+      d(0,4,1,S) =        0._R8P              ; d(1,4,1,S) =         0._R8P              ; d(2,4,1,S) =         0._R8P
+      !                  /                   ;                (i-3)*(i-3)             ;                 (i-4)*(i-3)
+      d(3,4,1,S) =        0._R8P              ; d(4,4,1,S) =   8449957._R8P / 120960._R8P; d(5,4,1,S) =   -188483._R8P /   7560._R8P
+
+      !                  /                   ;                     /                  ;                      /
+      d(0,5,1,S) =        0._R8P              ; d(1,5,1,S) =         0._R8P              ; d(2,5,1,S) =         0._R8P
+      !                  /                   ;                     /                  ;                 (i-4)*(i-4)
+      d(3,5,1,S) =        0._R8P              ; d(4,5,1,S) =         0._R8P              ; d(5,5,1,S) =     90593._R8P /  40320._R8P
+      ! stencil 2
+      !             (i+2)*(i+2)              ;                (i+1)*(i+2)             ;                     i*(i+2)
+      d(0,0,2,S) =    90593._R8P /  40320._R8P; d(1,0,2,S) =     -1240._R8P /     63._R8P; d(2,0,2,S) =    255397._R8P /   7560._R8P
+      !             (i-1)*(i+2)              ;                (i-2)*(i+2)             ;                 (i-3)*(i+2)
+      d(3,0,2,S) =  -288521._R8P /  10080._R8P; d(4,0,2,S) =    243127._R8P /  20160._R8P; d(5,0,2,S) =    -12281._R8P /   6048._R8P
+
+      !                  /                   ;                (i+1)*(i+1)             ;                     i*(i+1)
+      d(0,1,2,S) =        0._R8P              ; d(1,1,2,S) =   1884439._R8P /  40320._R8P; d(2,1,2,S) =  -5106971._R8P /  30240._R8P
+      !             (i-1)*(i+1)              ;                (i-2)*(i+1)             ;                (i-3)*(i+1)
+      d(3,1,2,S) =   248681._R8P /   1680._R8P; d(4,1,2,S) =   -643999._R8P /  10080._R8P; d(5,1,2,S) =    662503._R8P /  60480._R8P
+
+      !                  /                   ;                     /                  ;                    i*i
+      d(0,2,2,S) =        0._R8P              ; d(1,2,2,S) =         0._R8P              ; d(2,2,2,S) =   4877743._R8P /  30240._R8P
+      !             (i-1)*i                  ;                (i-2)*i                 ;                (i-3)*i
+      d(3,2,2,S) =  -559651._R8P /   1890._R8P; d(4,2,2,S) =   1991239._R8P /  15120._R8P; d(5,2,2,S) =   -139633._R8P /   6048._R8P
+
+      !                  /                   ;                     /                  ;                     /
+      d(0,3,2,S) =        0._R8P              ; d(1,3,2,S) =         0._R8P              ; d(2,3,2,S) =         0._R8P
+      !             (i-1)*(i-1)              ;                (i-2)*(i-1)             ;                (i-3)*(i-1)
+      d(3,3,2,S) =   159219._R8P /   1120._R8P; d(4,3,2,S) =  -1323367._R8P /  10080._R8P; d(5,3,2,S) =    178999._R8P /   7560._R8P
+
+      !                  /                   ;                     /                  ;                     /
+      d(0,4,2,S) =        0._R8P              ; d(1,4,2,S) =         0._R8P              ; d(2,4,2,S) =         0._R8P
+      !                  /                   ;                (i-2)*(i-2)             ;                (i-3)*(i-2)
+      d(3,4,2,S) =        0._R8P              ; d(4,4,2,S) =    141661._R8P /   4480._R8P; d(5,4,2,S) =   -178747._R8P /  15120._R8P
+
+      !                  /                   ;                     /                  ;                     /
+      d(0,5,2,S) =        0._R8P              ; d(1,5,2,S) =         0._R8P              ; d(2,5,2,S) =         0._R8P
+      !                  /                   ;                     /                  ;                (i-3)*(i-3)
+      d(3,5,2,S) =        0._R8P              ; d(4,5,2,S) =         0._R8P              ; d(5,5,2,S) =    139633._R8P / 120960._R8P
+      ! stencil 3
+      !             (i+3)*(i+3)              ;                (i+2)*(i+3)             ;                 (i+1)*(i+3)
+      d(0,0,3,S) =   139633._R8P / 120960._R8P; d(1,0,3,S) =   -178747._R8P /  15120._R8P; d(2,0,3,S) =    178999._R8P /   7560._R8P
+      !                 i*(i+3)              ;                (i-1)*(i+3)             ;                 (i-2)*(i+3)
+      d(3,0,3,S) =  -139633._R8P /   6048._R8P; d(4,0,3,S) =    662503._R8P /  60480._R8P; d(5,0,3,S) =    -12281._R8P /   6048._R8P
+
+      !                  /                   ;                (i+2)*(i+2)             ;                 (i+1)*(i+2)
+      d(0,1,3,S) =        0._R8P              ; d(1,1,3,S) =    141661._R8P /   4480._R8P; d(2,1,3,S) =  -1323367._R8P /  10080._R8P
+      !                 i*(i+2)              ;                (i-1)*(i+2)             ;                 (i-2)*(i+2)
+      d(3,1,3,S) =  1991239._R8P /  15120._R8P; d(4,1,3,S) =   -643999._R8P /  10080._R8P; d(5,1,3,S) =    243127._R8P /  20160._R8P
+
+      !                  /                   ;                     /                  ;                    i*(i+1)
+      d(0,2,3,S) =        0._R8P              ; d(1,2,3,S) =         0._R8P              ; d(2,2,3,S) =    159219._R8P /   1120._R8P
+      !                 i*(i+1)              ;                (i-1)*(i+1)             ;                (i-2)*(i+1)
+      d(3,2,3,S) =  -559651._R8P /   1890._R8P; d(4,2,3,S) =    248681._R8P /   1680._R8P; d(5,2,3,S) =   -288521._R8P /  10080._R8P
+
+      !                  /                   ;                     /                  ;                     /
+      d(0,3,3,S) =        0._R8P              ; d(1,3,3,S) =         0._R8P              ; d(2,3,3,S) =         0._R8P
+      !                 i*i                  ;                (i-1)*i                 ;                (i-2)*i
+      d(3,3,3,S) =  4877743._R8P /  30240._R8P; d(4,3,3,S) =  -5106971._R8P /  30240._R8P; d(5,3,3,S) =    255397._R8P /   7560._R8P
+
+      !                  /                   ;                     /                  ;                     /
+      d(0,4,3,S) =        0._R8P              ; d(1,4,3,S) =         0._R8P              ; d(2,4,3,S) =         0._R8P
+      !                  /                   ;                (i-1)*(i-1)             ;                (i-2)*(i-1)
+      d(3,4,3,S) =        0._R8P              ; d(4,4,3,S) =   1884439._R8P /  40320._R8P; d(5,4,3,S) =     -1240._R8P /     63._R8P
+
+      !                  /                   ;                     /                  ;                     /
+      d(0,5,3,S) =        0._R8P              ; d(1,5,3,S) =         0._R8P              ; d(2,5,3,S) =         0._R8P
+      !                  /                   ;                     /                  ;                (i-2)*(i-2)
+      d(3,5,3,S) =        0._R8P              ; d(4,5,3,S) =         0._R8P              ; d(5,5,3,S) =     90593._R8P /  40320._R8P
+      ! stencil 4
+      !             (i+4)*(i+4)              ;                (i+3)*(i+4)             ;                 (i+2)*(i+4)
+      d(0,0,4,S) =    90593._R8P /  40320._R8P; d(1,0,4,S) =   -188483._R8P /   7560._R8P; d(2,0,4,S) =    139471._R8P /   2520._R8P
+      !             (i+1)*(i+4)              ;                    i*(i+4)             ;                 (i-1)*(i+4)
+      d(3,0,4,S) =   -68601._R8P /   1120._R8P; d(4,0,4,S) =   2033509._R8P /  60480._R8P; d(5,0,4,S) =    -73379._R8P /  10080._R8P
+
+      !                  /                   ;                (i+3)*(i+3)             ;                 (i+2)*(i+3)
+      d(0,1,4,S) =        0._R8P              ; d(1,1,4,S) =   8449957._R8P / 120960._R8P; d(2,1,4,S) =  -9478331._R8P /  30240._R8P
+      !             (i+1)*(i+3)              ;                    i*(i+3)             ;                 (i-1)*(i+3)
+      d(3,1,4,S) =  5300629._R8P /  15120._R8P; d(4,1,4,S) =  -5877617._R8P /  30240._R8P; d(5,1,4,S) =   2567287._R8P /  60480._R8P
+
+      !                  /                   ;                     /                  ;                 (i+2)*(i+2)
+      d(0,2,4,S) =        0._R8P              ; d(1,2,4,S) =         0._R8P              ; d(2,2,4,S) =   1197047._R8P /   3360._R8P
+      !             (i+1)*(i+2)              ;                    i*(i+2)             ;                 (i-1)*(i+2)
+      d(3,2,4,S) =  -169859._R8P /    210._R8P; d(4,2,4,S) =   6881719._R8P /  15120._R8P; d(5,2,4,S) =  -1015303._R8P /  10080._R8P
+
+      !                  /                   ;                     /                  ;                      /
+      d(0,3,4,S) =        0._R8P              ; d(1,3,4,S) =         0._R8P              ; d(2,3,4,S) =         0._R8P
+      !             (i+1)*(i+1)              ;                    i*(i+1)             ;                 (i-1)*(i+1)
+      d(3,3,4,S) =  4721851._R8P /  10080._R8P; d(4,3,4,S) = -16306061._R8P /  30240._R8P; d(5,3,4,S) =     61427._R8P /    504._R8P
+
+      !                  /                   ;                     /                  ;                      /
+      d(0,4,4,S) =        0._R8P              ; d(1,4,4,S) =         0._R8P              ; d(2,4,4,S) =         0._R8P
+      !                  /                   ;                    i*i                 ;                 (i-1)*i
+      d(3,4,4,S) =        0._R8P              ; d(4,4,4,S) =  19365967._R8P / 120960._R8P; d(5,4,4,S) =  -1139749._R8P /  15120._R8P
+
+      !                  /                   ;                     /                  ;                      /
+      d(0,5,4,S) =        0._R8P              ; d(1,5,4,S) =         0._R8P              ; d(2,5,4,S) =         0._R8P
+      !                  /                   ;                     /                  ;                 (i-1)*(i-1)
+      d(3,5,4,S) =        0._R8P              ; d(4,5,4,S) =         0._R8P              ; d(5,5,4,S) =    384187._R8P /  40320._R8P
+      ! stencil 5
+      !             (i+5)*(i+5)              ;                (i+4)*(i+5)             ;                 (i+3)*(i+5)
+      d(0,0,5,S) =   384187._R8P /  40320._R8P; d(1,0,5,S) =   -539591._R8P /   5040._R8P; d(2,0,5,S) =   1840141._R8P /   7560._R8P
+      !             (i+2)*(i+5)              ;                (i+1)*(i+5)             ;                     i*(i+5)
+      d(3,0,5,S) =  -314063._R8P /   1120._R8P; d(4,0,5,S) =    661145._R8P /   4032._R8P; d(5,0,5,S) =   -235637._R8P /   6048._R8P
+
+      !                  /                   ;                (i+4)*(i+3)             ;                 (i+3)*(i+3)
+      d(0,1,5,S) =        0._R8P              ; d(1,1,5,S) =  12160229._R8P /  40320._R8P; d(2,1,5,S) = -41615261._R8P /  30240._R8P
+      !             (i+2)*(i+3)              ;                (i+1)*(i+3)             ;                     i*(i+3)
+      d(3,1,5,S) =  2674951._R8P /   1680._R8P; d(4,1,5,S) =  -1048211._R8P /   1120._R8P; d(5,1,5,S) =   2706017._R8P /  12096._R8P
+
+      !                  /                   ;                     /                  ;                 (i+3)*(i+2)
+      d(0,2,5,S) =        0._R8P              ; d(1,2,5,S) =         0._R8P              ; d(2,2,5,S) =  47689393._R8P /  30240._R8P
+      !             (i+2)*(i+2)              ;                (i+1)*(i+2)             ;                     i*(i+2)
+      d(3,2,5,S) = -6937561._R8P /   1890._R8P; d(4,2,5,S) =  32862709._R8P /  15120._R8P; d(5,2,5,S) = -15848531._R8P /  30240._R8P
+
+      !                  /                   ;                     /                  ;                      /
+      d(0,3,5,S) =        0._R8P              ; d(1,3,5,S) =         0._R8P              ; d(2,3,5,S) =         0._R8P
+      !             (i+2)*(i+1)              ;                (i+1)*(i+1)             ;                     i*(i+1)
+      d(3,3,5,S) = 21703781._R8P /  10080._R8P; d(4,3,5,S) = -25980937._R8P /  10080._R8P; d(5,3,5,S) =   4762921._R8P /   7560._R8P
+
+      !                  /                   ;                     /                  ;                      /
+      d(0,4,5,S) =        0._R8P              ; d(1,4,5,S) =         0._R8P              ; d(2,4,5,S) =         0._R8P
+      !                  /                   ;                (i+1)*i                 ;                     i*i
+      d(3,4,5,S) =        0._R8P              ; d(4,4,5,S) =  31617079._R8P /  40320._R8P; d(5,4,5,S) =  -2966279._R8P /   7560._R8P
+
+      !                  /                   ;                     /                  ;                      /
+      d(0,5,5,S) =        0._R8P              ; d(1,5,5,S) =         0._R8P              ; d(2,5,5,S) =         0._R8P
+      !                  /                   ;                     /                  ;                     i*(i-1)
+      d(3,5,5,S) =        0._R8P              ; d(4,5,5,S) =         0._R8P              ; d(5,5,5,S) =   6150211._R8P / 120960._R8P
+   endassociate
+   endsubroutine initialize_S6
 
    pure subroutine compute_polynomials(self, S, V, VP)
    !< Compute WENO polynomials.
@@ -419,7 +836,7 @@ contains
    real(R8P),    intent(out) :: VR(1:2      ) !< Left and right (1,2) interface value of reconstructed V.
    integer(I4P)              :: k,f           !< Counter.
 
-   VR = 0._R_P
+   VR = 0._R8P
    do k=0, S-1
       do f=1, 2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
          VR(f) = VR(f) + w(f,k)*VP(f,k)
@@ -436,7 +853,7 @@ contains
    integer(I4P)              :: s1,s2,f             !< Counter.
 
    ! computing the polynomials
-   VP = 0._R_P
+   VP = 0._R8P
    do s1=0, S-1 ! stencil counter
       do s2=0, S-1 ! cell counter counter
          do f=1, 2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
@@ -462,7 +879,7 @@ contains
    ! computing smoothness indicators
    do s1=0,S-1 ! stencil counter
       do f=1,2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
-         IS(f,s1) = 0._R_P
+         IS(f,s1) = 0._R8P
          do s2=0,S-1
             do s3=0,S-1
               IS(f,s1) = IS(f,s1) + weno_d(s3,s2,s1,S)*V(f,s1-s3)*V(f,s1-s2)
@@ -471,10 +888,10 @@ contains
       enddo
    enddo
    ! computing alfa coefficients
-   a_tot = 0._R_P
+   a_tot = 0._R8P
    do s1=0,S-1
       do f=1,2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
-         a(f,s1) = weno_a(f,s1,S)*(1._R_P/(weno_zeps+IS(f,s1))**S) ; a_tot(f) = a_tot(f) + a(f,s1)
+         a(f,s1) = weno_a(f,s1,S)*(1._R8P/(weno_zeps+IS(f,s1))**S) ; a_tot(f) = a_tot(f) + a(f,s1)
       enddo
    enddo
    ! computing weights

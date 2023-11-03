@@ -9,8 +9,8 @@ implicit none
 private
 public :: weno_reconstruct_upwind_kernel
 
-integer(I4P), parameter :: S_max=5    !< Maximum number/dimensions of stencils.
-integer(I4P), parameter :: S_max_m1=4 !< Maximum number/dimensions of stencils minus 1.
+integer(I4P), parameter :: S_max=6    !< Maximum number/dimensions of stencils.
+integer(I4P), parameter :: S_max_m1=5 !< Maximum number/dimensions of stencils minus 1.
 contains
    ! public procedures
    attributes(device) subroutine weno_reconstruct_upwind_kernel(S, weno_a, weno_p, weno_d, weno_zeps, V, VR)
@@ -39,7 +39,7 @@ contains
    real(R8P),    intent(out) :: VR(1:2      ) !< Left and right (1,2) interface value of reconstructed V.
    integer(I4P)              :: k,f           !< Counter.
 
-   VR = 0._R_P
+   VR = 0._R8P
    do k=0, S-1
       do f=1, 2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
          VR(f) = VR(f) + w(f,k)*VP(f,k)
@@ -56,7 +56,7 @@ contains
    integer(I4P)                     :: s1,s2,f             !< Counter.
 
    ! computing the polynomials
-   VP = 0._R_P
+   VP = 0._R8P
    do s1=0, S-1 ! stencil counter
       do s2=0, S-1 ! cell counter counter
          do f=1, 2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
@@ -82,7 +82,7 @@ contains
    ! computing smoothness indicators
    do s1=0,S-1 ! stencil counter
       do f=1,2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
-         IS(f,s1) = 0._R_P
+         IS(f,s1) = 0._R8P
          do s2=0,S-1
             do s3=0,S-1
               IS(f,s1) = IS(f,s1) + weno_d(s3,s2,s1,S)*V(f,s1-s3)*V(f,s1-s2)
@@ -91,10 +91,10 @@ contains
       enddo
    enddo
    ! computing alfa coefficients
-   a_tot = 0._R_P
+   a_tot = 0._R8P
    do s1=0,S-1
       do f=1,2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
-         a(f,s1) = weno_a(f,s1,S)*(1._R_P/(weno_zeps+IS(f,s1))**S) ; a_tot(f) = a_tot(f) + a(f,s1)
+         a(f,s1) = weno_a(f,s1,S)*(1._R8P/(weno_zeps+IS(f,s1))**S) ; a_tot(f) = a_tot(f) + a(f,s1)
       enddo
    enddo
    ! computing weights

@@ -20,5 +20,5 @@ if [ "$clean" == "yes" ] ; then
    echo "clean directory"
    ./clean.sh
 fi
-mpirun -n 1 $dbg adam_nasto_nvf adam-nasto-shock-sphere.ini | tee run_test.log
+mpirun -n 1 $dbg adam_nasto_nvf adam-nasto-sod-x.ini | tee run_test.log
 exit 0
