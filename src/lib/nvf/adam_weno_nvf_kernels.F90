@@ -1,19 +1,20 @@
-!< ADAM, WENO class NVF kernels (NVF backend of [[weno_object]]).
+!< ADAM, WENO class NVF kernels (NVF backend of [[weno_nvf_object]]).
 module adam_weno_nvf_kernels
-!< ADAM, WENO class NVF kernels (NVF backend of [[weno_object]]).
+!< ADAM, WENO class NVF kernels (NVF backend of [[weno_nvf_object]]).
 
+use adam_weno_object, only : S_max, S_max_m1
 use penf, only : I4P, R8P
 use cudafor
 
 implicit none
 private
-public :: weno_reconstruct_upwind_kernel
+public :: weno_reconstruct_upwind_device
+public :: S_max
+public :: S_max_m1
 
-integer(I4P), parameter :: S_max=6    !< Maximum number/dimensions of stencils.
-integer(I4P), parameter :: S_max_m1=5 !< Maximum number/dimensions of stencils minus 1.
 contains
    ! public procedures
-   attributes(device) subroutine weno_reconstruct_upwind_kernel(S, weno_a, weno_p, weno_d, weno_zeps, V, VR)
+   attributes(device) subroutine weno_reconstruct_upwind_device(S, weno_a, weno_p, weno_d, weno_zeps, V, VR)
    !< Reconstruct by WENO upwind method of 2S-1 order, non TBP.
    integer(I4P), intent(in)          :: S                   !< Number of stencils used.
    real(R8P),    intent(in), device  :: weno_a(1:,0:,1:)    !< Optimal weights.
@@ -25,13 +26,13 @@ contains
    real(R8P)                         :: VP(1:2,0:S_max_m1)  !< Polynomial reconstructions.
    real(R8P)                         :: w (1:2,0:S_max_m1)  !< Weights of the stencils.
 
-   call weno_compute_polynomials_kernel(S=S, weno_p=weno_p, V=V(1:2,1-S:-1+S), VP=VP(1:2,0:S-1))
-   call weno_compute_weights_kernel(S=S, weno_a=weno_a, weno_d=weno_d, weno_zeps=weno_zeps, V=V(1:2,1-S:-1+S), w=w(1:2,0:S-1))
-   call weno_compute_convolution_kernel(S=S, VP=VP(1:2,0:S-1), w=w(1:2,0:S-1), VR=VR(1:2))
-   endsubroutine weno_reconstruct_upwind_kernel
+   call weno_compute_polynomials_device(S=S, weno_p=weno_p, V=V(1:2,1-S:-1+S), VP=VP(1:2,0:S-1))
+   call weno_compute_weights_device(S=S, weno_a=weno_a, weno_d=weno_d, weno_zeps=weno_zeps, V=V(1:2,1-S:-1+S), w=w(1:2,0:S-1))
+   call weno_compute_convolution_device(S=S, VP=VP(1:2,0:S-1), w=w(1:2,0:S-1), VR=VR(1:2))
+   endsubroutine weno_reconstruct_upwind_device
 
    ! private procedures
-   attributes(device) subroutine weno_compute_convolution_kernel(S, VP, w, VR)
+   attributes(device) subroutine weno_compute_convolution_device(S, VP, w, VR)
    !< Compute WENO convulution, non TBP.
    integer(I4P), intent(in)  :: S             !< Number of stencils used.
    real(R8P),    intent(in)  :: VP(1:2,0:S-1) !< Polynomial reconstructions.
@@ -45,9 +46,9 @@ contains
          VR(f) = VR(f) + w(f,k)*VP(f,k)
       enddo
    enddo
-   endsubroutine weno_compute_convolution_kernel
+   endsubroutine weno_compute_convolution_device
 
-   attributes(device) subroutine weno_compute_polynomials_kernel(S, weno_p, V, VP)
+   attributes(device) subroutine weno_compute_polynomials_device(S, weno_p, V, VP)
    !< Compute WENO polynomials, non TBP.
    integer(I4P), intent(in)         :: S                   !< Number of stencils used.
    real(R8P),    intent(in), device :: weno_p(1:,0:,0:,1:) !< Polinomials coefficients.
@@ -64,9 +65,9 @@ contains
          enddo
       enddo
    enddo
-   endsubroutine weno_compute_polynomials_kernel
+   endsubroutine weno_compute_polynomials_device
 
-   attributes(device) subroutine weno_compute_weights_kernel(S, weno_a, weno_d, weno_zeps, V, w)
+   attributes(device) subroutine weno_compute_weights_device(S, weno_a, weno_d, weno_zeps, V, w)
    !< Compute WENO weights, non TBP.
    integer(I4P), intent(in)         :: S                     !< Number of stencils used.
    real(R8P),    intent(in), device :: weno_a(1:,0:,1:)      !< Optimal weights.
@@ -85,7 +86,7 @@ contains
          IS(f,s1) = 0._R8P
          do s2=0,S-1
             do s3=0,S-1
-              IS(f,s1) = IS(f,s1) + weno_d(s3,s2,s1,S)*V(f,s1-s3)*V(f,s1-s2)
+               IS(f,s1) = IS(f,s1) + weno_d(s3,s2,s1,S)*V(f,s1-s3)*V(f,s1-s2)
             enddo
          enddo
       enddo
@@ -94,7 +95,7 @@ contains
    a_tot = 0._R8P
    do s1=0,S-1
       do f=1,2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
-         a(f,s1) = weno_a(f,s1,S)*(1._R8P/(weno_zeps+IS(f,s1))**S) ; a_tot(f) = a_tot(f) + a(f,s1)
+         a(f,s1) = weno_a(f,s1,S)*(1._R8P/(weno_zeps+IS(f,s1))**(2)) ; a_tot(f) = a_tot(f) + a(f,s1)
       enddo
    enddo
    ! computing weights
@@ -103,5 +104,5 @@ contains
          w(f,s1) = a(f,s1)/a_tot(f)
       enddo
    enddo
-   endsubroutine weno_compute_weights_kernel
+   endsubroutine weno_compute_weights_device
 endmodule adam_weno_nvf_kernels

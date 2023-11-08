@@ -27,6 +27,7 @@ type :: mpih_object
       ! public methods
       procedure, pass(self) :: abort         !< Handy MPI abort wrapper.
       procedure, pass(self) :: barrier       !< Handy MPI barrier wrapper.
+      procedure, pass(self) :: description   !< Return pretty-printed object description.
       procedure, pass(self) :: error_stop    !< Stop run with error output.
       procedure, pass(self) :: finalize      !< Handy MPI finalize wrapper.
       procedure, pass(self) :: initialize    !< Initialize MPI handler data.
@@ -76,6 +77,18 @@ contains
       endif
    endif
    endsubroutine barrier
+
+   pure function description(self) result(desc)
+   !< Return a pretty-formatted object description.
+   class(mpih_object) , intent(in) :: self             !< MPI handler.
+   character(len=:), allocatable   :: desc             !< Description.
+   character(len=1), parameter     :: NL=new_line('a') !< New line character.
+
+   desc =       self%myrankstr//'MPIH main data'//NL
+   desc = desc//self%myrankstr//'  myrank:       '//trim(str(self%myrank      ))//NL
+   desc = desc//self%myrankstr//'  procs_number: '//trim(str(self%procs_number))//NL
+   desc = desc//self%myrankstr//'  memory_avail: '//trim(str(self%memory_avail))
+   endfunction description
 
    subroutine error_stop(self, msg)
    !< Stop run with error output.

@@ -8,12 +8,13 @@ use adam_field_object
 use adam_grid_object
 use adam_ib_object
 use adam_mpih_object
+use adam_rk_object
 use adam_slices_object
+use adam_weno_object
 use adam_nasto_ic_object
 use adam_nasto_io_object
 use adam_nasto_bc_object
 use adam_nasto_physics_object
-use adam_nasto_schemes_object
 use adam_nasto_time_object
 use penf
 use ISO_C_BINDING
@@ -32,13 +33,14 @@ type :: nasto_common_object
    type(amr_object)            :: amr           !< AMR marker handler.
    type(ib_object)             :: ib            !< Immersed Boundary (IB) handler.
    type(slices_object)         :: slices        !< Slices handler.
+   type(rk_object)             :: rk            !< RK integrator.
+   type(weno_object)           :: weno          !< WENO reconstructor.
    ! NASTO library objects
    type(nasto_io_object)      :: io      !< IO handler.
    type(nasto_physics_object) :: physics !< Fluids physiscs handler.
    type(nasto_ic_object)      :: ic      !< Initial Conditions (IC) handler.
    type(nasto_bc_object)      :: bc      !< Boundary Conditions (BC) handler.
    type(nasto_time_object)    :: time    !< Time handler.
-   type(nasto_schemes_object) :: schemes !< Schemes handler.
    ! grid/field data replica for easy handling
    integer(I4P), pointer :: ngc=>null()           !< Number of ghost cells.
    integer(I4P), pointer :: ni=>null()            !< Number of cells in i direction.
@@ -101,7 +103,8 @@ contains
    call self%ic%initialize(file_parameters=file_parameters)
    call self%ib%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    call self%slices%initialize(file_parameters=file_parameters)
-   call self%schemes%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
+   call self%rk%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
+   call self%weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
    endassociate
    call self%allocate_common
    call self%mpih%print_message('nasto_common_object%initialize finish')

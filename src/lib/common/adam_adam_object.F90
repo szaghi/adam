@@ -122,7 +122,7 @@ contains
    if (max_nb > self%field%nb) then
       call self%mpih%abort(error_code=-101, msg='ERROR: the number of new blocks after AMR is greater than Nb'//NL//&
                                                 'max blocks numer available [Nb]: '//trim(str(self%field%nb))//NL//&
-                                                'blocks numer required after AMR: '//trim(str(node_ptr%block_index)))
+                                                'blocks numer required after AMR: '//trim(str(max_nb)))
    endif
    call self%mpih%print_message('maximum number of blocks created after AMR update: '//str(max_nb)//'/'//str(self%field%nb))
    endsubroutine check_blocks_number
@@ -138,7 +138,7 @@ contains
    real(R8P)                                :: save_factor   !< Factor to avoid memory completely full.
 
    size_of_real = storage_size(1._R8P)/8._R8P
-   save_factor = 0.6_R8P
+   save_factor = 0.95_R8P
    nb = nint(save_factor * memory_avail*1e9 / (fields_number * self%grid%block_weight * size_of_real))
    nodes_number  = nb * self%mpih%procs_number
    endsubroutine compute_blocks_number

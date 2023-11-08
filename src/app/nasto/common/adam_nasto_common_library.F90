@@ -9,7 +9,6 @@ use adam_nasto_ic_object
 use adam_nasto_io_object
 use adam_nasto_parameters
 use adam_nasto_physics_object
-use adam_nasto_schemes_object
 use adam_nasto_time_object
 
 implicit none
