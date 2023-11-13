@@ -3,6 +3,7 @@ module adam_nasto_nvf_kernels
 !< ADAM, NASTO NVF application kernels.
 
 use adam_weno_nvf_kernels
+use adam_nasto_nvf_cns_kernels
 use penf, only : I4P, I8P, R8P
 use cudafor
 
@@ -12,7 +13,6 @@ public :: compute_fluxes_convective_kernel
 public :: compute_fluxes_difference_cuf
 public :: compute_fluxes_diffusive_cuf
 public :: compute_q_aux_cuf
-public :: compute_q_gradient_cuf
 public :: compute_umax_cuf
 public :: set_bc_q_gpu_cuf
 
@@ -44,9 +44,9 @@ contains
    real(R8P),    intent(in),    value  :: g                                         !< Specific heats ratio.
    real(R8P),    intent(in),    device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Auxiliary variables.
    real(R8P),    intent(inout), device :: fluxes_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Fluxes.
+   integer(I4P),                device :: si(3)                                     !< Stencil increment.
+   real(R8P),                   device :: sir(3)                                    !< Stencil increment, real cast.
    integer(I4P)                        :: b, i, j, k                                !< Counter.
-   integer(I4P)                        :: si(3)                                     !< Stencil increment.
-   real(R8P)                           :: sir(3)                                    !< Stencil increment, real cast.
 
    select case(dir)
    case(1)
@@ -197,27 +197,27 @@ contains
    subroutine compute_fluxes_diffusive_cuf(blocks_number, ni, nj, nk, ngc, nv, mu, kd, &
                                            q_aux_gpu, dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu)
    !< Compute diffusive fluxes.
-   integer(I4P), intent(in)            :: blocks_number                             !< Blocks number.
-   integer(I4P), intent(in)            :: ni, nj, nk                                !< Grid dimensionns.
-   integer(I4P), intent(in)            :: ngc                                       !< Number of ghost cells.
-   integer(I4P), intent(in)            :: nv                                        !< Number of conservative variables.
-   real(R8P),    intent(in)            :: mu                                        !< Viscosity.
-   real(R8P),    intent(in)            :: kd                                        !< Thermal diffusivity.
-   real(R8P),    intent(in),    device :: dx_gpu(1:), dy_gpu(1:), dz_gpu(1:)        !< Space steps.
-   real(R8P),    intent(in),    device :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:) !< Auxiliary varibales
-   real(R8P),    intent(inout), device ::   flx_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:) !< Fluxes along x.
-   real(R8P),    intent(inout), device ::   fly_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:) !< Fluxes along y.
-   real(R8P),    intent(inout), device ::   flz_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:) !< Fluxes along z.
-   real(R8P)                           :: vel_u, vel_v, vel_w                       !< (Mean) velocity.
-   integer(I4P)                        :: b, i, j, k, v                             !< Counter.
-   real(R8P)                           :: du_dx, dv_dx, dw_dx                       !< Velocity derivative along x.
-   real(R8P)                           :: du_dy, dv_dy, dw_dy                       !< Velocity derivative along y.
-   real(R8P)                           :: du_dz, dv_dz, dw_dz                       !< Velocity derivative along z.
-   real(R8P)                           :: sigq, sigl                                !< Sigmas.
-   real(R8P)                           :: tau_1_1, tau_2_1, tau_3_1, dT_dx          !< Stress tensor, x elements.
-   real(R8P)                           :: tau_1_2, tau_2_2, tau_3_2, dT_dy          !< Stress tensor, y elements.
-   real(R8P)                           :: tau_1_3, tau_2_3, tau_3_3, dT_dz          !< Stress tensor, z elements.
-   integer(I4P)                        :: iercuda                                   !< CUDA error trapping flag.
+   integer(I4P), intent(in)            :: blocks_number                         !< Blocks number.
+   integer(I4P), intent(in)            :: ni, nj, nk                            !< Grid dimensionns.
+   integer(I4P), intent(in)            :: ngc                                   !< Number of ghost cells.
+   integer(I4P), intent(in)            :: nv                                    !< Number of conservative variables.
+   real(R8P),    intent(in)            :: mu                                    !< Viscosity.
+   real(R8P),    intent(in)            :: kd                                    !< Thermal diffusivity.
+   real(R8P),    intent(in),    device :: dx_gpu(1:), dy_gpu(1:), dz_gpu(1:)    !< Space steps.
+   real(R8P),    intent(in),    device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary varibales
+   real(R8P),    intent(inout), device ::   flx_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes along x.
+   real(R8P),    intent(inout), device ::   fly_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes along y.
+   real(R8P),    intent(inout), device ::   flz_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes along z.
+   real(R8P)                           :: vel_u, vel_v, vel_w                   !< (Mean) velocity.
+   real(R8P)                           :: du_dx, dv_dx, dw_dx                   !< Velocity derivative along x.
+   real(R8P)                           :: du_dy, dv_dy, dw_dy                   !< Velocity derivative along y.
+   real(R8P)                           :: du_dz, dv_dz, dw_dz                   !< Velocity derivative along z.
+   real(R8P)                           :: sigq, sigl                            !< Sigmas.
+   real(R8P)                           :: tau_1_1, tau_2_1, tau_3_1, dT_dx      !< Stress tensor, x elements.
+   real(R8P)                           :: tau_1_2, tau_2_2, tau_3_2, dT_dy      !< Stress tensor, y elements.
+   real(R8P)                           :: tau_1_3, tau_2_3, tau_3_3, dT_dz      !< Stress tensor, z elements.
+   integer(I4P)                        :: b, i, j, k, v                         !< Counter.
+   integer(I4P)                        :: iercuda                               !< CUDA error trapping flag.
 
    !$cuf kernel do(3) <<<*,*>>>
    do k=1,nk
@@ -346,92 +346,6 @@ contains
    !@cuf iercuda=cudaDeviceSynchronize()
    endsubroutine compute_fluxes_diffusive_cuf
 
-   subroutine compute_q_aux_cuf(ni, nj, nk, ngc, ns, blocks_number, R, cv, g, dha, q_gpu, q_aux_gpu)
-   !< Compute auxiliary variables.
-   integer(I4P), intent(in)          :: ni                                     !< Grid cells number in I direction.
-   integer(I4P), intent(in)          :: nj                                     !< Grid cells number in J direction.
-   integer(I4P), intent(in)          :: nk                                     !< Grid cells number in K direction.
-   integer(I4P), intent(in)          :: ngc                                    !< Ghost cells number.
-   integer(I4P), intent(in)          :: ns                                     !< Number of fluid species.
-   integer(I4P), intent(in)          :: blocks_number                          !< Number of blocks.
-   real(R8P),    intent(in)          :: R                                      !< Fluid constant, specific heats difference.
-   real(R8P),    intent(in)          :: cv                                     !< Specific heat at constant volume.
-   real(R8P),    intent(in)          :: g                                      !< Specific heats ratio.
-   real(R8P),    intent(in)          :: dha                                    !< Entalpy fluid.
-   real(R8P),    intent(in),  device ::     q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Conservative variables.
-   real(R8P),    intent(out), device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Auxiliary variables.
-   integer(I4P)                      :: b, i, j, k, s                          !< Counter.
-   real(R8P)                         :: rho, uuu, vvv, www, rhe, rya, yya, tem !< State variables.
-   integer(I4P)                      :: iercuda                                !< Error trapping flag for CUDAFortran.
-
-   !$cuf kernel do(4) <<<*,*>>>
-   do k=1-ngc, nk+ngc
-      do j=1-ngc, nj+ngc
-         do i=1-ngc, ni+ngc
-            do b=1, blocks_number
-               rho = q_gpu(b,i,j,k,1)
-               uuu = q_gpu(b,i,j,k,2)/rho
-               vvv = q_gpu(b,i,j,k,3)/rho
-               www = q_gpu(b,i,j,k,4)/rho
-               rhe = q_gpu(b,i,j,k,5)
-               if (ns==2) then
-                   rya = q_gpu(b,i,j,k,ns+4)
-               else
-                   rya = 0._R8P
-               endif
-               yya = rya/rho
-               tem = ((rhe-rya*dha)/rho-0.5*(uuu**2+vvv**2+www**2))/cv
-
-               q_aux_gpu(b,i,j,k,1) = rho           ! density
-               q_aux_gpu(b,i,j,k,2) = uuu           ! velocity x
-               q_aux_gpu(b,i,j,k,3) = vvv           ! velocity y
-               q_aux_gpu(b,i,j,k,4) = www           ! velocity z
-               q_aux_gpu(b,i,j,k,5) = yya           ! mass fraction
-               q_aux_gpu(b,i,j,k,6) = tem           ! temperature
-               q_aux_gpu(b,i,j,k,7) = R*rho*tem     ! pressure
-               q_aux_gpu(b,i,j,k,8) = rhe/rho+R*tem ! entalpy
-               q_aux_gpu(b,i,j,k,9) = sqrt(g*R*tem) ! sound speed
-            enddo
-         enddo
-      enddo
-   enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
-   endsubroutine compute_q_aux_cuf
-
-   subroutine compute_q_gradient_cuf(b, ni, nj, nk, ngc, dx, dy, dz, q_gpu, ivar, gradient)
-   !< Compute gradient of q(ivar).
-   integer(I4P), intent(in)         :: b                                 !< Block index.
-   integer(I4P), intent(in)         :: ni                                !< Grid cells number in I direction.
-   integer(I4P), intent(in)         :: nj                                !< Grid cells number in J direction.
-   integer(I4P), intent(in)         :: nk                                !< Grid cells number in K direction.
-   integer(I4P), intent(in)         :: ngc                               !< Ghost cells number.
-   real(R8P),    intent(in)         :: dx                                !< X space step.
-   real(R8P),    intent(in)         :: dy                                !< Y space step.
-   real(R8P),    intent(in)         :: dz                                !< Z space step.
-   real(R8P),    intent(in), device :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field component to which apply gradient.
-   integer(I4P), intent(in)         :: ivar                              !< Ghost cells number.
-   real(R8P),    intent(out)        :: gradient                          !< Maximum gradient of q.
-   real(R8P)                        :: grad                              !< Current gradient of q.
-   integer(I4P)                     :: i, j, k                           !< Counter.
-   integer(I4P)                     :: iercuda                           !< Error trapping flag for CUDAFortran.
-   real(R8P), parameter             :: tol=1.e-12                        !< Gradient denominator tolerance.
-
-   gradient = 0._R8P
-   !$cuf kernel do(3) <<<*,*>>> reduce(max:gradient)
-   do k=1, nk
-      do j=1, nj
-         do i=1, ni
-            grad = sqrt(((q_gpu(b,i+1,j,k,ivar) - q_gpu(b,i-1,j,k,ivar))/(2*dx))**2 + &
-                        ((q_gpu(b,i,j+1,k,ivar) - q_gpu(b,i,j-1,k,ivar))/(2*dy))**2 + &
-                        ((q_gpu(b,i,j,k+1,ivar) - q_gpu(b,i,j,k-1,ivar))/(2*dz))**2)
-            grad = grad/(abs(q_gpu(b,i,j,k,ivar))+tol)
-            gradient = max(gradient, grad)
-         enddo
-      enddo
-   enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
-   endsubroutine compute_q_gradient_cuf
-
    subroutine compute_umax_cuf(ni, nj, nk, ngc, blocks_number, mu, dx_gpu, dy_gpu, dz_gpu, q_aux_gpu, umax)
    !< Compute maximum speed.
    integer(I4P), intent(in)         :: ni                                    !< Grid cells number in I direction.
@@ -450,6 +364,7 @@ contains
    integer(I4P)                     :: iercuda                               !< Error trapping flag for CUDAFortran.
    real(R8P)                        :: dx_locale, dy_locale, dz_locale       !< Local space steps.
 
+   ! TODO: check for phi inside, umax could be wrong otherwise
    umax = 0._R8P
    !$cuf kernel do(4) <<<*,*>>> reduce(max:umax)
    do k=1, nk
@@ -538,8 +453,8 @@ contains
                                                                   g,q_aux_gpu,fluxes_gpu)
    !< Compute convective fluxes at right interface of b,i,j,k.
    integer(I4P), intent(in),    value  :: dir                                       !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P), intent(in)            :: si(3)                                     !< Stencil increment.
-   real(R8P)   , intent(in)            :: sir(3)                                    !< Stencil increment, real cast.
+   integer(I4P), intent(in),    device :: si(3)                                     !< Stencil increment.
+   real(R8P),    intent(in),    device :: sir(3)                                    !< Stencil increment, real cast.
    integer(I4P), intent(in),    value  :: b, i, j, k                                !< Counter.
    integer(I4P), intent(in),    value  :: ngc                                       !< Ghost cells number.
    integer(I4P), intent(in),    value  :: nv                                        !< Number of conservative varibales.
@@ -556,9 +471,9 @@ contains
    real(R8P),    intent(in),    value  :: g                                         !< Specific heats ratio.
    real(R8P),    intent(in),    device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Auxiliary variables.
    real(R8P),    intent(inout), device :: fluxes_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Fluxes.
-   real(R8P)                           :: el(5,5), er(5,5)                          !< Left and right eigenvalues.
-   real(R8P)                           :: fmpc(1:2,1-S_max:-1+S_max,1:5)            !< Fluxes -+ decomposition in c. space.
-   real(R8P)                           :: fpmr(1:2,1:5)                             !< Fluxes +- reconstructed.
+   real(R8P),                   device :: el(5,5), er(5,5)                          !< Left and right eigenvalues.
+   real(R8P),                   device :: fmpc(1:2,1-S_max:-1+S_max,1:5)            !< Fluxes -+ decomposition in c. space.
+   real(R8P),                   device :: fpmr(1:2,1:5)                             !< Fluxes +- reconstructed.
    logical                             :: ror_recompute                             !< Flag to perform ROR.
    integer(I4P)                        :: r, v, vv, rv                              !< Counter.
 
@@ -602,37 +517,27 @@ contains
    attributes(device) subroutine decompose_fluxes_convective_device(si,sir,el,weno_s,b,i,j,k,ngc,nv,g,q_aux_gpu,fmpc)
    !< Decompose convective fluxes.
    !< Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo-characteristics psace.
-   integer(I4P), intent(in)         :: si(3)                                 !< Stencil increment.
-   real(R8P)   , intent(in)         :: sir(3)                                !< Stencil increment, real cast.
-   real(R8P)   , intent(in)         :: el(1:,1:)                             !< Left eigeinvectors.
-   integer(I4P), intent(in), value  :: weno_s                                !< Weno stencils number/dimension.
-   integer(I4P), intent(in), value  :: b, i, j, k                            !< Counter.
-   integer(I4P), intent(in), value  :: ngc                                   !< Ghost cells number.
-   integer(I4P), intent(in), value  :: nv                                    !< Number of conservative varibales.
-   real(R8P),    intent(in), value  :: g                                     !< Specific heats ratio.
-   real(R8P),    intent(in), device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
-   real(R8P),    intent(inout)      :: fmpc(1:,1-weno_s:,1:)                 !< Fluxes -+ decomposition in characteristics space.
-   real(R8P)                        :: fmp(2)                                !< Fluxes -+ decomposition in each cell stencils.
-   real(R8P)                        :: evmax(5)                              !< Signals speeds.
-   real(R8P)                        :: q(5), f(5)                            !< Conservative variables and fluxes.
-   real(R8P)                        :: gc, wc                                !< Increments for fluxes decomposition.
-   integer(I4P)                     :: v, vv, s, is, js, ks                  !< Counter.
+   integer(I4P), intent(in),    device :: si(3)                                 !< Stencil increment.
+   real(R8P),    intent(in),    device :: sir(3)                                !< Stencil increment, real cast.
+   real(R8P),    intent(in),    device :: el(1:,1:)                             !< Left eigeinvectors.
+   integer(I4P), intent(in),    value  :: weno_s                                !< Weno stencils number/dimension.
+   integer(I4P), intent(in),    value  :: b, i, j, k                            !< Counter.
+   integer(I4P), intent(in),    value  :: ngc                                   !< Ghost cells number.
+   integer(I4P), intent(in),    value  :: nv                                    !< Number of conservative varibales.
+   real(R8P),    intent(in),    value  :: g                                     !< Specific heats ratio.
+   real(R8P),    intent(in),    device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(inout), device :: fmpc(1:,1-weno_s:,1:)                 !< Fluxes -+ decomposition in characteristics space.
+   real(R8P),                   device :: fmp(2)                                !< Fluxes -+ decomposition in each cell stencils.
+   real(R8P),                   device :: evmax(5)                              !< Signals speeds.
+   real(R8P),                   device :: q(5), f(5)                            !< Conservative variables and fluxes.
+   real(R8P)                           :: gc, wc                                !< Increments for fluxes decomposition.
+   integer(I4P)                        :: v, vv, s, is, js, ks                  !< Counter.
 
    call compute_max_eigenvalues_device(si=si,sir=sir,weno_s=weno_s,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,q_aux_gpu=q_aux_gpu,evmax=evmax)
    do s=1-weno_s, weno_s
       is = i + (s) * si(1) ; js = j + (s) * si(2) ; ks = k + (s) * si(3)
-      q(1) =      q_aux_gpu(b,is,js,ks,1)
-      q(2) = q(1)*q_aux_gpu(b,is,js,ks,2)
-      q(3) = q(1)*q_aux_gpu(b,is,js,ks,3)
-      q(4) = q(1)*q_aux_gpu(b,is,js,ks,4)
-      q(5) = q(1)*q_aux_gpu(b,is,js,ks,8) - q_aux_gpu(b,is,js,ks,7)
-      f(1) = q_aux_gpu(b,is,js,ks,1)*q_aux_gpu(b,is,js,ks,2)*sir(1) + &
-             q_aux_gpu(b,is,js,ks,1)*q_aux_gpu(b,is,js,ks,3)*sir(2) + &
-             q_aux_gpu(b,is,js,ks,1)*q_aux_gpu(b,is,js,ks,4)*sir(3)
-      f(2) = f(1)*q_aux_gpu(b,is,js,ks,2) + q_aux_gpu(b,is,js,ks,7)*sir(1)
-      f(3) = f(1)*q_aux_gpu(b,is,js,ks,3) + q_aux_gpu(b,is,js,ks,7)*sir(2)
-      f(4) = f(1)*q_aux_gpu(b,is,js,ks,4) + q_aux_gpu(b,is,js,ks,7)*sir(3)
-      f(5) = f(1)*q_aux_gpu(b,is,js,ks,8)
+      call compute_conservatives_device(b=b,i=is,j=js,k=ks,ngc=ngc,q_aux_gpu=q_aux_gpu,q=q)
+      call compute_conservative_fluxes_device(sir=sir,b=b,i=is,j=js,k=ks,ngc=ngc,q_aux_gpu=q_aux_gpu,f=f)
       do v=1, nv
          wc = 0._R8P
          gc = 0._R8P
@@ -649,99 +554,4 @@ contains
       enddo
    enddo
    endsubroutine decompose_fluxes_convective_device
-
-   attributes(device) subroutine compute_eigenvectors_device(si,sir,b,i,j,k,ngc,nv,g,q_aux_gpu,el,er)
-   ! Compute eigenvectors centered in inteface i,j,k/ip,jp,kp.
-   integer(I4P), intent(in)         :: si(3)                                 !< Stencil increment.
-   real(R8P)   , intent(in)         :: sir(3)                                !< Stencil increment, real cast.
-   integer(I4P), intent(in), value  :: b, i, j, k                            !< Counter.
-   integer(I4P), intent(in), value  :: ngc                                   !< Ghost cells number.
-   integer(I4P), intent(in), value  :: nv                                    !< Number of conservative varibales.
-   real(R8P),    intent(in), value  :: g                                     !< Specific heats ratio.
-   real(R8P),    intent(in), device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
-   real(R8P),    intent(inout)      :: el(1:5,1:5), er(1:5,1:5)              !< Left and right eigenvectors.
-   real(R8P)                           :: uu, vv, ww, h, qq, c, ci, b1, b2   !< Roe average states.
-   real(R8P)                           :: uvw, uvw_r1, uvw_r2                !< Velocity rotation accordingly dir.
-
-   call compute_roe_average_device(q_aux_gpu=q_aux_gpu, g=g, ngc=ngc, b=b, i=i, j=j, k=k, ip=i+si(1), jp=j+si(2), kp=k+si(3), &
-                                   uu=uu, vv=vv, ww=ww, h=h, qq=qq, c=c, ci=ci, b1=b1, b2=b2)
-
-   uvw    =  uu*sir(1)+vv*sir(2)+ww*sir(3)
-   uvw_r1 =  uu*sir(3)+vv*sir(1)+ww*sir(2)
-   uvw_r2 = -uu*sir(2)+vv*sir(3)+ww*sir(1)
-
-   er(1,1)=1._R8P ; er(1,2)=uu-c*sir(1)   ; er(1,3)=vv-c*sir(2) ; er(1,4)=ww-c*sir(3)   ; er(1,5)=h-uvw*c
-   er(2,1)=1._R8P ; er(2,2)=uu            ; er(2,3)=vv          ; er(2,4)=ww            ; er(2,5)=qq
-   er(3,1)=1._R8P ; er(3,2)=uu+c*sir(1)   ; er(3,3)=vv+c*sir(2) ; er(3,4)=ww+c*sir(3)   ; er(3,5)=h+uvw*c
-   er(4,1)=0._R8P ; er(4,2)=sir(2)+sir(3) ; er(4,3)=sir(1)      ; er(4,4)=0._R8P        ; er(4,5)=uvw_r1
-   er(5,1)=0._R8P ; er(5,2)=0._R8P        ; er(5,3)=sir(3)      ; er(5,4)=sir(1)+sir(2) ; er(5,5)=uvw_r2
-
-   el(1,1)= 0.5_R8P*(b1+uvw*ci)      ;el(1,2)= 1._R8P-b1;el(1,3)= 0.5_R8P*(b1-uvw*ci)      ;el(1,4)=-uvw_r1;el(1,5)=-uvw_r2
-   el(2,1)=-0.5_R8P*(b2*uu+ci*sir(1));el(2,2)= b2*uu    ;el(2,3)=-0.5_R8P*(b2*uu-ci*sir(1));el(2,4)= sir(3);el(2,5)=-sir(2)
-   el(3,1)=-0.5_R8P*(b2*vv+ci*sir(2));el(3,2)= b2*vv    ;el(3,3)=-0.5_R8P*(b2*vv-ci*sir(2));el(3,4)= sir(1);el(3,5)= sir(3)
-   el(4,1)=-0.5_R8P*(b2*ww+ci*sir(3));el(4,2)= b2*ww    ;el(4,3)=-0.5_R8P*(b2*ww-ci*sir(3));el(4,4)= sir(2);el(4,5)= sir(1)
-   el(5,1)= 0.5_R8P*b2               ;el(5,2)=-b2       ;el(5,3)= 0.5_R8P*b2               ;el(5,4)= 0._R8P;el(5,5)= 0._R8P
-   endsubroutine compute_eigenvectors_device
-
-   attributes(device) subroutine compute_max_eigenvalues_device(si,sir,weno_s,b,i,j,k,ngc,nv,q_aux_gpu,evmax)
-   ! Compute maximum eigenvalues in the big stencil.
-   integer(I4P), intent(in)         :: si(3)                                 !< Stencil increment.
-   real(R8P)   , intent(in)         :: sir(3)                                !< Stencil increment, real cast.
-   integer(I4P), intent(in), value  :: weno_s                                !< Weno stencils number/dimension.
-   integer(I4P), intent(in), value  :: b, i, j, k                            !< Counter.
-   integer(I4P), intent(in), value  :: ngc                                   !< Ghost cells number.
-   integer(I4P), intent(in), value  :: nv                                    !< Number of conservative varibales.
-   real(R8P),    intent(in), device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
-   real(R8P),    intent(inout)      :: evmax(1:)                             !< Maximum eigenvalues in the big stencil.
-   real(R8P)                        :: uu, c                                 !< Speeds.
-   real(R8P)                        :: ev(5)                                 !< Signals speeds.
-   integer(I4P)                     :: s, is, js, ks, v                      !< Counter.
-
-   evmax = -1._R8P
-   do s=1, 2*weno_s
-      is = i + (s-weno_s) * si(1) ; js = j + (s-weno_s) * si(2) ; ks = k + (s-weno_s) * si(3)
-      uu = q_aux_gpu(b,is,js,ks,1+1*si(1)+2*si(2)+3*si(3))
-      c  = q_aux_gpu(b,is,js,ks,9                        )
-      ev(1) = abs(uu-c) ; ev(2) = abs(uu) ; ev(3) = abs(uu+c) ; ev(4) = ev(2) ; ev(5) = ev(2)
-      do v=1,nv
-         evmax(v) = max(ev(v),evmax(v))
-      enddo
-   enddo
-   endsubroutine compute_max_eigenvalues_device
-
-   attributes(device) subroutine compute_roe_average_device(ngc, b, i, j, k, ip, jp, kp, g, q_aux_gpu, &
-                                                            uu, vv, ww, h, qq, c, ci, b1, b2)
-   !< Compute Roe averaged quantities.
-   integer(I4P), intent(in)         :: ngc                                       !< Number of ghost cells.
-   integer(I4P), intent(in)         :: b, i, j, k, ip, jp, kp                    !< Left/right cells indexes.
-   real(R8P),    intent(in)         :: g                                         !< Specific heats ratio.
-   real(R8P),    intent(in), device :: q_aux_gpu(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:) !< Auxiliary variables.
-   real(R8P),    intent(out)        :: uu, vv, ww, h, qq, c, ci, b1, b2          !< Roe state average variables.
-   real(R8P)                        :: ri, up, vp, wp, hp, r, rp1, cc            !< Local varbiables.
-
-   ! left state (node i)
-   ri        =  1._R8P/q_aux_gpu(b,i,j,k,1)
-   uu        =  q_aux_gpu(b,i,j,k,2)
-   vv        =  q_aux_gpu(b,i,j,k,3)
-   ww        =  q_aux_gpu(b,i,j,k,4)
-   h         =  q_aux_gpu(b,i,j,k,8)
-   ! right state (node i+1)
-   up        =  q_aux_gpu(b,ip,jp,kp,2)
-   vp        =  q_aux_gpu(b,ip,jp,kp,3)
-   wp        =  q_aux_gpu(b,ip,jp,kp,4)
-   hp        =  q_aux_gpu(b,ip,jp,kp,8)
-   ! Roe average state
-   r         =  sqrt(q_aux_gpu(b,ip,jp,kp,1)*ri)
-   rp1       =  1._R8P/(r+1._R8P)
-   uu        =  (r*up+uu)*rp1
-   vv        =  (r*vp+vv)*rp1
-   ww        =  (r*wp+ww)*rp1
-   h         =  (r*hp+h)*rp1
-   qq        =  0.5_R8P * (uu*uu+vv*vv+ww*ww)
-   cc        =  (g-1._R8P) * (h - qq)
-   c         =  sqrt(cc)
-   ci        =  1._R8P/c
-   b2        = (g-1)/cc  ! alias 1/(cp*theta)
-   b1        = b2 * qq   ! alias q/(cp*theta)
-   endsubroutine compute_roe_average_device
 endmodule adam_nasto_nvf_kernels

@@ -7,6 +7,7 @@ use CUDAFOR
 
 implicit none
 private
+public :: compute_q_gradient_cuf
 public :: compute_normL2_residuals_cuf
 public :: copy_transpose_gpu_cpu_cuf
 public :: populate_send_buffer_ghost_gpu_cuf
@@ -14,6 +15,40 @@ public :: receive_recv_buffer_ghost_gpu_cuf
 public :: update_ghost_local_gpu_cuf
 
 contains
+   subroutine compute_q_gradient_cuf(b, ni, nj, nk, ngc, dx, dy, dz, q_gpu, ivar, gradient)
+   !< Compute gradient of q(ivar).
+   integer(I4P), intent(in)         :: b                                 !< Block index.
+   integer(I4P), intent(in)         :: ni                                !< Grid cells number in I direction.
+   integer(I4P), intent(in)         :: nj                                !< Grid cells number in J direction.
+   integer(I4P), intent(in)         :: nk                                !< Grid cells number in K direction.
+   integer(I4P), intent(in)         :: ngc                               !< Ghost cells number.
+   real(R8P),    intent(in)         :: dx                                !< X space step.
+   real(R8P),    intent(in)         :: dy                                !< Y space step.
+   real(R8P),    intent(in)         :: dz                                !< Z space step.
+   real(R8P),    intent(in), device :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field component to which apply gradient.
+   integer(I4P), intent(in)         :: ivar                              !< Ghost cells number.
+   real(R8P),    intent(out)        :: gradient                          !< Maximum gradient of q.
+   real(R8P)                        :: grad                              !< Current gradient of q.
+   integer(I4P)                     :: i, j, k                           !< Counter.
+   integer(I4P)                     :: iercuda                           !< Error trapping flag for CUDAFortran.
+   real(R8P), parameter             :: tol=1.e-12                        !< Gradient denominator tolerance.
+
+   gradient = 0._R8P
+   !$cuf kernel do(3) <<<*,*>>> reduce(max:gradient)
+   do k=1, nk
+      do j=1, nj
+         do i=1, ni
+            grad = sqrt(((q_gpu(b,i+1,j,k,ivar) - q_gpu(b,i-1,j,k,ivar))/(2*dx))**2 + &
+                        ((q_gpu(b,i,j+1,k,ivar) - q_gpu(b,i,j-1,k,ivar))/(2*dy))**2 + &
+                        ((q_gpu(b,i,j,k+1,ivar) - q_gpu(b,i,j,k-1,ivar))/(2*dz))**2)
+            grad = grad/(abs(q_gpu(b,i,j,k,ivar))+tol)
+            gradient = max(gradient, grad)
+         enddo
+      enddo
+   enddo
+   !@cuf iercuda=cudaDeviceSynchronize()
+   endsubroutine compute_q_gradient_cuf
+
    subroutine compute_normL2_residuals_cuf(ni, nj, nk, ngc, nv, blocks_number, dq_gpu, norm)
    !< Compute L2 norm of residuals.
    integer(I4P), intent(in)         :: ni                                 !< Grid cells number in I direction.

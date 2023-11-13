@@ -23,12 +23,12 @@ type, extends(nasto_common_object) :: nasto_nvf_object
    type(rk_nvf_object)    :: rk_gpu    !< RK integrator, NVF backend.
    type(weno_nvf_object)  :: weno_gpu  !< WENO reconstructor, NVF backend.
    ! device data
+   real(R8P), pointer,     device :: q_gpu(:,:,:,:,:)     !< Field cell centered variables.
+   real(R8P), allocatable, device :: q_aux_gpu(:,:,:,:,:) !< Auxiliary cell centered variables.
    real(R8P), allocatable, device :: dq_gpu(:,:,:,:,:)    !< Eikonal right hand side.
    real(R8P), allocatable, device :: flx_gpu(:,:,:,:,:)   !< Fluxes along x.
    real(R8P), allocatable, device :: fly_gpu(:,:,:,:,:)   !< Fluxes along y.
    real(R8P), allocatable, device :: flz_gpu(:,:,:,:,:)   !< Fluxes along z.
-   real(R8P), allocatable, device :: q_aux_gpu(:,:,:,:,:) !< Auxiliary cell centered variables.
-   real(R8P), allocatable, device :: q_gpu(:,:,:,:,:)     !< Field cell centered variables.
    real(R8P), allocatable, device :: q_bc_vars_gpu(:,:)   !< Variables array for boundary conditions on GPU.
    contains
       ! auxiliary methods
@@ -44,9 +44,7 @@ type, extends(nasto_common_object) :: nasto_nvf_object
       procedure, pass(self) :: move_phi         !< Move phi.
       procedure, pass(self) :: refine_uniform   !< Refine all blocks uniformly.
       ! IB methods
-      procedure, pass(self) :: integrate_eikonal          !< Integrate eikonal equation.
-      procedure, pass(self) :: integrate_eikonal_one_step !< Integrate eikonal equation one step over.
-      procedure, pass(self) :: invert_eikonal             !< Invert momentum eikonal equation.
+      procedure, pass(self) :: integrate_eikonal !< Integrate eikonal equation.
       ! IO methods
       procedure, pass(self) :: load_restart_files   !< Load restart files.
       procedure, pass(self) :: save_hdf5            !< Save simulation data in HDF5 format.
@@ -56,35 +54,40 @@ type, extends(nasto_common_object) :: nasto_nvf_object
       ! IC/BC
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation.
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions of equation.
-      procedure, pass(self) :: update_ghost_gpu        !< Update ghost cells and set boundary conditions.
+      procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
       ! numerical methods
-      procedure, pass(self) :: compute_dt        !< Compute time step.
-      procedure, pass(self) :: compute_q_aux_gpu !< Compute auxiliary variables.
-      procedure, pass(self) :: compute_residuals !< Compute residuals.
-      procedure, pass(self) :: integrate         !< Perform one step integration.
-      procedure, pass(self) :: simulate          !< Perform the simulation.
+      procedure, pass(self) :: compute_dt          !< Compute time step.
+      procedure, pass(self) :: compute_q_auxiliary !< Compute auxiliary variables.
+      procedure, pass(self) :: compute_residuals   !< Compute residuals.
+      procedure, pass(self) :: integrate           !< Perform one step integration.
+      procedure, pass(self) :: simulate            !< Perform the simulation.
 endtype nasto_nvf_object
 
 contains
    ! auxiliary methods
-   subroutine allocate_gpu(self)
+   subroutine allocate_gpu(self, q_gpu)
    !< Allocate GPU data.
-   class(nasto_nvf_object), intent(inout) :: self !< The equation.
-   character(:), allocatable              :: msg_ !< Allocating message base.
-   character(:), allocatable              :: ms   !< Allocating message.
-   integer(I4P)                           :: sn1  !< Solids number + 1.
+   class(nasto_nvf_object), intent(inout)                 :: self      !< The equation.
+   real(R8P),               intent(inout), device, target :: q_gpu(1:,         &
+                                                                   1-self%ngc:,&
+                                                                   1-self%ngc:,&
+                                                                   1-self%ngc:,&
+                                                                   1:) !< Conservative variables.
+   character(:), allocatable                              :: msg_      !< Allocating message base.
+   character(:), allocatable                              :: ms        !< Allocating message.
+   integer(I4P)                                           :: sn1       !< Solids number + 1.
 
    call self%mpih_gpu%print_message('nasto_nvf_object%allocate_gpu start')
+   self%q_gpu => q_gpu
    msg_ = self%mpih%myrankstr//'nasto_nvf_object%allocate_gpu '
-   associate(nv=>self%nv, ns=>self%ns, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nrk=>self%rk%nrk, &
-             nb=>self%nb, nv_aux=>self%nv_aux)
+   associate(nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nrk=>self%rk%nrk, nb=>self%nb, nv_aux=>self%nv_aux)
    call assign_allocatable_gpu(lhs=self%q_bc_vars_gpu, rhs=self%bc%q, msg=msg_//' q_bc_vars_gpu ')
-   ms = msg_//' q_gpu '
-   call alloc_var_gpu(var=self%q_gpu,    ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv    ],      [2,5]),msg=ms)
-   self%q_gpu = 0._R8P
    ms = msg_//' q_aux_gpu '
    call alloc_var_gpu(var=self%q_aux_gpu,ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv_aux],      [2,5]),msg=ms)
    self%q_aux_gpu = 0._R8P
+   ms = msg_//' dq_gpu '
+   call alloc_var_gpu(var=self%dq_gpu,   ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv    ],      [2,5]),msg=ms)
+   self%dq_gpu = 0._R8P
    ms = msg_//' flx_gpu '
    call alloc_var_gpu(var=self%flx_gpu,  ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv    ],      [2,5]),msg=ms)
    self%flx_gpu = 0._R8P
@@ -94,9 +97,6 @@ contains
    ms = msg_//' flz_gpu '
    call alloc_var_gpu(var=self%flz_gpu,  ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv    ],      [2,5]),msg=ms)
    self%flz_gpu = 0._R8P
-   ms = msg_//' dq_gpu '
-   call alloc_var_gpu(var=self%dq_gpu,   ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv    ],      [2,5]),msg=ms)
-   self%dq_gpu = 0._R8P
    endassociate
    call self%mpih_gpu%print_message('nasto_nvf_object%allocate_gpu finish')
    endsubroutine allocate_gpu
@@ -118,7 +118,7 @@ contains
    call self%field_gpu%copy_transpose_gpu_cpu(nv=self%nv, q_gpu=self%q_gpu, q_cpu=self%field%q)
    if (present(compute_copy_q_aux)) then
       if (compute_copy_q_aux) then
-         call self%compute_q_aux_gpu(q_gpu=self%q_gpu, q_aux_gpu=self%q_aux_gpu)
+         call self%compute_q_auxiliary(q_gpu=self%q_gpu, q_aux_gpu=self%q_aux_gpu)
          call self%field_gpu%copy_transpose_gpu_cpu(nv=self%nv_aux, q_gpu=self%q_aux_gpu, q_cpu=self%q_aux)
       endif
    endif
@@ -140,10 +140,10 @@ contains
    call self%initialize_common(filename=filename, memory_avail=self%mpih_gpu%memory_avail)
    call self%mpih_gpu%load_from_file(file_parameters=self%io%file_parameters)
    call self%field_gpu%initialize(field=self%adam%field, nv_aux=self%nv_aux, verbose=.false.)
-   call self%ib_gpu%initialize(ib=self%ib)
+   call self%ib_gpu%initialize(ib=self%ib, field_gpu=self%field_gpu)
    call self%rk_gpu%initialize(rk=self%rk, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk, nv=self%nv)
    call self%weno_gpu%initialize(weno=self%weno)
-   call self%allocate_gpu
+   call self%allocate_gpu(q_gpu=self%field_gpu%q_gpu)
    print '(A)', self%mpih_gpu%description()
    call self%mpih_gpu%print_message('nasto_nvf_object%initialize finish')
    endsubroutine initialize
@@ -162,7 +162,7 @@ contains
       is_grid_changed_all = .false.
       do i_marker=1, self%amr%markers_number
          amr_marker = self%amr%markers(i_marker)
-         call self%update_ghost_gpu(q_gpu=self%q_gpu)
+         call self%update_ghost(q_gpu=self%q_gpu)
          select case(amr_marker%mode)
          case(AMR_GEO)
             call self%mark_by_geo(delta_fine=amr_marker%delta_fine, delta_coarse=amr_marker%delta_coarse)
@@ -244,7 +244,7 @@ contains
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
    if (do_init_) self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
-             blocks_number=>self%blocks_number, ns=>self%ns, dxyz=>self%field%dxyz, phi=>self%ib%phi)
+             blocks_number=>self%blocks_number, dxyz=>self%field%dxyz, phi=>self%ib%phi)
       do b=1, blocks_number
          distance = 1._R8P
          if (maxval(phi(1,:,:,:,b))*minval(phi(1,:,:,:,b)) < 0._R8P) then
@@ -295,13 +295,11 @@ contains
    do_init_ = .true.    ; if (present(do_init)) do_init_ = do_init
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
    if (do_init_) self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
-   associate (ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
-              blocks_number=>self%blocks_number, ns=>self%ns, dxyz=>self%field%dxyz)
-      call self%update_ghost_gpu(q_gpu=self%q_gpu)
-      call self%compute_q_aux_gpu(q_gpu=self%q_gpu, q_aux_gpu=self%q_aux_gpu)
+   associate (blocks_number=>self%blocks_number, dxyz=>self%field%dxyz)
+      call self%update_ghost(q_gpu=self%q_gpu)
+      call self%compute_q_auxiliary(q_gpu=self%q_gpu, q_aux_gpu=self%q_aux_gpu)
       do b=1, blocks_number
-         call compute_q_gradient_cuf(b=b, ni=ni, nj=nj, nk=nk, ngc=ngc, &
-                                     dx=dxyz(1,b), dy=dxyz(2,b), dz=dxyz(3,b), q_gpu=self%q_aux_gpu, ivar=ivar_, gradient=grad_var)
+         call self%field_gpu%compute_q_gradient(b=b, ivar=ivar_, q_gpu=self%q_aux_gpu, gradient=grad_var)
          call self%mpih_gpu%check_cuda_error(error_code=CUDA_SILENT_ERR, msg='CUDA error in compute q grandient')
          max_cell_delta = max_cell_delta_grad(grad=grad_var)
          if (maxval(dxyz(:,b)) > max_cell_delta) then
@@ -332,9 +330,13 @@ contains
    class(nasto_nvf_object), intent(inout) :: self        !< The equation.
    real(R8P),               intent(in)    :: velocity(3) !< Velocity of the movement.
 
-   call move_phi_cuf(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
-                     velocity=velocity, phi_gpu=self%ib_gpu%phi_gpu, dphi_gpu=self%dq_gpu)
-   call self%mpih_gpu%check_cuda_error(error_code=CUDA_SILENT_ERR, msg='CUDA error in move phi')
+   if (self%ib%solids_number>0) then
+      call self%mpih_gpu%print_message('move IB distance start')
+      call move_phi_cuf(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                        velocity=velocity, phi_gpu=self%ib_gpu%phi_gpu, dphi_gpu=self%dq_gpu)
+      call self%mpih_gpu%check_cuda_error(error_code=CUDA_SILENT_ERR, msg='CUDA error in move phi')
+      call self%mpih_gpu%print_message('move IB distance finish')
+   endif
    endsubroutine move_phi
 
    subroutine refine_uniform(self, refinement_levels)
@@ -352,78 +354,29 @@ contains
    ! IB methods
    subroutine integrate_eikonal(self, q_gpu)
    !< Integrate eikonal equation.
-   class(nasto_nvf_object), intent(inout)         :: self        !< The equation.
+   class(nasto_nvf_object), intent(inout)         :: self      !< The equation.
    real(R8P),               intent(inout), device :: q_gpu(1:,         &
                                                            1-self%ngc:,&
                                                            1-self%ngc:,&
                                                            1-self%ngc:,&
-                                                           1:)   !< Conservative variables.
-   integer(I4P)                                   :: i_eikonal   !< Counter.
-   integer(I4P), parameter                        :: n_eikonal=2 !< Counter.
+                                                           1:) !< Conservative variables.
+   integer(I4P)                                   :: i_eikonal !< Counter.
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number,             &
-             dx_gpu=>self%field_gpu%dxyz_gpu(:,1), dy_gpu=>self%field_gpu%dxyz_gpu(:,2), dz_gpu=>self%field_gpu%dxyz_gpu(:,3), &
-             solids_number=>self%ib%solids_number, phi_gpu=>self%ib_gpu%phi_gpu, dq_gpu=>self%dq_gpu)
+   associate(blocks_number=>self%blocks_number, solids_number=>self%ib%solids_number, dq_gpu=>self%dq_gpu)
    if (blocks_number > 0) then
       if (solids_number > 0) then
-         call self%update_ghost_gpu(q_gpu=q_gpu)
-         do i_eikonal=1, n_eikonal
+         call self%update_ghost(q_gpu=q_gpu)
+         do i_eikonal=1, self%ib%n_eikonal
             call self%mpih_gpu%barrier
-            call self%integrate_eikonal_one_step(q_gpu=q_gpu)
-            call self%update_ghost_gpu(q_gpu=q_gpu)
+            call self%ib_gpu%evolve_eikonal(dq_gpu=dq_gpu, q_gpu=q_gpu)
+            call self%update_ghost(q_gpu=q_gpu)
          enddo
-         call self%invert_eikonal(q_gpu=q_gpu)
+         call self%ib_gpu%invert_eikonal(q_gpu=q_gpu)
          call self%mpih_gpu%barrier
       endif
    endif
    endassociate
    endsubroutine integrate_eikonal
-
-   subroutine integrate_eikonal_one_step(self, q_gpu)
-   !< Integrate eikonal equation one step over.
-   class(nasto_nvf_object), intent(inout)         :: self      !< The equation.
-   real(R8P),               intent(inout), device :: q_gpu(1:,         &
-                                                           1-self%ngc:,&
-                                                           1-self%ngc:,&
-                                                           1-self%ngc:,&
-                                                           1:) !< Conservative variables.
-   integer(I4P)                                   :: ib        !< Counter.
-
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number,             &
-             dx_gpu=>self%field_gpu%dxyz_gpu(:,1), dy_gpu=>self%field_gpu%dxyz_gpu(:,2), dz_gpu=>self%field_gpu%dxyz_gpu(:,3), &
-             solids_number=>self%ib%solids_number, phi_gpu=>self%ib_gpu%phi_gpu, dq_gpu=>self%dq_gpu)
-      do ib=1, solids_number
-         call compute_eikonal_dq_phi_cuf(ib=ib, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
-                                         dx_gpu=dx_gpu, dy_gpu=dy_gpu, dz_gpu=dz_gpu,                             &
-                                         phi_gpu=phi_gpu, dq_gpu=dq_gpu, q_gpu=q_gpu)
-         call self%mpih_gpu%check_cuda_error(error_code=CUDA_SILENT_ERR, msg='CUDA error in compute eikonal dq phi')
-         call evolve_eikonal_q_phi_cuf(ib=ib, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
-                                       phi_gpu=self%ib_gpu%phi_gpu, dq_gpu=self%dq_gpu, q_gpu=q_gpu)
-         call self%mpih_gpu%check_cuda_error(error_code=CUDA_SILENT_ERR, msg='CUDA error in evolve eikonal q phi')
-      enddo
-   endassociate
-   endsubroutine integrate_eikonal_one_step
-
-   subroutine invert_eikonal(self, q_gpu)
-   !< Invert momentum eikonal equation.
-   class(nasto_nvf_object), intent(inout)         :: self      !< The equation.
-   real(R8P),               intent(inout), device :: q_gpu(1:,         &
-                                                           1-self%ngc:,&
-                                                           1-self%ngc:,&
-                                                           1-self%ngc:,&
-                                                           1:) !< Conservative variables.
-   integer(I4P)                                    :: ib       !< Counter.
-
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number, &
-             bcs_type=>self%ib%bc_type, solids_number=>self%ib%solids_number, phi_gpu=>self%ib_gpu%phi_gpu)
-      do ib=1, solids_number
-         call invert_eikonal_q_phi_cuf(BCS_VISCOUS=BCS_VISCOUS, BCS_EULER=BCS_EULER,                            &
-                                       ib=ib, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, blocks_number=blocks_number, &
-                                       bcs_type=bcs_type(ib), phi_gpu=phi_gpu, q_gpu=q_gpu)
-         call self%mpih_gpu%check_cuda_error(error_code=CUDA_SILENT_ERR, msg='CUDA error in invert eikonal q phi')
-      enddo
-   endassociate
-   endsubroutine invert_eikonal
 
    ! IO methods
    subroutine load_restart_files(self, t, time)
@@ -503,7 +456,7 @@ contains
    if ((self%time%is_to_save(it_save=self%io%it_save)).or.      &
        (self%time%is_to_save(it_save=self%io%restart_save)).or. &
        (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))) then
-      call self%update_ghost_gpu(q_gpu=self%q_gpu)
+      call self%update_ghost(q_gpu=self%q_gpu)
       call self%copy_gpu_cpu(compute_copy_q_aux=.true., copy_phi=.true.)
 
       if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_hdf5
@@ -547,7 +500,7 @@ contains
    call self%copy_cpu_gpu
    endsubroutine set_initial_conditions
 
-   subroutine update_ghost_gpu(self, q_gpu, step)
+   subroutine update_ghost(self, q_gpu, step)
    !< Update ghost cells.
    !< If not specified all steps are perfermod, syncronous computation
    class(nasto_nvf_object), intent(inout)         :: self            !< The equation.
@@ -574,7 +527,7 @@ contains
    if (do_local_update) call self%field_gpu%update_ghost_local_gpu(q_gpu=q_gpu)
                         call self%field_gpu%update_ghost_mpi_gpu(q_gpu=q_gpu, step=step)
    if (do_set_bc)       call self%set_boundary_conditions(q_gpu=q_gpu)
-   endsubroutine update_ghost_gpu
+   endsubroutine update_ghost
 
    ! numerical methods
    subroutine compute_dt(self)
@@ -583,7 +536,7 @@ contains
    real(R8P)                              :: umax !< Maximum speed of waves propagation.
    integer(I4P)                           :: b    !< Counter.
 
-   call self%compute_q_aux_gpu(q_gpu=self%q_gpu, q_aux_gpu=self%q_aux_gpu)
+   call self%compute_q_auxiliary(q_gpu=self%q_gpu, q_aux_gpu=self%q_aux_gpu)
    self%time%dt = huge(1._R8P)
    call compute_umax_cuf(ni=self%ni,nj=self%nj,nk=self%nk,ngc=self%ngc,blocks_number=self%blocks_number,mu=self%physics%eos(1)%mu,&
                          dx_gpu=self%field_gpu%dxyz_gpu(:,1),                                                                     &
@@ -594,7 +547,7 @@ contains
    call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih_gpu%error)
    endsubroutine compute_dt
 
-   subroutine compute_q_aux_gpu(self, q_gpu, q_aux_gpu)
+   subroutine compute_q_auxiliary(self, q_gpu, q_aux_gpu)
    !< Compute auxiliary variables.
    class(nasto_nvf_object), intent(in)          :: self          !< The equation.
    real(R8P),               intent(in),  device :: q_gpu(1:,         &
@@ -608,11 +561,11 @@ contains
                                                              1-self%ngc:,&
                                                              1:) !< Auxiliary variables.
 
-   call compute_q_aux_cuf(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, ns=self%ns, blocks_number=self%blocks_number, &
-                          R=self%physics%eos(1)%R, cv=self%physics%eos(1)%cv, g=self%physics%eos(1)%g,                    &
-                          dha=self%physics%eos(1)%dha, q_gpu=q_gpu, q_aux_gpu=q_aux_gpu)
+   call compute_q_aux_cuf(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                          R=self%physics%eos(1)%R, cv=self%physics%eos(1)%cv, g=self%physics%eos(1)%g,        &
+                          q_gpu=q_gpu, q_aux_gpu=q_aux_gpu)
    call self%mpih_gpu%check_cuda_error(error_code=CUDA_SILENT_ERR, msg='CUDA error in compute q_aux')
-   endsubroutine compute_q_aux_gpu
+   endsubroutine compute_q_auxiliary
 
    subroutine compute_residuals(self, q_gpu, dq_gpu)
    !< Compute residuals of equation.
@@ -628,14 +581,14 @@ contains
                                                             1-self%ngc:,&
                                                             1:)  !< Residuals.
 
-   call self%update_ghost_gpu(q_gpu=q_gpu)
+   call self%update_ghost(q_gpu=q_gpu)
    call self%integrate_eikonal(q_gpu=q_gpu)
-   call self%compute_q_aux_gpu(q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu)
+   call self%compute_q_auxiliary(q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number,      &
              dx_gpu=>self%field_gpu%dxyz_gpu(:,1),                                                                      &
              dy_gpu=>self%field_gpu%dxyz_gpu(:,2),                                                                      &
              dz_gpu=>self%field_gpu%dxyz_gpu(:,3),                                                                      &
-             q_aux_gpu=>self%q_aux_gpu, phi_gpu=>self%ib_gpu%phi_gpu, dq_gpu=>dq_gpu,                                   &
+             q_aux_gpu=>self%q_aux_gpu, phi_gpu=>self%ib_gpu%phi_gpu,                                                   &
              flx_gpu=>self%flx_gpu, fly_gpu=>self%fly_gpu, flz_gpu=>self%flz_gpu,                                       &
              weno_s=>self%weno%S,                                                                                       &
              weno_a_gpu=>self%weno_gpu%a_gpu, weno_p_gpu=>self%weno_gpu%p_gpu, weno_d_gpu=>self%weno_gpu%d_gpu,         &
@@ -646,7 +599,7 @@ contains
              weno_zeps=>self%weno%zeps,                                                                                 &
              solids_number=>self%ib%solids_number,                                                                      &
              cv=>self%physics%eos(1)%cv, g=>self%physics%eos(1)%g, R=>self%physics%eos(1)%R,                            &
-             mu=>self%physics%eos(1)%mu, kd=>self%physics%eos(1)%kd, dha=>self%physics%eos(1)%dha, mpih=>self%mpih_gpu, &
+             mu=>self%physics%eos(1)%mu, kd=>self%physics%eos(1)%kd, mpih=>self%mpih_gpu,                               &
              grid=>self%mpih_gpu%grid, tBlock=>self%mpih_gpu%tBlock)
    if (blocks_number > 0) then
       call mpih%set_cuda_dimensions(cgrd=[blocks_number,nj,nk])
@@ -659,7 +612,6 @@ contains
                                                               ror_stats_gpu=ror_stats_gpu,                                      &
                                                               g=g, q_aux_gpu=q_aux_gpu, fluxes_gpu=flx_gpu)
       call mpih%check_cuda_error(error_code=CUDA_SILENT_ERR, msg='CUDA error in compute convective fluxes X')
-
       call mpih%set_cuda_dimensions(cgrd=[blocks_number,ni,nk])
       call compute_fluxes_convective_kernel<<<grid, tBlock>>>(dir=2,                                                            &
                                                               blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
@@ -670,7 +622,6 @@ contains
                                                               ror_stats_gpu=ror_stats_gpu,                                      &
                                                               g=g, q_aux_gpu=q_aux_gpu, fluxes_gpu=fly_gpu)
       call mpih%check_cuda_error(error_code=CUDA_SILENT_ERR, msg='CUDA error in compute convective fluxes Y')
-
       call mpih%set_cuda_dimensions(cgrd=[blocks_number,ni,nj])
       call compute_fluxes_convective_kernel<<<grid, tBlock>>>(dir=3,                                                            &
                                                               blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
@@ -681,13 +632,11 @@ contains
                                                               ror_stats_gpu=ror_stats_gpu,                                      &
                                                               g=g, q_aux_gpu=q_aux_gpu, fluxes_gpu=flz_gpu)
       call mpih%check_cuda_error(error_code=CUDA_SILENT_ERR, msg='CUDA error in compute convective fluxes Z')
-
       if (mu > 0.) call compute_fluxes_diffusive_cuf(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
                                                      mu=mu, kd=kd, q_aux_gpu=q_aux_gpu,                                &
                                                      dx_gpu=dx_gpu, dy_gpu=dy_gpu, dz_gpu=dz_gpu,                      &
                                                      flx_gpu=flx_gpu, fly_gpu=fly_gpu, flz_gpu=flz_gpu)
       call mpih%check_cuda_error(error_code=CUDA_SILENT_ERR, msg='CUDA error in compute diffusive fluxes')
-
       if (solids_number>0) then
          call compute_fluxes_difference_cuf(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, ib_eps=1.e-12_R8P, &
                                             dx_gpu=dx_gpu, dy_gpu=dy_gpu, dz_gpu=dz_gpu,                                         &
@@ -702,11 +651,10 @@ contains
    endassociate
    endsubroutine compute_residuals
 
-   subroutine integrate(self, do_ghost_syncro, residual)
+   subroutine integrate(self, do_ghost_syncro)
    !< Perform one step integration.
    class(nasto_nvf_object), intent(inout)         :: self                  !< The equation.
    logical,                 intent(in),  optional :: do_ghost_syncro       !< Flag to do syncrous ghost update.
-   real(R8P),               intent(out), optional :: residual              !< Global residual.
    logical                                        :: do_ghost_syncro_      !< Flag to do syncrous ghost update, local var.
    integer(I4P)                                   :: s                     !< Counter.
 
@@ -763,17 +711,20 @@ contains
       call self%load_restart_files(t=self%time%it, time=self%time%time)
       call self%mpih_gpu%print_message('restart [t, time]: '//trim(str(self%time%it))//', '//trim(str(self%time%time)))
    else
-      do i=1, 10
+      call self%mpih_gpu%print_message('impose initial conditions start')
+      do i=1, self%ic%amr_iterations
+         call self%mpih_gpu%print_message('  AMR/set IC iteration:'//trim(str(i,.true.)))
          call self%set_initial_conditions
-         if (self%ib%solids_number > 0) call self%compute_phi()
-         call self%amr_update()
+         if (self%ib%solids_number > 0) call self%compute_phi
+         call self%amr_update
       enddo
       call self%set_initial_conditions
       self%time%time = 0._R8P
       self%time%it = 0
+      call self%mpih_gpu%print_message('impose initial conditions finish')
    endif
-   if (self%ib%solids_number > 0) call self%compute_phi()
-   call self%amr_update()
+   if (self%ib%solids_number > 0) call self%compute_phi
+   call self%amr_update
    call self%save_simulation_data
    if (self%mpih_gpu%myrank==0) call self%io%open_file_residuals(nv=self%nv)
 
@@ -790,11 +741,11 @@ contains
 
       if (mod(self%time%it,self%amr%frequency)==0) then
          call self%mpih_gpu%barrier(tictoc=.true.)
-         call self%amr_update()
+         call self%amr_update
          call self%mpih_gpu%barrier(tictoc=.true.)
       endif
 
-      call self%compute_dt()
+      call self%compute_dt
       if ((self%time%it_max <= 0).and.(self%time%time+self%time%dt > self%time%time_max)) &
          self%time%dt=self%time%time_max-self%time%time
 

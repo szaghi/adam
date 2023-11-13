@@ -39,7 +39,7 @@ contains
             do j=1, nj
                do i=1, ni
                   do b=1, blocks_number
-                     if (phi_gpu(b,i,j,k,all_solids) < 0.) then
+                     if (phi_gpu(b,i,j,k,all_solids) < 0._R8P) then
                         q_rk_gpu(b,i,j,k,v,s) = q_gpu(b,i,j,k,v)
                      endif
                   enddo
@@ -91,7 +91,7 @@ contains
                do j=1, nj
                   do i=1, ni
                      do b=1, blocks_number
-                        if (phi_gpu(b,i,j,k,all_solids) < 0.) then
+                        if (phi_gpu(b,i,j,k,all_solids) < 0._R8P) then
                            q_rk_gpu(b,i,j,k,v,s) = q_rk_gpu(b,i,j,k,v,s) + dt * alph(s,ss) * q_rk_gpu(b,i,j,k,v,ss)
                         endif
                      enddo
@@ -146,7 +146,7 @@ contains
             do j=1, nj
                do i=1, ni
                   do b=1, blocks_number
-                     if (phi_gpu(b,i,j,k,all_solids) < 0.) then
+                     if (phi_gpu(b,i,j,k,all_solids) < 0._R8P) then
                         q_rk_gpu(b,i,j,k,v) = ark * q_n_gpu(b,i,j,k,v) + brk * q_rk_gpu(b,i,j,k,v) + dt * crk * dq_gpu(b,i,j,k,v)
                      endif
                   enddo
@@ -229,7 +229,7 @@ contains
                do j=1, nj
                   do i=1, ni
                      do b=1, blocks_number
-                        if (phi_gpu(b,i,j,k,all_solids) < 0.) then
+                        if (phi_gpu(b,i,j,k,all_solids) < 0._R8P) then
                            q_gpu(b,i,j,k,v) = q_gpu(b,i,j,k,v) + dt * beta(s) * q_rk_gpu(b,i,j,k,v,s)
                         endif
                      enddo

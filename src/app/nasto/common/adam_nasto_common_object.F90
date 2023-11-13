@@ -60,7 +60,6 @@ type :: nasto_common_object
       procedure, pass(self) :: allocate_common   !< Allocate common data.
       procedure, pass(self) :: initialize_common !< Initialize the equation common data.
 endtype nasto_common_object
-
 contains
    subroutine allocate_common(self)
    !< Allocate common data.

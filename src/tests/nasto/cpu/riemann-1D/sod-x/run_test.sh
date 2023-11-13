@@ -8,7 +8,7 @@ while [ $# -gt 0 ]; do
       shift; clean='yes'
       ;;
     "-d")
-      shift; dbg=''
+      shift; dbg=compute-sanitizer
       ;;
     *)
       echo; echo "Unknown switch $1"; exit 1
@@ -20,5 +20,5 @@ if [ "$clean" == "yes" ] ; then
    echo "clean directory"
    ./clean.sh
 fi
-mpirun -n 1 $dbg adam_nasto_cpu adam-nasto-shock-sphere.ini | tee run_test.log
+mpirun -n 1 $dbg adam_nasto_cpu adam-nasto-sod-x.ini | tee run_test.log
 exit 0

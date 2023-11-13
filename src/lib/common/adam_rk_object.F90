@@ -4,6 +4,7 @@ module adam_rk_object
 
 use adam_field_object
 use adam_grid_object
+use adam_memory_library
 use adam_mpih_object
 use finer
 use penf
@@ -30,15 +31,16 @@ character(len=11), parameter :: INI_SECTION_NAME="runge_kutta" !< INI (config) f
 
 type :: rk_object
    !< RK class definition.
-   type(mpih_object)         :: mpih          !< MPI handler.
-   character(:), allocatable :: scheme        !< RK scheme.
-   integer(I4P)              :: nrk=3_I4P     !< Runge-Kutta stages number.
-   real(R8P), allocatable    :: ark(:)        !< Runge-Kutta low storage alpha coefficients.
-   real(R8P), allocatable    :: brk(:)        !< Runge-Kutta low storage beta coefficients.
-   real(R8P), allocatable    :: crk(:)        !< Runge-Kutta low storage beta coefficients.
-   real(R8P), allocatable    :: alph(:,:)     !< Runge-Kutta SSP alpha coefficients.
-   real(R8P), allocatable    :: beta(:)       !< Runge-Kutta SSP beta coefficients.
-   real(R8P), allocatable    :: gamm(:)       !< Runge-Kutta SSP gamma coefficients.
+   type(mpih_object)         :: mpih              !< MPI handler.
+   character(:), allocatable :: scheme            !< RK scheme.
+   integer(I4P)              :: nrk=3_I4P         !< Runge-Kutta stages number.
+   real(R8P), allocatable    :: ark(:)            !< Runge-Kutta low storage alpha coefficients.
+   real(R8P), allocatable    :: brk(:)            !< Runge-Kutta low storage beta coefficients.
+   real(R8P), allocatable    :: crk(:)            !< Runge-Kutta low storage beta coefficients.
+   real(R8P), allocatable    :: alph(:,:)         !< Runge-Kutta SSP alpha coefficients.
+   real(R8P), allocatable    :: beta(:)           !< Runge-Kutta SSP beta coefficients.
+   real(R8P), allocatable    :: gamm(:)           !< Runge-Kutta SSP gamma coefficients.
+   real(R8P), allocatable    :: q_rk(:,:,:,:,:,:) !< Field cell centered variables, RK stages.
    ! grid/field data replica for easy handling
    type(field_object), pointer :: field=>null()         !< The field.
    type(grid_object),  pointer :: grid=>null()          !< The grid.
@@ -52,12 +54,185 @@ type :: rk_object
    integer(I4P),       pointer :: nv=>null()            !< Number of conservative variables.
    contains
       ! public methods
-      procedure, pass(self) :: description    !< Return pretty-printed object description.
-      procedure, pass(self) :: initialize     !< Initialize class.
-      procedure, pass(self) :: load_from_file !< Load config from file.
+      procedure, pass(self) :: assign_stage      !< Assign q to RK stage.
+      procedure, pass(self) :: compute_stage     !< Compute RK stage.
+      procedure, pass(self) :: compute_stage_ls  !< Compute RK stage, low storage scheme.
+      procedure, pass(self) :: description       !< Return pretty-printed object description.
+      procedure, pass(self) :: initialize        !< Initialize class.
+      procedure, pass(self) :: initialize_stages !< Initialize RK stages.
+      procedure, pass(self) :: load_from_file    !< Load config from file.
+      procedure, pass(self) :: update_q          !< Update RK q.
 endtype rk_object
 contains
    ! public methods
+   subroutine assign_stage(self, s, q, phi)
+   !< Assign q to RK stage.
+   class(rk_object), intent(inout)        :: self          !< RK object.
+   integer(I4P),     intent(in)           :: s             !< Current stage number.
+   real(R8P),        intent(in)           :: q(1:     ,     &
+                                               1-self%ngc:, &
+                                               1-self%ngc:, &
+                                               1-self%ngc:, &
+                                               1:)         !< Conservative variables.
+   real(R8P),        intent(in), optional :: phi(1:,          &
+                                                 1-self%ngc:, &
+                                                 1-self%ngc:, &
+                                                 1-self%ngc:, &
+                                                 1:)       !< IB distance.
+   integer(I4P)                           :: all_solids    !< Last phi index, all solids summary.
+   integer(I4P)                           :: i, j, k, b, v !< Counter.
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number, q_rk=>self%q_rk)
+   if (present(phi)) then
+      all_solids = ubound(phi, dim=1)
+      !$omp parallel do collapse(5) default(firstprivate) shared(phi,q_rk,q)
+      do b=1, blocks_number
+         do k=1, nk
+            do j=1, nj
+               do i=1, ni
+                  do v=1, nv
+                     if (phi(all_solids,i,j,k,b) < 0._R8P) then
+                        q_rk(v,i,j,k,b,s) = q(v,i,j,k,b)
+                     endif
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !$omp end parallel do
+   else
+      !$omp parallel do collapse(5) default(firstprivate) shared(q_rk,q)
+      do b=1, blocks_number
+         do k=1, nk
+            do j=1, nj
+               do i=1, ni
+                  do v=1, nv
+                     q_rk(v,i,j,k,b,s) = q(v,i,j,k,b)
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !$omp end parallel do
+   endif
+   endassociate
+   endsubroutine assign_stage
+
+   subroutine compute_stage(self, s, dt, phi)
+   !< Compute RK stage.
+   class(rk_object), intent(inout)        :: self    !< RK object.
+   integer(I4P),     intent(in)           :: s       !< Current stage number.
+   real(R8P),        intent(in)           :: dt      !< Current time step.
+   real(R8P),        intent(in), optional :: phi(1:,          &
+                                                 1-self%ngc:, &
+                                                 1-self%ngc:, &
+                                                 1-self%ngc:, &
+                                                 1:) !< IB distance.
+   integer(I4P)                           :: all_solids        !< Last phi index, all solids summary.
+   integer(I4P)                           :: i, j, k, b, v, ss !< Counter.
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number, q_rk=>self%q_rk,&
+             alph=>self%alph)
+   if (present(phi)) then
+      all_solids = ubound(phi, dim=1)
+      !$omp parallel do collapse(6) default(firstprivate) shared(phi,q_rk,alph)
+      do ss=1, s-1
+         do b=1, blocks_number
+            do k=1, nk
+               do j=1, nj
+                  do i=1, ni
+                     do v=1, nv
+                        if (phi(all_solids,i,j,k,b) < 0._R8P) then
+                           q_rk(v,i,j,k,b,s) = q_rk(v,i,j,k,b,s) + dt * alph(s,ss) * q_rk(v,i,j,k,b,ss)
+                        endif
+                     enddo
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !$omp end parallel do
+   else
+      !$omp parallel do collapse(6) default(firstprivate) shared(q_rk,alph)
+      do ss=1, s-1
+         do b=1, blocks_number
+            do k=1, nk
+               do j=1, nj
+                  do i=1, ni
+                     do v=1, nv
+                        q_rk(v,i,j,k,b,s) = q_rk(v,i,j,k,b,s) + dt * alph(s, ss) * q_rk(v,i,j,k,b,ss)
+                     enddo
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !$omp end parallel do
+   endif
+   endassociate
+   endsubroutine compute_stage
+
+   subroutine compute_stage_ls(self, s, dt, phi, dq, q)
+   !< Compute RK stage, low storage scheme.
+   !< The first (only) stage is assumed to be the previous time step q solution.
+   class(rk_object), intent(in)           :: self          !< RK object.
+   integer(I4P),     intent(in)           :: s             !< Current RK stage.
+   real(R8P),        intent(in)           :: dt            !< Current time step.
+   real(R8P),        intent(in), optional :: phi(1:,          &
+                                                 1-self%ngc:, &
+                                                 1-self%ngc:, &
+                                                 1-self%ngc:, &
+                                                 1:)       !< IB distance.
+   real(R8P),        intent(in)           :: dq(1:,          &
+                                                1-self%ngc:, &
+                                                1-self%ngc:, &
+                                                1-self%ngc:, &
+                                                1:)        !< Conservative variables residuals.
+   real(R8P),        intent(inout)        :: q(1:,          &
+                                               1-self%ngc:, &
+                                               1-self%ngc:, &
+                                               1-self%ngc:, &
+                                               1:)         !< Conservative variables stage.
+   integer(I4P)                           :: all_solids    !< Last phi index, all solids summary.
+   integer(I4P)                           :: i, j, k, b, v !< Counter.
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number, &
+             ark=>self%ark, brk=>self%brk, crk=>self%crk, q_n=>self%q_rk)
+   if (present(phi)) then
+      all_solids = ubound(phi, dim=1)
+      !$omp parallel do collapse(5) default(firstprivate) shared(phi,q,q_n,dq,ark,brk,crk)
+      do b=1, blocks_number
+         do k=1, nk
+            do j=1, nj
+               do i=1, ni
+                  do v=1, nv
+                     if (phi(all_solids,i,j,k,b) < 0._R8P) then
+                        q(v,i,j,k,b) = ark(s) * q_n(v,i,j,k,b,1) + brk(s) * q(v,i,j,k,b) + dt * crk(s) * dq(v,i,j,k,b)
+                     endif
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !$omp end parallel do
+   else
+      !$omp parallel do collapse(5) default(firstprivate) shared(q,q_n,dq,ark,brk,crk)
+      do b=1, blocks_number
+         do k=1, nk
+            do j=1, nj
+               do i=1, ni
+                  do v=1, nv
+                     q(v,i,j,k,b) = ark(s) * q_n(v,i,j,k,b,1) + brk(s) * q(v,i,j,k,b) + dt * crk(s) * dq(v,i,j,k,b)
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !$omp end parallel do
+   endif
+   endassociate
+   endsubroutine compute_stage_ls
+
    pure function description(self) result(desc)
    !< Return a pretty-formatted object description.
    class(rk_object), intent(in)  :: self             !< RK object.
@@ -171,6 +346,29 @@ contains
       self%gamm(4) = 0.47454236302687_R8P
       self%gamm(5) = 0.93501063100924_R8P
    endselect
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nb=>self%nb, nrk=>self%nrk)
+   select case(self%scheme)
+   case(RK_1, RK_2, RK_3) ! low storage, only stage 1 is necessary
+      call alloc_var_cpu(var=self%q_rk,         &
+                     ulb=reshape([1,nv,         &
+                                  1-ngc,ni+ngc, &
+                                  1-ngc,nj+ngc, &
+                                  1-ngc,nk+ngc, &
+                                  1,nb,         &
+                                  1,1],[2,6]),  &
+                     msg=self%mpih%myrankstr//'rk_object%initialize allocate q_rk')
+   case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
+      call alloc_var_cpu(var=self%q_rk,          &
+                     ulb=reshape([1,nv,          &
+                                  1-ngc,ni+ngc,  &
+                                  1-ngc,nj+ngc,  &
+                                  1-ngc,nk+ngc,  &
+                                  1,nb,          &
+                                  1,nrk],[2,6]), &
+                     msg=self%mpih%myrankstr//'rk_object%initialize allocate q_rk')
+   endselect
+   endassociate
    call self%mpih%print_message('rk_object%initialize finish')
    contains
       subroutine associate_adam_data(grid, field)
@@ -190,6 +388,35 @@ contains
       endsubroutine associate_adam_data
    endsubroutine initialize
 
+   subroutine initialize_stages(self, q)
+   !< Initialize RK stages.
+   class(rk_object), intent(inout) :: self             !< RK object.
+   real(R8P),        intent(in)    :: q(1:,          &
+                                        1-self%ngc:, &
+                                        1-self%ngc:, &
+                                        1-self%ngc:, &
+                                        1:)            !< Conservative variables.
+   integer(I4P)                    :: i, j, k, b, v, s !< Counter.
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number, q_rk=>self%q_rk)
+   !$omp parallel do collapse(6) default(firstprivate) shared(q,q_rk)
+   do s=lbound(q_rk,dim=6),ubound(q_rk,dim=6)
+      do b=1, blocks_number
+         do k=1, nk
+            do j=1, nj
+               do i=1, ni
+                  do v=1, nv
+                     q_rk(v,i,j,k,b,s) = q(v,i,j,k,b)
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+   !$omp end parallel do
+   endassociate
+   endsubroutine initialize_stages
+
    subroutine load_from_file(self, file_parameters, go_on_fail)
    !< Load config from file.
    class(rk_object), intent(inout)        :: self            !< RK object.
@@ -205,4 +432,62 @@ contains
    if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme)')
    self%scheme = trim(adjustl(buff_c))
    endsubroutine load_from_file
+
+   subroutine update_q(self, dt, phi, q)
+   !< Update RK q.
+   class(rk_object), intent(in)           :: self             !< RK object.
+   real(R8P),        intent(in)           :: dt               !< Current time step.
+   real(R8P),        intent(in), optional :: phi(1:,          &
+                                                 1-self%ngc:, &
+                                                 1-self%ngc:, &
+                                                 1-self%ngc:, &
+                                                 1:)          !< IB distance.
+   real(R8P),        intent(inout)        :: q(1:,          &
+                                               1-self%ngc:, &
+                                               1-self%ngc:, &
+                                               1-self%ngc:, &
+                                               1:)            !< Conservative variables.
+   integer(I4P)                           :: all_solids       !< Last phi index, all solids summary.
+   integer(I4P)                           :: i, j, k, b, v, s !< Counter.
+
+   associate(nrk=>self%nrk, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number, &
+             beta=>self%beta, q_rk=>self%q_rk)
+   if (present(phi)) then
+      all_solids = ubound(phi, dim=1)
+      !$omp parallel do collapse(6) default(firstprivate) shared(phi,q,q_rk,beta)
+      do s=1, nrk
+         do b=1, blocks_number
+            do k=1, nk
+               do j=1, nj
+                  do i=1, ni
+                     do v=1, nv
+                        if (phi(all_solids,i,j,k,b) < 0._R8P) then
+                           q(v,i,j,k,b) = q(v,i,j,k,b) + dt * beta(s) * q_rk(v,i,j,k,b,s)
+                        endif
+                     enddo
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !$omp end parallel do
+   else
+      !$omp parallel do collapse(6) default(firstprivate) shared(q,q_rk,beta)
+      do s=1, nrk
+         do b=1, blocks_number
+            do k=1, nk
+               do j=1, nj
+                  do i=1, ni
+                     do v=1, nv
+                        q(v,i,j,k,b) = q(v,i,j,k,b) + dt * beta(s) * q_rk(v,i,j,k,b,s)
+                     enddo
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !$omp end parallel do
+   endif
+   endassociate
+   endsubroutine update_q
 endmodule adam_rk_object

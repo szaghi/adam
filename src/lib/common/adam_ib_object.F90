@@ -52,6 +52,7 @@ type :: ib_object
    character(99),                     allocatable :: definition(:)   !< (Type of) Solid definition.
    type(analytical_sphere_object),    allocatable :: sphere(:)       !< Analytical sphere/circle solid.
    type(analytical_rectangle_object), allocatable :: rectangle(:)    !< Analytical rectangle solid.
+   integer(I4P)                                   :: n_eikonal=2     !< Number of eikonal integration steps.
    ! Pointers to ADAM data for easy handling.
    type(field_object), pointer :: field=>null() !< The field.
    type(grid_object),  pointer :: grid =>null() !< The grid.
@@ -62,9 +63,9 @@ type :: ib_object
       procedure, pass(self) :: compute_phi            !< Compute distance function.
       procedure, pass(self) :: compute_phi_all_solids !< Compute last phi index, all solids summary.
       procedure, pass(self) :: description            !< Return pretty-printed object description.
-      procedure, pass(self) :: evolve_eikonal_q       !< Evolve eikonal q.
+      procedure, pass(self) :: evolve_eikonal         !< Evolve eikonal equation.
       procedure, pass(self) :: initialize             !< Initialize IB.
-      procedure, pass(self) :: invert_eikonal_q       !< Invert eikonal equation over q inside IB.
+      procedure, pass(self) :: invert_eikonal         !< Invert eikonal equation over q inside IB.
       procedure, pass(self) :: load_from_file         !< Load config from file.
       procedure, pass(self) :: move_phi               !< Move phi and the actual ptree representation.
       procedure, pass(self) :: sphere_to_array        !< Convert analytical sphere class data to array data.
@@ -73,7 +74,6 @@ type :: ib_object
       procedure, pass(self), private :: compute_phi_analytical_circle    !< Compute distance for analytical circle solids.
       procedure, pass(self), private :: compute_phi_analytical_rectangle !< Compute distance for analytical rectangle solids.
 endtype ib_object
-
 contains
    ! public methods
    subroutine compute_phi(self, verbose)
@@ -135,6 +135,7 @@ contains
 
    desc =       self%mpih%myrankstr//'IB main data'//NL
    desc = desc//self%mpih%myrankstr//'  solids number: '//trim(str(self%solids_number))
+   desc = desc//self%mpih%myrankstr//'  n_eikonal:     '//trim(str(self%n_eikonal))
    do s=1, self%solids_number
       desc = desc//NL//self%mpih%myrankstr//'  Solid '//trim(str(s,.true.))
       desc = desc//NL//self%mpih%myrankstr//'    BC type:    '//trim(str(self%bc_type(s)))
@@ -195,6 +196,8 @@ contains
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
    call file_parameters%get(section_name=INI_SECTION_NAME//'s', option_name='number', val=self%solids_number, error=err)
    if (.not.go_on_fail_.and.err>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'s].(number)')
+   call file_parameters%get(section_name=INI_SECTION_NAME//'s', option_name='n_eikonal', val=self%n_eikonal, error=err)
+   if (.not.go_on_fail_.and.err>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'s].(n_eikonal)')
 
    if (self%solids_number>=1) then
       allocate(self%s_name(self%solids_number))
@@ -268,8 +271,8 @@ contains
    array = [self%sphere(ib)%center(1), self%sphere(ib)%center(2), self%sphere(ib)%center(3), self%sphere(ib)%radius]
    endfunction sphere_to_array
 
-   subroutine evolve_eikonal_q(self, q)
-   !< Evolve eikonal q.
+   subroutine evolve_eikonal(self, q)
+   !< Evolve eikonal equation.
    class(ib_object), intent(in)    :: self                             !< IB.
    real(R8P),        intent(inout) ::  q(1:,               &
                                          1-self%grid%ngc:, &
@@ -282,6 +285,7 @@ contains
 
    associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, &
              nv=>self%field%nv, phi=>self%phi, solids_number=>self%solids_number)
+   !$omp parallel do collapse(4) default(firstprivate) shared(phi,q)
    do b=1, blocks_number
       do k=1, nk
          do j=1, nj
@@ -322,10 +326,11 @@ contains
          enddo
       enddo
    enddo
+   !$omp end parallel do
    endassociate
-   endsubroutine evolve_eikonal_q
+   endsubroutine evolve_eikonal
 
-   subroutine invert_eikonal_q(self, q)
+   subroutine invert_eikonal(self, q)
    !< Invert eikonal equation over q inside IB.
    class(ib_object), intent(in)    :: self                  !< IB.
    real(R8P),        intent(inout) ::  q(1:,               &
@@ -339,6 +344,7 @@ contains
 
    associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, &
              phi=>self%phi, solids_number=>self%solids_number, bcs_type=>self%bc_type)
+   !$omp parallel do collapse(4) default(firstprivate) shared(phi,q,bcs_type)
    do b=1, blocks_number
       do k=1, nk
          do j=1, nj
@@ -371,8 +377,9 @@ contains
          enddo
       enddo
    enddo
+   !$omp end parallel do
    endassociate
-   endsubroutine invert_eikonal_q
+   endsubroutine invert_eikonal
 
    ! private methods
    subroutine compute_phi_analytical_sphere(self, solid, sphere)
@@ -383,18 +390,21 @@ contains
    integer(I4P)                                  :: b, i, j, k !< Counter.
 
    associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, &
-             x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell, phi=>self%phi)
+             x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell, phi=>self%phi,                    &
+             center=>sphere%center, radius=>sphere%radius)
+   !$omp parallel do collapse(4) default(firstprivate) shared(phi,x_cell,y_cell,z_cell,center)
    do b=1, blocks_number
       do i=1-ngc, ni+ngc
          do j=1-ngc, nj+ngc
             do k=1-ngc, nk+ngc
-               phi(solid,i,j,k,b) = - (sqrt((x_cell(i,b)-sphere%center(1))**2 + &
-                                            (y_cell(j,b)-sphere%center(2))**2 + &
-                                            (z_cell(k,b)-sphere%center(3))**2) - sphere%radius)
+               phi(solid,i,j,k,b) = - (sqrt((x_cell(i,b)-center(1))**2 + &
+                                            (y_cell(j,b)-center(2))**2 + &
+                                            (z_cell(k,b)-center(3))**2) - radius)
             enddo
          enddo
       enddo
    enddo
+   !$omp end parallel do
    endassociate
    endsubroutine compute_phi_analytical_sphere
 
@@ -406,41 +416,48 @@ contains
    integer(I4P)                                  :: b, i, j, k !< Counter.
 
    associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, &
-             x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell, phi=>self%phi)
+             x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell, phi=>self%phi,                    &
+             center=>sphere%center, radius=>sphere%radius)
    select case(sphere%axis)
    case('x')
+      !$omp parallel do collapse(4) default(firstprivate) shared(phi,y_cell,z_cell,center)
       do b=1, blocks_number
          do i=1-ngc, ni+ngc
             do j=1-ngc, nj+ngc
                do k=1-ngc, nk+ngc
-                  phi(solid,i,j,k,b) = - (sqrt((y_cell(j,b)-sphere%center(2))**2 + &
-                                               (z_cell(k,b)-sphere%center(3))**2) - sphere%radius)
+                  phi(solid,i,j,k,b) = - (sqrt((y_cell(j,b)-center(2))**2 + &
+                                               (z_cell(k,b)-center(3))**2) - radius)
                enddo
             enddo
          enddo
       enddo
+      !$omp end parallel do
    case('y')
+      !$omp parallel do collapse(4) default(firstprivate) shared(phi,x_cell,z_cell,center)
       do b=1, blocks_number
          do i=1-ngc, ni+ngc
             do j=1-ngc, nj+ngc
                do k=1-ngc, nk+ngc
-                  phi(solid,i,j,k,b) = - (sqrt((x_cell(i,b)-sphere%center(1))**2 + &
-                                               (z_cell(k,b)-sphere%center(3))**2) - sphere%radius)
+                  phi(solid,i,j,k,b) = - (sqrt((x_cell(i,b)-center(1))**2 + &
+                                               (z_cell(k,b)-center(3))**2) - radius)
                enddo
             enddo
          enddo
       enddo
+      !$omp end parallel do
    case('z')
+      !$omp parallel do collapse(4) default(firstprivate) shared(phi,x_cell,y_cell,center)
       do b=1, blocks_number
          do i=1-ngc, ni+ngc
             do j=1-ngc, nj+ngc
                do k=1-ngc, nk+ngc
-                  phi(solid,i,j,k,b) = - (sqrt((x_cell(i,b)-sphere%center(1))**2 + &
-                                               (y_cell(j,b)-sphere%center(2))**2) - sphere%radius)
+                  phi(solid,i,j,k,b) = - (sqrt((x_cell(i,b)-center(1))**2 + &
+                                               (y_cell(j,b)-center(2))**2) - radius)
                enddo
             enddo
          enddo
       enddo
+      !$omp end parallel do
    endselect
    endassociate
    endsubroutine compute_phi_analytical_circle

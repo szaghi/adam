@@ -23,8 +23,9 @@ character(len=15), parameter :: IC_TYPE_RP="riemann-problem"          !< Riemann
 type :: nasto_ic_object
    !< Initial Conditions class definition, CPU backend.
    type(mpih_object)         :: mpih                 !< MPI handler.
+   integer(I4P)              :: amr_iterations=1_I4P !< Number of AMR iterations imposing IC.
    character(:), allocatable :: ic_type              !< IC type.
-   integer(I4P)              :: regions_number=1     !< Number of IC regions.
+   integer(I4P)              :: regions_number=1_I4P !< Number of IC regions.
    real(R8P), allocatable    :: q(:,:)               !< Primitive variables (r,u,v,w,p), s fluid specie index at IC for each region.
    real(R8P), allocatable    :: emin(:,:), emax(:,:) !< IC regions bounding box.
    contains
@@ -81,6 +82,9 @@ contains
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='amr_iterations', val=self%amr_iterations, error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(amr_iterations)')
+   self%amr_iterations = max(0_I4P, self%amr_iterations)
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='type', val=buff_char, error=error)
    if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(type)')
    self%ic_type = trim(adjustl(buff_char))

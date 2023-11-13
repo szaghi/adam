@@ -18,6 +18,7 @@ interface alloc_var_cpu
 module procedure alloc_var_cpu_R8P_1D, &
                  alloc_var_cpu_R8P_2D, &
                  alloc_var_cpu_R8P_5D, &
+                 alloc_var_cpu_R8P_6D, &
                  alloc_var_cpu_I4P_1D, &
                  alloc_var_cpu_I8P_1D, &
                  alloc_var_cpu_I8P_2D, &
@@ -112,6 +113,30 @@ contains
       print '(A)', msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
    endif
    endsubroutine alloc_var_cpu_R8P_5D
+
+   subroutine alloc_var_cpu_R8P_6D(var, ulb, msg, verbose)
+   !< Allocate CPU variable with memory checking (kind R8P, rank 6).
+   real(R8P), allocatable, intent(inout)         :: var(:,:,:,:,:,:)    !< Varibale to be allocate on CPU.
+   integer(I4P),           intent(in)            :: ulb(2,6)            !< Upper/lower bounds of variable.
+   character(*),           intent(in), optional  :: msg                 !< Message to be printed in verbose mode.
+   logical,                intent(in), optional  :: verbose             !< Flag to activate verbose mode.
+   character(:), allocatable                     :: msg_                !< Message to be printed in verbose mode, local var.
+   logical                                       :: verbose_            !< Flag to activate verbose mode, local var.
+   integer(C_LONG)                               :: mem_free, mem_total !< CPU memory.
+
+   msg_     = ''      ; if (present(msg    )) msg_     = msg
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   if (allocated(var)) deallocate(var)
+   if (verbose_) then
+      call cpuMemGetInfo(mem_total, mem_free)
+      print '(A)', msg_//'free/total memory BEFORE allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+   endif
+   allocate(var(ulb(1,1):ulb(2,1), ulb(1,2):ulb(2,2), ulb(1,3):ulb(2,3), ulb(1,4):ulb(2,4), ulb(1,5):ulb(2,5), ulb(1,6):ulb(2,6)))
+   if (verbose_) then
+      call cpuMemGetInfo(mem_total, mem_free)
+      print '(A)', msg_//'free/total memory AFTER  allocate:'//trim(str([mem_free,mem_total]))//'[bytes]'
+   endif
+   endsubroutine alloc_var_cpu_R8P_6D
 
    subroutine alloc_var_cpu_I4P_1D(var, ulb, msg, verbose)
    !< Allocate CPU variable with memory checking (kind I4P, rank 1).

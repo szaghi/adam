@@ -228,8 +228,8 @@ preproc  = -D_MPI_
 compiler = custom
 fc       = mpiifort -fc=ifort
 modsw    = '-module '
-cflags   = -cpp -c -O2
-lflags   = -O2
+cflags   = -cpp -c -O2 -fopenmp
+lflags   = -O2 -fopenmp
 ext_libs = dl m
 lib_dir  = $HDF5_ifx/lib
 include  = $HDF5_ifx/include
@@ -250,8 +250,8 @@ compiler = custom
 fc       = mpiifort -fc=ifort
 modsw    = '-module '
 mpi      = True
-cflags   = -c -O0 -debug full -check all -warn all -extend-source 132 -g -traceback -check bounds -ftrapuv
-lflags   = -O0 -debug full -check all -warn all -extend-source 132 -g -traceback -check bounds -ftrapuv
+cflags   = -c -O0 -fopenmp -debug full -check all -warn all -extend-source 132 -g -traceback -check bounds -ftrapuv
+lflags   = -O0 -fopenmp -debug full -check all -warn all -extend-source 132 -g -traceback -check bounds -ftrapuv
 ext_libs = dl m
 lib_dir  = $HDF5_ifx/lib
 include  = $HDF5_ifx/include

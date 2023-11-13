@@ -23,7 +23,7 @@ type :: rk_nvf_object
    real(R8P), allocatable, device :: alph_gpu(:,:)         !< RK alpha coefficients.
    real(R8P), allocatable, device :: beta_gpu(:)           !< RK beta coefficients.
    real(R8P), allocatable, device :: gamm_gpu(:)           !< RK gamma coefficients.
-   real(R8P), allocatable, device :: q_rk_gpu(:,:,:,:,:,:) !< Field cell centered variables,RK stages.
+   real(R8P), allocatable, device :: q_rk_gpu(:,:,:,:,:,:) !< Field cell centered variables, RK stages.
    contains
       ! public methods
       procedure, pass(self) :: assign_stage      !< Assign q to RK stage.
@@ -39,10 +39,10 @@ contains
    !< Assign q to RK stage.
    class(rk_nvf_object), intent(inout)                :: self        !< RK object.
    integer(I4P),         intent(in)                   :: s           !< Current stage number.
-   real(R8P),            intent(in), device           :: q_gpu(1:     ,    &
-                                                               1-self%rk%ngc:,&
-                                                               1-self%rk%ngc:,&
-                                                               1-self%rk%ngc:,&
+   real(R8P),            intent(in), device           :: q_gpu(1:     ,        &
+                                                               1-self%rk%ngc:, &
+                                                               1-self%rk%ngc:, &
+                                                               1-self%rk%ngc:, &
                                                                1:)   !< Conservative variables.
    real(R8P),            intent(in), device, optional :: phi_gpu(1:,             &
                                                                  1-self%rk%ngc:, &
@@ -86,15 +86,15 @@ contains
                                                                     1-self%rk%ngc:, &
                                                                     1-self%rk%ngc:, &
                                                                     1:) !< IB distance.
-   real(R8P),            intent(in),    device           :: dq_gpu(1:,       &
-                                                                  1-self%rk%ngc:,&
-                                                                  1-self%rk%ngc:,&
-                                                                  1-self%rk%ngc:,&
+   real(R8P),            intent(in),    device           :: dq_gpu(1:,            &
+                                                                  1-self%rk%ngc:, &
+                                                                  1-self%rk%ngc:, &
+                                                                  1-self%rk%ngc:, &
                                                                   1:)   !< Conservative variables residuals.
-   real(R8P),            intent(inout), device           :: q_gpu(1:,         &
-                                                                  1-self%rk%ngc:,&
-                                                                  1-self%rk%ngc:,&
-                                                                  1-self%rk%ngc:,&
+   real(R8P),            intent(inout), device           :: q_gpu(1:,             &
+                                                                  1-self%rk%ngc:, &
+                                                                  1-self%rk%ngc:, &
+                                                                  1-self%rk%ngc:, &
                                                                   1:)   !< Conservative variables stage.
 
    associate(ni=>self%rk%ni, nj=>self%rk%nj, nk=>self%rk%nk, ngc=>self%rk%ngc, nv=>self%rk%nv, blocks_number=>self%rk%blocks_number)
@@ -160,10 +160,10 @@ contains
                                                                     1-self%rk%ngc:, &
                                                                     1-self%rk%ngc:, &
                                                                     1:) !< IB distance.
-   real(R8P),            intent(inout), device           :: q_gpu(1:     ,    &
-                                                               1-self%rk%ngc:,&
-                                                               1-self%rk%ngc:,&
-                                                               1-self%rk%ngc:,&
+   real(R8P),            intent(inout), device           :: q_gpu(1:     ,     &
+                                                               1-self%rk%ngc:, &
+                                                               1-self%rk%ngc:, &
+                                                               1-self%rk%ngc:, &
                                                                1:)      !< Conservative variables.
 
    associate(ni=>self%rk%ni, nj=>self%rk%nj, nk=>self%rk%nk, ngc=>self%rk%ngc, nv=>self%rk%nv, blocks_number=>self%rk%blocks_number)

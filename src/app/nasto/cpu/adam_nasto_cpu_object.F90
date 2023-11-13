@@ -4,6 +4,7 @@ module adam_nasto_cpu_object
 
 use adam_common_library
 use adam_nasto_common_library
+use adam_nasto_cpu_cns
 use penf
 use mpi
 
@@ -13,21 +14,13 @@ public :: nasto_cpu_object
 
 type, extends(nasto_common_object) :: nasto_cpu_object
    !< Navier-Stokes equations system class definition, CPU backend.
-   real(R8P), allocatable :: fl(:,:,:,:,:)       !< Residuals.
-   real(R8P), allocatable :: flx(:,:,:,:,:)      !< Fluxes along x.
-   real(R8P), allocatable :: fly(:,:,:,:,:)      !< Fluxes along y.
-   real(R8P), allocatable :: flz(:,:,:,:,:)      !< Fluxes along z.
-   real(R8P), allocatable :: gplus_x(:,:,:,:,:)  !< Positive fluxes for weno-x.
-   real(R8P), allocatable :: gminus_x(:,:,:,:,:) !< Negative fluxes for weno-x.
-   real(R8P), allocatable :: gplus_y(:,:,:,:,:)  !< Positive fluxes for weno-y.
-   real(R8P), allocatable :: gminus_y(:,:,:,:,:) !< Negative fluxes for weno-y.
-   real(R8P), allocatable :: gplus_z(:,:,:,:,:)  !< Positive fluxes for weno-z.
-   real(R8P), allocatable :: gminus_z(:,:,:,:,:) !< Negative fluxes for weno-z.
-   real(R8P), allocatable :: q_old(:,:,:,:,:)    !< Field cell centered variables (old iteration).
+   real(R8P), allocatable :: dq(:,:,:,:,:)  !< Eikonal right hand side.
+   real(R8P), allocatable :: flx(:,:,:,:,:) !< Fluxes along x.
+   real(R8P), allocatable :: fly(:,:,:,:,:) !< Fluxes along y.
+   real(R8P), allocatable :: flz(:,:,:,:,:) !< Fluxes along z.
    contains
       ! auxiliary methods
       procedure, pass(self) :: allocate_cpu !< Allocate CPU data.
-      procedure, pass(self) :: destroy      !< Destroy the equation.
       procedure, pass(self) :: initialize   !< Initialize the equation.
       ! AMR methods
       procedure, pass(self) :: amr_update       !< Do AMR update.
@@ -37,8 +30,7 @@ type, extends(nasto_common_object) :: nasto_cpu_object
       procedure, pass(self) :: move_phi         !< Move phi.
       procedure, pass(self) :: refine_uniform   !< Refine all blocks uniformly.
       ! IB methods
-      procedure, pass(self) :: integrate_eikonal_q !< Integrate eikonal equation over q.
-      procedure, pass(self) :: invert_eikonal_q    !< Invert momentum eikonal equation over q.
+      procedure, pass(self) :: integrate_eikonal !< Integrate eikonal equation.
       ! IO methods
       procedure, pass(self) :: load_restart_files   !< Load restart files.
       procedure, pass(self) :: save_hdf5            !< Save simulation data in HDF5 format.
@@ -50,12 +42,11 @@ type, extends(nasto_common_object) :: nasto_cpu_object
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions of equation.
       procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
       ! numerical methods
-      procedure, pass(self) :: compute_dt        !< Compute time step.
-      procedure, pass(self) :: compute_q_aux     !< Compute auxiliary variables.
-      procedure, pass(self) :: compute_residuals !< Compute residuals.
-      procedure, pass(self) :: compute_rk_q      !< Compute RK approximation over q.
-      procedure, pass(self) :: integrate         !< Perform one step integration.
-      procedure, pass(self) :: simulate          !< Perform the simulation.
+      procedure, pass(self) :: compute_dt          !< Compute time step.
+      procedure, pass(self) :: compute_q_auxiliary !< Compute auxiliary variables.
+      procedure, pass(self) :: compute_residuals   !< Compute residuals.
+      procedure, pass(self) :: integrate           !< Perform one step integration.
+      procedure, pass(self) :: simulate            !< Perform the simulation.
 endtype nasto_cpu_object
 contains
    ! auxiliary methods
@@ -68,10 +59,10 @@ contains
    call self%mpih%print_message('nasto_cpu_object%allocate_cpu start')
    msg_ = self%mpih%myrankstr//'nasto_cpu_object%allocate_cpu '
    associate(nv=>self%nv, ns=>self%ns, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
-             nb=>self%nb, nv_aux=>self%nv_aux, weno_s=>self%schemes%weno%S, solids_number=>self%ib%solids_number)
-   msg = msg_//' fl '
-   call alloc_var_cpu(var=self%fl,       ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
-   self%fl = 0._R8P
+             nb=>self%nb, nv_aux=>self%nv_aux, weno_s=>self%weno%S, solids_number=>self%ib%solids_number)
+   msg = msg_//' dq '
+   call alloc_var_cpu(var=self%dq,       ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
+   self%dq = 0._R8P
    msg = msg_//' flx '
    call alloc_var_cpu(var=self%flx,      ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
    self%flx = 0._R8P
@@ -81,38 +72,9 @@ contains
    msg = msg_//' flz '
    call alloc_var_cpu(var=self%flz,      ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
    self%flz = 0._R8P
-   msg = msg_//' gplus_x '
-   call alloc_var_cpu(var=self%gplus_x , ulb=reshape([1,nv,1,2*weno_s,  1,nj,        1,nk,        1,nb],[2,5]),msg=msg)
-   self%gplus_x = 0._R8P
-   msg = msg_//' gminus_x '
-   call alloc_var_cpu(var=self%gminus_x, ulb=reshape([1,nv,1,2*weno_s,  1,nj,        1,nk,        1,nb],[2,5]),msg=msg)
-   self%gminus_x = 0._R8P
-   msg = msg_//' gplus_y '
-   call alloc_var_cpu(var=self%gplus_y , ulb=reshape([1,nv,1,2*weno_s,  1,ni,        1,nk,        1,nb],[2,5]),msg=msg)
-   self%gplus_y = 0._R8P
-   msg = msg_//' gminus_y '
-   call alloc_var_cpu(var=self%gminus_y, ulb=reshape([1,nv,1,2*weno_s,  1,ni,        1,nk,        1,nb],[2,5]),msg=msg)
-   self%gminus_y = 0._R8P
-   msg = msg_//' gplus_z '
-   call alloc_var_cpu(var=self%gplus_z , ulb=reshape([1,nv,1,2*weno_s,  1,ni,        1,nj,        1,nb],[2,5]),msg=msg)
-   self%gplus_z = 0._R8P
-   msg = msg_//' gminus_z '
-   call alloc_var_cpu(var=self%gminus_z, ulb=reshape([1,nv,1,2*weno_s,  1,ni,        1,nj,        1,nb],[2,5]),msg=msg)
-   self%gminus_z = 0._R8P
-   msg = msg_//' q_old '
-   call alloc_var_cpu(var=self%q_old,    ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
-   self%q_old = 0._R8P
    endassociate
    call self%mpih%print_message('nasto_cpu_object%allocate_cpu finish')
    endsubroutine allocate_cpu
-
-   subroutine destroy(self)
-   !< Destroy the equation.
-   class(nasto_cpu_object), intent(inout) :: self  !< The equation.
-   type(nasto_cpu_object)                 :: fresh !< Fresh equation.
-
-   ! TODO to be implemented
-   endsubroutine destroy
 
    subroutine initialize(self, filename)
    !< Initialize the equation.
@@ -123,6 +85,7 @@ contains
    call self%mpih%print_message('nasto_cpu_object%initialize start')
    call self%initialize_common(filename=filename, memory_avail=self%mpih%memory_avail)
    call self%allocate_cpu
+   print '(A)', self%mpih%description()
    call self%mpih%print_message('nasto_cpu_object%initialize finish')
    endsubroutine initialize
 
@@ -248,7 +211,7 @@ contains
    associate (ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
               blocks_number=>self%blocks_number, ns=>self%ns, dxyz=>self%field%dxyz)
       call self%update_ghost(q=self%field%q)
-      call self%compute_q_aux(q=self%field%q, q_aux=self%q_aux)
+      call self%compute_q_auxiliary(q=self%field%q, q_aux=self%q_aux)
       do b=1, blocks_number
          call compute_q_gradient(b=b, ni=ni, nj=nj, nk=nk, ngc=ngc, &
                                  dx=dxyz(1,b), dy=dxyz(2,b), dz=dxyz(3,b), q=self%q_aux, ivar=ivar_, gradient=grad_var)
@@ -283,9 +246,9 @@ contains
    integer(I4P),            intent(in)    :: s           !< Solid index.
 
    if (self%ib%solids_number>0) then
-      call self%mpih%print_message('compute IB distance start')
+      call self%mpih%print_message('move IB distance start')
       call self%ib%move_phi(velocity=velocity, s=s)
-      call self%mpih%print_message('compute IB distance finish')
+      call self%mpih%print_message('move IB distance finish')
    endif
    endsubroutine move_phi
 
@@ -302,27 +265,31 @@ contains
    endsubroutine
 
    ! IB methods
-   subroutine integrate_eikonal_q(self)
-   !< Integrate eikonal equation over q.
-   class(nasto_cpu_object), intent(inout) :: self !< The equation.
+   subroutine integrate_eikonal(self, q)
+   !< Integrate eikonal equation.
+   class(nasto_cpu_object), intent(inout) :: self      !< The equation.
+   real(R8P),               intent(inout) :: q(1:,         &
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1:)     !< Conservative variables.
+   integer(I4P)                           :: i_eikonal !< Counter.
 
-   associate(blocks_number=>self%blocks_number, solids_number=>self%ib%solids_number, q=>self%field%q)
-   if (blocks_number > 0) then
-      if (solids_number > 0) call self%ib%evolve_eikonal_q(q=q)
-   endif
+   associate(blocks_number=>self%blocks_number, solids_number=>self%ib%solids_number)
+      if (blocks_number > 0) then
+         if (solids_number > 0) then
+            call self%update_ghost(q=q)
+            do i_eikonal=1, self%ib%n_eikonal
+               call self%mpih%barrier
+               call self%ib%evolve_eikonal(q=q)
+               call self%update_ghost(q=q)
+            enddo
+            call self%ib%invert_eikonal(q=q)
+            call self%mpih%barrier
+         endif
+      endif
    endassociate
-   endsubroutine integrate_eikonal_q
-
-   subroutine invert_eikonal_q(self)
-   !< Invert momentum eikonal equation over q.
-   class(nasto_cpu_object), intent(inout) :: self !< The equation.
-
-   associate(blocks_number=>self%blocks_number, solids_number=>self%ib%solids_number, q=>self%field%q)
-   if (blocks_number > 0) then
-      if (solids_number > 0) call self%ib%invert_eikonal_q(q=q)
-   endif
-   endassociate
-   endsubroutine invert_eikonal_q
+   endsubroutine integrate_eikonal
 
    ! IO methods
    subroutine load_restart_files(self, t, time)
@@ -370,7 +337,7 @@ contains
    integer(I4P)                           :: v    !< Counter.
 
    if (self%time%is_to_save(it_save=self%io%residuals_save)) then
-      call self%field%compute_normL2_residuals(dq=self%fl, norm=self%field%residuals)
+      call self%field%compute_normL2_residuals(dq=self%dq, norm=self%field%residuals)
       do v=1, self%nv
          call MPI_ALLREDUCE(MPI_IN_PLACE, self%field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
          self%field%residuals(v) = sqrt(self%field%residuals(v))
@@ -511,11 +478,12 @@ contains
    real(R8P)                              :: dx_locale, dy_locale, dz_locale !< Local space steps.
    integer(I4P)                           :: b, i, j, k                      !< Counter.
 
-   call self%compute_q_aux(q=self%field%q, q_aux=self%q_aux)
+   call self%compute_q_auxiliary(q=self%field%q, q_aux=self%q_aux)
    self%time%dt = huge(1._R8P)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, blocks_number=>self%blocks_number, mu=>self%physics%eos(1)%mu, &
              dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), q_aux=>self%q_aux)
    umax = 0._R8P
+   !$omp parallel do collapse(4) default(firstprivate) shared(dx,dy,dz,q_aux) reduction(max:umax)
    do b=1, blocks_number
       do k=1, nk
          do j=1, nj
@@ -531,169 +499,126 @@ contains
          enddo
       enddo
    enddo
+   !$omp end parallel do
    endassociate
    self%time%dt = min(self%time%dt, self%time%CFL / umax)
    call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih%error)
    endsubroutine compute_dt
 
-   subroutine compute_q_aux(self, q, q_aux)
+   subroutine compute_q_auxiliary(self, q, q_aux)
    !< Compute auxiliary variables.
-   class(nasto_cpu_object), intent(in)  :: self       !< The equation.
+   class(nasto_cpu_object), intent(in)  :: self                         !< The equation.
    real(R8P),               intent(in)  :: q(1:,         &
                                              1-self%ngc:,&
                                              1-self%ngc:,&
                                              1-self%ngc:,&
-                                             1:)      !< Conservative variables.
+                                             1:)                        !< Conservative variables.
    real(R8P),               intent(out) :: q_aux(1:,         &
                                                  1-self%ngc:,&
                                                  1-self%ngc:,&
                                                  1-self%ngc:,&
-                                                 1:)  !< Auxiliary variables.
-   integer(I4P)                         :: b, i, j, k !< Counter.
+                                                 1:)                    !< Auxiliary variables.
+   integer(I4P)                         :: b, i, j, k, s                !< Counter.
+   real(R8P)                            :: rho, uuu, vvv, www, rhe, tem !< State variables.
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, ns=>self%ns, blocks_number=>self%blocks_number, &
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, &
              g=>self%physics%eos(1)%g, R=>self%physics%eos(1)%R, cv=>self%physics%eos(1)%cv)
-   do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               call compute_q_auxiliary(cv=cv, g=g, R=R, q=q(:,i,j,k,b), q_aux=q_aux(:,i,j,k,b))
-            enddo
-         enddo
-      enddo
-   enddo
+   call compute_q_aux(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                      R=self%physics%eos(1)%R, cv=self%physics%eos(1)%cv, g=self%physics%eos(1)%g, q=q, q_aux=q_aux)
    endassociate
-   endsubroutine compute_q_aux
+   endsubroutine compute_q_auxiliary
 
-   subroutine compute_residuals(self)
+   subroutine compute_residuals(self, q, dq)
    !< Compute residuals of equation.
-   class(nasto_cpu_object), intent(inout) :: self         !< The equation.
-   ! type(dim3)                             :: grid, tBlock !< CUDA grid and block.
+   class(nasto_cpu_object), intent(inout) :: self   !< The equation.
+   real(R8P),               intent(inout) :: q(1:,       &
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1:)  !< Conservative variables.
+   real(R8P),               intent(inout) :: dq(1:,         &
+                                                1-self%ngc:,&
+                                                1-self%ngc:,&
+                                                1-self%ngc:,&
+                                                1:) !< Residuals.
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk,                                                                &
-             ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number,                                        &
+   call self%update_ghost(q=q)
+   call self%integrate_eikonal(q=q)
+   call self%compute_q_auxiliary(q=q, q_aux=self%q_aux)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number, &
              dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),                         &
-             q_aux=>self%q_aux, phi=>self%ib%phi, fl=>self%fl, flx=>self%flx, fly=>self%fly, flz=>self%flz,        &
-             cell_scheme=>self%schemes%cell_scheme, ror_stats=>self%schemes%ror_stats,                             &
-             fc_coeff=>self%schemes%fc_coeff,                                                                      &
-             gminus_x=>self%gminus_x, gminus_y=>self%gminus_y, gminus_z=>self%gminus_z,                            &
-             gplus_x=>self%gplus_x, gplus_y=>self%gplus_y, gplus_z=>self%gplus_z,                                  &
-             ror_schemes=>self%schemes%weno%ror_schemes, ror_ivar=>self%schemes%weno%ror_ivar,                     &
-             ror_threshold=>self%schemes%weno%ror_threshold, enable_ror_stats=>self%schemes%weno%enable_ror_stats, &
-             weno_s=>self%schemes%weno%S, weno_a=>self%schemes%weno%a,                                             &
-             weno_p=>self%schemes%weno%p, weno_d=>self%schemes%weno%d, weno_zeps=>self%schemes%weno%zeps,          &
+             q_aux=>self%q_aux, phi=>self%ib%phi, flx=>self%flx, fly=>self%fly, flz=>self%flz,                     &
+             weno_s=>self%weno%S,                                                                                  &
+             weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, ror_number=>self%weno%ror_number,      &
+             ror_schemes=>self%weno%ror_schemes, ror_ivar=>self%weno%ror_ivar,                                     &
+             ror_threshold=>self%weno%ror_threshold, enable_ror_stats=>self%weno%enable_ror_stats,                 &
+             cell_scheme=>self%weno%cell_scheme, ror_stats=>self%weno%ror_stats, weno_zeps=>self%weno%zeps,        &
+             solids_number=>self%ib%solids_number,                                                                 &
              cv=>self%physics%eos(1)%cv, g=>self%physics%eos(1)%g, R=>self%physics%eos(1)%R,                       &
              mu=>self%physics%eos(1)%mu, kd=>self%physics%eos(1)%kd, dha=>self%physics%eos(1)%dha)
-
    if (blocks_number > 0) then
-      select case(self%schemes%fluxes_convective)
-      case(SCHEME_FCONV_WENO_UPWIND)
-         call compute_fluxes_convective(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,weno_s=weno_S, &
-                                        weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,g=g,q_aux=q_aux,fluxes=flx)
-         call compute_fluxes_convective(dir=2,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,weno_s=weno_S, &
-                                        weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,g=g,q_aux=q_aux,fluxes=fly)
-         call compute_fluxes_convective(dir=3,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,weno_s=weno_S, &
-                                        weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,g=g,q_aux=q_aux,fluxes=flz)
-         ! call compute_flux_conv_x(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
-         !                          iweno=weno_s, dha=0._R8P, g=g, R=R, cv=cv,                            &
-         !                          ror_threshold=ror_threshold, enable_ror_stats=enable_ror_stats,   &
-         !                          cell_scheme=cell_scheme, ror_ivar=ror_ivar,                       &
-         !                          ror_schemes=ror_schemes, q_aux=q_aux, ror_stats=ror_stats,        &
-         !                          gplus=gplus_x, gminus=gminus_x, flx=flx)
-
-         ! call compute_flux_conv_y(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
-         !                          iweno=weno_s, dha=0._R8P, g=g, R=R, cv=cv,                            &
-         !                          ror_threshold=ror_threshold, enable_ror_stats=enable_ror_stats,   &
-         !                          cell_scheme=cell_scheme, ror_ivar=ror_ivar,                       &
-         !                          ror_schemes=ror_schemes, q_aux=q_aux, ror_stats=ror_stats,        &
-         !                          gplus=gplus_y, gminus=gminus_y, fly=fly)
-
-         ! call compute_flux_conv_z(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
-         !                          iweno=weno_s, dha=0._R8P, g=g, R=R, cv=cv,                            &
-         !                          ror_threshold=ror_threshold, enable_ror_stats=enable_ror_stats,   &
-         !                          cell_scheme=cell_scheme, ror_ivar=ror_ivar,                       &
-         !                          ror_schemes=ror_schemes, q_aux=q_aux, ror_stats=ror_stats,        &
-         !                          gplus=gplus_z, gminus=gminus_z, flz=flz)
-      endselect
+      call compute_fluxes_convective(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,weno_s=weno_S, &
+                                     weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,g=g,q_aux=q_aux,fluxes=flx)
+      call compute_fluxes_convective(dir=2,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,weno_s=weno_S, &
+                                     weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,g=g,q_aux=q_aux,fluxes=fly)
+      call compute_fluxes_convective(dir=3,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,weno_s=weno_S, &
+                                     weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,g=g,q_aux=q_aux,fluxes=flz)
+      if (mu > 0.) call compute_fluxes_diffusive(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, &
+                                                 mu=mu, kd=kd, q_aux=q_aux, dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz)
+      if (solids_number>0) then
+         call compute_fluxes_difference(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, ib_eps=1.e-12_R8P, &
+                                        dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz, phi=phi, dq=dq)
+      else
+         call compute_fluxes_difference(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, ib_eps=1.e-12_R8P, &
+                                        dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz, dq=dq)
+      endif
    endif
-
-   if (mu > 0.) call compute_fluxes_diffusive(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, &
-                                              mu=mu, kd=kd, q_aux=q_aux, dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz)
-
-   call compute_fluxes_difference(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, ib_eps=1.e-12_R8P, &
-                                  dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz, phi=phi, fl=fl)
    endassociate
    endsubroutine compute_residuals
 
-   subroutine compute_rk_q(self, s)
-   !< Compute RK approximation over q.
-   class(nasto_cpu_object), intent(inout) :: self          !< The equation.
-   integer(I4P),            intent(in)    :: s             !< Current RK stage.
-   integer(I4P)                           :: all_solids    !< Last phi index, all solids summary.
-   integer(I4P)                           :: i, j, k, b, v !< Counter.
-
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, nv=>self%nv, blocks_number=>self%blocks_number, &
-             dt=>self%time%dt, q=>self%field%q, q_old=>self%q_old, fl=>self%fl, phi=>self%ib%phi,   &
-             solids_number=>self%ib%solids_number, ark=>self%schemes%ark(s), brk=>self%schemes%brk(s), crk=>self%schemes%crk(s))
-   if (solids_number >0) then
-      all_solids = ubound(phi, dim=1)
-      do b=1, blocks_number
-         do k=1, nk
-            do j=1, nj
-               do i=1, ni
-                  if (phi(all_solids,i,j,k,b) < 0.) then
-                     do v=1, nv
-                        q(v,i,j,k,b) = ark * q_old(v,i,j,k,b) + brk * q(v,i,j,k,b) + dt * crk * fl(v,i,j,k,b)
-                     enddo
-                  endif
-               enddo
-            enddo
-         enddo
-      enddo
-   else
-      do b=1, blocks_number
-         do k=1, nk
-            do j=1, nj
-               do i=1, ni
-                  do v=1, nv
-                     q(v,i,j,k,b) = ark * q_old(v,i,j,k,b) + brk * q(v,i,j,k,b) + dt * crk * fl(v,i,j,k,b)
-                  enddo
-               enddo
-            enddo
-         enddo
-      enddo
-   endif
-   endassociate
-   endsubroutine compute_rk_q
-
-   subroutine integrate(self, t, do_ghost_syncro)
+   subroutine integrate(self, do_ghost_syncro)
    !< Perform one step integration.
-   class(nasto_cpu_object), intent(inout)         :: self                  !< The equation.
-   real(R8P),               intent(in)            :: t                     !< Time.
-   logical,                 intent(in),  optional :: do_ghost_syncro       !< Flag to do syncrous ghost update.
-   logical                                        :: do_ghost_syncro_      !< Flag to do syncrous ghost update, local var.
-   integer(I4P)                                   :: s                     !< Counter.
-   integer(I4P)                                   :: i_eikonal             !< Counter.
-   integer(I4P), parameter                        :: n_eikonal=2           !< Counter.
+   class(nasto_cpu_object), intent(inout)         :: self             !< The equation.
+   logical,                 intent(in),  optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
+   logical                                        :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
+   integer(I4P)                                   :: s                !< Counter.
 
    do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
-   self%q_old = self%field%q ! store previous conservative variables for RK integration
-   do s=1, self%schemes%nrk
-      if (self%ib%solids_number > 0) then ! integrate eikonal equation over q inside solids
-         call self%update_ghost(q=self%field%q)
-         do i_eikonal=1, n_eikonal
-            call MPI_Barrier(MPI_COMM_WORLD, self%mpih%error)
-            call self%integrate_eikonal_q
-            call self%update_ghost(q=self%field%q)
-         enddo
-         call self%invert_eikonal_q
+   call self%rk%initialize_stages(q=self%field%q)
+   select case(self%rk%scheme)
+   case(RK_1, RK_2, RK_3)
+      ! low storage RK working on q_rk_gpu(:,:,:,:,:,1)/q_gpu as stages, update q_gpu in place
+      do s=1, self%rk%nrk
+         call self%compute_residuals(q=self%field%q, dq=self%dq)
+         if (s==1) call self%save_residuals
+         if (self%ib%solids_number>0) then
+            call self%rk%compute_stage_ls(s=s,dt=self%time%dt,phi=self%ib%phi,dq=self%dq,q=self%field%q)
+         else
+            call self%rk%compute_stage_ls(s=s,dt=self%time%dt,dq=self%dq,q=self%field%q)
+         endif
+      enddo
+   case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
+      ! RK working on q_rk_gpu as stages
+      do s=1, self%rk%nrk
+         if (self%ib%solids_number>0) then
+            call self%rk%compute_stage(s=s, dt=self%time%dt, phi=self%ib%phi)
+         else
+            call self%rk%compute_stage(s=s, dt=self%time%dt)
+         endif
+         call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq)
+         if (s==1) call self%save_residuals
+         if (self%ib%solids_number>0) then
+            call self%rk%assign_stage(s=s, q=self%dq, phi=self%ib%phi)
+         else
+            call self%rk%assign_stage(s=s, q=self%dq)
+         endif
+      enddo
+      if (self%ib%solids_number>0) then
+         call self%rk%update_q(dt=self%time%dt, phi=self%ib%phi, q=self%field%q)
+      else
+         call self%rk%update_q(dt=self%time%dt, q=self%field%q)
       endif
-      call MPI_Barrier(MPI_COMM_WORLD, self%mpih%error)
-      call self%compute_q_aux(q=self%field%q, q_aux=self%q_aux)
-      call self%compute_residuals
-      if (s==1) call self%save_residuals
-      call self%compute_rk_q(s=s)
-   enddo
+   endselect
    endsubroutine integrate
 
    subroutine simulate(self, filename)
@@ -711,17 +636,20 @@ contains
       call self%load_restart_files(t=self%time%it, time=self%time%time)
       call self%mpih%print_message('restart [t, time]: '//trim(str(self%time%it))//', '//trim(str(self%time%time)))
    else
-      do i=1, 10
+      call self%mpih%print_message('impose initial conditions start')
+      do i=1, self%ic%amr_iterations
+         call self%mpih%print_message('  AMR/set IC iteration:'//trim(str(i,.true.)))
          call self%set_initial_conditions
          if (self%ib%solids_number > 0) call self%compute_phi()
-         call self%amr_update()
+         call self%amr_update
       enddo
       call self%set_initial_conditions
       self%time%time = 0._R8P
       self%time%it = 0
+      call self%mpih%print_message('impose initial conditions finish')
    endif
    if (self%ib%solids_number > 0) call self%compute_phi()
-   call self%amr_update()
+   call self%amr_update
    call self%save_simulation_data
    if (self%mpih%myrank==0) call self%io%open_file_residuals(nv=self%nv)
 
@@ -737,15 +665,15 @@ contains
 
       if (mod(self%time%it,self%amr%frequency)==0) then
          call self%mpih%barrier(tictoc=.true.)
-         call self%amr_update()
+         call self%amr_update
          call self%mpih%barrier(tictoc=.true.)
       endif
 
-      call self%compute_dt()
+      call self%compute_dt
       if ((self%time%it_max <= 0).and.(self%time%time+self%time%dt > self%time%time_max)) &
          self%time%dt=self%time%time_max-self%time%time
 
-      call self%integrate(t=self%time%time)
+      call self%integrate
 
       self%time%time = self%time%time + self%time%dt
       call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
@@ -763,35 +691,6 @@ contains
    endsubroutine simulate
 
    ! non TBP
-   pure subroutine compute_conservative(q_aux, q)
-   !< Compute convective fluxes given auxiliary varibales.
-   real(R8P), intent(in)  :: q_aux(9) !< Auxiliary variables.
-   real(R8P), intent(out) :: q(5)     !< Conservative variables.
-
-   associate(rho=>q_aux(1), u=>q_aux(2), v=>q_aux(3), w=>q_aux(4), p=>q_aux(7), H=>q_aux(8))
-   q(1) = rho
-   q(2) = rho*u
-   q(3) = rho*v
-   q(4) = rho*w
-   q(5) = rho*H - p
-   endassociate
-   endsubroutine compute_conservative
-
-   pure subroutine compute_cell_convective_fluxes(sir, q_aux, fluxes)
-   !< Compute cell convective fluxes given cell auxiliary varibales.
-   real(R8P), intent(in)  :: sir(3)    !< Stencil increment, real cast.
-   real(R8P), intent(in)  :: q_aux(9)  !< Auxiliary variables.
-   real(R8P), intent(out) :: fluxes(5) !< Fluxes.
-
-   associate(rho=>q_aux(1), u=>q_aux(2), v=>q_aux(3), w=>q_aux(4), p=>q_aux(7), H=>q_aux(8))
-   fluxes(1) = rho*u*sir(1) + rho*v*sir(2) + rho*w*sir(3)
-   fluxes(2) = fluxes(1)*u + p*sir(1)
-   fluxes(3) = fluxes(1)*v + p*sir(2)
-   fluxes(4) = fluxes(1)*w + p*sir(3)
-   fluxes(5) = fluxes(1)*H
-   endassociate
-   endsubroutine compute_cell_convective_fluxes
-
    subroutine compute_fluxes_convective(dir,blocks_number,ni,nj,nk,ngc,nv,weno_s,weno_a,weno_p,weno_d,weno_zeps,g,q_aux,fluxes)
    !< Compute convective fluxes along direction `dir`.
    integer(I4P), intent(in)    :: dir                                !< Direction, 1=X, 2=Y, 3=Z.
@@ -809,23 +708,14 @@ contains
    real(R8P),    intent(in)    :: g                                  !< Specific heats ratio.
    real(R8P),    intent(in)    :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Auxiliary variables.
    real(R8P),    intent(inout) :: fluxes(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes.
-   real(R8P)                   :: uu, vv, ww, h, qq, c, ci, b1, b2   !< Roe average states.
-   real(R8P)                   :: uvw, uvw_r1, uvw_r2                !< Velocity rotation accordingly dir.
-   real(R8P)                   :: ev(5), evmax(5)                    !< Signals speeds.
-   real(R8P)                   :: ghat(5)                            !< Reconstructed fluxes.
    real(R8P)                   :: el(nv,nv), er(nv,nv)               !< Left and right eigenvalues.
-   real(R8P)                   :: q(nv), f(nv)                       !< Conservative variables and fluxes.
-   real(R8P)                   :: fp(1:nv,1:2*weno_s)                !< Positive part of conservative fluxes.
-   real(R8P)                   :: fm(1:nv,1:2*weno_s)                !< Negative part of conservative fluxes.
-   real(R8P)                   :: fw(1:nv,1:2,1-weno_s:-1+weno_s)    !< Conservative fluxes to be WENO reconstructed.
-   real(R8P)                   :: fwr(1:2)                           !< Conservative fluxes WENO reconstructed.
-   real(R8P)                   :: fpr(1:nv)
-   real(R8P)                   :: fmr(1:nv)
-   real(R8P)                   :: gc, wc                             !< Increments for fluxes decomposition.
-   integer(I4P)                :: b, i, j, k, l, m, mm               !< Counter.
-   integer(I4P)                :: ip, jp, kp                         !< Counter.
-   integer(I4P)                :: si(3)                              !< Stencil increment.
-   real(R8P)                   :: sir(3)                             !< Stencil increment, real cast.
+   real(R8P)                   :: fmpc(1:2,1-weno_s:-1+weno_s,1:nv)  !< Fluxes -+ decomposition in c. space.
+   real(R8P)                   :: fpmr(1:2,1:nv)                     !< Fluxes +- reconstructed.
+   logical                     :: ror_recompute                      !< Flag to perform ROR.
+   integer(I4P)                :: r, v, vv, rv                       !< Counter.
+   integer(I4P)                :: b, i, j, k                         !< Counter.
+   integer(I4P)                :: si(3)                              !< Directional (1=x,2=y,3=z) increment.
+   real(R8P)                   :: sir(3)                             !< Directional (1=x,2=y,3=z) increment.
 
    select case(dir)
    case(1)
@@ -837,172 +727,169 @@ contains
    endselect
    sir = real(si,R8P)
 
+   !$omp parallel do collapse(4) default(firstprivate) shared(weno_a, weno_p, weno_d, q_aux, fluxes, si, sir)
    do b=1, blocks_number
    do k=1-si(3), nk
    do j=1-si(2), nj
    do i=1-si(1), ni
-      ip = i + si(1) ; jp = j + si(2) ; kp = k + si(3)
-
-      call compute_roe_average(q_aux=q_aux, g=g, ngc=ngc, b=b, i=i, j=j, k=k, ip=ip, jp=jp, kp=kp, &
-                               uu=uu, vv=vv, ww=ww, h=h, qq=qq, c=c, ci=ci, b1=b1, b2=b2)
-
-      uvw    =  uu*sir(1)+vv*sir(2)+ww*sir(3)
-      uvw_r1 =  uu*sir(3)+vv*sir(1)+ww*sir(2)
-      uvw_r2 = -uu*sir(2)+vv*sir(3)+ww*sir(1)
-
-      er(1,1)=1._R8P ; er(1,2)=uu-c*sir(1)   ; er(1,3)=vv-c*sir(2) ; er(1,4)=ww-c*sir(3)   ; er(1,5)=h-uvw*c
-      er(2,1)=1._R8P ; er(2,2)=uu            ; er(2,3)=vv          ; er(2,4)=ww            ; er(2,5)=qq
-      er(3,1)=1._R8P ; er(3,2)=uu+c*sir(1)   ; er(3,3)=vv+c*sir(2) ; er(3,4)=ww+c*sir(3)   ; er(3,5)=h+uvw*c
-      er(4,1)=0._R8P ; er(4,2)=sir(2)+sir(3) ; er(4,3)=sir(1)      ; er(4,4)=0._R8P        ; er(4,5)=uvw_r1
-      er(5,1)=0._R8P ; er(5,2)=0._R8P        ; er(5,3)=sir(3)      ; er(5,4)=sir(1)+sir(2) ; er(5,5)=uvw_r2
-
-      el(1,1)= 0.5_R8P*(b1+uvw*ci)      ;el(1,2)= 1._R8P-b1;el(1,3)= 0.5_R8P*(b1-uvw*ci)      ;el(1,4)=-uvw_r1;el(1,5)=-uvw_r2
-      el(2,1)=-0.5_R8P*(b2*uu+ci*sir(1));el(2,2)= b2*uu    ;el(2,3)=-0.5_R8P*(b2*uu-ci*sir(1));el(2,4)= sir(3);el(2,5)=-sir(2)
-      el(3,1)=-0.5_R8P*(b2*vv+ci*sir(2));el(3,2)= b2*vv    ;el(3,3)=-0.5_R8P*(b2*vv-ci*sir(2));el(3,4)= sir(1);el(3,5)= sir(3)
-      el(4,1)=-0.5_R8P*(b2*ww+ci*sir(3));el(4,2)= b2*ww    ;el(4,3)=-0.5_R8P*(b2*ww-ci*sir(3));el(4,4)= sir(2);el(4,5)= sir(1)
-      el(5,1)= 0.5_R8P*b2               ;el(5,2)=-b2       ;el(5,3)= 0.5_R8P*b2               ;el(5,4)= 0._R8P;el(5,5)= 0._R8P
-
-      ! flux vector splitting by local-Lax-Friedrics and pseudo-characteristic projection
-      evmax = -1._R8P
-      do l=1, 2*weno_s
-         ip = i + (l-weno_s) * si(1) ; jp = j + (l-weno_s) * si(2) ; kp = k + (l-weno_s) * si(3)
-         uu = q_aux(1+1*si(1)+2*si(2)+3*si(3),ip,jp,kp,b)
-         c  = q_aux(9,                        ip,jp,kp,b)
-         ev(1) = abs(uu-c) ; ev(2) = abs(uu) ; ev(3) = abs(uu+c) ; ev(4) = ev(2) ; ev(5) = ev(2)
-         do m=1,nv
-            evmax(m) = max(ev(m),evmax(m))
-         enddo
+      call compute_eigenvectors(si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,g=g,q_aux=q_aux,el=el,er=er)
+      call decompose_fluxes_convective(si=si,sir=sir,el=el,weno_s=weno_s,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,g=g,q_aux=q_aux,fmpc=fmpc)
+      do v=1, nv
+         call weno_reconstruct_upwind(S=weno_s,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,&
+                                      V=fmpc(:,:,v),VR=fpmr(:,v))
       enddo
-      do l=1, 2*weno_s
-         ip = i + (l-weno_s) * si(1) ; jp = j + (l-weno_s) * si(2) ; kp = k + (l-weno_s) * si(3)
-         call compute_cell_convective_fluxes(sir=sir, q_aux=q_aux(1:9,ip,jp,kp,b), fluxes=f)
-         call compute_conservative(q_aux=q_aux(1:9,ip,jp,kp,b), q=q)
-         do m=1, nv
-            wc = 0._R8P
-            gc = 0._R8P
-            do mm=1, nv
-               wc = wc + el(mm,m) * q(mm)
-               gc = gc + el(mm,m) * f(mm)
-            enddo
-            fp(m,l) = 0.5_R8P * (gc + evmax(m) * wc)
-            fm(m,l) = gc - fp(m,l)
-         enddo
-      enddo
-      ! ! WENO upwind reconstruction
-      ! fw(:,1,1-weno_s:-1+weno_s) = fp(:,1:2*weno_s-1)
-      ! fw(:,2,1-weno_s:-1+weno_s) = fm(:,2:2*weno_s  )
-      ! do m=1, nv
-      !    ! call weno%reconstruct_upwind(S=iweno, V=fw(m,:,:), VR=fwr)
-      !    call weno_reconstruct_upwind(S=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,V=fw(m,:,:),VR=fwr)
-      !    ghat(m) = fwr(1) + fwr(2)
-      ! enddo
-      call weno_reconstruction(nvar=nv,vp=fp(1:,1:), vm=fm(1:,1:), vminus=fmr, vplus=fpr, iweno=weno_s, wenorec_ord=weno_s)
-      do m=1,nv
-         ghat(m) = fpr(m) + fmr(m)
-      enddo
+      ! if (ror_number>0) then
+      !    ROR : do r=2, ror_number
+      !       ror_recompute = .false.
+      !       do vv=1, size(ror_ivar)
+      !          rv = ror_ivar(vv)
+      !          if ((abs(fpmr(1,rv)-fmpc(1,0,rv))>ror_threshold*abs(fmpc(1,0,rv))) .or. &
+      !              (abs(fpmr(2,rv)-fmpc(2,1,rv))>ror_threshold*abs(fmpc(2,1,rv)))) ror_recompute = .true.
+      !       enddo
+      !       if (ror_recompute) then
+      !          ror_stats(b,i,j,k,dir) = ror_schemes(r)
+      !          do v=1, nv
+      !             call weno_reconstruct_upwind(S=ror_schemes(r),weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,&
+      !                                          weno_zeps=weno_zeps,V=fmpc(:,:,v),VR=fpmr(:,v))
+      !          enddo
+      !       else
+      !          exit ROR
+      !       endif
+      !    enddo ROR
+      ! endif
       ! back projection in conservative variables space
-      do m=1, nv
-         fluxes(m,i,j,k,b) = 0._R8P
-         do mm=1,nv
-            fluxes(m,i,j,k,b) = fluxes(m,i,j,k,b) + er(mm,m) * ghat(mm)
+      do v=1, nv
+         fluxes(v,i,j,k,b) = 0._R8P
+         do vv=1,nv
+            fluxes(v,i,j,k,b) = fluxes(v,i,j,k,b) + er(vv,v) * (fpmr(1,vv) + fpmr(2,vv))
          enddo
+         ! fluxes_gpu(v,i,j,k,b) = fluxes_gpu(v,i,j,k,b) + fpmr(1,v)
+         ! fluxes_gpu(v,i,j,k,b) = fluxes_gpu(v,i,j,k,b) + fpmr(2,v)
       enddo
    enddo
    enddo
    enddo
    enddo
+   !$omp end parallel do
    endsubroutine compute_fluxes_convective
 
-   subroutine compute_fluxes_difference(blocks_number, ni, nj, nk, ngc, nv, ib_eps, dx, dy, dz, flx, fly, flz, phi, fl)
+   subroutine compute_fluxes_difference(blocks_number, ni, nj, nk, ngc, nv, ib_eps, dx, dy, dz, flx, fly, flz, phi, dq)
    !< Compute fluxes difference.
-   integer(I4P), intent(in)    :: blocks_number                   !< Number of blocks.
-   integer(I4P), intent(in)    :: ni                              !< Grid cells number in I direction.
-   integer(I4P), intent(in)    :: nj                              !< Grid cells number in J direction.
-   integer(I4P), intent(in)    :: nk                              !< Grid cells number in K direction.
-   integer(I4P), intent(in)    :: ngc                             !< Ghost cells number.
-   integer(I4P), intent(in)    :: nv                              !< Number of conservative varibales.
-   real(R8P),    intent(in)    :: ib_eps                          !< Tolerance IB delta ratio.
-   real(R8P),    intent(in)    :: dx(1:), dy(1:), dz(1:)          !< Space steps.
-   real(R8P),    intent(in)    :: flx(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< X direction fluxes.
-   real(R8P),    intent(in)    :: fly(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Y direction fluxes.
-   real(R8P),    intent(in)    :: flz(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Z direction fluxes.
-   real(R8P),    intent(in)    :: phi(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< IB distance function.
-   real(R8P),    intent(inout) ::  fl(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes differences.
-   real(R8P)                   :: delta_x, delta_y, delta_z       !< Space steps.
-   real(R8P)                   :: dx_locale, dy_locale, dz_locale !< Local space steps.
-   integer(I4P)                :: b, i, j, k, v                   !< Counter.
-   integer(I4P)                :: all_solids                      !< Last phi index, all solids summary.
+   integer(I4P), intent(in)           :: blocks_number                   !< Number of blocks.
+   integer(I4P), intent(in)           :: ni                              !< Grid cells number in I direction.
+   integer(I4P), intent(in)           :: nj                              !< Grid cells number in J direction.
+   integer(I4P), intent(in)           :: nk                              !< Grid cells number in K direction.
+   integer(I4P), intent(in)           :: ngc                             !< Ghost cells number.
+   integer(I4P), intent(in)           :: nv                              !< Number of conservative varibales.
+   real(R8P),    intent(in)           :: ib_eps                          !< Tolerance IB delta ratio.
+   real(R8P),    intent(in)           :: dx(1:), dy(1:), dz(1:)          !< Space steps.
+   real(R8P),    intent(in)           :: flx(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< X direction fluxes.
+   real(R8P),    intent(in)           :: fly(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Y direction fluxes.
+   real(R8P),    intent(in)           :: flz(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Z direction fluxes.
+   real(R8P),    intent(in), optional :: phi(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< IB distance function.
+   real(R8P),    intent(inout)        ::  dq(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes differences.
+   real(R8P)                          :: delta_x, delta_y, delta_z       !< Space steps.
+   real(R8P)                          :: dx_locale, dy_locale, dz_locale !< Local space steps.
+   integer(I4P)                       :: b, i, j, k, v                   !< Counter.
+   integer(I4P)                       :: all_solids                      !< Last phi index, all solids summary.
 
-   all_solids = ubound(phi, dim=1)
-   do b=1,blocks_number
-   do k=1,nk
-   do j=1,nj
-   do i=1,ni
-      dx_locale = dx(b)
-      if (phi(all_solids,i,j,k,b)<0.) then
-         if (phi(all_solids,i+1,j,k,b)*phi(all_solids,i-1,j,k,b)<0) then
-            if (phi(all_solids,i+1,j,k,b)>0.) then
-               delta_x = -phi(all_solids,i,j,k,b)/(phi(all_solids,i+1,j,k,b)-phi(all_solids,i,j,k,b)+ib_eps)*dx(b)
-               dx_locale = dx(b)/2 + delta_x
-            else
-               delta_x = -phi(all_solids,i,j,k,b)/(phi(all_solids,i-1,j,k,b)-phi(all_solids,i,j,k,b)+ib_eps)*dx(b)
-               dx_locale = dx(b)/2 + delta_x
+   if (present(phi)) then
+      all_solids = ubound(phi, dim=1)
+      !$omp parallel do collapse(4) default(firstprivate) shared(dx,dy,dz,flx,fly,flz,phi,dq)
+      do b=1,blocks_number
+      do k=1,nk
+      do j=1,nj
+      do i=1,ni
+         dx_locale = dx(b)
+         if (phi(all_solids,i,j,k,b)<0.) then
+            if (phi(all_solids,i+1,j,k,b)*phi(all_solids,i-1,j,k,b)<0) then
+               if (phi(all_solids,i+1,j,k,b)>0.) then
+                  delta_x = -phi(all_solids,i,j,k,b)/(phi(all_solids,i+1,j,k,b)-phi(all_solids,i,j,k,b)+ib_eps)*dx(b)
+                  dx_locale = dx(b)/2 + delta_x
+               else
+                  delta_x = -phi(all_solids,i,j,k,b)/(phi(all_solids,i-1,j,k,b)-phi(all_solids,i,j,k,b)+ib_eps)*dx(b)
+                  dx_locale = dx(b)/2 + delta_x
+               endif
             endif
          endif
-      endif
-      dy_locale = dy(b)
-      if (phi(all_solids,i,j,k,b)<0.) then
-         if (phi(all_solids,i,j+1,k,b)*phi(all_solids,i,j-1,k,b)<0) then
-            if (phi(all_solids,i,j+1,k,b)>0.) then
-               delta_y = -phi(all_solids,i,j,k,b)/(phi(all_solids,i,j+1,k,b)-phi(all_solids,i,j,k,b)+ib_eps)*dy(b)
-               dy_locale = dy(b)/2 + delta_y
-            else
-               delta_y = -phi(all_solids,i,j,k,b)/(phi(all_solids,i,j-1,k,b)-phi(all_solids,i,j,k,b)+ib_eps)*dy(b)
-               dy_locale = dy(b)/2 + delta_y
+         dy_locale = dy(b)
+         if (phi(all_solids,i,j,k,b)<0.) then
+            if (phi(all_solids,i,j+1,k,b)*phi(all_solids,i,j-1,k,b)<0) then
+               if (phi(all_solids,i,j+1,k,b)>0.) then
+                  delta_y = -phi(all_solids,i,j,k,b)/(phi(all_solids,i,j+1,k,b)-phi(all_solids,i,j,k,b)+ib_eps)*dy(b)
+                  dy_locale = dy(b)/2 + delta_y
+               else
+                  delta_y = -phi(all_solids,i,j,k,b)/(phi(all_solids,i,j-1,k,b)-phi(all_solids,i,j,k,b)+ib_eps)*dy(b)
+                  dy_locale = dy(b)/2 + delta_y
+               endif
             endif
          endif
-      endif
-      dz_locale = dz(b)
-      if (phi(all_solids,i,j,k,b)<0.) then
-         if (phi(all_solids,i,j,k+1,b)*phi(all_solids,i,j,k-1,b)<0) then
-            if (phi(all_solids,i,j,k+1,b)>0.) then
-               delta_z = -phi(all_solids,i,j,k,b)/(phi(all_solids,i,j,k+1,b)-phi(all_solids,i,j,k,b)+ib_eps)*dz(b)
-               dz_locale = dz(b)/2 + delta_z
-            else
-               delta_z = -phi(all_solids,i,j,k,b)/(phi(all_solids,i,j,k-1,b)-phi(all_solids,i,j,k,b)+ib_eps)*dz(b)
-               dz_locale = dz(b)/2 + delta_z
+         dz_locale = dz(b)
+         if (phi(all_solids,i,j,k,b)<0.) then
+            if (phi(all_solids,i,j,k+1,b)*phi(all_solids,i,j,k-1,b)<0) then
+               if (phi(all_solids,i,j,k+1,b)>0.) then
+                  delta_z = -phi(all_solids,i,j,k,b)/(phi(all_solids,i,j,k+1,b)-phi(all_solids,i,j,k,b)+ib_eps)*dz(b)
+                  dz_locale = dz(b)/2 + delta_z
+               else
+                  delta_z = -phi(all_solids,i,j,k,b)/(phi(all_solids,i,j,k-1,b)-phi(all_solids,i,j,k,b)+ib_eps)*dz(b)
+                  dz_locale = dz(b)/2 + delta_z
+               endif
             endif
          endif
-      endif
-      do v=1, nv
-         fl(v,i,j,k,b) = - (flx(v,i,j,k,b)-flx(v,i-1,j,k,b))/dx_locale &
-                         - (fly(v,i,j,k,b)-fly(v,i,j-1,k,b))/dy_locale &
-                         - (flz(v,i,j,k,b)-flz(v,i,j,k-1,b))/dz_locale
+         do v=1, nv
+            dq(v,i,j,k,b) = - (flx(v,i,j,k,b)-flx(v,i-1,j,k,b))/dx_locale &
+                            - (fly(v,i,j,k,b)-fly(v,i,j-1,k,b))/dy_locale &
+                            - (flz(v,i,j,k,b)-flz(v,i,j,k-1,b))/dz_locale
+         enddo
       enddo
-   enddo
-   enddo
-   enddo
-   enddo
+      enddo
+      enddo
+      enddo
+      !$omp end parallel do
+   else
+      !$omp parallel do collapse(5) default(firstprivate) shared(dx,dy,dz,flx,fly,flz,phi,dq)
+      do b=1,blocks_number
+      do k=1,nk
+      do j=1,nj
+      do i=1,ni
+         do v=1, nv
+            dq(v,i,j,k,b) = - (flx(v,i,j,k,b)-flx(v,i-1,j,k,b))/dx(b) &
+                            - (fly(v,i,j,k,b)-fly(v,i,j-1,k,b))/dy(b) &
+                            - (flz(v,i,j,k,b)-flz(v,i,j,k-1,b))/dz(b)
+         enddo
+      enddo
+      enddo
+      enddo
+      enddo
+      !$omp end parallel do
+   endif
    endsubroutine compute_fluxes_difference
 
    subroutine compute_fluxes_diffusive(blocks_number, ni, nj, nk, ngc, mu, kd, q_aux, dx, dy, dz, flx, fly, flz)
    !< Compute diffusive fluxes.
-   integer(I4P), intent(in)    :: blocks_number, ni, nj, nk, ngc
-   real(R8P),    intent(in)    :: mu, kd
-   real(R8P),    intent(in)    :: dx(1:), dy(1:), dz(1:)
-   real(R8P),    intent(in)    :: q_aux(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P),    intent(inout) ::   flx(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P),    intent(inout) ::   fly(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P),    intent(inout) ::   flz(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   integer(I4P)                :: b, i, j, k
-   real(R8P)                   :: du_dx, dv_dx, dw_dx, du_dy, dv_dy, dw_dy, du_dz, dv_dz, dw_dz
-   real(R8P)                   :: sigq, sigl
-   real(R8P)                   :: tau_1_1, tau_2_1, tau_3_1, dT_dx
-   real(R8P)                   :: tau_1_2, tau_2_2, tau_3_2, dT_dy
-   real(R8P)                   :: tau_1_3, tau_2_3, tau_3_3, dT_dz
-   real(R8P)                   :: vel_u, vel_v, vel_w
-   real(R8P), parameter        :: ib_eps=1.e-12_R8P
+   integer(I4P), intent(in)    :: blocks_number                         !< Blocks number.
+   integer(I4P), intent(in)    :: ni, nj, nk                            !< Grid dimensionns.
+   integer(I4P), intent(in)    :: ngc                                   !< Number of ghost cells.
+   real(R8P),    intent(in)    :: mu                                    !< Viscosity.
+   real(R8P),    intent(in)    :: kd                                    !< Thermal diffusivity.
+   real(R8P),    intent(in)    :: dx(1:), dy(1:), dz(1:)                !< Space steps.
+   real(R8P),    intent(in)    :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Auxiliary varibales
+   real(R8P),    intent(inout) ::   flx(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Fluxes along x.
+   real(R8P),    intent(inout) ::   fly(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Fluxes along y.
+   real(R8P),    intent(inout) ::   flz(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Fluxes along z.
+   real(R8P)                   :: vel_u, vel_v, vel_w                   !< (Mean) velocity.
+   real(R8P)                   :: du_dx, dv_dx, dw_dx                   !< Velocity derivative along x.
+   real(R8P)                   :: du_dy, dv_dy, dw_dy                   !< Velocity derivative along y.
+   real(R8P)                   :: du_dz, dv_dz, dw_dz                   !< Velocity derivative along z.
+   real(R8P)                   :: sigq, sigl                            !< Sigmas.
+   real(R8P)                   :: tau_1_1, tau_2_1, tau_3_1, dT_dx      !< Stress tensor, x elements.
+   real(R8P)                   :: tau_1_2, tau_2_2, tau_3_2, dT_dy      !< Stress tensor, y elements.
+   real(R8P)                   :: tau_1_3, tau_2_3, tau_3_3, dT_dz      !< Stress tensor, z elements.
+   integer(I4P)                :: b, i, j, k                            !< Counter.
 
+   !$omp parallel default(firstprivate) shared(dx,dy,dz,q_aux,flx,fly,flz)
+
+   !$omp do collapse(4)
    do b=1,blocks_number
       do k=1,nk
          do j=1,nj
@@ -1043,6 +930,7 @@ contains
       enddo
    enddo
 
+   !$omp do collapse(4)
    do b=1,blocks_number
       do k=1,nk
          do j=0,nj ! loop on faces
@@ -1083,6 +971,7 @@ contains
       enddo
    enddo
 
+   !$omp do collapse(4)
    do b=1,blocks_number
       do k=0,nk ! loop on faces
          do j=1,nj
@@ -1122,67 +1011,8 @@ contains
          enddo
       enddo
    enddo
+   !$omp end parallel
    endsubroutine compute_fluxes_diffusive
-
-   pure subroutine compute_q_auxiliary(cv, g, R, q, q_aux)
-   !< Compute auxiliary variables given conservative ones.
-   real(R8P), intent(in)  :: cv                           !< Specific heat at constant volume.
-   real(R8P), intent(in)  :: g                            !< Specific heats ratio.
-   real(R8P), intent(in)  :: R                            !< Specific heats difference, fluid constant.
-   real(R8P), intent(in)  :: q(5)                         !< Conservative variables.
-   real(R8P), intent(out) :: q_aux(9)                     !< Auxiliary variables.
-   real(R8P)              :: rho, uuu, vvv, www, rhe, tem !< State variables.
-
-   rho = q(1)
-   uuu = q(2)/rho
-   vvv = q(3)/rho
-   www = q(4)/rho
-   rhe = q(5)
-   tem = (rhe/rho-0.5*(uuu**2+vvv**2+www**2))/cv
-
-   q_aux(1) = rho           ! density
-   q_aux(2) = uuu           ! velocity x
-   q_aux(3) = vvv           ! velocity y
-   q_aux(4) = www           ! velocity z
-   q_aux(5) = 0._R8P        ! mass fraction
-   q_aux(6) = tem           ! temperature
-   q_aux(7) = R*rho*tem     ! pressure
-   q_aux(8) = rhe/rho+R*tem ! entalpy
-   q_aux(9) = sqrt(g*R*tem) ! sound speed
-   endsubroutine compute_q_auxiliary
-
-   subroutine compute_roe_average(q_aux, g, ngc, b, i, j, k, ip, jp, kp, uu, vv, ww, h, qq, c, ci, b1, b2)
-   !< Compute Roe averaged quantities.
-   real(R8P),    intent(in)  :: q_aux(1:, 1-ngc:, 1-ngc:, 1-ngc:, 1:)
-   real(R8P),    intent(in)  :: g
-   integer(I4P), intent(in)  :: ngc, b, i, j, k, ip, jp, kp
-   real(R8P),    intent(out) :: uu, vv, ww, h, qq, c, ci, b1, b2
-   real(R8P)                 :: ri, up, vp, wp, hp, r, rp1, cc
-   ! Left state (node i)
-   ri        =  1._R8P/q_aux(1,i,j,k,b)
-   uu        =  q_aux(2,i,j,k,b)
-   vv        =  q_aux(3,i,j,k,b)
-   ww        =  q_aux(4,i,j,k,b)
-   h         =  q_aux(8,i,j,k,b)
-   ! Right state (node i+1)
-   up        =  q_aux(2,ip,jp,kp,b)
-   vp        =  q_aux(3,ip,jp,kp,b)
-   wp        =  q_aux(4,ip,jp,kp,b)
-   hp        =  q_aux(8,ip,jp,kp,b)
-   ! Average state
-   r         =  sqrt(q_aux(1,ip,jp,kp,b)*ri)
-   rp1       =  1._R8P/(r+1._R8P)
-   uu        =  (r*up+uu)*rp1
-   vv        =  (r*vp+vv)*rp1
-   ww        =  (r*wp+ww)*rp1
-   h         =  (r*hp+h)*rp1
-   qq        =  0.5_R8P * (uu*uu+vv*vv+ww*ww)
-   cc        =  (g-1._R8P) * (h - qq)
-   c         =  sqrt(cc)
-   ci        =  1._R8P/c
-   b2        = (g-1)/cc  ! alias 1/(cp*theta)
-   b1        = b2 * qq   ! alias q/(cp*theta)
-   endsubroutine compute_roe_average
 
    subroutine compute_q_gradient(b, ni, nj, nk, ngc, dx, dy, dz, q, ivar, gradient)
    !< Compute gradient of q(ivar).
@@ -1202,6 +1032,7 @@ contains
    real(R8P), parameter      :: tol=1.e-12                    !< Gradient denominator tolerance.
 
    gradient = 0._R8P
+   !$omp parallel do collapse(3) default(firstprivate) shared(q) reduction(max:gradient)
    do k=1, nk
       do j=1, nj
          do i=1, ni
@@ -1213,187 +1044,48 @@ contains
          enddo
       enddo
    enddo
+   !$omp end parallel do
    endsubroutine compute_q_gradient
 
-   ! da buttare
-   subroutine weno_reconstruction(nvar, vp, vm, vminus, vplus, iweno, wenorec_ord)
-   !< Compute WENO reconstruction.
-   integer, intent(in)                     :: nvar, iweno, wenorec_ord
-   !real(R8P), dimension(nvar,2*iweno), intent(in)  :: vm,vp
-   real(R8P), dimension(1:,1:)        :: vm,vp
-   real(R8P), dimension(nvar), intent(out) :: vminus,vplus
-   real(R8P), dimension(-1:4)              :: dwe               ! linear weights
-   real(R8P), dimension(-1:4)              :: alfp,alfm         ! alpha_l
-   real(R8P), dimension(-1:4)              :: alfp_map,alfm_map ! alpha_l
-   real(R8P), dimension(-1:4)              :: betap,betam       ! beta_l
-   real(R8P), dimension(-1:4)              :: omp,omm           ! WENO weights
-   integer                                 :: r,i,j,k,l,m
-   real(R8P)                               :: c0,c1,c2,c3,c4,d0,d1,d2,d3,d4,summ,sump
-   real(R8P)                               :: x,y,y2
+   ! private methods
+   subroutine decompose_fluxes_convective(si,sir,el,weno_s,b,i,j,k,ngc,nv,g,q_aux,fmpc)
+   !< Decompose convective fluxes.
+   !< Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo-characteristics psace.
+   integer(I4P), intent(in)    :: si(3)                             !< Stencil increment.
+   real(R8P),    intent(in)    :: sir(3)                            !< Stencil increment, real cast.
+   real(R8P),    intent(in)    :: el(1:,1:)                         !< Left eigeinvectors.
+   integer(I4P), intent(in)    :: weno_s                            !< Weno stencils number/dimension.
+   integer(I4P), intent(in)    :: b, i, j, k                        !< Counter.
+   integer(I4P), intent(in)    :: ngc                               !< Ghost cells number.
+   integer(I4P), intent(in)    :: nv                                !< Number of conservative varibales.
+   real(R8P),    intent(in)    :: g                                 !< Specific heats ratio.
+   real(R8P),    intent(in)    :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(inout) :: fmpc(1:,1-weno_s:,1:)             !< Fluxes -+ decomposition in characteristics space.
+   real(R8P)                   :: fmp(2)                            !< Fluxes -+ decomposition in each cell stencils.
+   real(R8P)                   :: evmax(nv)                         !< Signals speeds.
+   real(R8P)                   :: q(nv), f(nv)                      !< Conservative variables and fluxes.
+   real(R8P)                   :: gc, wc                            !< Increments for fluxes decomposition.
+   integer(I4P)                :: v, vv, s, is, js, ks              !< Counter.
 
-   if (wenorec_ord==1) then ! Godunov
-
-       i = iweno ! index of intermediate node to perform reconstruction
-
-       vminus(1:nvar) = vp(1:nvar,i)
-       vplus (1:nvar) = vm(1:nvar,i+1)
-
-   elseif (wenorec_ord==2) then ! WENO-3
-
-       i = iweno ! index of intermediate node to perform reconstruction
-
-       dwe(1)   = 2._R8P/3._R8P
-       dwe(0)   = 1._R8P/3._R8P
-
-       do m=1,nvar
-
-           betap(0)  = (vp(m,i  )-vp(m,i-1))**2
-           betap(1)  = (vp(m,i+1)-vp(m,i  ))**2
-           betam(0)  = (vm(m,i+2)-vm(m,i+1))**2
-           betam(1)  = (vm(m,i+1)-vm(m,i  ))**2
-
-           sump = 0._R8P
-           summ = 0._R8P
-           do l=0,1
-               alfp(l) = dwe(l)/(0.000001_R8P+betap(l))**2
-               alfm(l) = dwe(l)/(0.000001_R8P+betam(l))**2
-               sump = sump + alfp(l)
-               summ = summ + alfm(l)
-           enddo
-           do l=0,1
-               omp(l) = alfp(l)/sump
-               omm(l) = alfm(l)/summ
-           enddo
-
-           vminus(m) = omp(0) *(-vp(m,i-1)+3*vp(m,i  )) + omp(1) *( vp(m,i  )+ vp(m,i+1))
-           vplus(m)  = omm(0) *(-vm(m,i+2)+3*vm(m,i+1)) + omm(1) *( vm(m,i  )+ vm(m,i+1))
-
-       enddo
-
-       do m=1,nvar
-           vminus(m) = 0.5_R8P*vminus(m)
-           vplus(m)  = 0.5_R8P*vplus(m)
-       enddo
-
-     elseif (wenorec_ord==3) then ! WENO-5
-!
-      i = iweno ! index of intermediate node to perform reconstruction
-!
-      dwe( 0) = 1._R8P/10._R8P
-      dwe( 1) = 6._R8P/10._R8P
-      dwe( 2) = 3._R8P/10._R8P
-!     JS
-      d0 = 13._R8P/12._R8P
-      d1 = 1._R8P/4._R8P
-!     Weights for polynomial reconstructions
-      c0 = 1._R8P/3._R8P
-      c1 = 5._R8P/6._R8P
-      c2 =-1._R8P/6._R8P
-      c3 =-7._R8P/6._R8P
-      c4 =11._R8P/6._R8P
-!
-      do m=1,nvar
-!
-       betap(2) = d0*(     vp(m,i)-2._R8P*vp(m,i+1)+vp(m,i+2))**2+d1*(3._R8P*vp(m,i)-4._R8P*vp(m,i+1)+vp(m,i+2))**2
-       betap(1) = d0*(     vp(m,i-1)-2._R8P*vp(m,i)+vp(m,i+1))**2+d1*(     vp(m,i-1)-vp(m,i+1) )**2
-       betap(0) = d0*(     vp(m,i)-2._R8P*vp(m,i-1)+vp(m,i-2))**2+d1*(3._R8P*vp(m,i)-4._R8P*vp(m,i-1)+vp(m,i-2))**2
-!
-       betam(2) = d0*(     vm(m,i+1)-2._R8P*vm(m,i)+vm(m,i-1))**2+d1*(3._R8P*vm(m,i+1)-4._R8P*vm(m,i)+vm(m,i-1))**2
-       betam(1) = d0*(     vm(m,i+2)-2._R8P*vm(m,i+1)+vm(m,i))**2+d1*(     vm(m,i+2)-vm(m,i) )**2
-       betam(0) = d0*(     vm(m,i+1)-2._R8P*vm(m,i+2)+vm(m,i+3))**2+d1*(3._R8P*vm(m,i+1)-4._R8P*vm(m,i+2)+vm(m,i+3))**2
-!
-       sump = 0._R8P
-       summ = 0._R8P
-       do l=0,2
-        alfp(l) = dwe(  l)/(0.000001_R8P+betap(l))**2
-        alfm(l) = dwe(  l)/(0.000001_R8P+betam(l))**2
-        sump = sump + alfp(l)
-        summ = summ + alfm(l)
-       enddo
-       do l=0,2
-        omp(l) = alfp(l)/sump
-        omm(l) = alfm(l)/summ
-       enddo
-!
-       vminus(m)   = omp(2)*(c0*vp(m,i  )+c1*vp(m,i+1)+c2*vp(m,i+2)) + &
-         & omp(1)*(c2*vp(m,i-1)+c1*vp(m,i  )+c0*vp(m,i+1)) + omp(0)*(c0*vp(m,i-2)+c3*vp(m,i-1)+c4*vp(m,i  ))
-       vplus(m)   = omm(2)*(c0*vm(m,i+1)+c1*vm(m,i  )+c2*vm(m,i-1)) +  &
-         & omm(1)*(c2*vm(m,i+2)+c1*vm(m,i+1)+c0*vm(m,i  )) + omm(0)*(c0*vm(m,i+3)+c3*vm(m,i+2)+c4*vm(m,i+1))
-!
-      enddo ! end of m-loop
-!
-   elseif (wenorec_ord==4) then ! WENO-7
-!
-      i = iweno ! index of intermediate node to perform reconstruction
-!
-      dwe( 0) = 1._R8P/35._R8P
-      dwe( 1) = 12._R8P/35._R8P
-      dwe( 2) = 18._R8P/35._R8P
-      dwe( 3) = 4._R8P/35._R8P
-!
-!     JS weights
-      d1 = 1._R8P/36._R8P
-      d2 = 13._R8P/12._R8P
-      d3 = 781._R8P/720._R8P
-!
-      do m=1,nvar
-!
-       betap(3)= d1*(-11*vp(m,  i)+18*vp(m,i+1)- 9*vp(m,i+2)+ 2*vp(m,i+3))**2+&
-       &  d2*(  2*vp(m,  i)- 5*vp(m,i+1)+ 4*vp(m,i+2)-   vp(m,i+3))**2+ &
-       & d3*(   -vp(m,  i)+ 3*vp(m,i+1)- 3*vp(m,i+2)+   vp(m,i+3))**2
-       betap(2)= d1*(- 2*vp(m,i-1)- 3*vp(m,i  )+ 6*vp(m,i+1)-   vp(m,i+2))**2+&
-       &  d2*(    vp(m,i-1)- 2*vp(m,i  )+   vp(m,i+1)             )**2+&
-       &  d3*(   -vp(m,i-1)+ 3*vp(m,i  )- 3*vp(m,i+1)+   vp(m,i+2))**2
-       betap(1)= d1*(    vp(m,i-2)- 6*vp(m,i-1)+ 3*vp(m,i  )+ 2*vp(m,i+1))**2+&
-       &  d2*( vp(m,i-1)- 2*vp(m,i  )+   vp(m,i+1))**2+ &
-       &  d3*(   -vp(m,i-2)+ 3*vp(m,i-1)- 3*vp(m,i  )+   vp(m,i+1))**2
-       betap(0)= d1*(- 2*vp(m,i-3)+ 9*vp(m,i-2)-18*vp(m,i-1)+11*vp(m,i  ))**2+&
-       &  d2*(-   vp(m,i-3)+ 4*vp(m,i-2)- 5*vp(m,i-1)+ 2*vp(m,i  ))**2+&
-       &  d3*(   -vp(m,i-3)+ 3*vp(m,i-2)- 3*vp(m,i-1)+   vp(m,i  ))**2
-!
-       betam(3)= d1*(-11*vm(m,i+1)+18*vm(m,i  )- 9*vm(m,i-1)+ 2*vm(m,i-2))**2+&
-       &  d2*(  2*vm(m,i+1)- 5*vm(m,i  )+ 4*vm(m,i-1)-   vm(m,i-2))**2+&
-       &  d3*(   -vm(m,i+1)+ 3*vm(m,i  )- 3*vm(m,i-1)+   vm(m,i-2))**2
-       betam(2)= d1*(- 2*vm(m,i+2)- 3*vm(m,i+1)+ 6*vm(m,i  )-   vm(m,i-1))**2+&
-       &  d2*(    vm(m,i+2)- 2*vm(m,i+1)+   vm(m,i  )             )**2+&
-       &  d3*(   -vm(m,i+2)+ 3*vm(m,i+1)- 3*vm(m,i  )+   vm(m,i-1))**2
-       betam(1)= d1*(    vm(m,i+3)- 6*vm(m,i+2)+ 3*vm(m,i+1)+ 2*vm(m,i  ))**2+&
-       &  d2*(                 vm(m,i+2)- 2*vm(m,i+1)+   vm(m,i  ))**2+&
-       &  d3*(   -vm(m,i+3)+ 3*vm(m,i+2)- 3*vm(m,i+1)+   vm(m,i  ))**2
-       betam(0)= d1*(- 2*vm(m,i+4)+ 9*vm(m,i+3)-18*vm(m,i+2)+11*vm(m,i+1))**2+&
-       &  d2*(-   vm(m,i+4)+ 4*vm(m,i+3)- 5*vm(m,i+2)+ 2*vm(m,i+1))**2+&
-       &  d3*(   -vm(m,i+4)+ 3*vm(m,i+3)- 3*vm(m,i+2)+   vm(m,i+1))**2
-!
-       sump = 0._R8P
-       summ = 0._R8P
-       do l=0,3
-        alfp(l) = dwe(  l)/(0.000001_R8P+betap(l))**2
-        alfm(l) = dwe(  l)/(0.000001_R8P+betam(l))**2
-        sump = sump + alfp(l)
-        summ = summ + alfm(l)
-       enddo
-       do l=0,3
-        omp(l) = alfp(l)/sump
-        omm(l) = alfm(l)/summ
-       enddo
-!
-       vminus(m)   = omp(3)*( 6*vp(m,i  )+26*vp(m,i+1)-10*vp(m,i+2)+ 2*vp(m,i+3))+&
-        omp(2)*(-2*vp(m,i-1)+14*vp(m,i  )+14*vp(m,i+1)- 2*vp(m,i+2))+&
-        omp(1)*( 2*vp(m,i-2)-10*vp(m,i-1)+26*vp(m,i  )+ 6*vp(m,i+1))+&
-        omp(0)*(-6*vp(m,i-3)+26*vp(m,i-2)-46*vp(m,i-1)+50*vp(m,i  ))
-       vplus(m)   =  omm(3)*( 6*vm(m,i+1)+26*vm(m,i  )-10*vm(m,i-1)+ 2*vm(m,i-2))+&
-        omm(2)*(-2*vm(m,i+2)+14*vm(m,i+1)+14*vm(m,i  )- 2*vm(m,i-1))+&
-        omm(1)*( 2*vm(m,i+3)-10*vm(m,i+2)+26*vm(m,i+1)+ 6*vm(m,i  ))+&
-        omm(0)*(-6*vm(m,i+4)+26*vm(m,i+3)-46*vm(m,i+2)+50*vm(m,i+1))
-!
-      enddo ! end of m-loop
-!
-      vminus = vminus/24._R8P
-      vplus  = vplus /24._R8P
-!
-   else
-      write(*,*) 'Error! WENO scheme not implemented'
-      stop
-   endif
-   endsubroutine weno_reconstruction
+   call compute_max_eigenvalues(si=si,sir=sir,weno_s=weno_s,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,q_aux=q_aux,evmax=evmax)
+   do s=1-weno_s, weno_s
+      is = i + (s) * si(1) ; js = j + (s) * si(2) ; ks = k + (s) * si(3)
+      call compute_conservatives(b=b,i=is,j=js,k=ks,ngc=ngc,q_aux=q_aux,q=q)
+      call compute_conservative_fluxes(sir=sir,b=b,i=is,j=js,k=ks,ngc=ngc,q_aux=q_aux,f=f)
+      do v=1, nv
+         wc = 0._R8P
+         gc = 0._R8P
+         do vv=1, nv
+            wc = wc + el(vv,v) * q(vv)
+            gc = gc + el(vv,v) * f(vv)
+         enddo
+         fmp(2) = 0.5_R8P * (gc + evmax(v) * wc)
+         fmp(1) = gc - fmp(2)
+         ! fmp(2) = 0.5_R8P * (f(v) + 1.2_R8P*evmax(v) * q(v))
+         ! fmp(1) = f(v) - fmp(2)
+         if (s<weno_s)   fmpc(2,s  ,v) = fmp(2)
+         if (s>1-weno_s) fmpc(1,s-1,v) = fmp(1)
+      enddo
+   enddo
+   endsubroutine decompose_fluxes_convective
 endmodule adam_nasto_cpu_object

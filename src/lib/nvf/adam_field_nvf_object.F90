@@ -23,6 +23,7 @@ type :: field_nvf_object
    type(field_object), pointer :: field=>null()  !< The field.
    real(R8P), allocatable      :: q_t(:,:,:,:,:) !< Transposed cell centered variables on CPU.
    ! GPU data
+   real(R8P),    allocatable, device :: q_gpu(:,:,:,:,:)     !< Field cell centered variables.
    real(R8P),    allocatable, device :: q_t_gpu(:,:,:,:,:)   !< Transposed cell centered variables on GPU.
    integer(I4P), allocatable, device :: fec_1_6_array_gpu(:) !< Mapping fec1-26 to fec1-6 for boundaries (GPU).
    ! GPU data copied from field object
@@ -32,19 +33,37 @@ type :: field_nvf_object
    real(R8P),    allocatable, device :: dxyz_gpu(:,:)   !< Delta cells GPU.
    contains
       ! public methods
+      procedure, pass(self) :: compute_q_gradient     !< Compute maximum gradient module of q element of a block.
       procedure, pass(self) :: copy_cpu_gpu           !< Copy data from (field_object) CPU to (field_nvf_object) GPU.
       procedure, pass(self) :: copy_transpose_cpu_gpu !< Transpose data from GPU to CPU.
       procedure, pass(self) :: copy_transpose_gpu_cpu !< Transpose data from GPU to CPU.
-      procedure, pass(self) :: initialize             !< Initialize base backend.
+      procedure, pass(self) :: initialize             !< Initialize field.
       procedure, pass(self) :: update_ghost_local_gpu !< Update ghosts locally.
       procedure, pass(self) :: update_ghost_mpi_gpu   !< Update ghosts MPI.
 endtype field_nvf_object
 
 contains
    ! public methods
+   subroutine compute_q_gradient(self, b, ivar, q_gpu, gradient)
+   !< Compute gradient (module) over q elements.
+   class(field_nvf_object), intent(in)         :: self      !< The field.
+   integer(I4P),            intent(in)         :: b         !< Block index.
+   integer(I4P),            intent(in)         :: ivar      !< Index of q variable.
+   real(R8P),               intent(in), device :: q_gpu(1:,                    &
+                                                        1-self%field%grid%ngc:,&
+                                                        1-self%field%grid%ngc:,&
+                                                        1-self%field%grid%ngc:,&
+                                                        1:) !< Field component to which apply gradient.
+   real(R8P),               intent(out)        :: gradient  !< Maximum gradient of q(ivar).
+
+   call compute_q_gradient_cuf(b=b, ni=self%field%grid%ni, nj=self%field%grid%nj, nk=self%field%grid%nk, ngc=self%field%grid%ngc, &
+                               dx=self%field%dxyz(1,b), dy=self%field%dxyz(2,b), dz=self%field%dxyz(3,b),     &
+                               q_gpu=q_gpu, ivar=ivar, gradient=gradient)
+   endsubroutine compute_q_gradient
+
    subroutine copy_cpu_gpu(self, verbose)
    !< Copy data from (field_object) CPU to (field_nvf_object) GPU.
-   class(field_nvf_object), intent(inout)        :: self     !< The base backend.
+   class(field_nvf_object), intent(inout)        :: self     !< The field.
    logical,                 intent(in), optional :: verbose  !< Flag to activate verbose mode.
    logical                                       :: verbose_ !< Flag to activate verbose mode, local var.
    character(:), allocatable                     :: r        !< My rank stringified.
@@ -135,8 +154,8 @@ contains
    endsubroutine copy_transpose_gpu_cpu
 
    subroutine initialize(self, field, nv_aux, verbose)
-   !< Initialize base backend.
-   class(field_nvf_object), intent(inout)        :: self    !< The base backend.
+   !< Initialize field.
+   class(field_nvf_object), intent(inout)        :: self    !< The field.
    type(field_object),      intent(in), target   :: field   !< Field variable array.
    integer(I4P),            intent(in), optional :: nv_aux  !< Number of auxiliary variables.
    logical,                 intent(in), optional :: verbose !< Flag to activate verbose mode.
@@ -146,6 +165,13 @@ contains
    call self%mpih%print_message('field_nvf_object%initialize start')
    self%field => field
    call self%maps%initialize(maps=field%maps)
+   call alloc_var_gpu(var=self%q_gpu,&
+                      ulb=reshape([1,field%nb,                                   &
+                                   1-field%grid%ngc,field%grid%ni+field%grid%ngc,&
+                                   1-field%grid%ngc,field%grid%nj+field%grid%ngc,&
+                                   1-field%grid%ngc,field%grid%nk+field%grid%ngc,&
+                                   1,field%nv],[2,5]),                           &
+                      msg=self%mpih%myrankstr//'field_nvf_object%initialize alloc_var_cpu(q_gpu) ', verbose=verbose)
    call assign_allocatable_gpu(lhs=self%fec_1_6_array_gpu, &
                                rhsa=    FEC_1_6_ARRAY,     &
                                msg=self%mpih%myrankstr//'field_nvf_object%initialize(fec_1_6_array_gpu) ', verbose=verbose)
@@ -170,7 +196,7 @@ contains
 
    subroutine update_ghost_local_gpu(self, q_gpu)
    !< Update (local) ghost cells.
-   class(field_nvf_object), intent(in)            :: self      !< The base backend.
+   class(field_nvf_object), intent(in)            :: self      !< The field.
    real(R8P),               intent(inout), device :: q_gpu(1:,                    &
                                                            1-self%field%grid%ngc:,&
                                                            1-self%field%grid%ngc:,&
@@ -183,7 +209,7 @@ contains
 
    subroutine update_ghost_mpi_gpu(self, q_gpu, step)
    !< Update ghost cells within other processes.
-   class(field_nvf_object), intent(inout)         :: self      !< The base backend.
+   class(field_nvf_object), intent(inout)         :: self      !< The field.
    real(R8P),               intent(inout), device :: q_gpu(1:,                    &
                                                            1-self%field%grid%ngc:,&
                                                            1-self%field%grid%ngc:,&
