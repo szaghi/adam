@@ -264,44 +264,48 @@ libs     = $HDF5_ifx/lib/libhdf5hl_fortran.a
            $GETMEMORY
 
 [nasto-gmp-mpi-ifx]
-help     = Build NASTO GMP app with IFX-MPI on SZ laptop (placeholder with GNU compiler, must be changed for actual IFX)
-template = template-base
-target   = adam_nasto_gmp.F90
-preproc  = -D_MPI_
-compiler = gnu
-mpi      = True
-cflags   = -cpp -c -O2
-lflags   = -O2
-ext_libs = dl m
-lib_dir  = $HDF5_gnu/lib
-include  = $HDF5_gnu/include
-libs     = $HDF5_gnu/lib/libhdf5hl_fortran.a
-           $HDF5_gnu/lib/libhdf5_hl.a
-           $HDF5_gnu/lib/libhdf5_fortran.a
-           $HDF5_gnu/lib/libhdf5.a
-           $ZLIB_gnu
-           $SZIP_gnu
-           $GETMEMORY
+help           = Build NASTO GMP app with IFX-MPI on SZ laptop
+template       = template-base
+target         = adam_nasto_gmp.F90
+preproc        = -D_MPI_ -D_GMP_
+compiler       = intel_nextgen
+mpi            = True
+openmp         = True
+openmp_offload = True
+cflags         = -cpp -c -O2
+lflags         = -O2
+ext_libs       = dl m
+lib_dir        = $HDF5_ifx/lib
+include        = $HDF5_ifx/include
+libs           = $HDF5_ifx/lib/libhdf5hl_fortran.a
+                 $HDF5_ifx/lib/libhdf5_hl.a
+                 $HDF5_ifx/lib/libhdf5_fortran.a
+                 $HDF5_ifx/lib/libhdf5.a
+                 $ZLIB_ifx
+                 $SZIP_ifx
+                 $GETMEMORY
 
 [nasto-gmp-mpi-ifx-debug]
-help     = Build NASTO GMP app (debug) with IFX-MPI on SZ laptop (placeholder with GNU compiler, must be changed for actual IFX)
-template = template-base
-target   = adam_nasto_gmp.F90
-preproc  = -D_MPI_
-compiler = gnu
-mpi      = True
-cflags   = -C -g -O0
-lflags   = -O0
-ext_libs = dl m
-lib_dir  = $HDF5_gnu/lib
-include  = $HDF5_gnu/include
-libs     = $HDF5_gnu/lib/libhdf5hl_fortran.a
-           $HDF5_gnu/lib/libhdf5_hl.a
-           $HDF5_gnu/lib/libhdf5_fortran.a
-           $HDF5_gnu/lib/libhdf5.a
-           $ZLIB_gnu
-           $SZIP_gnu
-           $GETMEMORY
+help           = Build NASTO GMP app (debug) with IFX-MPI on SZ laptop
+template       = template-base
+target         = adam_nasto_gmp.F90
+preproc        = -D_MPI_ -D_GMP_
+compiler       = intel_nextgen
+mpi            = True
+openmp         = True
+openmp_offload = True
+cflags         = -cpp -c -O0 -g -traceback
+lflags         = -O0 -traceback
+ext_libs       = dl m
+lib_dir        = $HDF5_ifx/lib
+include        = $HDF5_ifx/include
+libs           = $HDF5_ifx/lib/libhdf5hl_fortran.a
+                 $HDF5_ifx/lib/libhdf5_hl.a
+                 $HDF5_ifx/lib/libhdf5_fortran.a
+                 $HDF5_ifx/lib/libhdf5.a
+                 $ZLIB_ifx
+                 $SZIP_ifx
+                 $GETMEMORY
 
 [ascot-nvf-mpi-cuda]
 help         = Build ascot app with NVF-CUDA on SZ laptop

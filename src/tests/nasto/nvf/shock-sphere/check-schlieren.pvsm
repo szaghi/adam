@@ -16325,13 +16325,13 @@
     </Proxy>
     <Proxy group="sources" type="XdmfReader" id="17744" servers="1">
       <Property name="FileNameInfo" id="17744.FileNameInfo" number_of_elements="1">
-        <Element index="0" value="/home/stefano/fortran/adam/src/tests/nasto/nvf/shock-sphere/sphere-shock-000000000.xdmf"/>
+        <Element index="0" value="./sphere-shock-000000000.xdmf"/>
       </Property>
       <Property name="FileNames" id="17744.FileNames" number_of_elements="4">
-        <Element index="0" value="/home/stefano/fortran/adam/src/tests/nasto/nvf/shock-sphere/sphere-shock-000000000.xdmf"/>
-        <Element index="1" value="/home/stefano/fortran/adam/src/tests/nasto/nvf/shock-sphere/sphere-shock-000000500.xdmf"/>
-        <Element index="2" value="/home/stefano/fortran/adam/src/tests/nasto/nvf/shock-sphere/sphere-shock-000001000.xdmf"/>
-        <Element index="3" value="/home/stefano/fortran/adam/src/tests/nasto/nvf/shock-sphere/sphere-shock-000001134.xdmf"/>
+        <Element index="0" value="./sphere-shock-000000000.xdmf"/>
+        <Element index="1" value="./sphere-shock-000000500.xdmf"/>
+        <Element index="2" value="./sphere-shock-000001000.xdmf"/>
+        <Element index="3" value="./sphere-shock-000001134.xdmf"/>
         <Domain name="files" id="17744.FileNames.files"/>
       </Property>
       <Property name="TimestepValues" id="17744.TimestepValues" number_of_elements="4">

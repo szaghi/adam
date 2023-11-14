@@ -27,10 +27,10 @@ type :: field_nvf_object
    real(R8P),    allocatable, device :: q_t_gpu(:,:,:,:,:)   !< Transposed cell centered variables on GPU.
    integer(I4P), allocatable, device :: fec_1_6_array_gpu(:) !< Mapping fec1-26 to fec1-6 for boundaries (GPU).
    ! GPU data copied from field object
-   real(R8P),    allocatable, device :: x_cell_gpu(:,:) !< Cells x coordinates on GPU.
-   real(R8P),    allocatable, device :: y_cell_gpu(:,:) !< Cells y coordinates on GPU.
-   real(R8P),    allocatable, device :: z_cell_gpu(:,:) !< Cells z coordinates on GPU.
-   real(R8P),    allocatable, device :: dxyz_gpu(:,:)   !< Delta cells GPU.
+   real(R8P), allocatable, device :: x_cell_gpu(:,:) !< Cells x coordinates on GPU.
+   real(R8P), allocatable, device :: y_cell_gpu(:,:) !< Cells y coordinates on GPU.
+   real(R8P), allocatable, device :: z_cell_gpu(:,:) !< Cells z coordinates on GPU.
+   real(R8P), allocatable, device :: dxyz_gpu(:,:)   !< Delta cells GPU.
    contains
       ! public methods
       procedure, pass(self) :: compute_q_gradient     !< Compute maximum gradient module of q element of a block.

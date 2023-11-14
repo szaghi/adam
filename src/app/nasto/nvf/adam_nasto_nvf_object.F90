@@ -151,12 +151,11 @@ contains
    ! AMR methods
    subroutine amr_update(self)
    !< Do AMR update.
-   class(nasto_nvf_object), intent(inout) :: self                 !< The equation.
-   integer(I4P)                           :: iterations_          !< Number of AMR iterations, local var.
-   logical                                :: is_grid_changed      !< Flag to check grid changes for each marker.
-   logical                                :: is_grid_changed_all  !< Flag to check grid changes for each iter.
-   integer(I4P)                           :: b, i, j, k, i_marker !< Counter.
-   type(amr_marker_object)                :: amr_marker           !< Current amr marker.
+   class(nasto_nvf_object), intent(inout) :: self                !< The equation.
+   logical                                :: is_grid_changed     !< Flag to check grid changes for each marker.
+   logical                                :: is_grid_changed_all !< Flag to check grid changes for each iter.
+   integer(I4P)                           :: i, i_marker         !< Counter.
+   type(amr_marker_object)                :: amr_marker          !< Current amr marker.
 
    amr: do i=1, self%amr%iters
       is_grid_changed_all = .false.

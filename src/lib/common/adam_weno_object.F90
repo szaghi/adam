@@ -821,6 +821,9 @@ contains
    real(R8P),    intent(out) :: VR(1:2      ) !< Left and right (1,2) interface value of reconstructed V.
    integer(I4P)              :: k,f           !< Counter.
 
+#ifdef _GMP_
+   !$omp declare target(weno_compute_convolution)
+#endif
    VR = 0._R8P
    do k=0, S-1
       do f=1, 2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
@@ -837,7 +840,9 @@ contains
    real(R8P),    intent(out) :: VP(1:2,0:S-1   )    !< Polynomial reconstructions.
    integer(I4P)              :: s1,s2,f             !< Counter.
 
-   ! computing the polynomials
+#ifdef _GMP_
+   !$omp declare target(weno_compute_polynomials)
+#endif
    VP = 0._R8P
    do s1=0, S-1 ! stencil counter
       do s2=0, S-1 ! cell counter counter
@@ -861,6 +866,9 @@ contains
    real(R8P)                 :: a_tot(1:2)          !< Summ of the alpha coefficients.
    integer(I4P)              :: s1,s2,s3,f          !< Counter.
 
+#ifdef _GMP_
+   !$omp declare target(weno_compute_weights)
+#endif
    ! computing smoothness indicators
    do s1=0,S-1 ! stencil counter
       do f=1,2 ! 1 => left interface (i-1/2), 2 => right interface (i+1/2)
@@ -896,6 +904,9 @@ contains
    real(R8P),    intent(out) :: VR(1:2         )    !< Left and right (1,2) interface value of reconstructed V.
    real(R8P)                 :: VP(1:2,0:S-1   )    !< Polynomial reconstructions.
 
+#ifdef _GMP_
+   !$omp declare target(weno_reconstruct_optimal)
+#endif
    call weno_compute_polynomials(S=S, weno_p=weno_p, V=V(1:2,1-S:-1+S), VP=VP(1:2,0:S-1))
    call weno_compute_convolution(S=S, VP=VP(1:2,0:S-1), w=weno_a, VR=VR(1:2))
    endsubroutine weno_reconstruct_optimal
@@ -912,6 +923,9 @@ contains
    real(R8P)                 :: VP(1:2,0:S-1   )    !< Polynomial reconstructions.
    real(R8P)                 :: w (1:2,0:S-1   )    !< Weights of the stencils.
 
+#ifdef _GMP_
+   !$omp declare target(weno_reconstruct_upwind)
+#endif
    call weno_compute_polynomials(S=S, weno_p=weno_p, V=V(1:2,1-S:-1+S), VP=VP(1:2,0:S-1))
    call weno_compute_weights(S=S, weno_a=weno_a, weno_d=weno_d, weno_zeps=weno_zeps, V=V(1:2,1-S:-1+S), w=w(1:2,0:S-1))
    call weno_compute_convolution(S=S, VP=VP(1:2,0:S-1), w=w(1:2,0:S-1), VR=VR(1:2))
