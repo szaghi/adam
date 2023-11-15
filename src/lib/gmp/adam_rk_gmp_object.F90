@@ -127,12 +127,11 @@ contains
    select case(self%rk%scheme)
    case(RK_1, RK_2, RK_3) ! low storage, only stage 1 is necessary
    call alloc_var_gpu(var=self%q_rk_gpu,ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv,1,1     ],[2,6]), &
-                      omp_dev=self%mpih%mydev, msg=msg)
+                      omp_dev=self%mpih%mydev, init_val=0._R8P, msg=msg)
    case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
    call alloc_var_gpu(var=self%q_rk_gpu,ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv,1,rk%nrk],[2,6]), &
-                      omp_dev=self%mpih%mydev, msg=msg)
+                      omp_dev=self%mpih%mydev, init_val=0._R8P, msg=msg)
    endselect
-   self%q_rk_gpu = 0._R8P
    call self%mpih%print_message('rk_gmp_object%initialize finish')
    endsubroutine initialize
 

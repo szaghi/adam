@@ -88,8 +88,7 @@ contains
    if (solids_number>0) then
       ms = msg_//' phi_gpu '
       call alloc_var_gpu(var=self%phi_gpu,ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,solids_number+1],[2,5]), &
-                         omp_dev=self%mpih%mydev, msg=ms)
-      self%phi_gpu = -1._R8P
+                         omp_dev=self%mpih%mydev, init_val=-1._R8P, msg=ms)
    endif
    endassociate
    call associate_adam_data(ib=ib)

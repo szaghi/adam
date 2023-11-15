@@ -84,24 +84,19 @@ contains
    call assign_allocatable_gpu(lhs=self%q_bc_vars_gpu, rhs=self%bc%q, omp_dev=mydev, msg=msg_//' q_bc_vars_gpu ')
    ms = msg_//' q_aux_gpu '
    call alloc_var_gpu(var=self%q_aux_gpu,ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv_aux],[2,5]),&
-                      omp_dev=mydev,msg=ms)
-   self%q_aux_gpu = 0._R8P
+                      omp_dev=mydev,init_val=0._R8P,msg=ms)
    ms = msg_//' dq_gpu '
    call alloc_var_gpu(var=self%dq_gpu,   ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv    ],[2,5]),&
-                      omp_dev=mydev,msg=ms)
-   self%dq_gpu = 0._R8P
+                      omp_dev=mydev,init_val=0._R8P,msg=ms)
    ms = msg_//' flx_gpu '
    call alloc_var_gpu(var=self%flx_gpu,  ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv    ],[2,5]),&
-                      omp_dev=mydev,msg=ms)
-   self%flx_gpu = 0._R8P
+                      omp_dev=mydev,init_val=0._R8P,msg=ms)
    ms = msg_//' fly_gpu '
    call alloc_var_gpu(var=self%fly_gpu,  ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv    ],[2,5]),&
-                      omp_dev=mydev,msg=ms)
-   self%fly_gpu = 0._R8P
+                      omp_dev=mydev,init_val=0._R8P,msg=ms)
    ms = msg_//' flz_gpu '
    call alloc_var_gpu(var=self%flz_gpu,  ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv    ],[2,5]),&
-                      omp_dev=mydev,msg=ms)
-   self%flz_gpu = 0._R8P
+                      omp_dev=mydev,init_val=0._R8P,msg=ms)
    endassociate
    call self%mpih_gpu%print_message('nasto_gmp_object%allocate_gpu finish')
    endsubroutine allocate_gpu
