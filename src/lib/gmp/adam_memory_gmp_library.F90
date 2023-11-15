@@ -62,11 +62,7 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   if (present(init_val)) then
-      call omp_target_alloc_f(fptr_dev=var, ubounds=[ulb(2)], lbounds=[ulb(1)], omp_dev=omp_dev, init_value=init_val, ierr=error)
-   else
-      call omp_target_alloc_f(fptr_dev=var, ubounds=[ulb(2)], lbounds=[ulb(1)], omp_dev=omp_dev, ierr=error)
-   endif
+   call omp_target_alloc_f(fptr_dev=var, ubounds=[ulb(2)], lbounds=[ulb(1)], omp_dev=omp_dev, init_value=init_val, ierr=error)
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_R8P_1D: '//msg_
       error stop
@@ -90,11 +86,7 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   if (present(init_val)) then
-      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
-   else
-      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
-   endif
+   call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_R8P_2D: '//msg_
       error stop
@@ -118,11 +110,7 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   if (present(init_val)) then
-      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
-   else
-      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
-   endif
+   call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_R8P_3D: '//msg_
       error stop
@@ -146,11 +134,7 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   if (present(init_val)) then
-      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
-   else
-      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
-   endif
+   call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_R8P_4D: '//msg_
       error stop
@@ -174,11 +158,7 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   if (present(init_val)) then
-      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
-   else
-      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
-   endif
+   call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_R8P_5D: '//msg_
       error stop
@@ -202,11 +182,7 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   if (present(init_val)) then
-      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
-   else
-      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
-   endif
+   call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_R8P_6D: '//msg_
       error stop
@@ -230,11 +206,7 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   if (present(init_val)) then
-      call omp_target_alloc_f(fptr_dev=var, ubounds=[ulb(2)], lbounds=[ulb(1)], omp_dev=omp_dev, init_value=init_val, ierr=error)
-   else
-      call omp_target_alloc_f(fptr_dev=var, ubounds=[ulb(2)], lbounds=[ulb(1)], omp_dev=omp_dev, ierr=error)
-   endif
+   call omp_target_alloc_f(fptr_dev=var, ubounds=[ulb(2)], lbounds=[ulb(1)], omp_dev=omp_dev, init_value=init_val, ierr=error)
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_I4P_1D: '//msg_
       error stop
@@ -258,11 +230,7 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   if (present(init_val)) then
-      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
-   else
-      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
-   endif
+   call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_I4P_2D: '//msg_
       error stop
@@ -286,11 +254,7 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   if (present(init_val)) then
-      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
-   else
-      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
-   endif
+   call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_I4P_5D: '//msg_
       error stop
@@ -314,11 +278,7 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   if (present(init_val)) then
-      call omp_target_alloc_f(fptr_dev=var, ubounds=[ulb(2)], lbounds=[ulb(1)], omp_dev=omp_dev, init_value=init_val, ierr=error)
-   else
-      call omp_target_alloc_f(fptr_dev=var, ubounds=[ulb(2)], lbounds=[ulb(1)], omp_dev=omp_dev, ierr=error)
-   endif
+   call omp_target_alloc_f(fptr_dev=var, ubounds=[ulb(2)], lbounds=[ulb(1)], omp_dev=omp_dev, init_value=init_val, ierr=error)
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_I8P_1D: '//msg_
       error stop
@@ -342,11 +302,7 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   if (present(init_val)) then
-      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
-   else
-      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
-   endif
+   call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_I8P_2D: '//msg_
       error stop
@@ -370,11 +326,7 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   if (present(init_val)) then
-      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=ulb(1,:), omp_dev=omp_dev, init_value=init_val, ierr=error)
-   else
-      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=ulb(1,:), omp_dev=omp_dev, ierr=error)
-   endif
+   call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=ulb(1,:), omp_dev=omp_dev, init_value=init_val, ierr=error)
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_I8P_3D: '//msg_
       error stop
