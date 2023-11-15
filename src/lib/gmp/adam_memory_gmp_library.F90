@@ -47,11 +47,12 @@ interface transpose_a
 endinterface transpose_a
 
 contains
-   subroutine alloc_var_gpu_R8P_1D(var, ulb, omp_dev, msg, verbose)
+   subroutine alloc_var_gpu_R8P_1D(var, ulb, omp_dev, init_val, msg, verbose)
    !< Allocate GPU variable with memory checking (kind R8P, rank 1).
    real(R8P), pointer, intent(inout)         :: var(:)   !< Varibale to be allocate on GPU.
    integer(I4P),       intent(in)            :: ulb(2)   !< Upper/lower bounds of variable.
    integer(I4P),       intent(in)            :: omp_dev  !< OpenMP device ID.
+   real(R8P),          intent(in), optional  :: init_val !< Initialization value.
    character(*),       intent(in), optional  :: msg      !< Message to be printed in verbose mode.
    logical,            intent(in), optional  :: verbose  !< Flag to activate verbose mode.
    character(:), allocatable                 :: msg_     !< Message to be printed in verbose mode, local var.
@@ -61,7 +62,11 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   call omp_target_alloc_f(fptr_dev=var, ubounds=[ulb(2)], lbounds=[ulb(1)], omp_dev=omp_dev, ierr=error)
+   if (present(init_val)) then
+      call omp_target_alloc_f(fptr_dev=var, ubounds=[ulb(2)], lbounds=[ulb(1)], omp_dev=omp_dev, init_value=init_val, ierr=error)
+   else
+      call omp_target_alloc_f(fptr_dev=var, ubounds=[ulb(2)], lbounds=[ulb(1)], omp_dev=omp_dev, ierr=error)
+   endif
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_R8P_1D: '//msg_
       error stop
@@ -70,11 +75,12 @@ contains
    endif
    endsubroutine alloc_var_gpu_R8P_1D
 
-   subroutine alloc_var_gpu_R8P_2D(var, ulb, omp_dev, msg, verbose)
+   subroutine alloc_var_gpu_R8P_2D(var, ulb, omp_dev, init_val, msg, verbose)
    !< Allocate GPU variable with memory checking (kind R8P, rank 2).
    real(R8P), pointer, intent(inout)         :: var(:,:) !< Varibale to be allocate on GPU.
    integer(I4P),       intent(in)            :: ulb(2,2) !< Upper/lower bounds of variable.
    integer(I4P),       intent(in)            :: omp_dev  !< OpenMP device ID.
+   real(R8P),          intent(in), optional  :: init_val !< Initialization value.
    character(*),       intent(in), optional  :: msg      !< Message to be printed in verbose mode.
    logical,            intent(in), optional  :: verbose  !< Flag to activate verbose mode.
    character(:), allocatable                 :: msg_     !< Message to be printed in verbose mode, local var.
@@ -84,7 +90,11 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
+   if (present(init_val)) then
+      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
+   else
+      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
+   endif
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_R8P_2D: '//msg_
       error stop
@@ -93,11 +103,12 @@ contains
    endif
    endsubroutine alloc_var_gpu_R8P_2D
 
-   subroutine alloc_var_gpu_R8P_3D(var, ulb, omp_dev, msg, verbose)
+   subroutine alloc_var_gpu_R8P_3D(var, ulb, omp_dev, init_val, msg, verbose)
    !< Allocate GPU variable with memory checking (kind R8P, rank 3).
    real(R8P), pointer, intent(inout)         :: var(:,:,:) !< Varibale to be allocate on GPU.
    integer(I4P),       intent(in)            :: ulb(2,3)   !< Upper/lower bounds of variable.
    integer(I4P),       intent(in)            :: omp_dev    !< OpenMP device ID.
+   real(R8P),          intent(in), optional  :: init_val   !< Initialization value.
    character(*),       intent(in), optional  :: msg        !< Message to be printed in verbose mode.
    logical,            intent(in), optional  :: verbose    !< Flag to activate verbose mode.
    character(:), allocatable                 :: msg_       !< Message to be printed in verbose mode, local var.
@@ -107,7 +118,11 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
+   if (present(init_val)) then
+      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
+   else
+      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
+   endif
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_R8P_3D: '//msg_
       error stop
@@ -116,11 +131,12 @@ contains
    endif
    endsubroutine alloc_var_gpu_R8P_3D
 
-   subroutine alloc_var_gpu_R8P_4D(var, ulb, omp_dev, msg, verbose)
+   subroutine alloc_var_gpu_R8P_4D(var, ulb, omp_dev, init_val, msg, verbose)
    !< Allocate GPU variable with memory checking (kind R8P, rank 4).
    real(R8P), pointer, intent(inout)         :: var(:,:,:,:) !< Varibale to be allocate on GPU.
    integer(I4P),       intent(in)            :: ulb(2,4)     !< Upper/lower bounds of variable.
    integer(I4P),       intent(in)            :: omp_dev      !< OpenMP device ID.
+   real(R8P),          intent(in), optional  :: init_val     !< Initialization value.
    character(*),       intent(in), optional  :: msg          !< Message to be printed in verbose mode.
    logical,            intent(in), optional  :: verbose      !< Flag to activate verbose mode.
    character(:), allocatable                 :: msg_         !< Message to be printed in verbose mode, local var.
@@ -130,7 +146,11 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
+   if (present(init_val)) then
+      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
+   else
+      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
+   endif
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_R8P_4D: '//msg_
       error stop
@@ -139,11 +159,12 @@ contains
    endif
    endsubroutine alloc_var_gpu_R8P_4D
 
-   subroutine alloc_var_gpu_R8P_5D(var, ulb, omp_dev, msg, verbose)
+   subroutine alloc_var_gpu_R8P_5D(var, ulb, omp_dev, init_val, msg, verbose)
    !< Allocate GPU variable with memory checking (kind R8P, rank 5).
    real(R8P), pointer, intent(inout)         :: var(:,:,:,:,:) !< Varibale to be allocate on GPU.
    integer(I4P),       intent(in)            :: ulb(2,5)       !< Upper/lower bounds of variable.
    integer(I4P),       intent(in)            :: omp_dev        !< OpenMP device ID.
+   real(R8P),          intent(in), optional  :: init_val       !< Initialization value.
    character(*),       intent(in), optional  :: msg            !< Message to be printed in verbose mode.
    logical,            intent(in), optional  :: verbose        !< Flag to activate verbose mode.
    character(:), allocatable                 :: msg_           !< Message to be printed in verbose mode, local var.
@@ -153,7 +174,11 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
+   if (present(init_val)) then
+      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
+   else
+      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
+   endif
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_R8P_5D: '//msg_
       error stop
@@ -162,11 +187,12 @@ contains
    endif
    endsubroutine alloc_var_gpu_R8P_5D
 
-   subroutine alloc_var_gpu_R8P_6D(var, ulb, omp_dev, msg, verbose)
+   subroutine alloc_var_gpu_R8P_6D(var, ulb, omp_dev, init_val, msg, verbose)
    !< Allocate GPU variable with memory checking (kind R8P, rank 6).
    real(R8P), pointer, intent(inout)         :: var(:,:,:,:,:,:) !< Varibale to be allocate on GPU.
    integer(I4P),       intent(in)            :: ulb(2,6)         !< Upper/lower bounds of variable.
    integer(I4P),       intent(in)            :: omp_dev          !< OpenMP device ID.
+   real(R8P),          intent(in), optional  :: init_val         !< Initialization value.
    character(*),       intent(in), optional  :: msg              !< Message to be printed in verbose mode.
    logical,            intent(in), optional  :: verbose          !< Flag to activate verbose mode.
    character(:), allocatable                 :: msg_             !< Message to be printed in verbose mode, local var.
@@ -176,7 +202,11 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
+   if (present(init_val)) then
+      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
+   else
+      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
+   endif
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_R8P_6D: '//msg_
       error stop
@@ -185,11 +215,12 @@ contains
    endif
    endsubroutine alloc_var_gpu_R8P_6D
 
-   subroutine alloc_var_gpu_I4P_1D(var, ulb, omp_dev, msg, verbose)
+   subroutine alloc_var_gpu_I4P_1D(var, ulb, omp_dev, init_val, msg, verbose)
    !< Allocate GPU variable with memory checking (kind I4P, rank 1).
    integer(I4P), pointer, intent(inout)         :: var(:)   !< Varibale to be allocate on GPU.
    integer(I4P),          intent(in)            :: ulb(2)   !< Upper/lower bounds of variable.
    integer(I4P),          intent(in)            :: omp_dev  !< OpenMP device ID.
+   integer(I4P),          intent(in), optional  :: init_val !< Initialization value.
    character(*),          intent(in), optional  :: msg      !< Message to be printed in verbose mode.
    logical,               intent(in), optional  :: verbose  !< Flag to activate verbose mode.
    character(:), allocatable                    :: msg_     !< Message to be printed in verbose mode, local var.
@@ -199,7 +230,11 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   call omp_target_alloc_f(fptr_dev=var, ubounds=[ulb(2)], lbounds=[ulb(1)], omp_dev=omp_dev, ierr=error)
+   if (present(init_val)) then
+      call omp_target_alloc_f(fptr_dev=var, ubounds=[ulb(2)], lbounds=[ulb(1)], omp_dev=omp_dev, init_value=init_val, ierr=error)
+   else
+      call omp_target_alloc_f(fptr_dev=var, ubounds=[ulb(2)], lbounds=[ulb(1)], omp_dev=omp_dev, ierr=error)
+   endif
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_I4P_1D: '//msg_
       error stop
@@ -208,11 +243,12 @@ contains
    endif
    endsubroutine alloc_var_gpu_I4P_1D
 
-   subroutine alloc_var_gpu_I4P_2D(var, ulb, omp_dev, msg, verbose)
+   subroutine alloc_var_gpu_I4P_2D(var, ulb, omp_dev, init_val, msg, verbose)
    !< Allocate GPU variable with memory checking (kind I4P, rank 2).
    integer(I4P), pointer, intent(inout)         :: var(:,:) !< Varibale to be allocate on GPU.
    integer(I4P),          intent(in)            :: ulb(2,2) !< Upper/lower bounds of variable.
    integer(I4P),          intent(in)            :: omp_dev  !< OpenMP device ID.
+   integer(I4P),          intent(in), optional  :: init_val !< Initialization value.
    character(*),          intent(in), optional  :: msg      !< Message to be printed in verbose mode.
    logical,               intent(in), optional  :: verbose  !< Flag to activate verbose mode.
    character(:), allocatable                    :: msg_     !< Message to be printed in verbose mode, local var.
@@ -222,7 +258,11 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
+   if (present(init_val)) then
+      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
+   else
+      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
+   endif
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_I4P_2D: '//msg_
       error stop
@@ -231,11 +271,12 @@ contains
    endif
    endsubroutine alloc_var_gpu_I4P_2D
 
-   subroutine alloc_var_gpu_I4P_5D(var, ulb, omp_dev, msg, verbose)
+   subroutine alloc_var_gpu_I4P_5D(var, ulb, omp_dev, init_val, msg, verbose)
    !< Allocate GPU variable with memory checking (kind I4P, rank 5).
    integer(I4P), pointer, intent(inout)         :: var(:,:,:,:,:) !< Varibale to be allocate on GPU.
    integer(I4P),          intent(in)            :: ulb(2,5)       !< Upper/lower bounds of variable.
    integer(I4P),          intent(in)            :: omp_dev        !< OpenMP device ID.
+   integer(I4P),          intent(in), optional  :: init_val       !< Initialization value.
    character(*),          intent(in), optional  :: msg            !< Message to be printed in verbose mode.
    logical,               intent(in), optional  :: verbose        !< Flag to activate verbose mode.
    character(:), allocatable                    :: msg_           !< Message to be printed in verbose mode, local var.
@@ -245,7 +286,11 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
+   if (present(init_val)) then
+      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
+   else
+      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
+   endif
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_I4P_5D: '//msg_
       error stop
@@ -254,11 +299,12 @@ contains
    endif
    endsubroutine alloc_var_gpu_I4P_5D
 
-   subroutine alloc_var_gpu_I8P_1D(var, ulb, omp_dev, msg, verbose)
+   subroutine alloc_var_gpu_I8P_1D(var, ulb, omp_dev, init_val, msg, verbose)
    !< Allocate GPU variable with memory checking (kind I8P, rank 1).
    integer(I8P), pointer, intent(inout)         :: var(:)   !< Varibale to be allocate on GPU.
    integer(I4P),          intent(in)            :: ulb(2)   !< Upper/lower bounds of variable.
    integer(I4P),          intent(in)            :: omp_dev  !< OpenMP device ID.
+   integer(I8P),          intent(in), optional  :: init_val !< Initialization value.
    character(*),          intent(in), optional  :: msg      !< Message to be printed in verbose mode.
    logical,               intent(in), optional  :: verbose  !< Flag to activate verbose mode.
    character(:), allocatable                    :: msg_     !< Message to be printed in verbose mode, local var.
@@ -268,7 +314,11 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   call omp_target_alloc_f(fptr_dev=var, ubounds=[ulb(2)], lbounds=[ulb(1)], omp_dev=omp_dev, ierr=error)
+   if (present(init_val)) then
+      call omp_target_alloc_f(fptr_dev=var, ubounds=[ulb(2)], lbounds=[ulb(1)], omp_dev=omp_dev, init_value=init_val, ierr=error)
+   else
+      call omp_target_alloc_f(fptr_dev=var, ubounds=[ulb(2)], lbounds=[ulb(1)], omp_dev=omp_dev, ierr=error)
+   endif
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_I8P_1D: '//msg_
       error stop
@@ -277,11 +327,12 @@ contains
    endif
    endsubroutine alloc_var_gpu_I8P_1D
 
-   subroutine alloc_var_gpu_I8P_2D(var, ulb, omp_dev, msg, verbose)
+   subroutine alloc_var_gpu_I8P_2D(var, ulb, omp_dev, init_val, msg, verbose)
    !< Allocate GPU variable with memory checking (kind I8P, rank 2).
    integer(I8P), pointer, intent(inout)         :: var(:,:) !< Varibale to be allocate on GPU.
    integer(I4P),          intent(in)            :: ulb(2,2) !< Upper/lower bounds of variable.
    integer(I4P),          intent(in)            :: omp_dev  !< OpenMP device ID.
+   integer(I8P),          intent(in), optional  :: init_val !< Initialization value.
    character(*),          intent(in), optional  :: msg      !< Message to be printed in verbose mode.
    logical,               intent(in), optional  :: verbose  !< Flag to activate verbose mode.
    character(:), allocatable                    :: msg_     !< Message to be printed in verbose mode, local var.
@@ -291,7 +342,11 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
+   if (present(init_val)) then
+      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, init_value=init_val, ierr=error)
+   else
+      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=[ulb(1,:)], omp_dev=omp_dev, ierr=error)
+   endif
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_I8P_2D: '//msg_
       error stop
@@ -300,11 +355,12 @@ contains
    endif
    endsubroutine alloc_var_gpu_I8P_2D
 
-   subroutine alloc_var_gpu_I8P_3D(var, ulb, omp_dev, msg, verbose)
+   subroutine alloc_var_gpu_I8P_3D(var, ulb, omp_dev, init_val, msg, verbose)
    !< Allocate GPU variable with memory checking (kind I8P, rank 2).
    integer(I8P), pointer, intent(inout)         :: var(:,:,:) !< Varibale to be allocate on GPU.
    integer(I4P),          intent(in)            :: ulb(2,3)   !< Upper/lower bounds of variable.
    integer(I4P),          intent(in)            :: omp_dev    !< OpenMP device ID.
+   integer(I8P),          intent(in), optional  :: init_val   !< Initialization value.
    character(*),          intent(in), optional  :: msg        !< Message to be printed in verbose mode.
    logical,               intent(in), optional  :: verbose    !< Flag to activate verbose mode.
    character(:), allocatable                    :: msg_       !< Message to be printed in verbose mode, local var.
@@ -314,7 +370,11 @@ contains
    msg_     = ''      ; if (present(msg    )) msg_     = msg
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (associated(var)) call omp_target_free_f(var,omp_dev)
-   call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=ulb(1,:), omp_dev=omp_dev, ierr=error)
+   if (present(init_val)) then
+      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=ulb(1,:), omp_dev=omp_dev, init_value=init_val, ierr=error)
+   else
+      call omp_target_alloc_f(fptr_dev=var, ubounds=ulb(2,:), lbounds=ulb(1,:), omp_dev=omp_dev, ierr=error)
+   endif
    if (error/=0) then
       print '(A)', 'Error in alloc_var_gpu_I8P_3D: '//msg_
       error stop
