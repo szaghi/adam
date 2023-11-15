@@ -49,6 +49,8 @@ It is a **reference** branch, used for comparison reason, a sort of *named commi
 
 It contains the ongoing Fortran-CUDA development.
 
+Currently, the main CUDA development is focused into the NASTO (CUDA) application. More details about NASTO app can be found in its [readme](src/app/nasto/README.md).
+
 #### openmp-gpu-develop
 
 It contains the ongoing OpenMP development, GPU offloading.
