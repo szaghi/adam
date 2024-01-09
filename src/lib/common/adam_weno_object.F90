@@ -822,7 +822,7 @@ contains
    integer(I4P)              :: k,f           !< Counter.
 
 #ifdef _GMP_
-   !$omp declare target(weno_compute_convolution)
+   !$omp declare target
 #endif
    VR = 0._R8P
    do k=0, S-1
@@ -841,7 +841,7 @@ contains
    integer(I4P)              :: s1,s2,f             !< Counter.
 
 #ifdef _GMP_
-   !$omp declare target(weno_compute_polynomials)
+   !$omp declare target
 #endif
    VP = 0._R8P
    do s1=0, S-1 ! stencil counter
@@ -867,7 +867,7 @@ contains
    integer(I4P)              :: s1,s2,s3,f          !< Counter.
 
 #ifdef _GMP_
-   !$omp declare target(weno_compute_weights)
+   !$omp declare target
 #endif
    ! computing smoothness indicators
    do s1=0,S-1 ! stencil counter
@@ -905,7 +905,7 @@ contains
    real(R8P)                 :: VP(1:2,0:S-1   )    !< Polynomial reconstructions.
 
 #ifdef _GMP_
-   !$omp declare target(weno_reconstruct_optimal)
+   !$omp declare target
 #endif
    call weno_compute_polynomials(S=S, weno_p=weno_p, V=V(1:2,1-S:-1+S), VP=VP(1:2,0:S-1))
    call weno_compute_convolution(S=S, VP=VP(1:2,0:S-1), w=weno_a, VR=VR(1:2))
@@ -924,7 +924,7 @@ contains
    real(R8P)                 :: w (1:2,0:S-1   )    !< Weights of the stencils.
 
 #ifdef _GMP_
-   !$omp declare target(weno_reconstruct_upwind)
+   !$omp declare target
 #endif
    call weno_compute_polynomials(S=S, weno_p=weno_p, V=V(1:2,1-S:-1+S), VP=VP(1:2,0:S-1))
    call weno_compute_weights(S=S, weno_a=weno_a, weno_d=weno_d, weno_zeps=weno_zeps, V=V(1:2,1-S:-1+S), w=w(1:2,0:S-1))

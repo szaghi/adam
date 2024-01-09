@@ -46,7 +46,7 @@ contains
          enddo
       enddo
    else
-      !$omp target teams distribute parallel do collapse(5) has_device_addr(phi_gpu,q_gpu,q_rk_gpu)
+      !$omp target teams distribute parallel do collapse(5) has_device_addr(q_gpu,q_rk_gpu)
       do v=1, nv
          do k=1, nk
             do j=1, nj
@@ -96,7 +96,7 @@ contains
          enddo
       enddo
    else
-      !$omp target teams distribute parallel do collapse(6) has_device_addr(phi_gpu,q_rk_gpu)
+      !$omp target teams distribute parallel do collapse(6) has_device_addr(q_rk_gpu)
       do ss=1, s-1
          do v=1, nv
             do k=1, nk
@@ -147,7 +147,7 @@ contains
          enddo
       enddo
    else
-      !$omp target teams distribute parallel do collapse(5) has_device_addr(phi_gpu,q_n_gpu,dq_gpu,q_rk_gpu)
+      !$omp target teams distribute parallel do collapse(5) has_device_addr(q_n_gpu,dq_gpu,q_rk_gpu)
       do v=1, nv
          do k=1, nk
             do j=1, nj
@@ -226,7 +226,7 @@ contains
          enddo
       enddo
    else
-      !$omp target teams distribute parallel do collapse(6) has_device_addr(phi_gpu,q_gpu,q_rk_gpu)
+      !$omp target teams distribute parallel do collapse(6) has_device_addr(q_gpu,q_rk_gpu)
       do s=1, nrk
          do v=1, nv
             do k=1, nk

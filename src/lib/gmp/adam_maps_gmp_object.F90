@@ -18,12 +18,12 @@ type :: maps_gmp_object
    type(mpih_gmp_object), pointer :: mpih=>null() !< MPI handler, GMP backend.
    type(maps_object),     pointer :: maps=>null() !< The maps.
    ! GPU data
-   integer(I8P), pointer :: local_map_ghost_cell_gpu(:,:)     !< Local map for ghost cells updating, cells order.
-   integer(I8P), pointer :: comm_map_recv_ghost_cell_gpu(:,:) !< Communication map, `fec` information, cell order.
-   integer(I8P), pointer :: comm_map_send_ghost_cell_gpu(:,:) !< Communication map, `fec` information, cell order.
-   real(R8P),    pointer :: send_buffer_ghost_gpu(:)          !< Send buffer of ghost cells.
-   real(R8P),    pointer :: recv_buffer_ghost_gpu(:)          !< Receive buffer of ghost cells.
-   integer(I8P), pointer :: local_map_bc_crown_gpu(:,:,:)     !< Local map for face BC ghost cells, "crown" order.
+   integer(I8P), pointer, contiguous :: local_map_ghost_cell_gpu(:,:)     !< Local map for ghost cells updating, cells order.
+   integer(I8P), pointer, contiguous :: comm_map_recv_ghost_cell_gpu(:,:) !< Communication map, `fec` information, cell order.
+   integer(I8P), pointer, contiguous :: comm_map_send_ghost_cell_gpu(:,:) !< Communication map, `fec` information, cell order.
+   real(R8P),    pointer, contiguous :: send_buffer_ghost_gpu(:)          !< Send buffer of ghost cells.
+   real(R8P),    pointer, contiguous :: recv_buffer_ghost_gpu(:)          !< Receive buffer of ghost cells.
+   integer(I8P), pointer, contiguous :: local_map_bc_crown_gpu(:,:,:)     !< Local map for face BC ghost cells, "crown" order.
    contains
       procedure, pass(self) :: copy_cpu_gpu !< Copy data from (maps_object) CPU to (maps_gmp_object) GPU.
       procedure, pass(self) :: initialize   !< Initialize MPI handler data.

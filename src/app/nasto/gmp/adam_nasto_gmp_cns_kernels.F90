@@ -21,7 +21,7 @@ contains
    real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
    real(R8P),    intent(inout) :: q(1:)                                 !< Conservative varibales.
 
-   !$omp declare target(compute_conservatives_device)
+   !$omp declare target
    q(1) =      q_aux_gpu(b,i,j,k,1)
    q(2) = q(1)*q_aux_gpu(b,i,j,k,2)
    q(3) = q(1)*q_aux_gpu(b,i,j,k,3)
@@ -37,7 +37,7 @@ contains
    real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
    real(R8P),    intent(inout) :: f(1:)                                 !< Conservative fluxes.
 
-   !$omp declare target(compute_conservative_fluxes_device)
+   !$omp declare target
    f(1) = q_aux_gpu(b,i,j,k,1)*q_aux_gpu(b,i,j,k,2)*sir(1) + &
           q_aux_gpu(b,i,j,k,1)*q_aux_gpu(b,i,j,k,3)*sir(2) + &
           q_aux_gpu(b,i,j,k,1)*q_aux_gpu(b,i,j,k,4)*sir(3)
@@ -61,7 +61,7 @@ contains
    real(R8P)                   :: ev(nv)                                !< Signals speeds.
    integer(I4P)                :: s, is, js, ks, v                      !< Counter.
 
-   !$omp declare target(compute_max_eigenvalues_device)
+   !$omp declare target
    evmax = -1._R8P
    do s=1, 2*weno_s
       is = i + (s-weno_s) * si(1) ; js = j + (s-weno_s) * si(2) ; ks = k + (s-weno_s) * si(3)
@@ -87,7 +87,7 @@ contains
    real(R8P)                   :: uu, vv, ww, h, qq, c, ci, b1, b2      !< Roe average states.
    real(R8P)                   :: uvw, uvw_r1, uvw_r2                   !< Velocity rotation accordingly dir.
 
-   !$omp declare target(compute_eigenvectors_device)
+   !$omp declare target
    call compute_roe_average_device(q_aux_gpu=q_aux_gpu, g=g, ngc=ngc, b=b, i=i, j=j, k=k, ip=i+si(1), jp=j+si(2), kp=k+si(3), &
                                    uu=uu, vv=vv, ww=ww, h=h, qq=qq, c=c, ci=ci, b1=b1, b2=b2)
 
@@ -110,18 +110,18 @@ contains
 
    subroutine compute_q_aux_gmp(ni, nj, nk, ngc, blocks_number, R, cv, g, q_gpu, q_aux_gpu)
    !< Compute auxiliary variables.
-   integer(I4P), intent(in)  :: ni                                    !< Grid cells number in I direction.
-   integer(I4P), intent(in)  :: nj                                    !< Grid cells number in J direction.
-   integer(I4P), intent(in)  :: nk                                    !< Grid cells number in K direction.
-   integer(I4P), intent(in)  :: ngc                                   !< Ghost cells number.
-   integer(I4P), intent(in)  :: blocks_number                         !< Number of blocks.
-   real(R8P),    intent(in)  :: R                                     !< Fluid constant, specific heats difference.
-   real(R8P),    intent(in)  :: cv                                    !< Specific heat at constant volume.
-   real(R8P),    intent(in)  :: g                                     !< Specific heats ratio.
-   real(R8P),    intent(in)  ::     q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
-   real(R8P),    intent(out) :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
-   integer(I4P)              :: b, i, j, k, s                         !< Counter.
-   real(R8P)                 :: rho, uuu, vvv, www, rhe, tem          !< State variables.
+   integer(I4P), intent(in)    :: ni                                    !< Grid cells number in I direction.
+   integer(I4P), intent(in)    :: nj                                    !< Grid cells number in J direction.
+   integer(I4P), intent(in)    :: nk                                    !< Grid cells number in K direction.
+   integer(I4P), intent(in)    :: ngc                                   !< Ghost cells number.
+   integer(I4P), intent(in)    :: blocks_number                         !< Number of blocks.
+   real(R8P),    intent(in)    :: R                                     !< Fluid constant, specific heats difference.
+   real(R8P),    intent(in)    :: cv                                    !< Specific heat at constant volume.
+   real(R8P),    intent(in)    :: g                                     !< Specific heats ratio.
+   real(R8P),    intent(in)    ::     q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+   real(R8P),    intent(inout) :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   integer(I4P)                :: b, i, j, k, s                         !< Counter.
+   real(R8P)                   :: rho, uuu, vvv, www, rhe, tem          !< State variables.
 
    !$omp target teams distribute parallel do collapse(4) has_device_addr(q_gpu,q_aux_gpu)
    do k=1-ngc, nk+ngc
@@ -161,7 +161,7 @@ contains
    real(R8P),    intent(out) :: uu, vv, ww, h, qq, c, ci, b1, b2      !< Roe state average variables.
    real(R8P)                 :: ri, up, vp, wp, hp, r, rp1, cc        !< Local varbiables.
 
-   !$omp declare target(compute_roe_average_device)
+   !$omp declare target
    ! left state (node i)
    ri = 1._R8P/q_aux_gpu(b,i,j,k,1)
    uu = q_aux_gpu(b,i,j,k,2)

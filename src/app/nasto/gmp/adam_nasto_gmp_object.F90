@@ -22,13 +22,13 @@ type, extends(nasto_common_object) :: nasto_gmp_object
    type(rk_gmp_object)    :: rk_gpu    !< RK integrator, GMP backend.
    type(weno_gmp_object)  :: weno_gpu  !< WENO reconstructor, GMP backend.
    ! device data
-   real(R8P), pointer :: q_gpu(:,:,:,:,:)=>null()     !< Field cell centered variables.
-   real(R8P), pointer :: q_aux_gpu(:,:,:,:,:)=>null() !< Auxiliary cell centered variables.
-   real(R8P), pointer :: dq_gpu(:,:,:,:,:)=>null()    !< Eikonal right hand side.
-   real(R8P), pointer :: flx_gpu(:,:,:,:,:)=>null()   !< Fluxes along x.
-   real(R8P), pointer :: fly_gpu(:,:,:,:,:)=>null()   !< Fluxes along y.
-   real(R8P), pointer :: flz_gpu(:,:,:,:,:)=>null()   !< Fluxes along z.
-   real(R8P), pointer :: q_bc_vars_gpu(:,:)=>null()   !< Variables array for boundary conditions on GPU.
+   real(R8P), pointer, contiguous :: q_gpu(:,:,:,:,:)=>null()     !< Field cell centered variables.
+   real(R8P), pointer, contiguous :: q_aux_gpu(:,:,:,:,:)=>null() !< Auxiliary cell centered variables.
+   real(R8P), pointer, contiguous :: dq_gpu(:,:,:,:,:)=>null()    !< Eikonal right hand side.
+   real(R8P), pointer, contiguous :: flx_gpu(:,:,:,:,:)=>null()   !< Fluxes along x.
+   real(R8P), pointer, contiguous :: fly_gpu(:,:,:,:,:)=>null()   !< Fluxes along y.
+   real(R8P), pointer, contiguous :: flz_gpu(:,:,:,:,:)=>null()   !< Fluxes along z.
+   real(R8P), pointer, contiguous :: q_bc_vars_gpu(:,:)=>null()   !< Variables array for boundary conditions on GPU.
    contains
       ! auxiliary methods
       procedure, pass(self) :: allocate_gpu !< Allocate GPU data.
@@ -539,17 +539,17 @@ contains
 
    subroutine compute_q_auxiliary(self, q_gpu, q_aux_gpu)
    !< Compute auxiliary variables.
-   class(nasto_gmp_object), intent(in)  :: self          !< The equation.
-   real(R8P),               intent(in)  :: q_gpu(1:,         &
-                                                 1-self%ngc:,&
-                                                 1-self%ngc:,&
-                                                 1-self%ngc:,&
-                                                 1:)     !< Conservative variables.
-   real(R8P),               intent(out) :: q_aux_gpu(1:,         &
-                                                     1-self%ngc:,&
-                                                     1-self%ngc:,&
-                                                     1-self%ngc:,&
-                                                     1:) !< Auxiliary variables.
+   class(nasto_gmp_object), intent(in)    :: self          !< The equation.
+   real(R8P),               intent(in)    :: q_gpu(1:,         &
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1:)     !< Conservative variables.
+   real(R8P),               intent(inout) :: q_aux_gpu(1:,         &
+                                                       1-self%ngc:,&
+                                                       1-self%ngc:,&
+                                                       1-self%ngc:,&
+                                                       1:) !< Auxiliary variables.
 
    call compute_q_aux_gmp(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
                           R=self%physics%eos(1)%R, cv=self%physics%eos(1)%cv, g=self%physics%eos(1)%g,        &

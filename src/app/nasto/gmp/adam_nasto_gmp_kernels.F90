@@ -60,7 +60,7 @@ contains
    endselect
 
    !$omp target data map(to:si,sir)
-   !$omp target teams distribute parallel do collapse(4) has_device_addr(weno_s,weno_a_gpu,weno_p_gpu,weno_d_gpu,   &
+   !$omp target teams distribute parallel do collapse(4) has_device_addr(weno_a_gpu,weno_p_gpu,weno_d_gpu,          &
    !$omp&                                                                ror_schemes_gpu,ror_ivar_gpu,ror_stats_gpu,&
    !$omp&                                                                q_aux_gpu,fluxes_gpu)
    do b=1, blocks_number
@@ -157,7 +157,7 @@ contains
       enddo
    else
       !$omp target teams distribute parallel do collapse(4) has_device_addr(dx_gpu,dy_gpu,dz_gpu,&
-      !$omp&                                                                flx_gpu,fly_gpu,flz_gpu,phi_gpu,dq_gpu)
+      !$omp&                                                                flx_gpu,fly_gpu,flz_gpu,dq_gpu)
       do k=1,nk
       do j=1,nj
       do i=1,ni
@@ -447,12 +447,12 @@ contains
    real(R8P),    intent(in)            :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Auxiliary variables.
    real(R8P),    intent(inout)         :: fluxes_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Fluxes.
    real(R8P)                           :: el(nv,nv), er(nv,nv)                      !< Left and right eigenvalues.
-   real(R8P)                           :: fmpc(1:2,1-S_max:-1+S_max,1:5)            !< Fluxes -+ decomposition in c. space.
-   real(R8P)                           :: fpmr(1:2,1:5)                             !< Fluxes +- reconstructed.
+   real(R8P)                           :: fmpc(1:2,1-weno_s-1+weno_s,1:nv)          !< Fluxes -+ decomposition in c. space.
+   real(R8P)                           :: fpmr(1:2,1:nv)                            !< Fluxes +- reconstructed.
    logical                             :: ror_recompute                             !< Flag to perform ROR.
    integer(I4P)                        :: r, v, vv, rv                              !< Counter.
 
-   !$omp declare target(compute_fluxes_convective_device)
+   !$omp declare target
    call compute_eigenvectors_device(si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,g=g,q_aux_gpu=q_aux_gpu,el=el,er=er)
    call decompose_fluxes_convective_device(si=si,sir=sir,el=el,weno_s=weno_s,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,g=g,q_aux_gpu=q_aux_gpu,&
                                            fmpc=fmpc)
@@ -509,7 +509,7 @@ contains
    real(R8P)                   :: gc, wc                                !< Increments for fluxes decomposition.
    integer(I4P)                :: v, vv, s, is, js, ks                  !< Counter.
 
-   !$omp declare target(decompose_fluxes_convective_device)
+   !$omp declare target
    call compute_max_eigenvalues_device(si=si,sir=sir,weno_s=weno_s,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,q_aux_gpu=q_aux_gpu,evmax=evmax)
    do s=1-weno_s, weno_s
       is = i + (s) * si(1) ; js = j + (s) * si(2) ; ks = k + (s) * si(3)

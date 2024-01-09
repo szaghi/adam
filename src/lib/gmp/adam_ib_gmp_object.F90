@@ -22,8 +22,8 @@ type :: ib_gmp_object
    type(mpih_gmp_object),  pointer :: mpih=>null()      !< MPI handler.
    type(field_gmp_object), pointer :: field_gpu=>null() !< Field GMP handler.
    ! device data
-   real(R8P), pointer :: q_bcs_vars_gpu(:,:) !< Variables array for immersed boundary on GPU.
-   real(R8P), pointer :: phi_gpu(:,:,:,:,:)  !< Distance function on GPU.
+   real(R8P), pointer, contiguous :: q_bcs_vars_gpu(:,:) !< Variables array for immersed boundary on GPU.
+   real(R8P), pointer, contiguous :: phi_gpu(:,:,:,:,:)  !< Distance function on GPU.
    ! grid/field data replica for easy handling
    integer(I4P), pointer :: blocks_number=>null() !< Actual blocks number.
    integer(I4P), pointer :: nb=>null()            !< Total blocks number for MPI.
