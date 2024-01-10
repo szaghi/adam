@@ -447,7 +447,7 @@ contains
    real(R8P),    intent(in)            :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Auxiliary variables.
    real(R8P),    intent(inout)         :: fluxes_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Fluxes.
    real(R8P)                           :: el(nv,nv), er(nv,nv)                      !< Left and right eigenvalues.
-   real(R8P)                           :: fmpc(1:2,1-weno_s-1+weno_s,1:nv)          !< Fluxes -+ decomposition in c. space.
+   real(R8P)                           :: fmpc(1:2,1-weno_s:1+weno_s,1:nv)          !< Fluxes -+ decomposition in c. space.
    real(R8P)                           :: fpmr(1:2,1:nv)                            !< Fluxes +- reconstructed.
    logical                             :: ror_recompute                             !< Flag to perform ROR.
    integer(I4P)                        :: r, v, vv, rv                              !< Counter.
