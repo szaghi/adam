@@ -23,14 +23,14 @@ type :: field_gmp_object
    type(field_object),    pointer :: field=>null()  !< The field.
    real(R8P), allocatable         :: q_t(:,:,:,:,:) !< Transposed cell centered variables on CPU.
    ! GPU data
-   real(R8P),    pointer, contiguous :: q_gpu(:,:,:,:,:)     !< Field cell centered variables.
-   real(R8P),    pointer, contiguous :: q_t_gpu(:,:,:,:,:)   !< Transposed cell centered variables on GPU.
-   integer(I4P), pointer, contiguous :: fec_1_6_array_gpu(:) !< Mapping fec1-26 to fec1-6 for boundaries (GPU).
+   real(R8P),    pointer, contiguous :: q_gpu(:,:,:,:,:)=>null()     !< Field cell centered variables.
+   real(R8P),    pointer, contiguous :: q_t_gpu(:,:,:,:,:)=>null()   !< Transposed cell centered variables on GPU.
+   integer(I4P), pointer, contiguous :: fec_1_6_array_gpu(:)=>null() !< Mapping fec1-26 to fec1-6 for boundaries (GPU).
    ! GPU data copied from field object
-   real(R8P), pointer, contiguous :: x_cell_gpu(:,:) !< Cells x coordinates on GPU.
-   real(R8P), pointer, contiguous :: y_cell_gpu(:,:) !< Cells y coordinates on GPU.
-   real(R8P), pointer, contiguous :: z_cell_gpu(:,:) !< Cells z coordinates on GPU.
-   real(R8P), pointer, contiguous :: dxyz_gpu(:,:)   !< Delta cells GPU.
+   real(R8P), pointer, contiguous :: x_cell_gpu(:,:)=>null() !< Cells x coordinates on GPU.
+   real(R8P), pointer, contiguous :: y_cell_gpu(:,:)=>null() !< Cells y coordinates on GPU.
+   real(R8P), pointer, contiguous :: z_cell_gpu(:,:)=>null() !< Cells z coordinates on GPU.
+   real(R8P), pointer, contiguous :: dxyz_gpu(:,:)=>null()   !< Delta cells GPU.
    contains
       ! public methods
       procedure, pass(self) :: compute_q_gradient     !< Compute maximum gradient module of q element of a block.

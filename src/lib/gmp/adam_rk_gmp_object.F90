@@ -20,10 +20,10 @@ type :: rk_gmp_object
    ! ADAM GMP library objects
    type(mpih_gmp_object), pointer :: mpih=>null() !< MPI handler.
    ! device data
-   real(R8P), pointer, contiguous :: alph_gpu(:,:)         !< RK alpha coefficients.
-   real(R8P), pointer, contiguous :: beta_gpu(:)           !< RK beta coefficients.
-   real(R8P), pointer, contiguous :: gamm_gpu(:)           !< RK gamma coefficients.
-   real(R8P), pointer, contiguous :: q_rk_gpu(:,:,:,:,:,:) !< Field cell centered variables, RK stages.
+   real(R8P), pointer, contiguous :: alph_gpu(:,:)=>null()         !< RK alpha coefficients.
+   real(R8P), pointer, contiguous :: beta_gpu(:)=>null()           !< RK beta coefficients.
+   real(R8P), pointer, contiguous :: gamm_gpu(:)=>null()           !< RK gamma coefficients.
+   real(R8P), pointer, contiguous :: q_rk_gpu(:,:,:,:,:,:)=>null() !< Field cell centered variables, RK stages.
    contains
       ! public methods
       procedure, pass(self) :: assign_stage      !< Assign q to RK stage.

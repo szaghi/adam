@@ -20,13 +20,13 @@ type :: weno_gmp_object
    ! ADAM GMP library objects
    type(mpih_gmp_object), pointer :: mpih=>null() !< MPI handler.
    ! device data
-   real(R8P),    pointer, contiguous :: a_gpu(:,:,:)               !< Optimal weights                    [1:2,0:S-1,1:S].
-   real(R8P),    pointer, contiguous :: p_gpu(:,:,:,:)             !< Polinomials coefficients           [1:2,0:S-1,0:S-1,1:S].
-   real(R8P),    pointer, contiguous :: d_gpu(:,:,:,:)             !< Smoothness indicators coefficients [0:S-1,0:S-1,0:S-1,1:S].
-   integer(I4P), pointer, contiguous :: ror_schemes_gpu(:)         !< Scheme (S value) for each ROR step.
-   integer(I4P), pointer, contiguous :: ror_ivar_gpu(:)            !< Index variables to check in ROR.
-   integer(I4P), pointer, contiguous :: ror_stats_gpu(:,:,:,:,:)   !< Scheme (S value) for each ROR step.
-   integer(I4P), pointer, contiguous :: cell_scheme_gpu(:,:,:,:,:) !< Modified order close to solids (GPU variable).
+   real(R8P),    pointer, contiguous :: a_gpu(:,:,:)=>null()               !< Optimal weights                    [1:2,0:S-1,1:S].
+   real(R8P),    pointer, contiguous :: p_gpu(:,:,:,:)=>null()             !< Polinomials coefficients           [1:2,0:S-1,0:S-1,1:S].
+   real(R8P),    pointer, contiguous :: d_gpu(:,:,:,:)=>null()             !< Smoothness indicators coefficients [0:S-1,0:S-1,0:S-1,1:S].
+   integer(I4P), pointer, contiguous :: ror_schemes_gpu(:)=>null()         !< Scheme (S value) for each ROR step.
+   integer(I4P), pointer, contiguous :: ror_ivar_gpu(:)=>null()            !< Index variables to check in ROR.
+   integer(I4P), pointer, contiguous :: ror_stats_gpu(:,:,:,:,:)=>null()   !< Scheme (S value) for each ROR step.
+   integer(I4P), pointer, contiguous :: cell_scheme_gpu(:,:,:,:,:)=>null() !< Modified order close to solids (GPU variable).
    contains
       ! public methods
       procedure, pass(self) :: initialize !< Initialize class.
