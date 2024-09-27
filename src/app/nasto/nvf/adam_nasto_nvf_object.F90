@@ -168,10 +168,12 @@ contains
          case(AMR_GRAD)
             select case(amr_marker%field)
             case(1)
-               call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_fine=amr_marker%delta_fine, &
+               call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_type=amr_marker%delta_type, &
+                                          delta_fine=amr_marker%delta_fine,                          &
                                           delta_coarse=amr_marker%delta_coarse, ivar=amr_marker%ivar)
             case(2)
-               call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_fine=amr_marker%delta_fine, &
+               call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_type=amr_marker%delta_type, &
+                                          delta_fine=amr_marker%delta_fine,                          &
                                           delta_coarse=amr_marker%delta_coarse, ivar=amr_marker%ivar)
             endselect
          endselect
@@ -274,36 +276,50 @@ contains
       endfunction max_cell_delta_dist
    endsubroutine mark_by_geo
 
-   subroutine mark_by_grad_var(self, grad_tol, delta_fine, delta_coarse, ivar, threshold, do_init)
+   subroutine mark_by_grad_var(self, grad_tol, delta_type, delta_fine, delta_coarse, ivar, threshold, do_init)
    !< Mark blocks to be refined/derefined by a `grad(var)` value.
-   class(nasto_nvf_object), intent(inout)        :: self           !< The equation.
-   real(R8P),               intent(in)           :: grad_tol       !< Gradiend tolerance value.
-   real(R8P),               intent(in)           :: delta_fine     !< Maximum cell delta in fine grids.
-   real(R8P),               intent(in)           :: delta_coarse   !< Minimum cell delta in coarse grids.
-   integer(I4P),            intent(in), optional :: ivar           !< Variable for marking.
-   real(R8P),               intent(in), optional :: threshold      !< Threshold for sphere proximity.
-   logical,                 intent(in), optional :: do_init        !< Re-initialize refinements queries.
-   integer(I4P)                                  :: ivar_          !< Variable for marking (local var).
-   logical                                       :: do_init_       !< Re-initialize refinements queries, local var.
-   real(R8P)                                     :: threshold_     !< Threshold for sphere proximity, local var.
-   real(R8P)                                     :: max_cell_delta !< Maximum cell delta.
-   real(R8P)                                     :: grad_var       !< Value (max) of gradient of var.
-   integer(I4P)                                  :: b              !< Counter.
+   class(nasto_nvf_object), intent(inout)        :: self                     !< The equation.
+   real(R8P),               intent(in)           :: grad_tol                 !< Gradiend tolerance value.
+   character(*),            intent(in)           :: delta_type               !< Delta criterion type.
+   real(R8P),               intent(in)           :: delta_fine               !< Maximum cell delta in fine grids.
+   real(R8P),               intent(in)           :: delta_coarse             !< Minimum cell delta in coarse grids.
+   integer(I4P),            intent(in), optional :: ivar                     !< Variable for marking.
+   real(R8P),               intent(in), optional :: threshold                !< Threshold for sphere proximity.
+   logical,                 intent(in), optional :: do_init                  !< Re-initialize refinements queries.
+   integer(I4P)                                  :: ivar_                    !< Variable for marking (local var).
+   logical                                       :: do_init_                 !< Re-initialize refinements queries, local var.
+   real(R8P)                                     :: threshold_               !< Threshold for sphere proximity, local var.
+   real(R8P)                                     :: max_cell_delta           !< Maximum cell delta.
+   real(R8P)                                     :: grad_var                 !< Value (max) of gradient of var.
+   integer(I4P)                                  :: b                        !< Counter.
+   real(R8P)                                     :: dc(1:self%blocks_number) !< Delta criterion.
 
    ivar_     = 1_R4P    ; if (present(ivar)) ivar_ = ivar
    do_init_ = .true.    ; if (present(do_init)) do_init_ = do_init
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
    if (do_init_) self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
    associate (blocks_number=>self%blocks_number, dxyz=>self%field%dxyz)
+      select case(delta_type)
+      case(AMR_DELTA_T_X)
+         dc(1:blocks_number) = dxyz(1,1:blocks_number)
+      case(AMR_DELTA_T_Y)
+         dc(1:blocks_number) = dxyz(2,1:blocks_number)
+      case(AMR_DELTA_T_Z)
+         dc(1:blocks_number) = dxyz(3,1:blocks_number)
+      case(AMR_DELTA_T_MAX)
+         do b=1, blocks_number
+            dc(b) = maxval(dxyz(:,b))
+         enddo
+      endselect
       call self%update_ghost(q_gpu=self%q_gpu)
       call self%compute_q_auxiliary(q_gpu=self%q_gpu, q_aux_gpu=self%q_aux_gpu)
       do b=1, blocks_number
          call self%field_gpu%compute_q_gradient(b=b, ivar=ivar_, q_gpu=self%q_aux_gpu, gradient=grad_var)
          call self%mpih_gpu%check_cuda_error(error_code=CUDA_SILENT_ERR, msg='CUDA error in compute q grandient')
          max_cell_delta = max_cell_delta_grad(grad=grad_var)
-         if (maxval(dxyz(:,b)) > max_cell_delta) then
+         if ((dc(b)) > max_cell_delta) then
             self%field%refinements_needed(b) = TO_BE_REFINED
-         elseif (maxval(dxyz(:,b)) * threshold_ < max_cell_delta) then
+         elseif ((dc(b)) * threshold_ < max_cell_delta) then
             self%field%refinements_needed(b) = max(self%field%refinements_needed(b), TO_BE_DEREFINED)
          else
             self%field%refinements_needed(b) = max(self%field%refinements_needed(b), TO_NOT_TOUCH)
@@ -599,49 +615,64 @@ contains
              solids_number=>self%ib%solids_number,                                                                      &
              cv=>self%physics%eos(1)%cv, g=>self%physics%eos(1)%g, R=>self%physics%eos(1)%R,                            &
              mu=>self%physics%eos(1)%mu, kd=>self%physics%eos(1)%kd, mpih=>self%mpih_gpu,                               &
-             grid=>self%mpih_gpu%grid, tBlock=>self%mpih_gpu%tBlock)
+             grid=>self%mpih_gpu%grid, tBlock=>self%mpih_gpu%tBlock, null_xyz=>self%grid%null_xyz)
    if (blocks_number > 0) then
-      call mpih%set_cuda_dimensions(cgrd=[blocks_number,nj,nk])
-      call compute_fluxes_convective_kernel<<<grid, tBlock>>>(dir=1,                                                            &
-                                                              blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
-                                                              weno_s=weno_s, weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu,      &
-                                                              weno_d_gpu=weno_d_gpu, weno_zeps=weno_zeps,                       &
-                                                              ror_number=ror_number, ror_schemes_gpu=ror_schemes_gpu,           &
-                                                              ror_threshold=ror_threshold, ror_ivar_gpu=ror_ivar_gpu,           &
-                                                              ror_stats_gpu=ror_stats_gpu,                                      &
-                                                              g=g, q_aux_gpu=q_aux_gpu, fluxes_gpu=flx_gpu)
-      call mpih%check_cuda_error(error_code=CUDA_SILENT_ERR, msg='CUDA error in compute convective fluxes X')
-      call mpih%set_cuda_dimensions(cgrd=[blocks_number,ni,nk])
-      call compute_fluxes_convective_kernel<<<grid, tBlock>>>(dir=2,                                                            &
-                                                              blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
-                                                              weno_s=weno_s, weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu,      &
-                                                              weno_d_gpu=weno_d_gpu, weno_zeps=weno_zeps,                       &
-                                                              ror_number=ror_number, ror_schemes_gpu=ror_schemes_gpu,           &
-                                                              ror_threshold=ror_threshold, ror_ivar_gpu=ror_ivar_gpu,           &
-                                                              ror_stats_gpu=ror_stats_gpu,                                      &
-                                                              g=g, q_aux_gpu=q_aux_gpu, fluxes_gpu=fly_gpu)
-      call mpih%check_cuda_error(error_code=CUDA_SILENT_ERR, msg='CUDA error in compute convective fluxes Y')
-      call mpih%set_cuda_dimensions(cgrd=[blocks_number,ni,nj])
-      call compute_fluxes_convective_kernel<<<grid, tBlock>>>(dir=3,                                                            &
-                                                              blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
-                                                              weno_s=weno_s, weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu,      &
-                                                              weno_d_gpu=weno_d_gpu, weno_zeps=weno_zeps,                       &
-                                                              ror_number=ror_number, ror_schemes_gpu=ror_schemes_gpu,           &
-                                                              ror_threshold=ror_threshold, ror_ivar_gpu=ror_ivar_gpu,           &
-                                                              ror_stats_gpu=ror_stats_gpu,                                      &
-                                                              g=g, q_aux_gpu=q_aux_gpu, fluxes_gpu=flz_gpu)
-      call mpih%check_cuda_error(error_code=CUDA_SILENT_ERR, msg='CUDA error in compute convective fluxes Z')
-      if (mu > 0.) call compute_fluxes_diffusive_cuf(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
+      if (.not.null_xyz(1)) then
+         call mpih%set_cuda_dimensions(cgrd=[blocks_number,nj,nk])
+         call compute_fluxes_convective_kernel<<<grid, tBlock>>>(dir=1,                                                            &
+                                                                 blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
+                                                                 weno_s=weno_s, weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu,      &
+                                                                 weno_d_gpu=weno_d_gpu, weno_zeps=weno_zeps,                       &
+                                                                 ror_number=ror_number, ror_schemes_gpu=ror_schemes_gpu,           &
+                                                                 ror_threshold=ror_threshold, ror_ivar_gpu=ror_ivar_gpu,           &
+                                                                 ror_stats_gpu=ror_stats_gpu,                                      &
+                                                                 g=g, q_aux_gpu=q_aux_gpu, fluxes_gpu=flx_gpu)
+         call mpih%check_cuda_error(error_code=CUDA_SILENT_ERR, msg='CUDA error in compute convective fluxes X')
+      else
+         flx_gpu = 0._R8P
+      endif
+      if (.not.null_xyz(2)) then
+         call mpih%set_cuda_dimensions(cgrd=[blocks_number,ni,nk])
+         call compute_fluxes_convective_kernel<<<grid, tBlock>>>(dir=2,                                                            &
+                                                                 blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
+                                                                 weno_s=weno_s, weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu,      &
+                                                                 weno_d_gpu=weno_d_gpu, weno_zeps=weno_zeps,                       &
+                                                                 ror_number=ror_number, ror_schemes_gpu=ror_schemes_gpu,           &
+                                                                 ror_threshold=ror_threshold, ror_ivar_gpu=ror_ivar_gpu,           &
+                                                                 ror_stats_gpu=ror_stats_gpu,                                      &
+                                                                 g=g, q_aux_gpu=q_aux_gpu, fluxes_gpu=fly_gpu)
+         call mpih%check_cuda_error(error_code=CUDA_SILENT_ERR, msg='CUDA error in compute convective fluxes Y')
+      else
+         fly_gpu = 0._R8P
+      endif
+      if (.not.null_xyz(3)) then
+         call mpih%set_cuda_dimensions(cgrd=[blocks_number,ni,nj])
+         call compute_fluxes_convective_kernel<<<grid, tBlock>>>(dir=3,                                                            &
+                                                                 blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
+                                                                 weno_s=weno_s, weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu,      &
+                                                                 weno_d_gpu=weno_d_gpu, weno_zeps=weno_zeps,                       &
+                                                                 ror_number=ror_number, ror_schemes_gpu=ror_schemes_gpu,           &
+                                                                 ror_threshold=ror_threshold, ror_ivar_gpu=ror_ivar_gpu,           &
+                                                                 ror_stats_gpu=ror_stats_gpu,                                      &
+                                                                 g=g, q_aux_gpu=q_aux_gpu, fluxes_gpu=flz_gpu)
+         call mpih%check_cuda_error(error_code=CUDA_SILENT_ERR, msg='CUDA error in compute convective fluxes Z')
+      else
+         flz_gpu = 0._R8P
+      endif
+      if (mu > 0.) call compute_fluxes_diffusive_cuf(null_x=null_xyz(1), null_y=null_xyz(2), null_z=null_xyz(3),       &
+                                                     blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
                                                      mu=mu, kd=kd, q_aux_gpu=q_aux_gpu,                                &
                                                      dx_gpu=dx_gpu, dy_gpu=dy_gpu, dz_gpu=dz_gpu,                      &
                                                      flx_gpu=flx_gpu, fly_gpu=fly_gpu, flz_gpu=flz_gpu)
       call mpih%check_cuda_error(error_code=CUDA_SILENT_ERR, msg='CUDA error in compute diffusive fluxes')
       if (solids_number>0) then
-         call compute_fluxes_difference_cuf(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, ib_eps=1.e-12_R8P, &
+         call compute_fluxes_difference_cuf(null_x=null_xyz(1), null_y=null_xyz(2), null_z=null_xyz(3),                          &
+                                            blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, ib_eps=1.e-12_R8P, &
                                             dx_gpu=dx_gpu, dy_gpu=dy_gpu, dz_gpu=dz_gpu,                                         &
                                             flx_gpu=flx_gpu, fly_gpu=fly_gpu, flz_gpu=flz_gpu, phi_gpu=phi_gpu, dq_gpu=dq_gpu)
       else
-         call compute_fluxes_difference_cuf(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, ib_eps=1.e-12_R8P, &
+         call compute_fluxes_difference_cuf(null_x=null_xyz(1), null_y=null_xyz(2), null_z=null_xyz(3),                          &
+                                            blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, ib_eps=1.e-12_R8P, &
                                             dx_gpu=dx_gpu, dy_gpu=dy_gpu, dz_gpu=dz_gpu,                                         &
                                             flx_gpu=flx_gpu, fly_gpu=fly_gpu, flz_gpu=flz_gpu, dq_gpu=dq_gpu)
       endif

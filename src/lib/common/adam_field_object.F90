@@ -131,8 +131,12 @@ type :: field_object
       procedure, pass(self) :: update_ghost_local            !< Update ghosts locally.
       procedure, pass(self) :: update_ghost_mpi              !< Update ghosts MPI.
       ! private methods
-      procedure, pass(self), private :: derefine !< Derefine blocks.
-      procedure, pass(self), private :: refine   !< Refine blocks.
+      procedure, pass(self), private :: derefine1D !< Derefine blocks, 1D.
+      procedure, pass(self), private :: derefine2D !< Derefine blocks, 2D.
+      procedure, pass(self), private :: derefine3D !< Derefine blocks, 3D.
+      procedure, pass(self), private :: refine1D   !< Refine blocks, 1D.
+      procedure, pass(self), private :: refine2D   !< Refine blocks, 2D.
+      procedure, pass(self), private :: refine3D   !< Refine blocks, 3D.
 endtype field_object
 
 contains
@@ -146,8 +150,17 @@ contains
    integer(I8P), allocatable, intent(in)    :: block_to_derefine(:) !< List of field blocks to be derefined.
    integer(I8P), allocatable, intent(in)    :: block_derefined(:,:) !< List of field derefined blocks with Morton code.
 
-   call self%refine(  ratio=ratio, block_to_refine=block_to_refine,     block_refined=block_refined    )
-   call self%derefine(ratio=ratio, block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+   select case(ratio)
+   case(2_I4P)
+      call self%refine1D(  ratio=ratio, block_to_refine=block_to_refine,     block_refined=block_refined    )
+      call self%derefine1D(ratio=ratio, block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+   case(4_I4P)
+      call self%refine2D(  ratio=ratio, block_to_refine=block_to_refine,     block_refined=block_refined    )
+      call self%derefine2D(ratio=ratio, block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+   case(8_I4P)
+      call self%refine3D(  ratio=ratio, block_to_refine=block_to_refine,     block_refined=block_refined    )
+      call self%derefine3D(ratio=ratio, block_to_derefine=block_to_derefine, block_derefined=block_derefined)
+   endselect
    endsubroutine adapt
 
    subroutine blocks_reorder(self)
@@ -177,8 +190,8 @@ contains
 
    subroutine compute_metrics(self)
    !< Compute metrics of each block.
-   class(field_object), intent(inout) :: self !< The field.
-   integer(I4P)                       :: b    !< Counter.
+   class(field_object), intent(inout) :: self  !< The field.
+   integer(I4P)                       :: b     !< Counter.
 
    do b=1, self%blocks_number
       call self%grid%compute_metrics(coordinates=self%coordinates(:,b),                                         &
@@ -855,7 +868,7 @@ contains
    endsubroutine update_ghost_mpi
 
    ! private methods
-   subroutine derefine(self, ratio, block_to_derefine, block_derefined)
+   subroutine derefine1D(self, ratio, block_to_derefine, block_derefined)
    !< Derefine blocks.
    !<
    !< Note: blocks number is not updated: mpi redistribute does it. This is dangerous...
@@ -864,8 +877,86 @@ contains
    integer(I8P), allocatable, intent(in)    :: block_to_derefine(:) !< List of blocks to be derefined.
    integer(I8P), allocatable, intent(in)    :: block_derefined(:,:) !< List of derefined blocks with Morton code.
    integer(I4P)                             :: b, ib                !< Counter.
-   integer(I4P)                             :: ic1, ic2, ic3, ic4   !< Counter.
-   integer(I4P)                             :: ic5, ic6, ic7, ic8   !< Counter.
+   integer(I4P)                             :: ic(ratio)            !< Counter.
+   integer(I4P)                             :: iii                  !< Counter.
+   integer(I4P)                             :: i, j, k              !< Counter.
+
+   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, q=>self%q, q_work=>self%q_work)
+   if (allocated(block_derefined)) then
+      do b=1, size(block_derefined, dim=2)
+         ib = block_derefined(2,b)
+         do i=1, ratio
+            ic(i) = block_to_derefine((b-1)*ratio+i)
+         enddo
+         do k=1, nk
+            do j=1, nj
+               do i=1, ni/2
+                  iii = (i-1)*2+1
+                  q_work(:,i,     j,k,ib) = (q(:,iii,j,k,ic(1)) + q(:,iii+1,j,k,ic(1))) / 2._R8P
+                  q_work(:,i+ni/2,j,k,ib) = (q(:,iii,j,k,ic(2)) + q(:,iii+1,j,k,ic(2))) / 2._R8P
+               enddo
+            enddo
+         enddo
+         q(:,1:ni,1:nj,1:nk,ib) = q_work(:,1:ni,1:nj,1:nk,ib)
+         self%code(ib) = block_derefined(1,b)
+      enddo
+   endif
+   endassociate
+   endsubroutine derefine1D
+
+   subroutine derefine2D(self, ratio, block_to_derefine, block_derefined)
+   !< Derefine blocks.
+   !<
+   !< Note: blocks number is not updated: mpi redistribute does it. This is dangerous...
+   class(field_object),       intent(inout) :: self                 !< The field.
+   integer(I4P),              intent(in)    :: ratio                !< Refinement ratio.
+   integer(I8P), allocatable, intent(in)    :: block_to_derefine(:) !< List of blocks to be derefined.
+   integer(I8P), allocatable, intent(in)    :: block_derefined(:,:) !< List of derefined blocks with Morton code.
+   integer(I4P)                             :: b, ib                !< Counter.
+   integer(I4P)                             :: ic(ratio)            !< Counter.
+   integer(I4P)                             :: iii, jjj             !< Counter.
+   integer(I4P)                             :: i, j, k              !< Counter.
+
+   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, q=>self%q, q_work=>self%q_work)
+   if (allocated(block_derefined)) then
+      do b=1, size(block_derefined, dim=2)
+         ib = block_derefined(2,b)
+         do i=1, ratio
+            ic(i) = block_to_derefine((b-1)*ratio+i)
+         enddo
+         do k=1, nk
+            do j=1, nj/2
+               do i=1, ni/2
+                  jjj = (j-1)*2+1
+                  iii = (i-1)*2+1
+                  q_work(:,i,     j,     k,ib) = (q(:,iii,jjj,  k,ic(1)) + q(:,iii+1,jjj,  k,ic(1)) + &
+                                                  q(:,iii,jjj+1,k,ic(1)) + q(:,iii+1,jjj+1,k,ic(1))) / 4._R8P
+                  q_work(:,i+ni/2,j,     k,ib) = (q(:,iii,jjj,  k,ic(2)) + q(:,iii+1,jjj,  k,ic(2)) + &
+                                                  q(:,iii,jjj+1,k,ic(2)) + q(:,iii+1,jjj+1,k,ic(2))) / 4._R8P
+                  q_work(:,i,     j+nj/2,k,ib) = (q(:,iii,jjj,  k,ic(3)) + q(:,iii+1,jjj,  k,ic(3)) + &
+                                                  q(:,iii,jjj+1,k,ic(3)) + q(:,iii+1,jjj+1,k,ic(3))) / 4._R8P
+                  q_work(:,i+ni/2,j+nj/2,k,ib) = (q(:,iii,jjj,  k,ic(4)) + q(:,iii+1,jjj,  k,ic(4)) + &
+                                                  q(:,iii,jjj+1,k,ic(4)) + q(:,iii+1,jjj+1,k,ic(4))) / 4._R8P
+               enddo
+            enddo
+         enddo
+         q(:,1:ni,1:nj,1:nk,ib) = q_work(:,1:ni,1:nj,1:nk,ib)
+         self%code(ib) = block_derefined(1,b)
+      enddo
+   endif
+   endassociate
+   endsubroutine derefine2D
+
+   subroutine derefine3D(self, ratio, block_to_derefine, block_derefined)
+   !< Derefine blocks.
+   !<
+   !< Note: blocks number is not updated: mpi redistribute does it. This is dangerous...
+   class(field_object),       intent(inout) :: self                 !< The field.
+   integer(I4P),              intent(in)    :: ratio                !< Refinement ratio.
+   integer(I8P), allocatable, intent(in)    :: block_to_derefine(:) !< List of blocks to be derefined.
+   integer(I8P), allocatable, intent(in)    :: block_derefined(:,:) !< List of derefined blocks with Morton code.
+   integer(I4P)                             :: b, ib                !< Counter.
+   integer(I4P)                             :: ic(ratio)            !< Counter.
    integer(I4P)                             :: iii, jjj, kkk        !< Counter.
    integer(I4P)                             :: i, j, k              !< Counter.
 
@@ -873,75 +964,178 @@ contains
    if (allocated(block_derefined)) then
       do b=1, size(block_derefined, dim=2)
          ib = block_derefined(2,b)
-
-         ic1 = block_to_derefine((b-1)*ratio+1)
-         ic2 = block_to_derefine((b-1)*ratio+2)
-         ic3 = block_to_derefine((b-1)*ratio+3)
-         ic4 = block_to_derefine((b-1)*ratio+4)
-         ic5 = block_to_derefine((b-1)*ratio+5)
-         ic6 = block_to_derefine((b-1)*ratio+6)
-         ic7 = block_to_derefine((b-1)*ratio+7)
-         ic8 = block_to_derefine((b-1)*ratio+8)
-
+         do i=1, ratio
+            ic(i) = block_to_derefine((b-1)*ratio+i)
+         enddo
          do k=1, nk/2
             do j=1, nj/2
                do i=1, ni/2
                   kkk = (k - 1) * 2 + 1
                   jjj = (j - 1) * 2 + 1
                   iii = (i - 1) * 2 + 1
-
-                  q_work(:,i,     j,     k     ,ib) = (q(:,iii,jjj,  kkk  ,ic1) + q(:,iii+1,jjj,  kkk  ,ic1) + &
-                                                       q(:,iii,jjj+1,kkk  ,ic1) + q(:,iii+1,jjj+1,kkk  ,ic1) + &
-                                                       q(:,iii,jjj,  kkk+1,ic1) + q(:,iii+1,jjj,  kkk+1,ic1) + &
-                                                       q(:,iii,jjj+1,kkk+1,ic1) + q(:,iii+1,jjj+1,kkk+1,ic1)) / 8._R8P
-
-                  q_work(:,i+ni/2,j,     k     ,ib) = (q(:,iii,jjj,  kkk  ,ic2) + q(:,iii+1,jjj,  kkk  ,ic2) + &
-                                                       q(:,iii,jjj+1,kkk  ,ic2) + q(:,iii+1,jjj+1,kkk  ,ic2) + &
-                                                       q(:,iii,jjj,  kkk+1,ic2) + q(:,iii+1,jjj,  kkk+1,ic2) + &
-                                                       q(:,iii,jjj+1,kkk+1,ic2) + q(:,iii+1,jjj+1,kkk+1,ic2)) / 8._R8P
-
-                  q_work(:,i,     j+nj/2,k     ,ib) = (q(:,iii,jjj,  kkk  ,ic3) + q(:,iii+1,jjj,  kkk  ,ic3) + &
-                                                       q(:,iii,jjj+1,kkk  ,ic3) + q(:,iii+1,jjj+1,kkk  ,ic3) + &
-                                                       q(:,iii,jjj,  kkk+1,ic3) + q(:,iii+1,jjj,  kkk+1,ic3) + &
-                                                       q(:,iii,jjj+1,kkk+1,ic3) + q(:,iii+1,jjj+1,kkk+1,ic3)) / 8._R8P
-
-                  q_work(:,i+ni/2,j+nj/2,k     ,ib) = (q(:,iii,jjj,  kkk  ,ic4) + q(:,iii+1,jjj,  kkk  ,ic4) + &
-                                                       q(:,iii,jjj+1,kkk  ,ic4) + q(:,iii+1,jjj+1,kkk  ,ic4) + &
-                                                       q(:,iii,jjj,  kkk+1,ic4) + q(:,iii+1,jjj,  kkk+1,ic4) + &
-                                                       q(:,iii,jjj+1,kkk+1,ic4) + q(:,iii+1,jjj+1,kkk+1,ic4)) / 8._R8P
-
-                  q_work(:,i,     j,     k+nk/2,ib) = (q(:,iii,jjj,  kkk  ,ic5) + q(:,iii+1,jjj,  kkk  ,ic5) + &
-                                                       q(:,iii,jjj+1,kkk  ,ic5) + q(:,iii+1,jjj+1,kkk  ,ic5) + &
-                                                       q(:,iii,jjj,  kkk+1,ic5) + q(:,iii+1,jjj,  kkk+1,ic5) + &
-                                                       q(:,iii,jjj+1,kkk+1,ic5) + q(:,iii+1,jjj+1,kkk+1,ic5)) / 8._R8P
-
-                  q_work(:,i+ni/2,j,     k+nk/2,ib) = (q(:,iii,jjj,  kkk  ,ic6) + q(:,iii+1,jjj,  kkk  ,ic6) + &
-                                                       q(:,iii,jjj+1,kkk  ,ic6) + q(:,iii+1,jjj+1,kkk  ,ic6) + &
-                                                       q(:,iii,jjj,  kkk+1,ic6) + q(:,iii+1,jjj,  kkk+1,ic6) + &
-                                                       q(:,iii,jjj+1,kkk+1,ic6) + q(:,iii+1,jjj+1,kkk+1,ic6)) / 8._R8P
-
-                  q_work(:,i,     j+nj/2,k+nk/2,ib) = (q(:,iii,jjj,  kkk  ,ic7) + q(:,iii+1,jjj,  kkk  ,ic7) + &
-                                                       q(:,iii,jjj+1,kkk  ,ic7) + q(:,iii+1,jjj+1,kkk  ,ic7) + &
-                                                       q(:,iii,jjj,  kkk+1,ic7) + q(:,iii+1,jjj,  kkk+1,ic7) + &
-                                                       q(:,iii,jjj+1,kkk+1,ic7) + q(:,iii+1,jjj+1,kkk+1,ic7)) / 8._R8P
-
-                  q_work(:,i+ni/2,j+nj/2,k+nk/2,ib) = (q(:,iii,jjj,  kkk  ,ic8) + q(:,iii+1,jjj,  kkk  ,ic8) + &
-                                                       q(:,iii,jjj+1,kkk  ,ic8) + q(:,iii+1,jjj+1,kkk  ,ic8) + &
-                                                       q(:,iii,jjj,  kkk+1,ic8) + q(:,iii+1,jjj,  kkk+1,ic8) + &
-                                                       q(:,iii,jjj+1,kkk+1,ic8) + q(:,iii+1,jjj+1,kkk+1,ic8)) / 8._R8P
+                  q_work(:,i,     j,     k     ,ib) = (q(:,iii,jjj,  kkk  ,ic(1)) + q(:,iii+1,jjj,  kkk  ,ic(1)) + &
+                                                       q(:,iii,jjj+1,kkk  ,ic(1)) + q(:,iii+1,jjj+1,kkk  ,ic(1)) + &
+                                                       q(:,iii,jjj,  kkk+1,ic(1)) + q(:,iii+1,jjj,  kkk+1,ic(1)) + &
+                                                       q(:,iii,jjj+1,kkk+1,ic(1)) + q(:,iii+1,jjj+1,kkk+1,ic(1))) / 8._R8P
+                  q_work(:,i+ni/2,j,     k     ,ib) = (q(:,iii,jjj,  kkk  ,ic(2)) + q(:,iii+1,jjj,  kkk  ,ic(2)) + &
+                                                       q(:,iii,jjj+1,kkk  ,ic(2)) + q(:,iii+1,jjj+1,kkk  ,ic(2)) + &
+                                                       q(:,iii,jjj,  kkk+1,ic(2)) + q(:,iii+1,jjj,  kkk+1,ic(2)) + &
+                                                       q(:,iii,jjj+1,kkk+1,ic(2)) + q(:,iii+1,jjj+1,kkk+1,ic(2))) / 8._R8P
+                  q_work(:,i,     j+nj/2,k     ,ib) = (q(:,iii,jjj,  kkk  ,ic(3)) + q(:,iii+1,jjj,  kkk  ,ic(3)) + &
+                                                       q(:,iii,jjj+1,kkk  ,ic(3)) + q(:,iii+1,jjj+1,kkk  ,ic(3)) + &
+                                                       q(:,iii,jjj,  kkk+1,ic(3)) + q(:,iii+1,jjj,  kkk+1,ic(3)) + &
+                                                       q(:,iii,jjj+1,kkk+1,ic(3)) + q(:,iii+1,jjj+1,kkk+1,ic(3))) / 8._R8P
+                  q_work(:,i+ni/2,j+nj/2,k     ,ib) = (q(:,iii,jjj,  kkk  ,ic(4)) + q(:,iii+1,jjj,  kkk  ,ic(4)) + &
+                                                       q(:,iii,jjj+1,kkk  ,ic(4)) + q(:,iii+1,jjj+1,kkk  ,ic(4)) + &
+                                                       q(:,iii,jjj,  kkk+1,ic(4)) + q(:,iii+1,jjj,  kkk+1,ic(4)) + &
+                                                       q(:,iii,jjj+1,kkk+1,ic(4)) + q(:,iii+1,jjj+1,kkk+1,ic(4))) / 8._R8P
+                  q_work(:,i,     j,     k+nk/2,ib) = (q(:,iii,jjj,  kkk  ,ic(5)) + q(:,iii+1,jjj,  kkk  ,ic(5)) + &
+                                                       q(:,iii,jjj+1,kkk  ,ic(5)) + q(:,iii+1,jjj+1,kkk  ,ic(5)) + &
+                                                       q(:,iii,jjj,  kkk+1,ic(5)) + q(:,iii+1,jjj,  kkk+1,ic(5)) + &
+                                                       q(:,iii,jjj+1,kkk+1,ic(5)) + q(:,iii+1,jjj+1,kkk+1,ic(5))) / 8._R8P
+                  q_work(:,i+ni/2,j,     k+nk/2,ib) = (q(:,iii,jjj,  kkk  ,ic(6)) + q(:,iii+1,jjj,  kkk  ,ic(6)) + &
+                                                       q(:,iii,jjj+1,kkk  ,ic(6)) + q(:,iii+1,jjj+1,kkk  ,ic(6)) + &
+                                                       q(:,iii,jjj,  kkk+1,ic(6)) + q(:,iii+1,jjj,  kkk+1,ic(6)) + &
+                                                       q(:,iii,jjj+1,kkk+1,ic(6)) + q(:,iii+1,jjj+1,kkk+1,ic(6))) / 8._R8P
+                  q_work(:,i,     j+nj/2,k+nk/2,ib) = (q(:,iii,jjj,  kkk  ,ic(7)) + q(:,iii+1,jjj,  kkk  ,ic(7)) + &
+                                                       q(:,iii,jjj+1,kkk  ,ic(7)) + q(:,iii+1,jjj+1,kkk  ,ic(7)) + &
+                                                       q(:,iii,jjj,  kkk+1,ic(7)) + q(:,iii+1,jjj,  kkk+1,ic(7)) + &
+                                                       q(:,iii,jjj+1,kkk+1,ic(7)) + q(:,iii+1,jjj+1,kkk+1,ic(7))) / 8._R8P
+                  q_work(:,i+ni/2,j+nj/2,k+nk/2,ib) = (q(:,iii,jjj,  kkk  ,ic(8)) + q(:,iii+1,jjj,  kkk  ,ic(8)) + &
+                                                       q(:,iii,jjj+1,kkk  ,ic(8)) + q(:,iii+1,jjj+1,kkk  ,ic(8)) + &
+                                                       q(:,iii,jjj,  kkk+1,ic(8)) + q(:,iii+1,jjj,  kkk+1,ic(8)) + &
+                                                       q(:,iii,jjj+1,kkk+1,ic(8)) + q(:,iii+1,jjj+1,kkk+1,ic(8))) / 8._R8P
                enddo
             enddo
          enddo
-
          q(:,1:ni,1:nj,1:nk,ib) = q_work(:,1:ni,1:nj,1:nk,ib)
-
          self%code(ib) = block_derefined(1,b)
       enddo
    endif
    endassociate
-   endsubroutine derefine
+   endsubroutine derefine3D
 
-   subroutine refine(self, ratio, block_to_refine, block_refined)
+   subroutine refine1D(self, ratio, block_to_refine, block_refined)
+   !< Refine blocks.
+   !<
+   !< Note: blocks number is not updated: mpi redistribute does it. This is dangerous...
+   class(field_object),       intent(inout) :: self                 !< The field.
+   integer(I4P),              intent(in)    :: ratio                !< Refinement ratio.
+   integer(I8P), allocatable, intent(in)    :: block_to_refine(:,:) !< List of blocks to be refined.
+   integer(I8P), allocatable, intent(in)    :: block_refined(:,:)   !< List of refined blocks with Morton code.
+   integer(I4P)                             :: b, i, j, k           !< Spatial counter.
+   integer(I4P)                             :: ib, ic, ic_local     !< Counter.
+   integer(I4P)                             :: i_fine               !< Counter.
+   integer(I4P)                             :: i_delta              !< Counter.
+   integer(I4P)                             :: ic1, ic2             !< Counter.
+
+   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, q=>self%q, q_work=>self%q_work)
+   if (allocated(block_to_refine)) then
+      do b=1, size(block_to_refine, dim=2)
+         if (self%mpih%myrank /= block_to_refine(2,b)) cycle
+         ib = block_to_refine(1,b)
+
+         q_work(:,:,:,:,ib) = q(:,:,:,:,ib)
+
+         do ic_local=1, ratio
+            ic = block_refined(2,(b-1)*ratio+ic_local)
+            ic1 = mod(ic_local - 1, 2)
+            do k=1,nk
+               do j=1,nj
+                  do i=1+ni/2*ic1,ni/2+ni/2*ic1
+                     i_fine = mod(i - 1, ni/2) * 2 + 1
+                     q(:,i_fine:i_fine+1,j,k,ic) = 0._R8P
+                     do i_delta=0,1
+                     ! q(:,i_fine,  j,k,ic) = q(:,i_fine,  j,k,ic) + 0.5_R8P * q_work(:,i+i_delta-1,j,k,ib)
+                     ! q(:,i_fine+1,j,k,ic) = q(:,i_fine+1,j,k,ic) + 0.5_R8P * q_work(:,i+i_delta,  j,k,ib)
+                     q(:,i_fine,  j,k,ic) = q(:,i_fine  ,j,k,ic) + (0.25_R8P + i_delta * 0.5_R8P) * q_work(:,i+i_delta-1,j,k,ib)
+                     q(:,i_fine+1,j,k,ic) = q(:,i_fine+1,j,k,ic) + (0.75_R8P - i_delta * 0.5_R8P) * q_work(:,i+i_delta  ,j,k,ib)
+                     enddo
+                  enddo
+               enddo
+            enddo
+         enddo
+
+         ic1 = block_refined(2,(b-1)*ratio+1)
+         ic2 = block_refined(2,(b-1)*ratio+2)
+         self%code(ic1) = block_refined(1,(b-1)*ratio+1)
+         self%code(ic2) = block_refined(1,(b-1)*ratio+2)
+      enddo
+   endif
+   endassociate
+   endsubroutine refine1D
+
+   subroutine refine2D(self, ratio, block_to_refine, block_refined)
+   !< Refine blocks.
+   !<
+   !< Note: blocks number is not updated: mpi redistribute does it. This is dangerous...
+   class(field_object),       intent(inout) :: self                 !< The field.
+   integer(I4P),              intent(in)    :: ratio                !< Refinement ratio.
+   integer(I8P), allocatable, intent(in)    :: block_to_refine(:,:) !< List of blocks to be refined.
+   integer(I8P), allocatable, intent(in)    :: block_refined(:,:)   !< List of refined blocks with Morton code.
+   integer(I4P)                             :: b, i, j, k           !< Spatial counter.
+   integer(I4P)                             :: ib, ic, ic_local     !< Counter.
+   integer(I4P)                             :: i_fine, j_fine       !< Counter.
+   integer(I4P)                             :: i_delta, j_delta     !< Counter.
+   integer(I4P)                             :: ic1, ic2, ic3, ic4   !< Counter.
+
+   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, q=>self%q, q_work=>self%q_work)
+   if (allocated(block_to_refine)) then
+      do b=1, size(block_to_refine, dim=2)
+         if (self%mpih%myrank /= block_to_refine(2,b)) cycle
+         ib = block_to_refine(1,b)
+
+         q_work(:,:,:,:,ib) = q(:,:,:,:,ib)
+
+         do ic_local=1, ratio
+            ic = block_refined(2,(b-1)*ratio+ic_local)
+            ic1 = mod( ic_local - 1   , 2)
+            ic2 = mod((ic_local - 1)/2, 2)
+            do k=1,nk
+               do j=1+nj/2*ic2,nj/2+nj/2*ic2
+                  do i=1+ni/2*ic1,ni/2+ni/2*ic1
+                     j_fine = mod(j - 1, nj/2) * 2 + 1
+                     i_fine = mod(i - 1, ni/2) * 2 + 1
+                     q(:,i_fine:i_fine+1,j_fine:j_fine+1,k,ic) = 0._R8P
+                     do j_delta=0,1
+                     do i_delta=0,1
+                     q(:,i_fine,  j_fine,  k,ic) = q(:,i_fine,j_fine,k,ic) +   &
+                                                   (0.25_R8P + i_delta * 0.5_R8P) * &
+                                                   (0.25_R8P + j_delta * 0.5_R8P) * &
+                                                   q_work(:,i+i_delta-1, j+j_delta-1,k,ib)
+                     q(:,i_fine+1,j_fine,  k,ic) = q(:,i_fine+1,j_fine,k,ic) + &
+                                                   (0.75_R8P - i_delta * 0.5_R8P) * &
+                                                   (0.25_R8P + j_delta * 0.5_R8P) * &
+                                                   q_work(:,i+i_delta,   j+j_delta-1,k,ib)
+                     q(:,i_fine,  j_fine+1,k,ic) = q(:,i_fine,j_fine+1,k,ic) + &
+                                                   (0.25_R8P + i_delta * 0.5_R8P) * &
+                                                   (0.75_R8P - j_delta * 0.5_R8P) * &
+                                                   q_work(:,i+i_delta-1, j+j_delta  ,k,ib)
+                     q(:,i_fine+1,j_fine+1,k,ic) = q(:,i_fine+1,j_fine+1,k,ic) + &
+                                                   (0.75_R8P - i_delta * 0.5_R8P) * &
+                                                   (0.75_R8P - j_delta * 0.5_R8P) * &
+                                                   q_work(:,i+i_delta,   j+j_delta  ,k,ib)
+                     enddo
+                     enddo
+                  enddo
+               enddo
+            enddo
+         enddo
+
+         ic1 = block_refined(2,(b-1)*ratio+1)
+         ic2 = block_refined(2,(b-1)*ratio+2)
+         ic3 = block_refined(2,(b-1)*ratio+3)
+         ic4 = block_refined(2,(b-1)*ratio+4)
+         self%code(ic1) = block_refined(1,(b-1)*ratio+1)
+         self%code(ic2) = block_refined(1,(b-1)*ratio+2)
+         self%code(ic3) = block_refined(1,(b-1)*ratio+3)
+         self%code(ic4) = block_refined(1,(b-1)*ratio+4)
+      enddo
+   endif
+   endassociate
+   endsubroutine refine2D
+
+   subroutine refine3D(self, ratio, block_to_refine, block_refined)
    !< Refine blocks.
    !<
    !< Note: blocks number is not updated: mpi redistribute does it. This is dangerous...
@@ -964,9 +1158,9 @@ contains
 
          q_work(:,:,:,:,ib) = q(:,:,:,:,ib)
 
-         do ic_local=1, 8
+         do ic_local=1, ratio
             ic = block_refined(2,(b-1)*ratio+ic_local)
-            ic1 = mod(ic_local - 1, 2)
+            ic1 = mod( ic_local - 1   , 2)
             ic2 = mod((ic_local - 1)/2, 2)
             ic3 = mod((ic_local - 1)/4, 2)
             do k=1+nk/2*ic3,nk/2+nk/2*ic3
@@ -1046,5 +1240,5 @@ contains
       enddo
    endif
    endassociate
-   endsubroutine refine
+   endsubroutine refine3D
 endmodule adam_field_object

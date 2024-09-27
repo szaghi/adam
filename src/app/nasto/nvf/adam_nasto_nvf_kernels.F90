@@ -100,9 +100,10 @@ contains
    endselect
    endsubroutine compute_fluxes_convective_kernel
 
-   subroutine compute_fluxes_difference_cuf(blocks_number, ni, nj, nk, ngc, nv, ib_eps, &
+   subroutine compute_fluxes_difference_cuf(null_x, null_y, null_z, blocks_number, ni, nj, nk, ngc, nv, ib_eps, &
                                             dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, dq_gpu)
    !< Compute fluxes difference.
+   logical,      intent(in)                      :: null_x, null_y, null_z              !< Nullified directions tags.
    integer(I4P), intent(in)                      :: blocks_number                       !< Number of blocks.
    integer(I4P), intent(in)                      :: ni                                  !< Grid cells number in I direction.
    integer(I4P), intent(in)                      :: nj                                  !< Grid cells number in J direction.
@@ -121,7 +122,11 @@ contains
    integer(I4P)                                  :: b, i, j, k, v                       !< Counter.
    integer(I4P)                                  :: iercuda                             !< Error trapping flag for CUDAFortran.
    integer(I4P)                                  :: all_solids                          !< Last phi index, all solids summary.
+   real(R8P)                                     :: qmx, qmy, qmz                       !< Momentum nullification scalar.
 
+   qmx = 1._R8P ; if (null_x) qmx = 0._R8P
+   qmy = 1._R8P ; if (null_y) qmy = 0._R8P
+   qmz = 1._R8P ; if (null_z) qmz = 0._R8P
    if (present(phi_gpu)) then
       all_solids = ubound(phi_gpu, dim=5)
       !$cuf kernel do(4) <<<*,*>>>
@@ -170,6 +175,9 @@ contains
                                 - (fly_gpu(b,i,j,k,v)-fly_gpu(b,i,j-1,k,v))/dy_locale &
                                 - (flz_gpu(b,i,j,k,v)-flz_gpu(b,i,j,k-1,v))/dz_locale
          enddo
+         dq_gpu(b,i,j,k,2) = dq_gpu(b,i,j,k,2) * qmx
+         dq_gpu(b,i,j,k,3) = dq_gpu(b,i,j,k,3) * qmy
+         dq_gpu(b,i,j,k,4) = dq_gpu(b,i,j,k,4) * qmz
       enddo
       enddo
       enddo
@@ -186,6 +194,9 @@ contains
                                 - (fly_gpu(b,i,j,k,v)-fly_gpu(b,i,j-1,k,v))/dy_gpu(b) &
                                 - (flz_gpu(b,i,j,k,v)-flz_gpu(b,i,j,k-1,v))/dz_gpu(b)
          enddo
+         dq_gpu(b,i,j,k,2) = dq_gpu(b,i,j,k,2) * qmx
+         dq_gpu(b,i,j,k,3) = dq_gpu(b,i,j,k,3) * qmy
+         dq_gpu(b,i,j,k,4) = dq_gpu(b,i,j,k,4) * qmz
       enddo
       enddo
       enddo
@@ -194,9 +205,10 @@ contains
    endif
    endsubroutine compute_fluxes_difference_cuf
 
-   subroutine compute_fluxes_diffusive_cuf(blocks_number, ni, nj, nk, ngc, nv, mu, kd, &
+   subroutine compute_fluxes_diffusive_cuf(null_x, null_y, null_z, blocks_number, ni, nj, nk, ngc, nv, mu, kd, &
                                            q_aux_gpu, dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu)
    !< Compute diffusive fluxes.
+   logical,      intent(in)            :: null_x, null_y, null_z                !< Nullified directions tags.
    integer(I4P), intent(in)            :: blocks_number                         !< Blocks number.
    integer(I4P), intent(in)            :: ni, nj, nk                            !< Grid dimensionns.
    integer(I4P), intent(in)            :: ngc                                   !< Number of ghost cells.
@@ -219,131 +231,143 @@ contains
    integer(I4P)                        :: b, i, j, k, v                         !< Counter.
    integer(I4P)                        :: iercuda                               !< CUDA error trapping flag.
 
-   !$cuf kernel do(3) <<<*,*>>>
-   do k=1,nk
-      do j=1,nj
-         do b=1,blocks_number
+   if (.not.null_x) then
+      !$cuf kernel do(4) <<<*,*>>>
+      do k=1,nk
+         do j=1,nj
             do i=0,ni ! loop on interfaces
-                du_dx = (q_aux_gpu(b,i+1,j,k,2)-q_aux_gpu(b,i,j,k,2))/dx_gpu(b)
-                dv_dx = (q_aux_gpu(b,i+1,j,k,3)-q_aux_gpu(b,i,j,k,3))/dx_gpu(b)
-                dw_dx = (q_aux_gpu(b,i+1,j,k,4)-q_aux_gpu(b,i,j,k,4))/dx_gpu(b)
+               do b=1,blocks_number
+                   du_dx = (q_aux_gpu(b,i+1,j,k,2)-q_aux_gpu(b,i,j,k,2))/dx_gpu(b)
+                   dv_dx = (q_aux_gpu(b,i+1,j,k,3)-q_aux_gpu(b,i,j,k,3))/dx_gpu(b)
+                   dw_dx = (q_aux_gpu(b,i+1,j,k,4)-q_aux_gpu(b,i,j,k,4))/dx_gpu(b)
 
-                du_dy = (q_aux_gpu(b,i+1,j+1,k,2) - q_aux_gpu(b,i+1,j-1,k,2)+ &
-                         q_aux_gpu(b,i,j+1,k,2)   - q_aux_gpu(b,i,j-1,k,2) )*0.25_R8P/dy_gpu(b)
-                dv_dy = (q_aux_gpu(b,i+1,j+1,k,3) - q_aux_gpu(b,i+1,j-1,k,3)+ &
-                         q_aux_gpu(b,i,j+1,k,3)   - q_aux_gpu(b,i,j-1,k,3) )*0.25_R8P/dy_gpu(b)
+                   du_dy = (q_aux_gpu(b,i+1,j+1,k,2) - q_aux_gpu(b,i+1,j-1,k,2)+ &
+                            q_aux_gpu(b,i,j+1,k,2)   - q_aux_gpu(b,i,j-1,k,2) )*0.25_R8P/dy_gpu(b)
+                   dv_dy = (q_aux_gpu(b,i+1,j+1,k,3) - q_aux_gpu(b,i+1,j-1,k,3)+ &
+                            q_aux_gpu(b,i,j+1,k,3)   - q_aux_gpu(b,i,j-1,k,3) )*0.25_R8P/dy_gpu(b)
 
-                du_dz = (q_aux_gpu(b,i+1,j,k+1,2) - q_aux_gpu(b,i+1,j,k-1,2)+ &
-                         q_aux_gpu(b,i,j,k+1,2)   - q_aux_gpu(b,i,j,k-1,2) )*0.25_R8P/dz_gpu(b)
-                dw_dz = (q_aux_gpu(b,i+1,j,k+1,4) - q_aux_gpu(b,i+1,j,k-1,4)+ &
-                         q_aux_gpu(b,i,j,k+1,4)   - q_aux_gpu(b,i,j,k-1,4) )*0.25_R8P/dz_gpu(b)
+                   du_dz = (q_aux_gpu(b,i+1,j,k+1,2) - q_aux_gpu(b,i+1,j,k-1,2)+ &
+                            q_aux_gpu(b,i,j,k+1,2)   - q_aux_gpu(b,i,j,k-1,2) )*0.25_R8P/dz_gpu(b)
+                   dw_dz = (q_aux_gpu(b,i+1,j,k+1,4) - q_aux_gpu(b,i+1,j,k-1,4)+ &
+                            q_aux_gpu(b,i,j,k+1,4)   - q_aux_gpu(b,i,j,k-1,4) )*0.25_R8P/dz_gpu(b)
 
-                vel_u = 0.5*(q_aux_gpu(b,i,j,k,2) + q_aux_gpu(b,i+1,j,k,2))
-                vel_v = 0.5*(q_aux_gpu(b,i,j,k,3) + q_aux_gpu(b,i+1,j,k,3))
-                vel_w = 0.5*(q_aux_gpu(b,i,j,k,4) + q_aux_gpu(b,i+1,j,k,4))
+                   vel_u = 0.5*(q_aux_gpu(b,i,j,k,2) + q_aux_gpu(b,i+1,j,k,2))
+                   vel_v = 0.5*(q_aux_gpu(b,i,j,k,3) + q_aux_gpu(b,i+1,j,k,3))
+                   vel_w = 0.5*(q_aux_gpu(b,i,j,k,4) + q_aux_gpu(b,i+1,j,k,4))
 
-                tau_1_1 = 2.0*mu*(du_dx-1./3.*(du_dx+dv_dy+dw_dz))
-                tau_2_1 = mu*(dv_dx+du_dy)
-                tau_3_1 = mu*(dw_dx+du_dz)
+                   tau_1_1 = 2.0*mu*(du_dx-1./3.*(du_dx+dv_dy+dw_dz))
+                   tau_2_1 = mu*(dv_dx+du_dy)
+                   tau_3_1 = mu*(dw_dx+du_dz)
 
-                dT_dx = (q_aux_gpu(b,i+1,j,k,6)-q_aux_gpu(b,i,j,k,6))/dx_gpu(b)
+                   dT_dx = (q_aux_gpu(b,i+1,j,k,6)-q_aux_gpu(b,i,j,k,6))/dx_gpu(b)
 
-                sigq = kd*dT_dx
-                sigl = vel_u*tau_1_1+vel_v*tau_2_1+vel_w*tau_3_1
+                   sigq = kd*dT_dx
+                   sigl = vel_u*tau_1_1+vel_v*tau_2_1+vel_w*tau_3_1
 
-                flx_gpu(b,i,j,k,2) = flx_gpu(b,i,j,k,2) - tau_1_1
-                flx_gpu(b,i,j,k,3) = flx_gpu(b,i,j,k,3) - tau_2_1
-                flx_gpu(b,i,j,k,4) = flx_gpu(b,i,j,k,4) - tau_3_1
-                flx_gpu(b,i,j,k,5) = flx_gpu(b,i,j,k,5) - sigq + sigl
+                   flx_gpu(b,i,j,k,2) = flx_gpu(b,i,j,k,2) - tau_1_1
+                   flx_gpu(b,i,j,k,3) = flx_gpu(b,i,j,k,3) - tau_2_1
+                   flx_gpu(b,i,j,k,4) = flx_gpu(b,i,j,k,4) - tau_3_1
+                   flx_gpu(b,i,j,k,5) = flx_gpu(b,i,j,k,5) - sigq + sigl
+               enddo
             enddo
          enddo
       enddo
-   enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
+      !@cuf iercuda=cudaDeviceSynchronize()
+   else
+      flx_gpu = 0._R8P
+   endif
 
-   !$cuf kernel do(3) <<<*,*>>>
-   do k=1,nk
-      do i=1,ni
-         do b=1,blocks_number
-            do j=0,nj ! loop on interfaces
-                du_dy = (q_aux_gpu(b,i,j+1,k,2)-q_aux_gpu(b,i,j,k,2))/dy_gpu(b)
-                dv_dy = (q_aux_gpu(b,i,j+1,k,3)-q_aux_gpu(b,i,j,k,3))/dy_gpu(b)
-                dw_dy = (q_aux_gpu(b,i,j+1,k,4)-q_aux_gpu(b,i,j,k,4))/dy_gpu(b)
+   if (.not.null_y) then
+      !$cuf kernel do(4) <<<*,*>>>
+      do k=1,nk
+         do j=0,nj ! loop on interfaces
+            do i=1,ni
+               do b=1,blocks_number
+                   du_dy = (q_aux_gpu(b,i,j+1,k,2)-q_aux_gpu(b,i,j,k,2))/dy_gpu(b)
+                   dv_dy = (q_aux_gpu(b,i,j+1,k,3)-q_aux_gpu(b,i,j,k,3))/dy_gpu(b)
+                   dw_dy = (q_aux_gpu(b,i,j+1,k,4)-q_aux_gpu(b,i,j,k,4))/dy_gpu(b)
 
-                du_dx = (q_aux_gpu(b,i+1,j+1,k,2) - q_aux_gpu(b,i-1,j+1,k,2)+ &
-                         q_aux_gpu(b,i+1,j,k,2)   - q_aux_gpu(b,i-1,j,k,2) )*0.25_R8P/dx_gpu(b)
-                dv_dx = (q_aux_gpu(b,i+1,j+1,k,3) - q_aux_gpu(b,i-1,j+1,k,3)+ &
-                         q_aux_gpu(b,i+1,j,k,3)   - q_aux_gpu(b,i-1,j,k,3) )*0.25_R8P/dx_gpu(b)
+                   du_dx = (q_aux_gpu(b,i+1,j+1,k,2) - q_aux_gpu(b,i-1,j+1,k,2)+ &
+                            q_aux_gpu(b,i+1,j,k,2)   - q_aux_gpu(b,i-1,j,k,2) )*0.25_R8P/dx_gpu(b)
+                   dv_dx = (q_aux_gpu(b,i+1,j+1,k,3) - q_aux_gpu(b,i-1,j+1,k,3)+ &
+                            q_aux_gpu(b,i+1,j,k,3)   - q_aux_gpu(b,i-1,j,k,3) )*0.25_R8P/dx_gpu(b)
 
-                dv_dz = (q_aux_gpu(b,i+1,j,k+1,3) - q_aux_gpu(b,i-1,j,k+1,3)+ &
-                         q_aux_gpu(b,i+1,j,k,3)   - q_aux_gpu(b,i-1,j,k,3) )*0.25_R8P/dz_gpu(b)
-                dw_dz = (q_aux_gpu(b,i+1,j,k+1,4) - q_aux_gpu(b,i-1,j,k+1,4)+ &
-                         q_aux_gpu(b,i+1,j,k,4)   - q_aux_gpu(b,i-1,j,k,4) )*0.25_R8P/dz_gpu(b)
+                   dv_dz = (q_aux_gpu(b,i+1,j,k+1,3) - q_aux_gpu(b,i-1,j,k+1,3)+ &
+                            q_aux_gpu(b,i+1,j,k,3)   - q_aux_gpu(b,i-1,j,k,3) )*0.25_R8P/dz_gpu(b)
+                   dw_dz = (q_aux_gpu(b,i+1,j,k+1,4) - q_aux_gpu(b,i-1,j,k+1,4)+ &
+                            q_aux_gpu(b,i+1,j,k,4)   - q_aux_gpu(b,i-1,j,k,4) )*0.25_R8P/dz_gpu(b)
 
-                vel_u = 0.5*(q_aux_gpu(b,i,j,k,2) + q_aux_gpu(b,i,j+1,k,2))
-                vel_v = 0.5*(q_aux_gpu(b,i,j,k,3) + q_aux_gpu(b,i,j+1,k,3))
-                vel_w = 0.5*(q_aux_gpu(b,i,j,k,4) + q_aux_gpu(b,i,j+1,k,4))
+                   vel_u = 0.5*(q_aux_gpu(b,i,j,k,2) + q_aux_gpu(b,i,j+1,k,2))
+                   vel_v = 0.5*(q_aux_gpu(b,i,j,k,3) + q_aux_gpu(b,i,j+1,k,3))
+                   vel_w = 0.5*(q_aux_gpu(b,i,j,k,4) + q_aux_gpu(b,i,j+1,k,4))
 
-                tau_1_2 = mu*(du_dy+dv_dx)
-                tau_2_2 = 2.0*mu*(dv_dy-1./3.*(du_dx+dv_dy+dw_dz))
-                tau_3_2 = mu*(dw_dy+dv_dz)
+                   tau_1_2 = mu*(du_dy+dv_dx)
+                   tau_2_2 = 2.0*mu*(dv_dy-1./3.*(du_dx+dv_dy+dw_dz))
+                   tau_3_2 = mu*(dw_dy+dv_dz)
 
-                dT_dy = (q_aux_gpu(b,i,j+1,k,6)-q_aux_gpu(b,i,j,k,6))/dy_gpu(b)
+                   dT_dy = (q_aux_gpu(b,i,j+1,k,6)-q_aux_gpu(b,i,j,k,6))/dy_gpu(b)
 
-                sigq = kd*dT_dy
-                sigl = vel_u*tau_1_2+vel_v*tau_2_2+vel_w*tau_3_2
+                   sigq = kd*dT_dy
+                   sigl = vel_u*tau_1_2+vel_v*tau_2_2+vel_w*tau_3_2
 
-                fly_gpu(b,i,j,k,2) = fly_gpu(b,i,j,k,2) - tau_1_2
-                fly_gpu(b,i,j,k,3) = fly_gpu(b,i,j,k,3) - tau_2_2
-                fly_gpu(b,i,j,k,4) = fly_gpu(b,i,j,k,4) - tau_3_2
-                fly_gpu(b,i,j,k,5) = fly_gpu(b,i,j,k,5) - sigq + sigl
+                   fly_gpu(b,i,j,k,2) = fly_gpu(b,i,j,k,2) - tau_1_2
+                   fly_gpu(b,i,j,k,3) = fly_gpu(b,i,j,k,3) - tau_2_2
+                   fly_gpu(b,i,j,k,4) = fly_gpu(b,i,j,k,4) - tau_3_2
+                   fly_gpu(b,i,j,k,5) = fly_gpu(b,i,j,k,5) - sigq + sigl
+               enddo
             enddo
          enddo
       enddo
-   enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
+      !@cuf iercuda=cudaDeviceSynchronize()
+   else
+      fly_gpu = 0._R8P
+   endif
 
-   !$cuf kernel do(3) <<<*,*>>>
-   do j=1,nj
-      do i=1,ni
-         do b=1,blocks_number
-            do k=0,nk ! loop on interfaces
-                du_dz = (q_aux_gpu(b,i,j,k+1,2)-q_aux_gpu(b,i,j,k,2))/dz_gpu(b)
-                dv_dz = (q_aux_gpu(b,i,j,k+1,3)-q_aux_gpu(b,i,j,k,3))/dz_gpu(b)
-                dw_dz = (q_aux_gpu(b,i,j,k+1,4)-q_aux_gpu(b,i,j,k,4))/dz_gpu(b)
+   if (.not.null_z) then
+      !$cuf kernel do(4) <<<*,*>>>
+      do k=0,nk ! loop on interfaces
+         do j=1,nj
+            do i=1,ni
+               do b=1,blocks_number
+                   du_dz = (q_aux_gpu(b,i,j,k+1,2)-q_aux_gpu(b,i,j,k,2))/dz_gpu(b)
+                   dv_dz = (q_aux_gpu(b,i,j,k+1,3)-q_aux_gpu(b,i,j,k,3))/dz_gpu(b)
+                   dw_dz = (q_aux_gpu(b,i,j,k+1,4)-q_aux_gpu(b,i,j,k,4))/dz_gpu(b)
 
-                du_dx = (q_aux_gpu(b,i+1,j,k+1,2) - q_aux_gpu(b,i-1,j,k+1,2)+ &
-                         q_aux_gpu(b,i+1,j,k,2)   - q_aux_gpu(b,i-1,j,k,2) )*0.25_R8P/dx_gpu(b)
-                dw_dx = (q_aux_gpu(b,i+1,j,k+1,4) - q_aux_gpu(b,i-1,j,k+1,4)+ &
-                         q_aux_gpu(b,i+1,j,k,4)   - q_aux_gpu(b,i-1,j,k,4) )*0.25_R8P/dx_gpu(b)
+                   du_dx = (q_aux_gpu(b,i+1,j,k+1,2) - q_aux_gpu(b,i-1,j,k+1,2)+ &
+                            q_aux_gpu(b,i+1,j,k,2)   - q_aux_gpu(b,i-1,j,k,2) )*0.25_R8P/dx_gpu(b)
+                   dw_dx = (q_aux_gpu(b,i+1,j,k+1,4) - q_aux_gpu(b,i-1,j,k+1,4)+ &
+                            q_aux_gpu(b,i+1,j,k,4)   - q_aux_gpu(b,i-1,j,k,4) )*0.25_R8P/dx_gpu(b)
 
-                dv_dy = (q_aux_gpu(b,i,j+1,k+1,3) - q_aux_gpu(b,i,j-1,k+1,3)+ &
-                         q_aux_gpu(b,i,j+1,k,3)   - q_aux_gpu(b,i,j-1,k,3) )*0.25_R8P/dy_gpu(b)
-                dw_dy = (q_aux_gpu(b,i,j+1,k+1,4) - q_aux_gpu(b,i,j-1,k+1,4)+ &
-                         q_aux_gpu(b,i,j+1,k,4)   - q_aux_gpu(b,i,j-1,k,4) )*0.25_R8P/dy_gpu(b)
+                   dv_dy = (q_aux_gpu(b,i,j+1,k+1,3) - q_aux_gpu(b,i,j-1,k+1,3)+ &
+                            q_aux_gpu(b,i,j+1,k,3)   - q_aux_gpu(b,i,j-1,k,3) )*0.25_R8P/dy_gpu(b)
+                   dw_dy = (q_aux_gpu(b,i,j+1,k+1,4) - q_aux_gpu(b,i,j-1,k+1,4)+ &
+                            q_aux_gpu(b,i,j+1,k,4)   - q_aux_gpu(b,i,j-1,k,4) )*0.25_R8P/dy_gpu(b)
 
-                vel_u = 0.5*(q_aux_gpu(b,i,j,k,2) + q_aux_gpu(b,i,j,k+1,2))
-                vel_v = 0.5*(q_aux_gpu(b,i,j,k,3) + q_aux_gpu(b,i,j,k+1,3))
-                vel_w = 0.5*(q_aux_gpu(b,i,j,k,4) + q_aux_gpu(b,i,j,k+1,4))
+                   vel_u = 0.5*(q_aux_gpu(b,i,j,k,2) + q_aux_gpu(b,i,j,k+1,2))
+                   vel_v = 0.5*(q_aux_gpu(b,i,j,k,3) + q_aux_gpu(b,i,j,k+1,3))
+                   vel_w = 0.5*(q_aux_gpu(b,i,j,k,4) + q_aux_gpu(b,i,j,k+1,4))
 
-                tau_1_3 = mu*(du_dz+dw_dx)
-                tau_2_3 = mu*(dv_dz+dw_dy)
-                tau_3_3 = 2.0*mu*(dw_dz-1./3.*(du_dx+dv_dy+dw_dz))
+                   tau_1_3 = mu*(du_dz+dw_dx)
+                   tau_2_3 = mu*(dv_dz+dw_dy)
+                   tau_3_3 = 2.0*mu*(dw_dz-1./3.*(du_dx+dv_dy+dw_dz))
 
-                dT_dz = (q_aux_gpu(b,i,j,k+1,6)-q_aux_gpu(b,i,j,k,6))/dz_gpu(b)
+                   dT_dz = (q_aux_gpu(b,i,j,k+1,6)-q_aux_gpu(b,i,j,k,6))/dz_gpu(b)
 
-                sigq = kd*dT_dz
-                sigl = vel_u*tau_1_3+vel_v*tau_2_3+vel_w*tau_3_3
+                   sigq = kd*dT_dz
+                   sigl = vel_u*tau_1_3+vel_v*tau_2_3+vel_w*tau_3_3
 
-                flz_gpu(b,i,j,k,2) = flz_gpu(b,i,j,k,2) - tau_1_3
-                flz_gpu(b,i,j,k,3) = flz_gpu(b,i,j,k,3) - tau_2_3
-                flz_gpu(b,i,j,k,4) = flz_gpu(b,i,j,k,4) - tau_3_3
-                flz_gpu(b,i,j,k,5) = flz_gpu(b,i,j,k,5) - sigq + sigl
+                   flz_gpu(b,i,j,k,2) = flz_gpu(b,i,j,k,2) - tau_1_3
+                   flz_gpu(b,i,j,k,3) = flz_gpu(b,i,j,k,3) - tau_2_3
+                   flz_gpu(b,i,j,k,4) = flz_gpu(b,i,j,k,4) - tau_3_3
+                   flz_gpu(b,i,j,k,5) = flz_gpu(b,i,j,k,5) - sigq + sigl
+               enddo
             enddo
          enddo
       enddo
-   enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
+      !@cuf iercuda=cudaDeviceSynchronize()
+   else
+      flz_gpu = 0._R8P
+   endif
    endsubroutine compute_fluxes_diffusive_cuf
 
    subroutine compute_umax_cuf(ni, nj, nk, ngc, blocks_number, mu, dx_gpu, dy_gpu, dz_gpu, q_aux_gpu, umax)

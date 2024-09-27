@@ -12,6 +12,7 @@ use adam_memory_library
 use adam_mpih_object
 use adam_parameters
 use adam_rk_object
+use adam_riemann_euler_library
 use adam_slices_object
 use adam_tree_node_object
 use adam_tree_bucket_object

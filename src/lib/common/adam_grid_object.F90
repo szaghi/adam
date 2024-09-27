@@ -15,6 +15,8 @@ public :: grid_object
 ! grid parameters
 integer(I4P), parameter :: MAX_REF_LEVELS = 30_I4P !< Maximum refinement levels.
 
+character(len=4), parameter :: INI_SECTION_NAME="grid" !< INI (config) file section name containing configs.
+
 type :: grid_object
    !< Grid class definition.
    type(mpih_object)         :: mpih                                  !< MPI handler.
@@ -34,6 +36,7 @@ type :: grid_object
    real(R8P),    allocatable :: lin_space_x(:,:)                      !< Lin. space x for each level [0-ngc:ni+ngc,MAX_REF_LEVELS].
    real(R8P),    allocatable :: lin_space_y(:,:)                      !< Lin. space y for each level [0-ngc:nj+ngc,MAX_REF_LEVELS].
    real(R8P),    allocatable :: lin_space_z(:,:)                      !< Lin. space z for each level [0-ngc:nk+ngc,MAX_REF_LEVELS].
+   logical                   :: null_xyz(3)=[.false.,.false.,.false.] !< Handy tags for nullify equations in some direction.
    contains
       ! public methods
       procedure, pass(self) :: block_emin              !< Return block emin given its coordinates.
@@ -136,6 +139,7 @@ contains
    class(grid_object), intent(in) :: self             !< The grid.
    character(len=:), allocatable  :: desc             !< Description.
    character(len=1), parameter    :: NL=new_line('a') !< New line character.
+   integer(I4P)                   :: l                !< Counter.
 
    desc =       self%mpih%myrankstr//'grid main data'                                            //NL
    desc = desc//self%mpih%myrankstr//'  domain minimum extent: '//trim(str(self%domain_emin    ))//NL
@@ -148,7 +152,13 @@ contains
    desc = desc//self%mpih%myrankstr//'  block weight:          '//trim(str(self%block_weight   ))//NL
    desc = desc//self%mpih%myrankstr//'  IJK periodic:          '//str(self%is_ijk_periodic(1))//' '//&
                                                                   str(self%is_ijk_periodic(2))//' '//&
-                                                                  str(self%is_ijk_periodic(3))
+                                                                  str(self%is_ijk_periodic(3))//NL
+   desc = desc//self%mpih%myrankstr//'  nullify xyz:           '//str(self%null_xyz(1))//' '//&
+                                                                  str(self%null_xyz(2))//' '//&
+                                                                  str(self%null_xyz(3))
+   do l=0, ubound(self%cell_dxyz, dim=2)
+   desc = desc//NL//self%mpih%myrankstr//'  dxyz l='//trim(str(l,.true.)) //'             '//trim(str(self%cell_dxyz(:,l)))
+   enddo
    endfunction description
 
    function do_cplane_intersect(emin, emax, dxyz, cplane_origin, cplane_normal, cplane_block_indexes) result(do_intersect)
@@ -232,7 +242,7 @@ contains
    subroutine initialize(self, file_parameters, ni, nj, nk, ngc, emin, emax, bc_type, verbose)
    !< Initialize field.
    class(grid_object), intent(inout)           :: self            !< The grid.
-   type(file_ini),     intent(inout), optional :: file_parameters !< INI file handler.
+   type(file_ini),     intent(inout)           :: file_parameters !< INI file handler.
    integer(I4P),       intent(in),    optional :: ni              !< Number of cells in X direction.
    integer(I4P),       intent(in),    optional :: nj              !< Number of cells in Y direction.
    integer(I4P),       intent(in),    optional :: nk              !< Number of cells in Z direction.
@@ -243,10 +253,12 @@ contains
    logical,            intent(in),    optional :: verbose         !< Flag to activate verbose output.
    integer(I4P)                                :: i, j, k, l      !< Counter.
    integer(I4P)                                :: nijk(3)         !< Cells number.
+   integer(I4P)                                :: ratio           !< AMR ratio.
 
    call self%mpih%initialize
    call self%mpih%print_message('grid_object%initialize start')
-   if (present(file_parameters)) call self%load_from_ini_file(file_parameters)
+   call self%load_from_ini_file(file_parameters)
+   call file_parameters%get(section_name='amr', option_name='ratio', val=ratio)
 
    ! parameters explicitely passed ovveride ones file-passed
    if (present(emin)) self%domain_emin = emin
@@ -272,7 +284,18 @@ contains
    allocate(self%lin_space_z(0-self%ngc:self%nk+self%ngc,0:MAX_REF_LEVELS))
    do l=0, MAX_REF_LEVELS
       self%nb_max(l) = 2**l
-      self%block_dxyz(:,l) = (self%domain_emax(:) - self%domain_emin(:)) / self%nb_max(l)
+      select case(ratio)
+      case(2_I4P)
+         self%block_dxyz(1,l) = (self%domain_emax(1) - self%domain_emin(1)) / self%nb_max(l)
+         self%block_dxyz(2,l) = (self%domain_emax(2) - self%domain_emin(2))
+         self%block_dxyz(3,l) = (self%domain_emax(3) - self%domain_emin(3))
+      case(4_I4P)
+         self%block_dxyz(1,l) = (self%domain_emax(1) - self%domain_emin(1)) / self%nb_max(l)
+         self%block_dxyz(2,l) = (self%domain_emax(2) - self%domain_emin(2)) / self%nb_max(l)
+         self%block_dxyz(3,l) = (self%domain_emax(3) - self%domain_emin(3))
+      case(8_I4P)
+         self%block_dxyz(:,l) = (self%domain_emax(:) - self%domain_emin(:)) / self%nb_max(l)
+      endselect
       self%cell_dxyz(:,l) = self%block_dxyz(:,l) / nijk(:)
       do i=0-self%ngc, self%ni+self%ngc
          self%lin_space_x(i,l) = i * self%cell_dxyz(1,l)
@@ -290,23 +313,58 @@ contains
    call self%mpih%print_message('grid_object%initialize finish')
    endsubroutine initialize
 
-   subroutine load_from_ini_file(self, file_parameters)
+   subroutine load_from_ini_file(self, file_parameters, go_on_fail)
    !< Load object data from INI file.
-   class(grid_object), intent(inout) :: self            !< The grid.
-   type(file_ini),     intent(inout) :: file_parameters !< INI file handler.
-   integer(I4P)                      :: buff_I4P        !< I4P buffer.
-   real(R8P)                         :: buff_R8P        !< R8P buffer.
+   class(grid_object), intent(inout)        :: self            !< The grid.
+   type(file_ini),     intent(inout)        :: file_parameters !< INI file handler.
+   logical,            intent(in), optional :: go_on_fail      !< Go on if load fails.
+   logical                                  :: go_on_fail_     !< Go on if load fails.
+   integer(I4P)                             :: buff_I4P        !< I4P buffer.
+   real(R8P)                                :: buff_R8P        !< R8P buffer.
+   logical                                  :: buff_log        !< Logical buffer.
+   integer(I4P)                             :: error           !< Error status.
 
-   call file_parameters%get(section_name='grid',     option_name='ni'    , val=buff_I4P) ; self%ni            =buff_I4P
-   call file_parameters%get(section_name='grid',     option_name='nj'    , val=buff_I4P) ; self%nj            =buff_I4P
-   call file_parameters%get(section_name='grid',     option_name='nk'    , val=buff_I4P) ; self%nk            =buff_I4P
-   call file_parameters%get(section_name='grid',     option_name='ngc'   , val=buff_I4P) ; self%ngc           =buff_I4P
-   call file_parameters%get(section_name='grid',     option_name='emin_x', val=buff_R8P) ; self%domain_emin(1)=buff_R8P
-   call file_parameters%get(section_name='grid',     option_name='emin_y', val=buff_R8P) ; self%domain_emin(2)=buff_R8P
-   call file_parameters%get(section_name='grid',     option_name='emin_z', val=buff_R8P) ; self%domain_emin(3)=buff_R8P
-   call file_parameters%get(section_name='grid',     option_name='emax_x', val=buff_R8P) ; self%domain_emax(1)=buff_R8P
-   call file_parameters%get(section_name='grid',     option_name='emax_y', val=buff_R8P) ; self%domain_emax(2)=buff_R8P
-   call file_parameters%get(section_name='grid',     option_name='emax_z', val=buff_R8P) ; self%domain_emax(3)=buff_R8P
+   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
+
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ni', val=buff_I4P, error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ni)')
+   self%ni=buff_I4P
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='nj', val=buff_I4P, error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nj)')
+   self%nj=buff_I4P
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='nk', val=buff_I4P, error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nk)')
+   self%nk=buff_I4P
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ngc', val=buff_I4P, error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ngc)')
+   self%ngc=buff_I4P
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emin_x', val=buff_R8P, error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emin_x)')
+   self%domain_emin(1)=buff_R8P
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emin_y', val=buff_R8P, error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emin_y)')
+   self%domain_emin(2)=buff_R8P
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emin_z', val=buff_R8P, error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emin_z)')
+   self%domain_emin(3)=buff_R8P
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emax_x', val=buff_R8P, error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emax_x)')
+   self%domain_emax(1)=buff_R8P
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emax_y', val=buff_R8P, error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emax_y)')
+   self%domain_emax(2)=buff_R8P
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='emax_z', val=buff_R8P, error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(emax_z)')
+   self%domain_emax(3)=buff_R8P
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='null_x', val=buff_log, error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(null_x)')
+   self%null_xyz(1)=buff_log
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='null_y', val=buff_log, error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(null_y)')
+   self%null_xyz(2)=buff_log
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='null_z', val=buff_log, error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(null_z)')
+   self%null_xyz(3)=buff_log
    endsubroutine load_from_ini_file
 
    subroutine node_xyz(self, coordinates, x_node, y_node, z_node)

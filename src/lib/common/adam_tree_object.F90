@@ -220,11 +220,13 @@ type :: tree_object
       ! Morton ordering
       generic               :: coordinates_to_morton => &
                                coordinates3D_to_morton, &
-                               coordinates2D_to_morton !< Return the Morton code given space-level coordinates.
+                               coordinates2D_to_morton, &
+                               coordinates1D_to_morton !< Return the Morton code given space-level coordinates.
       procedure, pass(self) :: level                   !< Return the refinement level given the code.
       generic               :: morton_to_coordinates => &
                                morton_to_coordinates3D, &
-                               morton_to_coordinates2D !< Return the space-level coordinates given Morton code.
+                               morton_to_coordinates2D, &
+                               morton_to_coordinates1D !< Return the space-level coordinates given Morton code.
       ! private methods
       ! Morton ordering
       procedure, pass(self), private :: all_siblings            !< Return all siblings Morton code given Morton code.
@@ -233,6 +235,7 @@ type :: tree_object
       procedure, pass(self), private :: children                !< Return the children list given Morton code.
       procedure, pass(self), private :: coordinates3D_to_morton !< Return the Morton code given ijkl coordinates.
       procedure, pass(self), private :: coordinates2D_to_morton !< Return the Morton code given ijl coordinates.
+      procedure, pass(self), private :: coordinates1D_to_morton !< Return the Morton code given il coordinates.
       procedure, pass(self), private :: finest_at_level         !< Return the finest node code at given level.
       procedure, pass(self), private :: first_at_level          !< Return the first node code at given level.
       procedure, pass(self), private :: first_common_parent     !< Return the first common parent given two codes.
@@ -246,7 +249,8 @@ type :: tree_object
       procedure, pass(self), private :: lower                   !< Return true if code is lower than other.
       procedure, pass(self), private :: make_neighborhood       !< Make neighborhood all whole tree and store it in nodes.
       procedure, pass(self), private :: morton_to_coordinates3D !< Return the ijkl coordinates given Morton code.
-      procedure, pass(self), private :: morton_to_coordinates2D !< Return the ijkl coordinates given Morton code.
+      procedure, pass(self), private :: morton_to_coordinates2D !< Return the ijl coordinates given Morton code.
+      procedure, pass(self), private :: morton_to_coordinates1D !< Return the il coordinates given Morton code.
       procedure, pass(self), private :: parent                  !< Return the parent given Morton code.
       procedure, pass(self), private :: parent_at_level         !< Return the parent given Morton code at given level.
       procedure, pass(self), private :: path                    !< Return the path codes, the list of codes from given node to root.
@@ -669,6 +673,7 @@ contains
    call self%mpi_redistribute
 
    call self%make_neighborhood
+   print '(A)', self%description()
    call self%mpih%print_message('tree_object%initialize finish')
    endsubroutine initialize
 
@@ -713,6 +718,7 @@ contains
    type(file_ini),     intent(inout) :: file_parameters !< INI file handler.
    integer(I4P)                      :: buff_I4P        !< I4P buffer.
 
+   call file_parameters%get(section_name='amr', option_name='ratio'        , val=buff_I4P) ; self%ratio         = buff_I4P
    call file_parameters%get(section_name='amr', option_name='max_level'    , val=buff_I4P) ; self%max_level     = buff_I4P
    call file_parameters%get(section_name='amr', option_name='iu_ref_levels', val=buff_I4P) ; self%iu_ref_levels = buff_I4P
    call file_parameters%get(section_name='amr', option_name='i_prune'      , val=buff_I4P) ; self%ijkl_prune(1) = buff_I4P
@@ -1076,7 +1082,12 @@ contains
       node_ptr%block_index = node_ptr%block_index_new
       if (node_ptr%myrank == self%mpih%myrank) then
          select case(self%ratio)
+         case(2_I4P)
+            j = 0
+            k = 0
+            call self%morton_to_coordinates(code=node_ptr%code, i=i, l=l)
          case(4_I4P)
+            k = 0
             call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, l=l)
          case(8_I4P)
             call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
@@ -1264,6 +1275,9 @@ contains
    integer(I8P), allocatable      :: children(:) !< Children Morton code.
 
    select case(self%ratio)
+   case(2_I4P)
+      children = [self%child(code=code, i=0), &
+                  self%child(code=code, i=1)]
    case(4_I4P)
       children = [self%child(code=code, i=0), &
                   self%child(code=code, i=1), &
@@ -1280,6 +1294,16 @@ contains
                   self%child(code=code, i=7)]
    endselect
    endfunction children
+
+   function coordinates1D_to_morton(self, i, l) result(code)
+   !< Return the Morton code given ijl coordinates.
+   class(tree_object), intent(in) :: self  !< The tree.
+   integer(I4P),       intent(in) :: i     !< I coordinate.
+   integer(I4P),       intent(in) :: l     !< L coordinate.
+   integer(I8P)                   :: code  !< Morton code.
+
+   code = self%first_at_level(level=l) + i
+   endfunction coordinates1D_to_morton
 
    function coordinates2D_to_morton(self, i, j, l) result(code)
    !< Return the Morton code given ijl coordinates.
@@ -1397,7 +1421,12 @@ contains
 
    ! compute coordinates of code
    select case(self%ratio)
+   case(2_I4P)
+      j = 0
+      k = 0
+      call self%morton_to_coordinates(code=code, i=i, l=l)
    case(4_I4P)
+      k = 0
       call self%morton_to_coordinates(code=code, i=i, j=j, l=l)
    case(8_I4P)
       call self%morton_to_coordinates(code=code, i=i, j=j, k=k, l=l)
@@ -1438,6 +1467,8 @@ contains
 
    ! compute direct neighbor code
    select case(self%ratio)
+   case(2_I4P)
+      direct_neighbor = self%coordinates_to_morton(i=ijk(1), l=l)
    case(4_I4P)
       direct_neighbor = self%coordinates_to_morton(i=ijk(1), j=ijk(2), l=l)
    case(8_I4P)
@@ -1486,8 +1517,7 @@ contains
          do i=ijkmin(1), ijkmax(1)
             ! the first child (global) Morton code of direct neighbor has been already computed thus the other
             ! Morton codes are simply computed adding the local numeration to the first child code
-            neighbor = [neighbor, self%child(code=direct_neighbor, i=i + 2*j + 4*k)]
-            !RIMETTEREneighbor = [neighbor, [self%child(code=direct_neighbor, i=i + 2*j + 4*k)]]
+            neighbor = [neighbor, self%child(code=direct_neighbor, i=i + 2*j*((self%ratio+1)/5) + 4*k*(self%ratio/8))]
          enddo
       enddo
    enddo
@@ -1564,8 +1594,19 @@ contains
    res = self%finest_at_level(code=lhs, level=self%max_level) < self%finest_at_level(code=rhs, level=self%max_level)
    endfunction lower
 
+   subroutine morton_to_coordinates1D(self, code, i, l)
+   !< Return the il coordinates given Morton code.
+   class(tree_object), intent(in)  :: self     !< The tree.
+   integer(I8P),       intent(in)  :: code     !< Morton code.
+   integer(I4P),       intent(out) :: i        !< I coordinate.
+   integer(I4P),       intent(out) :: l        !< L coordinate.
+
+   l = self%level(code=code)
+   i = code - self%last_at_level(l) + self%ratio**l - 1_I4P
+   endsubroutine morton_to_coordinates1D
+
    subroutine morton_to_coordinates2D(self, code, i, j, l)
-   !< Return the ijkl coordinates given Morton code.
+   !< Return the ijl coordinates given Morton code.
    class(tree_object), intent(in)  :: self     !< The tree.
    integer(I8P),       intent(in)  :: code     !< Morton code.
    integer(I4P),       intent(out) :: i        !< I coordinate.
@@ -1654,15 +1695,10 @@ contains
       allocate(temp(1:size(path)+1))
       temp(1:size(path)) = path
       temp(size(path)+1) = self%parent(code=c)
-      !RIMETTERE SENZA
       if(allocated(path)) deallocate(path)
-      !RIMETTERE SENZA
       call move_alloc(from=temp,to=path)
       c = self%parent(code=c)
    enddo
-   !RIMETTERE SENZA
-   !EVITEREIif(allocated(temp)) deallocate(temp)
-   !RIMETTERE SENZA
    endfunction path
 
    subroutine print_code_topology(self, code,  &
@@ -1736,6 +1772,7 @@ contains
 
    neighbors_str = ''
    do f=1, 6
+      if (self%ratio==2_I4P.and.f>2) exit
       if (self%ratio==4_I4P.and.f>4) exit
       neighbors        = node_ptr%neighbor(f)%codes
       neighbor_type    = node_ptr%neighbor(f)%ntype
@@ -1748,7 +1785,12 @@ contains
    enddo
 
    select case(self%ratio)
+   case(2_I4P)
+      j = 0
+      k = 0
+      call self%morton_to_coordinates(code=node_ptr%code, i=i, l=l)
    case(4_I4P)
+      k = 0
       call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, l=l)
    case(8_I4P)
       call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
@@ -1841,11 +1883,11 @@ contains
    if (derefined_number>0) then
       allocate(self%block_to_derefine(self%n_my_derefine))
       allocate(self%block_derefined(2, self%n_my_derefine/self%ratio))
-      mn = -7
+      mn = -(self%ratio-1)
       do n=1, derefined_number, self%ratio
          first_child => self%node(code=self%node_to_derefine(n))
          if (self%mpih%myrank == first_child%myrank) then
-            mn = mn + 8
+            mn = mn + self%ratio
             self%block_derefined(1,(mn-1)/self%ratio+1) = self%parent(code=first_child%code)
             self%block_derefined(2,(mn-1)/self%ratio+1) = first_child%block_index
          endif
@@ -1996,7 +2038,7 @@ contains
                   self%node_to_derefine = [self%node_to_derefine, all_siblings]
                   codes_analyzed = [codes_analyzed, all_siblings]
 
-                  if (self%mpih%myrank==node_ptr%myrank) self%n_my_derefine = self%n_my_derefine + 8
+                  if (self%mpih%myrank==node_ptr%myrank) self%n_my_derefine = self%n_my_derefine + self%ratio
                else
                   is_sanitize_complete = .false.
                   node_ptr%refinement_needed = TO_NOT_TOUCH

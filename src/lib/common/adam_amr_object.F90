@@ -13,21 +13,30 @@ public :: amr_object
 public :: amr_marker_object
 public :: AMR_GEO
 public :: AMR_GRAD
+public :: AMR_DELTA_T_X
+public :: AMR_DELTA_T_Y
+public :: AMR_DELTA_T_Z
+public :: AMR_DELTA_T_MAX
 
 character(len=3), parameter :: INI_SECTION_NAME="amr" !< INI (config) file section name containing AMR markers configs.
 
-integer(I4P), parameter :: AMR_GEO  = 1_I4P !< Geometrical marker.
-integer(I4P), parameter :: AMR_GRAD = 2_I4P !< Field gradient marker.
+integer(I4P), parameter :: AMR_GEO         = 1_I4P !< Geometrical marker.
+integer(I4P), parameter :: AMR_GRAD        = 2_I4P !< Field gradient marker.
+character(1), parameter :: AMR_DELTA_T_X   = 'x'   !< Delta criterion type, dx.
+character(1), parameter :: AMR_DELTA_T_Y   = 'y'   !< Delta criterion type, dy.
+character(1), parameter :: AMR_DELTA_T_Z   = 'z'   !< Delta criterion type, dz.
+character(3), parameter :: AMR_DELTA_T_MAX = 'max' !< Delta criterion type, max(dx,dy,dz).
 
 type :: amr_marker_object
    !< AMR marker object.
-   integer(I4P) :: mode=AMR_GRAD !< Marker mode.
-   real(R8P)    :: delta_fine    !< Fine cell space step.
-   real(R8P)    :: delta_coarse  !< Coarse cell space step.
-   integer(I4P) :: field=1_I4P   !< Field array containing the marker variable, 1=q, 2=q_aux.
-   integer(I4P) :: ivar=1_I4P    !< Array index of variable used by refinement criterion.
-   real(R8P)    :: tol=0.5_R8P   !< Tolerance.
-   integer(I4P) :: solid=1_I4P   !< Solid number.
+   integer(I4P)              :: mode=AMR_GRAD !< Marker mode.
+   character(:), allocatable :: delta_type    !< Type of delta criterion: 'x','y','z','max' (max=> max(x,y,z)).
+   real(R8P)                 :: delta_fine    !< Fine cell space step.
+   real(R8P)                 :: delta_coarse  !< Coarse cell space step.
+   integer(I4P)              :: field=1_I4P   !< Field array containing the marker variable, 1=q, 2=q_aux.
+   integer(I4P)              :: ivar=1_I4P    !< Array index of variable used by refinement criterion.
+   real(R8P)                 :: tol=0.5_R8P   !< Tolerance.
+   integer(I4P)              :: solid=1_I4P   !< Solid number.
 endtype amr_marker_object
 
 type :: amr_object
@@ -35,16 +44,42 @@ type :: amr_object
    type(mpih_object)                    :: mpih                 !< MPI handler.
    integer(I4P)                         :: iters=5_I4P          !< AMR updates iterations number.
    integer(I4P)                         :: frequency=100_I4P    !< AMR update time step frequency.
-   integer(I4P)                         :: markers_number=1_I4P !< AMR number of markers.
+   integer(I4P)                         :: markers_number=0_I4P !< AMR number of markers.
    type(amr_marker_object), allocatable :: markers(:)           !< AMR array of marker objects.
    contains
       ! public methods
+      procedure, pass(self) :: description    !< Return pretty-printed object description.
       procedure, pass(self) :: initialize     !< Initialize IC.
       procedure, pass(self) :: load_from_file !< Load config from file.
 endtype amr_object
 
 contains
    ! public methods
+   pure function description(self) result(desc)
+   !< Return a pretty-formatted object description.
+   class(amr_object), intent(in) :: self             !< The tree.
+   character(len=:), allocatable :: desc             !< Description.
+   character(len=1), parameter   :: NL=new_line('a') !< New line character.
+   integer(I4P)                  :: m                !< Counter.
+
+   desc =       self%mpih%myrankstr//'amr main data'                                    //NL
+   desc = desc//self%mpih%myrankstr//'  iters:          '//trim(str(self%iters         ))//NL
+   desc = desc//self%mpih%myrankstr//'  frequency:      '//trim(str(self%frequency     ))//NL
+   desc = desc//self%mpih%myrankstr//'  markers number: '//trim(str(self%markers_number))
+   if (self%markers_number>0) then
+   do m=1, self%markers_number
+   desc = desc//NL//self%mpih%myrankstr//'    delta type:      '//trim(    self%markers(m)%delta_type   )
+   desc = desc//NL//self%mpih%myrankstr//'    delta fine:      '//trim(str(self%markers(m)%delta_fine)  )
+   desc = desc//NL//self%mpih%myrankstr//'    delta coarse:    '//trim(str(self%markers(m)%delta_coarse))
+   desc = desc//NL//self%mpih%myrankstr//'    ivar:            '//trim(str(self%markers(m)%ivar        ))
+   desc = desc//NL//self%mpih%myrankstr//'    tol:             '//trim(str(self%markers(m)%tol         ))
+   desc = desc//NL//self%mpih%myrankstr//'    solid:           '//trim(str(self%markers(m)%solid       ))
+   enddo
+   else
+   desc = desc//NL
+   endif
+   endfunction description
+
    subroutine initialize(self, file_parameters)
    !< Initialize the equation.
    class(amr_object), intent(inout) :: self            !< AMR.
@@ -53,6 +88,7 @@ contains
    call self%mpih%initialize(do_mpi_init=.false.)
    call self%mpih%print_message('amr_object%initialize start')
    call self%load_from_file(file_parameters=file_parameters)
+   print '(A)', self%description()
    call self%mpih%print_message('amr_object%initialize finish')
    endsubroutine initialize
 
@@ -63,6 +99,7 @@ contains
    logical,           intent(in), optional :: go_on_fail      !< Go on if load fails.
    logical                                 :: go_on_fail_     !< Go on if load fails.
    character(:), allocatable               :: sname           !< Section name.
+   character(99)                           :: buff_c          !< Character buffer.
    integer(I4P)                            :: i_marker        !< Counter.
    integer(I4P)                            :: error           !< Error status.
 
@@ -79,6 +116,9 @@ contains
       sname = INI_SECTION_NAME//'_marker_'//trim(str(i_marker,.true.))
       call file_parameters%get(section_name=sname, option_name='mode', val=self%markers(i_marker)%mode, error=error)
       if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(mode)')
+      call file_parameters%get(section_name=sname, option_name='delta_type', val=buff_c, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(delta_type)')
+      self%markers(i_marker)%delta_type = trim(adjustl(buff_c))
       call file_parameters%get(section_name=sname, option_name='delta_fine', val=self%markers(i_marker)%delta_fine, error=error)
       if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(delta_fine)')
       call file_parameters%get(section_name=sname, option_name='delta_coarse', val=self%markers(i_marker)%delta_coarse, error=error)

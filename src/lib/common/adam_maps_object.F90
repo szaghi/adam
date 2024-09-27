@@ -505,6 +505,9 @@ contains
             if (neighbor_type /= NODE_BOUNDARY_CONDITION) then
                do n=1, size(neighbor, dim=1)
                   neigh => self%tree%node(code=neighbor(n))
+                  if (.not.associated(neigh)) then
+                     print*, 'cazzo ', n, neighbor
+                  endif
                   if     ((self%mpih%myrank == neigh%myrank).and.(self%mpih%myrank == node_ptr%myrank)) then
                      my_fec_number = my_fec_number + 1
                   elseif ((self%mpih%myrank /= neigh%myrank).and.(self%mpih%myrank == node_ptr%myrank)) then
