@@ -40,3 +40,6 @@
 [submodule "src/third_party/FiNeR"]
 	path = src/third_party/FiNeR
 	url = git@github.com:szaghi/FiNeR.git
+[submodule "src/third_party/FUNDAL"]
+	path = src/third_party/FUNDAL
+	url = git@github.com:szaghi/FUNDAL.git
