@@ -5,11 +5,11 @@ module adam_field_fnl_object
 use adam_common_library
 ! use adam_field_fnl_kernels
 ! use adam_maps_fnl_object
-! use adam_mpih_fnl_object
+use adam_mpih_fnl_object
 ! use adam_memory_fnl_library
+use fundal
 use penf
 use mpi
-! use cudafor
 
 implicit none
 save
@@ -18,7 +18,7 @@ public :: field_fnl_object
 
 type :: field_fnl_object
    !< Field class, FNL backend.
-   ! type(mpih_fnl_object)       :: mpih           !< MPI handler.
+   type(mpih_fnl_object)       :: mpih           !< MPI handler.
    ! type(maps_fnl_object)       :: maps           !< Maps handler.
    type(field_object), pointer :: field=>null()  !< The field.
    real(R8P), allocatable      :: q_t(:,:,:,:,:) !< Transposed cell centered variables on CPU.
@@ -46,15 +46,15 @@ contains
    ! public methods
    subroutine compute_q_gradient(self, b, ivar, q_gpu, gradient)
    !< Compute gradient (module) over q elements.
-   class(field_fnl_object), intent(in)         :: self      !< The field.
-   integer(I4P),            intent(in)         :: b         !< Block index.
-   integer(I4P),            intent(in)         :: ivar      !< Index of q variable.
-   real(R8P),               intent(in), device :: q_gpu(1:,                    &
-                                                        1-self%field%grid%ngc:,&
-                                                        1-self%field%grid%ngc:,&
-                                                        1-self%field%grid%ngc:,&
-                                                        1:) !< Field component to which apply gradient.
-   real(R8P),               intent(out)        :: gradient  !< Maximum gradient of q(ivar).
+   class(field_fnl_object), intent(in)  :: self      !< The field.
+   integer(I4P),            intent(in)  :: b         !< Block index.
+   integer(I4P),            intent(in)  :: ivar      !< Index of q variable.
+   real(R8P),               intent(in)  :: q_gpu(1:,                    &
+                                                 1-self%field%grid%ngc:,&
+                                                 1-self%field%grid%ngc:,&
+                                                 1-self%field%grid%ngc:,&
+                                                 1:) !< Field component to which apply gradient.
+   real(R8P),               intent(out) :: gradient  !< Maximum gradient of q(ivar).
 
    ! call compute_q_gradient_cuf(b=b, ni=self%field%grid%ni, nj=self%field%grid%nj, nk=self%field%grid%nk, ngc=self%field%grid%ngc, &
    !                             dx=self%field%dxyz(1,b), dy=self%field%dxyz(2,b), dz=self%field%dxyz(3,b),     &
@@ -69,8 +69,8 @@ contains
    character(:), allocatable                     :: r        !< My rank stringified.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   ! if (verbose_) call self%mpih%print_message('field_fnl_object%copy_cpu_gpu start')
-   ! r = self%mpih%myrankstr
+   if (verbose_) call self%mpih%print_message('field_fnl_object%copy_cpu_gpu start')
+   r = self%mpih%myrankstr
    ! call self%maps%copy_cpu_gpu
    ! call assign_allocatable_gpu(lhs=self%x_cell_gpu, rhs=self%field%x_cell, transposed=.true., &
    !                             msg=r//'field_fnl_object%copy_cpu_gpu(x_cell_gpu) ', verbose=verbose)
@@ -80,25 +80,25 @@ contains
    !                             msg=r//'field_fnl_object%copy_cpu_gpu(z_cell_gpu) ', verbose=verbose)
    ! call assign_allocatable_gpu(lhs=self%dxyz_gpu, rhs=self%field%dxyz, transposed=.true., &
    !                             msg=r//'field_fnl_object%copy_cpu_gpu(dxyz_gpu) ', verbose=verbose)
-   ! if (verbose_) call self%mpih%print_message('field_fnl_object%copy_cpu_gpu finish')
+   if (verbose_) call self%mpih%print_message('field_fnl_object%copy_cpu_gpu finish')
    endsubroutine copy_cpu_gpu
 
    subroutine copy_transpose_cpu_gpu(self, nv, q_cpu, q_gpu)
    !< Copy transposed data from CPU to GPU.
    !< This routine is called by equation typically passing either q_gpu or q_aux_gpu.
-   class(field_fnl_object), intent(inout)       :: self          !< The equation.
-   integer(I4P),            intent(in)          :: nv            !< Number of varibales.
-   real(R8P),               intent(in)          :: q_cpu(1:,                    &
-                                                         1-self%field%grid%ngc:,&
-                                                         1-self%field%grid%ngc:,&
-                                                         1-self%field%grid%ngc:,&
-                                                         1:)     !< Conservative variables on CPU.
-   real(R8P),               intent(out), device :: q_gpu(1:,                    &
-                                                        1-self%field%grid%ngc:,&
-                                                        1-self%field%grid%ngc:,&
-                                                        1-self%field%grid%ngc:,&
-                                                        1:)      !< Conservative variables on GPU.
-   integer(I4P)                                 :: i, j, k, b, v !< Counter.
+   class(field_fnl_object), intent(inout) :: self          !< The equation.
+   integer(I4P),            intent(in)    :: nv            !< Number of varibales.
+   real(R8P),               intent(in)    :: q_cpu(1:,                    &
+                                                   1-self%field%grid%ngc:,&
+                                                   1-self%field%grid%ngc:,&
+                                                   1-self%field%grid%ngc:,&
+                                                   1:)     !< Conservative variables on CPU.
+   real(R8P),               intent(out)   :: q_gpu(1:,                    &
+                                                  1-self%field%grid%ngc:,&
+                                                  1-self%field%grid%ngc:,&
+                                                  1-self%field%grid%ngc:,&
+                                                  1:)      !< Conservative variables on GPU.
+   integer(I4P)                           :: i, j, k, b, v !< Counter.
 
    associate(blocks_number=>self%field%blocks_number, &
              ni=>self%field%grid%ni,                  &
@@ -124,18 +124,18 @@ contains
    subroutine copy_transpose_gpu_cpu(self, nv, q_gpu, q_cpu)
    !< Copy transposed data from GPU to CPU.
    !< This routine is called by equation typically passing either q_gpu or q_aux_gpu.
-   class(field_fnl_object), intent(inout)      :: self      !< The equation.
-   integer(I4P),            intent(in)         :: nv        !< Number of varibales.
-   real(R8P),               intent(in), device :: q_gpu(1:,                    &
-                                                        1-self%field%grid%ngc:,&
-                                                        1-self%field%grid%ngc:,&
-                                                        1-self%field%grid%ngc:,&
-                                                        1:) !< Conservative variables on GPU.
-   real(R8P),               intent(inout)      :: q_cpu(1:,                    &
-                                                        1-self%field%grid%ngc:,&
-                                                        1-self%field%grid%ngc:,&
-                                                        1-self%field%grid%ngc:,&
-                                                        1:) !< Conservative variables on CPU.
+   class(field_fnl_object), intent(inout) :: self      !< The equation.
+   integer(I4P),            intent(in)    :: nv        !< Number of varibales.
+   real(R8P),               intent(in)    :: q_gpu(1:,                    &
+                                                   1-self%field%grid%ngc:,&
+                                                   1-self%field%grid%ngc:,&
+                                                   1-self%field%grid%ngc:,&
+                                                   1:) !< Conservative variables on GPU.
+   real(R8P),               intent(inout) :: q_cpu(1:,                    &
+                                                   1-self%field%grid%ngc:,&
+                                                   1-self%field%grid%ngc:,&
+                                                   1-self%field%grid%ngc:,&
+                                                   1:) !< Conservative variables on CPU.
 
    associate(blocks_number=>self%field%blocks_number, &
              ni=>self%field%grid%ni,                  &
@@ -144,9 +144,7 @@ contains
              ngc=>self%field%grid%ngc,                &
              q_t_gpu=>self%q_t_gpu)
 
-      ! call self%mpih%check_cuda_error(error_code=-15, msg='field_fnl_object%copy_transpose_gpu_cpu start')
       ! call copy_transpose_gpu_cpu_cuf(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,blocks_number=blocks_number,q_gpu=q_gpu,q_t_gpu=q_t_gpu)
-      ! call self%mpih%check_cuda_error(error_code=-15, msg='field_fnl_object%copy_transpose_gpu_cpu finish')
       ! q_t_gpu has nv_aux variables which can be larger than local nv (i.e., nv or nv_aux)
       ! q_cpu   has local nv variables which is lower than nv_aux
       q_cpu(1:nv,:,:,:,1:blocks_number) = q_t_gpu(1:nv,:,:,:,1:blocks_number)
@@ -161,8 +159,8 @@ contains
    logical,                 intent(in), optional :: verbose !< Flag to activate verbose mode.
    integer(I4P)                                  :: nv_aux_ !< Number of auxiliary variables (local var).
 
-   ! call self%mpih%initialize
-   ! call self%mpih%print_message('field_fnl_object%initialize start')
+   call self%mpih%initialize
+   call self%mpih%print_message('field_fnl_object%initialize start')
    self%field => field
    ! call self%maps%initialize(maps=field%maps)
    ! call alloc_var_gpu(var=self%q_gpu,&
@@ -191,93 +189,89 @@ contains
    !                                 1,field%nb],[2,5]),                           &
    !                    msg=self%mpih%myrankstr//'field_fnl_object%initialize alloc_var_gpu(q_t) ', verbose=verbose)
    call self%copy_cpu_gpu
-   ! call self%mpih%print_message('field_fnl_object%initialize finish')
+   call self%mpih%print_message('field_fnl_object%initialize finish')
    endsubroutine initialize
 
    subroutine update_ghost_local_gpu(self, q_gpu)
    !< Update (local) ghost cells.
-   class(field_fnl_object), intent(in)            :: self      !< The field.
-   real(R8P),               intent(inout), device :: q_gpu(1:,                    &
-                                                           1-self%field%grid%ngc:,&
-                                                           1-self%field%grid%ngc:,&
-                                                           1-self%field%grid%ngc:,&
-                                                           1:) !< Field component to be updated.
-   ! call self%mpih%check_cuda_error(error_code=-15, msg='field_fnl_object%update_ghost_local_gpu start')
+   class(field_fnl_object), intent(in)    :: self      !< The field.
+   real(R8P),               intent(inout) :: q_gpu(1:,                    &
+                                                   1-self%field%grid%ngc:,&
+                                                   1-self%field%grid%ngc:,&
+                                                   1-self%field%grid%ngc:,&
+                                                   1:) !< Field component to be updated.
    ! call update_ghost_local_gpu_cuf(local_map_ghost_cell_gpu=self%maps%local_map_ghost_cell_gpu,ngc=self%field%grid%ngc,q_gpu=q_gpu)
-   ! call self%mpih%check_cuda_error(error_code=-15, msg='field_fnl_object%update_ghost_local_gpu finish')
    endsubroutine update_ghost_local_gpu
 
    subroutine update_ghost_mpi_gpu(self, q_gpu, step)
    !< Update ghost cells within other processes.
-   class(field_fnl_object), intent(inout)         :: self      !< The field.
-   real(R8P),               intent(inout), device :: q_gpu(1:,                    &
-                                                           1-self%field%grid%ngc:,&
-                                                           1-self%field%grid%ngc:,&
-                                                           1-self%field%grid%ngc:,&
-                                                           1:) !< Field component to be updated.
-   integer(I4P),            intent(in), optional  :: step      !< Step to be perfordmed in asyncronous comp.
-   logical                                        :: do_step(3)!< Steps performed in async comp.
-   integer(I4P)                                   :: p                                      !< Counter.
-   integer(I4P)                                   :: ptr_start, ptr_end                     !< Counter.
-   integer(I4P)                                   :: n_recv, n_send                         !< Counter.
+   class(field_fnl_object), intent(inout)        :: self               !< The field.
+   real(R8P),               intent(inout)        :: q_gpu(1:,                    &
+                                                          1-self%field%grid%ngc:,&
+                                                          1-self%field%grid%ngc:,&
+                                                          1-self%field%grid%ngc:,&
+                                                          1:)          !< Field component to be updated.
+   integer(I4P),            intent(in), optional :: step               !< Step to be perfordmed in asyncronous comp.
+   logical                                       :: do_step(3)         !< Steps performed in async comp.
+   integer(I4P)                                  :: p                  !< Counter.
+   integer(I4P)                                  :: ptr_start, ptr_end !< Counter.
+   integer(I4P)                                  :: n_recv, n_send     !< Counter.
 
-   ! call self%mpih%check_cuda_error(error_code=-15, msg='field_fnl_object%update_ghost_mpi_gpu start')
-   associate(procs_number=>self%mpih%procs_number,                                 &
-             error=>self%mpih%error,                                               &
-             req_send_recv=>self%mpih%req_send_recv,                               &
-             ! comm_map_send_ptr_ghost=>self%maps%maps%comm_map_send_ptr_ghost,      &
-             ! comm_map_recv_ptr_ghost=>self%maps%maps%comm_map_recv_ptr_ghost,      &
-             ! recv_buffer_ghost_gpu=>self%maps%recv_buffer_ghost_gpu,               &
-             ! send_buffer_ghost_gpu=>self%maps%send_buffer_ghost_gpu,               &
-             ngc=>self%field%grid%ngc, q_gpu=>q_gpu)
-   do_step = .true.
-   if (present(step)) then
-      do_step = .false.
-      do_step(step) = .true.
-   endif
+   !associate(procs_number=>self%mpih%procs_number,                                 &
+   !          error=>self%mpih%error,                                               &
+   !          req_send_recv=>self%mpih%req_send_recv,                               &
+   !          comm_map_send_ptr_ghost=>self%maps%maps%comm_map_send_ptr_ghost,      &
+   !          comm_map_recv_ptr_ghost=>self%maps%maps%comm_map_recv_ptr_ghost,      &
+   !          recv_buffer_ghost_gpu=>self%maps%recv_buffer_ghost_gpu,               &
+   !          send_buffer_ghost_gpu=>self%maps%send_buffer_ghost_gpu,               &
+   !          ngc=>self%field%grid%ngc, q_gpu=>q_gpu)
+   !do_step = .true.
+   !if (present(step)) then
+   !   do_step = .false.
+   !   do_step(step) = .true.
+   !endif
 
-   if (do_step(1)) then
-      req_send_recv = MPI_REQUEST_NULL
-      ! call populate_send_buffer_ghost_gpu_cuf(ngc=ngc,                                                             &
-      !                                         comm_map_send_ghost_cell_gpu=self%maps%comm_map_send_ghost_cell_gpu, &
-      !                                         send_buffer_ghost_gpu=self%maps%send_buffer_ghost_gpu,               &
-      !                                         q_gpu=q_gpu)
-   endif
+   !if (do_step(1)) then
+   !   req_send_recv = MPI_REQUEST_NULL
+   !   call populate_send_buffer_ghost_gpu_cuf(ngc=ngc,                                                             &
+   !                                           comm_map_send_ghost_cell_gpu=self%maps%comm_map_send_ghost_cell_gpu, &
+   !                                           send_buffer_ghost_gpu=self%maps%send_buffer_ghost_gpu,               &
+   !                                           q_gpu=q_gpu)
+   !endif
 
-   if (do_step(2)) then
-      ! receive
-      do p=0, procs_number - 1_I4P
-         ptr_start = comm_map_recv_ptr_ghost(p) + 1
-         ptr_end   = comm_map_recv_ptr_ghost(p+1)
-         n_recv    = ptr_end - ptr_start + 1
-         if (n_recv > 0) then
-            call MPI_IRECV(recv_buffer_ghost_gpu(ptr_start), n_recv, MPI_REAL8, p, 100, MPI_COMM_WORLD, &
-                           req_send_recv(p), error)
-         endif
-      enddo
-      ! send
-      do p=0, procs_number - 1_I4P
-         ptr_start = comm_map_send_ptr_ghost(p) + 1
-         ptr_end   = comm_map_send_ptr_ghost(p+1)
-         n_send    = ptr_end - ptr_start + 1
-         if (n_send > 0) then
-            call MPI_ISEND(send_buffer_ghost_gpu(ptr_start), n_send, MPI_REAL8, p, 100, MPI_COMM_WORLD, &
-                           req_send_recv(p+procs_number), error)
-         endif
-      enddo
-   endif
+   !if (do_step(2)) then
+   !   ! receive
+   !   do p=0, procs_number - 1_I4P
+   !      ptr_start = comm_map_recv_ptr_ghost(p) + 1
+   !      ptr_end   = comm_map_recv_ptr_ghost(p+1)
+   !      n_recv    = ptr_end - ptr_start + 1
+   !      if (n_recv > 0) then
+   !         call MPI_IRECV(recv_buffer_ghost_gpu(ptr_start), n_recv, MPI_REAL8, p, 100, MPI_COMM_WORLD, &
+   !                        req_send_recv(p), error)
+   !      endif
+   !   enddo
+   !   ! send
+   !   do p=0, procs_number - 1_I4P
+   !      ptr_start = comm_map_send_ptr_ghost(p) + 1
+   !      ptr_end   = comm_map_send_ptr_ghost(p+1)
+   !      n_send    = ptr_end - ptr_start + 1
+   !      if (n_send > 0) then
+   !         call MPI_ISEND(send_buffer_ghost_gpu(ptr_start), n_send, MPI_REAL8, p, 100, MPI_COMM_WORLD, &
+   !                        req_send_recv(p+procs_number), error)
+   !      endif
+   !   enddo
+   !endif
 
-   if (do_step(3)) then
-      call MPI_WAITALL(procs_number * 2, req_send_recv, MPI_STATUSES_IGNORE, error)
-      call MPI_Barrier(MPI_COMM_WORLD, error)
-      !RIMETTERE SENZA
-      ! call receive_recv_buffer_ghost_gpu_cuf(ngc=ngc,                                                             &
-      !                                        comm_map_recv_ghost_cell_gpu=self%maps%comm_map_recv_ghost_cell_gpu, &
-      !                                        recv_buffer_ghost_gpu=self%maps%recv_buffer_ghost_gpu,               &
-      !                                        q_gpu=q_gpu)
-   endif
-   call MPI_Barrier(MPI_COMM_WORLD, error)
-   endassociate
-   ! call self%mpih%check_cuda_error(error_code=-15, msg='field_fnl_object%update_ghost_mpi_gpu finish')
+   !if (do_step(3)) then
+   !   call MPI_WAITALL(procs_number * 2, req_send_recv, MPI_STATUSES_IGNORE, error)
+   !   call MPI_Barrier(MPI_COMM_WORLD, error)
+   !   !RIMETTERE SENZA
+   !   call receive_recv_buffer_ghost_gpu_cuf(ngc=ngc,                                                             &
+   !                                          comm_map_recv_ghost_cell_gpu=self%maps%comm_map_recv_ghost_cell_gpu, &
+   !                                          recv_buffer_ghost_gpu=self%maps%recv_buffer_ghost_gpu,               &
+   !                                          q_gpu=q_gpu)
+   !endif
+   !call MPI_Barrier(MPI_COMM_WORLD, error)
+   !endassociate
    endsubroutine update_ghost_mpi_gpu
 endmodule adam_field_fnl_object

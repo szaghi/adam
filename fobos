@@ -2,6 +2,7 @@
 modes = ascot-nvf-mpi-cuda
         adam-com-lib-gnu
         adam-com-lib-gnu-debug
+        nasto-fnl-mpi
         nasto-nvf-mpi-cuda
         nasto-nvf-mpi-cuda-debug
         nasto-nvf-mpi-cuda-leo
@@ -20,6 +21,9 @@ modes = ascot-nvf-mpi-cuda
 
 
 [common-variables]
+$HDF5_nvf_24_7      = /opt/HDF5/bin/1.14.5/nvf/24.7
+$ZLIB_nvf_24_7      = /opt/zlib/bin/1.3.1/nvf/24.7/lib/libz.a
+$SZIP_nvf_24_7      = /opt/szip/bin/2.1.1/nvf/24.7/lib/libsz.a
 $HDF5_cuda_22_3     = /opt/HDF5/bin/1.12.1/openmpi/3.1.5/nvidia/22.3
 $HDF5_cuda_20_7     = /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7
 $HDF5_gnu           = /opt/HDF5/bin/1.12.2/openmpi/4.1.4/gnu/11.2.0
@@ -81,6 +85,26 @@ libs     = $HDF5_gnu/lib/libhdf5hl_fortran.a
            -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/11 /usr/lib/gcc/x86_64-linux-gnu/11/libstdc++.so
            $ZLIB_gnu
            $SZIP_gnu
+           $GETMEMORY
+           $CGAL
+
+[nasto-fnl-mpi]
+help     = Build NASTO NVF app with FNL-MPI on SZ workstation
+template = template-base
+target   = adam_nasto_fnl.F90
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF
+compiler = nvfortran
+cflags   = -cpp -c -acc -gpu=cc89 -fast -Minfo=all
+lflags   = -acc -gpu=cc89 -fast -Minfo=all
+lib_dir  = $HDF5_nvf_24_7/lib
+include  = $HDF5_nvf_24_7/include
+libs     = $HDF5_nvf_24_7/lib/libhdf5hl_fortran.a
+           $HDF5_nvf_24_7/lib/libhdf5_hl.a
+           $HDF5_nvf_24_7/lib/libhdf5_fortran.a
+           $HDF5_nvf_24_7/lib/libhdf5.a
+           -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/11 /usr/lib/gcc/x86_64-linux-gnu/11/libstdc++.so
+           $ZLIB_nvf_24_7
+           $SZIP_nvf_24_7
            $GETMEMORY
            $CGAL
 
@@ -439,6 +463,8 @@ exclude_dirs = src/lib_experimental/
                FOSSIL/src/third_party/
                FoXy/src/tests/
                FoXy/src/third_party/
+               FUNDAL/src/tests/
+               FUNDAL/src/third_party/
                MORTIF/src/tests/
                MORTIF/src/third_party/
                PENF/src/tests/
