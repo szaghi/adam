@@ -5,6 +5,8 @@ module adam_nasto_fnl_object
 use adam_common_library
 use adam_nasto_common_library
 use adam_field_fnl_object
+use adam_ib_fnl_object
+use adam_ib_fnl_kernels
 use adam_mpih_fnl_object
 use fundal
 use penf
@@ -19,7 +21,7 @@ type, extends(nasto_common_object) :: nasto_fnl_object
    ! ADAM library objects
    type(mpih_fnl_object)  :: mpih_gpu  !< MPI handler, FNL backend.
    type(field_fnl_object) :: field_gpu !< The field, FNL backend.
-   ! type(ib_fnl_object)    :: ib_gpu    !< IB handler, FNL backend.
+   type(ib_fnl_object)    :: ib_gpu    !< IB handler, FNL backend.
    ! type(rk_fnl_object)    :: rk_gpu    !< RK integrator, FNL backend.
    ! type(weno_fnl_object)  :: weno_gpu  !< WENO reconstructor, FNL backend.
    ! device data
@@ -124,8 +126,8 @@ contains
    endif
    if (present(copy_phi)) then
       if (copy_phi) then
-         ! if (self%ib%solids_number>0) call self%field_gpu%copy_transpose_gpu_cpu(nv=self%ib%solids_number+1, &
-         !                                                                         q_gpu=self%ib_gpu%phi_gpu, q_cpu=self%ib%phi)
+         if (self%ib%solids_number>0) call self%field_gpu%copy_transpose_gpu_cpu(nv=self%ib%solids_number+1, &
+                                                                                 q_gpu=self%ib_gpu%phi_gpu, q_cpu=self%ib%phi)
       endif
    endif
    endsubroutine copy_gpu_cpu
@@ -139,7 +141,7 @@ contains
    call self%mpih%print_message('nasto_fnl_object%initialize start')
    call self%initialize_common(filename=filename, memory_avail=real(self%mpih_gpu%dev_memory_avail,R8P))
    call self%field_gpu%initialize(field=self%adam%field, nv_aux=self%nv_aux, verbose=.false.)
-   ! call self%ib_gpu%initialize(ib=self%ib, field_gpu=self%field_gpu)
+   call self%ib_gpu%initialize(ib=self%ib, field_gpu=self%field_gpu)
    ! call self%rk_gpu%initialize(rk=self%rk, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk, nv=self%nv)
    ! call self%weno_gpu%initialize(weno=self%weno)
    call self%allocate_gpu(q_gpu=self%field_gpu%q_gpu)
@@ -342,8 +344,8 @@ contains
 
    if (self%ib%solids_number>0) then
       call self%mpih%print_message('move IB distance start')
-      ! call move_phi_cuf(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
-      !                   velocity=velocity, phi_gpu=self%ib_gpu%phi_gpu, dphi_gpu=self%dq_gpu)
+      call move_phi_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
+                        velocity=velocity, phi_gpu=self%ib_gpu%phi_gpu, dphi_gpu=self%dq_gpu)
       call self%mpih%print_message('move IB distance finish')
    endif
    endsubroutine move_phi
@@ -377,10 +379,10 @@ contains
          call self%update_ghost(q_gpu=q_gpu)
          do i_eikonal=1, self%ib%n_eikonal
             call self%mpih_gpu%barrier
-            ! call self%ib_gpu%evolve_eikonal(dq_gpu=dq_gpu, q_gpu=q_gpu)
+            call self%ib_gpu%evolve_eikonal(dq_gpu=dq_gpu, q_gpu=q_gpu)
             call self%update_ghost(q_gpu=q_gpu)
          enddo
-         ! call self%ib_gpu%invert_eikonal(q_gpu=q_gpu)
+         call self%ib_gpu%invert_eikonal(q_gpu=q_gpu)
          call self%mpih_gpu%barrier
       endif
    endif
