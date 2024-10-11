@@ -3,7 +3,7 @@ module adam_field_fnl_object
 !< ADAM, field class definition, FNL backend.
 
 use adam_common_library
-! use adam_field_fnl_kernels
+use adam_field_fnl_kernels
 use adam_maps_fnl_object
 use adam_mpih_fnl_object
 use fundal
@@ -55,9 +55,9 @@ contains
                                                  1:) !< Field component to which apply gradient.
    real(R8P),               intent(out) :: gradient  !< Maximum gradient of q(ivar).
 
-   ! call compute_q_gradient_cuf(b=b, ni=self%field%grid%ni, nj=self%field%grid%nj, nk=self%field%grid%nk, ngc=self%field%grid%ngc, &
-   !                             dx=self%field%dxyz(1,b), dy=self%field%dxyz(2,b), dz=self%field%dxyz(3,b),     &
-   !                             q_gpu=q_gpu, ivar=ivar, gradient=gradient)
+   call compute_q_gradient_dev(b=b, ni=self%field%grid%ni, nj=self%field%grid%nj, nk=self%field%grid%nk, ngc=self%field%grid%ngc, &
+                               dx=self%field%dxyz(1,b), dy=self%field%dxyz(2,b), dz=self%field%dxyz(3,b),     &
+                               q_gpu=q_gpu, ivar=ivar, gradient=gradient)
    endsubroutine compute_q_gradient
 
    subroutine copy_cpu_gpu(self, verbose)
@@ -116,7 +116,7 @@ contains
             enddo
          enddo
       enddo
-      q_gpu = q_t
+      call dev_memcpy_to_device(dst=q_gpu, src=q_t)
    endassociate
    endsubroutine copy_transpose_cpu_gpu
 
@@ -142,11 +142,10 @@ contains
              nk=>self%field%grid%nk,                  &
              ngc=>self%field%grid%ngc,                &
              q_t_gpu=>self%q_t_gpu)
-
-      ! call copy_transpose_gpu_cpu_cuf(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,blocks_number=blocks_number,q_gpu=q_gpu,q_t_gpu=q_t_gpu)
+      call copy_transpose_gpu_cpu_dev(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,blocks_number=blocks_number,q_gpu=q_gpu,q_t_gpu=q_t_gpu)
       ! q_t_gpu has nv_aux variables which can be larger than local nv (i.e., nv or nv_aux)
       ! q_cpu   has local nv variables which is lower than nv_aux
-      q_cpu(1:nv,:,:,:,1:blocks_number) = q_t_gpu(1:nv,:,:,:,1:blocks_number)
+      call dev_memcpy_from_device(dst=q_cpu(1:nv,:,:,:,1:blocks_number), src=q_t_gpu(1:nv,:,:,:,1:blocks_number))
    endassociate
    endsubroutine copy_transpose_gpu_cpu
 
@@ -157,36 +156,21 @@ contains
    integer(I4P),            intent(in), optional :: nv_aux  !< Number of auxiliary variables.
    logical,                 intent(in), optional :: verbose !< Flag to activate verbose mode.
    integer(I4P)                                  :: nv_aux_ !< Number of auxiliary variables (local var).
+   integer(I4P)                                  :: ierr    !< Error status.
 
    call self%mpih%initialize
    call self%mpih%print_message('field_fnl_object%initialize start')
    self%field => field
    call self%maps%initialize(maps=field%maps)
-   ! call alloc_var_gpu(var=self%q_gpu,&
-   !                    ulb=reshape([1,field%nb,                                   &
-   !                                 1-field%grid%ngc,field%grid%ni+field%grid%ngc,&
-   !                                 1-field%grid%ngc,field%grid%nj+field%grid%ngc,&
-   !                                 1-field%grid%ngc,field%grid%nk+field%grid%ngc,&
-   !                                 1,field%nv],[2,5]),                           &
-   !                    msg=self%mpih%myrankstr//'field_fnl_object%initialize alloc_var_cpu(q_gpu) ', verbose=verbose)
-   ! call assign_allocatable_gpu(lhs=self%fec_1_6_array_gpu, &
-   !                             rhsa=    FEC_1_6_ARRAY,     &
-   !                             msg=self%mpih%myrankstr//'field_fnl_object%initialize(fec_1_6_array_gpu) ', verbose=verbose)
-   nv_aux_ = self%field%nv ; if (present(nv_aux)) nv_aux_ = max(nv_aux_, nv_aux)
-   ! call alloc_var_cpu(var=self%q_t,                                              &
-   !                    ulb=reshape([1,field%nb,                                   &
-   !                                 1-field%grid%ngc,field%grid%ni+field%grid%ngc,&
-   !                                 1-field%grid%ngc,field%grid%nj+field%grid%ngc,&
-   !                                 1-field%grid%ngc,field%grid%nk+field%grid%ngc,&
-   !                                 1,nv_aux_],[2,5]),                            &
-   !                    msg=self%mpih%myrankstr//'field_fnl_object%initialize alloc_var_cpu(q_t) ', verbose=verbose)
-   ! call alloc_var_gpu(var=self%q_t_gpu,                                          &
-   !                    ulb=reshape([1,nv_aux_,                                    &
-   !                                 1-field%grid%ngc,field%grid%ni+field%grid%ngc,&
-   !                                 1-field%grid%ngc,field%grid%nj+field%grid%ngc,&
-   !                                 1-field%grid%ngc,field%grid%nk+field%grid%ngc,&
-   !                                 1,field%nb],[2,5]),                           &
-   !                    msg=self%mpih%myrankstr//'field_fnl_object%initialize alloc_var_gpu(q_t) ', verbose=verbose)
+   associate(nb=>field%nb, ngc=>field%grid%ngc, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, nv=>field%nv)
+      call dev_alloc(fptr_dev=self%q_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], ierr=ierr)
+      call dev_assign_to_device(dst=self%fec_1_6_array_gpu, src=FEC_1_6_ARRAY)
+      nv_aux_ = self%field%nv ; if (present(nv_aux)) nv_aux_ = max(nv_aux_, nv_aux)
+      call allocate_variable(var=self%q_t,                                                               &
+                             ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv_aux_],[2,5]), &
+                             msg=self%mpih%myrankstr//'field_fnl_object%initialize alloc_var_cpu(q_t) ', verbose=verbose)
+      call dev_alloc(fptr_dev=self%q_t_gpu, ubounds=[nv_aux_,ni+ngc,nj+ngc,nk+ngc,nb], lbounds=[1,1-ngc,1-ngc,1-ngc,1], ierr=ierr)
+   endassociate
    call self%copy_cpu_gpu
    call self%mpih%print_message('field_fnl_object%initialize finish')
    endsubroutine initialize
@@ -199,7 +183,7 @@ contains
                                                    1-self%field%grid%ngc:,&
                                                    1-self%field%grid%ngc:,&
                                                    1:) !< Field component to be updated.
-   ! call update_ghost_local_gpu_cuf(local_map_ghost_cell_gpu=self%maps%local_map_ghost_cell_gpu,ngc=self%field%grid%ngc,q_gpu=q_gpu)
+   call update_ghost_local_gpu_dev(local_map_ghost_cell_gpu=self%maps%local_map_ghost_cell_gpu,ngc=self%field%grid%ngc,q_gpu=q_gpu)
    endsubroutine update_ghost_local_gpu
 
    subroutine update_ghost_mpi_gpu(self, q_gpu, step)
@@ -232,10 +216,10 @@ contains
 
    if (do_step(1)) then
       req_send_recv = MPI_REQUEST_NULL
-      ! call populate_send_buffer_ghost_gpu_cuf(ngc=ngc,                                                             &
-      !                                         comm_map_send_ghost_cell_gpu=self%maps%comm_map_send_ghost_cell_gpu, &
-      !                                         send_buffer_ghost_gpu=self%maps%send_buffer_ghost_gpu,               &
-      !                                         q_gpu=q_gpu)
+      call populate_send_buffer_ghost_gpu_dev(ngc=ngc,                                                             &
+                                              comm_map_send_ghost_cell_gpu=self%maps%comm_map_send_ghost_cell_gpu, &
+                                              send_buffer_ghost_gpu=self%maps%send_buffer_ghost_gpu,               &
+                                              q_gpu=q_gpu)
    endif
 
    if (do_step(2)) then
@@ -265,10 +249,10 @@ contains
       call MPI_WAITALL(procs_number * 2, req_send_recv, MPI_STATUSES_IGNORE, error)
       call MPI_Barrier(MPI_COMM_WORLD, error)
       !RIMETTERE SENZA
-      ! call receive_recv_buffer_ghost_gpu_cuf(ngc=ngc,                                                             &
-      !                                        comm_map_recv_ghost_cell_gpu=self%maps%comm_map_recv_ghost_cell_gpu, &
-      !                                        recv_buffer_ghost_gpu=self%maps%recv_buffer_ghost_gpu,               &
-      !                                        q_gpu=q_gpu)
+      call receive_recv_buffer_ghost_gpu_dev(ngc=ngc,                                                             &
+                                             comm_map_recv_ghost_cell_gpu=self%maps%comm_map_recv_ghost_cell_gpu, &
+                                             recv_buffer_ghost_gpu=self%maps%recv_buffer_ghost_gpu,               &
+                                             q_gpu=q_gpu)
    endif
    call MPI_Barrier(MPI_COMM_WORLD, error)
    endassociate
