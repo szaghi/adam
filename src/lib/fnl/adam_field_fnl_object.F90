@@ -71,6 +71,10 @@ contains
    if (verbose_) call self%mpih%print_message('field_fnl_object%copy_cpu_gpu start')
    r = self%mpih%myrankstr
    call self%maps%copy_cpu_gpu
+   call dev_assign_to_device(src=self%field%x_cell, dst=self%x_cell_gpu, transposed=.true.)
+   call dev_assign_to_device(src=self%field%y_cell, dst=self%y_cell_gpu, transposed=.true.)
+   call dev_assign_to_device(src=self%field%z_cell, dst=self%z_cell_gpu, transposed=.true.)
+   call dev_assign_to_device(src=self%field%dxyz,   dst=self%dxyz_gpu,   transposed=.true.)
    ! call assign_allocatable_gpu(lhs=self%x_cell_gpu, rhs=self%field%x_cell, transposed=.true., &
    !                             msg=r//'field_fnl_object%copy_cpu_gpu(x_cell_gpu) ', verbose=verbose)
    ! call assign_allocatable_gpu(lhs=self%y_cell_gpu, rhs=self%field%y_cell, transposed=.true., &
