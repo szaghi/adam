@@ -19,7 +19,7 @@ type :: ib_fnl_object
    ! ADAM library objects
    type(ib_object), pointer :: ib=>null() !< IB common handler.
    ! ADAM FNL library objects
-   type(mpih_fnl_object) :: mpih !< MPI handler.
+   type(mpih_fnl_object)           :: mpih              !< MPI handler.
    type(field_fnl_object), pointer :: field_gpu=>null() !< Field FNL handler.
    ! device data
    real(R8P), pointer :: q_bcs_vars_gpu(:,:) !< Variables array for immersed boundary on GPU.

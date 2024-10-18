@@ -2,12 +2,8 @@
 module adam_nasto_fnl_object
 !< ADAM, Navier-Stokes equations system class definition, GPU (FNL) backend.
 
-use adam_common_library
 use adam_nasto_common_library
-use adam_field_fnl_object
-use adam_ib_fnl_object
-use adam_ib_fnl_kernels
-use adam_mpih_fnl_object
+use adam_fnl_library
 use fundal
 use penf
 use mpi
@@ -22,8 +18,8 @@ type, extends(nasto_common_object) :: nasto_fnl_object
    type(mpih_fnl_object)  :: mpih_gpu  !< MPI handler, FNL backend.
    type(field_fnl_object) :: field_gpu !< The field, FNL backend.
    type(ib_fnl_object)    :: ib_gpu    !< IB handler, FNL backend.
-   ! type(rk_fnl_object)    :: rk_gpu    !< RK integrator, FNL backend.
-   ! type(weno_fnl_object)  :: weno_gpu  !< WENO reconstructor, FNL backend.
+   type(rk_fnl_object)    :: rk_gpu    !< RK integrator, FNL backend.
+   type(weno_fnl_object)  :: weno_gpu  !< WENO reconstructor, FNL backend.
    ! device data
    real(R8P), pointer     :: q_gpu(:,:,:,:,:)     !< Field cell centered variables.
    real(R8P), allocatable :: q_aux_gpu(:,:,:,:,:) !< Auxiliary cell centered variables.
