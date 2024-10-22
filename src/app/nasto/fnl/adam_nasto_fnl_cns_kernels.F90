@@ -1,9 +1,11 @@
-!< ADAM, NASTO NVF Compressible-Navier-Stokes fluidyanmics application kernels.
-module adam_nasto_nvf_cns_kernels
-!< ADAM, NASTO NVF Compressible-Navier-Stokes fluidyanmics application kernels.
+!< ADAM, NASTO FNL Compressible-Navier-Stokes fluidyanmics application kernels.
+
+#include "fundal.H"
+
+module adam_nasto_fnl_cns_kernels
+!< ADAM, NASTO FNL Compressible-Navier-Stokes fluidyanmics application kernels.
 
 use penf, only : I4P, R8P
-use cudafor
 
 implicit none
 private
@@ -11,16 +13,18 @@ public :: compute_conservatives_device
 public :: compute_conservative_fluxes_device
 public :: compute_max_eigenvalues_device
 public :: compute_eigenvectors_device
-public :: compute_q_aux_cuf
+public :: compute_q_aux_dev
 
 contains
    ! public procedures
-   attributes(device) subroutine compute_conservatives_device(b,i,j,k,ngc,q_aux_gpu,q)
+   subroutine compute_conservatives_device(b,i,j,k,ngc,q_aux_gpu,q)
    !< Compute convervative variables from auxiliary ones.
-   integer(I4P), intent(in),    value  :: b, i, j, k                            !< Cell indexes.
-   integer(I4P), intent(in),    value  :: ngc                                   !< Ghost cells number.
-   real(R8P),    intent(in),    device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
-   real(R8P),    intent(inout), device :: q(1:)                                 !< Conservative varibales.
+   integer(I4P), intent(in)    :: b, i, j, k                            !< Cell indexes.
+   integer(I4P), intent(in)    :: ngc                                   !< Ghost cells number.
+   real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(inout) :: q(1:)                                 !< Conservative varibales.
+   !$acc routine(compute_conservatives_device)
+   !$omp declare target(compute_conservatives_device)
 
    q(1) =      q_aux_gpu(b,i,j,k,1)
    q(2) = q(1)*q_aux_gpu(b,i,j,k,2)
@@ -29,13 +33,15 @@ contains
    q(5) = q(1)*q_aux_gpu(b,i,j,k,8) - q_aux_gpu(b,i,j,k,7)
    endsubroutine compute_conservatives_device
 
-   attributes(device) subroutine compute_conservative_fluxes_device(sir,b,i,j,k,ngc,q_aux_gpu,f)
+   subroutine compute_conservative_fluxes_device(sir,b,i,j,k,ngc,q_aux_gpu,f)
    !< Compute convervative fluxes from auxiliary variables.
-   real(R8P),    intent(in),    device :: sir(3)                                !< Directional (1=x,2=y,3=z) increment.
-   integer(I4P), intent(in),    value  :: b, i, j, k                            !< Cell indexes.
-   integer(I4P), intent(in),    value  :: ngc                                   !< Ghost cells number.
-   real(R8P),    intent(in),    device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
-   real(R8P),    intent(inout), device :: f(1:)                                 !< Conservative fluxes.
+   real(R8P),    intent(in)    :: sir(3)                                !< Directional (1=x,2=y,3=z) increment.
+   integer(I4P), intent(in)    :: b, i, j, k                            !< Cell indexes.
+   integer(I4P), intent(in)    :: ngc                                   !< Ghost cells number.
+   real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(inout) :: f(1:)                                 !< Conservative fluxes.
+   !$acc routine(compute_conservative_fluxes_device)
+   !$omp declare target(compute_conservative_fluxes_device)
 
    f(1) = q_aux_gpu(b,i,j,k,1)*q_aux_gpu(b,i,j,k,2)*sir(1) + &
           q_aux_gpu(b,i,j,k,1)*q_aux_gpu(b,i,j,k,3)*sir(2) + &
@@ -46,19 +52,21 @@ contains
    f(5) = f(1)*q_aux_gpu(b,i,j,k,8)
    endsubroutine compute_conservative_fluxes_device
 
-   attributes(device) subroutine compute_max_eigenvalues_device(si,sir,weno_s,b,i,j,k,ngc,nv,q_aux_gpu,evmax)
+   subroutine compute_max_eigenvalues_device(si,sir,weno_s,b,i,j,k,ngc,nv,q_aux_gpu,evmax)
    ! Compute maximum eigenvalues in the big stencil.
-   integer(I4P), intent(in),    device :: si(3)                                 !< Stencil increment.
-   real(R8P),    intent(in),    device :: sir(3)                                !< Stencil increment, real cast.
-   integer(I4P), intent(in),    value  :: weno_s                                !< Weno stencils number/dimension.
-   integer(I4P), intent(in),    value  :: b, i, j, k                            !< Cell indexes.
-   integer(I4P), intent(in),    value  :: ngc                                   !< Ghost cells number.
-   integer(I4P), intent(in),    value  :: nv                                    !< Number of conservative varibales.
-   real(R8P),    intent(in),    device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
-   real(R8P),    intent(inout), device :: evmax(1:)                             !< Maximum eigenvalues in the big stencil.
-   real(R8P)                           :: uu, c                                 !< Speeds.
-   real(R8P),                   device :: ev(5)                                 !< Signals speeds.
-   integer(I4P)                        :: s, is, js, ks, v                      !< Counter.
+   integer(I4P), intent(in)    :: si(3)                                 !< Stencil increment.
+   real(R8P),    intent(in)    :: sir(3)                                !< Stencil increment, real cast.
+   integer(I4P), intent(in)    :: weno_s                                !< Weno stencils number/dimension.
+   integer(I4P), intent(in)    :: b, i, j, k                            !< Cell indexes.
+   integer(I4P), intent(in)    :: ngc                                   !< Ghost cells number.
+   integer(I4P), intent(in)    :: nv                                    !< Number of conservative varibales.
+   real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(inout) :: evmax(1:)                             !< Maximum eigenvalues in the big stencil.
+   real(R8P)                   :: uu, c                                 !< Speeds.
+   real(R8P)                   :: ev(5)                                 !< Signals speeds.
+   integer(I4P)                :: s, is, js, ks, v                      !< Counter.
+   !$acc routine(compute_max_eigenvalues_device)
+   !$omp declare target(compute_max_eigenvalues_device)
 
    evmax = -1._R8P
    do s=1, 2*weno_s
@@ -72,18 +80,20 @@ contains
    enddo
    endsubroutine compute_max_eigenvalues_device
 
-   attributes(device) subroutine compute_eigenvectors_device(si,sir,b,i,j,k,ngc,nv,g,q_aux_gpu,el,er)
+   subroutine compute_eigenvectors_device(si,sir,b,i,j,k,ngc,nv,g,q_aux_gpu,el,er)
    ! Compute eigenvectors centered in inteface i,j,k/ip,jp,kp.
-   integer(I4P), intent(in),    device :: si(3)                                 !< Stencil increment.
-   real(R8P),    intent(in),    device :: sir(3)                                !< Stencil increment, real cast.
-   integer(I4P), intent(in),    value  :: b, i, j, k                            !< Cell indexes.
-   integer(I4P), intent(in),    value  :: ngc                                   !< Ghost cells number.
-   integer(I4P), intent(in),    value  :: nv                                    !< Number of conservative varibales.
-   real(R8P),    intent(in),    value  :: g                                     !< Specific heats ratio.
-   real(R8P),    intent(in),    device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
-   real(R8P),    intent(inout), device :: el(1:5,1:5), er(1:5,1:5)              !< Left and right eigenvectors.
-   real(R8P)                           :: uu, vv, ww, h, qq, c, ci, b1, b2      !< Roe average states.
-   real(R8P)                           :: uvw, uvw_r1, uvw_r2                   !< Velocity rotation accordingly dir.
+   integer(I4P), intent(in)    :: si(3)                                 !< Stencil increment.
+   real(R8P),    intent(in)    :: sir(3)                                !< Stencil increment, real cast.
+   integer(I4P), intent(in)    :: b, i, j, k                            !< Cell indexes.
+   integer(I4P), intent(in)    :: ngc                                   !< Ghost cells number.
+   integer(I4P), intent(in)    :: nv                                    !< Number of conservative varibales.
+   real(R8P),    intent(in)    :: g                                     !< Specific heats ratio.
+   real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(inout) :: el(1:5,1:5), er(1:5,1:5)              !< Left and right eigenvectors.
+   real(R8P)                   :: uu, vv, ww, h, qq, c, ci, b1, b2      !< Roe average states.
+   real(R8P)                   :: uvw, uvw_r1, uvw_r2                   !< Velocity rotation accordingly dir.
+   !$acc routine(compute_eigenvectors_device)
+   !$omp declare target(compute_eigenvectors_device)
 
    call compute_roe_average_device(q_aux_gpu=q_aux_gpu, g=g, ngc=ngc, b=b, i=i, j=j, k=k, ip=i+si(1), jp=j+si(2), kp=k+si(3), &
                                    uu=uu, vv=vv, ww=ww, h=h, qq=qq, c=c, ci=ci, b1=b1, b2=b2)
@@ -105,23 +115,23 @@ contains
    el(5,1)= 0.5_R8P*b2               ;el(5,2)=-b2       ;el(5,3)= 0.5_R8P*b2               ;el(5,4)= 0._R8P;el(5,5)= 0._R8P
    endsubroutine compute_eigenvectors_device
 
-   subroutine compute_q_aux_cuf(ni, nj, nk, ngc, blocks_number, R, cv, g, q_gpu, q_aux_gpu)
+   subroutine compute_q_aux_dev(ni, nj, nk, ngc, blocks_number, R, cv, g, q_gpu, q_aux_gpu)
    !< Compute auxiliary variables.
-   integer(I4P), intent(in)          :: ni                                    !< Grid cells number in I direction.
-   integer(I4P), intent(in)          :: nj                                    !< Grid cells number in J direction.
-   integer(I4P), intent(in)          :: nk                                    !< Grid cells number in K direction.
-   integer(I4P), intent(in)          :: ngc                                   !< Ghost cells number.
-   integer(I4P), intent(in)          :: blocks_number                         !< Number of blocks.
-   real(R8P),    intent(in)          :: R                                     !< Fluid constant, specific heats difference.
-   real(R8P),    intent(in)          :: cv                                    !< Specific heat at constant volume.
-   real(R8P),    intent(in)          :: g                                     !< Specific heats ratio.
-   real(R8P),    intent(in),  device ::     q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
-   real(R8P),    intent(out), device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
-   integer(I4P)                      :: b, i, j, k, s                         !< Counter.
-   real(R8P)                         :: rho, uuu, vvv, www, rhe, tem          !< State variables.
-   integer(I4P)                      :: iercuda                               !< Error trapping flag for CUDAFortran.
+   integer(I4P), intent(in)  :: ni                                    !< Grid cells number in I direction.
+   integer(I4P), intent(in)  :: nj                                    !< Grid cells number in J direction.
+   integer(I4P), intent(in)  :: nk                                    !< Grid cells number in K direction.
+   integer(I4P), intent(in)  :: ngc                                   !< Ghost cells number.
+   integer(I4P), intent(in)  :: blocks_number                         !< Number of blocks.
+   real(R8P),    intent(in)  :: R                                     !< Fluid constant, specific heats difference.
+   real(R8P),    intent(in)  :: cv                                    !< Specific heat at constant volume.
+   real(R8P),    intent(in)  :: g                                     !< Specific heats ratio.
+   real(R8P),    intent(in)  ::     q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+   real(R8P),    intent(out) :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   integer(I4P)              :: b, i, j, k, s                         !< Counter.
+   real(R8P)                 :: rho, uuu, vvv, www, rhe, tem          !< State variables.
 
-   !$cuf kernel do(4) <<<*,*>>>
+   !$acc parallel loop independent DEVICEVAR(q_gpu, q_aux_gpu)
+   !$omp OMPLOOP DEVICEVAR(q_gpu, q_aux_gpu)
    do k=1-ngc, nk+ngc
       do j=1-ngc, nj+ngc
          do i=1-ngc, ni+ngc
@@ -146,19 +156,19 @@ contains
          enddo
       enddo
    enddo
-   !@cuf iercuda=cudaDeviceSynchronize()
-   endsubroutine compute_q_aux_cuf
+   endsubroutine compute_q_aux_dev
 
    ! private procedures
-   attributes(device) subroutine compute_roe_average_device(ngc, b, i, j, k, ip, jp, kp, g, q_aux_gpu, &
-                                                            uu, vv, ww, h, qq, c, ci, b1, b2)
+   subroutine compute_roe_average_device(ngc, b, i, j, k, ip, jp, kp, g, q_aux_gpu, uu, vv, ww, h, qq, c, ci, b1, b2)
    !< Compute Roe averaged quantities.
-   integer(I4P), intent(in), value  :: ngc                                   !< Number of ghost cells.
-   integer(I4P), intent(in), value  :: b, i, j, k, ip, jp, kp                !< Left/right cells indexes.
-   real(R8P),    intent(in), value  :: g                                     !< Specific heats ratio.
-   real(R8P),    intent(in), device :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
-   real(R8P),    intent(out)        :: uu, vv, ww, h, qq, c, ci, b1, b2      !< Roe state average variables.
-   real(R8P)                        :: ri, up, vp, wp, hp, r, rp1, cc        !< Local varbiables.
+   integer(I4P), intent(in)  :: ngc                                   !< Number of ghost cells.
+   integer(I4P), intent(in)  :: b, i, j, k, ip, jp, kp                !< Left/right cells indexes.
+   real(R8P),    intent(in)  :: g                                     !< Specific heats ratio.
+   real(R8P),    intent(in)  :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(out) :: uu, vv, ww, h, qq, c, ci, b1, b2      !< Roe state average variables.
+   real(R8P)                 :: ri, up, vp, wp, hp, r, rp1, cc        !< Local varbiables.
+   !$acc routine(compute_roe_average_device)
+   !$omp declare target(compute_roe_average_device)
 
    ! left state (node i)
    ri = 1._R8P/q_aux_gpu(b,i,j,k,1)
@@ -185,4 +195,4 @@ contains
    b2  = (g-1)/cc  ! alias 1/(cp*theta)
    b1  = b2 * qq   ! alias q/(cp*theta)
    endsubroutine compute_roe_average_device
-endmodule adam_nasto_nvf_cns_kernels
+endmodule adam_nasto_fnl_cns_kernels
