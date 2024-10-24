@@ -4,6 +4,45 @@
 
 > This subdirectory contains the ADAM library kernels of FUNDAL-based GPU-offloading backend.
 
+All the FNL classes and libraries as well ass the *common* ones are exposed by the main **entry module** `adam_fnl_library.F90`, i.e.:
+
+```fortran
+! objects (classes)
+public :: field_fnl_object
+public :: ib_fnl_object
+public :: maps_fnl_object
+public :: mpih_fnl_object
+public :: rk_fnl_object
+public :: weno_fnl_object
+
+! device kernels
+public :: compute_q_gradient_dev
+public :: compute_normL2_residuals_dev
+public :: copy_transpose_gpu_cpu_dev
+public :: populate_send_buffer_ghost_gpu_dev
+public :: receive_recv_buffer_ghost_gpu_dev
+public :: update_ghost_local_gpu_dev
+public :: compute_eikonal_dq_phi_dev
+public :: compute_phi_all_solids_dev
+public :: compute_phi_analytical_sphere_dev
+public :: evolve_eikonal_q_phi_dev
+public :: invert_eikonal_q_phi_dev
+public :: move_phi_dev
+public :: reduce_cell_order_phi_dev
+public :: rk_assign_stage_dev
+public :: rk_compute_stage_dev
+public :: rk_compute_stage_ls_dev
+public :: rk_initialize_stages_dev
+public :: rk_update_q_dev
+public :: weno_reconstruct_upwind_dev
+
+! global parameters
+public :: S_max
+public :: S_max_m1
+```
+
+The procedures with `_dev` suffix contain device calculations either by means of device-parallel loops or by device-offloading the entire procedure (pseudo kernel).
+
 The main documentation of these sources is contained in the following sections:
 
 | [Copyrights](#copyrights) | [API Documentation](#api-documentation) |
@@ -27,7 +66,17 @@ Go to [Top](#top)
 
 Currently, the following sources compose the subdirectory:
 
-+ `adam_field_fnl_object.F90` is the **field** class for FNL acceleration, see [field FNL object API](https://szaghi.github.io/adam/type/field_fnl_object.html) for more details;
++ `adam_field_fnl_kernels.F90` is the **field kernels** library for FNL acceleration, see [field FNL kernels API](https://szaghi.github.io/adam/module/adam_field_fnl_kernels.html) for more details;
++ `adam_field_fnl_object.F90` is the **field** class for FNL acceleration, see [field FNL object API](https://szaghi.github.io/adam/type/adam_field_fnl_object.html) for more details;
++ `adam_fnl_library.F90` is the **FNL entry module** exposing all modules for FNL acceleration, see [FNL library API](https://szaghi.github.io/adam/module/adam_fnl_library.html) for more details;
++ `adam_ib_fnl_kernels.F90` is the **IB kernels** library for FNL acceleration, see [IB FNL kernels API](https://szaghi.github.io/adam/module/adam_ib_fnl_kernels.html) for more details;
++ `adam_ib_fnl_object.F90` is the **IB** class for FNL acceleration, see [IB FNL object API](https://szaghi.github.io/adam/type/adam_ib_fnl_object.html) for more details;
++ `adam_maps_fnl_object.F90` is the **maps** class for FNL acceleration, see [maps FNL object API](https://szaghi.github.io/adam/type/adam_maps_fnl_object.html) for more details;
++ `adam_mpih_fnl_object.F90` is the **MPI handler** class for FNL acceleration, see [MPIH FNL object API](https://szaghi.github.io/adam/type/adam_mpih_fnl_object.html) for more details;
++ `adam_rk_fnl_kernels.F90` is the **RK kernels** library for FNL acceleration, see [RK FNL kernels API](https://szaghi.github.io/adam/module/adam_rk_fnl_kernels.html) for more details;
++ `adam_rk_fnl_object.F90` is the **RK** class for FNL acceleration, see [RK FNL object API](https://szaghi.github.io/adam/type/adam_rk_fnl_object.html) for more details;
++ `adam_weno_fnl_kernels.F90` is the **WENO kernels** library for FNL acceleration, see [WENO FNL kernels API](https://szaghi.github.io/adam/module/adam_weno_fnl_kernels.html) for more details;
++ `adam_weno_fnl_object.F90` is the **WENO** class for FNL acceleration, see [WENO FNL object API](https://szaghi.github.io/adam/type/adam_weno_fnl_object.html) for more details;
 
 Go to [Top](#top)
 

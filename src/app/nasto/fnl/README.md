@@ -2,10 +2,10 @@
 
 # NASTO NFL
 
-> ADAM for Navier-Stokes equations, OpenACC FUNDAL-based (NFL) backend.
+> ADAM for Navier-Stokes equations, FUNDAL-based (NFL) backend.
 
 NASTO is an application developed on top of ADAM framework to solve compressible Navier-Stokes conservation equations. These are the sources
-of GPU accelerated backend, with MPI/Nvidia CUDAFortran GPU offloading parallelization.
+of device accelerated backend by means of FUNDAL library for device offloading parallelization.
 
 The main NASTO NVF documentation is contained in the following sections:
 
@@ -15,8 +15,8 @@ Go to [Top](#top)
 
 # Main Features
 
-NASTO GMP provides the main GPU accelerated backend (objects and kernels) with the executable program for performing a NASTO simulation on a
-GPU accelerated architecture by means of MPI/Nvidia CUDAFortran GPU offloading parallel pardigms.
+NASTO FNL provides the main device accelerated backend (objects and kernels) with the executable program for performing a NASTO simulation on a
+device accelerated architecture.
 
 Go to [Top](#top)
 
@@ -79,25 +79,21 @@ src/
 src/app/nasto/
 ├── common/
 ├── cpu/
+├── fnl/
 ├── gmp/
 ├── nvf/
-├── adam_equation_nasto_gpu_object.F90
-├── adam_nasto_gpu.F90
-├── adam_nasto_sphere_shock.ini
 └── README.md
 
 ┌╼ stefano@enlil
 ├───╼ ~/fortran/adam
-└──────╼ tree src/app/nasto/nvf/
-src/app/nasto/nvf/
-├── adam_nasto.ini
-├── adam_nasto_nvf.F90
-├── adam_nasto_nvf_kernels.F90
-├── adam_nasto_nvf_object.F90
+└──────╼ tree src/app/nasto/fnl/
+src/app/nasto/fnl/
+├── adam_nasto_fnl_cns_kernels.F90
+├── adam_nasto_fnl_kernels.F90
+├── adam_nasto_fnl_object.F90
+├── adam_nasto_fnl.F90
 └── README.md
 ```
-
-The `adam_nastro.ini` contains an example of the `ini` input.
 
 To compile NASTO use FoBiS tool as in the following examples.
 
@@ -134,43 +130,15 @@ This should produce something like the following:
 ```bash
 ┌╼ stefano@enlil
 ├───╼ ~/fortran/adam
-└──────╼ FoBiS.py build -mode nasto-nvf-mpi-cuda
+└──────╼ FoBiS.py build -mode nasto-fnl-mpi
 Builder options
   Directories
     Building directory: "exe"
     Compiled-objects .o   directory: "exe/obj"
     Compiled-objects .mod directory: "exe/mod"
-  External libraries directories: /opt/HDF5/bin/1.12.1/openmpi/3.1.5/nvidia/22.3/lib
-  Included paths: /opt/HDF5/bin/1.12.1/openmpi/3.1.5/nvidia/22.3/include src/third_party/VecFor/src/lib
-  Linked libraries with full path: /opt/HDF5/bin/1.12.1/openmpi/3.1.5/nvidia/22.3/lib/libhdf5hl_fortran.a /opt/HDF5/bin/1.12.1/openmpi/3.1.5/nvidia/22.3/lib/libhdf5_hl.a /opt/HDF5/bin/1.12.1/openmpi/3.1.5/nvidia/22.3/lib/libhdf5_fortran.a /opt/HDF5/bin/1.12.1/openmpi/3.1.5/nvidia/22.3/lib/libhdf5.a -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/11 /usr/lib/gcc/x86_64-linux-gnu/11/libstdc++.so /opt/zlib/bin/1.2.11/lib/libz.a /opt/szip/bin/2.1.1/lib/libsz.a ./exe/obj/cgal_c_wrappers.o ./exe/obj/getmemory.o
-  Linked libraries in path: dl m
-  Compiler options
-    Vendor: "nvfortran"
-    Compiler command: "mpif90"
-    Module directory switch: "-module"
-    Compiling flags: "-cpp -c -Mcuda=cc75,cuda12.0,ptxinfo -O2 -D_NVF -D_MPI_"
-    Linking flags: "-Mcuda=cc75,cuda12.0,ptxinfo -O2"
-    Preprocessing flags: "-D_NVF -D_MPI_"
-    Coverage: False
-    Profile: False
-  Preprocessor used: None
-  Preprocessor output directory: None
-  Preprocessor extensions processed: []
-
-Building src/app/nasto/nvf/adam_nasto_nvf.F90
-Compiling src/third_party/PENF/src/lib/penf_global_parameters_variables.F90 serially
-ptxas info    : 128 bytes gmem
-
-Compiling src/third_party/PENF/src/lib/penf_b_size.F90 serially
-ptxas info    : 4 bytes gmem
-
-Compiling src/third_party/PENF/src/lib/penf_stringify.F90 serially
-ptxas info    : 4 bytes gmem
 ...
-...
-...
-Linking exe/adam_nasto_gpu
-Target src/app/nasto/nvf/adam_nasto_nvf.F90 has been successfully built
+Linking exe/adam_nasto_fnl
+Target src/app/nasto/fnl/adam_nasto_fnl.F90 has been successfully built
 ```
 
 NASTO executable is now present into subdirectory `exe`
@@ -179,7 +147,7 @@ NASTO executable is now present into subdirectory `exe`
 ┌╼ stefano@enlil
 ├───╼ ~/fortran/adam
 └──────╼ ls exe/
-adam_nasto_nvf  build_adam_nasto_nvf.log  mod  obj
+adam_nasto_fnl  build_adam_nasto_fnl.log  mod  obj
 ```
 
 Note that the `exe` subdirectory contains also the compiled objects, i.e. files into the subrdirectories
@@ -189,58 +157,58 @@ Go to [Top](#top)
 
 # Test
 
-NASTO NVF tests are contained into the following subdirectory:
+NASTO FNL tests are contained into the following subdirectory:
 
 ```bash
 ┌╼ stefano@enlil
-├───╼ ~/fortran/adam/src/tests/nasto/nvf
+├───╼ ~/fortran/adam/src/tests/nasto/fnl
 └──────╼ tree
 .
 ├── i-vortex
 └── shock-sphere
 ```
 
-+ `i-vortes` contains the isentropic vortex test, see [its own documentation](../../../tests/nasto/nvf/i-vortex/README.md) for more details;
-+ `shock-sphere` contains the shock-sphere interaction test, see [its own documentation](../../../tests/nasto/nvf/shock-sphere/README.md) for more details.
++ `i-vortes` contains the isentropic vortex test, see [its own documentation](../../../tests/nasto/fnl/i-vortex/README.md) for more details;
++ `shock-sphere` contains the shock-sphere interaction test, see [its own documentation](../../../tests/nasto/fnl/shock-sphere/README.md) for more details.
 
 Go to [Top](#top)
 
 # API Documentation
 
-Currently, NASTO NVF objects are made by the following source files:
+Currently, NASTO FNL app is made by the following source files:
 
 ### Standalone objects
 
-+ `adam_nasto_nvf_object.F90 `
++ `adam_nasto_fnl_object.F90 `
 
 ### Modules
 
-+ `adam_nasto_nvf_kernels.F90 `
++ `adam_nasto_fnl_kernels.F90 `
 
 ### Main programs
 
-+ `adam_nasto_nvf.F90 `
++ `adam_nasto_fnl.F90 `
 
 ### Standalone objects
 
-#### `adam_nasto_nvf_object.F90`
+#### `adam_nasto_fnl_object.F90`
 
-This contains the definition of NASTO NVF object that extends the NASTO common object with all the necessary data and methods for the NVF backend.
-See [nasto NVF object API documentantion](https://szaghi.github.io/adam/type/nasto_nvf_object.html) for more details.
+This contains the definition of NASTO FNL object class that extends the NASTO common object class with all the necessary data and methods for the FNL backend.
+See [nasto FNL object API documentantion](https://szaghi.github.io/adam/type/nasto_fnl_object.html) for more details.
 
 ### Modules
 
-#### `adam_nasto_nvf_kernels.F90`
+#### `adam_nasto_fnl_kernels.F90`
 
-This contains the definition of all NASTO NVF CUDAFortran kernels procedures, defined without the explicit knownledge of of any ADAM-NASTO derived types:
-all arguments passed to NASTO NVF kernels must be primitive types.
-See [nasto NVF kernels API documentantion](https://szaghi.github.io/adam/module/nasto_nvf_kernels.html) for more details.
+This contains the definition of all NASTO FNL kernels procedures, defined without the explicit knownledge of of any ADAM-NASTO derived types:
+all arguments passed to NASTO FNL kernels must be primitive types.
+See [nasto FNL kernels API documentantion](https://szaghi.github.io/adam/module/nasto_fnl_kernels.html) for more details.
 
 ### Main programs
 
-#### `adam_nasto_nvf.F90`
+#### `adam_nasto_fnl.F90`
 
-This is only the main program that instantiates a `type(nasto_nvf_object)` object and invoke its `simulate` method.
-See [nasto NVF program API documentantion](https://szaghi.github.io/adam/program/nasto_nvf.html) for more details.
+This is only the main program that instantiates a `type(nasto_fnl_object)` object and invoke its `simulate` method.
+See [nasto FNL program API documentantion](https://szaghi.github.io/adam/program/nasto_fnl.html) for more details.
 
 Go to [Top](#top)

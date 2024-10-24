@@ -8,13 +8,13 @@ use penf, only : I4P, R8P
 
 implicit none
 private
-public :: weno_reconstruct_upwind_device
+public :: weno_reconstruct_upwind_dev
 public :: S_max
 public :: S_max_m1
 
 contains
    ! public procedures
-   subroutine weno_reconstruct_upwind_device(S, weno_a, weno_p, weno_d, weno_zeps, V, VR)
+   subroutine weno_reconstruct_upwind_dev(S, weno_a, weno_p, weno_d, weno_zeps, V, VR)
    !< Reconstruct by WENO upwind method of 2S-1 order, non TBP.
    integer(I4P), intent(in)  :: S                   !< Number of stencils used.
    real(R8P),    intent(in)  :: weno_a(1:,0:,1:)    !< Optimal weights.
@@ -25,13 +25,13 @@ contains
    real(R8P),    intent(out) :: VR(1:2)             !< Left and right (1,2) interface value of reconstructed V.
    real(R8P)                 :: VP(1:2,0:S_max_m1)  !< Polynomial reconstructions.
    real(R8P)                 :: w (1:2,0:S_max_m1)  !< Weights of the stencils.
-   !$acc routine(weno_reconstruct_upwind_device)
-   !$omp declare target(weno_reconstruct_upwind_device)
+   !$acc routine(weno_reconstruct_upwind_dev)
+   !$omp declare target(weno_reconstruct_upwind_dev)
 
    call weno_compute_polynomials_device(S=S, weno_p=weno_p, V=V(1:2,1-S:-1+S), VP=VP(1:2,0:S-1))
    call weno_compute_weights_device(S=S, weno_a=weno_a, weno_d=weno_d, weno_zeps=weno_zeps, V=V(1:2,1-S:-1+S), w=w(1:2,0:S-1))
    call weno_compute_convolution_device(S=S, VP=VP(1:2,0:S-1), w=w(1:2,0:S-1), VR=VR(1:2))
-   endsubroutine weno_reconstruct_upwind_device
+   endsubroutine weno_reconstruct_upwind_dev
 
    ! private procedures
    subroutine weno_compute_convolution_device(S, VP, w, VR)

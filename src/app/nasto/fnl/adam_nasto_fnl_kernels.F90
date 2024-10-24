@@ -12,7 +12,7 @@ use penf, only : I4P, I8P, R8P
 
 implicit none
 private
-public :: compute_fluxes_convective_kernel
+public :: compute_fluxes_convective_dev
 public :: compute_fluxes_difference_dev
 public :: compute_fluxes_diffusive_dev
 public :: compute_q_aux_dev
@@ -21,11 +21,11 @@ public :: set_bc_q_gpu_dev
 
 contains
    ! public procedures
-   subroutine compute_fluxes_convective_kernel(dir,blocks_number,ni,nj,nk,ngc,nv,                &
-                                               weno_s,weno_a_gpu,weno_p_gpu,weno_d_gpu,weno_zeps,&
-                                               ror_number,ror_schemes_gpu,ror_threshold,         &
-                                               ror_ivar_gpu,ror_stats_gpu,                       &
-                                               g,q_aux_gpu,fluxes_gpu)
+   subroutine compute_fluxes_convective_dev(dir,blocks_number,ni,nj,nk,ngc,nv,                &
+                                            weno_s,weno_a_gpu,weno_p_gpu,weno_d_gpu,weno_zeps,&
+                                            ror_number,ror_schemes_gpu,ror_threshold,         &
+                                            ror_ivar_gpu,ror_stats_gpu,                       &
+                                            g,q_aux_gpu,fluxes_gpu)
    !< Compute convective fluxes along x direction.
    integer(I4P), intent(in)    :: dir                                       !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P), intent(in)    :: blocks_number                             !< Number of blocks.
@@ -47,22 +47,15 @@ contains
    real(R8P),    intent(in)    :: g                                         !< Specific heats ratio.
    real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Auxiliary variables.
    real(R8P),    intent(inout) :: fluxes_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Fluxes.
-   integer(I4P), pointer       :: si(:)                                     !< Stencil increment.
-   real(R8P),    pointer       :: sir(:)                                    !< Stencil increment, real cast.
+   integer(I4P)                :: si(3)                                     !< Stencil increment.
+   real(R8P)                   :: sir(3)                                    !< Stencil increment, real cast.
    integer(I4P)                :: b, i, j, k                                !< Counter.
    integer(I4P)                :: ierr                                      !< Error status.
 
-   call dev_alloc(fptr_dev=si,  ubounds=[3], lbounds=[1], ierr=ierr, init_value=0_I4P )
-   call dev_alloc(fptr_dev=sir, ubounds=[3], lbounds=[1], ierr=ierr, init_value=0._R8P)
    select case(dir)
    case(1)
-      !$acc data DEVICEVAR(si, sir)
-      !$omp target DEVICEVAR(si, sir)
-      si(1) = 1
-      sir(1) = 1._R8P
-      !$omp end target
-      !$acc end data
-
+      si  = [1,     0,     0     ]
+      sir = [1._R8P,0._R8P,0._R8P]
       !$acc parallel loop independent DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,ror_ivar_gpu,ror_stats_gpu,ror_schemes_gpu, &
       !$acc                                     q_aux_gpu,fluxes_gpu,si,sir)
       !$omp OMPLOOP DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,ror_ivar_gpu,ror_stats_gpu,ror_schemes_gpu, &
@@ -71,7 +64,7 @@ contains
       do k=1, nk
       do j=1, nj
       do i=0, ni
-         call compute_fluxes_convective_device(dir=dir,si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,       &
+         call compute_fluxes_convective_ri_dev(dir=dir,si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,       &
                                                weno_s=weno_s,weno_a_gpu=weno_a_gpu,weno_p_gpu=weno_p_gpu, &
                                                weno_d_gpu=weno_d_gpu,weno_zeps=weno_zeps,                 &
                                                ror_number=ror_number, ror_schemes_gpu=ror_schemes_gpu,    &
@@ -83,13 +76,8 @@ contains
       enddo
       enddo
    case(2)
-      !$acc data DEVICEVAR(si, sir)
-      !$omp target DEVICEVAR(si, sir)
-      si(2) = 1
-      sir(2) = 1._R8P
-      !$omp end target
-      !$acc end data
-
+      si  = [0,     1,     0     ]
+      sir = [0._R8P,1._R8P,0._R8P]
       !$acc parallel loop independent DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,ror_ivar_gpu,ror_stats_gpu,ror_schemes_gpu, &
       !$acc                                     q_aux_gpu,fluxes_gpu,si,sir)
       !$omp OMPLOOP DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,ror_ivar_gpu,ror_stats_gpu,ror_schemes_gpu, &
@@ -98,7 +86,7 @@ contains
       do k=1, nk
       do i=1, ni
       do j=0, nj
-         call compute_fluxes_convective_device(dir=dir,si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,       &
+         call compute_fluxes_convective_ri_dev(dir=dir,si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,       &
                                                weno_s=weno_s,weno_a_gpu=weno_a_gpu,weno_p_gpu=weno_p_gpu, &
                                                weno_d_gpu=weno_d_gpu,weno_zeps=weno_zeps,                 &
                                                ror_number=ror_number, ror_schemes_gpu=ror_schemes_gpu,    &
@@ -110,13 +98,8 @@ contains
       enddo
       enddo
    case(3)
-      !$acc data DEVICEVAR(si, sir)
-      !$omp target DEVICEVAR(si, sir)
-      si(3) = 1
-      sir(3) = 1._R8P
-      !$omp end target
-      !$acc end data
-
+      si  = [0,     0     ,1     ]
+      sir = [0._R8P,0._R8P,1._R8P]
       !$acc parallel loop independent DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,ror_ivar_gpu,ror_stats_gpu,ror_schemes_gpu, &
       !$acc                                     q_aux_gpu,fluxes_gpu,si,sir)
       !$omp OMPLOOP DEVICEVAR(weno_a_gpu,weno_p_gpu,weno_d_gpu,ror_ivar_gpu,ror_stats_gpu,ror_schemes_gpu, &
@@ -125,7 +108,7 @@ contains
       do j=1, nj
       do i=1, ni
       do k=0, nk
-         call compute_fluxes_convective_device(dir=dir,si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,       &
+         call compute_fluxes_convective_ri_dev(dir=dir,si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,       &
                                                weno_s=weno_s,weno_a_gpu=weno_a_gpu,weno_p_gpu=weno_p_gpu, &
                                                weno_d_gpu=weno_d_gpu,weno_zeps=weno_zeps,                 &
                                                ror_number=ror_number, ror_schemes_gpu=ror_schemes_gpu,    &
@@ -137,9 +120,7 @@ contains
       enddo
       enddo
    endselect
-   call dev_free(si )
-   call dev_free(sir)
-   endsubroutine compute_fluxes_convective_kernel
+   endsubroutine compute_fluxes_convective_dev
 
    subroutine compute_fluxes_difference_dev(null_x, null_y, null_z, blocks_number, ni, nj, nk, ngc, nv, ib_eps, &
                                             dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, dq_gpu)
@@ -507,11 +488,11 @@ contains
    endsubroutine set_bc_q_gpu_dev
 
    ! private procedures
-   subroutine compute_fluxes_convective_device(dir,si,sir,b,i,j,k,ngc,nv,                        &
-                                               weno_s,weno_a_gpu,weno_p_gpu,weno_d_gpu,weno_zeps,&
-                                               ror_number,ror_schemes_gpu,ror_threshold,         &
-                                               ror_ivar_gpu,ror_stats_gpu,                       &
-                                               g,q_aux_gpu,fluxes_gpu)
+   subroutine compute_fluxes_convective_ri_dev(dir,si,sir,b,i,j,k,ngc,nv,                        &
+                                            weno_s,weno_a_gpu,weno_p_gpu,weno_d_gpu,weno_zeps,&
+                                            ror_number,ror_schemes_gpu,ror_threshold,         &
+                                            ror_ivar_gpu,ror_stats_gpu,                       &
+                                            g,q_aux_gpu,fluxes_gpu)
    !< Compute convective fluxes at right interface of b,i,j,k.
    integer(I4P), intent(in)    :: dir                                       !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P), intent(in)    :: si(3)                                     !< Stencil increment.
@@ -537,15 +518,15 @@ contains
    real(R8P)                   :: fpmr(1:2,1:5)                             !< Fluxes +- reconstructed.
    logical                     :: ror_recompute                             !< Flag to perform ROR.
    integer(I4P)                :: r, v, vv, rv                              !< Counter.
-   !$acc routine(compute_fluxes_convective_device)
-   !$omp declare target(compute_fluxes_convective_device)
+   !$acc routine(compute_fluxes_convective_ri_dev)
+   !$omp declare target(compute_fluxes_convective_ri_dev)
 
-   call compute_eigenvectors_device(si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,g=g,q_aux_gpu=q_aux_gpu,el=el,er=er)
+   call compute_eigenvectors_dev(si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,g=g,q_aux_gpu=q_aux_gpu,el=el,er=er)
    call decompose_fluxes_convective_device(si=si,sir=sir,el=el,weno_s=weno_s,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,g=g,q_aux_gpu=q_aux_gpu,&
                                            fmpc=fmpc)
    do v=1, nv
-      call weno_reconstruct_upwind_device(S=weno_s,weno_a=weno_a_gpu,weno_p=weno_p_gpu,weno_d=weno_d_gpu,weno_zeps=weno_zeps,&
-                                          V=fmpc(:,:,v),VR=fpmr(:,v))
+      call weno_reconstruct_upwind_dev(S=weno_s,weno_a=weno_a_gpu,weno_p=weno_p_gpu,weno_d=weno_d_gpu,weno_zeps=weno_zeps,&
+                                       V=fmpc(:,:,v),VR=fpmr(:,v))
    enddo
    if (ror_number>0) then
       ROR : do r=2, ror_number
@@ -558,8 +539,8 @@ contains
          if (ror_recompute) then
             ror_stats_gpu(b,i,j,k,dir) = ror_schemes_gpu(r)
             do v=1, nv
-               call weno_reconstruct_upwind_device(S=ror_schemes_gpu(r),weno_a=weno_a_gpu,weno_p=weno_p_gpu,weno_d=weno_d_gpu,&
-                                                   weno_zeps=weno_zeps,V=fmpc(:,:,v),VR=fpmr(:,v))
+               call weno_reconstruct_upwind_dev(S=ror_schemes_gpu(r),weno_a=weno_a_gpu,weno_p=weno_p_gpu,weno_d=weno_d_gpu,&
+                                                weno_zeps=weno_zeps,V=fmpc(:,:,v),VR=fpmr(:,v))
             enddo
          else
             exit ROR
@@ -575,7 +556,7 @@ contains
       ! fluxes_gpu(b,i,j,k,v) = fluxes_gpu(b,i,j,k,v) + fpmr(1,v)
       ! fluxes_gpu(b,i,j,k,v) = fluxes_gpu(b,i,j,k,v) + fpmr(2,v)
    enddo
-   endsubroutine compute_fluxes_convective_device
+   endsubroutine compute_fluxes_convective_ri_dev
 
    subroutine decompose_fluxes_convective_device(si,sir,el,weno_s,b,i,j,k,ngc,nv,g,q_aux_gpu,fmpc)
    !< Decompose convective fluxes.
@@ -598,11 +579,11 @@ contains
    !$acc routine(decompose_fluxes_convective_device)
    !$omp declare target(decompose_fluxes_convective_device)
 
-   call compute_max_eigenvalues_device(si=si,sir=sir,weno_s=weno_s,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,q_aux_gpu=q_aux_gpu,evmax=evmax)
+   call compute_max_eigenvalues_dev(si=si,sir=sir,weno_s=weno_s,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,q_aux_gpu=q_aux_gpu,evmax=evmax)
    do s=1-weno_s, weno_s
       is = i + (s) * si(1) ; js = j + (s) * si(2) ; ks = k + (s) * si(3)
-      call compute_conservatives_device(b=b,i=is,j=js,k=ks,ngc=ngc,q_aux_gpu=q_aux_gpu,q=q)
-      call compute_conservative_fluxes_device(sir=sir,b=b,i=is,j=js,k=ks,ngc=ngc,q_aux_gpu=q_aux_gpu,f=f)
+      call compute_conservatives_dev(b=b,i=is,j=js,k=ks,ngc=ngc,q_aux_gpu=q_aux_gpu,q=q)
+      call compute_conservative_fluxes_dev(sir=sir,b=b,i=is,j=js,k=ks,ngc=ngc,q_aux_gpu=q_aux_gpu,f=f)
       do v=1, nv
          wc = 0._R8P
          gc = 0._R8P

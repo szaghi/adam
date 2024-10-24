@@ -9,39 +9,39 @@ use penf, only : I4P, R8P
 
 implicit none
 private
-public :: compute_conservatives_device
-public :: compute_conservative_fluxes_device
-public :: compute_max_eigenvalues_device
-public :: compute_eigenvectors_device
+public :: compute_conservatives_dev
+public :: compute_conservative_fluxes_dev
+public :: compute_max_eigenvalues_dev
+public :: compute_eigenvectors_dev
 public :: compute_q_aux_dev
 
 contains
    ! public procedures
-   subroutine compute_conservatives_device(b,i,j,k,ngc,q_aux_gpu,q)
+   subroutine compute_conservatives_dev(b,i,j,k,ngc,q_aux_gpu,q)
    !< Compute convervative variables from auxiliary ones.
    integer(I4P), intent(in)    :: b, i, j, k                            !< Cell indexes.
    integer(I4P), intent(in)    :: ngc                                   !< Ghost cells number.
    real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
    real(R8P),    intent(inout) :: q(1:)                                 !< Conservative varibales.
-   !$acc routine(compute_conservatives_device)
-   !$omp declare target(compute_conservatives_device)
+   !$acc routine(compute_conservatives_dev)
+   !$omp declare target(compute_conservatives_dev)
 
    q(1) =      q_aux_gpu(b,i,j,k,1)
    q(2) = q(1)*q_aux_gpu(b,i,j,k,2)
    q(3) = q(1)*q_aux_gpu(b,i,j,k,3)
    q(4) = q(1)*q_aux_gpu(b,i,j,k,4)
    q(5) = q(1)*q_aux_gpu(b,i,j,k,8) - q_aux_gpu(b,i,j,k,7)
-   endsubroutine compute_conservatives_device
+   endsubroutine compute_conservatives_dev
 
-   subroutine compute_conservative_fluxes_device(sir,b,i,j,k,ngc,q_aux_gpu,f)
+   subroutine compute_conservative_fluxes_dev(sir,b,i,j,k,ngc,q_aux_gpu,f)
    !< Compute convervative fluxes from auxiliary variables.
    real(R8P),    intent(in)    :: sir(3)                                !< Directional (1=x,2=y,3=z) increment.
    integer(I4P), intent(in)    :: b, i, j, k                            !< Cell indexes.
    integer(I4P), intent(in)    :: ngc                                   !< Ghost cells number.
    real(R8P),    intent(in)    :: q_aux_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
    real(R8P),    intent(inout) :: f(1:)                                 !< Conservative fluxes.
-   !$acc routine(compute_conservative_fluxes_device)
-   !$omp declare target(compute_conservative_fluxes_device)
+   !$acc routine(compute_conservative_fluxes_dev)
+   !$omp declare target(compute_conservative_fluxes_dev)
 
    f(1) = q_aux_gpu(b,i,j,k,1)*q_aux_gpu(b,i,j,k,2)*sir(1) + &
           q_aux_gpu(b,i,j,k,1)*q_aux_gpu(b,i,j,k,3)*sir(2) + &
@@ -50,9 +50,9 @@ contains
    f(3) = f(1)*q_aux_gpu(b,i,j,k,3) + q_aux_gpu(b,i,j,k,7)*sir(2)
    f(4) = f(1)*q_aux_gpu(b,i,j,k,4) + q_aux_gpu(b,i,j,k,7)*sir(3)
    f(5) = f(1)*q_aux_gpu(b,i,j,k,8)
-   endsubroutine compute_conservative_fluxes_device
+   endsubroutine compute_conservative_fluxes_dev
 
-   subroutine compute_max_eigenvalues_device(si,sir,weno_s,b,i,j,k,ngc,nv,q_aux_gpu,evmax)
+   subroutine compute_max_eigenvalues_dev(si,sir,weno_s,b,i,j,k,ngc,nv,q_aux_gpu,evmax)
    ! Compute maximum eigenvalues in the big stencil.
    integer(I4P), intent(in)    :: si(3)                                 !< Stencil increment.
    real(R8P),    intent(in)    :: sir(3)                                !< Stencil increment, real cast.
@@ -65,8 +65,8 @@ contains
    real(R8P)                   :: uu, c                                 !< Speeds.
    real(R8P)                   :: ev(5)                                 !< Signals speeds.
    integer(I4P)                :: s, is, js, ks, v                      !< Counter.
-   !$acc routine(compute_max_eigenvalues_device)
-   !$omp declare target(compute_max_eigenvalues_device)
+   !$acc routine(compute_max_eigenvalues_dev)
+   !$omp declare target(compute_max_eigenvalues_dev)
 
    evmax = -1._R8P
    do s=1, 2*weno_s
@@ -78,9 +78,9 @@ contains
          evmax(v) = max(ev(v),evmax(v))
       enddo
    enddo
-   endsubroutine compute_max_eigenvalues_device
+   endsubroutine compute_max_eigenvalues_dev
 
-   subroutine compute_eigenvectors_device(si,sir,b,i,j,k,ngc,nv,g,q_aux_gpu,el,er)
+   subroutine compute_eigenvectors_dev(si,sir,b,i,j,k,ngc,nv,g,q_aux_gpu,el,er)
    ! Compute eigenvectors centered in inteface i,j,k/ip,jp,kp.
    integer(I4P), intent(in)    :: si(3)                                 !< Stencil increment.
    real(R8P),    intent(in)    :: sir(3)                                !< Stencil increment, real cast.
@@ -92,8 +92,8 @@ contains
    real(R8P),    intent(inout) :: el(1:5,1:5), er(1:5,1:5)              !< Left and right eigenvectors.
    real(R8P)                   :: uu, vv, ww, h, qq, c, ci, b1, b2      !< Roe average states.
    real(R8P)                   :: uvw, uvw_r1, uvw_r2                   !< Velocity rotation accordingly dir.
-   !$acc routine(compute_eigenvectors_device)
-   !$omp declare target(compute_eigenvectors_device)
+   !$acc routine(compute_eigenvectors_dev)
+   !$omp declare target(compute_eigenvectors_dev)
 
    call compute_roe_average_device(q_aux_gpu=q_aux_gpu, g=g, ngc=ngc, b=b, i=i, j=j, k=k, ip=i+si(1), jp=j+si(2), kp=k+si(3), &
                                    uu=uu, vv=vv, ww=ww, h=h, qq=qq, c=c, ci=ci, b1=b1, b2=b2)
@@ -113,7 +113,7 @@ contains
    el(3,1)=-0.5_R8P*(b2*vv+ci*sir(2));el(3,2)= b2*vv    ;el(3,3)=-0.5_R8P*(b2*vv-ci*sir(2));el(3,4)= sir(1);el(3,5)= sir(3)
    el(4,1)=-0.5_R8P*(b2*ww+ci*sir(3));el(4,2)= b2*ww    ;el(4,3)=-0.5_R8P*(b2*ww-ci*sir(3));el(4,4)= sir(2);el(4,5)= sir(1)
    el(5,1)= 0.5_R8P*b2               ;el(5,2)=-b2       ;el(5,3)= 0.5_R8P*b2               ;el(5,4)= 0._R8P;el(5,5)= 0._R8P
-   endsubroutine compute_eigenvectors_device
+   endsubroutine compute_eigenvectors_dev
 
    subroutine compute_q_aux_dev(ni, nj, nk, ngc, blocks_number, R, cv, g, q_gpu, q_aux_gpu)
    !< Compute auxiliary variables.

@@ -5,12 +5,9 @@
 module adam_nasto_fnl_object
 !< ADAM, Navier-Stokes equations system class definition, GPU (FNL) backend.
 
-use adam_nasto_common_library
-use adam_nasto_fnl_cns_kernels
-use adam_nasto_fnl_kernels
-use adam_fnl_library
-use fundal
-use penf
+use adam_nasto_fnl_library
+use :: fundal, save_memory_status_gpu=>save_memory_status
+use :: penf, save_memory_status_cpu=>save_memory_status
 use mpi
 
 implicit none
@@ -26,13 +23,13 @@ type, extends(nasto_common_object) :: nasto_fnl_object
    type(rk_fnl_object)    :: rk_gpu    !< RK integrator, FNL backend.
    type(weno_fnl_object)  :: weno_gpu  !< WENO reconstructor, FNL backend.
    ! device data
-   real(R8P), pointer :: q_gpu(:,:,:,:,:)     !< Field cell centered variables.
-   real(R8P), pointer :: q_aux_gpu(:,:,:,:,:) !< Auxiliary cell centered variables.
-   real(R8P), pointer :: dq_gpu(:,:,:,:,:)    !< Eikonal right hand side.
-   real(R8P), pointer :: flx_gpu(:,:,:,:,:)   !< Fluxes along x.
-   real(R8P), pointer :: fly_gpu(:,:,:,:,:)   !< Fluxes along y.
-   real(R8P), pointer :: flz_gpu(:,:,:,:,:)   !< Fluxes along z.
-   real(R8P), pointer :: q_bc_vars_gpu(:,:)   !< Variables array for boundary conditions on GPU.
+   real(R8P),    pointer :: q_gpu(:,:,:,:,:)     !< Field cell centered variables.
+   real(R8P),    pointer :: q_aux_gpu(:,:,:,:,:) !< Auxiliary cell centered variables.
+   real(R8P),    pointer :: dq_gpu(:,:,:,:,:)    !< Eikonal right hand side.
+   real(R8P),    pointer :: flx_gpu(:,:,:,:,:)   !< Fluxes along x.
+   real(R8P),    pointer :: fly_gpu(:,:,:,:,:)   !< Fluxes along y.
+   real(R8P),    pointer :: flz_gpu(:,:,:,:,:)   !< Fluxes along z.
+   real(R8P),    pointer :: q_bc_vars_gpu(:,:)   !< Variables array for boundary conditions on GPU.
    contains
       ! auxiliary methods
       procedure, pass(self) :: allocate_gpu !< Allocate GPU data.
@@ -119,8 +116,8 @@ contains
    endif
    if (present(copy_phi)) then
       if (copy_phi) then
-         if (self%ib%solids_number>0) call self%field_gpu%copy_transpose_gpu_cpu(nv=self%ib%solids_number+1, &
-                                                                                 q_gpu=self%ib_gpu%phi_gpu, q_cpu=self%ib%phi)
+         if (self%ib%solids_number>0) &
+            call self%field_gpu%copy_transpose_gpu_cpu(nv=self%ib%solids_number+1, q_gpu=self%ib_gpu%phi_gpu, q_cpu=self%ib%phi)
       endif
    endif
    endsubroutine copy_gpu_cpu
@@ -131,15 +128,14 @@ contains
    character(*),            intent(in)    :: filename !< Input file name.
 
    call self%mpih_gpu%initialize(do_mpi_init=.true., do_device_init=.true.)
-   call self%mpih%print_message('nasto_fnl_object%initialize start')
+   call self%mpih_gpu%print_message('nasto_fnl_object%initialize start')
    call self%initialize_common(filename=filename, memory_avail=real(self%mpih_gpu%dev_memory_avail,R8P))
    call self%field_gpu%initialize(field=self%adam%field, nv_aux=self%nv_aux, verbose=.false.)
    call self%ib_gpu%initialize(ib=self%ib, field_gpu=self%field_gpu)
    call self%rk_gpu%initialize(rk=self%rk, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk, nv=self%nv)
    call self%weno_gpu%initialize(weno=self%weno)
    call self%allocate_gpu(q_gpu=self%field_gpu%q_gpu)
-   print '(A)', self%mpih_gpu%description()
-   call self%mpih%print_message('nasto_fnl_object%initialize finish')
+   call self%mpih%print_message(self%mpih_gpu%description()//new_line('a')//'nasto_fnl_object%initialize finish')
    endsubroutine initialize
 
    ! AMR methods
@@ -569,17 +565,17 @@ contains
 
    subroutine compute_residuals(self, q_gpu, dq_gpu)
    !< Compute residuals of equation.
-   class(nasto_fnl_object), intent(inout) :: self        !< The equation.
-   real(R8P),               intent(inout) :: q_gpu(1:,       &
+   class(nasto_fnl_object), intent(inout) :: self       !< The equation.
+   real(R8P),               intent(inout) :: q_gpu(1:,         &
                                                    1-self%ngc:,&
                                                    1-self%ngc:,&
                                                    1-self%ngc:,&
-                                                   1:)   !< Conservative variables.
+                                                   1:)  !< Conservative variables.
    real(R8P),               intent(inout) :: dq_gpu(1:,         &
                                                     1-self%ngc:,&
                                                     1-self%ngc:,&
                                                     1-self%ngc:,&
-                                                    1:)  !< Residuals.
+                                                    1:) !< Residuals.
 
    call self%update_ghost(q_gpu=q_gpu)
    call self%integrate_eikonal(q_gpu=q_gpu)
@@ -599,42 +595,41 @@ contains
              weno_zeps=>self%weno%zeps,                                                                                 &
              solids_number=>self%ib%solids_number,                                                                      &
              cv=>self%physics%eos(1)%cv, g=>self%physics%eos(1)%g, R=>self%physics%eos(1)%R,                            &
-             mu=>self%physics%eos(1)%mu, kd=>self%physics%eos(1)%kd, mpih=>self%mpih_gpu,                               &
-             null_xyz=>self%grid%null_xyz)
+             mu=>self%physics%eos(1)%mu, kd=>self%physics%eos(1)%kd, null_xyz=>self%grid%null_xyz)
    if (blocks_number > 0) then
       if (.not.null_xyz(1)) then
-         call compute_fluxes_convective_kernel(dir=1,                                                            &
-                                               blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
-                                               weno_s=weno_s, weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu,      &
-                                               weno_d_gpu=weno_d_gpu, weno_zeps=weno_zeps,                       &
-                                               ror_number=ror_number, ror_schemes_gpu=ror_schemes_gpu,           &
-                                               ror_threshold=ror_threshold, ror_ivar_gpu=ror_ivar_gpu,           &
-                                               ror_stats_gpu=ror_stats_gpu,                                      &
-                                               g=g, q_aux_gpu=q_aux_gpu, fluxes_gpu=flx_gpu)
+         call compute_fluxes_convective_dev(dir=1,                                                            &
+                                            blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
+                                            weno_s=weno_s, weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu,      &
+                                            weno_d_gpu=weno_d_gpu, weno_zeps=weno_zeps,                       &
+                                            ror_number=ror_number, ror_schemes_gpu=ror_schemes_gpu,           &
+                                            ror_threshold=ror_threshold, ror_ivar_gpu=ror_ivar_gpu,           &
+                                            ror_stats_gpu=ror_stats_gpu,                                      &
+                                            g=g, q_aux_gpu=q_aux_gpu, fluxes_gpu=flx_gpu)
       else
          flx_gpu = 0._R8P
       endif
       if (.not.null_xyz(2)) then
-         call compute_fluxes_convective_kernel(dir=2,                                                            &
-                                               blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
-                                               weno_s=weno_s, weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu,      &
-                                               weno_d_gpu=weno_d_gpu, weno_zeps=weno_zeps,                       &
-                                               ror_number=ror_number, ror_schemes_gpu=ror_schemes_gpu,           &
-                                               ror_threshold=ror_threshold, ror_ivar_gpu=ror_ivar_gpu,           &
-                                               ror_stats_gpu=ror_stats_gpu,                                      &
-                                               g=g, q_aux_gpu=q_aux_gpu, fluxes_gpu=fly_gpu)
+         call compute_fluxes_convective_dev(dir=2,                                                            &
+                                            blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
+                                            weno_s=weno_s, weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu,      &
+                                            weno_d_gpu=weno_d_gpu, weno_zeps=weno_zeps,                       &
+                                            ror_number=ror_number, ror_schemes_gpu=ror_schemes_gpu,           &
+                                            ror_threshold=ror_threshold, ror_ivar_gpu=ror_ivar_gpu,           &
+                                            ror_stats_gpu=ror_stats_gpu,                                      &
+                                            g=g, q_aux_gpu=q_aux_gpu, fluxes_gpu=fly_gpu)
       else
          fly_gpu = 0._R8P
       endif
       if (.not.null_xyz(3)) then
-         call compute_fluxes_convective_kernel(dir=3,                                                            &
-                                               blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
-                                               weno_s=weno_s, weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu,      &
-                                               weno_d_gpu=weno_d_gpu, weno_zeps=weno_zeps,                       &
-                                               ror_number=ror_number, ror_schemes_gpu=ror_schemes_gpu,           &
-                                               ror_threshold=ror_threshold, ror_ivar_gpu=ror_ivar_gpu,           &
-                                               ror_stats_gpu=ror_stats_gpu,                                      &
-                                               g=g, q_aux_gpu=q_aux_gpu, fluxes_gpu=flz_gpu)
+         call compute_fluxes_convective_dev(dir=3,                                                            &
+                                            blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
+                                            weno_s=weno_s, weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu,      &
+                                            weno_d_gpu=weno_d_gpu, weno_zeps=weno_zeps,                       &
+                                            ror_number=ror_number, ror_schemes_gpu=ror_schemes_gpu,           &
+                                            ror_threshold=ror_threshold, ror_ivar_gpu=ror_ivar_gpu,           &
+                                            ror_stats_gpu=ror_stats_gpu,                                      &
+                                            g=g, q_aux_gpu=q_aux_gpu, fluxes_gpu=flz_gpu)
       else
          flz_gpu = 0._R8P
       endif
@@ -741,10 +736,10 @@ contains
       call self%mpih_gpu%barrier(tictoc=.true., timing=timing_step(1), single=.true.)
       self%time%it = self%time%it + 1
 
-      ! if (self%io%save_memory_status) then
-      !    call save_memory_cpu_status(file_name='memory_cpu-'//self%mpih_gpu%myrankstr//'.dat', tag=str(self%time%it,.true.))
-      !    call save_memory_gpu_status(file_name='memory_gpu-'//self%mpih_gpu%myrankstr//'.dat', tag=str(self%time%it,.true.))
-      ! endif
+      if (self%io%save_memory_status) then
+         call save_memory_status_cpu(file_name='memory_cpu-'//self%mpih_gpu%myrankstr//'.dat', tag=str(self%time%it,.true.))
+         call save_memory_status_gpu(file_name='memory_gpu-'//self%mpih_gpu%myrankstr//'.dat', tag=str(self%time%it,.true.))
+      endif
 
       if (mod(self%time%it,self%amr%frequency)==0) then
          call self%mpih_gpu%barrier(tictoc=.true.)
