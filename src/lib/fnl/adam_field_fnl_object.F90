@@ -179,7 +179,7 @@ contains
                                                    1-self%field%grid%ngc:,&
                                                    1-self%field%grid%ngc:,&
                                                    1:) !< Field component to be updated.
-   call update_ghost_local_gpu_dev(local_map_ghost_cell_gpu=self%maps%local_map_ghost_cell_gpu,ngc=self%field%grid%ngc,q_gpu=q_gpu)
+   call update_ghost_local_gpu_dev(l_map_ghost_cell_gpu=self%maps%local_map_ghost_cell_gpu,ngc=self%field%grid%ngc,q_gpu=q_gpu)
    endsubroutine update_ghost_local_gpu
 
    subroutine update_ghost_mpi_gpu(self, q_gpu, step)

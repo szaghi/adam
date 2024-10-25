@@ -429,45 +429,45 @@ contains
    endsubroutine compute_umax_dev
 
    subroutine set_bc_q_gpu_dev(BC_EXTRAPOLATION, BC_INFLOW, nv, ngc, cv, R, &
-                               local_map_bc_gpu, fec_1_6_array_gpu, q_bc_vars_gpu, q_gpu)
+                               l_map_bc_gpu, fec_1_6_array_gpu, q_bc_vars_gpu, q_gpu)
    !< Set BC over q.
-   integer(I4P), intent(in)    :: BC_EXTRAPOLATION        !< Extrapolation BC parameter.
-   integer(I4P), intent(in)    :: BC_INFLOW               !< Inflow BC parameter.
-   integer(I4P), intent(in)    :: nv                      !< Number of variables.
-   integer(I4P), intent(in)    :: ngc                     !< Ghost cells number.
-   real(R8P),    intent(in)    :: cv                      !< Constant volume specific heat.
-   real(R8P),    intent(in)    :: R                       !< Gas constant.
-   integer(I8P), intent(in)    :: local_map_bc_gpu(:,:,:) !< Local map for BC ghost cells.
-   integer(I4P), intent(in)    :: fec_1_6_array_gpu(:)    !< Local map for BC ghost cells.
-   real(R8P),    intent(in)    :: q_bc_vars_gpu(:,:)      !< Boundary variables.
+   integer(I4P), intent(in)    :: BC_EXTRAPOLATION     !< Extrapolation BC parameter.
+   integer(I4P), intent(in)    :: BC_INFLOW            !< Inflow BC parameter.
+   integer(I4P), intent(in)    :: nv                   !< Number of variables.
+   integer(I4P), intent(in)    :: ngc                  !< Ghost cells number.
+   real(R8P),    intent(in)    :: cv                   !< Constant volume specific heat.
+   real(R8P),    intent(in)    :: R                    !< Gas constant.
+   integer(I8P), intent(in)    :: l_map_bc_gpu(:,:,:)  !< Local map for BC ghost cells.
+   integer(I4P), intent(in)    :: fec_1_6_array_gpu(:) !< Local map for BC ghost cells.
+   real(R8P),    intent(in)    :: q_bc_vars_gpu(:,:)   !< Boundary variables.
    real(R8P),    intent(inout) :: q_gpu(1:,    &
                                         1-ngc:,&
                                         1-ngc:,&
-                                        1-ngc:,1:)        !< Conservative variables.
-   integer(I4P)                :: b                       !< Counter.
-   integer(I4P)                :: c, i, j, k, v           !< Counter.
-   integer(I4P)                :: idelta                  !< IJK delta step for extrapolation.
-   integer(I4P)                :: jdelta                  !< IJK delta step for extrapolation.
-   integer(I4P)                :: kdelta                  !< IJK delta step for extrapolation.
-   integer(I4P)                :: bc_type                 !< Boundary condition type.
-   integer(I4P)                :: crown                   !< Crown counter.
-   integer(I4P)                :: fec                     !< Boundary fec (1 to 26).
-   integer(I4P)                :: fec_1_6                 !< Boundary fec (1 to 6).
+                                        1-ngc:,1:)     !< Conservative variables.
+   integer(I4P)                :: b                    !< Counter.
+   integer(I4P)                :: c, i, j, k, v        !< Counter.
+   integer(I4P)                :: idelta               !< IJK delta step for extrapolation.
+   integer(I4P)                :: jdelta               !< IJK delta step for extrapolation.
+   integer(I4P)                :: kdelta               !< IJK delta step for extrapolation.
+   integer(I4P)                :: bc_type              !< Boundary condition type.
+   integer(I4P)                :: crown                !< Crown counter.
+   integer(I4P)                :: fec                  !< Boundary fec (1 to 26).
+   integer(I4P)                :: fec_1_6              !< Boundary fec (1 to 6).
 
    do crown=1, ngc
-      !$acc parallel loop independent DEVICEVAR(local_map_bc_gpu, fec_1_6_array_gpu, q_bc_vars_gpu, q_gpu)
-      !!$omp OMPLOOP DEVICEVAR(local_map_bc_gpu, fec_1_6_array_gpu, q_bc_vars_gpu, q_gpu)
-      do c=1, size(local_map_bc_gpu, dim=1)
-         b = local_map_bc_gpu(c, 1 ,crown)
+      !$acc parallel loop independent DEVICEVAR(l_map_bc_gpu, fec_1_6_array_gpu, q_bc_vars_gpu, q_gpu)
+      !$omp OMPLOOP DEVICEVAR(l_map_bc_gpu, fec_1_6_array_gpu, q_bc_vars_gpu, q_gpu)
+      do c=1, size(l_map_bc_gpu, dim=1)
+         b = l_map_bc_gpu(c, 1 ,crown)
          if (b>0) then
-            i       = local_map_bc_gpu(c, 2 ,crown)
-            j       = local_map_bc_gpu(c, 3 ,crown)
-            k       = local_map_bc_gpu(c, 4 ,crown)
-            idelta  = local_map_bc_gpu(c, 5 ,crown)
-            jdelta  = local_map_bc_gpu(c, 6 ,crown)
-            kdelta  = local_map_bc_gpu(c, 7 ,crown)
-            bc_type = local_map_bc_gpu(c, 8 ,crown)
-            fec     = local_map_bc_gpu(c, 9 ,crown)
+            i       = l_map_bc_gpu(c, 2 ,crown)
+            j       = l_map_bc_gpu(c, 3 ,crown)
+            k       = l_map_bc_gpu(c, 4 ,crown)
+            idelta  = l_map_bc_gpu(c, 5 ,crown)
+            jdelta  = l_map_bc_gpu(c, 6 ,crown)
+            kdelta  = l_map_bc_gpu(c, 7 ,crown)
+            bc_type = l_map_bc_gpu(c, 8 ,crown)
+            fec     = l_map_bc_gpu(c, 9 ,crown)
             fec_1_6 = fec_1_6_array_gpu(fec)
             if (bc_type == BC_EXTRAPOLATION) then
                do v=1, nv

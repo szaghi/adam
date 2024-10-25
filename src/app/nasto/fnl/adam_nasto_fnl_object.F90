@@ -484,7 +484,7 @@ contains
    if (associated(self%field_gpu%maps%local_map_bc_crown_gpu)) &
       call set_bc_q_gpu_dev(BC_EXTRAPOLATION=BC_EXTRAPOLATION, BC_INFLOW=BC_INFLOW,                       &
                             nv=self%nv, ngc=self%ngc, cv=self%physics%eos(1)%cv, R=self%physics%eos(1)%R, &
-                            local_map_bc_gpu=self%field_gpu%maps%local_map_bc_crown_gpu,                  &
+                            l_map_bc_gpu=self%field_gpu%maps%local_map_bc_crown_gpu,                      &
                             fec_1_6_array_gpu=self%field_gpu%fec_1_6_array_gpu,                           &
                             q_bc_vars_gpu=self%q_bc_vars_gpu,                                             &
                             q_gpu=q_gpu)

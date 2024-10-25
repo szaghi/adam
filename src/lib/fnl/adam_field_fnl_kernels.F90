@@ -185,39 +185,39 @@ contains
    endif
    endsubroutine receive_recv_buffer_ghost_gpu_dev
 
-   subroutine update_ghost_local_gpu_dev(ngc, local_map_ghost_cell_gpu, q_gpu)
+   subroutine update_ghost_local_gpu_dev(ngc, l_map_ghost_cell_gpu, q_gpu)
    !< Update (local) ghost cells.
-   integer(I4P), intent(in)          :: ngc                           !< Ghost cells number.
-   integer(I8P), intent(in), pointer :: local_map_ghost_cell_gpu(:,:) !< Local map of ghost cells.
+   integer(I4P), intent(in)          :: ngc                       !< Ghost cells number.
+   integer(I8P), intent(in), pointer :: l_map_ghost_cell_gpu(:,:) !< Local map of ghost cells.
    real(R8P),    intent(inout)       :: q_gpu(1:,    &
                                               1-ngc:,&
                                               1-ngc:,&
-                                              1-ngc:,1:)              !< Field component to be updated.
-   integer(I4P)                      :: ic, jc, kc, mf, v             !< Counter.
-   integer(I4P)                      :: b_recv                        !< Index of receiving block.
-   integer(I4P)                      :: b_send                        !< Index of sending block.
-   integer(I4P)                      :: i_recv                        !< I recv index.
-   integer(I4P)                      :: j_recv                        !< J recv index.
-   integer(I4P)                      :: k_recv                        !< K recv index.
-   integer(I4P)                      :: i_send                        !< I send index.
-   integer(I4P)                      :: j_send                        !< J send index.
-   integer(I4P)                      :: k_send                        !< K send index.
-   integer(I4P)                      :: one_or_eight                  !< Flag triggering 8 cells mean.
+                                              1-ngc:,1:)          !< Field component to be updated.
+   integer(I4P)                      :: ic, jc, kc, mf, v         !< Counter.
+   integer(I4P)                      :: b_recv                    !< Index of receiving block.
+   integer(I4P)                      :: b_send                    !< Index of sending block.
+   integer(I4P)                      :: i_recv                    !< I recv index.
+   integer(I4P)                      :: j_recv                    !< J recv index.
+   integer(I4P)                      :: k_recv                    !< K recv index.
+   integer(I4P)                      :: i_send                    !< I send index.
+   integer(I4P)                      :: j_send                    !< J send index.
+   integer(I4P)                      :: k_send                    !< K send index.
+   integer(I4P)                      :: one_or_eight              !< Flag triggering 8 cells mean.
 
-   if (.not.associated(local_map_ghost_cell_gpu)) return
-   !$acc parallel loop independent DEVICEVAR(local_map_ghost_cell_gpu, q_gpu)
-   !!$omp OMPLOOP DEVICEVAR(local_map_ghost_cell_gpu, q_gpu)
+   if (.not.associated(l_map_ghost_cell_gpu)) return
+   !$acc parallel loop independent DEVICEVAR(l_map_ghost_cell_gpu, q_gpu)
+   !$omp OMPLOOP DEVICEVAR(l_map_ghost_cell_gpu, q_gpu)
    do v=1, size(q_gpu, dim=5)
-      do mf=1, size(local_map_ghost_cell_gpu, dim=1)
-         b_send       = local_map_ghost_cell_gpu(mf,1)
-         b_recv       = local_map_ghost_cell_gpu(mf,2)
-         i_send       = local_map_ghost_cell_gpu(mf,3)
-         j_send       = local_map_ghost_cell_gpu(mf,4)
-         k_send       = local_map_ghost_cell_gpu(mf,5)
-         i_recv       = local_map_ghost_cell_gpu(mf,6)
-         j_recv       = local_map_ghost_cell_gpu(mf,7)
-         k_recv       = local_map_ghost_cell_gpu(mf,8)
-         one_or_eight = local_map_ghost_cell_gpu(mf,9)
+      do mf=1, size(l_map_ghost_cell_gpu, dim=1)
+         b_send       = l_map_ghost_cell_gpu(mf,1)
+         b_recv       = l_map_ghost_cell_gpu(mf,2)
+         i_send       = l_map_ghost_cell_gpu(mf,3)
+         j_send       = l_map_ghost_cell_gpu(mf,4)
+         k_send       = l_map_ghost_cell_gpu(mf,5)
+         i_recv       = l_map_ghost_cell_gpu(mf,6)
+         j_recv       = l_map_ghost_cell_gpu(mf,7)
+         k_recv       = l_map_ghost_cell_gpu(mf,8)
+         one_or_eight = l_map_ghost_cell_gpu(mf,9)
          if (one_or_eight==1) then
             q_gpu(b_recv,i_recv, j_recv, k_recv,v) = q_gpu(b_send, i_send,j_send,k_send,v)
          else
