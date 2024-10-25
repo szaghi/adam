@@ -4,6 +4,7 @@ modes = ascot-nvf-mpi-cuda
         adam-com-lib-gnu-debug
         nasto-fnl-mpi-nvidia
         nasto-fnl-mpi-intel
+        nasto-fnl-mpi-intel-florence
         nasto-nvf-mpi-cuda
         nasto-nvf-mpi-cuda-debug
         nasto-nvf-mpi-cuda-leo
@@ -30,10 +31,13 @@ $HDF5_cuda_20_7     = /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7
 $HDF5_gnu           = /opt/HDF5/bin/1.12.2/openmpi/4.1.4/gnu/11.2.0
 $HDF5_intel         = /opt/HDF5/bin/1.12.2/openmpi/4.1.4/intel/2021.5.0
 $HDF5_ifx           = /opt/HDF5/bin/1.14.2/intel/20230622
+$HDF5_ifx_fl        = /software/spack/install/linux-sles15-icelake/oneapi-2024.2.0/hdf5-1.14.3-724cg7htk5qqeih73onwakb2h5d6d7wc
 $ZLIB_gnu           = /opt/zlib/bin/1.2.11/lib/libz.a
 $SZIP_gnu           = /opt/szip/bin/2.1.1/lib/libsz.a
 $ZLIB_ifx           = /opt/zlib/bin/1.3/icx/20230622/lib/libz.a
 $SZIP_ifx           = /opt/szip/bin/2.1.1/ifx/20230622/lib/libsz.a
+$ZLIB_ifx_fl        = /software/spack/install/linux-sles15-icelake/oneapi-2024.2.0/zlib-ng-2.1.5-nhpv4dvxawxkeerprqrppztzfdyhhdve/lib/libz.a
+$SZIP_ifx_fl        = /software/spack/install/linux-sles15-icelake/oneapi-2024.2.0/libszip-2.1.1-5h7lh7neehr3voc4rnswhmr77d5ilr7k/lib/libsz.a
 $HDF5_fl_intel      = /home/grossi/Projects/ADAM/hdf5_install/1.12.2
 $ZLIB_fl_intel      = /home/grossi/Projects/ADAM/zlib_install/1.2.11/lib/libz.a
 $SZIP_fl_intel      = /home/grossi/Projects/ADAM/szip_install/2.1.1/lib/libsz.a
@@ -129,6 +133,28 @@ libs           = $HDF5_ifx/lib/libhdf5hl_fortran.a
                  $HDF5_ifx/lib/libhdf5.a
                  $ZLIB_ifx
                  $SZIP_ifx
+                 $GETMEMORY
+
+[nasto-fnl-mpi-intel-florence]
+help           = Build NASTO NVF app with FNL-MPI (INTEL compiler) on Florence Intel cluster
+template       = template-base
+target         = adam_nasto_fnl.F90
+compiler       = intel_nextgen
+cflags         = -cpp -c -O2
+lflags         = -O2
+mpi            = True
+openmp         = True
+openmp_offload = True
+preproc        = -D_FNL -D_MPI_ -DDEV_OMP -DCOMPILER_IFX
+ext_libs       = dl m
+lib_dir        = $HDF5_ifx_fl/lib
+include        = $HDF5_ifx_fl/include
+libs           = $HDF5_ifx_fl/lib/libhdf5hl_fortran.a
+                 $HDF5_ifx_fl/lib/libhdf5_hl.a
+                 $HDF5_ifx_fl/lib/libhdf5_fortran.a
+                 $HDF5_ifx_fl/lib/libhdf5.a
+                 $ZLIB_ifx_fl
+                 $SZIP_ifx_fl
                  $GETMEMORY
 
 [nasto-nvf-mpi-cuda]
@@ -512,6 +538,14 @@ rule_5 = mv src/third_party_manual/CGAL/*.o exe/obj/
 help   = Make third party manual-compiling libraries on marconi100 cluster
 rule_1 = mkdir -p exe/mod exe/obj
 rule_2 = cd src/third_party_manual/CGAL/ ; g++ -std=c++17 -frounding-math -O2 -I/leonardo/prod/spack/03/install/0.19/linux-rhel8-icelake/nvhpc-23.1/boost-1.80.0-iq4pew7yycxkz2wcx6ckm2ix25cuozqv/include -I/leonardo/home/userinternal/fsalvado/ADAM/CGAL/CGAL-5.0.2/include/ -c cgal_c_wrappers.cpp ; cd -
+rule_3 = cd src/third_party_manual/getmemory/ ; gcc -c getmemory.c ; cd -
+rule_4 = mv src/third_party_manual/getmemory/*.o exe/obj/
+rule_5 = mv src/third_party_manual/CGAL/*.o exe/obj/
+
+[rule-makethirdpartymanual-fl]
+help   = Make third party manual-compiling libraries on marconi100 cluster
+rule_1 = mkdir -p exe/mod exe/obj
+rule_2 = cd src/third_party_manual/CGAL/ ; icpx -std=c++17 -frounding-math -O2 -I/software/spack/install/linux-sles15-icelake/oneapi-2024.2.0/boost-1.84.0-ybjg2civkr5r7per4qnnovi4ourubcyg/include -I/home/grossi/apps_libs/CGAL-5.6.2/include/ -c cgal_c_wrappers.cpp ; cd -
 rule_3 = cd src/third_party_manual/getmemory/ ; gcc -c getmemory.c ; cd -
 rule_4 = mv src/third_party_manual/getmemory/*.o exe/obj/
 rule_5 = mv src/third_party_manual/CGAL/*.o exe/obj/
