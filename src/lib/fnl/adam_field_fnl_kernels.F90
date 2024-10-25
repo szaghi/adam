@@ -206,7 +206,7 @@ contains
 
    if (.not.associated(local_map_ghost_cell_gpu)) return
    !$acc parallel loop independent DEVICEVAR(local_map_ghost_cell_gpu, q_gpu)
-   !$omp OMPLOOP DEVICEVAR(local_map_ghost_cell_gpu, q_gpu)
+   !!$omp OMPLOOP DEVICEVAR(local_map_ghost_cell_gpu, q_gpu)
    do v=1, size(q_gpu, dim=5)
       do mf=1, size(local_map_ghost_cell_gpu, dim=1)
          b_send       = local_map_ghost_cell_gpu(mf,1)

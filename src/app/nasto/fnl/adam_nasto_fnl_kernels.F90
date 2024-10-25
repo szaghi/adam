@@ -456,7 +456,7 @@ contains
 
    do crown=1, ngc
       !$acc parallel loop independent DEVICEVAR(local_map_bc_gpu, fec_1_6_array_gpu, q_bc_vars_gpu, q_gpu)
-      !$omp OMPLOOP DEVICEVAR(local_map_bc_gpu, fec_1_6_array_gpu, q_bc_vars_gpu, q_gpu)
+      !!$omp OMPLOOP DEVICEVAR(local_map_bc_gpu, fec_1_6_array_gpu, q_bc_vars_gpu, q_gpu)
       do c=1, size(local_map_bc_gpu, dim=1)
          b = local_map_bc_gpu(c, 1 ,crown)
          if (b>0) then

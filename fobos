@@ -2,7 +2,8 @@
 modes = ascot-nvf-mpi-cuda
         adam-com-lib-gnu
         adam-com-lib-gnu-debug
-        nasto-fnl-mpi
+        nasto-fnl-mpi-nvidia
+        nasto-fnl-mpi-intel
         nasto-nvf-mpi-cuda
         nasto-nvf-mpi-cuda-debug
         nasto-nvf-mpi-cuda-leo
@@ -88,8 +89,8 @@ libs     = $HDF5_gnu/lib/libhdf5hl_fortran.a
            $GETMEMORY
            $CGAL
 
-[nasto-fnl-mpi]
-help     = Build NASTO NVF app with FNL-MPI on SZ workstation
+[nasto-fnl-mpi-nvidia]
+help     = Build NASTO NVF app with FNL-MPI (NVIDIA compiler) on SZ workstation
 template = template-base
 target   = adam_nasto_fnl.F90
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF
@@ -107,6 +108,28 @@ libs     = $HDF5_nvf_24_7/lib/libhdf5hl_fortran.a
            $SZIP_nvf_24_7
            $GETMEMORY
            $CGAL
+
+[nasto-fnl-mpi-intel]
+help           = Build NASTO NVF app with FNL-MPI (INTEL compiler) on SZ laptop
+template       = template-base
+target         = adam_nasto_fnl.F90
+compiler       = intel_nextgen
+cflags         = -cpp -c -O2
+lflags         = -O2
+mpi            = True
+openmp         = True
+openmp_offload = True
+preproc        = -D_FNL -D_MPI_ -DDEV_OMP -DCOMPILER_IFX
+ext_libs       = dl m
+lib_dir        = $HDF5_ifx/lib
+include        = $HDF5_ifx/include
+libs           = $HDF5_ifx/lib/libhdf5hl_fortran.a
+                 $HDF5_ifx/lib/libhdf5_hl.a
+                 $HDF5_ifx/lib/libhdf5_fortran.a
+                 $HDF5_ifx/lib/libhdf5.a
+                 $ZLIB_ifx
+                 $SZIP_ifx
+                 $GETMEMORY
 
 [nasto-nvf-mpi-cuda]
 help     = Build NASTO NVF app with NVF-MPI-CUDA on SZ laptop

@@ -82,17 +82,17 @@ contains
    integer(I4P)                           :: all_solids    !< Last phi index, all solids summary.
    integer(I4P)                           :: i, j, k, b, v !< Counter.
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number, q_rk=>self%q_rk)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number)
    if (present(phi)) then
       all_solids = ubound(phi, dim=1)
-      !$omp parallel do collapse(5) default(firstprivate) shared(phi,q_rk,q)
+      !$omp parallel do collapse(5) default(firstprivate) shared(phi,q,self)
       do b=1, blocks_number
          do k=1, nk
             do j=1, nj
                do i=1, ni
                   do v=1, nv
                      if (phi(all_solids,i,j,k,b) < 0._R8P) then
-                        q_rk(v,i,j,k,b,s) = q(v,i,j,k,b)
+                        self%q_rk(v,i,j,k,b,s) = q(v,i,j,k,b)
                      endif
                   enddo
                enddo
@@ -101,13 +101,13 @@ contains
       enddo
       !$omp end parallel do
    else
-      !$omp parallel do collapse(5) default(firstprivate) shared(q_rk,q)
+      !$omp parallel do collapse(5) default(firstprivate) shared(q,self)
       do b=1, blocks_number
          do k=1, nk
             do j=1, nj
                do i=1, ni
                   do v=1, nv
-                     q_rk(v,i,j,k,b,s) = q(v,i,j,k,b)
+                     self%q_rk(v,i,j,k,b,s) = q(v,i,j,k,b)
                   enddo
                enddo
             enddo
@@ -131,11 +131,10 @@ contains
    integer(I4P)                           :: all_solids        !< Last phi index, all solids summary.
    integer(I4P)                           :: i, j, k, b, v, ss !< Counter.
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number, q_rk=>self%q_rk,&
-             alph=>self%alph)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number)
    if (present(phi)) then
       all_solids = ubound(phi, dim=1)
-      !$omp parallel do collapse(6) default(firstprivate) shared(phi,q_rk,alph)
+      !$omp parallel do collapse(6) default(firstprivate) shared(phi,self)
       do ss=1, s-1
          do b=1, blocks_number
             do k=1, nk
@@ -143,7 +142,7 @@ contains
                   do i=1, ni
                      do v=1, nv
                         if (phi(all_solids,i,j,k,b) < 0._R8P) then
-                           q_rk(v,i,j,k,b,s) = q_rk(v,i,j,k,b,s) + dt * alph(s,ss) * q_rk(v,i,j,k,b,ss)
+                           self%q_rk(v,i,j,k,b,s) = self%q_rk(v,i,j,k,b,s) + dt * self%alph(s,ss) * self%q_rk(v,i,j,k,b,ss)
                         endif
                      enddo
                   enddo
@@ -153,14 +152,14 @@ contains
       enddo
       !$omp end parallel do
    else
-      !$omp parallel do collapse(6) default(firstprivate) shared(q_rk,alph)
+      !$omp parallel do collapse(6) default(firstprivate) shared(self)
       do ss=1, s-1
          do b=1, blocks_number
             do k=1, nk
                do j=1, nj
                   do i=1, ni
                      do v=1, nv
-                        q_rk(v,i,j,k,b,s) = q_rk(v,i,j,k,b,s) + dt * alph(s, ss) * q_rk(v,i,j,k,b,ss)
+                        self%q_rk(v,i,j,k,b,s) = self%q_rk(v,i,j,k,b,s) + dt * self%alph(s, ss) * self%q_rk(v,i,j,k,b,ss)
                      enddo
                   enddo
                enddo
@@ -196,18 +195,18 @@ contains
    integer(I4P)                           :: all_solids    !< Last phi index, all solids summary.
    integer(I4P)                           :: i, j, k, b, v !< Counter.
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number, &
-             ark=>self%ark, brk=>self%brk, crk=>self%crk, q_n=>self%q_rk)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number)
    if (present(phi)) then
       all_solids = ubound(phi, dim=1)
-      !$omp parallel do collapse(5) default(firstprivate) shared(phi,q,q_n,dq,ark,brk,crk)
+      !$omp parallel do collapse(5) default(firstprivate) shared(phi,q,dq,self)
       do b=1, blocks_number
          do k=1, nk
             do j=1, nj
                do i=1, ni
                   do v=1, nv
                      if (phi(all_solids,i,j,k,b) < 0._R8P) then
-                        q(v,i,j,k,b) = ark(s) * q_n(v,i,j,k,b,1) + brk(s) * q(v,i,j,k,b) + dt * crk(s) * dq(v,i,j,k,b)
+                        q(v,i,j,k,b) = self%ark(s) * self%q_rk(v,i,j,k,b,1) + &
+                                       self%brk(s) * q(v,i,j,k,b) + dt * self%crk(s) * dq(v,i,j,k,b)
                      endif
                   enddo
                enddo
@@ -216,13 +215,14 @@ contains
       enddo
       !$omp end parallel do
    else
-      !$omp parallel do collapse(5) default(firstprivate) shared(q,q_n,dq,ark,brk,crk)
+      !$omp parallel do collapse(5) default(firstprivate) shared(q,dq,self)
       do b=1, blocks_number
          do k=1, nk
             do j=1, nj
                do i=1, ni
                   do v=1, nv
-                     q(v,i,j,k,b) = ark(s) * q_n(v,i,j,k,b,1) + brk(s) * q(v,i,j,k,b) + dt * crk(s) * dq(v,i,j,k,b)
+                     q(v,i,j,k,b) = self%ark(s) * self%q_rk(v,i,j,k,b,1) + &
+                                    self%brk(s) * q(v,i,j,k,b) + dt * self%crk(s) * dq(v,i,j,k,b)
                   enddo
                enddo
             enddo
@@ -398,15 +398,15 @@ contains
                                         1:)            !< Conservative variables.
    integer(I4P)                    :: i, j, k, b, v, s !< Counter.
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number, q_rk=>self%q_rk)
-   !$omp parallel do collapse(6) default(firstprivate) shared(q,q_rk)
-   do s=lbound(q_rk,dim=6),ubound(q_rk,dim=6)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number)
+   !$omp parallel do collapse(6) default(firstprivate) shared(q,self)
+   do s=lbound(self%q_rk,dim=6),ubound(self%q_rk,dim=6)
       do b=1, blocks_number
          do k=1, nk
             do j=1, nj
                do i=1, ni
                   do v=1, nv
-                     q_rk(v,i,j,k,b,s) = q(v,i,j,k,b)
+                     self%q_rk(v,i,j,k,b,s) = q(v,i,j,k,b)
                   enddo
                enddo
             enddo
@@ -450,11 +450,10 @@ contains
    integer(I4P)                           :: all_solids       !< Last phi index, all solids summary.
    integer(I4P)                           :: i, j, k, b, v, s !< Counter.
 
-   associate(nrk=>self%nrk, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number, &
-             beta=>self%beta, q_rk=>self%q_rk)
+   associate(nrk=>self%nrk, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number)
    if (present(phi)) then
       all_solids = ubound(phi, dim=1)
-      !$omp parallel do collapse(6) default(firstprivate) shared(phi,q,q_rk,beta)
+      !$omp parallel do collapse(6) default(firstprivate) shared(phi,q,self)
       do s=1, nrk
          do b=1, blocks_number
             do k=1, nk
@@ -462,7 +461,7 @@ contains
                   do i=1, ni
                      do v=1, nv
                         if (phi(all_solids,i,j,k,b) < 0._R8P) then
-                           q(v,i,j,k,b) = q(v,i,j,k,b) + dt * beta(s) * q_rk(v,i,j,k,b,s)
+                           q(v,i,j,k,b) = q(v,i,j,k,b) + dt * self%beta(s) * self%q_rk(v,i,j,k,b,s)
                         endif
                      enddo
                   enddo
@@ -472,14 +471,14 @@ contains
       enddo
       !$omp end parallel do
    else
-      !$omp parallel do collapse(6) default(firstprivate) shared(q,q_rk,beta)
+      !$omp parallel do collapse(6) default(firstprivate) shared(q,self)
       do s=1, nrk
          do b=1, blocks_number
             do k=1, nk
                do j=1, nj
                   do i=1, ni
                      do v=1, nv
-                        q(v,i,j,k,b) = q(v,i,j,k,b) + dt * beta(s) * q_rk(v,i,j,k,b,s)
+                        q(v,i,j,k,b) = q(v,i,j,k,b) + dt * self%beta(s) * self%q_rk(v,i,j,k,b,s)
                      enddo
                   enddo
                enddo

@@ -284,18 +284,18 @@ contains
    integer(I4P)                    :: i, j, k, b, s                    !< Counter.
 
    associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, &
-             nv=>self%field%nv, phi=>self%phi, solids_number=>self%solids_number)
-   !$omp parallel do collapse(4) default(firstprivate) shared(phi,q)
+             nv=>self%field%nv, solids_number=>self%solids_number)
+   !$omp parallel do collapse(4) default(firstprivate) shared(q,self)
    do b=1, blocks_number
       do k=1, nk
          do j=1, nj
             do i=1,ni
                solids_loop : do s=1, solids_number
-                  if (phi(s,i,j,k,b) > 0._R8P) then
+                  if (self%phi(s,i,j,k,b) > 0._R8P) then
                      ! compute dq
-                     n_phi_x = (phi(s,i+1,j,k,b) - phi(s,i-1,j,k,b))
-                     n_phi_y = (phi(s,i,j+1,k,b) - phi(s,i,j-1,k,b))
-                     n_phi_z = (phi(s,i,j,k+1,b) - phi(s,i,j,k-1,b))
+                     n_phi_x = (self%phi(s,i+1,j,k,b) - self%phi(s,i-1,j,k,b))
+                     n_phi_y = (self%phi(s,i,j+1,k,b) - self%phi(s,i,j-1,k,b))
+                     n_phi_z = (self%phi(s,i,j,k+1,b) - self%phi(s,i,j,k-1,b))
                      n_phi = abs(n_phi_x) + abs(n_phi_y) + abs(n_phi_z) + 10e-12
                      n_phi = 0.9_R8P / n_phi
                      n_phi_x = n_phi_x * n_phi
@@ -343,24 +343,24 @@ contains
    real(R8P)                   :: n_phi_mod, un_mod         !< Distance abs normal and normal velocity.
 
    associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, &
-             phi=>self%phi, solids_number=>self%solids_number, bcs_type=>self%bc_type)
-   !$omp parallel do collapse(4) default(firstprivate) shared(phi,q,bcs_type)
+             solids_number=>self%solids_number)
+   !$omp parallel do collapse(4) default(firstprivate) shared(q,self)
    do b=1, blocks_number
       do k=1, nk
          do j=1, nj
             do i=1,ni
                solids_loop : do s=1, solids_number
-                  if     (bcs_type(s) == BCS_VISCOUS) then
-                     if (phi(s,i,j,k,b) > 0) then
+                  if     (self%bc_type(s) == BCS_VISCOUS) then
+                     if (self%phi(s,i,j,k,b) > 0) then
                         q(2,i,j,k,b) = - q(2,i,j,k,b)
                         q(3,i,j,k,b) = - q(3,i,j,k,b)
                         q(4,i,j,k,b) = - q(4,i,j,k,b)
                      endif
-                  elseif (bcs_type(s) == BCS_EULER  ) then
-                     if (phi(s,i,j,k,b) > 0) then
-                        n_phi_x = phi(s,i+1,j,k,b) - phi(s,i-1,j,k,b)
-                        n_phi_y = phi(s,i,j+1,k,b) - phi(s,i,j-1,k,b)
-                        n_phi_z = phi(s,i,j,k+1,b) - phi(s,i,j,k-1,b)
+                  elseif (self%bc_type(s) == BCS_EULER  ) then
+                     if (self%phi(s,i,j,k,b) > 0) then
+                        n_phi_x = self%phi(s,i+1,j,k,b) - self%phi(s,i-1,j,k,b)
+                        n_phi_y = self%phi(s,i,j+1,k,b) - self%phi(s,i,j-1,k,b)
+                        n_phi_z = self%phi(s,i,j,k+1,b) - self%phi(s,i,j,k-1,b)
                         n_phi_mod = sqrt(n_phi_x**2 + n_phi_y**2 + n_phi_z**2)
                         n_phi_x = n_phi_x/n_phi_mod
                         n_phi_y = n_phi_y/n_phi_mod
@@ -389,17 +389,15 @@ contains
    type(analytical_sphere_object), intent(in)    :: sphere     !< Analytical sphere solid.
    integer(I4P)                                  :: b, i, j, k !< Counter.
 
-   associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, &
-             x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell, phi=>self%phi,                    &
-             center=>sphere%center, radius=>sphere%radius)
-   !$omp parallel do collapse(4) default(firstprivate) shared(phi,x_cell,y_cell,z_cell,center)
+   associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc)
+   !$omp parallel do collapse(4) default(firstprivate) shared(self)
    do b=1, blocks_number
       do i=1-ngc, ni+ngc
          do j=1-ngc, nj+ngc
             do k=1-ngc, nk+ngc
-               phi(solid,i,j,k,b) = - (sqrt((x_cell(i,b)-center(1))**2 + &
-                                            (y_cell(j,b)-center(2))**2 + &
-                                            (z_cell(k,b)-center(3))**2) - radius)
+               self%phi(solid,i,j,k,b) = - (sqrt((self%field%x_cell(i,b)-sphere%center(1))**2 + &
+                                                 (self%field%y_cell(j,b)-sphere%center(2))**2 + &
+                                                 (self%field%z_cell(k,b)-sphere%center(3))**2) - sphere%radius)
             enddo
          enddo
       enddo
@@ -415,44 +413,42 @@ contains
    type(analytical_sphere_object), intent(in)    :: sphere     !< Analytical circle solid.
    integer(I4P)                                  :: b, i, j, k !< Counter.
 
-   associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, &
-             x_cell=>self%field%x_cell, y_cell=>self%field%y_cell, z_cell=>self%field%z_cell, phi=>self%phi,                    &
-             center=>sphere%center, radius=>sphere%radius)
+   associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc)
    select case(sphere%axis)
    case('x')
-      !$omp parallel do collapse(4) default(firstprivate) shared(phi,y_cell,z_cell,center)
+      !$omp parallel do collapse(4) default(firstprivate) shared(self)
       do b=1, blocks_number
          do i=1-ngc, ni+ngc
             do j=1-ngc, nj+ngc
                do k=1-ngc, nk+ngc
-                  phi(solid,i,j,k,b) = - (sqrt((y_cell(j,b)-center(2))**2 + &
-                                               (z_cell(k,b)-center(3))**2) - radius)
+                  self%phi(solid,i,j,k,b) = - (sqrt((self%field%y_cell(j,b)-sphere%center(2))**2 + &
+                                                    (self%field%z_cell(k,b)-sphere%center(3))**2) - sphere%radius)
                enddo
             enddo
          enddo
       enddo
       !$omp end parallel do
    case('y')
-      !$omp parallel do collapse(4) default(firstprivate) shared(phi,x_cell,z_cell,center)
+      !$omp parallel do collapse(4) default(firstprivate) shared(self)
       do b=1, blocks_number
          do i=1-ngc, ni+ngc
             do j=1-ngc, nj+ngc
                do k=1-ngc, nk+ngc
-                  phi(solid,i,j,k,b) = - (sqrt((x_cell(i,b)-center(1))**2 + &
-                                               (z_cell(k,b)-center(3))**2) - radius)
+                  self%phi(solid,i,j,k,b) = - (sqrt((self%field%x_cell(i,b)-sphere%center(1))**2 + &
+                                                    (self%field%z_cell(k,b)-sphere%center(3))**2) - sphere%radius)
                enddo
             enddo
          enddo
       enddo
       !$omp end parallel do
    case('z')
-      !$omp parallel do collapse(4) default(firstprivate) shared(phi,x_cell,y_cell,center)
+      !$omp parallel do collapse(4) default(firstprivate) shared(self)
       do b=1, blocks_number
          do i=1-ngc, ni+ngc
             do j=1-ngc, nj+ngc
                do k=1-ngc, nk+ngc
-                  phi(solid,i,j,k,b) = - (sqrt((x_cell(i,b)-center(1))**2 + &
-                                               (y_cell(j,b)-center(2))**2) - radius)
+                  self%phi(solid,i,j,k,b) = - (sqrt((self%field%x_cell(i,b)-sphere%center(1))**2 + &
+                                                    (self%field%y_cell(j,b)-sphere%center(2))**2) - sphere%radius)
                enddo
             enddo
          enddo

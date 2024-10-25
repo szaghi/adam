@@ -481,7 +481,7 @@ contains
                                                    1-self%ngc:,&
                                                    1-self%ngc:,1:) !< Conservative variables.
 
-   if (allocated(self%field_gpu%maps%local_map_bc_crown_gpu)) &
+   if (associated(self%field_gpu%maps%local_map_bc_crown_gpu)) &
       call set_bc_q_gpu_dev(BC_EXTRAPOLATION=BC_EXTRAPOLATION, BC_INFLOW=BC_INFLOW,                       &
                             nv=self%nv, ngc=self%ngc, cv=self%physics%eos(1)%cv, R=self%physics%eos(1)%R, &
                             local_map_bc_gpu=self%field_gpu%maps%local_map_bc_crown_gpu,                  &
