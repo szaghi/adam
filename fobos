@@ -133,7 +133,6 @@ libs     = $HDF5_nvf_24_9/lib/libhdf5hl_fortran.a
            $ZLIB_gnu
            $SZIP_gnu
            $GETMEMORY
-           $CGAL
 
 [nasto-fnl-mpi-intel]
 help           = Build NASTO NVF app with FNL-MPI (INTEL compiler) on SZ laptop
@@ -551,10 +550,10 @@ exclude_dirs = src/lib_experimental/
 [rule-makethirdpartymanual]
 help   = Make third party manual-compiling libraries on SZ laptop
 rule_1 = mkdir -p exe/mod exe/obj
-rule_2 = cd src/third_party_manual/CGAL/ ; g++ -std=c++17 -frounding-math -O2 -I/opt/cgal/5.2.1/include/ -c cgal_c_wrappers.cpp ; cd -
-rule_3 = cd src/third_party_manual/getmemory/ ; gcc -c getmemory.c ; cd -
-rule_4 = mv src/third_party_manual/getmemory/*.o exe/obj/
-rule_5 = mv src/third_party_manual/CGAL/*.o exe/obj/
+rule_2 = cd src/third_party_manual/getmemory/ ; gcc -c getmemory.c ; cd -
+rule_3 = mv src/third_party_manual/getmemory/*.o exe/obj/
+; rule_4 = cd src/third_party_manual/CGAL/ ; g++ -std=c++17 -frounding-math -O2 -I/opt/cgal/5.2.1/include/ -c cgal_c_wrappers.cpp ; cd -
+; rule_5 = mv src/third_party_manual/CGAL/*.o exe/obj/
 
 [rule-makethirdpartymanual-leo]
 help   = Make third party manual-compiling libraries on marconi100 cluster
