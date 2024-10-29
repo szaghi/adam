@@ -1,45 +1,44 @@
-[submodule "src/list/flist"]
-	path = references/list/flist
-	url = https://github.com/jacobwilliams/flist
-[submodule "src/list/single-linked-list"]
-	path = references/list/single-linked-list
-	url = git@github.com:szaghi/single-linked-list.git
-[submodule "src/hash_table/HASTY"]
-	path = references/hash_table/HASTY
-	url = git@github.com:szaghi/HASTY.git
-[submodule "src/morton/MORTIF"]
-	path = references/morton/MORTIF
-	url = git@github.com:szaghi/MORTIF.git
-[submodule "src/third_party/PENF"]
-	path = src/third_party/PENF
-	url = https://github.com/szaghi/PENF
-[submodule "src/third_party/MORTIF"]
-	path = src/third_party/MORTIF
-	url = git@github.com:szaghi/MORTIF.git
-[submodule "src/third_party/VTKFortran"]
-	path = src/third_party/VTKFortran
-	url = git@github.com:szaghi/VTKFortran
-[submodule "src/third_party/StringiFor"]
-	path = src/third_party/StringiFor
-	url = git@github.com:szaghi/StringiFor
-[submodule "src/third_party/FoXy"]
-	path = src/third_party/FoXy
-	url = https://github.com/Fortran-FOSS-Programmers/FoXy
-[submodule "src/third_party/FACE"]
-	path = src/third_party/FACE
-	url = https://github.com/szaghi/FACE
 [submodule "src/third_party/BeFoR64"]
 	path = src/third_party/BeFoR64
 	url = https://github.com/szaghi/BeFoR64
-[submodule "src/third_party/VecFor"]
-	path = src/third_party/VecFor
-	url = git@github.com:szaghi/VecFor.git
-[submodule "src/third_party/FOSSIL"]
-	path = src/third_party/FOSSIL
-	url = git@github.com:szaghi/FOSSIL.git
+  branch = master
+[submodule "src/third_party/FACE"]
+	path = src/third_party/FACE
+	url = https://github.com/szaghi/FACE
+  branch = master
 [submodule "src/third_party/FiNeR"]
 	path = src/third_party/FiNeR
 	url = git@github.com:szaghi/FiNeR.git
+  branch = master
+[submodule "src/third_party/FOSSIL"]
+	path = src/third_party/FOSSIL
+	url = git@github.com:szaghi/FOSSIL.git
+  branch = master
+[submodule "src/third_party/FoXy"]
+	path = src/third_party/FoXy
+	url = https://github.com/Fortran-FOSS-Programmers/FoXy
+  branch = master
 [submodule "src/third_party/FUNDAL"]
 	path = src/third_party/FUNDAL
 	url = git@github.com:szaghi/FUNDAL.git
+  branch = main
+[submodule "src/third_party/MORTIF"]
+	path = src/third_party/MORTIF
+	url = git@github.com:szaghi/MORTIF.git
+  branch = master
+[submodule "src/third_party/PENF"]
+	path = src/third_party/PENF
+	url = https://github.com/szaghi/PENF
+  branch = master
+[submodule "src/third_party/StringiFor"]
+	path = src/third_party/StringiFor
+	url = git@github.com:szaghi/StringiFor
+  branch = master
+[submodule "src/third_party/VecFor"]
+	path = src/third_party/VecFor
+	url = git@github.com:szaghi/VecFor.git
+  branch = master
+[submodule "src/third_party/VTKFortran"]
+	path = src/third_party/VTKFortran
+	url = git@github.com:szaghi/VTKFortran
+  branch = master
