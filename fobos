@@ -571,6 +571,10 @@ rule_3 = mv src/third_party_manual/getmemory/*.o exe/obj/
 ; rule_4 = cd src/third_party_manual/CGAL/ ; icpx -std=c++17 -frounding-math -O2 -I/software/spack/install/linux-sles15-icelake/oneapi-2024.2.0/boost-1.84.0-ybjg2civkr5r7per4qnnovi4ourubcyg/include -I/home/grossi/apps_libs/CGAL-5.6.2/include/ -c cgal_c_wrappers.cpp ; cd -
 ; rule_5 = mv src/third_party_manual/CGAL/*.o exe/obj/
 
+[rule-maketar]
+help = Make tar archive of the project
+rule = tar --xform="s%^%adam/%" -czf adam.tar.gz *
+
 [rule-makedoc]
 help   = Build documentation from source files
 rule_1 = rm -rf doc/html/*
