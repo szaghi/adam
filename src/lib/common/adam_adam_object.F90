@@ -139,7 +139,7 @@ contains
 
    size_of_real = storage_size(1._R8P)/8._R8P
    save_factor = 0.95_R8P
-   nb = nint(save_factor * memory_avail*1e9 / (fields_number * self%grid%block_weight * size_of_real))
+   nb = nint(save_factor * memory_avail*1e3 / (fields_number * self%grid%block_weight * size_of_real))
    nodes_number  = nb * self%mpih%procs_number
    endsubroutine compute_blocks_number
 

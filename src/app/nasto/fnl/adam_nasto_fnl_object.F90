@@ -127,9 +127,9 @@ contains
    class(nasto_fnl_object), intent(inout) :: self     !< The equation.
    character(*),            intent(in)    :: filename !< Input file name.
 
-   call self%mpih_gpu%initialize(do_mpi_init=.true., do_device_init=.true.)
+   call self%mpih_gpu%initialize(do_mpi_init=.true., do_device_init=.true., verbose=.true.)
    call self%mpih_gpu%print_message('nasto_fnl_object%initialize start')
-   call self%initialize_common(filename=filename, memory_avail=real(self%mpih_gpu%dev_memory_avail,R8P))
+   call self%initialize_common(filename=filename, memory_avail=real(self%mpih_gpu%dev_memory_avail,R8P), verbose=.true.)
    call self%field_gpu%initialize(field=self%adam%field, nv_aux=self%nv_aux, verbose=.false.)
    call self%ib_gpu%initialize(ib=self%ib, field_gpu=self%field_gpu)
    call self%rk_gpu%initialize(rk=self%rk, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk, nv=self%nv)

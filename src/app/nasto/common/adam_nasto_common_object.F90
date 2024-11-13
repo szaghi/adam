@@ -72,17 +72,21 @@ contains
    endassociate
    endsubroutine allocate_common
 
-   subroutine initialize_common(self, filename, memory_avail, do_mpi_init)
+   subroutine initialize_common(self, filename, memory_avail, do_mpi_init, verbose)
    !< Initialize the equation common data.
    class(nasto_common_object), intent(inout)        :: self         !< The equation.
    character(*),               intent(in)           :: filename     !< Input file name.
    real(R8P),                  intent(in)           :: memory_avail !< Memory available for single MPI process.
    logical,                    intent(in), optional :: do_mpi_init  !< Flag to activate MPI init call.
+   logical,                    intent(in), optional :: verbose      !< Trigger verbose output.
+   logical                                          :: verbose_     !< Trigger verbose output, local variable.
    integer(I8P)                                     :: nodes_number !< Allocated nodes on tree.
    integer(I4P)                                     :: nb           !< Number of allocated blocks.
 
-   call self%mpih%initialize(do_mpi_init=do_mpi_init)
-   call self%mpih%print_message('nasto_common_object%initialize start')
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+
+   call self%mpih%initialize(do_mpi_init=do_mpi_init, verbose=verbose_)
+   if (verbose_) call self%mpih%print_message('nasto_common_object%initialize start')
    call self%io%initialize(filename=trim(filename))
    associate(file_parameters=>self%io%file_parameters)
    call self%bc%initialize(file_parameters=file_parameters)
@@ -106,7 +110,7 @@ contains
    call self%weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
    endassociate
    call self%allocate_common
-   call self%mpih%print_message('nasto_common_object%initialize finish')
+   if (verbose_) call self%mpih%print_message('nasto_common_object%initialize finish')
    contains
       subroutine associate_adam_data(grid, field, physics)
       !< Associate objects data to equation for easy handling.

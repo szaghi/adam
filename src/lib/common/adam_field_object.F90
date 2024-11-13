@@ -90,7 +90,7 @@ type :: field_object
    integer(I4P)               :: blocks_number=0_I4P !< Number of blocks actually stored.
    ! mesh related data, unrelated to field equations
    integer(I8P), allocatable  :: code(:)          !< Morton codes [nb].
-   integer(I4P), allocatable  :: coordinates(:,:) !< Coordinates IJKL for each block [nb,4].
+   integer(I4P), allocatable  :: coordinates(:,:) !< Coordinates IJKL for each block [4,nb].
    real(R8P),    allocatable  :: emin(:,:)        !< Coordinates of minimum abscissa of each block [3,nb].
    real(R8P),    allocatable  :: emax(:,:)        !< Coordinates of maximum abscissa of each block [3,nb].
    real(R8P),    allocatable  :: dxyz(:,:)        !< Space steps of each block [3,nb].

@@ -109,24 +109,31 @@ contains
    call MPI_FINALIZE(self%error)
    endsubroutine finalize
 
-   subroutine initialize(self, do_mpi_init, do_device_init)
+   subroutine initialize(self, do_mpi_init, do_device_init, myrankstr_char_length, verbose)
    !< Initialize MPI handler data.
-   class(mpih_object) , intent(inout)        :: self                !< MPI handler.
-   logical,             intent(in), optional :: do_mpi_init         !< Flag to activate MPI init call.
-   logical,             intent(in), optional :: do_device_init      !< Flag to activate device init call (used by backends).
-   integer(C_LONG)                           :: mem_free, mem_total !< CPU memory.
+   class(mpih_object) , intent(inout)        :: self                   !< MPI handler.
+   logical,             intent(in), optional :: do_mpi_init            !< Flag to activate MPI init call.
+   logical,             intent(in), optional :: do_device_init         !< Flag to activate device init call (used by backends).
+   integer(I4P),        intent(in), optional :: myrankstr_char_length  !< MPI ID string length.
+   logical,             intent(in), optional :: verbose                !< Trigger verbose output.
+   logical                                   :: verbose_               !< Trigger verbose output, local variable.
+   integer(I4P)                              :: myrankstr_char_length_ !< MPI ID string length, local variable.
+   integer(C_LONG)                           :: mem_free, mem_total    !< CPU memory.
+
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   myrankstr_char_length_ = 5 ; if (present(myrankstr_char_length)) myrankstr_char_length_ = myrankstr_char_length
 
    if (present(do_mpi_init)) then
       if (do_mpi_init) call MPI_INIT(self%error)
    endif
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
-   self%myrankstr = '[myrank-'//trim(strz(self%myrank,6))//']'
-   call self%print_message('mpih_object%initialize start')
+   self%myrankstr = '[mpi-'//trim(strz(self%myrank,myrankstr_char_length_))//']'
+   if (verbose_) call self%print_message('mpih_object%initialize start')
    call cpuMemGetInfo(mem_total, mem_free)
    self%memory_avail = real(mem_total, R8P)/1e9/self%procs_number
    if (allocated(self%req_send_recv)) deallocate(self%req_send_recv) ; allocate(self%req_send_recv(0:self%procs_number*2-1))
-   call self%print_message('mpih_object%initialize finish')
+   if (verbose_) call self%print_message('mpih_object%initialize finish')
    endsubroutine initialize
 
    subroutine print_message(self, msg)

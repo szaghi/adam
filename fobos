@@ -113,7 +113,6 @@ libs     = $HDF5_nvf_24_7/lib/libhdf5hl_fortran.a
            $ZLIB_nvf_24_7
            $SZIP_nvf_24_7
            $GETMEMORY
-           $CGAL
 
 [nasto-fnl-mpi-nvidia-szlaptop]
 help     = Build NASTO NVF app with FNL-MPI (NVIDIA compiler) on SZ laptop

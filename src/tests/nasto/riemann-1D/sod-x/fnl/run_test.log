@@ -1,0 +1,142 @@
+[mpi-00000]mpih_object%initialize start
+[mpi-00000]mpih_object%initialize finish
+[mpi-00000]MPIH main data
+[mpi-00000]  myrank:              0
+[mpi-00000]  procs_number:        1
+[mpi-00000]  host memory_avail:   31124568
+[mpi-00000]  device memory_avail: 11628707
+[mpi-00000]  local_comm:          3
+[mpi-00000]  myhos:               0
+[mpi-00000]  devtype:             4
+[mpi-00000]  devs_number:         2
+[mpi-00000]  mydev:               0
+[mpi-00000]nasto_fnl_object%initialize start
+[mpi-00000]mpih_object%initialize start
+[mpi-00000]mpih_object%initialize finish
+[mpi-00000]nasto_common_object%initialize start
+[mpi-00000]nasto_io_object%initialize start
+[mpi-00000]IO main data
+[mpi-00000]  file parameters:     adam-nasto-sod-x.ini
+[mpi-00000]  it save:             +10
+[mpi-00000]  output basename:     sod-x
+[mpi-00000]  restart:             F
+[mpi-00000]  restart basename:    sod-x-restart
+[mpi-00000]  restart (it) save:   +10
+[mpi-00000]  save memory status:  F
+[mpi-00000]  residuals (it) save: +1
+[mpi-00000]nasto_io_object%initialize finish
+[mpi-00000]nasto_bc_object%initialize start
+[mpi-00000]nasto_bc_object%initialize finish
+[mpi-00000]nasto_physics_object%initialize start
+[mpi-00000]Physics main data:
+[mpi-00000]  nasto_physics_object ns:     +1
+[mpi-00000]  nasto_physics_object nv:     +5
+[mpi-00000]  nasto_physics_object nv_aux: +9
+[mpi-00000]  nasto_physics_object np:     +5
+[mpi-00000]  nasto_physics_object IR:     +2
+[mpi-00000]  nasto_physics_object IU:     +3
+[mpi-00000]  nasto_physics_object IV:     +4
+[mpi-00000]  nasto_physics_object IW:     +5
+[mpi-00000]  nasto_physics_object IG:     +6
+[mpi-00000]  nasto_physics_object IP:     +7
+[mpi-00000]  nasto_physics_object cp(1):  +0.104000400000000E+004
+[mpi-00000]  nasto_physics_object cv(1):  +0.742860000000000E+003
+[mpi-00000]  nasto_physics_object  g(1):  +0.140000000000000E+001
+[mpi-00000]  nasto_physics_object  R(1):  +0.297144000000000E+003
+[mpi-00000]nasto_physics_object%initialize finish
+[mpi-00000]grid_object%initialize start
+[mpi-00000]grid main data
+[mpi-00000]  domain minimum extent:  0.000000000000000E+000, 0.000000000000000E+000, 0.000000000000000E+000
+[mpi-00000]  domain maximum extent: +0.100000000000000E+001,+0.100000000000000E+001,+0.100000000000000E+001
+[mpi-00000]  ni:                    +100
+[mpi-00000]  nj:                    +8
+[mpi-00000]  nk:                    +8
+[mpi-00000]  ngc:                   +6
+[mpi-00000]  boundary conditions:   +1,+1,+1,+1,+1,+1
+[mpi-00000]  block weight:          +44800
+[mpi-00000]  IJK periodic:          F F F
+[mpi-00000]  nullify xyz:           F T T
+[mpi-00000]  dxyz l=0             +0.139803962747354E-077,+0.116457602893184E+200,+0.226820394623083E-152
+[mpi-00000]  dxyz l=1             +0.596571918861715E+217,+0.174755410754933E-076,+0.968935856917570E+228
+[mpi-00000]  dxyz l=2             +0.678632887640927E+246,+0.304125272904228E-152,+0.751683752410601E-154
+[mpi-00000]  dxyz l=3             +0.624416282528786E-091,+0.762802569481417E-154,+0.149399804540446E+195
+[mpi-00000]  dxyz l=4             +0.144531218019338E+165,+0.566217415795625E-027,+0.215121096097382E-259
+[mpi-00000]  dxyz l=5             +0.139803962747354E-077,+0.761690040171971E+247,+0.116457614302414E+200
+[mpi-00000]  dxyz l=6             +0.646572285824700E+169,+0.225902575811393E+272,+0.455751385280183E+233
+[mpi-00000]  dxyz l=7             +0.771112061486482E+139,+0.643525793692801E+151,+0.793319626772960E+151
+[mpi-00000]  dxyz l=8             +0.297396081583214E+221,+0.719969998921521E-101,+0.158753676234514E-076
+[mpi-00000]  dxyz l=9             +0.291463940233733E+221,+0.846133128201278E+276,+0.361244639271353E+204
+[mpi-00000]  dxyz l=10             +0.196314180987538E-154,+0.453954835199919E+130,+0.174755408975475E-076
+[mpi-00000]  dxyz l=11             +0.888062013485421E+251,+0.960513867143419E+170,+0.555484606511743E+252
+[mpi-00000]  dxyz l=12             +0.601347059953205E-155,+0.982358287987338E+199,+0.108847902082987E-152
+[mpi-00000]  dxyz l=13             +0.195215926669033E+232,+0.372526825876743E+228,+0.576282258518652E+107
+[mpi-00000]  dxyz l=14             +0.216066995084377E-058,+0.174638334865838E-076,+0.264710937079813E+161
+[mpi-00000]  dxyz l=15             +0.177650453864102E+247,+0.427667745969434E+180,+0.756457284914536E-154
+[mpi-00000]  dxyz l=16             +0.596570164173587E+217,+0.174755410754933E-076,+0.968935856917570E+228
+[mpi-00000]  dxyz l=17             +0.678632887640927E+246,+0.304125272904228E-152,+0.751683752408730E-154
+[mpi-00000]  dxyz l=18             +0.624416282528897E-091,+0.762802569481417E-154,+0.149399804540446E+195
+[mpi-00000]  dxyz l=19             +0.144531218019338E+165,+0.102776910076636E-027,+0.235445777893572E-259
+[mpi-00000]  dxyz l=20             +0.139803962747354E-077,+0.761690040171971E+247,+0.116457614302414E+200
+[mpi-00000]  dxyz l=21             +0.646572285824700E+169,+0.198730023050728E-028,+0.322444013733260E-057
+[mpi-00000]  dxyz l=22             +0.139804330668552E-077,+0.174548025961747E-076,+0.158753676234514E-076
+[mpi-00000]  dxyz l=23             +0.291463940233733E+221,+0.846133128201278E+276,+0.361244639271353E+204
+[mpi-00000]  dxyz l=24             +0.692262803674887E-073,+0.846052390122900E-043,+0.174755414642707E-076
+[mpi-00000]  dxyz l=25             +0.302723572308732E-101,+0.982358287987614E+199,+0.108847902082987E-152
+[mpi-00000]  dxyz l=26             +0.195215926669033E+232,+0.372526825876743E+228,+0.701689315778877E+188
+[mpi-00000]  dxyz l=27             +0.117130159437388E-077,+0.174755410771975E-076,+0.174755410761911E-076
+[mpi-00000]  dxyz l=28             +0.596568824236379E+217,+0.174755410754933E-076,+0.968935856917570E+228
+[mpi-00000]  dxyz l=29             +0.678632887640927E+246,+0.304125272904228E-152,+0.756424499308355E-154
+[mpi-00000]  dxyz l=30             +0.274262186876955E-058,+0.174755410761911E-076, 0.000000000000000E+000
+[mpi-00000]grid_object%initialize finish
+[mpi-00000]adam_object%initialize start
+[mpi-00000]tree_object%initialize start
+[mpi-00000]tree main data
+[mpi-00000]  buckets number: +421
+[mpi-00000]  nodes number:   +1
+[mpi-00000]  max load:       +0.900000000000000E+000
+[mpi-00000]  ratio:          +32544
+[mpi-00000]  max level:      +0
+[mpi-00000]  ijkl_prune:     +0,+0,+0,-1
+[mpi-00000]  iu_ref_levels:  +0
+[mpi-00000]tree_object%initialize finish
+[mpi-00000]maps_object%initialize start
+[mpi-00000]maps_object%initialize finish
+[mpi-00000]field_object%initialize start
+[mpi-00000]field_object%initialize(code) free/total memory BEFORE allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(code) free/total memory AFTER  allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(coordinates) free/total memory BEFORE allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(coordinates) free/total memory AFTER  allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(emin) free/total memory BEFORE allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(emin) free/total memory AFTER  allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(emax) free/total memory BEFORE allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(emax) free/total memory AFTER  allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(dxyz) free/total memory BEFORE allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(dxyz) free/total memory AFTER  allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(x_cell) free/total memory BEFORE allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(x_cell) free/total memory AFTER  allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(y_cell) free/total memory BEFORE allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(y_cell) free/total memory AFTER  allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(z_cell) free/total memory BEFORE allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(z_cell) free/total memory AFTER  allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(x_node) free/total memory BEFORE allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(x_node) free/total memory AFTER  allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(y_node) free/total memory BEFORE allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(y_node) free/total memory AFTER  allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(z_node) free/total memory BEFORE allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(z_node) free/total memory AFTER  allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(q) free/total memory BEFORE allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(q) free/total memory AFTER  allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(q_work) free/total memory BEFORE allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(q_work) free/total memory AFTER  allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(residuals) free/total memory BEFORE allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(residuals) free/total memory AFTER  allocate:+31778422784,+33579409408[bytes]
+[mpi-00000]field_object%initialize(blocks_numbers) free/total memory BEFORE allocate:+30396239872,+33579409408[bytes]
+[mpi-00000]field_object%initialize(blocks_numbers) free/total memory AFTER  allocate:+30396239872,+33579409408[bytes]
+[mpi-00000]field_object%initialize finish
+[mpi-00000]blocks number (maximum) for single MPI [nb]: +385
+[mpi-00000]blocks number for all MPI [nodes_number]: +1
+[mpi-00000]adam_object%amr_update start
+[mpi-00000]maximum number of blocks created after AMR update: +1                  /+385
+[mpi-00000]maps_object%make_comm_local_maps start
+[mpi-00000]maps_object%make_comm_local_maps finish
+ cazzo coordinates            0        32765  -1816285832      5635988
