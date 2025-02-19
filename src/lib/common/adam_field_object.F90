@@ -66,7 +66,6 @@ module adam_field_object
 use adam_grid_object
 use adam_maps_object
 use adam_mpih_object
-use adam_memory_library
 use adam_parameters
 use finer, only : file_ini
 use penf
@@ -84,22 +83,26 @@ type :: field_object
    type(grid_object), pointer :: grid=>null() !< The grid.
    type(maps_object), pointer :: maps=>null() !< The maps.
    ! field data dimensions
-   integer(I4P)               :: nv=1_I4P            !< Number of field variables.
-   integer(I4P)               :: block_weight=0_I4P  !< Block weight, `cells_number * variables_number`.
-   integer(I4P)               :: nb=0_I4P            !< Number of all blocks that can be stored.
-   integer(I4P)               :: blocks_number=0_I4P !< Number of blocks actually stored.
+   integer(I4P) :: nv=0_I4P               !< Number of field variables.
+   integer(I4P) :: nv_pic=0_I4P           !< Number of PIC (Particle In Cell) variables.
+   integer(I4P) :: block_weight=0_I4P     !< Block weight, `cells_number * variables_number`.
+   integer(I4P) :: block_weight_pic=0_I4P !< Block weight, `particles_number * pic_variables_number`.
+   integer(I4P) :: nb=0_I4P               !< Number of all blocks that can be stored.
+   integer(I4P) :: blocks_number=0_I4P    !< Number of blocks actually stored.
+   integer(I4P) :: np=0_I4P               !< Number of all particles that can be stored for each block.
    ! mesh related data, unrelated to field equations
-   integer(I8P), allocatable  :: code(:)          !< Morton codes [nb].
-   integer(I4P), allocatable  :: coordinates(:,:) !< Coordinates IJKL for each block [4,nb].
-   real(R8P),    allocatable  :: emin(:,:)        !< Coordinates of minimum abscissa of each block [3,nb].
-   real(R8P),    allocatable  :: emax(:,:)        !< Coordinates of maximum abscissa of each block [3,nb].
-   real(R8P),    allocatable  :: dxyz(:,:)        !< Space steps of each block [3,nb].
-   real(R8P),    allocatable  :: x_node(:,:)      !< X node coordinates [3,nb].
-   real(R8P),    allocatable  :: y_node(:,:)      !< Y node coordinates [3,nb].
-   real(R8P),    allocatable  :: z_node(:,:)      !< Z node coordinates [3,nb].
-   real(R8P),    allocatable  :: x_cell(:,:)      !< X cell coordinates [3,nb].
-   real(R8P),    allocatable  :: y_cell(:,:)      !< Y cell coordinates [3,nb].
-   real(R8P),    allocatable  :: z_cell(:,:)      !< Z cell coordinates [3,nb].
+   integer(I8P), allocatable :: code(:)             !< Morton codes [nb].
+   integer(I4P), allocatable :: coordinates(:,:)    !< Coordinates IJKL for each block [4,nb].
+   integer(I4P), allocatable :: particles_number(:) !< Number of partcles actually stored in each block [nb].
+   real(R8P),    allocatable :: emin(:,:)           !< Coordinates of minimum abscissa of each block [3,nb].
+   real(R8P),    allocatable :: emax(:,:)           !< Coordinates of maximum abscissa of each block [3,nb].
+   real(R8P),    allocatable :: dxyz(:,:)           !< Space steps of each block [3,nb].
+   real(R8P),    allocatable :: x_node(:,:)         !< X node coordinates [3,nb].
+   real(R8P),    allocatable :: y_node(:,:)         !< Y node coordinates [3,nb].
+   real(R8P),    allocatable :: z_node(:,:)         !< Z node coordinates [3,nb].
+   real(R8P),    allocatable :: x_cell(:,:)         !< X cell coordinates [3,nb].
+   real(R8P),    allocatable :: y_cell(:,:)         !< Y cell coordinates [3,nb].
+   real(R8P),    allocatable :: z_cell(:,:)         !< Z cell coordinates [3,nb].
    ! MPI data, unrelated to field equations
    integer(I4P), allocatable :: blocks_numbers(:)         !< Number of blocks actually stored in all processes.
    integer(I4P), allocatable :: refinements_needed(:)     !< Refinements needed of my blocks.
@@ -109,6 +112,8 @@ type :: field_object
    ! field equations data
    real(R8P), allocatable :: q(     :,:,:,:,:) !< Field cell centered variables.
    real(R8P), allocatable :: q_work(:,:,:,:,:) !< Field cell centered variables, working buffer memory.
+   real(R8P), allocatable :: q_pic(     :,:,:) !< Partcile centered variables.
+   real(R8P), allocatable :: q_pic_work(:,:,:) !< Partcile centered variables, working buffer memory.
    real(R8P), allocatable :: residuals(:)      !< Field residuals, normalized.
    contains
       ! public methods
@@ -174,11 +179,13 @@ contains
    allocate(code_new(self%blocks_number))
    do b=1, self%blocks_number
       self%q_work(:,:,:,:,b) = self%q(:,:,:,:,self%maps%inner_outer_block_map(b))
+      self%q_pic_work(:,:,b) = self%q_pic(:,:,self%maps%inner_outer_block_map(b))
       coordinates_new(:,b) = self%coordinates(:,self%maps%inner_outer_block_map(b))
       code_new(b) = self%code(self%maps%inner_outer_block_map(b))
    enddo
    do b=1, self%blocks_number
       self%q(:,:,:,:,b) = self%q_work(:,:,:,:,b)
+      self%q_pic(:,:,b) = self%q_pic_work(:,:,b)
       self%coordinates(:,b) = coordinates_new(:,b)
       self%code(b) = code_new(b)
    enddo
@@ -231,12 +238,15 @@ contains
    character(len=:), allocatable   :: desc             !< Description.
    character(len=1), parameter     :: NL=new_line('a') !< New line character.
 
-   desc =       self%mpih%myrankstr//'field main data'                                               //NL
-   desc = desc//self%mpih%myrankstr//'  field variables number (nv): '//trim(str(self%nv           ))//NL
-   desc = desc//self%mpih%myrankstr//'  all blocks number (nb):      '//trim(str(self%nb           ))//NL
-   desc = desc//self%mpih%myrankstr//'  blocks number:               '//trim(str(self%blocks_number))//NL
-   desc = desc//self%mpih%myrankstr//'  block weight:                '//trim(str(self%block_weight ))//NL
-   desc = desc//self%mpih%myrankstr//'  q shape:                     '//trim(str(shape(self%q)     ))
+   desc =       self%mpih%myrankstr//'field main data'                                                      //NL
+   desc = desc//self%mpih%myrankstr//'  field variables number (nv):     '//trim(str(self%nv              ))//NL
+   desc = desc//self%mpih%myrankstr//'  PIC   variables number (nv_pic): '//trim(str(self%nv_pic          ))//NL
+   desc = desc//self%mpih%myrankstr//'  all blocks number (nb):          '//trim(str(self%nb              ))//NL
+   desc = desc//self%mpih%myrankstr//'  blocks number:                   '//trim(str(self%blocks_number   ))//NL
+   desc = desc//self%mpih%myrankstr//'  block weight:                    '//trim(str(self%block_weight    ))//NL
+   desc = desc//self%mpih%myrankstr//'  block weigh pic                  '//trim(str(self%block_weight_pic))//NL
+   desc = desc//self%mpih%myrankstr//'  q shape:                         '//trim(str(shape(self%q)        ))//NL
+   desc = desc//self%mpih%myrankstr//'  q_pic shape:                     '//trim(str(shape(self%q_pic)    ))
    endfunction description
 
    function do_caxis_intersect(self, b, caxis_origin, caxis_direction, caxis_block_indexes) result(do_intersect)
@@ -362,14 +372,16 @@ contains
       endsubroutine check_slab
    endfunction do_ray_intersect
 
-   subroutine initialize(self, grid, maps, file_parameters, nv, nb)
+   subroutine initialize(self, grid, maps, file_parameters, nv, nv_pic, nb, np)
    !< Initialize field.
    class(field_object), intent(inout)           :: self            !< The field.
    type(grid_object),   intent(in), target      :: grid            !< The grid.
    type(maps_object),   intent(in), target      :: maps            !< The maps.
    type(file_ini),      intent(inout), optional :: file_parameters !< INI file handler.
    integer(I4P),        intent(in),    optional :: nv              !< Number of field variables.
+   integer(I4P),        intent(in),    optional :: nv_pic          !< Number of PIC variables.
    integer(I4P),        intent(in),    optional :: nb              !< Number of all blocks that can be stored.
+   integer(I4P),        intent(in),    optional :: np              !< Number of all particles that can be stored in each block.
 
    call self%mpih%initialize
    call self%mpih%print_message('field_object%initialize start')
@@ -377,73 +389,93 @@ contains
    self%maps => maps
    if (present(file_parameters)) call self%load_from_ini_file(file_parameters)
    ! parameters explicitely passed ovveride ones file-passed
-   if (present(nv)) self%nv  = nv
+   if (present(nv))     self%nv     = nv
+   if (present(nv_pic)) self%nv_pic = nv_pic
+   if (present(nb))     self%nb     = nb
+   if (present(np))     self%np     = np
    self%block_weight = (self%grid%ngc+self%grid%ni+self%grid%ngc)* &
                        (self%grid%ngc+self%grid%nj+self%grid%ngc)* &
                        (self%grid%ngc+self%grid%nk+self%grid%ngc)*self%nv
-   if (present(nb)) self%nb  = nb
    if (self%nb>0) then
-      call alloc_var_cpu(var=self%code, ulb=[1,self%nb],&
-                         msg=self%mpih%myrankstr//'field_object%initialize(code) ', verbose=.true.)
+      call allocate_variable(var=self%code, ulb=[1,self%nb],&
+                             msg=self%mpih%myrankstr//'field_object%initialize(code) ', verbose=.true.)
       self%code    = -2_I8P
       self%code(1) = -1_I8P ! first block is assumed to be ADAM
-      call alloc_var_cpu(var=self%coordinates, ulb=reshape([1,4, 1,self%nb],[2,2]), &
-                         msg=self%mpih%myrankstr//'field_object%initialize(coordinates) ', verbose=.true.)
-      call alloc_var_cpu(var=self%emin, ulb=reshape([1,3, 1,self%nb],[2,2]), &
-                         msg=self%mpih%myrankstr//'field_object%initialize(emin) ', verbose=.true.)
-      call alloc_var_cpu(var=self%emax, ulb=reshape([1,3, 1,self%nb],[2,2]), &
-                         msg=self%mpih%myrankstr//'field_object%initialize(emax) ', verbose=.true.)
+      call allocate_variable(var=self%coordinates, ulb=reshape([1,4, 1,self%nb],[2,2]), &
+                             msg=self%mpih%myrankstr//'field_object%initialize(coordinates) ', verbose=.true.)
+      call allocate_variable(var=self%particles_number, ulb=[1,self%nb],&
+                             msg=self%mpih%myrankstr//'field_object%initialize(particles_number) ', verbose=.true.)
+      call allocate_variable(var=self%emin, ulb=reshape([1,3, 1,self%nb],[2,2]), &
+                             msg=self%mpih%myrankstr//'field_object%initialize(emin) ', verbose=.true.)
+      call allocate_variable(var=self%emax, ulb=reshape([1,3, 1,self%nb],[2,2]), &
+                             msg=self%mpih%myrankstr//'field_object%initialize(emax) ', verbose=.true.)
       self%emin(:,1) = self%grid%domain_emin
       self%emax(:,1) = self%grid%domain_emax
-      call alloc_var_cpu(var=self%dxyz, ulb=reshape([1,3, 1,self%nb],[2,2]), &
-                         msg=self%mpih%myrankstr//'field_object%initialize(dxyz) ', verbose=.true.)
-      call alloc_var_cpu(var=self%x_cell,                                         &
-                         ulb=reshape([1-self%grid%ngc,self%grid%ni+self%grid%ngc, &
-                                      1,self%nb],[2,2]),                          &
-                         msg=self%mpih%myrankstr//'field_object%initialize(x_cell) ', verbose=.true.)
-      call alloc_var_cpu(var=self%y_cell,                                         &
-                         ulb=reshape([1-self%grid%ngc,self%grid%nj+self%grid%ngc, &
-                                      1,self%nb],[2,2]),                          &
-                         msg=self%mpih%myrankstr//'field_object%initialize(y_cell) ', verbose=.true.)
-      call alloc_var_cpu(var=self%z_cell,                                         &
-                         ulb=reshape([1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
-                                      1,self%nb],[2,2]),                          &
-                         msg=self%mpih%myrankstr//'field_object%initialize(z_cell) ', verbose=.true.)
-      call alloc_var_cpu(var=self%x_node,                                         &
-                         ulb=reshape([0-self%grid%ngc,self%grid%ni+self%grid%ngc, &
-                                      1,self%nb],[2,2]),                          &
-                         msg=self%mpih%myrankstr//'field_object%initialize(x_node) ', verbose=.true.)
-      call alloc_var_cpu(var=self%y_node,                                         &
-                         ulb=reshape([0-self%grid%ngc,self%grid%nj+self%grid%ngc, &
-                                      1,self%nb],[2,2]),                          &
-                         msg=self%mpih%myrankstr//'field_object%initialize(y_node) ', verbose=.true.)
-      call alloc_var_cpu(var=self%z_node,                                         &
-                         ulb=reshape([0-self%grid%ngc,self%grid%nk+self%grid%ngc, &
-                                      1,self%nb],[2,2]),                          &
-                         msg=self%mpih%myrankstr//'field_object%initialize(z_node) ', verbose=.true.)
-      call alloc_var_cpu(var=self%q,                                              &
-                         ulb=reshape([1,self%nv,                                  &
-                                      1-self%grid%ngc,self%grid%ni+self%grid%ngc, &
-                                      1-self%grid%ngc,self%grid%nj+self%grid%ngc, &
-                                      1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
-                                      1,self%nb],[2,5]),                          &
-                         msg=self%mpih%myrankstr//'field_object%initialize(q) ', verbose=.true.)
-      call alloc_var_cpu(var=self%q_work,                                         &
-                         ulb=reshape([1,self%nv,                                  &
-                                      1-self%grid%ngc,self%grid%ni+self%grid%ngc, &
-                                      1-self%grid%ngc,self%grid%nj+self%grid%ngc, &
-                                      1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
-                                      1,self%nb],[2,5]),                          &
-                         msg=self%mpih%myrankstr//'field_object%initialize(q_work) ', verbose=.true.)
-      call alloc_var_cpu(var=self%residuals, &
-                         ulb=[1,self%nv],    &
-                         msg=self%mpih%myrankstr//'field_object%initialize(residuals) ', verbose=.true.)
-      self%q = 0._R8P
-      self%q_work = 0._R8P
+      call allocate_variable(var=self%dxyz, ulb=reshape([1,3, 1,self%nb],[2,2]), &
+                             msg=self%mpih%myrankstr//'field_object%initialize(dxyz) ', verbose=.true.)
+      call allocate_variable(var=self%x_cell,                                         &
+                             ulb=reshape([1-self%grid%ngc,self%grid%ni+self%grid%ngc, &
+                                          1,self%nb],[2,2]),                          &
+                             msg=self%mpih%myrankstr//'field_object%initialize(x_cell) ', verbose=.true.)
+      call allocate_variable(var=self%y_cell,                                         &
+                             ulb=reshape([1-self%grid%ngc,self%grid%nj+self%grid%ngc, &
+                                          1,self%nb],[2,2]),                          &
+                             msg=self%mpih%myrankstr//'field_object%initialize(y_cell) ', verbose=.true.)
+      call allocate_variable(var=self%z_cell,                                         &
+                             ulb=reshape([1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
+                                          1,self%nb],[2,2]),                          &
+                             msg=self%mpih%myrankstr//'field_object%initialize(z_cell) ', verbose=.true.)
+      call allocate_variable(var=self%x_node,                                         &
+                             ulb=reshape([0-self%grid%ngc,self%grid%ni+self%grid%ngc, &
+                                          1,self%nb],[2,2]),                          &
+                             msg=self%mpih%myrankstr//'field_object%initialize(x_node) ', verbose=.true.)
+      call allocate_variable(var=self%y_node,                                         &
+                             ulb=reshape([0-self%grid%ngc,self%grid%nj+self%grid%ngc, &
+                                          1,self%nb],[2,2]),                          &
+                             msg=self%mpih%myrankstr//'field_object%initialize(y_node) ', verbose=.true.)
+      call allocate_variable(var=self%z_node,                                         &
+                             ulb=reshape([0-self%grid%ngc,self%grid%nk+self%grid%ngc, &
+                                          1,self%nb],[2,2]),                          &
+                             msg=self%mpih%myrankstr//'field_object%initialize(z_node) ', verbose=.true.)
+      call allocate_variable(var=self%q,                                              &
+                             ulb=reshape([1,self%nv,                                  &
+                                          1-self%grid%ngc,self%grid%ni+self%grid%ngc, &
+                                          1-self%grid%ngc,self%grid%nj+self%grid%ngc, &
+                                          1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
+                                          1,self%nb],[2,5]),                          &
+                             msg=self%mpih%myrankstr//'field_object%initialize(q) ', verbose=.true.)
+      call allocate_variable(var=self%q_work,                                         &
+                             ulb=reshape([1,self%nv,                                  &
+                                          1-self%grid%ngc,self%grid%ni+self%grid%ngc, &
+                                          1-self%grid%ngc,self%grid%nj+self%grid%ngc, &
+                                          1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
+                                          1,self%nb],[2,5]),                          &
+                             msg=self%mpih%myrankstr//'field_object%initialize(q_work) ', verbose=.true.)
+      call allocate_variable(var=self%residuals, &
+                             ulb=[1,self%nv],    &
+                             msg=self%mpih%myrankstr//'field_object%initialize(residuals) ', verbose=.true.)
+      self%q         = 0._R8P
+      self%q_work    = 0._R8P
       self%residuals = 0._R8P
+      self%block_weight_pic = 0_I4P
+      if (self%nv_pic>0.and.self%np>0) then
+         self%block_weight_pic = self%np * self%nv_pic
+         call allocate_variable(var=self%q_pic,                 &
+                                ulb=reshape([1,self%nv_pic,     &
+                                             1,self%np,         &
+                                             1,self%nb],[2,3]), &
+                                msg=self%mpih%myrankstr//'field_object%initialize(q_pic) ', verbose=.true.)
+         call allocate_variable(var=self%q_pic_work,            &
+                                ulb=reshape([1,self%nv_pic,     &
+                                             1,self%np,         &
+                                             1,self%nb],[2,3]), &
+                                msg=self%mpih%myrankstr//'field_object%initialize(q_pic_work) ', verbose=.true.)
+         self%q_pic      = 0._R8P
+         self%q_pic_work = 0._R8P
+      endif
    endif
-   call alloc_var_cpu(var=self%blocks_numbers, ulb=[0,self%mpih%procs_number-1], &
-                      msg=self%mpih%myrankstr//'field_object%initialize(blocks_numbers) ', verbose=.true.)
+   call allocate_variable(var=self%blocks_numbers, ulb=[0,self%mpih%procs_number-1], &
+                          msg=self%mpih%myrankstr//'field_object%initialize(blocks_numbers) ', verbose=.true.)
    call self%mpih%print_message('field_object%initialize finish')
    endsubroutine initialize
 
@@ -451,21 +483,21 @@ contains
    !< Load blocks data, used for restarting.
    !<
    !< Note: blocks memory must be already initialized with enough memory (proper nv,ni,nj,nk,ngc and nb>=blocks number).
-   class(field_object), intent(inout) :: self                !< The field.
-   character(*),        intent(in)    :: basename            !< Output base name.
-   character(:), allocatable          :: filename            !< Output file name.
-   integer(I4P)                       :: file_unit           !< Output file unit.
-   logical                            :: file_exist          !< Flag to check file's existance.
-   integer(I4P)                       :: blocks_number       !< Blocks number.
-   integer(I4P)                       :: nv, ni, nj, nk, ngc !< Dimensions.
-   integer(I4P)                       :: b                   !< Counter.
+   class(field_object), intent(inout) :: self                            !< The field.
+   character(*),        intent(in)    :: basename                        !< Output base name.
+   character(:), allocatable          :: filename                        !< Output file name.
+   integer(I4P)                       :: file_unit                       !< Output file unit.
+   logical                            :: file_exist                      !< Flag to check file's existance.
+   integer(I4P)                       :: blocks_number                   !< Blocks number.
+   integer(I4P)                       :: nv, ni, nj, nk, ngc, nv_pic, np !< Dimensions.
+   integer(I4P)                       :: b                               !< Counter.
 
    filename = trim(adjustl(basename))//'-proc'//trim(strz(self%mpih%myrank,6))//'.fbd'
    inquire(file=filename, exist=file_exist)
    if (file_exist) then
       call self%mpih%print_message('field_object%load_blocks from file '//filename)
       open(newunit=file_unit, file=filename, form='UNFORMATTED', access='STREAM')
-      read(unit=file_unit) nv, ni, nj, nk, ngc
+      read(unit=file_unit) nv, ni, nj, nk, ngc, nv_pic, np
       if (nv==self%nv.and.ni==self%grid%ni.and.nj==self%grid%nj.and.nk==self%grid%nk.and.ngc==self%grid%ngc) then
          read(unit=file_unit) blocks_number
          call self%mpih%print_message('field blocks number '//trim(str(blocks_number)))
@@ -480,6 +512,11 @@ contains
                                            1-self%grid%ngc:self%grid%nk+self%grid%ngc,b)
             enddo
             call self%compute_metrics
+            if (nv_pic>0.and.nv_pic==self%nv_pic.and.np>0.and.np==self%np) then
+               do b=1, self%blocks_number
+                  read(unit=file_unit) self%q_pic(1:self%nv_pic, 1:self%np, b)
+               enddo
+            endif
          else
             call self%mpih%abort(error_code=-102, msg='ERROR: blocks number to read "'//trim(str(blocks_number))//&
                                                       '" is greater than blocks allocated "'//trim(str(self%nb))//'"!')
@@ -506,8 +543,10 @@ contains
    type(file_ini),      intent(inout) :: file_parameters !< INI file handler.
    integer(I4P)                       :: buff_I4P        !< I4P buffer.
 
-   call file_parameters%get(section_name='field', option_name='nv', val=buff_I4P) ; self%nv = buff_I4P
-   call file_parameters%get(section_name='field', option_name='nb', val=buff_I4P) ; self%nb = buff_I4P
+   call file_parameters%get(section_name='field', option_name='nv',     val=buff_I4P) ; self%nv     = buff_I4P
+   call file_parameters%get(section_name='field', option_name='nb',     val=buff_I4P) ; self%nb     = buff_I4P
+   call file_parameters%get(section_name='field', option_name='nv_pic', val=buff_I4P) ; self%nv_pic = buff_I4P
+   call file_parameters%get(section_name='field', option_name='np',     val=buff_I4P) ; self%np     = buff_I4P
    endsubroutine load_from_ini_file
 
    subroutine mark_sphere(self, center, radius, threshold)
@@ -631,12 +670,15 @@ contains
    integer(I4P)                             :: ptr_start, ptr_end     !< Counter.
    integer(I4P)                             :: n_recv, n_send         !< Counter.
    integer(I4P), allocatable                :: req_recv(:)            !< MPI request receive flags.
+   integer(I4P)                             :: bwt                    !< Block weight total.
 
    allocate(req_recv(0:self%mpih%procs_number-1))
    req_recv = MPI_REQUEST_NULL
 
-   send_size = 0_I8P ; if (allocated(self%maps%comm_map_send)) send_size = size(self%maps%comm_map_send, dim=1) * self%block_weight
-   recv_size = 0_I8P ; if (allocated(self%maps%comm_map_recv)) recv_size = size(self%maps%comm_map_recv, dim=1) * self%block_weight
+   associate(bw=>self%block_weight, bw_pic=>self%block_weight_pic)
+   bwt = bw + bw_pic
+   send_size = 0_I8P ; if (allocated(self%maps%comm_map_send)) send_size = size(self%maps%comm_map_send, dim=1) * bwt
+   recv_size = 0_I8P ; if (allocated(self%maps%comm_map_recv)) recv_size = size(self%maps%comm_map_recv, dim=1) * bwt
    n_keep    = 0_I8P ; if (allocated(self%maps%local_map    )) n_keep    = size(self%maps%local_map    , dim=1)
    if (send_size > 0_I8P) allocate(send_buffer(send_size))
    if (recv_size > 0_I8P) allocate(recv_buffer(recv_size))
@@ -645,14 +687,21 @@ contains
       send_offset = 1
       do b=1, size(self%maps%comm_map_send, dim=1)
          bi = self%maps%comm_map_send(b)
-         send_buffer(send_offset:send_offset + self%block_weight - 1) = reshape(self%q(:,:,:,:,bi),[self%block_weight])
-         send_offset = send_offset + self%block_weight
+         send_buffer(send_offset:send_offset+bw-1) = reshape(self%q(:,:,:,:,bi),[bw])
+         send_offset = send_offset + bw
       enddo
+      if (self%nv_pic>0) then
+         do b=1, size(self%maps%comm_map_send, dim=1)
+            bi = self%maps%comm_map_send(b)
+            send_buffer(send_offset:send_offset+bw_pic-1) = reshape(self%q_pic(:,:,bi),[bw_pic])
+            send_offset = send_offset + bw_pic
+         enddo
+      endif
    endif
 
    do p=0, self%mpih%procs_number - 1_I4P
-      ptr_start = self%maps%comm_map_recv_ptr(p)   * self%block_weight + 1
-      ptr_end   = self%maps%comm_map_recv_ptr(p+1) * self%block_weight
+      ptr_start = self%maps%comm_map_recv_ptr(p)   * bwt + 1
+      ptr_end   = self%maps%comm_map_recv_ptr(p+1) * bwt
       n_recv    = ptr_end - ptr_start + 1
       if (n_recv > 0) then
          call MPI_IRECV(recv_buffer(ptr_start), n_recv, MPI_REAL8, p, 100, MPI_COMM_WORLD, req_recv(p), self%mpih%error)
@@ -660,8 +709,8 @@ contains
    enddo
 
    do p=0, self%mpih%procs_number - 1_I4P
-      ptr_start = self%maps%comm_map_send_ptr(p)   * self%block_weight + 1
-      ptr_end   = self%maps%comm_map_send_ptr(p+1) * self%block_weight
+      ptr_start = self%maps%comm_map_send_ptr(p)   * bwt + 1
+      ptr_end   = self%maps%comm_map_send_ptr(p+1) * bwt
       n_send    = ptr_end - ptr_start + 1
       if (n_send > 0) then
          call MPI_SEND(send_buffer(ptr_start), n_send, MPI_REAL8, p, 100, MPI_COMM_WORLD, self%mpih%error)
@@ -674,23 +723,37 @@ contains
       recv_offset = 1
       do b=1, size(self%maps%comm_map_recv, dim=1)
           bi = self%maps%comm_map_recv(b)
-          self%q_work(:,:,:,:,bi) = reshape(recv_buffer(recv_offset:recv_offset + self%block_weight -1),&
-                                            [self%nv,                                                   &
-                                             self%grid%ngc+self%grid%ni+self%grid%ngc,                  &
-                                             self%grid%ngc+self%grid%nj+self%grid%ngc,                  &
+          self%q_work(:,:,:,:,bi) = reshape(recv_buffer(recv_offset:recv_offset + bw -1),&
+                                            [self%nv,                                    &
+                                             self%grid%ngc+self%grid%ni+self%grid%ngc,   &
+                                             self%grid%ngc+self%grid%nj+self%grid%ngc,   &
                                              self%grid%ngc+self%grid%nk+self%grid%ngc])
-          recv_offset = recv_offset + self%block_weight
+          recv_offset = recv_offset + bw
       enddo
+      if (self%nv_pic>0) then
+         do b=1, size(self%maps%comm_map_recv, dim=1)
+             bi = self%maps%comm_map_recv(b)
+             self%q_pic_work(:,:,bi) = reshape(recv_buffer(recv_offset:recv_offset + bw_pic -1),[self%nv_pic,self%np])
+             recv_offset = recv_offset + bw_pic
+         enddo
+      endif
    endif
 
    do b=1, n_keep
       self%q_work(:,:,:,:,self%maps%local_map(b,1)) = self%q(:,:,:,:,self%maps%local_map(b,2))
    enddo
-   self%blocks_number = n_keep  + recv_size / self%block_weight
+   if (self%nv_pic>0) then
+      do b=1, n_keep
+         self%q_pic_work(:,:,self%maps%local_map(b,1)) = self%q_pic(:,:,self%maps%local_map(b,2))
+      enddo
+   endif
+   self%blocks_number = n_keep  + recv_size / bwt
    self%q(:,:,:,:,1:self%blocks_number) = self%q_work(:,:,:,:,1:self%blocks_number)
+   if (self%nv_pic>0) self%q_pic(:,:,1:self%blocks_number) = self%q_pic_work(:,:,1:self%blocks_number)
    self%coordinates(:, 1:self%blocks_number) = self%maps%tree%block_coordinates
    self%code(1:self%blocks_number) = self%maps%tree%block_code
    call self%compute_metrics
+   endassociate
    endsubroutine mpi_redistribute
 
    subroutine save_blocks(self, basename)
@@ -705,7 +768,7 @@ contains
            file=trim(adjustl(basename))//'-proc'//trim(strz(self%mpih%myrank,6))//'.fbd', &
            form='UNFORMATTED',                                                            &
            access='STREAM')
-      write(unit=file_unit) self%nv,  self%grid%ni,  self%grid%nj,  self%grid%nk,  self%grid%ngc
+      write(unit=file_unit) self%nv, self%grid%ni, self%grid%nj, self%grid%nk, self%grid%ngc, self%nv_pic, self%np
       write(unit=file_unit) self%blocks_number
       do b=1, self%blocks_number
          write(unit=file_unit) self%code(b)
@@ -715,6 +778,11 @@ contains
                                       1-self%grid%ngc:self%grid%nj+self%grid%ngc, &
                                       1-self%grid%ngc:self%grid%nk+self%grid%ngc,b)
       enddo
+      if (self%nv_pic>0) then
+         do b=1, self%blocks_number
+            write(unit=file_unit) self%q_pic(1:self%nv_pic, 1:self%np, b)
+         enddo
+      endif
       close(file_unit)
    endif
    endsubroutine save_blocks
