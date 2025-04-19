@@ -39,26 +39,31 @@ endtype mpih_nvf_object
 
 contains
     ! override methods
-   subroutine initialize(self, do_mpi_init, do_device_init)
+   subroutine initialize(self, do_mpi_init, do_device_init, myrankstr_char_length, verbose)
    !< Initialize MPI handler data.
-   class(mpih_nvf_object) , intent(inout)        :: self              !< MPI handler.
-   logical,                 intent(in), optional :: do_mpi_init       !< Flag to activate MPI init call.
-   logical,                 intent(in), optional :: do_device_init    !< Flag to activate device init call.
-   type(cudadeviceprop)                          :: device_properties !< Device properties.
+   class(mpih_nvf_object) , intent(inout)        :: self                  !< MPI handler.
+   logical,                 intent(in), optional :: do_mpi_init           !< Flag to activate MPI init call.
+   logical,                 intent(in), optional :: do_device_init        !< Flag to activate device init call.
+   integer(I4P),            intent(in), optional :: myrankstr_char_length !< MPI ID string length.
+   logical,                 intent(in), optional :: verbose               !< Trigger verbose output.
+   logical                                       :: verbose_              !< Trigger verbose output, local variable.
+   type(cudadeviceprop)                          :: device_properties     !< Device properties.
 
-   call self%mpih_object%initialize(do_mpi_init=do_mpi_init)
-   call self%print_message('mpih_nvf_object%initialize start')
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+
+   call self%mpih_object%initialize(do_mpi_init=do_mpi_init, myrankstr_char_length=myrankstr_char_length, verbose=verbose)
+   if (verbose_) call self%print_message('mpih_nvf_object%initialize start')
    if (present(do_device_init)) then
       if (do_device_init) then
          call MPI_COMM_SPLIT_TYPE(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, self%local_comm, self%error)
          call MPI_COMM_RANK(self%local_comm, self%mydev, self%error)
          self%error = CudaSetDevice(self%mydev)
          self%error = cudaGetDeviceProperties(device_properties, self%mydev)
-         call self%print_device_properties(device_properties)
+         if (verbose_) call self%print_device_properties(device_properties)
          self%memory_avail = real(device_properties%totalGlobalMem, R8P)/1e9
       endif
    endif
-   call self%print_message('mpih_nvf_object%initialize finish')
+   if (verbose_) call self%print_message('mpih_nvf_object%initialize finish')
    endsubroutine initialize
 
    ! public methods

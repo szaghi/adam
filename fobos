@@ -1,511 +1,95 @@
 [modes]
-modes = ascot-nvf-mpi-cuda
-        adam-com-lib-gnu
-        adam-com-lib-gnu-debug
-        nasto-fnl-mpi-nvidia
-        nasto-fnl-mpi-nvidia-szlaptop
-        nasto-fnl-mpi-intel
-        nasto-fnl-mpi-intel-fl
-        nasto-nvf-mpi-cuda
-        nasto-nvf-mpi-cuda-debug
-        nasto-nvf-mpi-cuda-leo
-        nasto-cpu-mpi-gnu
-        nasto-cpu-mpi-gnu-debug
-        nasto-cpu-mpi-ifx
-        nasto-cpu-mpi-ifx-debug
-        nasto-cpu-mpi-ifort
-        nasto-cpu-mpi-ifort-debug
-        nasto-gmp-mpi-ifx
-        nasto-gmp-mpi-ifx-debug
-        nasto-gmp-mpi-ifx-fl
-        nasto-gmp-mpi-ifx-debug-fl
-        nasto-gmp-mpi-ifx-or
-        nasto-gmp-mpi-ifx-debug-or
-
-
-[common-variables]
-$HDF5_nvf_24_9      = /opt/HDF5/bin/1.14.5/nvidia/24.9
-$HDF5_nvf_24_7      = /opt/HDF5/bin/1.14.5/nvf/24.7
-$ZLIB_nvf_24_7      = /opt/zlib/bin/1.3.1/nvf/24.7/lib/libz.a
-$SZIP_nvf_24_7      = /opt/szip/bin/2.1.1/nvf/24.7/lib/libsz.a
-$HDF5_cuda_22_3     = /opt/HDF5/bin/1.12.1/openmpi/3.1.5/nvidia/22.3
-$HDF5_cuda_20_7     = /opt/HDF5/bin/1.12.0/openmpi/3.1.5/nvidia/20.7
-$HDF5_gnu           = /opt/HDF5/bin/1.12.2/openmpi/4.1.4/gnu/11.2.0
-$HDF5_intel         = /opt/HDF5/bin/1.12.2/openmpi/4.1.4/intel/2021.5.0
-$HDF5_ifx           = /opt/HDF5/bin/1.14.2/intel/20230622
-$HDF5_fl_ifx        = /software/spack/install/linux-sles15-icelake/oneapi-2024.2.0/hdf5-1.14.3-724cg7htk5qqeih73onwakb2h5d6d7wc
-$ZLIB_gnu           = /opt/zlib/bin/1.2.11/lib/libz.a
-$SZIP_gnu           = /opt/szip/bin/2.1.1/lib/libsz.a
-$ZLIB_ifx           = /opt/zlib/bin/1.3/icx/20230622/lib/libz.a
-$SZIP_ifx           = /opt/szip/bin/2.1.1/ifx/20230622/lib/libsz.a
-$ZLIB_fl_ifx        = /software/spack/install/linux-sles15-icelake/oneapi-2024.2.0/zlib-ng-2.1.5-nhpv4dvxawxkeerprqrppztzfdyhhdve/lib/libz.a
-$SZIP_fl_ifx        = /software/spack/install/linux-sles15-icelake/oneapi-2024.2.0/libszip-2.1.1-5h7lh7neehr3voc4rnswhmr77d5ilr7k/lib/libsz.a
-$HDF5_fl_intel      = /home/grossi/Projects/ADAM/hdf5_install/1.12.2
-$ZLIB_fl_intel      = /home/grossi/Projects/ADAM/zlib_install/1.2.11/lib/libz.a
-$SZIP_fl_intel      = /home/grossi/Projects/ADAM/szip_install/2.1.1/lib/libsz.a
-$HDF5_or_intel      = /nfs/site/home/grossi/Projects/ADAM/hdf5_install/1.12.2
-$ZLIB_or_intel      = /nfs/site/home/grossi/Projects/ADAM/zlib_install/1.2.11/lib/libz.a
-$SZIP_or_intel      = /nfs/site/home/grossi/Projects/ADAM/szip_install/2.1.1/lib/libsz.a
-$GETMEMORY          = ./exe/obj/getmemory.o
-$CGAL               = ./exe/obj/cgal_c_wrappers.o
-$HDF5_cuda_23_1_leo = /leonardo/prod/spack/03/install/0.19/linux-rhel8-icelake/nvhpc-23.1/hdf5-1.12.2-6a3ddj2hipc7tm4xrdqh4ijifigxq3bq/
+modes = ascot-nvf-cuda-sz-ws
+        adam-com-gnu-sz-ws      adam-com-gnu-sz-ws-debug
+        adam-com-nvf-sz-ws      adam-com-nvf-sz-ws-debug
+        adam-nvf-cuda-sz-ws     adam-nvf-cuda-sz-ws-debug
+        nasto-fnl-nvf-oac-sz-ws nasto-fnl-nvf-oac-sz-ws-debug
+        nasto-nvf-cuda-sz-ws    nasto-nvf-cuda-sz-ws-debug
 
 # main modes
-[adam-com-lib-gnu]
-help     = Build ADAM common library with GNU on SZ laptop
-template = template-base
+
+# ascot
+[ascot-nvf-cuda-sz-ws]
+help     = Build ASCOT app with NVF CUDA compiler on SZ workstation
+template = template-nvf-cuda-sz-ws
+target   = ascot.F90
+preproc  = -D_NVF
+
+# adam libraries
+# GNU
+[adam-com-gnu-sz-ws]
+help     = Build ADAM common library with GNU compiler on SZ workstation
+template = template-gnu-sz-ws
 target   = adam_common_library.F90
-output   = libadamcommon.a
+output   = libadamcommon_gnu.a
 mklib    = static
 preproc  = -D_MPI_
-compiler = gnu
-cflags   = -cpp -c -O2
-lflags   = -O2
-lib_dir  = $HDF5_gnu/lib
-include  = $HDF5_gnu/include
-libs     = $HDF5_gnu/lib/libhdf5hl_fortran.a
-           $HDF5_gnu/lib/libhdf5_hl.a
-           $HDF5_gnu/lib/libhdf5_fortran.a
-           $HDF5_gnu/lib/libhdf5.a
-           -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/11 /usr/lib/gcc/x86_64-linux-gnu/11/libstdc++.so
-           $ZLIB_gnu
-           $SZIP_gnu
-           $GETMEMORY
-           $CGAL
 
-[adam-com-lib-gnu-debug]
-help     = Build ADAM common library with GNU on SZ laptop
-template = template-base
+[adam-com-gnu-sz-ws-debug]
+help     = Build ADAM common library with GNU compiler on SZ workstation, debug mode
+template = template-gnu-sz-ws-debug
 target   = adam_common_library.F90
-output   = libadamcommon.a
+output   = libadamcommon_gnu.a
 mklib    = static
 preproc  = -D_MPI_
-compiler = gnu
-cflags   = -cpp -c -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fcheck=all -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan
-lflags   = -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fcheck=all -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan
-lib_dir  = $HDF5_gnu/lib
-include  = $HDF5_gnu/include
-libs     = $HDF5_gnu/lib/libhdf5hl_fortran.a
-           $HDF5_gnu/lib/libhdf5_hl.a
-           $HDF5_gnu/lib/libhdf5_fortran.a
-           $HDF5_gnu/lib/libhdf5.a
-           -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/11 /usr/lib/gcc/x86_64-linux-gnu/11/libstdc++.so
-           $ZLIB_gnu
-           $SZIP_gnu
-           $GETMEMORY
-           $CGAL
 
-[nasto-fnl-mpi-nvidia]
-help     = Build NASTO NVF app with FNL-MPI (NVIDIA compiler) on SZ workstation
-template = template-base
-target   = adam_nasto_fnl.F90
+# NVF
+[adam-com-nvf-sz-ws]
+help     = Build ADAM common library with NVF compiler on SZ workstation
+template = template-nvf-sz-ws
+target   = adam_common_library.F90
+output   = libadamcommon_nvf.a
+mklib    = static
+preproc  = -D_MPI_
+
+[adam-com-nvf-sz-ws-debug]
+help     = Build ADAM common library with NVF compiler on SZ workstation, debug mode
+template = template-nvf-sz-ws-debug
+target   = adam_common_library.F90
+output   = libadamcommon_nvf.a
+mklib    = static
+preproc  = -D_MPI_
+
+[adam-nvf-cuda-sz-ws]
+help     = Build ADAM NVF library with NVF CUDA compiler on SZ workstation
+template = template-nvf-cuda-sz-ws
+target   = adam_nvf_library.F90
+output   = libadamnvf.a
+mklib    = static
+preproc  = -D_MPI_
+
+[adam-nvf-cuda-sz-ws-debug]
+help     = Build ADAM NVF library with NVF CUDA compiler on SZ workstation, debug mode
+template = template-nvf-cuda-sz-ws-debug
+target   = adam_nvf_library.F90
+output   = libadamnvf.a
+mklib    = static
+preproc  = -D_MPI_
+
+#nasto
+[nasto-fnl-nvf-oac-sz-ws]
+help     = Build NASTO app with FNL library and NVF OpenACC compiler on SZ workstation
+template = template-nvf-oac-sz-ws
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF
-compiler = nvfortran
-cflags   = -cpp -c -acc -gpu=cc89 -fast -Minfo=all
-lflags   = -acc -gpu=cc89 -fast -Minfo=all
-lib_dir  = $HDF5_nvf_24_7/lib
-include  = $HDF5_nvf_24_7/include
-libs     = $HDF5_nvf_24_7/lib/libhdf5hl_fortran.a
-           $HDF5_nvf_24_7/lib/libhdf5_hl.a
-           $HDF5_nvf_24_7/lib/libhdf5_fortran.a
-           $HDF5_nvf_24_7/lib/libhdf5.a
-           -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/11 /usr/lib/gcc/x86_64-linux-gnu/11/libstdc++.so
-           $ZLIB_nvf_24_7
-           $SZIP_nvf_24_7
-           $GETMEMORY
-
-[nasto-fnl-mpi-nvidia-szlaptop]
-help     = Build NASTO NVF app with FNL-MPI (NVIDIA compiler) on SZ laptop
-template = template-base
 target   = adam_nasto_fnl.F90
+
+[nasto-fnl-nvf-oac-sz-ws-debug]
+help     = Build NASTO app with FNL library and NVF OpenACC compiler on SZ workstation, debug mode
+template = template-nvf-oac-sz-ws-debug
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF
-compiler = nvfortran
-cflags   = -cpp -c -acc -gpu=cc89 -fast -Minfo=all
-lflags   = -acc -gpu=cc89 -fast -Minfo=all
-lib_dir  = $HDF5_nvf_24_9/lib
-include  = $HDF5_nvf_24_9/include
-libs     = $HDF5_nvf_24_9/lib/libhdf5hl_fortran.a
-           $HDF5_nvf_24_9/lib/libhdf5_hl.a
-           $HDF5_nvf_24_9/lib/libhdf5_fortran.a
-           $HDF5_nvf_24_9/lib/libhdf5.a
-           -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/11 /usr/lib/gcc/x86_64-linux-gnu/11/libstdc++.so
-           $ZLIB_gnu
-           $SZIP_gnu
-           $GETMEMORY
+target   = adam_nasto_fnl.F90
 
-[nasto-fnl-mpi-intel]
-help           = Build NASTO NVF app with FNL-MPI (INTEL compiler) on SZ laptop
-template       = template-base
-target         = adam_nasto_fnl.F90
-compiler       = intel_nextgen
-cflags         = -cpp -c -O2
-lflags         = -O2
-mpi            = True
-openmp         = True
-openmp_offload = True
-preproc        = -D_FNL -D_MPI_ -DDEV_OMP -DCOMPILER_IFX
-ext_libs       = dl m
-lib_dir        = $HDF5_ifx/lib
-include        = $HDF5_ifx/include
-libs           = $HDF5_ifx/lib/libhdf5hl_fortran.a
-                 $HDF5_ifx/lib/libhdf5_hl.a
-                 $HDF5_ifx/lib/libhdf5_fortran.a
-                 $HDF5_ifx/lib/libhdf5.a
-                 $ZLIB_ifx
-                 $SZIP_ifx
-                 $GETMEMORY
-
-[nasto-fnl-mpi-intel-fl]
-help           = Build NASTO NVF app with FNL-MPI (INTEL compiler) on Intel Florence cluster
-template       = template-base
-target         = adam_nasto_fnl.F90
-compiler       = intel_nextgen
-cflags         = -cpp -c -O2
-lflags         = -O2
-mpi            = True
-openmp         = True
-openmp_offload = True
-preproc        = -D_FNL -D_MPI_ -DDEV_OMP -DCOMPILER_IFX
-ext_libs       = dl m
-lib_dir        = $HDF5_fl_ifx/lib
-include        = $HDF5_fl_ifx/include
-libs           = $HDF5_fl_ifx/lib/libhdf5_hl_fortran.a
-                 $HDF5_fl_ifx/lib/libhdf5_hl.a
-                 $HDF5_fl_ifx/lib/libhdf5_fortran.a
-                 $HDF5_fl_ifx/lib/libhdf5.a
-                 $ZLIB_fl_ifx
-                 $SZIP_fl_ifx
-                 $GETMEMORY
-
-[nasto-nvf-mpi-cuda]
-help     = Build NASTO NVF app with NVF-MPI-CUDA on SZ laptop
-template = template-base
+[nasto-nvf-cuda-sz-ws]
+help     = Build NASTO app with NVF CUDA compiler on SZ workstation
+template = template-nvf-cuda-sz-ws
+preproc  = -D_MPI_ -DCOMPILER_NVF -D_NVF
 target   = adam_nasto_nvf.F90
-preproc  = -D_NVF -D_MPI_
-compiler = nvfortran
-cflags   = -cpp -c -Mcuda=cc75,cuda12.0,ptxinfo -O2
-lflags   = -Mcuda=cc75,cuda12.0,ptxinfo -O2
-lib_dir  = $HDF5_cuda_22_3/lib
-include  = $HDF5_cuda_22_3/include
-libs     = $HDF5_cuda_22_3/lib/libhdf5hl_fortran.a
-           $HDF5_cuda_22_3/lib/libhdf5_hl.a
-           $HDF5_cuda_22_3/lib/libhdf5_fortran.a
-           $HDF5_cuda_22_3/lib/libhdf5.a
-           -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/11 /usr/lib/gcc/x86_64-linux-gnu/11/libstdc++.so
-           $ZLIB_gnu
-           $SZIP_gnu
-           $GETMEMORY
-           $CGAL
 
-[nasto-nvf-mpi-cuda-debug]
-help     = Build NASTO NVF app (debug) with NVF-MPI-CUDA on SZ laptop
-template = template-base
+[nasto-nvf-cuda-sz-ws-debug]
+help     = Build NASTO app with NVF CUDA compiler on SZ workstation, debug mode
+template = template-nvf-cuda-sz-ws-debug
+preproc  = -D_MPI_ -DCOMPILER_NVF -D_NVF
 target   = adam_nasto_nvf.F90
-preproc  = -D_NVF -D_MPI_
-compiler = nvfortran
-cflags   = -cpp -c -Mcuda=cc75,cuda12.0,ptxinfo -C -gopt -Mbounds -traceback
-lflags   = -Mcuda=cc75,cuda12.0,ptxinfo -C -gopt -Mbounds -traceback
-lib_dir  = $HDF5_cuda_22_3/lib
-include  = $HDF5_cuda_22_3/include
-libs     = $HDF5_cuda_22_3/lib/libhdf5hl_fortran.a
-           $HDF5_cuda_22_3/lib/libhdf5_hl.a
-           $HDF5_cuda_22_3/lib/libhdf5_fortran.a
-           $HDF5_cuda_22_3/lib/libhdf5.a
-           -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/11 /usr/lib/gcc/x86_64-linux-gnu/11/libstdc++.so
-           $ZLIB_gnu
-           $SZIP_gnu
-           $GETMEMORY
-           $CGAL
-
-# module load anaconda3/2023.03 zlib/1.2.13--gcc--11.3.0 nvhpc/23.1 openmpi/4.1.4--nvhpc--23.1-cuda-11.8 hdf5/1.12.2--openmpi--4.1.4--nvhpc--23.1
-[nasto-nvf-mpi-cuda-leo]
-help     = Build nasto app with NVF-MPI-CUDA on marconi100 cluster
-template = template-base
-target   = adam_nasto_nvf.F90
-preproc  = -D_NVF -D_MPI_
-compiler = custom
-fc       = mpif90
-modsw    = -module=
-cflags   = -cpp -c -Mcuda=cc80,cuda11.8,ptxinfo -O2
-lflags   = -Mcuda=cc80,cuda11.8,ptxinfo -O2
-lib_dir  = $HDF5_cuda_23_1_leo/lib
-include  = $HDF5_cuda_23_1_leo/include
-libs     = $HDF5_cuda_23_1_leo/lib/libhdf5_hl_fortran.a
-           $HDF5_cuda_23_1_leo/lib/libhdf5_fortran.a
-           $HDF5_cuda_23_1_leo/lib/libhdf5_hl.a
-           $HDF5_cuda_23_1_leo/lib/libhdf5_f90cstub.a
-           $HDF5_cuda_23_1_leo/lib/libhdf5.a
-           -Wl,-rpath,/leonardo/prod/spack/03/install/0.19/linux-rhel8-icelake/gcc-8.5.0/gcc-11.3.0-tm6phj7wkcw7cuy6gjixemkvh5x2mhza/lib64 /leonardo/prod/spack/03/install/0.19/linux-rhel8-icelake/gcc-8.5.0/gcc-11.3.0-tm6phj7wkcw7cuy6gjixemkvh5x2mhza/lib64/libstdc++.so.6.0.29
-           /leonardo/prod/spack/03/install/0.19/linux-rhel8-icelake/gcc-11.3.0/zlib-1.2.13-noknejuy3uxqyxfetsmtnvb6zna3zaxk/lib/libz.a
-           $GETMEMORY
-           $CGAL
-
-[nasto-cpu-mpi-gnu]
-help     = Build NASTO CPU app with GNU-MPI on SZ laptop
-template = template-base
-target   = adam_nasto_cpu.F90
-preproc  = -D_MPI_
-compiler = gnu
-mpi      = True
-cflags   = -cpp -c -O2
-lflags   = -O2
-ext_libs = dl m
-lib_dir  = $HDF5_gnu/lib
-include  = $HDF5_gnu/include
-libs     = $HDF5_gnu/lib/libhdf5hl_fortran.a
-           $HDF5_gnu/lib/libhdf5_hl.a
-           $HDF5_gnu/lib/libhdf5_fortran.a
-           $HDF5_gnu/lib/libhdf5.a
-           $ZLIB_gnu
-           $SZIP_gnu
-           $GETMEMORY
-
-[nasto-cpu-mpi-gnu-debug]
-help     = Build NASTO CPU app (debug) with GNU-MPI on SZ laptop
-template = template-base
-target   = adam_nasto_cpu.F90
-preproc  = -D_MPI_
-compiler = gnu
-mpi      = True
-cflags   = -cpp -c -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fcheck=all -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan
-lflags   = -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fcheck=all -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan
-ext_libs = dl m
-lib_dir  = $HDF5_gnu/lib
-include  = $HDF5_gnu/include
-libs     = $HDF5_gnu/lib/libhdf5hl_fortran.a
-           $HDF5_gnu/lib/libhdf5_hl.a
-           $HDF5_gnu/lib/libhdf5_fortran.a
-           $HDF5_gnu/lib/libhdf5.a
-           $ZLIB_gnu
-           $SZIP_gnu
-           $GETMEMORY
-
-[nasto-cpu-mpi-ifx]
-help     = Build NASTO CPU app with IFX-MPI on SZ laptop
-template = template-base
-target   = adam_nasto_cpu.F90
-preproc  = -D_MPI_
-compiler = custom
-fc       = mpiifort -fc=ifx
-modsw    = '-module '
-cflags   = -cpp -c -O2
-lflags   = -O2
-ext_libs = dl m
-lib_dir  = $HDF5_ifx/lib
-include  = $HDF5_ifx/include
-libs     = $HDF5_ifx/lib/libhdf5hl_fortran.a
-           $HDF5_ifx/lib/libhdf5_hl.a
-           $HDF5_ifx/lib/libhdf5_fortran.a
-           $HDF5_ifx/lib/libhdf5.a
-           $ZLIB_ifx
-           $SZIP_ifx
-           $GETMEMORY
-
-[nasto-cpu-mpi-ifx-debug]
-help     = Build NASTO CPU app (debug) with IFX-MPI on SZ laptop
-template = template-base
-target   = adam_nasto_cpu.F90
-preproc  = -D_MPI_
-compiler = custom
-fc       = mpiifort -fc=ifx
-modsw    = '-module '
-mpi      = True
-cflags   = -c -O0 -debug full -check all -warn all -extend-source 132 -g -traceback -check bounds -ftrapuv
-lflags   = -O0 -debug full -check all -warn all -extend-source 132 -g -traceback -check bounds -ftrapuv
-ext_libs = dl m
-lib_dir  = $HDF5_ifx/lib
-include  = $HDF5_ifx/include
-libs     = $HDF5_ifx/lib/libhdf5hl_fortran.a
-           $HDF5_ifx/lib/libhdf5_hl.a
-           $HDF5_ifx/lib/libhdf5_fortran.a
-           $HDF5_ifx/lib/libhdf5.a
-           $ZLIB_ifx
-           $SZIP_ifx
-           $GETMEMORY
-
-[nasto-cpu-mpi-ifort]
-help     = Build NASTO CPU app with IFORT-MPI on SZ laptop
-template = template-base
-target   = adam_nasto_cpu.F90
-preproc  = -D_MPI_
-compiler = custom
-fc       = mpiifort -fc=ifort
-modsw    = '-module '
-cflags   = -cpp -c -O2 -fopenmp
-lflags   = -O2 -fopenmp
-ext_libs = dl m
-lib_dir  = $HDF5_ifx/lib
-include  = $HDF5_ifx/include
-libs     = $HDF5_ifx/lib/libhdf5hl_fortran.a
-           $HDF5_ifx/lib/libhdf5_hl.a
-           $HDF5_ifx/lib/libhdf5_fortran.a
-           $HDF5_ifx/lib/libhdf5.a
-           $ZLIB_ifx
-           $SZIP_ifx
-           $GETMEMORY
-
-[nasto-cpu-mpi-ifort-debug]
-help     = Build NASTO CPU app (debug) with IFORT-MPI on SZ laptop
-template = template-base
-target   = adam_nasto_cpu.F90
-preproc  = -D_MPI_
-compiler = custom
-fc       = mpiifort -fc=ifort
-modsw    = '-module '
-mpi      = True
-cflags   = -c -O0 -fopenmp -debug full -check all -warn all -extend-source 132 -g -traceback -check bounds -ftrapuv
-lflags   = -O0 -fopenmp -debug full -check all -warn all -extend-source 132 -g -traceback -check bounds -ftrapuv
-ext_libs = dl m
-lib_dir  = $HDF5_ifx/lib
-include  = $HDF5_ifx/include
-libs     = $HDF5_ifx/lib/libhdf5hl_fortran.a
-           $HDF5_ifx/lib/libhdf5_hl.a
-           $HDF5_ifx/lib/libhdf5_fortran.a
-           $HDF5_ifx/lib/libhdf5.a
-           $ZLIB_ifx
-           $SZIP_ifx
-           $GETMEMORY
-
-[nasto-gmp-mpi-ifx]
-help           = Build NASTO GMP app with IFX-MPI on SZ laptop
-template       = template-base
-target         = adam_nasto_gmp.F90
-preproc        = -D_MPI_ -D_GMP_
-compiler       = intel_nextgen
-mpi            = True
-openmp         = True
-openmp_offload = True
-cflags         = -cpp -c -O2
-lflags         = -O2
-ext_libs       = dl m
-lib_dir        = $HDF5_ifx/lib
-include        = $HDF5_ifx/include
-libs           = $HDF5_ifx/lib/libhdf5hl_fortran.a
-                 $HDF5_ifx/lib/libhdf5_hl.a
-                 $HDF5_ifx/lib/libhdf5_fortran.a
-                 $HDF5_ifx/lib/libhdf5.a
-                 $ZLIB_ifx
-                 $SZIP_ifx
-                 $GETMEMORY
-
-[nasto-gmp-mpi-ifx-debug]
-help           = Build NASTO GMP app (debug) with IFX-MPI on SZ laptop
-template       = template-base
-target         = adam_nasto_gmp.F90
-preproc        = -D_MPI_ -D_GMP_
-compiler       = intel_nextgen
-mpi            = True
-openmp         = True
-openmp_offload = True
-cflags         = -cpp -c -O0 -g -traceback
-lflags         = -O0 -traceback
-ext_libs       = dl m
-lib_dir        = $HDF5_ifx/lib
-include        = $HDF5_ifx/include
-libs           = $HDF5_ifx/lib/libhdf5hl_fortran.a
-                 $HDF5_ifx/lib/libhdf5_hl.a
-                 $HDF5_ifx/lib/libhdf5_fortran.a
-                 $HDF5_ifx/lib/libhdf5.a
-                 $ZLIB_ifx
-                 $SZIP_ifx
-                 $GETMEMORY
-
-[nasto-gmp-mpi-ifx-fl]
-help           = Build NASTO GMP app with Intel IFX-MPI on Intel Florence cluster
-template       = template-base
-target         = adam_nasto_gmp.F90
-preproc        = -D_MPI_ -D_GMP_
-compiler       = intel_nextgen
-mpi            = True
-openmp         = True
-openmp_offload = True
-cflags         = -cpp -c -O2
-lflags         = -O2
-ext_libs       = dl m
-lib_dir        = $HDF5_fl_intel/lib
-include        = $HDF5_fl_intel/include
-libs           = $HDF5_fl_intel/lib/libhdf5hl_fortran.a
-                 $HDF5_fl_intel/lib/libhdf5_hl.a
-                 $HDF5_fl_intel/lib/libhdf5_fortran.a
-                 $HDF5_fl_intel/lib/libhdf5.a
-                 $ZLIB_fl_intel
-                 $SZIP_fl_intel
-                 $GETMEMORY
-
-[nasto-gmp-mpi-ifx-debug-fl]
-help           = Build NASTO GMP app (debug) with Intel IFX-MPI on Intel Florence cluster
-template       = template-base
-target         = adam_nasto_gmp.F90
-preproc        = -D_MPI_ -D_GMP_
-compiler       = intel_nextgen
-mpi            = True
-openmp         = True
-openmp_offload = True
-cflags         = -c -g -O0 -traceback
-lflags         = -O0
-ext_libs       = dl m
-lib_dir        = $HDF5_fl_intel/lib
-include        = $HDF5_fl_intel/include
-libs           = $HDF5_fl_intel/lib/libhdf5hl_fortran.a
-                 $HDF5_fl_intel/lib/libhdf5_hl.a
-                 $HDF5_fl_intel/lib/libhdf5_fortran.a
-                 $HDF5_fl_intel/lib/libhdf5.a
-                 $ZLIB_fl_intel
-                 $SZIP_fl_intel
-                 $GETMEMORY
-
-[nasto-gmp-mpi-ifx-or]
-help           = Build NASTO GMP app with Intel IFX-MPI on Intel OR-TCE cluster
-template       = template-base
-target         = adam_nasto_gmp.F90
-preproc        = -D_MPI_ -D_GMP_
-compiler       = intel_nextgen
-mpi            = True
-openmp         = True
-openmp_offload = True
-cflags         = -cpp -c -O2
-lflags         = -O2
-ext_libs       = dl m
-lib_dir        = $HDF5_or_intel/lib
-include        = $HDF5_or_intel/include
-libs           = $HDF5_or_intel/lib/libhdf5hl_fortran.a
-                 $HDF5_or_intel/lib/libhdf5_hl.a
-                 $HDF5_or_intel/lib/libhdf5_fortran.a
-                 $HDF5_or_intel/lib/libhdf5.a
-                 $ZLIB_or_intel
-                 $SZIP_or_intel
-                 $GETMEMORY
-
-[nasto-gmp-mpi-ifx-debug-or]
-help           = Build NASTO GMP app (debug) with Intel IFX-MPI on Intel OR-TCE cluster
-template       = template-base
-target         = adam_nasto_gmp.F90
-preproc        = -D_MPI_ -D_GMP_
-compiler       = intel_nextgen
-mpi            = True
-openmp         = True
-openmp_offload = True
-cflags         = -c -g -O0 -traceback
-lflags         = -O0
-ext_libs       = dl m
-lib_dir        = $HDF5_or_intel/lib
-include        = $HDF5_or_intel/include
-libs           = $HDF5_or_intel/lib/libhdf5hl_fortran.a
-                 $HDF5_or_intel/lib/libhdf5_hl.a
-                 $HDF5_or_intel/lib/libhdf5_fortran.a
-                 $HDF5_or_intel/lib/libhdf5.a
-                 $ZLIB_or_intel
-                 $SZIP_or_intel
-                 $GETMEMORY
-
-[ascot-nvf-mpi-cuda]
-help         = Build ascot app with NVF-CUDA on SZ laptop
-template     = template-base
-target       = ascot.F90
-preproc      = -D_NVF
-compiler     = nvfortran
-cflags       = -cpp -c -Mcuda=cc75,cuda12.0,ptxinfo -O2
-lflags       = -Mcuda=cc75,cuda12.0,ptxinfo -O2
 
 # templates
 [template-base]
@@ -518,7 +102,6 @@ quiet        = False
 log          = True
 jobs         = 4
 mpi          = True
-ext_libs     = dl m
 exclude_dirs = src/lib_experimental/
                references/
                BeFoR64/src/tests/
@@ -545,30 +128,93 @@ exclude_dirs = src/lib_experimental/
                VTKFortran/src/third_party/
                third_party_manual/
 
+# NVF OpenACC
+[template-nvf-oac-sz-ws]
+template = template-base
+compiler = nvfortran
+cflags   = -cpp -c -acc -gpu=cc89 -fast -Minfo=all
+lflags   = -acc -gpu=cc89 -fast -Minfo=all
+lib_dir  = $HDF5_nvf_sz_ws/lib
+include  = $HDF5_nvf_sz_ws/include
+libs     = $GETMEMORY
+ext_libs = hdf5_hl_fortran hdf5_fortran hdf5_hl hdf5 z dl m stdc++
+
+[template-nvf-oac-sz-ws-debug]
+template = template-nvf-oac-sz-ws
+cflags   = -cpp -c -acc -gpu=cc89 -Minfo=all -C -gopt -Mbounds -traceback
+lflags   = -acc -gpu=cc89 -Minfo=all -C -gopt -Mbounds -traceback
+
+# NVF CUDA Fortran
+[template-nvf-cuda-sz-ws]
+template = template-base
+compiler = nvfortran
+cflags   = -cpp -c -cuda -gpu=cc89,cuda12.8,ptxinfo -O2
+lflags   = -cuda -gpu=cc89,cuda12.8,ptxinfo -O2
+lib_dir  = $HDF5_nvf_sz_ws/lib
+include  = $HDF5_nvf_sz_ws/include
+libs     = $GETMEMORY
+ext_libs = hdf5_hl_fortran hdf5_fortran hdf5_hl hdf5 z dl m stdc++
+
+[template-nvf-cuda-sz-ws-debug]
+template = template-nvf-cuda-sz-ws
+cflags   = -cpp -c -cuda -gpu=cc89,cuda12.8,ptxinfo -Minfo=all -C -gopt -traceback
+lflags   = -cuda -gpu=cc89,cuda12.8,ptxinfo -Minfo=all -C -gopt -traceback
+
+# NVF CPU
+[template-nvf-sz-ws]
+template = template-base
+compiler = nvfortran
+cflags   = -cpp -c -fast
+lflags   = -fast
+lib_dir  = $HDF5_nvf_sz_ws/lib
+include  = $HDF5_nvf_sz_ws/include
+libs     = $GETMEMORY
+ext_libs = hdf5_hl_fortran hdf5_fortran hdf5_hl hdf5 z dl m stdc++
+
+[template-nvf-sz-ws-debug]
+template = template-nvf-oac-sz-ws
+cflags   = -cpp -c -C -gopt -Mbounds -traceback
+lflags   = -acc -C -gopt -Mbounds -traceback
+
+# GNU CPU
+[template-gnu-sz-ws]
+template = template-base
+compiler = gnu
+cflags   = -cpp -c -O2
+lflags   = -O2
+lib_dir  = $HDF5_gnu_sz_ws/lib
+include  = $HDF5_gnu_sz_ws/include
+libs     = $GETMEMORY
+ext_libs = hdf5_hl_fortran hdf5_fortran hdf5_hl hdf5 z dl m stdc++
+
+[template-gnu-sz-ws-debug]
+template = template-base
+compiler = gnu
+cflags   = -cpp -c -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fcheck=all -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan
+lflags   = -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fcheck=all -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan
+lib_dir  = $HDF5_gnu_sz_ws/lib
+include  = $HDF5_gnu_sz_ws/include
+libs     = $GETMEMORY
+ext_libs = hdf5_hl_fortran hdf5_fortran hdf5_hl hdf5 z dl m stdc++
+
 # aux rules
 [rule-makethirdpartymanual]
 help   = Make third party manual-compiling libraries on SZ laptop
 rule_1 = mkdir -p exe/mod exe/obj
 rule_2 = cd src/third_party_manual/getmemory/ ; gcc -c getmemory.c ; cd -
 rule_3 = mv src/third_party_manual/getmemory/*.o exe/obj/
-; rule_4 = cd src/third_party_manual/CGAL/ ; g++ -std=c++17 -frounding-math -O2 -I/opt/cgal/5.2.1/include/ -c cgal_c_wrappers.cpp ; cd -
-; rule_5 = mv src/third_party_manual/CGAL/*.o exe/obj/
 
 [rule-makethirdpartymanual-leo]
 help   = Make third party manual-compiling libraries on marconi100 cluster
 rule_1 = mkdir -p exe/mod exe/obj
-rule_2 = cd src/third_party_manual/CGAL/ ; g++ -std=c++17 -frounding-math -O2 -I/leonardo/prod/spack/03/install/0.19/linux-rhel8-icelake/nvhpc-23.1/boost-1.80.0-iq4pew7yycxkz2wcx6ckm2ix25cuozqv/include -I/leonardo/home/userinternal/fsalvado/ADAM/CGAL/CGAL-5.0.2/include/ -c cgal_c_wrappers.cpp ; cd -
-rule_3 = cd src/third_party_manual/getmemory/ ; gcc -c getmemory.c ; cd -
-rule_4 = mv src/third_party_manual/getmemory/*.o exe/obj/
-rule_5 = mv src/third_party_manual/CGAL/*.o exe/obj/
+rule_2 = cd src/third_party_manual/getmemory/ ; gcc -c getmemory.c ; cd -
+rule_3 = mv src/third_party_manual/getmemory/*.o exe/obj/
 
 [rule-makethirdpartymanual-fl]
 help   = Make third party manual-compiling libraries on marconi100 cluster
 rule_1 = mkdir -p exe/mod exe/obj
 rule_2 = cd src/third_party_manual/getmemory/ ; icx -c getmemory.c ; cd -
 rule_3 = mv src/third_party_manual/getmemory/*.o exe/obj/
-; rule_4 = cd src/third_party_manual/CGAL/ ; icpx -std=c++17 -frounding-math -O2 -I/software/spack/install/linux-sles15-icelake/oneapi-2024.2.0/boost-1.84.0-ybjg2civkr5r7per4qnnovi4ourubcyg/include -I/home/grossi/apps_libs/CGAL-5.6.2/include/ -c cgal_c_wrappers.cpp ; cd -
-; rule_5 = mv src/third_party_manual/CGAL/*.o exe/obj/
 
 [rule-maketar]
 help = Make tar archive of the project
@@ -584,3 +230,31 @@ rule_4 = rm -rf doc/html/publish
 [rule-deldoc]
 help = Delete documentation
 rule = rm -rf doc/html/*
+
+[common-variables]
+# environments
+# SZ workstation env
+# NVIDIA
+$HDF5_nvf_sz_ws = /opt/HDF5/bin/1.14.6/nvf/25.3
+$ZLIB_nvf_sz_ws = /opt/zlib/bin/1.3.1/nvf/25.3/lib/libz.a
+$SZIP_nvf_sz_ws = /opt/szip/bin/2.1.1/nvf/25.3/lib/libsz.a
+# GNU
+$HDF5_gnu_sz_ws = /opt/HDF5/bin/1.14.6/gnu/14.2.0
+$ZLIB_gnu_sz_ws = /opt/zlib/bin/1.3.1/gnu/14.2.0/lib/libz.a
+$SZIP_gnu_sz_ws = /opt/szip/bin/2.1.1/gnu/14.2.0/lib/libsz.a
+# SZ laptop env
+# NVIDIA
+$HDF5_nvf_sz_lt = /opt/HDF5/bin/1.14.5/nvidia/24.9
+$ZLIB_nvf_sz_lt = /opt/zlib/bin/1.3.1/nvf/24.7/lib/libz.a
+$SZIP_nvf_sz_lt = /opt/szip/bin/2.1.1/nvf/24.7/lib/libsz.a
+# GNU
+$HDF5_gnu_sz_lt = /opt/HDF5/bin/1.12.2/openmpi/4.1.4/gnu/11.2.0
+$ZLIB_gnu_sz_lt = /opt/zlib/bin/1.2.11/lib/libz.a
+$SZIP_gnu_sz_lt = /opt/szip/bin/2.1.1/lib/libsz.a
+# INTEL
+$HDF5_ifx_sz_lt = /opt/HDF5/bin/1.14.2/intel/20230622
+$ZLIB_ifx_sz_lt = /opt/zlib/bin/1.3/icx/20230622/lib/libz.a
+$SZIP_ifx_sz_lt = /opt/szip/bin/2.1.1/ifx/20230622/lib/libsz.a
+# manual third party lib
+$GETMEMORY = ./exe/obj/getmemory.o
+$CGAL      = ./exe/obj/cgal_c_wrappers.o
