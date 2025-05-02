@@ -7,10 +7,10 @@ module adam_prism_parameters
     implicit none
     save
     private
-    public :: mu0, eps0     
+    public :: MU0, EPS0     
     
-    real(R8P), parameter :: mu0      = 1.256637e-6_R8P          !< vacuum magnetic permeability
-    real(R8P), parameter :: eps0     = 8.854187e-12_R8P         !< vacuum dielectric constant
+    real(R8P), parameter :: MU0      = 1.256637e-6_R8P          !< vacuum magnetic permeability
+    real(R8P), parameter :: EPS0     = 8.854187e-12_R8P         !< vacuum dielectric constant
     real(R8P), parameter :: e_charge = -1.6e-19_R8P             !< Elettron charge value
     real(R8P), parameter :: e_mass   = 9.11e-31_R8P             !< Elettron mass value
     real(R8P), parameter :: q_over_m = e_charge/e_mass          !< q/m value for elettron

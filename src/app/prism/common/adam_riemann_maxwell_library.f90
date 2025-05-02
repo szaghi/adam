@@ -3,19 +3,20 @@ module adam_riemann_maxwell_library
     !< ADAM, Riemann Problem for Maxwell equations solvers and convective fluxes computations library.
     
     use penf, only : I4P, R8P
-    use adam_prism_parameters, only : mu0, eps0 
+    use adam_prism_parameters, only : MU0, EPS0 
     implicit none
     private
     public :: compute_riemann_maxwell_llf
+    public :: compute_convective_fluxes_Maxwell
 
 
 ! conservative variables are arranged as follows (and they coincide with auxiliary ones):
-! q_field(1): Dx
-! q_field(2): Dy
-! q_field(3): Dz
-! q_field(4): Bx
-! q_field(5): By
-! q_field(6): Bz
+! q(1): Dx
+! q(2): Dy
+! q(3): Dz
+! q(4): Bx
+! q(5): By
+! q(6): Bz
 
 ! fluxes:
 ! Fx(1) = 0        Fy(1) = -Bz/muz    Fz(1) = By/muy 
@@ -29,13 +30,13 @@ module adam_riemann_maxwell_library
     ! e permeabilità magnetica pari a mu0 e eps0
 
 contains
-    subroutine compute_riemann_maxwell_llf(si, nv, q_field1, q_field4, f, lmax)
+    subroutine compute_riemann_maxwell_llf(si, nv, q1, q4, f, lmax)
         !< Solve the Riemann problem between the state 1 (left) and 4 (right) using the Local-Lax-Friedrichs (LLF, Rusanov) solver.
         integer(I4P), intent(in)            :: si(3)         !< Directional (1=x,2=y,3=z) increment.
         !real(R8P),    intent(in)            :: sir(3)        !< Directional (1=x,2=y,3=z) increment.
         integer(I4P), intent(in)            :: nv            !< Number of conservative varibales.
-        real(R8P),    intent(in)            :: q_field1(1:)  !< Left state.
-        real(R8P),    intent(in)            :: q_field4(1:)  !< Right state.
+        real(R8P),    intent(in)            :: q1(1:)  !< Left state.
+        real(R8P),    intent(in)            :: q4(1:)  !< Right state.
         real(R8P),    intent(inout)         :: f(1:)         !< Resulting fluxes.
         real(R8P),    intent(out), optional :: lmax          !< Maximum wave speed estimation.
         real(R8P)                           :: F1(1:nv)      !< State 1 fluxes.
@@ -43,37 +44,37 @@ contains
 
         lmax = sqrt(1._R8P/(eps0*mu0))
 
-        call compute_convective_fluxes_Maxwell(si=si,q_field=q_field1,f=F1)
-        call compute_convective_fluxes_Maxwell(si=si,q_field=q_field4,f=F4)
+        call compute_convective_fluxes_Maxwell(si=si,q=q1,f=F1)
+        call compute_convective_fluxes_Maxwell(si=si,q=q4,f=F4)
 
-        f(1) = 0.5_R8P*(F1(1)+F4(1)-lmax*(q_field4(1)-q_field1(1)))
-        f(2) = 0.5_R8P*(F1(2)+F4(2)-lmax*(q_field4(2)-q_field1(2)))
-        f(3) = 0.5_R8P*(F1(3)+F4(3)-lmax*(q_field4(3)-q_field1(3)))
-        f(4) = 0.5_R8P*(F1(4)+F4(4)-lmax*(q_field4(4)-q_field1(4)))
-        f(5) = 0.5_R8P*(F1(5)+F4(5)-lmax*(q_field4(5)-q_field1(5)))
-        f(6) = 0.5_R8P*(F1(6)+F4(6)-lmax*(q_field4(6)-q_field1(6)))
+        f(1) = 0.5_R8P*(F1(1)+F4(1)-lmax*(q4(1)-q1(1)))
+        f(2) = 0.5_R8P*(F1(2)+F4(2)-lmax*(q4(2)-q1(2)))
+        f(3) = 0.5_R8P*(F1(3)+F4(3)-lmax*(q4(3)-q1(3)))
+        f(4) = 0.5_R8P*(F1(4)+F4(4)-lmax*(q4(4)-q1(4)))
+        f(5) = 0.5_R8P*(F1(5)+F4(5)-lmax*(q4(5)-q1(5)))
+        f(6) = 0.5_R8P*(F1(6)+F4(6)-lmax*(q4(6)-q1(6)))
 
     endsubroutine compute_riemann_maxwell_llf
 
-    subroutine compute_riemann_maxwell_hll(si, nv, q_field1, q_field4, f, lmax, lmin)
+    subroutine compute_riemann_maxwell_hll(si, nv, q1, q4, f, lmax, lmin)
 
         !< Solve the Riemann problem between the state 1 (left) and 4 (right) using the Harten, Lax and van Leer (HLL) solver.
         integer(I4P), intent(in)            :: si(3)         !< Directional (1=x,2=y,3=z) increment.
         !real(R8P),    intent(in)            :: sir(3)        !< Directional (1=x,2=y,3=z) increment.
         integer(I4P), intent(in)            :: nv            !< Number of conservative varibales.
-        real(R8P),    intent(in)            :: q_field1(1:)  !< Left state.
-        real(R8P),    intent(in)            :: q_field4(1:)  !< Right state.
+        real(R8P),    intent(in)            :: q1(1:)  !< Left state.
+        real(R8P),    intent(in)            :: q4(1:)  !< Right state.
         real(R8P),    intent(inout)         :: f(1:)         !< Resulting fluxes.
         real(R8P),    intent(out), optional :: lmax          !< Maximum wave speed estimation.
         real(R8P),    intent(out), optional :: lmin          !< Maximum wave speed estimation.
         real(R8P)                           :: F1(1:nv)      !< State 1 fluxes.
         real(R8P)                           :: F4(1:nv)      !< State 4 fluxes.
 
-        lmax = sqrt(1._R8P/(eps0*mu0))
+        lmax = sqrt(1._R8P/(EPS0*MU0))
         lmin = -lmax
 
-        call compute_convective_fluxes_Maxwell(si=si,q_field=q_field1,f=F1)
-        call compute_convective_fluxes_Maxwell(si=si,q_field=q_field4,f=F4)
+        call compute_convective_fluxes_Maxwell(si=si,q=q1,f=F1)
+        call compute_convective_fluxes_Maxwell(si=si,q=q4,f=F4)
 
         f(1) = (lmax*F1(1)-lmin*F4(1)+lmax*lmin*(F4(1)-F1(1)))/(lmax-lmin)
         f(2) = (lmax*F1(2)-lmin*F4(2)+lmax*lmin*(F4(2)-F1(2)))/(lmax-lmin)
@@ -88,12 +89,12 @@ contains
     
 
 ! conservative variables are arranged as follows (and they coincide with auxiliary ones):
-! q_field(1): Dx
-! q_field(2): Dy
-! q_field(3): Dz
-! q_field(4): Bx
-! q_field(5): By
-! q_field(6): Bz
+! q(1): Dx
+! q(2): Dy
+! q(3): Dz
+! q(4): Bx
+! q(5): By
+! q(6): Bz
 
 ! fluxes:
 ! Fx(1) = 0        Fy(1) = -Bz/muz    Fz(1) = By/muy 
@@ -106,10 +107,10 @@ contains
 
     ! private procedures
 
-    pure subroutine compute_convective_fluxes_Maxwell(si,q_field,f)
+    pure subroutine compute_convective_fluxes_Maxwell(si,q,f)
     !< Compute convective fluxes for Euler equations from auxiliary variables.
     integer(I4P), intent(in)    :: si(3)         !< Directional (1=x,2=y,3=z) increment.
-    real(R8P),    intent(in)    :: q_field(1:)   !< Auxiliary variables. 
+    real(R8P),    intent(in)    :: q(1:)         !< Auxiliary variables. 
     real(R8P),    intent(inout) :: f(1:)         !< Conservative fluxes.
 
     !! CI METTIAMO UN IF SULLA DIREZIONE CONSIDERATA?
@@ -120,30 +121,30 @@ contains
     case(1)
 
         f(1) =  0.0_R8P
-        f(2) =  q_field(6)/mu0
-        f(3) = -q_field(5)/mu0
+        f(2) =  q(6)/mu0
+        f(3) = -q(5)/mu0
         f(4) =  0.0_R8P
-        f(5) = -q_field(3)/eps0
-        f(6) =  q_field(2)/eps0
+        f(5) = -q(3)/eps0
+        f(6) =  q(2)/eps0
 
     !elseif(sir(2).eq.1) then !Y
     case(2)
 
-        f(1) = -q_field(6)/mu0
+        f(1) = -q(6)/mu0
         f(2) =  0.0_R8P
-        f(3) =  q_field(4)/mu0
-        f(4) =  q_field(3)/eps0
+        f(3) =  q(4)/mu0
+        f(4) =  q(3)/eps0
         f(5) =  0.0_R8P
-        f(6) = -q_field(1)/eps0
+        f(6) = -q(1)/eps0
 
     !elseif(sir(3).eq.1) then  !Z
     case(3)
 
-        f(1) =  q_field(5)/mu0
-        f(2) = -q_field(4)/mu0
+        f(1) =  q(5)/mu0
+        f(2) = -q(4)/mu0
         f(3) =  0.0_R8P
-        f(4) = -q_field(2)/eps0
-        f(5) =  q_field(1)/eps0  
+        f(4) = -q(2)/eps0
+        f(5) =  q(1)/eps0  
         f(6) =  0.0_R8P 
 
     !endif

@@ -24,6 +24,7 @@ type, extends(prism_common_object) :: prism_fnl_object
    type(mpih_fnl_object)  :: mpih_gpu  !< MPI handler, FNL backend.
    type(field_fnl_object) :: field_gpu !< The field, FNL backend.
    ! device data
+   
    real(R8P), pointer :: q_pic_gpu(:,:,:) !< PIC centered variables.
    !< PIC center variables definition:
    !< q_pic_gpu(b,p,v) where "b" is the block index, "p" is the particle index and
