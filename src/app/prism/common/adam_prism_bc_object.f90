@@ -1,5 +1,5 @@
 !< ADAM, PRISM Boundary Conditions class definition, CPU backend.
-module adam_prism_bc_object !q diventa un q(9:6) vedi INI_SECTIONS_NAME
+module adam_prism_bc_object 
     !< ADAM, PRISM Boundary Conditions class definition, CPU backend.
     
     use adam_mpih_object
@@ -25,7 +25,7 @@ module adam_prism_bc_object !q diventa un q(9:6) vedi INI_SECTIONS_NAME
        !< Boundary Conditions class definition, CPU backend.
        type(mpih_object)      :: mpih       !< MPI handler.
        integer(I4P)           :: bc_type(6) !< Boundary condition type.
-       real(R8P), allocatable :: q(:,:)     !< Primitive variables (Dx,Dy,Dz,Bx,By,Bz) at BC.
+       real(R8P), allocatable :: q(:,:)     !< Primitive variables (Dx,Dy,Dz,Bx,By,Bz,Jx,Jy,Jz) at BC.
        contains
           ! public methods
           procedure, pass(self) :: initialize     !< Initialize BC.
@@ -41,7 +41,7 @@ module adam_prism_bc_object !q diventa un q(9:6) vedi INI_SECTIONS_NAME
     
        call self%mpih%initialize(do_mpi_init=.false.)
        print '(A)', self%mpih%myrankstr//'prism_bc_object%initialize start'
-       allocate(self%q(6,6))
+       allocate(self%q(9,6))
        call self%load_from_file(file_parameters=file_parameters)
        print '(A)', self%mpih%myrankstr//'prism_bc_object%initialize finish'
        endsubroutine initialize

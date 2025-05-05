@@ -126,6 +126,9 @@ contains
         f(4) =  0.0_R8P
         f(5) = -q(3)/eps0
         f(6) =  q(2)/eps0
+        f(7) = 0._R8P
+        f(8) = 0._R8P
+        f(9) = 0._R8P
 
     !elseif(sir(2).eq.1) then !Y
     case(2)
@@ -136,6 +139,9 @@ contains
         f(4) =  q(3)/eps0
         f(5) =  0.0_R8P
         f(6) = -q(1)/eps0
+        f(7) = 0._R8P
+        f(8) = 0._R8P
+        f(9) = 0._R8P
 
     !elseif(sir(3).eq.1) then  !Z
     case(3)
@@ -146,6 +152,9 @@ contains
         f(4) = -q(2)/eps0
         f(5) =  q(1)/eps0  
         f(6) =  0.0_R8P 
+        f(7) = 0._R8P
+        f(8) = 0._R8P
+        f(9) = 0._R8P
 
     !endif
     endselect

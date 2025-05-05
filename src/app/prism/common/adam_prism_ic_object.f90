@@ -1,5 +1,5 @@
 !< ADAM, PRISM Initial Conditions class definition, CPU backend.
-module adam_prism_ic_object  !Da portare a 9 elementi il vettore q!!!!
+module adam_prism_ic_object 
     !< ADAM, PRISM Initial Conditions class definition, CPU backend.
 
 use adam_field_object, only : field_object
@@ -24,7 +24,7 @@ type :: prism_ic_object
    integer(I4P)              :: amr_iterations=1_I4P !< Number of AMR iterations imposing IC.
    character(:), allocatable :: ic_type              !< IC type.
    integer(I4P)              :: regions_number=1_I4P !< Number of IC regions.
-   real(R8P), allocatable    :: q(:,:)               !< Primitive variables (Dx,Dy,Dz,Bx,By,Bz).
+   real(R8P), allocatable    :: q(:,:)               !< Primitive variables (Dx,Dy,Dz,Bx,By,Bz,Jx,Jy,Jz).
    real(R8P), allocatable    :: emin(:,:), emax(:,:) !< IC regions bounding box.
    contains
       ! public methods
@@ -90,7 +90,7 @@ contains
    if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(regions_number)')
 
    if (self%regions_number>=1) then
-      allocate(   self%q(1:6, 1:self%regions_number))
+      allocate(   self%q(1:9, 1:self%regions_number))
       allocate(self%emin(1:3, 1:self%regions_number))
       allocate(self%emax(1:3, 1:self%regions_number))
       do i=1, self%regions_number
@@ -107,7 +107,14 @@ contains
          if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(By)')
          call file_parameters%get(section_name=sname, option_name='Bz', val=self%q(6,i), error=error)
          if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Bz)')
-         call file_parameters%get(section_name=sname, option_name='emin_x', val=self%emin(1,i), error=error)
+
+         call file_parameters%get(section_name=sname, option_name='Jx', val=self%q(7,i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Jx)')
+         call file_parameters%get(section_name=sname, option_name='Jy', val=self%q(8,i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Jy)')
+         call file_parameters%get(section_name=sname, option_name='Jz', val=self%q(9,i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Jz)')
+
          if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(emin_x)')
          call file_parameters%get(section_name=sname, option_name='emin_y', val=self%emin(2,i), error=error)
          if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(emin_y)')
@@ -144,6 +151,9 @@ contains
                   q(4,i,j,k,b) = 0.0_R8P
                   q(5,i,j,k,b) = 0.0_R8P
                   q(6,i,j,k,b) = 0.0_R8P
+                  q(7,i,j,k,b) = 0.0_R8P
+                  q(8,i,j,k,b) = 0.0_R8P
+                  q(9,i,j,k,b) = 0.0_R8P
                enddo
             enddo
          enddo

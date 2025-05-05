@@ -25,7 +25,7 @@ character(len=15), parameter :: CURRENT_TYPE_AC="AC_current"          !< AC curr
 
 type :: prism_coil_object
    !< ADAM, PRISM coil source definition, CPU backend.
-   !type(mpih_object)         :: mpih                 !< MPI handler.
+   type(mpih_object)          :: mpih                 !< MPI handler.
    !integer(I4P)              :: amr_iterations=1_I4P !< Number of AMR iterations imposing IC.
    type(string), allocatable  :: coil_type(:)                            !< Coil type.
    type(string), allocatable  :: current_type(:)                         !< Current type.
@@ -37,6 +37,7 @@ type :: prism_coil_object
    real(R8P), allocatable     :: lx(:), ly(:)                            !< Rectangle's sizes (if rectangular coil)
    real(R8P), allocatable     :: r_coil(:)                               !< Circle's radius (if circular coil)
    real(R8P), allocatable     :: normal(3,:)                             !< Versore normale alla spira, che identifica anche verso della corrente con regola mano dx
+   integer(I4P), allocatable  :: coil_flag(:,:,:,:)                      !< Matrice contenente informazioni su quale spira pass per una certa cella
    integer(I4P)               :: circular_coils_number=0_I4P             !< Number of circular coils
    integer(I4P)               :: rectangular_coils_number=0_I4P          !< Number of rectangular coils
    integer(I4P)               :: total_coils_number=0_I4P                !< Number of coils
@@ -47,8 +48,8 @@ type :: prism_coil_object
    !real(R8P), allocatable    :: emin(:,:), emax(:,:) !< IC regions bounding box.
    contains
       ! public methods
-      !procedure, pass(self) :: description            !< Return pretty-printed object description.
-      !procedure, pass(self) :: initialize             !< Initialize IC.
+      !procedure, pass(self) :: description           !< Return pretty-printed object description.
+      procedure, pass(self) :: initialize             !< Initialize IC.
       procedure, pass(self) :: load_from_file         !< Load config from file.
       procedure, pass(self) :: set_coils              !< Set coils on PRISM fields.
 endtype prism_coil_object
@@ -57,10 +58,25 @@ endtype prism_coil_object
 contains
    ! public methods
 
+    subroutine initialize(self, file_parameters) !Cfr ic%initialize, ma commentata parte descrizione perchè da implementare
+    !< Initialize the equation.
+    class(prism_ic_object), intent(inout) :: self            !< Coils.
+    type(file_ini),         intent(in)    :: file_parameters !< Simulation parameters ini file handler.
+ 
+    call self%mpih%initialize(do_mpi_init=.false.)
+    print '(A)', self%mpih%myrankstr//'prism_coil_object%initialize start'
+    call self%load_from_file(file_parameters=file_parameters)
+    !print '(A)', self%description()
+    print '(A)', self%mpih%myrankstr//'prism_coil_object%initialize finish'
+    endsubroutine initialize
+
+
+
     subroutine load_from_file(self, file_parameters, go_on_fail)
     !< Load config from file.
     class(prism_coil_object), intent(inout)      :: self            !< coils.
     type(file_ini),         intent(in)           :: file_parameters !< Simulation parameters ini file handler.
+    type(field_object),     intent(in)           :: field           !< The field.
     logical,                intent(in), optional :: go_on_fail      !< Go on if load fails.
     logical                                      :: go_on_fail_     !< Go on if load fails.
     character(:), allocatable                    :: sname           !< Section name.
@@ -80,7 +96,7 @@ contains
  
     if (self%total_coils_number>=1) then
 
-
+    ! Alloczione variabili dell'oggetto spira
        allocate(self%r_coil(1:self%total_coils_number))
        allocate(self%ly(1:self%total_coils_number))
        allocate(self%lx(1:self%total_coils_number))
@@ -96,6 +112,14 @@ contains
        allocate(self%A(1:self%total_coils_number))
        allocate(self%f(1:self%total_coils_number))
        allocate(self%phase(1:self%total_coils_number))
+
+       !Allocazione matrice identificazione spire nelle celle
+       associate(ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, blocks_number=>field%blocks_number)
+
+       allocate(self%coil_flag(1:ni, 1:nj, 1:nk, 1:blocks_number))
+       self%coil_flag = 0_I4P
+
+       endassociate
 
        do i=1, self%total_coils_number
         sname = INI_SECTION_NAME//'_coil_'//trim(str(i,.true.))
@@ -186,10 +210,6 @@ contains
     endif
     endsubroutine load_from_file
 
-    !Di sicuro va aggiunta la procedura di inzializzazione, quantomeno per leggere gli input
-    !Probabilmente semplicemente sulla falsariga di quella delle IC
-
-
     !Schema: -subroutine set coils: ciclo do con lettura di numero di coil
     !                                    -lettura coil type e conseguente chiamata alla subroutine di riferimento
 
@@ -228,7 +248,7 @@ contains
             !< da calcolare poi tramite la funziona che assegna il valore della corrente, da implementare forse
             !< in CPU (o comunque serve la info del tempo avendo anche AC) 
 
-            class(prism_coil_object),     intent(in)    :: self                                                                !< Coils
+            class(prism_coil_object),     intent(inout) :: self                                                                !< Coils
             type(prism_physics_object),   intent(in)    :: physics                                                             !< Fluids physiscs.
             type(field_object),           intent(inout) :: field                                                               !< Field object.
             integer(I4P),                 intent(in)    :: n                                                                   !< Coil number.
@@ -266,13 +286,16 @@ contains
                         !Scrivi qua vettore posizione cella b i j k :: cell_coord
                         cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
 
-                        if ( sq_norm(cell_coord-c_c) <= sq_norm(r_coil+dmax) .and. sq_norm(r_coil-dmax) <= sq_norm(cell_coord-c_c) .and. abs(dotproduct((cell_coord-c_c),normal)) <= d/r_coil ) then
+                        if ( sq_norm(cell_coord-c_c) <= sq_norm(r_coil+dmax) .and. sq_norm(r_coil-dmax) <= sq_norm(cell_coord-c_c) .and. abs(dotproduct(a=(cell_coord-c_c),b=normal)) <= d/r_coil ) then
 
                             !flag(i,j,k,b) = 1._R8P
-                            q(7:9,i,j,k,b) = crossproduct(normal,(cell_coord-c_c))
+                            q(7:9,i,j,k,b) = crossproduct(a=normal,b=(cell_coord-c_c))
 
                             !normalizzo per ottenere, alla fine il versore della corrente nella cella
                             q(7:9,i,j,k,b) = q(7:9,i,j,k,b)/sqrt(sq_norm(q(7:9,i,j,k,b)))
+
+                            !metto flag su quale spira passa per la cella
+                            self%coil_flag(i,j,k,b) = n
 
                         endif
 
@@ -304,8 +327,7 @@ contains
         real(R8P)                                   :: n1(3), d1, n2(3), d2                                                                !< Parametri piani diagonali perpendicolari a spira, per evitare sovrapposizioni
         real(R8P)                                   :: kappa(3), K(3,3), Id(3,3), theta                                                    !< Vettore, angolo e matrice di appoggio per formula Rodrigues + matrice identità
         real(R8P)                                   :: Kquad(3,3), R(3,3)                                                                  !< Matrice K^2 e matrice rotazione tra vz e normale alla spira
-        real(R8P)                                   :: dist, prj_v(3)                                                                      !< Distanza punto retta e proiezione del punto sulla retta
-        real(R8P)                                   :: flag_real                                                                           !< Variabile utilizzata per definire direzione corrente
+        real(R8P)                                   :: dist, prj_v(3)                                                                      !< Distanza punto retta e proiezione del punto sulla retta                                                                          !< Variabile utilizzata per definire direzione corrente
         integer(I4P),                               :: b,i,j,k,w                                                                           !< Counter.
 
         !associo per dati su posizioni delle celle e contatori
@@ -346,7 +368,7 @@ contains
         !isnan per il caso rotazione nulla rispetto
         !a n // z
 
-        kappa = crossproduct(vz,normal) 
+        kappa = crossproduct(a=vz,b=normal) 
 
         if ( normal /= vz ) then
 
@@ -354,7 +376,7 @@ contains
 
         endif
 
-        theta = acos(dotproduct(vz,normal)); 
+        theta = acos(dotproduct(a=vz,b=normal)); 
         
         K(1,1) = 0._R8P
         K(1,2) = -kappa(3)
@@ -397,12 +419,12 @@ contains
 
         !CONTROLLA PRODOTTI SCALARE E VETTORIALE
         !piano 1, diagonale V1-V3 e normale verso V4
-        n1 = crossproduct((V1-c_c),normal)/sqrt(sq_norm(V1-c_c)) !normale al piano 
-        d1 = -dotproduct(n1,c_c) !parametro d dell'equazione ax + by + cz + d1 = 0, con a b c coseni direttori della normale
+        n1 = crossproduct(a=(V1-c_c),b=normal)/sqrt(sq_norm(V1-c_c)) !normale al piano 
+        d1 = -dotproduct(a=n1,b=c_c) !parametro d dell'equazione ax + by + cz + d1 = 0, con a b c coseni direttori della normale
         
         !piano 2, diagonale V2-V4 e normale verso V3
-        n2 = crossproduct((V4-c_c),normal)/sqrt(sq_norm(V4-c_c)) !normale al piano 
-        d2 = -dotproduct(n2,c_c) !parametro d dell'equazione ax + by + cz + d2 = 0, con a b c coseni direttori della normale
+        n2 = crossproduct(a=(V4-c_c),b=normal)/sqrt(sq_norm(V4-c_c)) !normale al piano 
+        d2 = -dotproduct(a=n2,b=c_c) !parametro d dell'equazione ax + by + cz + d2 = 0, con a b c coseni direttori della normale
 
 
         allocate(flag(ni,nj,nk,blocks_number))
@@ -425,34 +447,31 @@ contains
                         !Scrivi qua vettore posizione cella b i j k :: cell_coord
                         cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
 
-                        dist = sqrt(sq_norm(crossproduct((cell_coord-V(w,:)),vec(w,:)))) !Distanza punto rettta ||P-A|| x v / |v| con A punto sulla retta e v versore della retta
+                        dist = sqrt(sq_norm(crossproduct(a=(cell_coord-V(w,:)),b=vec(w,:)))) !Distanza punto rettta ||P-A|| x v / |v| con A punto sulla retta e v versore della retta
 
-                        !correggi questo prodotto. 
-                        prj_v = V(w,:)+dotproduct((cell_coord-V(w,:)),vec(w,:))*vec(w,:); !Formula proiezione di un punto su una retta con A punto della retta (da cambiare con ciclo for avendo messo V1 ora)
+                        prj_v = V(w,:)+dotproduct(a=(cell_coord-V(w,:)),b=vec(w,:))*vec(w,:); !Formula proiezione di un punto su una retta con A punto della retta (da cambiare con ciclo for avendo messo V1 ora)
                                                                               !A+[(P-A)*v]*v. 
-
-                        !Verifica la scrittura di 0 "intero"
-                        if ( flag(b,i,j,k) == 0 .and. d <= dmax .and. prj_v(1) <= max(V(:,1)) + dmax .and. prj_v(2) <= max(V(:,2)) + dmax .and. prj_v(3) <= max(V(:,3)) & 
+                        if ( flag(b,i,j,k) == 0_I4P .and. d <= dmax .and. prj_v(1) <= max(V(:,1)) + dmax .and. prj_v(2) <= max(V(:,2)) + dmax .and. prj_v(3) <= max(V(:,3)) & 
                              + dmax .and. min(V(:,1))-dmax <= prj_v(1) .and. min(V(:,2))-dmax <= prj_v(2) .and. min(V(:,3))-dmax <= prj_v(3) ) then
-                            flag(b,i,j,k) = j
+                            flag(i,j,k,b) = j
                         endif
 
                         !Scrivi bene questi prodotti scalari
                         if (j == 1) then
-                            if ((dotproduct(n1,cell_coord)+d1 >= 0 .or. dotproduct(n2,cell_coord)+d2 >= 0) .and. flag(b,i,j,k) == j) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
-                                flag(b,i,j,k) = 0_I4P
+                            if ((dotproduct(a=n1,b=cell_coord)+d1 >= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 >= 0) .and. flag(b,i,j,k) == j) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
+                                flag(i,j,k,b) = 0_I4P
                             endif
                         elseif (j == 2) then
-                            if ((dotproduct(n1,cell_coord)+d1 >= 0 .or. dotproduct(n2,cell_coord)+d2 <= 0) .and. flag(b,i,j,k) == j) then!aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
-                                flag(b,i,j,k) = 0_I4P
+                            if ((dotproduct(a=n1,b=cell_coord)+d1 >= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 <= 0) .and. flag(b,i,j,k) == j) then!aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
+                                flag(i,j,k,b) = 0_I4P
                             endif
                         elseif (j == 3) then
-                            if ((dotproduct(n1,cell_coord)+d1 <= 0 .or. dotproduct(n2,cell_coord)+d2 <= 0) .and. flag(b,i,j,k) == j) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
-                                flag(b,i,j,k) = 0_I4P
+                            if ((dotproduct(a=n1,b=cell_coord)+d1 <= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 <= 0) .and. flag(b,i,j,k) == j) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
+                                flag(i,j,k,b) = 0_I4P
                             endif                
                         elseif (j == 4) then 
-                            if ((dotproduct(n1,cell_coord)+d1 <= 0 .or. dotproduct(n2,cell_coord)+d2 >= 0) .and. flag(b,i,j,k) == j) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
-                                flag(b,i,j,k) = 0_I4P
+                            if ((dotproduct(a=n1,b=cell_coord)+d1 <= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 >= 0) .and. flag(b,i,j,k) == j) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
+                                flag(i,j,k,b) = 0_I4P
                             endif
                         endif
                         enddo
@@ -463,14 +482,18 @@ contains
 
         !Ho un flag pari a 1 2 3 4 nelle celle per cui passa uno dei dati della spira. La direzione della corrente è 
         !Ceorente con quella dei versori dei lati precedentemente descritti
-        do k=1, nk
-            do j=1, nj
-                 do i=1, ni
-                    if (flag(b,i,j,k) ~= 0) then
-                        q(7:9,i,j,k,b) = vec(flag(b,i,j,k),:)
-                    elseif (flag(b,i,j,k) == 0) then
-                        q(7:9,i,j,k,b) = 0._R8P
-                    endif
+        do b=1, blocks_number
+            do k=1, nk
+                do j=1, nj
+                     do i=1, ni
+                        if (flag(b,i,j,k) ~= 0) then
+                            q(7:9,i,j,k,b) = vec(flag(i,j,k,b),:)
+                            !metto flag su quale spira passa per la cella
+                            self%coil_flag(i,j,k,b) = n
+                        elseif (flag(b,i,j,k) == 0) then
+                            q(7:9,i,j,k,b) = 0._R8P
+                        endif
+                    enddo
                 enddo
             enddo
         enddo

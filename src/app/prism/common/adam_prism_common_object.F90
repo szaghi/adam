@@ -41,6 +41,7 @@ type :: prism_common_object
    type(prism_ic_object)      :: ic      !< Initial Conditions (IC) handler.
    type(prism_bc_object)      :: bc      !< Boundary Conditions (BC) handler.
    type(prism_time_object)    :: time    !< Time handler.
+   type(prism_coil_object)    :: coil    !< Oggetto con informazioni su spire.
    ! grid/field data replica for easy handling
    integer(I4P), pointer :: ngc=>null()           !< Number of ghost cells.
    integer(I4P), pointer :: ni=>null()            !< Number of cells in i direction.
@@ -50,9 +51,8 @@ type :: prism_common_object
    integer(I4P), pointer :: blocks_number=>null() !< Actual blocks number.
 !   integer(I4P), pointer :: ns=>null()            !< Number of fluids specie.
    integer(I4P), pointer :: nv=>null()            !< Number of conservative variables.
-   integer(I4P), pointer :: nv=>null()            !< Number of conservative variables.
    ! auxiliary fields data: see nasto parameters definition for the arrangement of conservative and auxiliary variables
-   real(R8P), allocatable :: q(:,:,:,:,:)         !< Conservative cell centered variables.
+   real(R8P), pointer    :: q(:,:,:,:,:)=>null()  !< Conservative cell centered variables.
 
    type(c_ptr), allocatable :: ptree(:) !< CGAL trees for solids.
 
@@ -65,9 +65,9 @@ contains
    !< Allocate common data.
    class(nasto_common_object), intent(inout) :: self !< The equation.
 
-   associate(nv_aux=>self%nv_aux, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb, &
+   associate(nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb, &
              solids_number=>self%ib%solids_number)
-   allocate(self%q(1:nv_aux, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
+   allocate(self%q(1:nv, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
    !self%q = 0._R8P DA CHIARIRE QUESTIONE DOVE ALLOCO E DOVE DEFINISCO IL VETTORE DI STATO Q. HP DA FIELD VISTO CHE 
                     !IC LAVORA CON QUELLO (ANCHE SE, ESSENDOCI ASSOCIAZIONE (PER Q_AUX), DOVREBBE ESSERE EQUIVALENTE)
    endassociate
@@ -106,6 +106,7 @@ contains
    call self%amr%initialize(file_parameters=file_parameters)
    call self%time%initialize(file_parameters=file_parameters)
    call self%ic%initialize(file_parameters=file_parameters)
+   call self%coil%initialize(file_parameters=file_parameters)
    call self%ib%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    call self%slices%initialize(file_parameters=file_parameters)
    call self%rk%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
@@ -131,7 +132,7 @@ contains
 !      self%ns            => physics%ns
       self%nv            => physics%nv
 !      self%nv_aux        => physics%nv_aux
-      self%q             => field%q      !Conseguenza ipotesi fatte. Da verificare 
+      self%q             => field%q !Ho cambiato modo di scrivere q: è necessario cambiarlo in field (identificandolo come un target)?
       endsubroutine associate_adam_data
    endsubroutine initialize_common
 endmodule adam_prism_common_object
