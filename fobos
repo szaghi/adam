@@ -102,6 +102,8 @@ quiet        = False
 log          = True
 jobs         = 4
 mpi          = True
+libs         = $GETMEMORY
+ext_libs     = hdf5_fortran
 exclude_dirs = src/lib_experimental/
                references/
                BeFoR64/src/tests/
@@ -136,8 +138,6 @@ cflags   = -cpp -c -acc -gpu=cc89 -fast -Minfo=all
 lflags   = -acc -gpu=cc89 -fast -Minfo=all
 lib_dir  = $HDF5_nvf_sz_ws/lib
 include  = $HDF5_nvf_sz_ws/include
-libs     = $GETMEMORY
-ext_libs = hdf5_hl_fortran hdf5_fortran hdf5_hl hdf5 z dl m stdc++
 
 [template-nvf-oac-sz-ws-debug]
 template = template-nvf-oac-sz-ws
@@ -152,8 +152,6 @@ cflags   = -cpp -c -cuda -gpu=cc89,cuda12.8,ptxinfo -O2
 lflags   = -cuda -gpu=cc89,cuda12.8,ptxinfo -O2
 lib_dir  = $HDF5_nvf_sz_ws/lib
 include  = $HDF5_nvf_sz_ws/include
-libs     = $GETMEMORY
-ext_libs = hdf5_hl_fortran hdf5_fortran hdf5_hl hdf5 z dl m stdc++
 
 [template-nvf-cuda-sz-ws-debug]
 template = template-nvf-cuda-sz-ws
@@ -168,8 +166,6 @@ cflags   = -cpp -c -fast
 lflags   = -fast
 lib_dir  = $HDF5_nvf_sz_ws/lib
 include  = $HDF5_nvf_sz_ws/include
-libs     = $GETMEMORY
-ext_libs = hdf5_hl_fortran hdf5_fortran hdf5_hl hdf5 z dl m stdc++
 
 [template-nvf-sz-ws-debug]
 template = template-nvf-oac-sz-ws
@@ -184,8 +180,6 @@ cflags   = -cpp -c -O2
 lflags   = -O2
 lib_dir  = $HDF5_gnu_sz_ws/lib
 include  = $HDF5_gnu_sz_ws/include
-libs     = $GETMEMORY
-ext_libs = hdf5_hl_fortran hdf5_fortran hdf5_hl hdf5 z dl m stdc++
 
 [template-gnu-sz-ws-debug]
 template = template-base
@@ -194,8 +188,6 @@ cflags   = -cpp -c -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncati
 lflags   = -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fcheck=all -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan
 lib_dir  = $HDF5_gnu_sz_ws/lib
 include  = $HDF5_gnu_sz_ws/include
-libs     = $GETMEMORY
-ext_libs = hdf5_hl_fortran hdf5_fortran hdf5_hl hdf5 z dl m stdc++
 
 # aux rules
 [rule-makethirdpartymanual]
