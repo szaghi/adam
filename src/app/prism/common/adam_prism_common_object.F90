@@ -63,7 +63,7 @@ endtype prism_common_object
 contains
    subroutine allocate_common(self) !se così commentata questa subroutine diviene di fatto inutile e commentabile in initialize_common
    !< Allocate common data.
-   class(nasto_common_object), intent(inout) :: self !< The equation.
+   class(prism_common_object), intent(inout) :: self !< The equation.
 
    associate(nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb, &
              solids_number=>self%ib%solids_number)

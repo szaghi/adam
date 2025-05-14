@@ -9,7 +9,7 @@ use penf, only : I4P, R8P, str
 
 implicit none
 private
-public :: nasto_physics_object
+public :: prism_physics_object
 
 character(len=7), parameter :: INI_SECTION_NAME='physics' !< INI file section name containing fluid physics.
 
@@ -45,7 +45,7 @@ contains
 
 pure function description(self) result(desc)
 !< Return a pretty-formatted object description.
-class(nasto_physics_object), intent(in) :: self             !< Physics.
+class(prism_physics_object), intent(in) :: self             !< Physics.
 character(len=:), allocatable           :: desc             !< Description.
 character(len=1), parameter             :: NL=new_line('a') !< New line character.
 !integer(I4P)                            :: s                !< Counter.
@@ -67,11 +67,11 @@ endfunction description
 
 subroutine initialize(self, file_parameters)
 !< Initialize the equation.
-class(nasto_physics_object), intent(inout) :: self            !< Physics.
+class(prism_physics_object), intent(inout) :: self            !< Physics.
 type(file_ini),              intent(in)    :: file_parameters !< Simulation parameters ini file handler.
 
 call self%mpih%initialize(do_mpi_init=.false.)
-print '(A)', self%mpih%myrankstr//'nasto_physics_object%initialize start'
+print '(A)', self%mpih%myrankstr//'prism_physics_object%initialize start'
 call self%load_from_file(file_parameters=file_parameters)
 self%nv     = self%nv
 ! initialize named index of q_aux array
@@ -85,12 +85,12 @@ VAR_JX = 7_I4P
 VAR_JY = 8_I4P
 VAR_JZ = 9_I4P
 print '(A)', self%description()
-print '(A)', self%mpih%myrankstr//'nasto_physics_object%initialize finish'
+print '(A)', self%mpih%myrankstr//'prism_physics_object%initialize finish'
 endsubroutine initialize
  
 subroutine load_from_file(self, file_parameters, go_on_fail)
 !< Load config from file.
-class(nasto_physics_object), intent(inout)        :: self            !< Physics.
+class(prism_physics_object), intent(inout)        :: self            !< Physics.
 type(file_ini),              intent(in)           :: file_parameters !< Simulation parameters ini file handler.
 logical,                     intent(in), optional :: go_on_fail      !< Go on if load fails.
 logical                                           :: go_on_fail_     !< Go on if load fails.
