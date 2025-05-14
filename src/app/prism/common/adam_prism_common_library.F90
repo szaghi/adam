@@ -7,6 +7,7 @@ module adam_prism_common_library
 
 
 use adam_prism_bc_object
+use adam_prism_coil_object
 use adam_prism_common_object
 use adam_prism_ic_object
 use adam_prism_io_object
@@ -14,10 +15,10 @@ use adam_prism_parameters
 use adam_prism_physics_object
 use adam_prism_time_object
 
-! da aggiungere queste due (con la seconda da verificare dove)!!!
+! da aggiungere queste due (con la seconda da verificare trovandosi fuori da common in realtà)!!!
 
 !use adam_prism_coil_object
-!use adam_riemann_maxwell_library
+!use adam_riemann_maxwell_library.
 
 implicit none
 public

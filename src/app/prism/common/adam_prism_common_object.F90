@@ -1,6 +1,5 @@
-!< ADAM, Navier-Stokes equations system class definition, common data to all backends.
+!< ADAM, Maxwell equations system class definition, common data to all backends.
 module adam_prism_common_object
-!< ADAM, Navier-Stokes equations system class definition, common data to all backends.
 
 use adam_adam_object
 use adam_amr_object
@@ -12,6 +11,7 @@ use adam_rk_object
 use adam_slices_object
 use adam_weno_object
 use adam_prism_ic_object
+use adam_prism_coil_object !aggiunto coil
 use adam_prism_io_object
 use adam_prism_bc_object
 use adam_prism_physics_object
@@ -24,7 +24,7 @@ private
 public :: prism_common_object
 
 type :: prism_common_object
-   !< Navier-Stokes equations system class definition, common data to all backends.
+   !< Maxwell equations system class definition, common data to all backends.
    ! ADAM library objects
    type(mpih_object)           :: mpih          !< MPI handler.
    type(adam_object)           :: adam          !< ADAM.
@@ -61,15 +61,15 @@ type :: prism_common_object
       procedure, pass(self) :: initialize_common !< Initialize the equation common data.
 endtype prism_common_object
 contains
-   subroutine allocate_common(self)
+   subroutine allocate_common(self) !se così commentata questa subroutine diviene di fatto inutile e commentabile in initialize_common
    !< Allocate common data.
    class(nasto_common_object), intent(inout) :: self !< The equation.
 
    associate(nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb, &
              solids_number=>self%ib%solids_number)
-   allocate(self%q(1:nv, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
-   !self%q = 0._R8P DA CHIARIRE QUESTIONE DOVE ALLOCO E DOVE DEFINISCO IL VETTORE DI STATO Q. HP DA FIELD VISTO CHE 
-                    !IC LAVORA CON QUELLO (ANCHE SE, ESSENDOCI ASSOCIAZIONE (PER Q_AUX), DOVREBBE ESSERE EQUIVALENTE)
+   !allocate(self%q(1:nv, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
+   !self%q = 0._R8P !da chiarire vedendo field ma, avendo messo il puntatore in initialize_common, non dovrebbe servirmi a nulla
+             !allocare o dichiarare
    endassociate
    endsubroutine allocate_common
    

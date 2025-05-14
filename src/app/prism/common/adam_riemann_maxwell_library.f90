@@ -17,6 +17,10 @@ module adam_riemann_maxwell_library
 ! q(4): Bx
 ! q(5): By
 ! q(6): Bz
+! q(4): Jx
+! q(5): Jy
+! q(6): Jz
+
 
 ! fluxes:
 ! Fx(1) = 0        Fy(1) = -Bz/muz    Fz(1) = By/muy 
@@ -25,6 +29,9 @@ module adam_riemann_maxwell_library
 ! Fx(4) = 0        Fy(4) = Dz/epsz    Fz(4) = -Dy/epsy
 ! Fx(5) = -Dz/epsz Fy(5) = 0          Fz(5) = Dx/epsx
 ! Fx(6) = Dy/epsy  Fy(6) = -Dx/epsx   Fz(6) = 0
+! Fx(7) = 0        Fy(7) = 0          Fz(7) = 0
+! Fx(8) = 0        Fy(8) = 0          Fz(8) = 0
+! Fx(9) = 0        Fy(9) = 0          Fz(9) = 0
 
     ! ragioniamo nel vuoto e ipotizziamo di essere quindi in un mezzo isotropo e omogeno con costante dielettrica
     ! e permeabilità magnetica pari a mu0 e eps0
@@ -121,11 +128,11 @@ contains
     case(1)
 
         f(1) =  0.0_R8P
-        f(2) =  q(6)/mu0
-        f(3) = -q(5)/mu0
+        f(2) =  q(6)/MU0
+        f(3) = -q(5)/MU0
         f(4) =  0.0_R8P
-        f(5) = -q(3)/eps0
-        f(6) =  q(2)/eps0
+        f(5) = -q(3)/EPS0
+        f(6) =  q(2)/EPS0
         f(7) = 0._R8P
         f(8) = 0._R8P
         f(9) = 0._R8P
@@ -133,12 +140,12 @@ contains
     !elseif(sir(2).eq.1) then !Y
     case(2)
 
-        f(1) = -q(6)/mu0
+        f(1) = -q(6)/MU0
         f(2) =  0.0_R8P
-        f(3) =  q(4)/mu0
-        f(4) =  q(3)/eps0
+        f(3) =  q(4)/MU0
+        f(4) =  q(3)/EPS0
         f(5) =  0.0_R8P
-        f(6) = -q(1)/eps0
+        f(6) = -q(1)/EPS0
         f(7) = 0._R8P
         f(8) = 0._R8P
         f(9) = 0._R8P
@@ -146,11 +153,11 @@ contains
     !elseif(sir(3).eq.1) then  !Z
     case(3)
 
-        f(1) =  q(5)/mu0
-        f(2) = -q(4)/mu0
+        f(1) =  q(5)/MU0
+        f(2) = -q(4)/MU0
         f(3) =  0.0_R8P
-        f(4) = -q(2)/eps0
-        f(5) =  q(1)/eps0  
+        f(4) = -q(2)/EPS0
+        f(5) =  q(1)/EPS0  
         f(6) =  0.0_R8P 
         f(7) = 0._R8P
         f(8) = 0._R8P

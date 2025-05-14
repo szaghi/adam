@@ -3,8 +3,8 @@ module adam_prism_cpu_object
 !< ADAM, Maxwell equations system class definition, CPU backend.
 
 use adam_common_library
-use adam_prism_common_library !da completare 
-!use adam_nasto_cpu_cns 
+use adam_prism_common_library
+!use adam_riemann_maxwell_library, only :: compute_convective_fluxes_Maxwell (decommenta se non lo aggiungi alla library prism)
 use penf
 use mpi
 
@@ -39,8 +39,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: save_simulation_data !< Save all simulation data. !
       ! IC/BC 
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation. !
-      procedure, pass(self) :: set_initial_conditions  !< Set initial conditions of equation.  !
-      procedure, pass(self) :: set_coils               !< Set initial conditions of coils (if present)
+      procedure, pass(self) :: set_initial_conditions  !< Set initial conditions (and coils) of equation.  !
       procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.  !
       ! numerical methods
       procedure, pass(self) :: compute_dt          !< Compute time step.
@@ -68,7 +67,7 @@ contains
 !   associate(nv=>self%nv, ns=>self%ns, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
 !             nb=>self%nb, nv_aux=>self%nv_aux, weno_s=>self%weno%S, solids_number=>self%ib%solids_number)
    associate(nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
-      nb=>self%nb, weno_s=>self%weno%S, solids_number=>self%ib%solids_number)
+              nb=>self%nb, weno_s=>self%weno%S, solids_number=>self%ib%solids_number)
    msg = msg_//' dq '
    call alloc_var_cpu(var=self%dq,       ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
    self%dq = 0._R8P
@@ -349,14 +348,14 @@ contains
       call self%adam%save_hdf5(basename=trim(output_basename_),                                                       &
                                q=self%field%q,                                                                        &
                                !q_aux=self%q_aux,                                                                      &
-                               q_name=['Dx','Dy','Dz','Bx','By','Bz','Bz','Jx','Jy','Jz'],                                                &
+                               q_name=['Dx','Dy','Dz','Bx','By','Bz','Jx','Jy','Jz'],                                                &
                                !q_aux_name=['rhob ','u    ','v    ','w    ','ya   ','tem  ','pres ','ental','csp  '],  &
                                with_cell_morton=.true.)
    endif
    call self%mpih%barrier(tictoc=.true.)
    endsubroutine save_hdf5
    
-   subroutine save_residuals(self) 
+   subroutine save_residuals(self)  !invariato ma commentato comando MPI ALLREDUCE
    !< Save residuals history.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: v    !< Counter.
@@ -364,7 +363,7 @@ contains
    if (self%time%is_to_save(it_save=self%io%residuals_save)) then
       call self%field%compute_normL2_residuals(dq=self%dq, norm=self%field%residuals)
       do v=1, self%nv
-         call MPI_ALLREDUCE(MPI_IN_PLACE, self%field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+         !call MPI_ALLREDUCE(MPI_IN_PLACE, self%field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
          self%field%residuals(v) = sqrt(self%field%residuals(v))
       enddo
       if (self%mpih%myrank==0) call self%io%save_residuals(it=self%time%it, time=self%time%time, &
@@ -460,19 +459,16 @@ contains
    endassociate
    endsubroutine set_boundary_conditions
 
-   subroutine set_initial_conditions(self) !ok, resta identico ma cfr ic_object
-   !< Set initial conditions of field.
+   subroutine set_initial_conditions(self) !ok, resta identico 
+   !< Set initial conditions and coils on field.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    
    call self%ic%set_initial_conditions(physics=self%physics, field=self%field)
-   endsubroutine set_initial_conditions
 
-   subroutine set_coils(self)
-   !< Set coil position in the field, through 7 8 9 element of state vector
-   class(prism_cpu_object), intent(inout)  ::  self !< The equation
-
+   !< Aggiungo setting iniziale delle spire direttamente dentro IC
    call self%coil%set_coils(physics=self%physics, field=self%field)
-   endsubroutine set_coils
+
+   endsubroutine set_initial_conditions
    
    subroutine update_ghost(self, q, step) !invariato 
    !< Update ghost cells.
@@ -625,12 +621,12 @@ contains
              ror_threshold=>self%weno%ror_threshold, enable_ror_stats=>self%weno%enable_ror_stats,                 &
              cell_scheme=>self%weno%cell_scheme, ror_stats=>self%weno%ror_stats, weno_zeps=>self%weno%zeps,        &
              solids_number=>self%ib%solids_number, null_xyz=>self%grid%null_xyz, time=>self%time%time              &
-             A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase, coil_flag =>self%coil%coil_flag               &
+             A=>self%coil%A, freq=>self%coil%f, phase=>self%coil%phase, coil_flag =>self%coil%coil_flag               &
              d=>delf%coil%d)
              !cv=>self%physics%eos(1)%cv, g=>self%physics%eos(1)%g, R=>self%physics%eos(1)%R,                       &
              !mu=>self%physics%eos(1)%mu, kd=>self%physics%eos(1)%kd, dha=>self%physics%eos(1)%dha, null_xyz=>self%grid%null_xyz)
 
-   call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q, time=time, A=A f=f, &
+   call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q, time=time, A=A, d=d f=freq, &
                               phase=phase, coil_flag=coil_flag)
    
    if (blocks_number > 0) then
@@ -713,7 +709,7 @@ contains
    endselect
    endsubroutine integrate
 
-   subroutine simulate(self, filename) !invariato
+   subroutine simulate(self, filename) !invariata ma ho aggiunto parte set coils insieme a ic
    !< Perform the simulation.
    class(prism_cpu_object), intent(inout) :: self             !< The equation.
    character(*),            intent(in)    :: filename         !< Input file name.
@@ -732,12 +728,10 @@ contains
       do i=1, self%ic%amr_iterations
          call self%mpih%print_message('  AMR/set IC iteration:'//trim(str(i,.true.)))
          call self%set_initial_conditions 
-         call self%set_coils  !Chiedi a Stefano se va bene così
          if (self%ib%solids_number > 0) call self%compute_phi()
          call self%amr_update
       enddo
       call self%set_initial_conditions 
-      call self%set_coils  !Chiedi a Stefano se va bene così
       self%time%time = 0._R8P
       self%time%it = 0
       call self%mpih%print_message('impose initial conditions finish')
@@ -871,8 +865,6 @@ contains
       call decompose_fluxes_convective_llf(si=si, nv=nv, q=q(:,i      ,j      ,k      ,b), evmax=evmax, fmp=fmp)
       call decompose_fluxes_convective_llf(si=si, nv=nv, q=q(:,i+si(1),j+si(2),k+si(3),b), evmax=evmax, fmp=fpmr)
       fluxes(:,i,j,k,b) = fmp(2,:) + fpmr(1,:)
-      !azzero flussi convettivi relativi a ultimi tre termini, le correnti:
-      !fluxes(7:9,i,j,k,b) = 0._R8P !!LI HO AZZERATI NELLA SUB LLF DIRETTAMENTE
    enddo
    enddo
    enddo
@@ -955,9 +947,9 @@ contains
                             - (fly(v,i,j,k,b)-fly(v,i,j-1,k,b))/dy_locale &
                             - (flz(v,i,j,k,b)-flz(v,i,j,k-1,b))/dz_locale + 
          enddo
-         dq(2,i,j,k,b) = dq(2,i,j,k,b) * qmx 
-         dq(3,i,j,k,b) = dq(3,i,j,k,b) * qmy
-         dq(4,i,j,k,b) = dq(4,i,j,k,b) * qmz
+         !dq(2,i,j,k,b) = dq(2,i,j,k,b) * qmx 
+         !dq(3,i,j,k,b) = dq(3,i,j,k,b) * qmy
+         !dq(4,i,j,k,b) = dq(4,i,j,k,b) * qmz
 
          !Completo calcolo aggiungendo termini sorgenti legato alle correnti delle spire (per ora)
          dq(1,i,j,k,b) = dq(1,i,j,k,b) - q(7,i,j,k,b)
@@ -979,9 +971,14 @@ contains
                             - (fly(v,i,j,k,b)-fly(v,i,j-1,k,b))/dy(b) &
                             - (flz(v,i,j,k,b)-flz(v,i,j,k-1,b))/dz(b)
          enddo
-         dq(2,i,j,k,b) = dq(2,i,j,k,b) * qmx
-         dq(3,i,j,k,b) = dq(3,i,j,k,b) * qmy
-         dq(4,i,j,k,b) = dq(4,i,j,k,b) * qmz
+         !dq(2,i,j,k,b) = dq(2,i,j,k,b) * qmx
+         !dq(3,i,j,k,b) = dq(3,i,j,k,b) * qmy
+         !dq(4,i,j,k,b) = dq(4,i,j,k,b) * qmz
+
+         !Completo calcolo aggiungendo termini sorgenti legato alle correnti delle spire (per ora)
+         dq(1,i,j,k,b) = dq(1,i,j,k,b) - q(7,i,j,k,b)
+         dq(2,i,j,k,b) = dq(2,i,j,k,b) - q(8,i,j,k,b)
+         dq(3,i,j,k,b) = dq(3,i,j,k,b) - q(9,i,j,k,b)
       enddo
       enddo
       enddo
@@ -989,11 +986,11 @@ contains
    !    !$omp end parallel do
    endif
    endsubroutine compute_fluxes_difference
+   
 
-
-   pure subroutine decompose_fluxes_convective_llf(si, nv, q, evmax, fmp)
+   subroutine decompose_fluxes_convective_llf(si, nv, q, evmax, fmp)
    !< Decompose convective fluxes using the Local-Lax-Friedrichs (LLF, Rusanov) approximation
-   integer(I4P),    intent(in) :: si(3)         !< Directional (1=x,2=y,3=z) increment.
+   integer(I4P), intent(in)    :: si(3)         !< Directional (1=x,2=y,3=z) increment.
    integer(I4P), intent(in)    :: nv            !< Number of conservative varibales.
    !real(R8P),    intent(in)    :: q_aux(1:)     !< Auxiliary variables.
    real(R8P),    intent(in)    :: evmax         !< Maximum waves speeds estimation.
@@ -1010,8 +1007,7 @@ contains
       fmp(1,v) = f(v) - fmp(2,v)
    enddo
    endsubroutine decompose_fluxes_convective_llf
-
-
+   
    subroutine compute_coils_current(ni, nj, nk, ngc, blocks_number, q, time, A, d, f, phase, coil_flag)
 
       integer(I4P), intent(in)           :: blocks_number                   !< Number of blocks.
@@ -1024,8 +1020,8 @@ contains
       real(R8P),    intent(in)           :: A(1:)                           !< Current amplitude (A)
       real(R8P),    intent(in)           :: f(1:)                           !< Current frequency, if AC (Hz)
       real(R8P),    intent(in)           :: phase(1:)                       !< Current initial phase, if AC
+      real(R8P),    intent(in)           :: d                               !< Wire diameter
       real(R8P),    intent(inout)        :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Field variables.
-      real(R8P)                          :: d                               !< Wire diameter
       real(R8P)                          :: current_density                 !< Current density
       real(R8P)                          :: coil_id                         !< ID per identificare spira
       integer(I4P)                       :: i,j,k,b,n                       !< Counter
@@ -1038,14 +1034,13 @@ contains
             do j=1, nj
                do i=1, ni
                   coil_id = coil_flag(i,j,k,b)
-                  if (coil_id ~= 0_I4P) then
+                  if (coil_id /= 0_I4P) then
                      !Per DC frequenza e fase sono nulle, quindi se uso la funzione coseno 
                      !mi rispramio anche il selectcase
 
                      !Densità di corrente al tempo t della spira n-esima identificata da (coil_id)
                      current_density = A(coil_id)*cos(2*pi*f(coil_id)*time + phase(coil_id))
                      q(7:9,i,j,k,b) = current_density*q(7:9,i,j,k,b)
-
                   endif
                enddo
             enddo

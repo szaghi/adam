@@ -7,7 +7,7 @@ module adam_prism_parameters
     implicit none
     save
     private
-    public :: MU0, EPS0     
+    public :: MU0, EPS0, pi     
     
     real(R8P), parameter :: MU0      = 1.256637e-6_R8P          !< vacuum magnetic permeability
     real(R8P), parameter :: EPS0     = 8.854187e-12_R8P         !< vacuum dielectric constant
