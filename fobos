@@ -5,6 +5,7 @@ modes = ascot-nvf-cuda-sz-ws
         adam-nvf-cuda-sz-ws     adam-nvf-cuda-sz-ws-debug
         nasto-fnl-nvf-oac-sz-ws nasto-fnl-nvf-oac-sz-ws-debug
         nasto-nvf-cuda-sz-ws    nasto-nvf-cuda-sz-ws-debug
+        prism-gnu-sz-ws
 
 # main modes
 
@@ -65,6 +66,13 @@ target   = adam_nvf_library.F90
 output   = libadamnvf.a
 mklib    = static
 preproc  = -D_MPI_
+
+# prism
+[prism-gnu-sz-ws]
+help     = Build PRISM app with GNU compiler on SZ workstation
+template = template-gnu-sz-ws
+preproc  = -D_MPI_
+target   = adam_prism_cpu.F90
 
 #nasto
 [nasto-fnl-nvf-oac-sz-ws]
