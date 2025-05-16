@@ -51,7 +51,8 @@ type :: nasto_common_object
    integer(I4P), pointer :: ns=>null()            !< Number of fluids specie.
    integer(I4P), pointer :: nv=>null()            !< Number of conservative variables.
    integer(I4P), pointer :: nv_aux=>null()        !< Number of auxiliary variables.
-   ! auxiliary fields data: see nasto parameters definition for the arrangement of conservative and auxiliary variables
+   ! fields data
+   real(R8P), allocatable ::     q(:,:,:,:,:) !< Cell centered variables.
    real(R8P), allocatable :: q_aux(:,:,:,:,:) !< Auxiliary cell centered variables.
 
    type(c_ptr), allocatable :: ptree(:) !< CGAL trees for solids.
@@ -97,10 +98,10 @@ contains
                              do_tree_init=.true.,             &
                              do_maps_init=.true.,             &
                              do_field_init=.true.,            &
-                             nv=self%physics%nv, nb=nb, nodes_number=nodes_number)
+                             nv=self%physics%nv, nb=nb, nodes_number=nodes_number, q=self%q)
    call associate_adam_data(grid=self%adam%grid, field=self%adam%field, physics=self%physics)
-   call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_blocks_reorder=.false.)
-   call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false.)
+   call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_blocks_reorder=.false., q=self%q)
+   call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false., q=self%q)
    call self%amr%initialize(file_parameters=file_parameters)
    call self%time%initialize(file_parameters=file_parameters)
    call self%ic%initialize(file_parameters=file_parameters)

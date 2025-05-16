@@ -178,7 +178,7 @@ contains
             endselect
          endselect
          call self%copy_gpu_cpu ! needed for adam%amr_update
-         call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed)
+         call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed, q=self%q)
          call self%copy_cpu_gpu
          if (self%ib%solids_number > 0) call self%compute_phi()
          is_grid_changed_all = is_grid_changed_all.or.is_grid_changed
@@ -362,7 +362,7 @@ contains
 
    do l=1, refinement_levels
       call self%adam%tree%mark_all_nodes(mark=TO_BE_REFINED)
-      call self%adam%amr_update(do_blocks_reorder=.false., do_mpi_redistribute=.true.)
+      call self%adam%amr_update(do_blocks_reorder=.false., do_mpi_redistribute=.true., q=self%q)
    enddo
    endsubroutine
 
@@ -400,7 +400,7 @@ contains
    integer(I4P),            intent(out)   :: t    !< Time iteration.
    real(R8P),               intent(out)   :: time !< Time.
 
-   call self%adam%load_restart_files(basename=self%io%restart_basename, t=t, time=time)
+   call self%adam%load_restart_files(basename=self%io%restart_basename, t=t, time=time, q=self%q)
    call self%adam%make_comm_local_maps_ghost_bc
    call self%copy_cpu_gpu
    endsubroutine load_restart_files
@@ -459,7 +459,7 @@ contains
    call self%mpih_gpu%barrier(tictoc=.true.)
    call self%mpih_gpu%print_message('save restart files t: '//trim(str(self%time%it,.true.))//', time: '//&
                                     trim(str(self%time%time,.true.)))
-   call self%adam%save_restart_files(basename=self%io%restart_basename, t=self%time%it, time=self%time%time)
+   call self%adam%save_restart_files(basename=self%io%restart_basename, t=self%time%it, time=self%time%time, q=self%q)
    call self%save_hdf5(output_basename=self%io%restart_basename)
    call self%mpih_gpu%barrier(tictoc=.true.)
    endsubroutine save_restart_files

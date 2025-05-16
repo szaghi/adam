@@ -52,9 +52,14 @@ endtype adam_object
 
 contains
    ! public methods
-   subroutine adapt(self)
+   subroutine adapt(self, q)
    !< Adapt tree/field accordingly to refine/derefine necessity.
-   class(adam_object), intent(inout) :: self      !< ADAM.
+   class(adam_object), intent(inout) :: self  !< ADAM.
+   real(R8P),          intent(inout) :: q(1:,              &
+                                          1-self%grid%ngc:,&
+                                          1-self%grid%ngc:,&
+                                          1-self%grid%ngc:,&
+                                          1:) !< Field cell centered variables.
 
    call self%tree%adapt
 
@@ -62,10 +67,10 @@ contains
 
    call self%field%adapt(ratio=self%tree%ratio,                                                            &
                          block_to_refine=self%tree%block_to_refine, block_refined=self%tree%block_refined, &
-                         block_to_derefine=self%tree%block_to_derefine, block_derefined=self%tree%block_derefined)
+                         block_to_derefine=self%tree%block_to_derefine, block_derefined=self%tree%block_derefined, q=q)
    endsubroutine adapt
 
-   subroutine amr_update(self, is_marked_by_field, is_marked_by_tree, do_mpi_redistribute, do_blocks_reorder, is_grid_changed)
+   subroutine amr_update(self, q, is_marked_by_field, is_marked_by_tree, do_mpi_redistribute, do_blocks_reorder, is_grid_changed)
    !< Update AMR status.
    !<
    !< Note: AMR update can be safely called only *after* update_ghost has been called for *q* variables, otherwise
@@ -73,6 +78,11 @@ contains
    !< Note: only if the AMR is UNIFORM and GLOBALLY made by tree, i.e. using mark_all_nodes, the mpi_redistribute can be avoided,
    !< otherwise mpi_gather_refinement_nedeed is not safe (having wrong nodes number counters).
    class(adam_object), intent(inout)         :: self                 !< ADAM.
+   real(R8P),          intent(inout)         :: q(1:,              &
+                                                  1-self%grid%ngc:,&
+                                                  1-self%grid%ngc:,&
+                                                  1-self%grid%ngc:,&
+                                                  1:)                !< Field cell centered variables.
    logical,            intent(in),  optional :: is_marked_by_field   !< Flag to check if marker is field.
    logical,            intent(in),  optional :: is_marked_by_tree    !< Flag to check if marker is tree.
    logical,            intent(in),  optional :: do_mpi_redistribute  !< Flag to activate MPI redistribute.
@@ -87,25 +97,30 @@ contains
 
    call self%mpi_gather_refinement_needed(is_marked_by_field=is_marked_by_field, is_marked_by_tree=is_marked_by_tree)
 
-   call self%adapt
+   call self%adapt(q=q)
 
    if (present(is_grid_changed)) is_grid_changed = (size(self%tree%node_to_refine,   dim=1)>0_I4P).or.&
                                                    (size(self%tree%node_to_derefine, dim=1)>0_I4P)
 
-   if (do_mpi_redistribute_) call self%mpi_redistribute
+   if (do_mpi_redistribute_) call self%mpi_redistribute(q=q)
 
-   if (do_blocks_reorder_) call self%blocks_reorder
+   if (do_blocks_reorder_) call self%blocks_reorder(q=q)
 
    call self%make_comm_local_maps_ghost_bc
    call self%mpih%print_message('adam_object%amr_update finish')
    endsubroutine amr_update
 
-   subroutine blocks_reorder(self)
+   subroutine blocks_reorder(self, q)
    !< Reorder blocks (for asyncrhonous MPI)
    class(adam_object), intent(inout) :: self !< ADAM.
+   real(R8P),          intent(inout) :: q(1:,              &
+                                          1-self%grid%ngc:,&
+                                          1-self%grid%ngc:,&
+                                          1-self%grid%ngc:,&
+                                          1:)!< Field cell centered variables.
 
    call self%maps%blocks_reorder
-   call self%field%blocks_reorder
+   call self%field%blocks_reorder(q=q)
    endsubroutine blocks_reorder
 
    subroutine check_blocks_number(self)
@@ -152,62 +167,68 @@ contains
    desc = self%grid%description()//NL//self%tree%description()//NL//self%field%description()
    endfunction description
 
-   subroutine load_restart_files(self, basename, t, time)
+   subroutine load_restart_files(self, basename, t, time, q)
    !< Load restart files.
    class(adam_object), intent(inout) :: self      !< ADAM.
    character(*),       intent(in)    :: basename  !< Base name of output files.
    integer(I4P),       intent(out)   :: t         !< Time iteration.
    real(R8P),          intent(out)   :: time      !< Time.
+   real(R8P),          intent(inout) :: q(1:,              &
+                                          1-self%grid%ngc:,&
+                                          1-self%grid%ngc:,&
+                                          1-self%grid%ngc:,&
+                                          1:)              !< Field cell centered variables.
    integer(I4P)                      :: file_unit !< Output file unit.
 
    open(newunit=file_unit, file=trim(adjustl(basename))//'.time', form='UNFORMATTED', access='STREAM')
    read(unit=file_unit) t, time
    close(file_unit)
    call self%tree%load_nodes(file_name=trim(adjustl(basename))//'.tnd')
-   call self%field%load_blocks(basename=basename)
+   call self%field%load_blocks(basename=basename, q=q)
    endsubroutine load_restart_files
 
    subroutine initialize(self, nb, file_parameters,                                                        &
                          do_grid_init, ni, nj, nk, ngc, emin, emax, bc_type,                               &
                          do_tree_init, max_load, nodes_number, buckets_number, ratio, max_level, add_adam, &
                          iu_ref_levels, i_prune, j_prune, k_prune, l_prune,                                &
-                         do_maps_init, do_field_init, nv)
+                         do_maps_init, do_field_init, nv, q)
    !< Initialize ADAM.
-   class(adam_object), intent(inout)           :: self            !< ADAM.
-   integer(I4P),       intent(in)              :: nb              !< Number of all blocks that can be stored in field.
-   type(file_ini),     intent(inout), optional :: file_parameters !< INI file handler.
+   class(adam_object),     intent(inout)           :: self            !< ADAM.
+   integer(I4P),           intent(in)              :: nb              !< Number of all blocks that can be stored in field.
+   type(file_ini),         intent(inout), optional :: file_parameters !< INI file handler.
    ! grid options
-   logical,            intent(in),    optional :: do_grid_init !< Flag to activate grid initialize.
-   integer(I4P),       intent(in),    optional :: ni           !< Number of cells in X direction.
-   integer(I4P),       intent(in),    optional :: nj           !< Number of cells in Y direction.
-   integer(I4P),       intent(in),    optional :: nk           !< Number of cells in Z direction.
-   integer(I4P),       intent(in),    optional :: ngc          !< Number of ghost cells.
-   real(R8P),          intent(in),    optional :: emin(3)      !< Coordinates of minium abscissa.
-   real(R8P),          intent(in),    optional :: emax(3)      !< Coordinates of maxium abscissa.
-   integer(I4P),       intent(in),    optional :: bc_type(6)   !< Type of boundary conditions in the 6 faces of grid.
+   logical,                intent(in),    optional :: do_grid_init !< Flag to activate grid initialize.
+   integer(I4P),           intent(in),    optional :: ni           !< Number of cells in X direction.
+   integer(I4P),           intent(in),    optional :: nj           !< Number of cells in Y direction.
+   integer(I4P),           intent(in),    optional :: nk           !< Number of cells in Z direction.
+   integer(I4P),           intent(in),    optional :: ngc          !< Number of ghost cells.
+   real(R8P),              intent(in),    optional :: emin(3)      !< Coordinates of minium abscissa.
+   real(R8P),              intent(in),    optional :: emax(3)      !< Coordinates of maxium abscissa.
+   integer(I4P),           intent(in),    optional :: bc_type(6)   !< Type of boundary conditions in the 6 faces of grid.
    ! tree options
-   logical,            intent(in),    optional :: do_tree_init   !< Flag to activate tree initialize.
-   real(R8P),          intent(in),    optional :: max_load       !< Maximum load of tree buckets.
-   integer(I8P),       intent(in),    optional :: nodes_number   !< Nodes number to be stored in the tree.
-   integer(I8P),       intent(in),    optional :: buckets_number !< Number of buckets for initialize the tree.
-   integer(I4P),       intent(in),    optional :: ratio          !< Refinement ratio.
-   integer(I4P),       intent(in),    optional :: max_level      !< Maximum refinement level.
-   logical,            intent(in),    optional :: add_adam       !< Add ADAM node, the ancestor of all nodes.
-   integer(I4P),       intent(in),    optional :: iu_ref_levels  !< Uniform initial refinement.
-   integer(I4P),       intent(in),    optional :: i_prune        !< Pruning along x.
-   integer(I4P),       intent(in),    optional :: j_prune        !< Pruning along y.
-   integer(I4P),       intent(in),    optional :: k_prune        !< Pruning along z.
-   integer(I4P),       intent(in),    optional :: l_prune        !< Pruning level.
+   logical,                intent(in),    optional :: do_tree_init   !< Flag to activate tree initialize.
+   real(R8P),              intent(in),    optional :: max_load       !< Maximum load of tree buckets.
+   integer(I8P),           intent(in),    optional :: nodes_number   !< Nodes number to be stored in the tree.
+   integer(I8P),           intent(in),    optional :: buckets_number !< Number of buckets for initialize the tree.
+   integer(I4P),           intent(in),    optional :: ratio          !< Refinement ratio.
+   integer(I4P),           intent(in),    optional :: max_level      !< Maximum refinement level.
+   logical,                intent(in),    optional :: add_adam       !< Add ADAM node, the ancestor of all nodes.
+   integer(I4P),           intent(in),    optional :: iu_ref_levels  !< Uniform initial refinement.
+   integer(I4P),           intent(in),    optional :: i_prune        !< Pruning along x.
+   integer(I4P),           intent(in),    optional :: j_prune        !< Pruning along y.
+   integer(I4P),           intent(in),    optional :: k_prune        !< Pruning along z.
+   integer(I4P),           intent(in),    optional :: l_prune        !< Pruning level.
    ! maps options
-   logical,            intent(in),    optional :: do_maps_init !< Flag to activate maps initialize.
+   logical,                intent(in),    optional :: do_maps_init !< Flag to activate maps initialize.
    ! field options
-   logical,            intent(in),    optional :: do_field_init !< Flag to activate field initialize.
-   integer(I4P),       intent(in),    optional :: nv            !< Number of field variables.
+   logical,                intent(in),    optional :: do_field_init !< Flag to activate field initialize.
+   integer(I4P),           intent(in),    optional :: nv            !< Number of field variables.
+   real(R8P), allocatable, intent(inout), optional :: q(:,:,:,:,:)  !< Field cell centered variables.
    ! local var
-   logical                                     :: do_grid_init_  !< Flag to activate grid initialize, local var.
-   logical                                     :: do_tree_init_  !< Flag to activate tree initialize, local var.
-   logical                                     :: do_maps_init_  !< Flag to activate maps initialize, local var.
-   logical                                     :: do_field_init_ !< Flag to activate field initialize, local var.
+   logical                                         :: do_grid_init_  !< Flag to activate grid initialize, local var.
+   logical                                         :: do_tree_init_  !< Flag to activate tree initialize, local var.
+   logical                                         :: do_maps_init_  !< Flag to activate maps initialize, local var.
+   logical                                         :: do_field_init_ !< Flag to activate field initialize, local var.
 
    do_grid_init_  = .false. ; if (present(do_grid_init))  do_grid_init_  = do_grid_init
    do_tree_init_  = .false. ; if (present(do_tree_init))  do_tree_init_  = do_tree_init
@@ -237,10 +258,10 @@ contains
                                                 k_prune=k_prune,                 &
                                                 l_prune=l_prune)
    if (do_maps_init_) call self%maps%initialize(grid=self%grid, tree=self%tree)
-   if (do_field_init_) call self%field%initialize(grid=self%grid, maps=self%maps, file_parameters=file_parameters, nv=nv, nb=nb)
+   if (do_field_init_) call self%field%initialize(grid=self%grid, maps=self%maps, file_parameters=file_parameters, nv=nv, nb=nb, q=q)
    call self%mpih%print_message('blocks number (maximum) for single MPI [nb]: '//trim(str(self%field%nb)))
    call self%mpih%print_message('blocks number for all MPI [nodes_number]: '//trim(str(self%tree%nodes_number)))
-   call self%amr_update
+   call self%amr_update(q=q)
    call self%mpih%print_message('adam_object%initialize finish')
    endsubroutine initialize
 
@@ -375,33 +396,48 @@ contains
    endif
    endsubroutine mpi_gather_refinement_needed
 
-   subroutine mpi_redistribute(self)
+   subroutine mpi_redistribute(self, q)
    !< Redistribute nodes/blocks to processes, load balancing.
    class(adam_object), intent(inout) :: self !< ADAM.
+   real(R8P),          intent(inout) :: q(1:,              &
+                                          1-self%grid%ngc:,&
+                                          1-self%grid%ngc:,&
+                                          1-self%grid%ngc:,&
+                                          1:)!< Field cell centered variables.
 
    call self%tree%mpi_redistribute
    call self%maps%make_comm_local_maps
-   call self%field%mpi_redistribute
+   call self%field%mpi_redistribute(q=q)
    endsubroutine mpi_redistribute
 
-   subroutine prune(self, ijkl_prune, do_blocks_reorder)
+   subroutine prune(self, q, ijkl_prune, do_blocks_reorder)
    !< Prune nodes/blocks.
    class(adam_object), intent(inout)        :: self               !< Adam.
+   real(R8P),          intent(inout)        :: q(1:,              &
+                                                 1-self%grid%ngc:,&
+                                                 1-self%grid%ngc:,&
+                                                 1-self%grid%ngc:,&
+                                                 1:)              !< Field cell centered variables.
    integer(I4P),       intent(inout)        :: ijkl_prune(4)      !< Maximum coordinates after which the prune operates.
    logical,            intent(in), optional :: do_blocks_reorder  !< Flag to activate blocks reorder.
    logical                                  :: do_blocks_reorder_ !< Flag to activate blocks reorder, local var.
 
    do_blocks_reorder_ = .true.  ; if (present(do_blocks_reorder)) do_blocks_reorder_ = do_blocks_reorder
    call self%tree%prune(ijkl_prune=ijkl_prune)
-   call self%mpi_redistribute
-   if (do_blocks_reorder_) call self%blocks_reorder
+   call self%mpi_redistribute(q=q)
+   if (do_blocks_reorder_) call self%blocks_reorder(q=q)
    call self%make_comm_local_maps_ghost_bc
    endsubroutine prune
 
-   subroutine refine_uniform(self, refinement_levels, do_mpi_redistribute, do_blocks_reorder)
+   subroutine refine_uniform(self, refinement_levels, q, do_mpi_redistribute, do_blocks_reorder)
    !< Refine all blocks uniformly.
    class(adam_object), intent(inout)        :: self                 !< Adam.
    integer(I4P),       intent(in)           :: refinement_levels    !< Number of refinement to be performed.
+   real(R8P),          intent(inout)        :: q(1:,              &
+                                                 1-self%grid%ngc:,&
+                                                 1-self%grid%ngc:,&
+                                                 1-self%grid%ngc:,&
+                                                 1:)                !< Field cell centered variables.
    logical,            intent(in), optional :: do_mpi_redistribute  !< Flag to activate MPI redistribute.
    logical,            intent(in), optional :: do_blocks_reorder    !< Flag to activate blocks reorder.
    integer(I4P)                             :: l                    !< Counter.
@@ -409,16 +445,21 @@ contains
    call self%mpih%print_message('uniformly refine mesh with '//trim(str(refinement_levels))//' levels')
    do l=1, refinement_levels
       call self%tree%mark_all_nodes(mark=TO_BE_REFINED)
-      call self%amr_update(do_mpi_redistribute=do_mpi_redistribute, do_blocks_reorder=do_blocks_reorder)
+      call self%amr_update(q=q, do_mpi_redistribute=do_mpi_redistribute, do_blocks_reorder=do_blocks_reorder)
    enddo
    endsubroutine refine_uniform
 
-   subroutine save_restart_files(self, basename, t, time)
+   subroutine save_restart_files(self, basename, t, time, q)
    !< Save restart files.
    class(adam_object), intent(in) :: self      !< ADAM.
    character(*),       intent(in) :: basename  !< Base name of output files.
    integer(I4P),       intent(in) :: t         !< Time iteration.
    real(R8P),          intent(in) :: time      !< Time.
+   real(R8P),          intent(in) :: q(1:,              &
+                                       1-self%grid%ngc:,&
+                                       1-self%grid%ngc:,&
+                                       1-self%grid%ngc:,&
+                                       1:)     !< Field cell centered variables.
    integer(I4P)                   :: file_unit !< Output file unit.
 
    if (self%mpih%myrank==0) then
@@ -427,7 +468,7 @@ contains
       close(file_unit)
       call self%tree%save_nodes(file_name=trim(adjustl(basename))//'.tnd')
    endif
-   call self%field%save_blocks(basename=basename)
+   call self%field%save_blocks(basename=basename, q=q)
    endsubroutine save_restart_files
 
    subroutine save_hdf5(self, basename, q, q_aux, q_name, q_aux_name, phi, directory, with_ghost, with_cell_morton, t, time)
