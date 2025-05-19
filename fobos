@@ -117,7 +117,6 @@ quiet        = False
 log          = True
 jobs         = 4
 mpi          = True
-libs         = $GETMEMORY
 ext_libs     = hdf5_fortran
 exclude_dirs = src/lib_experimental/
                references/
@@ -205,23 +204,6 @@ lib_dir  = $HDF5_gnu_sz_ws/lib
 include  = $HDF5_gnu_sz_ws/include
 
 # aux rules
-[rule-makethirdpartymanual]
-help   = Make third party manual-compiling libraries on SZ laptop
-rule_1 = mkdir -p exe/mod exe/obj
-rule_2 = cd src/third_party_manual/getmemory/ ; gcc -c getmemory.c ; cd -
-rule_3 = mv src/third_party_manual/getmemory/*.o exe/obj/
-
-[rule-makethirdpartymanual-leo]
-help   = Make third party manual-compiling libraries on marconi100 cluster
-rule_1 = mkdir -p exe/mod exe/obj
-rule_2 = cd src/third_party_manual/getmemory/ ; gcc -c getmemory.c ; cd -
-rule_3 = mv src/third_party_manual/getmemory/*.o exe/obj/
-
-[rule-makethirdpartymanual-fl]
-help   = Make third party manual-compiling libraries on marconi100 cluster
-rule_1 = mkdir -p exe/mod exe/obj
-rule_2 = cd src/third_party_manual/getmemory/ ; icx -c getmemory.c ; cd -
-rule_3 = mv src/third_party_manual/getmemory/*.o exe/obj/
 
 [rule-maketar]
 help = Make tar archive of the project
@@ -262,6 +244,3 @@ $SZIP_gnu_sz_lt = /opt/szip/bin/2.1.1/lib/libsz.a
 $HDF5_ifx_sz_lt = /opt/HDF5/bin/1.14.2/intel/20230622
 $ZLIB_ifx_sz_lt = /opt/zlib/bin/1.3/icx/20230622/lib/libz.a
 $SZIP_ifx_sz_lt = /opt/szip/bin/2.1.1/ifx/20230622/lib/libsz.a
-# manual third party lib
-$GETMEMORY = ./exe/obj/getmemory.o
-$CGAL      = ./exe/obj/cgal_c_wrappers.o

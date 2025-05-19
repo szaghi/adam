@@ -68,16 +68,16 @@ contains
    associate(nv=>self%nv, ns=>self%ns, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
              nb=>self%nb, nv_aux=>self%nv_aux, weno_s=>self%weno%S, solids_number=>self%ib%solids_number)
    msg = msg_//' dq '
-   call alloc_var_cpu(var=self%dq,       ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
+   call allocate_variable(var=self%dq,       ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
    self%dq = 0._R8P
    msg = msg_//' flx '
-   call alloc_var_cpu(var=self%flx,      ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
+   call allocate_variable(var=self%flx,      ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
    self%flx = 0._R8P
    msg = msg_//' fly '
-   call alloc_var_cpu(var=self%fly,      ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
+   call allocate_variable(var=self%fly,      ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
    self%fly = 0._R8P
    msg = msg_//' flz '
-   call alloc_var_cpu(var=self%flz,      ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
+   call allocate_variable(var=self%flz,      ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
    self%flz = 0._R8P
    endassociate
    call self%mpih%print_message('nasto_cpu_object%allocate_cpu finish')
@@ -699,7 +699,7 @@ contains
       self%time%it = self%time%it + 1
 
       if (self%io%save_memory_status) then
-         call save_memory_cpu_status(file_name='memory_cpu-'//self%mpih%myrankstr//'.dat', tag=str(self%time%it,.true.))
+         call save_memory_status(file_name='memory_cpu-'//self%mpih%myrankstr//'.dat', tag=str(self%time%it,.true.))
       endif
 
       if (mod(self%time%it,self%amr%frequency)==0) then

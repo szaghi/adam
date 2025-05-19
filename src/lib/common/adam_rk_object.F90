@@ -4,7 +4,6 @@ module adam_rk_object
 
 use adam_field_object
 use adam_grid_object
-use adam_memory_library
 use adam_mpih_object
 use finer
 use penf
@@ -350,23 +349,23 @@ contains
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nb=>self%nb, nrk=>self%nrk)
    select case(self%scheme)
    case(RK_1, RK_2, RK_3) ! low storage, only stage 1 is necessary
-      call alloc_var_cpu(var=self%q_rk,         &
-                     ulb=reshape([1,nv,         &
-                                  1-ngc,ni+ngc, &
-                                  1-ngc,nj+ngc, &
-                                  1-ngc,nk+ngc, &
-                                  1,nb,         &
-                                  1,1],[2,6]),  &
-                     msg=self%mpih%myrankstr//'rk_object%initialize allocate q_rk')
+      call allocate_variable(var=self%q_rk,         &
+                             ulb=reshape([1,nv,         &
+                                          1-ngc,ni+ngc, &
+                                          1-ngc,nj+ngc, &
+                                          1-ngc,nk+ngc, &
+                                          1,nb,         &
+                                          1,1],[2,6]),  &
+                             msg=self%mpih%myrankstr//'rk_object%initialize allocate q_rk')
    case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
-      call alloc_var_cpu(var=self%q_rk,          &
-                     ulb=reshape([1,nv,          &
-                                  1-ngc,ni+ngc,  &
-                                  1-ngc,nj+ngc,  &
-                                  1-ngc,nk+ngc,  &
-                                  1,nb,          &
-                                  1,nrk],[2,6]), &
-                     msg=self%mpih%myrankstr//'rk_object%initialize allocate q_rk')
+      call allocate_variable(var=self%q_rk,          &
+                             ulb=reshape([1,nv,          &
+                                          1-ngc,ni+ngc,  &
+                                          1-ngc,nj+ngc,  &
+                                          1-ngc,nk+ngc,  &
+                                          1,nb,          &
+                                          1,nrk],[2,6]), &
+                             msg=self%mpih%myrankstr//'rk_object%initialize allocate q_rk')
    endselect
    endassociate
    call self%mpih%print_message('rk_object%initialize finish')

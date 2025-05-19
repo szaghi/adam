@@ -2,7 +2,6 @@
 module adam_mpih_object
 !< ADAM, MPI handler class definition.
 
-use adam_memory_library
 use penf
 use mpi
 use, intrinsic :: iso_c_binding, only : C_LONG
@@ -130,7 +129,7 @@ contains
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
    self%myrankstr = '[mpi-'//trim(strz(self%myrank,myrankstr_char_length_))//']'
    if (verbose_) call self%print_message('mpih_object%initialize start')
-   call cpuMemGetInfo(mem_total, mem_free)
+   call get_memory_info(mem_free=mem_free, mem_total=mem_total)
    self%memory_avail = real(mem_total, R8P)/1e9/self%procs_number
    if (allocated(self%req_send_recv)) deallocate(self%req_send_recv) ; allocate(self%req_send_recv(0:self%procs_number*2-1))
    if (verbose_) call self%print_message('mpih_object%initialize finish')
