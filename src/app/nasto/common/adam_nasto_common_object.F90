@@ -54,9 +54,6 @@ type :: nasto_common_object
    ! fields data
    real(R8P), allocatable ::     q(:,:,:,:,:) !< Cell centered variables.
    real(R8P), allocatable :: q_aux(:,:,:,:,:) !< Auxiliary cell centered variables.
-
-   type(c_ptr), allocatable :: ptree(:) !< CGAL trees for solids.
-
    contains
       procedure, pass(self) :: allocate_common   !< Allocate common data.
       procedure, pass(self) :: initialize_common !< Initialize the equation common data.

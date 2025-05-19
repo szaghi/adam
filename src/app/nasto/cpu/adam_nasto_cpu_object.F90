@@ -263,7 +263,7 @@ contains
    endsubroutine mark_by_grad_var
 
    subroutine move_phi(self, velocity, s)
-   !< Move phi and the actual ptree representation.
+   !< Move phi and the actual tree representation.
    class(nasto_cpu_object), intent(inout) :: self        !< The equation.
    real(R8P),               intent(in)    :: velocity(3) !< Velocity of the movement.
    integer(I4P),            intent(in)    :: s           !< Solid index.
