@@ -30,6 +30,8 @@ jobs:
         python --version
         gfortran --version
         gcov --version
+        sudo apt install openmpi-bin
+        mpif90 --version
         sudo apt install graphviz
         pip install --upgrade markdown
         pip install --upgrade markdown-include
@@ -43,8 +45,7 @@ jobs:
         pip install --upgrade importlib-metadata
         pip install --upgrade ford && ford --version
         pip install --upgrade FoBiS.py && FoBiS.py --version
-        pwd
-        ls -l
+        git submodule update --install
     
     - name: BUILD NASTO CPU GNU
       run: |
