@@ -27,13 +27,14 @@ jobs:
              --slave /usr/bin/gfortran gfortran /usr/bin/gfortran-14 \
              --slave /usr/bin/gcov gcov /usr/bin/gcov-14 \
              --slave /usr/bin/g++ g++ /usr/bin/g++-14 
-        wget https://github.com/HDFGroup/hdf5/releases/download/hdf5_1.14.6/hdf5-1.14.6-ubuntu-2404_gcc.deb
-        sudo dpkg -i hdf5*.deb
-        HDF5=/HDF_Group/HDF5/1.14.6
-        PATH=$HDF5/bin:$PATH
-        LD_LIBRARY_PATH=$HDF5/lib:$HDF5/include:$LD_LIBRARY_PATH
-        LD_RUN_PATH=$HDF5/lib:$LD_LIBRARY_PATH
-        export PATH LD_LIBRARY_PATH LD_RUN_PATH
+        # wget https://github.com/HDFGroup/hdf5/releases/download/hdf5_1.14.6/hdf5-1.14.6-ubuntu-2404_gcc.deb
+        # sudo dpkg -i hdf5*.deb
+        # HDF5=/HDF_Group/HDF5/1.14.6
+        # PATH=$HDF5/bin:$PATH
+        # LD_LIBRARY_PATH=$HDF5/lib:$HDF5/include:$LD_LIBRARY_PATH
+        # LD_RUN_PATH=$HDF5/lib:$LD_LIBRARY_PATH
+        # export PATH LD_LIBRARY_PATH LD_RUN_PATH
+        sudo apt instal libhdf5-mpi-dev
         sudo apt install openmpi-bin openmpi-common libopenmpi-dev
         sudo apt install graphviz
         pip install --upgrade markdown
@@ -57,13 +58,13 @@ jobs:
         gfortran --version
         mpif90 --version
         gcov --version
-        ls -l /HDF_Group/HDF5/1.14.6/lib/
+        # ls -l /HDF_Group/HDF5/1.14.6/lib/
 
     - name: BUILD NASTO CPU GNU
       run: |
-        echo $PATH
-        echo $LD_LIBRARY_PATH
-        echo $LD_RUN_PATH
+        # echo $PATH
+        # echo $LD_LIBRARY_PATH
+        # echo $LD_RUN_PATH
         FoBiS.py build -lmodes
         FoBiS.py build -mode nasto-cpu-gnu-github
     
