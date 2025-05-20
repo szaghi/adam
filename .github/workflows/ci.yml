@@ -20,6 +20,10 @@ jobs:
              --slave /usr/bin/gfortran gfortran /usr/bin/gfortran-14 \
              --slave /usr/bin/gcov gcov /usr/bin/gcov-14 \
              --slave /usr/bin/g++ g++ /usr/bin/g++-14 
+        wget https://github.com/HDFGroup/hdf5/releases/download/hdf5_1.14.6/hdf5-1.14.6-ubuntu-2404_gcc.deb
+        sudo dpkg -i hdf5*.deb
+        sudo apt install plocate
+        locate hdf5
         python --version
         gfortran --version
         gcov --version
