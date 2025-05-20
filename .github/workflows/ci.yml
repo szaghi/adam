@@ -39,6 +39,8 @@ jobs:
         pip install --upgrade importlib-metadata
         pip install --upgrade ford && ford --version
         pip install --upgrade FoBiS.py && FoBiS.py --version
+        FoBiS.py build -lmodes
+        FoBiS.py build -mode nasto-cpu-gnu-github
     
     - name: BUILD NASTO CPU GNU
       run: |
