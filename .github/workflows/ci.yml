@@ -26,12 +26,7 @@ jobs:
              --slave /usr/bin/g++ g++ /usr/bin/g++-14 
         wget https://github.com/HDFGroup/hdf5/releases/download/hdf5_1.14.6/hdf5-1.14.6-ubuntu-2404_gcc.deb
         sudo dpkg -i hdf5*.deb
-        ls -l /HDF_Group/HDF5/1.14.6/lib/
-        python --version
-        gfortran --version
-        gcov --version
         sudo apt install openmpi-bin
-        mpif90 --version
         sudo apt install graphviz
         pip install --upgrade markdown
         pip install --upgrade markdown-include
@@ -43,10 +38,20 @@ jobs:
         pip install --upgrade graphviz
         pip install --upgrade tqdm
         pip install --upgrade importlib-metadata
-        pip install --upgrade ford && ford --version
-        pip install --upgrade FoBiS.py && FoBiS.py --version
-        git submodule update --install
+        pip install --upgrade ford
+        pip install --upgrade FoBiS.py
+        git submodule update --remote
     
+    - name: CHECK SYSTEM
+      run: |
+        ford --version
+        FoBiS.py --version
+        python --version
+        gfortran --version
+        mpif90 --version
+        gcov --version
+        ls -l /HDF_Group/HDF5/1.14.6/lib/
+
     - name: BUILD NASTO CPU GNU
       run: |
         FoBiS.py build -lmodes
