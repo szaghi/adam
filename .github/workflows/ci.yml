@@ -12,6 +12,14 @@ jobs:
     steps:
     - name: PREPARE SYSTEM
       run: |
+        sudo add-apt-repository --yes ppa:ubuntu-toolchain-r/test
+        sudo apt update
+        sudo apt install -y gcc-14 gfortran-14 g++-14 
+        sudo update-alternatives \
+             --install /usr/bin/gcc gcc /usr/bin/gcc-14 100 \
+             --slave /usr/bin/gfortran gfortran /usr/bin/gfortran-14 \
+             --slave /usr/bin/gcov gcov /usr/bin/gcov-14 \
+             --slave /usr/bin/g++ g++ /usr/bin/g++-14 
         python --version
         gfortran --version
         gcov --version
@@ -29,20 +37,20 @@ jobs:
         pip install --upgrade ford && ford --version
         pip install --upgrade FoBiS.py && FoBiS.py --version
     
-    - name: CHECKOUT
-      id: checkout
-      run: |
-        git clone https://github.com/$GITHUB_REPOSITORY ./
-        git log -n 1
-        tag=`git tag | tail -n 1`
-        echo "RELEASE=$tag" >> $GITHUB_ENV
+    # - name: CHECKOUT
+    #   id: checkout
+    #   run: |
+    #     git clone https://github.com/$GITHUB_REPOSITORY ./
+    #     git log -n 1
+    #     tag=`git tag | tail -n 1`
+    #     echo "RELEASE=$tag" >> $GITHUB_ENV
 
-    - name: MAKE TAR
-      run: |
-        echo "release version:" ${{ env.RELEASE }}
-        FoBiS.py rule -ex maketar
-        ls *.tar.gz
+    # - name: MAKE TAR
+    #   run: |
+    #     echo "release version:" ${{ env.RELEASE }}
+    #     FoBiS.py rule -ex maketar
+    #     ls *.tar.gz
 
-    - name: MAKE DOC
-      run: |
-        FoBiS.py rule -ex makedoc
+    # - name: MAKE DOC
+    #   run: |
+    #     FoBiS.py rule -ex makedoc
