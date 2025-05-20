@@ -22,8 +22,7 @@ jobs:
              --slave /usr/bin/g++ g++ /usr/bin/g++-14 
         wget https://github.com/HDFGroup/hdf5/releases/download/hdf5_1.14.6/hdf5-1.14.6-ubuntu-2404_gcc.deb
         sudo dpkg -i hdf5*.deb
-        sudo apt install plocate
-        locate hdf5
+        ls -l /HDF_Group/HDF5/1.14.6/lib/
         python --version
         gfortran --version
         gcov --version
@@ -40,6 +39,10 @@ jobs:
         pip install --upgrade importlib-metadata
         pip install --upgrade ford && ford --version
         pip install --upgrade FoBiS.py && FoBiS.py --version
+    
+    - name: BUILD NASTO CPU GNU
+      run: |
+        FoBiS.py build -mode nasto-cpu-gnu-github
     
     # - name: CHECKOUT
     #   id: checkout

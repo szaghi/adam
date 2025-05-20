@@ -6,6 +6,7 @@ modes = ascot-nvf-cuda-sz-ws
         nasto-fnl-nvf-oac-sz-ws nasto-fnl-nvf-oac-sz-ws-debug
         nasto-nvf-cuda-sz-ws    nasto-nvf-cuda-sz-ws-debug
         nasto-cpu-gnu-sz-ws
+        nasto-cpu-gnu-github
         prism-gnu-sz-ws
 
 # main modes
@@ -103,6 +104,15 @@ target   = adam_nasto_nvf.F90
 [nasto-cpu-gnu-sz-ws]
 help     = Build NASTO app with CPU backend GNU compiler on SZ workstation
 template = template-gnu-sz-ws
+preproc  = -D_MPI_ -DCOMPILER_GNU
+target   = adam_nasto_cpu.F90
+
+[nasto-cpu-gnu-github]
+help     = Build NASTO app with CPU backend GNU compiler on github CI
+template = template-base
+compiler = gnu
+cflags   = -cpp -c -O2
+lflags   = -O2
 preproc  = -D_MPI_ -DCOMPILER_GNU
 target   = adam_nasto_cpu.F90
 
@@ -204,7 +214,6 @@ lib_dir  = $HDF5_gnu_sz_ws/lib
 include  = $HDF5_gnu_sz_ws/include
 
 # aux rules
-
 [rule-maketar]
 help = Make tar archive of the project
 rule = tar --xform="s%^%adam/%" -czf adam.tar.gz *
