@@ -29,7 +29,7 @@ jobs:
              --slave /usr/bin/g++ g++ /usr/bin/g++-14 
         wget https://github.com/HDFGroup/hdf5/releases/download/hdf5_1.14.6/hdf5-1.14.6-ubuntu-2404_gcc.deb
         sudo dpkg -i hdf5*.deb
-        sudo apt install openmpi-bin
+        sudo apt install openmpi-bin openmpi-common libopenmpi-dev
         sudo apt install graphviz
         pip install --upgrade markdown
         pip install --upgrade markdown-include
