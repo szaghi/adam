@@ -61,6 +61,9 @@ jobs:
 
     - name: BUILD NASTO CPU GNU
       run: |
+        echo $PATH
+        echo $LD_LIBRARY_PATH
+        echo $LD_RUN_PATH
         FoBiS.py build -lmodes
         FoBiS.py build -mode nasto-cpu-gnu-github
     
