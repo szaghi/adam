@@ -40,7 +40,7 @@ jobs:
         pip install --upgrade importlib-metadata
         pip install --upgrade ford
         pip install --upgrade FoBiS.py
-        git submodule update --remote
+        git submodule update --init
     
     - name: CHECK SYSTEM
       run: |
