@@ -34,7 +34,7 @@ jobs:
         # LD_LIBRARY_PATH=$HDF5/lib:$HDF5/include:$LD_LIBRARY_PATH
         # LD_RUN_PATH=$HDF5/lib:$LD_LIBRARY_PATH
         # export PATH LD_LIBRARY_PATH LD_RUN_PATH
-        sudo apt instal libhdf5-mpi-dev
+        sudo apt install libhdf5-mpi-dev
         sudo apt install openmpi-bin openmpi-common libopenmpi-dev
         sudo apt install graphviz
         pip install --upgrade markdown
