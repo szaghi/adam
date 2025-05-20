@@ -10,6 +10,10 @@ jobs:
       contents: write
 
     steps:
+
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
     - name: PREPARE SYSTEM
       run: |
         sudo add-apt-repository --yes ppa:ubuntu-toolchain-r/test
