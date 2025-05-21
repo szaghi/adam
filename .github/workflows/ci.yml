@@ -17,7 +17,7 @@ jobs:
         ref: develop
         submodules: 'true'
 
-    - name: PREPARE SYSTEM: GCC
+    - name: PREPARE SYSTEM GCC
       run: |
         sudo add-apt-repository --yes ppa:ubuntu-toolchain-r/test
         sudo apt update
@@ -28,7 +28,7 @@ jobs:
              --slave /usr/bin/gcov gcov /usr/bin/gcov-14 \
              --slave /usr/bin/g++ g++ /usr/bin/g++-14 
 
-    - name: PREPARE SYSTEM: FOBIS-FORD
+    - name: PREPARE SYSTEM FOBIS-FORD
       run: |
         sudo apt install graphviz
         pip install --upgrade markdown
@@ -44,11 +44,11 @@ jobs:
         pip install --upgrade ford
         pip install --upgrade FoBiS.py
 
-    - name: PREPARE SYSTEM: OPENMPI
+    - name: PREPARE SYSTEM OPENMPI
       run: |
         sudo apt install openmpi-bin openmpi-common libopenmpi-dev
 
-    - name: PREPARE SYSTEM: HDF5
+    - name: PREPARE SYSTEM HDF5
       run: |
         # wget https://github.com/HDFGroup/hdf5/releases/download/hdf5_1.14.6/hdf5-1.14.6-ubuntu-2404_gcc.deb
         # sudo dpkg -i hdf5*.deb
