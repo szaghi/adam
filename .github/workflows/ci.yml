@@ -91,7 +91,6 @@ jobs:
 
     - name: BUILD NASTO CPU GNU
       run: |
-        # ls -l /HDF_Group/HDF5/1.14.6/lib
         FoBiS.py build -mode nasto-cpu-gnu-github
     
     # - name: CHECKOUT
