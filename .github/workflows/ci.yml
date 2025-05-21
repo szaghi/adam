@@ -25,11 +25,9 @@ jobs:
         sudo add-apt-repository --yes ppa:ubuntu-toolchain-r/test
         sudo apt update
         sudo apt install -y gcc-${GCC_V} gfortran-${GCC_V} g++-${GCC_V}
-        sudo update-alternatives \ 
-          --install /usr/bin/gcc gcc /usr/bin/gcc-${GCC_V} 100 \
-          --slave /usr/bin/gfortran gfortran /usr/bin/gfortran-${GCC_V} \
-          --slave /usr/bin/gcov gcov /usr/bin/gcov-${GCC_V} \
-          --slave /usr/bin/g++ g++ /usr/bin/g++-${GCC_V}
+        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-${GCC_V} 100 \
+        --slave /usr/bin/gfortran gfortran /usr/bin/gfortran-${GCC_V} \
+        --slave /usr/bin/gcov gcov /usr/bin/gcov-${GCC_V}
 
     - name: PREPARE SYSTEM FOBIS-FORD
       run: |
