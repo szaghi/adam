@@ -54,8 +54,8 @@ jobs:
         sudo dpkg -i hdf5*.deb
         HDF5=/HDF_Group/HDF5/1.14.6
         PATH=$HDF5/bin:$PATH
-        LD_LIBRARY_PATH=$HDF5/lib:$HDF5/include:$HDF5/mod/shared:$HDF5/mod/static:$LD_LIBRARY_PATH
-        LD_RUN_PATH=$HDF5/lib:$LD_LIBRARY_PATH
+        LD_LIBRARY_PATH=$HDF5/lib:$HDF5/include:$HDF5/mod/shared:$HDF5/mod/static
+        LD_RUN_PATH=$LD_LIBRARY_PATH
         echo "PATH=$PATH" >> $GITHUB_ENV
         echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> $GITHUB_ENV
         echo "LD_RUN_PATH=$LD_RUN_PATH" >> $GITHUB_ENV
