@@ -127,7 +127,7 @@ quiet        = False
 log          = True
 jobs         = 4
 mpi          = True
-ext_libs     = hdf5_fortran
+ext_libs     = hdf5 hdf5_fortran
 exclude_dirs = src/lib_experimental/
                references/
                BeFoR64/src/tests/
