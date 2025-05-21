@@ -115,8 +115,8 @@ cflags   = -cpp -c -O2
 lflags   = -O2
 preproc  = -D_MPI_ -DCOMPILER_GNU
 target   = adam_nasto_cpu.F90
-lib_dir  = /HDF_Group/HDF5/1.14.6/lib
-include  = /HDF_Group/HDF5/1.14.6/include
+lib_dir  = ./hdf5lib/lib
+include  = ./hdf5lib/include
 
 # templates
 [template-base]
