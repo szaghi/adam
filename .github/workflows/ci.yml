@@ -50,15 +50,17 @@ jobs:
 
     - name: PREPARE SYSTEM HDF5
       run: |
-        wget https://github.com/HDFGroup/hdf5/releases/download/hdf5_1.14.6/hdf5-1.14.6-ubuntu-2404_gcc.deb
-        sudo dpkg -i hdf5*.deb
-        HDF5=/HDF_Group/HDF5/1.14.6
-        PATH=$HDF5/bin:$PATH
-        LD_LIBRARY_PATH=$HDF5/lib:$HDF5/include:$HDF5/mod/shared:$HDF5/mod/static
-        LD_RUN_PATH=$LD_LIBRARY_PATH
-        echo "PATH=$PATH" >> $GITHUB_ENV
-        echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> $GITHUB_ENV
-        echo "LD_RUN_PATH=$LD_RUN_PATH" >> $GITHUB_ENV
+        # wget https://github.com/HDFGroup/hdf5/releases/download/hdf5_1.14.6/hdf5-1.14.6-ubuntu-2404_gcc.deb
+        # sudo dpkg -i hdf5*.deb
+        # HDF5=/HDF_Group/HDF5/1.14.6
+        # PATH=$HDF5/bin:$PATH
+        # LD_LIBRARY_PATH=$HDF5/lib:$HDF5/include:$HDF5/mod/shared:$HDF5/mod/static
+        # LD_RUN_PATH=$LD_LIBRARY_PATH
+        # echo "PATH=$PATH" >> $GITHUB_ENV
+        # echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> $GITHUB_ENV
+        # echo "LD_RUN_PATH=$LD_RUN_PATH" >> $GITHUB_ENV
+        # sudo apt install libhdf5-openmpi-dev libhdf5-openmpi-fortran-102t64 libhdf5-openmpi-hl-fortran-100t64
+        sudo apt install libhdf5-openmpi-dev libhdf5-openmpi-hl-fortran-100t64
     
     - name: CHECK SYSTEM
       run: |
@@ -79,19 +81,22 @@ jobs:
         echo
         echo 'FORD'
         ford --version
+        # echo
+        # echo 'PATH'
+        # echo $PATH
+        # echo
+        # echo 'LD_LIBRARY_PATH'
+        # echo $LD_LIBRARY_PATH
+        # echo
+        # echo 'LD_RUN_PATH'
+        # echo $LD_RUN_PATH
         echo
-        echo 'PATH'
-        echo $PATH
-        echo
-        echo 'LD_LIBRARY_PATH'
-        echo $LD_LIBRARY_PATH
-        echo
-        echo 'LD_RUN_PATH'
-        echo $LD_RUN_PATH
+        echo 'HDF5'
+        ls -l /usr/lib/x86_64-linux-gnu/libhdf5*
+        # ls -l /HDF_Group/HDF5/1.14.6/include
 
     - name: BUILD NASTO CPU GNU
       run: |
-        ls -l /HDF_Group/HDF5/1.14.6/include
         FoBiS.py build -mode nasto-cpu-gnu-github -verbose
     
     # - name: CHECKOUT
