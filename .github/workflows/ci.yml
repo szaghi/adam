@@ -8,6 +8,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      GCC_V: 14 # gcc version
+      HDF5_V: 1.14.6 # HDF5 version
 
     steps:
 
@@ -19,85 +22,90 @@ jobs:
 
     - name: PREPARE SYSTEM GCC
       run: |
-        sudo add-apt-repository --yes ppa:ubuntu-toolchain-r/test
-        sudo apt update
-        sudo apt install -y gcc-14 gfortran-14 g++-14 
-        sudo update-alternatives \
-             --install /usr/bin/gcc gcc /usr/bin/gcc-14 100 \
-             --slave /usr/bin/gfortran gfortran /usr/bin/gfortran-14 \
-             --slave /usr/bin/gcov gcov /usr/bin/gcov-14 \
-             --slave /usr/bin/g++ g++ /usr/bin/g++-14 
+        pwd -P
+        # sudo add-apt-repository --yes ppa:ubuntu-toolchain-r/test
+        # sudo apt update
+        # sudo apt install -y gcc-${GCC_V} gfortran-${GCC_V} g++-${GCC_V}
+        # sudo update-alternatives \ 
+        #   --install /usr/bin/gcc gcc /usr/bin/gcc-${GCC_V} 100 \
+        #   --slave /usr/bin/gfortran gfortran /usr/bin/gfortran-${GCC_V} \
+        #   --slave /usr/bin/gcov gcov /usr/bin/gcov-${GCC_V}
+        #   --slave /usr/bin/g++ g++ /usr/bin/g++-${GCC_V}
 
-    - name: PREPARE SYSTEM FOBIS-FORD
-      run: |
-        sudo apt install graphviz
-        pip install --upgrade markdown
-        pip install --upgrade markdown-include
-        pip install --upgrade python-markdown-math
-        pip install --upgrade toposort
-        pip install --upgrade jinja2
-        pip install --upgrade pygments
-        pip install --upgrade beautifulsoup4
-        pip install --upgrade graphviz
-        pip install --upgrade tqdm
-        pip install --upgrade importlib-metadata
-        pip install --upgrade ford
-        pip install --upgrade FoBiS.py
+    # - name: PREPARE SYSTEM FOBIS-FORD
+      # run: |
+        # sudo apt install graphviz
+        # pip install --upgrade markdown
+        # pip install --upgrade markdown-include
+        # pip install --upgrade python-markdown-math
+        # pip install --upgrade toposort
+        # pip install --upgrade jinja2
+        # pip install --upgrade pygments
+        # pip install --upgrade beautifulsoup4
+        # pip install --upgrade graphviz
+        # pip install --upgrade tqdm
+        # pip install --upgrade importlib-metadata
+        # pip install --upgrade ford
+        # pip install --upgrade FoBiS.py
 
-    - name: PREPARE SYSTEM OPENMPI
-      run: |
-        sudo apt install openmpi-bin openmpi-common libopenmpi-dev
+    # - name: PREPARE SYSTEM OPENMPI
+      # run: |
+        # sudo apt install openmpi-bin openmpi-common libopenmpi-dev
 
-    - name: PREPARE SYSTEM HDF5
-      run: |
-        # wget https://github.com/HDFGroup/hdf5/releases/download/hdf5_1.14.6/hdf5-1.14.6-ubuntu-2404_gcc.deb
-        # sudo dpkg -i hdf5*.deb
-        # HDF5=/HDF_Group/HDF5/1.14.6
-        # PATH=$HDF5/bin:$PATH
-        # LD_LIBRARY_PATH=$HDF5/lib:$HDF5/include:$HDF5/mod/shared:$HDF5/mod/static
-        # LD_RUN_PATH=$LD_LIBRARY_PATH
-        # echo "PATH=$PATH" >> $GITHUB_ENV
-        # echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> $GITHUB_ENV
-        # echo "LD_RUN_PATH=$LD_RUN_PATH" >> $GITHUB_ENV
-        # sudo apt install libhdf5-openmpi-dev libhdf5-openmpi-fortran-102t64 libhdf5-openmpi-hl-fortran-100t64
-        sudo apt install libhdf5-openmpi-dev libhdf5-openmpi-hl-fortran-100t64
+    # - name: PREPARE SYSTEM HDF5
+      # run: |
+        # # wget https://github.com/HDFGroup/hdf5/releases/download/hdf5_1.14.6/hdf5-1.14.6-ubuntu-2404_gcc.deb
+        # # sudo dpkg -i hdf5*.deb
+        # # HDF5=/HDF_Group/HDF5/1.14.6
+        # # PATH=$HDF5/bin:$PATH
+        # # LD_LIBRARY_PATH=$HDF5/lib:$HDF5/include:$HDF5/mod/shared:$HDF5/mod/static
+        # # LD_RUN_PATH=$LD_LIBRARY_PATH
+        # # echo "PATH=$PATH" >> $GITHUB_ENV
+        # # echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> $GITHUB_ENV
+        # # echo "LD_RUN_PATH=$LD_RUN_PATH" >> $GITHUB_ENV
+        # # sudo apt install libhdf5-openmpi-dev libhdf5-openmpi-fortran-102t64 libhdf5-openmpi-hl-fortran-100t64
+        # # sudo apt install libhdf5-openmpi-dev libhdf5-openmpi-hl-fortran-100t64
+        # wget https://github.com/HDFGroup/hdf5/releases/latest/download/hdf5.tar.gz
+        # tar xf hdf5.tar.gz
+        # mv hdf5-* hdf5
+        # cd hdf5
     
-    - name: CHECK SYSTEM
-      run: |
-        echo 'GFORTRAN'
-        gfortran --version
-        echo
-        echo 'MPIF90'
-        mpif90 --version
-        echo
-        echo 'GCOV'
-        gcov --version
-        echo
-        echo 'PYTHON'
-        python --version
-        echo
-        echo 'FOBIS'
-        FoBiS.py --version
-        echo
-        echo 'FORD'
-        ford --version
+    # - name: CHECK SYSTEM
+      # run: |
+        # echo 'GFORTRAN'
+        # gfortran --version
         # echo
-        # echo 'PATH'
-        # echo $PATH
+        # echo 'MPIF90'
+        # mpif90 --version
         # echo
-        # echo 'LD_LIBRARY_PATH'
-        # echo $LD_LIBRARY_PATH
+        # echo 'GCOV'
+        # gcov --version
         # echo
-        # echo 'LD_RUN_PATH'
-        # echo $LD_RUN_PATH
-        echo
-        echo 'HDF5'
-        ls -l /usr/lib/x86_64-linux-gnu/libhdf5*
-        # ls -l /HDF_Group/HDF5/1.14.6/include
+        # echo 'PYTHON'
+        # python --version
+        # echo
+        # echo 'FOBIS'
+        # FoBiS.py --version
+        # echo
+        # echo 'FORD'
+        # ford --version
+        # # echo
+        # # echo 'PATH'
+        # # echo $PATH
+        # # echo
+        # # echo 'LD_LIBRARY_PATH'
+        # # echo $LD_LIBRARY_PATH
+        # # echo
+        # # echo 'LD_RUN_PATH'
+        # # echo $LD_RUN_PATH
+        # echo
+        # echo 'HDF5'
+        # ls -l /usr/lib/x86_64-linux-gnu/libhdf5*
+        # # ls -l /HDF_Group/HDF5/1.14.6/include
 
-    - name: BUILD NASTO CPU GNU
-      run: |
-        FoBiS.py build -mode nasto-cpu-gnu-github -verbose
+    # - name: BUILD NASTO CPU GNU
+      # run: |
+        # FoBiS.py build -mode nasto-cpu-gnu-github -verbose
     
     # - name: CHECKOUT
     #   id: checkout
