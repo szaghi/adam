@@ -20,7 +20,7 @@ jobs:
         ref: develop
         submodules: 'true'
 
-    - name: PREPARE SYSTEM GCC
+    - name: Install GCC
       run: |
         sudo add-apt-repository --yes ppa:ubuntu-toolchain-r/test
         sudo apt update
@@ -29,9 +29,15 @@ jobs:
         --slave /usr/bin/gfortran gfortran /usr/bin/gfortran-${GCC_V} \
         --slave /usr/bin/gcov gcov /usr/bin/gcov-${GCC_V}
 
-    - name: PREPARE SYSTEM FOBIS-FORD
+    - name: Install OPENMPI
       run: |
-        sudo apt install graphviz
+        sudo apt install openmpi-bin openmpi-common libopenmpi-dev
+
+    - name: Install Graphviz
+      uses: ts-graphviz/setup-graphviz@v2
+
+    - name: Install FOBIS-FORD
+      run: |
         pip install --upgrade markdown
         pip install --upgrade markdown-include
         pip install --upgrade python-markdown-math
@@ -45,34 +51,7 @@ jobs:
         pip install --upgrade ford
         pip install --upgrade FoBiS.py
 
-    - name: PREPARE SYSTEM OPENMPI
-      run: |
-        sudo apt install openmpi-bin openmpi-common libopenmpi-dev
-
-    - name: PREPARE SYSTEM HDF5
-      run: |
-        # wget https://github.com/HDFGroup/hdf5/releases/download/hdf5_1.14.6/hdf5-1.14.6-ubuntu-2404_gcc.deb
-        # sudo dpkg -i hdf5*.deb
-        # HDF5=/HDF_Group/HDF5/1.14.6
-        # PATH=$HDF5/bin:$PATH
-        # LD_LIBRARY_PATH=$HDF5/lib:$HDF5/include:$HDF5/mod/shared:$HDF5/mod/static
-        # LD_RUN_PATH=$LD_LIBRARY_PATH
-        # echo "PATH=$PATH" >> $GITHUB_ENV
-        # echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> $GITHUB_ENV
-        # echo "LD_RUN_PATH=$LD_RUN_PATH" >> $GITHUB_ENV
-        # sudo apt install libhdf5-openmpi-dev libhdf5-openmpi-fortran-102t64 libhdf5-openmpi-hl-fortran-100t64
-        # sudo apt install libhdf5-openmpi-dev libhdf5-openmpi-hl-fortran-100t64
-        mkdir -p hdf5lib
-        wget https://github.com/HDFGroup/hdf5/releases/latest/download/hdf5.tar.gz
-        tar xf hdf5.tar.gz
-        mv hdf5-* hdf5
-        cd hdf5
-        CFLAGS="-fPIC" FCFLAGS="-fPIC" ./configure --prefix=$GITHUB_WORKSPACE/hdf5lib --enable-shared --enable-parallel --enable-fortran --disable-libtool-lock FC=mpif90
-        make
-        make install
-        cd ../
-    
-    - name: CHECK SYSTEM
+    - name: Check system
       run: |
         echo 'GFORTRAN'
         gfortran --version
@@ -91,25 +70,10 @@ jobs:
         echo
         echo 'FORD'
         ford --version
-        # echo
-        # echo 'PATH'
-        # echo $PATH
-        # echo
-        # echo 'LD_LIBRARY_PATH'
-        # echo $LD_LIBRARY_PATH
-        # echo
-        # echo 'LD_RUN_PATH'
-        # echo $LD_RUN_PATH
-        echo
-        echo 'HDF5'
-        ls -l hdf5lib/bin
-        ls -l hdf5lib/lib
-        ls -l hdf5lib/include
-        # ls -l /HDF_Group/HDF5/1.14.6/include
 
-    - name: BUILD NASTO CPU GNU
+    - name: Build NASTO CPU GNU
       run: |
-        FoBiS.py build -mode nasto-cpu-gnu-github -verbose
+        FoBiS.py build -mode nasto-cpu-gnu-github
     
     # - name: CHECKOUT
     #   id: checkout

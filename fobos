@@ -115,8 +115,8 @@ cflags   = -cpp -c -O2
 lflags   = -O2
 preproc  = -D_MPI_ -DCOMPILER_GNU
 target   = adam_nasto_cpu.F90
-lib_dir  = ./hdf5lib/lib
-include  = ./hdf5lib/include
+lib_dir  = ./lib/hdf5/gnu/lib
+include  = ./lib/hdf5/gnu/include
 
 # templates
 [template-base]
@@ -216,6 +216,10 @@ lib_dir  = $HDF5_gnu_sz_ws/lib
 include  = $HDF5_gnu_sz_ws/include
 
 # aux rules
+[rule-hdf5-build-gnu]
+help = Download HDF5 and build with GNU (openmpi/mpich)
+rule = scripts/hdf5_build.sh -build
+
 [rule-maketar]
 help = Make tar archive of the project
 rule = tar --xform="s%^%adam/%" -czf adam.tar.gz *
