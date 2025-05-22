@@ -75,7 +75,7 @@ if [ "$parallel" == "true" ]; then
     # Generate and compile an MPI program to get MPI rank and size
     if [ ! -f "${c_src}" ]; then
         gen_mpi
-        CC=mpicc
+        CC=
         ${CC} "${c_src}" -o "${c_exec}"
     fi
     wait

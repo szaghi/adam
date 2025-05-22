@@ -11,6 +11,9 @@ print_usage () {
    echo "   `basename $0` -build [HDF5_PATH]"
    echo "   build HDF5 and install in HDF5_PATH (default lib/hdf5/gnu)"
    echo
+   echo "   `basename $0` -get"
+   echo "   get latest release of HDF5 sources"
+   echo
    echo "   `basename $0` -h"
    echo "   print this help message"
    echo
@@ -30,9 +33,21 @@ build_hdf5 () {
    here=$(pwd)
    mkdir -p $HDF5_PATH
    cd hdf5-src
-   CFLAGS="-fPIC" FCFLAGS="-fPIC" ./configure --prefix=$here/$HDF5_PATH --enable-shared --enable-parallel --enable-fortran --disable-libtool-lock FC=mpif90
-   make
+   mkdir build
+   cd build
+   CC=mpicc CXX=mpicxx FC=mpif90 cmake ../ \
+     -DCMAKE_INSTALL_PREFIX=$here/$HDF5_PATH \
+     -DBUILD_SHARED_LIBS:BOOL=ON \
+     -DBUILD_STATIC_LIBS:BOOL=ON \
+     -DHDF5_BUILD_FORTRAN:BOOL=ON \
+     -DHDF5_ENABLE_PARALLEL:BOOL=ON \
+     -DHDF5_ENABLE_NONSTANDARD_FEATURE_FLOAT16:BOOL=OFF \
+     -DCMAKE_ANSI_CFLAGS:STRING=-fPIC \
+     -DCMAKE_ANSI_FCFLAGS:STRING=-fPIC \
+     -DCMAKE_BUILD_WITH_INSTALL_RPATH:BOOL=OFF
+   cmake --build .
    make install
+   cd ../
    cd ../
    rm -rf hdf5-src
 }
@@ -49,6 +64,10 @@ while [ $# -gt 0 ]; do
          fi
          get_hdf5
          build_hdf5
+         exit 0
+         ;;
+      "-get")
+         get_hdf5
          exit 0
          ;;
       "-h")
