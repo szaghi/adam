@@ -620,15 +620,15 @@ contains
              ror_schemes=>self%weno%ror_schemes, ror_ivar=>self%weno%ror_ivar,                                     &
              ror_threshold=>self%weno%ror_threshold, enable_ror_stats=>self%weno%enable_ror_stats,                 &
              cell_scheme=>self%weno%cell_scheme, ror_stats=>self%weno%ror_stats, weno_zeps=>self%weno%zeps,        &
-             solids_number=>self%ib%solids_number, null_xyz=>self%grid%null_xyz, time=>self%time%time              &
-             A=>self%coil%A, freq=>self%coil%f, phase=>self%coil%phase, coil_flag =>self%coil%coil_flag               &
-             d=>delf%coil%d)
+             solids_number=>self%ib%solids_number, null_xyz=>self%grid%null_xyz, time=>self%time%time,             &
+             A=>self%coil%A, freq=>self%coil%f, phase=>self%coil%phase, coil_flag =>self%coil%coil_flag,           &
+             d=>self%coil%d)
              !cv=>self%physics%eos(1)%cv, g=>self%physics%eos(1)%g, R=>self%physics%eos(1)%R,                       &
              !mu=>self%physics%eos(1)%mu, kd=>self%physics%eos(1)%kd, dha=>self%physics%eos(1)%dha, null_xyz=>self%grid%null_xyz)
 
-   call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q, time=time, A=A, d=d f=freq, &
+   call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q, time=time, A=A, d=d, f=freq, &
                               phase=phase, coil_flag=coil_flag)
-   
+
    if (blocks_number > 0) then
       if (.not.null_xyz(1)) then
          call compute_fluxes_convective(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,weno_s=weno_S, &
@@ -728,15 +728,15 @@ contains
       do i=1, self%ic%amr_iterations
          call self%mpih%print_message('  AMR/set IC iteration:'//trim(str(i,.true.)))
          call self%set_initial_conditions 
-         if (self%ib%solids_number > 0) call self%compute_phi()
-         call self%amr_update
+         !if (self%ib%solids_number > 0) call self%compute_phi()
+         !call self%amr_update
       enddo
       call self%set_initial_conditions 
       self%time%time = 0._R8P
       self%time%it = 0
       call self%mpih%print_message('impose initial conditions finish')
    endif
-   if (self%ib%solids_number > 0) call self%compute_phi()
+   !if (self%ib%solids_number > 0) call self%compute_phi()
    ! call self%amr_update
    call self%save_simulation_data
    if (self%mpih%myrank==0) call self%io%open_file_residuals(nv=self%nv)
@@ -753,7 +753,7 @@ contains
 
       if (mod(self%time%it,self%amr%frequency)==0) then
          call self%mpih%barrier(tictoc=.true.)
-         call self%amr_update
+         !call self%amr_update
          call self%mpih%barrier(tictoc=.true.)
       endif
 
@@ -832,7 +832,7 @@ contains
    integer(I4P)                :: r, v, vv                           !< Counter.
    integer(I4P)                :: b, i, j, k                         !< Counter.
    integer(I4P)                :: si(3), si_i, si_j, si_k            !< Directional (1=x,2=y,3=z) increment.
-   !real(R8P)                   :: sir(3)                             !< Directional (1=x,2=y,3=z) increment.
+   real(R8P)                   :: sir(3)                             !< Directional (1=x,2=y,3=z) increment, real.
    !integer(I4P)                :: uni, ut1, ut2                      !< Index of normal and tangential velocities.
    real(R8P)                   :: evmax                              !< Maximum waves speed estimation.
    integer(I4P)                :: s, is, js, ks                      !< Counter.
@@ -845,7 +845,7 @@ contains
    case(3)
       si = [0,0,1]
    endselect
-   !sir = real(si,R8P)
+   sir = real(si,R8P)
    si_i = 1-si(1)
    si_j = 1-si(2)
    si_k = 1-si(3)
@@ -862,8 +862,8 @@ contains
    do j=si_j, nj
    do i=si_i, ni
       !call compute_max_eigenvalues(si=si,sir=sir,weno_s=weno_s,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,q_aux=q_aux,evmax=evmax)
-      call decompose_fluxes_convective_llf(si=si, nv=nv, q=q(:,i      ,j      ,k      ,b), evmax=evmax, fmp=fmp)
-      call decompose_fluxes_convective_llf(si=si, nv=nv, q=q(:,i+si(1),j+si(2),k+si(3),b), evmax=evmax, fmp=fpmr)
+      call decompose_fluxes_convective_llf(sir=sir, nv=nv, q=q(:,i      ,j      ,k      ,b), evmax=evmax, fmp=fmp)
+      call decompose_fluxes_convective_llf(sir=sir, nv=nv, q=q(:,i+si(1),j+si(2),k+si(3),b), evmax=evmax, fmp=fpmr)
       fluxes(:,i,j,k,b) = fmp(2,:) + fpmr(1,:)
    enddo
    enddo
@@ -945,7 +945,7 @@ contains
          do v=1, nv
             dq(v,i,j,k,b) = - (flx(v,i,j,k,b)-flx(v,i-1,j,k,b))/dx_locale &
                             - (fly(v,i,j,k,b)-fly(v,i,j-1,k,b))/dy_locale &
-                            - (flz(v,i,j,k,b)-flz(v,i,j,k-1,b))/dz_locale + 
+                            - (flz(v,i,j,k,b)-flz(v,i,j,k-1,b))/dz_locale 
          enddo
          !dq(2,i,j,k,b) = dq(2,i,j,k,b) * qmx 
          !dq(3,i,j,k,b) = dq(3,i,j,k,b) * qmy
@@ -988,10 +988,10 @@ contains
    endsubroutine compute_fluxes_difference
    
 
-   subroutine decompose_fluxes_convective_llf(si, nv, q, evmax, fmp)
+   subroutine decompose_fluxes_convective_llf(sir, nv, q, evmax, fmp)
    !< Decompose convective fluxes using the Local-Lax-Friedrichs (LLF, Rusanov) approximation
-   integer(I4P), intent(in)    :: si(3)         !< Directional (1=x,2=y,3=z) increment.
    integer(I4P), intent(in)    :: nv            !< Number of conservative varibales.
+   real(R8P),    intent(in)    :: sir(3)         !< Directional (1=x,2=y,3=z) increment, real
    !real(R8P),    intent(in)    :: q_aux(1:)     !< Auxiliary variables.
    real(R8P),    intent(in)    :: evmax         !< Maximum waves speeds estimation.
    real(R8P),    intent(in)    :: q(1:)         !< Conservative variables.
@@ -1001,7 +1001,7 @@ contains
  
    !call compute_conservatives_scalar(q_aux=q_aux,q=q)
    !call compute_conservative_fluxes_scalar(sir=sir,q_aux=q_aux,f=f)
-   call compute_convective_fluxes_Maxwell(si=si,q=q,f=f)
+   call compute_convective_fluxes_Maxwell(sir=sir,q=q,f=f)
    do v=1, nv
       fmp(2,v) = 0.5_R8P * (f(v) + evmax * q(v))
       fmp(1,v) = f(v) - fmp(2,v)
@@ -1020,15 +1020,12 @@ contains
       real(R8P),    intent(in)           :: A(1:)                           !< Current amplitude (A)
       real(R8P),    intent(in)           :: f(1:)                           !< Current frequency, if AC (Hz)
       real(R8P),    intent(in)           :: phase(1:)                       !< Current initial phase, if AC
-      real(R8P),    intent(in)           :: d                               !< Wire diameter
+      real(R8P),    intent(in)           :: d(1:)                           !< Wire diameter
       real(R8P),    intent(inout)        :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Field variables.
       real(R8P)                          :: current_density                 !< Current density
-      real(R8P)                          :: coil_id                         !< ID per identificare spira
+      integer(I4P)                       :: coil_id                         !< ID per identificare spira
       integer(I4P)                       :: i,j,k,b,n                       !< Counter
       
-      !passo da corrente a densità di correntescalando l'ampiezza con la sezione del filo della spira
-      A = 4*A/(pi*d**2)
-
       do b=1, blocks_number
          do k=1, nk
             do j=1, nj
@@ -1039,7 +1036,7 @@ contains
                      !mi rispramio anche il selectcase
 
                      !Densità di corrente al tempo t della spira n-esima identificata da (coil_id)
-                     current_density = A(coil_id)*cos(2*pi*f(coil_id)*time + phase(coil_id))
+                     current_density = 4*A(coil_id)/(pi*d(coil_id)**2)*cos(2*pi*f(coil_id)*time + phase(coil_id)*pi/180.0_R8P)
                      q(7:9,i,j,k,b) = current_density*q(7:9,i,j,k,b)
                   endif
                enddo

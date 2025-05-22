@@ -106,7 +106,7 @@ contains
    call self%amr%initialize(file_parameters=file_parameters)
    call self%time%initialize(file_parameters=file_parameters)
    call self%ic%initialize(file_parameters=file_parameters)
-   call self%coil%initialize(file_parameters=file_parameters)
+   call self%coil%initialize(file_parameters=file_parameters, field=self%field)
    call self%ib%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    call self%slices%initialize(file_parameters=file_parameters)
    call self%rk%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)

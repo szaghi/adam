@@ -75,15 +75,6 @@ print '(A)', self%mpih%myrankstr//'prism_physics_object%initialize start'
 call self%load_from_file(file_parameters=file_parameters)
 self%nv     = self%nv
 ! initialize named index of q_aux array
-VAR_DX = 1_I4P
-VAR_DY = 2_I4P
-VAR_DZ = 3_I4P
-VAR_BX = 4_I4P
-VAR_BY = 5_I4P
-VAR_BZ = 6_I4P
-VAR_JX = 7_I4P
-VAR_JY = 8_I4P
-VAR_JZ = 9_I4P
 print '(A)', self%description()
 print '(A)', self%mpih%myrankstr//'prism_physics_object%initialize finish'
 endsubroutine initialize
@@ -103,4 +94,4 @@ if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to loa
 
 endsubroutine load_from_file
 
-endmodule adam_prism_phisics_object
+endmodule adam_prism_physics_object

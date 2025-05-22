@@ -37,13 +37,13 @@ module adam_riemann_maxwell_library
     ! e permeabilità magnetica pari a mu0 e eps0
 
 contains
-    subroutine compute_riemann_maxwell_llf(si, nv, q1, q4, f, lmax)
+    subroutine compute_riemann_maxwell_llf(sir, nv, q1, q4, f, lmax)
         !< Solve the Riemann problem between the state 1 (left) and 4 (right) using the Local-Lax-Friedrichs (LLF, Rusanov) solver.
-        integer(I4P), intent(in)            :: si(3)         !< Directional (1=x,2=y,3=z) increment.
         !real(R8P),    intent(in)            :: sir(3)        !< Directional (1=x,2=y,3=z) increment.
         integer(I4P), intent(in)            :: nv            !< Number of conservative varibales.
-        real(R8P),    intent(in)            :: q1(1:)  !< Left state.
-        real(R8P),    intent(in)            :: q4(1:)  !< Right state.
+        real(R8P),    intent(in)            :: sir(3)        !< Directional (1=x,2=y,3=z) increment.
+        real(R8P),    intent(in)            :: q1(1:)        !< Left state.
+        real(R8P),    intent(in)            :: q4(1:)        !< Right state.
         real(R8P),    intent(inout)         :: f(1:)         !< Resulting fluxes.
         real(R8P),    intent(out), optional :: lmax          !< Maximum wave speed estimation.
         real(R8P)                           :: F1(1:nv)      !< State 1 fluxes.
@@ -51,8 +51,8 @@ contains
 
         lmax = sqrt(1._R8P/(eps0*mu0))
 
-        call compute_convective_fluxes_Maxwell(si=si,q=q1,f=F1)
-        call compute_convective_fluxes_Maxwell(si=si,q=q4,f=F4)
+        call compute_convective_fluxes_Maxwell(sir=sir,q=q1,f=F1)
+        call compute_convective_fluxes_Maxwell(sir=sir,q=q4,f=F4)
 
         f(1) = 0.5_R8P*(F1(1)+F4(1)-lmax*(q4(1)-q1(1)))
         f(2) = 0.5_R8P*(F1(2)+F4(2)-lmax*(q4(2)-q1(2)))
@@ -63,14 +63,14 @@ contains
 
     endsubroutine compute_riemann_maxwell_llf
 
-    subroutine compute_riemann_maxwell_hll(si, nv, q1, q4, f, lmax, lmin)
+    subroutine compute_riemann_maxwell_hll(sir, nv, q1, q4, f, lmax, lmin)
 
         !< Solve the Riemann problem between the state 1 (left) and 4 (right) using the Harten, Lax and van Leer (HLL) solver.
-        integer(I4P), intent(in)            :: si(3)         !< Directional (1=x,2=y,3=z) increment.
         !real(R8P),    intent(in)            :: sir(3)        !< Directional (1=x,2=y,3=z) increment.
         integer(I4P), intent(in)            :: nv            !< Number of conservative varibales.
-        real(R8P),    intent(in)            :: q1(1:)  !< Left state.
-        real(R8P),    intent(in)            :: q4(1:)  !< Right state.
+        real(R8P),    intent(in)            :: sir(3)        !< Directional (1=x,2=y,3=z) increment.
+        real(R8P),    intent(in)            :: q1(1:)        !< Left state.
+        real(R8P),    intent(in)            :: q4(1:)        !< Right state.
         real(R8P),    intent(inout)         :: f(1:)         !< Resulting fluxes.
         real(R8P),    intent(out), optional :: lmax          !< Maximum wave speed estimation.
         real(R8P),    intent(out), optional :: lmin          !< Maximum wave speed estimation.
@@ -80,8 +80,8 @@ contains
         lmax = sqrt(1._R8P/(EPS0*MU0))
         lmin = -lmax
 
-        call compute_convective_fluxes_Maxwell(si=si,q=q1,f=F1)
-        call compute_convective_fluxes_Maxwell(si=si,q=q4,f=F4)
+        call compute_convective_fluxes_Maxwell(sir=sir,q=q1,f=F1)
+        call compute_convective_fluxes_Maxwell(sir=sir,q=q4,f=F4)
 
         f(1) = (lmax*F1(1)-lmin*F4(1)+lmax*lmin*(F4(1)-F1(1)))/(lmax-lmin)
         f(2) = (lmax*F1(2)-lmin*F4(2)+lmax*lmin*(F4(2)-F1(2)))/(lmax-lmin)
@@ -114,18 +114,18 @@ contains
 
     ! private procedures
 
-    pure subroutine compute_convective_fluxes_Maxwell(si,q,f)
+    subroutine compute_convective_fluxes_Maxwell(sir,q,f)
     !< Compute convective fluxes for Euler equations from auxiliary variables.
-    integer(I4P), intent(in)    :: si(3)         !< Directional (1=x,2=y,3=z) increment.
+    real(R8P),    intent(in)    :: sir(3)         !< Directional (1=x,2=y,3=z) increment.
     real(R8P),    intent(in)    :: q(1:)         !< Auxiliary variables. 
     real(R8P),    intent(inout) :: f(1:)         !< Conservative fluxes.
 
     !! CI METTIAMO UN IF SULLA DIREZIONE CONSIDERATA?
     !! DOVE METTIAMO L?INFO SU EPS E MU?? (LE DEVI PURE DICHIARARE)
-    select case(maxloc(si))
+    !select case(maxloc(si))
 
-    !if (sir(1).eq.1) then !X
-    case(1)
+    if (sir(1).eq.1) then !X
+    !case(1)
 
         f(1) =  0.0_R8P
         f(2) =  q(6)/MU0
@@ -137,8 +137,8 @@ contains
         f(8) = 0._R8P
         f(9) = 0._R8P
 
-    !elseif(sir(2).eq.1) then !Y
-    case(2)
+    elseif(sir(2).eq.1) then !Y
+    !case(2)
 
         f(1) = -q(6)/MU0
         f(2) =  0.0_R8P
@@ -150,8 +150,8 @@ contains
         f(8) = 0._R8P
         f(9) = 0._R8P
 
-    !elseif(sir(3).eq.1) then  !Z
-    case(3)
+    elseif(sir(3).eq.1) then  !Z
+    !case(3)
 
         f(1) =  q(5)/MU0
         f(2) = -q(4)/MU0
@@ -163,8 +163,8 @@ contains
         f(8) = 0._R8P
         f(9) = 0._R8P
 
-    !endif
-    endselect
+    endif
+    !endselect
 
    endsubroutine compute_convective_fluxes_Maxwell
 
