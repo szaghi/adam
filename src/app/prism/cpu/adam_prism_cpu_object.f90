@@ -69,16 +69,16 @@ contains
    associate(nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
               nb=>self%nb, weno_s=>self%weno%S, solids_number=>self%ib%solids_number)
    msg = msg_//' dq '
-   call alloc_var_cpu(var=self%dq,       ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
+   call allocate_variable(var=self%dq,       ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
    self%dq = 0._R8P
    msg = msg_//' flx '
-   call alloc_var_cpu(var=self%flx,      ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
+   call allocate_variable(var=self%flx,      ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
    self%flx = 0._R8P
    msg = msg_//' fly '
-   call alloc_var_cpu(var=self%fly,      ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
+   call allocate_variable(var=self%fly,      ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
    self%fly = 0._R8P
    msg = msg_//' flz '
-   call alloc_var_cpu(var=self%flz,      ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
+   call allocate_variable(var=self%flz,      ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
    self%flz = 0._R8P
    endassociate
    call self%mpih%print_message('prism_cpu_object%allocate_cpu finish')
@@ -322,7 +322,7 @@ contains
    integer(I4P),            intent(out)   :: t    !< Time iteration.
    real(R8P),               intent(out)   :: time !< Time.
    
-   call self%adam%load_restart_files(basename=self%io%restart_basename, t=t, time=time)
+   call self%adam%load_restart_files(basename=self%io%restart_basename, t=t, time=time, q=self%q)
    call self%adam%make_comm_local_maps_ghost_bc
    endsubroutine load_restart_files
    
@@ -338,17 +338,17 @@ contains
    output_basename_ = trim(self%io%output_basename)//'-'//trim(strz(self%time%it,9))
    if (present(output_basename)) output_basename_ = trim(output_basename)
    if (self%ib%solids_number>0) then
-      call self%adam%save_hdf5(basename=trim(output_basename_),                                                       &
-                               q=self%field%q,                                                                        &
+      call self%adam%save_hdf5(basename=trim(output_basename_),                                                 &
+                               q=self%q,                                                                        &
                                !q_aux=self%q_aux,                                                                      &
-                               q_name=['Dx','Dy','Dz','Bx','By','Bz','Jx','Jy','Jz'],                                                &
+                               q_name=['Dx','Dy','Dz','Bx','By','Bz','Jx','Jy','Jz'],                           &
                                !q_aux_name=['rhob ','u    ','v    ','w    ','ya   ','tem  ','pres ','ental','csp  '],  &
                                with_cell_morton=.true., phi=self%ib%phi)
    else
-      call self%adam%save_hdf5(basename=trim(output_basename_),                                                       &
-                               q=self%field%q,                                                                        &
+      call self%adam%save_hdf5(basename=trim(output_basename_),                                                 &
+                               q=self%q,                                                                        &
                                !q_aux=self%q_aux,                                                                      &
-                               q_name=['Dx','Dy','Dz','Bx','By','Bz','Jx','Jy','Jz'],                                                &
+                               q_name=['Dx','Dy','Dz','Bx','By','Bz','Jx','Jy','Jz'],                           &
                                !q_aux_name=['rhob ','u    ','v    ','w    ','ya   ','tem  ','pres ','ental','csp  '],  &
                                with_cell_morton=.true.)
    endif
@@ -378,7 +378,7 @@ contains
    call self%mpih%barrier(tictoc=.true.)
    call self%mpih%print_message('save restart files t: '//trim(str(self%time%it,.true.))//', time: '//&
                                 trim(str(self%time%time,.true.)))
-   call self%adam%save_restart_files(basename=self%io%restart_basename, t=self%time%it, time=self%time%time)
+   call self%adam%save_restart_files(basename=self%io%restart_basename, t=self%time%it, time=self%time%time, q=self%q)
    call self%save_hdf5(output_basename=self%io%restart_basename)
    call self%mpih%barrier(tictoc=.true.)
    endsubroutine save_restart_files
@@ -390,7 +390,7 @@ contains
    if ((self%time%is_to_save(it_save=self%io%it_save)).or.      &
        (self%time%is_to_save(it_save=self%io%restart_save)).or. &
        (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))) then
-      call self%update_ghost(q=self%field%q)
+      call self%update_ghost(q=self%q)
       !call self%compute_q_auxiliary(q=self%field%q, q_aux=self%q_aux)
    
       if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_hdf5
@@ -402,7 +402,7 @@ contains
                                    time=self%time%time,              &
                                    time_max=self%time%time_max,      &
                                    adam=self%adam,                   &
-                                   q=self%field%q,                   &
+                                   q=self%q,                   &
                                    q_name=['Dx','Dy','Dz','Bx','By','Bz','Jx','Jy','Jz'])
    endif
    endsubroutine save_simulation_data 
@@ -622,12 +622,12 @@ contains
              cell_scheme=>self%weno%cell_scheme, ror_stats=>self%weno%ror_stats, weno_zeps=>self%weno%zeps,        &
              solids_number=>self%ib%solids_number, null_xyz=>self%grid%null_xyz, time=>self%time%time,             &
              A=>self%coil%A, freq=>self%coil%f, phase=>self%coil%phase, coil_flag =>self%coil%coil_flag,           &
-             d=>self%coil%d)
+             d=>self%coil%d, td=>self%coil%td)
              !cv=>self%physics%eos(1)%cv, g=>self%physics%eos(1)%g, R=>self%physics%eos(1)%R,                       &
              !mu=>self%physics%eos(1)%mu, kd=>self%physics%eos(1)%kd, dha=>self%physics%eos(1)%dha, null_xyz=>self%grid%null_xyz)
 
    call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q, time=time, A=A, d=d, f=freq, &
-                              phase=phase, coil_flag=coil_flag)
+                              phase=phase, coil_flag=coil_flag, td=td)
 
    if (blocks_number > 0) then
       if (.not.null_xyz(1)) then
@@ -672,17 +672,17 @@ contains
    integer(I4P)                                   :: s                !< Counter.
 
    do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
-   call self%rk%initialize_stages(q=self%field%q)
+   call self%rk%initialize_stages(q=self%q)
    select case(self%rk%scheme)
    case(RK_1, RK_2, RK_3)
       ! low storage RK working on q_rk_gpu(:,:,:,:,:,1)/q_gpu as stages, update q_gpu in place
       do s=1, self%rk%nrk
-         call self%compute_residuals(q=self%field%q, dq=self%dq)
+         call self%compute_residuals(q=self%q, dq=self%dq)
          if (s==1) call self%save_residuals
          if (self%ib%solids_number>0) then
-            call self%rk%compute_stage_ls(s=s,dt=self%time%dt,phi=self%ib%phi,dq=self%dq,q=self%field%q)
+            call self%rk%compute_stage_ls(s=s,dt=self%time%dt,phi=self%ib%phi,dq=self%dq,q=self%q)
          else
-            call self%rk%compute_stage_ls(s=s,dt=self%time%dt,dq=self%dq,q=self%field%q)
+            call self%rk%compute_stage_ls(s=s,dt=self%time%dt,dq=self%dq,q=self%q)
          endif
       enddo
    case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
@@ -702,9 +702,9 @@ contains
          endif
       enddo
       if (self%ib%solids_number>0) then
-         call self%rk%update_q(dt=self%time%dt, phi=self%ib%phi, q=self%field%q)
+         call self%rk%update_q(dt=self%time%dt, phi=self%ib%phi, q=self%q)
       else
-         call self%rk%update_q(dt=self%time%dt, q=self%field%q)
+         call self%rk%update_q(dt=self%time%dt, q=self%q)
       endif
    endselect
    endsubroutine integrate
@@ -748,7 +748,7 @@ contains
       self%time%it = self%time%it + 1
 
       if (self%io%save_memory_status) then
-         call save_memory_cpu_status(file_name='memory_cpu-'//self%mpih%myrankstr//'.dat', tag=str(self%time%it,.true.))
+         call save_memory_status(file_name='memory_cpu-'//self%mpih%myrankstr//'.dat', tag=str(self%time%it,.true.))
       endif
 
       if (mod(self%time%it,self%amr%frequency)==0) then
@@ -1008,7 +1008,7 @@ contains
    enddo
    endsubroutine decompose_fluxes_convective_llf
    
-   subroutine compute_coils_current(ni, nj, nk, ngc, blocks_number, q, time, A, d, f, phase, coil_flag)
+   subroutine compute_coils_current(ni, nj, nk, ngc, blocks_number, q, time, A, d, f, phase, coil_flag, td)
 
       integer(I4P), intent(in)           :: blocks_number                   !< Number of blocks.
       integer(I4P), intent(in)           :: ni                              !< Grid cells number in I direction.
@@ -1021,8 +1021,10 @@ contains
       real(R8P),    intent(in)           :: f(1:)                           !< Current frequency, if AC (Hz)
       real(R8P),    intent(in)           :: phase(1:)                       !< Current initial phase, if AC
       real(R8P),    intent(in)           :: d(1:)                           !< Wire diameter
+      real(R8P),    intent(in)           :: td                              !< Delay di accensione della spira
       real(R8P),    intent(inout)        :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Field variables.
       real(R8P)                          :: current_density                 !< Current density
+      real(R8P)                          :: g                               !< Polinomio caratteristico transitorio accensione spira
       integer(I4P)                       :: coil_id                         !< ID per identificare spira
       integer(I4P)                       :: i,j,k,b,n                       !< Counter
       
@@ -1036,7 +1038,16 @@ contains
                      !mi rispramio anche il selectcase
 
                      !Densità di corrente al tempo t della spira n-esima identificata da (coil_id)
-                     current_density = 4*A(coil_id)/(pi*d(coil_id)**2)*cos(2*pi*f(coil_id)*time + phase(coil_id)*pi/180.0_R8P)
+                     !current_density = 4*A(coil_id)/(pi*d(coil_id)**2)*cos(2*pi*f(coil_id)*time + phase(coil_id)*pi/180.0_R8P)
+
+                     !Modifico calcolo densità di corrente considerando sezione quadrata, per coerenza con calcolo Filippo
+                     !E aggiungo transitorio di corrente
+                     if (time <= td) then
+                        g = 10*(time/td)**3 - 15*(time/td)**4 + 6*(time/td)**5
+                        current_density = g*A(coil_id)/(d(coil_id)**2)*cos(phase(coil_id)*pi/180.0_R8P)
+                     else
+                        current_density = A(coil_id)/(d(coil_id)**2)*cos(2*pi*f(coil_id)*time + phase(coil_id)*pi/180.0_R8P)
+                     endif                     
                      q(7:9,i,j,k,b) = current_density*q(7:9,i,j,k,b)
                   endif
                enddo

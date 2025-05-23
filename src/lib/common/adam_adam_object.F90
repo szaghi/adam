@@ -258,7 +258,7 @@ contains
                                                 k_prune=k_prune,                 &
                                                 l_prune=l_prune)
    if (do_maps_init_) call self%maps%initialize(grid=self%grid, tree=self%tree)
-   if (do_field_init_) call self%field%initialize(grid=self%grid, maps=self%maps, file_parameters=file_parameters, nv=nv, nb=nb, q=q)
+   if (do_field_init_) call self%field%initialize(grid=self%grid,maps=self%maps,file_parameters=file_parameters,nv=nv,nb=nb,q=q)
    call self%mpih%print_message('blocks number (maximum) for single MPI [nb]: '//trim(str(self%field%nb)))
    call self%mpih%print_message('blocks number for all MPI [nodes_number]: '//trim(str(self%tree%nodes_number)))
    call self%amr_update(q=q)

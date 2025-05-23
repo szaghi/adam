@@ -39,6 +39,7 @@ type :: prism_coil_object
    real(R8P), allocatable          :: lx(:), ly(:)                            !< Rectangle's sizes (if rectangular coil)
    real(R8P), allocatable          :: r_coil(:)                               !< Circle's radius (if circular coil)
    real(R8P), allocatable          :: normal(:,:)                             !< Versore normale alla spira, che identifica anche verso della corrente con regola mano dx
+   real(R8P)                       :: td                                      !< Delay di accensione della spira
    integer(I4P), allocatable       :: coil_flag(:,:,:,:)                      !< Matrice contenente informazioni su quale spira pass per una certa cella
    integer(I4P)                    :: circular_coils_number=0_I4P             !< Number of circular coils
    integer(I4P)                    :: rectangular_coils_number=0_I4P          !< Number of rectangular coils
@@ -89,11 +90,18 @@ contains
  
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
      
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='circular_coils_number', val=self%circular_coils_number, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(circular_coils_number)')
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='circular_coils_number', &
+                            val=self%circular_coils_number, error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load & 
+                                                               ['//INI_SECTION_NAME//'].(circular_coils_number)')
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='rectangular_coils_number', val=self%rectangular_coils_number, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(rectangular_coils_number)')
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='rectangular_coils_number', &
+                            val=self%rectangular_coils_number, error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load & 
+                                                               ['//INI_SECTION_NAME//'].(rectangular_coils_number)')
+
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='time_delay', val=self%td, error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(time_delay)')
 
    self%total_coils_number = self%circular_coils_number + self%rectangular_coils_number
  
@@ -154,8 +162,14 @@ contains
             call file_parameters%get(section_name=sname, option_name='z_center', val=self%z_center(i), error=error)
             if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
 
-            call file_parameters%get(section_name=sname, option_name='normal', val=self%normal(:,i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(normal)')
+            call file_parameters%get(section_name=sname, option_name='nx', val=self%normal(1,i), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(nx)')
+
+            call file_parameters%get(section_name=sname, option_name='ny', val=self%normal(2,i), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(ny)')
+
+            call file_parameters%get(section_name=sname, option_name='nz', val=self%normal(3,i), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(nz)')
 
             self%lx(i) = 0.0_R8P
 
@@ -181,8 +195,14 @@ contains
             call file_parameters%get(section_name=sname, option_name='z_center', val=self%z_center(i), error=error)
             if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)') 
 
-            call file_parameters%get(section_name=sname, option_name='normal', val=self%normal(:,i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(normal)')
+            call file_parameters%get(section_name=sname, option_name='nx', val=self%normal(1,i), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(nx)')
+
+            call file_parameters%get(section_name=sname, option_name='ny', val=self%normal(2,i), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(ny)')
+
+            call file_parameters%get(section_name=sname, option_name='nz', val=self%normal(3,i), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(nz)')
 
             self%r_coil(i) = 0.0_R8P
             
@@ -262,23 +282,26 @@ contains
       integer(I4P)                                :: b,i,j,k                                                             !< Counter.
       !associo per dati su posizioni delle celle e contatori
       associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
-           q=>field%q, x_c => self%x_center(n), y_c => self%y_center(n), z_c => self%z_center(n), &
-           dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), r_coil => self%r_coil(n), normal => self%normal(:,n), d => self%d(n))
+                q=>field%q, x_c => self%x_center(n), y_c => self%y_center(n), z_c => self%z_center(n), &
+                dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), r_coil => self%r_coil(n), &
+                normal => self%normal(:,n), d => self%d(n))
+
       c_c = [ x_c, y_c, z_c ] !Vettore posizione centro spira
            
       !allocate(flag(ni,nj,nk,blocks_number))
       do b=1, blocks_number
          ! chiamo funzione che restituisce le coordinate delle varie celle che compongono il blocco
          call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
-         !calcolo distanza massima dall'asse del filo della spira: somma di raggio del filo e metà della dimensione massima della cella
-         !associata ai vettori dx dy e dz contenuti in field
+         !calcolo distanza massima dall'asse del filo della spira: somma di raggio del filo e metà della dimensione 
+         !massima della cella associata ai vettori dx dy e dz contenuti in field
          dmax = d/2 + maxval([dx(b),dy(b),dz(b)])/2
          do k=1, nk
             do j=1, nj
                do i=1, ni
                   !Scrivi qua vettore posizione cella b i j k :: cell_coord
                   cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
-                  if ( sq_norm(cell_coord-c_c) <= (r_coil+dmax)**2 .and. (r_coil-dmax)**2 <= sq_norm(cell_coord-c_c) .and. abs(dotproduct(a=(cell_coord-c_c),b=normal)) <= d/r_coil ) then
+                  if ( sq_norm(cell_coord-c_c) <= (r_coil+dmax)**2 .and. (r_coil-dmax)**2 <= sq_norm(cell_coord-c_c) .and. & 
+                        abs(dotproduct(a=(cell_coord-c_c),b=normal)) <= d/r_coil ) then
                      !flag(i,j,k,b) = 1._R8P
                      q(7:9,i,j,k,b) = crossproduct(a=normal,b=(cell_coord-c_c))
                      !normalizzo per ottenere, alla fine il versore della corrente nella cella
@@ -293,26 +316,27 @@ contains
       endassociate
    endsubroutine set_circular_coil
 
-   subroutine set_rectangular_coil(self, physics, field, n)
-   class(prism_coil_object),     intent(inout)    :: self                                                                                !< Coils
-   type(field_object),           intent(inout) :: field                                                                               !< Field object.
-   type(prism_physics_object),   intent(in)    :: physics                                                                             !< Fluids physiscs.
-   integer(I4P),                 intent(in)    :: n                                                                                   !< Coil number.
-   integer(I4P),                 allocatable   :: flag(:,:,:,:)                                                                       !< Flag per identificare se la spira passa per la cella
-   real(R8P)                                   :: dmax                                                                                !< Vincolo distanza massima dalla spira.
-   real(R8P)                                   :: c_c(3)                                                                              !< Vettore posizione centro spira
-   real(R8P)                                   :: cell_coord(3)                                                                       !< Vettore posizione centro cella
+   subroutine set_rectangular_coil(self, physics, field, n) !modificata per avere input equivalente a Filippo, ossia spira a
+      !quadrata con dimensione pari a quella della cella. OSS se la spira passa su un'interfaccia non la trova!
+   class(prism_coil_object),     intent(inout) :: self                                                            !< Coils
+   type(field_object),           intent(inout) :: field                                                           !< Field object.
+   type(prism_physics_object),   intent(in)    :: physics                                                         !< Fluids physiscs.
+   integer(I4P),                 intent(in)    :: n                                                               !< Coil number.
+   integer(I4P),                 allocatable   :: flag(:,:,:,:)                                                   !< Flag per identificare se la spira passa per la cella
+   real(R8P)                                   :: dmax                                                            !< Vincolo distanza massima dalla spira.
+   real(R8P)                                   :: c_c(3)                                                          !< Vettore posizione centro spira
+   real(R8P)                                   :: cell_coord(3)                                                   !< Vettore posizione centro cella
    real(R8P)                                   :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
                                                   y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
-                                                  z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)                               !< Vettori posizione centro celle del blocco b
-   real(R8P)                                   :: vx(3), vy(3), vz(3)                                                                 !< Versori assi cartesiani
-   real(R8P)                                   :: V1(3), V2(3), V3(3), V4(3), V(4,3)                                                  !< Vertici rettangolo e relativa matrice 
-   real(R8P)                                   :: v_l1(3), v_l2(3), vec(4,3)                                                          !< Versori lati rettangolo (vale regola mano dx) e relativa matrice 
-   real(R8P)                                   :: n1(3), d1, n2(3), d2                                                                !< Parametri piani diagonali perpendicolari a spira, per evitare sovrapposizioni
-   real(R8P)                                   :: kappa(3), K_rot(3,3), Id(3,3), theta                                                !< Vettore, angolo e matrice di appoggio per formula Rodrigues + matrice identità
-   real(R8P)                                   :: Kquad(3,3), R(3,3)                                                                  !< Matrice K^2 e matrice rotazione tra vz e normale alla spira
-   real(R8P)                                   :: dist, prj_v(3)                                                                      !< Distanza punto retta e proiezione del punto sulla retta                                                                          !< Variabile utilizzata per definire direzione corrente
-   integer(I4P)                                :: b,i,j,k,w                                                                           !< Counter.
+                                                  z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)           !< Vettori posizione centro celle del blocco b
+   real(R8P)                                   :: vx(3), vy(3), vz(3)                                             !< Versori assi cartesiani
+   real(R8P)                                   :: V1(3), V2(3), V3(3), V4(3), V(4,3)                              !< Vertici rettangolo e relativa matrice 
+   real(R8P)                                   :: v_l1(3), v_l2(3), vec(4,3)                                      !< Versori lati rettangolo (vale regola mano dx) e relativa matrice 
+   real(R8P)                                   :: n1(3), d1, n2(3), d2                                            !< Parametri piani diagonali perpendicolari a spira, per evitare sovrapposizioni
+   real(R8P)                                   :: kappa(3), K_rot(3,3), Id(3,3), theta                            !< Vettore, angolo e matrice di appoggio per formula Rodrigues + matrice identità
+   real(R8P)                                   :: Kquad(3,3), R(3,3)                                              !< Matrice K^2 e matrice rotazione tra vz e normale alla spira
+   real(R8P)                                   :: dist, prj_v(3)                                                  !< Distanza punto retta e proiezione del punto sulla retta                                                                          !< Variabile utilizzata per definire direzione corrente
+   integer(I4P)                                :: b,i,j,k,w                                                       !< Counter.
    !associo per dati su posizioni delle celle e contatori
    associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
        q=>field%q, x_c => self%x_center(n), y_c => self%y_center(n), z_c => self%z_center(n), &
@@ -398,7 +422,10 @@ contains
          call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          !calcolo distanza massima dall'asse del filo della spira: somma di raggio del filo e metà della dimensione massima della cella
          !associata ai vettori dx dy e dz contenuti in field
-         dmax = d/2 + maxval([dx(b),dy(b),dz(b)])/2
+         !dmax = d/2 + maxval([dx(b),dy(b),dz(b)])/2
+
+         !modificata per avere termine sorgente come Filippo, se infittiamo o aumentiamo sezione spira torna la precedente
+         dmax =  maxval([dx(b),dy(b),dz(b)])/2
          do k=1, nk
             do j=1, nj
                do i=1, ni
@@ -408,28 +435,34 @@ contains
                   prj_v = V(w,:)+dotproduct(a=(cell_coord-V(w,:)),b=vec(w,:))*vec(w,:); !Formula proiezione di un punto su una retta con A punto della retta A+[(P-A)*v]*v
                   !primo if: Il centro cella deve avere distanza dalla retta passante per il lato inferiore alla distanza massima e deve essere all'interno
                   !della proiezione dei lati, altrimenti prendo i punti su tutta la retta. Metto inoltre if sul flag, altrimenti ho sovrapposizioni dal secondo loop
-                  if ( flag(b,i,j,k) == 0_I4P .and. dist <= dmax .and. prj_v(1) <= maxval(V(:,1)) + dmax .and. prj_v(2) <= maxval(V(:,2)) + dmax .and. prj_v(3) <= maxval(V(:,3)) & 
-                        + dmax .and. minval(V(:,1))-dmax <= prj_v(1) .and. minval(V(:,2))-dmax <= prj_v(2) .and. minval(V(:,3))-dmax <= prj_v(3) ) then
+                  if ( flag(b,i,j,k) == 0_I4P .and. dist <= dmax .and. prj_v(1) <= maxval(V(:,1)) + dmax .and. & 
+                       prj_v(2) <= maxval(V(:,2)) + dmax .and. prj_v(3) <= maxval(V(:,3)) + dmax .and. & 
+                       minval(V(:,1))-dmax <= prj_v(1) .and. minval(V(:,2))-dmax <= prj_v(2) .and. & 
+                       minval(V(:,3))-dmax <= prj_v(3) ) then
 
                         flag(i,j,k,b) = j
 
                   endif
-                   !secondo if: per ogni lato verifico di essere dal "lato giusto" dei piani definiti dalle diagonali, al fine di non avere
-                   !sovrapposizioni in prossimità dei vertici
+                   !secondo if: per ogni lato verifico di essere dal "lato giusto" dei piani definiti dalle diagonali, al fine di
+                   !non avere sovrapposizioni in prossimità dei vertici
                   if (j == 1) then
-                     if ((dotproduct(a=n1,b=cell_coord)+d1 >= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 >= 0) .and. flag(b,i,j,k) == j) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
+                     if ((dotproduct(a=n1,b=cell_coord)+d1 >= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 >= 0) .and. &
+                          flag(b,i,j,k) == j) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
                         flag(i,j,k,b) = 0_I4P
                      endif
                   elseif (j == 2) then
-                     if ((dotproduct(a=n1,b=cell_coord)+d1 >= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 <= 0) .and. flag(b,i,j,k) == j) then!aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
+                     if ((dotproduct(a=n1,b=cell_coord)+d1 >= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 <= 0) .and. &
+                          flag(b,i,j,k) == j) then!aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
                         flag(i,j,k,b) = 0_I4P
                      endif
                   elseif (j == 3) then
-                     if ((dotproduct(a=n1,b=cell_coord)+d1 <= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 <= 0) .and. flag(b,i,j,k) == j) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
+                     if ((dotproduct(a=n1,b=cell_coord)+d1 <= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 <= 0) .and. &
+                          flag(b,i,j,k) == j) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
                         flag(i,j,k,b) = 0_I4P
                      endif                
                   elseif (j == 4) then 
-                     if ((dotproduct(a=n1,b=cell_coord)+d1 <= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 >= 0) .and. flag(b,i,j,k) == j) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
+                     if ((dotproduct(a=n1,b=cell_coord)+d1 <= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 >= 0) .and. &
+                          flag(b,i,j,k) == j) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
                         flag(i,j,k,b) = 0_I4P
                      endif
                   endif
@@ -461,7 +494,8 @@ contains
    enddo
    endassociate
    endsubroutine set_rectangular_coil
-   !Funzioni per prodotto scalare, prodotto vettoriale e norma^2. Per ora sono in set_coils, vediamo se poi metterle in punti più congeniali per evitare riscritture
+   !Funzioni per prodotto scalare, prodotto vettoriale e norma^2. Per ora sono in set_coils, vediamo se 
+   !poi metterle in punti più congeniali per evitare riscritture
 
    function dotproduct(a, b) result(dot)
 

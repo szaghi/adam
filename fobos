@@ -7,7 +7,7 @@ modes = ascot-nvf-cuda-sz-ws
         nasto-nvf-cuda-sz-ws    nasto-nvf-cuda-sz-ws-debug
         nasto-cpu-gnu-sz-ws
         nasto-cpu-gnu-github
-        prism-gnu-sz-ws
+        prism-gnu-sz-ws         prism-gnu-sz-ws-debug
 
 # main modes
 
@@ -73,6 +73,12 @@ preproc  = -D_MPI_
 [prism-gnu-sz-ws]
 help     = Build PRISM app with GNU compiler on SZ workstation
 template = template-gnu-sz-ws
+preproc  = -D_MPI_
+target   = adam_prism_cpu.F90
+
+[prism-gnu-sz-ws-debug]
+help     = Build PRISM app with GNU compiler on SZ workstation, debug mode
+template = template-gnu-sz-ws-debug
 preproc  = -D_MPI_
 target   = adam_prism_cpu.F90
 

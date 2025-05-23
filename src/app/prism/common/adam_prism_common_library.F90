@@ -15,9 +15,6 @@ use adam_prism_parameters
 use adam_prism_physics_object
 use adam_prism_time_object
 
-! da aggiungere queste due (con la seconda da verificare trovandosi fuori da common in realtà)!!!
-
-
 use adam_riemann_maxwell_library
 
 implicit none

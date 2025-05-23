@@ -52,9 +52,9 @@ type :: prism_common_object
 !   integer(I4P), pointer :: ns=>null()            !< Number of fluids specie.
    integer(I4P), pointer :: nv=>null()            !< Number of conservative variables.
    ! auxiliary fields data: see nasto parameters definition for the arrangement of conservative and auxiliary variables
-   real(R8P), pointer    :: q(:,:,:,:,:)=>null()  !< Conservative cell centered variables.
+   real(R8P), allocatable    :: q(:,:,:,:,:)  !< Conservative cell centered variables.
 
-   type(c_ptr), allocatable :: ptree(:) !< CGAL trees for solids.
+   !type(c_ptr), allocatable :: ptree(:) !< CGAL trees for solids.
 
    contains
       procedure, pass(self) :: allocate_common   !< Allocate common data.
@@ -67,9 +67,8 @@ contains
 
    associate(nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb, &
              solids_number=>self%ib%solids_number)
-   !allocate(self%q(1:nv, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
-   !self%q = 0._R8P !da chiarire vedendo field ma, avendo messo il puntatore in initialize_common, non dovrebbe servirmi a nulla
-             !allocare o dichiarare
+   allocate(self%q(1:nv, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
+   self%q = 0._R8P 
    endassociate
    endsubroutine allocate_common
    
@@ -90,7 +89,7 @@ contains
    call self%mpih%initialize(do_mpi_init=do_mpi_init, verbose=verbose_)
    if (verbose_) call self%mpih%print_message('prism_common_object%initialize start')
    call self%io%initialize(filename=trim(filename))
-   associate(file_parameters=>self%io%file_parameters)
+   associate(file_parameters=>self%io%file_parameters, q=>self%q)
    call self%bc%initialize(file_parameters=file_parameters)
    call self%physics%initialize(file_parameters=file_parameters)
    call self%adam%grid%initialize(file_parameters=file_parameters,bc_type=self%bc%bc_type, verbose=.true.)
@@ -101,8 +100,8 @@ contains
                              do_field_init=.true.,            &
                              nv=self%physics%nv, nb=nb, nodes_number=nodes_number)
    call associate_adam_data(grid=self%adam%grid, field=self%adam%field, physics=self%physics)
-   call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_blocks_reorder=.false.)
-   call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false.)
+   call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_blocks_reorder=.false.,q=q)
+   call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false.,q=q)
    call self%amr%initialize(file_parameters=file_parameters)
    call self%time%initialize(file_parameters=file_parameters)
    call self%ic%initialize(file_parameters=file_parameters)
@@ -132,7 +131,6 @@ contains
 !      self%ns            => physics%ns
       self%nv            => physics%nv
 !      self%nv_aux        => physics%nv_aux
-      self%q             => field%q !Ho cambiato modo di scrivere q: è necessario cambiarlo in field (identificandolo come un target)?
       endsubroutine associate_adam_data
    endsubroutine initialize_common
 endmodule adam_prism_common_object
