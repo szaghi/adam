@@ -121,8 +121,10 @@ cflags   = -cpp -c -O2
 lflags   = -O2
 preproc  = -D_MPI_ -DCOMPILER_GNU
 target   = adam_nasto_cpu.F90
-lib_dir  = ./lib/hdf5/gnu/lib
-include  = ./lib/hdf5/gnu/include
+libs     = lib/hdf5_github/lib/libhdf5_fortran.a lib/hdf5_github/lib/libhdf5_f90cstub.a lib/hdf5_github/lib/libhdf5.a
+ext_libs = z
+lib_dir  = lib/hdf5_github/lib
+include  = lib/hdf5_github/include
 
 # templates
 [template-base]
