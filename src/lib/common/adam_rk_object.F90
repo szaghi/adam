@@ -195,6 +195,29 @@ contains
    integer(I4P)                           :: i, j, k, b, v !< Counter.
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number)
+
+   !print *, maxval(dq(7,:,:,:,:)), 'Stampa il valore del residuo massimo della densità di corrente lungo x, RK input'
+   !print *, maxval(dq(8,:,:,:,:)), 'Stampa il valore del residuo massimo della densità di corrente lungo y, RK input'
+   !print *, maxval(dq(9,:,:,:,:)), 'Stampa il valore del residuo massimo della densità di corrente lungo z, RK input'
+   !print *, minval(dq(7,:,:,:,:)), 'Stampa il valore del residuo minimo della densità di corrente lungo x, RK input'
+   !print *, minval(dq(8,:,:,:,:)), 'Stampa il valore del residuo minimo della densità di corrente lungo y, RK input'
+   !print *, minval(dq(9,:,:,:,:)), 'Stampa il valore del residuo minimo della densità di corrente lungo z, RK input'
+!
+!
+   !print *, maxval(q(7,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo x RK input'
+   !print *, maxval(q(8,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo y RK input'
+   !print *, maxval(q(9,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo z RK input'
+   !print *, minval(q(7,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo x  RK input'
+   !print *, minval(q(8,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo y  RK input'
+   !print *, minval(q(9,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo z  RK input'
+
+   !print *, maxval(self%q_rk(7,:,:,:,:,1)), 'Stampa il valore massimo della densità di corrente lungo x RK input2'
+   !print *, maxval(self%q_rk(8,:,:,:,:,1)), 'Stampa il valore massimo della densità di corrente lungo y RK input2'
+   !print *, maxval(self%q_rk(9,:,:,:,:,1)), 'Stampa il valore massimo della densità di corrente lungo z RK input2'
+   !print *, minval(self%q_rk(7,:,:,:,:,1)), 'Stampa il valore minimo della densità di corrente lungo x  RK input2'
+   !print *, minval(self%q_rk(8,:,:,:,:,1)), 'Stampa il valore minimo della densità di corrente lungo y  RK input2'
+   !print *, minval(self%q_rk(9,:,:,:,:,1)), 'Stampa il valore minimo della densità di corrente lungo z  RK input2'
+
    if (present(phi)) then
       all_solids = ubound(phi, dim=1)
       !$omp parallel do collapse(5) default(firstprivate) shared(phi,q,dq,self)
@@ -229,6 +252,21 @@ contains
       enddo
       !$omp end parallel do
    endif
+
+!   print *, maxval(dq(7,:,:,:,:)), 'Stampa il valore del residuo massimo della densità di corrente lungo x, RK output'
+!   print *, maxval(dq(8,:,:,:,:)), 'Stampa il valore del residuo massimo della densità di corrente lungo y, RK output'
+!   print *, maxval(dq(9,:,:,:,:)), 'Stampa il valore del residuo massimo della densità di corrente lungo z, RK output'
+!   print *, minval(dq(7,:,:,:,:)), 'Stampa il valore del residuo minimo della densità di corrente lungo x, RK output'
+!   print *, minval(dq(8,:,:,:,:)), 'Stampa il valore del residuo minimo della densità di corrente lungo y, RK output'
+!   print *, minval(dq(9,:,:,:,:)), 'Stampa il valore del residuo minimo della densità di corrente lungo z, RK output'
+!
+!   print *, maxval(q(7,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo x RK output'
+!   print *, maxval(q(8,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo y RK output'
+!   print *, maxval(q(9,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo z RK output'
+!   print *, minval(q(7,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo x  RK output'
+!   print *, minval(q(8,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo y  RK output'
+!   print *, minval(q(9,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo z  RK output'
+
    endassociate
    endsubroutine compute_stage_ls
 

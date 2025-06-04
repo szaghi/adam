@@ -90,7 +90,6 @@ contains
    logical,            intent(out), optional :: is_grid_changed      !< Flag to check if grid is changed.
    logical                                   :: do_mpi_redistribute_ !< Flag to activate MPI redistribute, local var.
    logical                                   :: do_blocks_reorder_   !< Flag to activate blocks reorder, local var.
-
    call self%mpih%print_message('adam_object%amr_update start')
    do_mpi_redistribute_ = .true. ; if (present(do_mpi_redistribute )) do_mpi_redistribute_ = do_mpi_redistribute
    do_blocks_reorder_ = .false. ; if (present(do_blocks_reorder)) do_blocks_reorder_ = do_blocks_reorder
@@ -154,7 +153,7 @@ contains
 
    size_of_real = storage_size(1._R8P)/8._R8P
    save_factor = 0.95_R8P
-   nb = nint(save_factor * memory_avail*1e3 / (fields_number * self%grid%block_weight * size_of_real))
+   nb = nint(save_factor * memory_avail*1e9 / (fields_number * self%grid%block_weight * size_of_real))
    nodes_number  = nb * self%mpih%procs_number
    endsubroutine compute_blocks_number
 
@@ -408,6 +407,8 @@ contains
    call self%tree%mpi_redistribute
    call self%maps%make_comm_local_maps
    call self%field%mpi_redistribute(q=q)
+   
+
    endsubroutine mpi_redistribute
 
    subroutine prune(self, q, ijkl_prune, do_blocks_reorder)

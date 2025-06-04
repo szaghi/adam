@@ -89,9 +89,9 @@ contains
    class(prism_cpu_object), intent(inout) :: self     !< The equation.
    character(*),            intent(in)    :: filename !< Input file name.
 
-   call self%mpih%initialize(do_mpi_init=.true.)
+   call self%mpih%initialize(do_mpi_init=.true., verbose=.true.)
    call self%mpih%print_message('prism_cpu_object%initialize start')
-   call self%initialize_common(filename=filename, memory_avail=self%mpih%memory_avail)
+   call self%initialize_common(field = self%adam%field, filename=filename, memory_avail=self%mpih%memory_avail)
    call self%allocate_cpu
    print '(A)', self%mpih%description()
    call self%mpih%print_message('prism_cpu_object%initialize finish')
@@ -341,14 +341,14 @@ contains
       call self%adam%save_hdf5(basename=trim(output_basename_),                                                 &
                                q=self%q,                                                                        &
                                !q_aux=self%q_aux,                                                                      &
-                               q_name=['Dx','Dy','Dz','Bx','By','Bz','Jx','Jy','Jz'],                           &
+                               q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz '],                           &
                                !q_aux_name=['rhob ','u    ','v    ','w    ','ya   ','tem  ','pres ','ental','csp  '],  &
                                with_cell_morton=.true., phi=self%ib%phi)
    else
       call self%adam%save_hdf5(basename=trim(output_basename_),                                                 &
                                q=self%q,                                                                        &
                                !q_aux=self%q_aux,                                                                      &
-                               q_name=['Dx','Dy','Dz','Bx','By','Bz','Jx','Jy','Jz'],                           &
+                               q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz '],                           &
                                !q_aux_name=['rhob ','u    ','v    ','w    ','ya   ','tem  ','pres ','ental','csp  '],  &
                                with_cell_morton=.true.)
    endif
@@ -403,7 +403,7 @@ contains
                                    time_max=self%time%time_max,      &
                                    adam=self%adam,                   &
                                    q=self%q,                   &
-                                   q_name=['Dx','Dy','Dz','Bx','By','Bz','Jx','Jy','Jz'])
+                                   q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz '])
    endif
    endsubroutine save_simulation_data 
    ! IC/BC
@@ -626,8 +626,8 @@ contains
              !cv=>self%physics%eos(1)%cv, g=>self%physics%eos(1)%g, R=>self%physics%eos(1)%R,                       &
              !mu=>self%physics%eos(1)%mu, kd=>self%physics%eos(1)%kd, dha=>self%physics%eos(1)%dha, null_xyz=>self%grid%null_xyz)
 
-   call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q, time=time, A=A, d=d, f=freq, &
-                              phase=phase, coil_flag=coil_flag, td=td)
+   !call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q, time=time, A=A, d=d, f=freq, &
+   !                           phase=phase, coil_flag=coil_flag, td=td)
 
    if (blocks_number > 0) then
       if (.not.null_xyz(1)) then
@@ -645,12 +645,14 @@ contains
       if (.not.null_xyz(3)) then
          call compute_fluxes_convective(dir=3,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,weno_s=weno_S, &
                                         weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,q=q,fluxes=flz)
+
       else
          call assign_omp(blocks_number=blocks_number, ngc=ngc, lhs=flz, rhs=0._R8P)
       endif
       !if (mu > 0.) call compute_fluxes_diffusive(null_xyz=null_xyz,                                         &
       !                                           blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, &
       !                                           mu=mu, kd=kd, q_aux=q_aux, dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz)
+
       if (solids_number>0) then
          call compute_fluxes_difference(null_xyz=null_xyz,                                                                   &
                                         blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, ib_eps=1.e-12_R8P, &
@@ -660,6 +662,7 @@ contains
                                         blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, ib_eps=1.e-12_R8P, &
                                         dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz, dq=dq, q=q)
       endif
+
    endif
    endassociate
    endsubroutine compute_residuals
@@ -672,18 +675,71 @@ contains
    integer(I4P)                                   :: s                !< Counter.
 
    do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, &
+             time=>self%time%time, A=>self%coil%A, freq=>self%coil%f, phase=>self%coil%phase, & 
+             coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, J_vec=>self%coil%J_vec)
+   
+         !print *, maxval(self%q(7,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo x PRE COMPUTE COILS'
+         !print *, maxval(self%q(8,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo y PRE COMPUTE COILS'
+         !print *, maxval(self%q(9,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo z PRE COMPUTE COILS'
+         !print *, minval(self%q(7,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo x PRE COMPUTE COILS'
+         !print *, minval(self%q(8,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo y PRE COMPUTE COILS'
+         !print *, minval(self%q(9,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo z PRE COMPUTE COILS'
+
+
+   call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=self%q, time=time, A=A, d=d, & 
+                              f=freq, phase=phase, coil_flag=coil_flag, td=td, J_vec=J_vec)
+
+         !print *, maxval(self%q(7,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo x POST COMPUTE COILS'
+         !print *, maxval(self%q(8,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo y POST COMPUTE COILS'
+         !print *, maxval(self%q(9,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo z POST COMPUTE COILS'
+         !print *, minval(self%q(7,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo x POST COMPUTE COILS'
+         !print *, minval(self%q(8,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo y POST COMPUTE COILS'
+         !print *, minval(self%q(9,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo z POST COMPUTE COILS'
+
+   endassociate
+
    call self%rk%initialize_stages(q=self%q)
    select case(self%rk%scheme)
    case(RK_1, RK_2, RK_3)
       ! low storage RK working on q_rk_gpu(:,:,:,:,:,1)/q_gpu as stages, update q_gpu in place
       do s=1, self%rk%nrk
+        ! print *, maxval(self%q(7,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo x PRE RESIDUI'
+        ! print *, maxval(self%q(8,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo y PRE RESIDUI'
+         !print *, maxval(self%q(9,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo z PRE RESIDUI'
+         !print *, minval(self%q(7,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo x PRE RESIDUI'
+         !print *, minval(self%q(8,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo y PRE RESIDUI'
+         !print *, minval(self%q(9,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo z PRE RESIDUI'
+
          call self%compute_residuals(q=self%q, dq=self%dq)
+
+         !print *, maxval(self%q(7,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo x POST RESIDUI'
+         !print *, maxval(self%q(8,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo y POST RESIDUI'
+         !print *, maxval(self%q(9,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo z POST RESIDUI'
+         !print *, minval(self%q(7,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo x POST RESIDUI'
+         !print *, minval(self%q(8,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo y POST RESIDUI'
+         !print *, minval(self%q(9,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo z POST RESIDUI'
+!
+         !print *, maxval(self%dq(7,:,:,:,:)), 'Stampa il valore del residuo massimo della densità di corrente lungo x'
+         !print *, maxval(self%dq(8,:,:,:,:)), 'Stampa il valore del residuo massimo della densità di corrente lungo y'
+         !print *, maxval(self%dq(9,:,:,:,:)), 'Stampa il valore del residuo massimo della densità di corrente lungo z'
+         !print *, minval(self%dq(7,:,:,:,:)), 'Stampa il valore del residuo minimo della densità di corrente lungo x'
+         !print *, minval(self%dq(8,:,:,:,:)), 'Stampa il valore del residuo minimo della densità di corrente lungo y'
+         !print *, minval(self%dq(9,:,:,:,:)), 'Stampa il valore del residuo minimo della densità di corrente lungo z'
+
          if (s==1) call self%save_residuals
          if (self%ib%solids_number>0) then
             call self%rk%compute_stage_ls(s=s,dt=self%time%dt,phi=self%ib%phi,dq=self%dq,q=self%q)
          else
             call self%rk%compute_stage_ls(s=s,dt=self%time%dt,dq=self%dq,q=self%q)
          endif
+         !print *, maxval(self%q(7,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo x POST RK'
+         !print *, maxval(self%q(8,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo y POST RK'
+         !print *, maxval(self%q(9,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo z POST RK'
+         !print *, minval(self%q(7,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo x POST RK'
+         !print *, minval(self%q(8,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo y POST RK'
+         !print *, minval(self%q(9,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo z POST RK'
       enddo
    case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
       ! RK working on q_rk_gpu as stages
@@ -739,6 +795,7 @@ contains
    !if (self%ib%solids_number > 0) call self%compute_phi()
    ! call self%amr_update
    call self%save_simulation_data
+   
    if (self%mpih%myrank==0) call self%io%open_file_residuals(nv=self%nv)
 
     ! integration
@@ -761,6 +818,8 @@ contains
       if ((self%time%it_max <= 0).and.(self%time%time+self%time%dt > self%time%time_max)) &
          self%time%dt=self%time%time_max-self%time%time
 
+
+      !self%time%time = self%time%time + self%time%dt
       call self%integrate
 
       self%time%time = self%time%time + self%time%dt
@@ -985,6 +1044,35 @@ contains
       enddo
    !    !$omp end parallel do
    endif
+
+   !print *, maxval(dq(7,:,:,:,:)), 'Stampa il valore del residuo massimo della densità di corrente lungo x'
+   !print *, maxval(dq(8,:,:,:,:)), 'Stampa il valore del residuo massimo della densità di corrente lungo y'
+   !print *, maxval(dq(9,:,:,:,:)), 'Stampa il valore del residuo massimo della densità di corrente lungo z'
+   !print *, minval(dq(7,:,:,:,:)), 'Stampa il valore del residuo minimo della densità di corrente lungo x'
+   !print *, minval(dq(8,:,:,:,:)), 'Stampa il valore del residuo minimo della densità di corrente lungo y'
+   !print *, minval(dq(9,:,:,:,:)), 'Stampa il valore del residuo minimo della densità di corrente lungo z'
+!
+   !print *, maxval(flx(7,:,:,:,:)), 'Stampa il valore del flusso x massimo della densità di corrente lungo x'
+   !print *, maxval(flx(8,:,:,:,:)), 'Stampa il valore del flusso x massimo della densità di corrente lungo y'
+   !print *, maxval(flx(9,:,:,:,:)), 'Stampa il valore del flusso x massimo della densità di corrente lungo z'
+   !print *, minval(flx(7,:,:,:,:)), 'Stampa il valore del flusso x minimo della densità di corrente lungo x'
+   !print *, minval(flx(8,:,:,:,:)), 'Stampa il valore del flusso x minimo della densità di corrente lungo y'
+   !print *, minval(flx(9,:,:,:,:)), 'Stampa il valore del flusso x minimo della densità di corrente lungo z'
+!
+   !print *, maxval(fly(7,:,:,:,:)), 'Stampa il valore del flusso y massimo della densità di corrente lungo x'
+   !print *, maxval(fly(8,:,:,:,:)), 'Stampa il valore del flusso y massimo della densità di corrente lungo y'
+   !print *, maxval(fly(9,:,:,:,:)), 'Stampa il valore del flusso y massimo della densità di corrente lungo z'
+   !print *, minval(fly(7,:,:,:,:)), 'Stampa il valore del flusso y minimo della densità di corrente lungo x'
+   !print *, minval(fly(8,:,:,:,:)), 'Stampa il valore del flusso y minimo della densità di corrente lungo y'
+   !print *, minval(fly(9,:,:,:,:)), 'Stampa il valore del flusso y minimo della densità di corrente lungo z'
+!
+   !print *, maxval(flz(7,:,:,:,:)), 'Stampa il valore del flusso z massimo della densità di corrente lungo x'
+   !print *, maxval(flz(8,:,:,:,:)), 'Stampa il valore del flusso z massimo della densità di corrente lungo y'
+   !print *, maxval(flz(9,:,:,:,:)), 'Stampa il valore del flusso z massimo della densità di corrente lungo z'
+   !print *, minval(flz(7,:,:,:,:)), 'Stampa il valore del flusso z minimo della densità di corrente lungo x'
+   !print *, minval(flz(8,:,:,:,:)), 'Stampa il valore del flusso z minimo della densità di corrente lungo y'
+   !print *, minval(flz(9,:,:,:,:)), 'Stampa il valore del flusso z minimo della densità di corrente lungo z'
+
    endsubroutine compute_fluxes_difference
    
 
@@ -1002,13 +1090,16 @@ contains
    !call compute_conservatives_scalar(q_aux=q_aux,q=q)
    !call compute_conservative_fluxes_scalar(sir=sir,q_aux=q_aux,f=f)
    call compute_convective_fluxes_Maxwell(sir=sir,q=q,f=f)
-   do v=1, nv
+   do v=1, (nv-3_I4P)
       fmp(2,v) = 0.5_R8P * (f(v) + evmax * q(v))
       fmp(1,v) = f(v) - fmp(2,v)
    enddo
+      fmp(:,7) = 0._R8P
+      fmp(:,8) = 0._R8P
+      fmp(:,9) = 0._R8P
    endsubroutine decompose_fluxes_convective_llf
    
-   subroutine compute_coils_current(ni, nj, nk, ngc, blocks_number, q, time, A, d, f, phase, coil_flag, td)
+   subroutine compute_coils_current(ni, nj, nk, ngc, blocks_number, q, time, A, d, f, phase, coil_flag, td, J_vec)
 
       integer(I4P), intent(in)           :: blocks_number                   !< Number of blocks.
       integer(I4P), intent(in)           :: ni                              !< Grid cells number in I direction.
@@ -1022,6 +1113,7 @@ contains
       real(R8P),    intent(in)           :: phase(1:)                       !< Current initial phase, if AC
       real(R8P),    intent(in)           :: d(1:)                           !< Wire diameter
       real(R8P),    intent(in)           :: td                              !< Delay di accensione della spira
+      real(R8P),    intent(in)           :: J_vec(1:,1:,1:,1:,1:)           !< MAtrice versori di corrente delle spire nelle celle
       real(R8P),    intent(inout)        :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Field variables.
       real(R8P)                          :: current_density                 !< Current density
       real(R8P)                          :: g                               !< Polinomio caratteristico transitorio accensione spira
@@ -1042,18 +1134,54 @@ contains
 
                      !Modifico calcolo densità di corrente considerando sezione quadrata, per coerenza con calcolo Filippo
                      !E aggiungo transitorio di corrente
-                     if (time <= td) then
-                        g = 10*(time/td)**3 - 15*(time/td)**4 + 6*(time/td)**5
+                     if (time < td) then
+                        g = 10._R8P*(time/td)**3 - 15._R8P*(time/td)**4 + 6._R8P*(time/td)**5
                         current_density = g*A(coil_id)/(d(coil_id)**2)*cos(phase(coil_id)*pi/180.0_R8P)
                      else
-                        current_density = A(coil_id)/(d(coil_id)**2)*cos(2*pi*f(coil_id)*time + phase(coil_id)*pi/180.0_R8P)
-                     endif                     
-                     q(7:9,i,j,k,b) = current_density*q(7:9,i,j,k,b)
+                        current_density = A(coil_id)/(d(coil_id)**2)*cos(2*pi*f(coil_id)*(time-td) + phase(coil_id)*pi/180.0_R8P)
+                     endif
+
+                     q(7:9,i,j,k,b) = current_density* J_vec(:,i,j,k,b)
+
+                     !if (sq_norm(q(7:9,i,j,k,b)) == 0._R8P) then
+                        !Se la densità di corrente è nulla non faccio nulla
+                     !   q(7:9,i,j,k,b) = current_density*q(7:9,i,j,k,b)
+                     !else
+                        !Se la densità di corrente è diversa da zero allora rinormalizzo il vettore corrente
+                        !e lo moltiplico per la densità di corrente
+                     !   q(7,i,j,k,b) = q(7,i,j,k,b)/(sq_norm(q(7:9,i,j,k,b)))**0.5 !lo devo rinormalizzare ogni volta     
+                     !   q(8,i,j,k,b) = q(8,i,j,k,b)/(sq_norm(q(7:9,i,j,k,b)))**0.5
+                     !   q(9,i,j,k,b) = q(9,i,j,k,b)/(sq_norm(q(7:9,i,j,k,b)))**0.5           
+                     !   q(7:9,i,j,k,b) = current_density*q(7:9,i,j,k,b)
+                     !endif
                   endif
                enddo
             enddo
          enddo
       enddo
+   endsubroutine compute_coils_current
 
-   endsubroutine compute_coils_current 
+   function sq_norm(a) result(sq)
+   !< Return the square of the norm of vector.
+   !<
+   !< The square norm if defined as \( N = x^2  + y^2  + z^2 \).
+   !<
+   !<```fortran
+   !< type(vector_RPP) :: pt
+   !< pt = ex_RPP + ey_RPP
+   !< print "(F3.1)", pt%sq_norm()
+   !<```
+   !=> 2.0 <<<
+   !<
+   !<```fortran
+   !< type(vector_RPP) :: pt
+   !< pt = ex_RPP + ey_RPP
+   !< print "(F3.1)", sq_norm_RPP(pt)
+   !<```
+   !=> 2.0 <<<
+   real(R8P), intent(in)  :: a(3)     !< Input vector
+   real(R8P)              :: sq       !< Square norm of input
+    
+   sq = (a(1) * a(1)) + (a(2) * a(2)) + (a(3) * a(3))
+   endfunction sq_norm
 endmodule adam_prism_cpu_object

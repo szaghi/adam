@@ -124,7 +124,7 @@ contains
     !! DOVE METTIAMO L?INFO SU EPS E MU?? (LE DEVI PURE DICHIARARE)
     !select case(maxloc(si))
 
-    if (sir(1).eq.1) then !X
+    if (sir(1).eq.1._R8P) then !X
     !case(1)
 
         f(1) =  0.0_R8P
@@ -137,7 +137,7 @@ contains
         f(8) = 0._R8P
         f(9) = 0._R8P
 
-    elseif(sir(2).eq.1) then !Y
+    elseif(sir(2).eq.1._R8P) then !Y
     !case(2)
 
         f(1) = -q(6)/MU0
@@ -150,7 +150,7 @@ contains
         f(8) = 0._R8P
         f(9) = 0._R8P
 
-    elseif(sir(3).eq.1) then  !Z
+    elseif(sir(3).eq.1._R8P) then  !Z
     !case(3)
 
         f(1) =  q(5)/MU0

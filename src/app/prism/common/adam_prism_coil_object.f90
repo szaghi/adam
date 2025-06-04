@@ -5,6 +5,7 @@ module adam_prism_coil_object
 use adam_field_object, only : field_object
 use adam_mpih_object, only : mpih_object
 use adam_prism_physics_object, only : prism_physics_object
+use adam_prism_parameters
 use finer
 use penf
 use stringifor !da  controllare
@@ -39,6 +40,7 @@ type :: prism_coil_object
    real(R8P), allocatable          :: lx(:), ly(:)                            !< Rectangle's sizes (if rectangular coil)
    real(R8P), allocatable          :: r_coil(:)                               !< Circle's radius (if circular coil)
    real(R8P), allocatable          :: normal(:,:)                             !< Versore normale alla spira, che identifica anche verso della corrente con regola mano dx
+   real(R8P), allocatable          :: J_vec(:,:,:,:,:)                        !< Matrice contenente versori corrente spire (se assente = 0)
    real(R8P)                       :: td                                      !< Delay di accensione della spira
    integer(I4P), allocatable       :: coil_flag(:,:,:,:)                      !< Matrice contenente informazioni su quale spira pass per una certa cella
    integer(I4P)                    :: circular_coils_number=0_I4P             !< Number of circular coils
@@ -123,11 +125,14 @@ contains
       allocate(self%f(1:self%total_coils_number))
       allocate(self%phase(1:self%total_coils_number))
 
-      !Allocazione matrice identificazione spire nelle celle
+      !Allocazione matrice identificazione spire nelle celle e matrice versori corrente spire nelle celle
       associate(ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, blocks_number=>field%blocks_number)
 
       allocate(self%coil_flag(1:ni, 1:nj, 1:nk, 1:blocks_number))
       self%coil_flag = 0_I4P
+      
+      allocate(self%J_vec(3, 1:ni, 1:nj, 1:nk, 1:blocks_number))
+      self%J_vec = 0._R8P
 
       endassociate
 
@@ -268,7 +273,7 @@ contains
       !< Set coils on PRISM fields. La subroutine restituirà il vettore q contenuto in fields
       !< completo anche dei valori normalizzati delle correnti che passano per le celle (elementi 7,8,9) 
       !< da calcolare poi tramite la funziona che assegna il valore della corrente compute_coils_current
-      class(prism_coil_object),     intent(inout) :: self                                                                   !< Coils
+      class(prism_coil_object),     intent(inout) :: self                                                                !< Coils
       type(field_object),           intent(inout) :: field                                                               !< Field object.
       type(prism_physics_object),   intent(in)    :: physics                                                             !< Fluids physiscs.
       integer(I4P),                 intent(in)    :: n                                                                   !< Coil number.
@@ -294,20 +299,25 @@ contains
          call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          !calcolo distanza massima dall'asse del filo della spira: somma di raggio del filo e metà della dimensione 
          !massima della cella associata ai vettori dx dy e dz contenuti in field
-         dmax = d/2 + maxval([dx(b),dy(b),dz(b)])/2
+         dmax = maxval([dx(b),dy(b),dz(b)])/2
          do k=1, nk
             do j=1, nj
                do i=1, ni
                   !Scrivi qua vettore posizione cella b i j k :: cell_coord
                   cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
                   if ( sq_norm(cell_coord-c_c) <= (r_coil+dmax)**2 .and. (r_coil-dmax)**2 <= sq_norm(cell_coord-c_c) .and. & 
-                        abs(dotproduct(a=(cell_coord-c_c),b=normal)) <= d/r_coil ) then
-                     !flag(i,j,k,b) = 1._R8P
-                     q(7:9,i,j,k,b) = crossproduct(a=normal,b=(cell_coord-c_c))
+                        abs(dotproduct(a=(cell_coord-c_c),b=normal)) <= d/r_coil .and. self%coil_flag(i,j,k,b) /= 0_I4P ) then
+
+                     !q(7:9,i,j,k,b) = crossproduct(a=normal,b=(cell_coord-c_c))
+                     self%J_vec(:,i,j,k,b) = crossproduct(a=normal,b=(cell_coord-c_c))
+
                      !normalizzo per ottenere, alla fine il versore della corrente nella cella
-                     q(7:9,i,j,k,b) = q(7:9,i,j,k,b)/sqrt(sq_norm(q(7:9,i,j,k,b)))
+                     !q(7:9,i,j,k,b) = q(7:9,i,j,k,b)/sqrt(sq_norm(q(7:9,i,j,k,b)))
+                     self%J_vec(:,i,j,k,b) = self%J_vec(:,i,j,k,b)/sqrt(sq_norm(self%J_vec(:,i,j,k,b)))
+
                      !metto flag su quale spira passa per la cella
                      self%coil_flag(i,j,k,b) = n
+
                   endif
                enddo
             enddo
@@ -341,7 +351,7 @@ contains
    associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
        q=>field%q, x_c => self%x_center(n), y_c => self%y_center(n), z_c => self%z_center(n), &
        dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), lx => self%lx(n),  &
-       ly => self%ly(n), normal => self%normal(:,n), d => self%d(n))
+       ly => self%ly(n), normal => self%normal(:,n), d => self%d(n), nb =>field%nb)
    c_c = [ x_c, y_c, z_c ] !Vettore posizione centro spira
    !vertici del rettangolo, lo costruisco come se avesse normale asse z e fosse centrato nell'origine;
    !vertici in senso antiorario, partendo da in basso a sinistra; si ipotizza
@@ -355,6 +365,9 @@ contains
    V2 = [+lx/2, -ly/2, 0._R8P]
    V3 = [+lx/2, +ly/2, 0._R8P]
    V4 = [-lx/2, +ly/2, 0._R8P]
+
+  
+
    !            V4 ________________ V3     A
    !              |                |       A
    !              |                |       |
@@ -367,9 +380,11 @@ contains
    !isnan per il caso rotazione nulla rispetto
    !a n // z
    kappa = crossproduct(a=vz,b=normal) 
+
    if (any(normal /= vz )) then
        kappa = kappa/sqrt(sq_norm(kappa))
    endif
+
    theta = acos(dotproduct(a=vz,b=normal))
        
    K_rot(1,1) = 0._R8P
@@ -385,9 +400,13 @@ contains
    Id(:,1) = vx
    Id(:,2) = vy
    Id(:,3) = vz
-       
-   R = Id+sin(theta)*K+(1-cos(theta))*Kquad !costruisco matrice di rotazione, ruoto i vettori posizione e poi traslo
+
+
+   R = Id+sin(theta)*K_rot+(1-cos(theta))*Kquad !costruisco matrice di rotazione, ruoto i vettori posizione e poi traslo
                                                ! a seconda della posizione del centro richiesta
+  
+
+
    V1 = matmul(R,V1)+c_c
    V2 = matmul(R,V2)+c_c
    V3 = matmul(R,V3)+c_c
@@ -396,26 +415,36 @@ contains
    V(2,:) = V2
    V(3,:) = V3
    V(4,:) = V4 !genero matrice [V1; V2; V3; V4], quindi le colonne sono le coordinate x y z e le righe i vari vertici nell'ordine descritto prima
+
    v_l1 = matmul(R,vx)
    v_l1 = v_l1/sqrt(sq_norm(v_l1))
    v_l2 = matmul(R,vy);
    v_l2 = v_l2/sqrt(sq_norm(v_l2))
-       
+   
    !matrice dei versori dei lati, generata ruotando i versori del rettangolo tramite la matrice di rotazione precedentemente calcolata
    vec(1,:) = v_l1
    vec(2,:) = v_l2
    vec(3,:) = -v_l1
    vec(4,:) = -v_l2
+
+
    !calcolo piani perpendicolari alla spira su cui giacciono le due diagonali
    !del rettangolo. Per convenzione, le normali puntano "verso i vertici" D e C
    !piano 1, diagonale V1-V3 e normale verso V4
    n1 = crossproduct(a=(V1-c_c),b=normal)/sqrt(sq_norm(V1-c_c)) !normale al piano 
    d1 = -dotproduct(a=n1,b=c_c) !parametro d dell'equazione ax + by + cz + d1 = 0, con a b c coseni direttori della normale
-       
+   
+   !print *, n1, d1, 'normale e d del piano 1'
+
    !piano 2, diagonale V2-V4 e normale verso V3
    n2 = crossproduct(a=(V4-c_c),b=normal)/sqrt(sq_norm(V4-c_c)) !normale al piano 
    d2 = -dotproduct(a=n2,b=c_c) !parametro d dell'equazione ax + by + cz + d2 = 0, con a b c coseni direttori della normale
+
+   !print *, n2, d2, 'normale e d del piano 2'
+
    allocate(flag(1:ni,1:nj,1:nk,1:blocks_number))
+   flag(:,:,:,:) = 0_I4P !inizializzo matrice flag a zero, per indicare che nessun lato passa per le celle
+
    do w = 1, 4 !per ogni lato del rettangolo
       do b=1, blocks_number
          ! chiamo funzione che restituisce le coordinate delle varie celle che compongono il blocco
@@ -429,40 +458,40 @@ contains
          do k=1, nk
             do j=1, nj
                do i=1, ni
-                  !Scrivi qua vettore posizione cella b i j k :: cell_coord
+                  !Ho sottratto dx/2 per avere i centro cella
                   cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
                   dist = sqrt(sq_norm(crossproduct(a=(cell_coord-V(w,:)),b=vec(w,:)))) !Distanza punto retta |(P-A) x v| / |v| con A punto sulla retta e v versore della retta
                   prj_v = V(w,:)+dotproduct(a=(cell_coord-V(w,:)),b=vec(w,:))*vec(w,:); !Formula proiezione di un punto su una retta con A punto della retta A+[(P-A)*v]*v
                   !primo if: Il centro cella deve avere distanza dalla retta passante per il lato inferiore alla distanza massima e deve essere all'interno
                   !della proiezione dei lati, altrimenti prendo i punti su tutta la retta. Metto inoltre if sul flag, altrimenti ho sovrapposizioni dal secondo loop
-                  if ( flag(b,i,j,k) == 0_I4P .and. dist <= dmax .and. prj_v(1) <= maxval(V(:,1)) + dmax .and. & 
+                  if ( flag(i,j,k,b) == 0_I4P .and. dist <= dmax .and. prj_v(1) <= maxval(V(:,1)) + dmax .and. & 
                        prj_v(2) <= maxval(V(:,2)) + dmax .and. prj_v(3) <= maxval(V(:,3)) + dmax .and. & 
                        minval(V(:,1))-dmax <= prj_v(1) .and. minval(V(:,2))-dmax <= prj_v(2) .and. & 
                        minval(V(:,3))-dmax <= prj_v(3) ) then
 
-                        flag(i,j,k,b) = j
+                        flag(i,j,k,b) = w
 
                   endif
                    !secondo if: per ogni lato verifico di essere dal "lato giusto" dei piani definiti dalle diagonali, al fine di
                    !non avere sovrapposizioni in prossimità dei vertici
-                  if (j == 1) then
+                  if (w == 1) then
                      if ((dotproduct(a=n1,b=cell_coord)+d1 >= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 >= 0) .and. &
-                          flag(b,i,j,k) == j) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
+                          flag(i,j,k,b) == w) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
                         flag(i,j,k,b) = 0_I4P
                      endif
-                  elseif (j == 2) then
+                  elseif (w == 2) then
                      if ((dotproduct(a=n1,b=cell_coord)+d1 >= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 <= 0) .and. &
-                          flag(b,i,j,k) == j) then!aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
+                          flag(i,j,k,b) == w) then!aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
                         flag(i,j,k,b) = 0_I4P
                      endif
-                  elseif (j == 3) then
+                  elseif (w == 3) then
                      if ((dotproduct(a=n1,b=cell_coord)+d1 <= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 <= 0) .and. &
-                          flag(b,i,j,k) == j) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
+                          flag(i,j,k,b) == w) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
                         flag(i,j,k,b) = 0_I4P
                      endif                
-                  elseif (j == 4) then 
+                  elseif (w == 4) then 
                      if ((dotproduct(a=n1,b=cell_coord)+d1 <= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 >= 0) .and. &
-                          flag(b,i,j,k) == j) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
+                          flag(i,j,k,b) == w) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
                         flag(i,j,k,b) = 0_I4P
                      endif
                   endif
@@ -477,15 +506,28 @@ contains
       do k=1, nk
          do j=1, nj
             do i=1, ni
-               if (flag(b,i,j,k) /= 0) then
+               if (flag(i,j,k,b) /= 0 .and. self%coil_flag(i,j,k,b) == 0_I4P) then
 
-                  q(7:9,i,j,k,b) = vec(flag(i,j,k,b),:)
+                  !q(7:9,i,j,k,b) = vec(flag(i,j,k,b),:)
+                  self%J_vec(:,i,j,k,b) = vec(flag(i,j,k,b),:)
+
+                  if (abs(self%J_vec(1,i,j,k,b)) < 1.0e-10_R8P) then
+                     self%J_vec(1,i,j,k,b) = 0._R8P
+                  endif
+                  if (abs(self%J_vec(2,i,j,k,b)) < 1.0e-10_R8P) then
+                     self%J_vec(2,i,j,k,b) = 0._R8P
+                  endif
+                  if (abs(self%J_vec(3,i,j,k,b)) < 1.0e-10_R8P) then
+                     self%J_vec(3,i,j,k,b) = 0._R8P
+                  endif
+
                   !metto flag su quale spira passa per la cella
+
                   self%coil_flag(i,j,k,b) = n
 
-               elseif (flag(b,i,j,k) == 0) then
+               !elseif (flag(i,j,k,b) == 0) then
                   
-                  q(7:9,i,j,k,b) = 0._R8P
+                  !q(7:9,i,j,k,b) = 0._R8P
 
                endif
             enddo

@@ -689,7 +689,6 @@ contains
 
    allocate(req_recv(0:self%mpih%procs_number-1))
    req_recv = MPI_REQUEST_NULL
-
    associate(bw=>self%block_weight, bw_pic=>self%block_weight_pic)
    bwt = bw + bw_pic
    send_size = 0_I8P ; if (allocated(self%maps%comm_map_send)) send_size = size(self%maps%comm_map_send, dim=1) * bwt
@@ -753,7 +752,6 @@ contains
       !    enddo
       ! endif
    endif
-
    do b=1, n_keep
       self%q_work(:,:,:,:,self%maps%local_map(b,1)) = q(:,:,:,:,self%maps%local_map(b,2))
    enddo

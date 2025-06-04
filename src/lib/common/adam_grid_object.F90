@@ -84,9 +84,11 @@ contains
    real(R8P)                                 :: emin(3)                             !< Min abscissa of block.
 
    emin = self%block_emin(coordinates)
-   if (present(x_cell)) x_cell(:) = emin(1) + self%lin_space_x(1-self%ngc:self%ni+self%ngc,coordinates(4))
-   if (present(y_cell)) y_cell(:) = emin(2) + self%lin_space_y(1-self%ngc:self%nj+self%ngc,coordinates(4))
-   if (present(z_cell)) z_cell(:) = emin(3) + self%lin_space_z(1-self%ngc:self%nk+self%ngc,coordinates(4))
+   associate(l => coordinates(4))
+   if (present(x_cell)) x_cell(:) = emin(1) - self%block_dxyz(1,l)*0.5_R8P + self%lin_space_x(1-self%ngc:self%ni+self%ngc,l)
+   if (present(y_cell)) y_cell(:) = emin(2) - self%block_dxyz(2,l)*0.5_R8P + self%lin_space_y(1-self%ngc:self%nj+self%ngc,l)
+   if (present(z_cell)) z_cell(:) = emin(3) - self%block_dxyz(3,l)*0.5_R8P + self%lin_space_z(1-self%ngc:self%nk+self%ngc,l)
+   endassociate
    endsubroutine cell_xyz
 
    subroutine compute_metrics(self, coordinates,      &
