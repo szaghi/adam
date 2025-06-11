@@ -130,7 +130,7 @@ contains
    write(self%residuals_unit, '(A)') trim(str(it           ))//' '//&
                                      trim(str(time         ))//' '//&
                                      trim(str(blocks_number))//' '//&
-                                     trim(str(residuals(1:)))
+                                     trim(str(residuals(1:), separator=' '))
    endsubroutine save_residuals
 endmodule adam_prism_io_object
     

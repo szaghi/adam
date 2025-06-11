@@ -420,11 +420,18 @@ contains
    integer(I4P)                        :: crown                !< Crown counter.
    integer(I4P)                        :: fec                  !< Boundary fec (1 to 26).
    integer(I4P)                        :: fec_1_6              !< Boundary fec (1 to 6).
-   
+   integer(I4P)                        :: alfa_D, beta_D, gamma_D !< Indici alfa beta gamma come in Barbas.
+   integer(I4P)                        :: alfa_B, beta_B, gamma_B !< Indici alfa beta gamma come in Barbas.
+   real(R8P)                           :: s1                   !< Coefficiente pari a +-1.  
+   real(R8P)                           :: ds                   !< Distanza tra le celle in x, y o z.
+   real(R8P)                           :: ngc_r, crown_r           !< Numero di gc totale, reale
+   real(R8P)                           :: ref(1:9)             !< Vettore di stato di riferimento per assegnazione gc.
+   real(R8P)                           :: phi, f               !< Variabili phi e f fWL.
    !associate(local_map_bc_crown=>self%field%maps%local_map_bc_crown, &
    !          nv=>self%nv, ngc=>self%ngc, cv=>self%physics%eos(1)%cv, R=>self%physics%eos(1)%R, q_bc_vars=>self%bc%q)
    associate(local_map_bc_crown=>self%field%maps%local_map_bc_crown, &
-             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q)
+             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), &
+             dz=>self%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk)
    if (allocated(self%field%maps%local_map_bc_crown)) then
       do crown=1, ngc
          do c=1, size(local_map_bc_crown, dim=1)
@@ -437,12 +444,138 @@ contains
                jdelta  = local_map_bc_crown(c, 6 ,crown)
                kdelta  = local_map_bc_crown(c, 7 ,crown)
                bc_type = local_map_bc_crown(c, 8 ,crown)
-               fec     = local_map_bc_crown(c, 9 ,crown)
+               fec     = local_map_bc_crown(c, 9 ,crown) !da qua la faccia e quindi la normale
                fec_1_6 = fec_1_6_array(fec)
                if (bc_type == BC_EXTRAPOLATION) then
                   do v=1, nv
-                     q(v,i,j,k,b) = q(v,i-idelta,j-jdelta,k-kdelta,b)
+                     q(v,i,j,k,b) = q(v,i-idelta,j-jdelta,k-kdelta,b) !ni,j,k coordinate della cella da cui prendo i valori
                   enddo
+               elseif (bc_type == BC_fWLayer) then
+                  !print *, fec
+                  if (fec <= 6) then
+                     select case(fec)
+                     !Identifico gli alfa beta gamma come nel paper di Barbas, distinguendo tra alfa_D e alfa_B ecc
+                     
+                     case(1) ! x- face alfa = 2, beta = 3, gamma = 1
+                        s1 = 1.0_R8P
+                        alfa_D = 2_I4P
+                        beta_D = 3_I4P
+                        gamma_D = 1_I4P
+                        alfa_B = 5_I4P
+                        beta_B = 6_I4P
+                        gamma_B = 4_I4P
+                        ds = dx(b) !distanza tra le celle in x
+                        ref = q(:,1,j,k,b) !vettore di stato di riferimento per assegnazione gc
+
+                     case(2) ! x+ face
+                        s1 = -1.0_R8P
+                        alfa_D = 2_I4P
+                        beta_D = 3_I4P
+                        gamma_D = 1_I4P
+                        alfa_B = 5_I4P
+                        beta_B = 6_I4P
+                        gamma_B = 4_I4P
+                        ds = dx(b) !distanza tra le celle in x
+                        ref = q(:,ni,j,k,b)
+
+                     case(3) ! y- face
+                        s1 = 1.0_R8P
+                        alfa_D = 3_I4P
+                        beta_D = 1_I4P
+                        gamma_D = 2_I4P
+                        alfa_B = 6_I4P
+                        beta_B = 4_I4P
+                        gamma_B = 5_I4P
+                        ds = dy(b) !distanza tra le celle in y
+                        ref = q(:,i,1,k,b)
+                     
+                     case(4) ! y+ face
+                        s1 = -1.0_R8P
+                        alfa_D = 3_I4P
+                        beta_D = 1_I4P
+                        gamma_D = 2_I4P
+                        alfa_B = 6_I4P
+                        beta_B = 4_I4P
+                        gamma_B = 5_I4P
+                        ds = dy(b) !distanza tra le celle in y
+                        ref = q(:,i,nj,k,b)
+
+                     case(5) ! z- face
+                        s1 = 1.0_R8P
+                        alfa_D = 1_I4P
+                        beta_D = 2_I4P
+                        gamma_D = 3_I4P
+                        alfa_B = 4_I4P
+                        beta_B = 5_I4P
+                        gamma_B = 6_I4P
+                        ds = dz(b) !distanza tra le celle in z
+                        ref = q(:,i,j,1,b)
+
+                     case(6) ! z+ face
+                        s1 = -1.0_R8P
+                        alfa_D = 1_I4P
+                        beta_D = 2_I4P
+                        gamma_D = 3_I4P
+                        alfa_B = 4_I4P
+                        beta_B = 5_I4P
+                        gamma_B = 6_I4P
+                        ds = dz(b) !distanza tra le celle in z
+                        ref = q(:,i,j,nk,b)
+                     
+                     endselect
+                     ngc_r = real(ngc,R8P)
+                     crown_r = real(crown, R8P)
+                     if (ngc < 40_I4P) then
+                        phi = 1/150._R8P*(-7.0_R8P*ngc_r**2 + 255._R8P*ngc_r + 250._R8P) !polinomio di Barbas
+                     else
+                        phi = 25.0_R8P
+                     endif
+                     !x - xa è la distanza tra il centro della gc considerata e il bordo del dominio (fatto col centro cella, vedremo)
+                     !è pari quindi a (ngc_r - crown_r) * ds
+
+                     !xb - xa è la distanza tra il centro della gc più esterna considerata e il bordo del dominio (fatto col centro cella, vedremo)
+                     !è pari quindi a C * ds
+
+                     f = 1._R8P/phi*LOG10(((ngc_r-crown_r)*ds)/(ngc_r*ds)*(10._R8P**phi-1._R8P)+1._R8P) !funzione f 
+
+
+                     q(alfa_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(s1*(f-1._R8P)*ref(beta_B)*EPS0**0.5_R8P + &
+                                          (f+1._R8P)*ref(alfa_D)*MU0**0.5_R8P)
+
+                     q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f+1._R8P)*ref(beta_B)*EPS0**0.5_R8P + &
+                                          s1*(f-1._R8P)*ref(alfa_D)*MU0**0.5_R8P)
+
+                     q(beta_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(-s1*(f-1._R8P)*ref(alfa_B)*EPS0**0.5_R8P + &
+                                          (f+1._R8P)*ref(beta_D)*MU0**0.5_R8P)
+
+                     q(alfa_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f+1._R8P)*ref(alfa_B)*EPS0**0.5_R8P - &
+                                          s1*(f-1._R8P)*ref(beta_D)*MU0**0.5_R8P)
+
+                     q(gamma_D,i,j,k,b) = ref(gamma_D)
+
+                     q(gamma_B,i,j,k,b) = ref(gamma_B)
+
+                     q(7:9,i,j,k,b) = 0._R8P
+
+                     !print *, 'i valori del vettore di stato nella gc della faccia', fec, 'sono:'
+                     !print *, ref
+                     !print *, 'Dx = ', q(1,i,j,k,b)
+                     !print *, 'Dy = ', q(2,i,j,k,b)
+                     !print *, 'Dz = ', q(3,i,j,k,b)
+                     !print *, 'Bx = ', q(4,i,j,k,b)
+                     !print *, 'By = ', q(5,i,j,k,b)
+                     !print *, 'Bz = ', q(6,i,j,k,b)
+                     !print *, 'Jx = ', q(7,i,j,k,b)
+                     !print *, 'Jy = ', q(8,i,j,k,b)
+                     !print *, 'Jz = ', q(9,i,j,k,b)
+         
+                  else
+                     do v=1, nv
+                       q(v,i,j,k,b) = 0.0_R8P
+                     enddo
+                  endif
+
+
                !elseif (bc_type == BC_INFLOW) then
                !    q(1,i,j,k,b) = q_bc_vars(1, fec_1_6)
                !    q(2,i,j,k,b) = q_bc_vars(1, fec_1_6)* q_bc_vars(2, fec_1_6)
@@ -687,9 +820,11 @@ contains
          !print *, minval(self%q(8,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo y PRE COMPUTE COILS'
          !print *, minval(self%q(9,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo z PRE COMPUTE COILS'
 
+   if (self%coil%total_coils_number >= 1_I4P) then
+      call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=self%q, time=time, A=A, d=d, & 
+                                 f=freq, phase=phase, coil_flag=coil_flag, td=td, J_vec=J_vec)
+   endif
 
-   call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=self%q, time=time, A=A, d=d, & 
-                              f=freq, phase=phase, coil_flag=coil_flag, td=td, J_vec=J_vec)
 
          !print *, maxval(self%q(7,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo x POST COMPUTE COILS'
          !print *, maxval(self%q(8,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo y POST COMPUTE COILS'
@@ -791,6 +926,7 @@ contains
       self%time%time = 0._R8P
       self%time%it = 0
       call self%mpih%print_message('impose initial conditions finish')
+      !print *, self%q(:,self%ni,1,1,1), 'Riga 927 CPU object'
    endif
    !if (self%ib%solids_number > 0) call self%compute_phi()
    ! call self%amr_update

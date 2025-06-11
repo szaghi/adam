@@ -250,22 +250,24 @@ contains
    type(prism_physics_object),   intent(in)    :: physics              !< Fluids physics.
    integer(I4P)                                :: i                    !< Counter.      
    
-   do i=1, self%total_coils_number
+   if (self%total_coils_number >= 1_I4P) then
+      do i=1, self%total_coils_number
 
-      select case(self%coil_type(i))
+         select case(self%coil_type(i))
 
-      case(COIL_TYPE_CIRCULAR) !Caso spire circolari
+         case(COIL_TYPE_CIRCULAR) !Caso spire circolari
 
-         call self%set_circular_coil (physics = physics, field = field, n = i)
-        
+            call self%set_circular_coil (physics = physics, field = field, n = i)
+         
 
-      case(COIL_TYPE_RECTANGULAR) !Caso spire rettangolari
+         case(COIL_TYPE_RECTANGULAR) !Caso spire rettangolari
 
-         call self%set_rectangular_coil(physics = physics, field = field, n = i)
+            call self%set_rectangular_coil(physics = physics, field = field, n = i)
 
-      endselect
+         endselect
 
-   enddo
+      enddo
+   endif
    endsubroutine set_coils
 
    subroutine set_circular_coil(self, physics, field, n) !agli input aggiungo n del contatore per sapere a quale 
@@ -449,6 +451,9 @@ contains
       do b=1, blocks_number
          ! chiamo funzione che restituisce le coordinate delle varie celle che compongono il blocco
          call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
+         !print *, x_cell, 'xcell'
+         !print *, y_cell, 'ycell'
+         !print *, z_cell, 'zcell'
          !calcolo distanza massima dall'asse del filo della spira: somma di raggio del filo e metà della dimensione massima della cella
          !associata ai vettori dx dy e dz contenuti in field
          !dmax = d/2 + maxval([dx(b),dy(b),dz(b)])/2
@@ -458,13 +463,17 @@ contains
          do k=1, nk
             do j=1, nj
                do i=1, ni
-                  !Ho sottratto dx/2 per avere i centro cella
                   cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
                   dist = sqrt(sq_norm(crossproduct(a=(cell_coord-V(w,:)),b=vec(w,:)))) !Distanza punto retta |(P-A) x v| / |v| con A punto sulla retta e v versore della retta
                   prj_v = V(w,:)+dotproduct(a=(cell_coord-V(w,:)),b=vec(w,:))*vec(w,:); !Formula proiezione di un punto su una retta con A punto della retta A+[(P-A)*v]*v
                   !primo if: Il centro cella deve avere distanza dalla retta passante per il lato inferiore alla distanza massima e deve essere all'interno
                   !della proiezione dei lati, altrimenti prendo i punti su tutta la retta. Metto inoltre if sul flag, altrimenti ho sovrapposizioni dal secondo loop
-                  if ( flag(i,j,k,b) == 0_I4P .and. dist <= dmax .and. prj_v(1) <= maxval(V(:,1)) + dmax .and. & 
+                  !if ( flag(i,j,k,b) == 0_I4P .and. dist <= dmax .and. prj_v(1) <= maxval(V(:,1)) + dmax .and. & 
+                  !     prj_v(2) <= maxval(V(:,2)) + dmax .and. prj_v(3) <= maxval(V(:,3)) + dmax .and. & 
+                  !     minval(V(:,1))-dmax <= prj_v(1) .and. minval(V(:,2))-dmax <= prj_v(2) .and. & 
+                  !     minval(V(:,3))-dmax <= prj_v(3) ) then
+                  if ( flag(i,j,k,b) /= 1_I4P .and. flag(i,j,k,b) /= 3_I4P  .and. &
+                       dist <= dmax .and. prj_v(1) <= maxval(V(:,1)) + dmax .and. & 
                        prj_v(2) <= maxval(V(:,2)) + dmax .and. prj_v(3) <= maxval(V(:,3)) + dmax .and. & 
                        minval(V(:,1))-dmax <= prj_v(1) .and. minval(V(:,2))-dmax <= prj_v(2) .and. & 
                        minval(V(:,3))-dmax <= prj_v(3) ) then
@@ -474,31 +483,35 @@ contains
                   endif
                    !secondo if: per ogni lato verifico di essere dal "lato giusto" dei piani definiti dalle diagonali, al fine di
                    !non avere sovrapposizioni in prossimità dei vertici
-                  if (w == 1) then
-                     if ((dotproduct(a=n1,b=cell_coord)+d1 >= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 >= 0) .and. &
-                          flag(i,j,k,b) == w) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
-                        flag(i,j,k,b) = 0_I4P
-                     endif
-                  elseif (w == 2) then
-                     if ((dotproduct(a=n1,b=cell_coord)+d1 >= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 <= 0) .and. &
-                          flag(i,j,k,b) == w) then!aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
-                        flag(i,j,k,b) = 0_I4P
-                     endif
-                  elseif (w == 3) then
-                     if ((dotproduct(a=n1,b=cell_coord)+d1 <= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 <= 0) .and. &
-                          flag(i,j,k,b) == w) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
-                        flag(i,j,k,b) = 0_I4P
-                     endif                
-                  elseif (w == 4) then 
-                     if ((dotproduct(a=n1,b=cell_coord)+d1 <= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 >= 0) .and. &
-                          flag(i,j,k,b) == w) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
-                        flag(i,j,k,b) = 0_I4P
-                     endif
-                  endif
-                  enddo
+                  !if (w == 1) then
+                  !   if ((dotproduct(a=n1,b=cell_coord)+d1 >= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 >= 0) .and. &
+                  !        flag(i,j,k,b) == w) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
+                  !      flag(i,j,k,b) = 0_I4P
+                  !      print *, w
+                  !   endif
+                  !elseif (w == 2) then
+                  !   if ((dotproduct(a=n1,b=cell_coord)+d1 >= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 <= 0) .and. &
+                  !        flag(i,j,k,b) == w) then!aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
+                  !      flag(i,j,k,b) = 0_I4P
+                  !      print *, w
+                  !   endif
+                  !elseif (w == 3) then
+                  !   if ((dotproduct(a=n1,b=cell_coord)+d1 <= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 <= 0) .and. &
+                  !        flag(i,j,k,b) == w) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
+                  !      flag(i,j,k,b) = 0_I4P
+                  !      print *, w
+                  !   endif                
+                  !elseif (w == 4) then 
+                  !   if ((dotproduct(a=n1,b=cell_coord)+d1 <= 0 .or. dotproduct(a=n2,b=cell_coord)+d2 >= 0) .and. &
+                  !        flag(i,j,k,b) == w) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
+                  !      flag(i,j,k,b) = 0_I4P
+                  !      print *, w
+                  !   endif
+                  !endif
                enddo
             enddo
          enddo
+      enddo
    enddo
    !Ho un flag pari a 1 2 3 4 nelle celle per cui passa uno dei dati della spira. La direzione della corrente è 
    !Ceorente con quella dei versori dei lati precedentemente descritti
