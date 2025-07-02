@@ -5,10 +5,10 @@
 module adam_nasto_fnl_object
 !< ADAM, Navier-Stokes equations system class definition, GPU (FNL) backend.
 
-use adam_nasto_fnl_library
+use :: adam_nasto_fnl_library
 use :: fundal, save_memory_status_gpu=>save_memory_status
 use :: penf, save_memory_status_cpu=>save_memory_status
-use mpi
+use :: mpi
 
 implicit none
 private

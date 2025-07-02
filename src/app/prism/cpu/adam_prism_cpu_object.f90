@@ -1,5 +1,5 @@
 !< ADAM, Maxwell equations system class definition, CPU backend.
-module adam_prism_cpu_object 
+module adam_prism_cpu_object
 !< ADAM, Maxwell equations system class definition, CPU backend.
 
 use adam_common_library
@@ -14,7 +14,7 @@ public :: prism_cpu_object
 
 type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR e IB
    !< Maxwell equations system class definition, CPU backend.
-   real(R8P), allocatable :: dq(:,:,:,:,:)  !< Eikonal right hand side.
+   real(R8P), allocatable :: dq( :,:,:,:,:) !< Residuals right hand side.
    real(R8P), allocatable :: flx(:,:,:,:,:) !< Fluxes along x.
    real(R8P), allocatable :: fly(:,:,:,:,:) !< Fluxes along y.
    real(R8P), allocatable :: flz(:,:,:,:,:) !< Fluxes along z.
@@ -31,13 +31,13 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       !procedure, pass(self) :: refine_uniform   !< Refine all blocks uniformly.!!
       ! IB methods
       !procedure, pass(self) :: integrate_eikonal !< Integrate eikonal equation.!!
-      ! IO methods 
+      ! IO methods
       procedure, pass(self) :: load_restart_files   !< Load restart files. !
       procedure, pass(self) :: save_hdf5            !< Save simulation data in HDF5 format. !
       procedure, pass(self) :: save_residuals       !< Save residuals history. !
       procedure, pass(self) :: save_restart_files   !< Save restart files. !
       procedure, pass(self) :: save_simulation_data !< Save all simulation data. !
-      ! IC/BC 
+      ! IC/BC
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation. !
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions (and coils) of equation.  !
       procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.  !
@@ -64,8 +64,6 @@ contains
 
    call self%mpih%print_message('prism_cpu_object%allocate_cpu start')
    msg_ = self%mpih%myrankstr//'prism_cpu_object%allocate_cpu '
-!   associate(nv=>self%nv, ns=>self%ns, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
-!             nb=>self%nb, nv_aux=>self%nv_aux, weno_s=>self%weno%S, solids_number=>self%ib%solids_number)
    associate(nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
               nb=>self%nb, weno_s=>self%weno%S, solids_number=>self%ib%solids_number)
    msg = msg_//' dq '
@@ -142,7 +140,7 @@ contains
    ! subroutine compute_phi(self)
    ! !< Compute phi, distance from IB solid.
    ! class(prism_cpu_object), intent(inout) :: self !< The equation.
-   ! 
+   !
    ! if (self%ib%solids_number>0) then
    !    call self%mpih%print_message('compute IB distance start')
    !    call self%ib%compute_phi
@@ -162,7 +160,7 @@ contains
    ! integer(I4P)                                  :: b              !< Counter.
    ! logical, optional,       intent(in)           :: do_init
    ! logical                                       :: do_init_
-   !  
+   !
    ! do_init_ = .true.    ; if (present(do_init)) do_init_ = do_init
    ! threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
    ! if (do_init_) self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
@@ -174,7 +172,7 @@ contains
    !          distance = 0._R8P
    !       endif
    !       max_cell_delta = max_cell_delta_dist(distance=distance)
-   ! 
+   !
    !       if (maxval(dxyz(:,b)) > max_cell_delta) then
    !          self%field%refinements_needed(b) = TO_BE_REFINED
    !       elseif (maxval(dxyz(:,b)) * threshold_ < max_cell_delta) then
@@ -189,7 +187,7 @@ contains
    !    !< Return the maximum cell delta given a comparison distance.
    !    real(R8P),          intent(in) :: distance !< Comparison distance.
    !    real(R8P)                      :: delta    !< Maximum cell delta admissible.
-   ! 
+   !
    !    if (abs(distance) < epsilon(0._R8P)) then
    !       delta = delta_fine
    !    else
@@ -215,7 +213,7 @@ contains
    ! real(R8P)                                     :: grad_var                 !< Value (max) of gradient of var.
    ! integer(I4P)                                  :: b                        !< Counter.
    ! real(R8P)                                     :: dc(1:self%blocks_number) !< Delta criterion.
-   ! 
+   !
    ! ivar_     = 1_R4P    ; if (present(ivar)) ivar_ = ivar
    ! do_init_ = .true.    ; if (present(do_init)) do_init_ = do_init
    ! threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
@@ -254,7 +252,7 @@ contains
    !    !< Return the maximum cell delta given a gradient tollerance.
    !    real(R8P), intent(in) :: grad  !< Gradient value.
    !    real(R8P)             :: delta !< Maximum cell delta admissible.
-   ! 
+   !
    !    if (grad > grad_tol) then
    !       delta = delta_fine
    !    else
@@ -268,7 +266,7 @@ contains
    ! class(prism_cpu_object), intent(inout) :: self        !< The equation.
    ! real(R8P),               intent(in)    :: velocity(3) !< Velocity of the movement.
    ! integer(I4P),            intent(in)    :: s           !< Solid index.
-   ! 
+   !
    ! if (self%ib%solids_number>0) then
    !    call self%mpih%print_message('move IB distance start')
    !    call self%ib%move_phi(velocity=velocity, s=s)
@@ -281,7 +279,7 @@ contains
    ! class(prism_cpu_object), intent(inout) :: self              !< The equation.
    ! integer(I4P),            intent(in)    :: refinement_levels !< Number of refinement to be performed.
    ! integer(I4P)                           :: l                 !< Counter.
-   ! 
+   !
    ! do l=1, refinement_levels
    !    call self%adam%tree%mark_all_nodes(mark=TO_BE_REFINED)
    !    call self%adam%amr_update(do_blocks_reorder=.false., do_mpi_redistribute=.true.)
@@ -298,7 +296,7 @@ contains
    !                                             1-self%ngc:,&
    !                                             1:)     !< Conservative variables.
    ! integer(I4P)                           :: i_eikonal !< Counter.
-   ! 
+   !
    ! associate(blocks_number=>self%blocks_number, solids_number=>self%ib%solids_number)
    !    if (blocks_number > 0) then
    !       if (solids_number > 0) then
@@ -321,17 +319,17 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P),            intent(out)   :: t    !< Time iteration.
    real(R8P),               intent(out)   :: time !< Time.
-   
+
    call self%adam%load_restart_files(basename=self%io%restart_basename, t=t, time=time, q=self%q)
    call self%adam%make_comm_local_maps_ghost_bc
    endsubroutine load_restart_files
-   
+
    subroutine save_hdf5(self, output_basename) !ok, commentato parte relativa a q_aux e cambio nomi variabili
    !< Save simulation data in HDF5 format.
    class(prism_cpu_object), intent(inout)        :: self             !< The equation.
    character(*),            intent(in), optional :: output_basename  !< Output basename.
    character(:), allocatable                     :: output_basename_ !< Output basename, local var.
-   
+
    call self%mpih%barrier(tictoc=.true.)
    call self%mpih%print_message('save HDF5 files t: '//trim(str(self%time%it,.true.))//', time: '//&
                                 trim(str(self%time%time,.true.)))
@@ -356,7 +354,7 @@ contains
             call self%adam%save_hdf5(basename=trim(output_basename_),                                              &
                                   q=self%q,                                                                        &
                                   q_aux=self%field_Div,                                                            &
-                                  q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi', 'psi'],    &              
+                                  q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi', 'psi'],    &
                                   q_aux_name=['DivD_d','DivB_d','DivD_f','DivB_f'],                                &
                                   with_cell_morton=.true., phi=self%ib%phi)
       endif
@@ -380,19 +378,19 @@ contains
             call self%adam%save_hdf5(basename=trim(output_basename_),                                              &
                                   q=self%q,                                                                        &
                                   q_aux=self%field_Div,                                                            &
-                                  q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi', 'psi'],    &              
+                                  q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi', 'psi'],    &
                                   q_aux_name=['DivD_d','DivB_d','DivD_f','DivB_f'],                                &
                                   with_cell_morton=.true.)
       endif
    endif
    call self%mpih%barrier(tictoc=.true.)
    endsubroutine save_hdf5
-   
+
    subroutine save_residuals(self)  !invariato ma commentato comando MPI ALLREDUCE
    !< Save residuals history.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: v    !< Counter.
-   
+
    if (self%time%is_to_save(it_save=self%io%residuals_save)) then
       call self%field%compute_normL2_residuals(dq=self%dq, norm=self%field%residuals)
       do v=1, self%nv
@@ -403,11 +401,11 @@ contains
                                                            blocks_number=self%blocks_number, residuals=self%field%residuals)
    endif
    endsubroutine save_residuals
-   
+
    subroutine save_restart_files(self) !invariato
    !< Save restart files.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
-   
+
    call self%mpih%barrier(tictoc=.true.)
    call self%mpih%print_message('save restart files t: '//trim(str(self%time%it,.true.))//', time: '//&
                                 trim(str(self%time%time,.true.)))
@@ -415,17 +413,17 @@ contains
    call self%save_hdf5(output_basename=self%io%restart_basename)
    call self%mpih%barrier(tictoc=.true.)
    endsubroutine save_restart_files
-   
+
    subroutine save_simulation_data(self) !ok, commentato parte relativa a q_aux
    !< Save all simulation data.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
-   
+
    if ((self%time%is_to_save(it_save=self%io%it_save)).or.      &
        (self%time%is_to_save(it_save=self%io%restart_save)).or. &
        (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))) then
       call self%update_ghost(q=self%q)
       !call self%compute_q_auxiliary(q=self%field%q, q_aux=self%q_aux)
-   
+
       if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_hdf5
       if (mod(self%time%it,self%io%restart_save)==0) call self%save_restart_files
       if (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max)) then
@@ -436,7 +434,7 @@ contains
                                       time=self%time%time,              &
                                       time_max=self%time%time_max,      &
                                       adam=self%adam,                   &
-                                      q=self%q,                   &
+                                      q=self%q,                         &
                                       q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz '])
          elseif (self%physics%D_divergence_cleaner .and. .not.self%physics%B_Divergence_cleaner) then
             call self%slices%save_mat(basename=self%io%output_basename, &
@@ -445,7 +443,7 @@ contains
                                       time=self%time%time,              &
                                       time_max=self%time%time_max,      &
                                       adam=self%adam,                   &
-                                      q=self%q,                   &
+                                      q=self%q,                         &
                                       q_name=['Dx  ','Dy  ','Dz  ','Bx  ','By  ','Bz  ','Jx  ','Jy  ','Jz  ','Phi '])
          elseif (self%physics%D_divergence_cleaner .and. self%physics%B_Divergence_cleaner) then
             call self%slices%save_mat(basename=self%io%output_basename, &
@@ -454,12 +452,12 @@ contains
                                       time=self%time%time,              &
                                       time_max=self%time%time_max,      &
                                       adam=self%adam,                   &
-                                      q=self%q,                   &
+                                      q=self%q,                         &
                                       q_name=['Dx  ','Dy  ','Dz  ','Bx  ','By  ','Bz  ','Jx  ','Jy  ','Jz  ','Phi ','Psi '])
          endif
       endif
    endif
-   endsubroutine save_simulation_data 
+   endsubroutine save_simulation_data
    ! IC/BC
    subroutine set_boundary_conditions(self, q) !ok, commentato parte relativa a inflow lasciando estrapolazione e riscritto associate senza R e cv
    !< Set boundary conditions of equation.
@@ -476,7 +474,7 @@ contains
    integer(I4P)                        :: fec_1_6              !< Boundary fec (1 to 6).
    integer(I4P)                        :: alfa_D, beta_D, gamma_D !< Indici alfa beta gamma come in Barbas.
    integer(I4P)                        :: alfa_B, beta_B, gamma_B !< Indici alfa beta gamma come in Barbas.
-   real(R8P)                           :: s1                   !< Coefficiente pari a +-1.  
+   real(R8P)                           :: s1                   !< Coefficiente pari a +-1.
    real(R8P)                           :: ds                   !< Distanza tra le celle in x, y o z.
    real(R8P)                           :: ngc_r, crown_r           !< Numero di gc totale, reale
    real(R8P)                           :: ref(1:9)             !< Vettore di stato di riferimento per assegnazione gc.
@@ -521,7 +519,7 @@ contains
                   if (fec <= 6) then
                      select case(fec)
                      !Identifico gli alfa beta gamma come nel paper di Barbas, distinguendo tra alfa_D e alfa_B ecc
-                     
+
                      case(1) ! x- face alfa = 2, beta = 3, gamma = 1
                         s1 = 1.0_R8P
                         alfa_D = 2_I4P
@@ -554,7 +552,7 @@ contains
                         gamma_B = 5_I4P
                         ds = dy(b) !distanza tra le celle in y
                         ref = q(:,i,1,k,b)
-                     
+
                      case(4) ! y+ face
                         s1 = -1.0_R8P
                         alfa_D = 3_I4P
@@ -587,7 +585,7 @@ contains
                         gamma_B = 6_I4P
                         ds = dz(b) !distanza tra le celle in z
                         ref = q(:,i,j,nk,b)
-                     
+
                      endselect
                      ngc_r = real(ngc,R8P)
                      crown_r = real(crown, R8P)
@@ -602,8 +600,7 @@ contains
                      !xb - xa è la distanza tra il centro della gc più esterna considerata e il bordo del dominio (fatto col centro cella, vedremo)
                      !è pari quindi a C * ds
 
-                     f = 1._R8P/fi*LOG10(((ngc_r-crown_r)*ds)/(ngc_r*ds)*(10._R8P**fi-1._R8P)+1._R8P) !funzione f 
-
+                     f = 1._R8P/fi*LOG10(((ngc_r-crown_r)*ds)/(ngc_r*ds)*(10._R8P**fi-1._R8P)+1._R8P) !funzione f
 
                      q(alfa_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(s1*(f-1._R8P)*ref(beta_B)*EPS0**0.5_R8P + &
                                           (f+1._R8P)*ref(alfa_D)*MU0**0.5_R8P)
@@ -634,13 +631,12 @@ contains
                      !print *, 'Jx = ', q(7,i,j,k,b)
                      !print *, 'Jy = ', q(8,i,j,k,b)
                      !print *, 'Jz = ', q(9,i,j,k,b)
-         
+
                   else
                      do v=1, nv
                        q(v,i,j,k,b) = 0.0_R8P
                      enddo
                   endif
-
 
                !elseif (bc_type == BC_INFLOW) then
                !    q(1,i,j,k,b) = q_bc_vars(1, fec_1_6)
@@ -658,18 +654,18 @@ contains
    endassociate
    endsubroutine set_boundary_conditions
 
-   subroutine set_initial_conditions(self) !ok, resta identico 
+   subroutine set_initial_conditions(self) !ok, resta identico
    !< Set initial conditions and coils on field.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
-   
+
    call self%ic%set_initial_conditions(physics=self%physics, field=self%field)
 
    !< Aggiungo setting iniziale delle spire direttamente dentro IC
    call self%coil%set_coils(physics=self%physics, field=self%field)
 
    endsubroutine set_initial_conditions
-   
-   subroutine update_ghost(self, q, step) !invariato 
+
+   subroutine update_ghost(self, q, step) !invariato
    !< Update ghost cells.
    !< If not specified all steps are perfermod, syncronous computation
    class(prism_cpu_object), intent(inout)        :: self            !< The equation.
@@ -681,7 +677,7 @@ contains
    integer(I4P),            intent(in), optional :: step            !< Step to be perfordmed in asyncronous comp.
    logical                                       :: do_local_update !< Flag for triggering local update.
    logical                                       :: do_set_bc       !< Flag for triggering setting bc.
-   
+
    ! perform local update if step is not speficied or if first step is selected
    do_local_update = .false.
    do_set_bc       = .false.
@@ -692,7 +688,7 @@ contains
       if (step==1) do_local_update = .true.
       if (step==3) do_set_bc       = .true.
    endif
-   
+
    if (do_local_update) call self%field%update_ghost_local(q=q)
                         call self%field%update_ghost_mpi(q=q, step=step)
    if (do_set_bc)       call self%set_boundary_conditions(q=q)
@@ -729,12 +725,11 @@ contains
    enddo
    ! !$omp end parallel do
 
-
    if (D_divergence_cleaner) then
       umax = max(self%physics%chi*sqrt(1._R8P/(EPS0*MU0)), self%physics%eta*sqrt(1._R8P/(EPS0*MU0)))
    else
       umax = sqrt(1._R8P/(EPS0*MU0))
-   endif 
+   endif
 
    self%time%dt = self%time%CFL*lmin / umax
 
@@ -742,7 +737,6 @@ contains
 
     !call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih%error)
    endsubroutine compute_dt
-
 
     !subroutine compute_dt(self)
     !!< Compute maximum time step accordingly to CFL stabilty criterion.
@@ -778,7 +772,7 @@ contains
     !self%time%dt = min(self%time%dt, self%time%CFL / umax)
     !call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih%error)
     !endsubroutine compute_dt
-    
+
     !subroutine compute_q_auxiliary(self, q, q_aux)
     !!< Compute auxiliary variables.
     !class(nasto_cpu_object), intent(in)  :: self                         !< The equation.
@@ -826,7 +820,7 @@ contains
    !call self%compute_q_auxiliary(q=q, q_aux=self%q_aux)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number, &
             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), CFL=>self%time%CFL,      &
-            !q_aux=>self%q_aux, 
+            !q_aux=>self%q_aux,
             phi=>self%ib%phi, flx=>self%flx, fly=>self%fly, flz=>self%flz,                                        &
             weno_s=>self%weno%S,                                                                                  &
             weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, ror_number=>self%weno%ror_number,      &
@@ -848,7 +842,7 @@ contains
       if (.not.null_xyz(1)) then
          call compute_fluxes_convective(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,weno_s=weno_S, &
                                         weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,q=q,fluxes=flx, &
-                                        chi=chi, D_divergence_cleaner=D_divergence_cleaner, & 
+                                        chi=chi, D_divergence_cleaner=D_divergence_cleaner, &
                                         B_divergence_cleaner=B_divergence_cleaner)!, coil_flag=coil_flag, &
                                         !dx=dx, dy=dy, dz=dz)
       else
@@ -857,7 +851,7 @@ contains
       if (.not.null_xyz(2)) then
          call compute_fluxes_convective(dir=2,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,weno_s=weno_S, &
                                         weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,q=q,fluxes=fly, &
-                                        chi=chi, D_divergence_cleaner=D_divergence_cleaner, & 
+                                        chi=chi, D_divergence_cleaner=D_divergence_cleaner, &
                                         B_divergence_cleaner=B_divergence_cleaner)!, coil_flag=coil_flag, &
                                         !dx=dx, dy=dy, dz=dz)
       else
@@ -866,7 +860,7 @@ contains
       if (.not.null_xyz(3)) then
          call compute_fluxes_convective(dir=3,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,weno_s=weno_S, &
                                         weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,q=q,fluxes=flz, &
-                                        chi=chi, D_divergence_cleaner=D_divergence_cleaner, & 
+                                        chi=chi, D_divergence_cleaner=D_divergence_cleaner, &
                                         B_divergence_cleaner=B_divergence_cleaner)!, coil_flag=coil_flag, &
                                         !dx=dx, dy=dy, dz=dz)
 
@@ -893,7 +887,6 @@ contains
 
    endif
 
-
    !Calcolo della divergenza tramite i flussi
    if (D_divergence_cleaner) then
       vmax = chi/sqrt(EPS0*MU0)
@@ -905,8 +898,8 @@ contains
       do k=1, nk
          do j=1, nj
             do i=1, ni
-               self%field_Div(3,i,j,k,b) = CFL/vmax*(dq(1,i,j,k,b)+dq(2,i,j,k,b)+dq(3,i,j,k,b))       
-               self%field_Div(4,i,j,k,b) = CFL/vmax*(dq(4,i,j,k,b)+dq(5,i,j,k,b)+dq(6,i,j,k,b))  
+               self%field_Div(3,i,j,k,b) = CFL/vmax*(dq(1,i,j,k,b)+dq(2,i,j,k,b)+dq(3,i,j,k,b))
+               self%field_Div(4,i,j,k,b) = CFL/vmax*(dq(4,i,j,k,b)+dq(5,i,j,k,b)+dq(6,i,j,k,b))
             enddo
          enddo
       enddo
@@ -926,15 +919,14 @@ contains
    do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, &
-            time=>self%time%time, A=>self%coil%A, freq=>self%coil%f, phase=>self%coil%phase, & 
+            time=>self%time%time, A=>self%coil%A, freq=>self%coil%f, phase=>self%coil%phase, &
             coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, J_vec=>self%coil%J_vec, dx=>self%field%dxyz(1,1))
 
-
    if (self%coil%total_coils_number >= 1_I4P) then
-      call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=self%q, time=time, A=A, d=d, & 
+      call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=self%q, time=time, A=A, d=d, &
                                  f=freq, phase=phase, coil_flag=coil_flag, td=td, J_vec=J_vec, dx=dx)
    endif
-  
+
    call self%rk%initialize_stages(q=self%q)
    select case(self%rk%scheme)
    case(RK_1, RK_2, RK_3)
@@ -949,7 +941,7 @@ contains
          else
             call self%rk%compute_stage_ls(s=s,dt=self%time%dt,dq=self%dq,q=self%q)
          endif
-         
+
       enddo
    case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
       ! RK working on q_rk_gpu as stages
@@ -984,7 +976,7 @@ contains
                   !endif
                self%field_Div(1,i,j,k,b) = 0.5_R8P*((self%q(1,i+1,j,k,b) - self%q(1,i-1,j,k,b))/dx + &
                                           (self%q(2,i,j+1,k,b) - self%q(2,i,j-1,k,b))/dx + &
-                                          (self%q(3,i,j,k+1,b) - self%q(3,i,j,k-1,b))/dx)               
+                                          (self%q(3,i,j,k+1,b) - self%q(3,i,j,k-1,b))/dx)
                self%field_Div(2,i,j,k,b) = 0.5_R8P*((self%q(4,i+1,j,k,b) - self%q(4,i-1,j,k,b))/dx + &
                                           (self%q(5,i,j+1,k,b) - self%q(5,i,j-1,k,b))/dx + &
                                           (self%q(6,i,j,k+1,b) - self%q(6,i,j,k-1,b))/dx)
@@ -1014,11 +1006,11 @@ contains
       call self%mpih%print_message('impose initial conditions start')
       do i=1, self%ic%amr_iterations
          call self%mpih%print_message('  AMR/set IC iteration:'//trim(str(i,.true.)))
-         call self%set_initial_conditions 
+         call self%set_initial_conditions
          !if (self%ib%solids_number > 0) call self%compute_phi()
          !call self%amr_update
       enddo
-      call self%set_initial_conditions 
+      call self%set_initial_conditions
       self%time%time = 0._R8P
       self%time%it = 0
       call self%mpih%print_message('impose initial conditions finish')
@@ -1027,7 +1019,7 @@ contains
    !if (self%ib%solids_number > 0) call self%compute_phi()
    ! call self%amr_update
    call self%save_simulation_data
-   
+
    if (self%mpih%myrank==0) call self%io%open_file_residuals(nv=self%nv)
 
     ! integration
@@ -1050,7 +1042,6 @@ contains
       if ((self%time%it_max <= 0).and.(self%time%time+self%time%dt > self%time%time_max)) &
          self%time%dt=self%time%time_max-self%time%time
 
-
       !self%time%time = self%time%time + self%time%dt
       call self%integrate
 
@@ -1069,7 +1060,6 @@ contains
    if (self%mpih%myrank==0) call self%io%close_file_residuals
    endsubroutine simulate
 
-
    ! non TBP
    subroutine assign_omp_R8P_5D(blocks_number, ngc, lhs, rhs) !lasciata uguale, commentata parallelizzazione
    !< Assign array to scalar value with OpenMP threads (kind R8P, rank 5)  !rank 5?? (pure se è agnostico quindi dovrebbe andare bene comunque)
@@ -1078,7 +1068,7 @@ contains
    real(R8P),    intent(inout) :: lhs(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Lest hand side.
    real(R8P),    intent(in)    :: rhs                             !< Right hand side.
    integer(I4P)                :: ni, nj, nk, nv, b, i, j, k, v   !< Counter.
-    
+
    nv = ubound(lhs,dim=1)
    ni = ubound(lhs,dim=2) - ngc
    nj = ubound(lhs,dim=3) - ngc
@@ -1096,7 +1086,6 @@ contains
    enddo
    enddo
    endsubroutine assign_omp_R8P_5D
-   
 
    subroutine compute_fluxes_convective(dir,blocks_number,ni,nj,nk,ngc,nv,weno_s,weno_a,weno_p,weno_d,weno_zeps,q, &
                fluxes,chi,D_divergence_cleaner,B_divergence_cleaner) !cambiato q_aux con q, tolto g dagli input, commentata openmp
@@ -1193,7 +1182,7 @@ contains
    real(R8P),    intent(in)    :: weno_d(0:,0:,0:,1:)                         !< Smoothness indicators coefficients.
    real(R8P),    intent(in)    :: weno_zeps                                   !< Parameter for avoiding division by zero in computing IS.
    real(R8P),    intent(in)    :: chi                                         !< Coefficient to compute transport velocity of field divergence error
-   real(R8P),    intent(in)    :: dx(1:), dy(1:), dz(1:)                      !< Grid cell sizes. 
+   real(R8P),    intent(in)    :: dx(1:), dy(1:), dz(1:)                      !< Grid cell sizes.
    real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)               !< Field variables.
    logical,      intent(in)    :: D_divergence_cleaner                        !< Flag to perform electric field divergence cleaning.
    logical,      intent(in)    :: B_divergence_cleaner                        !< Flag to perform magnetic field divergence cleaning.
@@ -1264,7 +1253,7 @@ contains
                else
                   vecR = q(:,i+si(1),j+si(2),k+si(3),b)
                endif
-               
+
                call decompose_fluxes_convective_llf(sir=sir, nv=nv, q=vecR, evmax=evmax, chi=chi, fmp=fpmr, &
                                                     B_divergence_cleaner=B_divergence_cleaner, &
                                                     D_divergence_cleaner=D_divergence_cleaner)
@@ -1279,8 +1268,7 @@ contains
    !!$omp end parallel do
    endsubroutine compute_fluxes_convective_mod
 
-
-   subroutine compute_fluxes_difference(null_xyz, blocks_number, ni, nj, nk, ngc, nv, ib_eps, dx, dy, dz, flx, fly, flz, & 
+   subroutine compute_fluxes_difference(null_xyz, blocks_number, ni, nj, nk, ngc, nv, ib_eps, dx, dy, dz, flx, fly, flz, &
                                        phi, dq, q, eta, chi, D_divergence_cleaner, B_divergence_cleaner)
                                        !commentata parte openmp e aggiunto vettore di stato agli input per sfruttare correnti
                                        !< Compute fluxes difference.
@@ -1357,9 +1345,9 @@ contains
          do v=1, nv
             dq(v,i,j,k,b) = - (flx(v,i,j,k,b)-flx(v,i-1,j,k,b))/dx_locale &
                             - (fly(v,i,j,k,b)-fly(v,i,j-1,k,b))/dy_locale &
-                            - (flz(v,i,j,k,b)-flz(v,i,j,k-1,b))/dz_locale 
+                            - (flz(v,i,j,k,b)-flz(v,i,j,k-1,b))/dz_locale
          enddo
-         !dq(2,i,j,k,b) = dq(2,i,j,k,b) * qmx 
+         !dq(2,i,j,k,b) = dq(2,i,j,k,b) * qmx
          !dq(3,i,j,k,b) = dq(3,i,j,k,b) * qmy
          !dq(4,i,j,k,b) = dq(4,i,j,k,b) * qmz
 
@@ -1399,7 +1387,7 @@ contains
 
          !Completo calcolo aggiungendo termini sorgenti legato alle correnti delle spire (per ora)
          !E ad una eventuale correzione parabolica della divergenza (parametro eta diverso da zero)
-         
+
          dq(1,i,j,k,b) = dq(1,i,j,k,b) - q(7,i,j,k,b)
          dq(2,i,j,k,b) = dq(2,i,j,k,b) - q(8,i,j,k,b)
          dq(3,i,j,k,b) = dq(3,i,j,k,b) - q(9,i,j,k,b)
@@ -1410,16 +1398,14 @@ contains
             dq(10,i,j,k,b) = dq(10,i,j,k,b) - chi/eta*chi/eta*q(10,i,j,k,b)
             dq(11,i,j,k,b) = dq(11,i,j,k,b) - chi/eta*chi/eta*q(11,i,j,k,b)
          endif
-         
+
       enddo
       enddo
       enddo
       enddo
    !    !$omp end parallel do
    endif
-
    endsubroutine compute_fluxes_difference
-   
 
    subroutine decompose_fluxes_convective_llf(sir, nv, q, evmax, chi, fmp, B_divergence_cleaner, D_divergence_cleaner)
    !< Decompose convective fluxes using the Local-Lax-Friedrichs (LLF, Rusanov) approximation
@@ -1434,7 +1420,7 @@ contains
    real(R8P),    intent(inout) :: fmp(1:,1:)             !< Fluxes, negative/positive terms [1:2,1:nv].
    real(R8P)                   :: f(1:nv)                !< Conservative fluxes.
    integer(I4P)                :: v                      !< Counter.
- 
+
    !call compute_conservatives_scalar(q_aux=q_aux,q=q)
    !call compute_conservative_fluxes_scalar(sir=sir,q_aux=q_aux,f=f)
    if (.not.D_divergence_cleaner .and. .not.B_divergence_cleaner) then
@@ -1453,7 +1439,7 @@ contains
       fmp(:,8) = 0._R8P
       fmp(:,9) = 0._R8P
    endsubroutine decompose_fluxes_convective_llf
-   
+
    subroutine compute_coils_current(ni, nj, nk, ngc, blocks_number, q, time, A, d, f, phase, coil_flag, td, J_vec, dx)
 
       integer(I4P), intent(in)           :: blocks_number                               !< Number of blocks.
@@ -1462,8 +1448,8 @@ contains
       integer(I4P), intent(in)           :: nk                                          !< Grid cells number in K direction.
       integer(I4P), intent(in)           :: ngc                                         !< Ghost cells number.
       integer(I4P), intent(in)           :: coil_flag(1-ngc:,1-ngc:,1-ngc:,1:)      !< Matrice contenente informazioni su quale spira pass per una certa cella
-      real(R8P),    intent(in)           :: time                                        !< Simulation time, to compute current value if AC 
-      real(R8P),    intent(in)           :: dx                                          !< Space step in x direction (m)             
+      real(R8P),    intent(in)           :: time                                        !< Simulation time, to compute current value if AC
+      real(R8P),    intent(in)           :: dx                                          !< Space step in x direction (m)
       real(R8P),    intent(in)           :: A(1:)                                       !< Current amplitude (A)
       real(R8P),    intent(in)           :: f(1:)                                       !< Current frequency, if AC (Hz)
       real(R8P),    intent(in)           :: phase(1:)                                   !< Current initial phase, if AC
@@ -1475,14 +1461,14 @@ contains
       real(R8P)                          :: g                                           !< Polinomio caratteristico transitorio accensione spira
       integer(I4P)                       :: coil_id                                     !< ID per identificare spira
       integer(I4P)                       :: i,j,k,b,n                                   !< Counter
-      
+
       do b=1, blocks_number
          do k=1, nk
             do j=1, nj
                do i=1, ni
                   coil_id = coil_flag(i,j,k,b)
                   if (coil_id /= 0_I4P) then
-                     !Per DC frequenza e fase sono nulle, quindi se uso la funzione coseno 
+                     !Per DC frequenza e fase sono nulle, quindi se uso la funzione coseno
                      !mi rispramio anche il selectcase
 
                      !Densità di corrente al tempo t della spira n-esima identificata da (coil_id)
@@ -1494,7 +1480,7 @@ contains
                         g = 10._R8P*(time/td)**3 - 15._R8P*(time/td)**4 + 6._R8P*(time/td)**5
                         current_density = g*A(coil_id)/((d(coil_id)-dx)**2)*cos(phase(coil_id)*pi/180.0_R8P)
                      else
-                        current_density = A(coil_id)/((d(coil_id)-dx)**2)*cos(2*pi*f(coil_id)*(time-td) + & 
+                        current_density = A(coil_id)/((d(coil_id)-dx)**2)*cos(2*pi*f(coil_id)*(time-td) + &
                         phase(coil_id)*pi/180.0_R8P)
                      endif
 
@@ -1506,9 +1492,9 @@ contains
                      !else
                         !Se la densità di corrente è diversa da zero allora rinormalizzo il vettore corrente
                         !e lo moltiplico per la densità di corrente
-                     !   q(7,i,j,k,b) = q(7,i,j,k,b)/(sq_norm(q(7:9,i,j,k,b)))**0.5 !lo devo rinormalizzare ogni volta     
+                     !   q(7,i,j,k,b) = q(7,i,j,k,b)/(sq_norm(q(7:9,i,j,k,b)))**0.5 !lo devo rinormalizzare ogni volta
                      !   q(8,i,j,k,b) = q(8,i,j,k,b)/(sq_norm(q(7:9,i,j,k,b)))**0.5
-                     !   q(9,i,j,k,b) = q(9,i,j,k,b)/(sq_norm(q(7:9,i,j,k,b)))**0.5           
+                     !   q(9,i,j,k,b) = q(9,i,j,k,b)/(sq_norm(q(7:9,i,j,k,b)))**0.5
                      !   q(7:9,i,j,k,b) = current_density*q(7:9,i,j,k,b)
                      !endif
                   endif
@@ -1538,7 +1524,7 @@ contains
    !=> 2.0 <<<
    real(R8P), intent(in)  :: a(3)     !< Input vector
    real(R8P)              :: sq       !< Square norm of input
-    
+
    sq = (a(1) * a(1)) + (a(2) * a(2)) + (a(3) * a(3))
    endfunction sq_norm
 

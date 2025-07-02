@@ -489,10 +489,10 @@ contains
 
    ! private procedures
    subroutine compute_fluxes_convective_ri_dev(dir,si,sir,b,i,j,k,ngc,nv,                        &
-                                            weno_s,weno_a_gpu,weno_p_gpu,weno_d_gpu,weno_zeps,&
-                                            ror_number,ror_schemes_gpu,ror_threshold,         &
-                                            ror_ivar_gpu,ror_stats_gpu,                       &
-                                            g,q_aux_gpu,fluxes_gpu)
+                                               weno_s,weno_a_gpu,weno_p_gpu,weno_d_gpu,weno_zeps,&
+                                               ror_number,ror_schemes_gpu,ror_threshold,         &
+                                               ror_ivar_gpu,ror_stats_gpu,                       &
+                                               g,q_aux_gpu,fluxes_gpu)
    !< Compute convective fluxes at right interface of b,i,j,k.
    integer(I4P), intent(in)    :: dir                                       !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P), intent(in)    :: si(3)                                     !< Stencil increment.

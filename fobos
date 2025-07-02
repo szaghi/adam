@@ -8,6 +8,7 @@ modes = ascot-nvf-cuda-sz-ws
         nasto-cpu-gnu-sz-ws
         nasto-cpu-gnu-github
         prism-gnu-sz-ws         prism-gnu-sz-ws-debug
+        prism-fnl-nvf-oac-sz-ws
 
 # main modes
 
@@ -81,6 +82,12 @@ help     = Build PRISM app with GNU compiler on SZ workstation, debug mode
 template = template-gnu-sz-ws-debug
 preproc  = -D_MPI_
 target   = adam_prism_cpu.F90
+
+[prism-fnl-nvf-oac-sz-ws]
+help     = Build PRISM app with FNL library and NVF OpenACC compiler on SZ workstation
+template = template-nvf-oac-sz-ws
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF
+target   = adam_prism_fnl.F90
 
 #nasto
 [nasto-fnl-nvf-oac-sz-ws]
