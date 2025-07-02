@@ -8,6 +8,8 @@ module adam_riemann_maxwell_library
     private
     public :: compute_riemann_maxwell_llf
     public :: compute_convective_fluxes_Maxwell
+    public :: compute_convective_fluxes_Maxwell_div_D
+    public :: compute_convective_fluxes_Maxwell_div_D_B
 
 
 ! conservative variables are arranged as follows (and they coincide with auxiliary ones):
@@ -17,9 +19,9 @@ module adam_riemann_maxwell_library
 ! q(4): Bx
 ! q(5): By
 ! q(6): Bz
-! q(4): Jx
-! q(5): Jy
-! q(6): Jz
+! q(7): Jx
+! q(8): Jy
+! q(9): Jz
 
 
 ! fluxes:
@@ -49,7 +51,7 @@ contains
         real(R8P)                           :: F1(1:nv)      !< State 1 fluxes.
         real(R8P)                           :: F4(1:nv)      !< State 4 fluxes.
 
-        lmax = sqrt(1._R8P/(eps0*mu0))
+        lmax = sqrt(1._R8P/(EPS0*MU0))
 
         call compute_convective_fluxes_Maxwell(sir=sir,q=q1,f=F1)
         call compute_convective_fluxes_Maxwell(sir=sir,q=q4,f=F4)
@@ -102,14 +104,24 @@ contains
 ! q(4): Bx
 ! q(5): By
 ! q(6): Bz
+! q(7): Jx
+! q(8): Jy
+! q(9): Jz
 
-! fluxes:
+! q(10): phi
+! q(11): psi
+
+
+! fluxes, caso senza correzione divergenza:
 ! Fx(1) = 0        Fy(1) = -Bz/muz    Fz(1) = By/muy 
 ! Fx(2) = Bz/muz   Fy(2) = 0          Fz(2) = -Bx/mux
 ! Fx(3) = -By/muy  Fy(3) = Bx/mux     Fz(3) = 0
 ! Fx(4) = 0        Fy(4) = Dz/epsz    Fz(4) = -Dy/epsy
 ! Fx(5) = -Dz/epsz Fy(5) = 0          Fz(5) = Dx/epsx
 ! Fx(6) = Dy/epsy  Fy(6) = -Dx/epsx   Fz(6) = 0
+! Fx(7) = 0        Fy(7) = 0          Fz(7) = 0
+! Fx(8) = 0        Fy(8) = 0          Fz(8) = 0
+! Fx(9) = 0        Fy(9) = 0          Fz(9) = 0
 
 
     ! private procedures
@@ -119,10 +131,6 @@ contains
     real(R8P),    intent(in)    :: sir(3)         !< Directional (1=x,2=y,3=z) increment.
     real(R8P),    intent(in)    :: q(1:)         !< Auxiliary variables. 
     real(R8P),    intent(inout) :: f(1:)         !< Conservative fluxes.
-
-    !! CI METTIAMO UN IF SULLA DIREZIONE CONSIDERATA?
-    !! DOVE METTIAMO L?INFO SU EPS E MU?? (LE DEVI PURE DICHIARARE)
-    !select case(maxloc(si))
 
     if (sir(1).eq.1._R8P) then !X
     !case(1)
@@ -165,7 +173,149 @@ contains
 
     endif
     !endselect
-
    endsubroutine compute_convective_fluxes_Maxwell
+
+! fluxes, caso con correzione divergenza campo elettrico (solo phi):
+! Fx(1) = phi      Fy(1) = -Bz/muz    Fz(1) = By/muy 
+! Fx(2) = Bz/muz   Fy(2) = phi        Fz(2) = -Bx/mux
+! Fx(3) = -By/muy  Fy(3) = Bx/mux     Fz(3) = phi
+! Fx(4) = 0        Fy(4) = Dz/epsz    Fz(4) = -Dy/epsy
+! Fx(5) = -Dz/epsz Fy(5) = 0          Fz(5) = Dx/epsx
+! Fx(6) = Dy/epsy  Fy(6) = -Dx/epsx   Fz(6) = 0
+! Fx(7) = 0        Fy(7) = 0          Fz(7) = 0
+! Fx(8) = 0        Fy(8) = 0          Fz(8) = 0
+! Fx(9) = 0        Fy(9) = 0          Fz(9) = 0
+! Fx(10) = ch^2*Dx Fy(10) = ch^2*Dy   Fz(10) = ch^2*Dz
+
+
+    subroutine compute_convective_fluxes_Maxwell_div_D(sir,q,f,chi)
+    !< Compute convective fluxes for Euler equations from auxiliary variables.
+    real(R8P),    intent(in)    :: sir(3)  !< Directional (1=x,2=y,3=z) increment.
+    real(R8P),    intent(in)    :: q(1:)   !< Auxiliary variables. 
+    real(R8P),    intent(inout) :: f(1:)   !< Conservative fluxes.
+    real(R8P),    intent(in)    :: chi     !< Coefficiente velocità trasporto errori divergenza campi
+    real(R8P)                   :: ch      !< Velocità trasporto errori divergenza campi modello iperbolico
+
+    ch = chi/sqrt(EPS0*MU0)
+
+    if (sir(1).eq.1._R8P) then !X
+    !case(1)
+
+        f(1) =  q(10)
+        f(2) =  q(6)/MU0
+        f(3) = -q(5)/MU0
+        f(4) =  0.0_R8P
+        f(5) = -q(3)/EPS0
+        f(6) =  q(2)/EPS0
+        f(7) = 0._R8P
+        f(8) = 0._R8P
+        f(9) = 0._R8P
+        f(10) = ch*ch*q(1)
+
+    elseif(sir(2).eq.1._R8P) then !Y
+    !case(2)
+
+        f(1) = -q(6)/MU0
+        f(2) =  q(10)
+        f(3) =  q(4)/MU0
+        f(4) =  q(3)/EPS0
+        f(5) =  0.0_R8P
+        f(6) = -q(1)/EPS0
+        f(7) = 0._R8P
+        f(8) = 0._R8P
+        f(9) = 0._R8P
+        f(10) = ch*ch*q(2)
+
+    elseif(sir(3).eq.1._R8P) then  !Z
+    !case(3)
+
+        f(1) =  q(5)/MU0
+        f(2) = -q(4)/MU0
+        f(3) =  q(10)
+        f(4) = -q(2)/EPS0
+        f(5) =  q(1)/EPS0  
+        f(6) =  0.0_R8P 
+        f(7) = 0._R8P
+        f(8) = 0._R8P
+        f(9) = 0._R8P
+        f(10) = ch*ch*q(3)
+
+    endif
+    !endselect
+    endsubroutine compute_convective_fluxes_Maxwell_div_D
+
+! fluxes, caso con correzione divergenza campo elettrico e magnetico (phi e psi):
+! Fx(1) = phi      Fy(1) = -Bz/muz    Fz(1) = By/muy 
+! Fx(2) = Bz/muz   Fy(2) = phi        Fz(2) = -Bx/mux
+! Fx(3) = -By/muy  Fy(3) = Bx/mux     Fz(3) = phi
+! Fx(4) = csi      Fy(4) = Dz/epsz    Fz(4) = -Dy/epsy
+! Fx(5) = -Dz/epsz Fy(5) = csi        Fz(5) = Dx/epsx
+! Fx(6) = Dy/epsy  Fy(6) = -Dx/epsx   Fz(6) = csi
+! Fx(7) = 0        Fy(7) = 0          Fz(7) = 0
+! Fx(8) = 0        Fy(8) = 0          Fz(8) = 0
+! Fx(9) = 0        Fy(9) = 0          Fz(9) = 0
+! Fx(10) = ch^2*Dx Fy(10) = ch^2*Dy   Fz(10) = ch^2*Dz
+! Fx(11) = ch^2*Bx Fy(10) = ch^2*By   Fz(10) = ch^2*Bz
+
+
+    subroutine compute_convective_fluxes_Maxwell_div_D_B(sir,q,f,chi)
+    !< Compute convective fluxes for Euler equations from auxiliary variables.
+    real(R8P),    intent(in)    :: sir(3)  !< Directional (1=x,2=y,3=z) increment.
+    real(R8P),    intent(in)    :: q(1:)   !< Auxiliary variables. 
+    real(R8P),    intent(inout) :: f(1:)   !< Conservative fluxes.
+    real(R8P),    intent(in)    :: chi     !< Coefficiente velocità trasporto errori divergenza campi
+    real(R8P)                   :: ch      !< Velocità trasporto errori divergenza campi modello iperbolico
+
+    ch = chi/sqrt(EPS0*MU0)
+
+
+    if (sir(1).eq.1._R8P) then !X
+    !case(1)
+
+        f(1) =  q(10)
+        f(2) =  q(6)/MU0
+        f(3) = -q(5)/MU0
+        f(4) =  q(11)
+        f(5) = -q(3)/EPS0
+        f(6) =  q(2)/EPS0
+        f(7) = 0._R8P
+        f(8) = 0._R8P
+        f(9) = 0._R8P
+        f(10) = ch*ch*q(1)
+        f(11) = ch*ch*q(4)
+
+    elseif(sir(2).eq.1._R8P) then !Y
+    !case(2)
+
+        f(1) = -q(6)/MU0
+        f(2) =  q(10)
+        f(3) =  q(4)/MU0
+        f(4) =  q(3)/EPS0
+        f(5) =  q(11)
+        f(6) = -q(1)/EPS0
+        f(7) = 0._R8P
+        f(8) = 0._R8P
+        f(9) = 0._R8P
+        f(10) = ch*ch*q(2)
+        f(11) = ch*ch*q(5)
+
+    elseif(sir(3).eq.1._R8P) then  !Z
+    !case(3)
+
+        f(1) =  q(5)/MU0
+        f(2) = -q(4)/MU0
+        f(3) =  q(10)
+        f(4) = -q(2)/EPS0
+        f(5) =  q(1)/EPS0  
+        f(6) =  q(11) 
+        f(7) = 0._R8P
+        f(8) = 0._R8P
+        f(9) = 0._R8P
+        f(10) = ch*ch*q(3)
+        f(11) = ch*ch*q(6)
+
+    endif
+    !endselect
+    endsubroutine compute_convective_fluxes_Maxwell_div_D_B
 
 endmodule adam_riemann_maxwell_library

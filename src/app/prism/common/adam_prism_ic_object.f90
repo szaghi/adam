@@ -135,25 +135,19 @@ contains
       class(prism_ic_object),     intent(in)    :: self                 !< IC.
       type(prism_physics_object), intent(in)    :: physics              !< Fluids physiscs.
       type(field_object),         intent(inout) :: field                !< Field object.
-      integer(I4P)                              :: b, i, j, k, ri       !< Counter.
+      integer(I4P)                              :: b, i, j, k, ri, var  !< Counter.
 
    associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
-             q=>field%q, x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
+             q=>field%q, x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell, nv=>physics%nv)
    select case(self%ic_type)
    case(IC_TYPE_VACUUM) ! vacuum initial conditions
       do b=1, blocks_number
          do k=1, nk
             do j=1, nj
                do i=1, ni
-                  q(1,i,j,k,b) = 0.0_R8P
-                  q(2,i,j,k,b) = 0.0_R8P
-                  q(3,i,j,k,b) = 0.0_R8P
-                  q(4,i,j,k,b) = 0.0_R8P
-                  q(5,i,j,k,b) = 0.0_R8P
-                  q(6,i,j,k,b) = 0.0_R8P
-                  q(7,i,j,k,b) = 0.0_R8P
-                  q(8,i,j,k,b) = 0.0_R8P
-                  q(9,i,j,k,b) = 0.0_R8P
+                  do var=1, nv
+                     q(var,i,j,k,b) = 0.0_R8P
+                  enddo
                enddo
             enddo
          enddo

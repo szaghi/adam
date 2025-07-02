@@ -52,7 +52,8 @@ type :: prism_common_object
 !   integer(I4P), pointer :: ns=>null()           !< Number of fluids specie.
    integer(I4P), pointer :: nv=>null()            !< Number of conservative variables.
    ! auxiliary fields data: see nasto parameters definition for the arrangement of conservative and auxiliary variables
-   !real(R8P), allocatable :: q(:,:,:,:,:)         !< Auxiliary cell centered variables.
+   real(R8P), allocatable :: field_Div(:,:,:,:,:) !< Field divergence.
+   real(R8P), allocatable :: q_old(:,:,:,:,:)     !<.Vettore di appoggio che mi salva le variabili di stato al passo precedente.
    real(R8P),dimension(:,:,:,:,:),  pointer :: q=>null()             !< Conservative cell centered variables.
 
    !type(c_ptr), allocatable :: ptree(:) !< CGAL trees for solids.
@@ -68,9 +69,13 @@ contains
 
    associate(nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb, &
              solids_number=>self%ib%solids_number)
-   !allocate(self%q(1:nv, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb)) !< Sono allocate in field quindi non serve allocare qui.
-   !self%q = 0._R8P 
+
+   allocate(self%field_Div(1:4,1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
+   self%field_Div = 0._R8P 
+   !allocate(self%q_old(1:nv,1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
+   !self%q_old = 0._R8P
    endassociate
+
    endsubroutine allocate_common
    
 
@@ -100,7 +105,7 @@ contains
                              do_tree_init=.true.,             &
                              do_maps_init=.true.,             &
                              do_field_init=.true.,            &
-                             nv=self%physics%nv, nb=nb, nodes_number=nodes_number, q=field%q)
+                             nv=self%physics%nv, nb=1, nodes_number=11_I8P, q=field%q) !nb = nb !nodes_number = nodes_number
    call associate_adam_data(grid=self%adam%grid, field=self%adam%field, physics=self%physics)
    call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_blocks_reorder=.false.,q=self%q)!q=q)
    call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false.,q=self%q)!q=q)

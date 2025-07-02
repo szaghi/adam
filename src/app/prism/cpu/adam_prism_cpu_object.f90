@@ -338,19 +338,52 @@ contains
    output_basename_ = trim(self%io%output_basename)//'-'//trim(strz(self%time%it,9))
    if (present(output_basename)) output_basename_ = trim(output_basename)
    if (self%ib%solids_number>0) then
-      call self%adam%save_hdf5(basename=trim(output_basename_),                                                 &
-                               q=self%q,                                                                        &
-                               !q_aux=self%q_aux,                                                                      &
-                               q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz '],                           &
-                               !q_aux_name=['rhob ','u    ','v    ','w    ','ya   ','tem  ','pres ','ental','csp  '],  &
-                               with_cell_morton=.true., phi=self%ib%phi)
+      if (.not.self%physics%D_divergence_cleaner .and. .not.self%physics%B_Divergence_cleaner) then
+         call self%adam%save_hdf5(basename=trim(output_basename_),                                                 &
+                                  q=self%q,                                                                        &
+                                  q_aux=self%field_Div,                                                            &
+                                  q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz '],                  &
+                                  q_aux_name=['DivD_d','DivB_d','DivD_f','DivB_f'],                                &
+                                  with_cell_morton=.true., phi=self%ib%phi)
+      elseif (self%physics%D_divergence_cleaner .and. .not.self%physics%B_Divergence_cleaner) then
+            call self%adam%save_hdf5(basename=trim(output_basename_),                                              &
+                                  q=self%q,                                                                        &
+                                  q_aux=self%field_Div,                                                            &
+                                  q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi'],           &
+                                  q_aux_name=['DivD_d','DivB_d','DivD_f','DivB_f'],                                &
+                                  with_cell_morton=.true., phi=self%ib%phi)
+      elseif (self%physics%D_divergence_cleaner .and. self%physics%B_Divergence_cleaner) then
+            call self%adam%save_hdf5(basename=trim(output_basename_),                                              &
+                                  q=self%q,                                                                        &
+                                  q_aux=self%field_Div,                                                            &
+                                  q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi', 'psi'],    &              
+                                  q_aux_name=['DivD_d','DivB_d','DivD_f','DivB_f'],                                &
+                                  with_cell_morton=.true., phi=self%ib%phi)
+      endif
+
    else
-      call self%adam%save_hdf5(basename=trim(output_basename_),                                                 &
-                               q=self%q,                                                                        &
-                               !q_aux=self%q_aux,                                                                      &
-                               q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz '],                           &
-                               !q_aux_name=['rhob ','u    ','v    ','w    ','ya   ','tem  ','pres ','ental','csp  '],  &
-                               with_cell_morton=.true.)
+      if (.not.self%physics%D_divergence_cleaner .and. .not.self%physics%B_Divergence_cleaner) then
+         call self%adam%save_hdf5(basename=trim(output_basename_),                                                 &
+                                  q=self%q,                                                                        &
+                                  q_aux=self%field_Div,                                                            &
+                                  q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz '],                  &
+                                  q_aux_name=['DivD_d','DivB_d','DivD_f','DivB_f'],                                &
+                                  with_cell_morton=.true.)
+      elseif (self%physics%D_divergence_cleaner .and. .not.self%physics%B_Divergence_cleaner) then
+            call self%adam%save_hdf5(basename=trim(output_basename_),                                              &
+                                  q=self%q,                                                                        &
+                                  q_aux=self%field_Div,                                                            &
+                                  q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi'],           &
+                                  q_aux_name=['DivD_d','DivB_d','DivD_f','DivB_f'],                                &
+                                  with_cell_morton=.true.)
+      elseif (self%physics%D_divergence_cleaner .and. self%physics%B_Divergence_cleaner) then
+            call self%adam%save_hdf5(basename=trim(output_basename_),                                              &
+                                  q=self%q,                                                                        &
+                                  q_aux=self%field_Div,                                                            &
+                                  q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi', 'psi'],    &              
+                                  q_aux_name=['DivD_d','DivB_d','DivD_f','DivB_f'],                                &
+                                  with_cell_morton=.true.)
+      endif
    endif
    call self%mpih%barrier(tictoc=.true.)
    endsubroutine save_hdf5
@@ -364,7 +397,7 @@ contains
       call self%field%compute_normL2_residuals(dq=self%dq, norm=self%field%residuals)
       do v=1, self%nv
          !call MPI_ALLREDUCE(MPI_IN_PLACE, self%field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
-         self%field%residuals(v) = sqrt(self%field%residuals(v))
+         self%field%residuals(v) = sqrt(self%field%residuals(v))/sqrt(real(self%ni*self%nj*self%nk, R8P))
       enddo
       if (self%mpih%myrank==0) call self%io%save_residuals(it=self%time%it, time=self%time%time, &
                                                            blocks_number=self%blocks_number, residuals=self%field%residuals)
@@ -395,15 +428,36 @@ contains
    
       if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_hdf5
       if (mod(self%time%it,self%io%restart_save)==0) call self%save_restart_files
-      if (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))&
-         call self%slices%save_mat(basename=self%io%output_basename, &
-                                   it=self%time%it,                  &
-                                   it_max=self%time%it_max,          &
-                                   time=self%time%time,              &
-                                   time_max=self%time%time_max,      &
-                                   adam=self%adam,                   &
-                                   q=self%q,                   &
-                                   q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz '])
+      if (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max)) then
+         if (.not.self%physics%D_divergence_cleaner .and. .not.self%physics%B_Divergence_cleaner) then
+            call self%slices%save_mat(basename=self%io%output_basename, &
+                                      it=self%time%it,                  &
+                                      it_max=self%time%it_max,          &
+                                      time=self%time%time,              &
+                                      time_max=self%time%time_max,      &
+                                      adam=self%adam,                   &
+                                      q=self%q,                   &
+                                      q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz '])
+         elseif (self%physics%D_divergence_cleaner .and. .not.self%physics%B_Divergence_cleaner) then
+            call self%slices%save_mat(basename=self%io%output_basename, &
+                                      it=self%time%it,                  &
+                                      it_max=self%time%it_max,          &
+                                      time=self%time%time,              &
+                                      time_max=self%time%time_max,      &
+                                      adam=self%adam,                   &
+                                      q=self%q,                   &
+                                      q_name=['Dx  ','Dy  ','Dz  ','Bx  ','By  ','Bz  ','Jx  ','Jy  ','Jz  ','Phi '])
+         elseif (self%physics%D_divergence_cleaner .and. self%physics%B_Divergence_cleaner) then
+            call self%slices%save_mat(basename=self%io%output_basename, &
+                                      it=self%time%it,                  &
+                                      it_max=self%time%it_max,          &
+                                      time=self%time%time,              &
+                                      time_max=self%time%time_max,      &
+                                      adam=self%adam,                   &
+                                      q=self%q,                   &
+                                      q_name=['Dx  ','Dy  ','Dz  ','Bx  ','By  ','Bz  ','Jx  ','Jy  ','Jz  ','Phi ','Psi '])
+         endif
+      endif
    endif
    endsubroutine save_simulation_data 
    ! IC/BC
@@ -426,12 +480,14 @@ contains
    real(R8P)                           :: ds                   !< Distanza tra le celle in x, y o z.
    real(R8P)                           :: ngc_r, crown_r           !< Numero di gc totale, reale
    real(R8P)                           :: ref(1:9)             !< Vettore di stato di riferimento per assegnazione gc.
-   real(R8P)                           :: phi, f               !< Variabili phi e f fWL.
+   real(R8P)                           :: fi, f               !< Variabili phi e f fWL.
    !associate(local_map_bc_crown=>self%field%maps%local_map_bc_crown, &
    !          nv=>self%nv, ngc=>self%ngc, cv=>self%physics%eos(1)%cv, R=>self%physics%eos(1)%R, q_bc_vars=>self%bc%q)
-   associate(local_map_bc_crown=>self%field%maps%local_map_bc_crown, &
+   associate(local_map_bc_crown=>self%field%maps%local_map_bc_crown, q_old=>self%q_old, &
              nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), &
-             dz=>self%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk)
+             dz=>self%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, &
+             D_divergence_cleaner=>self%physics%D_divergence_cleaner, dt=>self%time%dt, &
+             B_divergence_cleaner=>self%physics%B_divergence_cleaner, chi=>self%physics%chi)
    if (allocated(self%field%maps%local_map_bc_crown)) then
       do crown=1, ngc
          do c=1, size(local_map_bc_crown, dim=1)
@@ -447,9 +503,19 @@ contains
                fec     = local_map_bc_crown(c, 9 ,crown) !da qua la faccia e quindi la normale
                fec_1_6 = fec_1_6_array(fec)
                if (bc_type == BC_EXTRAPOLATION) then
-                  do v=1, nv
+                  do v=1, 9
                      q(v,i,j,k,b) = q(v,i-idelta,j-jdelta,k-kdelta,b) !ni,j,k coordinate della cella da cui prendo i valori
                   enddo
+                  if (self%physics%D_divergence_cleaner) then
+                     q(10,i,j,k,b) = 0._R8P
+                     !q(10,i,j,k,b) = q(10,i-idelta,j-jdelta,k-kdelta,b) - dx(b)/((chi*sqrt(1/(MU0*EPS0)))*dt)* &
+                                    !(q(10,i-idelta,j-jdelta,k-kdelta,b)-q_old(10,i-idelta,j-jdelta,k-kdelta,b))
+                  endif
+                  if (self%physics%B_divergence_cleaner) then
+                     q(11,i,j,k,b) = 0._R8P
+                     !q(11,i,j,k,b) = q(11,i-idelta,j-jdelta,k-kdelta,b) - dx(b)/((chi*sqrt(1/(MU0*EPS0)))*dt)* &
+                                    !(q(11,i-idelta,j-jdelta,k-kdelta,b)-q_old(11,i-idelta,j-jdelta,k-kdelta,b))
+                  endif
                elseif (bc_type == BC_fWLayer) then
                   !print *, fec
                   if (fec <= 6) then
@@ -526,9 +592,9 @@ contains
                      ngc_r = real(ngc,R8P)
                      crown_r = real(crown, R8P)
                      if (ngc < 40_I4P) then
-                        phi = 1/150._R8P*(-7.0_R8P*ngc_r**2 + 255._R8P*ngc_r + 250._R8P) !polinomio di Barbas
+                        fi = 1/150._R8P*(-7.0_R8P*ngc_r**2 + 255._R8P*ngc_r + 250._R8P) !polinomio di Barbas
                      else
-                        phi = 25.0_R8P
+                        fi = 25.0_R8P
                      endif
                      !x - xa è la distanza tra il centro della gc considerata e il bordo del dominio (fatto col centro cella, vedremo)
                      !è pari quindi a (ngc_r - crown_r) * ds
@@ -536,7 +602,7 @@ contains
                      !xb - xa è la distanza tra il centro della gc più esterna considerata e il bordo del dominio (fatto col centro cella, vedremo)
                      !è pari quindi a C * ds
 
-                     f = 1._R8P/phi*LOG10(((ngc_r-crown_r)*ds)/(ngc_r*ds)*(10._R8P**phi-1._R8P)+1._R8P) !funzione f 
+                     f = 1._R8P/fi*LOG10(((ngc_r-crown_r)*ds)/(ngc_r*ds)*(10._R8P**fi-1._R8P)+1._R8P) !funzione f 
 
 
                      q(alfa_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(s1*(f-1._R8P)*ref(beta_B)*EPS0**0.5_R8P + &
@@ -642,7 +708,9 @@ contains
    integer(I4P)                           :: b, i, j, k                      !< Counter.
    lmin = huge(1._R8P)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, blocks_number=>self%blocks_number, &
-             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:))
+            dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), &
+            D_divergence_cleaner=>self%physics%D_divergence_cleaner, &
+            B_divergence_cleaner=>self%physics%B_divergence_cleaner) !, chi=>self%physics%chi, eta=>self%physics%eta)
    ! !$omp parallel do collapse(4) default(firstprivate) shared(dx,dy,dz,q_aux) reduction(max:umax)
    do b=1, blocks_number
       do k=1, nk
@@ -660,10 +728,17 @@ contains
       enddo
    enddo
    ! !$omp end parallel do
-   endassociate
 
-   umax = sqrt(1._R8P/(EPS0*MU0))
+
+   if (D_divergence_cleaner) then
+      umax = max(self%physics%chi*sqrt(1._R8P/(EPS0*MU0)), self%physics%eta*sqrt(1._R8P/(EPS0*MU0)))
+   else
+      umax = sqrt(1._R8P/(EPS0*MU0))
+   endif 
+
    self%time%dt = self%time%CFL*lmin / umax
+
+   endassociate
 
     !call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih%error)
    endsubroutine compute_dt
@@ -740,22 +815,29 @@ contains
                                                 1-self%ngc:,&
                                                 1-self%ngc:,&
                                                 1:) !< Residuals.
+   real(R8P)                              :: vmax   !< Maximum speed of waves propagation.
+   integer(I4P)                           :: b, i, j, k !< Counter.
 
    call self%update_ghost(q=q)
+
+   !self%q_old = q ! save q backward time for computations
+
    !call self%integrate_eikonal(q=q)
    !call self%compute_q_auxiliary(q=q, q_aux=self%q_aux)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number, &
-             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),                         &
-             !q_aux=>self%q_aux, 
-             phi=>self%ib%phi, flx=>self%flx, fly=>self%fly, flz=>self%flz,                                        &
-             weno_s=>self%weno%S,                                                                                  &
-             weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, ror_number=>self%weno%ror_number,      &
-             ror_schemes=>self%weno%ror_schemes, ror_ivar=>self%weno%ror_ivar,                                     &
-             ror_threshold=>self%weno%ror_threshold, enable_ror_stats=>self%weno%enable_ror_stats,                 &
-             cell_scheme=>self%weno%cell_scheme, ror_stats=>self%weno%ror_stats, weno_zeps=>self%weno%zeps,        &
-             solids_number=>self%ib%solids_number, null_xyz=>self%grid%null_xyz, time=>self%time%time,             &
-             A=>self%coil%A, freq=>self%coil%f, phase=>self%coil%phase, coil_flag =>self%coil%coil_flag,           &
-             d=>self%coil%d, td=>self%coil%td)
+            dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), CFL=>self%time%CFL,      &
+            !q_aux=>self%q_aux, 
+            phi=>self%ib%phi, flx=>self%flx, fly=>self%fly, flz=>self%flz,                                        &
+            weno_s=>self%weno%S,                                                                                  &
+            weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, ror_number=>self%weno%ror_number,      &
+            ror_schemes=>self%weno%ror_schemes, ror_ivar=>self%weno%ror_ivar,                                     &
+            ror_threshold=>self%weno%ror_threshold, enable_ror_stats=>self%weno%enable_ror_stats,                 &
+            cell_scheme=>self%weno%cell_scheme, ror_stats=>self%weno%ror_stats, weno_zeps=>self%weno%zeps,        &
+            solids_number=>self%ib%solids_number, null_xyz=>self%grid%null_xyz, time=>self%time%time,             &
+            A=>self%coil%A, freq=>self%coil%f, phase=>self%coil%phase, coil_flag =>self%coil%coil_flag,           &
+            d=>self%coil%d, td=>self%coil%td, chi=>self%physics%chi, eta=>self%physics%eta,                       &
+            D_divergence_cleaner=>self%physics%D_divergence_cleaner,                                              &
+            B_divergence_cleaner=>self%physics%B_divergence_cleaner)
              !cv=>self%physics%eos(1)%cv, g=>self%physics%eos(1)%g, R=>self%physics%eos(1)%R,                       &
              !mu=>self%physics%eos(1)%mu, kd=>self%physics%eos(1)%kd, dha=>self%physics%eos(1)%dha, null_xyz=>self%grid%null_xyz)
 
@@ -765,19 +847,28 @@ contains
    if (blocks_number > 0) then
       if (.not.null_xyz(1)) then
          call compute_fluxes_convective(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,weno_s=weno_S, &
-                                        weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,q=q,fluxes=flx)
+                                        weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,q=q,fluxes=flx, &
+                                        chi=chi, D_divergence_cleaner=D_divergence_cleaner, & 
+                                        B_divergence_cleaner=B_divergence_cleaner)!, coil_flag=coil_flag, &
+                                        !dx=dx, dy=dy, dz=dz)
       else
          call assign_omp(blocks_number=blocks_number, ngc=ngc, lhs=flx, rhs=0._R8P)
       endif
       if (.not.null_xyz(2)) then
          call compute_fluxes_convective(dir=2,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,weno_s=weno_S, &
-                                        weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,q=q,fluxes=fly)
+                                        weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,q=q,fluxes=fly, &
+                                        chi=chi, D_divergence_cleaner=D_divergence_cleaner, & 
+                                        B_divergence_cleaner=B_divergence_cleaner)!, coil_flag=coil_flag, &
+                                        !dx=dx, dy=dy, dz=dz)
       else
          call assign_omp(blocks_number=blocks_number, ngc=ngc, lhs=fly, rhs=0._R8P)
       endif
       if (.not.null_xyz(3)) then
          call compute_fluxes_convective(dir=3,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,weno_s=weno_S, &
-                                        weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,q=q,fluxes=flz)
+                                        weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,q=q,fluxes=flz, &
+                                        chi=chi, D_divergence_cleaner=D_divergence_cleaner, & 
+                                        B_divergence_cleaner=B_divergence_cleaner)!, coil_flag=coil_flag, &
+                                        !dx=dx, dy=dy, dz=dz)
 
       else
          call assign_omp(blocks_number=blocks_number, ngc=ngc, lhs=flz, rhs=0._R8P)
@@ -789,79 +880,68 @@ contains
       if (solids_number>0) then
          call compute_fluxes_difference(null_xyz=null_xyz,                                                                   &
                                         blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, ib_eps=1.e-12_R8P, &
-                                        dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz, phi=phi, dq=dq, q=q)
+                                        dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz, phi=phi, dq=dq, q=q, eta=eta, &
+                                        chi = chi, D_divergence_cleaner=D_divergence_cleaner, &
+                                        B_divergence_cleaner=B_divergence_cleaner)
       else
          call compute_fluxes_difference(null_xyz=null_xyz,                                                                   &
                                         blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, ib_eps=1.e-12_R8P, &
-                                        dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz, dq=dq, q=q)
+                                        dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz, dq=dq, q=q, eta=eta, &
+                                        chi = chi, D_divergence_cleaner=D_divergence_cleaner, &
+                                        B_divergence_cleaner=B_divergence_cleaner)
       endif
 
    endif
+
+
+   !Calcolo della divergenza tramite i flussi
+   if (D_divergence_cleaner) then
+      vmax = chi/sqrt(EPS0*MU0)
+   else
+      vmax = sqrt(1._R8P/(EPS0*MU0))
+   endif
+
+   do b=1, blocks_number
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               self%field_Div(3,i,j,k,b) = CFL/vmax*(dq(1,i,j,k,b)+dq(2,i,j,k,b)+dq(3,i,j,k,b))       
+               self%field_Div(4,i,j,k,b) = CFL/vmax*(dq(4,i,j,k,b)+dq(5,i,j,k,b)+dq(6,i,j,k,b))  
+            enddo
+         enddo
+      enddo
+   enddo
    endassociate
+
    endsubroutine compute_residuals
 
-   subroutine integrate(self, do_ghost_syncro) !invariato
+   subroutine integrate(self, do_ghost_syncro) !occhio a come usi il dx, lo hai fatto nel modo più semplice possibile
+                                               !ma per griglia non uniforme va modificato
    !< Perform one step integration.
    class(prism_cpu_object), intent(inout)         :: self             !< The equation.
    logical,                 intent(in),  optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
    logical                                        :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
-   integer(I4P)                                   :: s                !< Counter.
+   integer(I4P)                                   :: s,b,i,j,k,var    !< Counter.
 
    do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, &
-             time=>self%time%time, A=>self%coil%A, freq=>self%coil%f, phase=>self%coil%phase, & 
-             coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, J_vec=>self%coil%J_vec)
-   
-         !print *, maxval(self%q(7,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo x PRE COMPUTE COILS'
-         !print *, maxval(self%q(8,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo y PRE COMPUTE COILS'
-         !print *, maxval(self%q(9,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo z PRE COMPUTE COILS'
-         !print *, minval(self%q(7,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo x PRE COMPUTE COILS'
-         !print *, minval(self%q(8,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo y PRE COMPUTE COILS'
-         !print *, minval(self%q(9,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo z PRE COMPUTE COILS'
+            time=>self%time%time, A=>self%coil%A, freq=>self%coil%f, phase=>self%coil%phase, & 
+            coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, J_vec=>self%coil%J_vec, dx=>self%field%dxyz(1,1))
+
 
    if (self%coil%total_coils_number >= 1_I4P) then
       call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=self%q, time=time, A=A, d=d, & 
-                                 f=freq, phase=phase, coil_flag=coil_flag, td=td, J_vec=J_vec)
+                                 f=freq, phase=phase, coil_flag=coil_flag, td=td, J_vec=J_vec, dx=dx)
    endif
-
-
-         !print *, maxval(self%q(7,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo x POST COMPUTE COILS'
-         !print *, maxval(self%q(8,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo y POST COMPUTE COILS'
-         !print *, maxval(self%q(9,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo z POST COMPUTE COILS'
-         !print *, minval(self%q(7,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo x POST COMPUTE COILS'
-         !print *, minval(self%q(8,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo y POST COMPUTE COILS'
-         !print *, minval(self%q(9,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo z POST COMPUTE COILS'
-
-   endassociate
-
+  
    call self%rk%initialize_stages(q=self%q)
    select case(self%rk%scheme)
    case(RK_1, RK_2, RK_3)
       ! low storage RK working on q_rk_gpu(:,:,:,:,:,1)/q_gpu as stages, update q_gpu in place
       do s=1, self%rk%nrk
-        ! print *, maxval(self%q(7,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo x PRE RESIDUI'
-        ! print *, maxval(self%q(8,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo y PRE RESIDUI'
-         !print *, maxval(self%q(9,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo z PRE RESIDUI'
-         !print *, minval(self%q(7,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo x PRE RESIDUI'
-         !print *, minval(self%q(8,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo y PRE RESIDUI'
-         !print *, minval(self%q(9,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo z PRE RESIDUI'
 
          call self%compute_residuals(q=self%q, dq=self%dq)
-
-         !print *, maxval(self%q(7,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo x POST RESIDUI'
-         !print *, maxval(self%q(8,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo y POST RESIDUI'
-         !print *, maxval(self%q(9,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo z POST RESIDUI'
-         !print *, minval(self%q(7,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo x POST RESIDUI'
-         !print *, minval(self%q(8,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo y POST RESIDUI'
-         !print *, minval(self%q(9,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo z POST RESIDUI'
-!
-         !print *, maxval(self%dq(7,:,:,:,:)), 'Stampa il valore del residuo massimo della densità di corrente lungo x'
-         !print *, maxval(self%dq(8,:,:,:,:)), 'Stampa il valore del residuo massimo della densità di corrente lungo y'
-         !print *, maxval(self%dq(9,:,:,:,:)), 'Stampa il valore del residuo massimo della densità di corrente lungo z'
-         !print *, minval(self%dq(7,:,:,:,:)), 'Stampa il valore del residuo minimo della densità di corrente lungo x'
-         !print *, minval(self%dq(8,:,:,:,:)), 'Stampa il valore del residuo minimo della densità di corrente lungo y'
-         !print *, minval(self%dq(9,:,:,:,:)), 'Stampa il valore del residuo minimo della densità di corrente lungo z'
 
          if (s==1) call self%save_residuals
          if (self%ib%solids_number>0) then
@@ -869,12 +949,7 @@ contains
          else
             call self%rk%compute_stage_ls(s=s,dt=self%time%dt,dq=self%dq,q=self%q)
          endif
-         !print *, maxval(self%q(7,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo x POST RK'
-         !print *, maxval(self%q(8,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo y POST RK'
-         !print *, maxval(self%q(9,:,:,:,:)), 'Stampa il valore massimo della densità di corrente lungo z POST RK'
-         !print *, minval(self%q(7,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo x POST RK'
-         !print *, minval(self%q(8,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo y POST RK'
-         !print *, minval(self%q(9,:,:,:,:)), 'Stampa il valore minimo della densità di corrente lungo z POST RK'
+         
       enddo
    case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
       ! RK working on q_rk_gpu as stages
@@ -898,6 +973,27 @@ contains
          call self%rk%update_q(dt=self%time%dt, q=self%q)
       endif
    endselect
+
+   !calcolo della divergenza tramite differenze finite
+   do b=1, blocks_number
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+                  !if (self%coil%coil_flag(i,j,k,b) > 0_I4P) then
+                  !   self%q(1:6,i,j,k,b) = 0._R8P ! azzero i campi dentro le spire
+                  !endif
+               self%field_Div(1,i,j,k,b) = 0.5_R8P*((self%q(1,i+1,j,k,b) - self%q(1,i-1,j,k,b))/dx + &
+                                          (self%q(2,i,j+1,k,b) - self%q(2,i,j-1,k,b))/dx + &
+                                          (self%q(3,i,j,k+1,b) - self%q(3,i,j,k-1,b))/dx)               
+               self%field_Div(2,i,j,k,b) = 0.5_R8P*((self%q(4,i+1,j,k,b) - self%q(4,i-1,j,k,b))/dx + &
+                                          (self%q(5,i,j+1,k,b) - self%q(5,i,j-1,k,b))/dx + &
+                                          (self%q(6,i,j,k+1,b) - self%q(6,i,j,k-1,b))/dx)
+            enddo
+         enddo
+      enddo
+   enddo
+
+   endassociate
    endsubroutine integrate
 
    subroutine simulate(self, filename) !invariata ma ho aggiunto parte set coils insieme a ic
@@ -1002,7 +1098,8 @@ contains
    endsubroutine assign_omp_R8P_5D
    
 
-   subroutine compute_fluxes_convective(dir,blocks_number,ni,nj,nk,ngc,nv,weno_s,weno_a,weno_p,weno_d,weno_zeps,q,fluxes) !cambiato q_aux con q, tolto g dagli input, commentata openmp
+   subroutine compute_fluxes_convective(dir,blocks_number,ni,nj,nk,ngc,nv,weno_s,weno_a,weno_p,weno_d,weno_zeps,q, &
+               fluxes,chi,D_divergence_cleaner,B_divergence_cleaner) !cambiato q_aux con q, tolto g dagli input, commentata openmp
    !< Compute convective fluxes along direction `dir`.
    integer(I4P), intent(in)    :: dir                                !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P), intent(in)    :: blocks_number                      !< Number of blocks.
@@ -1016,8 +1113,10 @@ contains
    real(R8P),    intent(in)    :: weno_p(1:,0:,0:,1:)                !< Polinomials coefficients.
    real(R8P),    intent(in)    :: weno_d(0:,0:,0:,1:)                !< Smoothness indicators coefficients.
    real(R8P),    intent(in)    :: weno_zeps                          !< Parameter for avoiding division by zero in computing IS.
-   !real(R8P),    intent(in)    :: g                                  !< Specific heats ratio.
+   real(R8P),    intent(in)    :: chi                                !< Coefficient to compute transport velocity of field divergence error
    real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Field variables.
+   logical,      intent(in)    :: D_divergence_cleaner               !< Flag to perform electric field divergence cleaning.
+   logical,      intent(in)    :: B_divergence_cleaner               !< Flag to perform magnetic field divergence cleaning.
    real(R8P),    intent(inout) :: fluxes(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes.
    real(R8P)                   :: el(nv,nv), er(nv,nv)               !< Left and right eigenvalues.
    real(R8P)                   :: fmp (1:2,                   1:nv)  !< Fluxes -+ decomposition.
@@ -1045,7 +1144,11 @@ contains
    si_j = 1-si(2)
    si_k = 1-si(3)
 
-   evmax = sqrt(1._R8P/(EPS0*MU0))  !velocità massima, sempre pari a quella della luce
+   if (D_divergence_cleaner) then
+      evmax = chi*sqrt(1._R8P/(EPS0*MU0))  !velocità massima, sempre pari a quella della luce per i campi ma non per i correttori!
+   else
+      evmax = sqrt(1._R8P/(EPS0*MU0))
+   endif
 
    !uni = 1 + 1*si(1)+2*si(2)+3*si(3)
    !ut1 = 1 + findloc(si, 0_I4P             , dim=1)
@@ -1053,43 +1156,157 @@ contains
 
    ! !$omp parallel do collapse(4) default(firstprivate) shared(weno_a, weno_p, weno_d, q_aux, fluxes)
    do b=1, blocks_number
-   do k=si_k, nk
-   do j=si_j, nj
-   do i=si_i, ni
-      !call compute_max_eigenvalues(si=si,sir=sir,weno_s=weno_s,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,q_aux=q_aux,evmax=evmax)
-      call decompose_fluxes_convective_llf(sir=sir, nv=nv, q=q(:,i      ,j      ,k      ,b), evmax=evmax, fmp=fmp)
-      call decompose_fluxes_convective_llf(sir=sir, nv=nv, q=q(:,i+si(1),j+si(2),k+si(3),b), evmax=evmax, fmp=fpmr)
-      fluxes(:,i,j,k,b) = fmp(2,:) + fpmr(1,:)
-   enddo
-   enddo
-   enddo
+      do k=si_k, nk
+         do j=si_j, nj
+            do i=si_i, ni
+               !call compute_max_eigenvalues(si=si,sir=sir,weno_s=weno_s,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,q_aux=q_aux,evmax=evmax)
+               call decompose_fluxes_convective_llf(sir=sir, nv=nv, q=q(:,i      ,j      ,k      ,b), evmax=evmax, chi=chi, &
+                                                    fmp=fmp, B_divergence_cleaner=B_divergence_cleaner, &
+                                                    D_divergence_cleaner=D_divergence_cleaner)
+               call decompose_fluxes_convective_llf(sir=sir, nv=nv, q=q(:,i+si(1),j+si(2),k+si(3),b), evmax=evmax, chi=chi, &
+                                                    fmp=fpmr, B_divergence_cleaner=B_divergence_cleaner, &
+                                                    D_divergence_cleaner=D_divergence_cleaner)
+               fluxes(:,i,j,k,b) = fmp(2,:) + fpmr(1,:)
+            enddo
+         enddo
+      enddo
    enddo
    !!$omp end parallel do
    endsubroutine compute_fluxes_convective
 
+   subroutine compute_fluxes_convective_mod(dir,blocks_number,ni,nj,nk,ngc,nv,weno_s,weno_a,weno_p,weno_d,weno_zeps,q, &
+               fluxes,chi,D_divergence_cleaner,B_divergence_cleaner, coil_flag, dx, dy, dz) !cambiato q_aux con q, tolto g dagli input, commentata openmp
+   !< Compute convective fluxes along direction `dir`.
+   !< Versione modificata per approssimare la J come corrente superficiale e vedere se va meglio l'errore du D e il raggiungimento
+   !< dello stato stazionario.
+   integer(I4P), intent(in)    :: dir                                         !< Direction, 1=X, 2=Y, 3=Z.
+   integer(I4P), intent(in)    :: blocks_number                               !< Number of blocks.
+   integer(I4P), intent(in)    :: ni                                          !< Grid cells number in I direction.
+   integer(I4P), intent(in)    :: nj                                          !< Grid cells number in J direction.
+   integer(I4P), intent(in)    :: nk                                          !< Grid cells number in K direction.
+   integer(I4P), intent(in)    :: ngc                                         !< Ghost cells number.
+   integer(I4P), intent(in)    :: nv                                          !< Number of conservative varibales.
+   integer(I4P), intent(in)    :: weno_s                                      !< Weno stencils number/dimension.
+   integer(I4P), intent(in)    :: coil_flag(1-ngc:,1-ngc:,1-ngc:,1:)      !< Matrice contenente informazioni su quale spira pass per una certa cella
+   real(R8P),    intent(in)    :: weno_a(1:,0:,1:)                            !< Optimal weights.
+   real(R8P),    intent(in)    :: weno_p(1:,0:,0:,1:)                         !< Polinomials coefficients.
+   real(R8P),    intent(in)    :: weno_d(0:,0:,0:,1:)                         !< Smoothness indicators coefficients.
+   real(R8P),    intent(in)    :: weno_zeps                                   !< Parameter for avoiding division by zero in computing IS.
+   real(R8P),    intent(in)    :: chi                                         !< Coefficient to compute transport velocity of field divergence error
+   real(R8P),    intent(in)    :: dx(1:), dy(1:), dz(1:)                      !< Grid cell sizes. 
+   real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)               !< Field variables.
+   logical,      intent(in)    :: D_divergence_cleaner                        !< Flag to perform electric field divergence cleaning.
+   logical,      intent(in)    :: B_divergence_cleaner                        !< Flag to perform magnetic field divergence cleaning.
+   real(R8P),    intent(inout) :: fluxes(1:,1-ngc:,1-ngc:,1-ngc:,1:)          !< Fluxes.
+   real(R8P)                   :: el(nv,nv), er(nv,nv)                        !< Left and right eigenvalues.
+   real(R8P)                   :: fmp (1:2,                   1:nv)           !< Fluxes -+ decomposition.
+   real(R8P)                   :: fmpc(1:2,1-weno_s:-1+weno_s,1:nv)           !< Fluxes -+ decomposition in c. space.
+   real(R8P)                   :: fpmr(1:2,1:nv)                              !< Fluxes +- reconstructed.
+   logical                     :: ror_recompute                               !< Flag to perform ROR.
+   integer(I4P)                :: r, v, vv                                    !< Counter.
+   integer(I4P)                :: b, i, j, k                                  !< Counter.
+   integer(I4P)                :: si(3), si_i, si_j, si_k                     !< Directional (1=x,2=y,3=z) increment.
+   real(R8P)                   :: sir(3)                                      !< Directional (1=x,2=y,3=z) increment, real.
+   real(R8P)                   :: vecR(1:nv),vecL(1:nv)                       !< Vettori di appoggio per gli stati del problema di riemann.
+   !integer(I4P)                :: uni, ut1, ut2                              !< Index of normal and tangential velocities.
+   real(R8P)                   :: evmax                                       !< Maximum waves speed estimation.
+   integer(I4P)                :: s, is, js, ks                               !< Counter.
 
-   subroutine compute_fluxes_difference(null_xyz, blocks_number, ni, nj, nk, ngc, nv, ib_eps, dx, dy, dz, flx, fly, flz, phi, dq, q) !commentata parte openmp e aggiunto vettore di stato agli input per sfruttare correnti
-   !< Compute fluxes difference.
+   select case(dir)
+   case(1)
+      si = [1,0,0]
+   case(2)
+      si = [0,1,0]
+   case(3)
+      si = [0,0,1]
+   endselect
+   sir = real(si,R8P)
+   si_i = 1-si(1)
+   si_j = 1-si(2)
+   si_k = 1-si(3)
+
+   if (D_divergence_cleaner) then
+      evmax = chi*sqrt(1._R8P/(EPS0*MU0))  !velocità massima, sempre pari a quella della luce per i campi ma non per i correttori!
+   else
+      evmax = sqrt(1._R8P/(EPS0*MU0))
+   endif
+
+   !uni = 1 + 1*si(1)+2*si(2)+3*si(3)
+   !ut1 = 1 + findloc(si, 0_I4P             , dim=1)
+   !ut2 = 1 + findloc(si, 0_I4P, back=.true., dim=1)
+
+   ! !$omp parallel do collapse(4) default(firstprivate) shared(weno_a, weno_p, weno_d, q_aux, fluxes)
+   do b=1, blocks_number
+      do k=si_k, nk
+         do j=si_j, nj
+            do i=si_i, ni
+               !call compute_max_eigenvalues(si=si,sir=sir,weno_s=weno_s,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,q_aux=q_aux,evmax=evmax)
+               if (coil_flag(i,j,k,b) > 0_I4P) then
+                  vecL(1) = -q(1,i+si(1),j+si(2),k+si(3),b)
+                  vecL(2) = -q(2,i+si(1),j+si(2),k+si(3),b)
+                  vecL(3) = -q(3,i+si(1),j+si(2),k+si(3),b)
+                  vecL(4:6) = q(4:6,i+si(1),j+si(2),k+si(3),b)-MU0*crossproduct(sir,q(7:9,i,j,k,b))*dx(b)
+                  vecL(7:9) = q(7:9,i,j,k,b)
+                  !print *, vecL, 'Riga 1039 CPU object'
+               else
+                  vecL = q(:,i,j,k,b)
+               endif
+               call decompose_fluxes_convective_llf(sir=sir, nv=nv, q=vecL, evmax=evmax, chi=chi, fmp=fmp, &
+                                                    B_divergence_cleaner=B_divergence_cleaner, &
+                                                    D_divergence_cleaner=D_divergence_cleaner)
+               if (coil_flag(i+si(1),j+si(2),k+si(3),b) > 0_I4P) then
+                  vecR(1) = -q(1,i,j,k,b)
+                  vecR(2) = -q(2,i,j,k,b)
+                  vecR(3) = -q(3,i,j,k,b)
+                  vecR(4:6) = q(4:6,i,j,k,b)+MU0*crossproduct(sir,q(7:9,i+si(1),j+si(2),k+si(3),b))*dx(b)
+                  vecR(7:9) = q(7:9,i+si(1),j+si(2),k+si(3),b)
+                  !print *, vecR, 'Riga 1040 CPU object'
+               else
+                  vecR = q(:,i+si(1),j+si(2),k+si(3),b)
+               endif
+               
+               call decompose_fluxes_convective_llf(sir=sir, nv=nv, q=vecR, evmax=evmax, chi=chi, fmp=fpmr, &
+                                                    B_divergence_cleaner=B_divergence_cleaner, &
+                                                    D_divergence_cleaner=D_divergence_cleaner)
+               fluxes(:,i,j,k,b) = fmp(2,:) + fpmr(1,:)
+               if (coil_flag(i,j,k,b) > 0_I4P .and. coil_flag(i+si(1),j+si(2),k+si(3),b) > 0_I4P) then
+                  fluxes(:,i,j,k,b) = 0._R8P
+               endif
+            enddo
+         enddo
+      enddo
+   enddo
+   !!$omp end parallel do
+   endsubroutine compute_fluxes_convective_mod
+
+
+   subroutine compute_fluxes_difference(null_xyz, blocks_number, ni, nj, nk, ngc, nv, ib_eps, dx, dy, dz, flx, fly, flz, & 
+                                       phi, dq, q, eta, chi, D_divergence_cleaner, B_divergence_cleaner)
+                                       !commentata parte openmp e aggiunto vettore di stato agli input per sfruttare correnti
+                                       !< Compute fluxes difference.
    logical,      intent(in)           :: null_xyz(3)                     !< Nullified directions tags.
+   logical,      intent(in)           :: D_divergence_cleaner            !< Flag to perform electric field divergence cleaning.
+   logical,      intent(in)           :: B_divergence_cleaner            !< Flag to perform magnetic field divergence cleaning.
    integer(I4P), intent(in)           :: blocks_number                   !< Number of blocks.
    integer(I4P), intent(in)           :: ni                              !< Grid cells number in I direction.
    integer(I4P), intent(in)           :: nj                              !< Grid cells number in J direction.
    integer(I4P), intent(in)           :: nk                              !< Grid cells number in K direction.
    integer(I4P), intent(in)           :: ngc                             !< Ghost cells number.
    integer(I4P), intent(in)           :: nv                              !< Number of conservative varibales.
+   real(R8P),    intent(in)           :: chi, eta                        !< Coefficiente modello correzione divergenza campi.
    real(R8P),    intent(in)           :: ib_eps                          !< Tolerance IB delta ratio.
    real(R8P),    intent(in)           :: dx(1:), dy(1:), dz(1:)          !< Space steps.
    real(R8P),    intent(in)           :: flx(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< X direction fluxes.
    real(R8P),    intent(in)           :: fly(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Y direction fluxes.
    real(R8P),    intent(in)           :: flz(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Z direction fluxes.
-   real(R8P),    intent(in)           :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< State variables vector [Dx, Dy, Dz, Bx, By, Bz, Jx, Jy, Jz].
+   real(R8P),    intent(in)           :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< State variables vector
    real(R8P),    intent(in), optional :: phi(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< IB distance function.
    real(R8P),    intent(inout)        :: dq(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Fluxes differences.
    real(R8P)                          :: delta_x, delta_y, delta_z       !< Space steps.
    real(R8P)                          :: dx_locale, dy_locale, dz_locale !< Local space steps.
+   real(R8P)                          :: qmx, qmy, qmz                   !< Momentum nullification scalar.
    integer(I4P)                       :: b, i, j, k, v                   !< Counter.
    integer(I4P)                       :: all_solids                      !< Last phi index, all solids summary.
-   real(R8P)                          :: qmx, qmy, qmz                   !< Momentum nullification scalar.
 
    qmx = 1._R8P ; if (null_xyz(1)) qmx = 0._R8P
    qmy = 1._R8P ; if (null_xyz(2)) qmy = 0._R8P
@@ -1147,9 +1364,19 @@ contains
          !dq(4,i,j,k,b) = dq(4,i,j,k,b) * qmz
 
          !Completo calcolo aggiungendo termini sorgenti legato alle correnti delle spire (per ora)
+         !E ad una eventuale correzione parabolica della divergenza (parametro eta diverso da zero)
+
          dq(1,i,j,k,b) = dq(1,i,j,k,b) - q(7,i,j,k,b)
          dq(2,i,j,k,b) = dq(2,i,j,k,b) - q(8,i,j,k,b)
          dq(3,i,j,k,b) = dq(3,i,j,k,b) - q(9,i,j,k,b)
+
+         if (D_divergence_cleaner .and. .not.B_divergence_cleaner .and. eta>0._R8P) then
+            dq(10,i,j,k,b) = dq(10,i,j,k,b) - chi/eta*chi/eta*q(10,i,j,k,b)
+         elseif (D_divergence_cleaner .and. B_divergence_cleaner .and. eta>0._R8P) then
+            dq(10,i,j,k,b) = dq(10,i,j,k,b) - chi/eta*chi/eta*q(10,i,j,k,b)
+            dq(11,i,j,k,b) = dq(11,i,j,k,b) - chi/eta*chi/eta*q(11,i,j,k,b)
+         endif
+
       enddo
       enddo
       enddo
@@ -1171,9 +1398,19 @@ contains
          !dq(4,i,j,k,b) = dq(4,i,j,k,b) * qmz
 
          !Completo calcolo aggiungendo termini sorgenti legato alle correnti delle spire (per ora)
+         !E ad una eventuale correzione parabolica della divergenza (parametro eta diverso da zero)
+         
          dq(1,i,j,k,b) = dq(1,i,j,k,b) - q(7,i,j,k,b)
          dq(2,i,j,k,b) = dq(2,i,j,k,b) - q(8,i,j,k,b)
          dq(3,i,j,k,b) = dq(3,i,j,k,b) - q(9,i,j,k,b)
+
+         if (D_divergence_cleaner .and. .not.B_divergence_cleaner .and. eta>0._R8P) then
+            dq(10,i,j,k,b) = dq(10,i,j,k,b) - chi/eta*chi/eta*q(10,i,j,k,b)
+         elseif (D_divergence_cleaner .and. B_divergence_cleaner .and. eta>0._R8P) then
+            dq(10,i,j,k,b) = dq(10,i,j,k,b) - chi/eta*chi/eta*q(10,i,j,k,b)
+            dq(11,i,j,k,b) = dq(11,i,j,k,b) - chi/eta*chi/eta*q(11,i,j,k,b)
+         endif
+         
       enddo
       enddo
       enddo
@@ -1181,52 +1418,34 @@ contains
    !    !$omp end parallel do
    endif
 
-   !print *, maxval(dq(7,:,:,:,:)), 'Stampa il valore del residuo massimo della densità di corrente lungo x'
-   !print *, maxval(dq(8,:,:,:,:)), 'Stampa il valore del residuo massimo della densità di corrente lungo y'
-   !print *, maxval(dq(9,:,:,:,:)), 'Stampa il valore del residuo massimo della densità di corrente lungo z'
-   !print *, minval(dq(7,:,:,:,:)), 'Stampa il valore del residuo minimo della densità di corrente lungo x'
-   !print *, minval(dq(8,:,:,:,:)), 'Stampa il valore del residuo minimo della densità di corrente lungo y'
-   !print *, minval(dq(9,:,:,:,:)), 'Stampa il valore del residuo minimo della densità di corrente lungo z'
-!
-   !print *, maxval(flx(7,:,:,:,:)), 'Stampa il valore del flusso x massimo della densità di corrente lungo x'
-   !print *, maxval(flx(8,:,:,:,:)), 'Stampa il valore del flusso x massimo della densità di corrente lungo y'
-   !print *, maxval(flx(9,:,:,:,:)), 'Stampa il valore del flusso x massimo della densità di corrente lungo z'
-   !print *, minval(flx(7,:,:,:,:)), 'Stampa il valore del flusso x minimo della densità di corrente lungo x'
-   !print *, minval(flx(8,:,:,:,:)), 'Stampa il valore del flusso x minimo della densità di corrente lungo y'
-   !print *, minval(flx(9,:,:,:,:)), 'Stampa il valore del flusso x minimo della densità di corrente lungo z'
-!
-   !print *, maxval(fly(7,:,:,:,:)), 'Stampa il valore del flusso y massimo della densità di corrente lungo x'
-   !print *, maxval(fly(8,:,:,:,:)), 'Stampa il valore del flusso y massimo della densità di corrente lungo y'
-   !print *, maxval(fly(9,:,:,:,:)), 'Stampa il valore del flusso y massimo della densità di corrente lungo z'
-   !print *, minval(fly(7,:,:,:,:)), 'Stampa il valore del flusso y minimo della densità di corrente lungo x'
-   !print *, minval(fly(8,:,:,:,:)), 'Stampa il valore del flusso y minimo della densità di corrente lungo y'
-   !print *, minval(fly(9,:,:,:,:)), 'Stampa il valore del flusso y minimo della densità di corrente lungo z'
-!
-   !print *, maxval(flz(7,:,:,:,:)), 'Stampa il valore del flusso z massimo della densità di corrente lungo x'
-   !print *, maxval(flz(8,:,:,:,:)), 'Stampa il valore del flusso z massimo della densità di corrente lungo y'
-   !print *, maxval(flz(9,:,:,:,:)), 'Stampa il valore del flusso z massimo della densità di corrente lungo z'
-   !print *, minval(flz(7,:,:,:,:)), 'Stampa il valore del flusso z minimo della densità di corrente lungo x'
-   !print *, minval(flz(8,:,:,:,:)), 'Stampa il valore del flusso z minimo della densità di corrente lungo y'
-   !print *, minval(flz(9,:,:,:,:)), 'Stampa il valore del flusso z minimo della densità di corrente lungo z'
-
    endsubroutine compute_fluxes_difference
    
 
-   subroutine decompose_fluxes_convective_llf(sir, nv, q, evmax, fmp)
+   subroutine decompose_fluxes_convective_llf(sir, nv, q, evmax, chi, fmp, B_divergence_cleaner, D_divergence_cleaner)
    !< Decompose convective fluxes using the Local-Lax-Friedrichs (LLF, Rusanov) approximation
-   integer(I4P), intent(in)    :: nv            !< Number of conservative varibales.
-   real(R8P),    intent(in)    :: sir(3)         !< Directional (1=x,2=y,3=z) increment, real
-   !real(R8P),    intent(in)    :: q_aux(1:)     !< Auxiliary variables.
-   real(R8P),    intent(in)    :: evmax         !< Maximum waves speeds estimation.
-   real(R8P),    intent(in)    :: q(1:)         !< Conservative variables.
-   real(R8P),    intent(inout) :: fmp(1:,1:)    !< Fluxes, negative/positive terms [1:2,1:nv].
-   real(R8P)                   :: f(1:nv)       !< Conservative fluxes.
-   integer(I4P)                :: v             !< Counter.
+   logical,      intent(in)    :: D_divergence_cleaner   !< Flag to perform electric field divergence cleaning.
+   logical,      intent(in)    :: B_divergence_cleaner   !< Flag to perform magnetic field divergence cleaning.
+   integer(I4P), intent(in)    :: nv                     !< Number of conservative varibales.
+   real(R8P),    intent(in)    :: sir(3)                 !< Directional (1=x,2=y,3=z) increment, real
+   !real(R8P),    intent(in)    :: q_aux(1:)             !< Auxiliary variables.
+   real(R8P),    intent(in)    :: evmax                  !< Maximum waves speeds estimation.
+   real(R8P),    intent(in)    :: chi                    !< Coefficient to compute transport velocity of field divergence error
+   real(R8P),    intent(in)    :: q(1:)                  !< Conservative variables.
+   real(R8P),    intent(inout) :: fmp(1:,1:)             !< Fluxes, negative/positive terms [1:2,1:nv].
+   real(R8P)                   :: f(1:nv)                !< Conservative fluxes.
+   integer(I4P)                :: v                      !< Counter.
  
    !call compute_conservatives_scalar(q_aux=q_aux,q=q)
    !call compute_conservative_fluxes_scalar(sir=sir,q_aux=q_aux,f=f)
-   call compute_convective_fluxes_Maxwell(sir=sir,q=q,f=f)
-   do v=1, (nv-3_I4P)
+   if (.not.D_divergence_cleaner .and. .not.B_divergence_cleaner) then
+      call compute_convective_fluxes_Maxwell(sir=sir,q=q,f=f)
+   elseif (D_divergence_cleaner .and. .not.B_divergence_cleaner) then
+      call compute_convective_fluxes_Maxwell_div_D(sir=sir,q=q,f=f,chi=chi)
+   elseif (D_divergence_cleaner .and. B_divergence_cleaner) then
+      call compute_convective_fluxes_Maxwell_div_D_B(sir=sir,q=q,f=f,chi=chi)
+   endif
+
+   do v=1, nv !(nv-3_I4P)
       fmp(2,v) = 0.5_R8P * (f(v) + evmax * q(v))
       fmp(1,v) = f(v) - fmp(2,v)
    enddo
@@ -1235,26 +1454,27 @@ contains
       fmp(:,9) = 0._R8P
    endsubroutine decompose_fluxes_convective_llf
    
-   subroutine compute_coils_current(ni, nj, nk, ngc, blocks_number, q, time, A, d, f, phase, coil_flag, td, J_vec)
+   subroutine compute_coils_current(ni, nj, nk, ngc, blocks_number, q, time, A, d, f, phase, coil_flag, td, J_vec, dx)
 
-      integer(I4P), intent(in)           :: blocks_number                   !< Number of blocks.
-      integer(I4P), intent(in)           :: ni                              !< Grid cells number in I direction.
-      integer(I4P), intent(in)           :: nj                              !< Grid cells number in J direction.
-      integer(I4P), intent(in)           :: nk                              !< Grid cells number in K direction.
-      integer(I4P), intent(in)           :: ngc                             !< Ghost cells number.
-      integer(I4P), intent(in)           :: coil_flag(1:,1:,1:,1:)          !< Matrice contenente informazioni su quale spira pass per una certa cella
-      real(R8P),    intent(in)           :: time                            !< Simulation time, to compute current value if AC               
-      real(R8P),    intent(in)           :: A(1:)                           !< Current amplitude (A)
-      real(R8P),    intent(in)           :: f(1:)                           !< Current frequency, if AC (Hz)
-      real(R8P),    intent(in)           :: phase(1:)                       !< Current initial phase, if AC
-      real(R8P),    intent(in)           :: d(1:)                           !< Wire diameter
-      real(R8P),    intent(in)           :: td                              !< Delay di accensione della spira
-      real(R8P),    intent(in)           :: J_vec(1:,1:,1:,1:,1:)           !< MAtrice versori di corrente delle spire nelle celle
-      real(R8P),    intent(inout)        :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Field variables.
-      real(R8P)                          :: current_density                 !< Current density
-      real(R8P)                          :: g                               !< Polinomio caratteristico transitorio accensione spira
-      integer(I4P)                       :: coil_id                         !< ID per identificare spira
-      integer(I4P)                       :: i,j,k,b,n                       !< Counter
+      integer(I4P), intent(in)           :: blocks_number                               !< Number of blocks.
+      integer(I4P), intent(in)           :: ni                                          !< Grid cells number in I direction.
+      integer(I4P), intent(in)           :: nj                                          !< Grid cells number in J direction.
+      integer(I4P), intent(in)           :: nk                                          !< Grid cells number in K direction.
+      integer(I4P), intent(in)           :: ngc                                         !< Ghost cells number.
+      integer(I4P), intent(in)           :: coil_flag(1-ngc:,1-ngc:,1-ngc:,1:)      !< Matrice contenente informazioni su quale spira pass per una certa cella
+      real(R8P),    intent(in)           :: time                                        !< Simulation time, to compute current value if AC 
+      real(R8P),    intent(in)           :: dx                                          !< Space step in x direction (m)             
+      real(R8P),    intent(in)           :: A(1:)                                       !< Current amplitude (A)
+      real(R8P),    intent(in)           :: f(1:)                                       !< Current frequency, if AC (Hz)
+      real(R8P),    intent(in)           :: phase(1:)                                   !< Current initial phase, if AC
+      real(R8P),    intent(in)           :: d(1:)                                       !< Wire diameter
+      real(R8P),    intent(in)           :: td                                          !< Delay di accensione della spira
+      real(R8P),    intent(in)           :: J_vec(1:,1:,1:,1:,1:)                       !< Matrice versori di corrente delle spire nelle celle
+      real(R8P),    intent(inout)        :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)               !< Field variables.
+      real(R8P)                          :: current_density                             !< Current density
+      real(R8P)                          :: g                                           !< Polinomio caratteristico transitorio accensione spira
+      integer(I4P)                       :: coil_id                                     !< ID per identificare spira
+      integer(I4P)                       :: i,j,k,b,n                                   !< Counter
       
       do b=1, blocks_number
          do k=1, nk
@@ -1272,9 +1492,10 @@ contains
                      !E aggiungo transitorio di corrente
                      if (time < td) then
                         g = 10._R8P*(time/td)**3 - 15._R8P*(time/td)**4 + 6._R8P*(time/td)**5
-                        current_density = g*A(coil_id)/(d(coil_id)**2)*cos(phase(coil_id)*pi/180.0_R8P)
+                        current_density = g*A(coil_id)/((d(coil_id)-dx)**2)*cos(phase(coil_id)*pi/180.0_R8P)
                      else
-                        current_density = A(coil_id)/(d(coil_id)**2)*cos(2*pi*f(coil_id)*(time-td) + phase(coil_id)*pi/180.0_R8P)
+                        current_density = A(coil_id)/((d(coil_id)-dx)**2)*cos(2*pi*f(coil_id)*(time-td) + & 
+                        phase(coil_id)*pi/180.0_R8P)
                      endif
 
                      q(7:9,i,j,k,b) = current_density* J_vec(:,i,j,k,b)
@@ -1320,4 +1541,32 @@ contains
     
    sq = (a(1) * a(1)) + (a(2) * a(2)) + (a(3) * a(3))
    endfunction sq_norm
+
+   function crossproduct(a, b) result(cross)
+
+   !< Compute the cross product.
+   !<
+   !< $$ \vec V=\left({y_1 z_2 - z_1 y_2}\right)\vec i +
+   !<           \left({z_1 x_2 - x_1 z_2}\right)\vec j +
+   !<           \left({x_1 y_2 - y_1 x_2}\right)\vec k $$
+   !< where \( x_i \), \( y_i \) and \( z_i \) \( i=1,2 \) are the components of the vectors.
+   !<
+   !<```fortran
+   !< type(vector_RPP) :: pt(0:2)
+   !< pt(1) = 2 * ex_RPP
+   !< pt(2) = ex_RPP
+   !< pt(0) = pt(1).cross.pt(2)
+   !< print "(3(F3.1,1X))", abs(pt(0)%x), abs(pt(0)%y), abs(pt(0)%z)
+   !<```
+   !=> 0.0 0.0 0.0 <<<
+
+   real(R8P), intent(in) :: a(3)     !< Left hand side.
+   real(R8P), intent(in) :: b(3)     !< Left hand side.
+   real(R8P)             :: cross(3) !< Cross product.
+
+   cross(1) = (a(2) * b(3)) - (a(3) * b(2))
+   cross(2) = (a(3) * b(1)) - (a(1) * b(3))
+   cross(3) = (a(1) * b(2)) - (a(2) * b(1))
+
+   endfunction crossproduct
 endmodule adam_prism_cpu_object
