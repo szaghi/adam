@@ -4,7 +4,7 @@ on: push
 
 jobs:
   test-deploy:
-
+    name: test library and apps-deploy GH doc and release assets
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -75,21 +75,30 @@ jobs:
       run: |
         FoBiS.py build -mode nasto-cpu-gnu-github
         LD_LIBRARY_PATH=lib/hdf5/gnu/lib/:$LD_LIBRARY_PATH exe/adam_nasto_cpu
-    
-    # - name: CHECKOUT
-    #   id: checkout
-    #   run: |
-    #     git clone https://github.com/$GITHUB_REPOSITORY ./
-    #     git log -n 1
-    #     tag=`git tag | tail -n 1`
-    #     echo "RELEASE=$tag" >> $GITHUB_ENV
 
-    # - name: MAKE TAR
-    #   run: |
-    #     echo "release version:" ${{ env.RELEASE }}
-    #     FoBiS.py rule -ex maketar
-    #     ls *.tar.gz
+    - name: Make doc
+      run: |
+        FoBiS.py rule -ex makedoc
 
-    # - name: MAKE DOC
-    #   run: |
-    #     FoBiS.py rule -ex makedoc
+    - name: Push doc to GH Pages
+      if: ${{ !env.ACT }}
+      uses: JamesIves/github-pages-deploy-action@v4
+      with:
+        branch: gh-pages
+        folder: doc/html
+
+    - name: Make TAR
+      run: |
+        echo "release version:" ${{ env.RELEASE }}
+        FoBiS.py rule -ex maketar
+        ls *.tar.gz
+
+    - name: Deploy Asset
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          *.tar.gz
+          # ./scripts/install.sh
+        tag_name: latest
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
