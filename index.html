@@ -1,0 +1,344 @@
+
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="description" content="Adaptive Mesh Refinement (AMR) with Immersed Boundary (IB) fluid dynamic solver tailored for High Performance GPU Computing">
+    <meta name="author" content="Stefano Zaghi" >
+    <link rel="icon" href="./favicon.png">
+
+    <title> ADAM </title>
+
+    <!-- Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+          integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+            integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <!-- Font Awesome -->
+    <link href="./css/fontawesome.min.css" rel="stylesheet">
+    <link href="./css/brands.min.css" rel="stylesheet">
+    <link href="./css/regular.min.css" rel="stylesheet">
+    <link href="./css/solid.min.css" rel="stylesheet">
+    <link href="./css/v4-font-face.min.css" rel="stylesheet">
+    <link href="./css/v4-shims.min.css" rel="stylesheet">
+    <!-- MathJax -->
+    <script type="text/x-mathjax-config">
+      MathJax.Hub.Config({
+        TeX: { equationNumbers: { autoNumber: "AMS" } }
+      });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@2.7.9/MathJax.js?config=TeX-AMS-MML_HTMLorMML" async
+            integrity="sha256-DViIOMYdwlM/axqoGDPeUyf0urLoHMN4QACBKyB58Uw=" crossorigin="anonymous"></script>
+    <!-- Other scripts and stylesheets -->
+    <link href="./css/local.css" rel="stylesheet">
+    <link href="./css/pygments.css" rel="stylesheet">
+    <script src="./js/svg-pan-zoom.min.js"></script>
+  </head>
+
+  <body>
+
+    <!-- Fixed navbar -->
+    <div class="container-fluid mb-sm-4 mb-xl-2">
+      <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+        <div class="container">
+          <a class="navbar-brand" href="./index.html">ADAM </a>
+          <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar"
+                  aria-expanded="false" aria-controls="navbar" aria-label="Toggle navigation">
+                  <span class="navbar-toggler-icon">
+          </button>
+
+          <div id="navbar" class="navbar-collapse collapse">
+            <ul class="navbar-nav">
+                  <li class="nav-item">
+                    <a class="nav-link" href="./lists/files.html">Source Files</a>
+                  </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="./lists/modules.html">Modules</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="./lists/procedures.html">Procedures</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="./lists/types.html">Derived Types</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="./lists/programs.html">Programs</a>
+                </li>
+            </ul>
+              <div class="d-flex align-items-end flex-grow-1">
+                <form action="./search.html" role="search" class="ms-auto">
+                  <input type="text" class="form-control" aria-label="Search" placeholder="Search" name="q" id="tipue_search_input" autocomplete="off" required>
+                </form>
+              </div>
+          </div><!--/.nav-collapse -->
+        </div>
+      </nav>
+    </div>
+
+    <div class="container">
+  <!-- Main component for a primary marketing message or call to action -->
+    <div class="p-5 mb-4 bg-light border rounded-3" id="jumbotron">
+      <p>Adaptive Mesh Refinement (AMR) with Immersed Boundary (IB) fluid dynamic solver tailored for High Performance GPU Computing</p>
+        <p> Find us on&hellip;</p>
+      <p>
+        <a class="btn btn-lg btn-primary" href="https://github.com/szaghi/adam" role="button">GitHub</a>
+        
+        
+        
+        
+      </p>
+    </div>
+
+      <div class="row" id='text'>
+        <div class=col-md-8>
+          <h1>ADAM</h1>
+          <p><a name="top"></a></p>
+<h1 id="adam">ADAM</h1>
+<blockquote>
+<p>ADAM, Adaptive Mesh Refinement (AMR) with Immersed Boundary (IB) fluid dynamic solver tailored for High Performance GPU Computing</p>
+</blockquote>
+<h3 id="authors">Authors</h3>
+<ul>
+<li>Andrea di Mascio, <a href="andrea.dimascio@univaq.it">andrea.dimascio@univaq.it</a></li>
+<li>Federico Negro, <a href="federico.negro.01@gmail.com">federico.negro.01@gmail.com</a></li>
+<li>Giacomo Rossi, <a href="giacomo.rossi@intel.com">giacomo.rossi@intel.com</a></li>
+<li>Francesco Salvadore, <a href="mailto:f.salvadore@cineca.it">f.salvadore@cineca.it</a></li>
+<li>Stefano Zaghi, <a href="stefano.zaghi@cnr.it">stefano.zaghi@cnr.it</a></li>
+</ul>
+<p>| <a href="#main-features">Main Features</a> | <a href="#copyrights">Copyrights</a> | <a href="#install">Install</a> | <a href="#test">Test</a> | <a href="#api-documentation">API Documentation</a> |</p>
+<p>Go to <a href="#top">Top</a></p>
+<h3 id="main-features">Main Features</h3>
+<ul>
+<li>KISS, keep it simple and stupid;</li>
+<li>simulate different types of flows;</li>
+<li>use high order finite difference scheme;</li>
+<li>exploit Adaptive Mesh Refinement (AMR) to accurate simulate complex geometries;</li>
+<li>exploit Immersed Boundary (IB) techniques to easy handle complex moving geometries;</li>
+<li>ready for very High Performance Computing (HPC) by means of GPU parallel paradigms exploitation;</li>
+</ul>
+<h1 id="copyrights">Copyrights</h1>
+<p>ADAM is currently a closed project:</p>
+<blockquote>
+<p>Copyright (C) Di Mascio/Negro/Rossi/Salvadore/Zaghi, Inc - All Rights Reserved.</p>
+<p>Unauthorized copying of these source files, via any medium is strictly prohibited, proprietary and confidential.
+Written by Andrea di Mascio, Federico Negro, Giacomo Rossi, Francesco Salvadore and Stefano Zaghi, April 2025.</p>
+</blockquote>
+<p>Future versions could be released with a more Free Open Source Software (FOSS) licence.</p>
+<p>Go to <a href="#top">Top</a></p>
+<h1 id="install">Install</h1>
+<p>The ADAM framework is provided as source files archive and it must be compiled in order to have the executable ready to be installed.</p>
+<p>ADAM has two type of dependencies: the first one is provided by sources directly available as git submodules (in <code>src/third_party</code> directory) while
+second are external libraries that must be installed in the used system and available in user space; the installation of this kind of external dependencies are
+documented in <a href="#install-external-dependencies">Install External Dependencies</a>.</p>
+<p>The compiler currently supported are:</p>
+<p>[x] NVIDIA HPC SDK, in particular nvfortran compiler, see <a href="#install-nvidia-hpc-sdk">Install NVIDIA HPC SDK</a>;
+[ ] GCC;
+[ ] Intel One Api;
+[ ] AMD flang;</p>
+<h2 id="obtain-adam-framework">Obtain ADAM framework</h2>
+<p>The best way to obtain ADAM framework is cloning its github repository:</p>
+<div class="codehilite"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--recurse-submodules<span class="w"> </span>https://github.com/szaghi/adam
+</code></pre></div>
+
+<p>Once cloned, it can be compiled. However, you need the right compiler and all external dependencies must be installed previously,
+see <a href="#install-nvidia-hpc-sdk">Install NVIDIA HPC SDK</a> and <a href="#install-external-dependencies">Install External Dependencies</a>.</p>
+<h2 id="compile-adam-framework">Compile ADAM framework</h2>
+<p>To compile ADAM framework the preferred method is to use <a href="https://github.com/szaghi/FoBiS">FoBiS</a>.</p>
+<p>The root of ADAM framework should look like:</p>
+<div class="codehilite"><pre><span></span><code>┌╼<span class="w"> </span>stefano@enlil
+├───╼<span class="w"> </span>~/fortran/adam
+└──────╼<span class="w"> </span>tree<span class="w"> </span>-L<span class="w"> </span><span class="m">1</span>
+.
+├──<span class="w"> </span>exe
+├──<span class="w"> </span>fobos
+├──<span class="w"> </span>LICENSE
+├──<span class="w"> </span>README.md
+├──<span class="w"> </span>scripts
+└──<span class="w"> </span>src
+</code></pre></div>
+
+<p>To be completed.</p>
+<p>Go to <a href="#top">Top</a></p>
+<h3 id="install-nvidia-hpc-sdk">Install NVIDIA HPC SDK</h3>
+<p>Download the latest NVIDIA HPC SDK (at time of writing is 12.8):</p>
+<div class="codehilite"><pre><span></span><code>wget<span class="w"> </span>https://developer.download.nvidia.com/hpc-sdk/25.3/nvhpc_2025_253_Linux_x86_64_cuda_12.8.tar.gz
+</code></pre></div>
+
+<p>Decompress the downloaded archive and install the SDK using the provided script:</p>
+<div class="codehilite"><pre><span></span><code>tar<span class="w"> </span>xf<span class="w"> </span>nvhpc_2025_253_Linux_x86_64_cuda_12.8.tar.gz
+<span class="nb">cd</span><span class="w"> </span>nvhpc_2025_253_Linux_x86_64_cuda_12.8/
+sudo<span class="w"> </span>./install
+</code></pre></div>
+
+<p>The default installation path is in <code>/opt/nvidia/hpc_sdk/Linux_x86_64</code> with a subdirectory corresponding
+to the version installed, e.g. <code>/opt/nvidia/hpc_sdk/Linux_x86_64/25.3</code>.</p>
+<p>After the installation the user PATH must be updated. If module app is available in the system
+it can be used to load the SDK on demand, i.e.:</p>
+<div class="codehilite"><pre><span></span><code>module<span class="w"> </span>load<span class="w"> </span>/opt/nvidia/hpc_sdk/modulefiles/nvhpc/25.3
+module<span class="w"> </span>load<span class="w"> </span>nvhpc/25.3
+</code></pre></div>
+
+<p>Alternatively, the shell environment may be initialized to use the HPC SDK.
+In bash, sh, or ksh, use these commands:</p>
+<div class="codehilite"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">PATH</span><span class="o">=</span>/opt/nvidia/hpc_sdk/Linux_x86_64/25.3/compilers/bin:<span class="nv">$PATH</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">MANPATH</span><span class="o">=</span>/opt/nvidia/hpc_sdk/Linux_x86_64/25.3/compilers/man:<span class="nv">$MANPATH</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">PATH</span><span class="o">=</span>/opt/nvidia/hpc_sdk/Linux_x86_64/25.3/comm_libs/mpi/bin:<span class="nv">$PATH</span>
+</code></pre></div>
+
+<p>Go to <a href="#top">Top</a></p>
+<h3 id="install-external-dependencies">Install External Dependencies</h3>
+<p>In the following the instructions to download and compile external dependencies are provided. Keep in mind that
+web link can be changed from the time of writing this notes. Moreover, the compilations instructions are for
+NVIDIA SDK, for other compilers may differ.</p>
+<h4 id="install-hdf5-library">Install HDF5 library</h4>
+<p>ADAM exploits the HDF5 for performing HPC IO operations, e.g. saving output files or loading restart files.
+HDF5, in turn, depends (optionally) on ZLIB and SZIP for compressing output files, thus it is strongly suggested
+to install also those libraries.</p>
+<h5 id="install-szip-and-zlib-libraries">Install SZIP and ZLIB libraries</h5>
+<p>The SZIP library can be downloaded from a github hosted fork of the latest version:</p>
+<div class="codehilite"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/erdc/szip
+</code></pre></div>
+
+<p>Once cloned it can be compiled by:</p>
+<div class="codehilite"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>szip
+<span class="nb">export</span><span class="w"> </span><span class="nv">CC</span><span class="o">=</span>nvc
+<span class="nb">export</span><span class="w"> </span><span class="nv">CXX</span><span class="o">=</span>nvc++
+<span class="nb">export</span><span class="w"> </span><span class="nv">FC</span><span class="o">=</span>nvfortran
+<span class="nb">export</span><span class="w"> </span><span class="nv">CFLAGS</span><span class="o">=</span><span class="s1">&#39;-O3&#39;</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">CXXFLAGS</span><span class="o">=</span><span class="s1">&#39;-O3&#39;</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">FCFLAGS</span><span class="o">=</span><span class="s1">&#39;-O3&#39;</span>
+./configure<span class="w"> </span>--prefix<span class="o">=</span>/opt/szip/bin/2.1.1/nvf/25.3
+make
+make<span class="w"> </span>check
+make<span class="w"> </span>install
+<span class="nb">cd</span><span class="w"> </span>..
+</code></pre></div>
+
+<p>Note that the directory of installation must be created before <code>make install</code> and the user must have the proper permissions.</p>
+<p>The ZLIB library can be downloaded by the permalink of the latest version:</p>
+<div class="codehilite"><pre><span></span><code>wget<span class="w"> </span>https://zlib.net/current/zlib.tar.gz
+tar<span class="w"> </span>xf<span class="w"> </span>zlib.tar.gz
+</code></pre></div>
+
+<p>Once downloaded and decompressed it can be compiled by:</p>
+<div class="codehilite"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>zlib
+<span class="nb">export</span><span class="w"> </span><span class="nv">CC</span><span class="o">=</span>nvc
+<span class="nb">export</span><span class="w"> </span><span class="nv">CFLAGS</span><span class="o">=</span><span class="s1">&#39;-O3 -fPIC&#39;</span>
+./configure<span class="w"> </span>--prefix<span class="o">=</span>/opt/zlib/bin/1.3.1/nvf/25.3
+make
+make<span class="w"> </span>check
+make<span class="w"> </span>install
+<span class="nb">cd</span><span class="w"> </span>..
+</code></pre></div>
+
+<p>Note that the directory of installation must be created before <code>make install</code> and the user must have the proper permissions.</p>
+<h5 id="install-hdf5-library_1">Install HDF5 library</h5>
+<p>Once ZLIB and SZIP libraries are installed the HDF5 can be installed too.</p>
+<p>To obtain the it you can use the github repository:</p>
+<div class="codehilite"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/HDFGroup/hdf5
+</code></pre></div>
+
+<p>Once cloned it can be compiled and installed by:</p>
+<div class="codehilite"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>hdf5
+<span class="nv">CFLAGS</span><span class="o">=</span><span class="s2">&quot;-fPIC&quot;</span><span class="w"> </span><span class="nv">FCFLAGS</span><span class="o">=</span><span class="s2">&quot;-fPIC&quot;</span><span class="w"> </span>./configure<span class="w"> </span>--prefix<span class="o">=</span>/opt/HDF5/bin/1.14.6/nvf/25.3<span class="w"> </span>--enable-shared<span class="w"> </span>--enable-parallel<span class="w"> </span>--enable-fortran<span class="w"> </span>--disable-libtool-lock<span class="w"> </span>--with-szlib<span class="o">=</span>/opt/szip/bin/2.1.1/nvf/25.3<span class="w"> </span>--with-zlib<span class="o">=</span>/opt/zlib/bin/1.3.1/nvf/25.3<span class="w"> </span><span class="nv">CC</span><span class="o">=</span>mpicc<span class="w"> </span><span class="nv">FC</span><span class="o">=</span>mpif90
+make
+make<span class="w"> </span>check
+make<span class="w"> </span>install
+<span class="nb">cd</span><span class="w"> </span>..
+</code></pre></div>
+
+<p>Note that the directory of installation must be created before <code>make install</code> and the user must have the proper permissions.</p>
+<p>Go to <a href="#top">Top</a></p>
+        </div>
+          <div class="col-md-4">
+            <div class="card card-body bg-light">
+              <h2 class="card-title">Developer Info</h2>
+              <h4 class="card-text">Stefano Zaghi</h4>
+              <p class="card-text"></p>
+                <div class="text-center"><div class="btn-group" role="group">
+                      <a class="btn btn-lg btn-primary" href="mailto:stefano.zaghi@gmail.com"><i class="fa fa-envelope fa-lg"></i></a>
+                    
+                    <a class="btn btn-lg btn-primary" href="https://github.com/szaghi"><i class="fa fa-github fa-lg"></i></a>
+                    
+                    
+                    
+                    
+                    
+                    
+                </div></div>
+            </div>
+          </div>
+      </div>
+        <div class="row">
+          <hr>
+          <div class="col-xs-6 col-sm-3">
+            <div>
+              <h3>Source Files</h3>
+              <ul><li><a href='sourcefile/adam_nasto_bc_object.f90.html'>adam_nasto_bc_object.F90</a></li><li><a href='sourcefile/adam_nasto_common_library.f90.html'>adam_nasto_common_library.F90</a></li><li><a href='sourcefile/adam_nasto_common_object.f90.html'>adam_nasto_common_object.F90</a></li><li><a href='sourcefile/adam_nasto_cpu.f90.html'>adam_nasto_cpu.F90</a></li><li><a href='sourcefile/adam_nasto_cpu_cns.f90.html'>adam_nasto_cpu_cns.F90</a></li><li><a href='sourcefile/adam_nasto_cpu_object.f90.html'>adam_nasto_cpu_object.F90</a></li><li><a href='sourcefile/adam_nasto_eos_object.f90.html'>adam_nasto_eos_object.F90</a></li><li><a href='sourcefile/adam_nasto_fnl.f90.html'>adam_nasto_fnl.F90</a></li><li><a href='sourcefile/adam_nasto_fnl_cns_kernels.f90.html'>adam_nasto_fnl_cns_kernels.F90</a></li><li><a href='sourcefile/adam_nasto_fnl_kernels.f90.html'>adam_nasto_fnl_kernels.F90</a></li></ul>
+            </div>
+            <div>
+              <ul>
+                <li><a href="./lists/files.html"><em>All source files&hellip;</em></a></li>
+              </ul>
+            </div>
+          </div>
+          <div class="col-xs-6 col-sm-3">
+            <div>
+              <h3>Modules</h3>
+              <ul><li><a href='module/adam_nasto_bc_object.html'>adam_nasto_bc_object</a></li><li><a href='module/adam_nasto_common_library.html'>adam_nasto_common_library</a></li><li><a href='module/adam_nasto_common_object.html'>adam_nasto_common_object</a></li><li><a href='module/adam_nasto_cpu_cns.html'>adam_nasto_cpu_cns</a></li><li><a href='module/adam_nasto_cpu_object.html'>adam_nasto_cpu_object</a></li><li><a href='module/adam_nasto_eos_object.html'>adam_nasto_eos_object</a></li><li><a href='module/adam_nasto_fnl_cns_kernels.html'>adam_nasto_fnl_cns_kernels</a></li><li><a href='module/adam_nasto_fnl_kernels.html'>adam_nasto_fnl_kernels</a></li><li><a href='module/adam_nasto_fnl_library.html'>adam_nasto_fnl_library</a></li><li><a href='module/adam_nasto_fnl_object.html'>adam_nasto_fnl_object</a></li></ul>
+            </div>
+            <div>
+              <ul>
+                <li><a href="./lists/modules.html"><em>All modules&hellip;</em></a></li>
+              </ul>
+            </div>
+          </div>
+          <div class="col-xs-6 col-sm-3">
+            <div>
+              <h3>Procedures</h3>
+              <ul><li><a href='proc/allocate_common.html'>allocate_common</a></li><li><a href='proc/allocate_cpu.html'>allocate_cpu</a></li><li><a href='proc/allocate_gpu.html'>allocate_gpu</a></li><li><a href='proc/allocate_gpu~2.html'>allocate_gpu</a></li><li><a href='proc/allocate_gpu~3.html'>allocate_gpu</a></li><li><a href='proc/amr_update.html'>amr_update</a></li><li><a href='proc/amr_update~2.html'>amr_update</a></li><li><a href='proc/amr_update~3.html'>amr_update</a></li><li><a href='proc/amr_update~4.html'>amr_update</a></li><li><a href='interface/assign_omp.html'>assign_omp</a></li></ul>
+            </div>
+            <div>
+              <ul>
+                <li><a href="./lists/procedures.html"><em>All procedures&hellip;</em></a></li>
+              </ul>
+            </div>
+          </div>
+          <div class="col-xs-6 col-sm-3">
+            <div>
+              <h3>Derived Types</h3>
+              <ul><li><a href='type/nasto_bc_object.html'>nasto_bc_object</a></li><li><a href='type/nasto_common_object.html'>nasto_common_object</a></li><li><a href='type/nasto_cpu_object.html'>nasto_cpu_object</a></li><li><a href='type/nasto_eos_object.html'>nasto_eos_object</a></li><li><a href='type/nasto_fnl_object.html'>nasto_fnl_object</a></li><li><a href='type/nasto_gmp_object.html'>nasto_gmp_object</a></li><li><a href='type/nasto_ic_object.html'>nasto_ic_object</a></li><li><a href='type/nasto_io_object.html'>nasto_io_object</a></li><li><a href='type/nasto_nvf_object.html'>nasto_nvf_object</a></li><li><a href='type/nasto_physics_object.html'>nasto_physics_object</a></li></ul>
+            </div>
+            <div>
+              <ul>
+                <li><a href="./lists/types.html"><em>All derived types&hellip;</em></a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      <hr>
+    </div> <!-- /container -->
+    <footer>
+      <div class="container">
+        <div class="row justify-content-between">
+          <div class="col">
+            <p>
+              ADAM
+ was developed by Stefano Zaghi<br>              &copy; 2025 
+</p>
+          </div>
+          <div class="col">
+            <p class="text-end">
+              Documentation generated by
+              <a href="https://github.com/Fortran-FOSS-Programmers/ford">FORD</a>
+            </p>
+          </div>
+        </div>
+        <br>
+      </div> <!-- /container -->
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,615 @@
+<!-- -*- mode: jinja2 -*- -->
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="description" content="Adaptive Mesh Refinement (AMR) with Immersed Boundary (IB) fluid dynamic solver tailored for High Performance GPU Computing">
+    <meta name="author" content="Stefano Zaghi" >
+    <link rel="icon" href="../favicon.png">
+
+    <title>save_restart_files &ndash; ADAM</title>
+
+    <!-- Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+          integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+            integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <!-- Font Awesome -->
+    <link href="../css/fontawesome.min.css" rel="stylesheet">
+    <link href="../css/brands.min.css" rel="stylesheet">
+    <link href="../css/regular.min.css" rel="stylesheet">
+    <link href="../css/solid.min.css" rel="stylesheet">
+    <link href="../css/v4-font-face.min.css" rel="stylesheet">
+    <link href="../css/v4-shims.min.css" rel="stylesheet">
+    <!-- MathJax -->
+    <script type="text/x-mathjax-config">
+      MathJax.Hub.Config({
+        TeX: { equationNumbers: { autoNumber: "AMS" } }
+      });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@2.7.9/MathJax.js?config=TeX-AMS-MML_HTMLorMML" async
+            integrity="sha256-DViIOMYdwlM/axqoGDPeUyf0urLoHMN4QACBKyB58Uw=" crossorigin="anonymous"></script>
+    <!-- Other scripts and stylesheets -->
+    <link href="../css/local.css" rel="stylesheet">
+    <link href="../css/pygments.css" rel="stylesheet">
+    <script src="../js/svg-pan-zoom.min.js"></script>
+  </head>
+
+  <body>
+
+    <!-- Fixed navbar -->
+    <div class="container-fluid mb-sm-4 mb-xl-2">
+      <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+        <div class="container">
+          <a class="navbar-brand" href="../index.html">ADAM </a>
+          <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar"
+                  aria-expanded="false" aria-controls="navbar" aria-label="Toggle navigation">
+                  <span class="navbar-toggler-icon">
+          </button>
+
+          <div id="navbar" class="navbar-collapse collapse">
+            <ul class="navbar-nav">
+                  <li class="nav-item">
+                    <a class="nav-link" href="../lists/files.html">Source Files</a>
+                  </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/modules.html">Modules</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/procedures.html">Procedures</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/types.html">Derived Types</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/programs.html">Programs</a>
+                </li>
+            </ul>
+              <div class="d-flex align-items-end flex-grow-1">
+                <form action="../search.html" role="search" class="ms-auto">
+                  <input type="text" class="form-control" aria-label="Search" placeholder="Search" name="q" id="tipue_search_input" autocomplete="off" required>
+                </form>
+              </div>
+          </div><!--/.nav-collapse -->
+        </div>
+      </nav>
+    </div>
+
+    <div class="container">
+  <div class="row">
+    <h1>save_restart_files
+      <small>Subroutine</small>
+      
+    </h1>
+      <div class="container p-2 mb-4 bg-light border rounded-3">
+    <div class="row align-items-center justify-content-between" id="info-bar">
+      <div class="col">
+        <ul class="list-inline" style="margin-bottom:0px;display:inline">
+
+            <li class="list-inline-item" id="statements"><i class="fa fa-list-ol"></i>
+              <a data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-html="true"
+                 title=" 0.1% of total for procedures.">8 statements</a>
+            </li>
+
+            <li class="list-inline-item" id="source-file">
+              <i class="fa fa-code"></i>
+              <a href="../src/adam_nasto_cpu_object.F90"> Source File</a>
+            </li>
+        </ul>
+      </div>
+      <div class="col">
+        <nav aria-label="breadcrumb">
+          <ol class="breadcrumb justify-content-end mb-0">
+                <li class="breadcrumb-item"><a href='../sourcefile/adam_nasto_cpu_object.f90.html'>adam_nasto_cpu_object.F90</a></li>
+                <li class="breadcrumb-item"><a href='../module/adam_nasto_cpu_object.html'>adam_nasto_cpu_object</a></li>
+            <li class="breadcrumb-item active" aria-current="page">save_restart_files</li>
+          </ol>
+        </nav>
+      </div>
+    </div>
+  </div>
+  <script>
+    // Enable Bootstrap tooltips
+    (function () {
+      const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]')
+      const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl))
+    })();
+  </script>
+
+  </div>
+  
+  <div class="row">
+    <div class="col-md-3 hidden-xs hidden-sm visible-md visible-lg">
+      <div id="sidebar">
+      <h3>Contents</h3>
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+    <div class="card card-primary">
+      <div class="card-header text-left"><h3 class="card-title">Source Code</h3></div>
+      <div class="list-group">
+        <a class="list-group-item" href="../proc/save_restart_files~4.html#src">save_restart_files</a>
+      </div>
+    </div>
+
+
+  </div>
+
+    </div>
+    
+    <div class="col-md-9" id='text'>
+    <h2>private  subroutine save_restart_files(self)  
+</h2>
+    
+
+    <p>Save restart files.</p>
+
+    <h3>Type Bound</h3>
+    <p><a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a></p>
+
+    <h3>Arguments</h3>
+        <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-self~118"></span>
+              class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+                <p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+    <br>
+    <div class="card">
+      <div class="card-header">
+  <h3 class="card-title">Calls</h3>
+      </div>
+      <div class="card-body">
+  <div class="depgraph"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: proc~~save_restart_files~4~~CallsGraph Pages: 1 -->
+<svg id="procsave_restart_files4CallsGraph" width="546pt" height="200pt"
+ viewBox="0.00 0.00 546.00 200.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="proc~~save_restart_files~4~~CallsGraph" class="graph" transform="scale(1 1) rotate(0) translate(4 196)">
+<title>proc~~save_restart_files~4~~CallsGraph</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-196 542,-196 542,4 -4,4"/>
+<!-- proc~save_restart_files~4 -->
+<g id="proc~~save_restart_files~4~~CallsGraph_node1" class="node">
+<title>proc~save_restart_files~4</title>
+<polygon fill="none" stroke="black" points="206,-108 0,-108 0,-84 206,-84 206,-108"/>
+<text text-anchor="middle" x="103" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50">nasto_cpu_object%save_restart_files</text>
+</g>
+<!-- barrier -->
+<g id="proc~~save_restart_files~4~~CallsGraph_node2" class="node">
+<title>barrier</title>
+<polygon fill="#777777" stroke="#777777" points="519.5,-192 465.5,-192 465.5,-168 519.5,-168 519.5,-192"/>
+<text text-anchor="middle" x="492.5" y="-177.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">barrier</text>
+</g>
+<!-- proc~save_restart_files~4&#45;&gt;barrier -->
+<g id="proc~~save_restart_files~4~~CallsGraph_edge1" class="edge">
+<title>proc~save_restart_files~4&#45;&gt;barrier</title>
+<path fill="none" stroke="#000000" d="M139.11,-108.06C166.8,-117.23 206.53,-129.65 242,-138 317.09,-155.67 406.57,-168.86 455.36,-175.4"/>
+<polygon fill="#000000" stroke="#000000" points="455.05,-178.89 465.42,-176.74 455.97,-171.95 455.05,-178.89"/>
+</g>
+<!-- print_message -->
+<g id="proc~~save_restart_files~4~~CallsGraph_node3" class="node">
+<title>print_message</title>
+<polygon fill="#777777" stroke="#777777" points="538,-150 447,-150 447,-126 538,-126 538,-150"/>
+<text text-anchor="middle" x="492.5" y="-135.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">print_message</text>
+</g>
+<!-- proc~save_restart_files~4&#45;&gt;print_message -->
+<g id="proc~~save_restart_files~4~~CallsGraph_edge2" class="edge">
+<title>proc~save_restart_files~4&#45;&gt;print_message</title>
+<path fill="none" stroke="#000000" d="M176.93,-108.03C197.9,-111.24 220.82,-114.5 242,-117 308.84,-124.89 386.1,-130.92 436.72,-134.45"/>
+<polygon fill="#000000" stroke="#000000" points="436.57,-137.95 446.79,-135.14 437.05,-130.96 436.57,-137.95"/>
+</g>
+<!-- proc~save_hdf5~4 -->
+<g id="proc~~save_restart_files~4~~CallsGraph_node4" class="node">
+<title>proc~save_hdf5~4</title>
+<g id="a_proc~~save_restart_files~4~~CallsGraph_node4"><a xlink:href="../proc/save_hdf5~4.html" xlink:title="nasto_cpu_object%save_hdf5">
+<polygon fill="#d9534f" stroke="#d9534f" points="411,-108 242,-108 242,-84 411,-84 411,-108"/>
+<text text-anchor="middle" x="326.5" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_cpu_object%save_hdf5</text>
+</a>
+</g>
+</g>
+<!-- proc~save_restart_files~4&#45;&gt;proc~save_hdf5~4 -->
+<g id="proc~~save_restart_files~4~~CallsGraph_edge3" class="edge">
+<title>proc~save_restart_files~4&#45;&gt;proc~save_hdf5~4</title>
+<path fill="none" stroke="#000000" d="M206.32,-96C214.78,-96 223.31,-96 231.71,-96"/>
+<polygon fill="#000000" stroke="#000000" points="231.87,-99.5 241.87,-96 231.87,-92.5 231.87,-99.5"/>
+</g>
+<!-- save_restart_files -->
+<g id="proc~~save_restart_files~4~~CallsGraph_node5" class="node">
+<title>save_restart_files</title>
+<polygon fill="#777777" stroke="#777777" points="378.5,-28 274.5,-28 274.5,-4 378.5,-4 378.5,-28"/>
+<text text-anchor="middle" x="326.5" y="-13.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">save_restart_files</text>
+</g>
+<!-- proc~save_restart_files~4&#45;&gt;save_restart_files -->
+<g id="proc~~save_restart_files~4~~CallsGraph_edge4" class="edge">
+<title>proc~save_restart_files~4&#45;&gt;save_restart_files</title>
+<path fill="none" stroke="#000000" d="M133.12,-83.91C160.89,-72.54 204.01,-55.33 242,-42 252.53,-38.31 263.9,-34.59 274.75,-31.17"/>
+<polygon fill="#000000" stroke="#000000" points="276.03,-34.44 284.54,-28.12 273.95,-27.75 276.03,-34.44"/>
+</g>
+<!-- str -->
+<g id="proc~~save_restart_files~4~~CallsGraph_node6" class="node">
+<title>str</title>
+<polygon fill="#777777" stroke="#777777" points="519.5,-24 465.5,-24 465.5,0 519.5,0 519.5,-24"/>
+<text text-anchor="middle" x="492.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">str</text>
+</g>
+<!-- proc~save_restart_files~4&#45;&gt;str -->
+<g id="proc~~save_restart_files~4~~CallsGraph_edge5" class="edge">
+<title>proc~save_restart_files~4&#45;&gt;str</title>
+<path fill="none" stroke="#000000" d="M178.95,-83.99C241.43,-73.42 332.56,-56.65 411,-37 425.74,-33.31 441.76,-28.5 455.6,-24.09"/>
+<polygon fill="#000000" stroke="#000000" points="456.81,-27.38 465.24,-20.97 454.65,-20.72 456.81,-27.38"/>
+</g>
+<!-- proc~save_hdf5~4&#45;&gt;barrier -->
+<g id="proc~~save_restart_files~4~~CallsGraph_edge6" class="edge">
+<title>proc~save_hdf5~4&#45;&gt;barrier</title>
+<path fill="none" stroke="#000000" d="M349.81,-108.14C373.7,-121.05 412.8,-141.92 447,-159 449.98,-160.49 453.09,-162.01 456.21,-163.52"/>
+<polygon fill="#000000" stroke="#000000" points="454.99,-166.82 465.52,-167.98 458.01,-160.5 454.99,-166.82"/>
+</g>
+<!-- proc~save_hdf5~4&#45;&gt;print_message -->
+<g id="proc~~save_restart_files~4~~CallsGraph_edge7" class="edge">
+<title>proc~save_hdf5~4&#45;&gt;print_message</title>
+<path fill="none" stroke="#000000" d="M374.5,-108.04C394.02,-113.04 416.8,-118.87 437.04,-124.05"/>
+<polygon fill="#000000" stroke="#000000" points="436.2,-127.45 446.75,-126.54 437.93,-120.67 436.2,-127.45"/>
+</g>
+<!-- proc~save_hdf5~4&#45;&gt;str -->
+<g id="proc~~save_restart_files~4~~CallsGraph_edge9" class="edge">
+<title>proc~save_hdf5~4&#45;&gt;str</title>
+<path fill="none" stroke="#000000" d="M380.46,-83.88C391,-80.28 401.68,-75.72 411,-70 430.55,-58 428.33,-46.33 447,-33 449.87,-30.95 452.97,-29.02 456.15,-27.22"/>
+<polygon fill="#000000" stroke="#000000" points="457.96,-30.22 465.21,-22.5 454.72,-24.01 457.96,-30.22"/>
+</g>
+<!-- save_hdf5 -->
+<g id="proc~~save_restart_files~4~~CallsGraph_node7" class="node">
+<title>save_hdf5</title>
+<polygon fill="#777777" stroke="#777777" points="526,-66 459,-66 459,-42 526,-42 526,-66"/>
+<text text-anchor="middle" x="492.5" y="-51.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">save_hdf5</text>
+</g>
+<!-- proc~save_hdf5~4&#45;&gt;save_hdf5 -->
+<g id="proc~~save_restart_files~4~~CallsGraph_edge8" class="edge">
+<title>proc~save_hdf5~4&#45;&gt;save_hdf5</title>
+<path fill="none" stroke="#000000" d="M374.5,-83.96C397.99,-77.95 426.21,-70.72 449.05,-64.87"/>
+<polygon fill="#000000" stroke="#000000" points="449.98,-68.24 458.8,-62.37 448.25,-61.46 449.98,-68.24"/>
+</g>
+<!-- strz -->
+<g id="proc~~save_restart_files~4~~CallsGraph_node8" class="node">
+<title>strz</title>
+<polygon fill="#777777" stroke="#777777" points="519.5,-108 465.5,-108 465.5,-84 519.5,-84 519.5,-108"/>
+<text text-anchor="middle" x="492.5" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">strz</text>
+</g>
+<!-- proc~save_hdf5~4&#45;&gt;strz -->
+<g id="proc~~save_restart_files~4~~CallsGraph_edge10" class="edge">
+<title>proc~save_hdf5~4&#45;&gt;strz</title>
+<path fill="none" stroke="#000000" d="M411.42,-96C426.69,-96 441.87,-96 454.84,-96"/>
+<polygon fill="#000000" stroke="#000000" points="455.17,-99.5 465.17,-96 455.17,-92.5 455.17,-99.5"/>
+</g>
+</g>
+</svg>
+</div>          <div>
+            <a type="button" class="graph-help" data-bs-toggle="modal" href="#CallsGraph-help-text">Help</a>
+          </div>
+          <div class="modal fade" id="CallsGraph-help-text" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h4 class="modal-title" id="-graph-help-label">Graph Key</h4>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+<p>Nodes of different colours represent the following: </p>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: Graph Key Pages: 1 -->
+<svg width="641pt" height="28pt"
+ viewBox="0.00 0.00 641.00 27.51" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(0.86 0.86) rotate(0) translate(4 28)">
+<title>Graph Key</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 741.5,-28 741.5,4 -4,4"/>
+<!-- Subroutine -->
+<g id="node1" class="node">
+<title>Subroutine</title>
+<polygon fill="#d9534f" stroke="#d9534f" points="70,-24 0,-24 0,0 70,0 70,-24"/>
+<text text-anchor="middle" x="35" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Subroutine</text>
+</g>
+<!-- Function -->
+<g id="node2" class="node">
+<title>Function</title>
+<polygon fill="#d94e8f" stroke="#d94e8f" points="146,-24 88,-24 88,0 146,0 146,-24"/>
+<text text-anchor="middle" x="117" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Function</text>
+</g>
+<!-- Interface -->
+<g id="node3" class="node">
+<title>Interface</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="225.5,-24 164.5,-24 164.5,0 225.5,0 225.5,-24"/>
+<text text-anchor="middle" x="195" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Interface</text>
+</g>
+<!-- Type Bound Procedure -->
+<g id="node4" class="node">
+<title>Type Bound Procedure</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="374,-24 244,-24 244,0 374,0 374,-24"/>
+<text text-anchor="middle" x="309" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Type Bound Procedure</text>
+</g>
+<!-- Unknown Procedure Type -->
+<g id="node5" class="node">
+<title>Unknown Procedure Type</title>
+<polygon fill="#777777" stroke="#777777" points="537.5,-24 392.5,-24 392.5,0 537.5,0 537.5,-24"/>
+<text text-anchor="middle" x="465" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Unknown Procedure Type</text>
+</g>
+<!-- Program -->
+<g id="node6" class="node">
+<title>Program</title>
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="614,-24 556,-24 556,0 614,0 614,-24"/>
+<text text-anchor="middle" x="585" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Program</text>
+</g>
+<!-- This Page&#39;s Entity -->
+<g id="node7" class="node">
+<title>This Page&#39;s Entity</title>
+<polygon fill="none" stroke="black" points="737.5,-24 632.5,-24 632.5,0 737.5,0 737.5,-24"/>
+<text text-anchor="middle" x="685" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">This Page&#39;s Entity</text>
+</g>
+</g>
+</svg>
+
+<p>Solid arrows point from a procedure to one which it calls. Dashed 
+arrows point from an interface to procedures which implement that interface.
+This could include the module procedures in a generic interface or the
+implementation in a submodule of an interface in a parent module.
+</p>
+ </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+  <h3 class="card-title">Called by</h3>
+      </div>
+      <div class="card-body">
+  <div class="depgraph"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: proc~~save_restart_files~4~~CalledByGraph Pages: 1 -->
+<svg id="procsave_restart_files4CalledByGraph" width="641pt" height="25pt"
+ viewBox="0.00 0.00 641.00 25.20" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="proc~~save_restart_files~4~~CalledByGraph" class="graph" transform="scale(0.79 0.79) rotate(0) translate(4 28)">
+<title>proc~~save_restart_files~4~~CalledByGraph</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 810,-28 810,4 -4,4"/>
+<!-- proc~save_restart_files~4 -->
+<g id="proc~~save_restart_files~4~~CalledByGraph_node1" class="node">
+<title>proc~save_restart_files~4</title>
+<polygon fill="none" stroke="black" points="806,-24 600,-24 600,0 806,0 806,-24"/>
+<text text-anchor="middle" x="703" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">nasto_cpu_object%save_restart_files</text>
+</g>
+<!-- proc~save_simulation_data~4 -->
+<g id="proc~~save_restart_files~4~~CalledByGraph_node2" class="node">
+<title>proc~save_simulation_data~4</title>
+<g id="a_proc~~save_restart_files~4~~CalledByGraph_node2"><a xlink:href="../proc/save_simulation_data~4.html" xlink:title="nasto_cpu_object%save_simulation_data">
+<polygon fill="#d9534f" stroke="#d9534f" points="564,-24 335,-24 335,0 564,0 564,-24"/>
+<text text-anchor="middle" x="449.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_cpu_object%save_simulation_data</text>
+</a>
+</g>
+</g>
+<!-- proc~save_simulation_data~4&#45;&gt;proc~save_restart_files~4 -->
+<g id="proc~~save_restart_files~4~~CalledByGraph_edge1" class="edge">
+<title>proc~save_simulation_data~4&#45;&gt;proc~save_restart_files~4</title>
+<path fill="none" stroke="#000000" d="M564.11,-12C572.53,-12 581.03,-12 589.44,-12"/>
+<polygon fill="#000000" stroke="#000000" points="589.66,-15.5 599.66,-12 589.66,-8.5 589.66,-15.5"/>
+</g>
+<!-- proc~simulate~4 -->
+<g id="proc~~save_restart_files~4~~CalledByGraph_node3" class="node">
+<title>proc~simulate~4</title>
+<g id="a_proc~~save_restart_files~4~~CalledByGraph_node3"><a xlink:href="../proc/simulate~4.html" xlink:title="nasto_cpu_object%simulate">
+<polygon fill="#d9534f" stroke="#d9534f" points="299,-24 139,-24 139,0 299,0 299,-24"/>
+<text text-anchor="middle" x="219" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_cpu_object%simulate</text>
+</a>
+</g>
+</g>
+<!-- proc~simulate~4&#45;&gt;proc~save_simulation_data~4 -->
+<g id="proc~~save_restart_files~4~~CalledByGraph_edge2" class="edge">
+<title>proc~simulate~4&#45;&gt;proc~save_simulation_data~4</title>
+<path fill="none" stroke="#000000" d="M299.28,-12C307.52,-12 316.04,-12 324.62,-12"/>
+<polygon fill="#000000" stroke="#000000" points="324.73,-15.5 334.73,-12 324.73,-8.5 324.73,-15.5"/>
+</g>
+<!-- program~adam_nasto_cpu -->
+<g id="proc~~save_restart_files~4~~CalledByGraph_node4" class="node">
+<title>program~adam_nasto_cpu</title>
+<g id="a_proc~~save_restart_files~4~~CalledByGraph_node4"><a xlink:href="../program/adam_nasto_cpu.html" xlink:title="adam_nasto_cpu">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="103,-24 0,-24 0,0 103,0 103,-24"/>
+<text text-anchor="middle" x="51.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_cpu</text>
+</a>
+</g>
+</g>
+<!-- program~adam_nasto_cpu&#45;&gt;proc~simulate~4 -->
+<g id="proc~~save_restart_files~4~~CalledByGraph_edge3" class="edge">
+<title>program~adam_nasto_cpu&#45;&gt;proc~simulate~4</title>
+<path fill="none" stroke="#000000" d="M103.05,-12C111.19,-12 119.81,-12 128.53,-12"/>
+<polygon fill="#000000" stroke="#000000" points="128.79,-15.5 138.79,-12 128.79,-8.5 128.79,-15.5"/>
+</g>
+</g>
+</svg>
+</div>                <script>
+                  var panprocsave_restart_files4CalledByGraph = svgPanZoom('#procsave_restart_files4CalledByGraph',
+                    {zoomEnabled: true, controlIconsEnabled: true, fit: true, center: true,}
+                  );
+                </script>          <div>
+            <a type="button" class="graph-help" data-bs-toggle="modal" href="#CalledByGraph-help-text">Help</a>
+          </div>
+          <div class="modal fade" id="CalledByGraph-help-text" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h4 class="modal-title" id="-graph-help-label">Graph Key</h4>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+<p>Nodes of different colours represent the following: </p>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: Graph Key Pages: 1 -->
+<svg width="641pt" height="28pt"
+ viewBox="0.00 0.00 641.00 27.51" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(0.86 0.86) rotate(0) translate(4 28)">
+<title>Graph Key</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 741.5,-28 741.5,4 -4,4"/>
+<!-- Subroutine -->
+<g id="node1" class="node">
+<title>Subroutine</title>
+<polygon fill="#d9534f" stroke="#d9534f" points="70,-24 0,-24 0,0 70,0 70,-24"/>
+<text text-anchor="middle" x="35" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Subroutine</text>
+</g>
+<!-- Function -->
+<g id="node2" class="node">
+<title>Function</title>
+<polygon fill="#d94e8f" stroke="#d94e8f" points="146,-24 88,-24 88,0 146,0 146,-24"/>
+<text text-anchor="middle" x="117" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Function</text>
+</g>
+<!-- Interface -->
+<g id="node3" class="node">
+<title>Interface</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="225.5,-24 164.5,-24 164.5,0 225.5,0 225.5,-24"/>
+<text text-anchor="middle" x="195" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Interface</text>
+</g>
+<!-- Type Bound Procedure -->
+<g id="node4" class="node">
+<title>Type Bound Procedure</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="374,-24 244,-24 244,0 374,0 374,-24"/>
+<text text-anchor="middle" x="309" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Type Bound Procedure</text>
+</g>
+<!-- Unknown Procedure Type -->
+<g id="node5" class="node">
+<title>Unknown Procedure Type</title>
+<polygon fill="#777777" stroke="#777777" points="537.5,-24 392.5,-24 392.5,0 537.5,0 537.5,-24"/>
+<text text-anchor="middle" x="465" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Unknown Procedure Type</text>
+</g>
+<!-- Program -->
+<g id="node6" class="node">
+<title>Program</title>
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="614,-24 556,-24 556,0 614,0 614,-24"/>
+<text text-anchor="middle" x="585" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Program</text>
+</g>
+<!-- This Page&#39;s Entity -->
+<g id="node7" class="node">
+<title>This Page&#39;s Entity</title>
+<polygon fill="none" stroke="black" points="737.5,-24 632.5,-24 632.5,0 737.5,0 737.5,-24"/>
+<text text-anchor="middle" x="685" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">This Page&#39;s Entity</text>
+</g>
+</g>
+</svg>
+
+<p>Solid arrows point from a procedure to one which it calls. Dashed 
+arrows point from an interface to procedures which implement that interface.
+This could include the module procedures in a generic interface or the
+implementation in a submodule of an interface in a parent module.
+</p>
+ </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <br>
+
+
+    
+    
+
+    
+    
+
+
+
+    
+    <section>
+    <h2><span class="anchor" id="src"></span>Source Code</h2>
+    <div class="hl codehilite"><pre><span></span><span class="w">   </span><span class="k">subroutine </span><span class="n">save_restart_files</span><span class="p">(</span><span class="n">self</span><span class="p">)</span>
+<span class="w">   </span><span class="c">!&lt; Save restart files.</span>
+<span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_cpu_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">inout</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w"> </span><span class="c">!&lt; The equation.</span>
+
+<span class="w">   </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">mpih</span><span class="p">%</span><span class="n">barrier</span><span class="p">(</span><span class="n">tictoc</span><span class="o">=</span><span class="p">.</span><span class="n">true</span><span class="p">.)</span>
+<span class="w">   </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">mpih</span><span class="p">%</span><span class="n">print_message</span><span class="p">(</span><span class="s1">&#39;save restart files t: &#39;</span><span class="o">//</span><span class="nb">trim</span><span class="p">(</span><span class="n">str</span><span class="p">(</span><span class="n">self</span><span class="p">%</span><span class="nb">time</span><span class="p">%</span><span class="n">it</span><span class="p">,.</span><span class="n">true</span><span class="p">.))</span><span class="o">//</span><span class="s1">&#39;, time: &#39;</span><span class="o">//</span><span class="p">&amp;</span>
+<span class="w">                                </span><span class="nb">trim</span><span class="p">(</span><span class="n">str</span><span class="p">(</span><span class="n">self</span><span class="p">%</span><span class="nb">time</span><span class="p">%</span><span class="nb">time</span><span class="p">,.</span><span class="n">true</span><span class="p">.)))</span>
+<span class="w">   </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">adam</span><span class="p">%</span><span class="n">save_restart_files</span><span class="p">(</span><span class="n">basename</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">io</span><span class="p">%</span><span class="n">restart_basename</span><span class="p">,</span><span class="w"> </span><span class="n">t</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="nb">time</span><span class="p">%</span><span class="n">it</span><span class="p">,</span><span class="w"> </span><span class="nb">time</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="nb">time</span><span class="p">%</span><span class="nb">time</span><span class="p">,</span><span class="w"> </span><span class="n">q</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">q</span><span class="p">)</span>
+<span class="w">   </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">save_hdf5</span><span class="p">(</span><span class="n">output_basename</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">io</span><span class="p">%</span><span class="n">restart_basename</span><span class="p">)</span>
+<span class="w">   </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">mpih</span><span class="p">%</span><span class="n">barrier</span><span class="p">(</span><span class="n">tictoc</span><span class="o">=</span><span class="p">.</span><span class="n">true</span><span class="p">.)</span>
+<span class="w">   </span><span class="k">endsubroutine </span><span class="n">save_restart_files</span>
+</pre></div>
+
+    </section>
+    <br>
+    
+    </div>
+  </div>
+
+      <hr>
+    </div> <!-- /container -->
+    <footer>
+      <div class="container">
+        <div class="row justify-content-between">
+          <div class="col">
+            <p>
+              ADAM
+ was developed by Stefano Zaghi<br>              &copy; 2025 
+</p>
+          </div>
+          <div class="col">
+            <p class="text-end">
+              Documentation generated by
+              <a href="https://github.com/Fortran-FOSS-Programmers/ford">FORD</a>
+            </p>
+          </div>
+        </div>
+        <br>
+      </div> <!-- /container -->
+    </footer>
+  </body>
+</html>

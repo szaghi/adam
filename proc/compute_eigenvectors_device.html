@@ -1,0 +1,753 @@
+<!-- -*- mode: jinja2 -*- -->
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="description" content="Adaptive Mesh Refinement (AMR) with Immersed Boundary (IB) fluid dynamic solver tailored for High Performance GPU Computing">
+    <meta name="author" content="Stefano Zaghi" >
+    <link rel="icon" href="../favicon.png">
+
+    <title>compute_eigenvectors_device &ndash; ADAM</title>
+
+    <!-- Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+          integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+            integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <!-- Font Awesome -->
+    <link href="../css/fontawesome.min.css" rel="stylesheet">
+    <link href="../css/brands.min.css" rel="stylesheet">
+    <link href="../css/regular.min.css" rel="stylesheet">
+    <link href="../css/solid.min.css" rel="stylesheet">
+    <link href="../css/v4-font-face.min.css" rel="stylesheet">
+    <link href="../css/v4-shims.min.css" rel="stylesheet">
+    <!-- MathJax -->
+    <script type="text/x-mathjax-config">
+      MathJax.Hub.Config({
+        TeX: { equationNumbers: { autoNumber: "AMS" } }
+      });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@2.7.9/MathJax.js?config=TeX-AMS-MML_HTMLorMML" async
+            integrity="sha256-DViIOMYdwlM/axqoGDPeUyf0urLoHMN4QACBKyB58Uw=" crossorigin="anonymous"></script>
+    <!-- Other scripts and stylesheets -->
+    <link href="../css/local.css" rel="stylesheet">
+    <link href="../css/pygments.css" rel="stylesheet">
+    <script src="../js/svg-pan-zoom.min.js"></script>
+  </head>
+
+  <body>
+
+    <!-- Fixed navbar -->
+    <div class="container-fluid mb-sm-4 mb-xl-2">
+      <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+        <div class="container">
+          <a class="navbar-brand" href="../index.html">ADAM </a>
+          <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar"
+                  aria-expanded="false" aria-controls="navbar" aria-label="Toggle navigation">
+                  <span class="navbar-toggler-icon">
+          </button>
+
+          <div id="navbar" class="navbar-collapse collapse">
+            <ul class="navbar-nav">
+                  <li class="nav-item">
+                    <a class="nav-link" href="../lists/files.html">Source Files</a>
+                  </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/modules.html">Modules</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/procedures.html">Procedures</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/types.html">Derived Types</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/programs.html">Programs</a>
+                </li>
+            </ul>
+              <div class="d-flex align-items-end flex-grow-1">
+                <form action="../search.html" role="search" class="ms-auto">
+                  <input type="text" class="form-control" aria-label="Search" placeholder="Search" name="q" id="tipue_search_input" autocomplete="off" required>
+                </form>
+              </div>
+          </div><!--/.nav-collapse -->
+        </div>
+      </nav>
+    </div>
+
+    <div class="container">
+  <div class="row">
+    <h1>compute_eigenvectors_device
+      <small>Subroutine</small>
+      
+    </h1>
+      <div class="container p-2 mb-4 bg-light border rounded-3">
+    <div class="row align-items-center justify-content-between" id="info-bar">
+      <div class="col">
+        <ul class="list-inline" style="margin-bottom:0px;display:inline">
+
+            <li class="list-inline-item" id="statements"><i class="fa fa-list-ol"></i>
+              <a data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-html="true"
+                 title=" 1.1% of total for procedures.">66 statements</a>
+            </li>
+
+            <li class="list-inline-item" id="source-file">
+              <i class="fa fa-code"></i>
+              <a href="../src/adam_nasto_nvf_cns_kernels.F90"> Source File</a>
+            </li>
+        </ul>
+      </div>
+      <div class="col">
+        <nav aria-label="breadcrumb">
+          <ol class="breadcrumb justify-content-end mb-0">
+                <li class="breadcrumb-item"><a href='../sourcefile/adam_nasto_nvf_cns_kernels.f90.html'>adam_nasto_nvf_cns_kernels.F90</a></li>
+                <li class="breadcrumb-item"><a href='../module/adam_nasto_nvf_cns_kernels.html'>adam_nasto_nvf_cns_kernels</a></li>
+            <li class="breadcrumb-item active" aria-current="page">compute_eigenvectors_device</li>
+          </ol>
+        </nav>
+      </div>
+    </div>
+  </div>
+  <script>
+    // Enable Bootstrap tooltips
+    (function () {
+      const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]')
+      const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl))
+    })();
+  </script>
+
+  </div>
+  
+  <div class="row">
+    <div class="col-md-3 hidden-xs hidden-sm visible-md visible-lg">
+      <div id="sidebar">
+      <h3>Contents</h3>
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+    <div class="card card-primary">
+      <div class="card-header text-left"><h3 class="card-title">Source Code</h3></div>
+      <div class="list-group">
+        <a class="list-group-item" href="../proc/compute_eigenvectors_device.html#src">compute_eigenvectors_device</a>
+      </div>
+    </div>
+
+
+  </div>
+
+    </div>
+    
+    <div class="col-md-9" id='text'>
+    <h2>public  subroutine compute_eigenvectors_device(si, sir, b, i, j, k, ngc, nv, g, q_aux_gpu, el, er)  
+</h2>
+    
+
+
+
+    <h3>Arguments</h3>
+        <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-si~2"></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in),</td>
+              <td></td>            <td>
+              device
+            </td>
+            <td>::</td>
+            <td><strong>si</strong>(3)</td>
+            <td>
+                <p>Stencil increment.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-sir~3"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in),</td>
+              <td></td>            <td>
+              device
+            </td>
+            <td>::</td>
+            <td><strong>sir</strong>(3)</td>
+            <td>
+                <p>Stencil increment, real cast.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-b~10"></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in),</td>
+              <td></td>            <td>
+              value
+            </td>
+            <td>::</td>
+            <td><strong>b</strong></td>
+            <td>
+                <p>Cell indexes.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-i~8"></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in),</td>
+              <td></td>            <td>
+              value
+            </td>
+            <td>::</td>
+            <td><strong>i</strong></td>
+            <td>
+                <p>Cell indexes.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-j~4"></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in),</td>
+              <td></td>            <td>
+              value
+            </td>
+            <td>::</td>
+            <td><strong>j</strong></td>
+            <td>
+                <p>Cell indexes.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-k~4"></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in),</td>
+              <td></td>            <td>
+              value
+            </td>
+            <td>::</td>
+            <td><strong>k</strong></td>
+            <td>
+                <p>Cell indexes.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-ngc~4"></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in),</td>
+              <td></td>            <td>
+              value
+            </td>
+            <td>::</td>
+            <td><strong>ngc</strong></td>
+            <td>
+                <p>Ghost cells number.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-nv~3"></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in),</td>
+              <td></td>            <td>
+              value
+            </td>
+            <td>::</td>
+            <td><strong>nv</strong></td>
+            <td>
+                <p>Number of conservative varibales.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-g~3"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in),</td>
+              <td></td>            <td>
+              value
+            </td>
+            <td>::</td>
+            <td><strong>g</strong></td>
+            <td>
+                <p>Specific heats ratio.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-q_aux_gpu~8"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in),</td>
+              <td></td>            <td>
+              device
+            </td>
+            <td>::</td>
+            <td><strong>q_aux_gpu</strong>(1:,1-ngc:,1-ngc:,1-ngc:,1:)</td>
+            <td>
+                <p>Auxiliary variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-el"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(inout),</td>
+              <td></td>            <td>
+              device
+            </td>
+            <td>::</td>
+            <td><strong>el</strong>(1:5,1:5)</td>
+            <td>
+                <p>Left and right eigenvectors.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-er"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(inout),</td>
+              <td></td>            <td>
+              device
+            </td>
+            <td>::</td>
+            <td><strong>er</strong>(1:5,1:5)</td>
+            <td>
+                <p>Left and right eigenvectors.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+    <br>
+    <div class="card">
+      <div class="card-header">
+  <h3 class="card-title">Calls</h3>
+      </div>
+      <div class="card-body">
+  <div class="depgraph"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: proc~~compute_eigenvectors_device~~CallsGraph Pages: 1 -->
+<svg id="proccompute_eigenvectors_deviceCallsGraph" width="391pt" height="32pt"
+ viewBox="0.00 0.00 391.00 32.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="proc~~compute_eigenvectors_device~~CallsGraph" class="graph" transform="scale(1 1) rotate(0) translate(4 28)">
+<title>proc~~compute_eigenvectors_device~~CallsGraph</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 387,-28 387,4 -4,4"/>
+<!-- proc~compute_eigenvectors_device -->
+<g id="proc~~compute_eigenvectors_device~~CallsGraph_node1" class="node">
+<title>proc~compute_eigenvectors_device</title>
+<polygon fill="none" stroke="black" points="175,-24 0,-24 0,0 175,0 175,-24"/>
+<text text-anchor="middle" x="87.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">compute_eigenvectors_device</text>
+</g>
+<!-- proc~compute_roe_average_device -->
+<g id="proc~~compute_eigenvectors_device~~CallsGraph_node2" class="node">
+<title>proc~compute_roe_average_device</title>
+<g id="a_proc~~compute_eigenvectors_device~~CallsGraph_node2"><a xlink:href="../proc/compute_roe_average_device.html" xlink:title="compute_roe_average_device">
+<polygon fill="#d9534f" stroke="#d9534f" points="383,-24 211,-24 211,0 383,0 383,-24"/>
+<text text-anchor="middle" x="297" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_roe_average_device</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_eigenvectors_device&#45;&gt;proc~compute_roe_average_device -->
+<g id="proc~~compute_eigenvectors_device~~CallsGraph_edge1" class="edge">
+<title>proc~compute_eigenvectors_device&#45;&gt;proc~compute_roe_average_device</title>
+<path fill="none" stroke="#000000" d="M175.3,-12C183.67,-12 192.19,-12 200.63,-12"/>
+<polygon fill="#000000" stroke="#000000" points="200.88,-15.5 210.88,-12 200.88,-8.5 200.88,-15.5"/>
+</g>
+</g>
+</svg>
+</div>          <div>
+            <a type="button" class="graph-help" data-bs-toggle="modal" href="#CallsGraph-help-text">Help</a>
+          </div>
+          <div class="modal fade" id="CallsGraph-help-text" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h4 class="modal-title" id="-graph-help-label">Graph Key</h4>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+<p>Nodes of different colours represent the following: </p>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: Graph Key Pages: 1 -->
+<svg width="641pt" height="28pt"
+ viewBox="0.00 0.00 641.00 27.51" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(0.86 0.86) rotate(0) translate(4 28)">
+<title>Graph Key</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 741.5,-28 741.5,4 -4,4"/>
+<!-- Subroutine -->
+<g id="node1" class="node">
+<title>Subroutine</title>
+<polygon fill="#d9534f" stroke="#d9534f" points="70,-24 0,-24 0,0 70,0 70,-24"/>
+<text text-anchor="middle" x="35" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Subroutine</text>
+</g>
+<!-- Function -->
+<g id="node2" class="node">
+<title>Function</title>
+<polygon fill="#d94e8f" stroke="#d94e8f" points="146,-24 88,-24 88,0 146,0 146,-24"/>
+<text text-anchor="middle" x="117" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Function</text>
+</g>
+<!-- Interface -->
+<g id="node3" class="node">
+<title>Interface</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="225.5,-24 164.5,-24 164.5,0 225.5,0 225.5,-24"/>
+<text text-anchor="middle" x="195" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Interface</text>
+</g>
+<!-- Type Bound Procedure -->
+<g id="node4" class="node">
+<title>Type Bound Procedure</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="374,-24 244,-24 244,0 374,0 374,-24"/>
+<text text-anchor="middle" x="309" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Type Bound Procedure</text>
+</g>
+<!-- Unknown Procedure Type -->
+<g id="node5" class="node">
+<title>Unknown Procedure Type</title>
+<polygon fill="#777777" stroke="#777777" points="537.5,-24 392.5,-24 392.5,0 537.5,0 537.5,-24"/>
+<text text-anchor="middle" x="465" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Unknown Procedure Type</text>
+</g>
+<!-- Program -->
+<g id="node6" class="node">
+<title>Program</title>
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="614,-24 556,-24 556,0 614,0 614,-24"/>
+<text text-anchor="middle" x="585" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Program</text>
+</g>
+<!-- This Page&#39;s Entity -->
+<g id="node7" class="node">
+<title>This Page&#39;s Entity</title>
+<polygon fill="none" stroke="black" points="737.5,-24 632.5,-24 632.5,0 737.5,0 737.5,-24"/>
+<text text-anchor="middle" x="685" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">This Page&#39;s Entity</text>
+</g>
+</g>
+</svg>
+
+<p>Solid arrows point from a procedure to one which it calls. Dashed 
+arrows point from an interface to procedures which implement that interface.
+This could include the module procedures in a generic interface or the
+implementation in a submodule of an interface in a parent module.
+</p>
+ </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+  <h3 class="card-title">Called by</h3>
+      </div>
+      <div class="card-body">
+  <div class="depgraph"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: proc~~compute_eigenvectors_device~~CalledByGraph Pages: 1 -->
+<svg id="proccompute_eigenvectors_deviceCalledByGraph" width="641pt" height="14pt"
+ viewBox="0.00 0.00 641.00 14.38" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="proc~~compute_eigenvectors_device~~CalledByGraph" class="graph" transform="scale(0.45 0.45) rotate(0) translate(4 28)">
+<title>proc~~compute_eigenvectors_device~~CalledByGraph</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 1422,-28 1422,4 -4,4"/>
+<!-- proc~compute_eigenvectors_device -->
+<g id="proc~~compute_eigenvectors_device~~CalledByGraph_node1" class="node">
+<title>proc~compute_eigenvectors_device</title>
+<polygon fill="none" stroke="black" points="1418,-24 1243,-24 1243,0 1418,0 1418,-24"/>
+<text text-anchor="middle" x="1330.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">compute_eigenvectors_device</text>
+</g>
+<!-- proc~compute_fluxes_convective_device -->
+<g id="proc~~compute_eigenvectors_device~~CalledByGraph_node2" class="node">
+<title>proc~compute_fluxes_convective_device</title>
+<g id="a_proc~~compute_eigenvectors_device~~CalledByGraph_node2"><a xlink:href="../proc/compute_fluxes_convective_device.html" xlink:title="compute_fluxes_convective_device">
+<polygon fill="#d9534f" stroke="#d9534f" points="1207,-24 1007,-24 1007,0 1207,0 1207,-24"/>
+<text text-anchor="middle" x="1107" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_fluxes_convective_device</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_fluxes_convective_device&#45;&gt;proc~compute_eigenvectors_device -->
+<g id="proc~~compute_eigenvectors_device~~CalledByGraph_edge1" class="edge">
+<title>proc~compute_fluxes_convective_device&#45;&gt;proc~compute_eigenvectors_device</title>
+<path fill="none" stroke="#000000" d="M1207.09,-12C1215.52,-12 1224.05,-12 1232.47,-12"/>
+<polygon fill="#000000" stroke="#000000" points="1232.67,-15.5 1242.67,-12 1232.67,-8.5 1232.67,-15.5"/>
+</g>
+<!-- proc~compute_fluxes_convective_kernel -->
+<g id="proc~~compute_eigenvectors_device~~CalledByGraph_node3" class="node">
+<title>proc~compute_fluxes_convective_kernel</title>
+<g id="a_proc~~compute_eigenvectors_device~~CalledByGraph_node3"><a xlink:href="../proc/compute_fluxes_convective_kernel.html" xlink:title="compute_fluxes_convective_kernel">
+<polygon fill="#d9534f" stroke="#d9534f" points="971,-24 772,-24 772,0 971,0 971,-24"/>
+<text text-anchor="middle" x="871.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_fluxes_convective_kernel</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_fluxes_convective_kernel&#45;&gt;proc~compute_fluxes_convective_device -->
+<g id="proc~~compute_eigenvectors_device~~CalledByGraph_edge2" class="edge">
+<title>proc~compute_fluxes_convective_kernel&#45;&gt;proc~compute_fluxes_convective_device</title>
+<path fill="none" stroke="#000000" d="M971.19,-12C979.69,-12 988.32,-12 996.89,-12"/>
+<polygon fill="#000000" stroke="#000000" points="996.92,-15.5 1006.92,-12 996.92,-8.5 996.92,-15.5"/>
+</g>
+<!-- proc~compute_residuals~3 -->
+<g id="proc~~compute_eigenvectors_device~~CalledByGraph_node4" class="node">
+<title>proc~compute_residuals~3</title>
+<g id="a_proc~~compute_eigenvectors_device~~CalledByGraph_node4"><a xlink:href="../proc/compute_residuals~3.html" xlink:title="nasto_nvf_object%compute_residuals">
+<polygon fill="#d9534f" stroke="#d9534f" points="736,-24 525,-24 525,0 736,0 736,-24"/>
+<text text-anchor="middle" x="630.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_nvf_object%compute_residuals</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_residuals~3&#45;&gt;proc~compute_fluxes_convective_kernel -->
+<g id="proc~~compute_eigenvectors_device~~CalledByGraph_edge3" class="edge">
+<title>proc~compute_residuals~3&#45;&gt;proc~compute_fluxes_convective_kernel</title>
+<path fill="none" stroke="#000000" d="M736.33,-12C744.71,-12 753.19,-12 761.6,-12"/>
+<polygon fill="#000000" stroke="#000000" points="761.81,-15.5 771.81,-12 761.81,-8.5 761.81,-15.5"/>
+</g>
+<!-- proc~integrate~3 -->
+<g id="proc~~compute_eigenvectors_device~~CalledByGraph_node5" class="node">
+<title>proc~integrate~3</title>
+<g id="a_proc~~compute_eigenvectors_device~~CalledByGraph_node5"><a xlink:href="../proc/integrate~3.html" xlink:title="nasto_nvf_object%integrate">
+<polygon fill="#d9534f" stroke="#d9534f" points="489,-24 329,-24 329,0 489,0 489,-24"/>
+<text text-anchor="middle" x="409" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_nvf_object%integrate</text>
+</a>
+</g>
+</g>
+<!-- proc~integrate~3&#45;&gt;proc~compute_residuals~3 -->
+<g id="proc~~compute_eigenvectors_device~~CalledByGraph_edge4" class="edge">
+<title>proc~integrate~3&#45;&gt;proc~compute_residuals~3</title>
+<path fill="none" stroke="#000000" d="M489.24,-12C497.54,-12 506.09,-12 514.68,-12"/>
+<polygon fill="#000000" stroke="#000000" points="514.77,-15.5 524.77,-12 514.77,-8.5 514.77,-15.5"/>
+</g>
+<!-- proc~simulate~3 -->
+<g id="proc~~compute_eigenvectors_device~~CalledByGraph_node6" class="node">
+<title>proc~simulate~3</title>
+<g id="a_proc~~compute_eigenvectors_device~~CalledByGraph_node6"><a xlink:href="../proc/simulate~3.html" xlink:title="nasto_nvf_object%simulate">
+<polygon fill="#d9534f" stroke="#d9534f" points="293,-24 136,-24 136,0 293,0 293,-24"/>
+<text text-anchor="middle" x="214.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_nvf_object%simulate</text>
+</a>
+</g>
+</g>
+<!-- proc~simulate~3&#45;&gt;proc~integrate~3 -->
+<g id="proc~~compute_eigenvectors_device~~CalledByGraph_edge5" class="edge">
+<title>proc~simulate~3&#45;&gt;proc~integrate~3</title>
+<path fill="none" stroke="#000000" d="M293.24,-12C301.55,-12 310.05,-12 318.48,-12"/>
+<polygon fill="#000000" stroke="#000000" points="318.71,-15.5 328.71,-12 318.71,-8.5 318.71,-15.5"/>
+</g>
+<!-- program~adam_nasto_nvf -->
+<g id="proc~~compute_eigenvectors_device~~CalledByGraph_node7" class="node">
+<title>program~adam_nasto_nvf</title>
+<g id="a_proc~~compute_eigenvectors_device~~CalledByGraph_node7"><a xlink:href="../program/adam_nasto_nvf.html" xlink:title="adam_nasto_nvf">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="100,-24 0,-24 0,0 100,0 100,-24"/>
+<text text-anchor="middle" x="50" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_nvf</text>
+</a>
+</g>
+</g>
+<!-- program~adam_nasto_nvf&#45;&gt;proc~simulate~3 -->
+<g id="proc~~compute_eigenvectors_device~~CalledByGraph_edge6" class="edge">
+<title>program~adam_nasto_nvf&#45;&gt;proc~simulate~3</title>
+<path fill="none" stroke="#000000" d="M100.2,-12C108.32,-12 116.95,-12 125.69,-12"/>
+<polygon fill="#000000" stroke="#000000" points="125.97,-15.5 135.97,-12 125.97,-8.5 125.97,-15.5"/>
+</g>
+</g>
+</svg>
+</div>                <script>
+                  var panproccompute_eigenvectors_deviceCalledByGraph = svgPanZoom('#proccompute_eigenvectors_deviceCalledByGraph',
+                    {zoomEnabled: true, controlIconsEnabled: true, fit: true, center: true,}
+                  );
+                </script>          <div>
+            <a type="button" class="graph-help" data-bs-toggle="modal" href="#CalledByGraph-help-text">Help</a>
+          </div>
+          <div class="modal fade" id="CalledByGraph-help-text" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h4 class="modal-title" id="-graph-help-label">Graph Key</h4>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+<p>Nodes of different colours represent the following: </p>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: Graph Key Pages: 1 -->
+<svg width="641pt" height="28pt"
+ viewBox="0.00 0.00 641.00 27.51" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(0.86 0.86) rotate(0) translate(4 28)">
+<title>Graph Key</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 741.5,-28 741.5,4 -4,4"/>
+<!-- Subroutine -->
+<g id="node1" class="node">
+<title>Subroutine</title>
+<polygon fill="#d9534f" stroke="#d9534f" points="70,-24 0,-24 0,0 70,0 70,-24"/>
+<text text-anchor="middle" x="35" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Subroutine</text>
+</g>
+<!-- Function -->
+<g id="node2" class="node">
+<title>Function</title>
+<polygon fill="#d94e8f" stroke="#d94e8f" points="146,-24 88,-24 88,0 146,0 146,-24"/>
+<text text-anchor="middle" x="117" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Function</text>
+</g>
+<!-- Interface -->
+<g id="node3" class="node">
+<title>Interface</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="225.5,-24 164.5,-24 164.5,0 225.5,0 225.5,-24"/>
+<text text-anchor="middle" x="195" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Interface</text>
+</g>
+<!-- Type Bound Procedure -->
+<g id="node4" class="node">
+<title>Type Bound Procedure</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="374,-24 244,-24 244,0 374,0 374,-24"/>
+<text text-anchor="middle" x="309" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Type Bound Procedure</text>
+</g>
+<!-- Unknown Procedure Type -->
+<g id="node5" class="node">
+<title>Unknown Procedure Type</title>
+<polygon fill="#777777" stroke="#777777" points="537.5,-24 392.5,-24 392.5,0 537.5,0 537.5,-24"/>
+<text text-anchor="middle" x="465" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Unknown Procedure Type</text>
+</g>
+<!-- Program -->
+<g id="node6" class="node">
+<title>Program</title>
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="614,-24 556,-24 556,0 614,0 614,-24"/>
+<text text-anchor="middle" x="585" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Program</text>
+</g>
+<!-- This Page&#39;s Entity -->
+<g id="node7" class="node">
+<title>This Page&#39;s Entity</title>
+<polygon fill="none" stroke="black" points="737.5,-24 632.5,-24 632.5,0 737.5,0 737.5,-24"/>
+<text text-anchor="middle" x="685" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">This Page&#39;s Entity</text>
+</g>
+</g>
+</svg>
+
+<p>Solid arrows point from a procedure to one which it calls. Dashed 
+arrows point from an interface to procedures which implement that interface.
+This could include the module procedures in a generic interface or the
+implementation in a submodule of an interface in a parent module.
+</p>
+ </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <br>
+
+
+    
+    
+
+    
+    
+
+
+
+    
+    <section>
+    <h2><span class="anchor" id="src"></span>Source Code</h2>
+    <div class="hl codehilite"><pre><span></span><span class="w">   </span><span class="n">attributes</span><span class="p">(</span><span class="n">device</span><span class="p">)</span><span class="w"> </span><span class="k">subroutine </span><span class="n">compute_eigenvectors_device</span><span class="p">(</span><span class="n">si</span><span class="p">,</span><span class="n">sir</span><span class="p">,</span><span class="n">b</span><span class="p">,</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">,</span><span class="n">ngc</span><span class="p">,</span><span class="n">nv</span><span class="p">,</span><span class="n">g</span><span class="p">,</span><span class="n">q_aux_gpu</span><span class="p">,</span><span class="n">el</span><span class="p">,</span><span class="n">er</span><span class="p">)</span>
+<span class="w">   </span><span class="c">! Compute eigenvectors centered in inteface i,j,k/ip,jp,kp.</span>
+<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w">    </span><span class="n">device</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">si</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span><span class="w">                                 </span><span class="c">!&lt; Stencil increment.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">    </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w">    </span><span class="n">device</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">sir</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span><span class="w">                                </span><span class="c">!&lt; Stencil increment, real cast.</span>
+<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w">    </span><span class="k">value</span><span class="w">  </span><span class="kd">::</span><span class="w"> </span><span class="n">b</span><span class="p">,</span><span class="w"> </span><span class="n">i</span><span class="p">,</span><span class="w"> </span><span class="n">j</span><span class="p">,</span><span class="w"> </span><span class="n">k</span><span class="w">                            </span><span class="c">!&lt; Cell indexes.</span>
+<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w">    </span><span class="k">value</span><span class="w">  </span><span class="kd">::</span><span class="w"> </span><span class="n">ngc</span><span class="w">                                   </span><span class="c">!&lt; Ghost cells number.</span>
+<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w">    </span><span class="k">value</span><span class="w">  </span><span class="kd">::</span><span class="w"> </span><span class="n">nv</span><span class="w">                                    </span><span class="c">!&lt; Number of conservative varibales.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">    </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w">    </span><span class="k">value</span><span class="w">  </span><span class="kd">::</span><span class="w"> </span><span class="n">g</span><span class="w">                                     </span><span class="c">!&lt; Specific heats ratio.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">    </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w">    </span><span class="n">device</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">q_aux_gpu</span><span class="p">(</span><span class="mi">1</span><span class="p">:,</span><span class="mi">1</span><span class="o">-</span><span class="n">ngc</span><span class="p">:,</span><span class="mi">1</span><span class="o">-</span><span class="n">ngc</span><span class="p">:,</span><span class="mi">1</span><span class="o">-</span><span class="n">ngc</span><span class="p">:,</span><span class="mi">1</span><span class="p">:)</span><span class="w"> </span><span class="c">!&lt; Auxiliary variables.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">    </span><span class="k">intent</span><span class="p">(</span><span class="n">inout</span><span class="p">),</span><span class="w"> </span><span class="n">device</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">el</span><span class="p">(</span><span class="mi">1</span><span class="p">:</span><span class="mi">5</span><span class="p">,</span><span class="mi">1</span><span class="p">:</span><span class="mi">5</span><span class="p">),</span><span class="w"> </span><span class="n">er</span><span class="p">(</span><span class="mi">1</span><span class="p">:</span><span class="mi">5</span><span class="p">,</span><span class="mi">1</span><span class="p">:</span><span class="mi">5</span><span class="p">)</span><span class="w">              </span><span class="c">!&lt; Left and right eigenvectors.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">                           </span><span class="kd">::</span><span class="w"> </span><span class="n">uu</span><span class="p">,</span><span class="w"> </span><span class="n">vv</span><span class="p">,</span><span class="w"> </span><span class="n">ww</span><span class="p">,</span><span class="w"> </span><span class="n">h</span><span class="p">,</span><span class="w"> </span><span class="n">qq</span><span class="p">,</span><span class="w"> </span><span class="n">c</span><span class="p">,</span><span class="w"> </span><span class="n">ci</span><span class="p">,</span><span class="w"> </span><span class="n">b1</span><span class="p">,</span><span class="w"> </span><span class="n">b2</span><span class="w">      </span><span class="c">!&lt; Roe average states.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">                           </span><span class="kd">::</span><span class="w"> </span><span class="n">uvw</span><span class="p">,</span><span class="w"> </span><span class="n">uvw_r1</span><span class="p">,</span><span class="w"> </span><span class="n">uvw_r2</span><span class="w">                   </span><span class="c">!&lt; Velocity rotation accordingly dir.</span>
+
+<span class="w">   </span><span class="k">call </span><span class="n">compute_roe_average_device</span><span class="p">(</span><span class="n">q_aux_gpu</span><span class="o">=</span><span class="n">q_aux_gpu</span><span class="p">,</span><span class="w"> </span><span class="n">g</span><span class="o">=</span><span class="n">g</span><span class="p">,</span><span class="w"> </span><span class="n">ngc</span><span class="o">=</span><span class="n">ngc</span><span class="p">,</span><span class="w"> </span><span class="n">b</span><span class="o">=</span><span class="n">b</span><span class="p">,</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="n">i</span><span class="p">,</span><span class="w"> </span><span class="n">j</span><span class="o">=</span><span class="n">j</span><span class="p">,</span><span class="w"> </span><span class="n">k</span><span class="o">=</span><span class="n">k</span><span class="p">,</span><span class="w"> </span><span class="n">ip</span><span class="o">=</span><span class="n">i</span><span class="o">+</span><span class="n">si</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span><span class="w"> </span><span class="n">jp</span><span class="o">=</span><span class="n">j</span><span class="o">+</span><span class="n">si</span><span class="p">(</span><span class="mi">2</span><span class="p">),</span><span class="w"> </span><span class="n">kp</span><span class="o">=</span><span class="n">k</span><span class="o">+</span><span class="n">si</span><span class="p">(</span><span class="mi">3</span><span class="p">),</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                                   </span><span class="n">uu</span><span class="o">=</span><span class="n">uu</span><span class="p">,</span><span class="w"> </span><span class="n">vv</span><span class="o">=</span><span class="n">vv</span><span class="p">,</span><span class="w"> </span><span class="n">ww</span><span class="o">=</span><span class="n">ww</span><span class="p">,</span><span class="w"> </span><span class="n">h</span><span class="o">=</span><span class="n">h</span><span class="p">,</span><span class="w"> </span><span class="n">qq</span><span class="o">=</span><span class="n">qq</span><span class="p">,</span><span class="w"> </span><span class="n">c</span><span class="o">=</span><span class="n">c</span><span class="p">,</span><span class="w"> </span><span class="n">ci</span><span class="o">=</span><span class="n">ci</span><span class="p">,</span><span class="w"> </span><span class="n">b1</span><span class="o">=</span><span class="n">b1</span><span class="p">,</span><span class="w"> </span><span class="n">b2</span><span class="o">=</span><span class="n">b2</span><span class="p">)</span>
+
+<span class="w">   </span><span class="n">uvw</span><span class="w">    </span><span class="o">=</span><span class="w">  </span><span class="n">uu</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="o">+</span><span class="n">vv</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="o">+</span><span class="n">ww</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
+<span class="w">   </span><span class="n">uvw_r1</span><span class="w"> </span><span class="o">=</span><span class="w">  </span><span class="n">uu</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span><span class="o">+</span><span class="n">vv</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="o">+</span><span class="n">ww</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+<span class="w">   </span><span class="n">uvw_r2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">-</span><span class="n">uu</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="o">+</span><span class="n">vv</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span><span class="o">+</span><span class="n">ww</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+
+<span class="w">   </span><span class="n">er</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">)</span><span class="o">=</span><span class="mf">1._R8P</span><span class="w"> </span><span class="p">;</span><span class="w"> </span><span class="n">er</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">)</span><span class="o">=</span><span class="n">uu</span><span class="o">-</span><span class="n">c</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w">   </span><span class="p">;</span><span class="w"> </span><span class="n">er</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">3</span><span class="p">)</span><span class="o">=</span><span class="n">vv</span><span class="o">-</span><span class="n">c</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="p">;</span><span class="w"> </span><span class="n">er</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">4</span><span class="p">)</span><span class="o">=</span><span class="n">ww</span><span class="o">-</span><span class="n">c</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span><span class="w">   </span><span class="p">;</span><span class="w"> </span><span class="n">er</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">5</span><span class="p">)</span><span class="o">=</span><span class="n">h</span><span class="o">-</span><span class="n">uvw</span><span class="o">*</span><span class="n">c</span>
+<span class="w">   </span><span class="n">er</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span><span class="mi">1</span><span class="p">)</span><span class="o">=</span><span class="mf">1._R8P</span><span class="w"> </span><span class="p">;</span><span class="w"> </span><span class="n">er</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span><span class="mi">2</span><span class="p">)</span><span class="o">=</span><span class="n">uu</span><span class="w">            </span><span class="p">;</span><span class="w"> </span><span class="n">er</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span><span class="mi">3</span><span class="p">)</span><span class="o">=</span><span class="n">vv</span><span class="w">          </span><span class="p">;</span><span class="w"> </span><span class="n">er</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span><span class="mi">4</span><span class="p">)</span><span class="o">=</span><span class="n">ww</span><span class="w">            </span><span class="p">;</span><span class="w"> </span><span class="n">er</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span><span class="mi">5</span><span class="p">)</span><span class="o">=</span><span class="n">qq</span>
+<span class="w">   </span><span class="n">er</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span><span class="mi">1</span><span class="p">)</span><span class="o">=</span><span class="mf">1._R8P</span><span class="w"> </span><span class="p">;</span><span class="w"> </span><span class="n">er</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span><span class="mi">2</span><span class="p">)</span><span class="o">=</span><span class="n">uu</span><span class="o">+</span><span class="n">c</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w">   </span><span class="p">;</span><span class="w"> </span><span class="n">er</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span><span class="mi">3</span><span class="p">)</span><span class="o">=</span><span class="n">vv</span><span class="o">+</span><span class="n">c</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="p">;</span><span class="w"> </span><span class="n">er</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span><span class="mi">4</span><span class="p">)</span><span class="o">=</span><span class="n">ww</span><span class="o">+</span><span class="n">c</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span><span class="w">   </span><span class="p">;</span><span class="w"> </span><span class="n">er</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span><span class="mi">5</span><span class="p">)</span><span class="o">=</span><span class="n">h</span><span class="o">+</span><span class="n">uvw</span><span class="o">*</span><span class="n">c</span>
+<span class="w">   </span><span class="n">er</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span><span class="mi">1</span><span class="p">)</span><span class="o">=</span><span class="mf">0._R8P</span><span class="w"> </span><span class="p">;</span><span class="w"> </span><span class="n">er</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span><span class="mi">2</span><span class="p">)</span><span class="o">=</span><span class="n">sir</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="o">+</span><span class="n">sir</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span><span class="w"> </span><span class="p">;</span><span class="w"> </span><span class="n">er</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span><span class="mi">3</span><span class="p">)</span><span class="o">=</span><span class="n">sir</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w">      </span><span class="p">;</span><span class="w"> </span><span class="n">er</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span><span class="mi">4</span><span class="p">)</span><span class="o">=</span><span class="mf">0._R8P</span><span class="w">        </span><span class="p">;</span><span class="w"> </span><span class="n">er</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span><span class="mi">5</span><span class="p">)</span><span class="o">=</span><span class="n">uvw_r1</span>
+<span class="w">   </span><span class="n">er</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span><span class="mi">1</span><span class="p">)</span><span class="o">=</span><span class="mf">0._R8P</span><span class="w"> </span><span class="p">;</span><span class="w"> </span><span class="n">er</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span><span class="mi">2</span><span class="p">)</span><span class="o">=</span><span class="mf">0._R8P</span><span class="w">        </span><span class="p">;</span><span class="w"> </span><span class="n">er</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span><span class="mi">3</span><span class="p">)</span><span class="o">=</span><span class="n">sir</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span><span class="w">      </span><span class="p">;</span><span class="w"> </span><span class="n">er</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span><span class="mi">4</span><span class="p">)</span><span class="o">=</span><span class="n">sir</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="o">+</span><span class="n">sir</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="p">;</span><span class="w"> </span><span class="n">er</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span><span class="mi">5</span><span class="p">)</span><span class="o">=</span><span class="n">uvw_r2</span>
+
+<span class="w">   </span><span class="n">el</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">)</span><span class="o">=</span><span class="w"> </span><span class="mf">0.5_R8P</span><span class="o">*</span><span class="p">(</span><span class="n">b1</span><span class="o">+</span><span class="n">uvw</span><span class="o">*</span><span class="n">ci</span><span class="p">)</span><span class="w">      </span><span class="p">;</span><span class="n">el</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">)</span><span class="o">=</span><span class="w"> </span><span class="mf">1._R8P</span><span class="o">-</span><span class="n">b1</span><span class="p">;</span><span class="n">el</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">3</span><span class="p">)</span><span class="o">=</span><span class="w"> </span><span class="mf">0.5_R8P</span><span class="o">*</span><span class="p">(</span><span class="n">b1</span><span class="o">-</span><span class="n">uvw</span><span class="o">*</span><span class="n">ci</span><span class="p">)</span><span class="w">      </span><span class="p">;</span><span class="n">el</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">4</span><span class="p">)</span><span class="o">=-</span><span class="n">uvw_r1</span><span class="p">;</span><span class="n">el</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">5</span><span class="p">)</span><span class="o">=-</span><span class="n">uvw_r2</span>
+<span class="w">   </span><span class="n">el</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span><span class="mi">1</span><span class="p">)</span><span class="o">=-</span><span class="mf">0.5_R8P</span><span class="o">*</span><span class="p">(</span><span class="n">b2</span><span class="o">*</span><span class="n">uu</span><span class="o">+</span><span class="n">ci</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">1</span><span class="p">));</span><span class="n">el</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span><span class="mi">2</span><span class="p">)</span><span class="o">=</span><span class="w"> </span><span class="n">b2</span><span class="o">*</span><span class="n">uu</span><span class="w">    </span><span class="p">;</span><span class="n">el</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span><span class="mi">3</span><span class="p">)</span><span class="o">=-</span><span class="mf">0.5_R8P</span><span class="o">*</span><span class="p">(</span><span class="n">b2</span><span class="o">*</span><span class="n">uu</span><span class="o">-</span><span class="n">ci</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">1</span><span class="p">));</span><span class="n">el</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span><span class="mi">4</span><span class="p">)</span><span class="o">=</span><span class="w"> </span><span class="n">sir</span><span class="p">(</span><span class="mi">3</span><span class="p">);</span><span class="n">el</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span><span class="mi">5</span><span class="p">)</span><span class="o">=-</span><span class="n">sir</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+<span class="w">   </span><span class="n">el</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span><span class="mi">1</span><span class="p">)</span><span class="o">=-</span><span class="mf">0.5_R8P</span><span class="o">*</span><span class="p">(</span><span class="n">b2</span><span class="o">*</span><span class="n">vv</span><span class="o">+</span><span class="n">ci</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">2</span><span class="p">));</span><span class="n">el</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span><span class="mi">2</span><span class="p">)</span><span class="o">=</span><span class="w"> </span><span class="n">b2</span><span class="o">*</span><span class="n">vv</span><span class="w">    </span><span class="p">;</span><span class="n">el</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span><span class="mi">3</span><span class="p">)</span><span class="o">=-</span><span class="mf">0.5_R8P</span><span class="o">*</span><span class="p">(</span><span class="n">b2</span><span class="o">*</span><span class="n">vv</span><span class="o">-</span><span class="n">ci</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">2</span><span class="p">));</span><span class="n">el</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span><span class="mi">4</span><span class="p">)</span><span class="o">=</span><span class="w"> </span><span class="n">sir</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span><span class="n">el</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span><span class="mi">5</span><span class="p">)</span><span class="o">=</span><span class="w"> </span><span class="n">sir</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
+<span class="w">   </span><span class="n">el</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span><span class="mi">1</span><span class="p">)</span><span class="o">=-</span><span class="mf">0.5_R8P</span><span class="o">*</span><span class="p">(</span><span class="n">b2</span><span class="o">*</span><span class="n">ww</span><span class="o">+</span><span class="n">ci</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">3</span><span class="p">));</span><span class="n">el</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span><span class="mi">2</span><span class="p">)</span><span class="o">=</span><span class="w"> </span><span class="n">b2</span><span class="o">*</span><span class="n">ww</span><span class="w">    </span><span class="p">;</span><span class="n">el</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span><span class="mi">3</span><span class="p">)</span><span class="o">=-</span><span class="mf">0.5_R8P</span><span class="o">*</span><span class="p">(</span><span class="n">b2</span><span class="o">*</span><span class="n">ww</span><span class="o">-</span><span class="n">ci</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">3</span><span class="p">));</span><span class="n">el</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span><span class="mi">4</span><span class="p">)</span><span class="o">=</span><span class="w"> </span><span class="n">sir</span><span class="p">(</span><span class="mi">2</span><span class="p">);</span><span class="n">el</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span><span class="mi">5</span><span class="p">)</span><span class="o">=</span><span class="w"> </span><span class="n">sir</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="w">   </span><span class="n">el</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span><span class="mi">1</span><span class="p">)</span><span class="o">=</span><span class="w"> </span><span class="mf">0.5_R8P</span><span class="o">*</span><span class="n">b2</span><span class="w">               </span><span class="p">;</span><span class="n">el</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span><span class="mi">2</span><span class="p">)</span><span class="o">=-</span><span class="n">b2</span><span class="w">       </span><span class="p">;</span><span class="n">el</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span><span class="mi">3</span><span class="p">)</span><span class="o">=</span><span class="w"> </span><span class="mf">0.5_R8P</span><span class="o">*</span><span class="n">b2</span><span class="w">               </span><span class="p">;</span><span class="n">el</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span><span class="mi">4</span><span class="p">)</span><span class="o">=</span><span class="w"> </span><span class="mf">0._R8P</span><span class="p">;</span><span class="n">el</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span><span class="mi">5</span><span class="p">)</span><span class="o">=</span><span class="w"> </span><span class="mf">0._R8P</span>
+<span class="w">   </span><span class="k">endsubroutine </span><span class="n">compute_eigenvectors_device</span>
+</pre></div>
+
+    </section>
+    <br>
+    
+    </div>
+  </div>
+
+      <hr>
+    </div> <!-- /container -->
+    <footer>
+      <div class="container">
+        <div class="row justify-content-between">
+          <div class="col">
+            <p>
+              ADAM
+ was developed by Stefano Zaghi<br>              &copy; 2025 
+</p>
+          </div>
+          <div class="col">
+            <p class="text-end">
+              Documentation generated by
+              <a href="https://github.com/Fortran-FOSS-Programmers/ford">FORD</a>
+            </p>
+          </div>
+        </div>
+        <br>
+      </div> <!-- /container -->
+    </footer>
+  </body>
+</html>

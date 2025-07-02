@@ -1,0 +1,2581 @@
+<!-- -*- mode: jinja2 -*- -->
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="description" content="Adaptive Mesh Refinement (AMR) with Immersed Boundary (IB) fluid dynamic solver tailored for High Performance GPU Computing">
+    <meta name="author" content="Stefano Zaghi" >
+    <link rel="icon" href="../favicon.png">
+
+    <title>adam_nasto_gmp &ndash; ADAM</title>
+
+    <!-- Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+          integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+            integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <!-- Font Awesome -->
+    <link href="../css/fontawesome.min.css" rel="stylesheet">
+    <link href="../css/brands.min.css" rel="stylesheet">
+    <link href="../css/regular.min.css" rel="stylesheet">
+    <link href="../css/solid.min.css" rel="stylesheet">
+    <link href="../css/v4-font-face.min.css" rel="stylesheet">
+    <link href="../css/v4-shims.min.css" rel="stylesheet">
+    <!-- MathJax -->
+    <script type="text/x-mathjax-config">
+      MathJax.Hub.Config({
+        TeX: { equationNumbers: { autoNumber: "AMS" } }
+      });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@2.7.9/MathJax.js?config=TeX-AMS-MML_HTMLorMML" async
+            integrity="sha256-DViIOMYdwlM/axqoGDPeUyf0urLoHMN4QACBKyB58Uw=" crossorigin="anonymous"></script>
+    <!-- Other scripts and stylesheets -->
+    <link href="../css/local.css" rel="stylesheet">
+    <link href="../css/pygments.css" rel="stylesheet">
+    <script src="../js/svg-pan-zoom.min.js"></script>
+  </head>
+
+  <body>
+
+    <!-- Fixed navbar -->
+    <div class="container-fluid mb-sm-4 mb-xl-2">
+      <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+        <div class="container">
+          <a class="navbar-brand" href="../index.html">ADAM </a>
+          <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar"
+                  aria-expanded="false" aria-controls="navbar" aria-label="Toggle navigation">
+                  <span class="navbar-toggler-icon">
+          </button>
+
+          <div id="navbar" class="navbar-collapse collapse">
+            <ul class="navbar-nav">
+                  <li class="nav-item">
+                    <a class="nav-link" href="../lists/files.html">Source Files</a>
+                  </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/modules.html">Modules</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/procedures.html">Procedures</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/types.html">Derived Types</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/programs.html">Programs</a>
+                </li>
+            </ul>
+              <div class="d-flex align-items-end flex-grow-1">
+                <form action="../search.html" role="search" class="ms-auto">
+                  <input type="text" class="form-control" aria-label="Search" placeholder="Search" name="q" id="tipue_search_input" autocomplete="off" required>
+                </form>
+              </div>
+          </div><!--/.nav-collapse -->
+        </div>
+      </nav>
+    </div>
+
+    <div class="container">
+  <div class="row">
+    <h1>adam_nasto_gmp      <small>Program</small>
+      
+    </h1>
+      <div class="container p-2 mb-4 bg-light border rounded-3">
+    <div class="row align-items-center justify-content-between" id="info-bar">
+      <div class="col">
+        <ul class="list-inline" style="margin-bottom:0px;display:inline">
+
+            <li class="list-inline-item" id="statements"><i class="fa fa-list-ol"></i>
+              <a data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-html="true"
+                 title="25.0% of total for programs.">14 statements</a>
+            </li>
+
+            <li class="list-inline-item" id="source-file">
+              <i class="fa fa-code"></i>
+              <a href="../src/adam_nasto_gmp.F90"> Source File</a>
+            </li>
+        </ul>
+      </div>
+      <div class="col">
+        <nav aria-label="breadcrumb">
+          <ol class="breadcrumb justify-content-end mb-0">
+                <li class="breadcrumb-item"><a href='../sourcefile/adam_nasto_gmp.f90.html'>adam_nasto_gmp.F90</a></li>
+            <li class="breadcrumb-item active" aria-current="page">adam_nasto_gmp</li>
+          </ol>
+        </nav>
+      </div>
+    </div>
+  </div>
+  <script>
+    // Enable Bootstrap tooltips
+    (function () {
+      const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]')
+      const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl))
+    })();
+  </script>
+
+  </div>
+  
+  <div class="row">
+    <div class="col-md-3 hidden-xs hidden-sm visible-md visible-lg">
+      <div id="sidebar">
+      <h3>Contents</h3>
+  
+      <div class="card mb-4">
+      <a data-bs-toggle="collapse" href="#vars-0"
+         aria-expanded="false" aria-controls="vars-0">
+         <h4 class="card-header bg-primary text-white">Variables</h4>
+      </a>
+      <div id="vars-0" class="collapse">
+        <div class="list-group list-group-flush">
+            <a class="list-group-item" href="../program/adam_nasto_gmp.html#variable-nasto">nasto</a>
+            <a class="list-group-item" href="../program/adam_nasto_gmp.html#variable-na">na</a>
+            <a class="list-group-item" href="../program/adam_nasto_gmp.html#variable-input_file_name">input_file_name</a>
+        </div>
+      </div>
+    </div>
+
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+    <div class="card card-primary">
+      <div class="card-header text-left"><h3 class="card-title">Source Code</h3></div>
+      <div class="list-group">
+        <a class="list-group-item" href="../program/adam_nasto_gmp.html#src">adam_nasto_gmp</a>
+      </div>
+    </div>
+
+
+  </div>
+
+    </div>
+    
+    <div class="col-md-9" id='text'>
+        <div class="card mb-4">
+      <h3 class="card-header card-title bg-light">Uses</h3>
+      <div class="card-body">
+        <ul class="list-group list-group-flush">
+            <li class="list-group-item">
+              <ul class="list-inline">
+                  <li class="list-inline-item"><a href='../module/adam_nasto_gmp_object.html'>adam_nasto_gmp_object</a></li>
+              </ul>
+            </li>
+            <li class="list-group-item">
+              <div class="depgraph"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: program~~adam_nasto_gmp~~UsesGraph Pages: 1 -->
+<svg id="programadam_nasto_gmpUsesGraph" width="641pt" height="410pt"
+ viewBox="0.00 0.00 641.00 410.12" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="program~~adam_nasto_gmp~~UsesGraph" class="graph" transform="scale(0.45 0.45) rotate(0) translate(4 901.33)">
+<title>program~~adam_nasto_gmp~~UsesGraph</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-901.33 1411,-901.33 1411,4 -4,4"/>
+<!-- program~adam_nasto_gmp -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node1" class="node">
+<title>program~adam_nasto_gmp</title>
+<polygon fill="none" stroke="black" points="1407,-815.33 1300,-815.33 1300,-791.33 1407,-791.33 1407,-815.33"/>
+<text text-anchor="middle" x="1353.5" y="-800.93" font-family="Helvetica,sans-Serif" font-size="10.50">adam_nasto_gmp</text>
+</g>
+<!-- module~adam_nasto_gmp_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node2" class="node">
+<title>module~adam_nasto_gmp_object</title>
+<g id="a_program~~adam_nasto_gmp~~UsesGraph_node2"><a xlink:href="../module/adam_nasto_gmp_object.html" xlink:title="adam_nasto_gmp_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="1264,-815.33 1119,-815.33 1119,-791.33 1264,-791.33 1264,-815.33"/>
+<text text-anchor="middle" x="1191.5" y="-800.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_gmp_object</text>
+</a>
+</g>
+</g>
+<!-- program~adam_nasto_gmp&#45;&gt;module~adam_nasto_gmp_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge1" class="edge">
+<title>program~adam_nasto_gmp&#45;&gt;module~adam_nasto_gmp_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1299.67,-803.33C1291.49,-803.33 1282.88,-803.33 1274.25,-803.33"/>
+<polygon fill="#000000" stroke="#000000" points="1274.12,-799.83 1264.12,-803.33 1274.12,-806.83 1274.12,-799.83"/>
+</g>
+<!-- adam_common_library -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node3" class="node">
+<title>adam_common_library</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="1066,-897.33 930,-897.33 930,-873.33 1066,-873.33 1066,-897.33"/>
+<text text-anchor="middle" x="998" y="-882.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_common_library</text>
+</g>
+<!-- module~adam_nasto_gmp_object&#45;&gt;adam_common_library -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge2" class="edge">
+<title>module~adam_nasto_gmp_object&#45;&gt;adam_common_library</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1172.62,-815.5C1151.88,-829.12 1116.27,-851.02 1083,-864.33 1077.55,-866.51 1071.8,-868.52 1065.98,-870.35"/>
+<polygon fill="#000000" stroke="#000000" points="1064.74,-867.07 1056.15,-873.27 1066.73,-873.78 1064.74,-867.07"/>
+</g>
+<!-- adam_gmp_library -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node4" class="node">
+<title>adam_gmp_library</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="1054,-855.33 942,-855.33 942,-831.33 1054,-831.33 1054,-855.33"/>
+<text text-anchor="middle" x="998" y="-840.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_gmp_library</text>
+</g>
+<!-- module~adam_nasto_gmp_object&#45;&gt;adam_gmp_library -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge3" class="edge">
+<title>module~adam_nasto_gmp_object&#45;&gt;adam_gmp_library</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1133.04,-815.33C1111.36,-819.86 1086.53,-825.05 1064.19,-829.72"/>
+<polygon fill="#000000" stroke="#000000" points="1063.19,-826.35 1054.11,-831.82 1064.62,-833.2 1063.19,-826.35"/>
+</g>
+<!-- module~adam_nasto_common_library -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node5" class="node">
+<title>module~adam_nasto_common_library</title>
+<g id="a_program~~adam_nasto_gmp~~UsesGraph_node5"><a xlink:href="../module/adam_nasto_common_library.html" xlink:title="adam_nasto_common_library">
+<polygon fill="#337ab7" stroke="#337ab7" points="1083,-646.33 913,-646.33 913,-622.33 1083,-622.33 1083,-646.33"/>
+<text text-anchor="middle" x="998" y="-631.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_common_library</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_gmp_object&#45;&gt;module~adam_nasto_common_library -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge4" class="edge">
+<title>module~adam_nasto_gmp_object&#45;&gt;module~adam_nasto_common_library</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1176.73,-791.18C1143.74,-762.07 1060.01,-688.17 1020.4,-653.21"/>
+<polygon fill="#000000" stroke="#000000" points="1022.46,-650.37 1012.65,-646.38 1017.83,-655.62 1022.46,-650.37"/>
+</g>
+<!-- module~adam_nasto_gmp_kernels -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node6" class="node">
+<title>module~adam_nasto_gmp_kernels</title>
+<g id="a_program~~adam_nasto_gmp~~UsesGraph_node6"><a xlink:href="../module/adam_nasto_gmp_kernels.html" xlink:title="adam_nasto_gmp_kernels">
+<polygon fill="#337ab7" stroke="#337ab7" points="868,-775.33 717,-775.33 717,-751.33 868,-751.33 868,-775.33"/>
+<text text-anchor="middle" x="792.5" y="-760.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_gmp_kernels</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_gmp_object&#45;&gt;module~adam_nasto_gmp_kernels -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge5" class="edge">
+<title>module~adam_nasto_gmp_object&#45;&gt;module~adam_nasto_gmp_kernels</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1118.62,-804.98C1082.67,-805.38 1038.52,-805.25 999,-803.33"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M997,-803.33C944.84,-800.8 886.46,-788.3 845.65,-777.93"/>
+<polygon fill="#000000" stroke="#000000" points="846.49,-774.53 835.93,-775.42 844.74,-781.31 846.49,-774.53"/>
+</g>
+<!-- mpi -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node7" class="node">
+<title>mpi</title>
+<g id="a_program~~adam_nasto_gmp~~UsesGraph_node7"><a xlink:href="http://www.mpi-forum.org/docs/mpi-3.1/mpi31-report/node410.htm" xlink:title="mpi">
+<polygon fill="#337ab7" stroke="#337ab7" points="1025,-604.33 971,-604.33 971,-580.33 1025,-580.33 1025,-604.33"/>
+<text text-anchor="middle" x="998" y="-589.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">mpi</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_gmp_object&#45;&gt;mpi -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge6" class="edge">
+<title>module~adam_nasto_gmp_object&#45;&gt;mpi</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1187.33,-791.32C1177.8,-757.58 1146.04,-661.3 1083,-613.33 1069.36,-602.95 1051.21,-597.65 1035.27,-594.97"/>
+<polygon fill="#000000" stroke="#000000" points="1035.57,-591.48 1025.18,-593.55 1034.6,-598.41 1035.57,-591.48"/>
+</g>
+<!-- penf -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node8" class="node">
+<title>penf</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="84,-239.33 30,-239.33 30,-215.33 84,-215.33 84,-239.33"/>
+<text text-anchor="middle" x="57" y="-224.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">penf</text>
+</g>
+<!-- module~adam_nasto_gmp_object&#45;&gt;penf -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge7" class="edge">
+<title>module~adam_nasto_gmp_object&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M997,-803.33C701.23,-788.97 616.21,-863.98 331,-784.33 278.09,-769.56 273.99,-744.97 223.5,-723.33"/>
+</g>
+<!-- module~adam_nasto_bc_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node10" class="node">
+<title>module~adam_nasto_bc_object</title>
+<g id="a_program~~adam_nasto_gmp~~UsesGraph_node10"><a xlink:href="../module/adam_nasto_bc_object.html" xlink:title="adam_nasto_bc_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="289.5,-492.33 155.5,-492.33 155.5,-468.33 289.5,-468.33 289.5,-492.33"/>
+<text text-anchor="middle" x="222.5" y="-477.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_bc_object</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_common_library&#45;&gt;module~adam_nasto_bc_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge8" class="edge">
+<title>module~adam_nasto_common_library&#45;&gt;module~adam_nasto_bc_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M939.44,-622.33C863.32,-608.19 725.13,-588.5 608,-604.33"/>
+</g>
+<!-- module~adam_nasto_common_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node11" class="node">
+<title>module~adam_nasto_common_object</title>
+<g id="a_program~~adam_nasto_gmp~~UsesGraph_node11"><a xlink:href="../module/adam_nasto_common_object.html" xlink:title="adam_nasto_common_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="877,-452.33 708,-452.33 708,-428.33 877,-428.33 877,-452.33"/>
+<text text-anchor="middle" x="792.5" y="-437.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_common_object</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_common_library&#45;&gt;module~adam_nasto_common_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge9" class="edge">
+<title>module~adam_nasto_common_library&#45;&gt;module~adam_nasto_common_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M929.5,-622.2C923.67,-619.76 918.07,-616.84 913,-613.33 856.49,-574.2 818.46,-499.04 802.3,-462.02"/>
+<polygon fill="#000000" stroke="#000000" points="805.45,-460.49 798.32,-452.65 799.01,-463.23 805.45,-460.49"/>
+</g>
+<!-- module~adam_nasto_eos_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node12" class="node">
+<title>module~adam_nasto_eos_object</title>
+<g id="a_program~~adam_nasto_gmp~~UsesGraph_node12"><a xlink:href="../module/adam_nasto_eos_object.html" xlink:title="adam_nasto_eos_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="292.5,-86.33 152.5,-86.33 152.5,-62.33 292.5,-62.33 292.5,-86.33"/>
+<text text-anchor="middle" x="222.5" y="-71.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_eos_object</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_common_library&#45;&gt;module~adam_nasto_eos_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge10" class="edge">
+<title>module~adam_nasto_common_library&#45;&gt;module~adam_nasto_eos_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M924.18,-622.28C920.08,-619.79 916.3,-616.84 913,-613.33 852.93,-549.44 898.22,-504.42 877,-419.33 847.12,-299.51 894.14,-225.89 793.5,-154.33"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M791.5,-154.33C719.56,-103.18 692.42,-104.12 608,-78.33"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M606,-78.33C520.07,-52.09 509.31,2.32 419.5,-0.33"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M417.5,-0.33C359.05,-2.06 349.7,-27.67 295,-48.33 285.92,-51.76 276.16,-55.36 266.86,-58.76"/>
+<polygon fill="#000000" stroke="#000000" points="265.59,-55.5 257.39,-62.2 267.98,-62.07 265.59,-55.5"/>
+</g>
+<!-- module~adam_nasto_ic_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node14" class="node">
+<title>module~adam_nasto_ic_object</title>
+<g id="a_program~~adam_nasto_gmp~~UsesGraph_node14"><a xlink:href="../module/adam_nasto_ic_object.html" xlink:title="adam_nasto_ic_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="672,-206.33 542,-206.33 542,-182.33 672,-182.33 672,-206.33"/>
+<text text-anchor="middle" x="607" y="-191.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_ic_object</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_common_library&#45;&gt;module~adam_nasto_ic_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge11" class="edge">
+<title>module~adam_nasto_common_library&#45;&gt;module~adam_nasto_ic_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M791.5,-154.33C768.76,-138.25 694.64,-161.45 647.85,-178.66"/>
+<polygon fill="#000000" stroke="#000000" points="646.45,-175.45 638.31,-182.23 648.9,-182 646.45,-175.45"/>
+</g>
+<!-- module~adam_nasto_io_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node15" class="node">
+<title>module~adam_nasto_io_object</title>
+<g id="a_program~~adam_nasto_gmp~~UsesGraph_node15"><a xlink:href="../module/adam_nasto_io_object.html" xlink:title="adam_nasto_io_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="288,-128.33 157,-128.33 157,-104.33 288,-104.33 288,-128.33"/>
+<text text-anchor="middle" x="222.5" y="-113.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_io_object</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_common_library&#45;&gt;module~adam_nasto_io_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge12" class="edge">
+<title>module~adam_nasto_common_library&#45;&gt;module~adam_nasto_io_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M417.5,-0.33C371.48,-1.69 366.29,-27.76 331,-57.33 313.17,-72.27 314.85,-83.19 295,-95.33 292.04,-97.14 288.92,-98.8 285.7,-100.33"/>
+<polygon fill="#000000" stroke="#000000" points="284.25,-97.14 276.42,-104.27 286.99,-103.58 284.25,-97.14"/>
+</g>
+<!-- module~adam_nasto_parameters -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node16" class="node">
+<title>module~adam_nasto_parameters</title>
+<g id="a_program~~adam_nasto_gmp~~UsesGraph_node16"><a xlink:href="../module/adam_nasto_parameters.html" xlink:title="adam_nasto_parameters">
+<polygon fill="#337ab7" stroke="#337ab7" points="865,-675.33 720,-675.33 720,-651.33 865,-651.33 865,-675.33"/>
+<text text-anchor="middle" x="792.5" y="-660.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_parameters</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_common_library&#45;&gt;module~adam_nasto_parameters -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge13" class="edge">
+<title>module~adam_nasto_common_library&#45;&gt;module~adam_nasto_parameters</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M912.76,-646.34C900.37,-648.1 887.63,-649.92 875.29,-651.68"/>
+<polygon fill="#000000" stroke="#000000" points="874.45,-648.26 865.04,-653.14 875.44,-655.19 874.45,-648.26"/>
+</g>
+<!-- module~adam_nasto_physics_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node17" class="node">
+<title>module~adam_nasto_physics_object</title>
+<g id="a_program~~adam_nasto_gmp~~UsesGraph_node17"><a xlink:href="../module/adam_nasto_physics_object.html" xlink:title="adam_nasto_physics_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="498.5,-90.33 338.5,-90.33 338.5,-66.33 498.5,-66.33 498.5,-90.33"/>
+<text text-anchor="middle" x="418.5" y="-75.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_physics_object</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_common_library&#45;&gt;module~adam_nasto_physics_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge14" class="edge">
+<title>module~adam_nasto_common_library&#45;&gt;module~adam_nasto_physics_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M606,-78.33C575.12,-68.9 540.01,-66.82 508.64,-67.79"/>
+<polygon fill="#000000" stroke="#000000" points="508.44,-64.29 498.59,-68.2 508.73,-71.29 508.44,-64.29"/>
+</g>
+<!-- module~adam_nasto_time_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node18" class="node">
+<title>module~adam_nasto_time_object</title>
+<g id="a_program~~adam_nasto_gmp~~UsesGraph_node18"><a xlink:href="../module/adam_nasto_time_object.html" xlink:title="adam_nasto_time_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="295,-208.33 150,-208.33 150,-184.33 295,-184.33 295,-208.33"/>
+<text text-anchor="middle" x="222.5" y="-193.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_time_object</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_common_library&#45;&gt;module~adam_nasto_time_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge15" class="edge">
+<title>module~adam_nasto_common_library&#45;&gt;module~adam_nasto_time_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M791.5,-154.33C752.75,-126.94 452.73,-164.24 305.07,-184.62"/>
+<polygon fill="#000000" stroke="#000000" points="304.56,-181.16 295.13,-186 305.52,-188.09 304.56,-181.16"/>
+</g>
+<!-- module~adam_nasto_gmp_kernels&#45;&gt;penf -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge18" class="edge">
+<title>module~adam_nasto_gmp_kernels&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M716.9,-765.7C683.56,-766.26 643.79,-766.22 608,-764.33"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M606,-764.33C521.25,-759.85 504.23,-718.51 419.5,-723.33"/>
+</g>
+<!-- adam_weno_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node9" class="node">
+<title>adam_weno_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="664.5,-736.33 549.5,-736.33 549.5,-712.33 664.5,-712.33 664.5,-736.33"/>
+<text text-anchor="middle" x="607" y="-721.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_weno_object</text>
+</g>
+<!-- module~adam_nasto_gmp_kernels&#45;&gt;adam_weno_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge16" class="edge">
+<title>module~adam_nasto_gmp_kernels&#45;&gt;adam_weno_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M734.95,-751.31C715.85,-747.25 694.35,-742.68 674.55,-738.48"/>
+<polygon fill="#000000" stroke="#000000" points="675.19,-735.03 664.68,-736.38 673.74,-741.88 675.19,-735.03"/>
+</g>
+<!-- module~adam_nasto_gmp_cns_kernels -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node13" class="node">
+<title>module~adam_nasto_gmp_cns_kernels</title>
+<g id="a_program~~adam_nasto_gmp~~UsesGraph_node13"><a xlink:href="../module/adam_nasto_gmp_cns_kernels.html" xlink:title="adam_nasto_gmp_cns_kernels">
+<polygon fill="#337ab7" stroke="#337ab7" points="506,-775.33 331,-775.33 331,-751.33 506,-751.33 506,-775.33"/>
+<text text-anchor="middle" x="418.5" y="-760.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_gmp_cns_kernels</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_gmp_kernels&#45;&gt;module~adam_nasto_gmp_cns_kernels -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge17" class="edge">
+<title>module~adam_nasto_gmp_kernels&#45;&gt;module~adam_nasto_gmp_cns_kernels</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M606,-764.33C576.93,-762.8 545.28,-762.22 516.44,-762.11"/>
+<polygon fill="#000000" stroke="#000000" points="516.38,-758.61 506.37,-762.09 516.36,-765.61 516.38,-758.61"/>
+</g>
+<!-- module~adam_nasto_bc_object&#45;&gt;penf -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge21" class="edge">
+<title>module~adam_nasto_bc_object&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M171.44,-468.3C163.6,-464.76 156.08,-460.2 150,-454.33 90.04,-396.51 67.97,-294.25 60.92,-249.43"/>
+<polygon fill="#000000" stroke="#000000" points="64.35,-248.72 59.43,-239.33 57.42,-249.74 64.35,-248.72"/>
+</g>
+<!-- adam_mpih_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node25" class="node">
+<title>adam_mpih_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="114,-188.33 0,-188.33 0,-164.33 114,-164.33 114,-188.33"/>
+<text text-anchor="middle" x="57" y="-173.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_mpih_object</text>
+</g>
+<!-- module~adam_nasto_bc_object&#45;&gt;adam_mpih_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge19" class="edge">
+<title>module~adam_nasto_bc_object&#45;&gt;adam_mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M167.67,-468.21C160.93,-464.7 154.75,-460.17 150,-454.33 79.7,-367.94 177.95,-297.52 114,-206.33 110.59,-201.47 106.14,-197.33 101.24,-193.82"/>
+<polygon fill="#000000" stroke="#000000" points="103.01,-190.79 92.67,-188.49 99.31,-196.74 103.01,-190.79"/>
+</g>
+<!-- finer -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node28" class="node">
+<title>finer</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="84,-128.33 30,-128.33 30,-104.33 84,-104.33 84,-128.33"/>
+<text text-anchor="middle" x="57" y="-113.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">finer</text>
+</g>
+<!-- module~adam_nasto_bc_object&#45;&gt;finer -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge20" class="edge">
+<title>module~adam_nasto_bc_object&#45;&gt;finer</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M218.58,-468.17C205.79,-415.64 153.62,-208.44 114,-155.33 107.73,-146.93 99.1,-139.67 90.5,-133.78"/>
+<polygon fill="#000000" stroke="#000000" points="92.3,-130.78 81.99,-128.34 88.53,-136.68 92.3,-130.78"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;penf -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge37" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M786.59,-452.74C773.23,-484.96 733.06,-571.96 672,-618.33 623.53,-655.14 598.19,-637.97 542,-661.33 485.65,-684.76 480.44,-720.11 419.5,-723.33"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M417.5,-723.33C331.42,-728.22 302.75,-757.3 223.5,-723.33"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_weno_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge30" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_weno_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M786.7,-452.36C767.04,-501.45 692.68,-684.8 672,-703.33 670.53,-704.65 668.98,-705.88 667.36,-707.04"/>
+<polygon fill="#000000" stroke="#000000" points="665.54,-704.05 658.78,-712.21 669.15,-710.05 665.54,-704.05"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;module~adam_nasto_bc_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge32" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;module~adam_nasto_bc_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M784.89,-452.52C769.16,-480.38 726.66,-549.12 672,-585.33 647.26,-601.72 637.03,-598.2 608,-604.33"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M606,-604.33C467.94,-633.48 309.45,-539.3 248.85,-498.37"/>
+<polygon fill="#000000" stroke="#000000" points="250.53,-495.28 240.31,-492.51 246.57,-501.05 250.53,-495.28"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;module~adam_nasto_ic_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge33" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;module~adam_nasto_ic_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M788.55,-428.29C778.77,-390.94 743.9,-275.87 672,-215.33 670.42,-214 668.76,-212.76 667.03,-211.59"/>
+<polygon fill="#000000" stroke="#000000" points="668.33,-208.31 657.91,-206.39 664.86,-214.39 668.33,-208.31"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;module~adam_nasto_io_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge34" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;module~adam_nasto_io_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M606,-116.33C580.92,-100.15 402.46,-106.69 298.39,-112.03"/>
+<polygon fill="#000000" stroke="#000000" points="298.05,-108.54 288.25,-112.55 298.42,-115.53 298.05,-108.54"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;module~adam_nasto_physics_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge35" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;module~adam_nasto_physics_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M788.09,-428.21C776.57,-388.68 736.2,-261.02 672,-173.33 649.5,-142.6 640.01,-136.98 608,-116.33"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M606,-116.33C589.55,-105.72 548.39,-96.79 508.91,-90.26"/>
+<polygon fill="#000000" stroke="#000000" points="509.36,-86.79 498.93,-88.65 508.24,-93.7 509.36,-86.79"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;module~adam_nasto_time_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge36" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;module~adam_nasto_time_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M606,-318.33C490.65,-277.04 443.04,-348.9 331,-299.33 290.58,-281.45 256.19,-241.5 237.82,-216.94"/>
+<polygon fill="#000000" stroke="#000000" points="240.5,-214.69 231.79,-208.66 234.84,-218.81 240.5,-214.69"/>
+</g>
+<!-- adam_adam_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node20" class="node">
+<title>adam_adam_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="666,-412.33 548,-412.33 548,-388.33 666,-388.33 666,-412.33"/>
+<text text-anchor="middle" x="607" y="-397.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_adam_object</text>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_adam_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge22" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_adam_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M736.44,-428.33C716.58,-424 693.96,-419.07 673.3,-414.57"/>
+<polygon fill="#000000" stroke="#000000" points="673.85,-411.1 663.33,-412.39 672.36,-417.94 673.85,-411.1"/>
+</g>
+<!-- adam_amr_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node21" class="node">
+<title>adam_amr_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="661.5,-370.33 552.5,-370.33 552.5,-346.33 661.5,-346.33 661.5,-370.33"/>
+<text text-anchor="middle" x="607" y="-355.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_amr_object</text>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_amr_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge23" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_amr_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M770.39,-428.29C746.87,-415.17 707.48,-394.1 672,-379.33 667.33,-377.39 662.41,-375.5 657.46,-373.71"/>
+<polygon fill="#000000" stroke="#000000" points="658.55,-370.38 647.95,-370.38 656.24,-376.99 658.55,-370.38"/>
+</g>
+<!-- adam_field_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node22" class="node">
+<title>adam_field_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="473.5,-290.33 363.5,-290.33 363.5,-266.33 473.5,-266.33 473.5,-290.33"/>
+<text text-anchor="middle" x="418.5" y="-275.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_field_object</text>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_field_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge24" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_field_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M780.87,-428.3C761.37,-406.93 717.67,-362.28 672,-337.33 645.96,-323.11 635.94,-328.33 608,-318.33"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M606,-318.33C566.39,-304.15 520.16,-294.19 483.63,-287.76"/>
+<polygon fill="#000000" stroke="#000000" points="484.05,-284.28 473.6,-286.04 482.87,-291.18 484.05,-284.28"/>
+</g>
+<!-- adam_grid_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node23" class="node">
+<title>adam_grid_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="661,-290.33 553,-290.33 553,-266.33 661,-266.33 661,-290.33"/>
+<text text-anchor="middle" x="607" y="-275.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_grid_object</text>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_grid_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge25" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_grid_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M783.69,-428.1C766.47,-402.02 722.73,-340.38 672,-304.33 666.87,-300.68 661.15,-297.44 655.3,-294.58"/>
+<polygon fill="#000000" stroke="#000000" points="656.62,-291.34 646.07,-290.42 653.74,-297.72 656.62,-291.34"/>
+</g>
+<!-- adam_ib_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node24" class="node">
+<title>adam_ib_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="655.5,-248.33 558.5,-248.33 558.5,-224.33 655.5,-224.33 655.5,-248.33"/>
+<text text-anchor="middle" x="607" y="-233.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_ib_object</text>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_ib_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge26" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_ib_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M786.89,-428.04C773.98,-395.29 734.31,-305.16 672,-257.33 669.7,-255.56 667.24,-253.94 664.67,-252.45"/>
+<polygon fill="#000000" stroke="#000000" points="666.14,-249.27 655.63,-247.88 662.98,-255.52 666.14,-249.27"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_mpih_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge27" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M707.96,-441.39C658.91,-440.18 596.12,-435.46 542,-421.33 336.03,-367.55 301.51,-307.11 114,-206.33 106.11,-202.09 97.59,-197.52 89.63,-193.26"/>
+<polygon fill="#000000" stroke="#000000" points="91.09,-190.07 80.62,-188.43 87.79,-196.24 91.09,-190.07"/>
+</g>
+<!-- adam_rk_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node26" class="node">
+<title>adam_rk_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="655.5,-576.33 558.5,-576.33 558.5,-552.33 655.5,-552.33 655.5,-576.33"/>
+<text text-anchor="middle" x="607" y="-561.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_rk_object</text>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_rk_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge28" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_rk_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M780.49,-452.57C760.73,-473.86 717.07,-517.87 672,-543.33 668.75,-545.16 665.33,-546.87 661.81,-548.44"/>
+<polygon fill="#000000" stroke="#000000" points="660.28,-545.29 652.36,-552.32 662.94,-551.76 660.28,-545.29"/>
+</g>
+<!-- adam_slices_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node27" class="node">
+<title>adam_slices_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="665,-534.33 549,-534.33 549,-510.33 665,-510.33 665,-534.33"/>
+<text text-anchor="middle" x="607" y="-519.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_slices_object</text>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_slices_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge29" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_slices_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M770.39,-452.38C746.87,-465.49 707.48,-486.56 672,-501.33 667.33,-503.28 662.41,-505.16 657.46,-506.96"/>
+<polygon fill="#000000" stroke="#000000" points="656.24,-503.68 647.95,-510.28 658.55,-510.28 656.24,-503.68"/>
+</g>
+<!-- iso_c_binding -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node29" class="node">
+<title>iso_c_binding</title>
+<g id="a_program~~adam_nasto_gmp~~UsesGraph_node29"><a xlink:href="http://fortranwiki.org/fortran/show/iso_c_binding" xlink:title="iso_c_binding">
+<polygon fill="#337ab7" stroke="#337ab7" points="649,-492.33 565,-492.33 565,-468.33 649,-468.33 649,-492.33"/>
+<text text-anchor="middle" x="607" y="-477.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">iso_c_binding</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;iso_c_binding -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge31" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;iso_c_binding</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M736.44,-452.33C711.87,-457.69 683.1,-463.96 659.02,-469.21"/>
+<polygon fill="#000000" stroke="#000000" points="658.04,-465.84 649.01,-471.39 659.53,-472.68 658.04,-465.84"/>
+</g>
+<!-- module~adam_nasto_eos_object&#45;&gt;penf -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge40" class="edge">
+<title>module~adam_nasto_eos_object&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M162.71,-86.35C158.08,-88.81 153.76,-91.77 150,-95.33 115.11,-128.4 145.3,-160.85 114,-197.33 108.32,-203.95 100.81,-209.34 93.14,-213.63"/>
+<polygon fill="#000000" stroke="#000000" points="91.5,-210.54 84.16,-218.17 94.66,-216.78 91.5,-210.54"/>
+</g>
+<!-- module~adam_nasto_eos_object&#45;&gt;adam_mpih_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge38" class="edge">
+<title>module~adam_nasto_eos_object&#45;&gt;adam_mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M167.67,-86.42C161.47,-88.88 155.43,-91.82 150,-95.33 129.35,-108.68 132.23,-120.84 114,-137.33 105.54,-144.98 95.53,-152.39 86.33,-158.66"/>
+<polygon fill="#000000" stroke="#000000" points="84.23,-155.85 77.83,-164.29 88.1,-161.68 84.23,-155.85"/>
+</g>
+<!-- module~adam_nasto_eos_object&#45;&gt;finer -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge39" class="edge">
+<title>module~adam_nasto_eos_object&#45;&gt;finer</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M174.65,-86.37C149,-92.95 117.71,-100.99 94,-107.08"/>
+<polygon fill="#000000" stroke="#000000" points="92.83,-103.77 84.01,-109.65 94.57,-110.55 92.83,-103.77"/>
+</g>
+<!-- module~adam_nasto_gmp_cns_kernels&#45;&gt;penf -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge41" class="edge">
+<title>module~adam_nasto_gmp_cns_kernels&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M330.71,-753.16C296.37,-747.17 257.14,-737.81 223.5,-723.33"/>
+</g>
+<!-- module~adam_nasto_ic_object&#45;&gt;penf -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge46" class="edge">
+<title>module~adam_nasto_ic_object&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M541.89,-205.12C465.21,-218.61 345.34,-241.82 331,-257.33 293.8,-297.58 307.44,-447.95 295,-501.33 271.47,-602.28 318.71,-764.32 223.5,-723.33"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M221.5,-723.33C129.1,-683.73 74.1,-340.57 61.03,-249.46"/>
+<polygon fill="#000000" stroke="#000000" points="64.48,-248.83 59.62,-239.42 57.55,-249.81 64.48,-248.83"/>
+</g>
+<!-- module~adam_nasto_ic_object&#45;&gt;module~adam_nasto_physics_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge45" class="edge">
+<title>module~adam_nasto_ic_object&#45;&gt;module~adam_nasto_physics_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M586.39,-182.14C553.15,-161.46 485.61,-119.45 447.43,-95.7"/>
+<polygon fill="#000000" stroke="#000000" points="449.18,-92.67 438.84,-90.36 445.49,-98.62 449.18,-92.67"/>
+</g>
+<!-- module~adam_nasto_ic_object&#45;&gt;adam_field_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge42" class="edge">
+<title>module~adam_nasto_ic_object&#45;&gt;adam_field_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M560.02,-206.41C553.74,-208.91 547.56,-211.86 542,-215.33 522.54,-227.48 525.61,-240.43 506,-252.33 499.04,-256.55 491.35,-260.13 483.51,-263.16"/>
+<polygon fill="#000000" stroke="#000000" points="482.16,-259.92 473.91,-266.57 484.5,-266.52 482.16,-259.92"/>
+</g>
+<!-- module~adam_nasto_ic_object&#45;&gt;adam_mpih_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge43" class="edge">
+<title>module~adam_nasto_ic_object&#45;&gt;adam_mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M560.44,-182.27C488.52,-164.92 344.42,-137.02 223.5,-156.33"/>
+</g>
+<!-- module~adam_nasto_ic_object&#45;&gt;finer -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge44" class="edge">
+<title>module~adam_nasto_ic_object&#45;&gt;finer</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M591.4,-182.25C577.45,-170.16 556.46,-150.51 542,-130.33 520.93,-100.93 535.92,-77.67 506,-57.33 453.91,-21.93 285.59,-23.73 223.5,-34.33"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M221.5,-34.33C189.05,-39.66 179.89,-39.62 150,-53.33 124.45,-65.05 98.28,-83.75 80.41,-97.74"/>
+<polygon fill="#000000" stroke="#000000" points="77.98,-95.2 72.35,-104.17 82.35,-100.67 77.98,-95.2"/>
+</g>
+<!-- module~adam_nasto_io_object&#45;&gt;penf -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge49" class="edge">
+<title>module~adam_nasto_io_object&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M207.06,-128.35C186.9,-144.86 148.85,-175.05 114,-197.33 106.94,-201.84 99.15,-206.32 91.67,-210.38"/>
+<polygon fill="#000000" stroke="#000000" points="89.64,-207.5 82.45,-215.28 92.92,-213.68 89.64,-207.5"/>
+</g>
+<!-- module~adam_nasto_io_object&#45;&gt;adam_mpih_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge47" class="edge">
+<title>module~adam_nasto_io_object&#45;&gt;adam_mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M188.38,-128.33C176.3,-132.72 162.53,-137.74 150,-142.33 133.72,-148.3 115.82,-154.9 100.18,-160.69"/>
+<polygon fill="#000000" stroke="#000000" points="98.93,-157.42 90.77,-164.17 101.36,-163.98 98.93,-157.42"/>
+</g>
+<!-- module~adam_nasto_io_object&#45;&gt;finer -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge48" class="edge">
+<title>module~adam_nasto_io_object&#45;&gt;finer</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M156.88,-116.33C135.69,-116.33 112.89,-116.33 94.53,-116.33"/>
+<polygon fill="#000000" stroke="#000000" points="94.28,-112.83 84.28,-116.33 94.28,-119.83 94.28,-112.83"/>
+</g>
+<!-- PENF -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_node19" class="node">
+<title>PENF</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="634,-694.33 580,-694.33 580,-670.33 634,-670.33 634,-694.33"/>
+<text text-anchor="middle" x="607" y="-679.93" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">PENF</text>
+</g>
+<!-- module~adam_nasto_parameters&#45;&gt;PENF -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge50" class="edge">
+<title>module~adam_nasto_parameters&#45;&gt;PENF</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M719.77,-670.76C693.85,-673.44 665.7,-676.36 644.13,-678.59"/>
+<polygon fill="#000000" stroke="#000000" points="643.69,-675.12 634.11,-679.63 644.41,-682.08 643.69,-675.12"/>
+</g>
+<!-- module~adam_nasto_physics_object&#45;&gt;penf -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge54" class="edge">
+<title>module~adam_nasto_physics_object&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M411.28,-90.54C396.01,-118.98 353.64,-189.35 295,-217.33 229.73,-248.48 142.48,-241.6 94.12,-234.21"/>
+<polygon fill="#000000" stroke="#000000" points="94.56,-230.73 84.13,-232.59 93.44,-237.64 94.56,-230.73"/>
+</g>
+<!-- module~adam_nasto_physics_object&#45;&gt;module~adam_nasto_eos_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge53" class="edge">
+<title>module~adam_nasto_physics_object&#45;&gt;module~adam_nasto_eos_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M338.31,-76.7C326.64,-76.46 314.62,-76.21 302.94,-75.97"/>
+<polygon fill="#000000" stroke="#000000" points="302.86,-72.47 292.79,-75.76 302.72,-79.47 302.86,-72.47"/>
+</g>
+<!-- module~adam_nasto_physics_object&#45;&gt;adam_mpih_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge51" class="edge">
+<title>module~adam_nasto_physics_object&#45;&gt;adam_mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M395.48,-90.51C371.37,-103.46 331.31,-123.9 295,-137.33 264.16,-148.74 255.97,-151.15 223.5,-156.33"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M221.5,-156.33C189.67,-161.41 154.18,-165.9 124.41,-169.32"/>
+<polygon fill="#000000" stroke="#000000" points="123.68,-165.89 114.14,-170.49 124.47,-172.84 123.68,-165.89"/>
+</g>
+<!-- module~adam_nasto_physics_object&#45;&gt;finer -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge52" class="edge">
+<title>module~adam_nasto_physics_object&#45;&gt;finer</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M372.81,-66.3C320.2,-52.43 238.1,-31.84 223.5,-34.33"/>
+</g>
+<!-- module~adam_nasto_time_object&#45;&gt;penf -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge57" class="edge">
+<title>module~adam_nasto_time_object&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M157.82,-208.41C136.18,-212.51 112.77,-216.95 94.06,-220.49"/>
+<polygon fill="#000000" stroke="#000000" points="93.36,-217.06 84.19,-222.37 94.66,-223.94 93.36,-217.06"/>
+</g>
+<!-- module~adam_nasto_time_object&#45;&gt;adam_mpih_object -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge55" class="edge">
+<title>module~adam_nasto_time_object&#45;&gt;adam_mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M149.79,-187.56C141.37,-186.53 132.81,-185.48 124.46,-184.46"/>
+<polygon fill="#000000" stroke="#000000" points="124.77,-180.97 114.42,-183.23 123.92,-187.92 124.77,-180.97"/>
+</g>
+<!-- module~adam_nasto_time_object&#45;&gt;finer -->
+<g id="program~~adam_nasto_gmp~~UsesGraph_edge56" class="edge">
+<title>module~adam_nasto_time_object&#45;&gt;finer</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M196.67,-184.18C168.66,-170.47 122.95,-148.11 91.72,-132.83"/>
+<polygon fill="#000000" stroke="#000000" points="93.05,-129.58 82.53,-128.33 89.97,-135.87 93.05,-129.58"/>
+</g>
+</g>
+</svg>
+</div>                <script>
+                  var panprogramadam_nasto_gmpUsesGraph = svgPanZoom('#programadam_nasto_gmpUsesGraph',
+                    {zoomEnabled: true, controlIconsEnabled: true, fit: true, center: true,}
+                  );
+                </script>          <div>
+            <a type="button" class="graph-help" data-bs-toggle="modal" href="#UsesGraph-help-text">Help</a>
+          </div>
+          <div class="modal fade" id="UsesGraph-help-text" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h4 class="modal-title" id="-graph-help-label">Graph Key</h4>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+<p>Nodes of different colours represent the following: </p>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: Graph Key Pages: 1 -->
+<svg width="518pt" height="32pt"
+ viewBox="0.00 0.00 517.50 32.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 28)">
+<title>Graph Key</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 513.5,-28 513.5,4 -4,4"/>
+<!-- Module -->
+<g id="node1" class="node">
+<title>Module</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="54,-24 0,-24 0,0 54,0 54,-24"/>
+<text text-anchor="middle" x="27" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Module</text>
+</g>
+<!-- Submodule -->
+<g id="node2" class="node">
+<title>Submodule</title>
+<polygon fill="#5bc0de" stroke="#5bc0de" points="145.5,-24 72.5,-24 72.5,0 145.5,0 145.5,-24"/>
+<text text-anchor="middle" x="109" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Submodule</text>
+</g>
+<!-- Subroutine -->
+<g id="node3" class="node">
+<title>Subroutine</title>
+<polygon fill="#d9534f" stroke="#d9534f" points="234,-24 164,-24 164,0 234,0 234,-24"/>
+<text text-anchor="middle" x="199" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Subroutine</text>
+</g>
+<!-- Function -->
+<g id="node4" class="node">
+<title>Function</title>
+<polygon fill="#d94e8f" stroke="#d94e8f" points="310,-24 252,-24 252,0 310,0 310,-24"/>
+<text text-anchor="middle" x="281" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Function</text>
+</g>
+<!-- Program -->
+<g id="node5" class="node">
+<title>Program</title>
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="386,-24 328,-24 328,0 386,0 386,-24"/>
+<text text-anchor="middle" x="357" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Program</text>
+</g>
+<!-- This Page&#39;s Entity -->
+<g id="node6" class="node">
+<title>This Page&#39;s Entity</title>
+<polygon fill="none" stroke="black" points="509.5,-24 404.5,-24 404.5,0 509.5,0 509.5,-24"/>
+<text text-anchor="middle" x="457" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">This Page&#39;s Entity</text>
+</g>
+</g>
+</svg>
+
+<p>Solid arrows point from a submodule to the (sub)module which it is
+descended from. Dashed arrows point from a module or program unit to 
+modules which it uses.
+</p>
+ </div>
+            </div>
+          </div>
+        </div>
+            </li>
+        </ul>
+      </div>
+    </div>
+
+    <p>ADAM, Navier-Stokes application solver, GPU-OpenMP (GMP) backend.</p>
+    <br>
+    <div class="card">
+      <div class="card-header">
+  <h3 class="card-title">Calls</h3>
+      </div>
+      <div class="card-body">
+  <div class="depgraph"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: program~~adam_nasto_gmp~~CallsGraph Pages: 1 -->
+<svg id="programadam_nasto_gmpCallsGraph" width="641pt" height="709pt"
+ viewBox="0.00 0.00 641.00 708.63" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="program~~adam_nasto_gmp~~CallsGraph" class="graph" transform="scale(0.33 0.33) rotate(0) translate(4 2123)">
+<title>program~~adam_nasto_gmp~~CallsGraph</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-2123 1920,-2123 1920,4 -4,4"/>
+<!-- program~adam_nasto_gmp -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node1" class="node">
+<title>program~adam_nasto_gmp</title>
+<polygon fill="none" stroke="black" points="107,-1019 0,-1019 0,-995 107,-995 107,-1019"/>
+<text text-anchor="middle" x="53.5" y="-1004.6" font-family="Helvetica,sans-Serif" font-size="10.50">adam_nasto_gmp</text>
+</g>
+<!-- proc~simulate -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node2" class="node">
+<title>proc~simulate</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node2"><a xlink:href="../proc/simulate.html" xlink:title="nasto_gmp_object%simulate">
+<polygon fill="#d9534f" stroke="#d9534f" points="308,-1019 143,-1019 143,-995 308,-995 308,-1019"/>
+<text text-anchor="middle" x="225.5" y="-1004.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%simulate</text>
+</a>
+</g>
+</g>
+<!-- program~adam_nasto_gmp&#45;&gt;proc~simulate -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge1" class="edge">
+<title>program~adam_nasto_gmp&#45;&gt;proc~simulate</title>
+<path fill="none" stroke="#000000" d="M107.36,-1007C115.48,-1007 124.07,-1007 132.75,-1007"/>
+<polygon fill="#000000" stroke="#000000" points="132.96,-1010.5 142.96,-1007 132.96,-1003.5 132.96,-1010.5"/>
+</g>
+<!-- barrier -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node3" class="node">
+<title>barrier</title>
+<polygon fill="#777777" stroke="#777777" points="1290,-1147 1236,-1147 1236,-1123 1290,-1123 1290,-1147"/>
+<text text-anchor="middle" x="1263" y="-1132.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">barrier</text>
+</g>
+<!-- proc~simulate&#45;&gt;barrier -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge2" class="edge">
+<title>proc~simulate&#45;&gt;barrier</title>
+<path fill="none" stroke="#000000" d="M236.86,-1019.2C255.89,-1040.85 298.65,-1086.05 344,-1111 453.44,-1171.2 490.33,-1171.49 614,-1189 710.37,-1202.64 745.72,-1232.09 833,-1189 856.59,-1177.35 845.51,-1153.86 869,-1142 987.74,-1082.06 1153.49,-1109.34 1225.83,-1125.77"/>
+<polygon fill="#000000" stroke="#000000" points="1225.28,-1129.23 1235.81,-1128.1 1226.87,-1122.42 1225.28,-1129.23"/>
+</g>
+<!-- print_message -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node4" class="node">
+<title>print_message</title>
+<polygon fill="#777777" stroke="#777777" points="1308.5,-1790 1217.5,-1790 1217.5,-1766 1308.5,-1766 1308.5,-1790"/>
+<text text-anchor="middle" x="1263" y="-1775.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">print_message</text>
+</g>
+<!-- proc~simulate&#45;&gt;print_message -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge3" class="edge">
+<title>proc~simulate&#45;&gt;print_message</title>
+<path fill="none" stroke="#000000" d="M227.67,-1019.02C234.86,-1090.79 275.03,-1462.51 344,-1550 558.63,-1822.26 1043.57,-1800.53 1207.03,-1784.54"/>
+<polygon fill="#000000" stroke="#000000" points="1207.73,-1787.99 1217.32,-1783.5 1207.02,-1781.02 1207.73,-1787.99"/>
+</g>
+<!-- proc~amr_update -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node5" class="node">
+<title>proc~amr_update</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node5"><a xlink:href="../proc/amr_update.html" xlink:title="nasto_gmp_object%amr_update">
+<polygon fill="#d9534f" stroke="#d9534f" points="553,-936 369,-936 369,-912 553,-912 553,-936"/>
+<text text-anchor="middle" x="461" y="-921.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%amr_update</text>
+</a>
+</g>
+</g>
+<!-- proc~simulate&#45;&gt;proc~amr_update -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge4" class="edge">
+<title>proc~simulate&#45;&gt;proc~amr_update</title>
+<path fill="none" stroke="#000000" d="M260.45,-994.93C301.7,-980.27 371.34,-955.51 416.49,-939.47"/>
+<polygon fill="#000000" stroke="#000000" points="417.76,-942.73 426.01,-936.08 415.41,-936.13 417.76,-942.73"/>
+</g>
+<!-- proc~close_file_residuals -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node6" class="node">
+<title>proc~close_file_residuals</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node6"><a xlink:href="../proc/close_file_residuals.html" xlink:title="nasto_io_object%close_file_residuals">
+<polygon fill="#d9534f" stroke="#d9534f" points="564.5,-274 357.5,-274 357.5,-250 564.5,-250 564.5,-274"/>
+<text text-anchor="middle" x="461" y="-259.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_io_object%close_file_residuals</text>
+</a>
+</g>
+</g>
+<!-- proc~simulate&#45;&gt;proc~close_file_residuals -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge5" class="edge">
+<title>proc~simulate&#45;&gt;proc~close_file_residuals</title>
+<path fill="none" stroke="#000000" d="M226.63,-994.79C227.84,-908.39 239.39,-389.53 344,-283 345.63,-281.34 347.35,-279.78 349.13,-278.33"/>
+<polygon fill="#000000" stroke="#000000" points="351.2,-281.15 357.41,-272.57 347.21,-275.41 351.2,-281.15"/>
+</g>
+<!-- proc~compute_dt -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node7" class="node">
+<title>proc~compute_dt</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node7"><a xlink:href="../proc/compute_dt.html" xlink:title="nasto_gmp_object%compute_dt">
+<polygon fill="#d9534f" stroke="#d9534f" points="814.5,-610 632.5,-610 632.5,-586 814.5,-586 814.5,-610"/>
+<text text-anchor="middle" x="723.5" y="-595.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%compute_dt</text>
+</a>
+</g>
+</g>
+<!-- proc~simulate&#45;&gt;proc~compute_dt -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge6" class="edge">
+<title>proc~simulate&#45;&gt;proc~compute_dt</title>
+<path fill="none" stroke="#000000" d="M234.57,-994.66C270.94,-940.1 426.12,-718.88 614,-619 617.76,-617 621.69,-615.19 625.73,-613.55"/>
+<polygon fill="#000000" stroke="#000000" points="627.13,-616.76 635.31,-610.02 624.72,-610.19 627.13,-616.76"/>
+</g>
+<!-- proc~compute_phi -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node8" class="node">
+<title>proc~compute_phi</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node8"><a xlink:href="../proc/compute_phi.html" xlink:title="nasto_gmp_object%compute_phi">
+<polygon fill="#d9534f" stroke="#d9534f" points="817.5,-1593 629.5,-1593 629.5,-1569 817.5,-1569 817.5,-1593"/>
+<text text-anchor="middle" x="723.5" y="-1578.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%compute_phi</text>
+</a>
+</g>
+</g>
+<!-- proc~simulate&#45;&gt;proc~compute_phi -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge7" class="edge">
+<title>proc~simulate&#45;&gt;proc~compute_phi</title>
+<path fill="none" stroke="#000000" d="M227.75,-1019.26C234.96,-1087.71 273.47,-1421.94 344,-1492 416.03,-1563.54 534.05,-1581.74 619.17,-1584.58"/>
+<polygon fill="#000000" stroke="#000000" points="619.29,-1588.09 629.38,-1584.86 619.48,-1581.09 619.29,-1588.09"/>
+</g>
+<!-- proc~initialize -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node9" class="node">
+<title>proc~initialize</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node9"><a xlink:href="../proc/initialize.html" xlink:title="nasto_gmp_object%initialize">
+<polygon fill="#d9534f" stroke="#d9534f" points="805,-1913 642,-1913 642,-1889 805,-1889 805,-1913"/>
+<text text-anchor="middle" x="723.5" y="-1898.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%initialize</text>
+</a>
+</g>
+</g>
+<!-- proc~simulate&#45;&gt;proc~initialize -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge8" class="edge">
+<title>proc~simulate&#45;&gt;proc~initialize</title>
+<path fill="none" stroke="#000000" d="M226.46,-1019.08C226.37,-1110.51 230.33,-1693.26 344,-1816 416.63,-1894.43 544.69,-1908.28 631.53,-1907.48"/>
+<polygon fill="#000000" stroke="#000000" points="631.7,-1910.98 641.65,-1907.32 631.59,-1903.98 631.7,-1910.98"/>
+</g>
+<!-- proc~integrate -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node10" class="node">
+<title>proc~integrate</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node10"><a xlink:href="../proc/integrate.html" xlink:title="nasto_gmp_object%integrate">
+<polygon fill="#d9534f" stroke="#d9534f" points="545,-484 377,-484 377,-460 545,-460 545,-484"/>
+<text text-anchor="middle" x="461" y="-469.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%integrate</text>
+</a>
+</g>
+</g>
+<!-- proc~simulate&#45;&gt;proc~integrate -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge9" class="edge">
+<title>proc~simulate&#45;&gt;proc~integrate</title>
+<path fill="none" stroke="#000000" d="M231.41,-994.94C247.31,-955.99 298.92,-830.13 344,-727 382.14,-639.77 429.77,-536.84 450.09,-493.23"/>
+<polygon fill="#000000" stroke="#000000" points="453.26,-494.69 454.32,-484.15 446.92,-491.74 453.26,-494.69"/>
+</g>
+<!-- proc~load_restart_files -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node11" class="node">
+<title>proc~load_restart_files</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node11"><a xlink:href="../proc/load_restart_files.html" xlink:title="nasto_gmp_object%load_restart_files">
+<polygon fill="#d9534f" stroke="#d9534f" points="565.5,-358 356.5,-358 356.5,-334 565.5,-334 565.5,-358"/>
+<text text-anchor="middle" x="461" y="-343.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%load_restart_files</text>
+</a>
+</g>
+</g>
+<!-- proc~simulate&#45;&gt;proc~load_restart_files -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge10" class="edge">
+<title>proc~simulate&#45;&gt;proc~load_restart_files</title>
+<path fill="none" stroke="#000000" d="M226.39,-994.69C226.33,-932.16 232.39,-645.17 344,-451 365.41,-413.76 404.62,-382.47 431.48,-363.98"/>
+<polygon fill="#000000" stroke="#000000" points="433.72,-366.69 440.08,-358.21 429.82,-360.88 433.72,-366.69"/>
+</g>
+<!-- proc~open_file_residuals -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node12" class="node">
+<title>proc~open_file_residuals</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node12"><a xlink:href="../proc/open_file_residuals.html" xlink:title="nasto_io_object%open_file_residuals">
+<polygon fill="#d9534f" stroke="#d9534f" points="564,-1376 358,-1376 358,-1352 564,-1352 564,-1376"/>
+<text text-anchor="middle" x="461" y="-1361.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_io_object%open_file_residuals</text>
+</a>
+</g>
+</g>
+<!-- proc~simulate&#45;&gt;proc~open_file_residuals -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge11" class="edge">
+<title>proc~simulate&#45;&gt;proc~open_file_residuals</title>
+<path fill="none" stroke="#000000" d="M228.12,-1019.18C234.56,-1063.25 262.13,-1216.48 344,-1306 361.62,-1325.26 387.07,-1338.97 409.65,-1348.21"/>
+<polygon fill="#000000" stroke="#000000" points="408.53,-1351.53 419.11,-1351.9 411.07,-1345.01 408.53,-1351.53"/>
+</g>
+<!-- proc~print_progress -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node13" class="node">
+<title>proc~print_progress</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node13"><a xlink:href="../proc/print_progress.html" xlink:title="nasto_time_object%print_progress">
+<polygon fill="#d9534f" stroke="#d9534f" points="558,-1297 364,-1297 364,-1273 558,-1273 558,-1297"/>
+<text text-anchor="middle" x="461" y="-1282.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_time_object%print_progress</text>
+</a>
+</g>
+</g>
+<!-- proc~simulate&#45;&gt;proc~print_progress -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge12" class="edge">
+<title>proc~simulate&#45;&gt;proc~print_progress</title>
+<path fill="none" stroke="#000000" d="M230.39,-1019.22C242.2,-1054.65 280.75,-1158.92 344,-1222 364.68,-1242.62 393.52,-1258.33 417.27,-1268.9"/>
+<polygon fill="#000000" stroke="#000000" points="416.19,-1272.24 426.76,-1272.97 418.95,-1265.81 416.19,-1272.24"/>
+</g>
+<!-- proc~save_simulation_data -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node14" class="node">
+<title>proc~save_simulation_data</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node14"><a xlink:href="../proc/save_simulation_data.html" xlink:title="nasto_gmp_object%save_simulation_data">
+<polygon fill="#d9534f" stroke="#d9534f" points="578,-1102 344,-1102 344,-1078 578,-1078 578,-1102"/>
+<text text-anchor="middle" x="461" y="-1087.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%save_simulation_data</text>
+</a>
+</g>
+</g>
+<!-- proc~simulate&#45;&gt;proc~save_simulation_data -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge13" class="edge">
+<title>proc~simulate&#45;&gt;proc~save_simulation_data</title>
+<path fill="none" stroke="#000000" d="M260.45,-1019.07C301.7,-1033.73 371.34,-1058.49 416.49,-1074.53"/>
+<polygon fill="#000000" stroke="#000000" points="415.41,-1077.87 426.01,-1077.92 417.76,-1071.27 415.41,-1077.87"/>
+</g>
+<!-- proc~set_initial_conditions -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node15" class="node">
+<title>proc~set_initial_conditions</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node15"><a xlink:href="../proc/set_initial_conditions.html" xlink:title="nasto_gmp_object%set_initial_conditions">
+<polygon fill="#d9534f" stroke="#d9534f" points="575.5,-316 346.5,-316 346.5,-292 575.5,-292 575.5,-316"/>
+<text text-anchor="middle" x="461" y="-301.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%set_initial_conditions</text>
+</a>
+</g>
+</g>
+<!-- proc~simulate&#45;&gt;proc~set_initial_conditions -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge14" class="edge">
+<title>proc~simulate&#45;&gt;proc~set_initial_conditions</title>
+<path fill="none" stroke="#000000" d="M226.76,-994.97C228.82,-911.97 245.02,-424.82 344,-325 344.95,-324.04 345.93,-323.11 346.94,-322.22"/>
+<polygon fill="#000000" stroke="#000000" points="349.25,-324.86 355.13,-316.05 345.04,-319.27 349.25,-324.86"/>
+</g>
+<!-- save_memory_cpu_status -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node16" class="node">
+<title>save_memory_cpu_status</title>
+<polygon fill="#777777" stroke="#777777" points="535.5,-232 386.5,-232 386.5,-208 535.5,-208 535.5,-232"/>
+<text text-anchor="middle" x="461" y="-217.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">save_memory_cpu_status</text>
+</g>
+<!-- proc~simulate&#45;&gt;save_memory_cpu_status -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge15" class="edge">
+<title>proc~simulate&#45;&gt;save_memory_cpu_status</title>
+<path fill="none" stroke="#000000" d="M226.52,-994.95C226.88,-906.24 233.61,-354.4 344,-241 352.9,-231.86 364.34,-225.92 376.56,-222.18"/>
+<polygon fill="#000000" stroke="#000000" points="377.68,-225.5 386.5,-219.62 375.94,-218.72 377.68,-225.5"/>
+</g>
+<!-- save_memory_gpu_status -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node17" class="node">
+<title>save_memory_gpu_status</title>
+<polygon fill="#777777" stroke="#777777" points="536,-190 386,-190 386,-166 536,-166 536,-190"/>
+<text text-anchor="middle" x="461" y="-175.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">save_memory_gpu_status</text>
+</g>
+<!-- proc~simulate&#45;&gt;save_memory_gpu_status -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge16" class="edge">
+<title>proc~simulate&#45;&gt;save_memory_gpu_status</title>
+<path fill="none" stroke="#000000" d="M226.41,-994.89C225.99,-903.24 227.92,-319.18 344,-199 352.75,-189.94 364,-184.02 376.04,-180.26"/>
+<polygon fill="#000000" stroke="#000000" points="377.05,-183.61 385.83,-177.69 375.27,-176.84 377.05,-183.61"/>
+</g>
+<!-- str -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node18" class="node">
+<title>str</title>
+<polygon fill="#777777" stroke="#777777" points="1290,-1296 1236,-1296 1236,-1272 1290,-1272 1290,-1296"/>
+<text text-anchor="middle" x="1263" y="-1281.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">str</text>
+</g>
+<!-- proc~simulate&#45;&gt;str -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge17" class="edge">
+<title>proc~simulate&#45;&gt;str</title>
+<path fill="none" stroke="#000000" d="M228.46,-1019.37C238.18,-1079.08 283.21,-1336.67 344,-1385 476.91,-1490.66 947.38,-1449.04 1108,-1394 1163.16,-1375.1 1215.86,-1329.53 1242.99,-1303.36"/>
+<polygon fill="#000000" stroke="#000000" points="1245.58,-1305.73 1250.26,-1296.22 1240.67,-1300.73 1245.58,-1305.73"/>
+</g>
+<!-- proc~amr_update&#45;&gt;print_message -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge20" class="edge">
+<title>proc~amr_update&#45;&gt;print_message</title>
+<path fill="none" stroke="#000000" d="M476.32,-936.2C502.09,-959.14 555.67,-1011.62 578,-1069 621.05,-1179.63 550.13,-1501.93 614,-1602 683.56,-1710.98 745.36,-1704.2 869,-1742 985.39,-1777.59 1129.49,-1781.12 1206.8,-1779.95"/>
+<polygon fill="#000000" stroke="#000000" points="1207.32,-1783.44 1217.25,-1779.75 1207.19,-1776.44 1207.32,-1783.44"/>
+</g>
+<!-- proc~amr_update&#45;&gt;proc~compute_phi -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge21" class="edge">
+<title>proc~amr_update&#45;&gt;proc~compute_phi</title>
+<path fill="none" stroke="#000000" d="M475.4,-936.06C500.15,-959.17 552.81,-1012.46 578,-1069 617.97,-1158.7 588.89,-1192.06 614,-1287 641.74,-1391.86 692.08,-1511.71 712.99,-1559.6"/>
+<polygon fill="#000000" stroke="#000000" points="709.87,-1561.2 717.1,-1568.95 716.28,-1558.38 709.87,-1561.2"/>
+</g>
+<!-- proc~amr_update&#45;&gt;str -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge27" class="edge">
+<title>proc~amr_update&#45;&gt;str</title>
+<path fill="none" stroke="#000000" d="M483.84,-936.12C559.32,-978.12 805.99,-1116.59 833,-1147 858.89,-1176.15 837.87,-1203.53 869,-1227 883.24,-1237.74 1131.38,-1268.38 1225.87,-1279.71"/>
+<polygon fill="#000000" stroke="#000000" points="1225.48,-1283.19 1235.83,-1280.9 1226.31,-1276.24 1225.48,-1283.19"/>
+</g>
+<!-- amr_update -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node19" class="node">
+<title>amr_update</title>
+<polygon fill="#777777" stroke="#777777" points="762,-694 685,-694 685,-670 762,-670 762,-694"/>
+<text text-anchor="middle" x="723.5" y="-679.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">amr_update</text>
+</g>
+<!-- proc~amr_update&#45;&gt;amr_update -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge18" class="edge">
+<title>proc~amr_update&#45;&gt;amr_update</title>
+<path fill="none" stroke="#000000" d="M470.35,-911.83C502.06,-865.6 613.33,-703.44 614,-703 631.84,-691.32 654.63,-685.82 674.72,-683.34"/>
+<polygon fill="#000000" stroke="#000000" points="675.35,-686.8 684.94,-682.3 674.64,-679.83 675.35,-686.8"/>
+</g>
+<!-- markers -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node32" class="node">
+<title>markers</title>
+<polygon fill="#777777" stroke="#777777" points="752,-736 695,-736 695,-712 752,-712 752,-736"/>
+<text text-anchor="middle" x="723.5" y="-721.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">markers</text>
+</g>
+<!-- proc~amr_update&#45;&gt;markers -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge19" class="edge">
+<title>proc~amr_update&#45;&gt;markers</title>
+<path fill="none" stroke="#000000" d="M469.04,-911.57C487.96,-879.37 543.3,-792.77 614,-750 635.46,-737.02 662.97,-730.52 684.92,-727.26"/>
+<polygon fill="#000000" stroke="#000000" points="685.43,-730.73 694.89,-725.95 684.51,-723.79 685.43,-730.73"/>
+</g>
+<!-- proc~copy_cpu_gpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node38" class="node">
+<title>proc~copy_cpu_gpu</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node38"><a xlink:href="../proc/copy_cpu_gpu.html" xlink:title="nasto_gmp_object%copy_cpu_gpu">
+<polygon fill="#d9534f" stroke="#d9534f" points="821,-232 626,-232 626,-208 821,-208 821,-232"/>
+<text text-anchor="middle" x="723.5" y="-217.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%copy_cpu_gpu</text>
+</a>
+</g>
+</g>
+<!-- proc~amr_update&#45;&gt;proc~copy_cpu_gpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge22" class="edge">
+<title>proc~amr_update&#45;&gt;proc~copy_cpu_gpu</title>
+<path fill="none" stroke="#000000" d="M465.87,-911.79C481.86,-860.98 543.5,-661.13 578,-493 589.37,-437.59 575,-281.97 614,-241 615.23,-239.71 616.51,-238.49 617.84,-237.33"/>
+<polygon fill="#000000" stroke="#000000" points="619.98,-240.1 625.94,-231.34 615.82,-234.47 619.98,-240.1"/>
+</g>
+<!-- proc~copy_gpu_cpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node39" class="node">
+<title>proc~copy_gpu_cpu</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node39"><a xlink:href="../proc/copy_gpu_cpu.html" xlink:title="nasto_gmp_object%copy_gpu_cpu">
+<polygon fill="#d9534f" stroke="#d9534f" points="821,-856 626,-856 626,-832 821,-832 821,-856"/>
+<text text-anchor="middle" x="723.5" y="-841.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%copy_gpu_cpu</text>
+</a>
+</g>
+</g>
+<!-- proc~amr_update&#45;&gt;proc~copy_gpu_cpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge23" class="edge">
+<title>proc~amr_update&#45;&gt;proc~copy_gpu_cpu</title>
+<path fill="none" stroke="#000000" d="M492.83,-911.96C523.32,-900.31 571.44,-882.62 614,-870 627.96,-865.86 643.07,-861.91 657.46,-858.4"/>
+<polygon fill="#000000" stroke="#000000" points="658.38,-861.78 667.28,-856.04 656.74,-854.97 658.38,-861.78"/>
+</g>
+<!-- proc~mark_by_geo -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node42" class="node">
+<title>proc~mark_by_geo</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node42"><a xlink:href="../proc/mark_by_geo.html" xlink:title="nasto_gmp_object%mark_by_geo">
+<polygon fill="#d9534f" stroke="#d9534f" points="818.5,-999 628.5,-999 628.5,-975 818.5,-975 818.5,-999"/>
+<text text-anchor="middle" x="723.5" y="-984.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%mark_by_geo</text>
+</a>
+</g>
+</g>
+<!-- proc~amr_update&#45;&gt;proc~mark_by_geo -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge24" class="edge">
+<title>proc~amr_update&#45;&gt;proc~mark_by_geo</title>
+<path fill="none" stroke="#000000" d="M511.92,-936.07C555,-946.49 617.31,-961.56 662.98,-972.61"/>
+<polygon fill="#000000" stroke="#000000" points="662.21,-976.02 672.75,-974.97 663.85,-969.22 662.21,-976.02"/>
+</g>
+<!-- proc~mark_by_grad_var -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node43" class="node">
+<title>proc~mark_by_grad_var</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node43"><a xlink:href="../proc/mark_by_grad_var.html" xlink:title="nasto_gmp_object%mark_by_grad_var">
+<polygon fill="#d9534f" stroke="#d9534f" points="832,-936 615,-936 615,-912 832,-912 832,-936"/>
+<text text-anchor="middle" x="723.5" y="-921.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%mark_by_grad_var</text>
+</a>
+</g>
+</g>
+<!-- proc~amr_update&#45;&gt;proc~mark_by_grad_var -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge25" class="edge">
+<title>proc~amr_update&#45;&gt;proc~mark_by_grad_var</title>
+<path fill="none" stroke="#000000" d="M553.11,-924C569.79,-924 587.41,-924 604.74,-924"/>
+<polygon fill="#000000" stroke="#000000" points="604.9,-927.5 614.9,-924 604.9,-920.5 604.9,-927.5"/>
+</g>
+<!-- proc~update_ghost -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node48" class="node">
+<title>proc~update_ghost</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node48"><a xlink:href="../proc/update_ghost.html" xlink:title="nasto_gmp_object%update_ghost">
+<polygon fill="#d9534f" stroke="#d9534f" points="1358.5,-774 1167.5,-774 1167.5,-750 1358.5,-750 1358.5,-774"/>
+<text text-anchor="middle" x="1263" y="-759.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%update_ghost</text>
+</a>
+</g>
+</g>
+<!-- proc~amr_update&#45;&gt;proc~update_ghost -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge26" class="edge">
+<title>proc~amr_update&#45;&gt;proc~update_ghost</title>
+<path fill="none" stroke="#000000" d="M475.93,-911.72C501.39,-890 557.98,-845.04 614,-823 795.01,-751.78 1025.58,-748.76 1157.22,-754.42"/>
+<polygon fill="#000000" stroke="#000000" points="1157.16,-757.92 1167.31,-754.88 1157.48,-750.93 1157.16,-757.92"/>
+</g>
+<!-- dxyz_gpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node27" class="node">
+<title>dxyz_gpu</title>
+<polygon fill="#777777" stroke="#777777" points="1019.5,-482 957.5,-482 957.5,-458 1019.5,-458 1019.5,-482"/>
+<text text-anchor="middle" x="988.5" y="-467.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">dxyz_gpu</text>
+</g>
+<!-- proc~compute_dt&#45;&gt;dxyz_gpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge28" class="edge">
+<title>proc~compute_dt&#45;&gt;dxyz_gpu</title>
+<path fill="none" stroke="#000000" d="M814.76,-588.02C821.31,-585.1 827.49,-581.48 833,-577 865.15,-550.86 836.65,-516.89 869,-491 890.77,-473.58 922.04,-468.62 946.99,-467.85"/>
+<polygon fill="#000000" stroke="#000000" points="947.29,-471.35 957.25,-467.76 947.22,-464.35 947.29,-471.35"/>
+</g>
+<!-- mpi_allreduce -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node33" class="node">
+<title>mpi_allreduce</title>
+<polygon fill="#777777" stroke="#777777" points="1032.5,-566 944.5,-566 944.5,-542 1032.5,-542 1032.5,-566"/>
+<text text-anchor="middle" x="988.5" y="-551.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">mpi_allreduce</text>
+</g>
+<!-- proc~compute_dt&#45;&gt;mpi_allreduce -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge29" class="edge">
+<title>proc~compute_dt&#45;&gt;mpi_allreduce</title>
+<path fill="none" stroke="#000000" d="M796.37,-585.98C839.88,-578.7 894.44,-569.57 934.12,-562.93"/>
+<polygon fill="#000000" stroke="#000000" points="934.84,-566.36 944.13,-561.26 933.69,-559.45 934.84,-566.36"/>
+</g>
+<!-- proc~compute_q_auxiliary -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node35" class="node">
+<title>proc~compute_q_auxiliary</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node35"><a xlink:href="../proc/compute_q_auxiliary.html" xlink:title="nasto_gmp_object%compute_q_auxiliary">
+<polygon fill="#d9534f" stroke="#d9534f" points="1103,-650 874,-650 874,-626 1103,-626 1103,-650"/>
+<text text-anchor="middle" x="988.5" y="-635.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%compute_q_auxiliary</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_dt&#45;&gt;proc~compute_q_auxiliary -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge30" class="edge">
+<title>proc~compute_dt&#45;&gt;proc~compute_q_auxiliary</title>
+<path fill="none" stroke="#000000" d="M803.41,-610C833.18,-614.53 867.26,-619.71 897.93,-624.38"/>
+<polygon fill="#000000" stroke="#000000" points="897.78,-627.89 908.19,-625.94 898.83,-620.97 897.78,-627.89"/>
+</g>
+<!-- proc~compute_umax_gmp -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node37" class="node">
+<title>proc~compute_umax_gmp</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node37"><a xlink:href="../proc/compute_umax_gmp.html" xlink:title="compute_umax_gmp">
+<polygon fill="#d9534f" stroke="#d9534f" points="1050.5,-524 926.5,-524 926.5,-500 1050.5,-500 1050.5,-524"/>
+<text text-anchor="middle" x="988.5" y="-509.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_umax_gmp</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_dt&#45;&gt;proc~compute_umax_gmp -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge31" class="edge">
+<title>proc~compute_dt&#45;&gt;proc~compute_umax_gmp</title>
+<path fill="none" stroke="#000000" d="M814.03,-585.97C820.66,-583.5 827.07,-580.54 833,-577 854.7,-564.05 847.2,-545.78 869,-533 883.25,-524.64 900.01,-519.45 916.36,-516.25"/>
+<polygon fill="#000000" stroke="#000000" points="917.21,-519.66 926.47,-514.51 916.02,-512.76 917.21,-519.66"/>
+</g>
+<!-- proc~compute_phi&#45;&gt;print_message -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge35" class="edge">
+<title>proc~compute_phi&#45;&gt;print_message</title>
+<path fill="none" stroke="#000000" d="M734.24,-1593.08C755.64,-1618.7 809.59,-1678.48 869,-1707 966.3,-1753.71 1001.8,-1730.79 1108,-1750 1140.89,-1755.95 1177.73,-1762.64 1207.12,-1768"/>
+<polygon fill="#000000" stroke="#000000" points="1206.73,-1771.48 1217.19,-1769.83 1207.98,-1764.6 1206.73,-1771.48"/>
+</g>
+<!-- compute_phi_all_solids_gmp -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node21" class="node">
+<title>compute_phi_all_solids_gmp</title>
+<polygon fill="#777777" stroke="#777777" points="1070.5,-1572 906.5,-1572 906.5,-1548 1070.5,-1548 1070.5,-1572"/>
+<text text-anchor="middle" x="988.5" y="-1557.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_phi_all_solids_gmp</text>
+</g>
+<!-- proc~compute_phi&#45;&gt;compute_phi_all_solids_gmp -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge32" class="edge">
+<title>proc~compute_phi&#45;&gt;compute_phi_all_solids_gmp</title>
+<path fill="none" stroke="#000000" d="M817.59,-1573.57C843.16,-1571.53 870.85,-1569.31 896.31,-1567.28"/>
+<polygon fill="#000000" stroke="#000000" points="896.64,-1570.77 906.32,-1566.48 896.08,-1563.79 896.64,-1570.77"/>
+</g>
+<!-- compute_phi_analytical_sphere_gmp -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node22" class="node">
+<title>compute_phi_analytical_sphere_gmp</title>
+<polygon fill="#777777" stroke="#777777" points="1093,-1530 884,-1530 884,-1506 1093,-1506 1093,-1530"/>
+<text text-anchor="middle" x="988.5" y="-1515.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_phi_analytical_sphere_gmp</text>
+</g>
+<!-- proc~compute_phi&#45;&gt;compute_phi_analytical_sphere_gmp -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge33" class="edge">
+<title>proc~compute_phi&#45;&gt;compute_phi_analytical_sphere_gmp</title>
+<path fill="none" stroke="#000000" d="M761.93,-1568.92C790.94,-1559.85 832.24,-1547.57 869,-1539 879.86,-1536.47 891.34,-1534.08 902.71,-1531.88"/>
+<polygon fill="#000000" stroke="#000000" points="903.48,-1535.3 912.66,-1530 902.18,-1528.42 903.48,-1535.3"/>
+</g>
+<!-- definition -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node25" class="node">
+<title>definition</title>
+<polygon fill="#777777" stroke="#777777" points="1020,-1698 957,-1698 957,-1674 1020,-1674 1020,-1698"/>
+<text text-anchor="middle" x="988.5" y="-1683.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">definition</text>
+</g>
+<!-- proc~compute_phi&#45;&gt;definition -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge34" class="edge">
+<title>proc~compute_phi&#45;&gt;definition</title>
+<path fill="none" stroke="#000000" d="M740.88,-1593.14C766.72,-1611.66 819.14,-1646.74 869,-1665 893.84,-1674.1 923.1,-1679.33 946.32,-1682.3"/>
+<polygon fill="#000000" stroke="#000000" points="946.19,-1685.81 956.53,-1683.51 947.01,-1678.86 946.19,-1685.81"/>
+</g>
+<!-- reduce_cell_order_phi_gmp -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node50" class="node">
+<title>reduce_cell_order_phi_gmp</title>
+<polygon fill="#777777" stroke="#777777" points="1068,-1656 909,-1656 909,-1632 1068,-1632 1068,-1656"/>
+<text text-anchor="middle" x="988.5" y="-1641.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">reduce_cell_order_phi_gmp</text>
+</g>
+<!-- proc~compute_phi&#45;&gt;reduce_cell_order_phi_gmp -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge36" class="edge">
+<title>proc~compute_phi&#45;&gt;reduce_cell_order_phi_gmp</title>
+<path fill="none" stroke="#000000" d="M761.93,-1593.08C790.94,-1602.15 832.24,-1614.43 869,-1623 879.86,-1625.53 891.34,-1627.92 902.71,-1630.12"/>
+<polygon fill="#000000" stroke="#000000" points="902.18,-1633.58 912.66,-1632 903.48,-1626.7 902.18,-1633.58"/>
+</g>
+<!-- sphere_to_array -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node52" class="node">
+<title>sphere_to_array</title>
+<polygon fill="#777777" stroke="#777777" points="1037.5,-1614 939.5,-1614 939.5,-1590 1037.5,-1590 1037.5,-1614"/>
+<text text-anchor="middle" x="988.5" y="-1599.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">sphere_to_array</text>
+</g>
+<!-- proc~compute_phi&#45;&gt;sphere_to_array -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge37" class="edge">
+<title>proc~compute_phi&#45;&gt;sphere_to_array</title>
+<path fill="none" stroke="#000000" d="M817.59,-1588.43C854.66,-1591.39 896.19,-1594.71 928.91,-1597.32"/>
+<polygon fill="#000000" stroke="#000000" points="928.97,-1600.84 939.21,-1598.14 929.52,-1593.86 928.97,-1600.84"/>
+</g>
+<!-- proc~initialize&#45;&gt;print_message -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge40" class="edge">
+<title>proc~initialize&#45;&gt;print_message</title>
+<path fill="none" stroke="#000000" d="M805.33,-1898.4C901.28,-1894.37 1054.98,-1884.7 1108,-1863 1127.01,-1855.22 1126.6,-1844.92 1144,-1834 1168.9,-1818.37 1198.84,-1804.21 1222.33,-1794.04"/>
+<polygon fill="#000000" stroke="#000000" points="1223.82,-1797.21 1231.64,-1790.07 1221.07,-1790.77 1223.82,-1797.21"/>
+</g>
+<!-- description -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node26" class="node">
+<title>description</title>
+<polygon fill="#777777" stroke="#777777" points="1024.5,-1854 952.5,-1854 952.5,-1830 1024.5,-1830 1024.5,-1854"/>
+<text text-anchor="middle" x="988.5" y="-1839.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">description</text>
+</g>
+<!-- proc~initialize&#45;&gt;description -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge38" class="edge">
+<title>proc~initialize&#45;&gt;description</title>
+<path fill="none" stroke="#000000" d="M776.65,-1888.98C804.11,-1882.68 838.36,-1874.86 869,-1868 893.33,-1862.55 920.5,-1856.58 942.67,-1851.74"/>
+<polygon fill="#000000" stroke="#000000" points="943.46,-1855.15 952.48,-1849.6 941.97,-1848.31 943.46,-1855.15"/>
+</g>
+<!-- initialize -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node28" class="node">
+<title>initialize</title>
+<polygon fill="#777777" stroke="#777777" points="1291.5,-1867 1234.5,-1867 1234.5,-1843 1291.5,-1843 1291.5,-1867"/>
+<text text-anchor="middle" x="1263" y="-1852.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">initialize</text>
+</g>
+<!-- proc~initialize&#45;&gt;initialize -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge39" class="edge">
+<title>proc~initialize&#45;&gt;initialize</title>
+<path fill="none" stroke="#000000" d="M805,-1911.22C883.69,-1918.6 1006.17,-1923.1 1108,-1896 1125.69,-1891.29 1126.75,-1882.13 1144,-1876 1169.96,-1866.77 1200.63,-1861.47 1224.2,-1858.5"/>
+<polygon fill="#000000" stroke="#000000" points="1224.63,-1861.98 1234.15,-1857.34 1223.81,-1855.03 1224.63,-1861.98"/>
+</g>
+<!-- proc~allocate_gpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node34" class="node">
+<title>proc~allocate_gpu</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node34"><a xlink:href="../proc/allocate_gpu.html" xlink:title="nasto_gmp_object%allocate_gpu">
+<polygon fill="#d9534f" stroke="#d9534f" points="1082,-2056 895,-2056 895,-2032 1082,-2032 1082,-2056"/>
+<text text-anchor="middle" x="988.5" y="-2041.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%allocate_gpu</text>
+</a>
+</g>
+</g>
+<!-- proc~initialize&#45;&gt;proc~allocate_gpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge41" class="edge">
+<title>proc~initialize&#45;&gt;proc~allocate_gpu</title>
+<path fill="none" stroke="#000000" d="M745.98,-1913.04C774.15,-1928.8 825.15,-1957.2 869,-1981 898.11,-1996.79 931.42,-2014.47 955.3,-2027.07"/>
+<polygon fill="#000000" stroke="#000000" points="953.8,-2030.24 964.28,-2031.8 957.06,-2024.04 953.8,-2030.24"/>
+</g>
+<!-- proc~initialize_common -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node40" class="node">
+<title>proc~initialize_common</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node40"><a xlink:href="../proc/initialize_common.html" xlink:title="nasto_common_object%initialize_common">
+<polygon fill="#d9534f" stroke="#d9534f" points="1108,-1972 869,-1972 869,-1948 1108,-1948 1108,-1972"/>
+<text text-anchor="middle" x="988.5" y="-1957.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_common_object%initialize_common</text>
+</a>
+</g>
+</g>
+<!-- proc~initialize&#45;&gt;proc~initialize_common -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge42" class="edge">
+<title>proc~initialize&#45;&gt;proc~initialize_common</title>
+<path fill="none" stroke="#000000" d="M776.65,-1913.02C804.11,-1919.32 838.36,-1927.14 869,-1934 886.27,-1937.87 904.96,-1941.99 922.29,-1945.8"/>
+<polygon fill="#000000" stroke="#000000" points="921.8,-1949.27 932.31,-1947.99 923.29,-1942.43 921.8,-1949.27"/>
+</g>
+<!-- assign_stage -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node20" class="node">
+<title>assign_stage</title>
+<polygon fill="#777777" stroke="#777777" points="764,-568 683,-568 683,-544 764,-544 764,-568"/>
+<text text-anchor="middle" x="723.5" y="-553.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">assign_stage</text>
+</g>
+<!-- proc~integrate&#45;&gt;assign_stage -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge43" class="edge">
+<title>proc~integrate&#45;&gt;assign_stage</title>
+<path fill="none" stroke="#000000" d="M486.71,-484.07C516.33,-498.1 567.77,-521.1 614,-535 632.91,-540.69 654.16,-545.2 672.8,-548.55"/>
+<polygon fill="#000000" stroke="#000000" points="672.41,-552.04 682.86,-550.3 673.61,-545.14 672.41,-552.04"/>
+</g>
+<!-- compute_stage -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node23" class="node">
+<title>compute_stage</title>
+<polygon fill="#777777" stroke="#777777" points="770.5,-526 676.5,-526 676.5,-502 770.5,-502 770.5,-526"/>
+<text text-anchor="middle" x="723.5" y="-511.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_stage</text>
+</g>
+<!-- proc~integrate&#45;&gt;compute_stage -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge44" class="edge">
+<title>proc~integrate&#45;&gt;compute_stage</title>
+<path fill="none" stroke="#000000" d="M536.65,-484.04C577.88,-490.68 628.25,-498.8 666.15,-504.92"/>
+<polygon fill="#000000" stroke="#000000" points="666.07,-508.45 676.49,-506.58 667.18,-501.54 666.07,-508.45"/>
+</g>
+<!-- compute_stage_ls -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node24" class="node">
+<title>compute_stage_ls</title>
+<polygon fill="#777777" stroke="#777777" points="777.5,-442 669.5,-442 669.5,-418 777.5,-418 777.5,-442"/>
+<text text-anchor="middle" x="723.5" y="-427.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_stage_ls</text>
+</g>
+<!-- proc~integrate&#45;&gt;compute_stage_ls -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge45" class="edge">
+<title>proc~integrate&#45;&gt;compute_stage_ls</title>
+<path fill="none" stroke="#000000" d="M536.65,-459.96C575.4,-453.72 622.24,-446.16 659.2,-440.21"/>
+<polygon fill="#000000" stroke="#000000" points="660.03,-443.62 669.35,-438.57 658.92,-436.71 660.03,-443.62"/>
+</g>
+<!-- initialize_stages -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node29" class="node">
+<title>initialize_stages</title>
+<polygon fill="#777777" stroke="#777777" points="772,-400 675,-400 675,-376 772,-376 772,-400"/>
+<text text-anchor="middle" x="723.5" y="-385.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">initialize_stages</text>
+</g>
+<!-- proc~integrate&#45;&gt;initialize_stages -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge46" class="edge">
+<title>proc~integrate&#45;&gt;initialize_stages</title>
+<path fill="none" stroke="#000000" d="M486.71,-459.93C516.33,-445.9 567.77,-422.9 614,-409 630.28,-404.11 648.29,-400.08 664.88,-396.92"/>
+<polygon fill="#000000" stroke="#000000" points="665.8,-400.31 675,-395.05 664.53,-393.42 665.8,-400.31"/>
+</g>
+<!-- proc~compute_residuals -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node36" class="node">
+<title>proc~compute_residuals</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node36"><a xlink:href="../proc/compute_residuals.html" xlink:title="nasto_gmp_object%compute_residuals">
+<polygon fill="#d9534f" stroke="#d9534f" points="833,-484 614,-484 614,-460 833,-460 833,-484"/>
+<text text-anchor="middle" x="723.5" y="-469.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%compute_residuals</text>
+</a>
+</g>
+</g>
+<!-- proc~integrate&#45;&gt;proc~compute_residuals -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge47" class="edge">
+<title>proc~integrate&#45;&gt;proc~compute_residuals</title>
+<path fill="none" stroke="#000000" d="M545.14,-472C563.86,-472 584.09,-472 603.95,-472"/>
+<polygon fill="#000000" stroke="#000000" points="603.98,-475.5 613.98,-472 603.98,-468.5 603.98,-475.5"/>
+</g>
+<!-- proc~save_residuals -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node45" class="node">
+<title>proc~save_residuals</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node45"><a xlink:href="../proc/save_residuals.html" xlink:title="nasto_gmp_object%save_residuals">
+<polygon fill="#d9534f" stroke="#d9534f" points="821.5,-652 625.5,-652 625.5,-628 821.5,-628 821.5,-652"/>
+<text text-anchor="middle" x="723.5" y="-637.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%save_residuals</text>
+</a>
+</g>
+</g>
+<!-- proc~integrate&#45;&gt;proc~save_residuals -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge48" class="edge">
+<title>proc~integrate&#45;&gt;proc~save_residuals</title>
+<path fill="none" stroke="#000000" d="M470.66,-484.29C491.61,-513.03 548.22,-584.76 614,-619 617.83,-620.99 621.82,-622.8 625.92,-624.43"/>
+<polygon fill="#000000" stroke="#000000" points="625.06,-627.84 635.66,-627.95 627.44,-621.26 625.06,-627.84"/>
+</g>
+<!-- q_rk_gpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node49" class="node">
+<title>q_rk_gpu</title>
+<polygon fill="#777777" stroke="#777777" points="754,-358 693,-358 693,-334 754,-334 754,-358"/>
+<text text-anchor="middle" x="723.5" y="-343.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">q_rk_gpu</text>
+</g>
+<!-- proc~integrate&#45;&gt;q_rk_gpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge49" class="edge">
+<title>proc~integrate&#45;&gt;q_rk_gpu</title>
+<path fill="none" stroke="#000000" d="M475.5,-459.72C500.71,-437.5 557.53,-390.73 614,-367 635.89,-357.8 661.97,-352.59 683.07,-349.66"/>
+<polygon fill="#000000" stroke="#000000" points="683.52,-353.13 692.99,-348.39 682.63,-346.19 683.52,-353.13"/>
+</g>
+<!-- update_q -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node53" class="node">
+<title>update_q</title>
+<polygon fill="#777777" stroke="#777777" points="754.5,-316 692.5,-316 692.5,-292 754.5,-292 754.5,-316"/>
+<text text-anchor="middle" x="723.5" y="-301.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">update_q</text>
+</g>
+<!-- proc~integrate&#45;&gt;update_q -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge50" class="edge">
+<title>proc~integrate&#45;&gt;update_q</title>
+<path fill="none" stroke="#000000" d="M476.46,-459.95C498.95,-440.97 543.33,-402.62 578,-367 595.15,-349.38 592.75,-337.36 614,-325 634.53,-313.07 660.56,-307.76 681.98,-305.47"/>
+<polygon fill="#000000" stroke="#000000" points="682.43,-308.94 692.08,-304.57 681.81,-301.97 682.43,-308.94"/>
+</g>
+<!-- load_restart_files -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node30" class="node">
+<title>load_restart_files</title>
+<polygon fill="#777777" stroke="#777777" points="775,-274 672,-274 672,-250 775,-250 775,-274"/>
+<text text-anchor="middle" x="723.5" y="-259.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">load_restart_files</text>
+</g>
+<!-- proc~load_restart_files&#45;&gt;load_restart_files -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge51" class="edge">
+<title>proc~load_restart_files&#45;&gt;load_restart_files</title>
+<path fill="none" stroke="#000000" d="M558.49,-333.93C565.29,-331.46 571.87,-328.51 578,-325 599.33,-312.77 592.75,-295.36 614,-283 628.42,-274.61 645.56,-269.5 661.92,-266.41"/>
+<polygon fill="#000000" stroke="#000000" points="662.68,-269.83 671.96,-264.73 661.52,-262.92 662.68,-269.83"/>
+</g>
+<!-- make_comm_local_maps_ghost_bc -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node31" class="node">
+<title>make_comm_local_maps_ghost_bc</title>
+<polygon fill="#777777" stroke="#777777" points="823,-190 624,-190 624,-166 823,-166 823,-190"/>
+<text text-anchor="middle" x="723.5" y="-175.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">make_comm_local_maps_ghost_bc</text>
+</g>
+<!-- proc~load_restart_files&#45;&gt;make_comm_local_maps_ghost_bc -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge52" class="edge">
+<title>proc~load_restart_files&#45;&gt;make_comm_local_maps_ghost_bc</title>
+<path fill="none" stroke="#000000" d="M565.63,-333.95C570.05,-331.4 574.21,-328.43 578,-325 621.17,-285.91 571.06,-238.35 614,-199 615.15,-197.95 616.33,-196.94 617.55,-195.98"/>
+<polygon fill="#000000" stroke="#000000" points="619.72,-198.74 626.04,-190.23 615.79,-192.94 619.72,-198.74"/>
+</g>
+<!-- proc~load_restart_files&#45;&gt;proc~copy_cpu_gpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge53" class="edge">
+<title>proc~load_restart_files&#45;&gt;proc~copy_cpu_gpu</title>
+<path fill="none" stroke="#000000" d="M564.02,-333.91C568.98,-331.39 573.68,-328.44 578,-325 609.77,-299.7 582.38,-266.49 614,-241 615.62,-239.69 617.31,-238.45 619.04,-237.29"/>
+<polygon fill="#000000" stroke="#000000" points="621.2,-240.08 628.08,-232.01 617.68,-234.03 621.2,-240.08"/>
+</g>
+<!-- proc~open_file_residuals&#45;&gt;str -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge54" class="edge">
+<title>proc~open_file_residuals&#45;&gt;str</title>
+<path fill="none" stroke="#000000" d="M537.55,-1376.04C659.65,-1392.89 906.97,-1416.19 1108,-1366 1157.27,-1353.7 1208.06,-1322.34 1237.24,-1302.16"/>
+<polygon fill="#000000" stroke="#000000" points="1239.42,-1304.91 1245.58,-1296.29 1235.39,-1299.19 1239.42,-1304.91"/>
+</g>
+<!-- proc~print_progress&#45;&gt;str -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge55" class="edge">
+<title>proc~print_progress&#45;&gt;str</title>
+<path fill="none" stroke="#000000" d="M504.34,-1297.06C608.12,-1324.86 883.13,-1387.91 1108,-1345 1152.22,-1336.56 1199.95,-1315.63 1230.36,-1300.64"/>
+<polygon fill="#000000" stroke="#000000" points="1232.23,-1303.62 1239.6,-1296.01 1229.09,-1297.36 1232.23,-1303.62"/>
+</g>
+<!-- proc~save_simulation_data&#45;&gt;proc~copy_gpu_cpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge56" class="edge">
+<title>proc~save_simulation_data&#45;&gt;proc~copy_gpu_cpu</title>
+<path fill="none" stroke="#000000" d="M473.26,-1077.92C495.26,-1053.92 544.72,-997.95 578,-945 597.68,-913.7 585.23,-893.23 614,-870 618.63,-866.26 623.72,-863.04 629.08,-860.27"/>
+<polygon fill="#000000" stroke="#000000" points="630.71,-863.38 638.34,-856.03 627.79,-857.02 630.71,-863.38"/>
+</g>
+<!-- proc~is_to_save -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node41" class="node">
+<title>proc~is_to_save</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node41"><a xlink:href="../proc/is_to_save.html" xlink:title="nasto_time_object%is_to_save">
+<polygon fill="#d94e8f" stroke="#d94e8f" points="1075,-814 902,-814 902,-790 1075,-790 1075,-814"/>
+<text text-anchor="middle" x="988.5" y="-799.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_time_object%is_to_save</text>
+</a>
+</g>
+</g>
+<!-- proc~save_simulation_data&#45;&gt;proc~is_to_save -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge57" class="edge">
+<title>proc~save_simulation_data&#45;&gt;proc~is_to_save</title>
+<path fill="none" stroke="#000000" d="M471.62,-1077.94C504.27,-1037.02 609.13,-905.86 614,-903 699.23,-853.06 747.12,-913.83 833,-865 854.37,-852.85 847.65,-835.19 869,-823 876.24,-818.87 884.1,-815.51 892.21,-812.79"/>
+<polygon fill="#000000" stroke="#000000" points="893.27,-816.13 901.83,-809.89 891.24,-809.43 893.27,-816.13"/>
+</g>
+<!-- proc~save_hdf5 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node44" class="node">
+<title>proc~save_hdf5</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node44"><a xlink:href="../proc/save_hdf5.html" xlink:title="nasto_gmp_object%save_hdf5">
+<polygon fill="#d9534f" stroke="#d9534f" points="1075,-1218 902,-1218 902,-1194 1075,-1194 1075,-1218"/>
+<text text-anchor="middle" x="988.5" y="-1203.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%save_hdf5</text>
+</a>
+</g>
+</g>
+<!-- proc~save_simulation_data&#45;&gt;proc~save_hdf5 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge58" class="edge">
+<title>proc~save_simulation_data&#45;&gt;proc~save_hdf5</title>
+<path fill="none" stroke="#000000" d="M578.19,-1101.43C651.98,-1110.26 749.05,-1124.79 833,-1147 874.7,-1158.03 920.67,-1176.44 951.53,-1189.76"/>
+<polygon fill="#000000" stroke="#000000" points="950.43,-1193.1 961,-1193.89 953.23,-1186.68 950.43,-1193.1"/>
+</g>
+<!-- proc~save_restart_files -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node46" class="node">
+<title>proc~save_restart_files</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node46"><a xlink:href="../proc/save_restart_files.html" xlink:title="nasto_gmp_object%save_restart_files">
+<polygon fill="#d9534f" stroke="#d9534f" points="829,-1278 618,-1278 618,-1254 829,-1254 829,-1278"/>
+<text text-anchor="middle" x="723.5" y="-1263.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%save_restart_files</text>
+</a>
+</g>
+</g>
+<!-- proc~save_simulation_data&#45;&gt;proc~save_restart_files -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge59" class="edge">
+<title>proc~save_simulation_data&#45;&gt;proc~save_restart_files</title>
+<path fill="none" stroke="#000000" d="M479.91,-1102.1C524.89,-1132.49 642.85,-1212.18 695.93,-1248.05"/>
+<polygon fill="#000000" stroke="#000000" points="694.22,-1251.12 704.47,-1253.82 698.14,-1245.32 694.22,-1251.12"/>
+</g>
+<!-- proc~save_simulation_data&#45;&gt;proc~update_ghost -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge60" class="edge">
+<title>proc~save_simulation_data&#45;&gt;proc~update_ghost</title>
+<path fill="none" stroke="#000000" d="M578.01,-1092.97C751.95,-1096.47 1064.67,-1098.71 1108,-1071 1212.61,-1004.11 1248.76,-843.15 1258.74,-784.15"/>
+<polygon fill="#000000" stroke="#000000" points="1262.23,-784.5 1260.36,-774.07 1255.32,-783.39 1262.23,-784.5"/>
+</g>
+<!-- save_mat -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node51" class="node">
+<title>save_mat</title>
+<polygon fill="#777777" stroke="#777777" points="755.5,-1180 691.5,-1180 691.5,-1156 755.5,-1156 755.5,-1180"/>
+<text text-anchor="middle" x="723.5" y="-1165.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">save_mat</text>
+</g>
+<!-- proc~save_simulation_data&#45;&gt;save_mat -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge61" class="edge">
+<title>proc~save_simulation_data&#45;&gt;save_mat</title>
+<path fill="none" stroke="#000000" d="M494.33,-1102.05C524.91,-1113.22 572.21,-1129.88 614,-1142 636.12,-1148.42 661.1,-1154.48 681.51,-1159.14"/>
+<polygon fill="#000000" stroke="#000000" points="680.9,-1162.59 691.43,-1161.37 682.44,-1155.76 680.9,-1162.59"/>
+</g>
+<!-- proc~set_initial_conditions&#45;&gt;proc~copy_cpu_gpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge62" class="edge">
+<title>proc~set_initial_conditions&#45;&gt;proc~copy_cpu_gpu</title>
+<path fill="none" stroke="#000000" d="M558.49,-291.93C565.29,-289.46 571.87,-286.51 578,-283 599.33,-270.77 592.75,-253.36 614,-241 617.22,-239.13 620.57,-237.42 624.02,-235.86"/>
+<polygon fill="#000000" stroke="#000000" points="625.39,-239.08 633.34,-232.08 622.76,-232.6 625.39,-239.08"/>
+</g>
+<!-- proc~set_initial_conditions~4 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node47" class="node">
+<title>proc~set_initial_conditions~4</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node47"><a xlink:href="../proc/set_initial_conditions~4.html" xlink:title="nasto_ic_object%set_initial_conditions">
+<polygon fill="#d9534f" stroke="#d9534f" points="830.5,-108 616.5,-108 616.5,-84 830.5,-84 830.5,-108"/>
+<text text-anchor="middle" x="723.5" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_ic_object%set_initial_conditions</text>
+</a>
+</g>
+</g>
+<!-- proc~set_initial_conditions&#45;&gt;proc~set_initial_conditions~4 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge63" class="edge">
+<title>proc~set_initial_conditions&#45;&gt;proc~set_initial_conditions~4</title>
+<path fill="none" stroke="#000000" d="M565.63,-291.95C570.05,-289.4 574.21,-286.43 578,-283 621.17,-243.91 577.9,-202.71 614,-157 630.1,-136.61 655,-121.92 676.89,-112.07"/>
+<polygon fill="#000000" stroke="#000000" points="678.56,-115.17 686.38,-108.02 675.8,-108.73 678.56,-115.17"/>
+</g>
+<!-- proc~allocate_gpu&#45;&gt;print_message -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge66" class="edge">
+<title>proc~allocate_gpu&#45;&gt;print_message</title>
+<path fill="none" stroke="#000000" d="M1030.38,-2031.94C1056.31,-2022.23 1088.54,-2006.01 1108,-1981 1149.3,-1927.91 1101.5,-1886.14 1144,-1834 1160.17,-1814.16 1185.02,-1800.93 1207.76,-1792.34"/>
+<polygon fill="#000000" stroke="#000000" points="1209.09,-1795.58 1217.34,-1788.93 1206.74,-1788.98 1209.09,-1795.58"/>
+</g>
+<!-- alloc_var_gpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node54" class="node">
+<title>alloc_var_gpu</title>
+<polygon fill="#777777" stroke="#777777" points="1306,-2119 1220,-2119 1220,-2095 1306,-2095 1306,-2119"/>
+<text text-anchor="middle" x="1263" y="-2104.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">alloc_var_gpu</text>
+</g>
+<!-- proc~allocate_gpu&#45;&gt;alloc_var_gpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge64" class="edge">
+<title>proc~allocate_gpu&#45;&gt;alloc_var_gpu</title>
+<path fill="none" stroke="#000000" d="M1029.91,-2056.05C1060.94,-2065.04 1104.94,-2077.23 1144,-2086 1165.36,-2090.79 1189.1,-2095.2 1209.65,-2098.72"/>
+<polygon fill="#000000" stroke="#000000" points="1209.32,-2102.21 1219.77,-2100.42 1210.49,-2095.31 1209.32,-2102.21"/>
+</g>
+<!-- assign_allocatable_gpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node55" class="node">
+<title>assign_allocatable_gpu</title>
+<polygon fill="#777777" stroke="#777777" points="1331,-2077 1195,-2077 1195,-2053 1331,-2053 1331,-2077"/>
+<text text-anchor="middle" x="1263" y="-2062.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">assign_allocatable_gpu</text>
+</g>
+<!-- proc~allocate_gpu&#45;&gt;assign_allocatable_gpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge65" class="edge">
+<title>proc~allocate_gpu&#45;&gt;assign_allocatable_gpu</title>
+<path fill="none" stroke="#000000" d="M1082.14,-2051.14C1115.41,-2053.7 1152.57,-2056.57 1184.43,-2059.02"/>
+<polygon fill="#000000" stroke="#000000" points="1184.34,-2062.53 1194.58,-2059.8 1184.87,-2055.55 1184.34,-2062.53"/>
+</g>
+<!-- proc~compute_q_aux_gmp -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node68" class="node">
+<title>proc~compute_q_aux_gmp</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node68"><a xlink:href="../proc/compute_q_aux_gmp.html" xlink:title="compute_q_aux_gmp">
+<polygon fill="#d9534f" stroke="#d9534f" points="1326,-650 1200,-650 1200,-626 1326,-626 1326,-650"/>
+<text text-anchor="middle" x="1263" y="-635.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_q_aux_gmp</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_q_auxiliary&#45;&gt;proc~compute_q_aux_gmp -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge67" class="edge">
+<title>proc~compute_q_auxiliary&#45;&gt;proc~compute_q_aux_gmp</title>
+<path fill="none" stroke="#000000" d="M1103.09,-638C1132.36,-638 1163.06,-638 1189.59,-638"/>
+<polygon fill="#000000" stroke="#000000" points="1189.92,-641.5 1199.92,-638 1189.92,-634.5 1189.92,-641.5"/>
+</g>
+<!-- proc~compute_residuals&#45;&gt;dxyz_gpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge68" class="edge">
+<title>proc~compute_residuals&#45;&gt;dxyz_gpu</title>
+<path fill="none" stroke="#000000" d="M833.37,-471.17C873.57,-470.87 916.68,-470.54 947.05,-470.31"/>
+<polygon fill="#000000" stroke="#000000" points="947.27,-473.81 957.24,-470.23 947.21,-466.81 947.27,-473.81"/>
+</g>
+<!-- proc~compute_residuals&#45;&gt;proc~compute_q_auxiliary -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge72" class="edge">
+<title>proc~compute_residuals&#45;&gt;proc~compute_q_auxiliary</title>
+<path fill="none" stroke="#000000" d="M820.95,-484.25C825.26,-486.74 829.32,-489.64 833,-493 875.39,-531.68 826.31,-578.65 869,-617 870.31,-618.18 871.66,-619.3 873.05,-620.37"/>
+<polygon fill="#000000" stroke="#000000" points="871.13,-623.29 881.39,-625.93 875.02,-617.47 871.13,-623.29"/>
+</g>
+<!-- proc~compute_residuals&#45;&gt;proc~update_ghost -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge74" class="edge">
+<title>proc~compute_residuals&#45;&gt;proc~update_ghost</title>
+<path fill="none" stroke="#000000" d="M786.12,-460C811.66,-455.59 841.65,-451.16 869,-449 974.89,-440.63 1026.79,-380.53 1108,-449 1180.4,-510.04 1097.65,-576.42 1144,-659 1164.9,-696.23 1204.55,-726.54 1232.09,-744.41"/>
+<polygon fill="#000000" stroke="#000000" points="1230.24,-747.38 1240.56,-749.77 1233.98,-741.46 1230.24,-747.38"/>
+</g>
+<!-- proc~compute_fluxes_convective_gmp -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node65" class="node">
+<title>proc~compute_fluxes_convective_gmp</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node65"><a xlink:href="../proc/compute_fluxes_convective_gmp.html" xlink:title="compute_fluxes_convective_gmp">
+<polygon fill="#d9534f" stroke="#d9534f" points="1083,-276 894,-276 894,-252 1083,-252 1083,-276"/>
+<text text-anchor="middle" x="988.5" y="-261.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_fluxes_convective_gmp</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_residuals&#45;&gt;proc~compute_fluxes_convective_gmp -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge69" class="edge">
+<title>proc~compute_residuals&#45;&gt;proc~compute_fluxes_convective_gmp</title>
+<path fill="none" stroke="#000000" d="M821.72,-459.75C825.78,-457.25 829.57,-454.35 833,-451 886.98,-398.22 814.61,-337.35 869,-285 873.69,-280.48 879,-276.76 884.7,-273.69"/>
+<polygon fill="#000000" stroke="#000000" points="886.35,-276.78 893.95,-269.4 883.41,-270.43 886.35,-276.78"/>
+</g>
+<!-- proc~compute_fluxes_difference_gmp -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node66" class="node">
+<title>proc~compute_fluxes_difference_gmp</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node66"><a xlink:href="../proc/compute_fluxes_difference_gmp.html" xlink:title="compute_fluxes_difference_gmp">
+<polygon fill="#d9534f" stroke="#d9534f" points="1081,-402 896,-402 896,-378 1081,-378 1081,-402"/>
+<text text-anchor="middle" x="988.5" y="-387.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_fluxes_difference_gmp</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_residuals&#45;&gt;proc~compute_fluxes_difference_gmp -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge70" class="edge">
+<title>proc~compute_residuals&#45;&gt;proc~compute_fluxes_difference_gmp</title>
+<path fill="none" stroke="#000000" d="M811.35,-459.96C818.87,-457.51 826.2,-454.55 833,-451 852.78,-440.67 849.35,-426.57 869,-416 877.04,-411.68 885.75,-408.07 894.67,-405.06"/>
+<polygon fill="#000000" stroke="#000000" points="895.91,-408.34 904.42,-402.03 893.83,-401.66 895.91,-408.34"/>
+</g>
+<!-- proc~compute_fluxes_diffusive_gmp -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node67" class="node">
+<title>proc~compute_fluxes_diffusive_gmp</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node67"><a xlink:href="../proc/compute_fluxes_diffusive_gmp.html" xlink:title="compute_fluxes_diffusive_gmp">
+<polygon fill="#d9534f" stroke="#d9534f" points="1076.5,-360 900.5,-360 900.5,-336 1076.5,-336 1076.5,-360"/>
+<text text-anchor="middle" x="988.5" y="-345.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_fluxes_diffusive_gmp</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_residuals&#45;&gt;proc~compute_fluxes_diffusive_gmp -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge71" class="edge">
+<title>proc~compute_residuals&#45;&gt;proc~compute_fluxes_diffusive_gmp</title>
+<path fill="none" stroke="#000000" d="M818.89,-459.94C823.9,-457.43 828.65,-454.47 833,-451 864.09,-426.15 837.71,-393.6 869,-369 875.54,-363.86 882.91,-359.81 890.7,-356.64"/>
+<polygon fill="#000000" stroke="#000000" points="892.13,-359.84 900.37,-353.18 889.78,-353.25 892.13,-359.84"/>
+</g>
+<!-- proc~integrate_eikonal -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node69" class="node">
+<title>proc~integrate_eikonal</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node69"><a xlink:href="../proc/integrate_eikonal.html" xlink:title="nasto_gmp_object%integrate_eikonal">
+<polygon fill="#d9534f" stroke="#d9534f" points="1094.5,-318 882.5,-318 882.5,-294 1094.5,-294 1094.5,-318"/>
+<text text-anchor="middle" x="988.5" y="-303.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%integrate_eikonal</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_residuals&#45;&gt;proc~integrate_eikonal -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge73" class="edge">
+<title>proc~compute_residuals&#45;&gt;proc~integrate_eikonal</title>
+<path fill="none" stroke="#000000" d="M820.95,-459.75C825.26,-457.26 829.32,-454.36 833,-451 875.39,-412.32 826.31,-365.35 869,-327 870.54,-325.61 872.15,-324.3 873.8,-323.06"/>
+<polygon fill="#000000" stroke="#000000" points="875.98,-325.82 882.48,-317.45 872.18,-319.94 875.98,-325.82"/>
+</g>
+<!-- copy_cpu_gpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node59" class="node">
+<title>copy_cpu_gpu</title>
+<polygon fill="#777777" stroke="#777777" points="1032.5,-192 944.5,-192 944.5,-168 1032.5,-168 1032.5,-192"/>
+<text text-anchor="middle" x="988.5" y="-177.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">copy_cpu_gpu</text>
+</g>
+<!-- proc~copy_cpu_gpu&#45;&gt;copy_cpu_gpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge75" class="edge">
+<title>proc~copy_cpu_gpu&#45;&gt;copy_cpu_gpu</title>
+<path fill="none" stroke="#000000" d="M803.41,-208C845.59,-201.58 896.42,-193.85 933.97,-188.14"/>
+<polygon fill="#000000" stroke="#000000" points="934.83,-191.55 944.19,-186.59 933.78,-184.63 934.83,-191.55"/>
+</g>
+<!-- copy_transpose_cpu_gpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node60" class="node">
+<title>copy_transpose_cpu_gpu</title>
+<polygon fill="#777777" stroke="#777777" points="1061.5,-234 915.5,-234 915.5,-210 1061.5,-210 1061.5,-234"/>
+<text text-anchor="middle" x="988.5" y="-219.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">copy_transpose_cpu_gpu</text>
+</g>
+<!-- proc~copy_cpu_gpu&#45;&gt;copy_transpose_cpu_gpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge76" class="edge">
+<title>proc~copy_cpu_gpu&#45;&gt;copy_transpose_cpu_gpu</title>
+<path fill="none" stroke="#000000" d="M821.31,-220.74C848.84,-220.95 878.56,-221.17 905.15,-221.37"/>
+<polygon fill="#000000" stroke="#000000" points="905.15,-224.87 915.17,-221.45 905.2,-217.87 905.15,-224.87"/>
+</g>
+<!-- proc~copy_gpu_cpu&#45;&gt;proc~compute_q_auxiliary -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge78" class="edge">
+<title>proc~copy_gpu_cpu&#45;&gt;proc~compute_q_auxiliary</title>
+<path fill="none" stroke="#000000" d="M742.09,-831.79C765.56,-814.72 807.15,-781.69 833,-745 856.87,-711.13 836.65,-684.89 869,-659 870.62,-657.7 872.29,-656.47 874.01,-655.31"/>
+<polygon fill="#000000" stroke="#000000" points="876.13,-658.13 882.97,-650.03 872.58,-652.1 876.13,-658.13"/>
+</g>
+<!-- copy_transpose_gpu_cpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node61" class="node">
+<title>copy_transpose_gpu_cpu</title>
+<polygon fill="#777777" stroke="#777777" points="1061.5,-856 915.5,-856 915.5,-832 1061.5,-832 1061.5,-856"/>
+<text text-anchor="middle" x="988.5" y="-841.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">copy_transpose_gpu_cpu</text>
+</g>
+<!-- proc~copy_gpu_cpu&#45;&gt;copy_transpose_gpu_cpu -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge77" class="edge">
+<title>proc~copy_gpu_cpu&#45;&gt;copy_transpose_gpu_cpu</title>
+<path fill="none" stroke="#000000" d="M821.31,-844C848.84,-844 878.56,-844 905.15,-844"/>
+<polygon fill="#000000" stroke="#000000" points="905.17,-847.5 915.17,-844 905.17,-840.5 905.17,-847.5"/>
+</g>
+<!-- proc~initialize_common&#45;&gt;print_message -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge81" class="edge">
+<title>proc~initialize_common&#45;&gt;print_message</title>
+<path fill="none" stroke="#000000" d="M1022.5,-1947.98C1048.15,-1937.36 1083.41,-1919.84 1108,-1896 1130.88,-1873.82 1120.55,-1855.58 1144,-1834 1163.56,-1816 1189.96,-1802.74 1212.83,-1793.65"/>
+<polygon fill="#000000" stroke="#000000" points="1214.28,-1796.84 1222.38,-1790.01 1211.79,-1790.3 1214.28,-1796.84"/>
+</g>
+<!-- proc~initialize_common&#45;&gt;initialize -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge80" class="edge">
+<title>proc~initialize_common&#45;&gt;initialize</title>
+<path fill="none" stroke="#000000" d="M1080.72,-1947.96C1090.42,-1944.4 1099.75,-1939.84 1108,-1934 1132.77,-1916.48 1118.89,-1893.02 1144,-1876 1167.51,-1860.06 1199.5,-1855.15 1224.24,-1854.04"/>
+<polygon fill="#000000" stroke="#000000" points="1224.45,-1857.53 1234.35,-1853.77 1224.26,-1850.54 1224.45,-1857.53"/>
+</g>
+<!-- compute_blocks_number -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node56" class="node">
+<title>compute_blocks_number</title>
+<polygon fill="#777777" stroke="#777777" points="1336,-1951 1190,-1951 1190,-1927 1336,-1927 1336,-1951"/>
+<text text-anchor="middle" x="1263" y="-1936.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_blocks_number</text>
+</g>
+<!-- proc~initialize_common&#45;&gt;compute_blocks_number -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge79" class="edge">
+<title>proc~initialize_common&#45;&gt;compute_blocks_number</title>
+<path fill="none" stroke="#000000" d="M1108.23,-1950.85C1132.36,-1948.99 1157.23,-1947.07 1179.76,-1945.34"/>
+<polygon fill="#000000" stroke="#000000" points="1180.23,-1948.81 1189.93,-1944.55 1179.69,-1941.83 1180.23,-1948.81"/>
+</g>
+<!-- proc~allocate_common -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node64" class="node">
+<title>proc~allocate_common</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node64"><a xlink:href="../proc/allocate_common.html" xlink:title="nasto_common_object%allocate_common">
+<polygon fill="#d9534f" stroke="#d9534f" points="1382,-1909 1144,-1909 1144,-1885 1382,-1885 1382,-1909"/>
+<text text-anchor="middle" x="1263" y="-1894.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_common_object%allocate_common</text>
+</a>
+</g>
+</g>
+<!-- proc~initialize_common&#45;&gt;proc~allocate_common -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge82" class="edge">
+<title>proc~initialize_common&#45;&gt;proc~allocate_common</title>
+<path fill="none" stroke="#000000" d="M1055.64,-1947.96C1072.87,-1944.16 1091.29,-1939.48 1108,-1934 1124.64,-1928.54 1127.26,-1923.13 1144,-1918 1152.24,-1915.48 1160.9,-1913.22 1169.63,-1911.21"/>
+<polygon fill="#000000" stroke="#000000" points="1170.49,-1914.61 1179.5,-1909.04 1168.99,-1907.77 1170.49,-1914.61"/>
+</g>
+<!-- prune -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node73" class="node">
+<title>prune</title>
+<polygon fill="#777777" stroke="#777777" points="1290,-2035 1236,-2035 1236,-2011 1290,-2011 1290,-2035"/>
+<text text-anchor="middle" x="1263" y="-2020.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">prune</text>
+</g>
+<!-- proc~initialize_common&#45;&gt;prune -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge83" class="edge">
+<title>proc~initialize_common&#45;&gt;prune</title>
+<path fill="none" stroke="#000000" d="M1029.91,-1972.05C1060.94,-1981.04 1104.94,-1993.23 1144,-2002 1171.11,-2008.09 1202.05,-2013.54 1225.44,-2017.36"/>
+<polygon fill="#000000" stroke="#000000" points="1225.19,-2020.86 1235.62,-2019 1226.3,-2013.95 1225.19,-2020.86"/>
+</g>
+<!-- refine_uniform -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node74" class="node">
+<title>refine_uniform</title>
+<polygon fill="#777777" stroke="#777777" points="1308.5,-1993 1217.5,-1993 1217.5,-1969 1308.5,-1969 1308.5,-1993"/>
+<text text-anchor="middle" x="1263" y="-1978.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">refine_uniform</text>
+</g>
+<!-- proc~initialize_common&#45;&gt;refine_uniform -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge84" class="edge">
+<title>proc~initialize_common&#45;&gt;refine_uniform</title>
+<path fill="none" stroke="#000000" d="M1108.23,-1969.15C1142.72,-1971.81 1178.73,-1974.58 1207.23,-1976.78"/>
+<polygon fill="#000000" stroke="#000000" points="1207.13,-1980.28 1217.37,-1977.56 1207.67,-1973.3 1207.13,-1980.28"/>
+</g>
+<!-- dxyz -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node62" class="node">
+<title>dxyz</title>
+<polygon fill="#777777" stroke="#777777" points="1015.5,-978 961.5,-978 961.5,-954 1015.5,-954 1015.5,-978"/>
+<text text-anchor="middle" x="988.5" y="-963.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">dxyz</text>
+</g>
+<!-- proc~mark_by_geo&#45;&gt;dxyz -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge85" class="edge">
+<title>proc~mark_by_geo&#45;&gt;dxyz</title>
+<path fill="none" stroke="#000000" d="M818.71,-979.48C864.46,-975.82 916.78,-971.65 950.88,-968.92"/>
+<polygon fill="#000000" stroke="#000000" points="951.59,-972.38 961.28,-968.09 951.04,-965.4 951.59,-972.38"/>
+</g>
+<!-- phi -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node63" class="node">
+<title>phi</title>
+<polygon fill="#777777" stroke="#777777" points="1015.5,-1062 961.5,-1062 961.5,-1038 1015.5,-1038 1015.5,-1062"/>
+<text text-anchor="middle" x="988.5" y="-1047.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">phi</text>
+</g>
+<!-- proc~mark_by_geo&#45;&gt;phi -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge86" class="edge">
+<title>proc~mark_by_geo&#45;&gt;phi</title>
+<path fill="none" stroke="#000000" d="M761.93,-999.08C790.94,-1008.15 832.24,-1020.43 869,-1029 896.47,-1035.41 927.93,-1040.9 951.53,-1044.66"/>
+<polygon fill="#000000" stroke="#000000" points="951.03,-1048.12 961.45,-1046.21 952.11,-1041.2 951.03,-1048.12"/>
+</g>
+<!-- refinements_needed -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node75" class="node">
+<title>refinements_needed</title>
+<polygon fill="#777777" stroke="#777777" points="1049.5,-1020 927.5,-1020 927.5,-996 1049.5,-996 1049.5,-1020"/>
+<text text-anchor="middle" x="988.5" y="-1005.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">refinements_needed</text>
+</g>
+<!-- proc~mark_by_geo&#45;&gt;refinements_needed -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge87" class="edge">
+<title>proc~mark_by_geo&#45;&gt;refinements_needed</title>
+<path fill="none" stroke="#000000" d="M818.71,-994.52C851.15,-997.11 886.9,-999.97 917.11,-1002.38"/>
+<polygon fill="#000000" stroke="#000000" points="916.88,-1005.87 927.13,-1003.18 917.44,-998.89 916.88,-1005.87"/>
+</g>
+<!-- proc~mark_by_grad_var&#45;&gt;proc~compute_q_auxiliary -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge90" class="edge">
+<title>proc~mark_by_grad_var&#45;&gt;proc~compute_q_auxiliary</title>
+<path fill="none" stroke="#000000" d="M764.85,-911.96C788.37,-902.84 816.55,-887.9 833,-865 887.22,-789.51 803.36,-724.8 869,-659 869.95,-658.04 870.94,-657.12 871.94,-656.23"/>
+<polygon fill="#000000" stroke="#000000" points="874.25,-658.88 880.13,-650.07 870.04,-653.29 874.25,-658.88"/>
+</g>
+<!-- proc~mark_by_grad_var&#45;&gt;proc~update_ghost -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge91" class="edge">
+<title>proc~mark_by_grad_var&#45;&gt;proc~update_ghost</title>
+<path fill="none" stroke="#000000" d="M805.81,-911.94C916.28,-895.49 1100.98,-867.73 1108,-865 1160.11,-844.72 1212.46,-804.49 1240.7,-780.75"/>
+<polygon fill="#000000" stroke="#000000" points="1242.99,-783.39 1248.33,-774.24 1238.45,-778.07 1242.99,-783.39"/>
+</g>
+<!-- compute_q_gradient -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node58" class="node">
+<title>compute_q_gradient</title>
+<polygon fill="#777777" stroke="#777777" points="1049.5,-936 927.5,-936 927.5,-912 1049.5,-912 1049.5,-936"/>
+<text text-anchor="middle" x="988.5" y="-921.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_q_gradient</text>
+</g>
+<!-- proc~mark_by_grad_var&#45;&gt;compute_q_gradient -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge88" class="edge">
+<title>proc~mark_by_grad_var&#45;&gt;compute_q_gradient</title>
+<path fill="none" stroke="#000000" d="M832.23,-924C860.91,-924 891.15,-924 917.24,-924"/>
+<polygon fill="#000000" stroke="#000000" points="917.4,-927.5 927.4,-924 917.4,-920.5 917.4,-927.5"/>
+</g>
+<!-- proc~mark_by_grad_var&#45;&gt;dxyz -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge89" class="edge">
+<title>proc~mark_by_grad_var&#45;&gt;dxyz</title>
+<path fill="none" stroke="#000000" d="M799.87,-936.04C849.4,-943.95 912.01,-953.94 950.91,-960.16"/>
+<polygon fill="#000000" stroke="#000000" points="950.79,-963.68 961.22,-961.8 951.9,-956.77 950.79,-963.68"/>
+</g>
+<!-- proc~mark_by_grad_var&#45;&gt;refinements_needed -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge92" class="edge">
+<title>proc~mark_by_grad_var&#45;&gt;refinements_needed</title>
+<path fill="none" stroke="#000000" d="M759.79,-936.05C781.31,-943.79 809.16,-954.52 833,-966 849.69,-974.04 851.61,-980.62 869,-987 884.27,-992.6 901.21,-996.74 917.39,-999.79"/>
+<polygon fill="#000000" stroke="#000000" points="916.89,-1003.25 927.35,-1001.54 918.11,-996.36 916.89,-1003.25"/>
+</g>
+<!-- proc~save_hdf5&#45;&gt;barrier -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge93" class="edge">
+<title>proc~save_hdf5&#45;&gt;barrier</title>
+<path fill="none" stroke="#000000" d="M1048.15,-1193.96C1067.3,-1189.81 1088.61,-1184.95 1108,-1180 1148.73,-1169.59 1194.97,-1155.81 1226.06,-1146.26"/>
+<polygon fill="#000000" stroke="#000000" points="1227.47,-1149.49 1235.99,-1143.19 1225.4,-1142.8 1227.47,-1149.49"/>
+</g>
+<!-- proc~save_hdf5&#45;&gt;print_message -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge94" class="edge">
+<title>proc~save_hdf5&#45;&gt;print_message</title>
+<path fill="none" stroke="#000000" d="M1011.07,-1218.28C1037.58,-1234.43 1082.21,-1265.24 1108,-1303 1212.42,-1455.9 1249.8,-1684.28 1259.32,-1755.78"/>
+<polygon fill="#000000" stroke="#000000" points="1255.87,-1756.4 1260.61,-1765.88 1262.81,-1755.51 1255.87,-1756.4"/>
+</g>
+<!-- proc~save_hdf5&#45;&gt;str -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge96" class="edge">
+<title>proc~save_hdf5&#45;&gt;str</title>
+<path fill="none" stroke="#000000" d="M1063.43,-1218C1078.48,-1221.61 1093.99,-1226.2 1108,-1232 1125.54,-1239.26 1126.55,-1247.52 1144,-1255 1170.35,-1266.29 1201.98,-1273.76 1225.85,-1278.29"/>
+<polygon fill="#000000" stroke="#000000" points="1225.43,-1281.78 1235.9,-1280.11 1226.68,-1274.89 1225.43,-1281.78"/>
+</g>
+<!-- save_hdf5 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node77" class="node">
+<title>save_hdf5</title>
+<polygon fill="#777777" stroke="#777777" points="1296.5,-1204 1229.5,-1204 1229.5,-1180 1296.5,-1180 1296.5,-1204"/>
+<text text-anchor="middle" x="1263" y="-1189.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">save_hdf5</text>
+</g>
+<!-- proc~save_hdf5&#45;&gt;save_hdf5 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge95" class="edge">
+<title>proc~save_hdf5&#45;&gt;save_hdf5</title>
+<path fill="none" stroke="#000000" d="M1075.35,-1201.59C1123.12,-1199.14 1180.51,-1196.19 1218.93,-1194.21"/>
+<polygon fill="#000000" stroke="#000000" points="1219.43,-1197.69 1229.24,-1193.68 1219.07,-1190.7 1219.43,-1197.69"/>
+</g>
+<!-- strz -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node79" class="node">
+<title>strz</title>
+<polygon fill="#777777" stroke="#777777" points="1290,-1246 1236,-1246 1236,-1222 1290,-1222 1290,-1246"/>
+<text text-anchor="middle" x="1263" y="-1231.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">strz</text>
+</g>
+<!-- proc~save_hdf5&#45;&gt;strz -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge97" class="edge">
+<title>proc~save_hdf5&#45;&gt;strz</title>
+<path fill="none" stroke="#000000" d="M1075.35,-1214.82C1125.97,-1220.02 1187.4,-1226.33 1225.6,-1230.26"/>
+<polygon fill="#000000" stroke="#000000" points="1225.43,-1233.76 1235.73,-1231.3 1226.14,-1226.8 1225.43,-1233.76"/>
+</g>
+<!-- proc~save_residuals&#45;&gt;mpi_allreduce -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge99" class="edge">
+<title>proc~save_residuals&#45;&gt;mpi_allreduce</title>
+<path fill="none" stroke="#000000" d="M814.03,-627.97C820.66,-625.5 827.07,-622.54 833,-619 854.7,-606.05 847.2,-587.78 869,-575 888.61,-563.51 912.94,-557.99 934.45,-555.44"/>
+<polygon fill="#000000" stroke="#000000" points="934.83,-558.92 944.43,-554.45 934.13,-551.96 934.83,-558.92"/>
+</g>
+<!-- proc~save_residuals&#45;&gt;proc~is_to_save -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge100" class="edge">
+<title>proc~save_residuals&#45;&gt;proc~is_to_save</title>
+<path fill="none" stroke="#000000" d="M818.89,-652.06C823.9,-654.57 828.65,-657.53 833,-661 864.09,-685.85 841.54,-714.18 869,-743 887.81,-762.74 914.64,-776.86 938.02,-786.32"/>
+<polygon fill="#000000" stroke="#000000" points="936.86,-789.63 947.45,-789.97 939.39,-783.1 936.86,-789.63"/>
+</g>
+<!-- compute_norml2_residuals_gmp -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node57" class="node">
+<title>compute_norml2_residuals_gmp</title>
+<polygon fill="#777777" stroke="#777777" points="1081,-608 896,-608 896,-584 1081,-584 1081,-608"/>
+<text text-anchor="middle" x="988.5" y="-593.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_norml2_residuals_gmp</text>
+</g>
+<!-- proc~save_residuals&#45;&gt;compute_norml2_residuals_gmp -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge98" class="edge">
+<title>proc~save_residuals&#45;&gt;compute_norml2_residuals_gmp</title>
+<path fill="none" stroke="#000000" d="M796.37,-627.98C830.14,-622.33 870.58,-615.56 905.54,-609.71"/>
+<polygon fill="#000000" stroke="#000000" points="906.44,-613.11 915.72,-608.01 905.28,-606.21 906.44,-613.11"/>
+</g>
+<!-- proc~save_residuals~5 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node71" class="node">
+<title>proc~save_residuals~5</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node71"><a xlink:href="../proc/save_residuals~5.html" xlink:title="nasto_io_object%save_residuals">
+<polygon fill="#d9534f" stroke="#d9534f" points="1079.5,-734 897.5,-734 897.5,-710 1079.5,-710 1079.5,-734"/>
+<text text-anchor="middle" x="988.5" y="-719.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_io_object%save_residuals</text>
+</a>
+</g>
+</g>
+<!-- proc~save_residuals&#45;&gt;proc~save_residuals~5 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge101" class="edge">
+<title>proc~save_residuals&#45;&gt;proc~save_residuals~5</title>
+<path fill="none" stroke="#000000" d="M813.01,-652.04C819.98,-654.5 826.74,-657.46 833,-661 853.82,-672.77 848.09,-689.39 869,-701 874.89,-704.27 881.18,-707.05 887.67,-709.41"/>
+<polygon fill="#000000" stroke="#000000" points="886.71,-712.78 897.3,-712.58 888.9,-706.13 886.71,-712.78"/>
+</g>
+<!-- residuals -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node76" class="node">
+<title>residuals</title>
+<polygon fill="#777777" stroke="#777777" points="1018.5,-692 958.5,-692 958.5,-668 1018.5,-668 1018.5,-692"/>
+<text text-anchor="middle" x="988.5" y="-677.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">residuals</text>
+</g>
+<!-- proc~save_residuals&#45;&gt;residuals -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge102" class="edge">
+<title>proc~save_residuals&#45;&gt;residuals</title>
+<path fill="none" stroke="#000000" d="M803.41,-652C851.12,-659.26 909.9,-668.2 948.01,-673.99"/>
+<polygon fill="#000000" stroke="#000000" points="947.77,-677.5 958.18,-675.54 948.82,-670.58 947.77,-677.5"/>
+</g>
+<!-- proc~save_restart_files&#45;&gt;barrier -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge103" class="edge">
+<title>proc~save_restart_files&#45;&gt;barrier</title>
+<path fill="none" stroke="#000000" d="M765.39,-1253.92C786.61,-1246.57 812.34,-1235.9 833,-1222 852.04,-1209.19 848.47,-1195.24 869,-1185 931.27,-1153.93 1140.63,-1140.74 1225.65,-1136.57"/>
+<polygon fill="#000000" stroke="#000000" points="1226.04,-1140.06 1235.86,-1136.09 1225.7,-1133.07 1226.04,-1140.06"/>
+</g>
+<!-- proc~save_restart_files&#45;&gt;print_message -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge104" class="edge">
+<title>proc~save_restart_files&#45;&gt;print_message</title>
+<path fill="none" stroke="#000000" d="M745.93,-1278.03C822.37,-1321.09 1078.73,-1466.51 1108,-1497 1185.69,-1577.93 1236.54,-1705.72 1254.63,-1756.33"/>
+<polygon fill="#000000" stroke="#000000" points="1251.38,-1757.63 1257.99,-1765.91 1257.98,-1755.32 1251.38,-1757.63"/>
+</g>
+<!-- proc~save_restart_files&#45;&gt;str -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge107" class="edge">
+<title>proc~save_restart_files&#45;&gt;str</title>
+<path fill="none" stroke="#000000" d="M829.09,-1269.5C950.97,-1273.58 1145.87,-1280.11 1225.9,-1282.79"/>
+<polygon fill="#000000" stroke="#000000" points="1225.86,-1286.29 1235.97,-1283.13 1226.09,-1279.3 1225.86,-1286.29"/>
+</g>
+<!-- proc~save_restart_files&#45;&gt;proc~save_hdf5 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge105" class="edge">
+<title>proc~save_restart_files&#45;&gt;proc~save_hdf5</title>
+<path fill="none" stroke="#000000" d="M777.41,-1253.93C819.94,-1244.23 879.8,-1230.57 924.75,-1220.32"/>
+<polygon fill="#000000" stroke="#000000" points="925.71,-1223.69 934.68,-1218.05 924.15,-1216.86 925.71,-1223.69"/>
+</g>
+<!-- save_restart_files -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node78" class="node">
+<title>save_restart_files</title>
+<polygon fill="#777777" stroke="#777777" points="1040.5,-1336 936.5,-1336 936.5,-1312 1040.5,-1312 1040.5,-1336"/>
+<text text-anchor="middle" x="988.5" y="-1321.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">save_restart_files</text>
+</g>
+<!-- proc~save_restart_files&#45;&gt;save_restart_files -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge106" class="edge">
+<title>proc~save_restart_files&#45;&gt;save_restart_files</title>
+<path fill="none" stroke="#000000" d="M778.7,-1278.03C805.82,-1284.04 839.14,-1291.42 869,-1298 887.74,-1302.13 908.16,-1306.62 926.68,-1310.68"/>
+<polygon fill="#000000" stroke="#000000" points="925.94,-1314.1 936.46,-1312.82 927.44,-1307.26 925.94,-1314.1"/>
+</g>
+<!-- proc~primitive2conservative~2 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node70" class="node">
+<title>proc~primitive2conservative~2</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node70"><a xlink:href="../proc/primitive2conservative~2.html" xlink:title="nasto_eos_object%primitive2conservative">
+<polygon fill="#d94e8f" stroke="#d94e8f" points="1106.5,-108 870.5,-108 870.5,-84 1106.5,-84 1106.5,-108"/>
+<text text-anchor="middle" x="988.5" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_eos_object%primitive2conservative</text>
+</a>
+</g>
+</g>
+<!-- proc~set_initial_conditions~4&#45;&gt;proc~primitive2conservative~2 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge108" class="edge">
+<title>proc~set_initial_conditions~4&#45;&gt;proc~primitive2conservative~2</title>
+<path fill="none" stroke="#000000" d="M830.71,-96C840.34,-96 850.16,-96 859.95,-96"/>
+<polygon fill="#000000" stroke="#000000" points="860.13,-99.5 870.13,-96 860.13,-92.5 860.13,-99.5"/>
+</g>
+<!-- x_cell -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node82" class="node">
+<title>x_cell</title>
+<polygon fill="#777777" stroke="#777777" points="1015.5,-24 961.5,-24 961.5,0 1015.5,0 1015.5,-24"/>
+<text text-anchor="middle" x="988.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">x_cell</text>
+</g>
+<!-- proc~set_initial_conditions~4&#45;&gt;x_cell -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge109" class="edge">
+<title>proc~set_initial_conditions~4&#45;&gt;x_cell</title>
+<path fill="none" stroke="#000000" d="M747.88,-83.75C775.93,-69.54 824.72,-46.37 869,-33 896.01,-24.84 927.49,-19.45 951.21,-16.17"/>
+<polygon fill="#000000" stroke="#000000" points="951.74,-19.63 961.2,-14.86 950.82,-12.69 951.74,-19.63"/>
+</g>
+<!-- y_cell -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node83" class="node">
+<title>y_cell</title>
+<polygon fill="#777777" stroke="#777777" points="1015.5,-150 961.5,-150 961.5,-126 1015.5,-126 1015.5,-150"/>
+<text text-anchor="middle" x="988.5" y="-135.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">y_cell</text>
+</g>
+<!-- proc~set_initial_conditions~4&#45;&gt;y_cell -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge110" class="edge">
+<title>proc~set_initial_conditions~4&#45;&gt;y_cell</title>
+<path fill="none" stroke="#000000" d="M799.87,-108.04C849.4,-115.95 912.01,-125.94 950.91,-132.16"/>
+<polygon fill="#000000" stroke="#000000" points="950.79,-135.68 961.22,-133.8 951.9,-128.77 950.79,-135.68"/>
+</g>
+<!-- z_cell -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node84" class="node">
+<title>z_cell</title>
+<polygon fill="#777777" stroke="#777777" points="1015.5,-66 961.5,-66 961.5,-42 1015.5,-42 1015.5,-66"/>
+<text text-anchor="middle" x="988.5" y="-51.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">z_cell</text>
+</g>
+<!-- proc~set_initial_conditions~4&#45;&gt;z_cell -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge111" class="edge">
+<title>proc~set_initial_conditions~4&#45;&gt;z_cell</title>
+<path fill="none" stroke="#000000" d="M799.87,-83.96C849.4,-76.05 912.01,-66.06 950.91,-59.84"/>
+<polygon fill="#000000" stroke="#000000" points="951.9,-63.23 961.22,-58.2 950.79,-56.32 951.9,-63.23"/>
+</g>
+<!-- proc~set_boundary_conditions -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node72" class="node">
+<title>proc~set_boundary_conditions</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node72"><a xlink:href="../proc/set_boundary_conditions.html" xlink:title="nasto_gmp_object%set_boundary_conditions">
+<polygon fill="#d9534f" stroke="#d9534f" points="1669,-816 1418,-816 1418,-792 1669,-792 1669,-816"/>
+<text text-anchor="middle" x="1543.5" y="-801.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%set_boundary_conditions</text>
+</a>
+</g>
+</g>
+<!-- proc~update_ghost&#45;&gt;proc~set_boundary_conditions -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge112" class="edge">
+<title>proc~update_ghost&#45;&gt;proc~set_boundary_conditions</title>
+<path fill="none" stroke="#000000" d="M1343.81,-774.04C1377.75,-779.15 1417.49,-785.15 1452.47,-790.42"/>
+<polygon fill="#000000" stroke="#000000" points="1452.27,-793.93 1462.68,-791.96 1453.32,-787.01 1452.27,-793.93"/>
+</g>
+<!-- update_ghost_local -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node80" class="node">
+<title>update_ghost_local</title>
+<polygon fill="#777777" stroke="#777777" points="1601,-774 1486,-774 1486,-750 1601,-750 1601,-774"/>
+<text text-anchor="middle" x="1543.5" y="-759.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">update_ghost_local</text>
+</g>
+<!-- proc~update_ghost&#45;&gt;update_ghost_local -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge113" class="edge">
+<title>proc~update_ghost&#45;&gt;update_ghost_local</title>
+<path fill="none" stroke="#000000" d="M1358.68,-762C1397.14,-762 1440.68,-762 1475.72,-762"/>
+<polygon fill="#000000" stroke="#000000" points="1475.84,-765.5 1485.84,-762 1475.84,-758.5 1475.84,-765.5"/>
+</g>
+<!-- update_ghost_mpi -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node81" class="node">
+<title>update_ghost_mpi</title>
+<polygon fill="#777777" stroke="#777777" points="1598.5,-732 1488.5,-732 1488.5,-708 1598.5,-708 1598.5,-732"/>
+<text text-anchor="middle" x="1543.5" y="-717.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">update_ghost_mpi</text>
+</g>
+<!-- proc~update_ghost&#45;&gt;update_ghost_mpi -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge114" class="edge">
+<title>proc~update_ghost&#45;&gt;update_ghost_mpi</title>
+<path fill="none" stroke="#000000" d="M1343.81,-749.96C1386.48,-743.53 1438.33,-735.71 1478.36,-729.67"/>
+<polygon fill="#000000" stroke="#000000" points="1478.9,-733.13 1488.27,-728.18 1477.86,-726.21 1478.9,-733.13"/>
+</g>
+<!-- proc~compute_fluxes_convective_device~2 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node87" class="node">
+<title>proc~compute_fluxes_convective_device~2</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node87"><a xlink:href="../proc/compute_fluxes_convective_device~2.html" xlink:title="compute_fluxes_convective_device">
+<polygon fill="#d9534f" stroke="#d9534f" points="1363,-276 1163,-276 1163,-252 1363,-252 1363,-276"/>
+<text text-anchor="middle" x="1263" y="-261.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_fluxes_convective_device</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_fluxes_convective_gmp&#45;&gt;proc~compute_fluxes_convective_device~2 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge115" class="edge">
+<title>proc~compute_fluxes_convective_gmp&#45;&gt;proc~compute_fluxes_convective_device~2</title>
+<path fill="none" stroke="#000000" d="M1083.28,-264C1105.68,-264 1129.77,-264 1152.8,-264"/>
+<polygon fill="#000000" stroke="#000000" points="1152.94,-267.5 1162.94,-264 1152.94,-260.5 1152.94,-267.5"/>
+</g>
+<!-- proc~integrate_eikonal&#45;&gt;barrier -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge116" class="edge">
+<title>proc~integrate_eikonal&#45;&gt;barrier</title>
+<path fill="none" stroke="#000000" d="M1094.7,-315.99C1099.58,-319.03 1104.07,-322.67 1108,-327 1142.16,-364.63 1133.85,-733.2 1144,-783 1170.31,-912.04 1229.79,-1059.34 1252.73,-1113.54"/>
+<polygon fill="#000000" stroke="#000000" points="1249.55,-1115.01 1256.7,-1122.83 1255.99,-1112.26 1249.55,-1115.01"/>
+</g>
+<!-- proc~integrate_eikonal&#45;&gt;proc~update_ghost -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge119" class="edge">
+<title>proc~integrate_eikonal&#45;&gt;proc~update_ghost</title>
+<path fill="none" stroke="#000000" d="M1094.55,-316.13C1099.47,-319.14 1104,-322.73 1108,-327 1158.68,-381.21 1109.69,-593.2 1144,-659 1163.74,-696.86 1203.65,-727.02 1231.57,-744.69"/>
+<polygon fill="#000000" stroke="#000000" points="1229.82,-747.72 1240.17,-749.98 1233.48,-741.76 1229.82,-747.72"/>
+</g>
+<!-- evolve_eikonal -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node85" class="node">
+<title>evolve_eikonal</title>
+<polygon fill="#777777" stroke="#777777" points="1309,-318 1217,-318 1217,-294 1309,-294 1309,-318"/>
+<text text-anchor="middle" x="1263" y="-303.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">evolve_eikonal</text>
+</g>
+<!-- proc~integrate_eikonal&#45;&gt;evolve_eikonal -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge117" class="edge">
+<title>proc~integrate_eikonal&#45;&gt;evolve_eikonal</title>
+<path fill="none" stroke="#000000" d="M1094.86,-306C1132.97,-306 1174.48,-306 1206.6,-306"/>
+<polygon fill="#000000" stroke="#000000" points="1206.68,-309.5 1216.68,-306 1206.68,-302.5 1206.68,-309.5"/>
+</g>
+<!-- invert_eikonal -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node86" class="node">
+<title>invert_eikonal</title>
+<polygon fill="#777777" stroke="#777777" points="1307,-360 1219,-360 1219,-336 1307,-336 1307,-360"/>
+<text text-anchor="middle" x="1263" y="-345.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">invert_eikonal</text>
+</g>
+<!-- proc~integrate_eikonal&#45;&gt;invert_eikonal -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge118" class="edge">
+<title>proc~integrate_eikonal&#45;&gt;invert_eikonal</title>
+<path fill="none" stroke="#000000" d="M1067.59,-318.04C1112.73,-324.99 1168.35,-333.57 1208.52,-339.76"/>
+<polygon fill="#000000" stroke="#000000" points="1208.23,-343.25 1218.64,-341.32 1209.29,-336.33 1208.23,-343.25"/>
+</g>
+<!-- proc~total_energy~2 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node89" class="node">
+<title>proc~total_energy~2</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node89"><a xlink:href="../proc/total_energy~2.html" xlink:title="nasto_eos_object%total_energy">
+<polygon fill="#d94e8f" stroke="#d94e8f" points="1353.5,-108 1172.5,-108 1172.5,-84 1353.5,-84 1353.5,-108"/>
+<text text-anchor="middle" x="1263" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_eos_object%total_energy</text>
+</a>
+</g>
+</g>
+<!-- proc~primitive2conservative~2&#45;&gt;proc~total_energy~2 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge120" class="edge">
+<title>proc~primitive2conservative~2&#45;&gt;proc~total_energy~2</title>
+<path fill="none" stroke="#000000" d="M1106.65,-96C1125.06,-96 1143.95,-96 1161.93,-96"/>
+<polygon fill="#000000" stroke="#000000" points="1162.11,-99.5 1172.11,-96 1162.11,-92.5 1162.11,-99.5"/>
+</g>
+<!-- proc~save_residuals~5&#45;&gt;str -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge121" class="edge">
+<title>proc~save_residuals~5&#45;&gt;str</title>
+<path fill="none" stroke="#000000" d="M1038.84,-734.02C1063.79,-742.78 1092.09,-757.36 1108,-781 1166.98,-868.64 1075.72,-1174.4 1144,-1255 1163.74,-1278.3 1198.9,-1284.53 1225.71,-1285.53"/>
+<polygon fill="#000000" stroke="#000000" points="1225.85,-1289.03 1235.9,-1285.68 1225.95,-1282.03 1225.85,-1289.03"/>
+</g>
+<!-- proc~set_bc_q_gpu_gmp -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node88" class="node">
+<title>proc~set_bc_q_gpu_gmp</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node88"><a xlink:href="../proc/set_bc_q_gpu_gmp.html" xlink:title="set_bc_q_gpu_gmp">
+<polygon fill="#d9534f" stroke="#d9534f" points="1867,-816 1754,-816 1754,-792 1867,-792 1867,-816"/>
+<text text-anchor="middle" x="1810.5" y="-801.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">set_bc_q_gpu_gmp</text>
+</a>
+</g>
+</g>
+<!-- proc~set_boundary_conditions&#45;&gt;proc~set_bc_q_gpu_gmp -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge122" class="edge">
+<title>proc~set_boundary_conditions&#45;&gt;proc~set_bc_q_gpu_gmp</title>
+<path fill="none" stroke="#000000" d="M1669.24,-804C1694.97,-804 1721.09,-804 1743.7,-804"/>
+<polygon fill="#000000" stroke="#000000" points="1743.83,-807.5 1753.83,-804 1743.83,-800.5 1743.83,-807.5"/>
+</g>
+<!-- proc~compute_eigenvectors_device~2 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node90" class="node">
+<title>proc~compute_eigenvectors_device~2</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node90"><a xlink:href="../proc/compute_eigenvectors_device~2.html" xlink:title="compute_eigenvectors_device">
+<polygon fill="#d9534f" stroke="#d9534f" points="1631,-329 1456,-329 1456,-305 1631,-305 1631,-329"/>
+<text text-anchor="middle" x="1543.5" y="-314.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_eigenvectors_device</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_fluxes_convective_device~2&#45;&gt;proc~compute_eigenvectors_device~2 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge123" class="edge">
+<title>proc~compute_fluxes_convective_device~2&#45;&gt;proc~compute_eigenvectors_device~2</title>
+<path fill="none" stroke="#000000" d="M1332.99,-276.03C1349.09,-278.91 1366.15,-282.01 1382,-285 1412.1,-290.68 1445.3,-297.25 1473.66,-302.95"/>
+<polygon fill="#000000" stroke="#000000" points="1472.99,-306.38 1483.48,-304.93 1474.37,-299.52 1472.99,-306.38"/>
+</g>
+<!-- proc~decompose_fluxes_convective_device~3 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node91" class="node">
+<title>proc~decompose_fluxes_convective_device~3</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node91"><a xlink:href="../proc/decompose_fluxes_convective_device~3.html" xlink:title="decompose_fluxes_convective_device">
+<polygon fill="#d9534f" stroke="#d9534f" points="1651,-276 1436,-276 1436,-252 1651,-252 1651,-276"/>
+<text text-anchor="middle" x="1543.5" y="-261.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">decompose_fluxes_convective_device</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_fluxes_convective_device~2&#45;&gt;proc~decompose_fluxes_convective_device~3 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge124" class="edge">
+<title>proc~compute_fluxes_convective_device~2&#45;&gt;proc~decompose_fluxes_convective_device~3</title>
+<path fill="none" stroke="#000000" d="M1363.37,-264C1383.5,-264 1404.85,-264 1425.53,-264"/>
+<polygon fill="#000000" stroke="#000000" points="1425.62,-267.5 1435.62,-264 1425.62,-260.5 1425.62,-267.5"/>
+</g>
+<!-- weno_reconstruct_upwind -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node93" class="node">
+<title>weno_reconstruct_upwind</title>
+<polygon fill="#777777" stroke="#777777" points="1618.5,-234 1468.5,-234 1468.5,-210 1618.5,-210 1618.5,-234"/>
+<text text-anchor="middle" x="1543.5" y="-219.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">weno_reconstruct_upwind</text>
+</g>
+<!-- proc~compute_fluxes_convective_device~2&#45;&gt;weno_reconstruct_upwind -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge125" class="edge">
+<title>proc~compute_fluxes_convective_device~2&#45;&gt;weno_reconstruct_upwind</title>
+<path fill="none" stroke="#000000" d="M1343.81,-251.96C1379.66,-246.56 1421.98,-240.18 1458.33,-234.69"/>
+<polygon fill="#000000" stroke="#000000" points="1459.04,-238.13 1468.41,-233.17 1458,-231.2 1459.04,-238.13"/>
+</g>
+<!-- proc~ic_total_energy -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node92" class="node">
+<title>proc~ic_total_energy</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node92"><a xlink:href="../proc/ic_total_energy.html" xlink:title="ic_total_energy">
+<polygon fill="#d94e8f" stroke="#d94e8f" points="1590.5,-108 1496.5,-108 1496.5,-84 1590.5,-84 1590.5,-108"/>
+<text text-anchor="middle" x="1543.5" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">ic_total_energy</text>
+</a>
+</g>
+</g>
+<!-- proc~total_energy~2&#45;&gt;proc~ic_total_energy -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge126" class="edge">
+<title>proc~total_energy~2&#45;&gt;proc~ic_total_energy</title>
+<path fill="none" stroke="#000000" d="M1353.65,-96C1397.11,-96 1447.98,-96 1485.97,-96"/>
+<polygon fill="#000000" stroke="#000000" points="1486.33,-99.5 1496.33,-96 1486.33,-92.5 1486.33,-99.5"/>
+</g>
+<!-- proc~compute_roe_average_device~3 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node97" class="node">
+<title>proc~compute_roe_average_device~3</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node97"><a xlink:href="../proc/compute_roe_average_device~3.html" xlink:title="compute_roe_average_device">
+<polygon fill="#d9534f" stroke="#d9534f" points="1896.5,-339 1724.5,-339 1724.5,-315 1896.5,-315 1896.5,-339"/>
+<text text-anchor="middle" x="1810.5" y="-324.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_roe_average_device</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_eigenvectors_device~2&#45;&gt;proc~compute_roe_average_device~3 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge127" class="edge">
+<title>proc~compute_eigenvectors_device~2&#45;&gt;proc~compute_roe_average_device~3</title>
+<path fill="none" stroke="#000000" d="M1631.27,-320.27C1657.77,-321.27 1687.06,-322.38 1714.1,-323.4"/>
+<polygon fill="#000000" stroke="#000000" points="1714.22,-326.91 1724.34,-323.79 1714.48,-319.91 1714.22,-326.91"/>
+</g>
+<!-- proc~compute_conservative_fluxes_device~2 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node94" class="node">
+<title>proc~compute_conservative_fluxes_device~2</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node94"><a xlink:href="../proc/compute_conservative_fluxes_device~2.html" xlink:title="compute_conservative_fluxes_device">
+<polygon fill="#d9534f" stroke="#d9534f" points="1916,-213 1705,-213 1705,-189 1916,-189 1916,-213"/>
+<text text-anchor="middle" x="1810.5" y="-198.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_conservative_fluxes_device</text>
+</a>
+</g>
+</g>
+<!-- proc~decompose_fluxes_convective_device~3&#45;&gt;proc~compute_conservative_fluxes_device~2 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge128" class="edge">
+<title>proc~decompose_fluxes_convective_device~3&#45;&gt;proc~compute_conservative_fluxes_device~2</title>
+<path fill="none" stroke="#000000" d="M1638.25,-251.96C1648.77,-249.5 1659.21,-246.55 1669,-243 1686.42,-236.69 1687.69,-228.58 1705,-222 1711.22,-219.64 1717.75,-217.52 1724.39,-215.64"/>
+<polygon fill="#000000" stroke="#000000" points="1725.4,-218.99 1734.16,-213.03 1723.59,-212.23 1725.4,-218.99"/>
+</g>
+<!-- proc~compute_conservatives_device~2 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node95" class="node">
+<title>proc~compute_conservatives_device~2</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node95"><a xlink:href="../proc/compute_conservatives_device~2.html" xlink:title="compute_conservatives_device">
+<polygon fill="#d9534f" stroke="#d9534f" points="1900,-297 1721,-297 1721,-273 1900,-273 1900,-297"/>
+<text text-anchor="middle" x="1810.5" y="-282.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_conservatives_device</text>
+</a>
+</g>
+</g>
+<!-- proc~decompose_fluxes_convective_device~3&#45;&gt;proc~compute_conservatives_device~2 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge129" class="edge">
+<title>proc~decompose_fluxes_convective_device~3&#45;&gt;proc~compute_conservatives_device~2</title>
+<path fill="none" stroke="#000000" d="M1651.14,-272.45C1670.86,-274.01 1691.37,-275.64 1710.84,-277.18"/>
+<polygon fill="#000000" stroke="#000000" points="1710.67,-280.68 1720.92,-277.98 1711.22,-273.7 1710.67,-280.68"/>
+</g>
+<!-- proc~compute_max_eigenvalues_device~2 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node96" class="node">
+<title>proc~compute_max_eigenvalues_device~2</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node96"><a xlink:href="../proc/compute_max_eigenvalues_device~2.html" xlink:title="compute_max_eigenvalues_device">
+<polygon fill="#d9534f" stroke="#d9534f" points="1910,-255 1711,-255 1711,-231 1910,-231 1910,-255"/>
+<text text-anchor="middle" x="1810.5" y="-240.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_max_eigenvalues_device</text>
+</a>
+</g>
+</g>
+<!-- proc~decompose_fluxes_convective_device~3&#45;&gt;proc~compute_max_eigenvalues_device~2 -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge130" class="edge">
+<title>proc~decompose_fluxes_convective_device~3&#45;&gt;proc~compute_max_eigenvalues_device~2</title>
+<path fill="none" stroke="#000000" d="M1651.14,-255.55C1667.46,-254.26 1684.32,-252.92 1700.68,-251.62"/>
+<polygon fill="#000000" stroke="#000000" points="1701.1,-255.1 1710.8,-250.82 1700.55,-248.12 1701.1,-255.1"/>
+</g>
+<!-- proc~ic_internal_energy -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_node98" class="node">
+<title>proc~ic_internal_energy</title>
+<g id="a_program~~adam_nasto_gmp~~CallsGraph_node98"><a xlink:href="../proc/ic_internal_energy.html" xlink:title="ic_internal_energy">
+<polygon fill="#d94e8f" stroke="#d94e8f" points="1866,-108 1755,-108 1755,-84 1866,-84 1866,-108"/>
+<text text-anchor="middle" x="1810.5" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">ic_internal_energy</text>
+</a>
+</g>
+</g>
+<!-- proc~ic_total_energy&#45;&gt;proc~ic_internal_energy -->
+<g id="program~~adam_nasto_gmp~~CallsGraph_edge131" class="edge">
+<title>proc~ic_total_energy&#45;&gt;proc~ic_internal_energy</title>
+<path fill="none" stroke="#000000" d="M1590.66,-96C1633.21,-96 1696.8,-96 1744.49,-96"/>
+<polygon fill="#000000" stroke="#000000" points="1744.71,-99.5 1754.71,-96 1744.71,-92.5 1744.71,-99.5"/>
+</g>
+</g>
+</svg>
+</div>                <script>
+                  var panprogramadam_nasto_gmpCallsGraph = svgPanZoom('#programadam_nasto_gmpCallsGraph',
+                    {zoomEnabled: true, controlIconsEnabled: true, fit: true, center: true,}
+                  );
+                </script>          <div>
+            <a type="button" class="graph-help" data-bs-toggle="modal" href="#CallsGraph-help-text">Help</a>
+          </div>
+          <div class="modal fade" id="CallsGraph-help-text" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h4 class="modal-title" id="-graph-help-label">Graph Key</h4>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+<p>Nodes of different colours represent the following: </p>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: Graph Key Pages: 1 -->
+<svg width="641pt" height="28pt"
+ viewBox="0.00 0.00 641.00 27.51" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(0.86 0.86) rotate(0) translate(4 28)">
+<title>Graph Key</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 741.5,-28 741.5,4 -4,4"/>
+<!-- Subroutine -->
+<g id="node1" class="node">
+<title>Subroutine</title>
+<polygon fill="#d9534f" stroke="#d9534f" points="70,-24 0,-24 0,0 70,0 70,-24"/>
+<text text-anchor="middle" x="35" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Subroutine</text>
+</g>
+<!-- Function -->
+<g id="node2" class="node">
+<title>Function</title>
+<polygon fill="#d94e8f" stroke="#d94e8f" points="146,-24 88,-24 88,0 146,0 146,-24"/>
+<text text-anchor="middle" x="117" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Function</text>
+</g>
+<!-- Interface -->
+<g id="node3" class="node">
+<title>Interface</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="225.5,-24 164.5,-24 164.5,0 225.5,0 225.5,-24"/>
+<text text-anchor="middle" x="195" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Interface</text>
+</g>
+<!-- Type Bound Procedure -->
+<g id="node4" class="node">
+<title>Type Bound Procedure</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="374,-24 244,-24 244,0 374,0 374,-24"/>
+<text text-anchor="middle" x="309" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Type Bound Procedure</text>
+</g>
+<!-- Unknown Procedure Type -->
+<g id="node5" class="node">
+<title>Unknown Procedure Type</title>
+<polygon fill="#777777" stroke="#777777" points="537.5,-24 392.5,-24 392.5,0 537.5,0 537.5,-24"/>
+<text text-anchor="middle" x="465" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Unknown Procedure Type</text>
+</g>
+<!-- Program -->
+<g id="node6" class="node">
+<title>Program</title>
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="614,-24 556,-24 556,0 614,0 614,-24"/>
+<text text-anchor="middle" x="585" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Program</text>
+</g>
+<!-- This Page&#39;s Entity -->
+<g id="node7" class="node">
+<title>This Page&#39;s Entity</title>
+<polygon fill="none" stroke="black" points="737.5,-24 632.5,-24 632.5,0 737.5,0 737.5,-24"/>
+<text text-anchor="middle" x="685" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">This Page&#39;s Entity</text>
+</g>
+</g>
+</svg>
+
+<p>Solid arrows point from a procedure to one which it calls. Dashed 
+arrows point from an interface to procedures which implement that interface.
+This could include the module procedures in a generic interface or the
+implementation in a submodule of an interface in a parent module.
+</p>
+ </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+<br>
+
+    <section>
+    <h2>Variables</h2>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+<th></th><th scope="col">Initial</th>        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-nasto"></span>
+              type(<a href='../type/nasto_gmp_object.html'>nasto_gmp_object</a>)
+            </td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>nasto</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+                <p>Navier-Stokes equations system class.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-na"></span>
+              integer
+            </td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>na</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+                <p>Number of command line arguments.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-input_file_name"></span>
+              character(len=999)
+            </td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>input_file_name</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+                <p>Input file name.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+    </section>
+    <br>
+    
+    
+    
+
+    
+
+
+    
+
+    <section>
+    <h2 id="src">Source Code</h2>
+    <div class="hl codehilite"><pre><span></span><span class="k">program </span><span class="n">adam_nasto_gmp</span>
+<span class="c">!&lt; ADAM, Navier-Stokes application solver, GPU-OpenMP (GMP) backend.</span>
+
+<span class="k">use </span><span class="n">adam_nasto_gmp_object</span><span class="p">,</span><span class="w"> </span><span class="k">only</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">nasto_gmp_object</span>
+
+<span class="k">implicit none</span>
+
+<span class="k">type</span><span class="p">(</span><span class="n">nasto_gmp_object</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">nasto</span><span class="w">           </span><span class="c">!&lt; Navier-Stokes equations system class.</span>
+<span class="kt">integer</span><span class="w">                </span><span class="kd">::</span><span class="w"> </span><span class="n">na</span><span class="w">              </span><span class="c">!&lt; Number of command line arguments.</span>
+<span class="kt">character</span><span class="p">(</span><span class="mi">999</span><span class="p">)</span><span class="w">         </span><span class="kd">::</span><span class="w"> </span><span class="n">input_file_name</span><span class="w"> </span><span class="c">!&lt; Input file name.</span>
+
+<span class="n">na</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">command_argument_count</span><span class="p">()</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">na</span><span class="o">==</span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="k">then</span>
+<span class="k">   call </span><span class="n">nasto</span><span class="p">%</span><span class="n">simulate</span><span class="p">(</span><span class="n">filename</span><span class="o">=</span><span class="s1">&#39;input.ini&#39;</span><span class="p">)</span>
+<span class="k">else</span>
+<span class="k">   call </span><span class="nb">get_command_argument</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">input_file_name</span><span class="p">)</span>
+<span class="w">   </span><span class="k">call </span><span class="n">nasto</span><span class="p">%</span><span class="n">simulate</span><span class="p">(</span><span class="n">filename</span><span class="o">=</span><span class="nb">trim</span><span class="p">(</span><span class="nb">adjustl</span><span class="p">(</span><span class="n">input_file_name</span><span class="p">)))</span>
+<span class="k">endif</span>
+<span class="k">endprogram </span><span class="n">adam_nasto_gmp</span>
+</pre></div>
+
+    </section>
+    
+    </div>
+  </div>
+
+      <hr>
+    </div> <!-- /container -->
+    <footer>
+      <div class="container">
+        <div class="row justify-content-between">
+          <div class="col">
+            <p>
+              ADAM
+ was developed by Stefano Zaghi<br>              &copy; 2025 
+</p>
+          </div>
+          <div class="col">
+            <p class="text-end">
+              Documentation generated by
+              <a href="https://github.com/Fortran-FOSS-Programmers/ford">FORD</a>
+            </p>
+          </div>
+        </div>
+        <br>
+      </div> <!-- /container -->
+    </footer>
+  </body>
+</html>

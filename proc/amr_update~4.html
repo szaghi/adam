@@ -1,0 +1,812 @@
+<!-- -*- mode: jinja2 -*- -->
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="description" content="Adaptive Mesh Refinement (AMR) with Immersed Boundary (IB) fluid dynamic solver tailored for High Performance GPU Computing">
+    <meta name="author" content="Stefano Zaghi" >
+    <link rel="icon" href="../favicon.png">
+
+    <title>amr_update &ndash; ADAM</title>
+
+    <!-- Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+          integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+            integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <!-- Font Awesome -->
+    <link href="../css/fontawesome.min.css" rel="stylesheet">
+    <link href="../css/brands.min.css" rel="stylesheet">
+    <link href="../css/regular.min.css" rel="stylesheet">
+    <link href="../css/solid.min.css" rel="stylesheet">
+    <link href="../css/v4-font-face.min.css" rel="stylesheet">
+    <link href="../css/v4-shims.min.css" rel="stylesheet">
+    <!-- MathJax -->
+    <script type="text/x-mathjax-config">
+      MathJax.Hub.Config({
+        TeX: { equationNumbers: { autoNumber: "AMS" } }
+      });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@2.7.9/MathJax.js?config=TeX-AMS-MML_HTMLorMML" async
+            integrity="sha256-DViIOMYdwlM/axqoGDPeUyf0urLoHMN4QACBKyB58Uw=" crossorigin="anonymous"></script>
+    <!-- Other scripts and stylesheets -->
+    <link href="../css/local.css" rel="stylesheet">
+    <link href="../css/pygments.css" rel="stylesheet">
+    <script src="../js/svg-pan-zoom.min.js"></script>
+  </head>
+
+  <body>
+
+    <!-- Fixed navbar -->
+    <div class="container-fluid mb-sm-4 mb-xl-2">
+      <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+        <div class="container">
+          <a class="navbar-brand" href="../index.html">ADAM </a>
+          <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar"
+                  aria-expanded="false" aria-controls="navbar" aria-label="Toggle navigation">
+                  <span class="navbar-toggler-icon">
+          </button>
+
+          <div id="navbar" class="navbar-collapse collapse">
+            <ul class="navbar-nav">
+                  <li class="nav-item">
+                    <a class="nav-link" href="../lists/files.html">Source Files</a>
+                  </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/modules.html">Modules</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/procedures.html">Procedures</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/types.html">Derived Types</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/programs.html">Programs</a>
+                </li>
+            </ul>
+              <div class="d-flex align-items-end flex-grow-1">
+                <form action="../search.html" role="search" class="ms-auto">
+                  <input type="text" class="form-control" aria-label="Search" placeholder="Search" name="q" id="tipue_search_input" autocomplete="off" required>
+                </form>
+              </div>
+          </div><!--/.nav-collapse -->
+        </div>
+      </nav>
+    </div>
+
+    <div class="container">
+  <div class="row">
+    <h1>amr_update
+      <small>Subroutine</small>
+      
+    </h1>
+      <div class="container p-2 mb-4 bg-light border rounded-3">
+    <div class="row align-items-center justify-content-between" id="info-bar">
+      <div class="col">
+        <ul class="list-inline" style="margin-bottom:0px;display:inline">
+
+            <li class="list-inline-item" id="statements"><i class="fa fa-list-ol"></i>
+              <a data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-html="true"
+                 title=" 0.6% of total for procedures.">34 statements</a>
+            </li>
+
+            <li class="list-inline-item" id="source-file">
+              <i class="fa fa-code"></i>
+              <a href="../src/adam_nasto_cpu_object.F90"> Source File</a>
+            </li>
+        </ul>
+      </div>
+      <div class="col">
+        <nav aria-label="breadcrumb">
+          <ol class="breadcrumb justify-content-end mb-0">
+                <li class="breadcrumb-item"><a href='../sourcefile/adam_nasto_cpu_object.f90.html'>adam_nasto_cpu_object.F90</a></li>
+                <li class="breadcrumb-item"><a href='../module/adam_nasto_cpu_object.html'>adam_nasto_cpu_object</a></li>
+            <li class="breadcrumb-item active" aria-current="page">amr_update</li>
+          </ol>
+        </nav>
+      </div>
+    </div>
+  </div>
+  <script>
+    // Enable Bootstrap tooltips
+    (function () {
+      const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]')
+      const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl))
+    })();
+  </script>
+
+  </div>
+  
+  <div class="row">
+    <div class="col-md-3 hidden-xs hidden-sm visible-md visible-lg">
+      <div id="sidebar">
+      <h3>Contents</h3>
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+    <div class="card card-primary">
+      <div class="card-header text-left"><h3 class="card-title">Source Code</h3></div>
+      <div class="list-group">
+        <a class="list-group-item" href="../proc/amr_update~4.html#src">amr_update</a>
+      </div>
+    </div>
+
+
+  </div>
+
+    </div>
+    
+    <div class="col-md-9" id='text'>
+    <h2>private  subroutine amr_update(self)  
+</h2>
+    
+
+    <p>Do AMR update.</p>
+
+    <h3>Type Bound</h3>
+    <p><a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a></p>
+
+    <h3>Arguments</h3>
+        <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-self~108"></span>
+              class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+                <p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+    <br>
+    <div class="card">
+      <div class="card-header">
+  <h3 class="card-title">Calls</h3>
+      </div>
+      <div class="card-body">
+  <div class="depgraph"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: proc~~amr_update~4~~CallsGraph Pages: 1 -->
+<svg id="procamr_update4CallsGraph" width="641pt" height="228pt"
+ viewBox="0.00 0.00 641.00 227.56" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="proc~~amr_update~4~~CallsGraph" class="graph" transform="scale(0.56 0.56) rotate(0) translate(4 400)">
+<title>proc~~amr_update~4~~CallsGraph</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-400 1134,-400 1134,4 -4,4"/>
+<!-- proc~amr_update~4 -->
+<g id="proc~~amr_update~4~~CallsGraph_node1" class="node">
+<title>proc~amr_update~4</title>
+<polygon fill="none" stroke="black" points="179,-254 0,-254 0,-230 179,-230 179,-254"/>
+<text text-anchor="middle" x="89.5" y="-239.6" font-family="Helvetica,sans-Serif" font-size="10.50">nasto_cpu_object%amr_update</text>
+</g>
+<!-- amr_update -->
+<g id="proc~~amr_update~4~~CallsGraph_node2" class="node">
+<title>amr_update</title>
+<polygon fill="#777777" stroke="#777777" points="360,-396 283,-396 283,-372 360,-372 360,-396"/>
+<text text-anchor="middle" x="321.5" y="-381.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">amr_update</text>
+</g>
+<!-- proc~amr_update~4&#45;&gt;amr_update -->
+<g id="proc~~amr_update~4~~CallsGraph_edge1" class="edge">
+<title>proc~amr_update~4&#45;&gt;amr_update</title>
+<path fill="none" stroke="#000000" d="M99.19,-254.3C117.51,-279.19 162.7,-335.52 215,-363 232.58,-372.24 253.75,-377.42 272.5,-380.33"/>
+<polygon fill="#000000" stroke="#000000" points="272.24,-383.83 282.63,-381.72 273.2,-376.89 272.24,-383.83"/>
+</g>
+<!-- markers -->
+<g id="proc~~amr_update~4~~CallsGraph_node3" class="node">
+<title>markers</title>
+<polygon fill="#777777" stroke="#777777" points="350,-354 293,-354 293,-330 350,-330 350,-354"/>
+<text text-anchor="middle" x="321.5" y="-339.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">markers</text>
+</g>
+<!-- proc~amr_update~4&#45;&gt;markers -->
+<g id="proc~~amr_update~4~~CallsGraph_edge2" class="edge">
+<title>proc~amr_update~4&#45;&gt;markers</title>
+<path fill="none" stroke="#000000" d="M107.38,-254.25C130.56,-270.53 174.05,-299.22 215,-316 236.8,-324.93 262.44,-331.34 282.99,-335.56"/>
+<polygon fill="#000000" stroke="#000000" points="282.43,-339.02 292.92,-337.51 283.78,-332.15 282.43,-339.02"/>
+</g>
+<!-- print_message -->
+<g id="proc~~amr_update~4~~CallsGraph_node4" class="node">
+<title>print_message</title>
+<polygon fill="#777777" stroke="#777777" points="622,-318 531,-318 531,-294 622,-294 622,-318"/>
+<text text-anchor="middle" x="576.5" y="-303.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">print_message</text>
+</g>
+<!-- proc~amr_update~4&#45;&gt;print_message -->
+<g id="proc~~amr_update~4~~CallsGraph_edge3" class="edge">
+<title>proc~amr_update~4&#45;&gt;print_message</title>
+<path fill="none" stroke="#000000" d="M120.12,-254.13C145,-263.73 181.71,-276.57 215,-283 321.96,-303.67 449.75,-306.88 520.85,-306.81"/>
+<polygon fill="#000000" stroke="#000000" points="520.93,-310.31 530.92,-306.77 520.91,-303.31 520.93,-310.31"/>
+</g>
+<!-- proc~compute_phi~4 -->
+<g id="proc~~amr_update~4~~CallsGraph_node5" class="node">
+<title>proc~compute_phi~4</title>
+<g id="a_proc~~amr_update~4~~CallsGraph_node5"><a xlink:href="../proc/compute_phi~4.html" xlink:title="nasto_cpu_object%compute_phi">
+<polygon fill="#d9534f" stroke="#d9534f" points="413.5,-274 229.5,-274 229.5,-250 413.5,-250 413.5,-274"/>
+<text text-anchor="middle" x="321.5" y="-259.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_cpu_object%compute_phi</text>
+</a>
+</g>
+</g>
+<!-- proc~amr_update~4&#45;&gt;proc~compute_phi~4 -->
+<g id="proc~~amr_update~4~~CallsGraph_edge4" class="edge">
+<title>proc~amr_update~4&#45;&gt;proc~compute_phi~4</title>
+<path fill="none" stroke="#000000" d="M179.1,-249.7C192.2,-250.84 205.8,-252.03 219.14,-253.19"/>
+<polygon fill="#000000" stroke="#000000" points="219.02,-256.69 229.29,-254.07 219.63,-249.72 219.02,-256.69"/>
+</g>
+<!-- proc~mark_by_geo~4 -->
+<g id="proc~~amr_update~4~~CallsGraph_node6" class="node">
+<title>proc~mark_by_geo~4</title>
+<g id="a_proc~~amr_update~4~~CallsGraph_node6"><a xlink:href="../proc/mark_by_geo~4.html" xlink:title="nasto_cpu_object%mark_by_geo">
+<polygon fill="#d9534f" stroke="#d9534f" points="414.5,-108 228.5,-108 228.5,-84 414.5,-84 414.5,-108"/>
+<text text-anchor="middle" x="321.5" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_cpu_object%mark_by_geo</text>
+</a>
+</g>
+</g>
+<!-- proc~amr_update~4&#45;&gt;proc~mark_by_geo~4 -->
+<g id="proc~~amr_update~4~~CallsGraph_edge5" class="edge">
+<title>proc~amr_update~4&#45;&gt;proc~mark_by_geo~4</title>
+<path fill="none" stroke="#000000" d="M102.22,-229.96C123.21,-208.95 169.27,-165.25 215,-138 232.88,-127.34 253.96,-118.33 272.56,-111.42"/>
+<polygon fill="#000000" stroke="#000000" points="273.81,-114.69 282.03,-108 271.43,-108.11 273.81,-114.69"/>
+</g>
+<!-- proc~mark_by_grad_var~4 -->
+<g id="proc~~amr_update~4~~CallsGraph_node7" class="node">
+<title>proc~mark_by_grad_var~4</title>
+<g id="a_proc~~amr_update~4~~CallsGraph_node7"><a xlink:href="../proc/mark_by_grad_var~4.html" xlink:title="nasto_cpu_object%mark_by_grad_var">
+<polygon fill="#d9534f" stroke="#d9534f" points="428,-171 215,-171 215,-147 428,-147 428,-171"/>
+<text text-anchor="middle" x="321.5" y="-156.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_cpu_object%mark_by_grad_var</text>
+</a>
+</g>
+</g>
+<!-- proc~amr_update~4&#45;&gt;proc~mark_by_grad_var~4 -->
+<g id="proc~~amr_update~4~~CallsGraph_edge6" class="edge">
+<title>proc~amr_update~4&#45;&gt;proc~mark_by_grad_var~4</title>
+<path fill="none" stroke="#000000" d="M123.94,-229.93C164.48,-215.3 232.88,-190.62 277.36,-174.57"/>
+<polygon fill="#000000" stroke="#000000" points="278.8,-177.77 287.02,-171.08 276.42,-171.19 278.8,-177.77"/>
+</g>
+<!-- proc~update_ghost~4 -->
+<g id="proc~~amr_update~4~~CallsGraph_node8" class="node">
+<title>proc~update_ghost~4</title>
+<g id="a_proc~~amr_update~4~~CallsGraph_node8"><a xlink:href="../proc/update_ghost~4.html" xlink:title="nasto_cpu_object%update_ghost">
+<polygon fill="#d9534f" stroke="#d9534f" points="670,-234 483,-234 483,-210 670,-210 670,-234"/>
+<text text-anchor="middle" x="576.5" y="-219.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_cpu_object%update_ghost</text>
+</a>
+</g>
+</g>
+<!-- proc~amr_update~4&#45;&gt;proc~update_ghost~4 -->
+<g id="proc~~amr_update~4~~CallsGraph_edge7" class="edge">
+<title>proc~amr_update~4&#45;&gt;proc~update_ghost~4</title>
+<path fill="none" stroke="#000000" d="M179.17,-238.34C262,-234.93 385.6,-229.83 472.7,-226.24"/>
+<polygon fill="#000000" stroke="#000000" points="473.02,-229.73 482.87,-225.82 472.74,-222.73 473.02,-229.73"/>
+</g>
+<!-- str -->
+<g id="proc~~amr_update~4~~CallsGraph_node9" class="node">
+<title>str</title>
+<polygon fill="#777777" stroke="#777777" points="348.5,-66 294.5,-66 294.5,-42 348.5,-42 348.5,-66"/>
+<text text-anchor="middle" x="321.5" y="-51.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">str</text>
+</g>
+<!-- proc~amr_update~4&#45;&gt;str -->
+<g id="proc~~amr_update~4~~CallsGraph_edge8" class="edge">
+<title>proc~amr_update~4&#45;&gt;str</title>
+<path fill="none" stroke="#000000" d="M95.68,-229.93C109.78,-198.68 152.01,-114.78 215,-75 235.63,-61.97 262.67,-56.77 284.21,-54.8"/>
+<polygon fill="#000000" stroke="#000000" points="284.57,-58.29 294.3,-54.08 284.07,-51.3 284.57,-58.29"/>
+</g>
+<!-- proc~compute_phi~4&#45;&gt;print_message -->
+<g id="proc~~amr_update~4~~CallsGraph_edge10" class="edge">
+<title>proc~compute_phi~4&#45;&gt;print_message</title>
+<path fill="none" stroke="#000000" d="M391.63,-274.02C432.15,-281.07 482.64,-289.85 520.45,-296.43"/>
+<polygon fill="#000000" stroke="#000000" points="520.31,-299.95 530.76,-298.22 521.51,-293.06 520.31,-299.95"/>
+</g>
+<!-- compute_phi -->
+<g id="proc~~amr_update~4~~CallsGraph_node10" class="node">
+<title>compute_phi</title>
+<polygon fill="#777777" stroke="#777777" points="617.5,-276 535.5,-276 535.5,-252 617.5,-252 617.5,-276"/>
+<text text-anchor="middle" x="576.5" y="-261.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_phi</text>
+</g>
+<!-- proc~compute_phi~4&#45;&gt;compute_phi -->
+<g id="proc~~amr_update~4~~CallsGraph_edge9" class="edge">
+<title>proc~compute_phi~4&#45;&gt;compute_phi</title>
+<path fill="none" stroke="#000000" d="M413.84,-262.72C451.35,-263.02 493.35,-263.35 525.13,-263.6"/>
+<polygon fill="#000000" stroke="#000000" points="525.47,-267.1 535.5,-263.68 525.53,-260.1 525.47,-267.1"/>
+</g>
+<!-- dxyz -->
+<g id="proc~~amr_update~4~~CallsGraph_node11" class="node">
+<title>dxyz</title>
+<polygon fill="#777777" stroke="#777777" points="603.5,-108 549.5,-108 549.5,-84 603.5,-84 603.5,-108"/>
+<text text-anchor="middle" x="576.5" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">dxyz</text>
+</g>
+<!-- proc~mark_by_geo~4&#45;&gt;dxyz -->
+<g id="proc~~amr_update~4~~CallsGraph_edge11" class="edge">
+<title>proc~mark_by_geo~4&#45;&gt;dxyz</title>
+<path fill="none" stroke="#000000" d="M414.55,-96C457.71,-96 506.66,-96 539.13,-96"/>
+<polygon fill="#000000" stroke="#000000" points="539.48,-99.5 549.48,-96 539.48,-92.5 539.48,-99.5"/>
+</g>
+<!-- phi -->
+<g id="proc~~amr_update~4~~CallsGraph_node12" class="node">
+<title>phi</title>
+<polygon fill="#777777" stroke="#777777" points="603.5,-24 549.5,-24 549.5,0 603.5,0 603.5,-24"/>
+<text text-anchor="middle" x="576.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">phi</text>
+</g>
+<!-- proc~mark_by_geo~4&#45;&gt;phi -->
+<g id="proc~~amr_update~4~~CallsGraph_edge12" class="edge">
+<title>proc~mark_by_geo~4&#45;&gt;phi</title>
+<path fill="none" stroke="#000000" d="M408.66,-83.95C415.42,-81.49 421.96,-78.54 428,-75 449.22,-62.59 442.72,-45.3 464,-33 486.92,-19.75 516.51,-14.62 539.45,-12.74"/>
+<polygon fill="#000000" stroke="#000000" points="539.72,-16.23 549.47,-12.09 539.26,-9.25 539.72,-16.23"/>
+</g>
+<!-- refinements_needed -->
+<g id="proc~~amr_update~4~~CallsGraph_node16" class="node">
+<title>refinements_needed</title>
+<polygon fill="#777777" stroke="#777777" points="637.5,-66 515.5,-66 515.5,-42 637.5,-42 637.5,-66"/>
+<text text-anchor="middle" x="576.5" y="-51.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">refinements_needed</text>
+</g>
+<!-- proc~mark_by_geo~4&#45;&gt;refinements_needed -->
+<g id="proc~~amr_update~4~~CallsGraph_edge13" class="edge">
+<title>proc~mark_by_geo~4&#45;&gt;refinements_needed</title>
+<path fill="none" stroke="#000000" d="M395,-83.96C429.69,-78.21 471.04,-71.34 505.41,-65.64"/>
+<polygon fill="#000000" stroke="#000000" points="506.08,-69.07 515.37,-63.98 504.93,-62.17 506.08,-69.07"/>
+</g>
+<!-- proc~mark_by_grad_var~4&#45;&gt;proc~update_ghost~4 -->
+<g id="proc~~amr_update~4~~CallsGraph_edge17" class="edge">
+<title>proc~mark_by_grad_var~4&#45;&gt;proc~update_ghost~4</title>
+<path fill="none" stroke="#000000" d="M359.16,-171.01C387.57,-180.03 428.01,-192.29 464,-201 474.26,-203.48 485.11,-205.85 495.86,-208.03"/>
+<polygon fill="#000000" stroke="#000000" points="495.18,-211.47 505.68,-209.99 496.55,-204.6 495.18,-211.47"/>
+</g>
+<!-- proc~mark_by_grad_var~4&#45;&gt;dxyz -->
+<g id="proc~~amr_update~4~~CallsGraph_edge14" class="edge">
+<title>proc~mark_by_grad_var~4&#45;&gt;dxyz</title>
+<path fill="none" stroke="#000000" d="M359.16,-146.99C387.57,-137.97 428.01,-125.71 464,-117 488.96,-110.96 517.41,-105.63 539.32,-101.85"/>
+<polygon fill="#000000" stroke="#000000" points="539.93,-105.29 549.21,-100.17 538.76,-98.39 539.93,-105.29"/>
+</g>
+<!-- proc~compute_q_auxiliary~4 -->
+<g id="proc~~amr_update~4~~CallsGraph_node13" class="node">
+<title>proc~compute_q_auxiliary~4</title>
+<g id="a_proc~~amr_update~4~~CallsGraph_node13"><a xlink:href="../proc/compute_q_auxiliary~4.html" xlink:title="nasto_cpu_object%compute_q_auxiliary">
+<polygon fill="#d9534f" stroke="#d9534f" points="689,-192 464,-192 464,-168 689,-168 689,-192"/>
+<text text-anchor="middle" x="576.5" y="-177.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_cpu_object%compute_q_auxiliary</text>
+</a>
+</g>
+</g>
+<!-- proc~mark_by_grad_var~4&#45;&gt;proc~compute_q_auxiliary~4 -->
+<g id="proc~~amr_update~4~~CallsGraph_edge15" class="edge">
+<title>proc~mark_by_grad_var~4&#45;&gt;proc~compute_q_auxiliary~4</title>
+<path fill="none" stroke="#000000" d="M428.33,-167.78C436.8,-168.49 445.39,-169.2 453.95,-169.91"/>
+<polygon fill="#000000" stroke="#000000" points="453.73,-173.4 463.98,-170.74 454.31,-166.43 453.73,-173.4"/>
+</g>
+<!-- proc~compute_q_gradient -->
+<g id="proc~~amr_update~4~~CallsGraph_node14" class="node">
+<title>proc~compute_q_gradient</title>
+<g id="a_proc~~amr_update~4~~CallsGraph_node14"><a xlink:href="../proc/compute_q_gradient.html" xlink:title="compute_q_gradient">
+<polygon fill="#d9534f" stroke="#d9534f" points="637.5,-150 515.5,-150 515.5,-126 637.5,-126 637.5,-150"/>
+<text text-anchor="middle" x="576.5" y="-135.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_q_gradient</text>
+</a>
+</g>
+</g>
+<!-- proc~mark_by_grad_var~4&#45;&gt;proc~compute_q_gradient -->
+<g id="proc~~amr_update~4~~CallsGraph_edge16" class="edge">
+<title>proc~mark_by_grad_var~4&#45;&gt;proc~compute_q_gradient</title>
+<path fill="none" stroke="#000000" d="M428.33,-150.22C454.28,-148.06 481.42,-145.81 505.22,-143.83"/>
+<polygon fill="#000000" stroke="#000000" points="505.53,-147.32 515.21,-143 504.95,-140.34 505.53,-147.32"/>
+</g>
+<!-- proc~mark_by_grad_var~4&#45;&gt;refinements_needed -->
+<g id="proc~~amr_update~4~~CallsGraph_edge18" class="edge">
+<title>proc~mark_by_grad_var~4&#45;&gt;refinements_needed</title>
+<path fill="none" stroke="#000000" d="M365.95,-146.99C385.99,-140.17 409.39,-130.3 428,-117 448,-102.7 442.72,-87.3 464,-75 476.54,-67.75 491.07,-62.93 505.42,-59.75"/>
+<polygon fill="#000000" stroke="#000000" points="506.17,-63.17 515.3,-57.8 504.81,-56.3 506.17,-63.17"/>
+</g>
+<!-- proc~set_boundary_conditions~4 -->
+<g id="proc~~amr_update~4~~CallsGraph_node15" class="node">
+<title>proc~set_boundary_conditions~4</title>
+<g id="a_proc~~amr_update~4~~CallsGraph_node15"><a xlink:href="../proc/set_boundary_conditions~4.html" xlink:title="nasto_cpu_object%set_boundary_conditions">
+<polygon fill="#d9534f" stroke="#d9534f" points="972,-297 725,-297 725,-273 972,-273 972,-297"/>
+<text text-anchor="middle" x="848.5" y="-282.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_cpu_object%set_boundary_conditions</text>
+</a>
+</g>
+</g>
+<!-- proc~update_ghost~4&#45;&gt;proc~set_boundary_conditions~4 -->
+<g id="proc~~amr_update~4~~CallsGraph_edge19" class="edge">
+<title>proc~update_ghost~4&#45;&gt;proc~set_boundary_conditions~4</title>
+<path fill="none" stroke="#000000" d="M659.08,-234C669.3,-236.48 679.5,-239.45 689,-243 706.35,-249.48 707.59,-257.67 725,-264 731.69,-266.43 738.69,-268.59 745.81,-270.5"/>
+<polygon fill="#000000" stroke="#000000" points="745.03,-273.91 755.58,-272.95 746.73,-267.12 745.03,-273.91"/>
+</g>
+<!-- update_ghost_local -->
+<g id="proc~~amr_update~4~~CallsGraph_node17" class="node">
+<title>update_ghost_local</title>
+<polygon fill="#777777" stroke="#777777" points="906,-255 791,-255 791,-231 906,-231 906,-255"/>
+<text text-anchor="middle" x="848.5" y="-240.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">update_ghost_local</text>
+</g>
+<!-- proc~update_ghost~4&#45;&gt;update_ghost_local -->
+<g id="proc~~amr_update~4~~CallsGraph_edge20" class="edge">
+<title>proc~update_ghost~4&#45;&gt;update_ghost_local</title>
+<path fill="none" stroke="#000000" d="M670.04,-229.2C706.43,-232.03 747.39,-235.21 780.79,-237.81"/>
+<polygon fill="#000000" stroke="#000000" points="780.65,-241.31 790.9,-238.6 781.2,-234.33 780.65,-241.31"/>
+</g>
+<!-- update_ghost_mpi -->
+<g id="proc~~amr_update~4~~CallsGraph_node18" class="node">
+<title>update_ghost_mpi</title>
+<polygon fill="#777777" stroke="#777777" points="903.5,-213 793.5,-213 793.5,-189 903.5,-189 903.5,-213"/>
+<text text-anchor="middle" x="848.5" y="-198.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">update_ghost_mpi</text>
+</g>
+<!-- proc~update_ghost~4&#45;&gt;update_ghost_mpi -->
+<g id="proc~~amr_update~4~~CallsGraph_edge21" class="edge">
+<title>proc~update_ghost~4&#45;&gt;update_ghost_mpi</title>
+<path fill="none" stroke="#000000" d="M670.04,-214.8C707.26,-211.91 749.26,-208.64 783.06,-206.01"/>
+<polygon fill="#000000" stroke="#000000" points="783.57,-209.48 793.27,-205.22 783.03,-202.5 783.57,-209.48"/>
+</g>
+<!-- proc~compute_q_aux -->
+<g id="proc~~amr_update~4~~CallsGraph_node21" class="node">
+<title>proc~compute_q_aux</title>
+<g id="a_proc~~amr_update~4~~CallsGraph_node21"><a xlink:href="../proc/compute_q_aux.html" xlink:title="compute_q_aux">
+<polygon fill="#d9534f" stroke="#d9534f" points="897,-171 800,-171 800,-147 897,-147 897,-171"/>
+<text text-anchor="middle" x="848.5" y="-156.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_q_aux</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_q_auxiliary~4&#45;&gt;proc~compute_q_aux -->
+<g id="proc~~amr_update~4~~CallsGraph_edge22" class="edge">
+<title>proc~compute_q_auxiliary~4&#45;&gt;proc~compute_q_aux</title>
+<path fill="none" stroke="#000000" d="M689.27,-171.31C723.79,-168.62 760.4,-165.77 789.7,-163.5"/>
+<polygon fill="#000000" stroke="#000000" points="790.04,-166.98 799.74,-162.71 789.5,-160 790.04,-166.98"/>
+</g>
+<!-- fec_1_6_array -->
+<g id="proc~~amr_update~4~~CallsGraph_node19" class="node">
+<title>fec_1_6_array</title>
+<polygon fill="#777777" stroke="#777777" points="1112.5,-318 1025.5,-318 1025.5,-294 1112.5,-294 1112.5,-318"/>
+<text text-anchor="middle" x="1069" y="-303.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">fec_1_6_array</text>
+</g>
+<!-- proc~set_boundary_conditions~4&#45;&gt;fec_1_6_array -->
+<g id="proc~~amr_update~4~~CallsGraph_edge23" class="edge">
+<title>proc~set_boundary_conditions~4&#45;&gt;fec_1_6_array</title>
+<path fill="none" stroke="#000000" d="M972.16,-296.79C987.21,-298.24 1001.91,-299.65 1015.1,-300.92"/>
+<polygon fill="#000000" stroke="#000000" points="1015.04,-304.43 1025.33,-301.9 1015.71,-297.46 1015.04,-304.43"/>
+</g>
+<!-- local_map_bc_crown -->
+<g id="proc~~amr_update~4~~CallsGraph_node20" class="node">
+<title>local_map_bc_crown</title>
+<polygon fill="#777777" stroke="#777777" points="1130,-276 1008,-276 1008,-252 1130,-252 1130,-276"/>
+<text text-anchor="middle" x="1069" y="-261.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">local_map_bc_crown</text>
+</g>
+<!-- proc~set_boundary_conditions~4&#45;&gt;local_map_bc_crown -->
+<g id="proc~~amr_update~4~~CallsGraph_edge24" class="edge">
+<title>proc~set_boundary_conditions~4&#45;&gt;local_map_bc_crown</title>
+<path fill="none" stroke="#000000" d="M972.16,-273.21C980.95,-272.37 989.61,-271.53 997.93,-270.73"/>
+<polygon fill="#000000" stroke="#000000" points="998.26,-274.22 1007.88,-269.78 997.59,-267.25 998.26,-274.22"/>
+</g>
+</g>
+</svg>
+</div>                <script>
+                  var panprocamr_update4CallsGraph = svgPanZoom('#procamr_update4CallsGraph',
+                    {zoomEnabled: true, controlIconsEnabled: true, fit: true, center: true,}
+                  );
+                </script>          <div>
+            <a type="button" class="graph-help" data-bs-toggle="modal" href="#CallsGraph-help-text">Help</a>
+          </div>
+          <div class="modal fade" id="CallsGraph-help-text" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h4 class="modal-title" id="-graph-help-label">Graph Key</h4>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+<p>Nodes of different colours represent the following: </p>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: Graph Key Pages: 1 -->
+<svg width="641pt" height="28pt"
+ viewBox="0.00 0.00 641.00 27.51" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(0.86 0.86) rotate(0) translate(4 28)">
+<title>Graph Key</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 741.5,-28 741.5,4 -4,4"/>
+<!-- Subroutine -->
+<g id="node1" class="node">
+<title>Subroutine</title>
+<polygon fill="#d9534f" stroke="#d9534f" points="70,-24 0,-24 0,0 70,0 70,-24"/>
+<text text-anchor="middle" x="35" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Subroutine</text>
+</g>
+<!-- Function -->
+<g id="node2" class="node">
+<title>Function</title>
+<polygon fill="#d94e8f" stroke="#d94e8f" points="146,-24 88,-24 88,0 146,0 146,-24"/>
+<text text-anchor="middle" x="117" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Function</text>
+</g>
+<!-- Interface -->
+<g id="node3" class="node">
+<title>Interface</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="225.5,-24 164.5,-24 164.5,0 225.5,0 225.5,-24"/>
+<text text-anchor="middle" x="195" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Interface</text>
+</g>
+<!-- Type Bound Procedure -->
+<g id="node4" class="node">
+<title>Type Bound Procedure</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="374,-24 244,-24 244,0 374,0 374,-24"/>
+<text text-anchor="middle" x="309" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Type Bound Procedure</text>
+</g>
+<!-- Unknown Procedure Type -->
+<g id="node5" class="node">
+<title>Unknown Procedure Type</title>
+<polygon fill="#777777" stroke="#777777" points="537.5,-24 392.5,-24 392.5,0 537.5,0 537.5,-24"/>
+<text text-anchor="middle" x="465" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Unknown Procedure Type</text>
+</g>
+<!-- Program -->
+<g id="node6" class="node">
+<title>Program</title>
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="614,-24 556,-24 556,0 614,0 614,-24"/>
+<text text-anchor="middle" x="585" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Program</text>
+</g>
+<!-- This Page&#39;s Entity -->
+<g id="node7" class="node">
+<title>This Page&#39;s Entity</title>
+<polygon fill="none" stroke="black" points="737.5,-24 632.5,-24 632.5,0 737.5,0 737.5,-24"/>
+<text text-anchor="middle" x="685" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">This Page&#39;s Entity</text>
+</g>
+</g>
+</svg>
+
+<p>Solid arrows point from a procedure to one which it calls. Dashed 
+arrows point from an interface to procedures which implement that interface.
+This could include the module procedures in a generic interface or the
+implementation in a submodule of an interface in a parent module.
+</p>
+ </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+  <h3 class="card-title">Called by</h3>
+      </div>
+      <div class="card-body">
+  <div class="depgraph"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: proc~~amr_update~4~~CalledByGraph Pages: 1 -->
+<svg id="procamr_update4CalledByGraph" width="522pt" height="32pt"
+ viewBox="0.00 0.00 522.00 32.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="proc~~amr_update~4~~CalledByGraph" class="graph" transform="scale(1 1) rotate(0) translate(4 28)">
+<title>proc~~amr_update~4~~CalledByGraph</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 518,-28 518,4 -4,4"/>
+<!-- proc~amr_update~4 -->
+<g id="proc~~amr_update~4~~CalledByGraph_node1" class="node">
+<title>proc~amr_update~4</title>
+<polygon fill="none" stroke="black" points="514,-24 335,-24 335,0 514,0 514,-24"/>
+<text text-anchor="middle" x="424.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">nasto_cpu_object%amr_update</text>
+</g>
+<!-- proc~simulate~4 -->
+<g id="proc~~amr_update~4~~CalledByGraph_node2" class="node">
+<title>proc~simulate~4</title>
+<g id="a_proc~~amr_update~4~~CalledByGraph_node2"><a xlink:href="../proc/simulate~4.html" xlink:title="nasto_cpu_object%simulate">
+<polygon fill="#d9534f" stroke="#d9534f" points="299,-24 139,-24 139,0 299,0 299,-24"/>
+<text text-anchor="middle" x="219" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_cpu_object%simulate</text>
+</a>
+</g>
+</g>
+<!-- proc~simulate~4&#45;&gt;proc~amr_update~4 -->
+<g id="proc~~amr_update~4~~CalledByGraph_edge1" class="edge">
+<title>proc~simulate~4&#45;&gt;proc~amr_update~4</title>
+<path fill="none" stroke="#000000" d="M299.26,-12C307.51,-12 315.97,-12 324.41,-12"/>
+<polygon fill="#000000" stroke="#000000" points="324.67,-15.5 334.67,-12 324.67,-8.5 324.67,-15.5"/>
+</g>
+<!-- program~adam_nasto_cpu -->
+<g id="proc~~amr_update~4~~CalledByGraph_node3" class="node">
+<title>program~adam_nasto_cpu</title>
+<g id="a_proc~~amr_update~4~~CalledByGraph_node3"><a xlink:href="../program/adam_nasto_cpu.html" xlink:title="adam_nasto_cpu">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="103,-24 0,-24 0,0 103,0 103,-24"/>
+<text text-anchor="middle" x="51.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_cpu</text>
+</a>
+</g>
+</g>
+<!-- program~adam_nasto_cpu&#45;&gt;proc~simulate~4 -->
+<g id="proc~~amr_update~4~~CalledByGraph_edge2" class="edge">
+<title>program~adam_nasto_cpu&#45;&gt;proc~simulate~4</title>
+<path fill="none" stroke="#000000" d="M103.05,-12C111.19,-12 119.81,-12 128.53,-12"/>
+<polygon fill="#000000" stroke="#000000" points="128.79,-15.5 138.79,-12 128.79,-8.5 128.79,-15.5"/>
+</g>
+</g>
+</svg>
+</div>          <div>
+            <a type="button" class="graph-help" data-bs-toggle="modal" href="#CalledByGraph-help-text">Help</a>
+          </div>
+          <div class="modal fade" id="CalledByGraph-help-text" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h4 class="modal-title" id="-graph-help-label">Graph Key</h4>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+<p>Nodes of different colours represent the following: </p>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: Graph Key Pages: 1 -->
+<svg width="641pt" height="28pt"
+ viewBox="0.00 0.00 641.00 27.51" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(0.86 0.86) rotate(0) translate(4 28)">
+<title>Graph Key</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 741.5,-28 741.5,4 -4,4"/>
+<!-- Subroutine -->
+<g id="node1" class="node">
+<title>Subroutine</title>
+<polygon fill="#d9534f" stroke="#d9534f" points="70,-24 0,-24 0,0 70,0 70,-24"/>
+<text text-anchor="middle" x="35" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Subroutine</text>
+</g>
+<!-- Function -->
+<g id="node2" class="node">
+<title>Function</title>
+<polygon fill="#d94e8f" stroke="#d94e8f" points="146,-24 88,-24 88,0 146,0 146,-24"/>
+<text text-anchor="middle" x="117" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Function</text>
+</g>
+<!-- Interface -->
+<g id="node3" class="node">
+<title>Interface</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="225.5,-24 164.5,-24 164.5,0 225.5,0 225.5,-24"/>
+<text text-anchor="middle" x="195" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Interface</text>
+</g>
+<!-- Type Bound Procedure -->
+<g id="node4" class="node">
+<title>Type Bound Procedure</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="374,-24 244,-24 244,0 374,0 374,-24"/>
+<text text-anchor="middle" x="309" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Type Bound Procedure</text>
+</g>
+<!-- Unknown Procedure Type -->
+<g id="node5" class="node">
+<title>Unknown Procedure Type</title>
+<polygon fill="#777777" stroke="#777777" points="537.5,-24 392.5,-24 392.5,0 537.5,0 537.5,-24"/>
+<text text-anchor="middle" x="465" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Unknown Procedure Type</text>
+</g>
+<!-- Program -->
+<g id="node6" class="node">
+<title>Program</title>
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="614,-24 556,-24 556,0 614,0 614,-24"/>
+<text text-anchor="middle" x="585" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Program</text>
+</g>
+<!-- This Page&#39;s Entity -->
+<g id="node7" class="node">
+<title>This Page&#39;s Entity</title>
+<polygon fill="none" stroke="black" points="737.5,-24 632.5,-24 632.5,0 737.5,0 737.5,-24"/>
+<text text-anchor="middle" x="685" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">This Page&#39;s Entity</text>
+</g>
+</g>
+</svg>
+
+<p>Solid arrows point from a procedure to one which it calls. Dashed 
+arrows point from an interface to procedures which implement that interface.
+This could include the module procedures in a generic interface or the
+implementation in a submodule of an interface in a parent module.
+</p>
+ </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <br>
+
+
+    
+    
+
+    
+    
+
+
+
+    
+    <section>
+    <h2><span class="anchor" id="src"></span>Source Code</h2>
+    <div class="hl codehilite"><pre><span></span><span class="w">   </span><span class="k">subroutine </span><span class="n">amr_update</span><span class="p">(</span><span class="n">self</span><span class="p">)</span>
+<span class="w">   </span><span class="c">!&lt; Do AMR update.</span>
+<span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_cpu_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">inout</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w">                </span><span class="c">!&lt; The equation.</span>
+<span class="w">   </span><span class="kt">logical</span><span class="w">                                </span><span class="kd">::</span><span class="w"> </span><span class="n">is_grid_changed</span><span class="w">     </span><span class="c">!&lt; Flag to check grid changes for each marker.</span>
+<span class="w">   </span><span class="kt">logical</span><span class="w">                                </span><span class="kd">::</span><span class="w"> </span><span class="n">is_grid_changed_all</span><span class="w"> </span><span class="c">!&lt; Flag to check grid changes for each iter.</span>
+<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">)</span><span class="w">                           </span><span class="kd">::</span><span class="w"> </span><span class="n">i</span><span class="p">,</span><span class="w"> </span><span class="n">i_marker</span><span class="w">         </span><span class="c">!&lt; Counter.</span>
+<span class="w">   </span><span class="k">type</span><span class="p">(</span><span class="n">amr_marker_object</span><span class="p">)</span><span class="w">                </span><span class="kd">::</span><span class="w"> </span><span class="n">amr_marker</span><span class="w">          </span><span class="c">!&lt; Current amr marker.</span>
+
+<span class="w">   </span><span class="n">amr</span><span class="p">:</span><span class="w"> </span><span class="k">do </span><span class="n">i</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">self</span><span class="p">%</span><span class="n">amr</span><span class="p">%</span><span class="n">iters</span>
+<span class="w">      </span><span class="n">is_grid_changed_all</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">.</span><span class="n">false</span><span class="p">.</span>
+<span class="w">      </span><span class="k">do </span><span class="n">i_marker</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">self</span><span class="p">%</span><span class="n">amr</span><span class="p">%</span><span class="n">markers_number</span>
+<span class="w">         </span><span class="n">amr_marker</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">self</span><span class="p">%</span><span class="n">amr</span><span class="p">%</span><span class="n">markers</span><span class="p">(</span><span class="n">i_marker</span><span class="p">)</span>
+<span class="w">         </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">update_ghost</span><span class="p">(</span><span class="n">q</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">field</span><span class="p">%</span><span class="n">q</span><span class="p">)</span>
+<span class="w">         </span><span class="k">select case</span><span class="p">(</span><span class="n">amr_marker</span><span class="p">%</span><span class="n">mode</span><span class="p">)</span>
+<span class="w">         </span><span class="k">case</span><span class="p">(</span><span class="n">AMR_GEO</span><span class="p">)</span>
+<span class="w">            </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">mark_by_geo</span><span class="p">(</span><span class="n">delta_fine</span><span class="o">=</span><span class="n">amr_marker</span><span class="p">%</span><span class="n">delta_fine</span><span class="p">,</span><span class="w"> </span><span class="n">delta_coarse</span><span class="o">=</span><span class="n">amr_marker</span><span class="p">%</span><span class="n">delta_coarse</span><span class="p">)</span>
+<span class="w">         </span><span class="k">case</span><span class="p">(</span><span class="n">AMR_GRAD</span><span class="p">)</span>
+<span class="w">            </span><span class="k">select case</span><span class="p">(</span><span class="n">amr_marker</span><span class="p">%</span><span class="n">field</span><span class="p">)</span>
+<span class="w">            </span><span class="k">case</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="w">               </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">mark_by_grad_var</span><span class="p">(</span><span class="n">grad_tol</span><span class="o">=</span><span class="n">amr_marker</span><span class="p">%</span><span class="n">tol</span><span class="p">,</span><span class="w"> </span><span class="n">delta_type</span><span class="o">=</span><span class="n">amr_marker</span><span class="p">%</span><span class="n">delta_type</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                                          </span><span class="n">delta_fine</span><span class="o">=</span><span class="n">amr_marker</span><span class="p">%</span><span class="n">delta_fine</span><span class="p">,</span><span class="w">                          </span><span class="p">&amp;</span>
+<span class="w">                                          </span><span class="n">delta_coarse</span><span class="o">=</span><span class="n">amr_marker</span><span class="p">%</span><span class="n">delta_coarse</span><span class="p">,</span><span class="w"> </span><span class="n">ivar</span><span class="o">=</span><span class="n">amr_marker</span><span class="p">%</span><span class="n">ivar</span><span class="p">)</span>
+<span class="w">            </span><span class="k">case</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+<span class="w">               </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">mark_by_grad_var</span><span class="p">(</span><span class="n">grad_tol</span><span class="o">=</span><span class="n">amr_marker</span><span class="p">%</span><span class="n">tol</span><span class="p">,</span><span class="w"> </span><span class="n">delta_type</span><span class="o">=</span><span class="n">amr_marker</span><span class="p">%</span><span class="n">delta_type</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                                          </span><span class="n">delta_fine</span><span class="o">=</span><span class="n">amr_marker</span><span class="p">%</span><span class="n">delta_fine</span><span class="p">,</span><span class="w">                          </span><span class="p">&amp;</span>
+<span class="w">                                          </span><span class="n">delta_coarse</span><span class="o">=</span><span class="n">amr_marker</span><span class="p">%</span><span class="n">delta_coarse</span><span class="p">,</span><span class="w"> </span><span class="n">ivar</span><span class="o">=</span><span class="n">amr_marker</span><span class="p">%</span><span class="n">ivar</span><span class="p">)</span>
+<span class="w">            </span><span class="k">endselect</span>
+<span class="k">         endselect</span>
+<span class="k">         call </span><span class="n">self</span><span class="p">%</span><span class="n">adam</span><span class="p">%</span><span class="n">amr_update</span><span class="p">(</span><span class="n">is_marked_by_field</span><span class="o">=</span><span class="p">.</span><span class="n">true</span><span class="p">.,</span><span class="w"> </span><span class="n">do_blocks_reorder</span><span class="o">=</span><span class="p">.</span><span class="n">false</span><span class="p">.,</span><span class="w"> </span><span class="n">is_grid_changed</span><span class="o">=</span><span class="n">is_grid_changed</span><span class="p">,</span><span class="w"> </span><span class="n">q</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">q</span><span class="p">)</span>
+<span class="w">         </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">self</span><span class="p">%</span><span class="n">ib</span><span class="p">%</span><span class="n">solids_number</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">compute_phi</span><span class="p">()</span>
+<span class="w">         </span><span class="n">is_grid_changed_all</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">is_grid_changed_all</span><span class="p">.</span><span class="nb">or</span><span class="p">.</span><span class="n">is_grid_changed</span>
+<span class="w">      </span><span class="k">enddo</span>
+<span class="k">      if</span><span class="w"> </span><span class="p">(.</span><span class="nb">not</span><span class="p">.</span><span class="n">is_grid_changed_all</span><span class="p">)</span><span class="w"> </span><span class="k">then</span>
+<span class="k">          call </span><span class="n">self</span><span class="p">%</span><span class="n">mpih</span><span class="p">%</span><span class="n">print_message</span><span class="p">(</span><span class="s1">&#39;AMR Grid stabilized after : &#39;</span><span class="o">//</span><span class="nb">trim</span><span class="p">(</span><span class="n">str</span><span class="p">(</span><span class="n">i</span><span class="p">))</span><span class="o">//</span><span class="s1">&#39; AMR iterations&#39;</span><span class="p">)</span>
+<span class="w">          </span><span class="k">exit </span><span class="n">amr</span>
+<span class="w">       </span><span class="k">elseif</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="o">==</span><span class="n">self</span><span class="p">%</span><span class="n">amr</span><span class="p">%</span><span class="n">iters</span><span class="p">)</span><span class="w"> </span><span class="k">then</span>
+<span class="k">          call </span><span class="n">self</span><span class="p">%</span><span class="n">mpih</span><span class="p">%</span><span class="n">print_message</span><span class="p">(</span><span class="s1">&#39;AMR Grid is NOT stabilized after : &#39;</span><span class="o">//</span><span class="nb">trim</span><span class="p">(</span><span class="n">str</span><span class="p">(</span><span class="n">i</span><span class="p">))</span><span class="o">//</span><span class="s1">&#39; AMR iterations&#39;</span><span class="p">)</span>
+<span class="w">      </span><span class="k">endif</span>
+<span class="k">   enddo </span><span class="n">amr</span>
+<span class="w">   </span><span class="k">endsubroutine </span><span class="n">amr_update</span>
+</pre></div>
+
+    </section>
+    <br>
+    
+    </div>
+  </div>
+
+      <hr>
+    </div> <!-- /container -->
+    <footer>
+      <div class="container">
+        <div class="row justify-content-between">
+          <div class="col">
+            <p>
+              ADAM
+ was developed by Stefano Zaghi<br>              &copy; 2025 
+</p>
+          </div>
+          <div class="col">
+            <p class="text-end">
+              Documentation generated by
+              <a href="https://github.com/Fortran-FOSS-Programmers/ford">FORD</a>
+            </p>
+          </div>
+        </div>
+        <br>
+      </div> <!-- /container -->
+    </footer>
+  </body>
+</html>

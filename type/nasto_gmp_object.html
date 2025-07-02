@@ -1,0 +1,3407 @@
+<!-- -*- mode: jinja2 -*- -->
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="description" content="Adaptive Mesh Refinement (AMR) with Immersed Boundary (IB) fluid dynamic solver tailored for High Performance GPU Computing">
+    <meta name="author" content="Stefano Zaghi" >
+    <link rel="icon" href="../favicon.png">
+
+    <title>nasto_gmp_object &ndash; ADAM </title>
+
+    <!-- Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+          integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+            integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <!-- Font Awesome -->
+    <link href="../css/fontawesome.min.css" rel="stylesheet">
+    <link href="../css/brands.min.css" rel="stylesheet">
+    <link href="../css/regular.min.css" rel="stylesheet">
+    <link href="../css/solid.min.css" rel="stylesheet">
+    <link href="../css/v4-font-face.min.css" rel="stylesheet">
+    <link href="../css/v4-shims.min.css" rel="stylesheet">
+    <!-- MathJax -->
+    <script type="text/x-mathjax-config">
+      MathJax.Hub.Config({
+        TeX: { equationNumbers: { autoNumber: "AMS" } }
+      });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@2.7.9/MathJax.js?config=TeX-AMS-MML_HTMLorMML" async
+            integrity="sha256-DViIOMYdwlM/axqoGDPeUyf0urLoHMN4QACBKyB58Uw=" crossorigin="anonymous"></script>
+    <!-- Other scripts and stylesheets -->
+    <link href="../css/local.css" rel="stylesheet">
+    <link href="../css/pygments.css" rel="stylesheet">
+    <script src="../js/svg-pan-zoom.min.js"></script>
+  </head>
+
+  <body>
+
+    <!-- Fixed navbar -->
+    <div class="container-fluid mb-sm-4 mb-xl-2">
+      <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+        <div class="container">
+          <a class="navbar-brand" href="../index.html">ADAM </a>
+          <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar"
+                  aria-expanded="false" aria-controls="navbar" aria-label="Toggle navigation">
+                  <span class="navbar-toggler-icon">
+          </button>
+
+          <div id="navbar" class="navbar-collapse collapse">
+            <ul class="navbar-nav">
+                  <li class="nav-item">
+                    <a class="nav-link" href="../lists/files.html">Source Files</a>
+                  </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/modules.html">Modules</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/procedures.html">Procedures</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/types.html">Derived Types</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/programs.html">Programs</a>
+                </li>
+            </ul>
+              <div class="d-flex align-items-end flex-grow-1">
+                <form action="../search.html" role="search" class="ms-auto">
+                  <input type="text" class="form-control" aria-label="Search" placeholder="Search" name="q" id="tipue_search_input" autocomplete="off" required>
+                </form>
+              </div>
+          </div><!--/.nav-collapse -->
+        </div>
+      </nav>
+    </div>
+
+    <div class="container">
+  <div class="row">
+    <h1>nasto_gmp_object
+      <small>Derived Type</small>
+      
+    </h1>
+      <div class="container p-2 mb-4 bg-light border rounded-3">
+    <div class="row align-items-center justify-content-between" id="info-bar">
+      <div class="col">
+        <ul class="list-inline" style="margin-bottom:0px;display:inline">
+
+            <li class="list-inline-item" id="statements"><i class="fa fa-list-ol"></i>
+              <a data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-html="true"
+                 title="<p>13.9% of total for derived types.</p>Including implementation: 552 statements, 17.9% of total for derived types.">39 statements</a>
+            </li>
+
+            <li class="list-inline-item" id="source-file">
+              <i class="fa fa-code"></i>
+              <a href="../src/adam_nasto_gmp_object.F90"> Source File</a>
+            </li>
+        </ul>
+      </div>
+      <div class="col">
+        <nav aria-label="breadcrumb">
+          <ol class="breadcrumb justify-content-end mb-0">
+                <li class="breadcrumb-item"><a href='../sourcefile/adam_nasto_gmp_object.f90.html'>adam_nasto_gmp_object.F90</a></li>
+                <li class="breadcrumb-item"><a href='../module/adam_nasto_gmp_object.html'>adam_nasto_gmp_object</a></li>
+            <li class="breadcrumb-item active" aria-current="page">nasto_gmp_object</li>
+          </ol>
+        </nav>
+      </div>
+    </div>
+  </div>
+  <script>
+    // Enable Bootstrap tooltips
+    (function () {
+      const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]')
+      const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl))
+    })();
+  </script>
+
+  </div>
+  
+  <div class="row">
+    <div class="col-md-3 hidden-xs hidden-sm visible-md visible-lg">
+      <div id="sidebar">
+      <h3>Contents</h3>
+  
+      <div class="card mb-4">
+      <a data-bs-toggle="collapse" href="#vars-0"
+         aria-expanded="false" aria-controls="vars-0">
+         <h4 class="card-header bg-primary text-white">Variables</h4>
+      </a>
+      <div id="vars-0" class="collapse">
+        <div class="list-group list-group-flush">
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-mpih~5">mpih</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-adam">adam</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-field~2">field</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-grid">grid</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-amr">amr</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-ib~4">ib</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-slices">slices</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-rk">rk</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-weno">weno</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-io">io</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-physics~2">physics</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-ic">ic</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-bc">bc</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-time~5">time</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-ngc~27">ngc</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-ni~11">ni</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-nj~11">nj</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-nk~11">nk</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-nb">nb</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-blocks_number~11">blocks_number</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-ns~2">ns</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-nv~24">nv</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-nv_aux~2">nv_aux</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-q~9">q</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-q_aux~9">q_aux</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-mpih_gpu">mpih_gpu</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-field_gpu">field_gpu</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-ib_gpu">ib_gpu</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-rk_gpu">rk_gpu</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-weno_gpu">weno_gpu</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-q_gpu">q_gpu</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-q_aux_gpu">q_aux_gpu</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-dq_gpu">dq_gpu</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-flx_gpu">flx_gpu</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-fly_gpu">fly_gpu</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-flz_gpu">flz_gpu</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#variable-q_bc_vars_gpu">q_bc_vars_gpu</a>
+        </div>
+      </div>
+    </div>
+
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+      <div class="card mb-4">
+      <a data-bs-toggle="collapse" href="#boundprocs-0"
+         aria-expanded="false" aria-controls="boundprocs-0">
+         <h4 class="card-header bg-primary text-white">Type-Bound Procedures</h4>
+      </a>
+      <div id="boundprocs-0" class="collapse">
+        <div class="list-group list-group-flush">
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-allocate_common">allocate_common</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-initialize_common">initialize_common</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-allocate_gpu">allocate_gpu</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-copy_cpu_gpu">copy_cpu_gpu</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-copy_gpu_cpu">copy_gpu_cpu</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-initialize">initialize</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-amr_update">amr_update</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-compute_phi">compute_phi</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-mark_by_geo">mark_by_geo</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-mark_by_grad_var">mark_by_grad_var</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-move_phi">move_phi</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-refine_uniform">refine_uniform</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-integrate_eikonal">integrate_eikonal</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-load_restart_files">load_restart_files</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-save_hdf5">save_hdf5</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-save_residuals">save_residuals</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-save_restart_files">save_restart_files</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-save_simulation_data">save_simulation_data</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-set_boundary_conditions">set_boundary_conditions</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-set_initial_conditions">set_initial_conditions</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-update_ghost">update_ghost</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-compute_dt">compute_dt</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-compute_q_auxiliary">compute_q_auxiliary</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-compute_residuals">compute_residuals</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-integrate">integrate</a>
+            <a class="list-group-item" href="../type/nasto_gmp_object.html#boundprocedure-simulate">simulate</a>
+        </div>
+      </div>
+    </div>
+
+  
+  
+    <div class="card card-primary">
+      <div class="card-header text-left"><h3 class="card-title">Source Code</h3></div>
+      <div class="list-group">
+        <a class="list-group-item" href="../type/nasto_gmp_object.html#src">nasto_gmp_object</a>
+      </div>
+    </div>
+
+
+  </div>
+
+    </div>
+    
+    <div class="col-md-9" id='text'>
+      <h2 id="type-def-statement">
+        type, public, extends(<a href='nasto_common_object.html'>nasto_common_object</a>) :: nasto_gmp_object</h2>
+    <p>Navier-Stokes equations system class definition, GPU (GMP) backend.</p>
+<br>      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title">Inherits</h3>
+        </div>
+        <div class="card-body">
+          <div class="depgraph"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: type~~nasto_gmp_object~~InheritsGraph Pages: 1 -->
+<svg id="typenasto_gmp_objectInheritsGraph" width="641pt" height="392pt"
+ viewBox="0.00 0.00 641.00 391.57" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="type~~nasto_gmp_object~~InheritsGraph" class="graph" transform="scale(0.7 0.7) rotate(0) translate(4 558)">
+<title>type~~nasto_gmp_object~~InheritsGraph</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-558 916,-558 916,4 -4,4"/>
+<!-- type~nasto_gmp_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_node1" class="node">
+<title>type~nasto_gmp_object</title>
+<polygon fill="none" stroke="black" points="912,-348 803,-348 803,-324 912,-324 912,-348"/>
+<text text-anchor="middle" x="857.5" y="-333.6" font-family="Helvetica,sans-Serif" font-size="10.50">nasto_gmp_object</text>
+</g>
+<!-- field_gmp_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_node2" class="node">
+<title>field_gmp_object</title>
+<polygon fill="#5cb85c" stroke="#5cb85c" points="703,-453 600,-453 600,-429 703,-429 703,-453"/>
+<text text-anchor="middle" x="651.5" y="-438.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">field_gmp_object</text>
+</g>
+<!-- type~nasto_gmp_object&#45;&gt;field_gmp_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge2" class="edge">
+<title>type~nasto_gmp_object&#45;&gt;field_gmp_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M842.39,-348.18C828.43,-359.85 806.16,-377.49 785,-390 756.91,-406.6 748.47,-408.33 718,-420 712.91,-421.95 707.56,-423.87 702.19,-425.71"/>
+<polygon fill="#000000" stroke="#000000" points="700.95,-422.43 692.58,-428.93 703.17,-429.07 700.95,-422.43"/>
+<text text-anchor="middle" x="760.5" y="-414.4" font-family="Helvetica,sans-Serif" font-size="9.50">field_gpu</text>
+</g>
+<!-- ib_gmp_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_node3" class="node">
+<title>ib_gmp_object</title>
+<polygon fill="#5cb85c" stroke="#5cb85c" points="696.5,-411 606.5,-411 606.5,-387 696.5,-387 696.5,-411"/>
+<text text-anchor="middle" x="651.5" y="-396.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">ib_gmp_object</text>
+</g>
+<!-- type~nasto_gmp_object&#45;&gt;ib_gmp_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge3" class="edge">
+<title>type~nasto_gmp_object&#45;&gt;ib_gmp_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M825,-348.04C812.61,-352.63 798.21,-357.76 785,-362 759.32,-370.24 730.51,-378.41 706.33,-384.97"/>
+<polygon fill="#000000" stroke="#000000" points="705.36,-381.61 696.62,-387.59 707.18,-388.37 705.36,-381.61"/>
+<text text-anchor="middle" x="760.5" y="-378.4" font-family="Helvetica,sans-Serif" font-size="9.50">ib_gpu</text>
+</g>
+<!-- mpih_gmp_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_node4" class="node">
+<title>mpih_gmp_object</title>
+<polygon fill="#5cb85c" stroke="#5cb85c" points="705,-369 598,-369 598,-345 705,-345 705,-369"/>
+<text text-anchor="middle" x="651.5" y="-354.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">mpih_gmp_object</text>
+</g>
+<!-- type~nasto_gmp_object&#45;&gt;mpih_gmp_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge1" class="edge">
+<title>type~nasto_gmp_object&#45;&gt;mpih_gmp_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M802.9,-341.52C775.99,-344.29 743.22,-347.66 715.15,-350.55"/>
+<polygon fill="#000000" stroke="#000000" points="714.62,-347.09 705.04,-351.59 715.34,-354.05 714.62,-347.09"/>
+<text text-anchor="middle" x="760.5" y="-350.4" font-family="Helvetica,sans-Serif" font-size="9.50">mpih_gpu</text>
+</g>
+<!-- rk_gmp_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_node5" class="node">
+<title>rk_gmp_object</title>
+<polygon fill="#5cb85c" stroke="#5cb85c" points="697,-327 606,-327 606,-303 697,-303 697,-327"/>
+<text text-anchor="middle" x="651.5" y="-312.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">rk_gmp_object</text>
+</g>
+<!-- type~nasto_gmp_object&#45;&gt;rk_gmp_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge4" class="edge">
+<title>type~nasto_gmp_object&#45;&gt;rk_gmp_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M802.9,-330.48C773.44,-327.45 736.96,-323.69 707.31,-320.64"/>
+<polygon fill="#000000" stroke="#000000" points="707.44,-317.14 697.13,-319.59 706.72,-324.1 707.44,-317.14"/>
+<text text-anchor="middle" x="760.5" y="-330.4" font-family="Helvetica,sans-Serif" font-size="9.50">rk_gpu</text>
+</g>
+<!-- type~nasto_common_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_node6" class="node">
+<title>type~nasto_common_object</title>
+<g id="a_type~~nasto_gmp_object~~InheritsGraph_node6"><a xlink:href="../type/nasto_common_object.html" xlink:title="nasto_common_object">
+<polygon fill="#5cb85c" stroke="#5cb85c" points="718,-285 585,-285 585,-261 718,-261 718,-285"/>
+<text text-anchor="middle" x="651.5" y="-270.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_common_object</text>
+</a>
+</g>
+</g>
+<!-- type~nasto_gmp_object&#45;&gt;type~nasto_common_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge6" class="edge">
+<title>type~nasto_gmp_object&#45;&gt;type~nasto_common_object</title>
+<path fill="none" stroke="#000000" d="M817.17,-323.85C784.04,-313.62 736.52,-298.95 701.03,-287.99"/>
+<polygon fill="#000000" stroke="#000000" points="701.95,-284.61 691.37,-285 699.89,-291.3 701.95,-284.61"/>
+</g>
+<!-- weno_gmp_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_node7" class="node">
+<title>weno_gmp_object</title>
+<polygon fill="#5cb85c" stroke="#5cb85c" points="706,-243 597,-243 597,-219 706,-219 706,-243"/>
+<text text-anchor="middle" x="651.5" y="-228.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">weno_gmp_object</text>
+</g>
+<!-- type~nasto_gmp_object&#45;&gt;weno_gmp_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge5" class="edge">
+<title>type~nasto_gmp_object&#45;&gt;weno_gmp_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M841.44,-323.79C827.34,-312.67 805.44,-296.17 785,-284 756.65,-267.11 748.67,-264.18 718,-252 713.01,-250.02 707.74,-248.08 702.46,-246.24"/>
+<polygon fill="#000000" stroke="#000000" points="703.58,-242.92 692.99,-243.03 701.34,-249.55 703.58,-242.92"/>
+<text text-anchor="middle" x="760.5" y="-286.4" font-family="Helvetica,sans-Serif" font-size="9.50">weno_gpu</text>
+</g>
+<!-- adam_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_node8" class="node">
+<title>adam_object</title>
+<polygon fill="#5cb85c" stroke="#5cb85c" points="491,-554 409,-554 409,-530 491,-530 491,-554"/>
+<text text-anchor="middle" x="450" y="-539.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_object</text>
+</g>
+<!-- type~nasto_common_object&#45;&gt;adam_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge8" class="edge">
+<title>type~nasto_common_object&#45;&gt;adam_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M595.07,-285.04C591.27,-287.5 587.83,-290.46 585,-294 556.85,-329.19 593.06,-459.23 567,-496 551.87,-517.34 525.21,-528.79 501.26,-534.92"/>
+<polygon fill="#000000" stroke="#000000" points="500.16,-531.58 491.2,-537.24 501.73,-538.4 500.16,-531.58"/>
+<text text-anchor="middle" x="548.5" y="-526.4" font-family="Helvetica,sans-Serif" font-size="9.50">adam</text>
+</g>
+<!-- amr_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_node9" class="node">
+<title>amr_object</title>
+<polygon fill="#5cb85c" stroke="#5cb85c" points="486.5,-512 413.5,-512 413.5,-488 486.5,-488 486.5,-512"/>
+<text text-anchor="middle" x="450" y="-497.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">amr_object</text>
+</g>
+<!-- type~nasto_common_object&#45;&gt;amr_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge11" class="edge">
+<title>type~nasto_common_object&#45;&gt;amr_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M595.15,-285.11C591.34,-287.56 587.87,-290.49 585,-294 539.39,-349.72 609.73,-397.05 567,-455 550.61,-477.23 521.65,-488.48 496.76,-494.17"/>
+<polygon fill="#000000" stroke="#000000" points="495.85,-490.79 486.75,-496.22 497.25,-497.65 495.85,-490.79"/>
+<text text-anchor="middle" x="548.5" y="-484.4" font-family="Helvetica,sans-Serif" font-size="9.50">amr</text>
+</g>
+<!-- field_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_node10" class="node">
+<title>field_object</title>
+<polygon fill="#5cb85c" stroke="#5cb85c" points="487,-470 413,-470 413,-446 487,-446 487,-470"/>
+<text text-anchor="middle" x="450" y="-455.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">field_object</text>
+</g>
+<!-- type~nasto_common_object&#45;&gt;field_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge9" class="edge">
+<title>type~nasto_common_object&#45;&gt;field_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M595.59,-285.03C591.62,-287.49 588.01,-290.45 585,-294 549.28,-336.15 601.9,-374.17 567,-417 549.92,-437.96 521.38,-448.21 496.88,-453.23"/>
+<polygon fill="#000000" stroke="#000000" points="496.24,-449.79 487.03,-455.02 497.49,-456.67 496.24,-449.79"/>
+<text text-anchor="middle" x="548.5" y="-443.4" font-family="Helvetica,sans-Serif" font-size="9.50">field</text>
+</g>
+<!-- grid_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_node11" class="node">
+<title>grid_object</title>
+<polygon fill="#5cb85c" stroke="#5cb85c" points="486,-428 414,-428 414,-404 486,-404 486,-428"/>
+<text text-anchor="middle" x="450" y="-413.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">grid_object</text>
+</g>
+<!-- type~nasto_common_object&#45;&gt;grid_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge10" class="edge">
+<title>type~nasto_common_object&#45;&gt;grid_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M596.12,-285.04C591.99,-287.49 588.19,-290.45 585,-294 558.6,-323.36 593.65,-351.86 567,-381 549.05,-400.63 520.53,-409.4 496.27,-413.26"/>
+<polygon fill="#000000" stroke="#000000" points="495.61,-409.82 486.17,-414.63 496.55,-416.75 495.61,-409.82"/>
+<text text-anchor="middle" x="548.5" y="-405.4" font-family="Helvetica,sans-Serif" font-size="9.50">grid</text>
+</g>
+<!-- ib_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_node12" class="node">
+<title>ib_object</title>
+<polygon fill="#5cb85c" stroke="#5cb85c" points="480.5,-386 419.5,-386 419.5,-362 480.5,-362 480.5,-386"/>
+<text text-anchor="middle" x="450" y="-371.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">ib_object</text>
+</g>
+<!-- type~nasto_common_object&#45;&gt;ib_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge12" class="edge">
+<title>type~nasto_common_object&#45;&gt;ib_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M597.19,-285.1C592.73,-287.54 588.57,-290.47 585,-294 567.01,-311.79 585.77,-331.04 567,-348 546.43,-366.58 515.52,-372.82 490.77,-374.56"/>
+<polygon fill="#000000" stroke="#000000" points="490.41,-371.07 480.59,-375.05 490.75,-378.06 490.41,-371.07"/>
+<text text-anchor="middle" x="548.5" y="-369.4" font-family="Helvetica,sans-Serif" font-size="9.50">ib</text>
+</g>
+<!-- mpih_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_node13" class="node">
+<title>mpih_object</title>
+<polygon fill="#5cb85c" stroke="#5cb85c" points="78,-80 0,-80 0,-56 78,-56 78,-80"/>
+<text text-anchor="middle" x="39" y="-65.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">mpih_object</text>
+</g>
+<!-- type~nasto_common_object&#45;&gt;mpih_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge7" class="edge">
+<title>type~nasto_common_object&#45;&gt;mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M612.96,-285.03C575.51,-296.92 522.14,-313.56 512,-315 432.89,-326.27 147.92,-309.56 139,-304 115.79,-289.53 132.1,-265.4 109.5,-250"/>
+<text text-anchor="middle" x="315.5" y="-320.4" font-family="Helvetica,sans-Serif" font-size="9.50">mpih</text>
+</g>
+<!-- rk_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_node14" class="node">
+<title>rk_object</title>
+<polygon fill="#5cb85c" stroke="#5cb85c" points="480.5,-306 419.5,-306 419.5,-282 480.5,-282 480.5,-306"/>
+<text text-anchor="middle" x="450" y="-291.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">rk_object</text>
+</g>
+<!-- type~nasto_common_object&#45;&gt;rk_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge14" class="edge">
+<title>type~nasto_common_object&#45;&gt;rk_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M584.9,-279.91C553.82,-283.18 517.71,-286.98 490.83,-289.81"/>
+<polygon fill="#000000" stroke="#000000" points="490.22,-286.35 480.64,-290.88 490.95,-293.31 490.22,-286.35"/>
+<text text-anchor="middle" x="548.5" y="-287.4" font-family="Helvetica,sans-Serif" font-size="9.50">rk</text>
+</g>
+<!-- slices_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_node15" class="node">
+<title>slices_object</title>
+<polygon fill="#5cb85c" stroke="#5cb85c" points="490,-264 410,-264 410,-240 490,-240 490,-264"/>
+<text text-anchor="middle" x="450" y="-249.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">slices_object</text>
+</g>
+<!-- type~nasto_common_object&#45;&gt;slices_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge13" class="edge">
+<title>type~nasto_common_object&#45;&gt;slices_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M584.9,-264.07C578.85,-263.34 572.81,-262.63 567,-262 545.17,-259.62 520.97,-257.46 500.36,-255.76"/>
+<polygon fill="#000000" stroke="#000000" points="500.49,-252.26 490.24,-254.94 499.92,-259.24 500.49,-252.26"/>
+<text text-anchor="middle" x="548.5" y="-264.4" font-family="Helvetica,sans-Serif" font-size="9.50">slices</text>
+</g>
+<!-- type~nasto_bc_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_node16" class="node">
+<title>type~nasto_bc_object</title>
+<g id="a_type~~nasto_gmp_object~~InheritsGraph_node16"><a xlink:href="../type/nasto_bc_object.html" xlink:title="nasto_bc_object">
+<polygon fill="#5cb85c" stroke="#5cb85c" points="364.5,-300 266.5,-300 266.5,-276 364.5,-276 364.5,-300"/>
+<text text-anchor="middle" x="315.5" y="-285.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_bc_object</text>
+</a>
+</g>
+</g>
+<!-- type~nasto_common_object&#45;&gt;type~nasto_bc_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge19" class="edge">
+<title>type~nasto_common_object&#45;&gt;type~nasto_bc_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M610.43,-260.91C601.97,-258.15 593.15,-255.11 585,-252 576.82,-248.88 575.3,-246.8 567,-244 491.41,-218.52 457.13,-191.2 388,-231 374.19,-238.95 381.67,-251.16 370,-262 366.45,-265.3 362.41,-268.26 358.17,-270.9"/>
+<polygon fill="#000000" stroke="#000000" points="356.31,-267.93 349.29,-275.86 359.72,-274.04 356.31,-267.93"/>
+<text text-anchor="middle" x="548.5" y="-246.4" font-family="Helvetica,sans-Serif" font-size="9.50">bc</text>
+</g>
+<!-- type~nasto_ic_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_node17" class="node">
+<title>type~nasto_ic_object</title>
+<g id="a_type~~nasto_gmp_object~~InheritsGraph_node17"><a xlink:href="../type/nasto_ic_object.html" xlink:title="nasto_ic_object">
+<polygon fill="#5cb85c" stroke="#5cb85c" points="362.5,-253 268.5,-253 268.5,-229 362.5,-229 362.5,-253"/>
+<text text-anchor="middle" x="315.5" y="-238.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_ic_object</text>
+</a>
+</g>
+</g>
+<!-- type~nasto_common_object&#45;&gt;type~nasto_ic_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge18" class="edge">
+<title>type~nasto_common_object&#45;&gt;type~nasto_ic_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M599.09,-260.91C594.02,-258.46 589.21,-255.53 585,-252 571.89,-241.02 580.71,-228.22 567,-218 547.01,-203.1 536.81,-209.46 512,-207 457.16,-201.57 441.05,-192.07 388,-207 378.97,-209.54 378.33,-213.69 370,-218 365.46,-220.35 360.62,-222.67 355.79,-224.88"/>
+<polygon fill="#000000" stroke="#000000" points="354.29,-221.71 346.56,-228.97 357.12,-228.11 354.29,-221.71"/>
+<text text-anchor="middle" x="548.5" y="-220.4" font-family="Helvetica,sans-Serif" font-size="9.50">ic</text>
+</g>
+<!-- type~nasto_io_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_node18" class="node">
+<title>type~nasto_io_object</title>
+<g id="a_type~~nasto_gmp_object~~InheritsGraph_node18"><a xlink:href="../type/nasto_io_object.html" xlink:title="nasto_io_object">
+<polygon fill="#5cb85c" stroke="#5cb85c" points="497.5,-146 402.5,-146 402.5,-122 497.5,-122 497.5,-146"/>
+<text text-anchor="middle" x="450" y="-131.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_io_object</text>
+</a>
+</g>
+</g>
+<!-- type~nasto_common_object&#45;&gt;type~nasto_io_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge16" class="edge">
+<title>type~nasto_common_object&#45;&gt;type~nasto_io_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M595.65,-260.92C591.67,-258.47 588.04,-255.53 585,-252 552.66,-214.48 603.63,-175.36 567,-142 551.22,-127.63 528.7,-123.77 507.69,-124.18"/>
+<polygon fill="#000000" stroke="#000000" points="507.34,-120.69 497.53,-124.7 507.7,-127.68 507.34,-120.69"/>
+<text text-anchor="middle" x="548.5" y="-144.4" font-family="Helvetica,sans-Serif" font-size="9.50">io</text>
+</g>
+<!-- type~nasto_physics_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_node19" class="node">
+<title>type~nasto_physics_object</title>
+<g id="a_type~~nasto_gmp_object~~InheritsGraph_node19"><a xlink:href="../type/nasto_physics_object.html" xlink:title="nasto_physics_object">
+<polygon fill="#5cb85c" stroke="#5cb85c" points="512,-104 388,-104 388,-80 512,-80 512,-104"/>
+<text text-anchor="middle" x="450" y="-89.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_physics_object</text>
+</a>
+</g>
+</g>
+<!-- type~nasto_common_object&#45;&gt;type~nasto_physics_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge17" class="edge">
+<title>type~nasto_common_object&#45;&gt;type~nasto_physics_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M595.22,-260.84C591.39,-258.4 587.9,-255.49 585,-252 544.86,-203.78 610.4,-157.3 567,-112 555.35,-99.84 539.18,-93.44 522.61,-90.34"/>
+<polygon fill="#000000" stroke="#000000" points="522.68,-86.82 512.28,-88.82 521.66,-93.74 522.68,-86.82"/>
+<text text-anchor="middle" x="548.5" y="-114.4" font-family="Helvetica,sans-Serif" font-size="9.50">physics</text>
+</g>
+<!-- type~nasto_time_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_node20" class="node">
+<title>type~nasto_time_object</title>
+<g id="a_type~~nasto_gmp_object~~InheritsGraph_node20"><a xlink:href="../type/nasto_time_object.html" xlink:title="nasto_time_object">
+<polygon fill="#5cb85c" stroke="#5cb85c" points="370,-52 261,-52 261,-28 370,-28 370,-52"/>
+<text text-anchor="middle" x="315.5" y="-37.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_time_object</text>
+</a>
+</g>
+</g>
+<!-- type~nasto_common_object&#45;&gt;type~nasto_time_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge20" class="edge">
+<title>type~nasto_common_object&#45;&gt;type~nasto_time_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M595.12,-260.91C591.32,-258.46 587.86,-255.52 585,-252 560.63,-222 593.63,-107.02 567,-79 542.1,-52.81 446.07,-44.17 380.41,-41.34"/>
+<polygon fill="#000000" stroke="#000000" points="380.28,-37.84 370.15,-40.94 380,-44.83 380.28,-37.84"/>
+<text text-anchor="middle" x="548.5" y="-81.4" font-family="Helvetica,sans-Serif" font-size="9.50">time</text>
+</g>
+<!-- weno_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_node21" class="node">
+<title>weno_object</title>
+<polygon fill="#5cb85c" stroke="#5cb85c" points="489.5,-24 410.5,-24 410.5,0 489.5,0 489.5,-24"/>
+<text text-anchor="middle" x="450" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">weno_object</text>
+</g>
+<!-- type~nasto_common_object&#45;&gt;weno_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge15" class="edge">
+<title>type~nasto_common_object&#45;&gt;weno_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M595.02,-260.99C591.24,-258.53 587.81,-255.56 585,-252 552.93,-211.44 603.72,-56.41 567,-20 549.77,-2.91 523.14,-0.11 499.74,-1.94"/>
+<polygon fill="#000000" stroke="#000000" points="499.18,1.52 489.61,-3.03 499.92,-5.44 499.18,1.52"/>
+<text text-anchor="middle" x="548.5" y="-22.4" font-family="Helvetica,sans-Serif" font-size="9.50">weno</text>
+</g>
+<!-- type~nasto_bc_object&#45;&gt;mpih_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge21" class="edge">
+<title>type~nasto_bc_object&#45;&gt;mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M266.36,-290.55C230.18,-290.83 180,-287.71 139,-272 123.73,-266.15 123.42,-258.58 109.5,-250"/>
+<text text-anchor="middle" x="191" y="-292.4" font-family="Helvetica,sans-Serif" font-size="9.50">mpih</text>
+</g>
+<!-- type~nasto_ic_object&#45;&gt;mpih_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge22" class="edge">
+<title>type~nasto_ic_object&#45;&gt;mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M268.5,-248.8C216.36,-256.64 135.28,-265.55 109.5,-250"/>
+<text text-anchor="middle" x="191" y="-260.4" font-family="Helvetica,sans-Serif" font-size="9.50">mpih</text>
+</g>
+<!-- type~nasto_io_object&#45;&gt;mpih_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge23" class="edge">
+<title>type~nasto_io_object&#45;&gt;mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M418.36,-146.03C403.78,-151.66 386.05,-158.35 370,-164 268.18,-199.84 240.93,-203.47 139,-239 125.79,-243.61 121.39,-257.38 109.5,-250"/>
+<text text-anchor="middle" x="191" y="-241.4" font-family="Helvetica,sans-Serif" font-size="9.50">mpih</text>
+</g>
+<!-- file_ini -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_node22" class="node">
+<title>file_ini</title>
+<polygon fill="#5cb85c" stroke="#5cb85c" points="218,-168 164,-168 164,-144 218,-144 218,-168"/>
+<text text-anchor="middle" x="191" y="-153.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">file_ini</text>
+</g>
+<!-- type~nasto_io_object&#45;&gt;file_ini -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge24" class="edge">
+<title>type~nasto_io_object&#45;&gt;file_ini</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M402.46,-137.98C352.4,-142.27 273.87,-148.99 228.22,-152.9"/>
+<polygon fill="#000000" stroke="#000000" points="227.85,-149.42 218.18,-153.76 228.44,-156.39 227.85,-149.42"/>
+<text text-anchor="middle" x="315.5" y="-152.4" font-family="Helvetica,sans-Serif" font-size="9.50">file_parameters</text>
+</g>
+<!-- type~nasto_physics_object&#45;&gt;mpih_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge25" class="edge">
+<title>type~nasto_physics_object&#45;&gt;mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M387.79,-97.62C298.78,-105.93 143.62,-120.92 139,-125 96.18,-162.75 158.31,-279.6 109.5,-250"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M107.5,-250C52.81,-216.03 42.16,-131.41 40.27,-90.65"/>
+<polygon fill="#000000" stroke="#000000" points="43.76,-90.28 39.94,-80.39 36.76,-90.5 43.76,-90.28"/>
+<text text-anchor="middle" x="191" y="-127.4" font-family="Helvetica,sans-Serif" font-size="9.50">mpih</text>
+</g>
+<!-- type~nasto_eos_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_node23" class="node">
+<title>type~nasto_eos_object</title>
+<g id="a_type~~nasto_gmp_object~~InheritsGraph_node23"><a xlink:href="../type/nasto_eos_object.html" xlink:title="nasto_eos_object">
+<polygon fill="#5cb85c" stroke="#5cb85c" points="243,-80 139,-80 139,-56 243,-56 243,-80"/>
+<text text-anchor="middle" x="191" y="-65.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_eos_object</text>
+</a>
+</g>
+</g>
+<!-- type~nasto_physics_object&#45;&gt;type~nasto_eos_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge26" class="edge">
+<title>type~nasto_physics_object&#45;&gt;type~nasto_eos_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M387.77,-86.28C347.12,-82.49 293.96,-77.52 253.3,-73.72"/>
+<polygon fill="#000000" stroke="#000000" points="253.53,-70.23 243.24,-72.79 252.88,-77.2 253.53,-70.23"/>
+<text text-anchor="middle" x="315.5" y="-87.4" font-family="Helvetica,sans-Serif" font-size="9.50">eos</text>
+</g>
+<!-- type~nasto_time_object&#45;&gt;mpih_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge27" class="edge">
+<title>type~nasto_time_object&#45;&gt;mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M260.63,-37.5C254.68,-37.29 248.71,-37.12 243,-37 196.79,-36.03 184.69,-30.01 139,-37 119.02,-40.05 97.53,-46.39 79.7,-52.54"/>
+<polygon fill="#000000" stroke="#000000" points="78.45,-49.27 70.2,-55.92 80.8,-55.86 78.45,-49.27"/>
+<text text-anchor="middle" x="191" y="-39.4" font-family="Helvetica,sans-Serif" font-size="9.50">mpih</text>
+</g>
+<!-- type~nasto_eos_object&#45;&gt;mpih_object -->
+<g id="type~~nasto_gmp_object~~InheritsGraph_edge28" class="edge">
+<title>type~nasto_eos_object&#45;&gt;mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M138.8,-68C122.51,-68 104.54,-68 88.45,-68"/>
+<polygon fill="#000000" stroke="#000000" points="88.19,-64.5 78.19,-68 88.19,-71.5 88.19,-64.5"/>
+<text text-anchor="middle" x="108.5" y="-70.4" font-family="Helvetica,sans-Serif" font-size="9.50">mpih</text>
+</g>
+</g>
+</svg>
+</div>                <script>
+                  var pantypenasto_gmp_objectInheritsGraph = svgPanZoom('#typenasto_gmp_objectInheritsGraph',
+                    {zoomEnabled: true, controlIconsEnabled: true, fit: true, center: true,}
+                  );
+                </script>          <div>
+            <a type="button" class="graph-help" data-bs-toggle="modal" href="#InheritsGraph-help-text">Help</a>
+          </div>
+          <div class="modal fade" id="InheritsGraph-help-text" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h4 class="modal-title" id="-graph-help-label">Graph Key</h4>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+<p>Nodes of different colours represent the following: </p>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: Graph Key Pages: 1 -->
+<svg width="186pt" height="32pt"
+ viewBox="0.00 0.00 185.50 32.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 28)">
+<title>Graph Key</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 181.5,-28 181.5,4 -4,4"/>
+<!-- Type -->
+<g id="node1" class="node">
+<title>Type</title>
+<polygon fill="#5cb85c" stroke="#5cb85c" points="54,-24 0,-24 0,0 54,0 54,-24"/>
+<text text-anchor="middle" x="27" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Type</text>
+</g>
+<!-- This Page&#39;s Entity -->
+<g id="node2" class="node">
+<title>This Page&#39;s Entity</title>
+<polygon fill="none" stroke="black" points="177.5,-24 72.5,-24 72.5,0 177.5,0 177.5,-24"/>
+<text text-anchor="middle" x="125" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">This Page&#39;s Entity</text>
+</g>
+</g>
+</svg>
+
+<p>Solid arrows point from a derived type to the parent type which it
+extends. Dashed arrows point from a derived type to the other
+types it contains as a components, with a label listing the name(s) of
+said component(s).
+</p>
+ </div>
+            </div>
+          </div>
+        </div>
+        </div>
+      </div>
+    <br>
+
+    <section>
+    <h2>Components</h2>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Visibility</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+<th></th><th scope="col">Initial</th>        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-mpih~5"></span>
+              type(mpih_object),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>mpih</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+                <p>MPI handler.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-adam"></span>
+              type(adam_object),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>adam</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+                <p>ADAM.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-field~2"></span>
+              type(field_object),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>field</strong></td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+                <p>The field.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-grid"></span>
+              type(grid_object),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>grid</strong></td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+                <p>The grid.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-amr"></span>
+              type(amr_object),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>amr</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+                <p>AMR marker handler.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-ib~4"></span>
+              type(ib_object),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>ib</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+                <p>Immersed Boundary (IB) handler.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-slices"></span>
+              type(slices_object),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>slices</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+                <p>Slices handler.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-rk"></span>
+              type(rk_object),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>rk</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+                <p>RK integrator.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-weno"></span>
+              type(weno_object),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>weno</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+                <p>WENO reconstructor.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-io"></span>
+              type(<a href='nasto_io_object.html'>nasto_io_object</a>),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>io</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+                <p>IO handler.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-physics~2"></span>
+              type(<a href='nasto_physics_object.html'>nasto_physics_object</a>),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>physics</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+                <p>Fluids physiscs handler.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-ic"></span>
+              type(<a href='nasto_ic_object.html'>nasto_ic_object</a>),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>ic</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+                <p>Initial Conditions (IC) handler.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-bc"></span>
+              type(<a href='nasto_bc_object.html'>nasto_bc_object</a>),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>bc</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+                <p>Boundary Conditions (BC) handler.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-time~5"></span>
+              type(<a href='nasto_time_object.html'>nasto_time_object</a>),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>time</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+                <p>Time handler.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-ngc~27"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>ngc</strong></td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+                <p>Number of ghost cells.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-ni~11"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>ni</strong></td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+                <p>Number of cells in i direction.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-nj~11"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>nj</strong></td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+                <p>Number of cells in j direction.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-nk~11"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>nk</strong></td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+                <p>Number of cells in k direction.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-nb"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>nb</strong></td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+                <p>Total blocks number for MPI.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-blocks_number~11"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>blocks_number</strong></td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+                <p>Actual blocks number.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-ns~2"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>ns</strong></td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+                <p>Number of fluids specie.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-nv~24"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>nv</strong></td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+                <p>Number of conservative variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-nv_aux~2"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>nv_aux</strong></td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+                <p>Number of auxiliary variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-q~9"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable
+            </td>
+            <td>::</td>
+            <td><strong>q</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+                <p>Cell centered variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-q_aux~9"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable
+            </td>
+            <td>::</td>
+            <td><strong>q_aux</strong>(:,:,:,:,:)</td>
+                <td></td>
+                <td></td>
+            <td>
+                <p>Auxiliary cell centered variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-mpih_gpu"></span>
+              type(mpih_gmp_object),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>mpih_gpu</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+                <p>MPI handler, GMP backend.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-field_gpu"></span>
+              type(field_gmp_object),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>field_gpu</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+                <p>The field, GMP backend.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-ib_gpu"></span>
+              type(ib_gmp_object),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>ib_gpu</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+                <p>IB handler, GMP backend.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-rk_gpu"></span>
+              type(rk_gmp_object),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>rk_gpu</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+                <p>RK integrator, GMP backend.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-weno_gpu"></span>
+              type(weno_gmp_object),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>weno_gpu</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+                <p>WENO reconstructor, GMP backend.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-q_gpu"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>q_gpu</strong>(:,:,:,:,:)</td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+                <p>Field cell centered variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-q_aux_gpu"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>q_aux_gpu</strong>(:,:,:,:,:)</td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+                <p>Auxiliary cell centered variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-dq_gpu"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>dq_gpu</strong>(:,:,:,:,:)</td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+                <p>Eikonal right hand side.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-flx_gpu"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>flx_gpu</strong>(:,:,:,:,:)</td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+                <p>Fluxes along x.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-fly_gpu"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>fly_gpu</strong>(:,:,:,:,:)</td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+                <p>Fluxes along y.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-flz_gpu"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>flz_gpu</strong>(:,:,:,:,:)</td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+                <p>Fluxes along z.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-q_bc_vars_gpu"></span>
+              real(kind=R8P),
+            </td>
+              <td>public,</td>
+            <td>
+              pointer
+            </td>
+            <td>::</td>
+            <td><strong>q_bc_vars_gpu</strong>(:,:)</td>
+<td>=&gt; </td>
+                <td>null()</td>
+            <td>
+                <p>Variables array for boundary conditions on GPU.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+    </section>
+    <br>
+    
+
+
+      <section>
+        <h2>Type-Bound Procedures</h2>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-allocate_common"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>allocate_common</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Allocate common data.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/allocate_common.html'>allocate_common</a>(self)  
+</h3>
+    
+
+  <p>Allocate common data.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_common_object.html'>nasto_common_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-initialize_common"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>initialize_common</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Initialize the equation common data.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/initialize_common.html'>initialize_common</a>(self, filename, memory_avail, do_mpi_init, verbose)  
+</h3>
+    
+
+  <p>Initialize the equation common data.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_common_object.html'>nasto_common_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              character(len=*),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>filename</strong></td>
+            <td>
+<p>Input file name.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>memory_avail</strong></td>
+            <td>
+<p>Memory available for single MPI process.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              logical,
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>do_mpi_init</strong></td>
+            <td>
+<p>Flag to activate MPI init call.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              logical,
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>verbose</strong></td>
+            <td>
+<p>Trigger verbose output.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-allocate_gpu"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>allocate_gpu</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Allocate GPU data.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/allocate_gpu.html'>allocate_gpu</a>(self, q_gpu)  
+</h3>
+    
+
+  <p>Allocate GPU data.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(inout),</td>
+              <td></td>            <td>
+              target
+            </td>
+            <td>::</td>
+            <td><strong>q_gpu</strong>(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)</td>
+            <td>
+<p>Conservative variables.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-copy_cpu_gpu"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>copy_cpu_gpu</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Copy data from CPU to GPU.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/copy_cpu_gpu.html'>copy_cpu_gpu</a>(self)  
+</h3>
+    
+
+  <p>Copy data from CPU to GPU.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-copy_gpu_cpu"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>copy_gpu_cpu</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Copy data from GPU to CPU.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/copy_gpu_cpu.html'>copy_gpu_cpu</a>(self, compute_copy_q_aux, copy_phi)  
+</h3>
+    
+
+  <p>Copy data from GPU to CPU.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              logical,
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>compute_copy_q_aux</strong></td>
+            <td>
+<p>Flag to compute auxiliary variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              logical,
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>copy_phi</strong></td>
+            <td>
+<p>Copy also phi.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-initialize"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>initialize</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Initialize the equation.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/initialize.html'>initialize</a>(self, filename)  
+</h3>
+    
+
+  <p>Initialize the equation.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              character(len=*),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>filename</strong></td>
+            <td>
+<p>Input file name.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-amr_update"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>amr_update</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Do AMR update.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/amr_update.html'>amr_update</a>(self)  
+</h3>
+    
+
+  <p>Do AMR update.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-compute_phi"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>compute_phi</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Compute phi, distance from IB solid.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/compute_phi.html'>compute_phi</a>(self)  
+</h3>
+    
+
+  <p>Compute phi, distance from IB solid.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-mark_by_geo"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>mark_by_geo</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Mark blocks to be refined/derefined by a geometric constrain.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/mark_by_geo.html'>mark_by_geo</a>(self, delta_fine, delta_coarse, threshold, do_init)  
+</h3>
+    
+
+  <p>Mark blocks to be refined/derefined by a geometric constrain.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>delta_fine</strong></td>
+            <td>
+<p>Maximum cell delta in fine grids.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>delta_coarse</strong></td>
+            <td>
+<p>Minimum cell delta in coarse grids.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>threshold</strong></td>
+            <td>
+<p>Threshold for sphere proximity.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              logical,
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>do_init</strong></td>
+            <td>
+
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-mark_by_grad_var"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>mark_by_grad_var</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Mark blocks to be refined/derefined by a <code>grad(var)</code> value.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/mark_by_grad_var.html'>mark_by_grad_var</a>(self, grad_tol, delta_fine, delta_coarse, ivar, threshold, do_init)  
+</h3>
+    
+
+  <p>Mark blocks to be refined/derefined by a <code>grad(var)</code> value.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>grad_tol</strong></td>
+            <td>
+<p>Gradiend tolerance value.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>delta_fine</strong></td>
+            <td>
+<p>Maximum cell delta in fine grids.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>delta_coarse</strong></td>
+            <td>
+<p>Minimum cell delta in coarse grids.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>ivar</strong></td>
+            <td>
+<p>Variable for marking.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>threshold</strong></td>
+            <td>
+<p>Threshold for sphere proximity.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              logical,
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>do_init</strong></td>
+            <td>
+<p>Re-initialize refinements queries.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-move_phi"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>move_phi</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Move phi.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/move_phi.html'>move_phi</a>(self, velocity)  
+</h3>
+    
+
+  <p>Move phi.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>velocity</strong>(3)</td>
+            <td>
+<p>Velocity of the movement.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-refine_uniform"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>refine_uniform</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Refine all blocks uniformly.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/refine_uniform.html'>refine_uniform</a>(self, refinement_levels)  
+</h3>
+    
+
+  <p>Refine all blocks uniformly.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>refinement_levels</strong></td>
+            <td>
+<p>Number of refinement to be performed.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-integrate_eikonal"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>integrate_eikonal</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Integrate eikonal equation.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/integrate_eikonal.html'>integrate_eikonal</a>(self, q_gpu)  
+</h3>
+    
+
+  <p>Integrate eikonal equation.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>q_gpu</strong>(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)</td>
+            <td>
+<p>Conservative variables.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-load_restart_files"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>load_restart_files</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Load restart files.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/load_restart_files.html'>load_restart_files</a>(self, t, time)  
+</h3>
+    
+
+  <p>Save restart files.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(out)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>t</strong></td>
+            <td>
+<p>Time iteration.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(out)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>time</strong></td>
+            <td>
+<p>Time.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-save_hdf5"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>save_hdf5</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Save simulation data in HDF5 format.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/save_hdf5.html'>save_hdf5</a>(self, output_basename)  
+</h3>
+    
+
+  <p>Save simulation data in HDF5 format.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              character(len=*),
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>output_basename</strong></td>
+            <td>
+<p>Output basename.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-save_residuals"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>save_residuals</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Save residuals history.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/save_residuals.html'>save_residuals</a>(self)  
+</h3>
+    
+
+  <p>Save residuals history.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-save_restart_files"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>save_restart_files</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Save restart files.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/save_restart_files.html'>save_restart_files</a>(self)  
+</h3>
+    
+
+  <p>Save restart files.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-save_simulation_data"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>save_simulation_data</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Save all simulation data.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/save_simulation_data.html'>save_simulation_data</a>(self)  
+</h3>
+    
+
+  <p>Save all simulation data.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-set_boundary_conditions"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>set_boundary_conditions</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Set boundary conditions of equation.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/set_boundary_conditions.html'>set_boundary_conditions</a>(self, q_gpu)  
+</h3>
+    
+
+  <p>Set boundary conditions of equation.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>q_gpu</strong>(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)</td>
+            <td>
+<p>Conservative variables.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-set_initial_conditions"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>set_initial_conditions</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Set initial conditions of equation.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/set_initial_conditions.html'>set_initial_conditions</a>(self)  
+</h3>
+    
+
+  <p>Set initial conditions of field.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-update_ghost"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>update_ghost</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Update ghost cells and set boundary conditions.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/update_ghost.html'>update_ghost</a>(self, q_gpu, step)  
+</h3>
+    
+
+  <p>Update ghost cells.
+If not specified all steps are perfermod, syncronous computation</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>q_gpu</strong>(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)</td>
+            <td>
+<p>Conservative variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>step</strong></td>
+            <td>
+<p>Step to be perfordmed in asyncronous comp.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-compute_dt"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>compute_dt</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Compute time step.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/compute_dt.html'>compute_dt</a>(self)  
+</h3>
+    
+
+  <p>Compute maximum time step accordingly to CFL stabilty criterion.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-compute_q_auxiliary"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>compute_q_auxiliary</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Compute auxiliary variables.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/compute_q_auxiliary.html'>compute_q_auxiliary</a>(self, q_gpu, q_aux_gpu)  
+</h3>
+    
+
+  <p>Compute auxiliary variables.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>q_gpu</strong>(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)</td>
+            <td>
+<p>Conservative variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(out)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>q_aux_gpu</strong>(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)</td>
+            <td>
+<p>Auxiliary variables.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-compute_residuals"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>compute_residuals</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Compute residuals.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/compute_residuals.html'>compute_residuals</a>(self, q_gpu, dq_gpu)  
+</h3>
+    
+
+  <p>Compute residuals of equation.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>q_gpu</strong>(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)</td>
+            <td>
+<p>Conservative variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              real(kind=R8P),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>dq_gpu</strong>(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)</td>
+            <td>
+<p>Residuals.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-integrate"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>integrate</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Perform one step integration.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/integrate.html'>integrate</a>(self, do_ghost_syncro)  
+</h3>
+    
+
+  <p>Perform one step integration.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              logical,
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>do_ghost_syncro</strong></td>
+            <td>
+<p>Flag to do syncrous ghost update.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+          <div class="row">
+              <div class="card mt-3">
+    <div class="card-header codesum">
+      <span class="anchor" id="boundprocedure-simulate"></span>
+      <h3>
+          procedure, public, pass(self) ::
+  <strong>simulate</strong>
+        
+      </h3>
+    </div>
+        <div class="card-body">
+          
+          <p>Perform the simulation.</p>
+        </div>
+      <ul class="list-group">
+          <li class="list-group-item">
+                    <h3>
+    private  subroutine <a href='../proc/simulate.html'>simulate</a>(self, filename)  
+</h3>
+    
+
+  <p>Perform the simulation.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              class(<a href='nasto_gmp_object.html'>nasto_gmp_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" ></span>
+              character(len=*),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>filename</strong></td>
+            <td>
+<p>Input file name.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+          </li>
+      </ul>
+  </div>
+
+          </div>
+      </section>
+
+    <section>
+    <h3><span class="anchor" id="src"></span>Source Code</h3>
+    <div class="hl codehilite"><pre><span></span><span class="k">type</span><span class="p">,</span><span class="w"> </span><span class="k">extends</span><span class="p">(</span><span class="n">nasto_common_object</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">nasto_gmp_object</span>
+<span class="w">   </span><span class="c">!&lt; Navier-Stokes equations system class definition, GPU (GMP) backend.</span>
+<span class="w">   </span><span class="c">! ADAM library objects</span>
+<span class="w">   </span><span class="k">type</span><span class="p">(</span><span class="n">mpih_gmp_object</span><span class="p">)</span><span class="w">  </span><span class="kd">::</span><span class="w"> </span><span class="n">mpih_gpu</span><span class="w">  </span><span class="c">!&lt; MPI handler, GMP backend.</span>
+<span class="w">   </span><span class="k">type</span><span class="p">(</span><span class="n">field_gmp_object</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">field_gpu</span><span class="w"> </span><span class="c">!&lt; The field, GMP backend.</span>
+<span class="w">   </span><span class="k">type</span><span class="p">(</span><span class="n">ib_gmp_object</span><span class="p">)</span><span class="w">    </span><span class="kd">::</span><span class="w"> </span><span class="n">ib_gpu</span><span class="w">    </span><span class="c">!&lt; IB handler, GMP backend.</span>
+<span class="w">   </span><span class="k">type</span><span class="p">(</span><span class="n">rk_gmp_object</span><span class="p">)</span><span class="w">    </span><span class="kd">::</span><span class="w"> </span><span class="n">rk_gpu</span><span class="w">    </span><span class="c">!&lt; RK integrator, GMP backend.</span>
+<span class="w">   </span><span class="k">type</span><span class="p">(</span><span class="n">weno_gmp_object</span><span class="p">)</span><span class="w">  </span><span class="kd">::</span><span class="w"> </span><span class="n">weno_gpu</span><span class="w">  </span><span class="c">!&lt; WENO reconstructor, GMP backend.</span>
+<span class="w">   </span><span class="c">! device data</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">pointer</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">q_gpu</span><span class="p">(:,:,:,:,:)</span><span class="o">=&gt;</span><span class="nb">null</span><span class="p">()</span><span class="w">     </span><span class="c">!&lt; Field cell centered variables.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">pointer</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">q_aux_gpu</span><span class="p">(:,:,:,:,:)</span><span class="o">=&gt;</span><span class="nb">null</span><span class="p">()</span><span class="w"> </span><span class="c">!&lt; Auxiliary cell centered variables.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">pointer</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">dq_gpu</span><span class="p">(:,:,:,:,:)</span><span class="o">=&gt;</span><span class="nb">null</span><span class="p">()</span><span class="w">    </span><span class="c">!&lt; Eikonal right hand side.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">pointer</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">flx_gpu</span><span class="p">(:,:,:,:,:)</span><span class="o">=&gt;</span><span class="nb">null</span><span class="p">()</span><span class="w">   </span><span class="c">!&lt; Fluxes along x.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">pointer</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">fly_gpu</span><span class="p">(:,:,:,:,:)</span><span class="o">=&gt;</span><span class="nb">null</span><span class="p">()</span><span class="w">   </span><span class="c">!&lt; Fluxes along y.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">pointer</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">flz_gpu</span><span class="p">(:,:,:,:,:)</span><span class="o">=&gt;</span><span class="nb">null</span><span class="p">()</span><span class="w">   </span><span class="c">!&lt; Fluxes along z.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">pointer</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">q_bc_vars_gpu</span><span class="p">(:,:)</span><span class="o">=&gt;</span><span class="nb">null</span><span class="p">()</span><span class="w">   </span><span class="c">!&lt; Variables array for boundary conditions on GPU.</span>
+<span class="w">   </span><span class="k">contains</span>
+<span class="w">      </span><span class="c">! auxiliary methods</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">allocate_gpu</span><span class="w"> </span><span class="c">!&lt; Allocate GPU data.</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">copy_cpu_gpu</span><span class="w"> </span><span class="c">!&lt; Copy data from CPU to GPU.</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">copy_gpu_cpu</span><span class="w"> </span><span class="c">!&lt; Copy data from GPU to CPU.</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">initialize</span><span class="w">   </span><span class="c">!&lt; Initialize the equation.</span>
+<span class="w">      </span><span class="c">! AMR methods</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">amr_update</span><span class="w">       </span><span class="c">!&lt; Do AMR update.</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">compute_phi</span><span class="w">      </span><span class="c">!&lt; Compute phi, distance from IB solid.</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">mark_by_geo</span><span class="w">      </span><span class="c">!&lt; Mark blocks to be refined/derefined by a geometric constrain.</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">mark_by_grad_var</span><span class="w"> </span><span class="c">!&lt; Mark blocks to be refined/derefined by a `grad(var)` value.</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">move_phi</span><span class="w">         </span><span class="c">!&lt; Move phi.</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">refine_uniform</span><span class="w">   </span><span class="c">!&lt; Refine all blocks uniformly.</span>
+<span class="w">      </span><span class="c">! IB methods</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">integrate_eikonal</span><span class="w"> </span><span class="c">!&lt; Integrate eikonal equation.</span>
+<span class="w">      </span><span class="c">! IO methods</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">load_restart_files</span><span class="w">   </span><span class="c">!&lt; Load restart files.</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">save_hdf5</span><span class="w">            </span><span class="c">!&lt; Save simulation data in HDF5 format.</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">save_residuals</span><span class="w">       </span><span class="c">!&lt; Save residuals history.</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">save_restart_files</span><span class="w">   </span><span class="c">!&lt; Save restart files.</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">save_simulation_data</span><span class="w"> </span><span class="c">!&lt; Save all simulation data.</span>
+<span class="w">      </span><span class="c">! IC/BC</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">set_boundary_conditions</span><span class="w"> </span><span class="c">!&lt; Set boundary conditions of equation.</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">set_initial_conditions</span><span class="w">  </span><span class="c">!&lt; Set initial conditions of equation.</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">update_ghost</span><span class="w">            </span><span class="c">!&lt; Update ghost cells and set boundary conditions.</span>
+<span class="w">      </span><span class="c">! numerical methods</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">compute_dt</span><span class="w">          </span><span class="c">!&lt; Compute time step.</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">compute_q_auxiliary</span><span class="w"> </span><span class="c">!&lt; Compute auxiliary variables.</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">compute_residuals</span><span class="w">   </span><span class="c">!&lt; Compute residuals.</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">integrate</span><span class="w">           </span><span class="c">!&lt; Perform one step integration.</span>
+<span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">simulate</span><span class="w">            </span><span class="c">!&lt; Perform the simulation.</span>
+<span class="k">endtype </span><span class="n">nasto_gmp_object</span>
+</pre></div>
+
+    </section>
+    
+    </div>
+  </div>
+
+      <hr>
+    </div> <!-- /container -->
+    <footer>
+      <div class="container">
+        <div class="row justify-content-between">
+          <div class="col">
+            <p>
+              ADAM
+ was developed by Stefano Zaghi<br>              &copy; 2025 
+</p>
+          </div>
+          <div class="col">
+            <p class="text-end">
+              Documentation generated by
+              <a href="https://github.com/Fortran-FOSS-Programmers/ford">FORD</a>
+            </p>
+          </div>
+        </div>
+        <br>
+      </div> <!-- /container -->
+    </footer>
+  </body>
+</html>

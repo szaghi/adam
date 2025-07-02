@@ -1,0 +1,1107 @@
+<!-- -*- mode: jinja2 -*- -->
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="description" content="Adaptive Mesh Refinement (AMR) with Immersed Boundary (IB) fluid dynamic solver tailored for High Performance GPU Computing">
+    <meta name="author" content="Stefano Zaghi" >
+    <link rel="icon" href="../favicon.png">
+
+    <title>integrate &ndash; ADAM</title>
+
+    <!-- Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+          integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+            integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <!-- Font Awesome -->
+    <link href="../css/fontawesome.min.css" rel="stylesheet">
+    <link href="../css/brands.min.css" rel="stylesheet">
+    <link href="../css/regular.min.css" rel="stylesheet">
+    <link href="../css/solid.min.css" rel="stylesheet">
+    <link href="../css/v4-font-face.min.css" rel="stylesheet">
+    <link href="../css/v4-shims.min.css" rel="stylesheet">
+    <!-- MathJax -->
+    <script type="text/x-mathjax-config">
+      MathJax.Hub.Config({
+        TeX: { equationNumbers: { autoNumber: "AMS" } }
+      });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@2.7.9/MathJax.js?config=TeX-AMS-MML_HTMLorMML" async
+            integrity="sha256-DViIOMYdwlM/axqoGDPeUyf0urLoHMN4QACBKyB58Uw=" crossorigin="anonymous"></script>
+    <!-- Other scripts and stylesheets -->
+    <link href="../css/local.css" rel="stylesheet">
+    <link href="../css/pygments.css" rel="stylesheet">
+    <script src="../js/svg-pan-zoom.min.js"></script>
+  </head>
+
+  <body>
+
+    <!-- Fixed navbar -->
+    <div class="container-fluid mb-sm-4 mb-xl-2">
+      <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+        <div class="container">
+          <a class="navbar-brand" href="../index.html">ADAM </a>
+          <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar"
+                  aria-expanded="false" aria-controls="navbar" aria-label="Toggle navigation">
+                  <span class="navbar-toggler-icon">
+          </button>
+
+          <div id="navbar" class="navbar-collapse collapse">
+            <ul class="navbar-nav">
+                  <li class="nav-item">
+                    <a class="nav-link" href="../lists/files.html">Source Files</a>
+                  </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/modules.html">Modules</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/procedures.html">Procedures</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/types.html">Derived Types</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/programs.html">Programs</a>
+                </li>
+            </ul>
+              <div class="d-flex align-items-end flex-grow-1">
+                <form action="../search.html" role="search" class="ms-auto">
+                  <input type="text" class="form-control" aria-label="Search" placeholder="Search" name="q" id="tipue_search_input" autocomplete="off" required>
+                </form>
+              </div>
+          </div><!--/.nav-collapse -->
+        </div>
+      </nav>
+    </div>
+
+    <div class="container">
+  <div class="row">
+    <h1>integrate
+      <small>Subroutine</small>
+      
+    </h1>
+      <div class="container p-2 mb-4 bg-light border rounded-3">
+    <div class="row align-items-center justify-content-between" id="info-bar">
+      <div class="col">
+        <ul class="list-inline" style="margin-bottom:0px;display:inline">
+
+            <li class="list-inline-item" id="statements"><i class="fa fa-list-ol"></i>
+              <a data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-html="true"
+                 title=" 0.7% of total for procedures.">41 statements</a>
+            </li>
+
+            <li class="list-inline-item" id="source-file">
+              <i class="fa fa-code"></i>
+              <a href="../src/adam_nasto_nvf_object.F90"> Source File</a>
+            </li>
+        </ul>
+      </div>
+      <div class="col">
+        <nav aria-label="breadcrumb">
+          <ol class="breadcrumb justify-content-end mb-0">
+                <li class="breadcrumb-item"><a href='../sourcefile/adam_nasto_nvf_object.f90.html'>adam_nasto_nvf_object.F90</a></li>
+                <li class="breadcrumb-item"><a href='../module/adam_nasto_nvf_object.html'>adam_nasto_nvf_object</a></li>
+            <li class="breadcrumb-item active" aria-current="page">integrate</li>
+          </ol>
+        </nav>
+      </div>
+    </div>
+  </div>
+  <script>
+    // Enable Bootstrap tooltips
+    (function () {
+      const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]')
+      const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl))
+    })();
+  </script>
+
+  </div>
+  
+  <div class="row">
+    <div class="col-md-3 hidden-xs hidden-sm visible-md visible-lg">
+      <div id="sidebar">
+      <h3>Contents</h3>
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+    <div class="card card-primary">
+      <div class="card-header text-left"><h3 class="card-title">Source Code</h3></div>
+      <div class="list-group">
+        <a class="list-group-item" href="../proc/integrate~3.html#src">integrate</a>
+      </div>
+    </div>
+
+
+  </div>
+
+    </div>
+    
+    <div class="col-md-9" id='text'>
+    <h2>private  subroutine integrate(self, do_ghost_syncro)  
+</h2>
+    
+
+    <p>Perform one step integration.</p>
+
+    <h3>Type Bound</h3>
+    <p><a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a></p>
+
+    <h3>Arguments</h3>
+        <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-self~78"></span>
+              class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+                <p>The equation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-do_ghost_syncro~3"></span>
+              logical,
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>do_ghost_syncro</strong></td>
+            <td>
+                <p>Flag to do syncrous ghost update.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+    <br>
+    <div class="card">
+      <div class="card-header">
+  <h3 class="card-title">Calls</h3>
+      </div>
+      <div class="card-body">
+  <div class="depgraph"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: proc~~integrate~3~~CallsGraph Pages: 1 -->
+<svg id="procintegrate3CallsGraph" width="641pt" height="328pt"
+ viewBox="0.00 0.00 641.00 328.09" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="proc~~integrate~3~~CallsGraph" class="graph" transform="scale(0.45 0.45) rotate(0) translate(4 731)">
+<title>proc~~integrate~3~~CallsGraph</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-731 1432,-731 1432,4 -4,4"/>
+<!-- proc~integrate~3 -->
+<g id="proc~~integrate~3~~CallsGraph_node1" class="node">
+<title>proc~integrate~3</title>
+<polygon fill="none" stroke="black" points="160,-419 0,-419 0,-395 160,-395 160,-419"/>
+<text text-anchor="middle" x="80" y="-404.6" font-family="Helvetica,sans-Serif" font-size="10.50">nasto_nvf_object%integrate</text>
+</g>
+<!-- assign_stage -->
+<g id="proc~~integrate~3~~CallsGraph_node2" class="node">
+<title>assign_stage</title>
+<polygon fill="#777777" stroke="#777777" points="342,-566 261,-566 261,-542 342,-542 342,-566"/>
+<text text-anchor="middle" x="301.5" y="-551.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">assign_stage</text>
+</g>
+<!-- proc~integrate~3&#45;&gt;assign_stage -->
+<g id="proc~~integrate~3~~CallsGraph_edge1" class="edge">
+<title>proc~integrate~3&#45;&gt;assign_stage</title>
+<path fill="none" stroke="#000000" d="M88.17,-419.03C104.08,-444.55 144.96,-504.13 196,-533 212.57,-542.37 232.7,-547.6 250.85,-550.51"/>
+<polygon fill="#000000" stroke="#000000" points="250.59,-554 260.98,-551.93 251.57,-547.07 250.59,-554"/>
+</g>
+<!-- compute_stage -->
+<g id="proc~~integrate~3~~CallsGraph_node3" class="node">
+<title>compute_stage</title>
+<polygon fill="#777777" stroke="#777777" points="348.5,-524 254.5,-524 254.5,-500 348.5,-500 348.5,-524"/>
+<text text-anchor="middle" x="301.5" y="-509.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_stage</text>
+</g>
+<!-- proc~integrate~3&#45;&gt;compute_stage -->
+<g id="proc~~integrate~3~~CallsGraph_edge2" class="edge">
+<title>proc~integrate~3&#45;&gt;compute_stage</title>
+<path fill="none" stroke="#000000" d="M93.62,-419.15C113.62,-437.68 154.59,-472.77 196,-491 211.15,-497.67 228.47,-502.24 244.59,-505.37"/>
+<polygon fill="#000000" stroke="#000000" points="243.98,-508.81 254.45,-507.13 245.22,-501.92 243.98,-508.81"/>
+</g>
+<!-- compute_stage_ls -->
+<g id="proc~~integrate~3~~CallsGraph_node4" class="node">
+<title>compute_stage_ls</title>
+<polygon fill="#777777" stroke="#777777" points="355.5,-482 247.5,-482 247.5,-458 355.5,-458 355.5,-482"/>
+<text text-anchor="middle" x="301.5" y="-467.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_stage_ls</text>
+</g>
+<!-- proc~integrate~3&#45;&gt;compute_stage_ls -->
+<g id="proc~~integrate~3~~CallsGraph_edge3" class="edge">
+<title>proc~integrate~3&#45;&gt;compute_stage_ls</title>
+<path fill="none" stroke="#000000" d="M110.38,-419.13C133.38,-428.29 166.33,-440.65 196,-449 209.26,-452.73 223.64,-456.07 237.38,-458.92"/>
+<polygon fill="#000000" stroke="#000000" points="236.74,-462.36 247.23,-460.92 238.13,-455.5 236.74,-462.36"/>
+</g>
+<!-- initialize_stages -->
+<g id="proc~~integrate~3~~CallsGraph_node5" class="node">
+<title>initialize_stages</title>
+<polygon fill="#777777" stroke="#777777" points="350,-440 253,-440 253,-416 350,-416 350,-440"/>
+<text text-anchor="middle" x="301.5" y="-425.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">initialize_stages</text>
+</g>
+<!-- proc~integrate~3&#45;&gt;initialize_stages -->
+<g id="proc~~integrate~3~~CallsGraph_edge4" class="edge">
+<title>proc~integrate~3&#45;&gt;initialize_stages</title>
+<path fill="none" stroke="#000000" d="M160.24,-414.58C187.55,-417.19 217.59,-420.07 242.85,-422.48"/>
+<polygon fill="#000000" stroke="#000000" points="242.7,-425.99 252.99,-423.45 243.37,-419.02 242.7,-425.99"/>
+</g>
+<!-- proc~compute_residuals~3 -->
+<g id="proc~~integrate~3~~CallsGraph_node6" class="node">
+<title>proc~compute_residuals~3</title>
+<g id="a_proc~~integrate~3~~CallsGraph_node6"><a xlink:href="../proc/compute_residuals~3.html" xlink:title="nasto_nvf_object%compute_residuals">
+<polygon fill="#d9534f" stroke="#d9534f" points="407,-398 196,-398 196,-374 407,-374 407,-398"/>
+<text text-anchor="middle" x="301.5" y="-383.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_nvf_object%compute_residuals</text>
+</a>
+</g>
+</g>
+<!-- proc~integrate~3&#45;&gt;proc~compute_residuals~3 -->
+<g id="proc~~integrate~3~~CallsGraph_edge5" class="edge">
+<title>proc~integrate~3&#45;&gt;proc~compute_residuals~3</title>
+<path fill="none" stroke="#000000" d="M160.24,-399.42C168.54,-398.62 177.09,-397.81 185.68,-396.98"/>
+<polygon fill="#000000" stroke="#000000" points="186.15,-400.46 195.77,-396.02 185.48,-393.49 186.15,-400.46"/>
+</g>
+<!-- proc~save_residuals~3 -->
+<g id="proc~~integrate~3~~CallsGraph_node7" class="node">
+<title>proc~save_residuals~3</title>
+<g id="a_proc~~integrate~3~~CallsGraph_node7"><a xlink:href="../proc/save_residuals~3.html" xlink:title="nasto_nvf_object%save_residuals">
+<polygon fill="#d9534f" stroke="#d9534f" points="396,-192 207,-192 207,-168 396,-168 396,-192"/>
+<text text-anchor="middle" x="301.5" y="-177.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_nvf_object%save_residuals</text>
+</a>
+</g>
+</g>
+<!-- proc~integrate~3&#45;&gt;proc~save_residuals~3 -->
+<g id="proc~~integrate~3~~CallsGraph_edge6" class="edge">
+<title>proc~integrate~3&#45;&gt;proc~save_residuals~3</title>
+<path fill="none" stroke="#000000" d="M92.8,-394.8C128.83,-357.54 237.61,-245.03 281.67,-199.47"/>
+<polygon fill="#000000" stroke="#000000" points="284.21,-201.89 288.64,-192.26 279.17,-197.02 284.21,-201.89"/>
+</g>
+<!-- q_rk_gpu -->
+<g id="proc~~integrate~3~~CallsGraph_node8" class="node">
+<title>q_rk_gpu</title>
+<polygon fill="#777777" stroke="#777777" points="332,-150 271,-150 271,-126 332,-126 332,-150"/>
+<text text-anchor="middle" x="301.5" y="-135.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">q_rk_gpu</text>
+</g>
+<!-- proc~integrate~3&#45;&gt;q_rk_gpu -->
+<g id="proc~~integrate~3~~CallsGraph_edge7" class="edge">
+<title>proc~integrate~3&#45;&gt;q_rk_gpu</title>
+<path fill="none" stroke="#000000" d="M82.74,-394.81C89.22,-354.15 115.86,-222.16 196,-159 214.24,-144.63 239.7,-139.3 260.92,-137.6"/>
+<polygon fill="#000000" stroke="#000000" points="261.17,-141.09 270.95,-137.04 260.77,-134.11 261.17,-141.09"/>
+</g>
+<!-- update_q -->
+<g id="proc~~integrate~3~~CallsGraph_node9" class="node">
+<title>update_q</title>
+<polygon fill="#777777" stroke="#777777" points="332.5,-108 270.5,-108 270.5,-84 332.5,-84 332.5,-108"/>
+<text text-anchor="middle" x="301.5" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">update_q</text>
+</g>
+<!-- proc~integrate~3&#45;&gt;update_q -->
+<g id="proc~~integrate~3~~CallsGraph_edge8" class="edge">
+<title>proc~integrate~3&#45;&gt;update_q</title>
+<path fill="none" stroke="#000000" d="M81.86,-394.73C85.7,-349.76 105.37,-192.68 196,-117 213.7,-102.22 238.93,-96.85 260.16,-95.24"/>
+<polygon fill="#000000" stroke="#000000" points="260.41,-98.73 270.21,-94.72 260.05,-91.74 260.41,-98.73"/>
+</g>
+<!-- check_cuda_error -->
+<g id="proc~~integrate~3~~CallsGraph_node10" class="node">
+<title>check_cuda_error</title>
+<polygon fill="#777777" stroke="#777777" points="1376,-353 1269,-353 1269,-329 1376,-329 1376,-353"/>
+<text text-anchor="middle" x="1322.5" y="-338.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">check_cuda_error</text>
+</g>
+<!-- proc~compute_residuals~3&#45;&gt;check_cuda_error -->
+<g id="proc~~integrate~3~~CallsGraph_edge9" class="edge">
+<title>proc~compute_residuals~3&#45;&gt;check_cuda_error</title>
+<path fill="none" stroke="#000000" d="M369.1,-398.02C392.39,-401.68 418.77,-405.2 443,-407 748.72,-429.72 1114.26,-376.4 1258.52,-352.19"/>
+<polygon fill="#000000" stroke="#000000" points="1259.25,-355.62 1268.52,-350.5 1258.08,-348.71 1259.25,-355.62"/>
+</g>
+<!-- dxyz_gpu -->
+<g id="proc~~integrate~3~~CallsGraph_node12" class="node">
+<title>dxyz_gpu</title>
+<polygon fill="#777777" stroke="#777777" points="585,-356 523,-356 523,-332 585,-332 585,-356"/>
+<text text-anchor="middle" x="554" y="-341.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">dxyz_gpu</text>
+</g>
+<!-- proc~compute_residuals~3&#45;&gt;dxyz_gpu -->
+<g id="proc~~integrate~3~~CallsGraph_edge10" class="edge">
+<title>proc~compute_residuals~3&#45;&gt;dxyz_gpu</title>
+<path fill="none" stroke="#000000" d="M374.28,-373.96C419.21,-366.43 475.45,-357 512.71,-350.76"/>
+<polygon fill="#000000" stroke="#000000" points="513.4,-354.19 522.69,-349.08 512.25,-347.28 513.4,-354.19"/>
+</g>
+<!-- null_xyz -->
+<g id="proc~~integrate~3~~CallsGraph_node14" class="node">
+<title>null_xyz</title>
+<polygon fill="#777777" stroke="#777777" points="581.5,-314 526.5,-314 526.5,-290 581.5,-290 581.5,-314"/>
+<text text-anchor="middle" x="554" y="-299.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">null_xyz</text>
+</g>
+<!-- proc~compute_residuals~3&#45;&gt;null_xyz -->
+<g id="proc~~integrate~3~~CallsGraph_edge11" class="edge">
+<title>proc~compute_residuals~3&#45;&gt;null_xyz</title>
+<path fill="none" stroke="#000000" d="M325.22,-373.82C352.48,-359.68 399.91,-336.57 443,-323 466.9,-315.47 494.63,-310.2 516.26,-306.82"/>
+<polygon fill="#000000" stroke="#000000" points="516.97,-310.25 526.35,-305.31 515.94,-303.33 516.97,-310.25"/>
+</g>
+<!-- proc~compute_fluxes_convective_kernel -->
+<g id="proc~~integrate~3~~CallsGraph_node15" class="node">
+<title>proc~compute_fluxes_convective_kernel</title>
+<g id="a_proc~~integrate~3~~CallsGraph_node15"><a xlink:href="../proc/compute_fluxes_convective_kernel.html" xlink:title="compute_fluxes_convective_kernel">
+<polygon fill="#d9534f" stroke="#d9534f" points="653.5,-642 454.5,-642 454.5,-618 653.5,-618 653.5,-642"/>
+<text text-anchor="middle" x="554" y="-627.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_fluxes_convective_kernel</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_residuals~3&#45;&gt;proc~compute_fluxes_convective_kernel -->
+<g id="proc~~integrate~3~~CallsGraph_edge12" class="edge">
+<title>proc~compute_residuals~3&#45;&gt;proc~compute_fluxes_convective_kernel</title>
+<path fill="none" stroke="#000000" d="M395.84,-398.07C399.88,-400.6 403.64,-403.56 407,-407 470.77,-472.19 378.91,-544.12 443,-609 443.96,-609.97 444.95,-610.91 445.97,-611.81"/>
+<polygon fill="#000000" stroke="#000000" points="444.18,-614.84 454.29,-618.01 448.36,-609.22 444.18,-614.84"/>
+</g>
+<!-- proc~compute_fluxes_difference_cuf -->
+<g id="proc~~integrate~3~~CallsGraph_node16" class="node">
+<title>proc~compute_fluxes_difference_cuf</title>
+<g id="a_proc~~integrate~3~~CallsGraph_node16"><a xlink:href="../proc/compute_fluxes_difference_cuf.html" xlink:title="compute_fluxes_difference_cuf">
+<polygon fill="#d9534f" stroke="#d9534f" points="643,-600 465,-600 465,-576 643,-576 643,-600"/>
+<text text-anchor="middle" x="554" y="-585.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_fluxes_difference_cuf</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_residuals~3&#45;&gt;proc~compute_fluxes_difference_cuf -->
+<g id="proc~~integrate~3~~CallsGraph_edge13" class="edge">
+<title>proc~compute_residuals~3&#45;&gt;proc~compute_fluxes_difference_cuf</title>
+<path fill="none" stroke="#000000" d="M395.65,-398.25C399.74,-400.74 403.56,-403.64 407,-407 459.13,-457.94 390.62,-516.31 443,-567 446.83,-570.71 451.1,-573.86 455.68,-576.54"/>
+<polygon fill="#000000" stroke="#000000" points="454.31,-579.77 464.81,-581.12 457.44,-573.51 454.31,-579.77"/>
+</g>
+<!-- proc~compute_fluxes_diffusive_cuf -->
+<g id="proc~~integrate~3~~CallsGraph_node17" class="node">
+<title>proc~compute_fluxes_diffusive_cuf</title>
+<g id="a_proc~~integrate~3~~CallsGraph_node17"><a xlink:href="../proc/compute_fluxes_diffusive_cuf.html" xlink:title="compute_fluxes_diffusive_cuf">
+<polygon fill="#d9534f" stroke="#d9534f" points="638.5,-558 469.5,-558 469.5,-534 638.5,-534 638.5,-558"/>
+<text text-anchor="middle" x="554" y="-543.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_fluxes_diffusive_cuf</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_residuals~3&#45;&gt;proc~compute_fluxes_diffusive_cuf -->
+<g id="proc~~integrate~3~~CallsGraph_edge14" class="edge">
+<title>proc~compute_residuals~3&#45;&gt;proc~compute_fluxes_diffusive_cuf</title>
+<path fill="none" stroke="#000000" d="M394.39,-398.02C398.91,-400.55 403.16,-403.52 407,-407 447.62,-443.83 402.2,-488.37 443,-525 448.1,-529.58 453.89,-533.3 460.07,-536.3"/>
+<polygon fill="#000000" stroke="#000000" points="458.8,-539.57 469.38,-540.21 461.51,-533.12 458.8,-539.57"/>
+</g>
+<!-- proc~compute_q_auxiliary~3 -->
+<g id="proc~~integrate~3~~CallsGraph_node18" class="node">
+<title>proc~compute_q_auxiliary~3</title>
+<g id="a_proc~~integrate~3~~CallsGraph_node18"><a xlink:href="../proc/compute_q_auxiliary~3.html" xlink:title="nasto_nvf_object%compute_q_auxiliary">
+<polygon fill="#d9534f" stroke="#d9534f" points="665,-272 443,-272 443,-248 665,-248 665,-272"/>
+<text text-anchor="middle" x="554" y="-257.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_nvf_object%compute_q_auxiliary</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_residuals~3&#45;&gt;proc~compute_q_auxiliary~3 -->
+<g id="proc~~integrate~3~~CallsGraph_edge15" class="edge">
+<title>proc~compute_residuals~3&#45;&gt;proc~compute_q_auxiliary~3</title>
+<path fill="none" stroke="#000000" d="M314.78,-373.67C337.76,-351.36 389.78,-304.46 443,-281 448.06,-278.77 453.35,-276.78 458.76,-274.99"/>
+<polygon fill="#000000" stroke="#000000" points="460.05,-278.26 468.61,-272.01 458.02,-271.56 460.05,-278.26"/>
+</g>
+<!-- proc~integrate_eikonal~3 -->
+<g id="proc~~integrate~3~~CallsGraph_node19" class="node">
+<title>proc~integrate_eikonal~3</title>
+<g id="a_proc~~integrate~3~~CallsGraph_node19"><a xlink:href="../proc/integrate_eikonal~3.html" xlink:title="nasto_nvf_object%integrate_eikonal">
+<polygon fill="#d9534f" stroke="#d9534f" points="656.5,-516 451.5,-516 451.5,-492 656.5,-492 656.5,-516"/>
+<text text-anchor="middle" x="554" y="-501.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_nvf_object%integrate_eikonal</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_residuals~3&#45;&gt;proc~integrate_eikonal~3 -->
+<g id="proc~~integrate~3~~CallsGraph_edge16" class="edge">
+<title>proc~compute_residuals~3&#45;&gt;proc~integrate_eikonal~3</title>
+<path fill="none" stroke="#000000" d="M392.19,-398.11C397.44,-400.59 402.43,-403.53 407,-407 435.17,-428.41 415.2,-456.12 443,-478 447.74,-481.73 452.93,-484.94 458.39,-487.7"/>
+<polygon fill="#000000" stroke="#000000" points="457.25,-491.03 467.81,-491.94 460.12,-484.64 457.25,-491.03"/>
+</g>
+<!-- proc~update_ghost~3 -->
+<g id="proc~~integrate~3~~CallsGraph_node22" class="node">
+<title>proc~update_ghost~3</title>
+<g id="a_proc~~integrate~3~~CallsGraph_node22"><a xlink:href="../proc/update_ghost~3.html" xlink:title="nasto_nvf_object%update_ghost">
+<polygon fill="#d9534f" stroke="#d9534f" points="893,-475 709,-475 709,-451 893,-451 893,-475"/>
+<text text-anchor="middle" x="801" y="-460.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_nvf_object%update_ghost</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_residuals~3&#45;&gt;proc~update_ghost~3 -->
+<g id="proc~~integrate~3~~CallsGraph_edge17" class="edge">
+<title>proc~compute_residuals~3&#45;&gt;proc~update_ghost~3</title>
+<path fill="none" stroke="#000000" d="M384.69,-398.02C392.43,-400.48 399.99,-403.44 407,-407 426.35,-416.83 423.03,-431.48 443,-440 524.03,-474.56 624.85,-477.88 698.66,-473.98"/>
+<polygon fill="#000000" stroke="#000000" points="699.11,-477.46 708.89,-473.38 698.71,-470.47 699.11,-477.46"/>
+</g>
+<!-- set_cuda_dimensions -->
+<g id="proc~~integrate~3~~CallsGraph_node24" class="node">
+<title>set_cuda_dimensions</title>
+<polygon fill="#777777" stroke="#777777" points="617,-398 491,-398 491,-374 617,-374 617,-398"/>
+<text text-anchor="middle" x="554" y="-383.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">set_cuda_dimensions</text>
+</g>
+<!-- proc~compute_residuals~3&#45;&gt;set_cuda_dimensions -->
+<g id="proc~~integrate~3~~CallsGraph_edge18" class="edge">
+<title>proc~compute_residuals~3&#45;&gt;set_cuda_dimensions</title>
+<path fill="none" stroke="#000000" d="M407.28,-386C431.93,-386 457.67,-386 480.53,-386"/>
+<polygon fill="#000000" stroke="#000000" points="480.82,-389.5 490.82,-386 480.82,-382.5 480.82,-389.5"/>
+</g>
+<!-- proc~save_residuals~3&#45;&gt;check_cuda_error -->
+<g id="proc~~integrate~3~~CallsGraph_edge19" class="edge">
+<title>proc~save_residuals~3&#45;&gt;check_cuda_error</title>
+<path fill="none" stroke="#000000" d="M378.98,-192.02C399.73,-195.12 422.21,-198.33 443,-201 770.2,-242.95 862.05,-195.79 1181,-280 1220.1,-290.32 1262.32,-309.91 1290.16,-324.11"/>
+<polygon fill="#000000" stroke="#000000" points="1288.89,-327.39 1299.38,-328.88 1292.11,-321.17 1288.89,-327.39"/>
+</g>
+<!-- compute_norml2_residuals_cuf -->
+<g id="proc~~integrate~3~~CallsGraph_node11" class="node">
+<title>compute_norml2_residuals_cuf</title>
+<polygon fill="#777777" stroke="#777777" points="643,-108 465,-108 465,-84 643,-84 643,-108"/>
+<text text-anchor="middle" x="554" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_norml2_residuals_cuf</text>
+</g>
+<!-- proc~save_residuals~3&#45;&gt;compute_norml2_residuals_cuf -->
+<g id="proc~~integrate~3~~CallsGraph_edge20" class="edge">
+<title>proc~save_residuals~3&#45;&gt;compute_norml2_residuals_cuf</title>
+<path fill="none" stroke="#000000" d="M387.58,-167.99C394.37,-165.52 400.93,-162.56 407,-159 428.21,-146.57 421.73,-129.33 443,-117 446.94,-114.72 451.08,-112.68 455.34,-110.85"/>
+<polygon fill="#000000" stroke="#000000" points="456.79,-114.05 464.87,-107.19 454.28,-107.51 456.79,-114.05"/>
+</g>
+<!-- mpi_allreduce -->
+<g id="proc~~integrate~3~~CallsGraph_node13" class="node">
+<title>mpi_allreduce</title>
+<polygon fill="#777777" stroke="#777777" points="598,-66 510,-66 510,-42 598,-42 598,-66"/>
+<text text-anchor="middle" x="554" y="-51.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">mpi_allreduce</text>
+</g>
+<!-- proc~save_residuals~3&#45;&gt;mpi_allreduce -->
+<g id="proc~~integrate~3~~CallsGraph_edge21" class="edge">
+<title>proc~save_residuals~3&#45;&gt;mpi_allreduce</title>
+<path fill="none" stroke="#000000" d="M392.96,-167.98C397.96,-165.47 402.69,-162.5 407,-159 438.53,-133.39 411.35,-100.45 443,-75 458.87,-62.24 480.17,-56.4 499.79,-53.96"/>
+<polygon fill="#000000" stroke="#000000" points="500.26,-57.44 509.87,-52.98 499.58,-50.47 500.26,-57.44"/>
+</g>
+<!-- proc~is_to_save -->
+<g id="proc~~integrate~3~~CallsGraph_node20" class="node">
+<title>proc~is_to_save</title>
+<g id="a_proc~~integrate~3~~CallsGraph_node20"><a xlink:href="../proc/is_to_save.html" xlink:title="nasto_time_object%is_to_save">
+<polygon fill="#d94e8f" stroke="#d94e8f" points="640.5,-24 467.5,-24 467.5,0 640.5,0 640.5,-24"/>
+<text text-anchor="middle" x="554" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_time_object%is_to_save</text>
+</a>
+</g>
+</g>
+<!-- proc~save_residuals~3&#45;&gt;proc~is_to_save -->
+<g id="proc~~integrate~3~~CallsGraph_edge22" class="edge">
+<title>proc~save_residuals~3&#45;&gt;proc~is_to_save</title>
+<path fill="none" stroke="#000000" d="M394.94,-167.79C399.27,-165.3 403.33,-162.39 407,-159 449.8,-119.5 400.01,-72.3 443,-33 447.5,-28.88 452.56,-25.46 457.96,-22.62"/>
+<polygon fill="#000000" stroke="#000000" points="459.67,-25.69 467.34,-18.38 456.79,-19.31 459.67,-25.69"/>
+</g>
+<!-- proc~save_residuals~5 -->
+<g id="proc~~integrate~3~~CallsGraph_node21" class="node">
+<title>proc~save_residuals~5</title>
+<g id="a_proc~~integrate~3~~CallsGraph_node21"><a xlink:href="../proc/save_residuals~5.html" xlink:title="nasto_io_object%save_residuals">
+<polygon fill="#d9534f" stroke="#d9534f" points="645,-192 463,-192 463,-168 645,-168 645,-192"/>
+<text text-anchor="middle" x="554" y="-177.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_io_object%save_residuals</text>
+</a>
+</g>
+</g>
+<!-- proc~save_residuals~3&#45;&gt;proc~save_residuals~5 -->
+<g id="proc~~integrate~3~~CallsGraph_edge23" class="edge">
+<title>proc~save_residuals~3&#45;&gt;proc~save_residuals~5</title>
+<path fill="none" stroke="#000000" d="M396.13,-180C414.54,-180 433.93,-180 452.55,-180"/>
+<polygon fill="#000000" stroke="#000000" points="452.8,-183.5 462.8,-180 452.8,-176.5 452.8,-183.5"/>
+</g>
+<!-- residuals -->
+<g id="proc~~integrate~3~~CallsGraph_node23" class="node">
+<title>residuals</title>
+<polygon fill="#777777" stroke="#777777" points="584,-150 524,-150 524,-126 584,-126 584,-150"/>
+<text text-anchor="middle" x="554" y="-135.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">residuals</text>
+</g>
+<!-- proc~save_residuals~3&#45;&gt;residuals -->
+<g id="proc~~integrate~3~~CallsGraph_edge24" class="edge">
+<title>proc~save_residuals~3&#45;&gt;residuals</title>
+<path fill="none" stroke="#000000" d="M374.28,-167.96C419.74,-160.34 476.77,-150.78 514.01,-144.54"/>
+<polygon fill="#000000" stroke="#000000" points="514.68,-147.97 523.97,-142.87 513.52,-141.07 514.68,-147.97"/>
+</g>
+<!-- proc~compute_fluxes_convective_device -->
+<g id="proc~~integrate~3~~CallsGraph_node28" class="node">
+<title>proc~compute_fluxes_convective_device</title>
+<g id="a_proc~~integrate~3~~CallsGraph_node28"><a xlink:href="../proc/compute_fluxes_convective_device.html" xlink:title="compute_fluxes_convective_device">
+<polygon fill="#d9534f" stroke="#d9534f" points="901,-643 701,-643 701,-619 901,-619 901,-643"/>
+<text text-anchor="middle" x="801" y="-628.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_fluxes_convective_device</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_fluxes_convective_kernel&#45;&gt;proc~compute_fluxes_convective_device -->
+<g id="proc~~integrate~3~~CallsGraph_edge25" class="edge">
+<title>proc~compute_fluxes_convective_kernel&#45;&gt;proc~compute_fluxes_convective_device</title>
+<path fill="none" stroke="#000000" d="M653.59,-630.4C665.75,-630.45 678.23,-630.5 690.53,-630.55"/>
+<polygon fill="#000000" stroke="#000000" points="690.8,-634.05 700.81,-630.6 690.83,-627.05 690.8,-634.05"/>
+</g>
+<!-- proc~compute_q_auxiliary~3&#45;&gt;check_cuda_error -->
+<g id="proc~~integrate~3~~CallsGraph_edge26" class="edge">
+<title>proc~compute_q_auxiliary~3&#45;&gt;check_cuda_error</title>
+<path fill="none" stroke="#000000" d="M665.06,-263.47C733.15,-266.26 822.29,-271.05 901,-279 1028.74,-291.9 1177.09,-315.9 1259.02,-329.96"/>
+<polygon fill="#000000" stroke="#000000" points="1258.47,-333.42 1268.92,-331.67 1259.66,-326.52 1258.47,-333.42"/>
+</g>
+<!-- proc~compute_q_aux_cuf -->
+<g id="proc~~integrate~3~~CallsGraph_node29" class="node">
+<title>proc~compute_q_aux_cuf</title>
+<g id="a_proc~~integrate~3~~CallsGraph_node29"><a xlink:href="../proc/compute_q_aux_cuf.html" xlink:title="compute_q_aux_cuf">
+<polygon fill="#d9534f" stroke="#d9534f" points="860,-312 742,-312 742,-288 860,-288 860,-312"/>
+<text text-anchor="middle" x="801" y="-297.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_q_aux_cuf</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_q_auxiliary~3&#45;&gt;proc~compute_q_aux_cuf -->
+<g id="proc~~integrate~3~~CallsGraph_edge27" class="edge">
+<title>proc~compute_q_auxiliary~3&#45;&gt;proc~compute_q_aux_cuf</title>
+<path fill="none" stroke="#000000" d="M628.51,-272C661.19,-277.34 699.45,-283.58 731.53,-288.82"/>
+<polygon fill="#000000" stroke="#000000" points="731.28,-292.33 741.71,-290.48 732.41,-285.42 731.28,-292.33"/>
+</g>
+<!-- proc~integrate_eikonal~3&#45;&gt;proc~update_ghost~3 -->
+<g id="proc~~integrate~3~~CallsGraph_edge31" class="edge">
+<title>proc~integrate_eikonal~3&#45;&gt;proc~update_ghost~3</title>
+<path fill="none" stroke="#000000" d="M626.85,-491.98C655.52,-487.18 688.68,-481.63 718.27,-476.68"/>
+<polygon fill="#000000" stroke="#000000" points="718.86,-480.13 728.15,-475.02 717.71,-473.22 718.86,-480.13"/>
+</g>
+<!-- barrier -->
+<g id="proc~~integrate~3~~CallsGraph_node25" class="node">
+<title>barrier</title>
+<polygon fill="#777777" stroke="#777777" points="828,-517 774,-517 774,-493 828,-493 828,-517"/>
+<text text-anchor="middle" x="801" y="-502.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">barrier</text>
+</g>
+<!-- proc~integrate_eikonal~3&#45;&gt;barrier -->
+<g id="proc~~integrate~3~~CallsGraph_edge28" class="edge">
+<title>proc~integrate_eikonal~3&#45;&gt;barrier</title>
+<path fill="none" stroke="#000000" d="M656.77,-504.42C694.78,-504.57 735.52,-504.74 763.8,-504.85"/>
+<polygon fill="#000000" stroke="#000000" points="763.98,-508.35 774,-504.89 764.01,-501.35 763.98,-508.35"/>
+</g>
+<!-- evolve_eikonal -->
+<g id="proc~~integrate~3~~CallsGraph_node26" class="node">
+<title>evolve_eikonal</title>
+<polygon fill="#777777" stroke="#777777" points="847,-601 755,-601 755,-577 847,-577 847,-601"/>
+<text text-anchor="middle" x="801" y="-586.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">evolve_eikonal</text>
+</g>
+<!-- proc~integrate_eikonal~3&#45;&gt;evolve_eikonal -->
+<g id="proc~~integrate~3~~CallsGraph_edge29" class="edge">
+<title>proc~integrate_eikonal~3&#45;&gt;evolve_eikonal</title>
+<path fill="none" stroke="#000000" d="M645.72,-516.02C652.45,-518.49 658.97,-521.45 665,-525 686.49,-537.63 679.64,-555.16 701,-568 714.09,-575.87 729.71,-580.82 744.62,-583.92"/>
+<polygon fill="#000000" stroke="#000000" points="744.33,-587.42 754.8,-585.79 745.6,-580.54 744.33,-587.42"/>
+</g>
+<!-- invert_eikonal -->
+<g id="proc~~integrate~3~~CallsGraph_node27" class="node">
+<title>invert_eikonal</title>
+<polygon fill="#777777" stroke="#777777" points="845,-559 757,-559 757,-535 845,-535 845,-559"/>
+<text text-anchor="middle" x="801" y="-544.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">invert_eikonal</text>
+</g>
+<!-- proc~integrate_eikonal~3&#45;&gt;invert_eikonal -->
+<g id="proc~~integrate~3~~CallsGraph_edge30" class="edge">
+<title>proc~integrate_eikonal~3&#45;&gt;invert_eikonal</title>
+<path fill="none" stroke="#000000" d="M623.57,-516.04C662.65,-522.89 710.87,-531.36 747.02,-537.7"/>
+<polygon fill="#000000" stroke="#000000" points="746.43,-541.15 756.88,-539.43 747.64,-534.26 746.43,-541.15"/>
+</g>
+<!-- str -->
+<g id="proc~~integrate~3~~CallsGraph_node31" class="node">
+<title>str</title>
+<polygon fill="#777777" stroke="#777777" points="828,-192 774,-192 774,-168 828,-168 828,-192"/>
+<text text-anchor="middle" x="801" y="-177.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">str</text>
+</g>
+<!-- proc~save_residuals~5&#45;&gt;str -->
+<g id="proc~~integrate~3~~CallsGraph_edge32" class="edge">
+<title>proc~save_residuals~5&#45;&gt;str</title>
+<path fill="none" stroke="#000000" d="M645.19,-180C686.19,-180 732.41,-180 763.58,-180"/>
+<polygon fill="#000000" stroke="#000000" points="763.95,-183.5 773.95,-180 763.95,-176.5 763.95,-183.5"/>
+</g>
+<!-- proc~set_boundary_conditions~3 -->
+<g id="proc~~integrate~3~~CallsGraph_node30" class="node">
+<title>proc~set_boundary_conditions~3</title>
+<g id="a_proc~~integrate~3~~CallsGraph_node30"><a xlink:href="../proc/set_boundary_conditions~3.html" xlink:title="nasto_nvf_object%set_boundary_conditions">
+<polygon fill="#d9534f" stroke="#d9534f" points="1181,-559 937,-559 937,-535 1181,-535 1181,-559"/>
+<text text-anchor="middle" x="1059" y="-544.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_nvf_object%set_boundary_conditions</text>
+</a>
+</g>
+</g>
+<!-- proc~update_ghost~3&#45;&gt;proc~set_boundary_conditions~3 -->
+<g id="proc~~integrate~3~~CallsGraph_edge33" class="edge">
+<title>proc~update_ghost~3&#45;&gt;proc~set_boundary_conditions~3</title>
+<path fill="none" stroke="#000000" d="M881.85,-475.05C888.55,-477.51 895.03,-480.46 901,-484 922.14,-496.55 915.63,-513.85 937,-526 940.3,-527.88 943.72,-529.59 947.24,-531.16"/>
+<polygon fill="#000000" stroke="#000000" points="946.16,-534.5 956.74,-534.99 948.77,-528.01 946.16,-534.5"/>
+</g>
+<!-- update_ghost_local_gpu -->
+<g id="proc~~integrate~3~~CallsGraph_node32" class="node">
+<title>update_ghost_local_gpu</title>
+<polygon fill="#777777" stroke="#777777" points="1129.5,-475 988.5,-475 988.5,-451 1129.5,-451 1129.5,-475"/>
+<text text-anchor="middle" x="1059" y="-460.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">update_ghost_local_gpu</text>
+</g>
+<!-- proc~update_ghost~3&#45;&gt;update_ghost_local_gpu -->
+<g id="proc~~integrate~3~~CallsGraph_edge34" class="edge">
+<title>proc~update_ghost~3&#45;&gt;update_ghost_local_gpu</title>
+<path fill="none" stroke="#000000" d="M893.34,-463C921.09,-463 951.36,-463 978.29,-463"/>
+<polygon fill="#000000" stroke="#000000" points="978.44,-466.5 988.44,-463 978.44,-459.5 978.44,-466.5"/>
+</g>
+<!-- update_ghost_mpi_gpu -->
+<g id="proc~~integrate~3~~CallsGraph_node33" class="node">
+<title>update_ghost_mpi_gpu</title>
+<polygon fill="#777777" stroke="#777777" points="1127,-517 991,-517 991,-493 1127,-493 1127,-517"/>
+<text text-anchor="middle" x="1059" y="-502.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">update_ghost_mpi_gpu</text>
+</g>
+<!-- proc~update_ghost~3&#45;&gt;update_ghost_mpi_gpu -->
+<g id="proc~~integrate~3~~CallsGraph_edge35" class="edge">
+<title>proc~update_ghost~3&#45;&gt;update_ghost_mpi_gpu</title>
+<path fill="none" stroke="#000000" d="M875.36,-475.04C908.3,-480.44 947.18,-486.82 980.58,-492.3"/>
+<polygon fill="#000000" stroke="#000000" points="980.33,-495.8 990.76,-493.97 981.46,-488.9 980.33,-495.8"/>
+</g>
+<!-- proc~compute_eigenvectors_device -->
+<g id="proc~~integrate~3~~CallsGraph_node34" class="node">
+<title>proc~compute_eigenvectors_device</title>
+<g id="a_proc~~integrate~3~~CallsGraph_node34"><a xlink:href="../proc/compute_eigenvectors_device.html" xlink:title="compute_eigenvectors_device">
+<polygon fill="#d9534f" stroke="#d9534f" points="1146.5,-601 971.5,-601 971.5,-577 1146.5,-577 1146.5,-601"/>
+<text text-anchor="middle" x="1059" y="-586.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_eigenvectors_device</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_fluxes_convective_device&#45;&gt;proc~compute_eigenvectors_device -->
+<g id="proc~~integrate~3~~CallsGraph_edge36" class="edge">
+<title>proc~compute_fluxes_convective_device&#45;&gt;proc~compute_eigenvectors_device</title>
+<path fill="none" stroke="#000000" d="M875.36,-618.96C906.29,-613.89 942.46,-607.96 974.42,-602.71"/>
+<polygon fill="#000000" stroke="#000000" points="975.33,-606.11 984.63,-601.04 974.2,-599.2 975.33,-606.11"/>
+</g>
+<!-- proc~decompose_fluxes_convective_device~2 -->
+<g id="proc~~integrate~3~~CallsGraph_node35" class="node">
+<title>proc~decompose_fluxes_convective_device~2</title>
+<g id="a_proc~~integrate~3~~CallsGraph_node35"><a xlink:href="../proc/decompose_fluxes_convective_device~2.html" xlink:title="decompose_fluxes_convective_device">
+<polygon fill="#d9534f" stroke="#d9534f" points="1166.5,-685 951.5,-685 951.5,-661 1166.5,-661 1166.5,-685"/>
+<text text-anchor="middle" x="1059" y="-670.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">decompose_fluxes_convective_device</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_fluxes_convective_device&#45;&gt;proc~decompose_fluxes_convective_device~2 -->
+<g id="proc~~integrate~3~~CallsGraph_edge37" class="edge">
+<title>proc~compute_fluxes_convective_device&#45;&gt;proc~decompose_fluxes_convective_device~2</title>
+<path fill="none" stroke="#000000" d="M875.36,-643.04C906.29,-648.11 942.46,-654.04 974.42,-659.29"/>
+<polygon fill="#000000" stroke="#000000" points="974.2,-662.8 984.63,-660.96 975.33,-655.89 974.2,-662.8"/>
+</g>
+<!-- weno_reconstruct_upwind_device -->
+<g id="proc~~integrate~3~~CallsGraph_node37" class="node">
+<title>weno_reconstruct_upwind_device</title>
+<polygon fill="#777777" stroke="#777777" points="1154,-643 964,-643 964,-619 1154,-619 1154,-643"/>
+<text text-anchor="middle" x="1059" y="-628.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">weno_reconstruct_upwind_device</text>
+</g>
+<!-- proc~compute_fluxes_convective_device&#45;&gt;weno_reconstruct_upwind_device -->
+<g id="proc~~integrate~3~~CallsGraph_edge38" class="edge">
+<title>proc~compute_fluxes_convective_device&#45;&gt;weno_reconstruct_upwind_device</title>
+<path fill="none" stroke="#000000" d="M901.34,-631C918.5,-631 936.37,-631 953.65,-631"/>
+<polygon fill="#000000" stroke="#000000" points="953.75,-634.5 963.75,-631 953.75,-627.5 953.75,-634.5"/>
+</g>
+<!-- proc~set_boundary_conditions~3&#45;&gt;check_cuda_error -->
+<g id="proc~~integrate~3~~CallsGraph_edge39" class="edge">
+<title>proc~set_boundary_conditions~3&#45;&gt;check_cuda_error</title>
+<path fill="none" stroke="#000000" d="M1162.72,-534.93C1169.1,-532.44 1175.26,-529.49 1181,-526 1246.93,-485.89 1292.79,-402.39 1311.76,-362.77"/>
+<polygon fill="#000000" stroke="#000000" points="1315.04,-364.02 1316.09,-353.47 1308.69,-361.06 1315.04,-364.02"/>
+</g>
+<!-- proc~set_bc_q_gpu_cuf -->
+<g id="proc~~integrate~3~~CallsGraph_node36" class="node">
+<title>proc~set_bc_q_gpu_cuf</title>
+<g id="a_proc~~integrate~3~~CallsGraph_node36"><a xlink:href="../proc/set_bc_q_gpu_cuf.html" xlink:title="set_bc_q_gpu_cuf">
+<polygon fill="#d9534f" stroke="#d9534f" points="1375.5,-559 1269.5,-559 1269.5,-535 1375.5,-535 1375.5,-559"/>
+<text text-anchor="middle" x="1322.5" y="-544.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">set_bc_q_gpu_cuf</text>
+</a>
+</g>
+</g>
+<!-- proc~set_boundary_conditions~3&#45;&gt;proc~set_bc_q_gpu_cuf -->
+<g id="proc~~integrate~3~~CallsGraph_edge40" class="edge">
+<title>proc~set_boundary_conditions~3&#45;&gt;proc~set_bc_q_gpu_cuf</title>
+<path fill="none" stroke="#000000" d="M1181.18,-547C1208.18,-547 1235.73,-547 1259.18,-547"/>
+<polygon fill="#000000" stroke="#000000" points="1259.31,-550.5 1269.31,-547 1259.31,-543.5 1259.31,-550.5"/>
+</g>
+<!-- proc~compute_roe_average_device -->
+<g id="proc~~integrate~3~~CallsGraph_node41" class="node">
+<title>proc~compute_roe_average_device</title>
+<g id="a_proc~~integrate~3~~CallsGraph_node41"><a xlink:href="../proc/compute_roe_average_device.html" xlink:title="compute_roe_average_device">
+<polygon fill="#d9534f" stroke="#d9534f" points="1408.5,-601 1236.5,-601 1236.5,-577 1408.5,-577 1408.5,-601"/>
+<text text-anchor="middle" x="1322.5" y="-586.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_roe_average_device</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_eigenvectors_device&#45;&gt;proc~compute_roe_average_device -->
+<g id="proc~~integrate~3~~CallsGraph_edge41" class="edge">
+<title>proc~compute_eigenvectors_device&#45;&gt;proc~compute_roe_average_device</title>
+<path fill="none" stroke="#000000" d="M1146.71,-589C1172.17,-589 1200.16,-589 1226.13,-589"/>
+<polygon fill="#000000" stroke="#000000" points="1226.36,-592.5 1236.36,-589 1226.36,-585.5 1226.36,-592.5"/>
+</g>
+<!-- proc~compute_conservative_fluxes_device -->
+<g id="proc~~integrate~3~~CallsGraph_node38" class="node">
+<title>proc~compute_conservative_fluxes_device</title>
+<g id="a_proc~~integrate~3~~CallsGraph_node38"><a xlink:href="../proc/compute_conservative_fluxes_device.html" xlink:title="compute_conservative_fluxes_device">
+<polygon fill="#d9534f" stroke="#d9534f" points="1428,-685 1217,-685 1217,-661 1428,-661 1428,-685"/>
+<text text-anchor="middle" x="1322.5" y="-670.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_conservative_fluxes_device</text>
+</a>
+</g>
+</g>
+<!-- proc~decompose_fluxes_convective_device~2&#45;&gt;proc~compute_conservative_fluxes_device -->
+<g id="proc~~integrate~3~~CallsGraph_edge42" class="edge">
+<title>proc~decompose_fluxes_convective_device~2&#45;&gt;proc~compute_conservative_fluxes_device</title>
+<path fill="none" stroke="#000000" d="M1166.74,-673C1179.91,-673 1193.41,-673 1206.69,-673"/>
+<polygon fill="#000000" stroke="#000000" points="1206.79,-676.5 1216.79,-673 1206.79,-669.5 1206.79,-676.5"/>
+</g>
+<!-- proc~compute_conservatives_device -->
+<g id="proc~~integrate~3~~CallsGraph_node39" class="node">
+<title>proc~compute_conservatives_device</title>
+<g id="a_proc~~integrate~3~~CallsGraph_node39"><a xlink:href="../proc/compute_conservatives_device.html" xlink:title="compute_conservatives_device">
+<polygon fill="#d9534f" stroke="#d9534f" points="1412,-643 1233,-643 1233,-619 1412,-619 1412,-643"/>
+<text text-anchor="middle" x="1322.5" y="-628.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_conservatives_device</text>
+</a>
+</g>
+</g>
+<!-- proc~decompose_fluxes_convective_device~2&#45;&gt;proc~compute_conservatives_device -->
+<g id="proc~~integrate~3~~CallsGraph_edge43" class="edge">
+<title>proc~decompose_fluxes_convective_device~2&#45;&gt;proc~compute_conservatives_device</title>
+<path fill="none" stroke="#000000" d="M1134.94,-660.96C1166.67,-655.87 1203.8,-649.9 1236.54,-644.65"/>
+<polygon fill="#000000" stroke="#000000" points="1237.24,-648.08 1246.55,-643.04 1236.13,-641.17 1237.24,-648.08"/>
+</g>
+<!-- proc~compute_max_eigenvalues_device -->
+<g id="proc~~integrate~3~~CallsGraph_node40" class="node">
+<title>proc~compute_max_eigenvalues_device</title>
+<g id="a_proc~~integrate~3~~CallsGraph_node40"><a xlink:href="../proc/compute_max_eigenvalues_device.html" xlink:title="compute_max_eigenvalues_device">
+<polygon fill="#d9534f" stroke="#d9534f" points="1422,-727 1223,-727 1223,-703 1422,-703 1422,-727"/>
+<text text-anchor="middle" x="1322.5" y="-712.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_max_eigenvalues_device</text>
+</a>
+</g>
+</g>
+<!-- proc~decompose_fluxes_convective_device~2&#45;&gt;proc~compute_max_eigenvalues_device -->
+<g id="proc~~integrate~3~~CallsGraph_edge44" class="edge">
+<title>proc~decompose_fluxes_convective_device~2&#45;&gt;proc~compute_max_eigenvalues_device</title>
+<path fill="none" stroke="#000000" d="M1134.94,-685.04C1166.67,-690.13 1203.8,-696.1 1236.54,-701.35"/>
+<polygon fill="#000000" stroke="#000000" points="1236.13,-704.83 1246.55,-702.96 1237.24,-697.92 1236.13,-704.83"/>
+</g>
+</g>
+</svg>
+</div>                <script>
+                  var panprocintegrate3CallsGraph = svgPanZoom('#procintegrate3CallsGraph',
+                    {zoomEnabled: true, controlIconsEnabled: true, fit: true, center: true,}
+                  );
+                </script>          <div>
+            <a type="button" class="graph-help" data-bs-toggle="modal" href="#CallsGraph-help-text">Help</a>
+          </div>
+          <div class="modal fade" id="CallsGraph-help-text" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h4 class="modal-title" id="-graph-help-label">Graph Key</h4>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+<p>Nodes of different colours represent the following: </p>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: Graph Key Pages: 1 -->
+<svg width="641pt" height="28pt"
+ viewBox="0.00 0.00 641.00 27.51" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(0.86 0.86) rotate(0) translate(4 28)">
+<title>Graph Key</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 741.5,-28 741.5,4 -4,4"/>
+<!-- Subroutine -->
+<g id="node1" class="node">
+<title>Subroutine</title>
+<polygon fill="#d9534f" stroke="#d9534f" points="70,-24 0,-24 0,0 70,0 70,-24"/>
+<text text-anchor="middle" x="35" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Subroutine</text>
+</g>
+<!-- Function -->
+<g id="node2" class="node">
+<title>Function</title>
+<polygon fill="#d94e8f" stroke="#d94e8f" points="146,-24 88,-24 88,0 146,0 146,-24"/>
+<text text-anchor="middle" x="117" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Function</text>
+</g>
+<!-- Interface -->
+<g id="node3" class="node">
+<title>Interface</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="225.5,-24 164.5,-24 164.5,0 225.5,0 225.5,-24"/>
+<text text-anchor="middle" x="195" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Interface</text>
+</g>
+<!-- Type Bound Procedure -->
+<g id="node4" class="node">
+<title>Type Bound Procedure</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="374,-24 244,-24 244,0 374,0 374,-24"/>
+<text text-anchor="middle" x="309" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Type Bound Procedure</text>
+</g>
+<!-- Unknown Procedure Type -->
+<g id="node5" class="node">
+<title>Unknown Procedure Type</title>
+<polygon fill="#777777" stroke="#777777" points="537.5,-24 392.5,-24 392.5,0 537.5,0 537.5,-24"/>
+<text text-anchor="middle" x="465" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Unknown Procedure Type</text>
+</g>
+<!-- Program -->
+<g id="node6" class="node">
+<title>Program</title>
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="614,-24 556,-24 556,0 614,0 614,-24"/>
+<text text-anchor="middle" x="585" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Program</text>
+</g>
+<!-- This Page&#39;s Entity -->
+<g id="node7" class="node">
+<title>This Page&#39;s Entity</title>
+<polygon fill="none" stroke="black" points="737.5,-24 632.5,-24 632.5,0 737.5,0 737.5,-24"/>
+<text text-anchor="middle" x="685" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">This Page&#39;s Entity</text>
+</g>
+</g>
+</svg>
+
+<p>Solid arrows point from a procedure to one which it calls. Dashed 
+arrows point from an interface to procedures which implement that interface.
+This could include the module procedures in a generic interface or the
+implementation in a submodule of an interface in a parent module.
+</p>
+ </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+  <h3 class="card-title">Called by</h3>
+      </div>
+      <div class="card-body">
+  <div class="depgraph"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: proc~~integrate~3~~CalledByGraph Pages: 1 -->
+<svg id="procintegrate3CalledByGraph" width="497pt" height="32pt"
+ viewBox="0.00 0.00 497.00 32.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="proc~~integrate~3~~CalledByGraph" class="graph" transform="scale(1 1) rotate(0) translate(4 28)">
+<title>proc~~integrate~3~~CalledByGraph</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 493,-28 493,4 -4,4"/>
+<!-- proc~integrate~3 -->
+<g id="proc~~integrate~3~~CalledByGraph_node1" class="node">
+<title>proc~integrate~3</title>
+<polygon fill="none" stroke="black" points="489,-24 329,-24 329,0 489,0 489,-24"/>
+<text text-anchor="middle" x="409" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">nasto_nvf_object%integrate</text>
+</g>
+<!-- proc~simulate~3 -->
+<g id="proc~~integrate~3~~CalledByGraph_node2" class="node">
+<title>proc~simulate~3</title>
+<g id="a_proc~~integrate~3~~CalledByGraph_node2"><a xlink:href="../proc/simulate~3.html" xlink:title="nasto_nvf_object%simulate">
+<polygon fill="#d9534f" stroke="#d9534f" points="293,-24 136,-24 136,0 293,0 293,-24"/>
+<text text-anchor="middle" x="214.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_nvf_object%simulate</text>
+</a>
+</g>
+</g>
+<!-- proc~simulate~3&#45;&gt;proc~integrate~3 -->
+<g id="proc~~integrate~3~~CalledByGraph_edge1" class="edge">
+<title>proc~simulate~3&#45;&gt;proc~integrate~3</title>
+<path fill="none" stroke="#000000" d="M293.24,-12C301.55,-12 310.05,-12 318.48,-12"/>
+<polygon fill="#000000" stroke="#000000" points="318.71,-15.5 328.71,-12 318.71,-8.5 318.71,-15.5"/>
+</g>
+<!-- program~adam_nasto_nvf -->
+<g id="proc~~integrate~3~~CalledByGraph_node3" class="node">
+<title>program~adam_nasto_nvf</title>
+<g id="a_proc~~integrate~3~~CalledByGraph_node3"><a xlink:href="../program/adam_nasto_nvf.html" xlink:title="adam_nasto_nvf">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="100,-24 0,-24 0,0 100,0 100,-24"/>
+<text text-anchor="middle" x="50" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_nvf</text>
+</a>
+</g>
+</g>
+<!-- program~adam_nasto_nvf&#45;&gt;proc~simulate~3 -->
+<g id="proc~~integrate~3~~CalledByGraph_edge2" class="edge">
+<title>program~adam_nasto_nvf&#45;&gt;proc~simulate~3</title>
+<path fill="none" stroke="#000000" d="M100.2,-12C108.32,-12 116.95,-12 125.69,-12"/>
+<polygon fill="#000000" stroke="#000000" points="125.97,-15.5 135.97,-12 125.97,-8.5 125.97,-15.5"/>
+</g>
+</g>
+</svg>
+</div>          <div>
+            <a type="button" class="graph-help" data-bs-toggle="modal" href="#CalledByGraph-help-text">Help</a>
+          </div>
+          <div class="modal fade" id="CalledByGraph-help-text" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h4 class="modal-title" id="-graph-help-label">Graph Key</h4>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+<p>Nodes of different colours represent the following: </p>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: Graph Key Pages: 1 -->
+<svg width="641pt" height="28pt"
+ viewBox="0.00 0.00 641.00 27.51" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(0.86 0.86) rotate(0) translate(4 28)">
+<title>Graph Key</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 741.5,-28 741.5,4 -4,4"/>
+<!-- Subroutine -->
+<g id="node1" class="node">
+<title>Subroutine</title>
+<polygon fill="#d9534f" stroke="#d9534f" points="70,-24 0,-24 0,0 70,0 70,-24"/>
+<text text-anchor="middle" x="35" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Subroutine</text>
+</g>
+<!-- Function -->
+<g id="node2" class="node">
+<title>Function</title>
+<polygon fill="#d94e8f" stroke="#d94e8f" points="146,-24 88,-24 88,0 146,0 146,-24"/>
+<text text-anchor="middle" x="117" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Function</text>
+</g>
+<!-- Interface -->
+<g id="node3" class="node">
+<title>Interface</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="225.5,-24 164.5,-24 164.5,0 225.5,0 225.5,-24"/>
+<text text-anchor="middle" x="195" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Interface</text>
+</g>
+<!-- Type Bound Procedure -->
+<g id="node4" class="node">
+<title>Type Bound Procedure</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="374,-24 244,-24 244,0 374,0 374,-24"/>
+<text text-anchor="middle" x="309" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Type Bound Procedure</text>
+</g>
+<!-- Unknown Procedure Type -->
+<g id="node5" class="node">
+<title>Unknown Procedure Type</title>
+<polygon fill="#777777" stroke="#777777" points="537.5,-24 392.5,-24 392.5,0 537.5,0 537.5,-24"/>
+<text text-anchor="middle" x="465" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Unknown Procedure Type</text>
+</g>
+<!-- Program -->
+<g id="node6" class="node">
+<title>Program</title>
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="614,-24 556,-24 556,0 614,0 614,-24"/>
+<text text-anchor="middle" x="585" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Program</text>
+</g>
+<!-- This Page&#39;s Entity -->
+<g id="node7" class="node">
+<title>This Page&#39;s Entity</title>
+<polygon fill="none" stroke="black" points="737.5,-24 632.5,-24 632.5,0 737.5,0 737.5,-24"/>
+<text text-anchor="middle" x="685" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">This Page&#39;s Entity</text>
+</g>
+</g>
+</svg>
+
+<p>Solid arrows point from a procedure to one which it calls. Dashed 
+arrows point from an interface to procedures which implement that interface.
+This could include the module procedures in a generic interface or the
+implementation in a submodule of an interface in a parent module.
+</p>
+ </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <br>
+
+
+    
+    
+
+    
+    
+
+
+
+    
+    <section>
+    <h2><span class="anchor" id="src"></span>Source Code</h2>
+    <div class="hl codehilite"><pre><span></span><span class="w">   </span><span class="k">subroutine </span><span class="n">integrate</span><span class="p">(</span><span class="n">self</span><span class="p">,</span><span class="w"> </span><span class="n">do_ghost_syncro</span><span class="p">)</span>
+<span class="w">   </span><span class="c">!&lt; Perform one step integration.</span>
+<span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_nvf_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">inout</span><span class="p">)</span><span class="w">         </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w">                  </span><span class="c">!&lt; The equation.</span>
+<span class="w">   </span><span class="kt">logical</span><span class="p">,</span><span class="w">                 </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w">  </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">do_ghost_syncro</span><span class="w">       </span><span class="c">!&lt; Flag to do syncrous ghost update.</span>
+<span class="w">   </span><span class="kt">logical</span><span class="w">                                        </span><span class="kd">::</span><span class="w"> </span><span class="n">do_ghost_syncro_</span><span class="w">      </span><span class="c">!&lt; Flag to do syncrous ghost update, local var.</span>
+<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">)</span><span class="w">                                   </span><span class="kd">::</span><span class="w"> </span><span class="n">s</span><span class="w">                     </span><span class="c">!&lt; Counter.</span>
+
+<span class="w">   </span><span class="n">do_ghost_syncro_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">.</span><span class="n">true</span><span class="p">.</span><span class="w"> </span><span class="p">;</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">present</span><span class="p">(</span><span class="n">do_ghost_syncro</span><span class="p">))</span><span class="w"> </span><span class="n">do_ghost_syncro_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">do_ghost_syncro</span>
+<span class="w">   </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">rk_gpu</span><span class="p">%</span><span class="n">initialize_stages</span><span class="p">(</span><span class="n">q_gpu</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">q_gpu</span><span class="p">)</span>
+<span class="w">   </span><span class="k">select case</span><span class="p">(</span><span class="n">self</span><span class="p">%</span><span class="n">rk</span><span class="p">%</span><span class="n">scheme</span><span class="p">)</span>
+<span class="w">   </span><span class="k">case</span><span class="p">(</span><span class="n">RK_1</span><span class="p">,</span><span class="w"> </span><span class="n">RK_2</span><span class="p">,</span><span class="w"> </span><span class="n">RK_3</span><span class="p">)</span>
+<span class="w">      </span><span class="c">! low storage RK working on q_rk_gpu(:,:,:,:,:,1)/q_gpu as stages, update q_gpu in place</span>
+<span class="w">      </span><span class="k">do </span><span class="n">s</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">self</span><span class="p">%</span><span class="n">rk</span><span class="p">%</span><span class="n">nrk</span>
+<span class="w">         </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">compute_residuals</span><span class="p">(</span><span class="n">q_gpu</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">q_gpu</span><span class="p">,</span><span class="w"> </span><span class="n">dq_gpu</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">dq_gpu</span><span class="p">)</span>
+<span class="w">         </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="o">==</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">save_residuals</span>
+<span class="w">         </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">self</span><span class="p">%</span><span class="n">ib</span><span class="p">%</span><span class="n">solids_number</span><span class="o">&gt;</span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="k">then</span>
+<span class="k">            call </span><span class="n">self</span><span class="p">%</span><span class="n">rk_gpu</span><span class="p">%</span><span class="n">compute_stage_ls</span><span class="p">(</span><span class="n">s</span><span class="o">=</span><span class="n">s</span><span class="p">,</span><span class="n">dt</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="nb">time</span><span class="p">%</span><span class="n">dt</span><span class="p">,</span><span class="n">phi_gpu</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">ib_gpu</span><span class="p">%</span><span class="n">phi_gpu</span><span class="p">,</span><span class="n">dq_gpu</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">dq_gpu</span><span class="p">,</span><span class="n">q_gpu</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">q_gpu</span><span class="p">)</span>
+<span class="w">         </span><span class="k">else</span>
+<span class="k">            call </span><span class="n">self</span><span class="p">%</span><span class="n">rk_gpu</span><span class="p">%</span><span class="n">compute_stage_ls</span><span class="p">(</span><span class="n">s</span><span class="o">=</span><span class="n">s</span><span class="p">,</span><span class="n">dt</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="nb">time</span><span class="p">%</span><span class="n">dt</span><span class="p">,</span><span class="n">dq_gpu</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">dq_gpu</span><span class="p">,</span><span class="n">q_gpu</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">q_gpu</span><span class="p">)</span>
+<span class="w">         </span><span class="k">endif</span>
+<span class="k">      enddo</span>
+<span class="k">   case</span><span class="p">(</span><span class="n">RK_SSP_22</span><span class="p">,</span><span class="w"> </span><span class="n">RK_SSP_33</span><span class="p">,</span><span class="w"> </span><span class="n">RK_SSP_54</span><span class="p">)</span>
+<span class="w">      </span><span class="c">! RK working on q_rk_gpu as stages</span>
+<span class="w">      </span><span class="k">do </span><span class="n">s</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">self</span><span class="p">%</span><span class="n">rk</span><span class="p">%</span><span class="n">nrk</span>
+<span class="w">         </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">self</span><span class="p">%</span><span class="n">ib</span><span class="p">%</span><span class="n">solids_number</span><span class="o">&gt;</span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="k">then</span>
+<span class="k">            call </span><span class="n">self</span><span class="p">%</span><span class="n">rk_gpu</span><span class="p">%</span><span class="n">compute_stage</span><span class="p">(</span><span class="n">s</span><span class="o">=</span><span class="n">s</span><span class="p">,</span><span class="w"> </span><span class="n">dt</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="nb">time</span><span class="p">%</span><span class="n">dt</span><span class="p">,</span><span class="w"> </span><span class="n">phi_gpu</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">ib_gpu</span><span class="p">%</span><span class="n">phi_gpu</span><span class="p">)</span>
+<span class="w">         </span><span class="k">else</span>
+<span class="k">            call </span><span class="n">self</span><span class="p">%</span><span class="n">rk_gpu</span><span class="p">%</span><span class="n">compute_stage</span><span class="p">(</span><span class="n">s</span><span class="o">=</span><span class="n">s</span><span class="p">,</span><span class="w"> </span><span class="n">dt</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="nb">time</span><span class="p">%</span><span class="n">dt</span><span class="p">)</span>
+<span class="w">         </span><span class="k">endif</span>
+<span class="k">         call </span><span class="n">self</span><span class="p">%</span><span class="n">compute_residuals</span><span class="p">(</span><span class="n">q_gpu</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">rk_gpu</span><span class="p">%</span><span class="n">q_rk_gpu</span><span class="p">(:,:,:,:,:,</span><span class="n">s</span><span class="p">),</span><span class="w"> </span><span class="n">dq_gpu</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">dq_gpu</span><span class="p">)</span>
+<span class="w">         </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="o">==</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">save_residuals</span>
+<span class="w">         </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">self</span><span class="p">%</span><span class="n">ib</span><span class="p">%</span><span class="n">solids_number</span><span class="o">&gt;</span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="k">then</span>
+<span class="k">            call </span><span class="n">self</span><span class="p">%</span><span class="n">rk_gpu</span><span class="p">%</span><span class="n">assign_stage</span><span class="p">(</span><span class="n">s</span><span class="o">=</span><span class="n">s</span><span class="p">,</span><span class="w"> </span><span class="n">q_gpu</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">dq_gpu</span><span class="p">,</span><span class="w"> </span><span class="n">phi_gpu</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">ib_gpu</span><span class="p">%</span><span class="n">phi_gpu</span><span class="p">)</span>
+<span class="w">         </span><span class="k">else</span>
+<span class="k">            call </span><span class="n">self</span><span class="p">%</span><span class="n">rk_gpu</span><span class="p">%</span><span class="n">assign_stage</span><span class="p">(</span><span class="n">s</span><span class="o">=</span><span class="n">s</span><span class="p">,</span><span class="w"> </span><span class="n">q_gpu</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">dq_gpu</span><span class="p">)</span>
+<span class="w">         </span><span class="k">endif</span>
+<span class="k">      enddo</span>
+<span class="k">      if</span><span class="w"> </span><span class="p">(</span><span class="n">self</span><span class="p">%</span><span class="n">ib</span><span class="p">%</span><span class="n">solids_number</span><span class="o">&gt;</span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="k">then</span>
+<span class="k">         call </span><span class="n">self</span><span class="p">%</span><span class="n">rk_gpu</span><span class="p">%</span><span class="n">update_q</span><span class="p">(</span><span class="n">dt</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="nb">time</span><span class="p">%</span><span class="n">dt</span><span class="p">,</span><span class="w"> </span><span class="n">phi_gpu</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">ib_gpu</span><span class="p">%</span><span class="n">phi_gpu</span><span class="p">,</span><span class="w"> </span><span class="n">q_gpu</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">q_gpu</span><span class="p">)</span>
+<span class="w">      </span><span class="k">else</span>
+<span class="k">         call </span><span class="n">self</span><span class="p">%</span><span class="n">rk_gpu</span><span class="p">%</span><span class="n">update_q</span><span class="p">(</span><span class="n">dt</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="nb">time</span><span class="p">%</span><span class="n">dt</span><span class="p">,</span><span class="w"> </span><span class="n">q_gpu</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">q_gpu</span><span class="p">)</span>
+<span class="w">      </span><span class="k">endif</span>
+<span class="k">   endselect</span>
+<span class="k">   endsubroutine </span><span class="n">integrate</span>
+</pre></div>
+
+    </section>
+    <br>
+    
+    </div>
+  </div>
+
+      <hr>
+    </div> <!-- /container -->
+    <footer>
+      <div class="container">
+        <div class="row justify-content-between">
+          <div class="col">
+            <p>
+              ADAM
+ was developed by Stefano Zaghi<br>              &copy; 2025 
+</p>
+          </div>
+          <div class="col">
+            <p class="text-end">
+              Documentation generated by
+              <a href="https://github.com/Fortran-FOSS-Programmers/ford">FORD</a>
+            </p>
+          </div>
+        </div>
+        <br>
+      </div> <!-- /container -->
+    </footer>
+  </body>
+</html>

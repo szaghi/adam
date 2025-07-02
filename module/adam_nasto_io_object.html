@@ -1,0 +1,1304 @@
+<!-- -*- mode: jinja2 -*- -->
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="description" content="Adaptive Mesh Refinement (AMR) with Immersed Boundary (IB) fluid dynamic solver tailored for High Performance GPU Computing">
+    <meta name="author" content="Stefano Zaghi" >
+    <link rel="icon" href="../favicon.png">
+
+    <title>adam_nasto_io_object &ndash; ADAM</title>
+
+    <!-- Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+          integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+            integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <!-- Font Awesome -->
+    <link href="../css/fontawesome.min.css" rel="stylesheet">
+    <link href="../css/brands.min.css" rel="stylesheet">
+    <link href="../css/regular.min.css" rel="stylesheet">
+    <link href="../css/solid.min.css" rel="stylesheet">
+    <link href="../css/v4-font-face.min.css" rel="stylesheet">
+    <link href="../css/v4-shims.min.css" rel="stylesheet">
+    <!-- MathJax -->
+    <script type="text/x-mathjax-config">
+      MathJax.Hub.Config({
+        TeX: { equationNumbers: { autoNumber: "AMS" } }
+      });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@2.7.9/MathJax.js?config=TeX-AMS-MML_HTMLorMML" async
+            integrity="sha256-DViIOMYdwlM/axqoGDPeUyf0urLoHMN4QACBKyB58Uw=" crossorigin="anonymous"></script>
+    <!-- Other scripts and stylesheets -->
+    <link href="../css/local.css" rel="stylesheet">
+    <link href="../css/pygments.css" rel="stylesheet">
+    <script src="../js/svg-pan-zoom.min.js"></script>
+  </head>
+
+  <body>
+
+    <!-- Fixed navbar -->
+    <div class="container-fluid mb-sm-4 mb-xl-2">
+      <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+        <div class="container">
+          <a class="navbar-brand" href="../index.html">ADAM </a>
+          <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar"
+                  aria-expanded="false" aria-controls="navbar" aria-label="Toggle navigation">
+                  <span class="navbar-toggler-icon">
+          </button>
+
+          <div id="navbar" class="navbar-collapse collapse">
+            <ul class="navbar-nav">
+                  <li class="nav-item">
+                    <a class="nav-link" href="../lists/files.html">Source Files</a>
+                  </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/modules.html">Modules</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/procedures.html">Procedures</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/types.html">Derived Types</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/programs.html">Programs</a>
+                </li>
+            </ul>
+              <div class="d-flex align-items-end flex-grow-1">
+                <form action="../search.html" role="search" class="ms-auto">
+                  <input type="text" class="form-control" aria-label="Search" placeholder="Search" name="q" id="tipue_search_input" autocomplete="off" required>
+                </form>
+              </div>
+          </div><!--/.nav-collapse -->
+        </div>
+      </nav>
+    </div>
+
+    <div class="container">
+  <div class="row">
+    <h1>adam_nasto_io_object
+      <small>Module</small>
+      
+    </h1>
+      <div class="container p-2 mb-4 bg-light border rounded-3">
+    <div class="row align-items-center justify-content-between" id="info-bar">
+      <div class="col">
+        <ul class="list-inline" style="margin-bottom:0px;display:inline">
+
+            <li class="list-inline-item" id="statements"><i class="fa fa-list-ol"></i>
+              <a data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-html="true"
+                 title=" 1.6% of total for modules and submodules.">104 statements</a>
+            </li>
+
+            <li class="list-inline-item" id="source-file">
+              <i class="fa fa-code"></i>
+              <a href="../src/adam_nasto_io_object.F90"> Source File</a>
+            </li>
+        </ul>
+      </div>
+      <div class="col">
+        <nav aria-label="breadcrumb">
+          <ol class="breadcrumb justify-content-end mb-0">
+                <li class="breadcrumb-item"><a href='../sourcefile/adam_nasto_io_object.f90.html'>adam_nasto_io_object.F90</a></li>
+            <li class="breadcrumb-item active" aria-current="page">adam_nasto_io_object</li>
+          </ol>
+        </nav>
+      </div>
+    </div>
+  </div>
+  <script>
+    // Enable Bootstrap tooltips
+    (function () {
+      const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]')
+      const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl))
+    })();
+  </script>
+
+  </div>
+
+  <div class="row">
+    <div class="col-md-3">
+        <div id="sidebar">
+      <h3>Contents</h3>
+  
+      <div class="card mb-4">
+      <a data-bs-toggle="collapse" href="#vars-0"
+         aria-expanded="false" aria-controls="vars-0">
+         <h4 class="card-header bg-primary text-white">Variables</h4>
+      </a>
+      <div id="vars-0" class="collapse">
+        <div class="list-group list-group-flush">
+            <a class="list-group-item" href="../module/adam_nasto_io_object.html#variable-ini_section_name~5">INI_SECTION_NAME</a>
+        </div>
+      </div>
+    </div>
+
+  
+  
+  
+  
+  
+  
+  
+  
+      <div class="card mb-4">
+      <a data-bs-toggle="collapse" href="#types-0"
+         aria-expanded="false" aria-controls="types-0">
+         <h4 class="card-header bg-primary text-white">Derived Types</h4>
+      </a>
+      <div id="types-0" class="collapse">
+        <div class="list-group list-group-flush">
+            <a class="list-group-item" href="../module/adam_nasto_io_object.html#type-nasto_io_object">nasto_io_object</a>
+        </div>
+      </div>
+    </div>
+
+      <div class="card mb-4">
+      <a data-bs-toggle="collapse" href="#funcs-0"
+         aria-expanded="false" aria-controls="funcs-0">
+         <h4 class="card-header bg-primary text-white">Functions</h4>
+      </a>
+      <div id="funcs-0" class="collapse">
+        <div class="list-group list-group-flush">
+            <a class="list-group-item" href="../module/adam_nasto_io_object.html#proc-description~5">description</a>
+        </div>
+      </div>
+    </div>
+
+      <div class="card mb-4">
+      <a data-bs-toggle="collapse" href="#subs-0"
+         aria-expanded="false" aria-controls="subs-0">
+         <h4 class="card-header bg-primary text-white">Subroutines</h4>
+      </a>
+      <div id="subs-0" class="collapse">
+        <div class="list-group list-group-flush">
+            <a class="list-group-item" href="../module/adam_nasto_io_object.html#proc-initialize~10">initialize</a>
+            <a class="list-group-item" href="../module/adam_nasto_io_object.html#proc-load_from_file~6">load_from_file</a>
+            <a class="list-group-item" href="../module/adam_nasto_io_object.html#proc-close_file_residuals">close_file_residuals</a>
+            <a class="list-group-item" href="../module/adam_nasto_io_object.html#proc-open_file_residuals">open_file_residuals</a>
+            <a class="list-group-item" href="../module/adam_nasto_io_object.html#proc-save_residuals~5">save_residuals</a>
+        </div>
+      </div>
+    </div>
+
+  
+  
+  
+  
+  
+  
+  
+
+
+  </div>
+
+    </div>
+
+    <div class="col-md-9" id='text'>
+      <p>ADAM, Navier-Stokes IO handler class definition, CPU backend.</p>
+<br>          <div class="card mb-4">
+      <h3 class="card-header card-title bg-light">Uses</h3>
+      <div class="card-body">
+        <ul class="list-group list-group-flush">
+            <li class="list-group-item">
+              <ul class="list-inline">
+                  <li class="list-inline-item">finer</li>
+                  <li class="list-inline-item">penf</li>
+                  <li class="list-inline-item">adam_mpih_object</li>
+              </ul>
+            </li>
+            <li class="list-group-item">
+              <div class="depgraph"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: module~~adam_nasto_io_object~~UsesGraph Pages: 1 -->
+<svg id="moduleadam_nasto_io_objectUsesGraph" width="289pt" height="116pt"
+ viewBox="0.00 0.00 289.00 116.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="module~~adam_nasto_io_object~~UsesGraph" class="graph" transform="scale(1 1) rotate(0) translate(4 112)">
+<title>module~~adam_nasto_io_object~~UsesGraph</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-112 285,-112 285,4 -4,4"/>
+<!-- module~adam_nasto_io_object -->
+<g id="module~~adam_nasto_io_object~~UsesGraph_node1" class="node">
+<title>module~adam_nasto_io_object</title>
+<polygon fill="none" stroke="black" points="281,-66 150,-66 150,-42 281,-42 281,-66"/>
+<text text-anchor="middle" x="215.5" y="-51.6" font-family="Helvetica,sans-Serif" font-size="10.50">adam_nasto_io_object</text>
+</g>
+<!-- adam_mpih_object -->
+<g id="module~~adam_nasto_io_object~~UsesGraph_node2" class="node">
+<title>adam_mpih_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="114,-108 0,-108 0,-84 114,-84 114,-108"/>
+<text text-anchor="middle" x="57" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_mpih_object</text>
+</g>
+<!-- module~adam_nasto_io_object&#45;&gt;adam_mpih_object -->
+<g id="module~~adam_nasto_io_object~~UsesGraph_edge1" class="edge">
+<title>module~adam_nasto_io_object&#45;&gt;adam_mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M169.65,-66.04C151.89,-70.8 131.3,-76.33 112.68,-81.33"/>
+<polygon fill="#000000" stroke="#000000" points="111.6,-77.99 102.85,-83.96 113.42,-84.75 111.6,-77.99"/>
+</g>
+<!-- finer -->
+<g id="module~~adam_nasto_io_object~~UsesGraph_node3" class="node">
+<title>finer</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="84,-66 30,-66 30,-42 84,-42 84,-66"/>
+<text text-anchor="middle" x="57" y="-51.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">finer</text>
+</g>
+<!-- module~adam_nasto_io_object&#45;&gt;finer -->
+<g id="module~~adam_nasto_io_object~~UsesGraph_edge2" class="edge">
+<title>module~adam_nasto_io_object&#45;&gt;finer</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M149.94,-54C131.02,-54 110.99,-54 94.47,-54"/>
+<polygon fill="#000000" stroke="#000000" points="94.18,-50.5 84.18,-54 94.18,-57.5 94.18,-50.5"/>
+</g>
+<!-- penf -->
+<g id="module~~adam_nasto_io_object~~UsesGraph_node4" class="node">
+<title>penf</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="84,-24 30,-24 30,0 84,0 84,-24"/>
+<text text-anchor="middle" x="57" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">penf</text>
+</g>
+<!-- module~adam_nasto_io_object&#45;&gt;penf -->
+<g id="module~~adam_nasto_io_object~~UsesGraph_edge3" class="edge">
+<title>module~adam_nasto_io_object&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M169.65,-41.96C145.69,-35.53 116.57,-27.72 94.08,-21.68"/>
+<polygon fill="#000000" stroke="#000000" points="94.82,-18.26 84.26,-19.05 93.01,-25.02 94.82,-18.26"/>
+</g>
+</g>
+</svg>
+</div>          <div>
+            <a type="button" class="graph-help" data-bs-toggle="modal" href="#UsesGraph-help-text">Help</a>
+          </div>
+          <div class="modal fade" id="UsesGraph-help-text" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h4 class="modal-title" id="-graph-help-label">Graph Key</h4>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+<p>Nodes of different colours represent the following: </p>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: Graph Key Pages: 1 -->
+<svg width="518pt" height="32pt"
+ viewBox="0.00 0.00 517.50 32.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 28)">
+<title>Graph Key</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 513.5,-28 513.5,4 -4,4"/>
+<!-- Module -->
+<g id="node1" class="node">
+<title>Module</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="54,-24 0,-24 0,0 54,0 54,-24"/>
+<text text-anchor="middle" x="27" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Module</text>
+</g>
+<!-- Submodule -->
+<g id="node2" class="node">
+<title>Submodule</title>
+<polygon fill="#5bc0de" stroke="#5bc0de" points="145.5,-24 72.5,-24 72.5,0 145.5,0 145.5,-24"/>
+<text text-anchor="middle" x="109" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Submodule</text>
+</g>
+<!-- Subroutine -->
+<g id="node3" class="node">
+<title>Subroutine</title>
+<polygon fill="#d9534f" stroke="#d9534f" points="234,-24 164,-24 164,0 234,0 234,-24"/>
+<text text-anchor="middle" x="199" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Subroutine</text>
+</g>
+<!-- Function -->
+<g id="node4" class="node">
+<title>Function</title>
+<polygon fill="#d94e8f" stroke="#d94e8f" points="310,-24 252,-24 252,0 310,0 310,-24"/>
+<text text-anchor="middle" x="281" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Function</text>
+</g>
+<!-- Program -->
+<g id="node5" class="node">
+<title>Program</title>
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="386,-24 328,-24 328,0 386,0 386,-24"/>
+<text text-anchor="middle" x="357" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Program</text>
+</g>
+<!-- This Page&#39;s Entity -->
+<g id="node6" class="node">
+<title>This Page&#39;s Entity</title>
+<polygon fill="none" stroke="black" points="509.5,-24 404.5,-24 404.5,0 509.5,0 509.5,-24"/>
+<text text-anchor="middle" x="457" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">This Page&#39;s Entity</text>
+</g>
+</g>
+</svg>
+
+<p>Solid arrows point from a submodule to the (sub)module which it is
+descended from. Dashed arrows point from a module or program unit to 
+modules which it uses.
+</p>
+ </div>
+            </div>
+          </div>
+        </div>
+            </li>
+        </ul>
+      </div>
+    </div>
+
+          <div class="card">
+      <h3 class="card-header card-title bg-light">Used by</h3>
+      <div class="card-body">
+        <ul class="list-group list-group-flush">
+            <li class="list-group-item">
+              <div class="depgraph"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: module~~adam_nasto_io_object~~UsedByGraph Pages: 1 -->
+<svg id="moduleadam_nasto_io_objectUsedByGraph" width="641pt" height="98pt"
+ viewBox="0.00 0.00 641.00 97.85" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="module~~adam_nasto_io_object~~UsedByGraph" class="graph" transform="scale(0.62 0.62) rotate(0) translate(4 154)">
+<title>module~~adam_nasto_io_object~~UsedByGraph</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-154 1031,-154 1031,4 -4,4"/>
+<!-- module~adam_nasto_io_object -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_node1" class="node">
+<title>module~adam_nasto_io_object</title>
+<polygon fill="none" stroke="black" points="131,-87 0,-87 0,-63 131,-63 131,-87"/>
+<text text-anchor="middle" x="65.5" y="-72.6" font-family="Helvetica,sans-Serif" font-size="10.50">adam_nasto_io_object</text>
+</g>
+<!-- module~adam_nasto_common_library -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_node2" class="node">
+<title>module~adam_nasto_common_library</title>
+<g id="a_module~~adam_nasto_io_object~~UsedByGraph_node2"><a xlink:href="../module/adam_nasto_common_library.html" xlink:title="adam_nasto_common_library">
+<polygon fill="#337ab7" stroke="#337ab7" points="542,-87 372,-87 372,-63 542,-63 542,-87"/>
+<text text-anchor="middle" x="457" y="-72.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_common_library</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_common_library&#45;&gt;module~adam_nasto_io_object -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_edge1" class="edge">
+<title>module~adam_nasto_common_library&#45;&gt;module~adam_nasto_io_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M371.75,-75.79C359.75,-75.88 347.56,-75.95 336,-76 260.89,-76.31 242.11,-76.37 167,-76 158.66,-75.96 149.93,-75.9 141.25,-75.83"/>
+<polygon fill="#000000" stroke="#000000" points="141.13,-72.33 131.1,-75.74 141.07,-79.32 141.13,-72.33"/>
+</g>
+<!-- module~adam_nasto_common_object -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_node3" class="node">
+<title>module~adam_nasto_common_object</title>
+<g id="a_module~~adam_nasto_io_object~~UsedByGraph_node3"><a xlink:href="../module/adam_nasto_common_object.html" xlink:title="adam_nasto_common_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="336,-67 167,-67 167,-43 336,-43 336,-67"/>
+<text text-anchor="middle" x="251.5" y="-52.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_common_object</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_common_library&#45;&gt;module~adam_nasto_common_object -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_edge7" class="edge">
+<title>module~adam_nasto_common_library&#45;&gt;module~adam_nasto_common_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M371.76,-66.72C363.27,-65.89 354.62,-65.04 346.04,-64.19"/>
+<polygon fill="#000000" stroke="#000000" points="346.32,-60.7 336.02,-63.21 345.63,-67.67 346.32,-60.7"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;module~adam_nasto_io_object -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_edge2" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;module~adam_nasto_io_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M166.85,-64.09C158.34,-65.02 149.74,-65.95 141.34,-66.87"/>
+<polygon fill="#000000" stroke="#000000" points="140.77,-63.41 131.21,-67.97 141.53,-70.37 140.77,-63.41"/>
+</g>
+<!-- module~adam_nasto_cpu_object -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_node4" class="node">
+<title>module~adam_nasto_cpu_object</title>
+<g id="a_module~~adam_nasto_io_object~~UsedByGraph_node4"><a xlink:href="../module/adam_nasto_cpu_object.html" xlink:title="adam_nasto_cpu_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="721,-150 580,-150 580,-126 721,-126 721,-150"/>
+<text text-anchor="middle" x="650.5" y="-135.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_cpu_object</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_cpu_object&#45;&gt;module~adam_nasto_common_library -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_edge3" class="edge">
+<title>module~adam_nasto_cpu_object&#45;&gt;module~adam_nasto_common_library</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M607.05,-125.92C597.46,-123.08 587.36,-120.01 578,-117 552.08,-108.66 523.27,-98.61 500.38,-90.42"/>
+<polygon fill="#000000" stroke="#000000" points="501.55,-87.13 490.95,-87.04 499.18,-93.72 501.55,-87.13"/>
+</g>
+<!-- module~adam_nasto_fnl_library -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_node5" class="node">
+<title>module~adam_nasto_fnl_library</title>
+<g id="a_module~~adam_nasto_io_object~~UsedByGraph_node5"><a xlink:href="../module/adam_nasto_fnl_library.html" xlink:title="adam_nasto_fnl_library">
+<polygon fill="#337ab7" stroke="#337ab7" points="718.5,-108 582.5,-108 582.5,-84 718.5,-84 718.5,-108"/>
+<text text-anchor="middle" x="650.5" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_fnl_library</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_fnl_library&#45;&gt;module~adam_nasto_common_library -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_edge4" class="edge">
+<title>module~adam_nasto_fnl_library&#45;&gt;module~adam_nasto_common_library</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M582.25,-88.63C572.55,-87.56 562.43,-86.45 552.32,-85.34"/>
+<polygon fill="#000000" stroke="#000000" points="552.56,-81.85 542.23,-84.24 551.79,-88.81 552.56,-81.85"/>
+</g>
+<!-- module~adam_nasto_gmp_object -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_node6" class="node">
+<title>module~adam_nasto_gmp_object</title>
+<g id="a_module~~adam_nasto_io_object~~UsedByGraph_node6"><a xlink:href="../module/adam_nasto_gmp_object.html" xlink:title="adam_nasto_gmp_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="723,-66 578,-66 578,-42 723,-42 723,-66"/>
+<text text-anchor="middle" x="650.5" y="-51.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_gmp_object</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_gmp_object&#45;&gt;module~adam_nasto_common_library -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_edge5" class="edge">
+<title>module~adam_nasto_gmp_object&#45;&gt;module~adam_nasto_common_library</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M577.92,-61.85C569.52,-62.77 560.86,-63.72 552.21,-64.67"/>
+<polygon fill="#000000" stroke="#000000" points="551.64,-61.21 542.08,-65.78 552.4,-68.17 551.64,-61.21"/>
+</g>
+<!-- module~adam_nasto_nvf_object -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_node7" class="node">
+<title>module~adam_nasto_nvf_object</title>
+<g id="a_module~~adam_nasto_io_object~~UsedByGraph_node7"><a xlink:href="../module/adam_nasto_nvf_object.html" xlink:title="adam_nasto_nvf_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="719.5,-24 581.5,-24 581.5,0 719.5,0 719.5,-24"/>
+<text text-anchor="middle" x="650.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_nvf_object</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;module~adam_nasto_common_library -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_edge6" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;module~adam_nasto_common_library</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M607.05,-24.08C597.46,-26.92 587.36,-29.99 578,-33 552.08,-41.34 523.27,-51.39 500.38,-59.58"/>
+<polygon fill="#000000" stroke="#000000" points="499.18,-56.28 490.95,-62.96 501.55,-62.87 499.18,-56.28"/>
+</g>
+<!-- module~adam_nasto_fnl_object -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_node8" class="node">
+<title>module~adam_nasto_fnl_object</title>
+<g id="a_module~~adam_nasto_io_object~~UsedByGraph_node8"><a xlink:href="../module/adam_nasto_fnl_object.html" xlink:title="adam_nasto_fnl_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="894,-108 759,-108 759,-84 894,-84 894,-108"/>
+<text text-anchor="middle" x="826.5" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_fnl_object</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_fnl_object&#45;&gt;module~adam_nasto_fnl_library -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_edge9" class="edge">
+<title>module~adam_nasto_fnl_object&#45;&gt;module~adam_nasto_fnl_library</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M758.72,-96C748.98,-96 738.88,-96 728.94,-96"/>
+<polygon fill="#000000" stroke="#000000" points="728.67,-92.5 718.67,-96 728.67,-99.5 728.67,-92.5"/>
+</g>
+<!-- program~adam_nasto_cpu -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_node9" class="node">
+<title>program~adam_nasto_cpu</title>
+<g id="a_module~~adam_nasto_io_object~~UsedByGraph_node9"><a xlink:href="../program/adam_nasto_cpu.html" xlink:title="adam_nasto_cpu">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="878,-150 775,-150 775,-126 878,-126 878,-150"/>
+<text text-anchor="middle" x="826.5" y="-135.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_cpu</text>
+</a>
+</g>
+</g>
+<!-- program~adam_nasto_cpu&#45;&gt;module~adam_nasto_cpu_object -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_edge8" class="edge">
+<title>program~adam_nasto_cpu&#45;&gt;module~adam_nasto_cpu_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M774.7,-138C761.09,-138 746.04,-138 731.27,-138"/>
+<polygon fill="#000000" stroke="#000000" points="731.11,-134.5 721.11,-138 731.11,-141.5 731.11,-134.5"/>
+</g>
+<!-- program~adam_nasto_gmp -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_node10" class="node">
+<title>program~adam_nasto_gmp</title>
+<g id="a_module~~adam_nasto_io_object~~UsedByGraph_node10"><a xlink:href="../program/adam_nasto_gmp.html" xlink:title="adam_nasto_gmp">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="880,-66 773,-66 773,-42 880,-42 880,-66"/>
+<text text-anchor="middle" x="826.5" y="-51.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_gmp</text>
+</a>
+</g>
+</g>
+<!-- program~adam_nasto_gmp&#45;&gt;module~adam_nasto_gmp_object -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_edge10" class="edge">
+<title>program~adam_nasto_gmp&#45;&gt;module~adam_nasto_gmp_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M772.82,-54C760.39,-54 746.84,-54 733.45,-54"/>
+<polygon fill="#000000" stroke="#000000" points="733.27,-50.5 723.27,-54 733.27,-57.5 733.27,-50.5"/>
+</g>
+<!-- program~adam_nasto_nvf -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_node11" class="node">
+<title>program~adam_nasto_nvf</title>
+<g id="a_module~~adam_nasto_io_object~~UsedByGraph_node11"><a xlink:href="../program/adam_nasto_nvf.html" xlink:title="adam_nasto_nvf">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="876.5,-24 776.5,-24 776.5,0 876.5,0 876.5,-24"/>
+<text text-anchor="middle" x="826.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_nvf</text>
+</a>
+</g>
+</g>
+<!-- program~adam_nasto_nvf&#45;&gt;module~adam_nasto_nvf_object -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_edge11" class="edge">
+<title>program~adam_nasto_nvf&#45;&gt;module~adam_nasto_nvf_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M776.1,-12C761.68,-12 745.55,-12 729.8,-12"/>
+<polygon fill="#000000" stroke="#000000" points="729.53,-8.5 719.53,-12 729.53,-15.5 729.53,-8.5"/>
+</g>
+<!-- program~adam_nasto_fnl -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_node12" class="node">
+<title>program~adam_nasto_fnl</title>
+<g id="a_module~~adam_nasto_io_object~~UsedByGraph_node12"><a xlink:href="../program/adam_nasto_fnl.html" xlink:title="adam_nasto_fnl">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="1027,-108 930,-108 930,-84 1027,-84 1027,-108"/>
+<text text-anchor="middle" x="978.5" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_fnl</text>
+</a>
+</g>
+</g>
+<!-- program~adam_nasto_fnl&#45;&gt;module~adam_nasto_fnl_object -->
+<g id="module~~adam_nasto_io_object~~UsedByGraph_edge12" class="edge">
+<title>program~adam_nasto_fnl&#45;&gt;module~adam_nasto_fnl_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M929.63,-96C921.49,-96 912.87,-96 904.21,-96"/>
+<polygon fill="#000000" stroke="#000000" points="904.06,-92.5 894.06,-96 904.06,-99.5 904.06,-92.5"/>
+</g>
+</g>
+</svg>
+</div>                <script>
+                  var panmoduleadam_nasto_io_objectUsedByGraph = svgPanZoom('#moduleadam_nasto_io_objectUsedByGraph',
+                    {zoomEnabled: true, controlIconsEnabled: true, fit: true, center: true,}
+                  );
+                </script>          <div>
+            <a type="button" class="graph-help" data-bs-toggle="modal" href="#UsedByGraph-help-text">Help</a>
+          </div>
+          <div class="modal fade" id="UsedByGraph-help-text" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h4 class="modal-title" id="-graph-help-label">Graph Key</h4>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+<p>Nodes of different colours represent the following: </p>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: Graph Key Pages: 1 -->
+<svg width="518pt" height="32pt"
+ viewBox="0.00 0.00 517.50 32.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 28)">
+<title>Graph Key</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 513.5,-28 513.5,4 -4,4"/>
+<!-- Module -->
+<g id="node1" class="node">
+<title>Module</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="54,-24 0,-24 0,0 54,0 54,-24"/>
+<text text-anchor="middle" x="27" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Module</text>
+</g>
+<!-- Submodule -->
+<g id="node2" class="node">
+<title>Submodule</title>
+<polygon fill="#5bc0de" stroke="#5bc0de" points="145.5,-24 72.5,-24 72.5,0 145.5,0 145.5,-24"/>
+<text text-anchor="middle" x="109" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Submodule</text>
+</g>
+<!-- Subroutine -->
+<g id="node3" class="node">
+<title>Subroutine</title>
+<polygon fill="#d9534f" stroke="#d9534f" points="234,-24 164,-24 164,0 234,0 234,-24"/>
+<text text-anchor="middle" x="199" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Subroutine</text>
+</g>
+<!-- Function -->
+<g id="node4" class="node">
+<title>Function</title>
+<polygon fill="#d94e8f" stroke="#d94e8f" points="310,-24 252,-24 252,0 310,0 310,-24"/>
+<text text-anchor="middle" x="281" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Function</text>
+</g>
+<!-- Program -->
+<g id="node5" class="node">
+<title>Program</title>
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="386,-24 328,-24 328,0 386,0 386,-24"/>
+<text text-anchor="middle" x="357" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Program</text>
+</g>
+<!-- This Page&#39;s Entity -->
+<g id="node6" class="node">
+<title>This Page&#39;s Entity</title>
+<polygon fill="none" stroke="black" points="509.5,-24 404.5,-24 404.5,0 509.5,0 509.5,-24"/>
+<text text-anchor="middle" x="457" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">This Page&#39;s Entity</text>
+</g>
+</g>
+</svg>
+
+<p>Solid arrows point from a submodule to the (sub)module which it is
+descended from. Dashed arrows point from a module or program unit to 
+modules which it uses.
+</p>
+ </div>
+            </div>
+          </div>
+        </div>
+            </li>
+        </ul>
+      </div>
+    </div>
+
+      <br>
+
+
+        <section>
+          <h2>Variables</h2>
+            <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Visibility</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+<th></th><th scope="col">Initial</th>        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-ini_section_name~5"></span>
+              character(len=2),
+            </td>
+              <td>private,</td>
+            <td>
+parameter               
+            </td>
+            <td>::</td>
+            <td><strong>INI_SECTION_NAME</strong></td>
+<td> =</td>
+                <td>&#34;IO&#34;</td>
+            <td>
+                <p>INI (config) file section name containing IO configs.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+        </section>
+        <br>
+
+
+
+
+        <section>
+          <h2>Derived Types</h2>
+              <div class="card">
+    <div class="card-header codesum">
+      <span class="anchor" id="type-nasto_io_object"></span>
+      <h3>
+        type, public&nbsp;::&nbsp;
+        <a href='../type/nasto_io_object.html'>nasto_io_object</a>
+        
+      </h3>
+    </div>
+    <div class="card-body">
+      <p>NASTO IO handler class definition, CPU backend.</p>
+
+        <h4>Components</h4>
+          <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Visibility</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+<th></th><th scope="col">Initial</th>        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-mpih~7"></span>
+              type(mpih_object),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>mpih</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>MPI handler.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-file_parameters~11"></span>
+              type(file_ini),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>file_parameters</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Nasto input file handler.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-it_save~2"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>it_save</strong></td>
+<td> =</td>
+                <td>100_I4P</td>
+            <td>
+<p>Main output iteration save frequency.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-output_basename~5"></span>
+              character(len=:),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable
+            </td>
+            <td>::</td>
+            <td><strong>output_basename</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Basename of output files.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-restart"></span>
+              logical,
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>restart</strong></td>
+<td> =</td>
+                <td>.false.</td>
+            <td>
+<p>Enable restart from old output data.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-restart_basename"></span>
+              character(len=:),
+            </td>
+              <td>public,</td>
+            <td>
+              allocatable
+            </td>
+            <td>::</td>
+            <td><strong>restart_basename</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Basename of restart files.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-restart_save"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>restart_save</strong></td>
+<td> =</td>
+                <td>100_I4P</td>
+            <td>
+<p>Restart output iteration save frequency.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-save_memory_status"></span>
+              logical,
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>save_memory_status</strong></td>
+<td> =</td>
+                <td>.false.</td>
+            <td>
+<p>Enable save of memory status during allocations.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-residuals_save"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>residuals_save</strong></td>
+<td> =</td>
+                <td>10_I4P</td>
+            <td>
+<p>Residuals (norm) output iteration save frequency.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-residuals_unit"></span>
+              integer(kind=I4P),
+            </td>
+              <td>public</td>
+            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>residuals_unit</strong></td>
+                <td></td>
+                <td></td>
+            <td>
+<p>Residuals file unit.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+
+
+        <h4>Type-Bound Procedures</h4>
+        <table class="table table-striped varlist">
+          <tbody>
+              <tr>
+                <td>  procedure, public, pass(self) ::
+  <strong><a href='../type/nasto_io_object.html#boundprocedure-description~5'>description</a></strong></td>
+                  <td><p>Return pretty-printed object description.</p></td>
+              </tr>
+              <tr>
+                <td>  procedure, public, pass(self) ::
+  <strong><a href='../type/nasto_io_object.html#boundprocedure-initialize~10'>initialize</a></strong></td>
+                  <td><p>Initialize time handler.</p></td>
+              </tr>
+              <tr>
+                <td>  procedure, public, pass(self) ::
+  <strong><a href='../type/nasto_io_object.html#boundprocedure-load_from_file~6'>load_from_file</a></strong></td>
+                  <td><p>Load config from file.</p></td>
+              </tr>
+              <tr>
+                <td>  procedure, public, pass(self) ::
+  <strong><a href='../type/nasto_io_object.html#boundprocedure-close_file_residuals'>close_file_residuals</a></strong></td>
+                  <td><p>Close file for saving residuals history.</p></td>
+              </tr>
+              <tr>
+                <td>  procedure, public, pass(self) ::
+  <strong><a href='../type/nasto_io_object.html#boundprocedure-open_file_residuals'>open_file_residuals</a></strong></td>
+                  <td><p>Open file for saving residuals history.</p></td>
+              </tr>
+              <tr>
+                <td>  procedure, public, pass(self) ::
+  <strong><a href='../type/nasto_io_object.html#boundprocedure-save_residuals~5'>save_residuals</a></strong></td>
+                  <td><p>Save residuals history.</p></td>
+              </tr>
+          </tbody>
+        </table>
+    </div>
+  </div>
+
+        </section>
+        <br>
+
+        <section>
+          <h2>Functions</h2>
+              <div class="card">
+    <div class="card-header codesum"><span class="anchor" id="proc-description~5"></span> <h3>private pure function <a href='../proc/description~5.html'>description</a>(self) result(desc)  
+</h3></div>
+    <div class="card-body">
+          
+  <p>Return a pretty-formatted object description.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-self~128"></span>
+              class(<a href='../type/nasto_io_object.html'>nasto_io_object</a>),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>IO handler.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+    <h4>
+    Return Value
+    <small>character(len=:), allocatable</small>
+    </h4>
+    <p>Description.</p>
+
+    </div>
+  </div>
+
+        </section>
+        <br>
+
+        <section>
+          <h2>Subroutines</h2>
+              <div class="card">
+    <div class="card-header codesum"><span class="anchor" id="proc-initialize~10"></span> <h3>private  subroutine <a href='../proc/initialize~10.html'>initialize</a>(self, filename)  
+</h3></div>
+    <div class="card-body">
+          
+  <p>Initialize IO handler.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-self~129"></span>
+              class(<a href='../type/nasto_io_object.html'>nasto_io_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>IO handler.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-filename~10"></span>
+              character(len=*),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>filename</strong></td>
+            <td>
+<p>File name of parameters file.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="card">
+    <div class="card-header codesum"><span class="anchor" id="proc-load_from_file~6"></span> <h3>private  subroutine <a href='../proc/load_from_file~6.html'>load_from_file</a>(self, file_parameters, go_on_fail)  
+</h3></div>
+    <div class="card-body">
+          
+  <p>Load config from file.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-self~130"></span>
+              class(<a href='../type/nasto_io_object.html'>nasto_io_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>IO handler.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-file_parameters~12"></span>
+              type(file_ini),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>file_parameters</strong></td>
+            <td>
+<p>Simulation parameters ini file handler.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-go_on_fail~6"></span>
+              logical,
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>go_on_fail</strong></td>
+            <td>
+<p>Go on if load fails.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="card">
+    <div class="card-header codesum"><span class="anchor" id="proc-close_file_residuals"></span> <h3>private  subroutine <a href='../proc/close_file_residuals.html'>close_file_residuals</a>(self)  
+</h3></div>
+    <div class="card-body">
+          
+  <p>Close file for saving residuals history.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-self~131"></span>
+              class(<a href='../type/nasto_io_object.html'>nasto_io_object</a>),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>IO handler.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="card">
+    <div class="card-header codesum"><span class="anchor" id="proc-open_file_residuals"></span> <h3>private  subroutine <a href='../proc/open_file_residuals.html'>open_file_residuals</a>(self, nv)  
+</h3></div>
+    <div class="card-body">
+          
+  <p>Open file for saving residuals history.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-self~132"></span>
+              class(<a href='../type/nasto_io_object.html'>nasto_io_object</a>),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>IO handler.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-nv~40"></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>nv</strong></td>
+            <td>
+<p>Number of residuals variables.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="card">
+    <div class="card-header codesum"><span class="anchor" id="proc-save_residuals~5"></span> <h3>private  subroutine <a href='../proc/save_residuals~5.html'>save_residuals</a>(self, it, time, blocks_number, residuals)  
+</h3></div>
+    <div class="card-body">
+          
+  <p>Save residuals history.</p>
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-self~133"></span>
+              class(<a href='../type/nasto_io_object.html'>nasto_io_object</a>),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>self</strong></td>
+            <td>
+<p>IO handler.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-it~2"></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>it</strong></td>
+            <td>
+<p>Current iteration.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-time~7"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>time</strong></td>
+            <td>
+<p>Current time.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-blocks_number~22"></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>blocks_number</strong></td>
+            <td>
+<p>Current number of blocks.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-residuals"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>residuals</strong>(1:)</td>
+            <td>
+<p>Residuals (norm) [1:nv].</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+        </section>
+        <br>
+
+
+
+    </div>
+  </div>
+
+      <hr>
+    </div> <!-- /container -->
+    <footer>
+      <div class="container">
+        <div class="row justify-content-between">
+          <div class="col">
+            <p>
+              ADAM
+ was developed by Stefano Zaghi<br>              &copy; 2025 
+</p>
+          </div>
+          <div class="col">
+            <p class="text-end">
+              Documentation generated by
+              <a href="https://github.com/Fortran-FOSS-Programmers/ford">FORD</a>
+            </p>
+          </div>
+        </div>
+        <br>
+      </div> <!-- /container -->
+    </footer>
+  </body>
+</html>

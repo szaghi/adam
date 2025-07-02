@@ -1,0 +1,715 @@
+<!-- -*- mode: jinja2 -*- -->
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="description" content="Adaptive Mesh Refinement (AMR) with Immersed Boundary (IB) fluid dynamic solver tailored for High Performance GPU Computing">
+    <meta name="author" content="Stefano Zaghi" >
+    <link rel="icon" href="../favicon.png">
+
+    <title>set_bc_q_gpu_gmp &ndash; ADAM</title>
+
+    <!-- Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+          integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+            integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <!-- Font Awesome -->
+    <link href="../css/fontawesome.min.css" rel="stylesheet">
+    <link href="../css/brands.min.css" rel="stylesheet">
+    <link href="../css/regular.min.css" rel="stylesheet">
+    <link href="../css/solid.min.css" rel="stylesheet">
+    <link href="../css/v4-font-face.min.css" rel="stylesheet">
+    <link href="../css/v4-shims.min.css" rel="stylesheet">
+    <!-- MathJax -->
+    <script type="text/x-mathjax-config">
+      MathJax.Hub.Config({
+        TeX: { equationNumbers: { autoNumber: "AMS" } }
+      });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@2.7.9/MathJax.js?config=TeX-AMS-MML_HTMLorMML" async
+            integrity="sha256-DViIOMYdwlM/axqoGDPeUyf0urLoHMN4QACBKyB58Uw=" crossorigin="anonymous"></script>
+    <!-- Other scripts and stylesheets -->
+    <link href="../css/local.css" rel="stylesheet">
+    <link href="../css/pygments.css" rel="stylesheet">
+    <script src="../js/svg-pan-zoom.min.js"></script>
+  </head>
+
+  <body>
+
+    <!-- Fixed navbar -->
+    <div class="container-fluid mb-sm-4 mb-xl-2">
+      <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+        <div class="container">
+          <a class="navbar-brand" href="../index.html">ADAM </a>
+          <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar"
+                  aria-expanded="false" aria-controls="navbar" aria-label="Toggle navigation">
+                  <span class="navbar-toggler-icon">
+          </button>
+
+          <div id="navbar" class="navbar-collapse collapse">
+            <ul class="navbar-nav">
+                  <li class="nav-item">
+                    <a class="nav-link" href="../lists/files.html">Source Files</a>
+                  </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/modules.html">Modules</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/procedures.html">Procedures</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/types.html">Derived Types</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/programs.html">Programs</a>
+                </li>
+            </ul>
+              <div class="d-flex align-items-end flex-grow-1">
+                <form action="../search.html" role="search" class="ms-auto">
+                  <input type="text" class="form-control" aria-label="Search" placeholder="Search" name="q" id="tipue_search_input" autocomplete="off" required>
+                </form>
+              </div>
+          </div><!--/.nav-collapse -->
+        </div>
+      </nav>
+    </div>
+
+    <div class="container">
+  <div class="row">
+    <h1>set_bc_q_gpu_gmp
+      <small>Subroutine</small>
+      
+    </h1>
+      <div class="container p-2 mb-4 bg-light border rounded-3">
+    <div class="row align-items-center justify-content-between" id="info-bar">
+      <div class="col">
+        <ul class="list-inline" style="margin-bottom:0px;display:inline">
+
+            <li class="list-inline-item" id="statements"><i class="fa fa-list-ol"></i>
+              <a data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-html="true"
+                 title=" 0.8% of total for procedures.">48 statements</a>
+            </li>
+
+            <li class="list-inline-item" id="source-file">
+              <i class="fa fa-code"></i>
+              <a href="../src/adam_nasto_gmp_kernels.F90"> Source File</a>
+            </li>
+        </ul>
+      </div>
+      <div class="col">
+        <nav aria-label="breadcrumb">
+          <ol class="breadcrumb justify-content-end mb-0">
+                <li class="breadcrumb-item"><a href='../sourcefile/adam_nasto_gmp_kernels.f90.html'>adam_nasto_gmp_kernels.F90</a></li>
+                <li class="breadcrumb-item"><a href='../module/adam_nasto_gmp_kernels.html'>adam_nasto_gmp_kernels</a></li>
+            <li class="breadcrumb-item active" aria-current="page">set_bc_q_gpu_gmp</li>
+          </ol>
+        </nav>
+      </div>
+    </div>
+  </div>
+  <script>
+    // Enable Bootstrap tooltips
+    (function () {
+      const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]')
+      const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl))
+    })();
+  </script>
+
+  </div>
+  
+  <div class="row">
+    <div class="col-md-3 hidden-xs hidden-sm visible-md visible-lg">
+      <div id="sidebar">
+      <h3>Contents</h3>
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+    <div class="card card-primary">
+      <div class="card-header text-left"><h3 class="card-title">Source Code</h3></div>
+      <div class="list-group">
+        <a class="list-group-item" href="../proc/set_bc_q_gpu_gmp.html#src">set_bc_q_gpu_gmp</a>
+      </div>
+    </div>
+
+
+  </div>
+
+    </div>
+    
+    <div class="col-md-9" id='text'>
+    <h2>public  subroutine set_bc_q_gpu_gmp(BC_EXTRAPOLATION, BC_INFLOW, nv, ngc, cv, R, local_map_bc_gpu, fec_1_6_array_gpu, q_bc_vars_gpu, q_gpu)  
+</h2>
+    
+
+    <p>Set BC over q.</p>
+
+
+    <h3>Arguments</h3>
+        <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-bc_extrapolation~4"></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>BC_EXTRAPOLATION</strong></td>
+            <td>
+                <p>Extrapolation BC parameter.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-bc_inflow~4"></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>BC_INFLOW</strong></td>
+            <td>
+                <p>Inflow BC parameter.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-nv~28"></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>nv</strong></td>
+            <td>
+                <p>Number of variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-ngc~32"></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>ngc</strong></td>
+            <td>
+                <p>Ghost cells number.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-cv~9"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>cv</strong></td>
+            <td>
+                <p>Constant volume specific heat.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-r~10"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>R</strong></td>
+            <td>
+                <p>Gas constant.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-local_map_bc_gpu~2"></span>
+              integer(kind=I8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>local_map_bc_gpu</strong>(:,:,:)</td>
+            <td>
+                <p>Local map for BC ghost cells.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-fec_1_6_array_gpu~3"></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>fec_1_6_array_gpu</strong>(:)</td>
+            <td>
+                <p>Local map for BC ghost cells.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-q_bc_vars_gpu~6"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>q_bc_vars_gpu</strong>(:,:)</td>
+            <td>
+                <p>Boundary variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-q_gpu~25"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>q_gpu</strong>(1:,1-ngc:,1-ngc:,1-ngc:,1:)</td>
+            <td>
+                <p>Conservative variables.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+    <br>
+    <div class="card">
+      <div class="card-header">
+  <h3 class="card-title">Called by</h3>
+      </div>
+      <div class="card-body">
+  <div class="depgraph"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: proc~~set_bc_q_gpu_gmp~~CalledByGraph Pages: 1 -->
+<svg id="procset_bc_q_gpu_gmpCalledByGraph" width="641pt" height="62pt"
+ viewBox="0.00 0.00 641.00 62.41" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph" class="graph" transform="scale(0.36 0.36) rotate(0) translate(4 167.07)">
+<title>proc~~set_bc_q_gpu_gmp~~CalledByGraph</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-167.07 1753,-167.07 1753,4 -4,4"/>
+<!-- proc~set_bc_q_gpu_gmp -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_node1" class="node">
+<title>proc~set_bc_q_gpu_gmp</title>
+<polygon fill="none" stroke="black" points="1749,-102 1636,-102 1636,-78 1749,-78 1749,-102"/>
+<text text-anchor="middle" x="1692.5" y="-87.6" font-family="Helvetica,sans-Serif" font-size="10.50">set_bc_q_gpu_gmp</text>
+</g>
+<!-- proc~set_boundary_conditions -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_node2" class="node">
+<title>proc~set_boundary_conditions</title>
+<g id="a_proc~~set_bc_q_gpu_gmp~~CalledByGraph_node2"><a xlink:href="../proc/set_boundary_conditions.html" xlink:title="nasto_gmp_object%set_boundary_conditions">
+<polygon fill="#d9534f" stroke="#d9534f" points="1600,-102 1349,-102 1349,-78 1600,-78 1600,-102"/>
+<text text-anchor="middle" x="1474.5" y="-87.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%set_boundary_conditions</text>
+</a>
+</g>
+</g>
+<!-- proc~set_boundary_conditions&#45;&gt;proc~set_bc_q_gpu_gmp -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_edge1" class="edge">
+<title>proc~set_boundary_conditions&#45;&gt;proc~set_bc_q_gpu_gmp</title>
+<path fill="none" stroke="#000000" d="M1600.21,-90C1608.96,-90 1617.55,-90 1625.76,-90"/>
+<polygon fill="#000000" stroke="#000000" points="1625.94,-93.5 1635.94,-90 1625.94,-86.5 1625.94,-93.5"/>
+</g>
+<!-- proc~update_ghost -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_node3" class="node">
+<title>proc~update_ghost</title>
+<g id="a_proc~~set_bc_q_gpu_gmp~~CalledByGraph_node3"><a xlink:href="../proc/update_ghost.html" xlink:title="nasto_gmp_object%update_ghost">
+<polygon fill="#d9534f" stroke="#d9534f" points="1313,-102 1122,-102 1122,-78 1313,-78 1313,-102"/>
+<text text-anchor="middle" x="1217.5" y="-87.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%update_ghost</text>
+</a>
+</g>
+</g>
+<!-- proc~update_ghost&#45;&gt;proc~set_boundary_conditions -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_edge2" class="edge">
+<title>proc~update_ghost&#45;&gt;proc~set_boundary_conditions</title>
+<path fill="none" stroke="#000000" d="M1313.09,-90C1321.44,-90 1330,-90 1338.6,-90"/>
+<polygon fill="#000000" stroke="#000000" points="1338.71,-93.5 1348.71,-90 1338.71,-86.5 1338.71,-93.5"/>
+</g>
+<!-- proc~amr_update -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_node4" class="node">
+<title>proc~amr_update</title>
+<g id="a_proc~~set_bc_q_gpu_gmp~~CalledByGraph_node4"><a xlink:href="../proc/amr_update.html" xlink:title="nasto_gmp_object%amr_update">
+<polygon fill="#d9534f" stroke="#d9534f" points="815.5,-142 631.5,-142 631.5,-118 815.5,-118 815.5,-142"/>
+<text text-anchor="middle" x="723.5" y="-127.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%amr_update</text>
+</a>
+</g>
+</g>
+<!-- proc~amr_update&#45;&gt;proc~update_ghost -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_edge3" class="edge">
+<title>proc~amr_update&#45;&gt;proc~update_ghost</title>
+<path fill="none" stroke="#000000" d="M777.31,-142.02C848.37,-156.18 978.3,-174.93 1086,-151 1123.62,-142.64 1163.23,-122.25 1188.8,-107.33"/>
+<polygon fill="#000000" stroke="#000000" points="1190.76,-110.24 1197.56,-102.12 1187.18,-104.23 1190.76,-110.24"/>
+</g>
+<!-- proc~mark_by_grad_var -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_node7" class="node">
+<title>proc~mark_by_grad_var</title>
+<g id="a_proc~~set_bc_q_gpu_gmp~~CalledByGraph_node7"><a xlink:href="../proc/mark_by_grad_var.html" xlink:title="nasto_gmp_object%mark_by_grad_var">
+<polygon fill="#d9534f" stroke="#d9534f" points="1086,-142 869,-142 869,-118 1086,-118 1086,-142"/>
+<text text-anchor="middle" x="977.5" y="-127.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%mark_by_grad_var</text>
+</a>
+</g>
+</g>
+<!-- proc~amr_update&#45;&gt;proc~mark_by_grad_var -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_edge11" class="edge">
+<title>proc~amr_update&#45;&gt;proc~mark_by_grad_var</title>
+<path fill="none" stroke="#000000" d="M815.83,-130C829.66,-130 844.09,-130 858.39,-130"/>
+<polygon fill="#000000" stroke="#000000" points="858.77,-133.5 868.77,-130 858.77,-126.5 858.77,-133.5"/>
+</g>
+<!-- proc~compute_residuals -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_node5" class="node">
+<title>proc~compute_residuals</title>
+<g id="a_proc~~set_bc_q_gpu_gmp~~CalledByGraph_node5"><a xlink:href="../proc/compute_residuals.html" xlink:title="nasto_gmp_object%compute_residuals">
+<polygon fill="#d9534f" stroke="#d9534f" points="833,-60 614,-60 614,-36 833,-36 833,-60"/>
+<text text-anchor="middle" x="723.5" y="-45.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%compute_residuals</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_residuals&#45;&gt;proc~update_ghost -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_edge4" class="edge">
+<title>proc~compute_residuals&#45;&gt;proc~update_ghost</title>
+<path fill="none" stroke="#000000" d="M833.33,-55.59C905.12,-60.8 1001.22,-68.17 1086,-76 1094.32,-76.77 1102.93,-77.6 1111.58,-78.47"/>
+<polygon fill="#000000" stroke="#000000" points="1111.43,-81.97 1121.74,-79.5 1112.14,-75.01 1111.43,-81.97"/>
+</g>
+<!-- proc~integrate_eikonal -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_node6" class="node">
+<title>proc~integrate_eikonal</title>
+<g id="a_proc~~set_bc_q_gpu_gmp~~CalledByGraph_node6"><a xlink:href="../proc/integrate_eikonal.html" xlink:title="nasto_gmp_object%integrate_eikonal">
+<polygon fill="#d9534f" stroke="#d9534f" points="1083.5,-24 871.5,-24 871.5,0 1083.5,0 1083.5,-24"/>
+<text text-anchor="middle" x="977.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%integrate_eikonal</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_residuals&#45;&gt;proc~integrate_eikonal -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_edge10" class="edge">
+<title>proc~compute_residuals&#45;&gt;proc~integrate_eikonal</title>
+<path fill="none" stroke="#000000" d="M808.76,-35.96C832.3,-32.6 858.03,-28.92 882.11,-25.48"/>
+<polygon fill="#000000" stroke="#000000" points="882.91,-28.91 892.32,-24.03 881.92,-21.98 882.91,-28.91"/>
+</g>
+<!-- proc~integrate_eikonal&#45;&gt;proc~update_ghost -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_edge5" class="edge">
+<title>proc~integrate_eikonal&#45;&gt;proc~update_ghost</title>
+<path fill="none" stroke="#000000" d="M1034.71,-24.01C1051.36,-27.99 1069.53,-32.76 1086,-38 1118.35,-48.3 1154.11,-62.78 1180,-73.84"/>
+<polygon fill="#000000" stroke="#000000" points="1178.85,-77.15 1189.41,-77.9 1181.62,-70.72 1178.85,-77.15"/>
+</g>
+<!-- proc~mark_by_grad_var&#45;&gt;proc~update_ghost -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_edge6" class="edge">
+<title>proc~mark_by_grad_var&#45;&gt;proc~update_ghost</title>
+<path fill="none" stroke="#000000" d="M1049.91,-118C1076.61,-113.51 1107.15,-108.38 1134.72,-103.74"/>
+<polygon fill="#000000" stroke="#000000" points="1135.45,-107.17 1144.73,-102.06 1134.29,-100.27 1135.45,-107.17"/>
+</g>
+<!-- proc~save_simulation_data -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_node8" class="node">
+<title>proc~save_simulation_data</title>
+<g id="a_proc~~set_bc_q_gpu_gmp~~CalledByGraph_node8"><a xlink:href="../proc/save_simulation_data.html" xlink:title="nasto_gmp_object%save_simulation_data">
+<polygon fill="#d9534f" stroke="#d9534f" points="578,-102 344,-102 344,-78 578,-78 578,-102"/>
+<text text-anchor="middle" x="461" y="-87.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%save_simulation_data</text>
+</a>
+</g>
+</g>
+<!-- proc~save_simulation_data&#45;&gt;proc~update_ghost -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_edge7" class="edge">
+<title>proc~save_simulation_data&#45;&gt;proc~update_ghost</title>
+<path fill="none" stroke="#000000" d="M578.24,-90C723.92,-90 971.46,-90 1111.61,-90"/>
+<polygon fill="#000000" stroke="#000000" points="1111.92,-93.5 1121.92,-90 1111.92,-86.5 1111.92,-93.5"/>
+</g>
+<!-- proc~integrate -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_node9" class="node">
+<title>proc~integrate</title>
+<g id="a_proc~~set_bc_q_gpu_gmp~~CalledByGraph_node9"><a xlink:href="../proc/integrate.html" xlink:title="nasto_gmp_object%integrate">
+<polygon fill="#d9534f" stroke="#d9534f" points="545,-60 377,-60 377,-36 545,-36 545,-60"/>
+<text text-anchor="middle" x="461" y="-45.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%integrate</text>
+</a>
+</g>
+</g>
+<!-- proc~integrate&#45;&gt;proc~compute_residuals -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_edge9" class="edge">
+<title>proc~integrate&#45;&gt;proc~compute_residuals</title>
+<path fill="none" stroke="#000000" d="M545.14,-48C563.86,-48 584.09,-48 603.95,-48"/>
+<polygon fill="#000000" stroke="#000000" points="603.98,-51.5 613.98,-48 603.98,-44.5 603.98,-51.5"/>
+</g>
+<!-- proc~simulate -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_node10" class="node">
+<title>proc~simulate</title>
+<g id="a_proc~~set_bc_q_gpu_gmp~~CalledByGraph_node10"><a xlink:href="../proc/simulate.html" xlink:title="nasto_gmp_object%simulate">
+<polygon fill="#d9534f" stroke="#d9534f" points="308,-102 143,-102 143,-78 308,-78 308,-102"/>
+<text text-anchor="middle" x="225.5" y="-87.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%simulate</text>
+</a>
+</g>
+</g>
+<!-- proc~simulate&#45;&gt;proc~amr_update -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_edge8" class="edge">
+<title>proc~simulate&#45;&gt;proc~amr_update</title>
+<path fill="none" stroke="#000000" d="M285.46,-102.04C304.11,-105.45 324.85,-108.82 344,-111 437.53,-121.66 544.74,-126.34 621.13,-128.39"/>
+<polygon fill="#000000" stroke="#000000" points="621.14,-131.9 631.23,-128.66 621.32,-124.9 621.14,-131.9"/>
+</g>
+<!-- proc~simulate&#45;&gt;proc~save_simulation_data -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_edge12" class="edge">
+<title>proc~simulate&#45;&gt;proc~save_simulation_data</title>
+<path fill="none" stroke="#000000" d="M308.17,-90C316.49,-90 325.07,-90 333.72,-90"/>
+<polygon fill="#000000" stroke="#000000" points="333.89,-93.5 343.89,-90 333.89,-86.5 333.89,-93.5"/>
+</g>
+<!-- proc~simulate&#45;&gt;proc~integrate -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_edge13" class="edge">
+<title>proc~simulate&#45;&gt;proc~integrate</title>
+<path fill="none" stroke="#000000" d="M293.41,-77.96C321.38,-72.93 354.04,-67.06 383,-61.85"/>
+<polygon fill="#000000" stroke="#000000" points="383.86,-65.25 393.08,-60.04 382.62,-58.36 383.86,-65.25"/>
+</g>
+<!-- program~adam_nasto_gmp -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_node11" class="node">
+<title>program~adam_nasto_gmp</title>
+<g id="a_proc~~set_bc_q_gpu_gmp~~CalledByGraph_node11"><a xlink:href="../program/adam_nasto_gmp.html" xlink:title="adam_nasto_gmp">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="107,-102 0,-102 0,-78 107,-78 107,-102"/>
+<text text-anchor="middle" x="53.5" y="-87.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_gmp</text>
+</a>
+</g>
+</g>
+<!-- program~adam_nasto_gmp&#45;&gt;proc~simulate -->
+<g id="proc~~set_bc_q_gpu_gmp~~CalledByGraph_edge14" class="edge">
+<title>program~adam_nasto_gmp&#45;&gt;proc~simulate</title>
+<path fill="none" stroke="#000000" d="M107.36,-90C115.48,-90 124.07,-90 132.75,-90"/>
+<polygon fill="#000000" stroke="#000000" points="132.96,-93.5 142.96,-90 132.96,-86.5 132.96,-93.5"/>
+</g>
+</g>
+</svg>
+</div>                <script>
+                  var panprocset_bc_q_gpu_gmpCalledByGraph = svgPanZoom('#procset_bc_q_gpu_gmpCalledByGraph',
+                    {zoomEnabled: true, controlIconsEnabled: true, fit: true, center: true,}
+                  );
+                </script>          <div>
+            <a type="button" class="graph-help" data-bs-toggle="modal" href="#CalledByGraph-help-text">Help</a>
+          </div>
+          <div class="modal fade" id="CalledByGraph-help-text" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h4 class="modal-title" id="-graph-help-label">Graph Key</h4>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+<p>Nodes of different colours represent the following: </p>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: Graph Key Pages: 1 -->
+<svg width="641pt" height="28pt"
+ viewBox="0.00 0.00 641.00 27.51" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(0.86 0.86) rotate(0) translate(4 28)">
+<title>Graph Key</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 741.5,-28 741.5,4 -4,4"/>
+<!-- Subroutine -->
+<g id="node1" class="node">
+<title>Subroutine</title>
+<polygon fill="#d9534f" stroke="#d9534f" points="70,-24 0,-24 0,0 70,0 70,-24"/>
+<text text-anchor="middle" x="35" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Subroutine</text>
+</g>
+<!-- Function -->
+<g id="node2" class="node">
+<title>Function</title>
+<polygon fill="#d94e8f" stroke="#d94e8f" points="146,-24 88,-24 88,0 146,0 146,-24"/>
+<text text-anchor="middle" x="117" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Function</text>
+</g>
+<!-- Interface -->
+<g id="node3" class="node">
+<title>Interface</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="225.5,-24 164.5,-24 164.5,0 225.5,0 225.5,-24"/>
+<text text-anchor="middle" x="195" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Interface</text>
+</g>
+<!-- Type Bound Procedure -->
+<g id="node4" class="node">
+<title>Type Bound Procedure</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="374,-24 244,-24 244,0 374,0 374,-24"/>
+<text text-anchor="middle" x="309" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Type Bound Procedure</text>
+</g>
+<!-- Unknown Procedure Type -->
+<g id="node5" class="node">
+<title>Unknown Procedure Type</title>
+<polygon fill="#777777" stroke="#777777" points="537.5,-24 392.5,-24 392.5,0 537.5,0 537.5,-24"/>
+<text text-anchor="middle" x="465" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Unknown Procedure Type</text>
+</g>
+<!-- Program -->
+<g id="node6" class="node">
+<title>Program</title>
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="614,-24 556,-24 556,0 614,0 614,-24"/>
+<text text-anchor="middle" x="585" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Program</text>
+</g>
+<!-- This Page&#39;s Entity -->
+<g id="node7" class="node">
+<title>This Page&#39;s Entity</title>
+<polygon fill="none" stroke="black" points="737.5,-24 632.5,-24 632.5,0 737.5,0 737.5,-24"/>
+<text text-anchor="middle" x="685" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">This Page&#39;s Entity</text>
+</g>
+</g>
+</svg>
+
+<p>Solid arrows point from a procedure to one which it calls. Dashed 
+arrows point from an interface to procedures which implement that interface.
+This could include the module procedures in a generic interface or the
+implementation in a submodule of an interface in a parent module.
+</p>
+ </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <br>
+
+
+    
+    
+
+    
+    
+
+
+
+    
+    <section>
+    <h2><span class="anchor" id="src"></span>Source Code</h2>
+    <div class="hl codehilite"><pre><span></span><span class="w">   </span><span class="k">subroutine </span><span class="n">set_bc_q_gpu_gmp</span><span class="p">(</span><span class="n">BC_EXTRAPOLATION</span><span class="p">,</span><span class="w"> </span><span class="n">BC_INFLOW</span><span class="p">,</span><span class="w"> </span><span class="n">nv</span><span class="p">,</span><span class="w"> </span><span class="n">ngc</span><span class="p">,</span><span class="w"> </span><span class="n">cv</span><span class="p">,</span><span class="w"> </span><span class="n">R</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">local_map_bc_gpu</span><span class="p">,</span><span class="w"> </span><span class="n">fec_1_6_array_gpu</span><span class="p">,</span><span class="w"> </span><span class="n">q_bc_vars_gpu</span><span class="p">,</span><span class="w"> </span><span class="n">q_gpu</span><span class="p">)</span>
+<span class="w">   </span><span class="c">!&lt; Set BC over q.</span>
+<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">    </span><span class="kd">::</span><span class="w"> </span><span class="n">BC_EXTRAPOLATION</span><span class="w">        </span><span class="c">!&lt; Extrapolation BC parameter.</span>
+<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">    </span><span class="kd">::</span><span class="w"> </span><span class="n">BC_INFLOW</span><span class="w">               </span><span class="c">!&lt; Inflow BC parameter.</span>
+<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">    </span><span class="kd">::</span><span class="w"> </span><span class="n">nv</span><span class="w">                      </span><span class="c">!&lt; Number of variables.</span>
+<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">    </span><span class="kd">::</span><span class="w"> </span><span class="n">ngc</span><span class="w">                     </span><span class="c">!&lt; Ghost cells number.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">    </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">    </span><span class="kd">::</span><span class="w"> </span><span class="n">cv</span><span class="w">                      </span><span class="c">!&lt; Constant volume specific heat.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">    </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">    </span><span class="kd">::</span><span class="w"> </span><span class="n">R</span><span class="w">                       </span><span class="c">!&lt; Gas constant.</span>
+<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">    </span><span class="kd">::</span><span class="w"> </span><span class="n">local_map_bc_gpu</span><span class="p">(:,:,:)</span><span class="w"> </span><span class="c">!&lt; Local map for BC ghost cells.</span>
+<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">    </span><span class="kd">::</span><span class="w"> </span><span class="n">fec_1_6_array_gpu</span><span class="p">(:)</span><span class="w">    </span><span class="c">!&lt; Local map for BC ghost cells.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">    </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">    </span><span class="kd">::</span><span class="w"> </span><span class="n">q_bc_vars_gpu</span><span class="p">(:,:)</span><span class="w">      </span><span class="c">!&lt; Boundary variables.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">    </span><span class="k">intent</span><span class="p">(</span><span class="n">inout</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">q_gpu</span><span class="p">(</span><span class="mi">1</span><span class="p">:,</span><span class="w">    </span><span class="p">&amp;</span>
+<span class="w">                                        </span><span class="mi">1</span><span class="o">-</span><span class="n">ngc</span><span class="p">:,&amp;</span>
+<span class="w">                                        </span><span class="mi">1</span><span class="o">-</span><span class="n">ngc</span><span class="p">:,&amp;</span>
+<span class="w">                                        </span><span class="mi">1</span><span class="o">-</span><span class="n">ngc</span><span class="p">:,</span><span class="mi">1</span><span class="p">:)</span><span class="w">        </span><span class="c">!&lt; Conservative variables.</span>
+<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">)</span><span class="w">                </span><span class="kd">::</span><span class="w"> </span><span class="n">b</span><span class="w">                       </span><span class="c">!&lt; Counter.</span>
+<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">)</span><span class="w">                </span><span class="kd">::</span><span class="w"> </span><span class="n">c</span><span class="p">,</span><span class="w"> </span><span class="n">i</span><span class="p">,</span><span class="w"> </span><span class="n">j</span><span class="p">,</span><span class="w"> </span><span class="n">k</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="w">           </span><span class="c">!&lt; Counter.</span>
+<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">)</span><span class="w">                </span><span class="kd">::</span><span class="w"> </span><span class="n">idelta</span><span class="w">                  </span><span class="c">!&lt; IJK delta step for extrapolation.</span>
+<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">)</span><span class="w">                </span><span class="kd">::</span><span class="w"> </span><span class="n">jdelta</span><span class="w">                  </span><span class="c">!&lt; IJK delta step for extrapolation.</span>
+<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">)</span><span class="w">                </span><span class="kd">::</span><span class="w"> </span><span class="n">kdelta</span><span class="w">                  </span><span class="c">!&lt; IJK delta step for extrapolation.</span>
+<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">)</span><span class="w">                </span><span class="kd">::</span><span class="w"> </span><span class="n">bc_type</span><span class="w">                 </span><span class="c">!&lt; Boundary condition type.</span>
+<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">)</span><span class="w">                </span><span class="kd">::</span><span class="w"> </span><span class="n">crown</span><span class="w">                   </span><span class="c">!&lt; Crown counter.</span>
+<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">)</span><span class="w">                </span><span class="kd">::</span><span class="w"> </span><span class="n">fec</span><span class="w">                     </span><span class="c">!&lt; Boundary fec (1 to 26).</span>
+<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">)</span><span class="w">                </span><span class="kd">::</span><span class="w"> </span><span class="n">fec_1_6</span><span class="w">                 </span><span class="c">!&lt; Boundary fec (1 to 6).</span>
+
+<span class="w">   </span><span class="k">do </span><span class="n">crown</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">ngc</span>
+<span class="w">      </span><span class="c">!$omp target teams distribute parallel do has_device_addr(fec_1_6_array_gpu,local_map_bc_gpu,q_bc_vars_gpu,q_gpu)</span>
+<span class="w">      </span><span class="k">do </span><span class="n">c</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">size</span><span class="p">(</span><span class="n">local_map_bc_gpu</span><span class="p">,</span><span class="w"> </span><span class="nb">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="w">         </span><span class="n">b</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">local_map_bc_gpu</span><span class="p">(</span><span class="n">c</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="p">,</span><span class="n">crown</span><span class="p">)</span>
+<span class="w">         </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">b</span><span class="o">&gt;</span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="k">then</span>
+<span class="k">            </span><span class="n">i</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="n">local_map_bc_gpu</span><span class="p">(</span><span class="n">c</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="w"> </span><span class="p">,</span><span class="n">crown</span><span class="p">)</span>
+<span class="w">            </span><span class="n">j</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="n">local_map_bc_gpu</span><span class="p">(</span><span class="n">c</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="p">,</span><span class="n">crown</span><span class="p">)</span>
+<span class="w">            </span><span class="n">k</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="n">local_map_bc_gpu</span><span class="p">(</span><span class="n">c</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="w"> </span><span class="p">,</span><span class="n">crown</span><span class="p">)</span>
+<span class="w">            </span><span class="n">idelta</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">local_map_bc_gpu</span><span class="p">(</span><span class="n">c</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="w"> </span><span class="p">,</span><span class="n">crown</span><span class="p">)</span>
+<span class="w">            </span><span class="n">jdelta</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">local_map_bc_gpu</span><span class="p">(</span><span class="n">c</span><span class="p">,</span><span class="w"> </span><span class="mi">6</span><span class="w"> </span><span class="p">,</span><span class="n">crown</span><span class="p">)</span>
+<span class="w">            </span><span class="n">kdelta</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">local_map_bc_gpu</span><span class="p">(</span><span class="n">c</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="w"> </span><span class="p">,</span><span class="n">crown</span><span class="p">)</span>
+<span class="w">            </span><span class="n">bc_type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">local_map_bc_gpu</span><span class="p">(</span><span class="n">c</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="w"> </span><span class="p">,</span><span class="n">crown</span><span class="p">)</span>
+<span class="w">            </span><span class="n">fec</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">local_map_bc_gpu</span><span class="p">(</span><span class="n">c</span><span class="p">,</span><span class="w"> </span><span class="mi">9</span><span class="w"> </span><span class="p">,</span><span class="n">crown</span><span class="p">)</span>
+<span class="w">            </span><span class="n">fec_1_6</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">fec_1_6_array_gpu</span><span class="p">(</span><span class="n">fec</span><span class="p">)</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">bc_type</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">BC_EXTRAPOLATION</span><span class="p">)</span><span class="w"> </span><span class="k">then</span>
+<span class="k">               do </span><span class="n">v</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">nv</span>
+<span class="w">                  </span><span class="n">q_gpu</span><span class="p">(</span><span class="n">b</span><span class="p">,</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">,</span><span class="n">v</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">q_gpu</span><span class="p">(</span><span class="n">b</span><span class="p">,</span><span class="n">i</span><span class="o">-</span><span class="n">idelta</span><span class="p">,</span><span class="n">j</span><span class="o">-</span><span class="n">jdelta</span><span class="p">,</span><span class="n">k</span><span class="o">-</span><span class="n">kdelta</span><span class="p">,</span><span class="n">v</span><span class="p">)</span>
+<span class="w">               </span><span class="k">enddo</span>
+<span class="k">            else if</span><span class="w"> </span><span class="p">(</span><span class="n">bc_type</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">BC_INFLOW</span><span class="p">)</span><span class="w"> </span><span class="k">then</span>
+<span class="k">                </span><span class="n">q_gpu</span><span class="p">(</span><span class="n">b</span><span class="p">,</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">,</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">q_bc_vars_gpu</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">fec_1_6</span><span class="p">)</span>
+<span class="w">                </span><span class="n">q_gpu</span><span class="p">(</span><span class="n">b</span><span class="p">,</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">,</span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">q_bc_vars_gpu</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">fec_1_6</span><span class="p">)</span><span class="o">*</span><span class="w"> </span><span class="n">q_bc_vars_gpu</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="n">fec_1_6</span><span class="p">)</span>
+<span class="w">                </span><span class="n">q_gpu</span><span class="p">(</span><span class="n">b</span><span class="p">,</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">,</span><span class="mi">3</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">q_bc_vars_gpu</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">fec_1_6</span><span class="p">)</span><span class="o">*</span><span class="w"> </span><span class="n">q_bc_vars_gpu</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="n">fec_1_6</span><span class="p">)</span>
+<span class="w">                </span><span class="n">q_gpu</span><span class="p">(</span><span class="n">b</span><span class="p">,</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">,</span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">q_bc_vars_gpu</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">fec_1_6</span><span class="p">)</span><span class="o">*</span><span class="w"> </span><span class="n">q_bc_vars_gpu</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="n">fec_1_6</span><span class="p">)</span>
+<span class="w">                </span><span class="n">q_gpu</span><span class="p">(</span><span class="n">b</span><span class="p">,</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">,</span><span class="mi">5</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">q_bc_vars_gpu</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">fec_1_6</span><span class="p">)</span><span class="o">*</span><span class="w">                                   </span><span class="p">&amp;</span>
+<span class="w">                                   </span><span class="p">(</span><span class="n">cv</span><span class="o">*</span><span class="n">q_bc_vars_gpu</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="n">fec_1_6</span><span class="p">)</span><span class="o">/</span><span class="p">(</span><span class="n">q_bc_vars_gpu</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">fec_1_6</span><span class="p">)</span><span class="o">*</span><span class="n">R</span><span class="p">)</span><span class="o">+</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                    </span><span class="mf">0.5_R8P</span><span class="o">*</span><span class="p">(</span><span class="n">q_bc_vars_gpu</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="n">fec_1_6</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="o">+</span><span class="n">q_bc_vars_gpu</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="n">fec_1_6</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="o">+</span><span class="n">q_bc_vars_gpu</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="n">fec_1_6</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="p">))</span>
+<span class="w">            </span><span class="k">endif</span>
+<span class="k">         endif</span>
+<span class="k">      enddo</span>
+<span class="k">   enddo</span>
+<span class="k">   endsubroutine </span><span class="n">set_bc_q_gpu_gmp</span>
+</pre></div>
+
+    </section>
+    <br>
+    
+    </div>
+  </div>
+
+      <hr>
+    </div> <!-- /container -->
+    <footer>
+      <div class="container">
+        <div class="row justify-content-between">
+          <div class="col">
+            <p>
+              ADAM
+ was developed by Stefano Zaghi<br>              &copy; 2025 
+</p>
+          </div>
+          <div class="col">
+            <p class="text-end">
+              Documentation generated by
+              <a href="https://github.com/Fortran-FOSS-Programmers/ford">FORD</a>
+            </p>
+          </div>
+        </div>
+        <br>
+      </div> <!-- /container -->
+    </footer>
+  </body>
+</html>

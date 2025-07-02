@@ -1,0 +1,522 @@
+<!-- -*- mode: jinja2 -*- -->
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="description" content="Adaptive Mesh Refinement (AMR) with Immersed Boundary (IB) fluid dynamic solver tailored for High Performance GPU Computing">
+    <meta name="author" content="Stefano Zaghi" >
+    <link rel="icon" href="../favicon.png">
+
+    <title>adam_nasto_gmp.F90 &ndash; ADAM</title>
+
+    <!-- Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+          integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+            integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <!-- Font Awesome -->
+    <link href="../css/fontawesome.min.css" rel="stylesheet">
+    <link href="../css/brands.min.css" rel="stylesheet">
+    <link href="../css/regular.min.css" rel="stylesheet">
+    <link href="../css/solid.min.css" rel="stylesheet">
+    <link href="../css/v4-font-face.min.css" rel="stylesheet">
+    <link href="../css/v4-shims.min.css" rel="stylesheet">
+    <!-- MathJax -->
+    <script type="text/x-mathjax-config">
+      MathJax.Hub.Config({
+        TeX: { equationNumbers: { autoNumber: "AMS" } }
+      });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@2.7.9/MathJax.js?config=TeX-AMS-MML_HTMLorMML" async
+            integrity="sha256-DViIOMYdwlM/axqoGDPeUyf0urLoHMN4QACBKyB58Uw=" crossorigin="anonymous"></script>
+    <!-- Other scripts and stylesheets -->
+    <link href="../css/local.css" rel="stylesheet">
+    <link href="../css/pygments.css" rel="stylesheet">
+    <script src="../js/svg-pan-zoom.min.js"></script>
+  </head>
+
+  <body>
+
+    <!-- Fixed navbar -->
+    <div class="container-fluid mb-sm-4 mb-xl-2">
+      <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+        <div class="container">
+          <a class="navbar-brand" href="../index.html">ADAM </a>
+          <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar"
+                  aria-expanded="false" aria-controls="navbar" aria-label="Toggle navigation">
+                  <span class="navbar-toggler-icon">
+          </button>
+
+          <div id="navbar" class="navbar-collapse collapse">
+            <ul class="navbar-nav">
+                  <li class="nav-item">
+                    <a class="nav-link" href="../lists/files.html">Source Files</a>
+                  </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/modules.html">Modules</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/procedures.html">Procedures</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/types.html">Derived Types</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/programs.html">Programs</a>
+                </li>
+            </ul>
+              <div class="d-flex align-items-end flex-grow-1">
+                <form action="../search.html" role="search" class="ms-auto">
+                  <input type="text" class="form-control" aria-label="Search" placeholder="Search" name="q" id="tipue_search_input" autocomplete="off" required>
+                </form>
+              </div>
+          </div><!--/.nav-collapse -->
+        </div>
+      </nav>
+    </div>
+
+    <div class="container">
+  <div class="row">
+    <h1>adam_nasto_gmp.F90
+      <small>Source File</small>
+      
+    </h1>
+      <div class="container p-2 mb-4 bg-light border rounded-3">
+    <div class="row align-items-center justify-content-between" id="info-bar">
+      <div class="col">
+        <ul class="list-inline" style="margin-bottom:0px;display:inline">
+
+            <li class="list-inline-item" id="statements"><i class="fa fa-list-ol"></i>
+              <a data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-html="true"
+                 title=" 0.2% of total for source files.">14 statements</a>
+            </li>
+
+            <li class="list-inline-item" id="source-file">
+              <i class="fa fa-code"></i>
+              <a href="../src/adam_nasto_gmp.F90"> Source File</a>
+            </li>
+        </ul>
+      </div>
+      <div class="col">
+        <nav aria-label="breadcrumb">
+          <ol class="breadcrumb justify-content-end mb-0">
+            <li class="breadcrumb-item active" aria-current="page">adam_nasto_gmp.F90</li>
+          </ol>
+        </nav>
+      </div>
+    </div>
+  </div>
+  <script>
+    // Enable Bootstrap tooltips
+    (function () {
+      const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]')
+      const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl))
+    })();
+  </script>
+
+  </div>
+  <div class="row">
+    <div class="col-md-3 hidden-xs hidden-sm visible-md visible-lg">
+        <div id="sidebar">
+      <h3>Contents</h3>
+  
+  
+  
+  
+      <div class="card mb-4">
+      <a data-bs-toggle="collapse" href="#progs-0"
+         aria-expanded="false" aria-controls="progs-0">
+         <h4 class="card-header bg-primary text-white">Programs</h4>
+      </a>
+      <div id="progs-0" class="collapse">
+        <div class="list-group list-group-flush">
+            <a class="list-group-item" href="../program/adam_nasto_gmp.html">adam_nasto_gmp</a>
+        </div>
+      </div>
+    </div>
+
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+    <div class="card card-primary">
+      <div class="card-header text-left"><h3 class="card-title">Source Code</h3></div>
+      <div class="list-group">
+        <a class="list-group-item" href="../sourcefile/adam_nasto_gmp.f90.html#src">adam_nasto_gmp.F90</a>
+      </div>
+    </div>
+
+
+  </div>
+
+    </div>
+    <div class="col-md-9" id='text'>
+      <p>ADAM, Navier-Stokes application solver, GPU-OpenMP (GMP) backend.</p>
+      <br>
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">This file depends on</h3>
+          </div>
+          <div class="card-body">
+            <div class="depgraph"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: sourcefile~~adam_nasto_gmp.f90~~EfferentGraph Pages: 1 -->
+<svg id="sourcefileadam_nasto_gmpf90EfferentGraph" width="641pt" height="106pt"
+ viewBox="0.00 0.00 641.00 105.96" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph" class="graph" transform="scale(0.45 0.45) rotate(0) translate(4 231.4)">
+<title>sourcefile~~adam_nasto_gmp.f90~~EfferentGraph</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-231.4 1420,-231.4 1420,4 -4,4"/>
+<!-- sourcefile~adam_nasto_gmp.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node1" class="node">
+<title>sourcefile~adam_nasto_gmp.f90</title>
+<polygon fill="none" stroke="black" points="1416,-86 1286,-86 1286,-62 1416,-62 1416,-86"/>
+<text text-anchor="middle" x="1351" y="-71.6" font-family="Helvetica,sans-Serif" font-size="10.50">adam_nasto_gmp.F90</text>
+</g>
+<!-- sourcefile~adam_nasto_gmp_object.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node2" class="node">
+<title>sourcefile~adam_nasto_gmp_object.f90</title>
+<g id="a_sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node2"><a xlink:href="../sourcefile/adam_nasto_gmp_object.f90.html" xlink:title="adam_nasto_gmp_object.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="1250,-86 1082,-86 1082,-62 1250,-62 1250,-86"/>
+<text text-anchor="middle" x="1166" y="-71.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_gmp_object.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_gmp.f90&#45;&gt;sourcefile~adam_nasto_gmp_object.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_edge1" class="edge">
+<title>sourcefile~adam_nasto_gmp.f90&#45;&gt;sourcefile~adam_nasto_gmp_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1286,-74C1277.7,-74 1269.07,-74 1260.42,-74"/>
+<polygon fill="#000000" stroke="#000000" points="1260.27,-70.5 1250.27,-74 1260.27,-77.5 1260.27,-70.5"/>
+</g>
+<!-- sourcefile~adam_nasto_common_library.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node3" class="node">
+<title>sourcefile~adam_nasto_common_library.f90</title>
+<g id="a_sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node3"><a xlink:href="../sourcefile/adam_nasto_common_library.f90.html" xlink:title="adam_nasto_common_library.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="1046,-126 855,-126 855,-102 1046,-102 1046,-126"/>
+<text text-anchor="middle" x="950.5" y="-111.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_common_library.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_gmp_object.f90&#45;&gt;sourcefile~adam_nasto_common_library.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_edge2" class="edge">
+<title>sourcefile~adam_nasto_gmp_object.f90&#45;&gt;sourcefile~adam_nasto_common_library.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1100.94,-86C1077.3,-90.43 1050.31,-95.49 1025.84,-100.07"/>
+<polygon fill="#000000" stroke="#000000" points="1025.06,-96.66 1015.88,-101.94 1026.35,-103.54 1025.06,-96.66"/>
+</g>
+<!-- sourcefile~adam_nasto_gmp_kernels.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node4" class="node">
+<title>sourcefile~adam_nasto_gmp_kernels.f90</title>
+<g id="a_sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node4"><a xlink:href="../sourcefile/adam_nasto_gmp_kernels.f90.html" xlink:title="adam_nasto_gmp_kernels.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="1037.5,-65 863.5,-65 863.5,-41 1037.5,-41 1037.5,-65"/>
+<text text-anchor="middle" x="950.5" y="-50.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_gmp_kernels.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_gmp_object.f90&#45;&gt;sourcefile~adam_nasto_gmp_kernels.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_edge3" class="edge">
+<title>sourcefile~adam_nasto_gmp_object.f90&#45;&gt;sourcefile~adam_nasto_gmp_kernels.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1081.84,-65.82C1070.61,-64.72 1059.02,-63.58 1047.59,-62.45"/>
+<polygon fill="#000000" stroke="#000000" points="1047.89,-58.96 1037.6,-61.47 1047.21,-65.93 1047.89,-58.96"/>
+</g>
+<!-- sourcefile~adam_nasto_bc_object.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node5" class="node">
+<title>sourcefile~adam_nasto_bc_object.f90</title>
+<g id="a_sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node5"><a xlink:href="../sourcefile/adam_nasto_bc_object.f90.html" xlink:title="adam_nasto_bc_object.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="580.5,-146 423.5,-146 423.5,-122 580.5,-122 580.5,-146"/>
+<text text-anchor="middle" x="502" y="-131.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_bc_object.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_bc_object.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_edge4" class="edge">
+<title>sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_bc_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M854.92,-122.14C813.9,-125.71 765.32,-129.99 721.5,-134"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M719.5,-134C677.23,-137.87 630.13,-138.32 590.68,-137.63"/>
+<polygon fill="#000000" stroke="#000000" points="590.63,-134.12 580.56,-137.42 590.49,-141.12 590.63,-134.12"/>
+</g>
+<!-- sourcefile~adam_nasto_common_object.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node6" class="node">
+<title>sourcefile~adam_nasto_common_object.f90</title>
+<g id="a_sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node6"><a xlink:href="../sourcefile/adam_nasto_common_object.f90.html" xlink:title="adam_nasto_common_object.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="816,-106 625,-106 625,-82 816,-82 816,-106"/>
+<text text-anchor="middle" x="720.5" y="-91.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_common_object.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_common_object.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_edge5" class="edge">
+<title>sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_common_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M854.79,-105.69C845.44,-104.87 835.92,-104.04 826.48,-103.21"/>
+<polygon fill="#000000" stroke="#000000" points="826.55,-99.7 816.28,-102.31 825.94,-106.67 826.55,-99.7"/>
+</g>
+<!-- sourcefile~adam_nasto_eos_object.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node7" class="node">
+<title>sourcefile~adam_nasto_eos_object.f90</title>
+<g id="a_sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node7"><a xlink:href="../sourcefile/adam_nasto_eos_object.f90.html" xlink:title="adam_nasto_eos_object.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="163,-167 0,-167 0,-143 163,-143 163,-167"/>
+<text text-anchor="middle" x="81.5" y="-152.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_eos_object.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_eos_object.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_edge6" class="edge">
+<title>sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_eos_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M501,-216C379.86,-206.18 240.42,-183.56 156.98,-168.79"/>
+<polygon fill="#000000" stroke="#000000" points="157.55,-165.34 147.09,-167.03 156.32,-172.23 157.55,-165.34"/>
+</g>
+<!-- sourcefile~adam_nasto_ic_object.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node9" class="node">
+<title>sourcefile~adam_nasto_ic_object.f90</title>
+<g id="a_sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node9"><a xlink:href="../sourcefile/adam_nasto_ic_object.f90.html" xlink:title="adam_nasto_ic_object.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="578.5,-66 425.5,-66 425.5,-42 578.5,-42 578.5,-66"/>
+<text text-anchor="middle" x="502" y="-51.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_ic_object.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_ic_object.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_edge7" class="edge">
+<title>sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_ic_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M719.5,-54C676.85,-46.44 628.73,-45.68 588.71,-47.14"/>
+<polygon fill="#000000" stroke="#000000" points="588.56,-43.64 578.71,-47.56 588.85,-50.64 588.56,-43.64"/>
+</g>
+<!-- sourcefile~adam_nasto_io_object.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node10" class="node">
+<title>sourcefile~adam_nasto_io_object.f90</title>
+<g id="a_sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node10"><a xlink:href="../sourcefile/adam_nasto_io_object.f90.html" xlink:title="adam_nasto_io_object.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="579,-24 425,-24 425,0 579,0 579,-24"/>
+<text text-anchor="middle" x="502" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_io_object.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_io_object.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_edge8" class="edge">
+<title>sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_io_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M914.91,-101.97C888.78,-93.16 851.92,-81.35 819,-73 776.21,-62.14 764.97,-61.71 721.5,-54"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M719.5,-54C670.11,-45.24 614.58,-34.45 572.12,-26"/>
+<polygon fill="#000000" stroke="#000000" points="572.67,-22.54 562.17,-24.01 571.3,-29.4 572.67,-22.54"/>
+</g>
+<!-- sourcefile~adam_nasto_parameters.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node11" class="node">
+<title>sourcefile~adam_nasto_parameters.f90</title>
+<g id="a_sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node11"><a xlink:href="../sourcefile/adam_nasto_parameters.f90.html" xlink:title="adam_nasto_parameters.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="804.5,-186 636.5,-186 636.5,-162 804.5,-162 804.5,-186"/>
+<text text-anchor="middle" x="720.5" y="-171.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_parameters.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_parameters.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_edge9" class="edge">
+<title>sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_parameters.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M903.64,-126.07C867.23,-135.65 816.17,-149.09 777.38,-159.3"/>
+<polygon fill="#000000" stroke="#000000" points="776.07,-156.02 767.29,-161.95 777.85,-162.79 776.07,-156.02"/>
+</g>
+<!-- sourcefile~adam_nasto_physics_object.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node12" class="node">
+<title>sourcefile~adam_nasto_physics_object.f90</title>
+<g id="a_sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node12"><a xlink:href="../sourcefile/adam_nasto_physics_object.f90.html" xlink:title="adam_nasto_physics_object.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="382,-147 199,-147 199,-123 382,-123 382,-147"/>
+<text text-anchor="middle" x="290.5" y="-132.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_physics_object.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_physics_object.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_edge10" class="edge">
+<title>sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_physics_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M935.42,-126.06C912.69,-144.71 865.71,-179.99 819,-195 684.99,-238.06 643.12,-229.3 503,-216"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M501,-216C432.45,-210.44 358.92,-174.1 319.81,-152.03"/>
+<polygon fill="#000000" stroke="#000000" points="321.5,-148.96 311.08,-147.02 318.01,-155.03 321.5,-148.96"/>
+</g>
+<!-- sourcefile~adam_nasto_time_object.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node13" class="node">
+<title>sourcefile~adam_nasto_time_object.f90</title>
+<g id="a_sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node13"><a xlink:href="../sourcefile/adam_nasto_time_object.f90.html" xlink:title="adam_nasto_time_object.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="586,-188 418,-188 418,-164 586,-164 586,-188"/>
+<text text-anchor="middle" x="502" y="-173.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_time_object.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_time_object.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_edge11" class="edge">
+<title>sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_time_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M719.5,-134C664.85,-139 603.53,-151.57 560.13,-161.66"/>
+<polygon fill="#000000" stroke="#000000" points="559.26,-158.27 550.33,-163.97 560.87,-165.09 559.26,-158.27"/>
+</g>
+<!-- sourcefile~adam_nasto_gmp_cns_kernels.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node8" class="node">
+<title>sourcefile~adam_nasto_gmp_cns_kernels.f90</title>
+<g id="a_sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_node8"><a xlink:href="../sourcefile/adam_nasto_gmp_cns_kernels.f90.html" xlink:title="adam_nasto_gmp_cns_kernels.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="819,-26 622,-26 622,-2 819,-2 819,-26"/>
+<text text-anchor="middle" x="720.5" y="-11.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_gmp_cns_kernels.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_gmp_kernels.f90&#45;&gt;sourcefile~adam_nasto_gmp_cns_kernels.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_edge12" class="edge">
+<title>sourcefile~adam_nasto_gmp_kernels.f90&#45;&gt;sourcefile~adam_nasto_gmp_cns_kernels.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M879.23,-40.98C854.74,-36.79 827.08,-32.06 801.84,-27.74"/>
+<polygon fill="#000000" stroke="#000000" points="802.38,-24.28 791.93,-26.05 801.2,-31.18 802.38,-24.28"/>
+</g>
+<!-- sourcefile~adam_nasto_common_object.f90&#45;&gt;sourcefile~adam_nasto_bc_object.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_edge13" class="edge">
+<title>sourcefile~adam_nasto_common_object.f90&#45;&gt;sourcefile~adam_nasto_bc_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M654.54,-106C630.57,-110.43 603.2,-115.49 578.38,-120.07"/>
+<polygon fill="#000000" stroke="#000000" points="577.48,-116.68 568.29,-121.94 578.75,-123.56 577.48,-116.68"/>
+</g>
+<!-- sourcefile~adam_nasto_common_object.f90&#45;&gt;sourcefile~adam_nasto_ic_object.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_edge14" class="edge">
+<title>sourcefile~adam_nasto_common_object.f90&#45;&gt;sourcefile~adam_nasto_ic_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M654.54,-82C630.57,-77.57 603.2,-72.51 578.38,-67.93"/>
+<polygon fill="#000000" stroke="#000000" points="578.75,-64.44 568.29,-66.06 577.48,-71.32 578.75,-64.44"/>
+</g>
+<!-- sourcefile~adam_nasto_common_object.f90&#45;&gt;sourcefile~adam_nasto_io_object.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_edge15" class="edge">
+<title>sourcefile~adam_nasto_common_object.f90&#45;&gt;sourcefile~adam_nasto_io_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M655.49,-81.96C643.93,-78.4 632.29,-73.83 622,-68 602.59,-56.99 605.48,-43.89 586,-33 582.52,-31.06 578.86,-29.29 575.1,-27.69"/>
+<polygon fill="#000000" stroke="#000000" points="576.16,-24.34 565.57,-24.02 573.65,-30.88 576.16,-24.34"/>
+</g>
+<!-- sourcefile~adam_nasto_common_object.f90&#45;&gt;sourcefile~adam_nasto_physics_object.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_edge16" class="edge">
+<title>sourcefile~adam_nasto_common_object.f90&#45;&gt;sourcefile~adam_nasto_physics_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M624.88,-97.31C565.36,-100.05 487.01,-104.85 418,-113 399.98,-115.13 380.62,-118.13 362.6,-121.23"/>
+<polygon fill="#000000" stroke="#000000" points="361.99,-117.78 352.75,-122.96 363.2,-124.68 361.99,-117.78"/>
+</g>
+<!-- sourcefile~adam_nasto_common_object.f90&#45;&gt;sourcefile~adam_nasto_time_object.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_edge17" class="edge">
+<title>sourcefile~adam_nasto_common_object.f90&#45;&gt;sourcefile~adam_nasto_time_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M655.49,-106.04C643.93,-109.6 632.29,-114.17 622,-120 602.59,-131.01 605.48,-144.11 586,-155 582.52,-156.94 578.86,-158.71 575.1,-160.31"/>
+<polygon fill="#000000" stroke="#000000" points="573.65,-157.12 565.57,-163.98 576.16,-163.66 573.65,-157.12"/>
+</g>
+<!-- sourcefile~adam_nasto_ic_object.f90&#45;&gt;sourcefile~adam_nasto_physics_object.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_edge18" class="edge">
+<title>sourcefile~adam_nasto_ic_object.f90&#45;&gt;sourcefile~adam_nasto_physics_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M459.33,-66.1C446.02,-70.22 431.3,-75.04 418,-80 386.56,-91.72 351.65,-107.09 326.48,-118.59"/>
+<polygon fill="#000000" stroke="#000000" points="324.96,-115.44 317.33,-122.8 327.88,-121.8 324.96,-115.44"/>
+</g>
+<!-- sourcefile~adam_nasto_physics_object.f90&#45;&gt;sourcefile~adam_nasto_eos_object.f90 -->
+<g id="sourcefile~~adam_nasto_gmp.f90~~EfferentGraph_edge19" class="edge">
+<title>sourcefile~adam_nasto_physics_object.f90&#45;&gt;sourcefile~adam_nasto_eos_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M198.71,-143.77C190.29,-144.59 181.76,-145.41 173.34,-146.22"/>
+<polygon fill="#000000" stroke="#000000" points="172.76,-142.76 163.14,-147.21 173.43,-149.73 172.76,-142.76"/>
+</g>
+</g>
+</svg>
+</div>                <script>
+                  var pansourcefileadam_nasto_gmpf90EfferentGraph = svgPanZoom('#sourcefileadam_nasto_gmpf90EfferentGraph',
+                    {zoomEnabled: true, controlIconsEnabled: true, fit: true, center: true,}
+                  );
+                </script>          <div>
+            <a type="button" class="graph-help" data-bs-toggle="modal" href="#EfferentGraph-help-text">Help</a>
+          </div>
+          <div class="modal fade" id="EfferentGraph-help-text" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h4 class="modal-title" id="-graph-help-label">Graph Key</h4>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+<p>Nodes of different colours represent the following: </p>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: Graph Key Pages: 1 -->
+<svg width="202pt" height="32pt"
+ viewBox="0.00 0.00 201.50 32.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 28)">
+<title>Graph Key</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 197.5,-28 197.5,4 -4,4"/>
+<!-- Source File -->
+<g id="node1" class="node">
+<title>Source File</title>
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="70,-24 0,-24 0,0 70,0 70,-24"/>
+<text text-anchor="middle" x="35" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Source File</text>
+</g>
+<!-- This Page&#39;s Entity -->
+<g id="node2" class="node">
+<title>This Page&#39;s Entity</title>
+<polygon fill="none" stroke="black" points="193.5,-24 88.5,-24 88.5,0 193.5,0 193.5,-24"/>
+<text text-anchor="middle" x="141" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">This Page&#39;s Entity</text>
+</g>
+</g>
+</svg>
+
+<p>Solid arrows point from a file to a file which it depends on. A file
+is dependent upon another if the latter must be compiled before the former
+can be.
+</p>
+ </div>
+            </div>
+          </div>
+        </div>
+          </div>
+        </div>
+<br>
+      <section>
+        <h2><span class="anchor" id="src"></span>Source Code</h2>
+        <div class="hl codehilite"><pre><span></span><a id="ln-1" name="ln-1" href="#ln-1"></a><span class="c">!&lt; ADAM, Navier-Stokes application solver, GPU-OpenMP (GMP) backend.</span>
+<a id="ln-2" name="ln-2" href="#ln-2"></a><span class="k">program </span><span class="n">adam_nasto_gmp</span>
+<a id="ln-3" name="ln-3" href="#ln-3"></a><span class="c">!&lt; ADAM, Navier-Stokes application solver, GPU-OpenMP (GMP) backend.</span>
+<a id="ln-4" name="ln-4" href="#ln-4"></a>
+<a id="ln-5" name="ln-5" href="#ln-5"></a><span class="k">use </span><span class="n">adam_nasto_gmp_object</span><span class="p">,</span><span class="w"> </span><span class="k">only</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">nasto_gmp_object</span>
+<a id="ln-6" name="ln-6" href="#ln-6"></a>
+<a id="ln-7" name="ln-7" href="#ln-7"></a><span class="k">implicit none</span>
+<a id="ln-8" name="ln-8" href="#ln-8"></a>
+<a id="ln-9" name="ln-9" href="#ln-9"></a><span class="k">type</span><span class="p">(</span><span class="n">nasto_gmp_object</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">nasto</span><span class="w">           </span><span class="c">!&lt; Navier-Stokes equations system class.</span>
+<a id="ln-10" name="ln-10" href="#ln-10"></a><span class="kt">integer</span><span class="w">                </span><span class="kd">::</span><span class="w"> </span><span class="n">na</span><span class="w">              </span><span class="c">!&lt; Number of command line arguments.</span>
+<a id="ln-11" name="ln-11" href="#ln-11"></a><span class="kt">character</span><span class="p">(</span><span class="mi">999</span><span class="p">)</span><span class="w">         </span><span class="kd">::</span><span class="w"> </span><span class="n">input_file_name</span><span class="w"> </span><span class="c">!&lt; Input file name.</span>
+<a id="ln-12" name="ln-12" href="#ln-12"></a>
+<a id="ln-13" name="ln-13" href="#ln-13"></a><span class="n">na</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">command_argument_count</span><span class="p">()</span>
+<a id="ln-14" name="ln-14" href="#ln-14"></a><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">na</span><span class="o">==</span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="k">then</span>
+<a id="ln-15" name="ln-15" href="#ln-15"></a><span class="k">   call </span><span class="n">nasto</span><span class="p">%</span><span class="n">simulate</span><span class="p">(</span><span class="n">filename</span><span class="o">=</span><span class="s1">&#39;input.ini&#39;</span><span class="p">)</span>
+<a id="ln-16" name="ln-16" href="#ln-16"></a><span class="k">else</span>
+<a id="ln-17" name="ln-17" href="#ln-17"></a><span class="k">   call </span><span class="nb">get_command_argument</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">input_file_name</span><span class="p">)</span>
+<a id="ln-18" name="ln-18" href="#ln-18"></a><span class="w">   </span><span class="k">call </span><span class="n">nasto</span><span class="p">%</span><span class="n">simulate</span><span class="p">(</span><span class="n">filename</span><span class="o">=</span><span class="nb">trim</span><span class="p">(</span><span class="nb">adjustl</span><span class="p">(</span><span class="n">input_file_name</span><span class="p">)))</span>
+<a id="ln-19" name="ln-19" href="#ln-19"></a><span class="k">endif</span>
+<a id="ln-20" name="ln-20" href="#ln-20"></a><span class="k">endprogram </span><span class="n">adam_nasto_gmp</span>
+</pre></div>
+
+      </section>
+    </div>
+  </div>
+
+      <hr>
+    </div> <!-- /container -->
+    <footer>
+      <div class="container">
+        <div class="row justify-content-between">
+          <div class="col">
+            <p>
+              ADAM
+ was developed by Stefano Zaghi<br>              &copy; 2025 
+</p>
+          </div>
+          <div class="col">
+            <p class="text-end">
+              Documentation generated by
+              <a href="https://github.com/Fortran-FOSS-Programmers/ford">FORD</a>
+            </p>
+          </div>
+        </div>
+        <br>
+      </div> <!-- /container -->
+    </footer>
+  </body>
+</html>

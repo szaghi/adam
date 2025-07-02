@@ -1,0 +1,891 @@
+<!-- -*- mode: jinja2 -*- -->
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="description" content="Adaptive Mesh Refinement (AMR) with Immersed Boundary (IB) fluid dynamic solver tailored for High Performance GPU Computing">
+    <meta name="author" content="Stefano Zaghi" >
+    <link rel="icon" href="../favicon.png">
+
+    <title>adam_nasto_eos_object.F90 &ndash; ADAM</title>
+
+    <!-- Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+          integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+            integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <!-- Font Awesome -->
+    <link href="../css/fontawesome.min.css" rel="stylesheet">
+    <link href="../css/brands.min.css" rel="stylesheet">
+    <link href="../css/regular.min.css" rel="stylesheet">
+    <link href="../css/solid.min.css" rel="stylesheet">
+    <link href="../css/v4-font-face.min.css" rel="stylesheet">
+    <link href="../css/v4-shims.min.css" rel="stylesheet">
+    <!-- MathJax -->
+    <script type="text/x-mathjax-config">
+      MathJax.Hub.Config({
+        TeX: { equationNumbers: { autoNumber: "AMS" } }
+      });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@2.7.9/MathJax.js?config=TeX-AMS-MML_HTMLorMML" async
+            integrity="sha256-DViIOMYdwlM/axqoGDPeUyf0urLoHMN4QACBKyB58Uw=" crossorigin="anonymous"></script>
+    <!-- Other scripts and stylesheets -->
+    <link href="../css/local.css" rel="stylesheet">
+    <link href="../css/pygments.css" rel="stylesheet">
+    <script src="../js/svg-pan-zoom.min.js"></script>
+  </head>
+
+  <body>
+
+    <!-- Fixed navbar -->
+    <div class="container-fluid mb-sm-4 mb-xl-2">
+      <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+        <div class="container">
+          <a class="navbar-brand" href="../index.html">ADAM </a>
+          <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar"
+                  aria-expanded="false" aria-controls="navbar" aria-label="Toggle navigation">
+                  <span class="navbar-toggler-icon">
+          </button>
+
+          <div id="navbar" class="navbar-collapse collapse">
+            <ul class="navbar-nav">
+                  <li class="nav-item">
+                    <a class="nav-link" href="../lists/files.html">Source Files</a>
+                  </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/modules.html">Modules</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/procedures.html">Procedures</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/types.html">Derived Types</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/programs.html">Programs</a>
+                </li>
+            </ul>
+              <div class="d-flex align-items-end flex-grow-1">
+                <form action="../search.html" role="search" class="ms-auto">
+                  <input type="text" class="form-control" aria-label="Search" placeholder="Search" name="q" id="tipue_search_input" autocomplete="off" required>
+                </form>
+              </div>
+          </div><!--/.nav-collapse -->
+        </div>
+      </nav>
+    </div>
+
+    <div class="container">
+  <div class="row">
+    <h1>adam_nasto_eos_object.F90
+      <small>Source File</small>
+      
+    </h1>
+      <div class="container p-2 mb-4 bg-light border rounded-3">
+    <div class="row align-items-center justify-content-between" id="info-bar">
+      <div class="col">
+        <ul class="list-inline" style="margin-bottom:0px;display:inline">
+
+            <li class="list-inline-item" id="statements"><i class="fa fa-list-ol"></i>
+              <a data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-html="true"
+                 title=" 4.6% of total for source files.">301 statements</a>
+            </li>
+
+            <li class="list-inline-item" id="source-file">
+              <i class="fa fa-code"></i>
+              <a href="../src/adam_nasto_eos_object.F90"> Source File</a>
+            </li>
+        </ul>
+      </div>
+      <div class="col">
+        <nav aria-label="breadcrumb">
+          <ol class="breadcrumb justify-content-end mb-0">
+            <li class="breadcrumb-item active" aria-current="page">adam_nasto_eos_object.F90</li>
+          </ol>
+        </nav>
+      </div>
+    </div>
+  </div>
+  <script>
+    // Enable Bootstrap tooltips
+    (function () {
+      const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]')
+      const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl))
+    })();
+  </script>
+
+  </div>
+  <div class="row">
+    <div class="col-md-3 hidden-xs hidden-sm visible-md visible-lg">
+        <div id="sidebar">
+      <h3>Contents</h3>
+  
+  
+  
+  
+  
+      <div class="card mb-4">
+      <a data-bs-toggle="collapse" href="#mods-0"
+         aria-expanded="false" aria-controls="mods-0">
+         <h4 class="card-header bg-primary text-white">Modules</h4>
+      </a>
+      <div id="mods-0" class="collapse">
+        <div class="list-group list-group-flush">
+            <a class="list-group-item" href="../module/adam_nasto_eos_object.html">adam_nasto_eos_object</a>
+        </div>
+      </div>
+    </div>
+
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+    <div class="card card-primary">
+      <div class="card-header text-left"><h3 class="card-title">Source Code</h3></div>
+      <div class="list-group">
+        <a class="list-group-item" href="../sourcefile/adam_nasto_eos_object.f90.html#src">adam_nasto_eos_object.F90</a>
+      </div>
+    </div>
+
+
+  </div>
+
+    </div>
+    <div class="col-md-9" id='text'>
+      <p>ADAM, NASTO Equations Of State (EOS) class definition, CPU backend.</p>
+      <br>
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Files dependent on this one</h3>
+          </div>
+          <div class="card-body">
+            <div class="depgraph"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph Pages: 1 -->
+<svg id="sourcefileadam_nasto_eos_objectf90AfferentGraph" width="641pt" height="64pt"
+ viewBox="0.00 0.00 641.00 63.90" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph" class="graph" transform="scale(0.4 0.4) rotate(0) translate(4 154)">
+<title>sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-154 1581,-154 1581,4 -4,4"/>
+<!-- sourcefile~adam_nasto_eos_object.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node1" class="node">
+<title>sourcefile~adam_nasto_eos_object.f90</title>
+<polygon fill="none" stroke="black" points="163,-107 0,-107 0,-83 163,-83 163,-107"/>
+<text text-anchor="middle" x="81.5" y="-92.6" font-family="Helvetica,sans-Serif" font-size="10.50">adam_nasto_eos_object.F90</text>
+</g>
+<!-- sourcefile~adam_nasto_common_library.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node2" class="node">
+<title>sourcefile~adam_nasto_common_library.f90</title>
+<g id="a_sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node2"><a xlink:href="../sourcefile/adam_nasto_common_library.f90.html" xlink:title="adam_nasto_common_library.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="1025,-87 834,-87 834,-63 1025,-63 1025,-87"/>
+<text text-anchor="middle" x="929.5" y="-72.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_common_library.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_eos_object.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_edge1" class="edge">
+<title>sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_eos_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M493.5,-115C383.29,-112.26 256.61,-105.56 173.36,-100.66"/>
+<polygon fill="#000000" stroke="#000000" points="173.36,-97.16 163.17,-100.06 172.95,-104.15 173.36,-97.16"/>
+</g>
+<!-- sourcefile~adam_nasto_physics_object.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node3" class="node">
+<title>sourcefile~adam_nasto_physics_object.f90</title>
+<g id="a_sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node3"><a xlink:href="../sourcefile/adam_nasto_physics_object.f90.html" xlink:title="adam_nasto_physics_object.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="382,-87 199,-87 199,-63 382,-63 382,-87"/>
+<text text-anchor="middle" x="290.5" y="-72.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_physics_object.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_physics_object.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_edge7" class="edge">
+<title>sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_physics_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M861.87,-87.02C776.95,-100.99 625.57,-121.36 495.5,-115"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M493.5,-115C440.78,-113.69 381.76,-100.61 341.19,-89.76"/>
+<polygon fill="#000000" stroke="#000000" points="341.86,-86.31 331.29,-87.06 340.02,-93.07 341.86,-86.31"/>
+</g>
+<!-- sourcefile~adam_nasto_common_object.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node4" class="node">
+<title>sourcefile~adam_nasto_common_object.f90</title>
+<g id="a_sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node4"><a xlink:href="../sourcefile/adam_nasto_common_object.f90.html" xlink:title="adam_nasto_common_object.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="798,-87 607,-87 607,-63 798,-63 798,-87"/>
+<text text-anchor="middle" x="702.5" y="-72.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_common_object.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_common_object.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_edge10" class="edge">
+<title>sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_common_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M833.73,-75C825.36,-75 816.86,-75 808.42,-75"/>
+<polygon fill="#000000" stroke="#000000" points="808.16,-71.5 798.16,-75 808.16,-78.5 808.16,-71.5"/>
+</g>
+<!-- sourcefile~adam_nasto_ic_object.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node8" class="node">
+<title>sourcefile~adam_nasto_ic_object.f90</title>
+<g id="a_sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node8"><a xlink:href="../sourcefile/adam_nasto_ic_object.f90.html" xlink:title="adam_nasto_ic_object.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="571,-47 418,-47 418,-23 571,-23 571,-47"/>
+<text text-anchor="middle" x="494.5" y="-32.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_ic_object.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_ic_object.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_edge14" class="edge">
+<title>sourcefile~adam_nasto_common_library.f90&#45;&gt;sourcefile~adam_nasto_ic_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M861.61,-62.96C841.24,-59.64 818.75,-56.32 798,-54 725.21,-45.88 642.14,-40.97 581.49,-38.18"/>
+<polygon fill="#000000" stroke="#000000" points="581.35,-34.67 571.2,-37.72 581.03,-41.67 581.35,-34.67"/>
+</g>
+<!-- sourcefile~adam_nasto_physics_object.f90&#45;&gt;sourcefile~adam_nasto_eos_object.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_edge2" class="edge">
+<title>sourcefile~adam_nasto_physics_object.f90&#45;&gt;sourcefile~adam_nasto_eos_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M198.71,-83.77C190.29,-84.59 181.76,-85.41 173.34,-86.22"/>
+<polygon fill="#000000" stroke="#000000" points="172.76,-82.76 163.14,-87.21 173.43,-89.73 172.76,-82.76"/>
+</g>
+<!-- sourcefile~adam_nasto_common_object.f90&#45;&gt;sourcefile~adam_nasto_physics_object.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_edge8" class="edge">
+<title>sourcefile~adam_nasto_common_object.f90&#45;&gt;sourcefile~adam_nasto_physics_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M606.92,-75C542.72,-75 457.92,-75 392.42,-75"/>
+<polygon fill="#000000" stroke="#000000" points="392.08,-71.5 382.08,-75 392.08,-78.5 392.08,-71.5"/>
+</g>
+<!-- sourcefile~adam_nasto_common_object.f90&#45;&gt;sourcefile~adam_nasto_ic_object.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_edge15" class="edge">
+<title>sourcefile~adam_nasto_common_object.f90&#45;&gt;sourcefile~adam_nasto_ic_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M639.69,-63C616.98,-58.59 591.07,-53.56 567.54,-48.99"/>
+<polygon fill="#000000" stroke="#000000" points="568.1,-45.53 557.62,-47.06 566.77,-52.4 568.1,-45.53"/>
+</g>
+<!-- sourcefile~adam_nasto_cpu_object.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node5" class="node">
+<title>sourcefile~adam_nasto_cpu_object.f90</title>
+<g id="a_sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node5"><a xlink:href="../sourcefile/adam_nasto_cpu_object.f90.html" xlink:title="adam_nasto_cpu_object.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="1226.5,-150 1063.5,-150 1063.5,-126 1226.5,-126 1226.5,-150"/>
+<text text-anchor="middle" x="1145" y="-135.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_cpu_object.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_cpu_object.f90&#45;&gt;sourcefile~adam_nasto_common_library.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_edge3" class="edge">
+<title>sourcefile~adam_nasto_cpu_object.f90&#45;&gt;sourcefile~adam_nasto_common_library.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1094.27,-125.96C1083.28,-123.15 1071.71,-120.08 1061,-117 1032.32,-108.77 1000.44,-98.53 975.36,-90.22"/>
+<polygon fill="#000000" stroke="#000000" points="976.36,-86.86 965.76,-87.02 974.14,-93.5 976.36,-86.86"/>
+</g>
+<!-- sourcefile~adam_nasto_fnl_library.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node6" class="node">
+<title>sourcefile~adam_nasto_fnl_library.f90</title>
+<g id="a_sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node6"><a xlink:href="../sourcefile/adam_nasto_fnl_library.f90.html" xlink:title="adam_nasto_fnl_library.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="1223.5,-108 1066.5,-108 1066.5,-84 1223.5,-84 1223.5,-108"/>
+<text text-anchor="middle" x="1145" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_fnl_library.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_fnl_library.f90&#45;&gt;sourcefile~adam_nasto_common_library.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_edge4" class="edge">
+<title>sourcefile~adam_nasto_fnl_library.f90&#45;&gt;sourcefile~adam_nasto_common_library.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1066.32,-88.36C1056.2,-87.36 1045.7,-86.33 1035.23,-85.3"/>
+<polygon fill="#000000" stroke="#000000" points="1035.51,-81.81 1025.21,-84.32 1034.82,-88.78 1035.51,-81.81"/>
+</g>
+<!-- sourcefile~adam_nasto_gmp_object.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node7" class="node">
+<title>sourcefile~adam_nasto_gmp_object.f90</title>
+<g id="a_sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node7"><a xlink:href="../sourcefile/adam_nasto_gmp_object.f90.html" xlink:title="adam_nasto_gmp_object.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="1229,-66 1061,-66 1061,-42 1229,-42 1229,-66"/>
+<text text-anchor="middle" x="1145" y="-51.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_gmp_object.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_gmp_object.f90&#45;&gt;sourcefile~adam_nasto_common_library.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_edge5" class="edge">
+<title>sourcefile~adam_nasto_gmp_object.f90&#45;&gt;sourcefile~adam_nasto_common_library.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1060.84,-62.18C1052.43,-63.01 1043.81,-63.86 1035.2,-64.7"/>
+<polygon fill="#000000" stroke="#000000" points="1034.73,-61.23 1025.13,-65.69 1035.42,-68.2 1034.73,-61.23"/>
+</g>
+<!-- sourcefile~adam_nasto_ic_object.f90&#45;&gt;sourcefile~adam_nasto_physics_object.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_edge9" class="edge">
+<title>sourcefile~adam_nasto_ic_object.f90&#45;&gt;sourcefile~adam_nasto_physics_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M432.89,-47C410.72,-51.39 385.45,-56.4 362.45,-60.95"/>
+<polygon fill="#000000" stroke="#000000" points="361.54,-57.56 352.41,-62.94 362.9,-64.43 361.54,-57.56"/>
+</g>
+<!-- sourcefile~adam_nasto_nvf_object.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node9" class="node">
+<title>sourcefile~adam_nasto_nvf_object.f90</title>
+<g id="a_sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node9"><a xlink:href="../sourcefile/adam_nasto_nvf_object.f90.html" xlink:title="adam_nasto_nvf_object.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="1225,-24 1065,-24 1065,0 1225,0 1225,-24"/>
+<text text-anchor="middle" x="1145" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_nvf_object.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_nvf_object.f90&#45;&gt;sourcefile~adam_nasto_common_library.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_edge6" class="edge">
+<title>sourcefile~adam_nasto_nvf_object.f90&#45;&gt;sourcefile~adam_nasto_common_library.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1094.27,-24.04C1083.28,-26.85 1071.71,-29.92 1061,-33 1032.32,-41.23 1000.44,-51.47 975.36,-59.78"/>
+<polygon fill="#000000" stroke="#000000" points="974.14,-56.5 965.76,-62.98 976.36,-63.14 974.14,-56.5"/>
+</g>
+<!-- sourcefile~adam_nasto_cpu.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node10" class="node">
+<title>sourcefile~adam_nasto_cpu.f90</title>
+<g id="a_sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node10"><a xlink:href="../sourcefile/adam_nasto_cpu.f90.html" xlink:title="adam_nasto_cpu.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="1406,-150 1281,-150 1281,-126 1406,-126 1406,-150"/>
+<text text-anchor="middle" x="1343.5" y="-135.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_cpu.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_cpu.f90&#45;&gt;sourcefile~adam_nasto_cpu_object.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_edge11" class="edge">
+<title>sourcefile~adam_nasto_cpu.f90&#45;&gt;sourcefile~adam_nasto_cpu_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1280.87,-138C1266.87,-138 1251.73,-138 1236.81,-138"/>
+<polygon fill="#000000" stroke="#000000" points="1236.53,-134.5 1226.53,-138 1236.53,-141.5 1236.53,-134.5"/>
+</g>
+<!-- sourcefile~adam_nasto_fnl_object.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node11" class="node">
+<title>sourcefile~adam_nasto_fnl_object.f90</title>
+<g id="a_sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node11"><a xlink:href="../sourcefile/adam_nasto_fnl_object.f90.html" xlink:title="adam_nasto_fnl_object.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="1422,-108 1265,-108 1265,-84 1422,-84 1422,-108"/>
+<text text-anchor="middle" x="1343.5" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_fnl_object.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_fnl_object.f90&#45;&gt;sourcefile~adam_nasto_fnl_library.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_edge12" class="edge">
+<title>sourcefile~adam_nasto_fnl_object.f90&#45;&gt;sourcefile~adam_nasto_fnl_library.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1264.84,-96C1254.7,-96 1244.26,-96 1233.97,-96"/>
+<polygon fill="#000000" stroke="#000000" points="1233.74,-92.5 1223.74,-96 1233.74,-99.5 1233.74,-92.5"/>
+</g>
+<!-- sourcefile~adam_nasto_gmp.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node12" class="node">
+<title>sourcefile~adam_nasto_gmp.f90</title>
+<g id="a_sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node12"><a xlink:href="../sourcefile/adam_nasto_gmp.f90.html" xlink:title="adam_nasto_gmp.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="1408.5,-66 1278.5,-66 1278.5,-42 1408.5,-42 1408.5,-66"/>
+<text text-anchor="middle" x="1343.5" y="-51.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_gmp.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_gmp.f90&#45;&gt;sourcefile~adam_nasto_gmp_object.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_edge13" class="edge">
+<title>sourcefile~adam_nasto_gmp.f90&#45;&gt;sourcefile~adam_nasto_gmp_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1278.43,-54C1265.94,-54 1252.6,-54 1239.38,-54"/>
+<polygon fill="#000000" stroke="#000000" points="1239.31,-50.5 1229.31,-54 1239.31,-57.5 1239.31,-50.5"/>
+</g>
+<!-- sourcefile~adam_nasto_nvf.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node13" class="node">
+<title>sourcefile~adam_nasto_nvf.f90</title>
+<g id="a_sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node13"><a xlink:href="../sourcefile/adam_nasto_nvf.f90.html" xlink:title="adam_nasto_nvf.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="1404,-24 1283,-24 1283,0 1404,0 1404,-24"/>
+<text text-anchor="middle" x="1343.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_nvf.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_nvf.f90&#45;&gt;sourcefile~adam_nasto_nvf_object.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_edge16" class="edge">
+<title>sourcefile~adam_nasto_nvf.f90&#45;&gt;sourcefile~adam_nasto_nvf_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1282.74,-12C1267.83,-12 1251.51,-12 1235.51,-12"/>
+<polygon fill="#000000" stroke="#000000" points="1235.05,-8.5 1225.05,-12 1235.05,-15.5 1235.05,-8.5"/>
+</g>
+<!-- sourcefile~adam_nasto_fnl.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node14" class="node">
+<title>sourcefile~adam_nasto_fnl.f90</title>
+<g id="a_sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_node14"><a xlink:href="../sourcefile/adam_nasto_fnl.f90.html" xlink:title="adam_nasto_fnl.F90">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="1577,-108 1458,-108 1458,-84 1577,-84 1577,-108"/>
+<text text-anchor="middle" x="1517.5" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_fnl.F90</text>
+</a>
+</g>
+</g>
+<!-- sourcefile~adam_nasto_fnl.f90&#45;&gt;sourcefile~adam_nasto_fnl_object.f90 -->
+<g id="sourcefile~~adam_nasto_eos_object.f90~~AfferentGraph_edge17" class="edge">
+<title>sourcefile~adam_nasto_fnl.f90&#45;&gt;sourcefile~adam_nasto_fnl_object.f90</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1457.79,-96C1449.53,-96 1440.91,-96 1432.26,-96"/>
+<polygon fill="#000000" stroke="#000000" points="1432.11,-92.5 1422.11,-96 1432.11,-99.5 1432.11,-92.5"/>
+</g>
+</g>
+</svg>
+</div>                <script>
+                  var pansourcefileadam_nasto_eos_objectf90AfferentGraph = svgPanZoom('#sourcefileadam_nasto_eos_objectf90AfferentGraph',
+                    {zoomEnabled: true, controlIconsEnabled: true, fit: true, center: true,}
+                  );
+                </script>          <div>
+            <a type="button" class="graph-help" data-bs-toggle="modal" href="#AfferentGraph-help-text">Help</a>
+          </div>
+          <div class="modal fade" id="AfferentGraph-help-text" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h4 class="modal-title" id="-graph-help-label">Graph Key</h4>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+<p>Nodes of different colours represent the following: </p>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: Graph Key Pages: 1 -->
+<svg width="202pt" height="32pt"
+ viewBox="0.00 0.00 201.50 32.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 28)">
+<title>Graph Key</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 197.5,-28 197.5,4 -4,4"/>
+<!-- Source File -->
+<g id="node1" class="node">
+<title>Source File</title>
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="70,-24 0,-24 0,0 70,0 70,-24"/>
+<text text-anchor="middle" x="35" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Source File</text>
+</g>
+<!-- This Page&#39;s Entity -->
+<g id="node2" class="node">
+<title>This Page&#39;s Entity</title>
+<polygon fill="none" stroke="black" points="193.5,-24 88.5,-24 88.5,0 193.5,0 193.5,-24"/>
+<text text-anchor="middle" x="141" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">This Page&#39;s Entity</text>
+</g>
+</g>
+</svg>
+
+<p>Solid arrows point from a file to a file which it depends on. A file
+is dependent upon another if the latter must be compiled before the former
+can be.
+</p>
+ </div>
+            </div>
+          </div>
+        </div>
+          </div>
+        </div>
+<br>
+      <section>
+        <h2><span class="anchor" id="src"></span>Source Code</h2>
+        <div class="hl codehilite"><pre><span></span><a id="ln-1" name="ln-1" href="#ln-1"></a><span class="c">!&lt; ADAM, NASTO Equations Of State (EOS) class definition, CPU backend.</span>
+<a id="ln-2" name="ln-2" href="#ln-2"></a><span class="k">module </span><span class="n">adam_nasto_eos_object</span>
+<a id="ln-3" name="ln-3" href="#ln-3"></a><span class="c">!&lt; ADAM, NASTO Equations Of State (EOS) class definition, CPU backend.</span>
+<a id="ln-4" name="ln-4" href="#ln-4"></a>
+<a id="ln-5" name="ln-5" href="#ln-5"></a><span class="k">use </span><span class="n">adam_mpih_object</span><span class="p">,</span><span class="w"> </span><span class="k">only</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">mpih_object</span>
+<a id="ln-6" name="ln-6" href="#ln-6"></a><span class="k">use </span><span class="n">finer</span><span class="p">,</span><span class="w"> </span><span class="k">only</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">file_ini</span>
+<a id="ln-7" name="ln-7" href="#ln-7"></a><span class="k">use </span><span class="n">penf</span><span class="p">,</span><span class="w"> </span><span class="k">only</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">I4P</span><span class="p">,</span><span class="w"> </span><span class="n">R8P</span><span class="p">,</span><span class="w"> </span><span class="n">str</span>
+<a id="ln-8" name="ln-8" href="#ln-8"></a>
+<a id="ln-9" name="ln-9" href="#ln-9"></a><span class="k">implicit none</span>
+<a id="ln-10" name="ln-10" href="#ln-10"></a><span class="k">private</span>
+<a id="ln-11" name="ln-11" href="#ln-11"></a><span class="k">public</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">nasto_eos_object</span>
+<a id="ln-12" name="ln-12" href="#ln-12"></a><span class="k">public</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">ic_density</span>
+<a id="ln-13" name="ln-13" href="#ln-13"></a><span class="k">public</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">ic_internal_energy</span>
+<a id="ln-14" name="ln-14" href="#ln-14"></a><span class="k">public</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">ic_pressure</span>
+<a id="ln-15" name="ln-15" href="#ln-15"></a><span class="k">public</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">ic_speed_of_sound</span>
+<a id="ln-16" name="ln-16" href="#ln-16"></a><span class="k">public</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">ic_temperature</span>
+<a id="ln-17" name="ln-17" href="#ln-17"></a><span class="k">public</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">ic_total_energy</span>
+<a id="ln-18" name="ln-18" href="#ln-18"></a><span class="k">public</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">ic_total_entalpy</span>
+<a id="ln-19" name="ln-19" href="#ln-19"></a>
+<a id="ln-20" name="ln-20" href="#ln-20"></a><span class="kt">character</span><span class="p">(</span><span class="nb">len</span><span class="o">=</span><span class="mi">15</span><span class="p">),</span><span class="w"> </span><span class="k">parameter</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">INI_SECTION_NAME</span><span class="o">=</span><span class="s1">&#39;physics_specie_&#39;</span><span class="w"> </span><span class="c">!&lt; INI file section name containing fluid eos.</span>
+<a id="ln-21" name="ln-21" href="#ln-21"></a>
+<a id="ln-22" name="ln-22" href="#ln-22"></a><span class="k">type</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">nasto_eos_object</span>
+<a id="ln-23" name="ln-23" href="#ln-23"></a><span class="w">   </span><span class="c">!&lt; NASTO Equations Of State (EOS, ideal, compressible fluid) class definition.</span>
+<a id="ln-24" name="ln-24" href="#ln-24"></a><span class="w">   </span><span class="k">type</span><span class="p">(</span><span class="n">mpih_object</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">mpih</span><span class="w">           </span><span class="c">!&lt; MPI handler.</span>
+<a id="ln-25" name="ln-25" href="#ln-25"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">         </span><span class="kd">::</span><span class="w"> </span><span class="n">cp</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="mf">0._R8P</span><span class="w"> </span><span class="c">!&lt; Specific heat at constant pressure `cp`.</span>
+<a id="ln-26" name="ln-26" href="#ln-26"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">         </span><span class="kd">::</span><span class="w"> </span><span class="n">cv</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="mf">0._R8P</span><span class="w"> </span><span class="c">!&lt; Specific heat at constant volume `cv`.</span>
+<a id="ln-27" name="ln-27" href="#ln-27"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">         </span><span class="kd">::</span><span class="w"> </span><span class="n">g</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="mf">0._R8P</span><span class="w"> </span><span class="c">!&lt; Specific heats ratio `gamma = cp / cv`.</span>
+<a id="ln-28" name="ln-28" href="#ln-28"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">         </span><span class="kd">::</span><span class="w"> </span><span class="n">R</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="mf">0._R8P</span><span class="w"> </span><span class="c">!&lt; Fluid constant `R = cp - cv`.</span>
+<a id="ln-29" name="ln-29" href="#ln-29"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">         </span><span class="kd">::</span><span class="w"> </span><span class="n">gm1</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="mf">0._R8P</span><span class="w"> </span><span class="c">!&lt; `gamma - 1`.</span>
+<a id="ln-30" name="ln-30" href="#ln-30"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">         </span><span class="kd">::</span><span class="w"> </span><span class="n">gp1</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="mf">0._R8P</span><span class="w"> </span><span class="c">!&lt; `gamma + 1`.</span>
+<a id="ln-31" name="ln-31" href="#ln-31"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">         </span><span class="kd">::</span><span class="w"> </span><span class="n">delta</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0._R8P</span><span class="w"> </span><span class="c">!&lt; `(gamma - 1) / 2`.</span>
+<a id="ln-32" name="ln-32" href="#ln-32"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">         </span><span class="kd">::</span><span class="w"> </span><span class="n">eta</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="mf">0._R8P</span><span class="w"> </span><span class="c">!&lt; `2 * gamma / (gamma - 1)`.</span>
+<a id="ln-33" name="ln-33" href="#ln-33"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">         </span><span class="kd">::</span><span class="w"> </span><span class="n">mu</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="mf">0._R8P</span><span class="w"> </span><span class="c">!&lt; Dynamic viscosity.</span>
+<a id="ln-34" name="ln-34" href="#ln-34"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">         </span><span class="kd">::</span><span class="w"> </span><span class="n">kd</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="mf">0._R8P</span><span class="w"> </span><span class="c">!&lt; Thermal diffusivity.</span>
+<a id="ln-35" name="ln-35" href="#ln-35"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">         </span><span class="kd">::</span><span class="w"> </span><span class="n">dha</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="mf">0._R8P</span><span class="w"> </span><span class="c">!&lt; Entalpy formation.</span>
+<a id="ln-36" name="ln-36" href="#ln-36"></a><span class="w">   </span><span class="k">contains</span>
+<a id="ln-37" name="ln-37" href="#ln-37"></a><span class="w">      </span><span class="c">! public methods</span>
+<a id="ln-38" name="ln-38" href="#ln-38"></a><span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">compute_derivate</span><span class="w">       </span><span class="c">!&lt; Compute derivate quantities (from `cp` and `cv`).</span>
+<a id="ln-39" name="ln-39" href="#ln-39"></a><span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">conservative2primitive</span><span class="w"> </span><span class="c">!&lt; Return primitive variables from conservative ones.</span>
+<a id="ln-40" name="ln-40" href="#ln-40"></a><span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">description</span><span class="w">            </span><span class="c">!&lt; Return pretty-printed object description.</span>
+<a id="ln-41" name="ln-41" href="#ln-41"></a><span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">destroy</span><span class="w">                </span><span class="c">!&lt; Destroy physics.</span>
+<a id="ln-42" name="ln-42" href="#ln-42"></a><span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">initialize</span><span class="w">             </span><span class="c">!&lt; initialize physics.</span>
+<a id="ln-43" name="ln-43" href="#ln-43"></a><span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">load_from_file</span><span class="w">         </span><span class="c">!&lt; Load from finer file.</span>
+<a id="ln-44" name="ln-44" href="#ln-44"></a><span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">primitive2conservative</span><span class="w"> </span><span class="c">!&lt; Return conservative variables from primitive ones.</span>
+<a id="ln-45" name="ln-45" href="#ln-45"></a><span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">save_into_file</span><span class="w">         </span><span class="c">!&lt; Save into finer file.</span>
+<a id="ln-46" name="ln-46" href="#ln-46"></a><span class="w">      </span><span class="c">! states functions</span>
+<a id="ln-47" name="ln-47" href="#ln-47"></a><span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">density</span><span class="w">          </span><span class="c">!&lt; Return density.</span>
+<a id="ln-48" name="ln-48" href="#ln-48"></a><span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">internal_energy</span><span class="w">  </span><span class="c">!&lt; Return specific internal energy.</span>
+<a id="ln-49" name="ln-49" href="#ln-49"></a><span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">pressure</span><span class="w">         </span><span class="c">!&lt; Return pressure.</span>
+<a id="ln-50" name="ln-50" href="#ln-50"></a><span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">speed_of_sound</span><span class="w">   </span><span class="c">!&lt; Return speed of sound.</span>
+<a id="ln-51" name="ln-51" href="#ln-51"></a><span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">temperature</span><span class="w">      </span><span class="c">!&lt; Return temperature.</span>
+<a id="ln-52" name="ln-52" href="#ln-52"></a><span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">total_energy</span><span class="w">     </span><span class="c">!&lt; Return total specific energy.</span>
+<a id="ln-53" name="ln-53" href="#ln-53"></a><span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">self</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">total_entalpy</span><span class="w">    </span><span class="c">!&lt; Return total specific entalpy.</span>
+<a id="ln-54" name="ln-54" href="#ln-54"></a><span class="w">      </span><span class="c">! operators</span>
+<a id="ln-55" name="ln-55" href="#ln-55"></a><span class="w">      </span><span class="k">generic</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">assignment</span><span class="p">(</span><span class="o">=</span><span class="p">)</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">nasto_physics_assign_nasto_physics</span><span class="w"> </span><span class="c">!&lt; Overload `=`.</span>
+<a id="ln-56" name="ln-56" href="#ln-56"></a><span class="w">      </span><span class="c">! private methods</span>
+<a id="ln-57" name="ln-57" href="#ln-57"></a><span class="w">      </span><span class="k">procedure</span><span class="p">,</span><span class="w"> </span><span class="k">pass</span><span class="p">(</span><span class="n">lhs</span><span class="p">),</span><span class="w"> </span><span class="k">private</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">nasto_physics_assign_nasto_physics</span><span class="w"> </span><span class="c">!&lt; Operator `=`.</span>
+<a id="ln-58" name="ln-58" href="#ln-58"></a><span class="k">endtype </span><span class="n">nasto_eos_object</span>
+<a id="ln-59" name="ln-59" href="#ln-59"></a>
+<a id="ln-60" name="ln-60" href="#ln-60"></a><span class="k">interface </span><span class="n">nasto_eos_object</span>
+<a id="ln-61" name="ln-61" href="#ln-61"></a><span class="w">   </span><span class="c">!&lt; Overload [[nasto_eos_object]] name with its constructor.</span>
+<a id="ln-62" name="ln-62" href="#ln-62"></a><span class="w">   </span><span class="k">module procedure </span><span class="n">nasto_eos_instance</span>
+<a id="ln-63" name="ln-63" href="#ln-63"></a><span class="k">endinterface</span>
+<a id="ln-64" name="ln-64" href="#ln-64"></a><span class="k">contains</span>
+<a id="ln-65" name="ln-65" href="#ln-65"></a><span class="w">   </span><span class="c">! public methods</span>
+<a id="ln-66" name="ln-66" href="#ln-66"></a><span class="w">   </span><span class="k">elemental subroutine </span><span class="n">compute_derivate</span><span class="p">(</span><span class="n">self</span><span class="p">)</span>
+<a id="ln-67" name="ln-67" href="#ln-67"></a><span class="w">   </span><span class="c">!&lt; Compute derivate quantities (from `cp` and `cv`).</span>
+<a id="ln-68" name="ln-68" href="#ln-68"></a><span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">inout</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w"> </span><span class="c">!&lt; Fluid physics.</span>
+<a id="ln-69" name="ln-69" href="#ln-69"></a>
+<a id="ln-70" name="ln-70" href="#ln-70"></a><span class="w">   </span><span class="n">self</span><span class="p">%</span><span class="n">g</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">self</span><span class="p">%</span><span class="n">cp</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">self</span><span class="p">%</span><span class="n">cv</span>
+<a id="ln-71" name="ln-71" href="#ln-71"></a><span class="w">   </span><span class="n">self</span><span class="p">%</span><span class="n">R</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">self</span><span class="p">%</span><span class="n">cp</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">self</span><span class="p">%</span><span class="n">cv</span>
+<a id="ln-72" name="ln-72" href="#ln-72"></a><span class="w">   </span><span class="n">self</span><span class="p">%</span><span class="n">gm1</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">self</span><span class="p">%</span><span class="n">g</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">1._R8P</span>
+<a id="ln-73" name="ln-73" href="#ln-73"></a><span class="w">   </span><span class="n">self</span><span class="p">%</span><span class="n">gp1</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">self</span><span class="p">%</span><span class="n">g</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">1._R8P</span>
+<a id="ln-74" name="ln-74" href="#ln-74"></a><span class="w">   </span><span class="n">self</span><span class="p">%</span><span class="n">delta</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">self</span><span class="p">%</span><span class="n">g</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">1._R8P</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mf">0.5_R8P</span>
+<a id="ln-75" name="ln-75" href="#ln-75"></a><span class="w">   </span><span class="n">self</span><span class="p">%</span><span class="n">eta</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="mf">2._R8P</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">self</span><span class="p">%</span><span class="n">g</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="p">(</span><span class="n">self</span><span class="p">%</span><span class="n">g</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">1._R8P</span><span class="p">)</span>
+<a id="ln-76" name="ln-76" href="#ln-76"></a><span class="w">   </span><span class="k">endsubroutine </span><span class="n">compute_derivate</span>
+<a id="ln-77" name="ln-77" href="#ln-77"></a>
+<a id="ln-78" name="ln-78" href="#ln-78"></a><span class="w">   </span><span class="k">pure function </span><span class="n">conservative2primitive</span><span class="p">(</span><span class="n">self</span><span class="p">,</span><span class="w"> </span><span class="n">conservative</span><span class="p">)</span><span class="w"> </span><span class="k">result</span><span class="p">(</span><span class="n">primitive</span><span class="p">)</span>
+<a id="ln-79" name="ln-79" href="#ln-79"></a><span class="w">   </span><span class="c">!&lt; Return primitive variables (r, u, v, w, p) from conservative variables (r, ru, rv, rw, rE).</span>
+<a id="ln-80" name="ln-80" href="#ln-80"></a><span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w">            </span><span class="c">!&lt; Fluid physics.</span>
+<a id="ln-81" name="ln-81" href="#ln-81"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">conservative</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span><span class="w"> </span><span class="c">!&lt; Conservative variables</span>
+<a id="ln-82" name="ln-82" href="#ln-82"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">                           </span><span class="kd">::</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span><span class="w">    </span><span class="c">!&lt; Primitive variables</span>
+<a id="ln-83" name="ln-83" href="#ln-83"></a>
+<a id="ln-84" name="ln-84" href="#ln-84"></a><span class="w">   </span><span class="n">primitive</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w">  </span><span class="n">conservative</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<a id="ln-85" name="ln-85" href="#ln-85"></a><span class="w">   </span><span class="n">primitive</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w">  </span><span class="n">conservative</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<a id="ln-86" name="ln-86" href="#ln-86"></a><span class="w">   </span><span class="n">primitive</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w">  </span><span class="n">conservative</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<a id="ln-87" name="ln-87" href="#ln-87"></a><span class="w">   </span><span class="n">primitive</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w">  </span><span class="n">conservative</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<a id="ln-88" name="ln-88" href="#ln-88"></a><span class="w">   </span><span class="n">primitive</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">conservative</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">0.5_R8P</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="n">primitive</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="o">+</span><span class="n">primitive</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="o">+</span><span class="n">primitive</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="p">))</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">self</span><span class="p">%</span><span class="n">gm1</span>
+<a id="ln-89" name="ln-89" href="#ln-89"></a><span class="w">   </span><span class="k">endfunction </span><span class="n">conservative2primitive</span>
+<a id="ln-90" name="ln-90" href="#ln-90"></a>
+<a id="ln-91" name="ln-91" href="#ln-91"></a><span class="w">   </span><span class="k">pure function </span><span class="n">description</span><span class="p">(</span><span class="n">self</span><span class="p">,</span><span class="w"> </span><span class="n">prefix</span><span class="p">)</span><span class="w"> </span><span class="k">result</span><span class="p">(</span><span class="n">desc</span><span class="p">)</span>
+<a id="ln-92" name="ln-92" href="#ln-92"></a><span class="w">   </span><span class="c">!&lt; Return a pretty-formatted object description.</span>
+<a id="ln-93" name="ln-93" href="#ln-93"></a><span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">           </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w">             </span><span class="c">!&lt; Fluid physics.</span>
+<a id="ln-94" name="ln-94" href="#ln-94"></a><span class="w">   </span><span class="kt">character</span><span class="p">(</span><span class="o">*</span><span class="p">),</span><span class="w">            </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">prefix</span><span class="w">           </span><span class="c">!&lt; Prefixing string.</span>
+<a id="ln-95" name="ln-95" href="#ln-95"></a><span class="w">   </span><span class="kt">character</span><span class="p">(</span><span class="nb">len</span><span class="o">=</span><span class="p">:),</span><span class="w"> </span><span class="k">allocatable</span><span class="w">                 </span><span class="kd">::</span><span class="w"> </span><span class="n">desc</span><span class="w">             </span><span class="c">!&lt; Description.</span>
+<a id="ln-96" name="ln-96" href="#ln-96"></a><span class="w">   </span><span class="kt">character</span><span class="p">(</span><span class="nb">len</span><span class="o">=</span><span class="p">:),</span><span class="w"> </span><span class="k">allocatable</span><span class="w">                 </span><span class="kd">::</span><span class="w"> </span><span class="n">prefix_</span><span class="w">          </span><span class="c">!&lt; Prefixing string, local variable.</span>
+<a id="ln-97" name="ln-97" href="#ln-97"></a><span class="w">   </span><span class="kt">character</span><span class="p">(</span><span class="nb">len</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span><span class="w"> </span><span class="k">parameter</span><span class="w">                   </span><span class="kd">::</span><span class="w"> </span><span class="n">NL</span><span class="o">=</span><span class="nb">new_line</span><span class="p">(</span><span class="s1">&#39;a&#39;</span><span class="p">)</span><span class="w"> </span><span class="c">!&lt; New line character.</span>
+<a id="ln-98" name="ln-98" href="#ln-98"></a>
+<a id="ln-99" name="ln-99" href="#ln-99"></a><span class="w">   </span><span class="n">prefix_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="w"> </span><span class="p">;</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">present</span><span class="p">(</span><span class="n">prefix</span><span class="p">))</span><span class="w"> </span><span class="n">prefix_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">prefix</span>
+<a id="ln-100" name="ln-100" href="#ln-100"></a><span class="w">   </span><span class="n">desc</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span>
+<a id="ln-101" name="ln-101" href="#ln-101"></a><span class="w">   </span><span class="n">desc</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">desc</span><span class="o">//</span><span class="n">prefix_</span><span class="o">//</span><span class="s1">&#39;cp  = &#39;</span><span class="o">//</span><span class="nb">trim</span><span class="p">(</span><span class="n">str</span><span class="p">(</span><span class="n">n</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">cp</span><span class="p">))</span><span class="o">//</span><span class="n">NL</span>
+<a id="ln-102" name="ln-102" href="#ln-102"></a><span class="w">   </span><span class="n">desc</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">desc</span><span class="o">//</span><span class="n">prefix_</span><span class="o">//</span><span class="s1">&#39;cv  = &#39;</span><span class="o">//</span><span class="nb">trim</span><span class="p">(</span><span class="n">str</span><span class="p">(</span><span class="n">n</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">cv</span><span class="p">))</span>
+<a id="ln-103" name="ln-103" href="#ln-103"></a><span class="w">   </span><span class="k">endfunction </span><span class="n">description</span>
+<a id="ln-104" name="ln-104" href="#ln-104"></a>
+<a id="ln-105" name="ln-105" href="#ln-105"></a><span class="w">   </span><span class="k">elemental subroutine </span><span class="n">destroy</span><span class="p">(</span><span class="n">self</span><span class="p">)</span>
+<a id="ln-106" name="ln-106" href="#ln-106"></a><span class="w">   </span><span class="c">!&lt; Destroy physics.</span>
+<a id="ln-107" name="ln-107" href="#ln-107"></a><span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">inout</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w">  </span><span class="c">!&lt; Fluid physics.</span>
+<a id="ln-108" name="ln-108" href="#ln-108"></a><span class="w">   </span><span class="k">type</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">)</span><span class="w">                 </span><span class="kd">::</span><span class="w"> </span><span class="n">fresh</span><span class="w"> </span><span class="c">!&lt; Fresh fluid physics.</span>
+<a id="ln-109" name="ln-109" href="#ln-109"></a>
+<a id="ln-110" name="ln-110" href="#ln-110"></a><span class="w">   </span><span class="n">self</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">fresh</span>
+<a id="ln-111" name="ln-111" href="#ln-111"></a><span class="w">   </span><span class="k">endsubroutine </span><span class="n">destroy</span>
+<a id="ln-112" name="ln-112" href="#ln-112"></a>
+<a id="ln-113" name="ln-113" href="#ln-113"></a><span class="w">   </span><span class="k">subroutine </span><span class="n">initialize</span><span class="p">(</span><span class="n">self</span><span class="p">,</span><span class="w"> </span><span class="n">physics</span><span class="p">,</span><span class="w"> </span><span class="n">mu</span><span class="p">,</span><span class="w"> </span><span class="n">kd</span><span class="p">,</span><span class="w"> </span><span class="n">dha</span><span class="p">,</span><span class="w"> </span><span class="n">cp</span><span class="p">,</span><span class="w"> </span><span class="n">cv</span><span class="p">,</span><span class="w"> </span><span class="n">gam</span><span class="p">,</span><span class="w"> </span><span class="n">R</span><span class="p">)</span>
+<a id="ln-114" name="ln-114" href="#ln-114"></a><span class="w">   </span><span class="c">!&lt; Initialize fluid physics.</span>
+<a id="ln-115" name="ln-115" href="#ln-115"></a><span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">inout</span><span class="p">)</span><span class="w">        </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w">    </span><span class="c">!&lt; Fluid physics.</span>
+<a id="ln-116" name="ln-116" href="#ln-116"></a><span class="w">   </span><span class="k">type</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">),</span><span class="w">  </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">physics</span><span class="w"> </span><span class="c">!&lt; Fluid physics.</span>
+<a id="ln-117" name="ln-117" href="#ln-117"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">mu</span><span class="w">      </span><span class="c">!&lt; Dynamic viscosity.</span>
+<a id="ln-118" name="ln-118" href="#ln-118"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">kd</span><span class="w">      </span><span class="c">!&lt; Thermal diffusivity.</span>
+<a id="ln-119" name="ln-119" href="#ln-119"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">dha</span><span class="w">     </span><span class="c">!&lt; Entalpy formation.</span>
+<a id="ln-120" name="ln-120" href="#ln-120"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">cp</span><span class="w">      </span><span class="c">!&lt; Specific heat at constant pressure `cp` value.</span>
+<a id="ln-121" name="ln-121" href="#ln-121"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">cv</span><span class="w">      </span><span class="c">!&lt; Specific heat at constant volume `cv` value.</span>
+<a id="ln-122" name="ln-122" href="#ln-122"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">gam</span><span class="w">     </span><span class="c">!&lt; Specific heats ratio `gamma=cp/cv` value.</span>
+<a id="ln-123" name="ln-123" href="#ln-123"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">R</span><span class="w">       </span><span class="c">!&lt; Fluid constant `R=cp-cv` value.</span>
+<a id="ln-124" name="ln-124" href="#ln-124"></a>
+<a id="ln-125" name="ln-125" href="#ln-125"></a><span class="w">   </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">mpih</span><span class="p">%</span><span class="n">initialize</span>
+<a id="ln-126" name="ln-126" href="#ln-126"></a><span class="w">   </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">present</span><span class="p">(</span><span class="n">physics</span><span class="p">))</span><span class="w"> </span><span class="k">then</span>
+<a id="ln-127" name="ln-127" href="#ln-127"></a><span class="k">      </span><span class="n">self</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">physics</span>
+<a id="ln-128" name="ln-128" href="#ln-128"></a><span class="w">   </span><span class="k">else</span>
+<a id="ln-129" name="ln-129" href="#ln-129"></a><span class="k">      </span><span class="n">self</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">nasto_eos_object</span><span class="p">(</span><span class="n">mu</span><span class="o">=</span><span class="n">mu</span><span class="p">,</span><span class="w"> </span><span class="n">kd</span><span class="o">=</span><span class="n">kd</span><span class="p">,</span><span class="w"> </span><span class="n">dha</span><span class="o">=</span><span class="n">dha</span><span class="p">,</span><span class="w"> </span><span class="n">cp</span><span class="o">=</span><span class="n">cp</span><span class="p">,</span><span class="w"> </span><span class="n">cv</span><span class="o">=</span><span class="n">cv</span><span class="p">,</span><span class="w"> </span><span class="n">gam</span><span class="o">=</span><span class="n">gam</span><span class="p">,</span><span class="w"> </span><span class="n">R</span><span class="o">=</span><span class="n">R</span><span class="p">)</span>
+<a id="ln-130" name="ln-130" href="#ln-130"></a><span class="w">   </span><span class="k">endif</span>
+<a id="ln-131" name="ln-131" href="#ln-131"></a><span class="k">   endsubroutine </span><span class="n">initialize</span>
+<a id="ln-132" name="ln-132" href="#ln-132"></a>
+<a id="ln-133" name="ln-133" href="#ln-133"></a><span class="w">   </span><span class="k">subroutine </span><span class="n">load_from_file</span><span class="p">(</span><span class="n">self</span><span class="p">,</span><span class="w"> </span><span class="n">file_parameters</span><span class="p">,</span><span class="w"> </span><span class="n">s</span><span class="p">,</span><span class="w"> </span><span class="n">go_on_fail</span><span class="p">)</span>
+<a id="ln-134" name="ln-134" href="#ln-134"></a><span class="w">   </span><span class="c">!&lt; Load from file.</span>
+<a id="ln-135" name="ln-135" href="#ln-135"></a><span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">inout</span><span class="p">)</span><span class="w">        </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w">            </span><span class="c">!&lt; Fluid physics.</span>
+<a id="ln-136" name="ln-136" href="#ln-136"></a><span class="w">   </span><span class="k">type</span><span class="p">(</span><span class="n">file_ini</span><span class="p">),</span><span class="w">          </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">           </span><span class="kd">::</span><span class="w"> </span><span class="n">file_parameters</span><span class="w"> </span><span class="c">!&lt; Simulation parameters ini file handler.</span>
+<a id="ln-137" name="ln-137" href="#ln-137"></a><span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">),</span><span class="w">            </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">           </span><span class="kd">::</span><span class="w"> </span><span class="n">s</span><span class="w">               </span><span class="c">!&lt; Fluid specie number.</span>
+<a id="ln-138" name="ln-138" href="#ln-138"></a><span class="w">   </span><span class="kt">logical</span><span class="p">,</span><span class="w">                 </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">go_on_fail</span><span class="w">      </span><span class="c">!&lt; Go on if load fails.</span>
+<a id="ln-139" name="ln-139" href="#ln-139"></a><span class="w">   </span><span class="kt">logical</span><span class="w">                                       </span><span class="kd">::</span><span class="w"> </span><span class="n">go_on_fail_</span><span class="w">     </span><span class="c">!&lt; Go on if load fails.</span>
+<a id="ln-140" name="ln-140" href="#ln-140"></a><span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">)</span><span class="w">                                  </span><span class="kd">::</span><span class="w"> </span><span class="n">error</span><span class="w">           </span><span class="c">!&lt; Error status.</span>
+<a id="ln-141" name="ln-141" href="#ln-141"></a><span class="w">   </span><span class="kt">character</span><span class="p">(:),</span><span class="w"> </span><span class="k">allocatable</span><span class="w">                     </span><span class="kd">::</span><span class="w"> </span><span class="n">sname</span><span class="w">           </span><span class="c">!&lt; Section name.</span>
+<a id="ln-142" name="ln-142" href="#ln-142"></a>
+<a id="ln-143" name="ln-143" href="#ln-143"></a><span class="w">   </span><span class="n">go_on_fail_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">.</span><span class="n">false</span><span class="p">.</span><span class="w"> </span><span class="p">;</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">present</span><span class="p">(</span><span class="n">go_on_fail</span><span class="p">))</span><span class="w"> </span><span class="n">go_on_fail_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">go_on_fail</span>
+<a id="ln-144" name="ln-144" href="#ln-144"></a><span class="w">   </span><span class="n">sname</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">INI_SECTION_NAME</span><span class="o">//</span><span class="nb">trim</span><span class="p">(</span><span class="n">str</span><span class="p">(</span><span class="n">s</span><span class="p">,.</span><span class="n">true</span><span class="p">.))</span>
+<a id="ln-145" name="ln-145" href="#ln-145"></a>
+<a id="ln-146" name="ln-146" href="#ln-146"></a><span class="w">   </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">destroy</span>
+<a id="ln-147" name="ln-147" href="#ln-147"></a><span class="w">   </span><span class="k">call </span><span class="n">file_parameters</span><span class="p">%</span><span class="n">get</span><span class="p">(</span><span class="n">section_name</span><span class="o">=</span><span class="n">sname</span><span class="p">,</span><span class="w"> </span><span class="n">option_name</span><span class="o">=</span><span class="s1">&#39;cp&#39;</span><span class="p">,</span><span class="w"> </span><span class="n">val</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">cp</span><span class="p">,</span><span class="w"> </span><span class="n">error</span><span class="o">=</span><span class="n">error</span><span class="p">)</span>
+<a id="ln-148" name="ln-148" href="#ln-148"></a><span class="w">   </span><span class="k">if</span><span class="w"> </span><span class="p">(.</span><span class="nb">not</span><span class="p">.</span><span class="n">go_on_fail_</span><span class="p">.</span><span class="nb">and</span><span class="p">.</span><span class="n">error</span><span class="o">&gt;</span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">mpih</span><span class="p">%</span><span class="n">error_stop</span><span class="p">(</span><span class="n">msg</span><span class="o">=</span><span class="s1">&#39;: failed to load [&#39;</span><span class="o">//</span><span class="n">sname</span><span class="o">//</span><span class="s1">&#39;].(cp)&#39;</span><span class="p">)</span>
+<a id="ln-149" name="ln-149" href="#ln-149"></a><span class="w">   </span><span class="k">call </span><span class="n">file_parameters</span><span class="p">%</span><span class="n">get</span><span class="p">(</span><span class="n">section_name</span><span class="o">=</span><span class="n">sname</span><span class="p">,</span><span class="w"> </span><span class="n">option_name</span><span class="o">=</span><span class="s1">&#39;cv&#39;</span><span class="p">,</span><span class="w"> </span><span class="n">val</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">cv</span><span class="p">,</span><span class="w"> </span><span class="n">error</span><span class="o">=</span><span class="n">error</span><span class="p">)</span>
+<a id="ln-150" name="ln-150" href="#ln-150"></a><span class="w">   </span><span class="k">if</span><span class="w"> </span><span class="p">(.</span><span class="nb">not</span><span class="p">.</span><span class="n">go_on_fail_</span><span class="p">.</span><span class="nb">and</span><span class="p">.</span><span class="n">error</span><span class="o">&gt;</span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">mpih</span><span class="p">%</span><span class="n">error_stop</span><span class="p">(</span><span class="n">msg</span><span class="o">=</span><span class="s1">&#39;: failed to load [&#39;</span><span class="o">//</span><span class="n">sname</span><span class="o">//</span><span class="s1">&#39;].(cv)&#39;</span><span class="p">)</span>
+<a id="ln-151" name="ln-151" href="#ln-151"></a><span class="w">   </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">compute_derivate</span>
+<a id="ln-152" name="ln-152" href="#ln-152"></a><span class="w">   </span><span class="k">call </span><span class="n">file_parameters</span><span class="p">%</span><span class="n">get</span><span class="p">(</span><span class="n">section_name</span><span class="o">=</span><span class="n">sname</span><span class="p">,</span><span class="w"> </span><span class="n">option_name</span><span class="o">=</span><span class="s1">&#39;mu&#39;</span><span class="p">,</span><span class="w"> </span><span class="n">val</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">mu</span><span class="p">,</span><span class="w"> </span><span class="n">error</span><span class="o">=</span><span class="n">error</span><span class="p">)</span>
+<a id="ln-153" name="ln-153" href="#ln-153"></a><span class="w">   </span><span class="k">if</span><span class="w"> </span><span class="p">(.</span><span class="nb">not</span><span class="p">.</span><span class="n">go_on_fail_</span><span class="p">.</span><span class="nb">and</span><span class="p">.</span><span class="n">error</span><span class="o">&gt;</span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">mpih</span><span class="p">%</span><span class="n">error_stop</span><span class="p">(</span><span class="n">msg</span><span class="o">=</span><span class="s1">&#39;: failed to load [&#39;</span><span class="o">//</span><span class="n">sname</span><span class="o">//</span><span class="s1">&#39;].(mu)&#39;</span><span class="p">)</span>
+<a id="ln-154" name="ln-154" href="#ln-154"></a><span class="w">   </span><span class="k">call </span><span class="n">file_parameters</span><span class="p">%</span><span class="n">get</span><span class="p">(</span><span class="n">section_name</span><span class="o">=</span><span class="n">sname</span><span class="p">,</span><span class="w"> </span><span class="n">option_name</span><span class="o">=</span><span class="s1">&#39;kd&#39;</span><span class="p">,</span><span class="w"> </span><span class="n">val</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">kd</span><span class="p">,</span><span class="w"> </span><span class="n">error</span><span class="o">=</span><span class="n">error</span><span class="p">)</span>
+<a id="ln-155" name="ln-155" href="#ln-155"></a><span class="w">   </span><span class="k">if</span><span class="w"> </span><span class="p">(.</span><span class="nb">not</span><span class="p">.</span><span class="n">go_on_fail_</span><span class="p">.</span><span class="nb">and</span><span class="p">.</span><span class="n">error</span><span class="o">&gt;</span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">mpih</span><span class="p">%</span><span class="n">error_stop</span><span class="p">(</span><span class="n">msg</span><span class="o">=</span><span class="s1">&#39;: failed to load [&#39;</span><span class="o">//</span><span class="n">sname</span><span class="o">//</span><span class="s1">&#39;].(kd)&#39;</span><span class="p">)</span>
+<a id="ln-156" name="ln-156" href="#ln-156"></a><span class="w">   </span><span class="k">call </span><span class="n">file_parameters</span><span class="p">%</span><span class="n">get</span><span class="p">(</span><span class="n">section_name</span><span class="o">=</span><span class="n">sname</span><span class="p">,</span><span class="w"> </span><span class="n">option_name</span><span class="o">=</span><span class="s1">&#39;dha&#39;</span><span class="p">,</span><span class="w"> </span><span class="n">val</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">dha</span><span class="p">,</span><span class="w"> </span><span class="n">error</span><span class="o">=</span><span class="n">error</span><span class="p">)</span>
+<a id="ln-157" name="ln-157" href="#ln-157"></a><span class="w">   </span><span class="k">if</span><span class="w"> </span><span class="p">(.</span><span class="nb">not</span><span class="p">.</span><span class="n">go_on_fail_</span><span class="p">.</span><span class="nb">and</span><span class="p">.</span><span class="n">error</span><span class="o">&gt;</span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">mpih</span><span class="p">%</span><span class="n">error_stop</span><span class="p">(</span><span class="n">msg</span><span class="o">=</span><span class="s1">&#39;: failed to load [&#39;</span><span class="o">//</span><span class="n">sname</span><span class="o">//</span><span class="s1">&#39;].(dha)&#39;</span><span class="p">)</span>
+<a id="ln-158" name="ln-158" href="#ln-158"></a><span class="w">   </span><span class="k">endsubroutine </span><span class="n">load_from_file</span>
+<a id="ln-159" name="ln-159" href="#ln-159"></a>
+<a id="ln-160" name="ln-160" href="#ln-160"></a><span class="w">   </span><span class="k">pure function </span><span class="n">primitive2conservative</span><span class="p">(</span><span class="n">self</span><span class="p">,</span><span class="w"> </span><span class="n">primitive</span><span class="p">)</span><span class="w"> </span><span class="k">result</span><span class="p">(</span><span class="n">conservative</span><span class="p">)</span>
+<a id="ln-161" name="ln-161" href="#ln-161"></a><span class="w">   </span><span class="c">!&lt; Return conservative variables (r, ru, rv, rw, rE) from primitive variables (r, u, v, w, p).</span>
+<a id="ln-162" name="ln-162" href="#ln-162"></a><span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w">            </span><span class="c">!&lt; Fluid physics.</span>
+<a id="ln-163" name="ln-163" href="#ln-163"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span><span class="w">    </span><span class="c">!&lt; Primitive variables</span>
+<a id="ln-164" name="ln-164" href="#ln-164"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">                           </span><span class="kd">::</span><span class="w"> </span><span class="n">conservative</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span><span class="w"> </span><span class="c">!&lt; Conservative variables</span>
+<a id="ln-165" name="ln-165" href="#ln-165"></a>
+<a id="ln-166" name="ln-166" href="#ln-166"></a><span class="w">   </span><span class="n">conservative</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<a id="ln-167" name="ln-167" href="#ln-167"></a><span class="w">   </span><span class="n">conservative</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+<a id="ln-168" name="ln-168" href="#ln-168"></a><span class="w">   </span><span class="n">conservative</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
+<a id="ln-169" name="ln-169" href="#ln-169"></a><span class="w">   </span><span class="n">conservative</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span>
+<a id="ln-170" name="ln-170" href="#ln-170"></a><span class="w">   </span><span class="n">conservative</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">self</span><span class="p">%</span><span class="n">total_energy</span><span class="p">(</span><span class="n">density</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span><span class="w"> </span><span class="p">&amp;</span>
+<a id="ln-171" name="ln-171" href="#ln-171"></a><span class="w">                                                      </span><span class="n">pressure</span><span class="w">         </span><span class="o">=</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="mi">5</span><span class="p">),</span><span class="w"> </span><span class="p">&amp;</span>
+<a id="ln-172" name="ln-172" href="#ln-172"></a><span class="w">                                                      </span><span class="n">velocity_sq_norm</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="o">+</span><span class="n">primitive</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="o">+</span><span class="n">primitive</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+<a id="ln-173" name="ln-173" href="#ln-173"></a><span class="w">   </span><span class="k">endfunction </span><span class="n">primitive2conservative</span>
+<a id="ln-174" name="ln-174" href="#ln-174"></a>
+<a id="ln-175" name="ln-175" href="#ln-175"></a><span class="w">   </span><span class="k">subroutine </span><span class="n">save_into_file</span><span class="p">(</span><span class="n">self</span><span class="p">,</span><span class="w"> </span><span class="n">file_parameters</span><span class="p">,</span><span class="w"> </span><span class="n">s</span><span class="p">)</span>
+<a id="ln-176" name="ln-176" href="#ln-176"></a><span class="w">   </span><span class="c">!&lt; Save into file.</span>
+<a id="ln-177" name="ln-177" href="#ln-177"></a><span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">inout</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w">            </span><span class="c">!&lt; Free conditions.</span>
+<a id="ln-178" name="ln-178" href="#ln-178"></a><span class="w">   </span><span class="k">type</span><span class="p">(</span><span class="n">file_ini</span><span class="p">),</span><span class="w">          </span><span class="k">intent</span><span class="p">(</span><span class="n">inout</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">file_parameters</span><span class="w"> </span><span class="c">!&lt; Simulation parameters ini file handler.</span>
+<a id="ln-179" name="ln-179" href="#ln-179"></a><span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">),</span><span class="w">            </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">    </span><span class="kd">::</span><span class="w"> </span><span class="n">s</span><span class="w">               </span><span class="c">!&lt; Fluid specie number.</span>
+<a id="ln-180" name="ln-180" href="#ln-180"></a><span class="w">   </span><span class="kt">character</span><span class="p">(:),</span><span class="w"> </span><span class="k">allocatable</span><span class="w">              </span><span class="kd">::</span><span class="w"> </span><span class="n">sname</span><span class="w">           </span><span class="c">!&lt; Section name.</span>
+<a id="ln-181" name="ln-181" href="#ln-181"></a>
+<a id="ln-182" name="ln-182" href="#ln-182"></a><span class="w">   </span><span class="n">sname</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">INI_SECTION_NAME</span><span class="o">//</span><span class="nb">trim</span><span class="p">(</span><span class="n">str</span><span class="p">(</span><span class="n">s</span><span class="p">,.</span><span class="n">true</span><span class="p">.))</span>
+<a id="ln-183" name="ln-183" href="#ln-183"></a>
+<a id="ln-184" name="ln-184" href="#ln-184"></a><span class="w">   </span><span class="k">call </span><span class="n">file_parameters</span><span class="p">%</span><span class="n">add</span><span class="p">(</span><span class="n">section_name</span><span class="o">=</span><span class="n">sname</span><span class="p">,</span><span class="w"> </span><span class="n">option_name</span><span class="o">=</span><span class="s1">&#39;cp&#39;</span><span class="p">,</span><span class="w">  </span><span class="n">val</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">cp</span><span class="w"> </span><span class="p">)</span>
+<a id="ln-185" name="ln-185" href="#ln-185"></a><span class="w">   </span><span class="k">call </span><span class="n">file_parameters</span><span class="p">%</span><span class="n">add</span><span class="p">(</span><span class="n">section_name</span><span class="o">=</span><span class="n">sname</span><span class="p">,</span><span class="w"> </span><span class="n">option_name</span><span class="o">=</span><span class="s1">&#39;cv&#39;</span><span class="p">,</span><span class="w">  </span><span class="n">val</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">cv</span><span class="w"> </span><span class="p">)</span>
+<a id="ln-186" name="ln-186" href="#ln-186"></a><span class="w">   </span><span class="k">call </span><span class="n">file_parameters</span><span class="p">%</span><span class="n">add</span><span class="p">(</span><span class="n">section_name</span><span class="o">=</span><span class="n">sname</span><span class="p">,</span><span class="w"> </span><span class="n">option_name</span><span class="o">=</span><span class="s1">&#39;mu&#39;</span><span class="p">,</span><span class="w">  </span><span class="n">val</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">mu</span><span class="w"> </span><span class="p">)</span>
+<a id="ln-187" name="ln-187" href="#ln-187"></a><span class="w">   </span><span class="k">call </span><span class="n">file_parameters</span><span class="p">%</span><span class="n">add</span><span class="p">(</span><span class="n">section_name</span><span class="o">=</span><span class="n">sname</span><span class="p">,</span><span class="w"> </span><span class="n">option_name</span><span class="o">=</span><span class="s1">&#39;kd&#39;</span><span class="p">,</span><span class="w">  </span><span class="n">val</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">kd</span><span class="w"> </span><span class="p">)</span>
+<a id="ln-188" name="ln-188" href="#ln-188"></a><span class="w">   </span><span class="k">call </span><span class="n">file_parameters</span><span class="p">%</span><span class="n">add</span><span class="p">(</span><span class="n">section_name</span><span class="o">=</span><span class="n">sname</span><span class="p">,</span><span class="w"> </span><span class="n">option_name</span><span class="o">=</span><span class="s1">&#39;dha&#39;</span><span class="p">,</span><span class="w"> </span><span class="n">val</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">dha</span><span class="p">)</span>
+<a id="ln-189" name="ln-189" href="#ln-189"></a><span class="w">   </span><span class="k">endsubroutine </span><span class="n">save_into_file</span>
+<a id="ln-190" name="ln-190" href="#ln-190"></a>
+<a id="ln-191" name="ln-191" href="#ln-191"></a><span class="w">   </span><span class="c">! states functions</span>
+<a id="ln-192" name="ln-192" href="#ln-192"></a><span class="w">   </span><span class="k">elemental function </span><span class="n">density</span><span class="p">(</span><span class="n">self</span><span class="p">,</span><span class="w"> </span><span class="n">pressure</span><span class="p">,</span><span class="w"> </span><span class="n">speed_of_sound</span><span class="p">)</span><span class="w"> </span><span class="k">result</span><span class="p">(</span><span class="n">density_</span><span class="p">)</span>
+<a id="ln-193" name="ln-193" href="#ln-193"></a><span class="w">   </span><span class="c">!&lt; Return density.</span>
+<a id="ln-194" name="ln-194" href="#ln-194"></a><span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w">           </span><span class="c">!&lt; Fluid physics.</span>
+<a id="ln-195" name="ln-195" href="#ln-195"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">pressure</span><span class="w">       </span><span class="c">!&lt; Pressure value.</span>
+<a id="ln-196" name="ln-196" href="#ln-196"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">speed_of_sound</span><span class="w"> </span><span class="c">!&lt; Speed of sound value.</span>
+<a id="ln-197" name="ln-197" href="#ln-197"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">                           </span><span class="kd">::</span><span class="w"> </span><span class="n">density_</span><span class="w">       </span><span class="c">!&lt; Density value.</span>
+<a id="ln-198" name="ln-198" href="#ln-198"></a>
+<a id="ln-199" name="ln-199" href="#ln-199"></a><span class="w">   </span><span class="n">density_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ic_density</span><span class="p">(</span><span class="n">g</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">g</span><span class="p">,</span><span class="w"> </span><span class="n">pressure</span><span class="o">=</span><span class="n">pressure</span><span class="p">,</span><span class="w"> </span><span class="n">speed_of_sound</span><span class="o">=</span><span class="n">speed_of_sound</span><span class="p">)</span>
+<a id="ln-200" name="ln-200" href="#ln-200"></a><span class="w">   </span><span class="k">endfunction </span><span class="n">density</span>
+<a id="ln-201" name="ln-201" href="#ln-201"></a>
+<a id="ln-202" name="ln-202" href="#ln-202"></a><span class="w">   </span><span class="k">elemental function </span><span class="n">internal_energy</span><span class="p">(</span><span class="n">self</span><span class="p">,</span><span class="w"> </span><span class="n">density</span><span class="p">,</span><span class="w"> </span><span class="n">pressure</span><span class="p">)</span><span class="w"> </span><span class="k">result</span><span class="p">(</span><span class="n">energy_</span><span class="p">)</span>
+<a id="ln-203" name="ln-203" href="#ln-203"></a><span class="w">   </span><span class="c">!&lt; Return specific internal energy.</span>
+<a id="ln-204" name="ln-204" href="#ln-204"></a><span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w">     </span><span class="c">!&lt; Fluid physics.</span>
+<a id="ln-205" name="ln-205" href="#ln-205"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">density</span><span class="w">  </span><span class="c">!&lt; Density value.</span>
+<a id="ln-206" name="ln-206" href="#ln-206"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">pressure</span><span class="w"> </span><span class="c">!&lt; Pressure value.</span>
+<a id="ln-207" name="ln-207" href="#ln-207"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">                           </span><span class="kd">::</span><span class="w"> </span><span class="n">energy_</span><span class="w">  </span><span class="c">!&lt; Energy value.</span>
+<a id="ln-208" name="ln-208" href="#ln-208"></a>
+<a id="ln-209" name="ln-209" href="#ln-209"></a><span class="w">   </span><span class="n">energy_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ic_internal_energy</span><span class="p">(</span><span class="n">gm1</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">gm1</span><span class="p">,</span><span class="w"> </span><span class="n">density</span><span class="o">=</span><span class="n">density</span><span class="p">,</span><span class="w"> </span><span class="n">pressure</span><span class="o">=</span><span class="n">pressure</span><span class="p">)</span>
+<a id="ln-210" name="ln-210" href="#ln-210"></a><span class="w">   </span><span class="k">endfunction </span><span class="n">internal_energy</span>
+<a id="ln-211" name="ln-211" href="#ln-211"></a>
+<a id="ln-212" name="ln-212" href="#ln-212"></a><span class="w">   </span><span class="k">elemental function </span><span class="n">pressure</span><span class="p">(</span><span class="n">self</span><span class="p">,</span><span class="w"> </span><span class="n">density</span><span class="p">,</span><span class="w"> </span><span class="n">energy</span><span class="p">)</span><span class="w"> </span><span class="k">result</span><span class="p">(</span><span class="n">pressure_</span><span class="p">)</span>
+<a id="ln-213" name="ln-213" href="#ln-213"></a><span class="w">   </span><span class="c">!&lt; Return pressure.</span>
+<a id="ln-214" name="ln-214" href="#ln-214"></a><span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w">      </span><span class="c">!&lt; Fluid physics.</span>
+<a id="ln-215" name="ln-215" href="#ln-215"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">density</span><span class="w">   </span><span class="c">!&lt; Density value.</span>
+<a id="ln-216" name="ln-216" href="#ln-216"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">energy</span><span class="w">    </span><span class="c">!&lt; Specific internal energy value.</span>
+<a id="ln-217" name="ln-217" href="#ln-217"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">                           </span><span class="kd">::</span><span class="w"> </span><span class="n">pressure_</span><span class="w"> </span><span class="c">!&lt; Pressure value.</span>
+<a id="ln-218" name="ln-218" href="#ln-218"></a>
+<a id="ln-219" name="ln-219" href="#ln-219"></a><span class="w">   </span><span class="n">pressure_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ic_pressure</span><span class="p">(</span><span class="n">gm1</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">gm1</span><span class="p">,</span><span class="w"> </span><span class="n">density</span><span class="o">=</span><span class="n">density</span><span class="p">,</span><span class="w"> </span><span class="n">energy</span><span class="o">=</span><span class="n">energy</span><span class="p">)</span>
+<a id="ln-220" name="ln-220" href="#ln-220"></a><span class="w">   </span><span class="k">endfunction </span><span class="n">pressure</span>
+<a id="ln-221" name="ln-221" href="#ln-221"></a>
+<a id="ln-222" name="ln-222" href="#ln-222"></a><span class="w">   </span><span class="k">elemental function </span><span class="n">speed_of_sound</span><span class="p">(</span><span class="n">self</span><span class="p">,</span><span class="w"> </span><span class="n">density</span><span class="p">,</span><span class="w"> </span><span class="n">pressure</span><span class="p">)</span><span class="w"> </span><span class="k">result</span><span class="p">(</span><span class="n">speed_of_sound_</span><span class="p">)</span>
+<a id="ln-223" name="ln-223" href="#ln-223"></a><span class="w">   </span><span class="c">!&lt; Return speed of sound.</span>
+<a id="ln-224" name="ln-224" href="#ln-224"></a><span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w">            </span><span class="c">!&lt; Fluid physics.</span>
+<a id="ln-225" name="ln-225" href="#ln-225"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">density</span><span class="w">         </span><span class="c">!&lt; Density value.</span>
+<a id="ln-226" name="ln-226" href="#ln-226"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">pressure</span><span class="w">        </span><span class="c">!&lt; Pressure value.</span>
+<a id="ln-227" name="ln-227" href="#ln-227"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">                           </span><span class="kd">::</span><span class="w"> </span><span class="n">speed_of_sound_</span><span class="w"> </span><span class="c">!&lt; Speed of sound value.</span>
+<a id="ln-228" name="ln-228" href="#ln-228"></a>
+<a id="ln-229" name="ln-229" href="#ln-229"></a><span class="w">   </span><span class="n">speed_of_sound_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ic_speed_of_sound</span><span class="p">(</span><span class="n">g</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">g</span><span class="p">,</span><span class="w"> </span><span class="n">density</span><span class="o">=</span><span class="n">density</span><span class="p">,</span><span class="w"> </span><span class="n">pressure</span><span class="o">=</span><span class="n">pressure</span><span class="p">)</span>
+<a id="ln-230" name="ln-230" href="#ln-230"></a><span class="w">   </span><span class="k">endfunction </span><span class="n">speed_of_sound</span>
+<a id="ln-231" name="ln-231" href="#ln-231"></a>
+<a id="ln-232" name="ln-232" href="#ln-232"></a><span class="w">   </span><span class="k">elemental function </span><span class="n">temperature</span><span class="p">(</span><span class="n">self</span><span class="p">,</span><span class="w"> </span><span class="n">density</span><span class="p">,</span><span class="w"> </span><span class="n">pressure</span><span class="p">)</span><span class="w"> </span><span class="k">result</span><span class="p">(</span><span class="n">temperature_</span><span class="p">)</span>
+<a id="ln-233" name="ln-233" href="#ln-233"></a><span class="w">   </span><span class="c">!&lt; Return temperature.</span>
+<a id="ln-234" name="ln-234" href="#ln-234"></a><span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w">         </span><span class="c">!&lt; Fluid physics.</span>
+<a id="ln-235" name="ln-235" href="#ln-235"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">density</span><span class="w">      </span><span class="c">!&lt; Density value.</span>
+<a id="ln-236" name="ln-236" href="#ln-236"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">pressure</span><span class="w">     </span><span class="c">!&lt; Pressure value.</span>
+<a id="ln-237" name="ln-237" href="#ln-237"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">                           </span><span class="kd">::</span><span class="w"> </span><span class="n">temperature_</span><span class="w"> </span><span class="c">!&lt; Temperature value.</span>
+<a id="ln-238" name="ln-238" href="#ln-238"></a>
+<a id="ln-239" name="ln-239" href="#ln-239"></a><span class="w">   </span><span class="n">temperature_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ic_temperature</span><span class="p">(</span><span class="n">R</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">R</span><span class="p">,</span><span class="w"> </span><span class="n">density</span><span class="o">=</span><span class="n">density</span><span class="p">,</span><span class="w"> </span><span class="n">pressure</span><span class="o">=</span><span class="n">pressure</span><span class="p">)</span>
+<a id="ln-240" name="ln-240" href="#ln-240"></a><span class="w">   </span><span class="k">endfunction </span><span class="n">temperature</span>
+<a id="ln-241" name="ln-241" href="#ln-241"></a>
+<a id="ln-242" name="ln-242" href="#ln-242"></a><span class="w">   </span><span class="k">elemental function </span><span class="n">total_energy</span><span class="p">(</span><span class="n">self</span><span class="p">,</span><span class="w"> </span><span class="n">density</span><span class="p">,</span><span class="w"> </span><span class="n">pressure</span><span class="p">,</span><span class="w"> </span><span class="n">velocity_sq_norm</span><span class="p">)</span><span class="w"> </span><span class="k">result</span><span class="p">(</span><span class="n">energy_</span><span class="p">)</span>
+<a id="ln-243" name="ln-243" href="#ln-243"></a><span class="w">   </span><span class="c">!&lt; Return total specific energy.</span>
+<a id="ln-244" name="ln-244" href="#ln-244"></a><span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w">             </span><span class="c">!&lt; Fluid physics.</span>
+<a id="ln-245" name="ln-245" href="#ln-245"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">density</span><span class="w">          </span><span class="c">!&lt; Density value.</span>
+<a id="ln-246" name="ln-246" href="#ln-246"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">pressure</span><span class="w">         </span><span class="c">!&lt; Pressure value.</span>
+<a id="ln-247" name="ln-247" href="#ln-247"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">velocity_sq_norm</span><span class="w"> </span><span class="c">!&lt; Velocity vector square norm `||velocity||^2`.</span>
+<a id="ln-248" name="ln-248" href="#ln-248"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">                           </span><span class="kd">::</span><span class="w"> </span><span class="n">energy_</span><span class="w">          </span><span class="c">!&lt; Total specific energy (per unit of mass).</span>
+<a id="ln-249" name="ln-249" href="#ln-249"></a>
+<a id="ln-250" name="ln-250" href="#ln-250"></a><span class="w">   </span><span class="n">energy_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ic_total_energy</span><span class="p">(</span><span class="n">gm1</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">gm1</span><span class="p">,</span><span class="w"> </span><span class="n">density</span><span class="o">=</span><span class="n">density</span><span class="p">,</span><span class="w"> </span><span class="n">pressure</span><span class="o">=</span><span class="n">pressure</span><span class="p">,</span><span class="w"> </span><span class="n">velocity_sq_norm</span><span class="o">=</span><span class="n">velocity_sq_norm</span><span class="p">)</span>
+<a id="ln-251" name="ln-251" href="#ln-251"></a><span class="w">   </span><span class="k">endfunction </span><span class="n">total_energy</span>
+<a id="ln-252" name="ln-252" href="#ln-252"></a>
+<a id="ln-253" name="ln-253" href="#ln-253"></a><span class="w">   </span><span class="k">elemental function </span><span class="n">total_entalpy</span><span class="p">(</span><span class="n">self</span><span class="p">,</span><span class="w"> </span><span class="n">density</span><span class="p">,</span><span class="w"> </span><span class="n">pressure</span><span class="p">,</span><span class="w"> </span><span class="n">velocity_sq_norm</span><span class="p">)</span><span class="w"> </span><span class="k">result</span><span class="p">(</span><span class="n">entalpy_</span><span class="p">)</span>
+<a id="ln-254" name="ln-254" href="#ln-254"></a><span class="w">   </span><span class="c">!&lt; Return total specific entalpy.</span>
+<a id="ln-255" name="ln-255" href="#ln-255"></a><span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w">             </span><span class="c">!&lt; Fluid physics.</span>
+<a id="ln-256" name="ln-256" href="#ln-256"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">density</span><span class="w">          </span><span class="c">!&lt; Density value.</span>
+<a id="ln-257" name="ln-257" href="#ln-257"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">pressure</span><span class="w">         </span><span class="c">!&lt; Pressure value.</span>
+<a id="ln-258" name="ln-258" href="#ln-258"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">velocity_sq_norm</span><span class="w"> </span><span class="c">!&lt; Velocity vector square norm `||velocity||^2`.</span>
+<a id="ln-259" name="ln-259" href="#ln-259"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">                           </span><span class="kd">::</span><span class="w"> </span><span class="n">entalpy_</span><span class="w">         </span><span class="c">!&lt; Total specific entalpy (per unit of mass).</span>
+<a id="ln-260" name="ln-260" href="#ln-260"></a>
+<a id="ln-261" name="ln-261" href="#ln-261"></a><span class="w">   </span><span class="n">entalpy_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ic_total_entalpy</span><span class="p">(</span><span class="n">g</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">g</span><span class="p">,</span><span class="w"> </span><span class="n">density</span><span class="o">=</span><span class="n">density</span><span class="p">,</span><span class="w"> </span><span class="n">pressure</span><span class="o">=</span><span class="n">pressure</span><span class="p">,</span><span class="w"> </span><span class="n">velocity_sq_norm</span><span class="o">=</span><span class="n">velocity_sq_norm</span><span class="p">)</span>
+<a id="ln-262" name="ln-262" href="#ln-262"></a><span class="w">   </span><span class="k">endfunction </span><span class="n">total_entalpy</span>
+<a id="ln-263" name="ln-263" href="#ln-263"></a>
+<a id="ln-264" name="ln-264" href="#ln-264"></a><span class="w">   </span><span class="c">! operators</span>
+<a id="ln-265" name="ln-265" href="#ln-265"></a><span class="w">   </span><span class="k">pure subroutine </span><span class="n">nasto_physics_assign_nasto_physics</span><span class="p">(</span><span class="n">lhs</span><span class="p">,</span><span class="w"> </span><span class="n">rhs</span><span class="p">)</span>
+<a id="ln-266" name="ln-266" href="#ln-266"></a><span class="w">   </span><span class="c">!&lt; Operator `=`.</span>
+<a id="ln-267" name="ln-267" href="#ln-267"></a><span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">inout</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">lhs</span><span class="w"> </span><span class="c">!&lt; Left hand side.</span>
+<a id="ln-268" name="ln-268" href="#ln-268"></a><span class="w">   </span><span class="k">type</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">),</span><span class="w">  </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">    </span><span class="kd">::</span><span class="w"> </span><span class="n">rhs</span><span class="w"> </span><span class="c">!&lt; Right hand side.</span>
+<a id="ln-269" name="ln-269" href="#ln-269"></a>
+<a id="ln-270" name="ln-270" href="#ln-270"></a><span class="w">   </span><span class="n">lhs</span><span class="p">%</span><span class="n">cp</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">rhs</span><span class="p">%</span><span class="n">cp</span>
+<a id="ln-271" name="ln-271" href="#ln-271"></a><span class="w">   </span><span class="n">lhs</span><span class="p">%</span><span class="n">cv</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">rhs</span><span class="p">%</span><span class="n">cv</span>
+<a id="ln-272" name="ln-272" href="#ln-272"></a><span class="w">   </span><span class="n">lhs</span><span class="p">%</span><span class="n">g</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">rhs</span><span class="p">%</span><span class="n">g</span>
+<a id="ln-273" name="ln-273" href="#ln-273"></a><span class="w">   </span><span class="n">lhs</span><span class="p">%</span><span class="n">R</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">rhs</span><span class="p">%</span><span class="n">R</span>
+<a id="ln-274" name="ln-274" href="#ln-274"></a><span class="w">   </span><span class="n">lhs</span><span class="p">%</span><span class="n">delta</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">rhs</span><span class="p">%</span><span class="n">delta</span>
+<a id="ln-275" name="ln-275" href="#ln-275"></a><span class="w">   </span><span class="n">lhs</span><span class="p">%</span><span class="n">eta</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">rhs</span><span class="p">%</span><span class="n">eta</span>
+<a id="ln-276" name="ln-276" href="#ln-276"></a><span class="w">   </span><span class="n">lhs</span><span class="p">%</span><span class="n">gm1</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">rhs</span><span class="p">%</span><span class="n">gm1</span>
+<a id="ln-277" name="ln-277" href="#ln-277"></a><span class="w">   </span><span class="n">lhs</span><span class="p">%</span><span class="n">gp1</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">rhs</span><span class="p">%</span><span class="n">gp1</span>
+<a id="ln-278" name="ln-278" href="#ln-278"></a><span class="w">   </span><span class="n">lhs</span><span class="p">%</span><span class="n">mu</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">rhs</span><span class="p">%</span><span class="n">mu</span>
+<a id="ln-279" name="ln-279" href="#ln-279"></a><span class="w">   </span><span class="n">lhs</span><span class="p">%</span><span class="n">kd</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">rhs</span><span class="p">%</span><span class="n">kd</span>
+<a id="ln-280" name="ln-280" href="#ln-280"></a><span class="w">   </span><span class="n">lhs</span><span class="p">%</span><span class="n">dha</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">rhs</span><span class="p">%</span><span class="n">dha</span>
+<a id="ln-281" name="ln-281" href="#ln-281"></a><span class="w">   </span><span class="k">endsubroutine </span><span class="n">nasto_physics_assign_nasto_physics</span>
+<a id="ln-282" name="ln-282" href="#ln-282"></a>
+<a id="ln-283" name="ln-283" href="#ln-283"></a><span class="w">   </span><span class="c">! public non TBP</span>
+<a id="ln-284" name="ln-284" href="#ln-284"></a><span class="w">   </span><span class="k">elemental function </span><span class="n">ic_density</span><span class="p">(</span><span class="n">g</span><span class="p">,</span><span class="w"> </span><span class="n">pressure</span><span class="p">,</span><span class="w"> </span><span class="n">speed_of_sound</span><span class="p">)</span><span class="w"> </span><span class="k">result</span><span class="p">(</span><span class="n">density_</span><span class="p">)</span>
+<a id="ln-285" name="ln-285" href="#ln-285"></a><span class="w">   </span><span class="c">!&lt; Return density for ideal compressible fluid.</span>
+<a id="ln-286" name="ln-286" href="#ln-286"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">g</span><span class="w">              </span><span class="c">!&lt; Specific heats ratio.</span>
+<a id="ln-287" name="ln-287" href="#ln-287"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">pressure</span><span class="w">       </span><span class="c">!&lt; Pressure value.</span>
+<a id="ln-288" name="ln-288" href="#ln-288"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">speed_of_sound</span><span class="w"> </span><span class="c">!&lt; Speed of sound value.</span>
+<a id="ln-289" name="ln-289" href="#ln-289"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">             </span><span class="kd">::</span><span class="w"> </span><span class="n">density_</span><span class="w">       </span><span class="c">!&lt; Density value.</span>
+<a id="ln-290" name="ln-290" href="#ln-290"></a>
+<a id="ln-291" name="ln-291" href="#ln-291"></a><span class="w">   </span><span class="n">density_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">g</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">pressure</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="p">(</span><span class="n">speed_of_sound</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">speed_of_sound</span><span class="p">)</span>
+<a id="ln-292" name="ln-292" href="#ln-292"></a><span class="w">   </span><span class="k">endfunction </span><span class="n">ic_density</span>
+<a id="ln-293" name="ln-293" href="#ln-293"></a>
+<a id="ln-294" name="ln-294" href="#ln-294"></a><span class="w">   </span><span class="k">elemental function </span><span class="n">ic_internal_energy</span><span class="p">(</span><span class="n">gm1</span><span class="p">,</span><span class="w"> </span><span class="n">density</span><span class="p">,</span><span class="w"> </span><span class="n">pressure</span><span class="p">)</span><span class="w"> </span><span class="k">result</span><span class="p">(</span><span class="n">energy_</span><span class="p">)</span>
+<a id="ln-295" name="ln-295" href="#ln-295"></a><span class="w">   </span><span class="c">!&lt; Return specific internal energy for ideal compressible fluid.</span>
+<a id="ln-296" name="ln-296" href="#ln-296"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">gm1</span><span class="w">      </span><span class="c">!&lt; Specific heats ratio minus 1.</span>
+<a id="ln-297" name="ln-297" href="#ln-297"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">density</span><span class="w">  </span><span class="c">!&lt; Density value.</span>
+<a id="ln-298" name="ln-298" href="#ln-298"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">pressure</span><span class="w"> </span><span class="c">!&lt; Pressure value.</span>
+<a id="ln-299" name="ln-299" href="#ln-299"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">             </span><span class="kd">::</span><span class="w"> </span><span class="n">energy_</span><span class="w">  </span><span class="c">!&lt; Energy value.</span>
+<a id="ln-300" name="ln-300" href="#ln-300"></a>
+<a id="ln-301" name="ln-301" href="#ln-301"></a><span class="w">   </span><span class="n">energy_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">pressure</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="p">(</span><span class="n">gm1</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">density</span><span class="p">)</span>
+<a id="ln-302" name="ln-302" href="#ln-302"></a><span class="w">   </span><span class="k">endfunction </span><span class="n">ic_internal_energy</span>
+<a id="ln-303" name="ln-303" href="#ln-303"></a>
+<a id="ln-304" name="ln-304" href="#ln-304"></a><span class="w">   </span><span class="k">elemental function </span><span class="n">ic_pressure</span><span class="p">(</span><span class="n">gm1</span><span class="p">,</span><span class="w"> </span><span class="n">density</span><span class="p">,</span><span class="w"> </span><span class="n">energy</span><span class="p">)</span><span class="w"> </span><span class="k">result</span><span class="p">(</span><span class="n">pressure_</span><span class="p">)</span>
+<a id="ln-305" name="ln-305" href="#ln-305"></a><span class="w">   </span><span class="c">!&lt; Return pressure for ideal compressible fluid.</span>
+<a id="ln-306" name="ln-306" href="#ln-306"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">gm1</span><span class="w">       </span><span class="c">!&lt; Specific heats ratio minus 1.</span>
+<a id="ln-307" name="ln-307" href="#ln-307"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">density</span><span class="w">   </span><span class="c">!&lt; Density value.</span>
+<a id="ln-308" name="ln-308" href="#ln-308"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">energy</span><span class="w">    </span><span class="c">!&lt; Specific internal energy value.</span>
+<a id="ln-309" name="ln-309" href="#ln-309"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">             </span><span class="kd">::</span><span class="w"> </span><span class="n">pressure_</span><span class="w"> </span><span class="c">!&lt; Pressure value.</span>
+<a id="ln-310" name="ln-310" href="#ln-310"></a>
+<a id="ln-311" name="ln-311" href="#ln-311"></a><span class="w">   </span><span class="n">pressure_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">density</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">gm1</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">energy</span>
+<a id="ln-312" name="ln-312" href="#ln-312"></a><span class="w">   </span><span class="k">endfunction </span><span class="n">ic_pressure</span>
+<a id="ln-313" name="ln-313" href="#ln-313"></a>
+<a id="ln-314" name="ln-314" href="#ln-314"></a><span class="w">   </span><span class="k">elemental function </span><span class="n">ic_speed_of_sound</span><span class="p">(</span><span class="n">g</span><span class="p">,</span><span class="w"> </span><span class="n">density</span><span class="p">,</span><span class="w"> </span><span class="n">pressure</span><span class="p">)</span><span class="w"> </span><span class="k">result</span><span class="p">(</span><span class="n">speed_of_sound_</span><span class="p">)</span>
+<a id="ln-315" name="ln-315" href="#ln-315"></a><span class="w">   </span><span class="c">!&lt; Return speed of sound for ideal compressible fluid.</span>
+<a id="ln-316" name="ln-316" href="#ln-316"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">g</span><span class="w">               </span><span class="c">!&lt; Specific heats ratio.</span>
+<a id="ln-317" name="ln-317" href="#ln-317"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">density</span><span class="w">         </span><span class="c">!&lt; Density value.</span>
+<a id="ln-318" name="ln-318" href="#ln-318"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">pressure</span><span class="w">        </span><span class="c">!&lt; Pressure value.</span>
+<a id="ln-319" name="ln-319" href="#ln-319"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">             </span><span class="kd">::</span><span class="w"> </span><span class="n">speed_of_sound_</span><span class="w"> </span><span class="c">!&lt; Speed of sound value.</span>
+<a id="ln-320" name="ln-320" href="#ln-320"></a>
+<a id="ln-321" name="ln-321" href="#ln-321"></a><span class="w">   </span><span class="n">speed_of_sound_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">sqrt</span><span class="p">(</span><span class="n">g</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">pressure</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">density</span><span class="p">)</span>
+<a id="ln-322" name="ln-322" href="#ln-322"></a><span class="w">   </span><span class="k">endfunction </span><span class="n">ic_speed_of_sound</span>
+<a id="ln-323" name="ln-323" href="#ln-323"></a>
+<a id="ln-324" name="ln-324" href="#ln-324"></a><span class="w">   </span><span class="k">elemental function </span><span class="n">ic_temperature</span><span class="p">(</span><span class="n">R</span><span class="p">,</span><span class="w"> </span><span class="n">density</span><span class="p">,</span><span class="w"> </span><span class="n">pressure</span><span class="p">)</span><span class="w"> </span><span class="k">result</span><span class="p">(</span><span class="n">temperature_</span><span class="p">)</span>
+<a id="ln-325" name="ln-325" href="#ln-325"></a><span class="w">   </span><span class="c">!&lt; Return temperature for ideal compressible fluid.</span>
+<a id="ln-326" name="ln-326" href="#ln-326"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">R</span><span class="w">            </span><span class="c">!&lt; Fluid constant.</span>
+<a id="ln-327" name="ln-327" href="#ln-327"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">density</span><span class="w">      </span><span class="c">!&lt; Density value.</span>
+<a id="ln-328" name="ln-328" href="#ln-328"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">pressure</span><span class="w">     </span><span class="c">!&lt; Pressure value.</span>
+<a id="ln-329" name="ln-329" href="#ln-329"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">             </span><span class="kd">::</span><span class="w"> </span><span class="n">temperature_</span><span class="w"> </span><span class="c">!&lt; Temperature value.</span>
+<a id="ln-330" name="ln-330" href="#ln-330"></a>
+<a id="ln-331" name="ln-331" href="#ln-331"></a><span class="w">   </span><span class="n">temperature_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">pressure</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="p">(</span><span class="n">R</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">density</span><span class="p">)</span>
+<a id="ln-332" name="ln-332" href="#ln-332"></a><span class="w">   </span><span class="k">endfunction </span><span class="n">ic_temperature</span>
+<a id="ln-333" name="ln-333" href="#ln-333"></a>
+<a id="ln-334" name="ln-334" href="#ln-334"></a><span class="w">   </span><span class="k">elemental function </span><span class="n">ic_total_energy</span><span class="p">(</span><span class="n">gm1</span><span class="p">,</span><span class="w"> </span><span class="n">density</span><span class="p">,</span><span class="w"> </span><span class="n">pressure</span><span class="p">,</span><span class="w"> </span><span class="n">velocity_sq_norm</span><span class="p">)</span><span class="w"> </span><span class="k">result</span><span class="p">(</span><span class="n">energy_</span><span class="p">)</span>
+<a id="ln-335" name="ln-335" href="#ln-335"></a><span class="w">   </span><span class="c">!&lt; Return total specific energy for ideal compressible fluid.</span>
+<a id="ln-336" name="ln-336" href="#ln-336"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">gm1</span><span class="w">              </span><span class="c">!&lt; Specific heats ratio minus 1.</span>
+<a id="ln-337" name="ln-337" href="#ln-337"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">density</span><span class="w">          </span><span class="c">!&lt; Density value.</span>
+<a id="ln-338" name="ln-338" href="#ln-338"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">pressure</span><span class="w">         </span><span class="c">!&lt; Pressure value.</span>
+<a id="ln-339" name="ln-339" href="#ln-339"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">velocity_sq_norm</span><span class="w"> </span><span class="c">!&lt; Velocity vector square norm `||velocity||^2`.</span>
+<a id="ln-340" name="ln-340" href="#ln-340"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">             </span><span class="kd">::</span><span class="w"> </span><span class="n">energy_</span><span class="w">          </span><span class="c">!&lt; Total specific energy (per unit of mass).</span>
+<a id="ln-341" name="ln-341" href="#ln-341"></a>
+<a id="ln-342" name="ln-342" href="#ln-342"></a><span class="w">   </span><span class="n">energy_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ic_internal_energy</span><span class="p">(</span><span class="n">gm1</span><span class="o">=</span><span class="n">gm1</span><span class="p">,</span><span class="w"> </span><span class="n">density</span><span class="o">=</span><span class="n">density</span><span class="p">,</span><span class="w"> </span><span class="n">pressure</span><span class="o">=</span><span class="n">pressure</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">0.5_R8P</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">velocity_sq_norm</span>
+<a id="ln-343" name="ln-343" href="#ln-343"></a><span class="w">   </span><span class="k">endfunction </span><span class="n">ic_total_energy</span>
+<a id="ln-344" name="ln-344" href="#ln-344"></a>
+<a id="ln-345" name="ln-345" href="#ln-345"></a><span class="w">   </span><span class="k">elemental function </span><span class="n">ic_total_entalpy</span><span class="p">(</span><span class="n">g</span><span class="p">,</span><span class="w"> </span><span class="n">density</span><span class="p">,</span><span class="w"> </span><span class="n">pressure</span><span class="p">,</span><span class="w"> </span><span class="n">velocity_sq_norm</span><span class="p">)</span><span class="w"> </span><span class="k">result</span><span class="p">(</span><span class="n">entalpy_</span><span class="p">)</span>
+<a id="ln-346" name="ln-346" href="#ln-346"></a><span class="w">   </span><span class="c">!&lt; Return total specific entalpy for ideal compressible fluid.</span>
+<a id="ln-347" name="ln-347" href="#ln-347"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">g</span><span class="w">                </span><span class="c">!&lt; Specific heats ratio.</span>
+<a id="ln-348" name="ln-348" href="#ln-348"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">density</span><span class="w">          </span><span class="c">!&lt; Density value.</span>
+<a id="ln-349" name="ln-349" href="#ln-349"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">pressure</span><span class="w">         </span><span class="c">!&lt; Pressure value.</span>
+<a id="ln-350" name="ln-350" href="#ln-350"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">velocity_sq_norm</span><span class="w"> </span><span class="c">!&lt; Velocity vector square norm `||velocity||^2`.</span>
+<a id="ln-351" name="ln-351" href="#ln-351"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">             </span><span class="kd">::</span><span class="w"> </span><span class="n">entalpy_</span><span class="w">         </span><span class="c">!&lt; Total specific entalpy (per unit of mass).</span>
+<a id="ln-352" name="ln-352" href="#ln-352"></a>
+<a id="ln-353" name="ln-353" href="#ln-353"></a><span class="w">   </span><span class="n">entalpy_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">g</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">pressure</span><span class="o">/</span><span class="p">((</span><span class="n">g</span><span class="o">-</span><span class="mf">1._R8P</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">density</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">0.5_R8P</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">velocity_sq_norm</span>
+<a id="ln-354" name="ln-354" href="#ln-354"></a><span class="w">   </span><span class="k">endfunction </span><span class="n">ic_total_entalpy</span>
+<a id="ln-355" name="ln-355" href="#ln-355"></a>
+<a id="ln-356" name="ln-356" href="#ln-356"></a><span class="w">   </span><span class="c">! private non TBP</span>
+<a id="ln-357" name="ln-357" href="#ln-357"></a><span class="w">   </span><span class="k">elemental function </span><span class="n">nasto_eos_instance</span><span class="p">(</span><span class="n">mu</span><span class="p">,</span><span class="w"> </span><span class="n">kd</span><span class="p">,</span><span class="w"> </span><span class="n">dha</span><span class="p">,</span><span class="w"> </span><span class="n">cp</span><span class="p">,</span><span class="w"> </span><span class="n">cv</span><span class="p">,</span><span class="w"> </span><span class="n">gam</span><span class="p">,</span><span class="w"> </span><span class="n">R</span><span class="p">)</span><span class="w"> </span><span class="k">result</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span>
+<a id="ln-358" name="ln-358" href="#ln-358"></a><span class="w">   </span><span class="c">!&lt; Return and instance of [[nasto_eos_object]].</span>
+<a id="ln-359" name="ln-359" href="#ln-359"></a><span class="w">   </span><span class="c">!&lt;</span>
+<a id="ln-360" name="ln-360" href="#ln-360"></a><span class="w">   </span><span class="c">!&lt; @note This procedure is used for overloading [[nasto_eos_object]] name.</span>
+<a id="ln-361" name="ln-361" href="#ln-361"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">           </span><span class="kd">::</span><span class="w"> </span><span class="n">mu</span><span class="w">       </span><span class="c">!&lt; Dynamic viscosity.</span>
+<a id="ln-362" name="ln-362" href="#ln-362"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">           </span><span class="kd">::</span><span class="w"> </span><span class="n">kd</span><span class="w">       </span><span class="c">!&lt; Thermal diffusivity.</span>
+<a id="ln-363" name="ln-363" href="#ln-363"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">           </span><span class="kd">::</span><span class="w"> </span><span class="n">dha</span><span class="w">      </span><span class="c">!&lt; Entalpy formation.</span>
+<a id="ln-364" name="ln-364" href="#ln-364"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">cp</span><span class="w">       </span><span class="c">!&lt; Specific heat at constant pressure `cp` value.</span>
+<a id="ln-365" name="ln-365" href="#ln-365"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">cv</span><span class="w">       </span><span class="c">!&lt; Specific heat at constant volume `cv` value.</span>
+<a id="ln-366" name="ln-366" href="#ln-366"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">gam</span><span class="w">      </span><span class="c">!&lt; Specific heats ratio `gamma=cp/cv` value.</span>
+<a id="ln-367" name="ln-367" href="#ln-367"></a><span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">R</span><span class="w">        </span><span class="c">!&lt; Fluid constant `R=cp-cv` value.</span>
+<a id="ln-368" name="ln-368" href="#ln-368"></a><span class="w">   </span><span class="k">type</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">)</span><span class="w">          </span><span class="kd">::</span><span class="w"> </span><span class="n">instance</span><span class="w"> </span><span class="c">!&lt; Instance of [[nasto_eos_object]].</span>
+<a id="ln-369" name="ln-369" href="#ln-369"></a>
+<a id="ln-370" name="ln-370" href="#ln-370"></a><span class="w">   </span><span class="n">instance</span><span class="p">%</span><span class="n">mu</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">mu</span>
+<a id="ln-371" name="ln-371" href="#ln-371"></a><span class="w">   </span><span class="n">instance</span><span class="p">%</span><span class="n">kd</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">kd</span>
+<a id="ln-372" name="ln-372" href="#ln-372"></a><span class="w">   </span><span class="n">instance</span><span class="p">%</span><span class="n">dha</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">dha</span>
+<a id="ln-373" name="ln-373" href="#ln-373"></a><span class="w">   </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">present</span><span class="p">(</span><span class="n">cp</span><span class="p">).</span><span class="nb">and</span><span class="p">.</span><span class="nb">present</span><span class="p">(</span><span class="n">cv</span><span class="p">))</span><span class="w"> </span><span class="k">then</span>
+<a id="ln-374" name="ln-374" href="#ln-374"></a><span class="k">      </span><span class="n">instance</span><span class="p">%</span><span class="n">cp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cp</span>
+<a id="ln-375" name="ln-375" href="#ln-375"></a><span class="w">      </span><span class="n">instance</span><span class="p">%</span><span class="n">cv</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cv</span>
+<a id="ln-376" name="ln-376" href="#ln-376"></a><span class="w">   </span><span class="k">elseif</span><span class="w"> </span><span class="p">(</span><span class="nb">present</span><span class="p">(</span><span class="n">gam</span><span class="p">).</span><span class="nb">and</span><span class="p">.</span><span class="nb">present</span><span class="p">(</span><span class="n">R</span><span class="p">))</span><span class="w"> </span><span class="k">then</span>
+<a id="ln-377" name="ln-377" href="#ln-377"></a><span class="k">      </span><span class="n">instance</span><span class="p">%</span><span class="n">cv</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">R</span><span class="o">/</span><span class="p">(</span><span class="n">gam</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">1._R8P</span><span class="p">)</span>
+<a id="ln-378" name="ln-378" href="#ln-378"></a><span class="w">      </span><span class="n">instance</span><span class="p">%</span><span class="n">cp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">gam</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">instance</span><span class="p">%</span><span class="n">cv</span>
+<a id="ln-379" name="ln-379" href="#ln-379"></a><span class="w">   </span><span class="k">elseif</span><span class="w"> </span><span class="p">(</span><span class="nb">present</span><span class="p">(</span><span class="n">gam</span><span class="p">).</span><span class="nb">and</span><span class="p">.</span><span class="nb">present</span><span class="p">(</span><span class="n">cp</span><span class="p">))</span><span class="w"> </span><span class="k">then</span>
+<a id="ln-380" name="ln-380" href="#ln-380"></a><span class="k">      </span><span class="n">instance</span><span class="p">%</span><span class="n">cp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cp</span>
+<a id="ln-381" name="ln-381" href="#ln-381"></a><span class="w">      </span><span class="n">instance</span><span class="p">%</span><span class="n">cv</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cp</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">gam</span>
+<a id="ln-382" name="ln-382" href="#ln-382"></a><span class="w">   </span><span class="k">elseif</span><span class="w"> </span><span class="p">(</span><span class="nb">present</span><span class="p">(</span><span class="n">gam</span><span class="p">).</span><span class="nb">and</span><span class="p">.</span><span class="nb">present</span><span class="p">(</span><span class="n">cv</span><span class="p">))</span><span class="w"> </span><span class="k">then</span>
+<a id="ln-383" name="ln-383" href="#ln-383"></a><span class="k">      </span><span class="n">instance</span><span class="p">%</span><span class="n">cp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">gam</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">cv</span>
+<a id="ln-384" name="ln-384" href="#ln-384"></a><span class="w">      </span><span class="n">instance</span><span class="p">%</span><span class="n">cv</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cv</span>
+<a id="ln-385" name="ln-385" href="#ln-385"></a><span class="w">   </span><span class="k">elseif</span><span class="w"> </span><span class="p">(</span><span class="nb">present</span><span class="p">(</span><span class="n">R</span><span class="p">).</span><span class="nb">and</span><span class="p">.</span><span class="nb">present</span><span class="p">(</span><span class="n">cp</span><span class="p">))</span><span class="w"> </span><span class="k">then</span>
+<a id="ln-386" name="ln-386" href="#ln-386"></a><span class="k">      </span><span class="n">instance</span><span class="p">%</span><span class="n">cp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cp</span>
+<a id="ln-387" name="ln-387" href="#ln-387"></a><span class="w">      </span><span class="n">instance</span><span class="p">%</span><span class="n">cv</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cp</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">R</span>
+<a id="ln-388" name="ln-388" href="#ln-388"></a><span class="w">   </span><span class="k">elseif</span><span class="w"> </span><span class="p">(</span><span class="nb">present</span><span class="p">(</span><span class="n">R</span><span class="p">).</span><span class="nb">and</span><span class="p">.</span><span class="nb">present</span><span class="p">(</span><span class="n">cv</span><span class="p">))</span><span class="w"> </span><span class="k">then</span>
+<a id="ln-389" name="ln-389" href="#ln-389"></a><span class="k">      </span><span class="n">instance</span><span class="p">%</span><span class="n">cp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cv</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">R</span>
+<a id="ln-390" name="ln-390" href="#ln-390"></a><span class="w">      </span><span class="n">instance</span><span class="p">%</span><span class="n">cv</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cv</span>
+<a id="ln-391" name="ln-391" href="#ln-391"></a><span class="w">   </span><span class="k">endif</span>
+<a id="ln-392" name="ln-392" href="#ln-392"></a><span class="k">   call </span><span class="n">instance</span><span class="p">%</span><span class="n">compute_derivate</span>
+<a id="ln-393" name="ln-393" href="#ln-393"></a><span class="w">   </span><span class="k">endfunction </span><span class="n">nasto_eos_instance</span>
+<a id="ln-394" name="ln-394" href="#ln-394"></a><span class="k">endmodule </span><span class="n">adam_nasto_eos_object</span>
+</pre></div>
+
+      </section>
+    </div>
+  </div>
+
+      <hr>
+    </div> <!-- /container -->
+    <footer>
+      <div class="container">
+        <div class="row justify-content-between">
+          <div class="col">
+            <p>
+              ADAM
+ was developed by Stefano Zaghi<br>              &copy; 2025 
+</p>
+          </div>
+          <div class="col">
+            <p class="text-end">
+              Documentation generated by
+              <a href="https://github.com/Fortran-FOSS-Programmers/ford">FORD</a>
+            </p>
+          </div>
+        </div>
+        <br>
+      </div> <!-- /container -->
+    </footer>
+  </body>
+</html>

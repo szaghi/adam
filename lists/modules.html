@@ -1,0 +1,1233 @@
+<!-- -*- mode: jinja2 -*- -->
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="description" content="Adaptive Mesh Refinement (AMR) with Immersed Boundary (IB) fluid dynamic solver tailored for High Performance GPU Computing">
+    <meta name="author" content="Stefano Zaghi" >
+    <link rel="icon" href="../favicon.png">
+
+    <title>All Modules &ndash; ADAM
+</title>
+
+    <!-- Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+          integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+            integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <!-- Font Awesome -->
+    <link href="../css/fontawesome.min.css" rel="stylesheet">
+    <link href="../css/brands.min.css" rel="stylesheet">
+    <link href="../css/regular.min.css" rel="stylesheet">
+    <link href="../css/solid.min.css" rel="stylesheet">
+    <link href="../css/v4-font-face.min.css" rel="stylesheet">
+    <link href="../css/v4-shims.min.css" rel="stylesheet">
+    <!-- MathJax -->
+    <script type="text/x-mathjax-config">
+      MathJax.Hub.Config({
+        TeX: { equationNumbers: { autoNumber: "AMS" } }
+      });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@2.7.9/MathJax.js?config=TeX-AMS-MML_HTMLorMML" async
+            integrity="sha256-DViIOMYdwlM/axqoGDPeUyf0urLoHMN4QACBKyB58Uw=" crossorigin="anonymous"></script>
+    <!-- Other scripts and stylesheets -->
+    <link href="../css/local.css" rel="stylesheet">
+    <link href="../css/pygments.css" rel="stylesheet">
+    <script src="../js/svg-pan-zoom.min.js"></script>
+  </head>
+
+  <body>
+
+    <!-- Fixed navbar -->
+    <div class="container-fluid mb-sm-4 mb-xl-2">
+      <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+        <div class="container">
+          <a class="navbar-brand" href="../index.html">ADAM </a>
+          <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar"
+                  aria-expanded="false" aria-controls="navbar" aria-label="Toggle navigation">
+                  <span class="navbar-toggler-icon">
+          </button>
+
+          <div id="navbar" class="navbar-collapse collapse">
+            <ul class="navbar-nav">
+                  <li class="nav-item">
+                    <a class="nav-link" href="../lists/files.html">Source Files</a>
+                  </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/modules.html">Modules</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/procedures.html">Procedures</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/types.html">Derived Types</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/programs.html">Programs</a>
+                </li>
+            </ul>
+              <div class="d-flex align-items-end flex-grow-1">
+                <form action="../search.html" role="search" class="ms-auto">
+                  <input type="text" class="form-control" aria-label="Search" placeholder="Search" name="q" id="tipue_search_input" autocomplete="off" required>
+                </form>
+              </div>
+          </div><!--/.nav-collapse -->
+        </div>
+      </nav>
+    </div>
+
+    <div class="container">
+      <div class="row">
+        <div class="col-lg-12" id='text'>
+			 <h1>Modules</h1>
+			 <table class="table">
+			 <thead><tr><th>Module</th><th>Source File</th><th>Description</th></tr></thead>
+			 <tbody>
+			   <tr class="active">
+                 <td><a href='../module/adam_nasto_bc_object.html'>adam_nasto_bc_object</a></td>
+                 <td><a href='../sourcefile/adam_nasto_bc_object.f90.html'>adam_nasto_bc_object.F90</a></td>
+                 <td><p>ADAM, NASTO Boundary Conditions class definition, CPU backend.</p></td>
+               </tr>
+<!--active-->			   <tr class="">
+                 <td><a href='../module/adam_nasto_common_library.html'>adam_nasto_common_library</a></td>
+                 <td><a href='../sourcefile/adam_nasto_common_library.f90.html'>adam_nasto_common_library.F90</a></td>
+                 <td><p>ADAM NASTO common library, entry for all NASTO common classes and libraries.</p></td>
+               </tr>
+<!---->			   <tr class="active">
+                 <td><a href='../module/adam_nasto_common_object.html'>adam_nasto_common_object</a></td>
+                 <td><a href='../sourcefile/adam_nasto_common_object.f90.html'>adam_nasto_common_object.F90</a></td>
+                 <td><p>ADAM, Navier-Stokes equations system class definition, common data to all backends.</p></td>
+               </tr>
+<!--active-->			   <tr class="">
+                 <td><a href='../module/adam_nasto_cpu_cns.html'>adam_nasto_cpu_cns</a></td>
+                 <td><a href='../sourcefile/adam_nasto_cpu_cns.f90.html'>adam_nasto_cpu_cns.F90</a></td>
+                 <td><p>ADAM, NASTO CPU Compressible-Navier-Stokes fluidyanmics application library.</p></td>
+               </tr>
+<!---->			   <tr class="active">
+                 <td><a href='../module/adam_nasto_cpu_object.html'>adam_nasto_cpu_object</a></td>
+                 <td><a href='../sourcefile/adam_nasto_cpu_object.f90.html'>adam_nasto_cpu_object.F90</a></td>
+                 <td><p>ADAM, Navier-Stokes equations system class definition, CPU backend.</p></td>
+               </tr>
+<!--active-->			   <tr class="">
+                 <td><a href='../module/adam_nasto_eos_object.html'>adam_nasto_eos_object</a></td>
+                 <td><a href='../sourcefile/adam_nasto_eos_object.f90.html'>adam_nasto_eos_object.F90</a></td>
+                 <td><p>ADAM, NASTO Equations Of State (EOS) class definition, CPU backend.</p></td>
+               </tr>
+<!---->			   <tr class="active">
+                 <td><a href='../module/adam_nasto_fnl_cns_kernels.html'>adam_nasto_fnl_cns_kernels</a></td>
+                 <td><a href='../sourcefile/adam_nasto_fnl_cns_kernels.f90.html'>adam_nasto_fnl_cns_kernels.F90</a></td>
+                 <td><p>ADAM, NASTO FNL Compressible-Navier-Stokes fluidyanmics application kernels.</p></td>
+               </tr>
+<!--active-->			   <tr class="">
+                 <td><a href='../module/adam_nasto_fnl_kernels.html'>adam_nasto_fnl_kernels</a></td>
+                 <td><a href='../sourcefile/adam_nasto_fnl_kernels.f90.html'>adam_nasto_fnl_kernels.F90</a></td>
+                 <td><p>ADAM, NASTO FNL application kernels.</p></td>
+               </tr>
+<!---->			   <tr class="active">
+                 <td><a href='../module/adam_nasto_fnl_library.html'>adam_nasto_fnl_library</a></td>
+                 <td><a href='../sourcefile/adam_nasto_fnl_library.f90.html'>adam_nasto_fnl_library.F90</a></td>
+                 <td><p>ADAM NASTO FNL library, entry for all FNL (and common) classes and libraries.</p></td>
+               </tr>
+<!--active-->			   <tr class="">
+                 <td><a href='../module/adam_nasto_fnl_object.html'>adam_nasto_fnl_object</a></td>
+                 <td><a href='../sourcefile/adam_nasto_fnl_object.f90.html'>adam_nasto_fnl_object.F90</a></td>
+                 <td><p>ADAM, Navier-Stokes equations system class definition, GPU (FNL) backend.</p></td>
+               </tr>
+<!---->			   <tr class="active">
+                 <td><a href='../module/adam_nasto_gmp_cns_kernels.html'>adam_nasto_gmp_cns_kernels</a></td>
+                 <td><a href='../sourcefile/adam_nasto_gmp_cns_kernels.f90.html'>adam_nasto_gmp_cns_kernels.F90</a></td>
+                 <td><p>ADAM, NASTO GMP Compressible-Navier-Stokes fluidyanmics application kernels.</p></td>
+               </tr>
+<!--active-->			   <tr class="">
+                 <td><a href='../module/adam_nasto_gmp_kernels.html'>adam_nasto_gmp_kernels</a></td>
+                 <td><a href='../sourcefile/adam_nasto_gmp_kernels.f90.html'>adam_nasto_gmp_kernels.F90</a></td>
+                 <td><p>ADAM, NASTO GMP application kernels.</p></td>
+               </tr>
+<!---->			   <tr class="active">
+                 <td><a href='../module/adam_nasto_gmp_object.html'>adam_nasto_gmp_object</a></td>
+                 <td><a href='../sourcefile/adam_nasto_gmp_object.f90.html'>adam_nasto_gmp_object.F90</a></td>
+                 <td><p>ADAM, Navier-Stokes equations system class definition, GPU (GMP) backend.</p></td>
+               </tr>
+<!--active-->			   <tr class="">
+                 <td><a href='../module/adam_nasto_ic_object.html'>adam_nasto_ic_object</a></td>
+                 <td><a href='../sourcefile/adam_nasto_ic_object.f90.html'>adam_nasto_ic_object.F90</a></td>
+                 <td><p>ADAM, NASTO Initial Conditions class definition, CPU backend.</p></td>
+               </tr>
+<!---->			   <tr class="active">
+                 <td><a href='../module/adam_nasto_io_object.html'>adam_nasto_io_object</a></td>
+                 <td><a href='../sourcefile/adam_nasto_io_object.f90.html'>adam_nasto_io_object.F90</a></td>
+                 <td><p>ADAM, Navier-Stokes IO handler class definition, CPU backend.</p></td>
+               </tr>
+<!--active-->			   <tr class="">
+                 <td><a href='../module/adam_nasto_nvf_cns_kernels.html'>adam_nasto_nvf_cns_kernels</a></td>
+                 <td><a href='../sourcefile/adam_nasto_nvf_cns_kernels.f90.html'>adam_nasto_nvf_cns_kernels.F90</a></td>
+                 <td><p>ADAM, NASTO NVF Compressible-Navier-Stokes fluidyanmics application kernels.</p></td>
+               </tr>
+<!---->			   <tr class="active">
+                 <td><a href='../module/adam_nasto_nvf_kernels.html'>adam_nasto_nvf_kernels</a></td>
+                 <td><a href='../sourcefile/adam_nasto_nvf_kernels.f90.html'>adam_nasto_nvf_kernels.F90</a></td>
+                 <td><p>ADAM, NASTO NVF application kernels.</p></td>
+               </tr>
+<!--active-->			   <tr class="">
+                 <td><a href='../module/adam_nasto_nvf_object.html'>adam_nasto_nvf_object</a></td>
+                 <td><a href='../sourcefile/adam_nasto_nvf_object.f90.html'>adam_nasto_nvf_object.F90</a></td>
+                 <td><p>ADAM, Navier-Stokes equations system class definition, GPU (NVF) backend.</p></td>
+               </tr>
+<!---->			   <tr class="active">
+                 <td><a href='../module/adam_nasto_parameters.html'>adam_nasto_parameters</a></td>
+                 <td><a href='../sourcefile/adam_nasto_parameters.f90.html'>adam_nasto_parameters.F90</a></td>
+                 <td><p>ADAM, Navier-Stokes equations system parameters.</p></td>
+               </tr>
+<!--active-->			   <tr class="">
+                 <td><a href='../module/adam_nasto_physics_object.html'>adam_nasto_physics_object</a></td>
+                 <td><a href='../sourcefile/adam_nasto_physics_object.f90.html'>adam_nasto_physics_object.F90</a></td>
+                 <td><p>ADAM, NASTO fluid physics class definition, CPU backend.</p></td>
+               </tr>
+<!---->			   <tr class="active">
+                 <td><a href='../module/adam_nasto_time_object.html'>adam_nasto_time_object</a></td>
+                 <td><a href='../sourcefile/adam_nasto_time_object.f90.html'>adam_nasto_time_object.F90</a></td>
+                 <td><p>ADAM, Navier-Stokes time handler class definition, CPU backend.</p></td>
+               </tr>
+<!--active-->			 </tbody></table>
+             <div class="depgraph"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: module~~graph~~ModuleGraph Pages: 1 -->
+<svg id="modulegraphModuleGraph" width="855pt" height="597pt"
+ viewBox="0.00 0.00 855.00 597.03" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="module~~graph~~ModuleGraph" class="graph" transform="scale(0.54 0.54) rotate(0) translate(4 1099.29)">
+<title>module~~graph~~ModuleGraph</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-1099.29 1576,-1099.29 1576,4 -4,4"/>
+<!-- module~adam_nasto_bc_object -->
+<g id="module~~graph~~ModuleGraph_node1" class="node">
+<title>module~adam_nasto_bc_object</title>
+<g id="a_module~~graph~~ModuleGraph_node1"><a xlink:href="../module/adam_nasto_bc_object.html" xlink:title="adam_nasto_bc_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="676,-347.29 542,-347.29 542,-323.29 676,-323.29 676,-347.29"/>
+<text text-anchor="middle" x="609" y="-332.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_bc_object</text>
+</a>
+</g>
+</g>
+<!-- adam_mpih_object -->
+<g id="module~~graph~~ModuleGraph_node35" class="node">
+<title>adam_mpih_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="114,-208.29 0,-208.29 0,-184.29 114,-184.29 114,-208.29"/>
+<text text-anchor="middle" x="57" y="-193.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_mpih_object</text>
+</g>
+<!-- module~adam_nasto_bc_object&#45;&gt;adam_mpih_object -->
+<g id="module~~graph~~ModuleGraph_edge1" class="edge">
+<title>module~adam_nasto_bc_object&#45;&gt;adam_mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M541.82,-332.57C431.66,-327.09 216.22,-312.05 150,-276.29 128.37,-264.61 132.33,-250.67 114,-234.29 105.85,-227.01 96.23,-220 87.29,-214.03"/>
+<polygon fill="#000000" stroke="#000000" points="88.94,-210.94 78.65,-208.44 85.14,-216.81 88.94,-210.94"/>
+</g>
+<!-- finer -->
+<g id="module~~graph~~ModuleGraph_node44" class="node">
+<title>finer</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="84,-149.29 30,-149.29 30,-125.29 84,-125.29 84,-149.29"/>
+<text text-anchor="middle" x="57" y="-134.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">finer</text>
+</g>
+<!-- module~adam_nasto_bc_object&#45;&gt;finer -->
+<g id="module~~graph~~ModuleGraph_edge2" class="edge">
+<title>module~adam_nasto_bc_object&#45;&gt;finer</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M574.42,-323.2C476.9,-288.09 194.23,-186.33 93.87,-150.2"/>
+<polygon fill="#000000" stroke="#000000" points="94.78,-146.81 84.19,-146.72 92.41,-153.4 94.78,-146.81"/>
+</g>
+<!-- penf -->
+<g id="module~~graph~~ModuleGraph_node48" class="node">
+<title>penf</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="84,-267.29 30,-267.29 30,-243.29 84,-243.29 84,-267.29"/>
+<text text-anchor="middle" x="57" y="-252.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">penf</text>
+</g>
+<!-- module~adam_nasto_bc_object&#45;&gt;penf -->
+<g id="module~~graph~~ModuleGraph_edge3" class="edge">
+<title>module~adam_nasto_bc_object&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M570.53,-347.3C560.89,-351.12 550.77,-355.81 542,-361.29 523.59,-372.79 526.23,-386.42 506,-394.29 433.51,-422.49 406.2,-414.14 331,-394.29 277.89,-380.27 277.95,-340.6 223.5,-333.29"/>
+</g>
+<!-- module~adam_nasto_common_library -->
+<g id="module~~graph~~ModuleGraph_node2" class="node">
+<title>module~adam_nasto_common_library</title>
+<g id="a_module~~graph~~ModuleGraph_node2"><a xlink:href="../module/adam_nasto_common_library.html" xlink:title="adam_nasto_common_library">
+<polygon fill="#337ab7" stroke="#337ab7" points="1087,-493.29 917,-493.29 917,-469.29 1087,-469.29 1087,-493.29"/>
+<text text-anchor="middle" x="1002" y="-478.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_common_library</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_common_library&#45;&gt;module~adam_nasto_bc_object -->
+<g id="module~~graph~~ModuleGraph_edge4" class="edge">
+<title>module~adam_nasto_common_library&#45;&gt;module~adam_nasto_bc_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M795.5,-335.29C760.17,-319.88 717.33,-318.87 681.72,-322.18"/>
+<polygon fill="#000000" stroke="#000000" points="680.98,-318.74 671.41,-323.27 681.72,-325.7 680.98,-318.74"/>
+</g>
+<!-- module~adam_nasto_common_object -->
+<g id="module~~graph~~ModuleGraph_node3" class="node">
+<title>module~adam_nasto_common_object</title>
+<g id="a_module~~graph~~ModuleGraph_node3"><a xlink:href="../module/adam_nasto_common_object.html" xlink:title="adam_nasto_common_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="881,-493.29 712,-493.29 712,-469.29 881,-469.29 881,-493.29"/>
+<text text-anchor="middle" x="796.5" y="-478.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_common_object</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_common_library&#45;&gt;module~adam_nasto_common_object -->
+<g id="module~~graph~~ModuleGraph_edge5" class="edge">
+<title>module~adam_nasto_common_library&#45;&gt;module~adam_nasto_common_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M916.76,-481.29C908.27,-481.29 899.62,-481.29 891.04,-481.29"/>
+<polygon fill="#000000" stroke="#000000" points="891.02,-477.79 881.02,-481.29 891.02,-484.79 891.02,-477.79"/>
+</g>
+<!-- module~adam_nasto_eos_object -->
+<g id="module~~graph~~ModuleGraph_node6" class="node">
+<title>module~adam_nasto_eos_object</title>
+<g id="a_module~~graph~~ModuleGraph_node6"><a xlink:href="../module/adam_nasto_eos_object.html" xlink:title="adam_nasto_eos_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="292.5,-267.29 152.5,-267.29 152.5,-243.29 292.5,-243.29 292.5,-267.29"/>
+<text text-anchor="middle" x="222.5" y="-252.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_eos_object</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_common_library&#45;&gt;module~adam_nasto_eos_object -->
+<g id="module~~graph~~ModuleGraph_edge6" class="edge">
+<title>module~adam_nasto_common_library&#45;&gt;module~adam_nasto_eos_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M936.67,-469.25C929.81,-466.79 923.11,-463.84 917,-460.29 850.55,-421.67 867.95,-366.02 797.5,-335.29"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M795.5,-335.29C751.21,-315.97 449.35,-280.39 302.89,-263.99"/>
+<polygon fill="#000000" stroke="#000000" points="302.94,-260.47 292.62,-262.84 302.17,-267.43 302.94,-260.47"/>
+</g>
+<!-- module~adam_nasto_ic_object -->
+<g id="module~~graph~~ModuleGraph_node14" class="node">
+<title>module~adam_nasto_ic_object</title>
+<g id="a_module~~graph~~ModuleGraph_node14"><a xlink:href="../module/adam_nasto_ic_object.html" xlink:title="adam_nasto_ic_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="674,-229.29 544,-229.29 544,-205.29 674,-205.29 674,-229.29"/>
+<text text-anchor="middle" x="609" y="-214.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_ic_object</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_common_library&#45;&gt;module~adam_nasto_ic_object -->
+<g id="module~~graph~~ModuleGraph_edge7" class="edge">
+<title>module~adam_nasto_common_library&#45;&gt;module~adam_nasto_ic_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M795.5,-139.29C735.35,-112.98 663.54,-167.33 629.61,-198.1"/>
+<polygon fill="#000000" stroke="#000000" points="627.14,-195.61 622.21,-204.99 631.91,-200.74 627.14,-195.61"/>
+</g>
+<!-- module~adam_nasto_io_object -->
+<g id="module~~graph~~ModuleGraph_node15" class="node">
+<title>module~adam_nasto_io_object</title>
+<g id="a_module~~graph~~ModuleGraph_node15"><a xlink:href="../module/adam_nasto_io_object.html" xlink:title="adam_nasto_io_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="288,-107.29 157,-107.29 157,-83.29 288,-83.29 288,-107.29"/>
+<text text-anchor="middle" x="222.5" y="-92.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_io_object</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_common_library&#45;&gt;module~adam_nasto_io_object -->
+<g id="module~~graph~~ModuleGraph_edge8" class="edge">
+<title>module~adam_nasto_common_library&#45;&gt;module~adam_nasto_io_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M927.04,-469.1C923.33,-466.63 919.93,-463.72 917,-460.29 858.84,-392.3 942.67,-124.11 881,-59.29 797.17,28.82 730.17,-2.52 610,-21.29"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M608,-21.29C522.9,-32.5 505.04,-56.24 419.5,-63.29"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M417.5,-63.29C375.36,-66.76 328.59,-74.36 291.53,-81.29"/>
+<polygon fill="#000000" stroke="#000000" points="290.52,-77.92 281.34,-83.22 291.82,-84.8 290.52,-77.92"/>
+</g>
+<!-- module~adam_nasto_parameters -->
+<g id="module~~graph~~ModuleGraph_node19" class="node">
+<title>module~adam_nasto_parameters</title>
+<g id="a_module~~graph~~ModuleGraph_node19"><a xlink:href="../module/adam_nasto_parameters.html" xlink:title="adam_nasto_parameters">
+<polygon fill="#337ab7" stroke="#337ab7" points="869,-92.29 724,-92.29 724,-68.29 869,-68.29 869,-92.29"/>
+<text text-anchor="middle" x="796.5" y="-77.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_parameters</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_common_library&#45;&gt;module~adam_nasto_parameters -->
+<g id="module~~graph~~ModuleGraph_edge9" class="edge">
+<title>module~adam_nasto_common_library&#45;&gt;module~adam_nasto_parameters</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M927.49,-469.28C923.61,-466.77 920.06,-463.8 917,-460.29 818.66,-347.36 964.53,-249.57 881,-125.29 872.64,-112.85 859.67,-103.57 846.43,-96.77"/>
+<polygon fill="#000000" stroke="#000000" points="847.81,-93.55 837.27,-92.46 844.82,-99.89 847.81,-93.55"/>
+</g>
+<!-- module~adam_nasto_physics_object -->
+<g id="module~~graph~~ModuleGraph_node20" class="node">
+<title>module~adam_nasto_physics_object</title>
+<g id="a_module~~graph~~ModuleGraph_node20"><a xlink:href="../module/adam_nasto_physics_object.html" xlink:title="adam_nasto_physics_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="498.5,-191.29 338.5,-191.29 338.5,-167.29 498.5,-167.29 498.5,-191.29"/>
+<text text-anchor="middle" x="418.5" y="-176.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_physics_object</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_common_library&#45;&gt;module~adam_nasto_physics_object -->
+<g id="module~~graph~~ModuleGraph_edge10" class="edge">
+<title>module~adam_nasto_common_library&#45;&gt;module~adam_nasto_physics_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M928.21,-469.21C924.1,-466.73 920.31,-463.78 917,-460.29 859.08,-399.17 911.65,-352.71 881,-274.29 855.32,-208.58 862.14,-167.56 797.5,-139.29"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M795.5,-139.29C680.28,-88.89 526.94,-136.33 457.06,-163.39"/>
+<polygon fill="#000000" stroke="#000000" points="455.38,-160.29 447.37,-167.22 457.96,-166.8 455.38,-160.29"/>
+</g>
+<!-- module~adam_nasto_time_object -->
+<g id="module~~graph~~ModuleGraph_node21" class="node">
+<title>module~adam_nasto_time_object</title>
+<g id="a_module~~graph~~ModuleGraph_node21"><a xlink:href="../module/adam_nasto_time_object.html" xlink:title="adam_nasto_time_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="295,-149.29 150,-149.29 150,-125.29 295,-125.29 295,-149.29"/>
+<text text-anchor="middle" x="222.5" y="-134.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_time_object</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_common_library&#45;&gt;module~adam_nasto_time_object -->
+<g id="module~~graph~~ModuleGraph_edge11" class="edge">
+<title>module~adam_nasto_common_library&#45;&gt;module~adam_nasto_time_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M608,-21.29C577.84,-26 568.19,-24.6 542,-40.29 522.32,-52.08 525.74,-65.59 506,-77.29 471.68,-97.63 459.12,-96.58 419.5,-101.29"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M417.5,-101.29C373.94,-106.47 325.42,-115.47 287.79,-123.18"/>
+<polygon fill="#000000" stroke="#000000" points="287.06,-119.76 277.98,-125.21 288.48,-126.61 287.06,-119.76"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;module~adam_nasto_bc_object -->
+<g id="module~~graph~~ModuleGraph_edge22" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;module~adam_nasto_bc_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M786.26,-469.09C767.72,-445.38 723.67,-392.61 676,-361.29 670.33,-357.56 664.04,-354.24 657.67,-351.31"/>
+<polygon fill="#000000" stroke="#000000" points="658.9,-348.03 648.33,-347.31 656.14,-354.46 658.9,-348.03"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;module~adam_nasto_ic_object -->
+<g id="module~~graph~~ModuleGraph_edge23" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;module~adam_nasto_ic_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M787.35,-469.11C772.03,-446.06 738.12,-394.33 712,-349.29 694.85,-319.71 696.53,-308.64 676,-281.29 663.46,-264.59 646.5,-248.24 632.91,-236.25"/>
+<polygon fill="#000000" stroke="#000000" points="634.81,-233.26 624.96,-229.38 630.24,-238.56 634.81,-233.26"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;module~adam_nasto_io_object -->
+<g id="module~~graph~~ModuleGraph_edge24" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;module~adam_nasto_io_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M785.33,-469.11C767.36,-446.86 730.17,-397.5 712,-349.29 675.83,-253.29 746.12,-196.18 676,-121.29 666.01,-110.62 434.06,-62.03 419.5,-63.29"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;module~adam_nasto_physics_object -->
+<g id="module~~graph~~ModuleGraph_edge25" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;module~adam_nasto_physics_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M789.17,-469C773.42,-439.35 729.79,-362.7 676,-314.29 625.11,-268.49 597.37,-278.57 542,-238.29 524.45,-225.52 524.87,-216.02 506,-205.29 498.75,-201.17 490.78,-197.64 482.7,-194.63"/>
+<polygon fill="#000000" stroke="#000000" points="483.79,-191.3 473.2,-191.33 481.5,-197.92 483.79,-191.3"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;module~adam_nasto_time_object -->
+<g id="module~~graph~~ModuleGraph_edge26" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;module~adam_nasto_time_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M785.69,-468.96C768.28,-446.49 731.95,-396.79 712,-349.29 684.95,-284.88 722.25,-248.64 676,-196.29 635.76,-150.74 480,-95.46 419.5,-101.29"/>
+</g>
+<!-- adam_adam_object -->
+<g id="module~~graph~~ModuleGraph_node27" class="node">
+<title>adam_adam_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="668,-511.29 550,-511.29 550,-487.29 668,-487.29 668,-511.29"/>
+<text text-anchor="middle" x="609" y="-496.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_adam_object</text>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_adam_object -->
+<g id="module~~graph~~ModuleGraph_edge12" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_adam_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M711.98,-489.39C700.64,-490.49 689.11,-491.61 678.09,-492.68"/>
+<polygon fill="#000000" stroke="#000000" points="677.74,-489.2 668.13,-493.65 678.42,-496.17 677.74,-489.2"/>
+</g>
+<!-- adam_amr_object -->
+<g id="module~~graph~~ModuleGraph_node28" class="node">
+<title>adam_amr_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="663.5,-469.29 554.5,-469.29 554.5,-445.29 663.5,-445.29 663.5,-469.29"/>
+<text text-anchor="middle" x="609" y="-454.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_amr_object</text>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_amr_object -->
+<g id="module~~graph~~ModuleGraph_edge13" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_amr_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M711.98,-470.48C699.13,-468.82 686.04,-467.13 673.72,-465.53"/>
+<polygon fill="#000000" stroke="#000000" points="673.93,-462.03 663.57,-464.22 673.03,-468.97 673.93,-462.03"/>
+</g>
+<!-- adam_field_object -->
+<g id="module~~graph~~ModuleGraph_node30" class="node">
+<title>adam_field_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="473.5,-385.29 363.5,-385.29 363.5,-361.29 473.5,-361.29 473.5,-385.29"/>
+<text text-anchor="middle" x="418.5" y="-370.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_field_object</text>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_field_object -->
+<g id="module~~graph~~ModuleGraph_edge14" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_field_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M740.18,-493.4C730.67,-495.99 720.97,-498.96 712,-502.29 695.23,-508.51 693.41,-516.18 676,-520.29 618.04,-533.97 595.93,-545.55 542,-520.29 486.14,-494.13 446.87,-428.59 429.51,-394.55"/>
+<polygon fill="#000000" stroke="#000000" points="432.58,-392.87 425.01,-385.46 426.31,-395.98 432.58,-392.87"/>
+</g>
+<!-- adam_grid_object -->
+<g id="module~~graph~~ModuleGraph_node33" class="node">
+<title>adam_grid_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="663,-427.29 555,-427.29 555,-403.29 663,-403.29 663,-427.29"/>
+<text text-anchor="middle" x="609" y="-412.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_grid_object</text>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_grid_object -->
+<g id="module~~graph~~ModuleGraph_edge15" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_grid_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M764.71,-469.19C740.67,-459.87 706.37,-446.83 676,-436.29 670.47,-434.37 664.66,-432.42 658.87,-430.52"/>
+<polygon fill="#000000" stroke="#000000" points="659.79,-427.14 649.2,-427.39 657.63,-433.8 659.79,-427.14"/>
+</g>
+<!-- adam_ib_object -->
+<g id="module~~graph~~ModuleGraph_node34" class="node">
+<title>adam_ib_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="657.5,-717.29 560.5,-717.29 560.5,-693.29 657.5,-693.29 657.5,-717.29"/>
+<text text-anchor="middle" x="609" y="-702.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_ib_object</text>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_ib_object -->
+<g id="module~~graph~~ModuleGraph_edge16" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_ib_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M723.16,-493.42C719.07,-495.89 715.29,-498.82 712,-502.29 655.2,-562.07 730.93,-622.79 676,-684.29 673.28,-687.33 670.13,-689.93 666.7,-692.16"/>
+<polygon fill="#000000" stroke="#000000" points="664.88,-689.17 657.71,-696.97 668.18,-695.34 664.88,-689.17"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_mpih_object -->
+<g id="module~~graph~~ModuleGraph_edge17" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M784.08,-468.97C764.36,-448.72 721.63,-409.14 676,-394.29 676,-394.29 331,-394.29 331,-394.29 243.98,-374.46 213.43,-370.08 150,-307.29 124.29,-281.84 137.75,-261.57 114,-234.29 107.24,-226.53 98.56,-219.63 90.05,-213.91"/>
+<polygon fill="#000000" stroke="#000000" points="91.66,-210.79 81.34,-208.4 87.91,-216.7 91.66,-210.79"/>
+</g>
+<!-- adam_rk_object -->
+<g id="module~~graph~~ModuleGraph_node38" class="node">
+<title>adam_rk_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="657.5,-675.29 560.5,-675.29 560.5,-651.29 657.5,-651.29 657.5,-675.29"/>
+<text text-anchor="middle" x="609" y="-660.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_rk_object</text>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_rk_object -->
+<g id="module~~graph~~ModuleGraph_edge18" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_rk_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M723.77,-493.41C719.48,-495.88 715.5,-498.81 712,-502.29 666.45,-547.6 720.13,-595.6 676,-642.29 673.24,-645.2 670.09,-647.72 666.68,-649.88"/>
+<polygon fill="#000000" stroke="#000000" points="664.99,-646.82 657.77,-654.58 668.25,-653.01 664.99,-646.82"/>
+</g>
+<!-- adam_slices_object -->
+<g id="module~~graph~~ModuleGraph_node39" class="node">
+<title>adam_slices_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="667,-633.29 551,-633.29 551,-609.29 667,-609.29 667,-633.29"/>
+<text text-anchor="middle" x="609" y="-618.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_slices_object</text>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_slices_object -->
+<g id="module~~graph~~ModuleGraph_edge19" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_slices_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M724.95,-493.4C720.28,-495.86 715.89,-498.79 712,-502.29 677.5,-533.32 709.52,-568.21 676,-600.29 674.75,-601.49 673.42,-602.62 672.04,-603.69"/>
+<polygon fill="#000000" stroke="#000000" points="670.12,-600.76 663.6,-609.12 673.91,-606.65 670.12,-600.76"/>
+</g>
+<!-- adam_weno_object -->
+<g id="module~~graph~~ModuleGraph_node42" class="node">
+<title>adam_weno_object</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="666.5,-875.29 551.5,-875.29 551.5,-851.29 666.5,-851.29 666.5,-875.29"/>
+<text text-anchor="middle" x="609" y="-860.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_weno_object</text>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;adam_weno_object -->
+<g id="module~~graph~~ModuleGraph_edge20" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;adam_weno_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M722.48,-493.38C718.61,-495.87 715.06,-498.81 712,-502.29 624.07,-602.03 735.11,-680.19 676,-799.29 666.92,-817.57 650.44,-833.56 636.22,-844.99"/>
+<polygon fill="#000000" stroke="#000000" points="633.98,-842.3 628.18,-851.17 638.24,-847.85 633.98,-842.3"/>
+</g>
+<!-- iso_c_binding -->
+<g id="module~~graph~~ModuleGraph_node46" class="node">
+<title>iso_c_binding</title>
+<g id="a_module~~graph~~ModuleGraph_node46"><a xlink:href="http://fortranwiki.org/fortran/show/iso_c_binding" xlink:title="iso_c_binding">
+<polygon fill="#337ab7" stroke="#337ab7" points="651,-591.29 567,-591.29 567,-567.29 651,-567.29 651,-591.29"/>
+<text text-anchor="middle" x="609" y="-576.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">iso_c_binding</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;iso_c_binding -->
+<g id="module~~graph~~ModuleGraph_edge21" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;iso_c_binding</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M728.86,-493.33C722.9,-495.79 717.18,-498.74 712,-502.29 689.12,-517.98 697.82,-536.15 676,-553.29 671.28,-556.99 665.97,-560.23 660.47,-563.04"/>
+<polygon fill="#000000" stroke="#000000" points="658.69,-560 651.09,-567.38 661.63,-566.36 658.69,-560"/>
+</g>
+<!-- module~adam_nasto_common_object&#45;&gt;penf -->
+<g id="module~~graph~~ModuleGraph_edge27" class="edge">
+<title>module~adam_nasto_common_object&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M722.63,-493.52C718.73,-495.98 715.13,-498.87 712,-502.29 643.87,-576.62 742.86,-650.81 676,-726.29 655.76,-749.14 639.59,-737.8 610,-745.29"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M608,-745.29C526.78,-765.83 502.44,-733.48 419.5,-745.29"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M417.5,-745.29C378.53,-750.84 367.75,-750.2 331,-764.29 279.71,-783.96 267.43,-858.28 223.5,-825.29"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M221.5,-825.29C129.64,-756.31 73.69,-374.44 60.85,-277.61"/>
+<polygon fill="#000000" stroke="#000000" points="64.29,-276.95 59.52,-267.49 57.35,-277.86 64.29,-276.95"/>
+</g>
+<!-- module~adam_nasto_cpu_cns -->
+<g id="module~~graph~~ModuleGraph_node4" class="node">
+<title>module~adam_nasto_cpu_cns</title>
+<g id="a_module~~graph~~ModuleGraph_node4"><a xlink:href="../module/adam_nasto_cpu_cns.html" xlink:title="adam_nasto_cpu_cns">
+<polygon fill="#337ab7" stroke="#337ab7" points="481.5,-797.29 355.5,-797.29 355.5,-773.29 481.5,-773.29 481.5,-797.29"/>
+<text text-anchor="middle" x="418.5" y="-782.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_cpu_cns</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_cpu_cns&#45;&gt;penf -->
+<g id="module~~graph~~ModuleGraph_edge28" class="edge">
+<title>module~adam_nasto_cpu_cns&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M375.59,-797.36C322.26,-812.19 235.57,-834.35 223.5,-825.29"/>
+</g>
+<!-- module~adam_nasto_cpu_object -->
+<g id="module~~graph~~ModuleGraph_node5" class="node">
+<title>module~adam_nasto_cpu_object</title>
+<g id="a_module~~graph~~ModuleGraph_node5"><a xlink:href="../module/adam_nasto_cpu_object.html" xlink:title="adam_nasto_cpu_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="1266,-653.29 1125,-653.29 1125,-629.29 1266,-629.29 1266,-653.29"/>
+<text text-anchor="middle" x="1195.5" y="-638.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_cpu_object</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_cpu_object&#45;&gt;module~adam_nasto_common_library -->
+<g id="module~~graph~~ModuleGraph_edge31" class="edge">
+<title>module~adam_nasto_cpu_object&#45;&gt;module~adam_nasto_common_library</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1181.38,-629.19C1166.24,-614.84 1141.1,-589.75 1123,-565.29 1103.82,-539.37 1112.71,-521.76 1087,-502.29 1084.96,-500.74 1082.81,-499.3 1080.59,-497.97"/>
+<polygon fill="#000000" stroke="#000000" points="1082.16,-494.85 1071.67,-493.34 1078.93,-501.06 1082.16,-494.85"/>
+</g>
+<!-- module~adam_nasto_cpu_object&#45;&gt;module~adam_nasto_cpu_cns -->
+<g id="module~~graph~~ModuleGraph_edge32" class="edge">
+<title>module~adam_nasto_cpu_object&#45;&gt;module~adam_nasto_cpu_cns</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M608,-785.29C569.63,-783.28 526.8,-783.11 491.68,-783.52"/>
+<polygon fill="#000000" stroke="#000000" points="491.47,-780.03 481.52,-783.66 491.57,-787.03 491.47,-780.03"/>
+</g>
+<!-- adam_common_library -->
+<g id="module~~graph~~ModuleGraph_node29" class="node">
+<title>adam_common_library</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="1070,-813.29 934,-813.29 934,-789.29 1070,-789.29 1070,-813.29"/>
+<text text-anchor="middle" x="1002" y="-798.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_common_library</text>
+</g>
+<!-- module~adam_nasto_cpu_object&#45;&gt;adam_common_library -->
+<g id="module~~graph~~ModuleGraph_edge29" class="edge">
+<title>module~adam_nasto_cpu_object&#45;&gt;adam_common_library</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1145.48,-653.32C1137.34,-656.87 1129.46,-661.44 1123,-667.29 1095.6,-692.11 1110.9,-714.08 1087,-742.29 1072.71,-759.15 1052.55,-773.52 1035.56,-783.86"/>
+<polygon fill="#000000" stroke="#000000" points="1033.36,-781.1 1026.51,-789.18 1036.9,-787.13 1033.36,-781.1"/>
+</g>
+<!-- adam_riemann_euler_library -->
+<g id="module~~graph~~ModuleGraph_node37" class="node">
+<title>adam_riemann_euler_library</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="1085,-451.29 919,-451.29 919,-427.29 1085,-427.29 1085,-451.29"/>
+<text text-anchor="middle" x="1002" y="-436.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_riemann_euler_library</text>
+</g>
+<!-- module~adam_nasto_cpu_object&#45;&gt;adam_riemann_euler_library -->
+<g id="module~~graph~~ModuleGraph_edge30" class="edge">
+<title>module~adam_nasto_cpu_object&#45;&gt;adam_riemann_euler_library</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1179.96,-629.26C1163.98,-615.35 1138.53,-591.04 1123,-565.29 1097.53,-523.04 1123.34,-493.65 1087,-460.29 1085.71,-459.1 1084.35,-457.98 1082.95,-456.92"/>
+<polygon fill="#000000" stroke="#000000" points="1084.76,-453.92 1074.45,-451.48 1080.99,-459.82 1084.76,-453.92"/>
+</g>
+<!-- mpi -->
+<g id="module~~graph~~ModuleGraph_node47" class="node">
+<title>mpi</title>
+<g id="a_module~~graph~~ModuleGraph_node47"><a xlink:href="http://www.mpi-forum.org/docs/mpi-3.1/mpi31-report/node410.htm" xlink:title="mpi">
+<polygon fill="#337ab7" stroke="#337ab7" points="1029,-733.29 975,-733.29 975,-709.29 1029,-709.29 1029,-733.29"/>
+<text text-anchor="middle" x="1002" y="-718.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">mpi</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_cpu_object&#45;&gt;mpi -->
+<g id="module~~graph~~ModuleGraph_edge33" class="edge">
+<title>module~adam_nasto_cpu_object&#45;&gt;mpi</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1159.75,-653.34C1148.01,-657.57 1134.87,-662.47 1123,-667.29 1093.98,-679.08 1061.62,-693.73 1037.83,-704.79"/>
+<polygon fill="#000000" stroke="#000000" points="1036.09,-701.74 1028.51,-709.15 1039.05,-708.08 1036.09,-701.74"/>
+</g>
+<!-- module~adam_nasto_cpu_object&#45;&gt;penf -->
+<g id="module~~graph~~ModuleGraph_edge34" class="edge">
+<title>module~adam_nasto_cpu_object&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1130.24,-629.26C1069.03,-621.6 977.5,-620.55 917,-667.29 879.95,-695.91 918.38,-738.1 881,-766.29 784.59,-838.98 730.58,-791.6 610,-785.29"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M608,-785.29C522.47,-780.81 504.29,-733.21 419.5,-745.29"/>
+</g>
+<!-- module~adam_nasto_eos_object&#45;&gt;adam_mpih_object -->
+<g id="module~~graph~~ModuleGraph_edge35" class="edge">
+<title>module~adam_nasto_eos_object&#45;&gt;adam_mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M188.02,-243.21C162.89,-234.14 128.28,-221.65 101.09,-211.84"/>
+<polygon fill="#000000" stroke="#000000" points="102.03,-208.46 91.44,-208.36 99.65,-215.04 102.03,-208.46"/>
+</g>
+<!-- module~adam_nasto_eos_object&#45;&gt;finer -->
+<g id="module~~graph~~ModuleGraph_edge36" class="edge">
+<title>module~adam_nasto_eos_object&#45;&gt;finer</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M175,-243.25C166.16,-239.66 157.38,-235.08 150,-229.29 127.32,-211.47 134.31,-195.77 114,-175.29 106.49,-167.72 97.27,-160.74 88.49,-154.89"/>
+<polygon fill="#000000" stroke="#000000" points="90.25,-151.86 79.94,-149.43 86.49,-157.76 90.25,-151.86"/>
+</g>
+<!-- module~adam_nasto_eos_object&#45;&gt;penf -->
+<g id="module~~graph~~ModuleGraph_edge37" class="edge">
+<title>module~adam_nasto_eos_object&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M152.16,-255.29C132.27,-255.29 111.37,-255.29 94.33,-255.29"/>
+<polygon fill="#000000" stroke="#000000" points="94.26,-251.79 84.26,-255.29 94.26,-258.79 94.26,-251.79"/>
+</g>
+<!-- module~adam_nasto_fnl_cns_kernels -->
+<g id="module~~graph~~ModuleGraph_node7" class="node">
+<title>module~adam_nasto_fnl_cns_kernels</title>
+<g id="a_module~~graph~~ModuleGraph_node7"><a xlink:href="../module/adam_nasto_fnl_cns_kernels.html" xlink:title="adam_nasto_fnl_cns_kernels">
+<polygon fill="#337ab7" stroke="#337ab7" points="878.5,-757.29 714.5,-757.29 714.5,-733.29 878.5,-733.29 878.5,-757.29"/>
+<text text-anchor="middle" x="796.5" y="-742.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_fnl_cns_kernels</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_fnl_cns_kernels&#45;&gt;penf -->
+<g id="module~~graph~~ModuleGraph_edge38" class="edge">
+<title>module~adam_nasto_fnl_cns_kernels&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M714.08,-736.7C681.29,-735.45 643.41,-736.84 610,-745.29"/>
+</g>
+<!-- module~adam_nasto_fnl_kernels -->
+<g id="module~~graph~~ModuleGraph_node8" class="node">
+<title>module~adam_nasto_fnl_kernels</title>
+<g id="a_module~~graph~~ModuleGraph_node8"><a xlink:href="../module/adam_nasto_fnl_kernels.html" xlink:title="adam_nasto_fnl_kernels">
+<polygon fill="#337ab7" stroke="#337ab7" points="1072.5,-535.29 931.5,-535.29 931.5,-511.29 1072.5,-511.29 1072.5,-535.29"/>
+<text text-anchor="middle" x="1002" y="-520.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_fnl_kernels</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_fnl_kernels&#45;&gt;module~adam_nasto_fnl_cns_kernels -->
+<g id="module~~graph~~ModuleGraph_edge41" class="edge">
+<title>module~adam_nasto_fnl_kernels&#45;&gt;module~adam_nasto_fnl_cns_kernels</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M931.4,-533.64C926.07,-536.45 921.16,-539.95 917,-544.29 862.05,-601.61 934.3,-660.43 881,-719.29 877.94,-722.67 874.44,-725.62 870.66,-728.19"/>
+<polygon fill="#000000" stroke="#000000" points="868.87,-725.18 861.97,-733.22 872.38,-731.24 868.87,-725.18"/>
+</g>
+<!-- adam_weno_fnl_kernels -->
+<g id="module~~graph~~ModuleGraph_node40" class="node">
+<title>adam_weno_fnl_kernels</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="866.5,-535.29 726.5,-535.29 726.5,-511.29 866.5,-511.29 866.5,-535.29"/>
+<text text-anchor="middle" x="796.5" y="-520.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_weno_fnl_kernels</text>
+</g>
+<!-- module~adam_nasto_fnl_kernels&#45;&gt;adam_weno_fnl_kernels -->
+<g id="module~~graph~~ModuleGraph_edge39" class="edge">
+<title>module~adam_nasto_fnl_kernels&#45;&gt;adam_weno_fnl_kernels</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M931.25,-523.29C913.76,-523.29 894.87,-523.29 876.94,-523.29"/>
+<polygon fill="#000000" stroke="#000000" points="876.81,-519.79 866.81,-523.29 876.81,-526.79 876.81,-519.79"/>
+</g>
+<!-- fundal -->
+<g id="module~~graph~~ModuleGraph_node45" class="node">
+<title>fundal</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="823.5,-307.29 769.5,-307.29 769.5,-283.29 823.5,-283.29 823.5,-307.29"/>
+<text text-anchor="middle" x="796.5" y="-292.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">fundal</text>
+</g>
+<!-- module~adam_nasto_fnl_kernels&#45;&gt;fundal -->
+<g id="module~~graph~~ModuleGraph_edge40" class="edge">
+<title>module~adam_nasto_fnl_kernels&#45;&gt;fundal</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M931.37,-512.97C926.05,-510.15 921.15,-506.64 917,-502.29 860.43,-442.9 935.86,-382.26 881,-321.29 869.06,-308.02 850.47,-301.45 833.86,-298.23"/>
+<polygon fill="#000000" stroke="#000000" points="834.28,-294.75 823.85,-296.63 833.17,-301.67 834.28,-294.75"/>
+</g>
+<!-- module~adam_nasto_fnl_kernels&#45;&gt;penf -->
+<g id="module~~graph~~ModuleGraph_edge42" class="edge">
+<title>module~adam_nasto_fnl_kernels&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M940.32,-535.34C932.3,-537.83 924.32,-540.79 917,-544.29 795.9,-602.18 796.06,-666.27 676,-726.29 648.7,-739.94 639.59,-737.8 610,-745.29"/>
+</g>
+<!-- module~adam_nasto_fnl_library -->
+<g id="module~~graph~~ModuleGraph_node9" class="node">
+<title>module~adam_nasto_fnl_library</title>
+<g id="a_module~~graph~~ModuleGraph_node9"><a xlink:href="../module/adam_nasto_fnl_library.html" xlink:title="adam_nasto_fnl_library">
+<polygon fill="#337ab7" stroke="#337ab7" points="1263.5,-556.29 1127.5,-556.29 1127.5,-532.29 1263.5,-532.29 1263.5,-556.29"/>
+<text text-anchor="middle" x="1195.5" y="-541.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_fnl_library</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_fnl_library&#45;&gt;module~adam_nasto_common_library -->
+<g id="module~~graph~~ModuleGraph_edge44" class="edge">
+<title>module~adam_nasto_fnl_library&#45;&gt;module~adam_nasto_common_library</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1166.56,-532.24C1145.07,-523.25 1114.49,-511.06 1087,-502.29 1080.11,-500.09 1072.84,-497.98 1065.58,-495.99"/>
+<polygon fill="#000000" stroke="#000000" points="1066.28,-492.56 1055.72,-493.37 1064.48,-499.32 1066.28,-492.56"/>
+</g>
+<!-- module~adam_nasto_fnl_library&#45;&gt;module~adam_nasto_fnl_cns_kernels -->
+<g id="module~~graph~~ModuleGraph_edge45" class="edge">
+<title>module~adam_nasto_fnl_library&#45;&gt;module~adam_nasto_fnl_cns_kernels</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1166.55,-556.32C1145.06,-565.3 1114.48,-577.48 1087,-586.29 1012.78,-610.07 975.64,-577.96 917,-629.29 884.58,-657.66 912.64,-690.05 881,-719.29 877.13,-722.87 872.77,-725.96 868.13,-728.62"/>
+<polygon fill="#000000" stroke="#000000" points="866.28,-725.63 858.9,-733.23 869.41,-731.89 866.28,-725.63"/>
+</g>
+<!-- module~adam_nasto_fnl_library&#45;&gt;module~adam_nasto_fnl_kernels -->
+<g id="module~~graph~~ModuleGraph_edge46" class="edge">
+<title>module~adam_nasto_fnl_library&#45;&gt;module~adam_nasto_fnl_kernels</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1127.25,-536.92C1112.89,-535.34 1097.59,-533.66 1082.81,-532.04"/>
+<polygon fill="#000000" stroke="#000000" points="1083,-528.54 1072.68,-530.93 1082.24,-535.5 1083,-528.54"/>
+</g>
+<!-- adam_fnl_library -->
+<g id="module~~graph~~ModuleGraph_node31" class="node">
+<title>adam_fnl_library</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="1053,-577.29 951,-577.29 951,-553.29 1053,-553.29 1053,-577.29"/>
+<text text-anchor="middle" x="1002" y="-562.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_fnl_library</text>
+</g>
+<!-- module~adam_nasto_fnl_library&#45;&gt;adam_fnl_library -->
+<g id="module~~graph~~ModuleGraph_edge43" class="edge">
+<title>module~adam_nasto_fnl_library&#45;&gt;adam_fnl_library</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1127.25,-551.66C1106.42,-553.95 1083.6,-556.45 1063.27,-558.68"/>
+<polygon fill="#000000" stroke="#000000" points="1062.76,-555.22 1053.2,-559.78 1063.52,-562.17 1062.76,-555.22"/>
+</g>
+<!-- module~adam_nasto_fnl_object -->
+<g id="module~~graph~~ModuleGraph_node10" class="node">
+<title>module~adam_nasto_fnl_object</title>
+<g id="a_module~~graph~~ModuleGraph_node10"><a xlink:href="../module/adam_nasto_fnl_object.html" xlink:title="adam_nasto_fnl_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="1439,-556.29 1304,-556.29 1304,-532.29 1439,-532.29 1439,-556.29"/>
+<text text-anchor="middle" x="1371.5" y="-541.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_fnl_object</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_fnl_object&#45;&gt;module~adam_nasto_fnl_library -->
+<g id="module~~graph~~ModuleGraph_edge48" class="edge">
+<title>module~adam_nasto_fnl_object&#45;&gt;module~adam_nasto_fnl_library</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1303.72,-544.29C1293.98,-544.29 1283.88,-544.29 1273.94,-544.29"/>
+<polygon fill="#000000" stroke="#000000" points="1273.67,-540.79 1263.67,-544.29 1273.67,-547.79 1273.67,-540.79"/>
+</g>
+<!-- module~adam_nasto_fnl_object&#45;&gt;fundal -->
+<g id="module~~graph~~ModuleGraph_edge47" class="edge">
+<title>module~adam_nasto_fnl_object&#45;&gt;fundal</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1346.51,-532.05C1276.23,-496.48 1064.21,-391.23 881,-321.29 865.67,-315.44 848.41,-309.89 833.57,-305.44"/>
+<polygon fill="#000000" stroke="#000000" points="834.32,-302.01 823.74,-302.54 832.34,-308.73 834.32,-302.01"/>
+</g>
+<!-- module~adam_nasto_fnl_object&#45;&gt;mpi -->
+<g id="module~~graph~~ModuleGraph_edge49" class="edge">
+<title>module~adam_nasto_fnl_object&#45;&gt;mpi</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1194.5,-681.29C1142.83,-702.06 1078.79,-712.63 1039.42,-717.55"/>
+<polygon fill="#000000" stroke="#000000" points="1038.76,-714.1 1029.24,-718.76 1039.59,-721.06 1038.76,-714.1"/>
+</g>
+<!-- module~adam_nasto_fnl_object&#45;&gt;penf -->
+<g id="module~~graph~~ModuleGraph_edge50" class="edge">
+<title>module~adam_nasto_fnl_object&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1359.87,-556.37C1346.7,-571.33 1323.63,-597.63 1304,-620.29 1287.9,-638.87 1288.82,-649.21 1268,-662.29 1240.16,-679.78 1227.01,-669.03 1196.5,-681.29"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1194.5,-681.29C1079.8,-727.4 1015.77,-625.95 917,-700.29 879.59,-728.44 918.81,-771.68 881,-799.29 851.48,-820.85 252.73,-847.24 223.5,-825.29"/>
+</g>
+<!-- module~adam_nasto_gmp_cns_kernels -->
+<g id="module~~graph~~ModuleGraph_node11" class="node">
+<title>module~adam_nasto_gmp_cns_kernels</title>
+<g id="a_module~~graph~~ModuleGraph_node11"><a xlink:href="../module/adam_nasto_gmp_cns_kernels.html" xlink:title="adam_nasto_gmp_cns_kernels">
+<polygon fill="#337ab7" stroke="#337ab7" points="506,-877.29 331,-877.29 331,-853.29 506,-853.29 506,-877.29"/>
+<text text-anchor="middle" x="418.5" y="-862.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_gmp_cns_kernels</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_gmp_cns_kernels&#45;&gt;penf -->
+<g id="module~~graph~~ModuleGraph_edge51" class="edge">
+<title>module~adam_nasto_gmp_cns_kernels&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M330.67,-863.39C294.55,-858.78 254.02,-848.21 223.5,-825.29"/>
+</g>
+<!-- module~adam_nasto_gmp_kernels -->
+<g id="module~~graph~~ModuleGraph_node12" class="node">
+<title>module~adam_nasto_gmp_kernels</title>
+<g id="a_module~~graph~~ModuleGraph_node12"><a xlink:href="../module/adam_nasto_gmp_kernels.html" xlink:title="adam_nasto_gmp_kernels">
+<polygon fill="#337ab7" stroke="#337ab7" points="872,-875.29 721,-875.29 721,-851.29 872,-851.29 872,-875.29"/>
+<text text-anchor="middle" x="796.5" y="-860.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_gmp_kernels</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_gmp_kernels&#45;&gt;module~adam_nasto_gmp_cns_kernels -->
+<g id="module~~graph~~ModuleGraph_edge53" class="edge">
+<title>module~adam_nasto_gmp_kernels&#45;&gt;module~adam_nasto_gmp_cns_kernels</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M757.63,-875.39C720.49,-886.36 662.02,-901.27 610,-904.29"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M608,-904.29C582.51,-905.77 520.3,-891.59 474.28,-879.92"/>
+<polygon fill="#000000" stroke="#000000" points="474.99,-876.48 464.44,-877.39 473.26,-883.27 474.99,-876.48"/>
+</g>
+<!-- module~adam_nasto_gmp_kernels&#45;&gt;adam_weno_object -->
+<g id="module~~graph~~ModuleGraph_edge52" class="edge">
+<title>module~adam_nasto_gmp_kernels&#45;&gt;adam_weno_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M720.85,-863.29C706.27,-863.29 691.07,-863.29 676.76,-863.29"/>
+<polygon fill="#000000" stroke="#000000" points="676.52,-859.79 666.52,-863.29 676.52,-866.79 676.52,-859.79"/>
+</g>
+<!-- module~adam_nasto_gmp_kernels&#45;&gt;penf -->
+<g id="module~~graph~~ModuleGraph_edge54" class="edge">
+<title>module~adam_nasto_gmp_kernels&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M608,-904.29C524.36,-909.14 500.86,-925.27 419.5,-905.29"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M417.5,-905.29C379.28,-895.9 367.75,-900.38 331,-886.29 279.71,-866.62 267.43,-858.28 223.5,-825.29"/>
+</g>
+<!-- module~adam_nasto_gmp_object -->
+<g id="module~~graph~~ModuleGraph_node13" class="node">
+<title>module~adam_nasto_gmp_object</title>
+<g id="a_module~~graph~~ModuleGraph_node13"><a xlink:href="../module/adam_nasto_gmp_object.html" xlink:title="adam_nasto_gmp_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="1268,-793.29 1123,-793.29 1123,-769.29 1268,-769.29 1268,-793.29"/>
+<text text-anchor="middle" x="1195.5" y="-778.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_gmp_object</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_gmp_object&#45;&gt;module~adam_nasto_common_library -->
+<g id="module~~graph~~ModuleGraph_edge57" class="edge">
+<title>module~adam_nasto_gmp_object&#45;&gt;module~adam_nasto_common_library</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1180.75,-769.08C1164.27,-753.62 1137.11,-725.34 1123,-695.29 1085.91,-616.31 1146.8,-565.83 1087,-502.29 1086.07,-501.3 1085.11,-500.36 1084.11,-499.46"/>
+<polygon fill="#000000" stroke="#000000" points="1085.94,-496.47 1075.82,-493.34 1081.78,-502.1 1085.94,-496.47"/>
+</g>
+<!-- module~adam_nasto_gmp_object&#45;&gt;module~adam_nasto_gmp_kernels -->
+<g id="module~~graph~~ModuleGraph_edge58" class="edge">
+<title>module~adam_nasto_gmp_object&#45;&gt;module~adam_nasto_gmp_kernels</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1152.38,-769.18C1095.16,-755.27 991.47,-739.24 917,-780.29 890.76,-794.75 904.77,-819.04 881,-837.29 876.02,-841.11 870.47,-844.38 864.67,-847.17"/>
+<polygon fill="#000000" stroke="#000000" points="863.18,-844 855.38,-851.17 865.95,-850.43 863.18,-844"/>
+</g>
+<!-- module~adam_nasto_gmp_object&#45;&gt;adam_common_library -->
+<g id="module~~graph~~ModuleGraph_edge55" class="edge">
+<title>module~adam_nasto_gmp_object&#45;&gt;adam_common_library</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1122.92,-788.77C1108.99,-790.22 1094.32,-791.75 1080.21,-793.23"/>
+<polygon fill="#000000" stroke="#000000" points="1079.64,-789.77 1070.06,-794.29 1080.37,-796.73 1079.64,-789.77"/>
+</g>
+<!-- adam_gmp_library -->
+<g id="module~~graph~~ModuleGraph_node32" class="node">
+<title>adam_gmp_library</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="1058,-893.29 946,-893.29 946,-869.29 1058,-869.29 1058,-893.29"/>
+<text text-anchor="middle" x="1002" y="-878.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_gmp_library</text>
+</g>
+<!-- module~adam_nasto_gmp_object&#45;&gt;adam_gmp_library -->
+<g id="module~~graph~~ModuleGraph_edge56" class="edge">
+<title>module~adam_nasto_gmp_object&#45;&gt;adam_gmp_library</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1180.08,-793.35C1160.24,-809.44 1122.88,-837.89 1087,-855.29 1078.73,-859.3 1069.7,-862.86 1060.73,-865.97"/>
+<polygon fill="#000000" stroke="#000000" points="1059.46,-862.7 1051.06,-869.15 1061.65,-869.35 1059.46,-862.7"/>
+</g>
+<!-- module~adam_nasto_gmp_object&#45;&gt;mpi -->
+<g id="module~~graph~~ModuleGraph_edge59" class="edge">
+<title>module~adam_nasto_gmp_object&#45;&gt;mpi</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1156.71,-769.27C1136.11,-762.74 1110.16,-754.54 1087,-747.29 1071.26,-742.36 1053.84,-736.96 1038.96,-732.37"/>
+<polygon fill="#000000" stroke="#000000" points="1039.71,-728.93 1029.12,-729.33 1037.64,-735.62 1039.71,-728.93"/>
+</g>
+<!-- module~adam_nasto_gmp_object&#45;&gt;penf -->
+<g id="module~~graph~~ModuleGraph_edge60" class="edge">
+<title>module~adam_nasto_gmp_object&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1166.14,-793.39C1144.69,-802.23 1114.35,-814.06 1087,-822.29 1012.86,-844.59 988.19,-829.86 917,-860.29 899.32,-867.85 897.85,-875.03 881,-884.29 845.43,-903.84 837.93,-917.72 797.5,-921.29"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M795.5,-921.29C712.85,-928.59 692.05,-954.61 610,-942.29"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M608,-942.29C523.57,-929.61 502.41,-925.66 419.5,-905.29"/>
+</g>
+<!-- module~adam_nasto_ic_object&#45;&gt;module~adam_nasto_physics_object -->
+<g id="module~~graph~~ModuleGraph_edge64" class="edge">
+<title>module~adam_nasto_ic_object&#45;&gt;module~adam_nasto_physics_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M548.36,-205.27C529.53,-201.47 508.56,-197.24 489.1,-193.32"/>
+<polygon fill="#000000" stroke="#000000" points="489.57,-189.84 479.08,-191.3 488.19,-196.71 489.57,-189.84"/>
+</g>
+<!-- module~adam_nasto_ic_object&#45;&gt;adam_field_object -->
+<g id="module~~graph~~ModuleGraph_edge61" class="edge">
+<title>module~adam_nasto_ic_object&#45;&gt;adam_field_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M599.79,-229.59C580.1,-258.75 530.05,-330.88 506,-347.29 499.02,-352.05 491.14,-355.96 483.05,-359.17"/>
+<polygon fill="#000000" stroke="#000000" points="481.72,-355.93 473.51,-362.62 484.1,-362.51 481.72,-355.93"/>
+</g>
+<!-- module~adam_nasto_ic_object&#45;&gt;adam_mpih_object -->
+<g id="module~~graph~~ModuleGraph_edge62" class="edge">
+<title>module~adam_nasto_ic_object&#45;&gt;adam_mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M570.53,-205.28C560.89,-201.46 550.77,-196.77 542,-191.29 523.59,-179.79 526.23,-166.16 506,-158.29 388.72,-112.67 348.67,-164.36 223.5,-177.29"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M221.5,-177.29C189.55,-180.22 154.18,-184.24 124.54,-187.82"/>
+<polygon fill="#000000" stroke="#000000" points="123.81,-184.38 114.3,-189.07 124.65,-191.33 123.81,-184.38"/>
+</g>
+<!-- module~adam_nasto_ic_object&#45;&gt;finer -->
+<g id="module~~graph~~ModuleGraph_edge63" class="edge">
+<title>module~adam_nasto_ic_object&#45;&gt;finer</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M602.37,-205.05C585.81,-169.6 536.52,-68.21 506,-49.29 398.9,17.1 348.74,-11.42 223.5,-25.29"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M221.5,-25.29C158.65,-32.04 101.8,-86.79 74.71,-117.16"/>
+<polygon fill="#000000" stroke="#000000" points="71.79,-115.18 67.88,-125.02 77.08,-119.77 71.79,-115.18"/>
+</g>
+<!-- module~adam_nasto_ic_object&#45;&gt;penf -->
+<g id="module~~graph~~ModuleGraph_edge65" class="edge">
+<title>module~adam_nasto_ic_object&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M589.22,-229.41C534.2,-263.49 368.11,-356.27 223.5,-333.29"/>
+</g>
+<!-- module~adam_nasto_io_object&#45;&gt;adam_mpih_object -->
+<g id="module~~graph~~ModuleGraph_edge66" class="edge">
+<title>module~adam_nasto_io_object&#45;&gt;adam_mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M167.67,-107.38C161.47,-109.84 155.43,-112.78 150,-116.29 129.35,-129.64 132.33,-141.91 114,-158.29 105.85,-165.57 96.23,-172.58 87.29,-178.54"/>
+<polygon fill="#000000" stroke="#000000" points="85.14,-175.77 78.65,-184.14 88.94,-181.64 85.14,-175.77"/>
+</g>
+<!-- module~adam_nasto_io_object&#45;&gt;finer -->
+<g id="module~~graph~~ModuleGraph_edge67" class="edge">
+<title>module~adam_nasto_io_object&#45;&gt;finer</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M174.65,-107.32C149,-113.91 117.71,-121.95 94,-128.04"/>
+<polygon fill="#000000" stroke="#000000" points="92.83,-124.73 84.01,-130.61 94.57,-131.51 92.83,-124.73"/>
+</g>
+<!-- module~adam_nasto_io_object&#45;&gt;penf -->
+<g id="module~~graph~~ModuleGraph_edge68" class="edge">
+<title>module~adam_nasto_io_object&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M162.73,-107.32C158.09,-109.78 153.76,-112.74 150,-116.29 115.36,-149.02 143.16,-179.6 114,-217.29 107.86,-225.22 99.59,-232.09 91.3,-237.72"/>
+<polygon fill="#000000" stroke="#000000" points="89.31,-234.83 82.73,-243.13 93.05,-240.75 89.31,-234.83"/>
+</g>
+<!-- module~adam_nasto_nvf_cns_kernels -->
+<g id="module~~graph~~ModuleGraph_node16" class="node">
+<title>module~adam_nasto_nvf_cns_kernels</title>
+<g id="a_module~~graph~~ModuleGraph_node16"><a xlink:href="../module/adam_nasto_nvf_cns_kernels.html" xlink:title="adam_nasto_nvf_cns_kernels">
+<polygon fill="#337ab7" stroke="#337ab7" points="880,-1015.29 713,-1015.29 713,-991.29 880,-991.29 880,-1015.29"/>
+<text text-anchor="middle" x="796.5" y="-1000.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_nvf_cns_kernels</text>
+</a>
+</g>
+</g>
+<!-- cudafor -->
+<g id="module~~graph~~ModuleGraph_node43" class="node">
+<title>cudafor</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="636,-1035.29 582,-1035.29 582,-1011.29 636,-1011.29 636,-1035.29"/>
+<text text-anchor="middle" x="609" y="-1020.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">cudafor</text>
+</g>
+<!-- module~adam_nasto_nvf_cns_kernels&#45;&gt;cudafor -->
+<g id="module~~graph~~ModuleGraph_edge69" class="edge">
+<title>module~adam_nasto_nvf_cns_kernels&#45;&gt;cudafor</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M712.79,-1012.21C689.47,-1014.72 665.3,-1017.33 646.26,-1019.38"/>
+<polygon fill="#000000" stroke="#000000" points="645.82,-1015.91 636.25,-1020.46 646.57,-1022.87 645.82,-1015.91"/>
+</g>
+<!-- module~adam_nasto_nvf_cns_kernels&#45;&gt;penf -->
+<g id="module~~graph~~ModuleGraph_edge70" class="edge">
+<title>module~adam_nasto_nvf_cns_kernels&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M743.1,-991.2C732.72,-988.5 721.96,-985.48 712,-982.29 665.63,-967.43 658.15,-949.52 610,-942.29"/>
+</g>
+<!-- module~adam_nasto_nvf_kernels -->
+<g id="module~~graph~~ModuleGraph_node17" class="node">
+<title>module~adam_nasto_nvf_kernels</title>
+<g id="a_module~~graph~~ModuleGraph_node17"><a xlink:href="../module/adam_nasto_nvf_kernels.html" xlink:title="adam_nasto_nvf_kernels">
+<polygon fill="#337ab7" stroke="#337ab7" points="1074,-973.29 930,-973.29 930,-949.29 1074,-949.29 1074,-973.29"/>
+<text text-anchor="middle" x="1002" y="-958.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_nvf_kernels</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_nvf_kernels&#45;&gt;module~adam_nasto_nvf_cns_kernels -->
+<g id="module~~graph~~ModuleGraph_edge73" class="edge">
+<title>module~adam_nasto_nvf_kernels&#45;&gt;module~adam_nasto_nvf_cns_kernels</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M942.69,-973.32C918.74,-978.27 890.84,-984.03 865.93,-989.17"/>
+<polygon fill="#000000" stroke="#000000" points="864.91,-985.8 855.82,-991.25 866.32,-992.66 864.91,-985.8"/>
+</g>
+<!-- adam_weno_nvf_kernels -->
+<g id="module~~graph~~ModuleGraph_node41" class="node">
+<title>adam_weno_nvf_kernels</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="868,-973.29 725,-973.29 725,-949.29 868,-949.29 868,-973.29"/>
+<text text-anchor="middle" x="796.5" y="-958.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_weno_nvf_kernels</text>
+</g>
+<!-- module~adam_nasto_nvf_kernels&#45;&gt;adam_weno_nvf_kernels -->
+<g id="module~~graph~~ModuleGraph_edge71" class="edge">
+<title>module~adam_nasto_nvf_kernels&#45;&gt;adam_weno_nvf_kernels</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M929.83,-961.29C913.31,-961.29 895.61,-961.29 878.7,-961.29"/>
+<polygon fill="#000000" stroke="#000000" points="878.29,-957.79 868.29,-961.29 878.29,-964.79 878.29,-957.79"/>
+</g>
+<!-- module~adam_nasto_nvf_kernels&#45;&gt;cudafor -->
+<g id="module~~graph~~ModuleGraph_edge72" class="edge">
+<title>module~adam_nasto_nvf_kernels&#45;&gt;cudafor</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M983.17,-973.31C948.9,-995.28 870.75,-1039.97 797.5,-1043.29"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M795.5,-1043.29C743.3,-1045.66 683.22,-1037.1 645.92,-1030.44"/>
+<polygon fill="#000000" stroke="#000000" points="646.5,-1026.99 636.03,-1028.63 645.24,-1033.88 646.5,-1026.99"/>
+</g>
+<!-- module~adam_nasto_nvf_kernels&#45;&gt;penf -->
+<g id="module~~graph~~ModuleGraph_edge74" class="edge">
+<title>module~adam_nasto_nvf_kernels&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M955.17,-949.19C904.92,-936.47 827.45,-918.64 797.5,-921.29"/>
+</g>
+<!-- module~adam_nasto_nvf_object -->
+<g id="module~~graph~~ModuleGraph_node18" class="node">
+<title>module~adam_nasto_nvf_object</title>
+<g id="a_module~~graph~~ModuleGraph_node18"><a xlink:href="../module/adam_nasto_nvf_object.html" xlink:title="adam_nasto_nvf_object">
+<polygon fill="#337ab7" stroke="#337ab7" points="1264.5,-933.29 1126.5,-933.29 1126.5,-909.29 1264.5,-909.29 1264.5,-933.29"/>
+<text text-anchor="middle" x="1195.5" y="-918.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_nvf_object</text>
+</a>
+</g>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;module~adam_nasto_common_library -->
+<g id="module~~graph~~ModuleGraph_edge78" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;module~adam_nasto_common_library</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1184.65,-908.98C1168.69,-888.3 1137.54,-844.7 1123,-802.29 1101.23,-738.77 1131.41,-552.65 1087,-502.29 1086.23,-501.42 1085.43,-500.58 1084.6,-499.77"/>
+<polygon fill="#000000" stroke="#000000" points="1086.48,-496.79 1076.46,-493.34 1082.14,-502.28 1086.48,-496.79"/>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;module~adam_nasto_nvf_kernels -->
+<g id="module~~graph~~ModuleGraph_edge79" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;module~adam_nasto_nvf_kernels</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1137.04,-933.29C1116.12,-937.66 1092.28,-942.64 1070.56,-947.18"/>
+<polygon fill="#000000" stroke="#000000" points="1069.82,-943.76 1060.75,-949.23 1071.25,-950.61 1069.82,-943.76"/>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;adam_common_library -->
+<g id="module~~graph~~ModuleGraph_edge75" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;adam_common_library</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1175.08,-909.12C1141.02,-887.77 1070.36,-843.5 1031.01,-818.84"/>
+<polygon fill="#000000" stroke="#000000" points="1032.51,-815.65 1022.18,-813.31 1028.8,-821.59 1032.51,-815.65"/>
+</g>
+<!-- adam_nvf_library -->
+<g id="module~~graph~~ModuleGraph_node36" class="node">
+<title>adam_nvf_library</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="1054.5,-1095.29 949.5,-1095.29 949.5,-1071.29 1054.5,-1071.29 1054.5,-1095.29"/>
+<text text-anchor="middle" x="1002" y="-1080.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nvf_library</text>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;adam_nvf_library -->
+<g id="module~~graph~~ModuleGraph_edge76" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;adam_nvf_library</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1188.23,-933.48C1173.95,-960.03 1136.4,-1023.42 1087,-1057.29 1080.03,-1062.07 1072.15,-1065.99 1064.08,-1069.22"/>
+<polygon fill="#000000" stroke="#000000" points="1062.75,-1065.97 1054.55,-1072.68 1065.15,-1072.55 1062.75,-1065.97"/>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;cudafor -->
+<g id="module~~graph~~ModuleGraph_edge77" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;cudafor</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1177.08,-933.43C1156.48,-947.24 1120.72,-969.53 1087,-982.29 964.03,-1028.84 928.86,-1037.33 797.5,-1043.29"/>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;mpi -->
+<g id="module~~graph~~ModuleGraph_edge80" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;mpi</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1186.97,-908.97C1170.81,-883.16 1130.71,-822.32 1087,-780.29 1070.53,-764.45 1049.48,-749.67 1032.57,-738.87"/>
+<polygon fill="#000000" stroke="#000000" points="1033.99,-735.63 1023.66,-733.29 1030.28,-741.56 1033.99,-735.63"/>
+</g>
+<!-- module~adam_nasto_nvf_object&#45;&gt;penf -->
+<g id="module~~graph~~ModuleGraph_edge81" class="edge">
+<title>module~adam_nasto_nvf_object&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1126.2,-917.64C1046.97,-914.26 912.5,-911.12 797.5,-921.29"/>
+</g>
+<!-- PENF -->
+<g id="module~~graph~~ModuleGraph_node26" class="node">
+<title>PENF</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="636,-73.29 582,-73.29 582,-49.29 636,-49.29 636,-73.29"/>
+<text text-anchor="middle" x="609" y="-58.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">PENF</text>
+</g>
+<!-- module~adam_nasto_parameters&#45;&gt;PENF -->
+<g id="module~~graph~~ModuleGraph_edge82" class="edge">
+<title>module~adam_nasto_parameters&#45;&gt;PENF</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M723.78,-72.94C697.32,-70.23 668.45,-67.28 646.41,-65.02"/>
+<polygon fill="#000000" stroke="#000000" points="646.49,-61.51 636.18,-63.97 645.77,-68.47 646.49,-61.51"/>
+</g>
+<!-- module~adam_nasto_physics_object&#45;&gt;module~adam_nasto_eos_object -->
+<g id="module~~graph~~ModuleGraph_edge85" class="edge">
+<title>module~adam_nasto_physics_object&#45;&gt;module~adam_nasto_eos_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M386.76,-191.33C353.51,-204.36 300.37,-225.18 263.8,-239.5"/>
+<polygon fill="#000000" stroke="#000000" points="262.45,-236.27 254.42,-243.18 265,-242.79 262.45,-236.27"/>
+</g>
+<!-- module~adam_nasto_physics_object&#45;&gt;adam_mpih_object -->
+<g id="module~~graph~~ModuleGraph_edge83" class="edge">
+<title>module~adam_nasto_physics_object&#45;&gt;adam_mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M338.5,-174.44C303.22,-173.31 261.19,-173.4 223.5,-177.29"/>
+</g>
+<!-- module~adam_nasto_physics_object&#45;&gt;finer -->
+<g id="module~~graph~~ModuleGraph_edge84" class="edge">
+<title>module~adam_nasto_physics_object&#45;&gt;finer</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M410.78,-167.13C388.73,-129.05 314.75,-15.18 223.5,-25.29"/>
+</g>
+<!-- module~adam_nasto_physics_object&#45;&gt;penf -->
+<g id="module~~graph~~ModuleGraph_edge86" class="edge">
+<title>module~adam_nasto_physics_object&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M410.89,-191.53C388.89,-230.42 314.38,-347.73 223.5,-333.29"/>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M221.5,-333.29C168.92,-324.93 114.38,-293.52 83.47,-273.2"/>
+<polygon fill="#000000" stroke="#000000" points="85.28,-270.2 75.03,-267.54 81.38,-276.01 85.28,-270.2"/>
+</g>
+<!-- module~adam_nasto_time_object&#45;&gt;adam_mpih_object -->
+<g id="module~~graph~~ModuleGraph_edge87" class="edge">
+<title>module~adam_nasto_time_object&#45;&gt;adam_mpih_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M188.02,-149.37C162.89,-158.44 128.28,-170.93 101.09,-180.74"/>
+<polygon fill="#000000" stroke="#000000" points="99.65,-177.54 91.44,-184.22 102.03,-184.12 99.65,-177.54"/>
+</g>
+<!-- module~adam_nasto_time_object&#45;&gt;finer -->
+<g id="module~~graph~~ModuleGraph_edge88" class="edge">
+<title>module~adam_nasto_time_object&#45;&gt;finer</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M149.79,-137.29C130.64,-137.29 110.75,-137.29 94.4,-137.29"/>
+<polygon fill="#000000" stroke="#000000" points="94.21,-133.79 84.21,-137.29 94.21,-140.79 94.21,-133.79"/>
+</g>
+<!-- module~adam_nasto_time_object&#45;&gt;penf -->
+<g id="module~~graph~~ModuleGraph_edge89" class="edge">
+<title>module~adam_nasto_time_object&#45;&gt;penf</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M205.63,-149.44C184.8,-165.31 146.99,-193.84 114,-217.29 104.57,-224 94.1,-231.17 84.79,-237.45"/>
+<polygon fill="#000000" stroke="#000000" points="82.64,-234.68 76.3,-243.17 86.55,-240.49 82.64,-234.68"/>
+</g>
+<!-- program~adam_nasto_cpu -->
+<g id="module~~graph~~ModuleGraph_node22" class="node">
+<title>program~adam_nasto_cpu</title>
+<g id="a_module~~graph~~ModuleGraph_node22"><a xlink:href="../program/adam_nasto_cpu.html" xlink:title="adam_nasto_cpu">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="1423,-653.29 1320,-653.29 1320,-629.29 1423,-629.29 1423,-653.29"/>
+<text text-anchor="middle" x="1371.5" y="-638.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_cpu</text>
+</a>
+</g>
+</g>
+<!-- program~adam_nasto_cpu&#45;&gt;module~adam_nasto_cpu_object -->
+<g id="module~~graph~~ModuleGraph_edge90" class="edge">
+<title>program~adam_nasto_cpu&#45;&gt;module~adam_nasto_cpu_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1319.7,-641.29C1306.09,-641.29 1291.04,-641.29 1276.27,-641.29"/>
+<polygon fill="#000000" stroke="#000000" points="1276.11,-637.79 1266.11,-641.29 1276.11,-644.79 1276.11,-637.79"/>
+</g>
+<!-- program~adam_nasto_fnl -->
+<g id="module~~graph~~ModuleGraph_node23" class="node">
+<title>program~adam_nasto_fnl</title>
+<g id="a_module~~graph~~ModuleGraph_node23"><a xlink:href="../program/adam_nasto_fnl.html" xlink:title="adam_nasto_fnl">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="1572,-556.29 1475,-556.29 1475,-532.29 1572,-532.29 1572,-556.29"/>
+<text text-anchor="middle" x="1523.5" y="-541.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_fnl</text>
+</a>
+</g>
+</g>
+<!-- program~adam_nasto_fnl&#45;&gt;module~adam_nasto_fnl_object -->
+<g id="module~~graph~~ModuleGraph_edge91" class="edge">
+<title>program~adam_nasto_fnl&#45;&gt;module~adam_nasto_fnl_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1474.63,-544.29C1466.49,-544.29 1457.87,-544.29 1449.21,-544.29"/>
+<polygon fill="#000000" stroke="#000000" points="1449.06,-540.79 1439.06,-544.29 1449.06,-547.79 1449.06,-540.79"/>
+</g>
+<!-- program~adam_nasto_gmp -->
+<g id="module~~graph~~ModuleGraph_node24" class="node">
+<title>program~adam_nasto_gmp</title>
+<g id="a_module~~graph~~ModuleGraph_node24"><a xlink:href="../program/adam_nasto_gmp.html" xlink:title="adam_nasto_gmp">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="1425,-793.29 1318,-793.29 1318,-769.29 1425,-769.29 1425,-793.29"/>
+<text text-anchor="middle" x="1371.5" y="-778.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_gmp</text>
+</a>
+</g>
+</g>
+<!-- program~adam_nasto_gmp&#45;&gt;module~adam_nasto_gmp_object -->
+<g id="module~~graph~~ModuleGraph_edge92" class="edge">
+<title>program~adam_nasto_gmp&#45;&gt;module~adam_nasto_gmp_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1317.82,-781.29C1305.39,-781.29 1291.84,-781.29 1278.45,-781.29"/>
+<polygon fill="#000000" stroke="#000000" points="1278.27,-777.79 1268.27,-781.29 1278.27,-784.79 1278.27,-777.79"/>
+</g>
+<!-- program~adam_nasto_nvf -->
+<g id="module~~graph~~ModuleGraph_node25" class="node">
+<title>program~adam_nasto_nvf</title>
+<g id="a_module~~graph~~ModuleGraph_node25"><a xlink:href="../program/adam_nasto_nvf.html" xlink:title="adam_nasto_nvf">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="1421.5,-933.29 1321.5,-933.29 1321.5,-909.29 1421.5,-909.29 1421.5,-933.29"/>
+<text text-anchor="middle" x="1371.5" y="-918.89" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_nvf</text>
+</a>
+</g>
+</g>
+<!-- program~adam_nasto_nvf&#45;&gt;module~adam_nasto_nvf_object -->
+<g id="module~~graph~~ModuleGraph_edge93" class="edge">
+<title>program~adam_nasto_nvf&#45;&gt;module~adam_nasto_nvf_object</title>
+<path fill="none" stroke="#000000" stroke-dasharray="5,2" d="M1321.1,-921.29C1306.68,-921.29 1290.55,-921.29 1274.8,-921.29"/>
+<polygon fill="#000000" stroke="#000000" points="1274.53,-917.79 1264.53,-921.29 1274.53,-924.79 1274.53,-917.79"/>
+</g>
+</g>
+</svg>
+</div>                <script>
+                  var panmodulegraphModuleGraph = svgPanZoom('#modulegraphModuleGraph',
+                    {zoomEnabled: true, controlIconsEnabled: true, fit: true, center: true,}
+                  );
+                </script>          <div>
+            <a type="button" class="graph-help" data-bs-toggle="modal" href="#ModuleGraph-help-text">Help</a>
+          </div>
+          <div class="modal fade" id="ModuleGraph-help-text" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h4 class="modal-title" id="-graph-help-label">Graph Key</h4>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+<p>Nodes of different colours represent the following: </p>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: Graph Key Pages: 1 -->
+<svg width="518pt" height="32pt"
+ viewBox="0.00 0.00 517.50 32.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 28)">
+<title>Graph Key</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 513.5,-28 513.5,4 -4,4"/>
+<!-- Module -->
+<g id="node1" class="node">
+<title>Module</title>
+<polygon fill="#337ab7" stroke="#337ab7" points="54,-24 0,-24 0,0 54,0 54,-24"/>
+<text text-anchor="middle" x="27" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Module</text>
+</g>
+<!-- Submodule -->
+<g id="node2" class="node">
+<title>Submodule</title>
+<polygon fill="#5bc0de" stroke="#5bc0de" points="145.5,-24 72.5,-24 72.5,0 145.5,0 145.5,-24"/>
+<text text-anchor="middle" x="109" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Submodule</text>
+</g>
+<!-- Subroutine -->
+<g id="node3" class="node">
+<title>Subroutine</title>
+<polygon fill="#d9534f" stroke="#d9534f" points="234,-24 164,-24 164,0 234,0 234,-24"/>
+<text text-anchor="middle" x="199" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Subroutine</text>
+</g>
+<!-- Function -->
+<g id="node4" class="node">
+<title>Function</title>
+<polygon fill="#d94e8f" stroke="#d94e8f" points="310,-24 252,-24 252,0 310,0 310,-24"/>
+<text text-anchor="middle" x="281" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Function</text>
+</g>
+<!-- Program -->
+<g id="node5" class="node">
+<title>Program</title>
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="386,-24 328,-24 328,0 386,0 386,-24"/>
+<text text-anchor="middle" x="357" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Program</text>
+</g>
+<!-- This Page&#39;s Entity -->
+<g id="node6" class="node">
+<title>This Page&#39;s Entity</title>
+<polygon fill="none" stroke="black" points="509.5,-24 404.5,-24 404.5,0 509.5,0 509.5,-24"/>
+<text text-anchor="middle" x="457" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">This Page&#39;s Entity</text>
+</g>
+</g>
+</svg>
+
+<p>Solid arrows point from a submodule to the (sub)module which it is
+descended from. Dashed arrows point from a module or program unit to 
+modules which it uses.
+</p>
+ </div>
+            </div>
+          </div>
+        </div>
+        </div>
+      </div>
+      <hr>
+    </div> <!-- /container -->
+    <footer>
+      <div class="container">
+        <div class="row justify-content-between">
+          <div class="col">
+            <p>
+              ADAM
+ was developed by Stefano Zaghi<br>              &copy; 2025 
+</p>
+          </div>
+          <div class="col">
+            <p class="text-end">
+              Documentation generated by
+              <a href="https://github.com/Fortran-FOSS-Programmers/ford">FORD</a>
+            </p>
+          </div>
+        </div>
+        <br>
+      </div> <!-- /container -->
+    </footer>
+  </body>
+</html>

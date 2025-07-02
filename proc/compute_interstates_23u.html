@@ -1,0 +1,1014 @@
+<!-- -*- mode: jinja2 -*- -->
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="description" content="Adaptive Mesh Refinement (AMR) with Immersed Boundary (IB) fluid dynamic solver tailored for High Performance GPU Computing">
+    <meta name="author" content="Stefano Zaghi" >
+    <link rel="icon" href="../favicon.png">
+
+    <title>compute_interstates_23u &ndash; ADAM</title>
+
+    <!-- Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+          integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+            integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <!-- Font Awesome -->
+    <link href="../css/fontawesome.min.css" rel="stylesheet">
+    <link href="../css/brands.min.css" rel="stylesheet">
+    <link href="../css/regular.min.css" rel="stylesheet">
+    <link href="../css/solid.min.css" rel="stylesheet">
+    <link href="../css/v4-font-face.min.css" rel="stylesheet">
+    <link href="../css/v4-shims.min.css" rel="stylesheet">
+    <!-- MathJax -->
+    <script type="text/x-mathjax-config">
+      MathJax.Hub.Config({
+        TeX: { equationNumbers: { autoNumber: "AMS" } }
+      });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@2.7.9/MathJax.js?config=TeX-AMS-MML_HTMLorMML" async
+            integrity="sha256-DViIOMYdwlM/axqoGDPeUyf0urLoHMN4QACBKyB58Uw=" crossorigin="anonymous"></script>
+    <!-- Other scripts and stylesheets -->
+    <link href="../css/local.css" rel="stylesheet">
+    <link href="../css/pygments.css" rel="stylesheet">
+    <script src="../js/svg-pan-zoom.min.js"></script>
+  </head>
+
+  <body>
+
+    <!-- Fixed navbar -->
+    <div class="container-fluid mb-sm-4 mb-xl-2">
+      <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+        <div class="container">
+          <a class="navbar-brand" href="../index.html">ADAM </a>
+          <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar"
+                  aria-expanded="false" aria-controls="navbar" aria-label="Toggle navigation">
+                  <span class="navbar-toggler-icon">
+          </button>
+
+          <div id="navbar" class="navbar-collapse collapse">
+            <ul class="navbar-nav">
+                  <li class="nav-item">
+                    <a class="nav-link" href="../lists/files.html">Source Files</a>
+                  </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/modules.html">Modules</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/procedures.html">Procedures</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/types.html">Derived Types</a>
+                </li>
+                <li class="nav-item">
+                  <a class="nav-link" href="../lists/programs.html">Programs</a>
+                </li>
+            </ul>
+              <div class="d-flex align-items-end flex-grow-1">
+                <form action="../search.html" role="search" class="ms-auto">
+                  <input type="text" class="form-control" aria-label="Search" placeholder="Search" name="q" id="tipue_search_input" autocomplete="off" required>
+                </form>
+              </div>
+          </div><!--/.nav-collapse -->
+        </div>
+      </nav>
+    </div>
+
+    <div class="container">
+  <div class="row">
+    <h1>compute_interstates_23u
+      <small>Subroutine</small>
+      
+    </h1>
+      <div class="container p-2 mb-4 bg-light border rounded-3">
+    <div class="row align-items-center justify-content-between" id="info-bar">
+      <div class="col">
+        <ul class="list-inline" style="margin-bottom:0px;display:inline">
+
+            <li class="list-inline-item" id="statements"><i class="fa fa-list-ol"></i>
+              <a data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-html="true"
+                 title=" 0.7% of total for procedures.">39 statements</a>
+            </li>
+
+            <li class="list-inline-item" id="source-file">
+              <i class="fa fa-code"></i>
+              <a href="../src/adam_nasto_cpu_cns.F90"> Source File</a>
+            </li>
+        </ul>
+      </div>
+      <div class="col">
+        <nav aria-label="breadcrumb">
+          <ol class="breadcrumb justify-content-end mb-0">
+                <li class="breadcrumb-item"><a href='../sourcefile/adam_nasto_cpu_cns.f90.html'>adam_nasto_cpu_cns.F90</a></li>
+                <li class="breadcrumb-item"><a href='../module/adam_nasto_cpu_cns.html'>adam_nasto_cpu_cns</a></li>
+            <li class="breadcrumb-item active" aria-current="page">compute_interstates_23u</li>
+          </ol>
+        </nav>
+      </div>
+    </div>
+  </div>
+  <script>
+    // Enable Bootstrap tooltips
+    (function () {
+      const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]')
+      const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl))
+    })();
+  </script>
+
+  </div>
+  
+  <div class="row">
+    <div class="col-md-3 hidden-xs hidden-sm visible-md visible-lg">
+      <div id="sidebar">
+      <h3>Contents</h3>
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+    <div class="card card-primary">
+      <div class="card-header text-left"><h3 class="card-title">Source Code</h3></div>
+      <div class="list-group">
+        <a class="list-group-item" href="../proc/compute_interstates_23u.html#src">compute_interstates_23u</a>
+      </div>
+    </div>
+
+
+  </div>
+
+    </div>
+    
+    <div class="col-md-9" id='text'>
+    <h2>private elemental subroutine compute_interstates_23u(p1, u1, a1, g1, gm1_1, gp1_1, delta1, eta1, p4, u4, a4, g4, gm1_4, gp1_4, delta4, eta4, u23, r2, p2, a2, r3, p3, a3, S1, S2, S3, S4)  
+</h2>
+    
+
+    <p>Compute intermediates states knowing the value of speed (u23) of intermediates states.</p>
+
+
+    <h3>Arguments</h3>
+        <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-p1~18"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>p1</strong></td>
+            <td>
+                <p>Pressure of state 1.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-u1~4"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>u1</strong></td>
+            <td>
+                <p>Velocity of state 1.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-a1~14"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>a1</strong></td>
+            <td>
+                <p>Speed of sound of state 1.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-g1~20"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>g1</strong></td>
+            <td>
+                <p>Specific heats ratio of state 1.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-gm1_1~4"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>gm1_1</strong></td>
+            <td>
+                <p>g-1, g+1 of state 1.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-gp1_1~4"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>gp1_1</strong></td>
+            <td>
+                <p>g-1, g+1 of state 1.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-delta1~4"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>delta1</strong></td>
+            <td>
+                <p>(g-1)/2, 2*g/(g-1) of state 1.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-eta1~4"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>eta1</strong></td>
+            <td>
+                <p>(g-1)/2, 2*g/(g-1) of state 1.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-p4~18"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>p4</strong></td>
+            <td>
+                <p>Pressure of state 4.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-u4~4"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>u4</strong></td>
+            <td>
+                <p>Velocity of state 4.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-a4~14"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>a4</strong></td>
+            <td>
+                <p>Speed of sound of state 4.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-g4~20"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>g4</strong></td>
+            <td>
+                <p>Specific heats ratio of state 4.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-gm1_4~4"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>gm1_4</strong></td>
+            <td>
+                <p>g-1, g+1 of state 4.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-gp1_4~4"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>gp1_4</strong></td>
+            <td>
+                <p>g-1, g+1 of state 4.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-delta4~4"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>delta4</strong></td>
+            <td>
+                <p>(g-1)/2, 2*g/(g-1) of state 4.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-eta4~4"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>eta4</strong></td>
+            <td>
+                <p>(g-1)/2, 2*g/(g-1) of state 4.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-u23~5"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>u23</strong></td>
+            <td>
+                <p>Velocity of intermediate states.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-r2~7"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(out)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>r2</strong></td>
+            <td>
+                <p>Density, pressure and speed of sound of state 2.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-p2~4"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(out)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>p2</strong></td>
+            <td>
+                <p>Density, pressure and speed of sound of state 2.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-a2~4"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(out)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>a2</strong></td>
+            <td>
+                <p>Density, pressure and speed of sound of state 2.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-r3~6"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(out)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>r3</strong></td>
+            <td>
+                <p>Density, pressure and speed of sound of state 3.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-p3~4"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(out)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>p3</strong></td>
+            <td>
+                <p>Density, pressure and speed of sound of state 3.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-a3~4"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(out)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>a3</strong></td>
+            <td>
+                <p>Density, pressure and speed of sound of state 3.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-s1~8"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(out)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>S1</strong></td>
+            <td>
+                <p>Left signal velocities.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-s2~6"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(out)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>S2</strong></td>
+            <td>
+                <p>Left signal velocities.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-s3~6"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(out)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>S3</strong></td>
+            <td>
+                <p>Right signal velocities.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-s4~8"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(out)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>S4</strong></td>
+            <td>
+                <p>Right signal velocities.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+    <br>
+    <div class="card">
+      <div class="card-header">
+  <h3 class="card-title">Calls</h3>
+      </div>
+      <div class="card-body">
+  <div class="depgraph"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: proc~~compute_interstates_23u~~CallsGraph Pages: 1 -->
+<svg id="proccompute_interstates_23uCallsGraph" width="315pt" height="74pt"
+ viewBox="0.00 0.00 315.00 74.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="proc~~compute_interstates_23u~~CallsGraph" class="graph" transform="scale(1 1) rotate(0) translate(4 70)">
+<title>proc~~compute_interstates_23u~~CallsGraph</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-70 311,-70 311,4 -4,4"/>
+<!-- proc~compute_interstates_23u -->
+<g id="proc~~compute_interstates_23u~~CallsGraph_node1" class="node">
+<title>proc~compute_interstates_23u</title>
+<polygon fill="none" stroke="black" points="147,-45 0,-45 0,-21 147,-21 147,-45"/>
+<text text-anchor="middle" x="73.5" y="-30.6" font-family="Helvetica,sans-Serif" font-size="10.50">compute_interstates_23u</text>
+</g>
+<!-- proc~compute_rarefaction -->
+<g id="proc~~compute_interstates_23u~~CallsGraph_node2" class="node">
+<title>proc~compute_rarefaction</title>
+<g id="a_proc~~compute_interstates_23u~~CallsGraph_node2"><a xlink:href="../proc/compute_rarefaction.html" xlink:title="compute_rarefaction">
+<polygon fill="#d9534f" stroke="#d9534f" points="307,-66 183,-66 183,-42 307,-42 307,-66"/>
+<text text-anchor="middle" x="245" y="-51.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_rarefaction</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_interstates_23u&#45;&gt;proc~compute_rarefaction -->
+<g id="proc~~compute_interstates_23u~~CallsGraph_edge1" class="edge">
+<title>proc~compute_interstates_23u&#45;&gt;proc~compute_rarefaction</title>
+<path fill="none" stroke="#000000" d="M147.37,-42.03C155.79,-43.07 164.37,-44.13 172.77,-45.17"/>
+<polygon fill="#000000" stroke="#000000" points="172.54,-48.67 182.9,-46.43 173.4,-41.73 172.54,-48.67"/>
+</g>
+<!-- proc~compute_shock -->
+<g id="proc~~compute_interstates_23u~~CallsGraph_node3" class="node">
+<title>proc~compute_shock</title>
+<g id="a_proc~~compute_interstates_23u~~CallsGraph_node3"><a xlink:href="../proc/compute_shock.html" xlink:title="compute_shock">
+<polygon fill="#d9534f" stroke="#d9534f" points="293,-24 197,-24 197,0 293,0 293,-24"/>
+<text text-anchor="middle" x="245" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_shock</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_interstates_23u&#45;&gt;proc~compute_shock -->
+<g id="proc~~compute_interstates_23u~~CallsGraph_edge2" class="edge">
+<title>proc~compute_interstates_23u&#45;&gt;proc~compute_shock</title>
+<path fill="none" stroke="#000000" d="M147.37,-23.97C160.41,-22.36 173.83,-20.69 186.36,-19.14"/>
+<polygon fill="#000000" stroke="#000000" points="187.16,-22.57 196.66,-17.87 186.3,-15.62 187.16,-22.57"/>
+</g>
+</g>
+</svg>
+</div>          <div>
+            <a type="button" class="graph-help" data-bs-toggle="modal" href="#CallsGraph-help-text">Help</a>
+          </div>
+          <div class="modal fade" id="CallsGraph-help-text" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h4 class="modal-title" id="-graph-help-label">Graph Key</h4>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+<p>Nodes of different colours represent the following: </p>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: Graph Key Pages: 1 -->
+<svg width="641pt" height="28pt"
+ viewBox="0.00 0.00 641.00 27.51" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(0.86 0.86) rotate(0) translate(4 28)">
+<title>Graph Key</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 741.5,-28 741.5,4 -4,4"/>
+<!-- Subroutine -->
+<g id="node1" class="node">
+<title>Subroutine</title>
+<polygon fill="#d9534f" stroke="#d9534f" points="70,-24 0,-24 0,0 70,0 70,-24"/>
+<text text-anchor="middle" x="35" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Subroutine</text>
+</g>
+<!-- Function -->
+<g id="node2" class="node">
+<title>Function</title>
+<polygon fill="#d94e8f" stroke="#d94e8f" points="146,-24 88,-24 88,0 146,0 146,-24"/>
+<text text-anchor="middle" x="117" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Function</text>
+</g>
+<!-- Interface -->
+<g id="node3" class="node">
+<title>Interface</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="225.5,-24 164.5,-24 164.5,0 225.5,0 225.5,-24"/>
+<text text-anchor="middle" x="195" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Interface</text>
+</g>
+<!-- Type Bound Procedure -->
+<g id="node4" class="node">
+<title>Type Bound Procedure</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="374,-24 244,-24 244,0 374,0 374,-24"/>
+<text text-anchor="middle" x="309" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Type Bound Procedure</text>
+</g>
+<!-- Unknown Procedure Type -->
+<g id="node5" class="node">
+<title>Unknown Procedure Type</title>
+<polygon fill="#777777" stroke="#777777" points="537.5,-24 392.5,-24 392.5,0 537.5,0 537.5,-24"/>
+<text text-anchor="middle" x="465" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Unknown Procedure Type</text>
+</g>
+<!-- Program -->
+<g id="node6" class="node">
+<title>Program</title>
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="614,-24 556,-24 556,0 614,0 614,-24"/>
+<text text-anchor="middle" x="585" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Program</text>
+</g>
+<!-- This Page&#39;s Entity -->
+<g id="node7" class="node">
+<title>This Page&#39;s Entity</title>
+<polygon fill="none" stroke="black" points="737.5,-24 632.5,-24 632.5,0 737.5,0 737.5,-24"/>
+<text text-anchor="middle" x="685" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">This Page&#39;s Entity</text>
+</g>
+</g>
+</svg>
+
+<p>Solid arrows point from a procedure to one which it calls. Dashed 
+arrows point from an interface to procedures which implement that interface.
+This could include the module procedures in a generic interface or the
+implementation in a submodule of an interface in a parent module.
+</p>
+ </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+  <h3 class="card-title">Called by</h3>
+      </div>
+      <div class="card-body">
+  <div class="depgraph"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: proc~~compute_interstates_23u~~CalledByGraph Pages: 1 -->
+<svg id="proccompute_interstates_23uCalledByGraph" width="347pt" height="74pt"
+ viewBox="0.00 0.00 347.00 74.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="proc~~compute_interstates_23u~~CalledByGraph" class="graph" transform="scale(1 1) rotate(0) translate(4 70)">
+<title>proc~~compute_interstates_23u~~CalledByGraph</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-70 343,-70 343,4 -4,4"/>
+<!-- proc~compute_interstates_23u -->
+<g id="proc~~compute_interstates_23u~~CalledByGraph_node1" class="node">
+<title>proc~compute_interstates_23u</title>
+<polygon fill="none" stroke="black" points="339,-45 192,-45 192,-21 339,-21 339,-45"/>
+<text text-anchor="middle" x="265.5" y="-30.6" font-family="Helvetica,sans-Serif" font-size="10.50">compute_interstates_23u</text>
+</g>
+<!-- proc~compute_riemann_exact -->
+<g id="proc~~compute_interstates_23u~~CalledByGraph_node2" class="node">
+<title>proc~compute_riemann_exact</title>
+<g id="a_proc~~compute_interstates_23u~~CalledByGraph_node2"><a xlink:href="../proc/compute_riemann_exact.html" xlink:title="compute_riemann_exact">
+<polygon fill="#d9534f" stroke="#d9534f" points="150,-66 6,-66 6,-42 150,-42 150,-66"/>
+<text text-anchor="middle" x="78" y="-51.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_riemann_exact</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_riemann_exact&#45;&gt;proc~compute_interstates_23u -->
+<g id="proc~~compute_interstates_23u~~CalledByGraph_edge1" class="edge">
+<title>proc~compute_riemann_exact&#45;&gt;proc~compute_interstates_23u</title>
+<path fill="none" stroke="#000000" d="M150.19,-45.94C160.56,-44.77 171.32,-43.55 181.9,-42.35"/>
+<polygon fill="#000000" stroke="#000000" points="182.42,-45.81 191.97,-41.21 181.64,-38.86 182.42,-45.81"/>
+</g>
+<!-- proc~compute_riemann_exact_2 -->
+<g id="proc~~compute_interstates_23u~~CalledByGraph_node3" class="node">
+<title>proc~compute_riemann_exact_2</title>
+<g id="a_proc~~compute_interstates_23u~~CalledByGraph_node3"><a xlink:href="../proc/compute_riemann_exact_2.html" xlink:title="compute_riemann_exact_2">
+<polygon fill="#d9534f" stroke="#d9534f" points="156,-24 0,-24 0,0 156,0 156,-24"/>
+<text text-anchor="middle" x="78" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_riemann_exact_2</text>
+</a>
+</g>
+</g>
+<!-- proc~compute_riemann_exact_2&#45;&gt;proc~compute_interstates_23u -->
+<g id="proc~~compute_interstates_23u~~CalledByGraph_edge2" class="edge">
+<title>proc~compute_riemann_exact_2&#45;&gt;proc~compute_interstates_23u</title>
+<path fill="none" stroke="#000000" d="M156.06,-20.72C164.57,-21.69 173.27,-22.67 181.85,-23.64"/>
+<polygon fill="#000000" stroke="#000000" points="181.52,-27.13 191.85,-24.77 182.3,-20.17 181.52,-27.13"/>
+</g>
+</g>
+</svg>
+</div>          <div>
+            <a type="button" class="graph-help" data-bs-toggle="modal" href="#CalledByGraph-help-text">Help</a>
+          </div>
+          <div class="modal fade" id="CalledByGraph-help-text" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h4 class="modal-title" id="-graph-help-label">Graph Key</h4>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+<p>Nodes of different colours represent the following: </p>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 2.43.0 (0)
+ -->
+<!-- Title: Graph Key Pages: 1 -->
+<svg width="641pt" height="28pt"
+ viewBox="0.00 0.00 641.00 27.51" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(0.86 0.86) rotate(0) translate(4 28)">
+<title>Graph Key</title>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 741.5,-28 741.5,4 -4,4"/>
+<!-- Subroutine -->
+<g id="node1" class="node">
+<title>Subroutine</title>
+<polygon fill="#d9534f" stroke="#d9534f" points="70,-24 0,-24 0,0 70,0 70,-24"/>
+<text text-anchor="middle" x="35" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Subroutine</text>
+</g>
+<!-- Function -->
+<g id="node2" class="node">
+<title>Function</title>
+<polygon fill="#d94e8f" stroke="#d94e8f" points="146,-24 88,-24 88,0 146,0 146,-24"/>
+<text text-anchor="middle" x="117" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Function</text>
+</g>
+<!-- Interface -->
+<g id="node3" class="node">
+<title>Interface</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="225.5,-24 164.5,-24 164.5,0 225.5,0 225.5,-24"/>
+<text text-anchor="middle" x="195" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Interface</text>
+</g>
+<!-- Type Bound Procedure -->
+<g id="node4" class="node">
+<title>Type Bound Procedure</title>
+<polygon fill="#a7506f" stroke="#a7506f" points="374,-24 244,-24 244,0 374,0 374,-24"/>
+<text text-anchor="middle" x="309" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Type Bound Procedure</text>
+</g>
+<!-- Unknown Procedure Type -->
+<g id="node5" class="node">
+<title>Unknown Procedure Type</title>
+<polygon fill="#777777" stroke="#777777" points="537.5,-24 392.5,-24 392.5,0 537.5,0 537.5,-24"/>
+<text text-anchor="middle" x="465" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Unknown Procedure Type</text>
+</g>
+<!-- Program -->
+<g id="node6" class="node">
+<title>Program</title>
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="614,-24 556,-24 556,0 614,0 614,-24"/>
+<text text-anchor="middle" x="585" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Program</text>
+</g>
+<!-- This Page&#39;s Entity -->
+<g id="node7" class="node">
+<title>This Page&#39;s Entity</title>
+<polygon fill="none" stroke="black" points="737.5,-24 632.5,-24 632.5,0 737.5,0 737.5,-24"/>
+<text text-anchor="middle" x="685" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">This Page&#39;s Entity</text>
+</g>
+</g>
+</svg>
+
+<p>Solid arrows point from a procedure to one which it calls. Dashed 
+arrows point from an interface to procedures which implement that interface.
+This could include the module procedures in a generic interface or the
+implementation in a submodule of an interface in a parent module.
+</p>
+ </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <br>
+
+
+    
+    
+
+    
+    
+
+
+
+    
+    <section>
+    <h2><span class="anchor" id="src"></span>Source Code</h2>
+    <div class="hl codehilite"><pre><span></span><span class="w">   </span><span class="k">elemental subroutine </span><span class="n">compute_interstates_23u</span><span class="p">(</span><span class="n">p1</span><span class="p">,</span><span class="n">u1</span><span class="p">,</span><span class="n">a1</span><span class="p">,</span><span class="n">g1</span><span class="p">,</span><span class="n">gm1_1</span><span class="p">,</span><span class="n">gp1_1</span><span class="p">,</span><span class="n">delta1</span><span class="p">,</span><span class="n">eta1</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                                                </span><span class="n">p4</span><span class="p">,</span><span class="n">u4</span><span class="p">,</span><span class="n">a4</span><span class="p">,</span><span class="n">g4</span><span class="p">,</span><span class="n">gm1_4</span><span class="p">,</span><span class="n">gp1_4</span><span class="p">,</span><span class="n">delta4</span><span class="p">,</span><span class="n">eta4</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                                                </span><span class="n">u23</span><span class="p">,</span><span class="w">                                 </span><span class="p">&amp;</span>
+<span class="w">                                                </span><span class="n">r2</span><span class="p">,</span><span class="n">p2</span><span class="p">,</span><span class="n">a2</span><span class="p">,</span><span class="n">r3</span><span class="p">,</span><span class="n">p3</span><span class="p">,</span><span class="n">a3</span><span class="p">,</span><span class="n">S1</span><span class="p">,</span><span class="n">S2</span><span class="p">,</span><span class="n">S3</span><span class="p">,</span><span class="n">S4</span><span class="p">)</span>
+<span class="w">   </span><span class="c">!&lt; Compute intermediates states knowing the value of speed (u23) of intermediates states.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">  </span><span class="kd">::</span><span class="w"> </span><span class="n">p1</span><span class="w">          </span><span class="c">!&lt; Pressure of state 1.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">  </span><span class="kd">::</span><span class="w"> </span><span class="n">u1</span><span class="w">          </span><span class="c">!&lt; Velocity of state 1.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">  </span><span class="kd">::</span><span class="w"> </span><span class="n">a1</span><span class="w">          </span><span class="c">!&lt; Speed of sound of state 1.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">  </span><span class="kd">::</span><span class="w"> </span><span class="n">g1</span><span class="w">          </span><span class="c">!&lt; Specific heats ratio of state 1.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">  </span><span class="kd">::</span><span class="w"> </span><span class="n">gm1_1</span><span class="p">,</span><span class="n">gp1_1</span><span class="w"> </span><span class="c">!&lt; g-1, g+1 of state 1.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">  </span><span class="kd">::</span><span class="w"> </span><span class="n">delta1</span><span class="p">,</span><span class="n">eta1</span><span class="w"> </span><span class="c">!&lt; (g-1)/2, 2*g/(g-1) of state 1.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">  </span><span class="kd">::</span><span class="w"> </span><span class="n">p4</span><span class="w">          </span><span class="c">!&lt; Pressure of state 4.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">  </span><span class="kd">::</span><span class="w"> </span><span class="n">u4</span><span class="w">          </span><span class="c">!&lt; Velocity of state 4.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">  </span><span class="kd">::</span><span class="w"> </span><span class="n">a4</span><span class="w">          </span><span class="c">!&lt; Speed of sound of state 4.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">  </span><span class="kd">::</span><span class="w"> </span><span class="n">g4</span><span class="w">          </span><span class="c">!&lt; Specific heats ratio of state 4.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">  </span><span class="kd">::</span><span class="w"> </span><span class="n">gm1_4</span><span class="p">,</span><span class="n">gp1_4</span><span class="w"> </span><span class="c">!&lt; g-1, g+1 of state 4.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">  </span><span class="kd">::</span><span class="w"> </span><span class="n">delta4</span><span class="p">,</span><span class="n">eta4</span><span class="w"> </span><span class="c">!&lt; (g-1)/2, 2*g/(g-1) of state 4.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">  </span><span class="kd">::</span><span class="w"> </span><span class="n">u23</span><span class="w">         </span><span class="c">!&lt; Velocity of intermediate states.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">out</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">r2</span><span class="p">,</span><span class="n">p2</span><span class="p">,</span><span class="n">a2</span><span class="w">    </span><span class="c">!&lt; Density, pressure and speed of sound of state 2.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">out</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">r3</span><span class="p">,</span><span class="n">p3</span><span class="p">,</span><span class="n">a3</span><span class="w">    </span><span class="c">!&lt; Density, pressure and speed of sound of state 3.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">out</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">S1</span><span class="p">,</span><span class="n">S2</span><span class="w">       </span><span class="c">!&lt; Left signal velocities.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">out</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">S3</span><span class="p">,</span><span class="n">S4</span><span class="w">       </span><span class="c">!&lt; Right signal velocities.</span>
+
+<span class="w">   </span><span class="c">! computing left wave</span>
+<span class="w">   </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">abs</span><span class="p">(</span><span class="n">u23</span><span class="o">-</span><span class="n">u1</span><span class="p">)</span><span class="o">&lt;=</span><span class="mf">1.e-16_R8P</span><span class="p">)</span><span class="w"> </span><span class="k">then</span>
+<span class="k">      call </span><span class="n">compute_rarefaction</span><span class="p">(</span><span class="n">sgn</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="o">-</span><span class="mf">1._R8P</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">g</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">g1</span><span class="p">,</span><span class="w">      </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">delta</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">delta1</span><span class="p">,</span><span class="w">  </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">eta</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">eta1</span><span class="p">,</span><span class="w">    </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">u0</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">u1</span><span class="p">,</span><span class="w">      </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">p0</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">p1</span><span class="p">,</span><span class="w">      </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">a0</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">a1</span><span class="p">,</span><span class="w">      </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">ux</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">u23</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">rx</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">r2</span><span class="p">,</span><span class="w">      </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">px</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">p2</span><span class="p">,</span><span class="w">      </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">ax</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">a2</span><span class="p">,</span><span class="w">      </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">s0</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">S1</span><span class="p">,</span><span class="w">      </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">sx</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">S2</span><span class="p">)</span>
+<span class="w">   </span><span class="k">else</span>
+<span class="k">      if</span><span class="w"> </span><span class="p">(</span><span class="n">u23</span><span class="o">&lt;</span><span class="n">u1</span><span class="p">)</span><span class="w"> </span><span class="k">then</span>
+<span class="k">         call </span><span class="n">compute_shock</span><span class="p">(</span><span class="n">sgn</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">-</span><span class="mf">1._R8P</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                            </span><span class="n">g</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">g1</span><span class="p">,</span><span class="w">      </span><span class="p">&amp;</span>
+<span class="w">                            </span><span class="n">gm1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">gm1_1</span><span class="p">,</span><span class="w">   </span><span class="p">&amp;</span>
+<span class="w">                            </span><span class="n">gp1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">gp1_1</span><span class="p">,</span><span class="w">   </span><span class="p">&amp;</span>
+<span class="w">                            </span><span class="n">u0</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">u1</span><span class="p">,</span><span class="w">      </span><span class="p">&amp;</span>
+<span class="w">                            </span><span class="n">p0</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">p1</span><span class="p">,</span><span class="w">      </span><span class="p">&amp;</span>
+<span class="w">                            </span><span class="n">a0</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">a1</span><span class="p">,</span><span class="w">      </span><span class="p">&amp;</span>
+<span class="w">                            </span><span class="n">ux</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">u23</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                            </span><span class="n">rx</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">r2</span><span class="p">,</span><span class="w">      </span><span class="p">&amp;</span>
+<span class="w">                            </span><span class="n">px</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">p2</span><span class="p">,</span><span class="w">      </span><span class="p">&amp;</span>
+<span class="w">                            </span><span class="n">ax</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">a2</span><span class="p">,</span><span class="w">      </span><span class="p">&amp;</span>
+<span class="w">                            </span><span class="n">ss</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">S1</span><span class="p">)</span>
+<span class="w">         </span><span class="n">S2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">S1</span>
+<span class="w">      </span><span class="k">else</span>
+<span class="k">         call </span><span class="n">compute_rarefaction</span><span class="p">(</span><span class="n">sgn</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="o">-</span><span class="mf">1._R8P</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">g</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">g1</span><span class="p">,</span><span class="w">      </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">delta</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">delta1</span><span class="p">,</span><span class="w">  </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">eta</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">eta1</span><span class="p">,</span><span class="w">    </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">u0</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">u1</span><span class="p">,</span><span class="w">      </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">p0</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">p1</span><span class="p">,</span><span class="w">      </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">a0</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">a1</span><span class="p">,</span><span class="w">      </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">ux</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">u23</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">rx</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">r2</span><span class="p">,</span><span class="w">      </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">px</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">p2</span><span class="p">,</span><span class="w">      </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">ax</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">a2</span><span class="p">,</span><span class="w">      </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">s0</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">S1</span><span class="p">,</span><span class="w">      </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">sx</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">S2</span><span class="p">)</span>
+<span class="w">      </span><span class="k">endif</span>
+<span class="k">   endif</span>
+<span class="w">   </span><span class="c">! computing right wave</span>
+<span class="w">   </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">abs</span><span class="p">(</span><span class="n">u23</span><span class="o">-</span><span class="n">u4</span><span class="p">)</span><span class="o">&lt;=</span><span class="mf">1.e-16_R8P</span><span class="p">)</span><span class="w"> </span><span class="k">then</span>
+<span class="k">      call </span><span class="n">compute_rarefaction</span><span class="p">(</span><span class="n">sgn</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="mf">1._R8P</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">g</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">g4</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">delta</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">delta4</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">eta</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">eta4</span><span class="p">,</span><span class="w">   </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">u0</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">u4</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">p0</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">p4</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">a0</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">a4</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">ux</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">u23</span><span class="p">,</span><span class="w">    </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">rx</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">r3</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">px</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">p3</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">ax</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">a3</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">s0</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">S4</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                               </span><span class="n">sx</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">S3</span><span class="p">)</span>
+<span class="w">   </span><span class="k">else</span>
+<span class="k">      if</span><span class="w"> </span><span class="p">(</span><span class="n">u23</span><span class="o">&gt;</span><span class="n">u4</span><span class="p">)</span><span class="w"> </span><span class="k">then</span>
+<span class="k">         call </span><span class="n">compute_shock</span><span class="p">(</span><span class="n">sgn</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1._R8P</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                            </span><span class="n">g</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">g4</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                            </span><span class="n">gm1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">gm1_4</span><span class="p">,</span><span class="w">  </span><span class="p">&amp;</span>
+<span class="w">                            </span><span class="n">gp1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">gp1_4</span><span class="p">,</span><span class="w">  </span><span class="p">&amp;</span>
+<span class="w">                            </span><span class="n">u0</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">u4</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                            </span><span class="n">p0</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">p4</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                            </span><span class="n">a0</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">a4</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                            </span><span class="n">ux</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">u23</span><span class="p">,</span><span class="w">    </span><span class="p">&amp;</span>
+<span class="w">                            </span><span class="n">rx</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">r3</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                            </span><span class="n">px</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">p3</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                            </span><span class="n">ax</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">a3</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                            </span><span class="n">ss</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">S4</span><span class="p">)</span>
+<span class="w">         </span><span class="n">S3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">S4</span>
+<span class="w">      </span><span class="k">else</span>
+<span class="k">         call </span><span class="n">compute_rarefaction</span><span class="p">(</span><span class="n">sgn</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="mf">1._R8P</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">g</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">g4</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">delta</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">delta4</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">eta</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">eta4</span><span class="p">,</span><span class="w">   </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">u0</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">u4</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">p0</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">p4</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">a0</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">a4</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">ux</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">u23</span><span class="p">,</span><span class="w">    </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">rx</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">r3</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">px</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">p3</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">ax</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">a3</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">s0</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">S4</span><span class="p">,</span><span class="w">     </span><span class="p">&amp;</span>
+<span class="w">                                  </span><span class="n">sx</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">S3</span><span class="p">)</span>
+<span class="w">      </span><span class="k">endif</span>
+<span class="k">   endif</span>
+<span class="k">   endsubroutine </span><span class="n">compute_interstates_23u</span>
+</pre></div>
+
+    </section>
+    <br>
+    
+    </div>
+  </div>
+
+      <hr>
+    </div> <!-- /container -->
+    <footer>
+      <div class="container">
+        <div class="row justify-content-between">
+          <div class="col">
+            <p>
+              ADAM
+ was developed by Stefano Zaghi<br>              &copy; 2025 
+</p>
+          </div>
+          <div class="col">
+            <p class="text-end">
+              Documentation generated by
+              <a href="https://github.com/Fortran-FOSS-Programmers/ford">FORD</a>
+            </p>
+          </div>
+        </div>
+        <br>
+      </div> <!-- /container -->
+    </footer>
+  </body>
+</html>
