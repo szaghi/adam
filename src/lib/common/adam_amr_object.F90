@@ -75,8 +75,6 @@ contains
    desc = desc//NL//self%mpih%myrankstr//'    tol:             '//trim(str(self%markers(m)%tol         ))
    desc = desc//NL//self%mpih%myrankstr//'    solid:           '//trim(str(self%markers(m)%solid       ))
    enddo
-   else
-   desc = desc//NL
    endif
    endfunction description
 

@@ -52,7 +52,8 @@ type :: prism_common_object
 !   integer(I4P), pointer :: ns=>null()           !< Number of fluids specie.
    integer(I4P), pointer :: nv=>null()            !< Number of conservative variables.
    ! auxiliary fields data: see nasto parameters definition for the arrangement of conservative and auxiliary variables
-   real(R8P), allocatable :: field_Div(:,:,:,:,:) !< Field divergence.
+   integer(I4P)           :: nv_div=4             !< Number of field divergence.
+   real(R8P), allocatable :: field_div(:,:,:,:,:) !< Field divergence.
    real(R8P), allocatable :: q_old(:,:,:,:,:)     !<.Vettore di appoggio che mi salva le variabili di stato al passo precedente.
    real(R8P),dimension(:,:,:,:,:),  pointer :: q=>null()             !< Conservative cell centered variables.
 
@@ -63,21 +64,20 @@ type :: prism_common_object
       procedure, pass(self) :: initialize_common !< Initialize the equation common data.
 endtype prism_common_object
 contains
-   subroutine allocate_common(self) 
+   subroutine allocate_common(self)
    !< Allocate common data.
    class(prism_common_object), intent(inout) :: self !< The equation.
 
-   associate(nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb, &
+   associate(nv=>self%nv, nv_div=>self%nv_div, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb, &
              solids_number=>self%ib%solids_number)
 
-   allocate(self%field_Div(1:4,1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
-   self%field_Div = 0._R8P 
+   allocate(self%field_Div(1:nv_div,1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
+   self%field_Div = 0._R8P
    !allocate(self%q_old(1:nv,1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
    !self%q_old = 0._R8P
    endassociate
 
    endsubroutine allocate_common
-   
 
    subroutine initialize_common(self, field, filename, memory_avail, do_mpi_init, verbose)
    !< Initialize the equation common data.
@@ -91,7 +91,6 @@ contains
    integer(I8P)                                     :: nodes_number !< Allocated nodes on tree.
    integer(I4P)                                     :: nb           !< Number of allocated blocks.
 
-
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    call self%mpih%initialize(do_mpi_init=do_mpi_init, verbose=verbose_)
    if (verbose_) call self%mpih%print_message('prism_common_object%initialize start')
@@ -99,7 +98,7 @@ contains
    associate(file_parameters=>self%io%file_parameters, q=>self%q)
    call self%bc%initialize(file_parameters=file_parameters)
    call self%physics%initialize(file_parameters=file_parameters)
-   call self%adam%grid%initialize(file_parameters=file_parameters,bc_type=self%bc%bc_type, verbose=.true.) 
+   call self%adam%grid%initialize(file_parameters=file_parameters,bc_type=self%bc%bc_type, verbose=.true.)
    call self%adam%compute_blocks_number(memory_avail=memory_avail, fields_number=80, nb=nb, nodes_number=nodes_number)
    call self%adam%initialize(file_parameters=file_parameters, &
                              do_tree_init=.true.,             &

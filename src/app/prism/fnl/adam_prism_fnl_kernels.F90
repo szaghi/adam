@@ -13,6 +13,8 @@ use penf, only : I4P, I8P, R8P
 
 implicit none
 private
+public :: compute_coils_current_dev
+public :: compute_div_d_b_dev
 public :: compute_fluxes_convective_dev
 public :: compute_fluxes_difference_dev
 public :: compute_dxyz_min_dev
@@ -20,6 +22,107 @@ public :: set_bc_q_gpu_dev
 
 contains
    ! public procedures
+   subroutine compute_coils_current_dev(ni,nj,nk,ngc,blocks_number,time,A_gpu,d_gpu,f_gpu,phase_gpu,coil_flag_gpu,&
+                                        td,J_vec_gpu,dx_gpu,q_gpu)
+   !< Compute current coils sources.
+   integer(I4P), intent(in)    :: ni                                     !< Grid cells number in I direction.
+   integer(I4P), intent(in)    :: nj                                     !< Grid cells number in J direction.
+   integer(I4P), intent(in)    :: nk                                     !< Grid cells number in K direction.
+   integer(I4P), intent(in)    :: ngc                                    !< Ghost cells number.
+   integer(I4P), intent(in)    :: blocks_number                          !< Number of blocks.
+   integer(I4P), intent(in)    :: coil_flag_gpu(1:,1-ngc:,1-ngc:,1-ngc:) !< Matrice contenente informazioni su quale spira passa.
+   real(R8P),    intent(in)    :: time                                   !< Simulation time, to compute current value if AC
+   real(R8P),    intent(in)    :: A_gpu(1:)                              !< Current amplitude (A)
+   real(R8P),    intent(in)    :: f_gpu(1:)                              !< Current frequency, if AC (Hz)
+   real(R8P),    intent(in)    :: phase_gpu(1:)                          !< Current initial phase, if AC
+   real(R8P),    intent(in)    :: d_gpu(1:)                              !< Wire diameter
+   real(R8P),    intent(in)    :: td                                     !< Delay di accensione della spira
+   real(R8P),    intent(in)    :: J_vec_gpu(1:,1:,1:,1:,1:)              !< Matrice versori di corrente delle spire nelle celle
+   real(R8P),    intent(in)    :: dx_gpu                                 !< Space step in x direction (m)
+   real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Field variables.
+   real(R8P)                   :: current_density                        !< Current density
+   real(R8P)                   :: g                                      !< Polinomio caratteristico transitorio accensione spira
+   integer(I4P)                :: coil_id                                !< ID per identificare spira
+   integer(I4P)                :: i,j,k,b,n                              !< Counter
+
+   g = 10._R8P*(time/td)**3 - 15._R8P*(time/td)**4 + 6._R8P*(time/td)**5
+   !$acc parallel loop independent DEVICEVAR(coil_flag_gpu,A_gpu,f_gpu,phase_gpu,d_gpu,j_vec_gpu,q_gpu,dx_gpu) &
+   !$acc firstprivate(g,time,td)
+   !$omp OMPLOOP DEVICEVAR(coil_flag_gpu,A_gpu,f_gpu,phase_gpu,d_gpu,j_vec_gpu,q_gpu,dx_gpu) firstprivate(g,time,td)
+   do b=1, blocks_number
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               coil_id = coil_flag_gpu(b,i,j,k)
+               if (coil_id /= 0_I4P) then
+                  !Per DC frequenza e fase sono nulle, quindi se uso la funzione coseno
+                  !mi rispramio anche il selectcase
+
+                  !Densità di corrente al tempo t della spira n-esima identificata da (coil_id)
+                  !current_density = 4*A(coil_id)/(pi*d(coil_id)**2)*cos(2*pi*f(coil_id)*time + phase(coil_id)*pi/180.0_R8P)
+
+                  !Modifico calcolo densità di corrente considerando sezione quadrata, per coerenza con calcolo Filippo
+                  !E aggiungo transitorio di corrente
+                  if (time < td) then
+                     current_density = g*A_gpu(coil_id)/((d_gpu(coil_id)-dx_gpu)**2)*cos(phase_gpu(coil_id)*PI/180.0_R8P)
+                  else
+                     current_density = A_gpu(coil_id)/((d_gpu(coil_id)-dx_gpu)**2)*cos(2*PI*f_gpu(coil_id)*(time-td) + &
+                     phase_gpu(coil_id)*PI/180.0_R8P)
+                  endif
+
+                  do n=7, 9
+                     q_gpu(b,i,j,k,n) = current_density* J_vec_gpu(b,i,j,k,n-6)
+                  enddo
+
+                  !if (sq_norm(q(7:9,i,j,k,b)) == 0._R8P) then
+                     !Se la densità di corrente è nulla non faccio nulla
+                  !   q(7:9,i,j,k,b) = current_density*q(7:9,i,j,k,b)
+                  !else
+                     !Se la densità di corrente è diversa da zero allora rinormalizzo il vettore corrente
+                     !e lo moltiplico per la densità di corrente
+                  !   q(7,i,j,k,b) = q(7,i,j,k,b)/(sq_norm(q(7:9,i,j,k,b)))**0.5 !lo devo rinormalizzare ogni volta
+                  !   q(8,i,j,k,b) = q(8,i,j,k,b)/(sq_norm(q(7:9,i,j,k,b)))**0.5
+                  !   q(9,i,j,k,b) = q(9,i,j,k,b)/(sq_norm(q(7:9,i,j,k,b)))**0.5
+                  !   q(7:9,i,j,k,b) = current_density*q(7:9,i,j,k,b)
+                  !endif
+               endif
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine compute_coils_current_dev
+
+   subroutine compute_div_d_b_dev(ni, nj, nk, ngc, blocks_number, dx_gpu, q_gpu, div_gpu)
+   !< Compute div(D), div(B).
+   integer(I4P), intent(in)    :: ni                                  !< Grid cells number in I direction.
+   integer(I4P), intent(in)    :: nj                                  !< Grid cells number in J direction.
+   integer(I4P), intent(in)    :: nk                                  !< Grid cells number in K direction.
+   integer(I4P), intent(in)    :: ngc                                 !< Ghost cells number.
+   integer(I4P), intent(in)    :: blocks_number                       !< Number of blocks.
+   real(R8P),    intent(in)    :: dx_gpu                              !< Space step in x direction (m)
+   real(R8P),    intent(in)    ::   q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field variables.
+   real(R8P),    intent(inout) :: div_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Divergence of D, B.
+   integer(I4P)                :: i,j,k,b                             !< Counter
+
+   !$acc parallel loop independent DEVICEVAR(q_gpu,dx_gpu)
+   !$omp OMPLOOP DEVICEVAR(q_gpu,dx_gpu)
+   do b=1, blocks_number
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               div_gpu(b,i,j,k,1) = 0.5_R8P*((q_gpu(b,i+1,j,k,1) - q_gpu(b,i-1,j,k,1))/dx_gpu + &
+                                             (q_gpu(b,i,j+1,k,2) - q_gpu(b,i,j-1,k,2))/dx_gpu + &
+                                             (q_gpu(b,i,j,k+1,3) - q_gpu(b,i,j,k-1,3))/dx_gpu)
+               div_gpu(b,i,j,k,2) = 0.5_R8P*((q_gpu(b,i+1,j,k,4) - q_gpu(b,i-1,j,k,4))/dx_gpu + &
+                                             (q_gpu(b,i,j+1,k,5) - q_gpu(b,i,j-1,k,5))/dx_gpu + &
+                                             (q_gpu(b,i,j,k+1,6) - q_gpu(b,i,j,k-1,6))/dx_gpu)
+
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine compute_div_d_b_dev
+
    subroutine compute_fluxes_convective_dev(dir,blocks_number,ni,nj,nk,ngc,nv,evmax,q_gpu,fluxes_gpu)
    !< Compute convective fluxes along x direction.
    !< @NOTE Be carefull with `si` and `sir` variables: are not present on GPU, probably a mapping
@@ -45,8 +148,16 @@ contains
       si_i = 1-si(1)
       si_j = 1-si(2)
       si_k = 1-si(3)
-      !$acc parallel loop independent DEVICEVAR(q_gpu,fluxes_gpu,si,sir)
-      !$omp OMPLOOP DEVICEVAR(q_gpu,fluxes_gpu,si,sir)
+      !$acc parallel loop independent collapse(4)                              &
+      !$acc default(none)                                                      &
+      !$acc DEVICEVAR(q_gpu,fluxes_gpu)                                        &
+      !$acc firstprivate(si,sir,dir,si_i,si_j,si_k,blocks_number,ngc,nv,evmax) &
+      !$acc private(b,i,j,k)
+      !$omp OMPLOOP                                                            &
+      !$omp default(none)                                                      &
+      !$omp DEVICEVAR(q_gpu,fluxes_gpu)                                        &
+      !$omp firstprivate(si,sir,dir,si_i,si_j,si_k,blocks_number,ngc,nv,evmax) &
+      !$omp private(b,i,j,k)
       do b=1, blocks_number
       do k=si_k, nk
       do j=si_j, nj
@@ -63,8 +174,16 @@ contains
       si_i = 1-si(1)
       si_j = 1-si(2)
       si_k = 1-si(3)
-      !$acc parallel loop independent DEVICEVAR(q_gpu,fluxes_gpu,si,sir)
-      !$omp OMPLOOP DEVICEVAR(q_gpu,fluxes_gpu,si,sir)
+      !$acc parallel loop independent collapse(4)                              &
+      !$acc default(none)                                                      &
+      !$acc DEVICEVAR(q_gpu,fluxes_gpu)                                        &
+      !$acc firstprivate(si,sir,dir,si_i,si_j,si_k,blocks_number,ngc,nv,evmax) &
+      !$acc private(b,i,j,k)
+      !$omp OMPLOOP                                                            &
+      !$omp default(none)                                                      &
+      !$omp DEVICEVAR(q_gpu,fluxes_gpu)                                        &
+      !$omp firstprivate(si,sir,dir,si_i,si_j,si_k,blocks_number,ngc,nv,evmax) &
+      !$omp private(b,i,j,k)
       do b=1, blocks_number
       do k=si_k, nk
       do i=si_i, ni
@@ -81,8 +200,16 @@ contains
       si_i = 1-si(1)
       si_j = 1-si(2)
       si_k = 1-si(3)
-      !$acc parallel loop independent DEVICEVAR(q_gpu,fluxes_gpu,si,sir)
-      !$omp OMPLOOP DEVICEVAR(q_gpu,fluxes_gpu,si,sir)
+      !$acc parallel loop independent collapse(4)                              &
+      !$acc default(none)                                                      &
+      !$acc DEVICEVAR(q_gpu,fluxes_gpu)                                        &
+      !$acc firstprivate(si,sir,dir,si_i,si_j,si_k,blocks_number,ngc,nv,evmax) &
+      !$acc private(b,i,j,k)
+      !$omp OMPLOOP                                                            &
+      !$omp default(none)                                                      &
+      !$omp DEVICEVAR(q_gpu,fluxes_gpu)                                        &
+      !$omp firstprivate(si,sir,dir,si_i,si_j,si_k,blocks_number,ngc,nv,evmax) &
+      !$omp private(b,i,j,k)
       do b=1, blocks_number
       do j=si_j, nj
       do i=si_i, ni
@@ -246,6 +373,7 @@ contains
    do b=1, blocks_number
       dxyz_min = min(dxyz_min, dxyz_gpu(b,1), dxyz_gpu(b,2), dxyz_gpu(b,3))
    enddo
+   dxyz_min = dxyz_min * 0.5_R8P
    endsubroutine compute_dxyz_min_dev
 
    subroutine set_bc_q_gpu_dev(BC_EXTRAPOLATION, BC_fWLAYER, nv, ni, nj, nk, ngc,    &
@@ -309,107 +437,107 @@ contains
                   q_gpu(b,i,j,k,11) = 0._R8P
                endif
             elseif (bc_type == BC_fWLayer) then
-               if (fec <= 6) then
-                  select case(fec)
-                  !Identifico gli alfa beta gamma come nel paper di Barbas, distinguendo tra alfa_D e alfa_B ecc
-                  case(1) ! x- face alfa = 2, beta = 3, gamma = 1
-                     s1 = 1.0_R8P
-                     alfa_D = 2_I4P
-                     beta_D = 3_I4P
-                     gamma_D = 1_I4P
-                     alfa_B = 5_I4P
-                     beta_B = 6_I4P
-                     gamma_B = 4_I4P
-                     ds = dxyz_gpu(b,1) !distanza tra le celle in x
-                     ref = q_gpu(b,1,j,k,:) !vettore di stato di riferimento per assegnazione gc
-                  case(2) ! x+ face
-                     s1 = -1.0_R8P
-                     alfa_D = 2_I4P
-                     beta_D = 3_I4P
-                     gamma_D = 1_I4P
-                     alfa_B = 5_I4P
-                     beta_B = 6_I4P
-                     gamma_B = 4_I4P
-                     ds = dxyz_gpu(b,1) !distanza tra le celle in x
-                     ref = q_gpu(b,ni,j,k,:)
-                  case(3) ! y- face
-                     s1 = 1.0_R8P
-                     alfa_D = 3_I4P
-                     beta_D = 1_I4P
-                     gamma_D = 2_I4P
-                     alfa_B = 6_I4P
-                     beta_B = 4_I4P
-                     gamma_B = 5_I4P
-                     ds = dxyz_gpu(b,2) !distanza tra le celle in y
-                     ref = q_gpu(b,i,1,k,:)
-                  case(4) ! y+ face
-                     s1 = -1.0_R8P
-                     alfa_D = 3_I4P
-                     beta_D = 1_I4P
-                     gamma_D = 2_I4P
-                     alfa_B = 6_I4P
-                     beta_B = 4_I4P
-                     gamma_B = 5_I4P
-                     ds = dxyz_gpu(b,2) !distanza tra le celle in y
-                     ref = q_gpu(b,i,nj,k,:)
-                  case(5) ! z- face
-                     s1 = 1.0_R8P
-                     alfa_D = 1_I4P
-                     beta_D = 2_I4P
-                     gamma_D = 3_I4P
-                     alfa_B = 4_I4P
-                     beta_B = 5_I4P
-                     gamma_B = 6_I4P
-                     ds = dxyz_gpu(b,3) !distanza tra le celle in z
-                     ref = q_gpu(b,i,j,1,:)
-                  case(6) ! z+ face
-                     s1 = -1.0_R8P
-                     alfa_D = 1_I4P
-                     beta_D = 2_I4P
-                     gamma_D = 3_I4P
-                     alfa_B = 4_I4P
-                     beta_B = 5_I4P
-                     gamma_B = 6_I4P
-                     ds = dxyz_gpu(b,3) !distanza tra le celle in z
-                     ref = q_gpu(b,i,j,nk,:)
-                  endselect
-                  ngc_r = real(ngc,R8P)
-                  crown_r = real(crown, R8P)
-                  if (ngc < 40_I4P) then
-                     fi = 1/150._R8P*(-7.0_R8P*ngc_r**2 + 255._R8P*ngc_r + 250._R8P) !polinomio di Barbas
-                  else
-                     fi = 25.0_R8P
-                  endif
-                  !x - xa è la distanza tra il centro della gc considerata e il bordo del dominio (fatto col centro cella, vedremo)
-                  !è pari quindi a (ngc_r - crown_r) * ds
+               !if (fec <= 6) then
+               !   select case(fec)
+               !   !Identifico gli alfa beta gamma come nel paper di Barbas, distinguendo tra alfa_D e alfa_B ecc
+               !   case(1) ! x- face alfa = 2, beta = 3, gamma = 1
+               !      s1 = 1.0_R8P
+               !      alfa_D = 2_I4P
+               !      beta_D = 3_I4P
+               !      gamma_D = 1_I4P
+               !      alfa_B = 5_I4P
+               !      beta_B = 6_I4P
+               !      gamma_B = 4_I4P
+               !      ds = dxyz_gpu(b,1) !distanza tra le celle in x
+               !      ref = q_gpu(b,1,j,k,:) !vettore di stato di riferimento per assegnazione gc
+               !   case(2) ! x+ face
+               !      s1 = -1.0_R8P
+               !      alfa_D = 2_I4P
+               !      beta_D = 3_I4P
+               !      gamma_D = 1_I4P
+               !      alfa_B = 5_I4P
+               !      beta_B = 6_I4P
+               !      gamma_B = 4_I4P
+               !      ds = dxyz_gpu(b,1) !distanza tra le celle in x
+               !      ref = q_gpu(b,ni,j,k,:)
+               !   case(3) ! y- face
+               !      s1 = 1.0_R8P
+               !      alfa_D = 3_I4P
+               !      beta_D = 1_I4P
+               !      gamma_D = 2_I4P
+               !      alfa_B = 6_I4P
+               !      beta_B = 4_I4P
+               !      gamma_B = 5_I4P
+               !      ds = dxyz_gpu(b,2) !distanza tra le celle in y
+               !      ref = q_gpu(b,i,1,k,:)
+               !   case(4) ! y+ face
+               !      s1 = -1.0_R8P
+               !      alfa_D = 3_I4P
+               !      beta_D = 1_I4P
+               !      gamma_D = 2_I4P
+               !      alfa_B = 6_I4P
+               !      beta_B = 4_I4P
+               !      gamma_B = 5_I4P
+               !      ds = dxyz_gpu(b,2) !distanza tra le celle in y
+               !      ref = q_gpu(b,i,nj,k,:)
+               !   case(5) ! z- face
+               !      s1 = 1.0_R8P
+               !      alfa_D = 1_I4P
+               !      beta_D = 2_I4P
+               !      gamma_D = 3_I4P
+               !      alfa_B = 4_I4P
+               !      beta_B = 5_I4P
+               !      gamma_B = 6_I4P
+               !      ds = dxyz_gpu(b,3) !distanza tra le celle in z
+               !      ref = q_gpu(b,i,j,1,:)
+               !   case(6) ! z+ face
+               !      s1 = -1.0_R8P
+               !      alfa_D = 1_I4P
+               !      beta_D = 2_I4P
+               !      gamma_D = 3_I4P
+               !      alfa_B = 4_I4P
+               !      beta_B = 5_I4P
+               !      gamma_B = 6_I4P
+               !      ds = dxyz_gpu(b,3) !distanza tra le celle in z
+               !      ref = q_gpu(b,i,j,nk,:)
+               !   endselect
+               !   ngc_r = real(ngc,R8P)
+               !   crown_r = real(crown, R8P)
+               !   if (ngc < 40_I4P) then
+               !      fi = 1/150._R8P*(-7.0_R8P*ngc_r**2 + 255._R8P*ngc_r + 250._R8P) !polinomio di Barbas
+               !   else
+               !      fi = 25.0_R8P
+               !   endif
+               !   !x - xa è la distanza tra il centro della gc considerata e il bordo del dominio (fatto col centro cella, vedr
+               !   !è pari quindi a (ngc_r - crown_r) * ds
 
-                  !xb - xa è la distanza tra il centro della gc più esterna considerata e il bordo del dominio (fatto col centro cella, vedremo)
-                  !è pari quindi a C * ds
+               !   !xb - xa è la distanza tra il centro della gc più esterna considerata e il bordo del dominio (fatto col centr
+               !   !è pari quindi a C * ds
 
-                  f = 1._R8P/fi*LOG10(((ngc_r-crown_r)*ds)/(ngc_r*ds)*(10._R8P**fi-1._R8P)+1._R8P) !funzione f
+               !   f = 1._R8P/fi*LOG10(((ngc_r-crown_r)*ds)/(ngc_r*ds)*(10._R8P**fi-1._R8P)+1._R8P) !funzione f
 
-                  q_gpu(b,i,j,k,alfa_D) = 1/(2*MU0**0.5_R8P)*(s1*(f-1._R8P)*ref(beta_B)*EPS0**0.5_R8P + &
-                                          (f+1._R8P)*ref(alfa_D)*MU0**0.5_R8P)
+               !   q_gpu(b,i,j,k,alfa_D) = 1/(2*MU0**0.5_R8P)*(s1*(f-1._R8P)*ref(beta_B)*EPS0**0.5_R8P + &
+               !                           (f+1._R8P)*ref(alfa_D)*MU0**0.5_R8P)
 
-                  q_gpu(b,i,j,k,beta_B) = 1/(2*EPS0**0.5_R8P)*((f+1._R8P)*ref(beta_B)*EPS0**0.5_R8P + &
-                                          s1*(f-1._R8P)*ref(alfa_D)*MU0**0.5_R8P)
+               !   q_gpu(b,i,j,k,beta_B) = 1/(2*EPS0**0.5_R8P)*((f+1._R8P)*ref(beta_B)*EPS0**0.5_R8P + &
+               !                           s1*(f-1._R8P)*ref(alfa_D)*MU0**0.5_R8P)
 
-                  q_gpu(b,i,j,k,beta_D) = 1/(2*MU0**0.5_R8P)*(-s1*(f-1._R8P)*ref(alfa_B)*EPS0**0.5_R8P + &
-                                          (f+1._R8P)*ref(beta_D)*MU0**0.5_R8P)
+               !   q_gpu(b,i,j,k,beta_D) = 1/(2*MU0**0.5_R8P)*(-s1*(f-1._R8P)*ref(alfa_B)*EPS0**0.5_R8P + &
+               !                           (f+1._R8P)*ref(beta_D)*MU0**0.5_R8P)
 
-                  q_gpu(b,i,j,k,alfa_B) = 1/(2*EPS0**0.5_R8P)*((f+1._R8P)*ref(alfa_B)*EPS0**0.5_R8P - &
-                                          s1*(f-1._R8P)*ref(beta_D)*MU0**0.5_R8P)
+               !   q_gpu(b,i,j,k,alfa_B) = 1/(2*EPS0**0.5_R8P)*((f+1._R8P)*ref(alfa_B)*EPS0**0.5_R8P - &
+               !                           s1*(f-1._R8P)*ref(beta_D)*MU0**0.5_R8P)
 
-                  q_gpu(b,i,j,k,gamma_D) = ref(gamma_D)
+               !   q_gpu(b,i,j,k,gamma_D) = ref(gamma_D)
 
-                  q_gpu(b,i,j,k,gamma_B) = ref(gamma_B)
+               !   q_gpu(b,i,j,k,gamma_B) = ref(gamma_B)
 
-                  q_gpu(b,i,j,k,7:9) = 0._R8P
-               else
-                  do v=1, nv
-                    q_gpu(b,i,j,k,v) = 0.0_R8P
-                  enddo
-               endif
+               !   q_gpu(b,i,j,k,7:9) = 0._R8P
+               !else
+               !   do v=1, nv
+               !     q_gpu(b,i,j,k,v) = 0.0_R8P
+               !   enddo
+               !endif
             endif
          endif
       enddo
@@ -430,6 +558,7 @@ contains
    real(R8P),    intent(inout) :: fluxes_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Fluxes.
    real(R8P)                   :: fpmr(1:2,1:11)                            !< Fluxes +- reconstructed.
    real(R8P)                   :: fpmr_(1:2,1:11)                           !< Fluxes +- reconstructed (to be removed).
+   integer(I4P)                :: v                                         !< Counter.
    !$acc routine(compute_fluxes_convective_ri_dev)
    !$omp declare target(compute_fluxes_convective_ri_dev)
 
@@ -453,7 +582,9 @@ contains
                                         evmax = evmax,   &
                                         q_gpu = q_gpu,   &
                                         fmp   = fpmr_)
-   fluxes_gpu(:,i,j,k,b) = fpmr(2,:) + fpmr_(1,:)
+   do v=1,nv
+      fluxes_gpu(b,i,j,k,v) = fpmr(2,v) + fpmr_(1,v)
+   enddo
    endsubroutine compute_fluxes_convective_ri_dev
 
    subroutine decompose_fluxes_convective_dev(sir,b,i,j,k,ngc,nv,evmax,q_gpu,fmp)
@@ -470,17 +601,19 @@ contains
    !$acc routine(decompose_fluxes_convective_dev)
    !$omp declare target(decompose_fluxes_convective_dev)
 
-   call compute_convective_fluxes_maxwell_dev(sir=sir,q=q_gpu(b,i,j,k,:),f=f)
+   call compute_convective_fluxes_maxwell_dev(sir=sir,q_gpu=q_gpu(b,i,j,k,:),f_gpu=f)
    do v=1, nv
-      fmp(2,v) = 0.5_R8P * (f(v) + evmax * q_gpu(v))
+      fmp(2,v) = 0.5_R8P * (f(v) + evmax * q_gpu(b,i,j,k,v))
       fmp(1,v) = f(v) - fmp(2,v)
    enddo
-   fmp(:,7) = 0._R8P
-   fmp(:,8) = 0._R8P
-   fmp(:,9) = 0._R8P
+   do v=1, 2
+      fmp(v,7) = 0._R8P
+      fmp(v,8) = 0._R8P
+      fmp(v,9) = 0._R8P
+   enddo
    endsubroutine decompose_fluxes_convective_dev
 
-   subroutine compute_convective_fluxes_maxwell_dev(sir, q, f)
+   subroutine compute_convective_fluxes_maxwell_dev(sir, q_gpu, f_gpu)
    !< Compute convective fluxes.
    !<
    !<```
@@ -494,46 +627,46 @@ contains
    !< Fx(8) = 0        Fy(8) = 0          Fz(8) = 0
    !< Fx(9) = 0        Fy(9) = 0          Fz(9) = 0
    !<```
-   real(R8P), intent(in)    :: sir(3) !< Directional (1=x,2=y,3=z) increment.
-   real(R8P), intent(in)    :: q(1:)  !< Auxiliary variables.
-   real(R8P), intent(inout) :: f(1:)  !< Conservative fluxes.
+   real(R8P), intent(in)    :: sir(3)    !< Directional (1=x,2=y,3=z) increment.
+   real(R8P), intent(in)    :: q_gpu(1:) !< Auxiliary variables.
+   real(R8P), intent(inout) :: f_gpu(1:) !< Conservative fluxes.
    !$acc routine(compute_conservative_fluxes_maxwell_dev)
    !$omp declare target(compute_conservative_fluxes_maxwell_dev)
 
    if (sir(1)==1._R8P) then
-      f(1) =  0.0_R8P
-      f(2) =  q(6)/MU0
-      f(3) = -q(5)/MU0
-      f(4) =  0.0_R8P
-      f(5) = -q(3)/EPS0
-      f(6) =  q(2)/EPS0
-      f(7) = 0._R8P
-      f(8) = 0._R8P
-      f(9) = 0._R8P
+      f_gpu(1) =  0.0_R8P
+      f_gpu(2) =  q_gpu(6)/MU0
+      f_gpu(3) = -q_gpu(5)/MU0
+      f_gpu(4) =  0.0_R8P
+      f_gpu(5) = -q_gpu(3)/EPS0
+      f_gpu(6) =  q_gpu(2)/EPS0
+      f_gpu(7) = 0._R8P
+      f_gpu(8) = 0._R8P
+      f_gpu(9) = 0._R8P
    elseif(sir(2)==1._R8P) then
-      f(1) = -q(6)/MU0
-      f(2) =  0.0_R8P
-      f(3) =  q(4)/MU0
-      f(4) =  q(3)/EPS0
-      f(5) =  0.0_R8P
-      f(6) = -q(1)/EPS0
-      f(7) = 0._R8P
-      f(8) = 0._R8P
-      f(9) = 0._R8P
+      f_gpu(1) = -q_gpu(6)/MU0
+      f_gpu(2) =  0.0_R8P
+      f_gpu(3) =  q_gpu(4)/MU0
+      f_gpu(4) =  q_gpu(3)/EPS0
+      f_gpu(5) =  0.0_R8P
+      f_gpu(6) = -q_gpu(1)/EPS0
+      f_gpu(7) = 0._R8P
+      f_gpu(8) = 0._R8P
+      f_gpu(9) = 0._R8P
    elseif(sir(3)==1._R8P) then
-      f(1) =  q(5)/MU0
-      f(2) = -q(4)/MU0
-      f(3) =  0.0_R8P
-      f(4) = -q(2)/EPS0
-      f(5) =  q(1)/EPS0
-      f(6) =  0.0_R8P
-      f(7) = 0._R8P
-      f(8) = 0._R8P
-      f(9) = 0._R8P
+      f_gpu(1) =  q_gpu(5)/MU0
+      f_gpu(2) = -q_gpu(4)/MU0
+      f_gpu(3) =  0.0_R8P
+      f_gpu(4) = -q_gpu(2)/EPS0
+      f_gpu(5) =  q_gpu(1)/EPS0
+      f_gpu(6) =  0.0_R8P
+      f_gpu(7) = 0._R8P
+      f_gpu(8) = 0._R8P
+      f_gpu(9) = 0._R8P
    endif
    endsubroutine compute_convective_fluxes_maxwell_dev
 
-   subroutine compute_convective_fluxes_maxwell_div_d_dev(sir,q,chi,f)
+   subroutine compute_convective_fluxes_maxwell_div_d_dev(sir,q_gpu,chi,f_gpu)
    !< Compute convective fluxes with div(D) correction.
    !<```
    !< Fx(1) = phi      Fy(1) = -Bz/muz    Fz(1) = By/muy
@@ -547,52 +680,52 @@ contains
    !< Fx(9) = 0        Fy(9) = 0          Fz(9) = 0
    !< Fx(10) = ch^2*Dx Fy(10) = ch^2*Dy   Fz(10) = ch^2*Dz
    !<```
-   real(R8P),    intent(in)    :: sir(3) !< Directional (1=x,2=y,3=z) increment.
-   real(R8P),    intent(in)    :: q(1:)  !< Auxiliary variables.
-   real(R8P),    intent(in)    :: chi    !< Coefficiente velocità trasporto errori divergenza campi
-   real(R8P),    intent(inout) :: f(1:)  !< Conservative fluxes.
-   real(R8P)                   :: ch     !< Velocità trasporto errori divergenza campi modello iperbolico
+   real(R8P),    intent(in)    :: sir(3)    !< Directional (1=x,2=y,3=z) increment.
+   real(R8P),    intent(in)    :: q_gpu(1:) !< Auxiliary variables.
+   real(R8P),    intent(in)    :: chi       !< Coefficiente velocità trasporto errori divergenza campi
+   real(R8P),    intent(inout) :: f_gpu(1:) !< Conservative fluxes.
+   real(R8P)                   :: ch        !< Velocità trasporto errori divergenza campi modello iperbolico
    !$acc routine(compute_conservative_fluxes_maxwell_div_d_dev)
    !$omp declare target(compute_conservative_fluxes_maxwell_div_d_dev)
 
    ch = chi/sqrt(EPS0*MU0)
    if (sir(1)==1._R8P) then
-      f(1) =  q(10)
-      f(2) =  q(6)/MU0
-      f(3) = -q(5)/MU0
-      f(4) =  0.0_R8P
-      f(5) = -q(3)/EPS0
-      f(6) =  q(2)/EPS0
-      f(7) = 0._R8P
-      f(8) = 0._R8P
-      f(9) = 0._R8P
-      f(10) = ch*ch*q(1)
+      f_gpu(1)  =  q_gpu(10)
+      f_gpu(2)  =  q_gpu(6)/MU0
+      f_gpu(3)  = -q_gpu(5)/MU0
+      f_gpu(4)  =  0.0_R8P
+      f_gpu(5)  = -q_gpu(3)/EPS0
+      f_gpu(6)  =  q_gpu(2)/EPS0
+      f_gpu(7)  = 0._R8P
+      f_gpu(8)  = 0._R8P
+      f_gpu(9)  = 0._R8P
+      f_gpu(10) = ch*ch*q_gpu(1)
    elseif(sir(2)==1._R8P) then
-      f(1) = -q(6)/MU0
-      f(2) =  q(10)
-      f(3) =  q(4)/MU0
-      f(4) =  q(3)/EPS0
-      f(5) =  0.0_R8P
-      f(6) = -q(1)/EPS0
-      f(7) = 0._R8P
-      f(8) = 0._R8P
-      f(9) = 0._R8P
-      f(10) = ch*ch*q(2)
+      f_gpu(1)  = -q_gpu(6)/MU0
+      f_gpu(2)  =  q_gpu(10)
+      f_gpu(3)  =  q_gpu(4)/MU0
+      f_gpu(4)  =  q_gpu(3)/EPS0
+      f_gpu(5)  =  0.0_R8P
+      f_gpu(6)  = -q_gpu(1)/EPS0
+      f_gpu(7)  = 0._R8P
+      f_gpu(8)  = 0._R8P
+      f_gpu(9)  = 0._R8P
+      f_gpu(10) = ch*ch*q_gpu(2)
    elseif(sir(3)==1._R8P) then
-      f(1) =  q(5)/MU0
-      f(2) = -q(4)/MU0
-      f(3) =  q(10)
-      f(4) = -q(2)/EPS0
-      f(5) =  q(1)/EPS0
-      f(6) =  0.0_R8P
-      f(7) = 0._R8P
-      f(8) = 0._R8P
-      f(9) = 0._R8P
-      f(10) = ch*ch*q(3)
+      f_gpu(1)  =  q_gpu(5)/MU0
+      f_gpu(2)  = -q_gpu(4)/MU0
+      f_gpu(3)  =  q_gpu(10)
+      f_gpu(4)  = -q_gpu(2)/EPS0
+      f_gpu(5)  =  q_gpu(1)/EPS0
+      f_gpu(6)  =  0.0_R8P
+      f_gpu(7)  = 0._R8P
+      f_gpu(8)  = 0._R8P
+      f_gpu(9)  = 0._R8P
+      f_gpu(10) = ch*ch*q_gpu(3)
    endif
    endsubroutine compute_convective_fluxes_maxwell_div_d_dev
 
-   subroutine compute_convective_fluxes_maxwell_div_d_b_dev(sir,q,chi,f)
+   subroutine compute_convective_fluxes_maxwell_div_d_b_dev(sir,q_gpu,chi,f_gpu)
    !< Compute convective fluxes with div(D) and div(B) correction.
    ! Fx(1) = phi      Fy(1) = -Bz/muz    Fz(1) = By/muy
    ! Fx(2) = Bz/muz   Fy(2) = phi        Fz(2) = -Bx/mux
@@ -605,51 +738,51 @@ contains
    ! Fx(9) = 0        Fy(9) = 0          Fz(9) = 0
    ! Fx(10) = ch^2*Dx Fy(10) = ch^2*Dy   Fz(10) = ch^2*Dz
    ! Fx(11) = ch^2*Bx Fy(10) = ch^2*By   Fz(10) = ch^2*Bz
-   real(R8P),    intent(in)    :: sir(3) !< Directional (1=x,2=y,3=z) increment.
-   real(R8P),    intent(in)    :: q(1:)  !< Auxiliary variables.
-   real(R8P),    intent(in)    :: chi    !< Coefficiente velocità trasporto errori divergenza campi
-   real(R8P),    intent(inout) :: f(1:)  !< Conservative fluxes.
-   real(R8P)                   :: ch     !< Velocità trasporto errori divergenza campi modello iperbolico
+   real(R8P),    intent(in)    :: sir(3)    !< Directional (1=x,2=y,3=z) increment.
+   real(R8P),    intent(in)    :: q_gpu(1:) !< Auxiliary variables.
+   real(R8P),    intent(in)    :: chi       !< Coefficiente velocità trasporto errori divergenza campi
+   real(R8P),    intent(inout) :: f_gpu(1:) !< Conservative fluxes.
+   real(R8P)                   :: ch        !< Velocità trasporto errori divergenza campi modello iperbolico
    !$acc routine(compute_conservative_fluxes_maxwell_div_d_b_dev)
    !$omp declare target(compute_conservative_fluxes_maxwell_div_d_b_dev)
 
    ch = chi/sqrt(EPS0*MU0)
    if (sir(1)==1._R8P) then
-      f(1) =  q(10)
-      f(2) =  q(6)/MU0
-      f(3) = -q(5)/MU0
-      f(4) =  q(11)
-      f(5) = -q(3)/EPS0
-      f(6) =  q(2)/EPS0
-      f(7) = 0._R8P
-      f(8) = 0._R8P
-      f(9) = 0._R8P
-      f(10) = ch*ch*q(1)
-      f(11) = ch*ch*q(4)
+      f_gpu(1)  =  q_gpu(10)
+      f_gpu(2)  =  q_gpu(6)/MU0
+      f_gpu(3)  = -q_gpu(5)/MU0
+      f_gpu(4)  =  q_gpu(11)
+      f_gpu(5)  = -q_gpu(3)/EPS0
+      f_gpu(6)  =  q_gpu(2)/EPS0
+      f_gpu(7)  = 0._R8P
+      f_gpu(8)  = 0._R8P
+      f_gpu(9)  = 0._R8P
+      f_gpu(10) = ch*ch*q_gpu(1)
+      f_gpu(11) = ch*ch*q_gpu(4)
    elseif(sir(2)==1._R8P) then
-      f(1) = -q(6)/MU0
-      f(2) =  q(10)
-      f(3) =  q(4)/MU0
-      f(4) =  q(3)/EPS0
-      f(5) =  q(11)
-      f(6) = -q(1)/EPS0
-      f(7) = 0._R8P
-      f(8) = 0._R8P
-      f(9) = 0._R8P
-      f(10) = ch*ch*q(2)
-      f(11) = ch*ch*q(5)
+      f_gpu(1)  = -q_gpu(6)/MU0
+      f_gpu(2)  =  q_gpu(10)
+      f_gpu(3)  =  q_gpu(4)/MU0
+      f_gpu(4)  =  q_gpu(3)/EPS0
+      f_gpu(5)  =  q_gpu(11)
+      f_gpu(6)  = -q_gpu(1)/EPS0
+      f_gpu(7)  = 0._R8P
+      f_gpu(8)  = 0._R8P
+      f_gpu(9)  = 0._R8P
+      f_gpu(10) = ch*ch*q_gpu(2)
+      f_gpu(11) = ch*ch*q_gpu(5)
    elseif(sir(3)==1._R8P) then
-      f(1) =  q(5)/MU0
-      f(2) = -q(4)/MU0
-      f(3) =  q(10)
-      f(4) = -q(2)/EPS0
-      f(5) =  q(1)/EPS0
-      f(6) =  q(11)
-      f(7) = 0._R8P
-      f(8) = 0._R8P
-      f(9) = 0._R8P
-      f(10) = ch*ch*q(3)
-      f(11) = ch*ch*q(6)
+      f_gpu(1)  =  q_gpu(5)/MU0
+      f_gpu(2)  = -q_gpu(4)/MU0
+      f_gpu(3)  =  q_gpu(10)
+      f_gpu(4)  = -q_gpu(2)/EPS0
+      f_gpu(5)  =  q_gpu(1)/EPS0
+      f_gpu(6)  =  q_gpu(11)
+      f_gpu(7)  = 0._R8P
+      f_gpu(8)  = 0._R8P
+      f_gpu(9)  = 0._R8P
+      f_gpu(10) = ch*ch*q_gpu(3)
+      f_gpu(11) = ch*ch*q_gpu(6)
    endif
    endsubroutine compute_convective_fluxes_maxwell_div_d_b_dev
 endmodule adam_prism_fnl_kernels

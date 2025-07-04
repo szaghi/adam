@@ -20,10 +20,10 @@ type :: rk_fnl_object
    ! ADAM FNL library objects
    type(mpih_fnl_object) :: mpih !< MPI handler.
    ! device data
-   real(R8P), pointer :: alph_gpu(:,:)         !< RK alpha coefficients.
-   real(R8P), pointer :: beta_gpu(:)           !< RK beta coefficients.
-   real(R8P), pointer :: gamm_gpu(:)           !< RK gamma coefficients.
-   real(R8P), pointer :: q_rk_gpu(:,:,:,:,:,:) !< Field cell centered variables, RK stages.
+   real(R8P), pointer :: alph_gpu(:,:)=>null()         !< RK alpha coefficients.
+   real(R8P), pointer :: beta_gpu(:)=>null()           !< RK beta coefficients.
+   real(R8P), pointer :: gamm_gpu(:)=>null()           !< RK gamma coefficients.
+   real(R8P), pointer :: q_rk_gpu(:,:,:,:,:,:)=>null() !< Field cell centered variables, RK stages.
    contains
       ! public methods
       procedure, pass(self) :: assign_stage      !< Assign q to RK stage.
@@ -117,6 +117,7 @@ contains
 
    call self%mpih%initialize(do_mpi_init=.false.)
    call self%mpih%print_message('rk_fnl_object%initialize start')
+   self%rk => rk
    call dev_assign_to_device(src=rk%alph, dst=self%alph_gpu)
    call dev_assign_to_device(src=rk%beta, dst=self%beta_gpu)
    call dev_assign_to_device(src=rk%gamm, dst=self%gamm_gpu)

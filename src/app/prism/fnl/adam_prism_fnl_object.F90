@@ -20,14 +20,17 @@ type, extends(prism_common_object) :: prism_fnl_object
    ! ADAM library objects
    type(mpih_fnl_object)  :: mpih_gpu  !< MPI handler, FNL backend.
    type(field_fnl_object) :: field_gpu !< The field, FNL backend.
+   type(ib_fnl_object)    :: ib_gpu    !< IB handler, FNL backend.
    type(rk_fnl_object)    :: rk_gpu    !< RK integrator, FNL backend.
    type(weno_fnl_object)  :: weno_gpu  !< WENO reconstructor, FNL backend.
    ! device data
-   real(R8P), pointer :: q_gpu(  :,:,:,:,:)=>null() !< Field cell centered variables.
-   real(R8P), pointer :: dq_gpu( :,:,:,:,:)=>null() !< Residuals right hand side.
-   real(R8P), pointer :: flx_gpu(:,:,:,:,:)=>null() !< Fluxes along x.
-   real(R8P), pointer :: fly_gpu(:,:,:,:,:)=>null() !< Fluxes along y.
-   real(R8P), pointer :: flz_gpu(:,:,:,:,:)=>null() !< Fluxes along z.
+   type(prism_fnl_coil_object) :: coil_gpu                         !< Coil handler (FNL backend).
+   real(R8P), pointer          ::         q_gpu(:,:,:,:,:)=>null() !< Field cell centered variables.
+   real(R8P), pointer          ::        dq_gpu(:,:,:,:,:)=>null() !< Residuals right hand side.
+   real(R8P), pointer          ::       flx_gpu(:,:,:,:,:)=>null() !< Fluxes along x.
+   real(R8P), pointer          ::       fly_gpu(:,:,:,:,:)=>null() !< Fluxes along y.
+   real(R8P), pointer          ::       flz_gpu(:,:,:,:,:)=>null() !< Fluxes along z.
+   real(R8P), pointer          :: field_div_gpu(:,:,:,:,:)=>null() !< Field divergence.
    contains
       ! auxiliary methods
       procedure, pass(self) :: allocate_gpu !< Allocate GPU data.
@@ -45,10 +48,10 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions of equation.
       procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
       ! numerical methods
-      procedure, pass(self) :: compute_dt          !< Compute time step.
-      procedure, pass(self) :: compute_residuals   !< Compute residuals.
-      procedure, pass(self) :: integrate           !< Perform one step integration.
-      procedure, pass(self) :: simulate            !< Perform the simulation.
+      procedure, pass(self) :: compute_dt        !< Compute time step.
+      procedure, pass(self) :: compute_residuals !< Compute residuals.
+      procedure, pass(self) :: integrate         !< Perform one step integration.
+      procedure, pass(self) :: simulate          !< Perform the simulation.
 endtype prism_fnl_object
 
 contains
@@ -65,15 +68,17 @@ contains
 
    call self%mpih%print_message('prism_fnl_object%allocate_gpu start')
    self%q_gpu => q_gpu ! q_gpu is allocated by field_gpu%initialize
-   associate(nv=>self%nv, nb=>self%nb, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk)
+   associate(nv=>self%nv, nv_div=>self%nv_div, nb=>self%nb, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk)
    call dev_alloc(fptr_dev=self%dq_gpu, &
-                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
+                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv],     lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
    call dev_alloc(fptr_dev=self%flx_gpu, &
-                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
+                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv],     lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
    call dev_alloc(fptr_dev=self%fly_gpu, &
-                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
+                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv],     lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
    call dev_alloc(fptr_dev=self%flz_gpu, &
-                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
+                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv],     lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
+   call dev_alloc(fptr_dev=self%field_div_gpu, &
+                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv_div], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
    endassociate
    call self%mpih%print_message('prism_fnl_object%allocate_gpu finish')
    endsubroutine allocate_gpu
@@ -84,6 +89,7 @@ contains
 
    call self%field_gpu%copy_transpose_cpu_gpu(nv=self%nv, q_cpu=self%field%q, q_gpu=self%q_gpu)
    call self%field_gpu%copy_cpu_gpu(verbose=.false.)
+   call self%coil_gpu%copy_cpu_gpu
    endsubroutine copy_cpu_gpu
 
    subroutine copy_gpu_cpu(self, compute_copy_q_aux, copy_phi)
@@ -92,7 +98,9 @@ contains
    logical,                 intent(in), optional :: compute_copy_q_aux !< Flag to compute auxiliary variables.
    logical,                 intent(in), optional :: copy_phi           !< Copy also phi.
 
-   call self%field_gpu%copy_transpose_gpu_cpu(nv=self%nv, q_gpu=self%q_gpu, q_cpu=self%field%q)
+   call self%field_gpu%copy_transpose_gpu_cpu(nv=self%nv,     q_gpu=self%q_gpu,         q_cpu=self%field%q  )
+   call self%field_gpu%copy_transpose_gpu_cpu(nv=self%nv_div, q_gpu=self%field_div_gpu, q_cpu=self%field_div)
+   call self%coil_gpu%copy_gpu_cpu
    endsubroutine copy_gpu_cpu
 
    subroutine initialize(self, filename)
@@ -104,12 +112,14 @@ contains
    call self%mpih_gpu%print_message('prism_fnl_object%initialize start')
    call self%initialize_common(field = self%adam%field, filename=filename, memory_avail=real(self%mpih_gpu%dev_memory_avail,R8P), &
                                verbose=.true.)
-   ! call self%field_gpu%initialize(field=self%adam%field, nv_aux=self%nv_aux, verbose=.false.)
-   ! call self%ib_gpu%initialize(ib=self%ib, field_gpu=self%field_gpu)
-   ! call self%rk_gpu%initialize(rk=self%rk, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk, nv=self%nv)
-   ! call self%weno_gpu%initialize(weno=self%weno)
+   call self%field_gpu%initialize(field=self%adam%field, verbose=.true.)
+   call self%ib_gpu%initialize(ib=self%ib, field_gpu=self%field_gpu)
+   call self%rk_gpu%initialize(rk=self%rk, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk, nv=self%nv)
+   call self%weno_gpu%initialize(weno=self%weno)
    call self%allocate_gpu(q_gpu=self%field_gpu%q_gpu)
-   call self%mpih%print_message(self%mpih_gpu%description()//new_line('a')//'prism_fnl_object%initialize finish')
+   call self%coil_gpu%initialize(coil=self%coil,&
+                                 blocks_number=self%blocks_number,nb=self%nb,ngc=self%ngc,ni=self%ni,nj=self%nj,nk=self%nk)
+   call self%mpih%print_message('prism_fnl_object%initialize finish')
    endsubroutine initialize
 
    ! IO methods
@@ -139,7 +149,10 @@ contains
    elseif ((self%physics%D_divergence_cleaner).and.(self%physics%B_divergence_cleaner)) then
       q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi', 'psi']
    endif
-   q_aux_name = ['DivD_d','DivB_d','DivD_f','DivB_f']
+   ! q_aux_name = ['DivD_d','DivB_d','DivD_f','DivB_f']
+   self%field_div(1:3,:,:,:,:) =      self%coil%j_vec(1:3,:,:,:,:)
+   self%field_div(4  ,:,:,:,:) = real(self%coil%coil_flag(:,:,:,:), R8P)
+   q_aux_name = ['j_vec_1','j_vec_2','j_vec_3','coil_fl']
 
    call self%mpih_gpu%barrier(tictoc=.true.)
    call self%mpih_gpu%print_message('save HDF5 files t: '//trim(str(self%time%it,.true.))//', time: '//&
@@ -210,7 +223,7 @@ contains
    if ((self%time%is_to_save(it_save=self%io%it_save)).or.      &
        (self%time%is_to_save(it_save=self%io%restart_save)).or. &
        (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))) then
-      ! call self%update_ghost(q_gpu=self%q_gpu)
+      call self%update_ghost(q_gpu=self%q_gpu)
       call self%copy_gpu_cpu(compute_copy_q_aux=.true., copy_phi=.true.)
 
       if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_hdf5
@@ -397,11 +410,17 @@ contains
    integer(I4P)                                   :: s                !< Counter.
 
    do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
-   ! if (self%coil%total_coils_number >= 1_I4P) then
-   !    call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=self%q, time=time, A=A, d=d, &
-   !                               f=freq, phase=phase, coil_flag=coil_flag, td=td, J_vec=J_vec, dx=dx)
-   ! endif
-   ! call self%rk_gpu%initialize_stages(q_gpu=self%q_gpu)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,                          &
+             time=>self%time%time, A_gpu=>self%coil_gpu%A_gpu, f_gpu=>self%coil_gpu%f_gpu, phase_gpu=>self%coil_gpu%phase_gpu, &
+             coil_flag_gpu =>self%coil_gpu%coil_flag_gpu, d_gpu=>self%coil_gpu%d_gpu, td=>self%coil%td,                        &
+          J_vec_gpu=>self%coil_gpu%J_vec_gpu, dx_gpu=>self%field_gpu%dxyz_gpu(1,1))
+   if (self%coil%total_coils_number >= 1_I4P) then
+      call compute_coils_current_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number,                                 &
+                                     q_gpu=self%q_gpu, time=time, A_gpu=A_gpu, d_gpu=d_gpu,                                     &
+                                     f_gpu=f_gpu, phase_gpu=phase_gpu, coil_flag_gpu=coil_flag_gpu, td=td, J_vec_gpu=J_vec_gpu, &
+                                     dx_gpu=dx_gpu)
+   endif
+   call self%rk_gpu%initialize_stages(q_gpu=self%q_gpu)
    select case(self%rk%scheme)
    case(RK_1, RK_2, RK_3)
       ! low storage RK working on q_rk_gpu(:,:,:,:,:,1)/q_gpu as stages, update q_gpu in place
@@ -409,52 +428,36 @@ contains
          call self%compute_residuals(q_gpu=self%q_gpu, dq_gpu=self%dq_gpu)
          if (s==1) call self%save_residuals
          if (self%ib%solids_number>0) then
-            ! call self%rk_gpu%compute_stage_ls(s=s,dt=self%time%dt,phi_gpu=self%ib_gpu%phi_gpu,dq_gpu=self%dq_gpu,q_gpu=self%q_gpu)
+            call self%rk_gpu%compute_stage_ls(s=s,dt=self%time%dt,phi_gpu=self%ib_gpu%phi_gpu,dq_gpu=self%dq_gpu,q_gpu=self%q_gpu)
          else
-            ! call self%rk_gpu%compute_stage_ls(s=s,dt=self%time%dt,dq_gpu=self%dq_gpu,q_gpu=self%q_gpu)
+            call self%rk_gpu%compute_stage_ls(s=s,dt=self%time%dt,dq_gpu=self%dq_gpu,q_gpu=self%q_gpu)
          endif
       enddo
    case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
       ! RK working on q_rk_gpu as stages
       do s=1, self%rk%nrk
          if (self%ib%solids_number>0) then
-            ! call self%rk_gpu%compute_stage(s=s, dt=self%time%dt, phi_gpu=self%ib_gpu%phi_gpu)
+            call self%rk_gpu%compute_stage(s=s, dt=self%time%dt, phi_gpu=self%ib_gpu%phi_gpu)
          else
-            ! call self%rk_gpu%compute_stage(s=s, dt=self%time%dt)
+            call self%rk_gpu%compute_stage(s=s, dt=self%time%dt)
          endif
          call self%compute_residuals(q_gpu=self%rk_gpu%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu)
          if (s==1) call self%save_residuals
          if (self%ib%solids_number>0) then
-            ! call self%rk_gpu%assign_stage(s=s, q_gpu=self%dq_gpu, phi_gpu=self%ib_gpu%phi_gpu)
+            call self%rk_gpu%assign_stage(s=s, q_gpu=self%dq_gpu, phi_gpu=self%ib_gpu%phi_gpu)
          else
-            ! call self%rk_gpu%assign_stage(s=s, q_gpu=self%dq_gpu)
+            call self%rk_gpu%assign_stage(s=s, q_gpu=self%dq_gpu)
          endif
       enddo
       if (self%ib%solids_number>0) then
-         ! call self%rk_gpu%update_q(dt=self%time%dt, phi_gpu=self%ib_gpu%phi_gpu, q_gpu=self%q_gpu)
+         call self%rk_gpu%update_q(dt=self%time%dt, phi_gpu=self%ib_gpu%phi_gpu, q_gpu=self%q_gpu)
       else
-         ! call self%rk_gpu%update_q(dt=self%time%dt, q_gpu=self%q_gpu)
+         call self%rk_gpu%update_q(dt=self%time%dt, q_gpu=self%q_gpu)
       endif
    endselect
-
-   !!calcolo della divergenza tramite differenze finite
-   !do b=1, blocks_number
-   !   do k=1, nk
-   !      do j=1, nj
-   !         do i=1, ni
-   !               !if (self%coil%coil_flag(i,j,k,b) > 0_I4P) then
-   !               !   self%q(1:6,i,j,k,b) = 0._R8P ! azzero i campi dentro le spire
-   !               !endif
-   !            self%field_Div(1,i,j,k,b) = 0.5_R8P*((self%q(1,i+1,j,k,b) - self%q(1,i-1,j,k,b))/dx + &
-   !                                       (self%q(2,i,j+1,k,b) - self%q(2,i,j-1,k,b))/dx + &
-   !                                       (self%q(3,i,j,k+1,b) - self%q(3,i,j,k-1,b))/dx)
-   !            self%field_Div(2,i,j,k,b) = 0.5_R8P*((self%q(4,i+1,j,k,b) - self%q(4,i-1,j,k,b))/dx + &
-   !                                       (self%q(5,i,j+1,k,b) - self%q(5,i,j-1,k,b))/dx + &
-   !                                       (self%q(6,i,j,k+1,b) - self%q(6,i,j,k-1,b))/dx)
-   !         enddo
-   !      enddo
-   !   enddo
-   !enddo
+   call compute_div_d_b_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, dx_gpu=dx_gpu, &
+                            q_gpu=self%q_gpu, div_gpu=self%field_div_gpu)
+   endassociate
    endsubroutine integrate
 
    subroutine simulate(self, filename)
@@ -525,5 +528,6 @@ contains
    call self%mpih_gpu%barrier(tictoc=.true., timing=timing(2), single=.true.)
    call self%save_simulation_data
    if (self%mpih_gpu%myrank==0) call self%io%close_file_residuals
+   call self%mpih_gpu%finalize
    endsubroutine simulate
 endmodule adam_prism_fnl_object

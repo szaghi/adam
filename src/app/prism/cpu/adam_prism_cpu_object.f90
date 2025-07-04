@@ -335,13 +335,19 @@ contains
                                 trim(str(self%time%time,.true.)))
    output_basename_ = trim(self%io%output_basename)//'-'//trim(strz(self%time%it,9))
    if (present(output_basename)) output_basename_ = trim(output_basename)
+
+   ! da rimuovere
+   self%field_div(1:3,:,:,:,:) =      self%coil%j_vec(1:3,:,:,:,:)
+   self%field_div(4  ,:,:,:,:) = real(self%coil%coil_flag(:,:,:,:), R8P)
+   ! da rimuovere
    if (self%ib%solids_number>0) then
       if (.not.self%physics%D_divergence_cleaner .and. .not.self%physics%B_Divergence_cleaner) then
          call self%adam%save_hdf5(basename=trim(output_basename_),                                                 &
                                   q=self%q,                                                                        &
                                   q_aux=self%field_Div,                                                            &
                                   q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz '],                  &
-                                  q_aux_name=['DivD_d','DivB_d','DivD_f','DivB_f'],                                &
+                                  ! q_aux_name=['DivD_d','DivB_d','DivD_f','DivB_f'],                                &
+                                  q_aux_name=['j_vec_1','j_vec_2','j_vec_3','coil_fl'],                            &
                                   with_cell_morton=.true., phi=self%ib%phi)
       elseif (self%physics%D_divergence_cleaner .and. .not.self%physics%B_Divergence_cleaner) then
             call self%adam%save_hdf5(basename=trim(output_basename_),                                              &
@@ -365,7 +371,8 @@ contains
                                   q=self%q,                                                                        &
                                   q_aux=self%field_Div,                                                            &
                                   q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz '],                  &
-                                  q_aux_name=['DivD_d','DivB_d','DivD_f','DivB_f'],                                &
+                                  ! q_aux_name=['DivD_d','DivB_d','DivD_f','DivB_f'],                                &
+                                  q_aux_name=['j_vec_1','j_vec_2','j_vec_3','coil_fl'],                            &
                                   with_cell_morton=.true.)
       elseif (self%physics%D_divergence_cleaner .and. .not.self%physics%B_Divergence_cleaner) then
             call self%adam%save_hdf5(basename=trim(output_basename_),                                              &
@@ -1058,6 +1065,7 @@ contains
    call self%mpih%barrier(tictoc=.true., timing=timing(2), single=.true.)
    call self%save_simulation_data
    if (self%mpih%myrank==0) call self%io%close_file_residuals
+   call self%mpih%finalize
    endsubroutine simulate
 
    ! non TBP
