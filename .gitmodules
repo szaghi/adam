@@ -1,44 +1,44 @@
 [submodule "src/third_party/BeFoR64"]
 	path = src/third_party/BeFoR64
-	url = https://github.com/szaghi/BeFoR64
-  branch = master
+	url = git@github.com:szaghi/BeFoR64.git
+	branch = master
 [submodule "src/third_party/FACE"]
 	path = src/third_party/FACE
-	url = https://github.com/szaghi/FACE
-  branch = master
+	url = git@github.com:szaghi/FACE.git
+	branch = master
 [submodule "src/third_party/FiNeR"]
 	path = src/third_party/FiNeR
 	url = git@github.com:szaghi/FiNeR.git
-  branch = master
+	branch = master
 [submodule "src/third_party/FOSSIL"]
 	path = src/third_party/FOSSIL
 	url = git@github.com:szaghi/FOSSIL.git
-  branch = master
+	branch = master
 [submodule "src/third_party/FoXy"]
 	path = src/third_party/FoXy
-	url = https://github.com/Fortran-FOSS-Programmers/FoXy
-  branch = master
+	url = git@github.com:Fortran-FOSS-Programmers/FoXy.git
+	branch = master
 [submodule "src/third_party/FUNDAL"]
 	path = src/third_party/FUNDAL
 	url = git@github.com:szaghi/FUNDAL.git
-  branch = main
+	branch = main
 [submodule "src/third_party/MORTIF"]
 	path = src/third_party/MORTIF
 	url = git@github.com:szaghi/MORTIF.git
-  branch = master
+	branch = master
 [submodule "src/third_party/PENF"]
 	path = src/third_party/PENF
-	url = https://github.com/szaghi/PENF
-  branch = master
+	url = git@github.com:szaghi/PENF.git
+	branch = master
 [submodule "src/third_party/StringiFor"]
 	path = src/third_party/StringiFor
-	url = git@github.com:szaghi/StringiFor
-  branch = master
+	url = git@github.com:szaghi/StringiFor.git
+	branch = master
 [submodule "src/third_party/VecFor"]
 	path = src/third_party/VecFor
-	url = git@github.com:szaghi/VecFor.git
-  branch = master
+	url = git@github.com:szaghi/VecFor.git.git
+	branch = master
 [submodule "src/third_party/VTKFortran"]
 	path = src/third_party/VTKFortran
-	url = git@github.com:szaghi/VTKFortran
-  branch = master
+	url = git@github.com:szaghi/VTKFortran.git
+	branch = master
