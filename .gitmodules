@@ -26,6 +26,10 @@
 	path = src/third_party/MORTIF
 	url = git@github.com:szaghi/MORTIF.git
 	branch = master
+[submodule "src/third_party/MOTIOn"]
+	path = src/third_party/MOTIOn
+	url = git@github.com:szaghi/MOTIOn.git
+	branch = main
 [submodule "src/third_party/PENF"]
 	path = src/third_party/PENF
 	url = git@github.com:szaghi/PENF.git
@@ -36,7 +40,7 @@
 	branch = master
 [submodule "src/third_party/VecFor"]
 	path = src/third_party/VecFor
-	url = git@github.com:szaghi/VecFor.git.git
+	url = git@github.com:szaghi/VecFor.git
 	branch = master
 [submodule "src/third_party/VTKFortran"]
 	path = src/third_party/VTKFortran
