@@ -324,72 +324,34 @@ contains
    call self%adam%make_comm_local_maps_ghost_bc
    endsubroutine load_restart_files
 
-   subroutine save_hdf5(self, output_basename) !ok, commentato parte relativa a q_aux e cambio nomi variabili
+   subroutine save_hdf5(self, output_basename, with_ghost)
    !< Save simulation data in HDF5 format.
    class(prism_cpu_object), intent(inout)        :: self             !< The equation.
    character(*),            intent(in), optional :: output_basename  !< Output basename.
+   logical,                 intent(in), optional :: with_ghost       !< Flag to save ghost cells.
    character(:), allocatable                     :: output_basename_ !< Output basename, local var.
+   character(3), allocatable                     :: q_name(:)        !< Fields name.
 
+   if ((.not.self%physics%D_divergence_cleaner).and.(.not.self%physics%B_divergence_cleaner)) then
+      q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
+   elseif ((self%physics%D_divergence_cleaner).and.(.not.self%physics%B_divergence_cleaner)) then
+      q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi']
+   elseif ((self%physics%D_divergence_cleaner).and.(self%physics%B_divergence_cleaner)) then
+      q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi', 'psi']
+   endif
    call self%mpih%barrier(tictoc=.true.)
    call self%mpih%print_message('save HDF5 files t: '//trim(str(self%time%it,.true.))//', time: '//&
                                 trim(str(self%time%time,.true.)))
    output_basename_ = trim(self%io%output_basename)//'-'//trim(strz(self%time%it,9))
    if (present(output_basename)) output_basename_ = trim(output_basename)
-
-   ! da rimuovere
-   self%field_div(1:3,:,:,:,:) =      self%coil%j_vec(1:3,:,:,:,:)
-   self%field_div(4  ,:,:,:,:) = real(self%coil%coil_flag(:,:,:,:), R8P)
-   ! da rimuovere
-   if (self%ib%solids_number>0) then
-      if (.not.self%physics%D_divergence_cleaner .and. .not.self%physics%B_Divergence_cleaner) then
-         call self%adam%save_hdf5(basename=trim(output_basename_),                                                 &
-                                  q=self%q,                                                                        &
-                                  q_aux=self%field_Div,                                                            &
-                                  q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz '],                  &
-                                  ! q_aux_name=['DivD_d','DivB_d','DivD_f','DivB_f'],                                &
-                                  q_aux_name=['j_vec_1','j_vec_2','j_vec_3','coil_fl'],                            &
-                                  with_cell_morton=.true., phi=self%ib%phi)
-      elseif (self%physics%D_divergence_cleaner .and. .not.self%physics%B_Divergence_cleaner) then
-            call self%adam%save_hdf5(basename=trim(output_basename_),                                              &
-                                  q=self%q,                                                                        &
-                                  q_aux=self%field_Div,                                                            &
-                                  q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi'],           &
-                                  q_aux_name=['DivD_d','DivB_d','DivD_f','DivB_f'],                                &
-                                  with_cell_morton=.true., phi=self%ib%phi)
-      elseif (self%physics%D_divergence_cleaner .and. self%physics%B_Divergence_cleaner) then
-            call self%adam%save_hdf5(basename=trim(output_basename_),                                              &
-                                  q=self%q,                                                                        &
-                                  q_aux=self%field_Div,                                                            &
-                                  q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi', 'psi'],    &
-                                  q_aux_name=['DivD_d','DivB_d','DivD_f','DivB_f'],                                &
-                                  with_cell_morton=.true., phi=self%ib%phi)
-      endif
-
-   else
-      if (.not.self%physics%D_divergence_cleaner .and. .not.self%physics%B_Divergence_cleaner) then
-         call self%adam%save_hdf5(basename=trim(output_basename_),                                                 &
-                                  q=self%q,                                                                        &
-                                  q_aux=self%field_Div,                                                            &
-                                  q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz '],                  &
-                                  ! q_aux_name=['DivD_d','DivB_d','DivD_f','DivB_f'],                                &
-                                  q_aux_name=['j_vec_1','j_vec_2','j_vec_3','coil_fl'],                            &
-                                  with_cell_morton=.true.)
-      elseif (self%physics%D_divergence_cleaner .and. .not.self%physics%B_Divergence_cleaner) then
-            call self%adam%save_hdf5(basename=trim(output_basename_),                                              &
-                                  q=self%q,                                                                        &
-                                  q_aux=self%field_Div,                                                            &
-                                  q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi'],           &
-                                  q_aux_name=['DivD_d','DivB_d','DivD_f','DivB_f'],                                &
-                                  with_cell_morton=.true.)
-      elseif (self%physics%D_divergence_cleaner .and. self%physics%B_Divergence_cleaner) then
-            call self%adam%save_hdf5(basename=trim(output_basename_),                                              &
-                                  q=self%q,                                                                        &
-                                  q_aux=self%field_Div,                                                            &
-                                  q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi', 'psi'],    &
-                                  q_aux_name=['DivD_d','DivB_d','DivD_f','DivB_f'],                                &
-                                  with_cell_morton=.true.)
-      endif
-   endif
+   call self%adam%save_xh5f(basename=trim(output_basename_),                                           &
+                            q=self%field%q,           q_name=q_name,                                   &
+                            q_a1=self%field_div,      q_a1_name=['DivD_d','DivB_d','DivD_f','DivB_f'], &
+                            q_a2=self%coil%j_vec,     q_a2_name=['j_vec_1','j_vec_2','j_vec_3'],       &
+                            ! s_a1=self%coil%coil_flag, s_a1_name='coil_flag',                           &
+                            with_ghost=with_ghost,                                                     &
+                            with_cell_morton=.true.,                                                   &
+                            t=self%time%it, time=self%time%time)
    call self%mpih%barrier(tictoc=.true.)
    endsubroutine save_hdf5
 

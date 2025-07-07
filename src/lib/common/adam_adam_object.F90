@@ -11,6 +11,7 @@ use adam_tree_node_object
 use adam_tree_bucket_object
 use adam_tree_object
 use finer, only : file_ini
+use motion
 use penf
 use stringifor
 use vtk_fortran
@@ -44,10 +45,37 @@ type :: adam_object
       procedure, pass(self) :: mpi_redistribute              !< Redistribute nodes/blocks to processes, load balancing.
       procedure, pass(self) :: prune                         !< Prune nodes/blocks.
       procedure, pass(self) :: refine_uniform                !< Refine all blocks uniformly.
-      procedure, pass(self) :: save_hdf5                     !< Save ADAM in HDF5 format.
+      ! procedure, pass(self) :: save_hdf5                     !< Save ADAM in HDF5 format.
       procedure, pass(self) :: save_restart_files            !< Save restart files.
       procedure, pass(self) :: save_slice                    !< Save slice.
       procedure, pass(self) :: save_vtk                      !< Save ADAM in VTK  format.
+      procedure, pass(self) :: save_xh5f                     !< Save ADAM in XH5F format.
+      generic               :: save_xh5f_field =>   &
+                               save_xh5f_field_3D_R8P, &
+                               save_xh5f_field_4D_R8P, &
+                               save_xh5f_field_3D_R4P, &
+                               save_xh5f_field_4D_R4P, &
+                               save_xh5f_field_3D_I8P, &
+                               save_xh5f_field_4D_I8P, &
+                               save_xh5f_field_3D_I4P, &
+                               save_xh5f_field_4D_I4P, &
+                               save_xh5f_field_3D_I2P, &
+                               save_xh5f_field_4D_I2P, &
+                               save_xh5f_field_3D_I1P, &
+                               save_xh5f_field_4D_I1P        !< Save fields by XH5F file handler.
+      ! private methods
+      procedure, pass(self), private :: save_xh5f_field_3D_R8P !< Save fields by XH5F file handler, rank 3D, kind R8P.
+      procedure, pass(self), private :: save_xh5f_field_4D_R8P !< Save fields by XH5F file handler, rank 4D, kind R8P.
+      procedure, pass(self), private :: save_xh5f_field_3D_R4P !< Save fields by XH5F file handler, rank 3D, kind R4P.
+      procedure, pass(self), private :: save_xh5f_field_4D_R4P !< Save fields by XH5F file handler, rank 4D, kind R4P.
+      procedure, pass(self), private :: save_xh5f_field_3D_I8P !< Save fields by XH5F file handler, rank 3D, kind I8P.
+      procedure, pass(self), private :: save_xh5f_field_4D_I8P !< Save fields by XH5F file handler, rank 4D, kind I8P.
+      procedure, pass(self), private :: save_xh5f_field_3D_I4P !< Save fields by XH5F file handler, rank 3D, kind I4P.
+      procedure, pass(self), private :: save_xh5f_field_4D_I4P !< Save fields by XH5F file handler, rank 4D, kind I4P.
+      procedure, pass(self), private :: save_xh5f_field_3D_I2P !< Save fields by XH5F file handler, rank 3D, kind I2P.
+      procedure, pass(self), private :: save_xh5f_field_4D_I2P !< Save fields by XH5F file handler, rank 4D, kind I2P.
+      procedure, pass(self), private :: save_xh5f_field_3D_I1P !< Save fields by XH5F file handler, rank 3D, kind I1P.
+      procedure, pass(self), private :: save_xh5f_field_4D_I1P !< Save fields by XH5F file handler, rank 4D, kind I1P.
 endtype adam_object
 
 contains
@@ -407,7 +435,6 @@ contains
    call self%tree%mpi_redistribute
    call self%maps%make_comm_local_maps
    call self%field%mpi_redistribute(q=q)
-   
 
    endsubroutine mpi_redistribute
 
@@ -835,6 +862,175 @@ contains
       endif
    endassociate
    endsubroutine save_vtk
+
+   subroutine save_xh5f(self, basename, q, q_name, directory, with_ghost, with_cell_morton, t, time, &
+                        q_a1, q_a1_name,                                                             &
+                        q_a2, q_a2_name,                                                             &
+                        q_a3, q_a3_name,                                                             &
+                        s_a1, s_a1_name,                                                             &
+                        s_a2, s_a2_name,                                                             &
+                        s_a3, s_a3_name)
+   !< Save ADAM in XH5F format.
+   class(adam_object), intent(inout)        :: self                    !< ADAM.
+   character(*),       intent(in)           :: basename                !< Base name of output files.
+   real(R8P),          intent(in)           :: q(1:,              &
+                                                 1-self%grid%ngc:,&
+                                                 1-self%grid%ngc:,&
+                                                 1-self%grid%ngc:,&
+                                                 1:)                   !< Q-vector variables [nv,ni,nj,nk,nb].
+   character(*),       intent(in), optional :: q_name(:)               !< Q-vector variables names [nv].
+   character(*),       intent(in), optional :: directory               !< Directory name of output files.
+   logical,            intent(in), optional :: with_ghost              !< Flag to save ghost cells.
+   logical,            intent(in), optional :: with_cell_morton        !< Flag to save Morton code also in cells.
+   integer(I4P),       intent(in), optional :: t                       !< Time iteration.
+   real(R8P),          intent(in), optional :: time                    !< Time.
+   real(R8P),          intent(in), optional :: q_a1(1:,              &
+                                                    1-self%grid%ngc:,&
+                                                    1-self%grid%ngc:,&
+                                                    1-self%grid%ngc:,&
+                                                    1:)                !< Q-vector auxiliary 1 variables [nv,ni,nj,nk,nb].
+   character(*),       intent(in), optional :: q_a1_name(:)            !< Q-vector auxiliary 1 variables names [nv].
+   real(R8P),          intent(in), optional :: q_a2(1:,              &
+                                                    1-self%grid%ngc:,&
+                                                    1-self%grid%ngc:,&
+                                                    1-self%grid%ngc:,&
+                                                    1:)                !< Q-vector auxiliary 2 variables [nv,ni,nj,nk,nb].
+   character(*),       intent(in), optional :: q_a2_name(:)            !< Q-vector auxiliary 2 variables names [nv].
+   real(R8P),          intent(in), optional :: q_a3(1:,              &
+                                                    1-self%grid%ngc:,&
+                                                    1-self%grid%ngc:,&
+                                                    1-self%grid%ngc:,&
+                                                    1:)                !< Q-vector auxiliary 3 variables [nv,ni,nj,nk,nb].
+   character(*),       intent(in), optional :: q_a3_name(:)            !< Q-vector auxiliary 3 variables names [nv].
+   real(R8P),          intent(in), optional :: s_a1(1-self%grid%ngc:,&
+                                                    1-self%grid%ngc:,&
+                                                    1-self%grid%ngc:,&
+                                                    1:)                !< Scalar   auxiliary 1 variable [ni,nj,nk,nb].
+   character(*),       intent(in), optional :: s_a1_name               !< Scalar   auxiliary 1 variable name.
+   real(R8P),          intent(in), optional :: s_a2(1-self%grid%ngc:,&
+                                                    1-self%grid%ngc:,&
+                                                    1-self%grid%ngc:,&
+                                                    1:)                !< Scalar   auxiliary 2 variable [ni,nj,nk,nb].
+   character(*),       intent(in), optional :: s_a2_name               !< Scalar   auxiliary 2 variable name.
+   real(R8P),          intent(in), optional :: s_a3(1-self%grid%ngc:,&
+                                                    1-self%grid%ngc:,&
+                                                    1-self%grid%ngc:,&
+                                                    1:)                !< Scalar   auxiliary 3 variable [ni,nj,nk,nb].
+   character(*),       intent(in), optional :: s_a3_name               !< Scalar   auxiliary 3 variable name.
+   character(:), allocatable                :: directory_              !< Directory name of output files, local var.
+   logical                                  :: with_ghost_             !< Flag to save ghost cells, local var.
+   logical                                  :: with_cell_morton_       !< Flag to save Morton code also in cells, local var.
+   integer(I4P)                             :: t_                      !< Time iteration, local var.
+   real(R8P)                                :: time_                   !< Time, local var.
+   integer(I4P)                             :: ngc                     !< Ghost cells saved.
+   integer(I4P)                             :: ijk(2,3)                !< Blocks extents.
+   integer(I8P)                             :: nijk(3)                 !< Blocks dimensions.
+   real(R8P)                                :: emin(3)                 !< Minimum abscissa of current block.
+   character(:), allocatable                :: filename_hdf5           !< HDF5 file name.
+   character(:), allocatable                :: filename_xdmf           !< XDMF file name.
+   character(:), allocatable                :: block_name              !< Block name.
+   type(xh5f_file_object)                   :: xh5f                    !< XH5F file handler.
+   integer(I4P)                             :: i, b                    !< Counter.
+
+   directory_        = ''      ; if (present(directory       )) directory_        = trim(adjustl(directory))
+   with_ghost_       = .false. ; if (present(with_ghost      )) with_ghost_       = with_ghost
+   with_cell_morton_ = .false. ; if (present(with_cell_morton)) with_cell_morton_ = with_cell_morton
+   t_                = 0_I4P   ; if (present(t               )) t_                = t
+   time_             = 0._R8P  ; if (present(time            )) time_             = time
+   if (with_ghost_) then
+      ngc = self%grid%ngc
+   else
+      ngc = 0_I4P
+   endif
+   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
+   ijk(:,1) = [1-ngc,ni+ngc]
+   ijk(:,2) = [1-ngc,nj+ngc]
+   ijk(:,3) = [1-ngc,nk+ngc]
+   nijk = [ijk(2,1)-ijk(1,1)+1, &
+           ijk(2,2)-ijk(1,2)+1, &
+           ijk(2,3)-ijk(1,3)+1]
+   endassociate
+   filename_hdf5 = directory_//trim(adjustl(basename))//'-proc'//trim(strz(self%mpih%myrank,6))//'.h5'
+   filename_xdmf = directory_//trim(adjustl(basename))//'.xdmf'
+   call xh5f%open_file(filename_hdf5=filename_hdf5, filename_xdmf=filename_xdmf, act=FILE_PARAMETERS%FILE_ACTION_OVERWRITE)
+   call xh5f%open_grid(grid_name='adam',                                 grid_type=XDMF_PARAMETERS%XDMF_GRID_TYPE_COLLECTION_ASYNC)
+   call xh5f%open_grid(grid_name='mpi_'//trim(strz(self%mpih%myrank,6)), grid_type=XDMF_PARAMETERS%XDMF_GRID_TYPE_COLLECTION)
+   do b=1, self%field%blocks_number
+      emin = [self%field%emin(1,b)-ngc*self%field%dxyz(1,b), &
+              self%field%emin(2,b)-ngc*self%field%dxyz(2,b), &
+              self%field%emin(3,b)-ngc*self%field%dxyz(3,b)]
+      block_name = 'block_'//trim(strz(b,9))//'-proc'//trim(strz(self%mpih%myrank,6))
+      call xh5f%open_block(block_type = XH5F_PARAMETERS%XH5F_BLOCK_CARTESIAN_UNIFORM, &
+                           block_name = block_name,                                   &
+                           nijk       = nijk,                                         &
+                           emin       = emin,                                         &
+                           dxyz       = self%field%dxyz(:,b),                         &
+                           time       = time_)
+      call xh5f%save_block_field(xdmf_field_name = 'time_iteration',                                &
+                                 field           = t_,                                              &
+                                 field_center    = XDMF_PARAMETERS%XDMF_ATTR_CENTER_GRID,           &
+                                 field_format    = XDMF_PARAMETERS%XDMF_DATAITEM_NUMBER_FORMAT_HDF, &
+                                 hdf5_field_name = block_name//'-time_iteration')
+      ! if (with_cell_morton_) &
+      !    call self%save_xh5f_field(xh5f=xh5f, block_name=block_name, ijk=ijk, nijk=nijk,                                    &
+      !                              q=reshape([(self%field%code(b),i=1,nijk(1)*nijk(2)*nijk(3))],[nijk(1),nijk(2),nijk(3)]), &
+      !                              q_name='morton')
+      call self%save_xh5f_field(xh5f=xh5f, block_name=block_name, ijk=ijk, nijk=nijk, q=q(:,:,:,:,b), q_name=q_name)
+      if (present(q_a1)) call self%save_xh5f_field(xh5f=xh5f, block_name=block_name, ijk=ijk, nijk=nijk, &
+                                                   q=q_a1(:,:,:,:,b), q_name=q_a1_name)
+      if (present(q_a2)) call self%save_xh5f_field(xh5f=xh5f, block_name=block_name, ijk=ijk, nijk=nijk, &
+                                                   q=q_a2(:,:,:,:,b), q_name=q_a2_name)
+      if (present(q_a3)) call self%save_xh5f_field(xh5f=xh5f, block_name=block_name, ijk=ijk, nijk=nijk, &
+                                                   q=q_a3(:,:,:,:,b), q_name=q_a3_name)
+      if (present(s_a1)) call self%save_xh5f_field(xh5f=xh5f, block_name=block_name, ijk=ijk, nijk=nijk, &
+                                                   q=s_a1(:,:,:,b), q_name=s_a1_name)
+      if (present(s_a2)) call self%save_xh5f_field(xh5f=xh5f, block_name=block_name, ijk=ijk, nijk=nijk, &
+                                                   q=s_a2(:,:,:,b), q_name=s_a2_name)
+      if (present(s_a3)) call self%save_xh5f_field(xh5f=xh5f, block_name=block_name, ijk=ijk, nijk=nijk, &
+                                                   q=s_a3(:,:,:,b), q_name=s_a3_name)
+      call xh5f%close_block
+   enddo
+   call xh5f%close_grid
+   call xh5f%close_grid(grid_type=XDMF_PARAMETERS%XDMF_GRID_TYPE_COLLECTION_ASYNC)
+   call xh5f%close_file
+   endsubroutine save_xh5f
+
+   ! private methods
+#define KKP R8P
+#define VARTYPE real
+#define SAVE_XH5F_FIELD_3D_KKP save_xh5f_field_3D_R8P
+#define SAVE_XH5F_FIELD_4D_KKP save_xh5f_field_4D_R8P
+#include "adam_save_xh5f_field_agnostic.INC"
+
+#define KKP R4P
+#define VARTYPE real
+#define SAVE_XH5F_FIELD_3D_KKP save_xh5f_field_3D_R4P
+#define SAVE_XH5F_FIELD_4D_KKP save_xh5f_field_4D_R4P
+#include "adam_save_xh5f_field_agnostic.INC"
+
+#define KKP I8P
+#define VARTYPE integer
+#define SAVE_XH5F_FIELD_3D_KKP save_xh5f_field_3D_I8P
+#define SAVE_XH5F_FIELD_4D_KKP save_xh5f_field_4D_I8P
+#include "adam_save_xh5f_field_agnostic.INC"
+
+#define KKP I4P
+#define VARTYPE integer
+#define SAVE_XH5F_FIELD_3D_KKP save_xh5f_field_3D_I4P
+#define SAVE_XH5F_FIELD_4D_KKP save_xh5f_field_4D_I4P
+#include "adam_save_xh5f_field_agnostic.INC"
+
+#define KKP I2P
+#define VARTYPE integer
+#define SAVE_XH5F_FIELD_3D_KKP save_xh5f_field_3D_I2P
+#define SAVE_XH5F_FIELD_4D_KKP save_xh5f_field_4D_I2P
+#include "adam_save_xh5f_field_agnostic.INC"
+
+#define KKP I1P
+#define VARTYPE integer
+#define SAVE_XH5F_FIELD_3D_KKP save_xh5f_field_3D_I1P
+#define SAVE_XH5F_FIELD_4D_KKP save_xh5f_field_4D_I1P
+#include "adam_save_xh5f_field_agnostic.INC"
 
    ! non TBP
    ! HDF5

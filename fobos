@@ -74,56 +74,56 @@ preproc  = -D_MPI_
 [prism-gnu-sz-ws]
 help     = Build PRISM app with GNU compiler on SZ workstation
 template = template-gnu-sz-ws
-preproc  = -D_MPI_
+preproc  = -D_MPI_ -w
 target   = adam_prism_cpu.F90
 
 [prism-gnu-sz-ws-debug]
 help     = Build PRISM app with GNU compiler on SZ workstation, debug mode
 template = template-gnu-sz-ws-debug
-preproc  = -D_MPI_
+preproc  = -D_MPI_ -w
 target   = adam_prism_cpu.F90
 
 [prism-fnl-nvf-oac-sz-ws]
 help     = Build PRISM app with FNL library and NVF OpenACC compiler on SZ workstation
 template = template-nvf-oac-sz-ws
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
 target   = adam_prism_fnl.F90
 
 [prism-fnl-nvf-oac-sz-ws-debug]
 help     = Build PRISM app with FNL library and NVF OpenACC compiler on SZ workstation, debug mode
 template = template-nvf-oac-sz-ws-debug
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
 target   = adam_prism_fnl.F90
 
 #nasto
 [nasto-fnl-nvf-oac-sz-ws]
 help     = Build NASTO app with FNL library and NVF OpenACC compiler on SZ workstation
 template = template-nvf-oac-sz-ws
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
 target   = adam_nasto_fnl.F90
 
 [nasto-fnl-nvf-oac-sz-ws-debug]
 help     = Build NASTO app with FNL library and NVF OpenACC compiler on SZ workstation, debug mode
 template = template-nvf-oac-sz-ws-debug
-preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF
+preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
 target   = adam_nasto_fnl.F90
 
 [nasto-nvf-cuda-sz-ws]
 help     = Build NASTO app with NVF CUDA compiler on SZ workstation
 template = template-nvf-cuda-sz-ws
-preproc  = -D_MPI_ -DCOMPILER_NVF -D_NVF
+preproc  = -D_MPI_ -DCOMPILER_NVF -D_NVF -w
 target   = adam_nasto_nvf.F90
 
 [nasto-nvf-cuda-sz-ws-debug]
 help     = Build NASTO app with NVF CUDA compiler on SZ workstation, debug mode
 template = template-nvf-cuda-sz-ws-debug
-preproc  = -D_MPI_ -DCOMPILER_NVF -D_NVF
+preproc  = -D_MPI_ -DCOMPILER_NVF -D_NVF -w
 target   = adam_nasto_nvf.F90
 
 [nasto-cpu-gnu-sz-ws]
 help     = Build NASTO app with CPU backend GNU compiler on SZ workstation
 template = template-gnu-sz-ws
-preproc  = -D_MPI_ -DCOMPILER_GNU
+preproc  = -D_MPI_ -DCOMPILER_GNU -w
 target   = adam_nasto_cpu.F90
 
 [nasto-cpu-gnu-github]
@@ -132,7 +132,7 @@ template = template-base
 compiler = gnu
 cflags   = -cpp -c -O2
 lflags   = -O2
-preproc  = -D_MPI_ -DCOMPILER_GNU
+preproc  = -D_MPI_ -DCOMPILER_GNU -w
 target   = adam_nasto_cpu.F90
 libs     = lib/hdf5_github/lib/libhdf5_fortran.a lib/hdf5_github/lib/libhdf5_f90cstub.a lib/hdf5_github/lib/libhdf5.a
 ext_libs = z
@@ -168,6 +168,9 @@ exclude_dirs = src/lib_experimental/
                FUNDAL/src/third_party/
                MORTIF/src/tests/
                MORTIF/src/third_party/
+               MOTIOn/src/tests/
+               MOTIOn/src/third_party/
+               MOTIOn/lib
                PENF/src/tests/
                StringiFor/src/tests/
                StringiFor/src/third_party/
@@ -255,6 +258,10 @@ rule_4 = rm -rf doc/html/publish
 [rule-deldoc]
 help = Delete documentation
 rule = rm -rf doc/html/*
+
+[rule-cleanall]
+help = Clean all compiled objects
+rule = rm -rf exe building-errors.log
 
 [common-variables]
 # environments
