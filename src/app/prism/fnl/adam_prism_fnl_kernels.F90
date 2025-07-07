@@ -46,7 +46,8 @@ contains
    integer(I4P)                :: i,j,k,b,n                              !< Counter
 
    g = 10._R8P*(time/td)**3 - 15._R8P*(time/td)**4 + 6._R8P*(time/td)**5
-   !$acc parallel loop independent DEVICEVAR(coil_flag_gpu,A_gpu,f_gpu,phase_gpu,d_gpu,j_vec_gpu,q_gpu,dx_gpu) &
+   !$acc parallel loop independent gang vector collapse(4)                           &
+   !$acc DEVICEVAR(coil_flag_gpu,A_gpu,f_gpu,phase_gpu,d_gpu,j_vec_gpu,q_gpu,dx_gpu) &
    !$acc firstprivate(g,time,td)
    !$omp OMPLOOP DEVICEVAR(coil_flag_gpu,A_gpu,f_gpu,phase_gpu,d_gpu,j_vec_gpu,q_gpu,dx_gpu) firstprivate(g,time,td)
    do b=1, blocks_number
@@ -104,7 +105,7 @@ contains
    real(R8P),    intent(inout) :: div_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Divergence of D, B.
    integer(I4P)                :: i,j,k,b                             !< Counter
 
-   !$acc parallel loop independent DEVICEVAR(q_gpu,dx_gpu)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,dx_gpu)
    !$omp OMPLOOP DEVICEVAR(q_gpu,dx_gpu)
    do b=1, blocks_number
       do k=1, nk
@@ -148,7 +149,7 @@ contains
       si_i = 1-si(1)
       si_j = 1-si(2)
       si_k = 1-si(3)
-      !$acc parallel loop independent collapse(4)                              &
+      !$acc parallel loop independent gang vector collapse(4)                  &
       !$acc default(none)                                                      &
       !$acc DEVICEVAR(q_gpu,fluxes_gpu)                                        &
       !$acc firstprivate(si,sir,dir,si_i,si_j,si_k,blocks_number,ngc,nv,evmax) &
@@ -174,7 +175,7 @@ contains
       si_i = 1-si(1)
       si_j = 1-si(2)
       si_k = 1-si(3)
-      !$acc parallel loop independent collapse(4)                              &
+      !$acc parallel loop independent gang vector collapse(4)                  &
       !$acc default(none)                                                      &
       !$acc DEVICEVAR(q_gpu,fluxes_gpu)                                        &
       !$acc firstprivate(si,sir,dir,si_i,si_j,si_k,blocks_number,ngc,nv,evmax) &
@@ -200,7 +201,7 @@ contains
       si_i = 1-si(1)
       si_j = 1-si(2)
       si_k = 1-si(3)
-      !$acc parallel loop independent collapse(4)                              &
+      !$acc parallel loop independent gang vector collapse(4)                  &
       !$acc default(none)                                                      &
       !$acc DEVICEVAR(q_gpu,fluxes_gpu)                                        &
       !$acc firstprivate(si,sir,dir,si_i,si_j,si_k,blocks_number,ngc,nv,evmax) &
@@ -256,12 +257,13 @@ contains
    qmz = 1._R8P ; if (null_z) qmz = 0._R8P
    if (present(phi_gpu)) then
       all_solids = ubound(phi_gpu, dim=5)
-      !$acc parallel loop independent DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, dq_gpu)
+      !$acc parallel loop independent gang vector collapse(4) &
+      !$acc DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, dq_gpu)
       !$omp OMPLOOP DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, dq_gpu)
+      do b=1,blocks_number
       do k=1,nk
       do j=1,nj
       do i=1,ni
-      do b=1,blocks_number
          dx_locale = dx_gpu(b)
          if (phi_gpu(b,i,j,k,all_solids)<0.) then
             if (phi_gpu(b,i+1,j,k,all_solids)*phi_gpu(b,i-1,j,k,all_solids)<0) then
@@ -325,12 +327,13 @@ contains
       enddo
       enddo
    else
-      !$acc parallel loop independent DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, dq_gpu)
+      !$acc parallel loop independent gang vector collapse(4) &
+      !$acc DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, dq_gpu)
       !$omp OMPLOOP DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, dq_gpu)
+      do b=1,blocks_number
       do k=1,nk
       do j=1,nj
       do i=1,ni
-      do b=1,blocks_number
          do v=1, nv
             dq_gpu(b,i,j,k,v) = - (flx_gpu(b,i,j,k,v)-flx_gpu(b,i-1,j,k,v))/dx_gpu(b) &
                                 - (fly_gpu(b,i,j,k,v)-fly_gpu(b,i,j-1,k,v))/dy_gpu(b) &
@@ -368,7 +371,7 @@ contains
    integer(I4P)              :: b             !< Counter.
 
    dxyz_min = huge(0._R8P)
-   !$acc parallel loop independent DEVICEVAR(dxyz_gpu) reduction(min: dxyz_min)
+   !$acc parallel loop independent gang vector DEVICEVAR(dxyz_gpu) reduction(min: dxyz_min)
    !$omp OMPLOOP DEVICEVAR(dxyz_gpu) reduction(min: dxyz_min)
    do b=1, blocks_number
       dxyz_min = min(dxyz_min, dxyz_gpu(b,1), dxyz_gpu(b,2), dxyz_gpu(b,3))
@@ -412,7 +415,7 @@ contains
    real(R8P)                   :: fi, f                   !< Variabili phi e f fWL.
 
    do crown=1, ngc
-      !$acc parallel loop independent DEVICEVAR(l_map_bc_gpu, fec_1_6_array_gpu, q_gpu)
+      !$acc parallel loop independent gang vector DEVICEVAR(l_map_bc_gpu, fec_1_6_array_gpu, q_gpu)
       !$omp OMPLOOP DEVICEVAR(l_map_bc_gpu, fec_1_6_array_gpu, q_gpu)
       do c=1, size(l_map_bc_gpu, dim=1)
          b = l_map_bc_gpu(c, 1 ,crown)

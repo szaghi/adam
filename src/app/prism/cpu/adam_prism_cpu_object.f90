@@ -1,10 +1,9 @@
-!< ADAM, Maxwell equations system class definition, CPU backend.
+!< ADAM, PRISM (Plasma Research usIng Simulation Methods) equations system class definition, CPU backend.
 module adam_prism_cpu_object
-!< ADAM, Maxwell equations system class definition, CPU backend.
+!< ADAM, PRISM (Plasma Research usIng Simulation Methods) equations system class definition, CPU backend.
 
 use adam_common_library
 use adam_prism_common_library
-!use adam_riemann_maxwell_library, only :: compute_convective_fluxes_Maxwell (decommenta se non lo aggiungi alla library prism)
 use penf
 use mpi
 
@@ -20,33 +19,23 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
    real(R8P), allocatable :: flz(:,:,:,:,:) !< Fluxes along z.
    contains
       ! auxiliary methods
-      procedure, pass(self) :: allocate_cpu !< Allocate CPU data.  !
-      procedure, pass(self) :: initialize   !< Initialize the equation. !
-      ! AMR methods
-      !procedure, pass(self) :: amr_update       !< Do AMR update. !!
-      !procedure, pass(self) :: compute_phi      !< Compute phi, distance from IB solid. !!
-      !procedure, pass(self) :: mark_by_geo      !< Mark blocks to be refined/derefined by a geometric constrain. !!
-      !procedure, pass(self) :: mark_by_grad_var !< Mark blocks to be refined/derefined by a `grad(var)` value. !!
-      !procedure, pass(self) :: move_phi         !< Move phi. !!
-      !procedure, pass(self) :: refine_uniform   !< Refine all blocks uniformly.!!
-      ! IB methods
-      !procedure, pass(self) :: integrate_eikonal !< Integrate eikonal equation.!!
+      procedure, pass(self) :: allocate_cpu !< Allocate CPU data.
+      procedure, pass(self) :: initialize   !< Initialize the equation.
       ! IO methods
-      procedure, pass(self) :: load_restart_files   !< Load restart files. !
-      procedure, pass(self) :: save_hdf5            !< Save simulation data in HDF5 format. !
-      procedure, pass(self) :: save_residuals       !< Save residuals history. !
-      procedure, pass(self) :: save_restart_files   !< Save restart files. !
-      procedure, pass(self) :: save_simulation_data !< Save all simulation data. !
+      procedure, pass(self) :: load_restart_files   !< Load restart files.
+      procedure, pass(self) :: save_xh5f            !< Save simulation data in XH5F format.
+      procedure, pass(self) :: save_residuals       !< Save residuals history.
+      procedure, pass(self) :: save_restart_files   !< Save restart files.
+      procedure, pass(self) :: save_simulation_data !< Save all simulation data.
       ! IC/BC
-      procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation. !
-      procedure, pass(self) :: set_initial_conditions  !< Set initial conditions (and coils) of equation.  !
-      procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.  !
+      procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation.
+      procedure, pass(self) :: set_initial_conditions  !< Set initial conditions (and coils) of equation.
+      procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
       ! numerical methods
-      procedure, pass(self) :: compute_dt          !< Compute time step.
-      !procedure, pass(self) :: compute_q_auxiliary !< Compute auxiliary variables.
-      procedure, pass(self) :: compute_residuals   !< Compute residuals.
-      procedure, pass(self) :: integrate           !< Perform one step integration.
-      procedure, pass(self) :: simulate            !< Perform the simulation.
+      procedure, pass(self) :: compute_dt        !< Compute time step.
+      procedure, pass(self) :: compute_residuals !< Compute residuals.
+      procedure, pass(self) :: integrate         !< Perform one step integration.
+      procedure, pass(self) :: simulate          !< Perform the simulation.
 endtype prism_cpu_object
 
 interface assign_omp
@@ -95,224 +84,6 @@ contains
    call self%mpih%print_message('prism_cpu_object%initialize finish')
    endsubroutine initialize
 
-   ! ! AMR methods
-   !subroutine amr_update(self)
-   ! !< Do AMR update.
-   ! class(prism_cpu_object), intent(inout) :: self                !< The equation.
-   ! logical                                :: is_grid_changed     !< Flag to check grid changes for each marker.
-   ! logical                                :: is_grid_changed_all !< Flag to check grid changes for each iter.
-   ! integer(I4P)                           :: i, i_marker         !< Counter.
-   ! type(amr_marker_object)                :: amr_marker          !< Current amr marker.
- !
-   ! amr: do i=1, self%amr%iters
-   !    is_grid_changed_all = .false.
-   !    do i_marker=1, self%amr%markers_number
-   !       amr_marker = self%amr%markers(i_marker)
-   !       call self%update_ghost(q=self%field%q)
-   !       select case(amr_marker%mode)
-   !       case(AMR_GEO)
-   !          call self%mark_by_geo(delta_fine=amr_marker%delta_fine, delta_coarse=amr_marker%delta_coarse)
-   !       case(AMR_GRAD)
-   !          select case(amr_marker%field)
-   !          case(1)
-   !             call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_type=amr_marker%delta_type, &
-   !                                        delta_fine=amr_marker%delta_fine,                          &
-   !                                        delta_coarse=amr_marker%delta_coarse, ivar=amr_marker%ivar)
-   !          case(2)
-   !             call self%mark_by_grad_var(grad_tol=amr_marker%tol, delta_type=amr_marker%delta_type, &
-   !                                        delta_fine=amr_marker%delta_fine,                          &
-   !                                        delta_coarse=amr_marker%delta_coarse, ivar=amr_marker%ivar)
-   !          endselect
-   !       endselect
-   !       call self%adam%amr_update(is_marked_by_field=.true., do_blocks_reorder=.false., is_grid_changed=is_grid_changed)
-   !       if (self%ib%solids_number > 0) call self%compute_phi()
-   !       is_grid_changed_all = is_grid_changed_all.or.is_grid_changed
-   !    enddo
-   !    if (.not.is_grid_changed_all) then
-   !        call self%mpih%print_message('AMR Grid stabilized after : '//trim(str(i))//' AMR iterations')
-   !        exit amr
-   !     elseif (i==self%amr%iters) then
-   !        call self%mpih%print_message('AMR Grid is NOT stabilized after : '//trim(str(i))//' AMR iterations')
-   !    endif
-   ! enddo amr
-   ! endsubroutine amr_update
-!
-   ! subroutine compute_phi(self)
-   ! !< Compute phi, distance from IB solid.
-   ! class(prism_cpu_object), intent(inout) :: self !< The equation.
-   !
-   ! if (self%ib%solids_number>0) then
-   !    call self%mpih%print_message('compute IB distance start')
-   !    call self%ib%compute_phi
-   !    call self%mpih%print_message('compute IB distance finish')
-   ! endif
-   ! endsubroutine compute_phi
-!
-   ! subroutine mark_by_geo(self, delta_fine, delta_coarse, threshold, do_init)
-   ! !< Mark blocks to be refined/derefined by a geometric constrain.
-   ! class(prism_cpu_object), intent(inout)        :: self           !< The equation.
-   ! real(R8P),               intent(in)           :: delta_fine     !< Maximum cell delta in fine grids.
-   ! real(R8P),               intent(in)           :: delta_coarse   !< Minimum cell delta in coarse grids.
-   ! real(R8P),               intent(in), optional :: threshold      !< Threshold for sphere proximity.
-   ! real(R8P)                                     :: threshold_     !< Threshold for sphere proximity, local var.
-   ! real(R8P)                                     :: max_cell_delta !< Maximum cell delta.
-   ! real(R8P)                                     :: distance       !< Value (max) of gradient of rho.
-   ! integer(I4P)                                  :: b              !< Counter.
-   ! logical, optional,       intent(in)           :: do_init
-   ! logical                                       :: do_init_
-   !
-   ! do_init_ = .true.    ; if (present(do_init)) do_init_ = do_init
-   ! threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
-   ! if (do_init_) self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
-   ! associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
-   !           blocks_number=>self%blocks_number, ns=>self%ns, dxyz=>self%field%dxyz, phi=>self%ib%phi)
-   !    do b=1, blocks_number
-   !       distance = 1._R8P
-   !       if (maxval(phi(1,:,:,:,b))*minval(phi(1,:,:,:,b)) < 0._R8P) then
-   !          distance = 0._R8P
-   !       endif
-   !       max_cell_delta = max_cell_delta_dist(distance=distance)
-   !
-   !       if (maxval(dxyz(:,b)) > max_cell_delta) then
-   !          self%field%refinements_needed(b) = TO_BE_REFINED
-   !       elseif (maxval(dxyz(:,b)) * threshold_ < max_cell_delta) then
-   !          self%field%refinements_needed(b) = max(self%field%refinements_needed(b), TO_BE_DEREFINED)
-   !       else
-   !          self%field%refinements_needed(b) = max(self%field%refinements_needed(b), TO_NOT_TOUCH)
-   !       endif
-   !    enddo
-   ! endassociate
-   ! contains
-   !    function max_cell_delta_dist(distance) result(delta)
-   !    !< Return the maximum cell delta given a comparison distance.
-   !    real(R8P),          intent(in) :: distance !< Comparison distance.
-   !    real(R8P)                      :: delta    !< Maximum cell delta admissible.
-   !
-   !    if (abs(distance) < epsilon(0._R8P)) then
-   !       delta = delta_fine
-   !    else
-   !       delta = delta_coarse
-   !    endif
-   !    endfunction max_cell_delta_dist
-   ! endsubroutine mark_by_geo
-!
-   ! subroutine mark_by_grad_var(self, grad_tol, delta_type, delta_fine, delta_coarse, ivar, threshold, do_init)
-   ! !< Mark blocks to be refined/derefined by a `grad(var)` value.
-   ! class(prism_cpu_object), intent(inout)        :: self                     !< The equation.
-   ! real(R8P),               intent(in)           :: grad_tol                 !< Gradiend tolerance value.
-   ! character(*),            intent(in)           :: delta_type               !< Delta criterion type.
-   ! real(R8P),               intent(in)           :: delta_fine               !< Maximum cell delta in fine grids.
-   ! real(R8P),               intent(in)           :: delta_coarse             !< Minimum cell delta in coarse grids.
-   ! integer(I4P),            intent(in), optional :: ivar                     !< Variable for marking.
-   ! real(R8P),               intent(in), optional :: threshold                !< Threshold for sphere proximity.
-   ! logical,                 intent(in), optional :: do_init                  !< Re-initialize refinements queries.
-   ! integer(I4P)                                  :: ivar_                    !< Variable for marking (local var).
-   ! logical                                       :: do_init_                 !< Re-initialize refinements queries, local var.
-   ! real(R8P)                                     :: threshold_               !< Threshold for sphere proximity, local var.
-   ! real(R8P)                                     :: max_cell_delta           !< Maximum cell delta.
-   ! real(R8P)                                     :: grad_var                 !< Value (max) of gradient of var.
-   ! integer(I4P)                                  :: b                        !< Counter.
-   ! real(R8P)                                     :: dc(1:self%blocks_number) !< Delta criterion.
-   !
-   ! ivar_     = 1_R4P    ; if (present(ivar)) ivar_ = ivar
-   ! do_init_ = .true.    ; if (present(do_init)) do_init_ = do_init
-   ! threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
-   ! if (do_init_) self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
-   ! associate (ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
-   !            blocks_number=>self%blocks_number, ns=>self%ns, dxyz=>self%field%dxyz)
-   !    select case(delta_type)
-   !    case(AMR_DELTA_T_X)
-   !       dc(1:blocks_number) = dxyz(1,1:blocks_number)
-   !    case(AMR_DELTA_T_Y)
-   !       dc(1:blocks_number) = dxyz(2,1:blocks_number)
-   !    case(AMR_DELTA_T_Z)
-   !       dc(1:blocks_number) = dxyz(3,1:blocks_number)
-   !    case(AMR_DELTA_T_MAX)
-   !       do b=1, blocks_number
-   !          dc(b) = maxval(dxyz(:,b))
-   !       enddo
-   !    endselect
-   !    call self%update_ghost(q=self%field%q)
-   !    call self%compute_q_auxiliary(q=self%field%q, q_aux=self%q_aux)
-   !    do b=1, blocks_number
-   !       call compute_q_gradient(b=b, ni=ni, nj=nj, nk=nk, ngc=ngc, &
-   !                               dx=dxyz(1,b), dy=dxyz(2,b), dz=dxyz(3,b), q=self%q_aux, ivar=ivar_, gradient=grad_var)
-   !       max_cell_delta = max_cell_delta_grad(grad=grad_var)
-   !       if ((dc(b)) > max_cell_delta) then
-   !          self%field%refinements_needed(b) = TO_BE_REFINED
-   !       elseif ((dc(b)) * threshold_ < max_cell_delta) then
-   !          self%field%refinements_needed(b) = max(self%field%refinements_needed(b), TO_BE_DEREFINED)
-   !       else
-   !          self%field%refinements_needed(b) = max(self%field%refinements_needed(b), TO_NOT_TOUCH)
-   !       endif
-   !    enddo
-   ! endassociate
-   ! contains
-   !    function max_cell_delta_grad(grad) result(delta)
-   !    !< Return the maximum cell delta given a gradient tollerance.
-   !    real(R8P), intent(in) :: grad  !< Gradient value.
-   !    real(R8P)             :: delta !< Maximum cell delta admissible.
-   !
-   !    if (grad > grad_tol) then
-   !       delta = delta_fine
-   !    else
-   !       delta = delta_coarse
-   !    endif
-   !    endfunction max_cell_delta_grad
-   ! endsubroutine mark_by_grad_var
-!
-   ! subroutine move_phi(self, velocity, s)
-   ! !< Move phi and the actual ptree representation.
-   ! class(prism_cpu_object), intent(inout) :: self        !< The equation.
-   ! real(R8P),               intent(in)    :: velocity(3) !< Velocity of the movement.
-   ! integer(I4P),            intent(in)    :: s           !< Solid index.
-   !
-   ! if (self%ib%solids_number>0) then
-   !    call self%mpih%print_message('move IB distance start')
-   !    call self%ib%move_phi(velocity=velocity, s=s)
-   !    call self%mpih%print_message('move IB distance finish')
-   ! endif
-   ! endsubroutine move_phi
-!
-   ! subroutine refine_uniform(self, refinement_levels)
-   ! !< Refine all blocks uniformly.
-   ! class(prism_cpu_object), intent(inout) :: self              !< The equation.
-   ! integer(I4P),            intent(in)    :: refinement_levels !< Number of refinement to be performed.
-   ! integer(I4P)                           :: l                 !< Counter.
-   !
-   ! do l=1, refinement_levels
-   !    call self%adam%tree%mark_all_nodes(mark=TO_BE_REFINED)
-   !    call self%adam%amr_update(do_blocks_reorder=.false., do_mpi_redistribute=.true.)
-   ! enddo
-   ! endsubroutine
-
-   ! IB methods
-   ! subroutine integrate_eikonal(self, q)
-   ! !< Integrate eikonal equation.
-   ! class(prism_cpu_object), intent(inout) :: self      !< The equation.
-   ! real(R8P),               intent(inout) :: q(1:,         &
-   !                                             1-self%ngc:,&
-   !                                             1-self%ngc:,&
-   !                                             1-self%ngc:,&
-   !                                             1:)     !< Conservative variables.
-   ! integer(I4P)                           :: i_eikonal !< Counter.
-   !
-   ! associate(blocks_number=>self%blocks_number, solids_number=>self%ib%solids_number)
-   !    if (blocks_number > 0) then
-   !       if (solids_number > 0) then
-   !          call self%update_ghost(q=q)
-   !          do i_eikonal=1, self%ib%n_eikonal
-   !             call self%mpih%barrier
-   !             call self%ib%evolve_eikonal(q=q)
-   !             call self%update_ghost(q=q)
-   !          enddo
-   !          call self%ib%invert_eikonal(q=q)
-   !          call self%mpih%barrier
-   !       endif
-   !    endif
-   ! endassociate
-   ! endsubroutine integrate_eikonal
-
    ! IO methods
    subroutine load_restart_files(self, t, time)
    !< Save restart files.
@@ -324,36 +95,25 @@ contains
    call self%adam%make_comm_local_maps_ghost_bc
    endsubroutine load_restart_files
 
-   subroutine save_hdf5(self, output_basename, with_ghost)
+   subroutine save_xh5f(self, output_basename, with_ghost)
    !< Save simulation data in HDF5 format.
    class(prism_cpu_object), intent(inout)        :: self             !< The equation.
    character(*),            intent(in), optional :: output_basename  !< Output basename.
    logical,                 intent(in), optional :: with_ghost       !< Flag to save ghost cells.
    character(:), allocatable                     :: output_basename_ !< Output basename, local var.
-   character(3), allocatable                     :: q_name(:)        !< Fields name.
 
-   if ((.not.self%physics%D_divergence_cleaner).and.(.not.self%physics%B_divergence_cleaner)) then
-      q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
-   elseif ((self%physics%D_divergence_cleaner).and.(.not.self%physics%B_divergence_cleaner)) then
-      q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi']
-   elseif ((self%physics%D_divergence_cleaner).and.(self%physics%B_divergence_cleaner)) then
-      q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi', 'psi']
-   endif
    call self%mpih%barrier(tictoc=.true.)
    call self%mpih%print_message('save HDF5 files t: '//trim(str(self%time%it,.true.))//', time: '//&
                                 trim(str(self%time%time,.true.)))
    output_basename_ = trim(self%io%output_basename)//'-'//trim(strz(self%time%it,9))
    if (present(output_basename)) output_basename_ = trim(output_basename)
-   call self%adam%save_xh5f(basename=trim(output_basename_),                                              &
-                            q=self%field%q,           q_name=q_name,                                      &
-                            q_a1=self%field_div,      q_a1_name=['DivD_d','DivB_d','Coil_f','DivB_f'], &
-                            q_a2=self%coil%j_vec,     q_a2_name=['j_vec_1','j_vec_2','j_vec_3'],          &
-                            ! s_a1=self%coil%coil_flag, s_a1_name='coil_flag',                           &
-                            with_ghost=with_ghost,                                                        &
-                            with_cell_morton=.true.,                                                      &
-                            t=self%time%it, time=self%time%time)
+   call self%adam%io%save_xh5f(basename=trim(output_basename_),    &
+                               q=self%field%q, q_name=self%q_name, &
+                               with_ghost=with_ghost,              &
+                               with_cell_morton=.true.,            &
+                               t=self%time%it, time=self%time%time)
    call self%mpih%barrier(tictoc=.true.)
-   endsubroutine save_hdf5
+   endsubroutine save_xh5f
 
    subroutine save_residuals(self)  !invariato ma commentato comando MPI ALLREDUCE
    !< Save residuals history.
@@ -379,7 +139,7 @@ contains
    call self%mpih%print_message('save restart files t: '//trim(str(self%time%it,.true.))//', time: '//&
                                 trim(str(self%time%time,.true.)))
    call self%adam%save_restart_files(basename=self%io%restart_basename, t=self%time%it, time=self%time%time, q=self%q)
-   call self%save_hdf5(output_basename=self%io%restart_basename)
+   call self%save_xh5f(output_basename=self%io%restart_basename)
    call self%mpih%barrier(tictoc=.true.)
    endsubroutine save_restart_files
 
@@ -393,7 +153,7 @@ contains
       call self%update_ghost(q=self%q)
       !call self%compute_q_auxiliary(q=self%field%q, q_aux=self%q_aux)
 
-      if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_hdf5
+      if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_xh5f
       if (mod(self%time%it,self%io%restart_save)==0) call self%save_restart_files
       if (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max)) then
          if (.not.self%physics%D_divergence_cleaner .and. .not.self%physics%B_Divergence_cleaner) then
@@ -664,7 +424,6 @@ contains
    endsubroutine update_ghost
 
    ! numerical methods
-
    subroutine compute_dt(self) !modificata introducendo lmin e ciclo for per calcolo lunghezza minima. commentata parte omp
    class(prism_cpu_object), intent(inout) :: self                            !< The equation.
    real(R8P)                              :: umax                            !< Maximum speed of waves propagation (light speed)
@@ -707,64 +466,6 @@ contains
     !call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih%error)
    endsubroutine compute_dt
 
-    !subroutine compute_dt(self)
-    !!< Compute maximum time step accordingly to CFL stabilty criterion.
-    !class(nasto_cpu_object), intent(inout) :: self                            !< The equation.
-    !real(R8P)                              :: umax                            !< Maximum speed of waves propagation.
-    !real(R8P)                              :: ss                              !< Speed of sound.
-    !real(R8P)                              :: dx_locale, dy_locale, dz_locale !< Local space steps.
-    !integer(I4P)                           :: b, i, j, k                      !< Counter.
-    !
-    !call self%compute_q_auxiliary(q=self%field%q, q_aux=self%q_aux)
-    !self%time%dt = huge(1._R8P)
-    !associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, blocks_number=>self%blocks_number, mu=>self%physics%eos(1)%mu, &
-    !          dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), q_aux=>self%q_aux)
-    !umax = 0._R8P
-    !!$omp parallel do collapse(4) default(firstprivate) shared(dx,dy,dz,q_aux) reduction(max:umax)
-    !do b=1, blocks_number
-    !   do k=1, nk
-    !      do j=1, nj
-    !         do i=1, ni
-    !            dx_locale = dx(b)*0.5_R8P
-    !            dy_locale = dy(b)*0.5_R8P
-    !            dz_locale = dz(b)*0.5_R8P
-    !            ss = q_aux(9,i,j,k,b)
-    !            umax = max(umax, (abs(q_aux(2,i,j,k,b)) + ss)/dx_locale + 2._R8P*mu/(q_aux(1,i,j,k,b))/dx_locale**2 + &
-    !                             (abs(q_aux(3,i,j,k,b)) + ss)/dy_locale + 2._R8P*mu/(q_aux(1,i,j,k,b))/dy_locale**2 + &
-    !                             (abs(q_aux(4,i,j,k,b)) + ss)/dz_locale + 2._R8P*mu/(q_aux(1,i,j,k,b))/dz_locale**2)
-    !         enddo
-    !      enddo
-    !   enddo
-    !enddo
-    !!$omp end parallel do
-    !endassociate
-    !self%time%dt = min(self%time%dt, self%time%CFL / umax)
-    !call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih%error)
-    !endsubroutine compute_dt
-
-    !subroutine compute_q_auxiliary(self, q, q_aux)
-    !!< Compute auxiliary variables.
-    !class(nasto_cpu_object), intent(in)  :: self                         !< The equation.
-    !real(R8P),               intent(in)  :: q(1:,         &
-    !                                          1-self%ngc:,&
-    !                                          1-self%ngc:,&
-    !                                          1-self%ngc:,&
-    !                                          1:)                        !< Conservative variables.
-    !real(R8P),               intent(out) :: q_aux(1:,         &
-    !                                              1-self%ngc:,&
-    !                                              1-self%ngc:,&
-    !                                              1-self%ngc:,&
-    !                                              1:)                    !< Auxiliary variables.
-    !integer(I4P)                         :: b, i, j, k, s                !< Counter.
-    !real(R8P)                            :: rho, uuu, vvv, www, rhe, tem !< State variables.
-    !
-    !associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, &
-    !          g=>self%physics%eos(1)%g, R=>self%physics%eos(1)%R, cv=>self%physics%eos(1)%cv)
-    !call compute_q_aux(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
-    !                   R=self%physics%eos(1)%R, cv=self%physics%eos(1)%cv, g=self%physics%eos(1)%g, q=q, q_aux=q_aux)
-    !endassociate
-    !endsubroutine compute_q_auxiliary
-
    subroutine compute_residuals(self, q, dq) !tolta da associazione parte physics/eos e i q_aux. Commentato eikonal e q_aux. Tolta parte diffusiva e modificati flussi convettivi per correnti
    !< Compute residuals of equation.
    class(prism_cpu_object), intent(inout) :: self   !< The equation.
@@ -783,86 +484,64 @@ contains
 
    call self%update_ghost(q=q)
 
-   !self%q_old = q ! save q backward time for computations
-
-   !call self%integrate_eikonal(q=q)
-   !call self%compute_q_auxiliary(q=q, q_aux=self%q_aux)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number, &
-            dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), CFL=>self%time%CFL,      &
-            !q_aux=>self%q_aux,
-            phi=>self%ib%phi, flx=>self%flx, fly=>self%fly, flz=>self%flz,                                        &
-            weno_s=>self%weno%S,                                                                                  &
-            weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, ror_number=>self%weno%ror_number,      &
-            ror_schemes=>self%weno%ror_schemes, ror_ivar=>self%weno%ror_ivar,                                     &
-            ror_threshold=>self%weno%ror_threshold, enable_ror_stats=>self%weno%enable_ror_stats,                 &
-            cell_scheme=>self%weno%cell_scheme, ror_stats=>self%weno%ror_stats, weno_zeps=>self%weno%zeps,        &
-            solids_number=>self%ib%solids_number, null_xyz=>self%grid%null_xyz, time=>self%time%time,             &
-            A=>self%coil%A, freq=>self%coil%f, phase=>self%coil%phase, coil_flag =>self%coil%coil_flag,           &
-            d=>self%coil%d, td=>self%coil%td, chi=>self%physics%chi, eta=>self%physics%eta,                       &
-            D_divergence_cleaner=>self%physics%D_divergence_cleaner,                                              &
-            B_divergence_cleaner=>self%physics%B_divergence_cleaner)
-             !cv=>self%physics%eos(1)%cv, g=>self%physics%eos(1)%g, R=>self%physics%eos(1)%R,                       &
-             !mu=>self%physics%eos(1)%mu, kd=>self%physics%eos(1)%kd, dha=>self%physics%eos(1)%dha, null_xyz=>self%grid%null_xyz)
-
-   !call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=q, time=time, A=A, d=d, f=freq, &
-   !                           phase=phase, coil_flag=coil_flag, td=td)
-
+             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), CFL=>self%time%CFL,      &
+             phi=>self%ib%phi, flx=>self%flx, fly=>self%fly, flz=>self%flz,                                         &
+             weno_s=>self%weno%S,                                                                                   &
+             weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, ror_number=>self%weno%ror_number,       &
+             ror_schemes=>self%weno%ror_schemes, ror_ivar=>self%weno%ror_ivar,                                      &
+             ror_threshold=>self%weno%ror_threshold, enable_ror_stats=>self%weno%enable_ror_stats,                  &
+             cell_scheme=>self%weno%cell_scheme, ror_stats=>self%weno%ror_stats, weno_zeps=>self%weno%zeps,         &
+             solids_number=>self%ib%solids_number, null_xyz=>self%grid%null_xyz, time=>self%time%time,              &
+             A=>self%coil%A, freq=>self%coil%f, phase=>self%coil%phase, coil_flag =>self%coil%coil_flag,            &
+             d=>self%coil%d, td=>self%coil%td, chi=>self%physics%chi, eta=>self%physics%eta,                        &
+             D_divergence_cleaner=>self%physics%D_divergence_cleaner,                                               &
+             B_divergence_cleaner=>self%physics%B_divergence_cleaner)
    if (blocks_number > 0) then
       if (.not.null_xyz(1)) then
          call compute_fluxes_convective(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,weno_s=weno_S, &
-                                        weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,q=q,fluxes=flx, &
-                                        chi=chi, D_divergence_cleaner=D_divergence_cleaner, &
-                                        B_divergence_cleaner=B_divergence_cleaner)!, coil_flag=coil_flag, &
-                                        !dx=dx, dy=dy, dz=dz)
+                                        weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,q=q,fluxes=flx,    &
+                                        chi=chi, d_divergence_cleaner=d_divergence_cleaner,                              &
+                                        b_divergence_cleaner=B_divergence_cleaner)
       else
          call assign_omp(blocks_number=blocks_number, ngc=ngc, lhs=flx, rhs=0._R8P)
       endif
       if (.not.null_xyz(2)) then
          call compute_fluxes_convective(dir=2,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,weno_s=weno_S, &
-                                        weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,q=q,fluxes=fly, &
-                                        chi=chi, D_divergence_cleaner=D_divergence_cleaner, &
-                                        B_divergence_cleaner=B_divergence_cleaner)!, coil_flag=coil_flag, &
-                                        !dx=dx, dy=dy, dz=dz)
+                                        weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,q=q,fluxes=fly,    &
+                                        chi=chi, D_divergence_cleaner=D_divergence_cleaner,                              &
+                                        B_divergence_cleaner=B_divergence_cleaner)
       else
          call assign_omp(blocks_number=blocks_number, ngc=ngc, lhs=fly, rhs=0._R8P)
       endif
       if (.not.null_xyz(3)) then
          call compute_fluxes_convective(dir=3,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,weno_s=weno_S, &
-                                        weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,q=q,fluxes=flz, &
-                                        chi=chi, D_divergence_cleaner=D_divergence_cleaner, &
-                                        B_divergence_cleaner=B_divergence_cleaner)!, coil_flag=coil_flag, &
-                                        !dx=dx, dy=dy, dz=dz)
-
+                                        weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,q=q,fluxes=flz,    &
+                                        chi=chi, D_divergence_cleaner=D_divergence_cleaner,                              &
+                                        B_divergence_cleaner=B_divergence_cleaner)
       else
          call assign_omp(blocks_number=blocks_number, ngc=ngc, lhs=flz, rhs=0._R8P)
       endif
-      !if (mu > 0.) call compute_fluxes_diffusive(null_xyz=null_xyz,                                         &
-      !                                           blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, &
-      !                                           mu=mu, kd=kd, q_aux=q_aux, dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz)
 
       if (solids_number>0) then
          call compute_fluxes_difference(null_xyz=null_xyz,                                                                   &
                                         blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, ib_eps=1.e-12_R8P, &
-                                        dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz, phi=phi, dq=dq, q=q, eta=eta, &
-                                        chi = chi, D_divergence_cleaner=D_divergence_cleaner, &
+                                        dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz, phi=phi, dq=dq, q=q, eta=eta,        &
+                                        chi=chi, D_divergence_cleaner=D_divergence_cleaner,                                  &
                                         B_divergence_cleaner=B_divergence_cleaner)
       else
          call compute_fluxes_difference(null_xyz=null_xyz,                                                                   &
                                         blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, ib_eps=1.e-12_R8P, &
-                                        dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz, dq=dq, q=q, eta=eta, &
-                                        chi = chi, D_divergence_cleaner=D_divergence_cleaner, &
+                                        dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz, dq=dq, q=q, eta=eta,                 &
+                                        chi=chi, D_divergence_cleaner=D_divergence_cleaner,                                  &
                                         B_divergence_cleaner=B_divergence_cleaner)
       endif
-
    endif
-
-   !Calcolo della divergenza tramite i flussi
-   if (D_divergence_cleaner) then
+   if (d_divergence_cleaner) then
       vmax = chi/sqrt(EPS0*MU0)
    else
       vmax = sqrt(1._R8P/(EPS0*MU0))
    endif
-
    do b=1, blocks_number
       do k=1, nk
          do j=1, nj
@@ -874,7 +553,6 @@ contains
       enddo
    enddo
    endassociate
-
    endsubroutine compute_residuals
 
    subroutine integrate(self, do_ghost_syncro) !occhio a come usi il dx, lo hai fatto nel modo più semplice possibile
@@ -886,11 +564,10 @@ contains
    integer(I4P)                                   :: s,b,i,j,k,var    !< Counter.
 
    do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
-
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,    &
-            time=>self%time%time, A=>self%coil%A, freq=>self%coil%f, phase=>self%coil%phase,             &
-            coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, J_vec=>self%coil%J_vec,   &
-            dx=>self%field%dxyz(1,1))
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
+             time=>self%time%time, A=>self%coil%A, freq=>self%coil%f, phase=>self%coil%phase,           &
+             coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, J_vec=>self%coil%J_vec, &
+             dx=>self%field%dxyz(1,1))
 
    if (self%coil%total_coils_number >= 1_I4P) then
       call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=self%q, time=time, A=A, d=d, &
@@ -1032,8 +709,8 @@ contains
    endsubroutine simulate
 
    ! non TBP
-   subroutine assign_omp_R8P_5D(blocks_number, ngc, lhs, rhs) !lasciata uguale, commentata parallelizzazione
-   !< Assign array to scalar value with OpenMP threads (kind R8P, rank 5)  !rank 5?? (pure se è agnostico quindi dovrebbe andare bene comunque)
+   subroutine assign_omp_R8P_5D(blocks_number, ngc, lhs, rhs)
+   !< Assign array to scalar value with OpenMP threads (kind R8P, rank 5).
    integer(I4P), intent(in)    :: blocks_number                   !< Number of blocks.
    integer(I4P), intent(in)    :: ngc                             !< Ghost cells number.
    real(R8P),    intent(inout) :: lhs(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Lest hand side.
@@ -1059,7 +736,7 @@ contains
    endsubroutine assign_omp_R8P_5D
 
    subroutine compute_fluxes_convective(dir,blocks_number,ni,nj,nk,ngc,nv,weno_s,weno_a,weno_p,weno_d,weno_zeps,q, &
-               fluxes,chi,D_divergence_cleaner,B_divergence_cleaner) !cambiato q_aux con q, tolto g dagli input, commentata openmp
+                                        fluxes,chi,D_divergence_cleaner,B_divergence_cleaner)
    !< Compute convective fluxes along direction `dir`.
    integer(I4P), intent(in)    :: dir                                !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P), intent(in)    :: blocks_number                      !< Number of blocks.
@@ -1458,10 +1135,6 @@ contains
                      q(7,i,j,k,b) = current_density* J_vec(1,i,j,k,b)
                      q(8,i,j,k,b) = current_density* J_vec(2,i,j,k,b)
                      q(9,i,j,k,b) = current_density* J_vec(3,i,j,k,b)
-                     !print*, 'cazzo', i, j, k, b, coil_id, current_density, q(7,i,j,k,b), q(8,i,j,k,b), q(9,i,j,k,b)
-                     !print*, 'cazzo', i, j, k, b, coil_id, current_density, J_vec(1,i,j,k,b), J_vec(2,i,j,k,b), &
-                     !          J_vec(3,i,j,k,b)
-                     
 
                      !if (sq_norm(q(7:9,i,j,k,b)) == 0._R8P) then
                         !Se la densità di corrente è nulla non faccio nulla

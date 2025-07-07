@@ -39,7 +39,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: initialize   !< Initialize the equation.
       ! IO methods
       procedure, pass(self) :: load_restart_files   !< Load restart files.
-      procedure, pass(self) :: save_hdf5            !< Save simulation data in HDF5 format.
+      procedure, pass(self) :: save_xh5f            !< Save simulation data in XH5F format.
       procedure, pass(self) :: save_residuals       !< Save residuals history.
       procedure, pass(self) :: save_restart_files   !< Save restart files.
       procedure, pass(self) :: save_simulation_data !< Save all simulation data.
@@ -134,38 +134,26 @@ contains
    call self%copy_cpu_gpu
    endsubroutine load_restart_files
 
-   subroutine save_hdf5(self, output_basename, with_ghost)
+   subroutine save_xh5f(self, output_basename, with_ghost)
    !< Save simulation data in HDF5 format.
    class(prism_fnl_object), intent(inout)        :: self             !< The equation.
    character(*),            intent(in), optional :: output_basename  !< Output basename.
    logical,                 intent(in), optional :: with_ghost       !< Flag to save ghost cells.
    character(:), allocatable                     :: output_basename_ !< Output basename, local var.
-   character(3), allocatable                     :: q_name(:)        !< Fields name.
-
-   if ((.not.self%physics%D_divergence_cleaner).and.(.not.self%physics%B_divergence_cleaner)) then
-      q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
-   elseif ((self%physics%D_divergence_cleaner).and.(.not.self%physics%B_divergence_cleaner)) then
-      q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi']
-   elseif ((self%physics%D_divergence_cleaner).and.(self%physics%B_divergence_cleaner)) then
-      q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi', 'psi']
-   endif
 
    call self%mpih_gpu%barrier(tictoc=.true.)
    call self%mpih_gpu%print_message('save HDF5 files t: '//trim(str(self%time%it,.true.))//', time: '//&
                                     trim(str(self%time%time,.true.)))
    output_basename_ = trim(self%io%output_basename)//'-'//trim(strz(self%time%it,9))
    if (present(output_basename)) output_basename_ = trim(output_basename)
-   call self%adam%save_xh5f(basename=trim(output_basename_),                                           &
-                            q=self%field%q,           q_name=q_name,                                   &
-                            ! q_a1=self%field_div,      q_a1_name=['DivD_d','DivB_d','DivD_f','DivB_f'], &
-                            ! q_a2=self%coil%j_vec,     q_a2_name=['j_vec_1','j_vec_2','j_vec_3'],       &
-                            ! s_a1=self%coil%coil_flag, s_a1_name='coil_flag',                           &
-                            with_ghost=with_ghost,                                                     &
-                            with_cell_morton=.true.,                                                   &
-                            t=self%time%it, time=self%time%time)
+   call self%adam%io%save_xh5f(basename=trim(output_basename_),    &
+                               q=self%field%q, q_name=self%q_name, &
+                               with_ghost=with_ghost,              &
+                               with_cell_morton=.true.,            &
+                               t=self%time%it, time=self%time%time)
 
    call self%mpih_gpu%barrier(tictoc=.true.)
-   endsubroutine save_hdf5
+   endsubroutine save_xh5f
 
    subroutine save_residuals(self)
    !< Save residuals history.
@@ -192,7 +180,7 @@ contains
    call self%mpih_gpu%print_message('save restart files t: '//trim(str(self%time%it,.true.))//', time: '//&
                                     trim(str(self%time%time,.true.)))
    call self%adam%save_restart_files(basename=self%io%restart_basename, t=self%time%it, time=self%time%time, q=self%q)
-   call self%save_hdf5(output_basename=self%io%restart_basename)
+   call self%save_xh5f(output_basename=self%io%restart_basename)
    call self%mpih_gpu%barrier(tictoc=.true.)
    endsubroutine save_restart_files
 
@@ -215,7 +203,7 @@ contains
       call self%update_ghost(q_gpu=self%q_gpu)
       call self%copy_gpu_cpu(compute_copy_q_aux=.true., copy_phi=.true.)
 
-      if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_hdf5
+      if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_xh5f
       if (mod(self%time%it,self%io%restart_save)==0) call self%save_restart_files
       if (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))&
          call self%slices%save_mat(basename=self%io%output_basename, &

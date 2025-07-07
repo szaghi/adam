@@ -27,42 +27,36 @@ character(len=15), parameter :: CURRENT_TYPE_AC="AC_current"          !< AC curr
 
 type :: prism_coil_object
    !< ADAM, PRISM coil source definition, CPU backend.
-   type(mpih_object)               :: mpih                                    !< MPI handler.
-   !integer(I4P)              :: amr_iterations=1_I4P !< Number of AMR iterations for coils.
-   character(len=99), allocatable  :: coil_type(:)                            !< Coil type.
-   character(len=99), allocatable  :: current_type(:)                         !< Current type.
-   real(R8P), allocatable          :: A(:)                                    !< Current amplitude (A)
-   real(R8P), allocatable          :: f(:)                                    !< Current frequency, if AC (Hz)
-   real(R8P), allocatable          :: phase(:)                                !< Current initial phase, if AC
-   real(R8P), allocatable          :: d(:)                                    !< Coil wire diameter
-   real(R8P), allocatable          :: x_center(:), y_center(:), z_center(:)   !< Coil center
-   real(R8P), allocatable          :: lx(:), ly(:)                            !< Rectangle's sizes (if rectangular coil)
-   real(R8P), allocatable          :: r_coil(:)                               !< Circle's radius (if circular coil)
-   real(R8P), allocatable          :: normal(:,:)                             !< Versore normale alla spira, che identifica anche verso della corrente con regola mano dx
-   real(R8P), allocatable          :: J_vec(:,:,:,:,:)                        !< Matrice contenente versori corrente spire (se assente = 0)
-   real(R8P)                       :: td                                      !< Delay di accensione della spira
-   integer(I4P), allocatable       :: coil_flag(:,:,:,:)                      !< Matrice contenente informazioni su quale spira pass per una certa cella
-   integer(I4P)                    :: circular_coils_number=0_I4P             !< Number of circular coils
-   integer(I4P)                    :: rectangular_coils_number=0_I4P          !< Number of rectangular coils
-   integer(I4P)                    :: total_coils_number=0_I4P                !< Number of coils
-
-   !integer(I4P)              :: regions_number=1_I4P !< Number of IC regions.
-   !real(R8P), allocatable    :: q(:,:)               !< Primitive variables (r,u,v,w,p), s fluid specie index at IC for each region.
-   !real(R8P), allocatable    :: emin(:,:), emax(:,:) !< IC regions bounding box.
+   type(mpih_object)              :: mpih                                  !< MPI handler.
+   character(len=99), allocatable :: coil_type(:)                          !< Coil type.
+   character(len=99), allocatable :: current_type(:)                       !< Current type.
+   real(R8P), allocatable         :: A(:)                                  !< Current amplitude (A)
+   real(R8P), allocatable         :: f(:)                                  !< Current frequency, if AC (Hz)
+   real(R8P), allocatable         :: phase(:)                              !< Current initial phase, if AC
+   real(R8P), allocatable         :: d(:)                                  !< Coil wire diameter
+   real(R8P), allocatable         :: x_center(:), y_center(:), z_center(:) !< Coil center
+   real(R8P), allocatable         :: lx(:), ly(:)                          !< Rectangle's sizes (if rectangular coil)
+   real(R8P), allocatable         :: r_coil(:)                             !< Circle's radius (if circular coil)
+   real(R8P), allocatable         :: normal(:,:)                           !< Versore normale alla spira, che identifica anche verso della corrente con regola mano dx
+   real(R8P), pointer             :: J_vec(:,:,:,:,:)                      !< Matrice contenente versori corrente spire (se assente = 0)
+   real(R8P)                      :: td                                    !< Delay di accensione della spira
+   integer(I4P), pointer          :: coil_flag(:,:,:,:)                    !< Matrice contenente informazioni su quale spira pass per una certa cella
+   integer(I4P)                   :: circular_coils_number=0_I4P           !< Number of circular coils
+   integer(I4P)                   :: rectangular_coils_number=0_I4P        !< Number of rectangular coils
+   integer(I4P)                   :: total_coils_number=0_I4P              !< Number of coils
    contains
       ! public methods
-      !procedure, pass(self) :: description                        !< Return pretty-printed object description.
-      procedure, pass(self) :: initialize                          !< Initialize IC.
-      procedure, pass(self) :: load_from_file                      !< Load config from file.
-      procedure, pass(self) :: set_coils                           !< Set coil_object on PRISM fields.
-      procedure, pass(self) :: set_circular_coil                   !< Set circular coils on PRISM fields.
-      procedure, pass(self) :: set_rectangular_coil                !< Set rectangular coils on PRISM fields.
-      procedure, pass(self) :: set_rectangular_coil_quad_section   !< Set rectangular coils on PRISM fields with quadratic section
+      !procedure, pass(self) :: description                      !< Return pretty-printed object description.
+      procedure, pass(self) :: initialize                        !< Initialize IC.
+      procedure, pass(self) :: load_from_file                    !< Load config from file.
+      procedure, pass(self) :: set_coils                         !< Set coil_object on PRISM fields.
+      procedure, pass(self) :: set_circular_coil                 !< Set circular coils on PRISM fields.
+      procedure, pass(self) :: set_rectangular_coil              !< Set rectangular coils on PRISM fields.
+      procedure, pass(self) :: set_rectangular_coil_quad_section !< Set rectangular coils on PRISM fields with quadratic section
 endtype prism_coil_object
 
 contains
    ! public methods
-
    subroutine initialize(self, file_parameters, field) !Cfr ic%initialize, ma commentata parte descrizione perchè da implementare
    !< Initialize the equation.
    class(prism_coil_object), intent(inout) :: self            !< Coils.
@@ -125,7 +119,7 @@ contains
 
       !Allocazione matrice identificazione spire nelle celle e matrice versori corrente spire nelle celle
       associate(ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, blocks_number=>field%blocks_number, &
-                  ngc=>field%grid%ngc, nb=>field%nb)
+                ngc=>field%grid%ngc, nb=>field%nb)
 
       allocate(self%coil_flag(1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
       self%coil_flag = 0_I4P
@@ -243,10 +237,10 @@ contains
 
    subroutine set_coils(self, physics, field)
    !< Set initial conditions on PRISM fields.
-   class(prism_coil_object),     intent(inout) :: self                 !< Coils
-   type(field_object),           intent(inout) :: field                !< Field object.
-   type(prism_physics_object),   intent(in)    :: physics              !< Fluids physics.
-   integer(I4P)                                :: i                    !< Counter.
+   class(prism_coil_object),     intent(inout) :: self    !< Coils
+   type(field_object),           intent(inout) :: field   !< Field object.
+   type(prism_physics_object),   intent(in)    :: physics !< Fluids physics.
+   integer(I4P)                                :: i       !< Counter.
 
    if (self%total_coils_number >= 1_I4P) then
       do i=1, self%total_coils_number
@@ -759,19 +753,15 @@ contains
    !poi metterle in punti più congeniali per evitare riscritture
 
    function dotproduct(a, b) result(dot)
-
    !< Compute the scalar (dot) product.
-
-   real(R8P), intent(in) :: a(3)     !< Left hand side.
-   real(R8P), intent(in) :: b(3)     !< Left hand side.
-   real(R8P)             :: dot       !< Dot product.
+   real(R8P), intent(in) :: a(3) !< Left hand side.
+   real(R8P), intent(in) :: b(3) !< Left hand side.
+   real(R8P)             :: dot  !< Dot product.
 
    dot = (a(1) * b(1)) + (a(2) * b(2)) + (a(3) * b(3))
-
    endfunction dotproduct
 
    function crossproduct(a, b) result(cross)
-
    !< Compute the cross product.
    !<
    !< $$ \vec V=\left({y_1 z_2 - z_1 y_2}\right)\vec i +
@@ -787,7 +777,6 @@ contains
    !< print "(3(F3.1,1X))", abs(pt(0)%x), abs(pt(0)%y), abs(pt(0)%z)
    !<```
    !=> 0.0 0.0 0.0 <<<
-
    real(R8P), intent(in) :: a(3)     !< Left hand side.
    real(R8P), intent(in) :: b(3)     !< Left hand side.
    real(R8P)             :: cross(3) !< Cross product.
@@ -795,7 +784,6 @@ contains
    cross(1) = (a(2) * b(3)) - (a(3) * b(2))
    cross(2) = (a(3) * b(1)) - (a(1) * b(3))
    cross(3) = (a(1) * b(2)) - (a(2) * b(1))
-
    endfunction crossproduct
 
    function sq_norm(a) result(sq)

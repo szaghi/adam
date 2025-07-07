@@ -49,16 +49,13 @@ type :: prism_common_object
    integer(I4P), pointer :: nk=>null()            !< Number of cells in k direction.
    integer(I4P), pointer :: nb=>null()            !< Total blocks number for MPI.
    integer(I4P), pointer :: blocks_number=>null() !< Actual blocks number.
-!   integer(I4P), pointer :: ns=>null()           !< Number of fluids specie.
    integer(I4P), pointer :: nv=>null()            !< Number of conservative variables.
-   ! auxiliary fields data: see nasto parameters definition for the arrangement of conservative and auxiliary variables
-   integer(I4P)           :: nv_div=4             !< Number of field divergence.
-   real(R8P), allocatable :: field_div(:,:,:,:,:) !< Field divergence.
-   real(R8P), allocatable :: q_old(:,:,:,:,:)     !<.Vettore di appoggio che mi salva le variabili di stato al passo precedente.
-   real(R8P),dimension(:,:,:,:,:),  pointer :: q=>null()             !< Conservative cell centered variables.
-
-   !type(c_ptr), allocatable :: ptree(:) !< CGAL trees for solids.
-
+   ! fields data
+   integer(I4P)              :: nv_div=4                     !< Number of field divergence.
+   real(R8P), pointer        :: field_div(:,:,:,:,:)=>null() !< Field divergence.
+   real(R8P), pointer        :: q_old(:,:,:,:,:)=>null()     !< Previous step conservative variables.
+   real(R8P), pointer        :: q(:,:,:,:,:)=>null()         !< Conservative cell centered variables.
+   character(3), allocatable :: q_name(:)                    !< Fields names.
    contains
       procedure, pass(self) :: allocate_common   !< Allocate common data.
       procedure, pass(self) :: initialize_common !< Initialize the equation common data.
@@ -76,20 +73,19 @@ contains
    !allocate(self%q_old(1:nv,1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
    !self%q_old = 0._R8P
    endassociate
-
    endsubroutine allocate_common
 
    subroutine initialize_common(self, field, filename, memory_avail, do_mpi_init, verbose)
    !< Initialize the equation common data.
-   class(prism_common_object), intent(inout)        :: self         !< The equation.
-   type(field_object),         intent(inout)        :: field        !< The field.
-   character(*),               intent(in)           :: filename     !< Input file name.
-   real(R8P),                  intent(in),value     :: memory_avail !< Memory available for single MPI process.
-   logical,                    intent(in), optional :: do_mpi_init  !< Flag to activate MPI init call.
-   logical,                    intent(in), optional :: verbose      !< Trigger verbose output.
-   logical                                          :: verbose_     !< Trigger verbose output, local variable.
-   integer(I8P)                                     :: nodes_number !< Allocated nodes on tree.
-   integer(I4P)                                     :: nb           !< Number of allocated blocks.
+   class(prism_common_object), intent(inout), target :: self         !< The equation.
+   type(field_object),         intent(inout)         :: field        !< The field.
+   character(*),               intent(in)            :: filename     !< Input file name.
+   real(R8P),                  intent(in),value      :: memory_avail !< Memory available for single MPI process.
+   logical,                    intent(in), optional  :: do_mpi_init  !< Flag to activate MPI init call.
+   logical,                    intent(in), optional  :: verbose      !< Trigger verbose output.
+   logical                                           :: verbose_     !< Trigger verbose output, local variable.
+   integer(I8P)                                      :: nodes_number !< Allocated nodes on tree.
+   integer(I4P)                                      :: nb           !< Number of allocated blocks.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    call self%mpih%initialize(do_mpi_init=do_mpi_init, verbose=verbose_)
@@ -106,8 +102,8 @@ contains
                              do_field_init=.true.,            &
                              nv=self%physics%nv, nb=1, nodes_number=11_I8P, q=field%q) !nb = nb !nodes_number = nodes_number
    call associate_adam_data(grid=self%adam%grid, field=self%adam%field, physics=self%physics)
-   call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_blocks_reorder=.false.,q=self%q)!q=q)
-   call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false.,q=self%q)!q=q)
+   call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_blocks_reorder=.false.,q=self%q)
+   call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false.,q=self%q)
    call self%amr%initialize(file_parameters=file_parameters)
    call self%time%initialize(file_parameters=file_parameters)
    call self%ic%initialize(file_parameters=file_parameters)
@@ -116,8 +112,19 @@ contains
    call self%slices%initialize(file_parameters=file_parameters)
    call self%rk%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    call self%weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
-   endassociate
    call self%allocate_common
+   call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field,                                    &
+                                q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivD_f','DivB_f'], &
+                                q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3'],       &
+                                s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag')
+   if     ((.not.self%physics%d_divergence_cleaner).and.(.not.self%physics%b_divergence_cleaner)) then
+      self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
+   elseif ((     self%physics%d_divergence_cleaner).and.(.not.self%physics%b_divergence_cleaner)) then
+      self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi']
+   elseif ((     self%physics%d_divergence_cleaner).and.(     self%physics%b_divergence_cleaner)) then
+      self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi', 'psi']
+   endif
+   endassociate
    if (verbose_) call self%mpih%print_message('prism_common_object%initialize finish')
    contains
       subroutine associate_adam_data(grid, field, physics)
@@ -134,9 +141,7 @@ contains
       self%nk            => field%grid%nk
       self%ngc           => field%grid%ngc
       self%nb            => field%nb
-!      self%ns            => physics%ns
       self%nv            => physics%nv
-!      self%nv_aux        => physics%nv_aux
       self%q             => field%q
       endsubroutine associate_adam_data
    endsubroutine initialize_common

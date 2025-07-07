@@ -4,6 +4,7 @@ module adam_adam_object
 
 use adam_field_object
 use adam_grid_object
+use adam_io_object
 use adam_maps_object
 use adam_mpih_object
 use adam_parameters
@@ -29,6 +30,7 @@ type :: adam_object
    type(tree_object)  :: tree  !< The tree.
    type(maps_object)  :: maps  !< The maps.
    type(field_object) :: field !< The field.
+   type(io_object)    :: io    !< The IO handler.
    contains
       ! public methods
       procedure, pass(self) :: adapt                         !< Adapt tree/field accordingly to refine/derefine necessity.
@@ -214,10 +216,10 @@ contains
    call self%field%load_blocks(basename=basename, q=q)
    endsubroutine load_restart_files
 
-   subroutine initialize(self, nb, file_parameters,                                                        &
-                         do_grid_init, ni, nj, nk, ngc, emin, emax, bc_type,                               &
-                         do_tree_init, max_load, nodes_number, buckets_number, ratio, max_level, add_adam, &
-                         iu_ref_levels, i_prune, j_prune, k_prune, l_prune,                                &
+   subroutine initialize(self, nb, file_parameters,                                                                      &
+                         do_grid_init, ni, nj, nk, ngc, emin, emax, bc_type,                                             &
+                         do_tree_init, max_load, nodes_number, buckets_number, ratio, max_level, add_adam,               &
+                         iu_ref_levels, i_prune, j_prune, k_prune, l_prune,                                              &
                          do_maps_init, do_field_init, nv, q)
    !< Initialize ADAM.
    class(adam_object),     intent(inout)           :: self            !< ADAM.

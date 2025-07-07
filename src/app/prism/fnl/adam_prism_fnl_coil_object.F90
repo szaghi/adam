@@ -100,11 +100,8 @@ contains
    nb  =  size(  self%coil%j_vec, dim=5)
    allocate(j_vec_t(    1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv))
    allocate(coil_flag_t(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc     ))
-   print*, 'cazzo 1', nv, ngc, ni, nj, nk, nb,lbound(self%coil%j_vec, dim=2)
    call dev_memcpy_from_device(dst=j_vec_t,     src=self%j_vec_gpu    )
-   print*, 'cazzo 2'
    call dev_memcpy_from_device(dst=coil_flag_t, src=self%coil_flag_gpu)
-   print*, 'cazzo 3'
    do b=1, nb
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
@@ -115,7 +112,6 @@ contains
          enddo
       enddo
    enddo
-   print*, 'cazzo 4'
    if (verbose_) call self%mpih%print_message('prism_fnl_coil_object%copy_gpu_cpu finish')
    endsubroutine copy_gpu_cpu
 
