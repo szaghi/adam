@@ -125,12 +125,12 @@ contains
 
       !Allocazione matrice identificazione spire nelle celle e matrice versori corrente spire nelle celle
       associate(ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, blocks_number=>field%blocks_number, &
-                  ngc=>field%grid%ngc)
+                  ngc=>field%grid%ngc, nb=>field%nb)
 
-      allocate(self%coil_flag(1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:blocks_number))
+      allocate(self%coil_flag(1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
       self%coil_flag = 0_I4P
 
-      allocate(self%J_vec(3, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:blocks_number))
+      allocate(self%J_vec(3, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
       self%J_vec = 0._R8P
 
       endassociate
@@ -271,7 +271,7 @@ contains
                                                          !spira faccio riferimento
       !< Set coils on PRISM fields. La subroutine restituirà il vettore q contenuto in fields
       !< completo anche dei valori normalizzati delle correnti che passano per le celle (elementi 7,8,9)
-      !< da calcolare poi tramite la funziona che assegna il valore della corrente compute_coils_current
+      !< da calcolare poi tramite la funzione che assegna il valore della corrente compute_coils_current
       class(prism_coil_object),     intent(inout) :: self                                                                !< Coils
       type(field_object),           intent(inout) :: field                                                               !< Field object.
       type(prism_physics_object),   intent(in)    :: physics                                                             !< Fluids physiscs.
@@ -288,7 +288,7 @@ contains
       associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
                 q=>field%q, x_c => self%x_center(n), y_c => self%y_center(n), z_c => self%z_center(n), &
                 dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), r_coil => self%r_coil(n), &
-                normal => self%normal(:,n), d => self%d(n))
+                normal => self%normal(:,n), d => self%d(n), nb=>field%nb)
 
       c_c = [ x_c, y_c, z_c ] !Vettore posizione centro spira
 
@@ -348,9 +348,9 @@ contains
    integer(I4P)                                :: b,i,j,k,w                                                       !< Counter.
    !associo per dati su posizioni delle celle e contatori
    associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
-       q=>field%q, x_c => self%x_center(n), y_c => self%y_center(n), z_c => self%z_center(n), &
-       dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), lx => self%lx(n),  &
-       ly => self%ly(n), normal => self%normal(:,n), d => self%d(n), nb =>field%nb)
+            q=>field%q, x_c => self%x_center(n), y_c => self%y_center(n), z_c => self%z_center(n), &
+            dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), lx => self%lx(n),  &
+            ly => self%ly(n), normal => self%normal(:,n), d => self%d(n), nb =>field%nb)
    c_c = [ x_c, y_c, z_c ] !Vettore posizione centro spira
    !vertici del rettangolo, lo costruisco come se avesse normale asse z e fosse centrato nell'origine;
    !vertici in senso antiorario, partendo da in basso a sinistra; si ipotizza
@@ -435,7 +435,7 @@ contains
 
    !print *, n2, d2, 'normale e d del piano 2'
 
-   allocate(flag(1:ni,1:nj,1:nk,1:blocks_number))
+   allocate(flag(1:ni,1:nj,1:nk,1:nb))
    flag(:,:,:,:) = 0_I4P !inizializzo matrice flag a zero, per indicare che nessun lato passa per le celle
 
    do w = 1, 4 !per ogni lato del rettangolo
@@ -652,7 +652,7 @@ contains
 
    !print *, n2, d2, 'normale e d del piano 2'
 
-   allocate(flag(1:ni,1:nj,1:nk,1:blocks_number))
+   allocate(flag(1:ni,1:nj,1:nk,1:nb))
    flag(:,:,:,:) = 0_I4P !inizializzo matrice flag a zero, per indicare che nessun lato passa per le celle
 
    do w = 1, 4 !per ogni lato del rettangolo
@@ -745,6 +745,8 @@ contains
                !elseif (flag(i,j,k,b) == 0) then
 
                   !q(7:9,i,j,k,b) = 0._R8P
+                  !print *, self%coil_flag(i,j,k,b), 'coil flag'
+                  !print *, self%J_vec(:,i,j,k,b), 'J vec'
 
                endif
             enddo

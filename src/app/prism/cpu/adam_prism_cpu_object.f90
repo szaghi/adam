@@ -344,13 +344,13 @@ contains
                                 trim(str(self%time%time,.true.)))
    output_basename_ = trim(self%io%output_basename)//'-'//trim(strz(self%time%it,9))
    if (present(output_basename)) output_basename_ = trim(output_basename)
-   call self%adam%save_xh5f(basename=trim(output_basename_),                                           &
-                            q=self%field%q,           q_name=q_name,                                   &
-                            q_a1=self%field_div,      q_a1_name=['DivD_d','DivB_d','DivD_f','DivB_f'], &
-                            q_a2=self%coil%j_vec,     q_a2_name=['j_vec_1','j_vec_2','j_vec_3'],       &
+   call self%adam%save_xh5f(basename=trim(output_basename_),                                              &
+                            q=self%field%q,           q_name=q_name,                                      &
+                            q_a1=self%field_div,      q_a1_name=['DivD_d','DivB_d','Coil_f','DivB_f'], &
+                            q_a2=self%coil%j_vec,     q_a2_name=['j_vec_1','j_vec_2','j_vec_3'],          &
                             ! s_a1=self%coil%coil_flag, s_a1_name='coil_flag',                           &
-                            with_ghost=with_ghost,                                                     &
-                            with_cell_morton=.true.,                                                   &
+                            with_ghost=with_ghost,                                                        &
+                            with_cell_morton=.true.,                                                      &
                             t=self%time%it, time=self%time%time)
    call self%mpih%barrier(tictoc=.true.)
    endsubroutine save_hdf5
@@ -867,7 +867,7 @@ contains
       do k=1, nk
          do j=1, nj
             do i=1, ni
-               self%field_Div(3,i,j,k,b) = CFL/vmax*(dq(1,i,j,k,b)+dq(2,i,j,k,b)+dq(3,i,j,k,b))
+               self%field_Div(3,i,j,k,b) = self%coil%coil_flag(i,j,k,b)!CFL/vmax*(dq(1,i,j,k,b)+dq(2,i,j,k,b)+dq(3,i,j,k,b))
                self%field_Div(4,i,j,k,b) = CFL/vmax*(dq(4,i,j,k,b)+dq(5,i,j,k,b)+dq(6,i,j,k,b))
             enddo
          enddo
@@ -887,9 +887,10 @@ contains
 
    do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, &
-            time=>self%time%time, A=>self%coil%A, freq=>self%coil%f, phase=>self%coil%phase, &
-            coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, J_vec=>self%coil%J_vec, dx=>self%field%dxyz(1,1))
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,    &
+            time=>self%time%time, A=>self%coil%A, freq=>self%coil%f, phase=>self%coil%phase,             &
+            coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, J_vec=>self%coil%J_vec,   &
+            dx=>self%field%dxyz(1,1))
 
    if (self%coil%total_coils_number >= 1_I4P) then
       call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, q=self%q, time=time, A=A, d=d, &
@@ -1425,7 +1426,7 @@ contains
       real(R8P),    intent(in)           :: phase(1:)                                   !< Current initial phase, if AC
       real(R8P),    intent(in)           :: d(1:)                                       !< Wire diameter
       real(R8P),    intent(in)           :: td                                          !< Delay di accensione della spira
-      real(R8P),    intent(in)           :: J_vec(1:,1:,1:,1:,1:)                       !< Matrice versori di corrente delle spire nelle celle
+      real(R8P),    intent(in)           :: J_vec(1:,1-ngc:,1-ngc:,1-ngc:,1:)           !< Matrice versori di corrente delle spire nelle celle
       real(R8P),    intent(inout)        :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)               !< Field variables.
       real(R8P)                          :: current_density                             !< Current density
       real(R8P)                          :: g                                           !< Polinomio caratteristico transitorio accensione spira
@@ -1437,7 +1438,7 @@ contains
             do j=1, nj
                do i=1, ni
                   coil_id = coil_flag(i,j,k,b)
-                  if (coil_id /= 0_I4P) then
+                  if (coil_id > 0_I4P) then
                      !Per DC frequenza e fase sono nulle, quindi se uso la funzione coseno
                      !mi rispramio anche il selectcase
 
@@ -1454,7 +1455,13 @@ contains
                         phase(coil_id)*pi/180.0_R8P)
                      endif
 
-                     q(7:9,i,j,k,b) = current_density* J_vec(:,i,j,k,b)
+                     q(7,i,j,k,b) = current_density* J_vec(1,i,j,k,b)
+                     q(8,i,j,k,b) = current_density* J_vec(2,i,j,k,b)
+                     q(9,i,j,k,b) = current_density* J_vec(3,i,j,k,b)
+                     !print*, 'cazzo', i, j, k, b, coil_id, current_density, q(7,i,j,k,b), q(8,i,j,k,b), q(9,i,j,k,b)
+                     !print*, 'cazzo', i, j, k, b, coil_id, current_density, J_vec(1,i,j,k,b), J_vec(2,i,j,k,b), &
+                     !          J_vec(3,i,j,k,b)
+                     
 
                      !if (sq_norm(q(7:9,i,j,k,b)) == 0._R8P) then
                         !Se la densità di corrente è nulla non faccio nulla
