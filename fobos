@@ -182,6 +182,8 @@ exclude_dirs = src/lib_experimental/
 
 # NVF OpenACC
 [template-nvf-oac-sz-ws]
+mod_dir  = ./mod/nvf/aoc/
+obj_dir  = ./obj/nvf/aoc/
 template = template-base
 compiler = nvfortran
 cflags   = -cpp -c -acc -gpu=cc89 -fast -Minfo=all
@@ -190,12 +192,16 @@ lib_dir  = $HDF5_nvf_sz_ws/lib
 include  = $HDF5_nvf_sz_ws/include
 
 [template-nvf-oac-sz-ws-debug]
+mod_dir  = ./mod/nvf/aoc/
+obj_dir  = ./obj/nvf/aoc/
 template = template-nvf-oac-sz-ws
 cflags   = -cpp -c -acc -gpu=cc89 -Minfo=all -C -gopt -Mbounds -traceback
 lflags   = -acc -gpu=cc89 -Minfo=all -C -gopt -Mbounds -traceback
 
 # NVF CUDA Fortran
 [template-nvf-cuda-sz-ws]
+mod_dir  = ./mod/nvf/cuda/
+obj_dir  = ./obj/nvf/cuda/
 template = template-base
 compiler = nvfortran
 cflags   = -cpp -c -cuda -gpu=cc89,cuda12.8,ptxinfo -O2
@@ -204,12 +210,16 @@ lib_dir  = $HDF5_nvf_sz_ws/lib
 include  = $HDF5_nvf_sz_ws/include
 
 [template-nvf-cuda-sz-ws-debug]
+mod_dir  = ./mod/nvf/cuda/
+obj_dir  = ./obj/nvf/cuda/
 template = template-nvf-cuda-sz-ws
 cflags   = -cpp -c -cuda -gpu=cc89,cuda12.8,ptxinfo -Minfo=all -C -gopt -traceback
 lflags   = -cuda -gpu=cc89,cuda12.8,ptxinfo -Minfo=all -C -gopt -traceback
 
 # NVF CPU
 [template-nvf-sz-ws]
+mod_dir  = ./mod/nvf/
+obj_dir  = ./obj/nvf/
 template = template-base
 compiler = nvfortran
 cflags   = -cpp -c -fast
@@ -218,12 +228,16 @@ lib_dir  = $HDF5_nvf_sz_ws/lib
 include  = $HDF5_nvf_sz_ws/include
 
 [template-nvf-sz-ws-debug]
+mod_dir  = ./mod/nvf/
+obj_dir  = ./obj/nvf/
 template = template-nvf-oac-sz-ws
 cflags   = -cpp -c -C -gopt -Mbounds -traceback
 lflags   = -acc -C -gopt -Mbounds -traceback
 
 # GNU CPU
 [template-gnu-sz-ws]
+mod_dir  = ./mod/gnu/
+obj_dir  = ./obj/gnu/
 template = template-base
 compiler = gnu
 cflags   = -cpp -c -O2
@@ -232,6 +246,8 @@ lib_dir  = $HDF5_gnu_sz_ws/lib
 include  = $HDF5_gnu_sz_ws/include
 
 [template-gnu-sz-ws-debug]
+mod_dir  = ./mod/gnu/
+obj_dir  = ./obj/gnu/
 template = template-base
 compiler = gnu
 cflags   = -cpp -c -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan

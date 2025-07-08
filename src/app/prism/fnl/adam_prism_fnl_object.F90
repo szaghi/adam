@@ -25,12 +25,14 @@ type, extends(prism_common_object) :: prism_fnl_object
    type(weno_fnl_object)  :: weno_gpu  !< WENO reconstructor, FNL backend.
    ! device data
    type(prism_fnl_coil_object) :: coil_gpu                         !< Coil handler (FNL backend).
-   real(R8P), pointer          ::         q_gpu(:,:,:,:,:)=>null() !< Field cell centered variables.
-   real(R8P), pointer          ::        dq_gpu(:,:,:,:,:)=>null() !< Residuals right hand side.
-   real(R8P), pointer          ::       flx_gpu(:,:,:,:,:)=>null() !< Fluxes along x.
-   real(R8P), pointer          ::       fly_gpu(:,:,:,:,:)=>null() !< Fluxes along y.
-   real(R8P), pointer          ::       flz_gpu(:,:,:,:,:)=>null() !< Fluxes along z.
-   real(R8P), pointer          :: field_div_gpu(:,:,:,:,:)=>null() !< Field divergence.
+   real(R8P),          pointer ::         q_gpu(:,:,:,:,:)=>null() !< Field cell centered variables.
+   real(R8P),          pointer ::        dq_gpu(:,:,:,:,:)=>null() !< Residuals right hand side.
+   real(R8P),          pointer ::       flx_gpu(:,:,:,:,:)=>null() !< Fluxes along x.
+   real(R8P),          pointer ::       fly_gpu(:,:,:,:,:)=>null() !< Fluxes along y.
+   real(R8P),          pointer ::       flz_gpu(:,:,:,:,:)=>null() !< Fluxes along z.
+   real(R8P),          pointer :: field_div_gpu(:,:,:,:,:)=>null() !< Field divergence.
+   integer(I4P),       pointer ::              si_gpu(:,:)=>null() !< Directional (1=x,2=y,3=z) increment.
+   real(R8P),          pointer ::             sir_gpu(:,:)=>null() !< Directional (1=x,2=y,3=z) increment, real cast.
    contains
       ! auxiliary methods
       procedure, pass(self) :: allocate_gpu !< Allocate GPU data.
@@ -68,17 +70,19 @@ contains
 
    call self%mpih%print_message('prism_fnl_object%allocate_gpu start')
    self%q_gpu => q_gpu ! q_gpu is allocated by field_gpu%initialize
-   associate(nv=>self%nv, nv_div=>self%nv_div, nb=>self%nb, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk)
+   associate(nv=>self%nv, nb=>self%nb, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk)
    call dev_alloc(fptr_dev=self%dq_gpu, &
-                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv],     lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
+                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
    call dev_alloc(fptr_dev=self%flx_gpu, &
-                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv],     lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
+                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
    call dev_alloc(fptr_dev=self%fly_gpu, &
-                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv],     lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
+                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
    call dev_alloc(fptr_dev=self%flz_gpu, &
-                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv],     lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
+                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
    call dev_alloc(fptr_dev=self%field_div_gpu, &
-                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv_div], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
+                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
+   call dev_alloc(fptr_dev=self%si_gpu,  ubounds=[3,3], init_value=0_I4P,  ierr=ierr)
+   call dev_alloc(fptr_dev=self%sir_gpu, ubounds=[3,3], init_value=0._R8P, ierr=ierr)
    endassociate
    call self%mpih%print_message('prism_fnl_object%allocate_gpu finish')
    endsubroutine allocate_gpu
@@ -97,9 +101,28 @@ contains
    class(prism_fnl_object), intent(inout)        :: self               !< The equation.
    logical,                 intent(in), optional :: compute_copy_q_aux !< Flag to compute auxiliary variables.
    logical,                 intent(in), optional :: copy_phi           !< Copy also phi.
+   ! integer(I4P)                :: i, j, k, b, v !< Counter.
 
-   call self%field_gpu%copy_transpose_gpu_cpu(nv=self%nv,     q_gpu=self%q_gpu,         q_cpu=self%field%q  )
-   call self%field_gpu%copy_transpose_gpu_cpu(nv=self%nv_div, q_gpu=self%field_div_gpu, q_cpu=self%field_div)
+   call self%field_gpu%copy_transpose_gpu_cpu(nv=self%nv, q_gpu=self%q_gpu,         q_cpu=self%field%q  )
+   call self%field_gpu%copy_transpose_gpu_cpu(nv=self%nv, q_gpu=self%field_div_gpu, q_cpu=self%field_div)
+   !associate(field_div=>self%field_div, field_div_gpu=>self%field_div_gpu, q_t_gpu=>self%field_gpu%q_t_gpu, &
+   !          nv_div=>self%nv_div, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, blocks_number=>self%blocks_number)
+   !!$acc parallel loop independent DEVICEVAR(field_div_gpu, q_t_gpu)
+   !do b=1, blocks_number
+   !   print*, 'cazzo gpu ', field_div_gpu(b,90,80,80,2), size(q_t_gpu, dim=1), size(field_div_gpu, dim=5)
+   !   do k=1-ngc, nk+ngc
+   !      do j=1-ngc, nj+ngc
+   !         do i=1-ngc, ni+ngc
+   !            do v=1, nv_div
+   !               q_t_gpu(v,i,j,k,b) = field_div_gpu(b,i,j,k,v)
+   !            enddo
+   !         enddo
+   !      enddo
+   !   enddo
+   !enddo
+   !call dev_memcpy_from_device(dst=field_div, src=q_t_gpu)
+   !print*, 'cazzo cpu ', field_div(2,90,80,80,1), size(field_div, dim=1), size(field_div, dim=5)
+   !endassociate
    call self%coil_gpu%copy_gpu_cpu
    endsubroutine copy_gpu_cpu
 
@@ -119,6 +142,7 @@ contains
    call self%allocate_gpu(q_gpu=self%field_gpu%q_gpu)
    call self%coil_gpu%initialize(coil=self%coil,&
                                  blocks_number=self%blocks_number,nb=self%nb,ngc=self%ngc,ni=self%ni,nj=self%nj,nk=self%nk)
+   call set_sir_dev(si_gpu=self%si_gpu, sir_gpu=self%sir_gpu)
    call self%mpih%print_message('prism_fnl_object%initialize finish')
    endsubroutine initialize
 
@@ -315,6 +339,7 @@ contains
              dx_gpu=>self%field_gpu%dxyz_gpu(:,1),                                                                 &
              dy_gpu=>self%field_gpu%dxyz_gpu(:,2),                                                                 &
              dz_gpu=>self%field_gpu%dxyz_gpu(:,3),                                                                 &
+             si_gpu=>self%si_gpu, sir_gpu=>self%sir_gpu,                                                           &
              q_gpu=>self%q_gpu,                                                                                    &
              flx_gpu=>self%flx_gpu, fly_gpu=>self%fly_gpu, flz_gpu=>self%flz_gpu,                                  &
              solids_number=>self%ib%solids_number,                                                                 &
@@ -330,21 +355,21 @@ contains
       if (.not.null_xyz(1)) then
          call compute_fluxes_convective_dev(dir=1,                                                            &
                                             blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
-                                            evmax=evmax, q_gpu=q_gpu, fluxes_gpu=flx_gpu)
+                                            evmax=evmax, si_gpu=si_gpu(:,1), sir_gpu=sir_gpu(:,1), q_gpu=q_gpu, fluxes_gpu=flx_gpu)
       else
          flx_gpu = 0._R8P
       endif
       if (.not.null_xyz(2)) then
          call compute_fluxes_convective_dev(dir=2,                                                            &
                                             blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
-                                            evmax=evmax, q_gpu=q_gpu, fluxes_gpu=fly_gpu)
+                                            evmax=evmax, si_gpu=si_gpu(:,2), sir_gpu=sir_gpu(:,2), q_gpu=q_gpu, fluxes_gpu=fly_gpu)
       else
          fly_gpu = 0._R8P
       endif
       if (.not.null_xyz(3)) then
          call compute_fluxes_convective_dev(dir=3,                                                            &
                                             blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
-                                            evmax=evmax, q_gpu=q_gpu, fluxes_gpu=flz_gpu)
+                                            evmax=evmax, si_gpu=si_gpu(:,3), sir_gpu=sir_gpu(:,3), q_gpu=q_gpu, fluxes_gpu=flz_gpu)
       else
          flz_gpu = 0._R8P
       endif
@@ -364,17 +389,6 @@ contains
                                             q_gpu=q_gpu, eta=eta, chi=chi, d_divergence_cleaner=d_divergence_cleaner,            &
                                             b_divergence_cleaner=b_divergence_cleaner, dq_gpu=dq_gpu)
       endif
-      !!Calcolo della divergenza tramite i flussi
-      !do b=1, blocks_number
-      !   do k=1, nk
-      !      do j=1, nj
-      !         do i=1, ni
-      !            self%field_Div(3,i,j,k,b) = CFL/vmax*(dq(1,i,j,k,b)+dq(2,i,j,k,b)+dq(3,i,j,k,b))
-      !            self%field_Div(4,i,j,k,b) = CFL/vmax*(dq(4,i,j,k,b)+dq(5,i,j,k,b)+dq(6,i,j,k,b))
-      !         enddo
-      !      enddo
-      !   enddo
-      !enddo
    endif
    endassociate
    endsubroutine compute_residuals

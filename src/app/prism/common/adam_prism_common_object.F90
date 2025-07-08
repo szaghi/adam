@@ -51,7 +51,6 @@ type :: prism_common_object
    integer(I4P), pointer :: blocks_number=>null() !< Actual blocks number.
    integer(I4P), pointer :: nv=>null()            !< Number of conservative variables.
    ! fields data
-   integer(I4P)              :: nv_div=4                     !< Number of field divergence.
    real(R8P), pointer        :: field_div(:,:,:,:,:)=>null() !< Field divergence.
    real(R8P), pointer        :: q_old(:,:,:,:,:)=>null()     !< Previous step conservative variables.
    real(R8P), pointer        :: q(:,:,:,:,:)=>null()         !< Conservative cell centered variables.
@@ -65,10 +64,10 @@ contains
    !< Allocate common data.
    class(prism_common_object), intent(inout) :: self !< The equation.
 
-   associate(nv=>self%nv, nv_div=>self%nv_div, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb, &
+   associate(nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb, &
              solids_number=>self%ib%solids_number)
 
-   allocate(self%field_Div(1:nv_div,1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
+   allocate(self%field_Div(1:nv,1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
    self%field_Div = 0._R8P
    !allocate(self%q_old(1:nv,1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
    !self%q_old = 0._R8P
@@ -113,9 +112,10 @@ contains
    call self%rk%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    call self%weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
    call self%allocate_common
-   call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field,                                    &
-                                q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivD_f','DivB_f'], &
-                                q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3'],       &
+   call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field,                                             &
+                                q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivD_f','DivB_f',           &
+                                                                         'DivG1_','DivG2_','DivG3_','DivG4_','DivG5_'], &
+                                q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3'],                &
                                 s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag')
    if     ((.not.self%physics%d_divergence_cleaner).and.(.not.self%physics%b_divergence_cleaner)) then
       self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']

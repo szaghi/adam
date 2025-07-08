@@ -546,7 +546,7 @@ contains
       do k=1, nk
          do j=1, nj
             do i=1, ni
-               self%field_Div(3,i,j,k,b) = self%coil%coil_flag(i,j,k,b)!CFL/vmax*(dq(1,i,j,k,b)+dq(2,i,j,k,b)+dq(3,i,j,k,b))
+               self%field_Div(3,i,j,k,b) = CFL/vmax*(dq(1,i,j,k,b)+dq(2,i,j,k,b)+dq(3,i,j,k,b))
                self%field_Div(4,i,j,k,b) = CFL/vmax*(dq(4,i,j,k,b)+dq(5,i,j,k,b)+dq(6,i,j,k,b))
             enddo
          enddo
@@ -622,11 +622,11 @@ contains
                   !   self%q(1:6,i,j,k,b) = 0._R8P ! azzero i campi dentro le spire
                   !endif
                self%field_Div(1,i,j,k,b) = 0.5_R8P*((self%q(1,i+1,j,k,b) - self%q(1,i-1,j,k,b))/dx + &
-                                          (self%q(2,i,j+1,k,b) - self%q(2,i,j-1,k,b))/dx + &
-                                          (self%q(3,i,j,k+1,b) - self%q(3,i,j,k-1,b))/dx)
+                                                    (self%q(2,i,j+1,k,b) - self%q(2,i,j-1,k,b))/dx + &
+                                                    (self%q(3,i,j,k+1,b) - self%q(3,i,j,k-1,b))/dx)
                self%field_Div(2,i,j,k,b) = 0.5_R8P*((self%q(4,i+1,j,k,b) - self%q(4,i-1,j,k,b))/dx + &
-                                          (self%q(5,i,j+1,k,b) - self%q(5,i,j-1,k,b))/dx + &
-                                          (self%q(6,i,j,k+1,b) - self%q(6,i,j,k-1,b))/dx)
+                                                    (self%q(5,i,j+1,k,b) - self%q(5,i,j-1,k,b))/dx + &
+                                                    (self%q(6,i,j,k+1,b) - self%q(6,i,j,k-1,b))/dx)
             enddo
          enddo
       enddo

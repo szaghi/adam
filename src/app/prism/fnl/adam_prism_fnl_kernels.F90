@@ -19,6 +19,7 @@ public :: compute_fluxes_convective_dev
 public :: compute_fluxes_difference_dev
 public :: compute_dxyz_min_dev
 public :: set_bc_q_gpu_dev
+public :: set_sir_dev
 
 contains
    ! public procedures
@@ -37,7 +38,7 @@ contains
    real(R8P),    intent(in)    :: phase_gpu(1:)                          !< Current initial phase, if AC
    real(R8P),    intent(in)    :: d_gpu(1:)                              !< Wire diameter
    real(R8P),    intent(in)    :: td                                     !< Delay di accensione della spira
-   real(R8P),    intent(in)    :: J_vec_gpu(1:,1:,1:,1:,1:)              !< Matrice versori di corrente delle spire nelle celle
+   real(R8P),    intent(in)    :: J_vec_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Matrice versori di corrente delle spire nelle celle
    real(R8P),    intent(in)    :: dx_gpu                                 !< Space step in x direction (m)
    real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Field variables.
    real(R8P)                   :: current_density                        !< Current density
@@ -105,8 +106,8 @@ contains
    real(R8P),    intent(inout) :: div_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Divergence of D, B.
    integer(I4P)                :: i,j,k,b                             !< Counter
 
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,dx_gpu)
-   !$omp OMPLOOP DEVICEVAR(q_gpu,dx_gpu)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(div_gpu,q_gpu,dx_gpu)
+   !$omp OMPLOOP DEVICEVAR(div_gpu,q_gpu,dx_gpu)
    do b=1, blocks_number
       do k=1, nk
          do j=1, nj
@@ -124,7 +125,7 @@ contains
    enddo
    endsubroutine compute_div_d_b_dev
 
-   subroutine compute_fluxes_convective_dev(dir,blocks_number,ni,nj,nk,ngc,nv,evmax,q_gpu,fluxes_gpu)
+   subroutine compute_fluxes_convective_dev(dir,blocks_number,ni,nj,nk,ngc,nv,evmax,si_gpu,sir_gpu,q_gpu,fluxes_gpu)
    !< Compute convective fluxes along x direction.
    !< @NOTE Be carefull with `si` and `sir` variables: are not present on GPU, probably a mapping
    !< is done by compiler, check it!
@@ -136,87 +137,57 @@ contains
    integer(I4P), intent(in)    :: ngc                                    !< Ghost cells number.
    integer(I4P), intent(in)    :: nv                                     !< Number of conservative varibales.
    real(R8P),    intent(in)    :: evmax                                  !< Maximum waves speeds estimation.
+   integer(I4P), intent(in)    :: si_gpu(3)                              !< Directional (1=x,2=y,3=z) increment.
+   real(R8P),    intent(in)    :: sir_gpu(3)                             !< Directional (1=x,2=y,3=z) increment, real cast.
    real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Fields variables.
    real(R8P),    intent(inout) :: fluxes_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes.
-   integer(I4P)                :: si(3), si_i, si_j, si_k                !< Directional (1=x,2=y,3=z) increment.
-   real(R8P)                   :: sir(3)                                 !< Stencil increment, real cast.
    integer(I4P)                :: b, i, j, k                             !< Counter.
 
    select case(dir)
    case(1)
-      si  = [1,     0,     0     ]
-      sir = [1._R8P,0._R8P,0._R8P]
-      si_i = 1-si(1)
-      si_j = 1-si(2)
-      si_k = 1-si(3)
-      !$acc parallel loop independent gang vector collapse(4)                  &
-      !$acc default(none)                                                      &
-      !$acc DEVICEVAR(q_gpu,fluxes_gpu)                                        &
-      !$acc firstprivate(si,sir,dir,si_i,si_j,si_k,blocks_number,ngc,nv,evmax) &
+      !$acc parallel loop independent gang vector collapse(3) &
+      !$acc default(none)                                     &
+      !$acc DEVICEVAR(si_gpu,sir_gpu,q_gpu,fluxes_gpu)        &
+      !$acc firstprivate(dir,blocks_number,ngc,nv,evmax)      &
       !$acc private(b,i,j,k)
-      !$omp OMPLOOP                                                            &
-      !$omp default(none)                                                      &
-      !$omp DEVICEVAR(q_gpu,fluxes_gpu)                                        &
-      !$omp firstprivate(si,sir,dir,si_i,si_j,si_k,blocks_number,ngc,nv,evmax) &
-      !$omp private(b,i,j,k)
       do b=1, blocks_number
-      do k=si_k, nk
-      do j=si_j, nj
-      do i=si_i, ni
-         call compute_fluxes_convective_ri_dev(dir=dir,si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv, &
-                                               evmax=evmax,q_gpu=q_gpu,fluxes_gpu=fluxes_gpu)
+      do j=1, nj
+      do k=1, nk
+      do i=0, ni
+         call compute_fluxes_convective_ri_dev(dir=dir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv, &
+                                               evmax=evmax,si_gpu=si_gpu,sir_gpu=sir_gpu,q_gpu=q_gpu,fluxes_gpu=fluxes_gpu)
       enddo
       enddo
       enddo
       enddo
    case(2)
-      si  = [0,     1,     0     ]
-      sir = [0._R8P,1._R8P,0._R8P]
-      si_i = 1-si(1)
-      si_j = 1-si(2)
-      si_k = 1-si(3)
-      !$acc parallel loop independent gang vector collapse(4)                  &
-      !$acc default(none)                                                      &
-      !$acc DEVICEVAR(q_gpu,fluxes_gpu)                                        &
-      !$acc firstprivate(si,sir,dir,si_i,si_j,si_k,blocks_number,ngc,nv,evmax) &
+      !$acc parallel loop independent gang vector collapse(3) &
+      !$acc default(none)                                     &
+      !$acc DEVICEVAR(si_gpu,sir_gpu,q_gpu,fluxes_gpu)        &
+      !$acc firstprivate(dir,blocks_number,ngc,nv,evmax)      &
       !$acc private(b,i,j,k)
-      !$omp OMPLOOP                                                            &
-      !$omp default(none)                                                      &
-      !$omp DEVICEVAR(q_gpu,fluxes_gpu)                                        &
-      !$omp firstprivate(si,sir,dir,si_i,si_j,si_k,blocks_number,ngc,nv,evmax) &
-      !$omp private(b,i,j,k)
       do b=1, blocks_number
-      do k=si_k, nk
-      do i=si_i, ni
-      do j=si_j, nj
-         call compute_fluxes_convective_ri_dev(dir=dir,si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv, &
-                                               evmax=evmax,q_gpu=q_gpu,fluxes_gpu=fluxes_gpu)
+      do i=1, ni
+      do k=1, nk
+      do j=0, nj
+         call compute_fluxes_convective_ri_dev(dir=dir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv, &
+                                               evmax=evmax,si_gpu=si_gpu,sir_gpu=sir_gpu,q_gpu=q_gpu,fluxes_gpu=fluxes_gpu)
       enddo
       enddo
       enddo
       enddo
    case(3)
-      si  = [0,     0     ,1     ]
-      sir = [0._R8P,0._R8P,1._R8P]
-      si_i = 1-si(1)
-      si_j = 1-si(2)
-      si_k = 1-si(3)
-      !$acc parallel loop independent gang vector collapse(4)                  &
-      !$acc default(none)                                                      &
-      !$acc DEVICEVAR(q_gpu,fluxes_gpu)                                        &
-      !$acc firstprivate(si,sir,dir,si_i,si_j,si_k,blocks_number,ngc,nv,evmax) &
+      !$acc parallel loop independent gang vector collapse(3) &
+      !$acc default(none)                                     &
+      !$acc DEVICEVAR(si_gpu,sir_gpu,q_gpu,fluxes_gpu)        &
+      !$acc firstprivate(dir,blocks_number,ngc,nv,evmax)      &
       !$acc private(b,i,j,k)
-      !$omp OMPLOOP                                                            &
-      !$omp default(none)                                                      &
-      !$omp DEVICEVAR(q_gpu,fluxes_gpu)                                        &
-      !$omp firstprivate(si,sir,dir,si_i,si_j,si_k,blocks_number,ngc,nv,evmax) &
-      !$omp private(b,i,j,k)
       do b=1, blocks_number
-      do j=si_j, nj
-      do i=si_i, ni
-      do k=si_k, nk
-         call compute_fluxes_convective_ri_dev(dir=dir,si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv, &
-                                               evmax=evmax,q_gpu=q_gpu,fluxes_gpu=fluxes_gpu)
+      do i=1, ni
+      do j=1, nj
+      do k=0, nk
+         call compute_fluxes_convective_ri_dev(dir=dir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv, &
+                                               evmax=evmax,si_gpu=si_gpu,sir_gpu=sir_gpu,q_gpu=q_gpu,fluxes_gpu=fluxes_gpu)
       enddo
       enddo
       enddo
@@ -258,8 +229,8 @@ contains
    if (present(phi_gpu)) then
       all_solids = ubound(phi_gpu, dim=5)
       !$acc parallel loop independent gang vector collapse(4) &
-      !$acc DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, dq_gpu)
-      !$omp OMPLOOP DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, dq_gpu)
+      !$acc DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, dq_gpu, q_gpu)
+      !$omp OMPLOOP DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, dq_gpu, q_gpu)
       do b=1,blocks_number
       do k=1,nk
       do j=1,nj
@@ -328,8 +299,8 @@ contains
       enddo
    else
       !$acc parallel loop independent gang vector collapse(4) &
-      !$acc DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, dq_gpu)
-      !$omp OMPLOOP DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, dq_gpu)
+      !$acc DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, dq_gpu, q_gpu)
+      !$omp OMPLOOP DEVICEVAR(dx_gpu, dy_gpu, dz_gpu, flx_gpu, fly_gpu, flz_gpu, phi_gpu, dq_gpu, q_gpu)
       do b=1,blocks_number
       do k=1,nk
       do j=1,nj
@@ -547,16 +518,31 @@ contains
    enddo
    endsubroutine set_bc_q_gpu_dev
 
+   subroutine set_sir_dev(si_gpu, sir_gpu)
+   !< Set directional increment si and sir on device.
+   integer(I4P), intent(inout) :: si_gpu(3,3)  !< Directional (1=x,2=y,3=z) increment.
+   real(R8P),    intent(inout) :: sir_gpu(3,3) !< Directional (1=x,2=y,3=z) increment, real cast.
+
+   !$acc serial DEVICEVAR(si_gpu, sir_gpu)
+   si_gpu (1:3,1) = [1,     0,     0     ]
+   sir_gpu(1:3,1) = [1._R8P,0._R8P,0._R8P]
+   si_gpu (1:3,2) = [0,     1,     0     ]
+   sir_gpu(1:3,2) = [0._R8P,1._R8P,0._R8P]
+   si_gpu (1:3,3) = [0,     0     ,1     ]
+   sir_gpu(1:3,3) = [0._R8P,0._R8P,1._R8P]
+   !$acc end serial
+   endsubroutine set_sir_dev
+
    ! private procedures
-   subroutine compute_fluxes_convective_ri_dev(dir,si,sir,b,i,j,k,ngc,nv,evmax,q_gpu,fluxes_gpu)
+   subroutine compute_fluxes_convective_ri_dev(dir,b,i,j,k,ngc,nv,evmax,si_gpu,sir_gpu,q_gpu,fluxes_gpu)
    !< Compute convective fluxes at right interface of b,i,j,k.
    integer(I4P), intent(in)    :: dir                                       !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P), intent(in)    :: si(3)                                     !< Stencil increment.
-   real(R8P),    intent(in)    :: sir(3)                                    !< Stencil increment, real cast.
    integer(I4P), intent(in)    :: b, i, j, k                                !< Counter.
    integer(I4P), intent(in)    :: ngc                                       !< Ghost cells number.
    integer(I4P), intent(in)    :: nv                                        !< Number of conservative varibales.
    real(R8P),    intent(in)    :: evmax                                     !< Maximum waves speeds estimation.
+   integer(I4P), intent(in)    :: si_gpu(3)                                 !< Stencil increment.
+   real(R8P),    intent(in)    :: sir_gpu(3)                                !< Stencil increment, real cast.
    real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)         !< Fields variables.
    real(R8P),    intent(inout) :: fluxes_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Fluxes.
    real(R8P)                   :: fpmr(1:2,1:11)                            !< Fluxes +- reconstructed.
@@ -565,25 +551,25 @@ contains
    !$acc routine(compute_fluxes_convective_ri_dev)
    !$omp declare target(compute_fluxes_convective_ri_dev)
 
-   call decompose_fluxes_convective_dev(sir   = sir,   &
-                                        b     = b,     &
-                                        i     = i,     &
-                                        j     = j,     &
-                                        k     = k,     &
-                                        ngc   = ngc,   &
-                                        nv    = nv,    &
-                                        evmax = evmax, &
-                                        q_gpu = q_gpu, &
-                                        fmp   = fpmr)
-   call decompose_fluxes_convective_dev(sir   = sir,     &
+   call decompose_fluxes_convective_dev(sir   = sir_gpu, &
                                         b     = b,       &
-                                        i     = i+si(1), &
-                                        j     = j+si(2), &
-                                        k     = k+si(3), &
+                                        i     = i,       &
+                                        j     = j,       &
+                                        k     = k,       &
                                         ngc   = ngc,     &
                                         nv    = nv,      &
                                         evmax = evmax,   &
                                         q_gpu = q_gpu,   &
+                                        fmp   = fpmr)
+   call decompose_fluxes_convective_dev(sir   = sir_gpu,     &
+                                        b     = b,           &
+                                        i     = i+si_gpu(1), &
+                                        j     = j+si_gpu(2), &
+                                        k     = k+si_gpu(3), &
+                                        ngc   = ngc,         &
+                                        nv    = nv,          &
+                                        evmax = evmax,       &
+                                        q_gpu = q_gpu,       &
                                         fmp   = fpmr_)
    do v=1,nv
       fluxes_gpu(b,i,j,k,v) = fpmr(2,v) + fpmr_(1,v)
