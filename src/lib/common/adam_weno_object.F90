@@ -32,11 +32,11 @@ private
 public :: weno_object
 public :: weno_reconstruct_optimal
 public :: weno_reconstruct_upwind
-public :: S_max
-public :: S_max_m1
+public :: S_MAX
+public :: S_MAX_M1
 
-integer(I4P), parameter :: S_max=5    !< Maximum number/dimensions of stencils.
-integer(I4P), parameter :: S_max_m1=4 !< Maximum number/dimensions of stencils minus 1.
+integer(I4P), parameter :: S_MAX=5    !< Maximum number/dimensions of stencils.
+integer(I4P), parameter :: S_MAX_M1=4 !< Maximum number/dimensions of stencils minus 1.
 
 character(len=4), parameter :: INI_SECTION_NAME="weno" !< INI (config) file section name containing time configs.
 

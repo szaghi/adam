@@ -33,6 +33,9 @@ type, extends(prism_common_object) :: prism_fnl_object
    real(R8P),          pointer :: field_div_gpu(:,:,:,:,:)=>null() !< Field divergence.
    integer(I4P),       pointer ::              si_gpu(:,:)=>null() !< Directional (1=x,2=y,3=z) increment.
    real(R8P),          pointer ::             sir_gpu(:,:)=>null() !< Directional (1=x,2=y,3=z) increment, real cast.
+   real(R8P),          pointer ::                EV_GPU(:)=>null() !< Eigenvalues.
+   real(R8P),          pointer ::            ER_GPU(:,:,:)=>null() !< Right eigenvectors.
+   real(R8P),          pointer ::            EL_GPU(:,:,:)=>null() !< Left eigenvectors.
    contains
       ! auxiliary methods
       procedure, pass(self) :: allocate_gpu !< Allocate GPU data.
@@ -83,6 +86,9 @@ contains
                   ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
    call dev_alloc(fptr_dev=self%si_gpu,  ubounds=[3,3], init_value=0_I4P,  ierr=ierr)
    call dev_alloc(fptr_dev=self%sir_gpu, ubounds=[3,3], init_value=0._R8P, ierr=ierr)
+   call dev_assign_to_device(src=EV, dst=self%EV_GPU)
+   call dev_assign_to_device(src=ER, dst=self%ER_GPU)
+   call dev_assign_to_device(src=EL, dst=self%EL_GPU)
    endassociate
    call self%mpih%print_message('prism_fnl_object%allocate_gpu finish')
    endsubroutine allocate_gpu
@@ -342,6 +348,13 @@ contains
              si_gpu=>self%si_gpu, sir_gpu=>self%sir_gpu,                                                           &
              q_gpu=>self%q_gpu,                                                                                    &
              flx_gpu=>self%flx_gpu, fly_gpu=>self%fly_gpu, flz_gpu=>self%flz_gpu,                                  &
+             weno_s=>self%weno%S,                                                                                  &
+             weno_a_gpu=>self%weno_gpu%a_gpu, weno_p_gpu=>self%weno_gpu%p_gpu, weno_d_gpu=>self%weno_gpu%d_gpu,    &
+             weno_zeps=>self%weno%zeps,                                                                            &
+             ! ror_number=>self%weno%ror_number,                                                                     &
+             ! ror_schemes_gpu=>self%weno_gpu%ror_schemes_gpu, ror_ivar_gpu=>self%weno_gpu%ror_ivar_gpu,             &
+             ! ror_threshold=>self%weno%ror_threshold, enable_ror_stats=>self%weno%enable_ror_stats,                 &
+             ! cell_scheme_gpu=>self%weno_gpu%cell_scheme_gpu, ror_stats_gpu=>self%weno_gpu%ror_stats_gpu,           &
              solids_number=>self%ib%solids_number,                                                                 &
              null_xyz=>self%grid%null_xyz,                                                                         &
              eta=>self%physics%eta, chi=>self%physics%chi, d_divergence_cleaner=>self%physics%d_divergence_cleaner,&
@@ -353,23 +366,32 @@ contains
          evmax = sqrt(1._R8P/(EPS0*MU0))
       endif
       if (.not.null_xyz(1)) then
-         call compute_fluxes_convective_dev(dir=1,                                                            &
-                                            blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
-                                            evmax=evmax, si_gpu=si_gpu(:,1), sir_gpu=sir_gpu(:,1), q_gpu=q_gpu, fluxes_gpu=flx_gpu)
+         call compute_fluxes_convective_dev(dir=1,                                                              &
+                                            blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv,   &
+                                            weno_s=weno_s, weno_zeps=weno_zeps,                                 &
+                                            weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu, weno_d_gpu=weno_d_gpu,&
+                                            EV_GPU=self%EV_GPU, ER_GPU=self%ER_GPU, EL_GPU=self%EL_GPU,         &
+                                            si_gpu=si_gpu(:,1), sir_gpu=sir_gpu(:,1), q_gpu=q_gpu, fluxes_gpu=flx_gpu)
       else
          flx_gpu = 0._R8P
       endif
       if (.not.null_xyz(2)) then
-         call compute_fluxes_convective_dev(dir=2,                                                            &
-                                            blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
-                                            evmax=evmax, si_gpu=si_gpu(:,2), sir_gpu=sir_gpu(:,2), q_gpu=q_gpu, fluxes_gpu=fly_gpu)
+         call compute_fluxes_convective_dev(dir=2,                                                              &
+                                            blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv,   &
+                                            weno_s=weno_s, weno_zeps=weno_zeps,                                 &
+                                            weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu, weno_d_gpu=weno_d_gpu,&
+                                            EV_GPU=self%EV_GPU, ER_GPU=self%ER_GPU, EL_GPU=self%EL_GPU,         &
+                                            si_gpu=si_gpu(:,2), sir_gpu=sir_gpu(:,2), q_gpu=q_gpu, fluxes_gpu=fly_gpu)
       else
          fly_gpu = 0._R8P
       endif
       if (.not.null_xyz(3)) then
-         call compute_fluxes_convective_dev(dir=3,                                                            &
-                                            blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, &
-                                            evmax=evmax, si_gpu=si_gpu(:,3), sir_gpu=sir_gpu(:,3), q_gpu=q_gpu, fluxes_gpu=flz_gpu)
+         call compute_fluxes_convective_dev(dir=3,                                                              &
+                                            blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv,   &
+                                            weno_s=weno_s, weno_zeps=weno_zeps,                                 &
+                                            weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu, weno_d_gpu=weno_d_gpu,&
+                                            EV_GPU=self%EV_GPU, ER_GPU=self%ER_GPU, EL_GPU=self%EL_GPU,         &
+                                            si_gpu=si_gpu(:,3), sir_gpu=sir_gpu(:,3), q_gpu=q_gpu, fluxes_gpu=flz_gpu)
       else
          flz_gpu = 0._R8P
       endif

@@ -125,7 +125,9 @@ contains
    enddo
    endsubroutine compute_div_d_b_dev
 
-   subroutine compute_fluxes_convective_dev(dir,blocks_number,ni,nj,nk,ngc,nv,evmax,si_gpu,sir_gpu,q_gpu,fluxes_gpu)
+   subroutine compute_fluxes_convective_dev(dir,blocks_number,ni,nj,nk,ngc,nv,                 &
+                                            weno_s,weno_zeps,weno_a_gpu,weno_p_gpu,weno_d_gpu, &
+                                            EV_GPU,ER_GPU,EL_GPU,si_gpu,sir_gpu,q_gpu,fluxes_gpu)
    !< Compute convective fluxes along x direction.
    !< @NOTE Be carefull with `si` and `sir` variables: are not present on GPU, probably a mapping
    !< is done by compiler, check it!
@@ -136,7 +138,13 @@ contains
    integer(I4P), intent(in)    :: nk                                     !< Grid cells number in K direction.
    integer(I4P), intent(in)    :: ngc                                    !< Ghost cells number.
    integer(I4P), intent(in)    :: nv                                     !< Number of conservative varibales.
-   real(R8P),    intent(in)    :: evmax                                  !< Maximum waves speeds estimation.
+   integer(I4P), intent(in)    :: weno_s                                 !< Weno stencils number/dimension.
+   real(R8P),    intent(in)    :: weno_zeps                              !< Parameter to avoid division by zero.
+   real(R8P),    intent(in)    :: weno_a_gpu(1:,0:,1:)                   !< Optimal weights.
+   real(R8P),    intent(in)    :: weno_p_gpu(1:,0:,0:,1:)                !< Polinomials coefficients.
+   real(R8P),    intent(in)    :: weno_d_gpu(0:,0:,0:,1:)                !< Smoothness indicators coefficients.
+   real(R8P),    intent(in)    :: EV_GPU(:)                              !< Eigenvalues.
+   real(R8P),    intent(in)    :: ER_GPU(:,:,:), EL_GPU(:,:,:)           !< Eigenvectors.
    integer(I4P), intent(in)    :: si_gpu(3)                              !< Directional (1=x,2=y,3=z) increment.
    real(R8P),    intent(in)    :: sir_gpu(3)                             !< Directional (1=x,2=y,3=z) increment, real cast.
    real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Fields variables.
@@ -145,49 +153,58 @@ contains
 
    select case(dir)
    case(1)
-      !$acc parallel loop independent gang vector collapse(3) &
-      !$acc default(none)                                     &
-      !$acc DEVICEVAR(si_gpu,sir_gpu,q_gpu,fluxes_gpu)        &
-      !$acc firstprivate(dir,blocks_number,ngc,nv,evmax)      &
+      !$acc parallel loop independent gang vector collapse(4)                                                &
+      !$acc default(none)                                                                                    &
+      !$acc DEVICEVAR(si_gpu,sir_gpu,q_gpu,fluxes_gpu,EV_GPU,ER_GPU,EL_GPU,weno_a_gpu,weno_p_gpu,weno_d_gpu) &
+      !$acc firstprivate(dir,blocks_number,ni,nj,nk,ngc,nv,weno_s,weno_zeps)                                 &
       !$acc private(b,i,j,k)
       do b=1, blocks_number
       do j=1, nj
       do k=1, nk
       do i=0, ni
-         call compute_fluxes_convective_ri_dev(dir=dir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv, &
-                                               evmax=evmax,si_gpu=si_gpu,sir_gpu=sir_gpu,q_gpu=q_gpu,fluxes_gpu=fluxes_gpu)
+         call compute_fluxes_convective_ri_dev(dir=dir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,                              &
+                                               weno_s=weno_s, weno_zeps=weno_zeps,                                 &
+                                               weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu, weno_d_gpu=weno_d_gpu,&
+                                               EV_GPU=EV_GPU,ER_GPU=ER_GPU,EL_GPU=EL_GPU,                          &
+                                               si_gpu=si_gpu,sir_gpu=sir_gpu,q_gpu=q_gpu,fluxes_gpu=fluxes_gpu)
       enddo
       enddo
       enddo
       enddo
    case(2)
-      !$acc parallel loop independent gang vector collapse(3) &
-      !$acc default(none)                                     &
-      !$acc DEVICEVAR(si_gpu,sir_gpu,q_gpu,fluxes_gpu)        &
-      !$acc firstprivate(dir,blocks_number,ngc,nv,evmax)      &
+      !$acc parallel loop independent gang vector collapse(4)                                                &
+      !$acc default(none)                                                                                    &
+      !$acc DEVICEVAR(si_gpu,sir_gpu,q_gpu,fluxes_gpu,EV_GPU,ER_GPU,EL_GPU,weno_a_gpu,weno_p_gpu,weno_d_gpu) &
+      !$acc firstprivate(dir,blocks_number,ni,nj,nk,ngc,nv,weno_s,weno_zeps)                                 &
       !$acc private(b,i,j,k)
       do b=1, blocks_number
       do i=1, ni
       do k=1, nk
       do j=0, nj
-         call compute_fluxes_convective_ri_dev(dir=dir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv, &
-                                               evmax=evmax,si_gpu=si_gpu,sir_gpu=sir_gpu,q_gpu=q_gpu,fluxes_gpu=fluxes_gpu)
+         call compute_fluxes_convective_ri_dev(dir=dir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,                              &
+                                               weno_s=weno_s, weno_zeps=weno_zeps,                                 &
+                                               weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu, weno_d_gpu=weno_d_gpu,&
+                                               EV_GPU=EV_GPU,ER_GPU=ER_GPU,EL_GPU=EL_GPU,                          &
+                                               si_gpu=si_gpu,sir_gpu=sir_gpu,q_gpu=q_gpu,fluxes_gpu=fluxes_gpu)
       enddo
       enddo
       enddo
       enddo
    case(3)
-      !$acc parallel loop independent gang vector collapse(3) &
-      !$acc default(none)                                     &
-      !$acc DEVICEVAR(si_gpu,sir_gpu,q_gpu,fluxes_gpu)        &
-      !$acc firstprivate(dir,blocks_number,ngc,nv,evmax)      &
+      !$acc parallel loop independent gang vector collapse(4)                                                &
+      !$acc default(none)                                                                                    &
+      !$acc DEVICEVAR(si_gpu,sir_gpu,q_gpu,fluxes_gpu,EV_GPU,ER_GPU,EL_GPU,weno_a_gpu,weno_p_gpu,weno_d_gpu) &
+      !$acc firstprivate(dir,blocks_number,ni,nj,nk,ngc,nv,weno_s,weno_zeps)                                 &
       !$acc private(b,i,j,k)
       do b=1, blocks_number
       do i=1, ni
       do j=1, nj
       do k=0, nk
-         call compute_fluxes_convective_ri_dev(dir=dir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv, &
-                                               evmax=evmax,si_gpu=si_gpu,sir_gpu=sir_gpu,q_gpu=q_gpu,fluxes_gpu=fluxes_gpu)
+         call compute_fluxes_convective_ri_dev(dir=dir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,                              &
+                                               weno_s=weno_s, weno_zeps=weno_zeps,                                 &
+                                               weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu, weno_d_gpu=weno_d_gpu,&
+                                               EV_GPU=EV_GPU,ER_GPU=ER_GPU,EL_GPU=EL_GPU,                          &
+                                               si_gpu=si_gpu,sir_gpu=sir_gpu,q_gpu=q_gpu,fluxes_gpu=fluxes_gpu)
       enddo
       enddo
       enddo
@@ -534,71 +551,81 @@ contains
    endsubroutine set_sir_dev
 
    ! private procedures
-   subroutine compute_fluxes_convective_ri_dev(dir,b,i,j,k,ngc,nv,evmax,si_gpu,sir_gpu,q_gpu,fluxes_gpu)
+   subroutine compute_fluxes_convective_ri_dev(dir,b,i,j,k,ngc,nv,                                &
+                                               weno_s,weno_zeps,weno_a_gpu,weno_p_gpu,weno_d_gpu, &
+                                               EV_GPU,ER_GPU,EL_GPU,si_gpu,sir_gpu,q_gpu,fluxes_gpu)
    !< Compute convective fluxes at right interface of b,i,j,k.
    integer(I4P), intent(in)    :: dir                                       !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P), intent(in)    :: b, i, j, k                                !< Counter.
    integer(I4P), intent(in)    :: ngc                                       !< Ghost cells number.
    integer(I4P), intent(in)    :: nv                                        !< Number of conservative varibales.
-   real(R8P),    intent(in)    :: evmax                                     !< Maximum waves speeds estimation.
+   integer(I4P), intent(in)    :: weno_s                                    !< Weno stencils number/dimension.
+   real(R8P),    intent(in)    :: weno_zeps                                 !< Parameter to avoid division by zero.
+   real(R8P),    intent(in)    :: weno_a_gpu(1:,0:,1:)                      !< Optimal weights.
+   real(R8P),    intent(in)    :: weno_p_gpu(1:,0:,0:,1:)                   !< Polinomials coefficients.
+   real(R8P),    intent(in)    :: weno_d_gpu(0:,0:,0:,1:)                   !< Smoothness indicators coefficients.
+   real(R8P),    intent(in)    :: EV_GPU(:)                                 !< Eigenvalues.
+   real(R8P),    intent(in)    :: ER_GPU(:,:,:), EL_GPU(:,:,:)              !< Eigenvectors.
    integer(I4P), intent(in)    :: si_gpu(3)                                 !< Stencil increment.
    real(R8P),    intent(in)    :: sir_gpu(3)                                !< Stencil increment, real cast.
    real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)         !< Fields variables.
    real(R8P),    intent(inout) :: fluxes_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Fluxes.
-   real(R8P)                   :: fpmr(1:2,1:11)                            !< Fluxes +- reconstructed.
-   real(R8P)                   :: fpmr_(1:2,1:11)                           !< Fluxes +- reconstructed (to be removed).
-   integer(I4P)                :: v                                         !< Counter.
-   !$acc routine(compute_fluxes_convective_ri_dev)
-   !$omp declare target(compute_fluxes_convective_ri_dev)
+   real(R8P)                   :: fmpc(1:2,1-S_MAX:-1+S_MAX,1:NV_MAX)       !< Fluxes -+ decomposition in c. space.
+   real(R8P)                   :: fpmr(1:2,1:NV_MAX)                        !< Fluxes +- reconstructed.
+   integer(I4P)                :: v, vv                                     !< Counter.
+   !$acc routine seq
 
-   call decompose_fluxes_convective_dev(sir   = sir_gpu, &
-                                        b     = b,       &
-                                        i     = i,       &
-                                        j     = j,       &
-                                        k     = k,       &
-                                        ngc   = ngc,     &
-                                        nv    = nv,      &
-                                        evmax = evmax,   &
-                                        q_gpu = q_gpu,   &
-                                        fmp   = fpmr)
-   call decompose_fluxes_convective_dev(sir   = sir_gpu,     &
-                                        b     = b,           &
-                                        i     = i+si_gpu(1), &
-                                        j     = j+si_gpu(2), &
-                                        k     = k+si_gpu(3), &
-                                        ngc   = ngc,         &
-                                        nv    = nv,          &
-                                        evmax = evmax,       &
-                                        q_gpu = q_gpu,       &
-                                        fmp   = fpmr_)
-   do v=1,nv
-      fluxes_gpu(b,i,j,k,v) = fpmr(2,v) + fpmr_(1,v)
+   call decompose_fluxes_convective_dev(dir=dir, si=si_gpu, sir=sir_gpu,             &
+                                        b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,               &
+                                        weno_s=weno_s, EV_GPU=EV_GPU, EL_GPU=EL_GPU, &
+                                        q_gpu=q_gpu, fmpc=fmpc)
+   do v=1, nv-3
+      call weno_reconstruct_upwind_dev(S=weno_s, weno_a=weno_a_gpu, weno_p=weno_p_gpu, weno_d=weno_d_gpu,&
+                                       weno_zeps=weno_zeps, V=fmpc(:,:,v), VR=fpmr(:,v))
+   enddo
+   ! back projection in conservative variables space
+   do v=1, nv-3
+      fluxes_gpu(b,i,j,k,v) = 0._R8P
+      do vv=1,nv-3
+         fluxes_gpu(b,i,j,k,v) = fluxes_gpu(b,i,j,k,v) + ER_GPU(vv,v,dir) * (fpmr(1,vv) + fpmr(2,vv))
+      enddo
    enddo
    endsubroutine compute_fluxes_convective_ri_dev
 
-   subroutine decompose_fluxes_convective_dev(sir,b,i,j,k,ngc,nv,evmax,q_gpu,fmp)
+   subroutine decompose_fluxes_convective_dev(dir,si,sir,b,i,j,k,ngc,nv,weno_s,EV_GPU,EL_GPU,q_gpu,fmpc)
    !< Decompose convective fluxes.
+   integer(I4P), intent(in)    :: dir                               !< Direction, 1=X, 2=Y, 3=Z.
+   integer(I4P), intent(in)    :: si(3)                             !< Stencil increment.
    real(R8P),    intent(in)    :: sir(3)                            !< Stencil increment, real cast.
    integer(I4P), intent(in)    :: b, i, j, k                        !< Counter.
    integer(I4P), intent(in)    :: ngc                               !< Ghost cells number.
-   real(R8P),    intent(in)    :: evmax                             !< Maximum waves speeds estimation.
    integer(I4P), intent(in)    :: nv                                !< Number of conservative varibales.
+   integer(I4P), intent(in)    :: weno_s                            !< Weno stencils number/dimension.
+   real(R8P),    intent(in)    :: EV_GPU(:)                         !< Eigenvalues.
+   real(R8P),    intent(in)    :: EL_GPU(:,:,:)                     !< Left eigenvectors.
    real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
-   real(R8P),    intent(inout) :: fmp(1:,1:)                        !< Fluxes -+ decomposition.
-   real(R8P)                   :: f(11)                             !< Conservative fluxes.
-   integer(I4P)                :: v                                 !< Counter.
-   !$acc routine(decompose_fluxes_convective_dev)
-   !$omp declare target(decompose_fluxes_convective_dev)
+   real(R8P),    intent(inout) :: fmpc(1:,1-weno_s:,1:)             !< Fluxes -+ decomposition in characteristics space.
+   real(R8P)                   :: fmp(2)                            !< Fluxes -+ decomposition in each cell stencils.
+   real(R8P)                   :: gc, wc                            !< Increments for fluxes decomposition.
+   integer(I4P)                :: v, vv, s, is, js, ks              !< Counter.
+   real(R8P)                   :: f(NV_MAX)                         !< Conservative fluxes.
+   !$acc routine seq
 
-   call compute_convective_fluxes_maxwell_dev(sir=sir,q_gpu=q_gpu(b,i,j,k,:),f_gpu=f)
-   do v=1, nv
-      fmp(2,v) = 0.5_R8P * (f(v) + evmax * q_gpu(b,i,j,k,v))
-      fmp(1,v) = f(v) - fmp(2,v)
-   enddo
-   do v=1, 2
-      fmp(v,7) = 0._R8P
-      fmp(v,8) = 0._R8P
-      fmp(v,9) = 0._R8P
+   do s=1-weno_s, weno_s
+      is = i + (s) * si(1) ; js = j + (s) * si(2) ; ks = k + (s) * si(3)
+      call compute_convective_fluxes_maxwell_dev(sir=sir,q_gpu=q_gpu(b,is,js,ks,:),f_gpu=f)
+      do v=1, nv-3
+         wc = 0._R8P
+         gc = 0._R8P
+         do vv=1, nv-3
+            wc = wc + EL_GPU(vv,v,dir) * q_gpu(b,is,js,ks,vv)
+            gc = gc + EL_GPU(vv,v,dir) * f(vv)
+         enddo
+         fmp(2) = 0.5_R8P * (gc + EV_GPU(v) * wc)
+         fmp(1) = gc - fmp(2)
+         if (s<weno_s)   fmpc(2,s  ,v) = fmp(2)
+         if (s>1-weno_s) fmpc(1,s-1,v) = fmp(1)
+      enddo
    enddo
    endsubroutine decompose_fluxes_convective_dev
 
@@ -619,8 +646,7 @@ contains
    real(R8P), intent(in)    :: sir(3)    !< Directional (1=x,2=y,3=z) increment.
    real(R8P), intent(in)    :: q_gpu(1:) !< Auxiliary variables.
    real(R8P), intent(inout) :: f_gpu(1:) !< Conservative fluxes.
-   !$acc routine(compute_conservative_fluxes_maxwell_dev)
-   !$omp declare target(compute_conservative_fluxes_maxwell_dev)
+   !$acc routine seq
 
    if (sir(1)==1._R8P) then
       f_gpu(1) =  0.0_R8P
@@ -674,8 +700,7 @@ contains
    real(R8P),    intent(in)    :: chi       !< Coefficiente velocità trasporto errori divergenza campi
    real(R8P),    intent(inout) :: f_gpu(1:) !< Conservative fluxes.
    real(R8P)                   :: ch        !< Velocità trasporto errori divergenza campi modello iperbolico
-   !$acc routine(compute_conservative_fluxes_maxwell_div_d_dev)
-   !$omp declare target(compute_conservative_fluxes_maxwell_div_d_dev)
+   !$acc routine seq
 
    ch = chi/sqrt(EPS0*MU0)
    if (sir(1)==1._R8P) then
@@ -732,8 +757,7 @@ contains
    real(R8P),    intent(in)    :: chi       !< Coefficiente velocità trasporto errori divergenza campi
    real(R8P),    intent(inout) :: f_gpu(1:) !< Conservative fluxes.
    real(R8P)                   :: ch        !< Velocità trasporto errori divergenza campi modello iperbolico
-   !$acc routine(compute_conservative_fluxes_maxwell_div_d_b_dev)
-   !$omp declare target(compute_conservative_fluxes_maxwell_div_d_b_dev)
+   !$acc routine seq
 
    ch = chi/sqrt(EPS0*MU0)
    if (sir(1)==1._R8P) then

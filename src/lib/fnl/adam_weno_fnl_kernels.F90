@@ -25,8 +25,7 @@ contains
    real(R8P),    intent(out) :: VR(1:2)             !< Left and right (1,2) interface value of reconstructed V.
    real(R8P)                 :: VP(1:2,0:S_max_m1)  !< Polynomial reconstructions.
    real(R8P)                 :: w (1:2,0:S_max_m1)  !< Weights of the stencils.
-   !$acc routine(weno_reconstruct_upwind_dev)
-   !$omp declare target(weno_reconstruct_upwind_dev)
+   !$acc routine seq
 
    call weno_compute_polynomials_device(S=S, weno_p=weno_p, V=V(1:2,1-S:-1+S), VP=VP(1:2,0:S-1))
    call weno_compute_weights_device(S=S, weno_a=weno_a, weno_d=weno_d, weno_zeps=weno_zeps, V=V(1:2,1-S:-1+S), w=w(1:2,0:S-1))
@@ -41,8 +40,7 @@ contains
    real(R8P),    intent(in)  :: w (1:2,0:S-1) !< Weights of the stencils.
    real(R8P),    intent(out) :: VR(1:2      ) !< Left and right (1,2) interface value of reconstructed V.
    integer(I4P)              :: k,f           !< Counter.
-   !$acc routine(weno_compute_convolution_device)
-   !$omp declare target(weno_compute_convolution_device)
+   !$acc routine seq
 
    VR = 0._R8P
    do k=0, S-1
@@ -59,8 +57,7 @@ contains
    real(R8P),    intent(in)  :: V (1:2,1-S:-1+S)    !< Variable to be reconstructed.
    real(R8P),    intent(out) :: VP(1:2,0:S-1   )    !< Polynomial reconstructions.
    integer(I4P)              :: s1,s2,f             !< Counter.
-   !$acc routine(weno_compute_polynomials_device)
-   !$omp declare target(weno_compute_polynomials_device)
+   !$acc routine seq
 
    ! computing the polynomials
    VP = 0._R8P
@@ -85,8 +82,7 @@ contains
    real(R8P)                 :: a    (1:2,0:S_max_m1) !< Alpha coifficients for the weights.
    real(R8P)                 :: a_tot(1:2)            !< Summ of the alpha coefficients.
    integer(I4P)              :: s1,s2,s3,f            !< Counter.
-   !$acc routine(weno_compute_weights_device)
-   !$omp declare target(weno_compute_weights_device)
+   !$acc routine seq
 
    ! computing smoothness indicators
    do s1=0,S-1 ! stencil counter
