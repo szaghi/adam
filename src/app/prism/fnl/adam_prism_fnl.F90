@@ -2,6 +2,7 @@
 program adam_prism_fnl
 !< ADAM, Maxwell application solver, GPU (FNL) backend.
 
+! PRSIM modules
 use adam_prism_fnl_object, only : prism_fnl_object
 
 implicit none

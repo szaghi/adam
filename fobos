@@ -1,128 +1,128 @@
 [modes]
-modes = ascot-nvf-cuda-sz-ws
-        adam-com-gnu-sz-ws      adam-com-gnu-sz-ws-debug
-        adam-com-nvf-sz-ws      adam-com-nvf-sz-ws-debug
-        adam-nvf-cuda-sz-ws     adam-nvf-cuda-sz-ws-debug
-        nasto-fnl-nvf-oac-sz-ws nasto-fnl-nvf-oac-sz-ws-debug
-        nasto-nvf-cuda-sz-ws    nasto-nvf-cuda-sz-ws-debug
-        nasto-cpu-gnu-sz-ws
+modes = ascot-nvf-cuda
+        adam-com-gnu            adam-com-gnu-debug
+        adam-com-nvf            adam-com-nvf-debug
+        adam-nvf-cuda           adam-nvf-cuda-debug
+        nasto-fnl-nvf-oac       nasto-fnl-nvf-oac-debug
+        nasto-nvf-cuda          nasto-nvf-cuda-debug
+        nasto-cpu-gnu
         nasto-cpu-gnu-github
-        prism-gnu-sz-ws         prism-gnu-sz-ws-debug
-        prism-fnl-nvf-oac-sz-ws prism-fnl-nvf-oac-sz-ws-debug
+        prism-gnu               prism-gnu-debug
+        prism-fnl-nvf-oac       prism-fnl-nvf-oac-debug
 
 # main modes
 
 # ascot
-[ascot-nvf-cuda-sz-ws]
+[ascot-nvf-cuda]
 help     = Build ASCOT app with NVF CUDA compiler on SZ workstation
-template = template-nvf-cuda-sz-ws
+template = template-nvf-cuda
 target   = ascot.F90
 preproc  = -D_NVF
 
 # adam libraries
 # GNU
-[adam-com-gnu-sz-ws]
+[adam-com-gnu]
 help     = Build ADAM common library with GNU compiler on SZ workstation
-template = template-gnu-sz-ws
+template = template-gnu
 target   = adam_common_library.F90
 output   = libadamcommon_gnu.a
 mklib    = static
 preproc  = -D_MPI_
 
-[adam-com-gnu-sz-ws-debug]
+[adam-com-gnu-debug]
 help     = Build ADAM common library with GNU compiler on SZ workstation, debug mode
-template = template-gnu-sz-ws-debug
+template = template-gnu-debug
 target   = adam_common_library.F90
 output   = libadamcommon_gnu.a
 mklib    = static
 preproc  = -D_MPI_
 
 # NVF
-[adam-com-nvf-sz-ws]
+[adam-com-nvf]
 help     = Build ADAM common library with NVF compiler on SZ workstation
-template = template-nvf-sz-ws
+template = template-nvf
 target   = adam_common_library.F90
 output   = libadamcommon_nvf.a
 mklib    = static
 preproc  = -D_MPI_
 
-[adam-com-nvf-sz-ws-debug]
+[adam-com-nvf-debug]
 help     = Build ADAM common library with NVF compiler on SZ workstation, debug mode
-template = template-nvf-sz-ws-debug
+template = template-nvf-debug
 target   = adam_common_library.F90
 output   = libadamcommon_nvf.a
 mklib    = static
 preproc  = -D_MPI_
 
-[adam-nvf-cuda-sz-ws]
+[adam-nvf-cuda]
 help     = Build ADAM NVF library with NVF CUDA compiler on SZ workstation
-template = template-nvf-cuda-sz-ws
+template = template-nvf-cuda
 target   = adam_nvf_library.F90
 output   = libadamnvf.a
 mklib    = static
 preproc  = -D_MPI_
 
-[adam-nvf-cuda-sz-ws-debug]
+[adam-nvf-cuda-debug]
 help     = Build ADAM NVF library with NVF CUDA compiler on SZ workstation, debug mode
-template = template-nvf-cuda-sz-ws-debug
+template = template-nvf-cuda-debug
 target   = adam_nvf_library.F90
 output   = libadamnvf.a
 mklib    = static
 preproc  = -D_MPI_
 
 # prism
-[prism-gnu-sz-ws]
-help     = Build PRISM app with GNU compiler on SZ workstation
-template = template-gnu-sz-ws
+[prism-gnu]
+help     = Build PRISM app with GNU compiler
+template = template-gnu
 preproc  = -D_MPI_ -w
 target   = adam_prism_cpu.F90
 
-[prism-gnu-sz-ws-debug]
+[prism-gnu-debug]
 help     = Build PRISM app with GNU compiler on SZ workstation, debug mode
-template = template-gnu-sz-ws-debug
+template = template-gnu-debug
 preproc  = -D_MPI_ -w
 target   = adam_prism_cpu.F90
 
-[prism-fnl-nvf-oac-sz-ws]
+[prism-fnl-nvf-oac]
 help     = Build PRISM app with FNL library and NVF OpenACC compiler on SZ workstation
-template = template-nvf-oac-sz-ws
+template = template-nvf-oac
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
 target   = adam_prism_fnl.F90
 
-[prism-fnl-nvf-oac-sz-ws-debug]
+[prism-fnl-nvf-oac-debug]
 help     = Build PRISM app with FNL library and NVF OpenACC compiler on SZ workstation, debug mode
-template = template-nvf-oac-sz-ws-debug
+template = template-nvf-oac-debug
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
 target   = adam_prism_fnl.F90
 
 #nasto
-[nasto-fnl-nvf-oac-sz-ws]
+[nasto-fnl-nvf-oac]
 help     = Build NASTO app with FNL library and NVF OpenACC compiler on SZ workstation
-template = template-nvf-oac-sz-ws
+template = template-nvf-oac
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
 target   = adam_nasto_fnl.F90
 
-[nasto-fnl-nvf-oac-sz-ws-debug]
+[nasto-fnl-nvf-oac-debug]
 help     = Build NASTO app with FNL library and NVF OpenACC compiler on SZ workstation, debug mode
-template = template-nvf-oac-sz-ws-debug
+template = template-nvf-oac-debug
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
 target   = adam_nasto_fnl.F90
 
-[nasto-nvf-cuda-sz-ws]
+[nasto-nvf-cuda]
 help     = Build NASTO app with NVF CUDA compiler on SZ workstation
-template = template-nvf-cuda-sz-ws
+template = template-nvf-cuda
 preproc  = -D_MPI_ -DCOMPILER_NVF -D_NVF -w
 target   = adam_nasto_nvf.F90
 
-[nasto-nvf-cuda-sz-ws-debug]
+[nasto-nvf-cuda-debug]
 help     = Build NASTO app with NVF CUDA compiler on SZ workstation, debug mode
-template = template-nvf-cuda-sz-ws-debug
+template = template-nvf-cuda-debug
 preproc  = -D_MPI_ -DCOMPILER_NVF -D_NVF -w
 target   = adam_nasto_nvf.F90
 
-[nasto-cpu-gnu-sz-ws]
+[nasto-cpu-gnu]
 help     = Build NASTO app with CPU backend GNU compiler on SZ workstation
-template = template-gnu-sz-ws
+template = template-gnu
 preproc  = -D_MPI_ -DCOMPILER_GNU -w
 target   = adam_nasto_cpu.F90
 
@@ -181,7 +181,7 @@ exclude_dirs = src/lib_experimental/
                third_party_manual/
 
 # NVF OpenACC
-[template-nvf-oac-sz-ws]
+[template-nvf-oac]
 mod_dir  = ./mod/nvf/aoc/
 obj_dir  = ./obj/nvf/aoc/
 template = template-base
@@ -192,69 +192,70 @@ libs     = $HDF5_nvf/lib/libhdf5_fortran.a $HDF5_nvf/lib/libhdf5_f90cstub.a $HDF
 lib_dir  = $HDF5_nvf/lib
 include  = $HDF5_nvf/include
 
-[template-nvf-oac-sz-ws-debug]
+[template-nvf-oac-debug]
 mod_dir  = ./mod/nvf/aoc/
 obj_dir  = ./obj/nvf/aoc/
-template = template-nvf-oac-sz-ws
+template = template-nvf-oac
 cflags   = -cpp -c -acc -gpu=cc89 -Minfo=all -C -gopt -Mbounds -traceback
 lflags   = -acc -gpu=cc89 -Minfo=all -C -gopt -Mbounds -traceback
 
 # NVF CUDA Fortran
-[template-nvf-cuda-sz-ws]
+[template-nvf-cuda]
 mod_dir  = ./mod/nvf/cuda/
 obj_dir  = ./obj/nvf/cuda/
 template = template-base
 compiler = nvfortran
 cflags   = -cpp -c -cuda -gpu=cc89,cuda12.8,ptxinfo -O2
 lflags   = -cuda -gpu=cc89,cuda12.8,ptxinfo -O2
+libs     = $HDF5_nvf/lib/libhdf5_fortran.a $HDF5_nvf/lib/libhdf5_f90cstub.a $HDF5_nvf/lib/libhdf5.a
 lib_dir  = $HDF5_nvf/lib
 include  = $HDF5_nvf/include
 
-[template-nvf-cuda-sz-ws-debug]
+[template-nvf-cuda-debug]
 mod_dir  = ./mod/nvf/cuda/
 obj_dir  = ./obj/nvf/cuda/
-template = template-nvf-cuda-sz-ws
+template = template-nvf-cuda
 cflags   = -cpp -c -cuda -gpu=cc89,cuda12.8,ptxinfo -Minfo=all -C -gopt -traceback
 lflags   = -cuda -gpu=cc89,cuda12.8,ptxinfo -Minfo=all -C -gopt -traceback
 
 # NVF CPU
-[template-nvf-sz-ws]
+[template-nvf]
 mod_dir  = ./mod/nvf/
 obj_dir  = ./obj/nvf/
 template = template-base
 compiler = nvfortran
 cflags   = -cpp -c -fast
 lflags   = -fast
+libs     = $HDF5_nvf/lib/libhdf5_fortran.a $HDF5_nvf/lib/libhdf5_f90cstub.a $HDF5_nvf/lib/libhdf5.a
 lib_dir  = $HDF5_nvf/lib
 include  = $HDF5_nvf/include
 
-[template-nvf-sz-ws-debug]
+[template-nvf-debug]
 mod_dir  = ./mod/nvf/
 obj_dir  = ./obj/nvf/
-template = template-nvf-oac-sz-ws
+template = template-nvf
 cflags   = -cpp -c -C -gopt -Mbounds -traceback
 lflags   = -acc -C -gopt -Mbounds -traceback
 
 # GNU CPU
-[template-gnu-sz-ws]
+[template-gnu]
 mod_dir  = ./mod/gnu/
 obj_dir  = ./obj/gnu/
 template = template-base
 compiler = gnu
 cflags   = -cpp -c -O2
 lflags   = -O2
-lib_dir  = $HDF5_gnu_sz_ws/lib
-include  = $HDF5_gnu_sz_ws/include
+libs     = $HDF5_gnu/lib/libhdf5_fortran.a $HDF5_gnu/lib/libhdf5_f90cstub.a $HDF5_gnu/lib/libhdf5.a
+lib_dir  = $HDF5_gnu/lib
+include  = $HDF5_gnu/include
 
-[template-gnu-sz-ws-debug]
+[template-gnu-debug]
 mod_dir  = ./mod/gnu/
 obj_dir  = ./obj/gnu/
-template = template-base
+template = template-gnu
 compiler = gnu
 cflags   = -cpp -c -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan
 lflags   = -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan
-lib_dir  = $HDF5_gnu_sz_ws/lib
-include  = $HDF5_gnu_sz_ws/include
 
 # aux rules
 [rule-hdf5-build-gnu]
@@ -281,8 +282,7 @@ help = Clean all compiled objects
 rule = rm -rf exe building-errors.log
 
 [common-variables]
-# environments
 # NVIDIA
 $HDF5_nvf = lib/hdf5/develop/nvf/25.3
 # GNU
-$HDF5_gnu_sz_ws = /opt/HDF5/bin/1.14.6/gnu/14.2.0
+$HDF5_gnu = lib/hdf5/develop/gnu/14.2.0

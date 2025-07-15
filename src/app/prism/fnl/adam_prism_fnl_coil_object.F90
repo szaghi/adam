@@ -4,8 +4,11 @@ module adam_prism_fnl_coil_object
 
 #include "fundal.H"
 
+! PRSIM modules
 use adam_prism_coil_object
+! ADAM modules
 use adam_mpih_fnl_object
+! third party modules
 use fundal
 use penf
 

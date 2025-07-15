@@ -164,7 +164,7 @@ contains
       nv_aux_ = self%field%nv ; if (present(nv_aux)) nv_aux_ = max(nv_aux_, nv_aux)
       call allocate_variable(var=self%q_t,                                                               &
                              ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv_aux_],[2,5]), &
-                             msg=self%mpih%myrankstr//'field_fnl_object%initialize alloc_var_cpu(q_t) ', verbose=verbose)
+                             msg=self%mpih%myrankstr//'field_fnl_object%initialize allocate_variable(q_t) ', verbose=verbose)
       call dev_alloc(fptr_dev=self%q_t_gpu, ubounds=[nv_aux_,ni+ngc,nj+ngc,nk+ngc,nb], lbounds=[1,1-ngc,1-ngc,1-ngc,1], ierr=ierr)
    endassociate
    call self%copy_cpu_gpu

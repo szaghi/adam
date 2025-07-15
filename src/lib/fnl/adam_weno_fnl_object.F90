@@ -4,7 +4,6 @@ module adam_weno_fnl_object
 
 use adam_mpih_fnl_object
 use adam_weno_object
-! use finer
 use fundal
 use penf
 

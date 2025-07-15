@@ -110,10 +110,7 @@ type :: field_object
    integer(I4P), allocatable :: disp_count(:)             !< Displacement of blocks that are received from process.
    integer(I4P)              :: inner_blocks_number=0_I4P !< Number of inner blocks where I need fecs.
    ! field equations data
-   real(R8P), allocatable :: q(     :,:,:,:,:) !< Field cell centered variables.
    real(R8P), allocatable :: q_work(:,:,:,:,:) !< Field cell centered variables, working buffer memory.
-   real(R8P), allocatable :: q_pic(     :,:,:) !< Partcile centered variables.
-   real(R8P), allocatable :: q_pic_work(:,:,:) !< Partcile centered variables, working buffer memory.
    real(R8P), allocatable :: residuals(:)      !< Field residuals, normalized.
    contains
       ! public methods
@@ -188,14 +185,12 @@ contains
    allocate(coordinates_new(4,self%blocks_number))
    allocate(code_new(self%blocks_number))
    do b=1, self%blocks_number
-      self%q_work(:,:,:,:,b) =      q(:,:,:,:,self%maps%inner_outer_block_map(b))
-      ! self%q_pic_work(:,:,b) =      q_pic(:,:,self%maps%inner_outer_block_map(b))
+      self%q_work(:,:,:,:,b) = q(:,:,:,:,self%maps%inner_outer_block_map(b))
       coordinates_new(:,b) = self%coordinates(:,self%maps%inner_outer_block_map(b))
       code_new(b) = self%code(self%maps%inner_outer_block_map(b))
    enddo
    do b=1, self%blocks_number
-           q(:,:,:,:,b) = self%q_work(:,:,:,:,b)
-      ! self%q_pic(:,:,b) = self%q_pic_work(:,:,b)
+      q(:,:,:,:,b) = self%q_work(:,:,:,:,b)
       self%coordinates(:,b) = coordinates_new(:,b)
       self%code(b) = code_new(b)
    enddo
@@ -239,7 +234,7 @@ contains
             enddo
          enddo
       enddo
-   enddo 
+   enddo
    endsubroutine compute_normL2_residuals
 
    pure function description(self) result(desc)
@@ -469,15 +464,6 @@ contains
       self%q_work    = 0._R8P
       self%residuals = 0._R8P
       self%block_weight_pic = 0_I4P
-      ! if (self%nv_pic>0.and.self%np>0) then
-      !    self%block_weight_pic = self%np * self%nv_pic
-      !    call allocate_variable(var=self%q_pic_work,            &
-      !                           ulb=reshape([1,self%nv_pic,     &
-      !                                        1,self%np,         &
-      !                                        1,self%nb],[2,3]), &
-      !                           msg=self%mpih%myrankstr//'field_object%initialize(q_pic_work) ', verbose=.true.)
-      !    self%q_pic_work = 0._R8P
-      ! endif
    endif
    call allocate_variable(var=self%blocks_numbers, ulb=[0,self%mpih%procs_number-1], &
                           msg=self%mpih%myrankstr//'field_object%initialize(blocks_numbers) ', verbose=.true.)
@@ -522,11 +508,6 @@ contains
                                       1-self%grid%ngc:self%grid%nk+self%grid%ngc,b)
             enddo
             call self%compute_metrics
-            ! if (nv_pic>0.and.nv_pic==self%nv_pic.and.np>0.and.np==self%np) then
-            !    do b=1, self%blocks_number
-            !       read(unit=file_unit) self%q_pic(1:self%nv_pic, 1:self%np, b)
-            !    enddo
-            ! endif
          else
             call self%mpih%abort(error_code=-102, msg='ERROR: blocks number to read "'//trim(str(blocks_number))//&
                                                       '" is greater than blocks allocated "'//trim(str(self%nb))//'"!')
@@ -704,13 +685,6 @@ contains
          send_buffer(send_offset:send_offset+bw-1) = reshape(q(:,:,:,:,bi),[bw])
          send_offset = send_offset + bw
       enddo
-      ! if (self%nv_pic>0) then
-      !    do b=1, size(self%maps%comm_map_send, dim=1)
-      !       bi = self%maps%comm_map_send(b)
-      !       send_buffer(send_offset:send_offset+bw_pic-1) = reshape(self%q_pic(:,:,bi),[bw_pic])
-      !       send_offset = send_offset + bw_pic
-      !    enddo
-      ! endif
    endif
 
    do p=0, self%mpih%procs_number - 1_I4P
@@ -744,25 +718,12 @@ contains
                                              self%grid%ngc+self%grid%nk+self%grid%ngc])
           recv_offset = recv_offset + bw
       enddo
-      ! if (self%nv_pic>0) then
-      !    do b=1, size(self%maps%comm_map_recv, dim=1)
-      !        bi = self%maps%comm_map_recv(b)
-      !        self%q_pic_work(:,:,bi) = reshape(recv_buffer(recv_offset:recv_offset + bw_pic -1),[self%nv_pic,self%np])
-      !        recv_offset = recv_offset + bw_pic
-      !    enddo
-      ! endif
    endif
    do b=1, n_keep
       self%q_work(:,:,:,:,self%maps%local_map(b,1)) = q(:,:,:,:,self%maps%local_map(b,2))
    enddo
-   ! if (self%nv_pic>0) then
-   !    do b=1, n_keep
-   !       self%q_pic_work(:,:,self%maps%local_map(b,1)) = self%q_pic(:,:,self%maps%local_map(b,2))
-   !    enddo
-   ! endif
    self%blocks_number = n_keep  + recv_size / bwt
    q(:,:,:,:,1:self%blocks_number) = self%q_work(:,:,:,:,1:self%blocks_number)
-   ! if (self%nv_pic>0) self%q_pic(:,:,1:self%blocks_number) = self%q_pic_work(:,:,1:self%blocks_number)
    self%coordinates(:, 1:self%blocks_number) = self%maps%tree%block_coordinates
    self%code(1:self%blocks_number) = self%maps%tree%block_code
    call self%compute_metrics
@@ -796,11 +757,6 @@ contains
                                  1-self%grid%ngc:self%grid%nj+self%grid%ngc, &
                                  1-self%grid%ngc:self%grid%nk+self%grid%ngc,b)
       enddo
-      ! if (self%nv_pic>0) then
-      !    do b=1, self%blocks_number
-      !       write(unit=file_unit) self%q_pic(1:self%nv_pic, 1:self%np, b)
-      !    enddo
-      ! endif
       close(file_unit)
    endif
    endsubroutine save_blocks

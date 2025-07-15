@@ -2,11 +2,10 @@ building-errors.log
 exe/
 simulations/
 references/xall/
-src/third_party_manual/memeval/*.o
-src/third_party_manual/memeval/*.mod
-src/third_party_manual/CGAL/*.o
 run/
 src/tests/backup
 src/tests/euler_cpu
+*.xdmf 
+*.h5
 doc/html/
 .DS_Store

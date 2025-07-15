@@ -1,6 +1,7 @@
 !< ADAM, Maxwell equations system class definition, common data to all backends.
 module adam_prism_common_object
 
+! ADAM modules
 use adam_adam_object
 use adam_amr_object
 use adam_field_object
@@ -10,14 +11,16 @@ use adam_mpih_object
 use adam_rk_object
 use adam_slices_object
 use adam_weno_object
+! PRISM modules
 use adam_prism_ic_object
-use adam_prism_coil_object !aggiunto coil
+use adam_prism_coil_object
 use adam_prism_io_object
 use adam_prism_bc_object
 use adam_prism_physics_object
 use adam_prism_time_object
+! third party modules
 use penf
-use ISO_C_BINDING
+! use ISO_C_BINDING
 
 implicit none
 private
@@ -49,12 +52,14 @@ type :: prism_common_object
    integer(I4P), pointer :: nk=>null()            !< Number of cells in k direction.
    integer(I4P), pointer :: nb=>null()            !< Total blocks number for MPI.
    integer(I4P), pointer :: blocks_number=>null() !< Actual blocks number.
-   integer(I4P), pointer :: nv=>null()            !< Number of conservative variables.
+   integer(I4P), pointer :: nv=>null()            !< Number of variables in q vector.
+   integer(I4P), pointer :: nv_c=>null()          !< Number of conservative variables in q vector.
+   integer(I4P), pointer :: nv_s=>null()          !< Number of source variables in q vector.
+   integer(I4P), pointer :: nv_cl=>null()         !< Number of divergence cleaning variables in q vector.
    ! fields data
-   real(R8P), pointer        :: field_div(:,:,:,:,:)=>null() !< Field divergence.
-   real(R8P), pointer        :: q_old(:,:,:,:,:)=>null()     !< Previous step conservative variables.
-   real(R8P), pointer        :: q(:,:,:,:,:)=>null()         !< Conservative cell centered variables.
-   character(3), allocatable :: q_name(:)                    !< Fields names.
+   real(R8P), allocatable    :: field_div(:,:,:,:,:) !< Field divergence.
+   real(R8P), allocatable    :: q(:,:,:,:,:)         !< Conservative cell centered variables.
+   character(3), allocatable :: q_name(:)            !< Fields names.
    contains
       procedure, pass(self) :: allocate_common   !< Allocate common data.
       procedure, pass(self) :: initialize_common !< Initialize the equation common data.
@@ -64,13 +69,15 @@ contains
    !< Allocate common data.
    class(prism_common_object), intent(inout) :: self !< The equation.
 
-   associate(nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb, &
-             solids_number=>self%ib%solids_number)
-
-   allocate(self%field_Div(1:nv,1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
-   self%field_Div = 0._R8P
-   !allocate(self%q_old(1:nv,1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
-   !self%q_old = 0._R8P
+   associate(nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb)
+   call allocate_variable(var=self%field_div,        &
+                          ulb=reshape([1,self%nv,    &
+                                       1-ngc,ni+ngc, &
+                                       1-ngc,nj+ngc, &
+                                       1-ngc,nk+ngc, &
+                                       1,nb],[2,5]), &
+                          msg=self%mpih%myrankstr//'prsim_common_object%allocate_common(field_div) ', verbose=.true.)
+   self%field_div = 0._R8P
    endassociate
    endsubroutine allocate_common
 
@@ -90,7 +97,7 @@ contains
    call self%mpih%initialize(do_mpi_init=do_mpi_init, verbose=verbose_)
    if (verbose_) call self%mpih%print_message('prism_common_object%initialize start')
    call self%io%initialize(filename=trim(filename))
-   associate(file_parameters=>self%io%file_parameters, q=>self%q)
+   associate(file_parameters=>self%io%file_parameters)
    call self%bc%initialize(file_parameters=file_parameters)
    call self%physics%initialize(file_parameters=file_parameters)
    call self%adam%grid%initialize(file_parameters=file_parameters,bc_type=self%bc%bc_type, verbose=.true.)
@@ -99,7 +106,7 @@ contains
                              do_tree_init=.true.,             &
                              do_maps_init=.true.,             &
                              do_field_init=.true.,            &
-                             nv=self%physics%nv, nb=1, nodes_number=11_I8P, q=field%q) !nb = nb !nodes_number = nodes_number
+                             nv=self%physics%nv, nb=1, nodes_number=11_I8P, q=self%q) !nb = nb !nodes_number = nodes_number
    call associate_adam_data(grid=self%adam%grid, field=self%adam%field, physics=self%physics)
    call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_blocks_reorder=.false.,q=self%q)
    call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false.,q=self%q)
@@ -142,7 +149,9 @@ contains
       self%ngc           => field%grid%ngc
       self%nb            => field%nb
       self%nv            => physics%nv
-      self%q             => field%q
+      self%nv_c          => physics%nv_c
+      self%nv_s          => physics%nv_s
+      self%nv_cl         => physics%nv_cl
       endsubroutine associate_adam_data
    endsubroutine initialize_common
 endmodule adam_prism_common_object
