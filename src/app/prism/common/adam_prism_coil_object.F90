@@ -104,20 +104,32 @@ contains
    if (self%total_coils_number>=1_I4P) then
 
       ! Alloczione variabili dell'oggetto spira
-      allocate(self%r_coil(1:self%total_coils_number))
-      allocate(self%ly(1:self%total_coils_number))
-      allocate(self%lx(1:self%total_coils_number))
-      allocate(self%d(1:self%total_coils_number))
-      allocate(self%normal(3,1:self%total_coils_number))
-      allocate(self%x_center(1:self%total_coils_number))
-      allocate(self%y_center(1:self%total_coils_number))
-      allocate(self%z_center(1:self%total_coils_number))
-      allocate(self%coil_type(1:self%total_coils_number))
-      allocate(self%current_type(1:self%total_coils_number))
-
-      allocate(self%A(1:self%total_coils_number))
-      allocate(self%f(1:self%total_coils_number))
-      allocate(self%phase(1:self%total_coils_number))
+      allocate(self%r_coil        (0:self%total_coils_number))
+      allocate(self%ly            (0:self%total_coils_number))
+      allocate(self%lx            (0:self%total_coils_number))
+      allocate(self%d             (0:self%total_coils_number))
+      allocate(self%normal      (3,0:self%total_coils_number))
+      allocate(self%x_center      (0:self%total_coils_number))
+      allocate(self%y_center      (0:self%total_coils_number))
+      allocate(self%z_center      (0:self%total_coils_number))
+      allocate(self%coil_type     (0:self%total_coils_number))
+      allocate(self%current_type  (0:self%total_coils_number))
+      allocate(self%A             (0:self%total_coils_number))
+      allocate(self%f             (0:self%total_coils_number))
+      allocate(self%phase         (0:self%total_coils_number))
+      self%r_coil = 0.0_R8P
+      self%ly = 0.0_R8P
+      self%lx = 0.0_R8P
+      self%d = 0.0_R8P
+      self%normal = 0.0_R8P
+      self%x_center = 0.0_R8P
+      self%y_center = 0.0_R8P
+      self%z_center = 0.0_R8P
+      self%coil_type = ' '
+      self%current_type = ' '
+      self%A = 0.0_R8P
+      self%f = 0.0_R8P
+      self%phase = 0.0_R8P
 
       !Allocazione matrice identificazione spire nelle celle e matrice versori corrente spire nelle celle
       associate(ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, blocks_number=>field%blocks_number, &

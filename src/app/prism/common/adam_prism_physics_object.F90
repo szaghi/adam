@@ -85,7 +85,7 @@ contains
 
    desc =       self%mpih%myrankstr//'Physics main data:'                                                                    //NL
    desc = desc//self%mpih%myrankstr//'  number of variables in q (nv):                '//trim(str(self%nv                  ))//NL
-   desc = desc//self%mpih%myrankstr//'  number of conservative variables in q (nv_c): '//trim(str(self%nv                  ))//NL
+   desc = desc//self%mpih%myrankstr//'  number of conservative variables in q (nv_c): '//trim(str(self%nv_c                ))//NL
    desc = desc//self%mpih%myrankstr//'  D divergence correction:                      '//trim(str(self%d_divergence_cleaner))//NL
    desc = desc//self%mpih%myrankstr//'  B divergence correction:                      '//trim(str(self%b_divergence_cleaner))//NL
    desc = desc//self%mpih%myrankstr//'  Chi:                                          '//trim(str(self%chi                 ))//NL

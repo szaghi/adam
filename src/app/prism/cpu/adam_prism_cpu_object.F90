@@ -831,10 +831,10 @@ contains
    integer(I4P), intent(in)    :: nk                                 !< Grid cells number in K direction.
    integer(I4P), intent(in)    :: ngc                                !< Ghost cells number.
    real(R8P),    intent(in)    :: time                               !< Simulation time, to compute current value if AC.
-   real(R8P),    intent(in)    :: A(1:)                              !< Current amplitude (A).
-   real(R8P),    intent(in)    :: d(1:)                              !< Wire diameter.
-   real(R8P),    intent(in)    :: f(1:)                              !< Current frequency, if AC (Hz).
-   real(R8P),    intent(in)    :: phase(1:)                          !< Current initial phase, if AC.
+   real(R8P),    intent(in)    :: A(0:)                              !< Current amplitude (A).
+   real(R8P),    intent(in)    :: d(0:)                              !< Wire diameter.
+   real(R8P),    intent(in)    :: f(0:)                              !< Current frequency, if AC (Hz).
+   real(R8P),    intent(in)    :: phase(0:)                          !< Current initial phase, if AC.
    integer(I4P), intent(in)    :: coil_flag(1-ngc:,1-ngc:,1-ngc:,1:) !< Coils ID map.
    real(R8P),    intent(in)    :: td                                 !< Coils transitory delay.
    real(R8P),    intent(in)    :: j_vec(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Current J versors into coils.
@@ -854,38 +854,35 @@ contains
    do j=1, nj
    do i=1, ni
       coil_id = coil_flag(i,j,k,b)
+
       ! use step function to avoid the following original if
-      ! if (time < td) then
-      !    current_density = g*A(coil_id)/((d(coil_id)-dx)**2)*cos(phase(coil_id)*pi/180.0_R8P)
-      ! else
-      !    current_density = A(coil_id)/((d(coil_id)-dx)**2)*cos(2*pi*f(coil_id)*(time-td) + &
-      !    phase(coil_id)*pi/180.0_R8P)
-      ! endif
-      w_   = nint(sign(td-time,1._R8P) + 1._R8P)   ! = 1 if td>time, = 0                              if td<time
+      !if (time < td) then
+      !   current_density = g*A(coil_id)/((d(coil_id)-dx)**2)*cos(phase(coil_id)*pi/180.0_R8P)
+      !else
+      !   current_density = A(coil_id)/((d(coil_id)-dx)**2)*cos(2*pi*f(coil_id)*(time-td) + &
+      !   phase(coil_id)*pi/180.0_R8P)
+      !endif
+      w_   = nint(sign(1._R8P,td-time) + 1._R8P)/2   ! = 1 if td>time, = 0                              if td<time
       w_c_ = 1_I4P - w_                            ! = 0 if td>time, = 1                              if td<time
       g_   = w_ * g + w_c_                         ! = g if td>time, = 1                              if td<time
       f_   = w_c_ * 2._R8P*PI*f(coil_id)*(time-td) ! = 0 if td>time, = 2._R8P*PI*f(coil_id)*(time-td) if td<time
       current_density = g_ * A(coil_id) / ((d(coil_id)-dx)**2) * cos(f_ + phase(coil_id)*PI/180.0_R8P)
+
       ! the following if is not necessary because j_vec is zero everywhere except in coils
       ! if (coil_id /= 0_I4P) then
       q(VAR_JX,i,j,k,b) = current_density * j_vec(1,i,j,k,b)
       q(VAR_JY,i,j,k,b) = current_density * j_vec(2,i,j,k,b)
       q(VAR_JZ,i,j,k,b) = current_density * j_vec(3,i,j,k,b)
-      !if (sq_norm(q(7:9,i,j,k,b)) == 0._R8P) then
-         !Se la densità di corrente è nulla non faccio nulla
-      !   q(7:9,i,j,k,b) = current_density*q(7:9,i,j,k,b)
-      !else
-         !Se la densità di corrente è diversa da zero allora rinormalizzo il vettore corrente
-         !e lo moltiplico per la densità di corrente
-      !   q(7,i,j,k,b) = q(7,i,j,k,b)/(sq_norm(q(7:9,i,j,k,b)))**0.5 !lo devo rinormalizzare ogni volta
-      !   q(8,i,j,k,b) = q(8,i,j,k,b)/(sq_norm(q(7:9,i,j,k,b)))**0.5
-      !   q(9,i,j,k,b) = q(9,i,j,k,b)/(sq_norm(q(7:9,i,j,k,b)))**0.5
-      !   q(7:9,i,j,k,b) = current_density*q(7:9,i,j,k,b)
-      !endif
    enddo
    enddo
    enddo
    enddo
+   !print*, sign(td-time,1._R8P)
+   !print*, A(coil_id), d(coil_id), f(coil_id), phase(coil_id)
+   !print*, time, td
+   !print*, w_, w_c_, f_
+   !print*, maxval(q(VAR_JX,:,:,:,:)), maxval(q(VAR_JY,:,:,:,:)), maxval(q(VAR_JZ,:,:,:,:))
+   !print*, minval(q(VAR_JX,:,:,:,:)), minval(q(VAR_JY,:,:,:,:)), minval(q(VAR_JZ,:,:,:,:))
    endsubroutine compute_coils_current
 
    function sq_norm(a) result(sq)
