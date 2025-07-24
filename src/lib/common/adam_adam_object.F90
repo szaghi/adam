@@ -47,7 +47,7 @@ type :: adam_object
       procedure, pass(self) :: mpi_redistribute              !< Redistribute nodes/blocks to processes, load balancing.
       procedure, pass(self) :: prune                         !< Prune nodes/blocks.
       procedure, pass(self) :: refine_uniform                !< Refine all blocks uniformly.
-      ! procedure, pass(self) :: save_hdf5                     !< Save ADAM in HDF5 format.
+      procedure, pass(self) :: save_hdf5                     !< Save ADAM in HDF5 format.
       procedure, pass(self) :: save_restart_files            !< Save restart files.
       procedure, pass(self) :: save_slice                    !< Save slice.
       procedure, pass(self) :: save_vtk                      !< Save ADAM in VTK  format.

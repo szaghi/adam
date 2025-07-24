@@ -163,7 +163,7 @@ contains
                                                                   str(self%null_xyz(2))//' '//&
                                                                   str(self%null_xyz(3))
    do l=0, ubound(self%cell_dxyz, dim=2)
-   desc = desc//NL//self%mpih%myrankstr//'  dxyz l='//trim(str(l,.true.)) //'             '//trim(str(self%cell_dxyz(:,l)))
+   desc = desc//NL//self%mpih%myrankstr//'  dxyz l='//trim(strz(l,2)) //'             '//trim(str(self%cell_dxyz(:,l)))
    enddo
    endfunction description
 

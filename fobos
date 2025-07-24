@@ -9,12 +9,13 @@ modes = ascot-nvf-cuda
         nasto-cpu-gnu-github
         prism-gnu               prism-gnu-debug
         prism-fnl-nvf-oac       prism-fnl-nvf-oac-debug
+        chase-gnu               chase-gnu-debug
 
 # main modes
 
 # ascot
 [ascot-nvf-cuda]
-help     = Build ASCOT app with NVF CUDA compiler on SZ workstation
+help     = Build ASCOT app with NVF CUDA compiler
 template = template-nvf-cuda
 target   = ascot.F90
 preproc  = -D_NVF
@@ -22,7 +23,7 @@ preproc  = -D_NVF
 # adam libraries
 # GNU
 [adam-com-gnu]
-help     = Build ADAM common library with GNU compiler on SZ workstation
+help     = Build ADAM common library with GNU compiler
 template = template-gnu
 target   = adam_common_library.F90
 output   = libadamcommon_gnu.a
@@ -30,7 +31,7 @@ mklib    = static
 preproc  = -D_MPI_
 
 [adam-com-gnu-debug]
-help     = Build ADAM common library with GNU compiler on SZ workstation, debug mode
+help     = Build ADAM common library with GNU compiler, debug mode
 template = template-gnu-debug
 target   = adam_common_library.F90
 output   = libadamcommon_gnu.a
@@ -39,7 +40,7 @@ preproc  = -D_MPI_
 
 # NVF
 [adam-com-nvf]
-help     = Build ADAM common library with NVF compiler on SZ workstation
+help     = Build ADAM common library with NVF compiler
 template = template-nvf
 target   = adam_common_library.F90
 output   = libadamcommon_nvf.a
@@ -47,7 +48,7 @@ mklib    = static
 preproc  = -D_MPI_
 
 [adam-com-nvf-debug]
-help     = Build ADAM common library with NVF compiler on SZ workstation, debug mode
+help     = Build ADAM common library with NVF compiler, debug mode
 template = template-nvf-debug
 target   = adam_common_library.F90
 output   = libadamcommon_nvf.a
@@ -55,7 +56,7 @@ mklib    = static
 preproc  = -D_MPI_
 
 [adam-nvf-cuda]
-help     = Build ADAM NVF library with NVF CUDA compiler on SZ workstation
+help     = Build ADAM NVF library with NVF CUDA compiler
 template = template-nvf-cuda
 target   = adam_nvf_library.F90
 output   = libadamnvf.a
@@ -63,7 +64,7 @@ mklib    = static
 preproc  = -D_MPI_
 
 [adam-nvf-cuda-debug]
-help     = Build ADAM NVF library with NVF CUDA compiler on SZ workstation, debug mode
+help     = Build ADAM NVF library with NVF CUDA compiler, debug mode
 template = template-nvf-cuda-debug
 target   = adam_nvf_library.F90
 output   = libadamnvf.a
@@ -78,50 +79,63 @@ preproc  = -D_MPI_ -w
 target   = adam_prism_cpu.F90
 
 [prism-gnu-debug]
-help     = Build PRISM app with GNU compiler on SZ workstation, debug mode
+help     = Build PRISM app with GNU compiler, debug mode
 template = template-gnu-debug
 preproc  = -D_MPI_ -w
 target   = adam_prism_cpu.F90
 
 [prism-fnl-nvf-oac]
-help     = Build PRISM app with FNL library and NVF OpenACC compiler on SZ workstation
+help     = Build PRISM app with FNL library and NVF OpenACC compiler
 template = template-nvf-oac
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
 target   = adam_prism_fnl.F90
 
 [prism-fnl-nvf-oac-debug]
-help     = Build PRISM app with FNL library and NVF OpenACC compiler on SZ workstation, debug mode
+help     = Build PRISM app with FNL library and NVF OpenACC compiler, debug mode
 template = template-nvf-oac-debug
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
 target   = adam_prism_fnl.F90
 
-#nasto
+# chase
+[chase-gnu]
+help     = Build CHASE app with GNU compiler
+template = template-gnu
+preproc  = -D_MPI_ -w
+target   = adam_chase_cpu.F90
+
+[chase-gnu-debug]
+help     = Build CHASE app with GNU compiler, debug mode
+template = template-gnu-debug
+preproc  = -D_MPI_ -w
+target   = adam_chase_cpu.F90
+
+# nasto
 [nasto-fnl-nvf-oac]
-help     = Build NASTO app with FNL library and NVF OpenACC compiler on SZ workstation
+help     = Build NASTO app with FNL library and NVF OpenACC compiler
 template = template-nvf-oac
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
 target   = adam_nasto_fnl.F90
 
 [nasto-fnl-nvf-oac-debug]
-help     = Build NASTO app with FNL library and NVF OpenACC compiler on SZ workstation, debug mode
+help     = Build NASTO app with FNL library and NVF OpenACC compiler, debug mode
 template = template-nvf-oac-debug
 preproc  = -D_FNL -D_MPI_ -DDEV_OAC -DCOMPILER_NVF -w
 target   = adam_nasto_fnl.F90
 
 [nasto-nvf-cuda]
-help     = Build NASTO app with NVF CUDA compiler on SZ workstation
+help     = Build NASTO app with NVF CUDA compiler
 template = template-nvf-cuda
 preproc  = -D_MPI_ -DCOMPILER_NVF -D_NVF -w
 target   = adam_nasto_nvf.F90
 
 [nasto-nvf-cuda-debug]
-help     = Build NASTO app with NVF CUDA compiler on SZ workstation, debug mode
+help     = Build NASTO app with NVF CUDA compiler, debug mode
 template = template-nvf-cuda-debug
 preproc  = -D_MPI_ -DCOMPILER_NVF -D_NVF -w
 target   = adam_nasto_nvf.F90
 
 [nasto-cpu-gnu]
-help     = Build NASTO app with CPU backend GNU compiler on SZ workstation
+help     = Build NASTO app with CPU backend GNU compiler
 template = template-gnu
 preproc  = -D_MPI_ -DCOMPILER_GNU -w
 target   = adam_nasto_cpu.F90
@@ -253,9 +267,8 @@ include  = $HDF5_gnu/include
 mod_dir  = ./mod/gnu/
 obj_dir  = ./obj/gnu/
 template = template-gnu
-compiler = gnu
-cflags   = -cpp -c -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan
-lflags   = -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan
+cflags   = -cpp -c -pg -O0 -g3 -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan
+lflags   = -O0 -g3 -pg -Warray-bounds -Wcharacter-truncation -Wline-truncation -Wimplicit-interface -Wimplicit-procedure -Wunderflow -fmodule-private -ffree-line-length-132 -fimplicit-none -fbacktrace -fdump-core -finit-real=nan
 
 # aux rules
 [rule-hdf5-build-gnu]

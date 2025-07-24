@@ -1,21 +1,22 @@
-!< ADAM, Navier-Stokes equations system class definition, CPU backend.
-module adam_nasto_cpu_object
-!< ADAM, Navier-Stokes equations system class definition, CPU backend.
+!< ADAM, CHASE (CFD-HPC enabled-Adaptive mesh-Simulation code for-Euler equations) class definition, CPU backend.
+module adam_chase_cpu_object
+!< ADAM, CHASE (CFD-HPC enabled-Adaptive mesh-Simulation code for-Euler equations) class definition, CPU backend.
 
+! ADAM modules
 use adam_common_library
-use adam_riemann_euler_library, only : compute_fluxes_convective_interface=>compute_riemann_euler_llf
-use adam_nasto_common_library
-use adam_nasto_cpu_cns
+! chase modules
+use adam_chase_common_library
+! third party modules
 use penf
 use mpi
 
 implicit none
 private
-public :: nasto_cpu_object
+public :: chase_cpu_object
 
-type, extends(nasto_common_object) :: nasto_cpu_object
-   !< Navier-Stokes equations system class definition, CPU backend.
-   real(R8P), allocatable :: dq(:,:,:,:,:)  !< Eikonal right hand side.
+type, extends(chase_common_object) :: chase_cpu_object !commentate procedure AMR e IB
+   !< Maxwell equations system class definition, CPU backend.
+   real(R8P), allocatable :: dq( :,:,:,:,:) !< Residuals right hand side.
    real(R8P), allocatable :: flx(:,:,:,:,:) !< Fluxes along x.
    real(R8P), allocatable :: fly(:,:,:,:,:) !< Fluxes along y.
    real(R8P), allocatable :: flz(:,:,:,:,:) !< Fluxes along z.
@@ -34,13 +35,13 @@ type, extends(nasto_common_object) :: nasto_cpu_object
       procedure, pass(self) :: integrate_eikonal !< Integrate eikonal equation.
       ! IO methods
       procedure, pass(self) :: load_restart_files   !< Load restart files.
-      procedure, pass(self) :: save_hdf5            !< Save simulation data in HDF5 format.
+      procedure, pass(self) :: save_xh5f            !< Save simulation data in XH5F format.
       procedure, pass(self) :: save_residuals       !< Save residuals history.
       procedure, pass(self) :: save_restart_files   !< Save restart files.
       procedure, pass(self) :: save_simulation_data !< Save all simulation data.
       ! IC/BC
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation.
-      procedure, pass(self) :: set_initial_conditions  !< Set initial conditions of equation.
+      procedure, pass(self) :: set_initial_conditions  !< Set initial conditions (and coils) of equation.
       procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
       ! numerical methods
       procedure, pass(self) :: compute_dt          !< Compute time step.
@@ -48,7 +49,7 @@ type, extends(nasto_common_object) :: nasto_cpu_object
       procedure, pass(self) :: compute_residuals   !< Compute residuals.
       procedure, pass(self) :: integrate           !< Perform one step integration.
       procedure, pass(self) :: simulate            !< Perform the simulation.
-endtype nasto_cpu_object
+endtype chase_cpu_object
 
 interface assign_omp
 !< Assign array to scalar value with OpenMP threads.
@@ -59,47 +60,47 @@ contains
    ! auxiliary methods
    subroutine allocate_cpu(self)
    !< Allocate CPU data.
-   class(nasto_cpu_object), intent(inout) :: self !< The equation.
+   class(chase_cpu_object), intent(inout) :: self !< The equation.
    character(:), allocatable              :: msg_ !< Allocating message base.
    character(:), allocatable              :: msg  !< Allocating message.
 
-   call self%mpih%print_message('nasto_cpu_object%allocate_cpu start')
-   msg_ = self%mpih%myrankstr//'nasto_cpu_object%allocate_cpu '
-   associate(nv=>self%nv, ns=>self%ns, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
-             nb=>self%nb, nv_aux=>self%nv_aux, weno_s=>self%weno%S, solids_number=>self%ib%solids_number)
+   call self%mpih%print_message('chase_cpu_object%allocate_cpu start')
+   msg_ = self%mpih%myrankstr//'chase_cpu_object%allocate_cpu '
+   associate(nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
+              nb=>self%nb, weno_s=>self%weno%S, solids_number=>self%ib%solids_number)
    msg = msg_//' dq '
-   call allocate_variable(var=self%dq,       ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
+   call allocate_variable(var=self%dq, ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
    self%dq = 0._R8P
    msg = msg_//' flx '
-   call allocate_variable(var=self%flx,      ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
+   call allocate_variable(var=self%flx,ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
    self%flx = 0._R8P
    msg = msg_//' fly '
-   call allocate_variable(var=self%fly,      ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
+   call allocate_variable(var=self%fly,ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
    self%fly = 0._R8P
    msg = msg_//' flz '
-   call allocate_variable(var=self%flz,      ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
+   call allocate_variable(var=self%flz,ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
    self%flz = 0._R8P
    endassociate
-   call self%mpih%print_message('nasto_cpu_object%allocate_cpu finish')
+   call self%mpih%print_message('chase_cpu_object%allocate_cpu finish')
    endsubroutine allocate_cpu
 
    subroutine initialize(self, filename)
    !< Initialize the equation.
-   class(nasto_cpu_object), intent(inout) :: self     !< The equation.
+   class(chase_cpu_object), intent(inout) :: self     !< The equation.
    character(*),            intent(in)    :: filename !< Input file name.
 
-   call self%mpih%initialize(do_mpi_init=.true.)
-   call self%mpih%print_message('nasto_cpu_object%initialize start')
-   call self%initialize_common(filename=filename, memory_avail=self%mpih%memory_avail)
+   call self%mpih%initialize(do_mpi_init=.true., verbose=.true.)
+   call self%mpih%print_message('chase_cpu_object%initialize start')
+   call self%initialize_common(field = self%adam%field, filename=filename, memory_avail=self%mpih%memory_avail)
    call self%allocate_cpu
    print '(A)', self%mpih%description()
-   call self%mpih%print_message('nasto_cpu_object%initialize finish')
+   call self%mpih%print_message('chase_cpu_object%initialize finish')
    endsubroutine initialize
 
    ! AMR methods
    subroutine amr_update(self)
    !< Do AMR update.
-   class(nasto_cpu_object), intent(inout) :: self                !< The equation.
+   class(chase_cpu_object), intent(inout) :: self                !< The equation.
    logical                                :: is_grid_changed     !< Flag to check grid changes for each marker.
    logical                                :: is_grid_changed_all !< Flag to check grid changes for each iter.
    integer(I4P)                           :: i, i_marker         !< Counter.
@@ -140,7 +141,7 @@ contains
 
    subroutine compute_phi(self)
    !< Compute phi, distance from IB solid.
-   class(nasto_cpu_object), intent(inout) :: self !< The equation.
+   class(chase_cpu_object), intent(inout) :: self !< The equation.
 
    if (self%ib%solids_number>0) then
       call self%mpih%print_message('compute IB distance start')
@@ -151,7 +152,7 @@ contains
 
    subroutine mark_by_geo(self, delta_fine, delta_coarse, threshold, do_init)
    !< Mark blocks to be refined/derefined by a geometric constrain.
-   class(nasto_cpu_object), intent(inout)        :: self           !< The equation.
+   class(chase_cpu_object), intent(inout)        :: self           !< The equation.
    real(R8P),               intent(in)           :: delta_fine     !< Maximum cell delta in fine grids.
    real(R8P),               intent(in)           :: delta_coarse   !< Minimum cell delta in coarse grids.
    real(R8P),               intent(in), optional :: threshold      !< Threshold for sphere proximity.
@@ -166,7 +167,7 @@ contains
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
    if (do_init_) self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
-             blocks_number=>self%blocks_number, ns=>self%ns, dxyz=>self%field%dxyz, phi=>self%ib%phi)
+             blocks_number=>self%blocks_number, dxyz=>self%field%dxyz, phi=>self%ib%phi)
       do b=1, blocks_number
          distance = 1._R8P
          if (maxval(phi(1,:,:,:,b))*minval(phi(1,:,:,:,b)) < 0._R8P) then
@@ -199,7 +200,7 @@ contains
 
    subroutine mark_by_grad_var(self, grad_tol, delta_type, delta_fine, delta_coarse, ivar, threshold, do_init)
    !< Mark blocks to be refined/derefined by a `grad(var)` value.
-   class(nasto_cpu_object), intent(inout)        :: self                     !< The equation.
+   class(chase_cpu_object), intent(inout)        :: self                     !< The equation.
    real(R8P),               intent(in)           :: grad_tol                 !< Gradiend tolerance value.
    character(*),            intent(in)           :: delta_type               !< Delta criterion type.
    real(R8P),               intent(in)           :: delta_fine               !< Maximum cell delta in fine grids.
@@ -220,7 +221,7 @@ contains
    threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
    if (do_init_) self%field%refinements_needed = [(TO_BE_DEREFINED,b=1,self%blocks_number)]
    associate (ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
-              blocks_number=>self%blocks_number, ns=>self%ns, dxyz=>self%field%dxyz)
+              blocks_number=>self%blocks_number, dxyz=>self%field%dxyz)
       select case(delta_type)
       case(AMR_DELTA_T_X)
          dc(1:blocks_number) = dxyz(1,1:blocks_number)
@@ -264,7 +265,7 @@ contains
 
    subroutine move_phi(self, velocity, s)
    !< Move phi and the actual tree representation.
-   class(nasto_cpu_object), intent(inout) :: self        !< The equation.
+   class(chase_cpu_object), intent(inout) :: self        !< The equation.
    real(R8P),               intent(in)    :: velocity(3) !< Velocity of the movement.
    integer(I4P),            intent(in)    :: s           !< Solid index.
 
@@ -277,7 +278,7 @@ contains
 
    subroutine refine_uniform(self, refinement_levels)
    !< Refine all blocks uniformly.
-   class(nasto_cpu_object), intent(inout) :: self              !< The equation.
+   class(chase_cpu_object), intent(inout) :: self              !< The equation.
    integer(I4P),            intent(in)    :: refinement_levels !< Number of refinement to be performed.
    integer(I4P)                           :: l                 !< Counter.
 
@@ -290,7 +291,7 @@ contains
    ! IB methods
    subroutine integrate_eikonal(self, q)
    !< Integrate eikonal equation.
-   class(nasto_cpu_object), intent(inout) :: self      !< The equation.
+   class(chase_cpu_object), intent(inout) :: self      !< The equation.
    real(R8P),               intent(inout) :: q(1:,         &
                                                1-self%ngc:,&
                                                1-self%ngc:,&
@@ -317,7 +318,7 @@ contains
    ! IO methods
    subroutine load_restart_files(self, t, time)
    !< Save restart files.
-   class(nasto_cpu_object), intent(inout) :: self !< The equation.
+   class(chase_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P),            intent(out)   :: t    !< Time iteration.
    real(R8P),               intent(out)   :: time !< Time.
 
@@ -325,10 +326,11 @@ contains
    call self%adam%make_comm_local_maps_ghost_bc
    endsubroutine load_restart_files
 
-   subroutine save_hdf5(self, output_basename)
+   subroutine save_xh5f(self, output_basename, with_ghost)
    !< Save simulation data in HDF5 format.
-   class(nasto_cpu_object), intent(inout)        :: self             !< The equation.
+   class(chase_cpu_object), intent(inout)        :: self             !< The equation.
    character(*),            intent(in), optional :: output_basename  !< Output basename.
+   logical,                 intent(in), optional :: with_ghost       !< Flag to save ghost cells.
    character(:), allocatable                     :: output_basename_ !< Output basename, local var.
 
    call self%mpih%barrier(tictoc=.true.)
@@ -336,34 +338,24 @@ contains
                                 trim(str(self%time%time,.true.)))
    output_basename_ = trim(self%io%output_basename)//'-'//trim(strz(self%time%it,9))
    if (present(output_basename)) output_basename_ = trim(output_basename)
-   if (self%ib%solids_number>0) then
-      call self%adam%save_hdf5(basename=trim(output_basename_),                                                       &
-                               q=self%q,                                                                              &
-                               q_aux=self%q_aux,                                                                      &
-                               q_name=['rho','rhu','rhv','rhw','rhe'],                                                &
-                               q_aux_name=['rhob ','u    ','v    ','w    ','ya   ','tem  ','pres ','ental','csp  '],  &
-                               with_cell_morton=.true., phi=self%ib%phi)
-   else
-      call self%adam%save_hdf5(basename=trim(output_basename_),                                                       &
-                               q=self%q,                                                                              &
-                               q_aux=self%q_aux,                                                                      &
-                               q_name=['rho','rhu','rhv','rhw','rhe'],                                                &
-                               q_aux_name=['rhob ','u    ','v    ','w    ','ya   ','tem  ','pres ','ental','csp  '],  &
-                               with_cell_morton=.true.)
-   endif
+   call self%adam%io%save_xh5f(basename=trim(output_basename_), &
+                               q=self%q, q_name=self%q_name,    &
+                               with_ghost=with_ghost,           &
+                               with_cell_morton=.true.,         &
+                               t=self%time%it, time=self%time%time)
    call self%mpih%barrier(tictoc=.true.)
-   endsubroutine save_hdf5
+   endsubroutine save_xh5f
 
    subroutine save_residuals(self)
    !< Save residuals history.
-   class(nasto_cpu_object), intent(inout) :: self !< The equation.
+   class(chase_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: v    !< Counter.
 
    if (self%time%is_to_save(it_save=self%io%residuals_save)) then
       call self%field%compute_normL2_residuals(dq=self%dq, norm=self%field%residuals)
       do v=1, self%nv
          call MPI_ALLREDUCE(MPI_IN_PLACE, self%field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
-         self%field%residuals(v) = sqrt(self%field%residuals(v))
+         self%field%residuals(v) = sqrt(self%field%residuals(v))/sqrt(real(self%ni*self%nj*self%nk, R8P))
       enddo
       if (self%mpih%myrank==0) call self%io%save_residuals(it=self%time%it, time=self%time%time, &
                                                            blocks_number=self%blocks_number, residuals=self%field%residuals)
@@ -372,27 +364,26 @@ contains
 
    subroutine save_restart_files(self)
    !< Save restart files.
-   class(nasto_cpu_object), intent(inout) :: self !< The equation.
+   class(chase_cpu_object), intent(inout) :: self !< The equation.
 
    call self%mpih%barrier(tictoc=.true.)
    call self%mpih%print_message('save restart files t: '//trim(str(self%time%it,.true.))//', time: '//&
                                 trim(str(self%time%time,.true.)))
    call self%adam%save_restart_files(basename=self%io%restart_basename, t=self%time%it, time=self%time%time, q=self%q)
-   call self%save_hdf5(output_basename=self%io%restart_basename)
+   call self%save_xh5f(output_basename=self%io%restart_basename)
    call self%mpih%barrier(tictoc=.true.)
    endsubroutine save_restart_files
 
    subroutine save_simulation_data(self)
    !< Save all simulation data.
-   class(nasto_cpu_object), intent(inout) :: self !< The equation.
+   class(chase_cpu_object), intent(inout) :: self !< The equation.
 
    if ((self%time%is_to_save(it_save=self%io%it_save)).or.      &
        (self%time%is_to_save(it_save=self%io%restart_save)).or. &
        (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))) then
       call self%update_ghost(q=self%q)
       call self%compute_q_auxiliary(q=self%q, q_aux=self%q_aux)
-
-      if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_hdf5
+      if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_xh5f
       if (mod(self%time%it,self%io%restart_save)==0) call self%save_restart_files
       if (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))&
          call self%slices%save_mat(basename=self%io%output_basename, &
@@ -409,20 +400,20 @@ contains
    ! IC/BC
    subroutine set_boundary_conditions(self, q)
    !< Set boundary conditions of equation.
-   class(nasto_cpu_object), intent(in)    :: self              !< The equation.
+   class(chase_cpu_object), intent(in)    :: self                 !< The equation.
    real(R8P),               intent(inout) :: q(1:,         &
                                                1-self%ngc:,&
                                                1-self%ngc:,&
-                                               1-self%ngc:,1:) !< Conservative variables.
-   integer(I4P)                        :: b, c, i, j, k, v     !< Counter.
-   integer(I4P)                        :: idelta,jdelta,kdelta !< IJK delta step for extrapolation.
-   integer(I4P)                        :: bc_type              !< Boundary condition type.
-   integer(I4P)                        :: crown                !< Crown counter.
-   integer(I4P)                        :: fec                  !< Boundary fec (1 to 26).
-   integer(I4P)                        :: fec_1_6              !< Boundary fec (1 to 6).
+                                               1-self%ngc:,1:)    !< Conservative variables.
+   integer(I4P)                           :: b, c, i, j, k, v     !< Counter.
+   integer(I4P)                           :: idelta,jdelta,kdelta !< IJK delta step for extrapolation.
+   integer(I4P)                           :: bc_type              !< Boundary condition type.
+   integer(I4P)                           :: crown                !< Crown counter.
+   integer(I4P)                           :: fec                  !< Boundary fec (1 to 26).
+   integer(I4P)                           :: fec_1_6              !< Boundary fec (1 to 6).
 
    associate(local_map_bc_crown=>self%field%maps%local_map_bc_crown, &
-             nv=>self%nv, ngc=>self%ngc, cv=>self%physics%eos(1)%cv, R=>self%physics%eos(1)%R, q_bc_vars=>self%bc%q)
+             nv=>self%nv, ngc=>self%ngc, cv=>self%physics%eos%cv, R=>self%physics%eos%R, q_bc_vars=>self%bc%q)
    if (allocated(self%field%maps%local_map_bc_crown)) then
       do crown=1, ngc
          do c=1, size(local_map_bc_crown, dim=1)
@@ -458,8 +449,8 @@ contains
    endsubroutine set_boundary_conditions
 
    subroutine set_initial_conditions(self)
-   !< Set initial conditions of field.
-   class(nasto_cpu_object), intent(inout) :: self !< The equation.
+   !< Set initial conditions and coils on field.
+   class(chase_cpu_object), intent(inout) :: self !< The equation.
 
    call self%ic%set_initial_conditions(physics=self%physics, field=self%field, q=self%q)
    endsubroutine set_initial_conditions
@@ -467,7 +458,7 @@ contains
    subroutine update_ghost(self, q, step)
    !< Update ghost cells.
    !< If not specified all steps are perfermod, syncronous computation
-   class(nasto_cpu_object), intent(inout)        :: self            !< The equation.
+   class(chase_cpu_object), intent(inout)        :: self            !< The equation.
    real(R8P),               intent(inout)        :: q(1:,         &
                                                       1-self%ngc:,&
                                                       1-self%ngc:,&
@@ -496,7 +487,7 @@ contains
    ! numerical methods
    subroutine compute_dt(self)
    !< Compute maximum time step accordingly to CFL stabilty criterion.
-   class(nasto_cpu_object), intent(inout) :: self                            !< The equation.
+   class(chase_cpu_object), intent(inout) :: self                            !< The equation.
    real(R8P)                              :: umax                            !< Maximum speed of waves propagation.
    real(R8P)                              :: ss                              !< Speed of sound.
    real(R8P)                              :: dx_locale, dy_locale, dz_locale !< Local space steps.
@@ -504,10 +495,9 @@ contains
 
    call self%compute_q_auxiliary(q=self%q, q_aux=self%q_aux)
    self%time%dt = huge(1._R8P)
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, blocks_number=>self%blocks_number, mu=>self%physics%eos(1)%mu, &
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, blocks_number=>self%blocks_number, mu=>self%physics%eos%mu, &
              dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), q_aux=>self%q_aux)
    umax = 0._R8P
-   !$omp parallel do collapse(4) default(firstprivate) shared(dx,dy,dz,q_aux) reduction(max:umax)
    do b=1, blocks_number
       do k=1, nk
          do j=1, nj
@@ -515,15 +505,14 @@ contains
                dx_locale = dx(b)*0.5_R8P
                dy_locale = dy(b)*0.5_R8P
                dz_locale = dz(b)*0.5_R8P
-               ss = q_aux(9,i,j,k,b)
-               umax = max(umax, (abs(q_aux(2,i,j,k,b)) + ss)/dx_locale + 2._R8P*mu/(q_aux(1,i,j,k,b))/dx_locale**2 + &
-                                (abs(q_aux(3,i,j,k,b)) + ss)/dy_locale + 2._R8P*mu/(q_aux(1,i,j,k,b))/dy_locale**2 + &
-                                (abs(q_aux(4,i,j,k,b)) + ss)/dz_locale + 2._R8P*mu/(q_aux(1,i,j,k,b))/dz_locale**2)
+               ss = q_aux(VAR_A,i,j,k,b)
+               umax = max(umax, (abs(q_aux(VAR_U,i,j,k,b)) + ss)/dx_locale + &
+                                (abs(q_aux(VAR_V,i,j,k,b)) + ss)/dy_locale + &
+                                (abs(q_aux(VAR_W,i,j,k,b)) + ss)/dz_locale)
             enddo
          enddo
       enddo
    enddo
-   !$omp end parallel do
    endassociate
    self%time%dt = min(self%time%dt, self%time%CFL / umax)
    call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih%error)
@@ -531,77 +520,86 @@ contains
 
    subroutine compute_q_auxiliary(self, q, q_aux)
    !< Compute auxiliary variables.
-   class(nasto_cpu_object), intent(in)  :: self                         !< The equation.
+   class(chase_cpu_object), intent(in)  :: self       !< The equation.
    real(R8P),               intent(in)  :: q(1:,         &
                                              1-self%ngc:,&
                                              1-self%ngc:,&
                                              1-self%ngc:,&
-                                             1:)                        !< Conservative variables.
+                                             1:)      !< Conservative variables.
    real(R8P),               intent(out) :: q_aux(1:,         &
                                                  1-self%ngc:,&
                                                  1-self%ngc:,&
                                                  1-self%ngc:,&
-                                                 1:)                    !< Auxiliary variables.
-   integer(I4P)                         :: b, i, j, k, s                !< Counter.
-   real(R8P)                            :: rho, uuu, vvv, www, rhe, tem !< State variables.
+                                                 1:)  !< Auxiliary variables.
+   integer(I4P)                         :: b, i, j, k !< Counter.
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, &
-             g=>self%physics%eos(1)%g, R=>self%physics%eos(1)%R, cv=>self%physics%eos(1)%cv)
-   call compute_q_aux(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number, &
-                      R=self%physics%eos(1)%R, cv=self%physics%eos(1)%cv, g=self%physics%eos(1)%g, q=q, q_aux=q_aux)
+   associate(eos=>self%physics%eos,ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number)
+   do b=1, blocks_number
+   do k=1-ngc, nk+ngc
+   do j=1-ngc, nj+ngc
+   do i=1-ngc, ni+ngc
+      call compute_auxiliary(cv=eos%cv, Rf=eos%R, g=eos%g, conservative=q(:,i,j,k,b), auxiliary=q_aux(:,i,j,k,b))
+   enddo
+   enddo
+   enddo
+   enddo
    endassociate
    endsubroutine compute_q_auxiliary
 
-   subroutine compute_residuals(self, q, dq)
+   subroutine compute_residuals(self, q, q_aux, dq)
    !< Compute residuals of equation.
-   class(nasto_cpu_object), intent(inout) :: self   !< The equation.
+   class(chase_cpu_object), intent(inout) :: self      !< The equation.
    real(R8P),               intent(inout) :: q(1:,       &
                                                1-self%ngc:,&
                                                1-self%ngc:,&
                                                1-self%ngc:,&
-                                               1:)  !< Conservative variables.
+                                               1:)     !< Conservative variables.
+   real(R8P),               intent(inout) :: q_aux(1:,       &
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1:) !< Auxiliary variables.
    real(R8P),               intent(inout) :: dq(1:,         &
                                                 1-self%ngc:,&
                                                 1-self%ngc:,&
                                                 1-self%ngc:,&
-                                                1:) !< Residuals.
+                                                1:)    !< Residuals.
 
    call self%update_ghost(q=q)
    call self%integrate_eikonal(q=q)
-   call self%compute_q_auxiliary(q=q, q_aux=self%q_aux)
+   call self%compute_q_auxiliary(q=q, q_aux=q_aux)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number, &
              dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),                         &
-             q_aux=>self%q_aux, phi=>self%ib%phi, flx=>self%flx, fly=>self%fly, flz=>self%flz,                     &
+             phi=>self%ib%phi, flx=>self%flx, fly=>self%fly, flz=>self%flz,                                        &
              weno_s=>self%weno%S,                                                                                  &
              weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, ror_number=>self%weno%ror_number,      &
              ror_schemes=>self%weno%ror_schemes, ror_ivar=>self%weno%ror_ivar,                                     &
              ror_threshold=>self%weno%ror_threshold, enable_ror_stats=>self%weno%enable_ror_stats,                 &
              cell_scheme=>self%weno%cell_scheme, ror_stats=>self%weno%ror_stats, weno_zeps=>self%weno%zeps,        &
              solids_number=>self%ib%solids_number,                                                                 &
-             cv=>self%physics%eos(1)%cv, g=>self%physics%eos(1)%g, R=>self%physics%eos(1)%R,                       &
-             mu=>self%physics%eos(1)%mu, kd=>self%physics%eos(1)%kd, dha=>self%physics%eos(1)%dha, null_xyz=>self%grid%null_xyz)
+             g=>self%physics%eos%g, null_xyz=>self%grid%null_xyz)
    if (blocks_number > 0) then
       if (.not.null_xyz(1)) then
-         call compute_fluxes_convective(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,weno_s=weno_S, &
-                                        weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,g=g,q_aux=q_aux,fluxes=flx)
+         call compute_fluxes_convective(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,g=g,      &
+                                        weno_s=weno_S,weno_zeps=weno_zeps,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,&
+                                        q_aux=q_aux,fluxes=flx)
       else
          call assign_omp(blocks_number=blocks_number, ngc=ngc, lhs=flx, rhs=0._R8P)
       endif
       if (.not.null_xyz(2)) then
-         call compute_fluxes_convective(dir=2,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,weno_s=weno_S, &
-                                        weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,g=g,q_aux=q_aux,fluxes=fly)
+         call compute_fluxes_convective(dir=2,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,g=g,      &
+                                        weno_s=weno_S,weno_zeps=weno_zeps,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,&
+                                        q_aux=q_aux,fluxes=fly)
       else
          call assign_omp(blocks_number=blocks_number, ngc=ngc, lhs=fly, rhs=0._R8P)
       endif
       if (.not.null_xyz(3)) then
-         call compute_fluxes_convective(dir=3,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,weno_s=weno_S, &
-                                        weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,g=g,q_aux=q_aux,fluxes=flz)
+         call compute_fluxes_convective(dir=3,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,g=g,      &
+                                        weno_s=weno_S,weno_zeps=weno_zeps,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,&
+                                        q_aux=q_aux,fluxes=flz)
       else
          call assign_omp(blocks_number=blocks_number, ngc=ngc, lhs=flz, rhs=0._R8P)
       endif
-      if (mu > 0.) call compute_fluxes_diffusive(null_xyz=null_xyz,                                         &
-                                                 blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, &
-                                                 mu=mu, kd=kd, q_aux=q_aux, dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz)
       if (solids_number>0) then
          call compute_fluxes_difference(null_xyz=null_xyz,                                                                   &
                                         blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv=nv, ib_eps=1.e-12_R8P, &
@@ -617,7 +615,7 @@ contains
 
    subroutine integrate(self, do_ghost_syncro)
    !< Perform one step integration.
-   class(nasto_cpu_object), intent(inout)         :: self             !< The equation.
+   class(chase_cpu_object), intent(inout)         :: self             !< The equation.
    logical,                 intent(in),  optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
    logical                                        :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
    integer(I4P)                                   :: s                !< Counter.
@@ -626,9 +624,9 @@ contains
    call self%rk%initialize_stages(q=self%q)
    select case(self%rk%scheme)
    case(RK_1, RK_2, RK_3)
-      ! low storage RK working on q_rk_gpu(:,:,:,:,:,1)/q_gpu as stages, update q_gpu in place
+      ! low storage RK working on q_rk(:,:,:,:,:,1)/q as stages, update q in place
       do s=1, self%rk%nrk
-         call self%compute_residuals(q=self%q, dq=self%dq)
+         call self%compute_residuals(q=self%q, q_aux=self%q_aux, dq=self%dq)
          if (s==1) call self%save_residuals
          if (self%ib%solids_number>0) then
             call self%rk%compute_stage_ls(s=s,dt=self%time%dt,phi=self%ib%phi,dq=self%dq,q=self%q)
@@ -637,14 +635,14 @@ contains
          endif
       enddo
    case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
-      ! RK working on q_rk_gpu as stages
+      ! RK working on q_rk as stages
       do s=1, self%rk%nrk
          if (self%ib%solids_number>0) then
             call self%rk%compute_stage(s=s, dt=self%time%dt, phi=self%ib%phi)
          else
             call self%rk%compute_stage(s=s, dt=self%time%dt)
          endif
-         call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq)
+         call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), q_aux=self%q_aux, dq=self%dq)
          if (s==1) call self%save_residuals
          if (self%ib%solids_number>0) then
             call self%rk%assign_stage(s=s, q=self%dq, phi=self%ib%phi)
@@ -662,7 +660,7 @@ contains
 
    subroutine simulate(self, filename)
    !< Perform the simulation.
-   class(nasto_cpu_object), intent(inout) :: self             !< The equation.
+   class(chase_cpu_object), intent(inout) :: self             !< The equation.
    character(*),            intent(in)    :: filename         !< Input file name.
    real(R8P)                              :: timing(1:2)      !< Tic toc timing.
    real(R8P)                              :: timing_step(1:2) !< Tic toc timing.
@@ -697,7 +695,6 @@ contains
    integration: do
       call self%mpih%barrier(tictoc=.true., timing=timing_step(1), single=.true.)
       self%time%it = self%time%it + 1
-      print*, 'cazzo before integrate t, q', self%time%it, self%q(1,0:1,1,1,1), self%q(1,self%ni:self%ni+1,1,1,1)
 
       if (self%io%save_memory_status) then
          call save_memory_status(file_name='memory_cpu-'//self%mpih%myrankstr//'.dat', tag=str(self%time%it,.true.))
@@ -714,7 +711,6 @@ contains
          self%time%dt=self%time%time_max-self%time%time
 
       call self%integrate
-      print*, 'cazzo after integrate t, q', self%time%it, self%q(1,0:1,1,1,1), self%q(1,self%ni:self%ni+1,1,1,1)
 
       self%time%time = self%time%time + self%time%dt
       call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
@@ -729,6 +725,7 @@ contains
    call self%mpih%barrier(tictoc=.true., timing=timing(2), single=.true.)
    call self%save_simulation_data
    if (self%mpih%myrank==0) call self%io%close_file_residuals
+   call self%mpih%finalize
    endsubroutine simulate
 
    ! non TBP
@@ -758,7 +755,7 @@ contains
    enddo
    endsubroutine assign_omp_R8P_5D
 
-   subroutine compute_fluxes_convective(dir,blocks_number,ni,nj,nk,ngc,nv,weno_s,weno_a,weno_p,weno_d,weno_zeps,g,q_aux,fluxes)
+   subroutine compute_fluxes_convective(dir,blocks_number,ni,nj,nk,ngc,nv,g,weno_s,weno_zeps,weno_a,weno_p,weno_d,q_aux,fluxes)
    !< Compute convective fluxes along direction `dir`.
    integer(I4P), intent(in)    :: dir                                !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P), intent(in)    :: blocks_number                      !< Number of blocks.
@@ -767,26 +764,17 @@ contains
    integer(I4P), intent(in)    :: nk                                 !< Grid cells number in K direction.
    integer(I4P), intent(in)    :: ngc                                !< Ghost cells number.
    integer(I4P), intent(in)    :: nv                                 !< Number of conservative varibales.
+   real(R8P),    intent(in)    :: g                                  !< Specific heats ratio.
    integer(I4P), intent(in)    :: weno_s                             !< Weno stencils number/dimension.
+   real(R8P),    intent(in)    :: weno_zeps                          !< Parameter for avoiding division by zero in computing IS.
    real(R8P),    intent(in)    :: weno_a(1:,0:,1:)                   !< Optimal weights.
    real(R8P),    intent(in)    :: weno_p(1:,0:,0:,1:)                !< Polinomials coefficients.
    real(R8P),    intent(in)    :: weno_d(0:,0:,0:,1:)                !< Smoothness indicators coefficients.
-   real(R8P),    intent(in)    :: weno_zeps                          !< Parameter for avoiding division by zero in computing IS.
-   real(R8P),    intent(in)    :: g                                  !< Specific heats ratio.
    real(R8P),    intent(in)    :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Auxiliary variables.
    real(R8P),    intent(inout) :: fluxes(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes.
-   real(R8P)                   :: el(nv,nv), er(nv,nv)               !< Left and right eigenvalues.
-   real(R8P)                   :: fmp (1:2,                   1:nv)  !< Fluxes -+ decomposition.
-   real(R8P)                   :: fmpc(1:2,1-weno_s:-1+weno_s,1:nv)  !< Fluxes -+ decomposition in c. space.
-   real(R8P)                   :: fpmr(1:2,1:nv)                     !< Fluxes +- reconstructed.
-   logical                     :: ror_recompute                      !< Flag to perform ROR.
-   integer(I4P)                :: r, v, vv                           !< Counter.
-   integer(I4P)                :: b, i, j, k                         !< Counter.
    integer(I4P)                :: si(3), si_i, si_j, si_k            !< Directional (1=x,2=y,3=z) increment.
-   real(R8P)                   :: sir(3)                             !< Directional (1=x,2=y,3=z) increment.
-   integer(I4P)                :: uni, ut1, ut2                      !< Index of normal and tangential velocities.
-   real(R8P)                   :: evmax(nv)                          !< Maximum waves speed estimation.
-   integer(I4P)                :: s, is, js, ks                      !< Counter.
+   real(R8P)                   :: sir(3)                             !< Directional (1=x,2=y,3=z) increment, real.
+   integer(I4P)                :: b, i, j, k                         !< Counter.
 
    select case(dir)
    case(1)
@@ -801,81 +789,56 @@ contains
    si_j = 1-si(2)
    si_k = 1-si(3)
 
-   uni = 1 + 1*si(1)+2*si(2)+3*si(3)
-   ut1 = 1 + findloc(si, 0_I4P             , dim=1)
-   ut2 = 1 + findloc(si, 0_I4P, back=.true., dim=1)
-   !$omp parallel do collapse(4) default(firstprivate) shared(weno_a, weno_p, weno_d, q_aux, fluxes)
    do b=1, blocks_number
    do k=si_k, nk
    do j=si_j, nj
    do i=si_i, ni
-      ! call compute_eigenvectors(si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,g=g,q_aux=q_aux,el=el,er=er)
-      ! call decompose_fluxes_convective(si=si,sir=sir,el=el,weno_s=weno_s,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,g=g,q_aux=q_aux,fmpc=fmpc)
-      ! do v=1, nv
-      !    call weno_reconstruct_upwind(S=weno_s,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,&
-      !                                 V=fmpc(:,:,v),VR=fpmr(:,v))
-      ! enddo
-      ! do v=1, nv
-      !    fluxes(v,i,j,k,b) = 0._R8P
-      !    do vv=1,nv
-      !       fluxes(v,i,j,k,b) = fluxes(v,i,j,k,b) + er(vv,v) * (fpmr(1,vv) + fpmr(2,vv))
-      !    enddo
-      ! enddo
-      ! call compute_fluxes_convective_interface(si=si,sir=sir,uni=uni,ut1=ut1,ut2=ut2,nv=nv, &
-      !                                          q_aux1=q_aux(:,i      ,j      ,k      ,b),   &
-      !                                          q_aux4=q_aux(:,i+si(1),j+si(2),k+si(3),b),   &
-      !                                          F=fluxes(:,i,j,k,b))
-      call compute_max_eigenvalues(si=si,sir=sir,weno_s=weno_s,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,q_aux=q_aux,evmax=evmax)
-      call decompose_fluxes_convective_llf(sir=sir, nv=nv, q_aux=q_aux(:,i      ,j      ,k      ,b), evmax=evmax, fmp=fmp)
-      call decompose_fluxes_convective_llf(sir=sir, nv=nv, q_aux=q_aux(:,i+si(1),j+si(2),k+si(3),b), evmax=evmax, fmp=fpmr)
-      fluxes(:,i,j,k,b) = fmp(2,:) + fpmr(1,:)
-      ! call compute_eigenvectors(si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,g=g,q_aux=q_aux,el=el,er=er)
-      ! el = 0._R8P
-      ! do v=1, nv
-      !    el(v,v) = 1._R8P
-      ! enddo
-      ! er = el
-      ! do s=1-weno_s, weno_s
-         ! is = i + (s) * si(1) ; js = j + (s) * si(2) ; ks = k + (s) * si(3)
-         ! call decompose_fluxes_convective_llf(sir=sir, nv=nv, q_aux=q_aux(:,is,js,ks,b), evmax=evmax, fmp=fmp)
-         ! do v=1, nv
-         !    if (s<weno_s)   then
-         !       fmpc(2,s,v) = 0._R8P
-         !       do vv=1,nv
-         !          fmpc(2,s,v) = fmpc(2,s,v) + el(v,vv) * fmp(2,v)
-         !       enddo
-         !    endif
-         !    if (s>1-weno_s) then
-         !       fmpc(1,s-1,v) = 0._R8P
-         !       do vv=1,nv
-         !          fmpc(1,s-1,v) = fmpc(1,s-1,v) + el(v,vv) * fmp(1,v)
-         !       enddo
-         !    endif
-         ! enddo
-         ! do v=1, nv
-         !    if (s<weno_s)   fmpc(2,s  ,v) = dot_product(el(v,:),fmp(2,:))
-         !    if (s>1-weno_s) fmpc(1,s-1,v) = dot_product(el(v,:),fmp(1,:))
-         ! enddo
-      ! enddo
-      ! do v=1, nv
-      !    call weno_reconstruct_upwind(S=weno_s,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,&
-      !                                 V=fmpc(:,:,v),VR=fpmr(:,v))
-      ! enddo
-      ! do v=1, nv
-      !    fluxes(v,i,j,k,b) = 0._R8P
-      !    do vv=1,nv
-      !       fluxes(v,i,j,k,b) = fluxes(v,i,j,k,b) + er(v,vv) * (fpmr(1,vv) + fpmr(2,vv))
-      !    enddo
-      ! enddo
-      ! do v=1, nv
-      !    fluxes(v,i,j,k,b) = dot_product(er(v,:),fpmr(1,:)) + dot_product(er(v,:),fpmr(2,:))
-      ! enddo
+      call compute_fluxes_convective_ri(dir=dir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,                                       &
+                                        weno_s=weno_s,weno_zeps=weno_zeps,weno_a=weno_a,weno_p=weno_p, weno_d=weno_d,&
+                                        si=si,sir=sir,g=g,q_aux=q_aux,fluxes=fluxes)
    enddo
    enddo
    enddo
    enddo
-   !$omp end parallel do
    endsubroutine compute_fluxes_convective
+
+   subroutine compute_fluxes_convective_ri(dir,b,i,j,k,ngc,nv,                   &
+                                           weno_s,weno_zeps,weno_a,weno_p,weno_d,&
+                                           si,sir,g,q_aux,fluxes)
+   !< Compute convective fluxes at right interface of b,i,j,k.
+   integer(I4P), intent(in)    :: dir                                 !< Direction, 1=X, 2=Y, 3=Z.
+   integer(I4P), intent(in)    :: b, i, j, k                          !< Counter.
+   integer(I4P), intent(in)    :: ngc                                 !< Ghost cells number.
+   integer(I4P), intent(in)    :: nv                                  !< Number of conservative varibales.
+   integer(I4P), intent(in)    :: weno_s                              !< Weno stencils number/dimension.
+   real(R8P),    intent(in)    :: weno_zeps                           !< Parameter to avoid division by zero.
+   real(R8P),    intent(in)    :: weno_a(1:,0:,1:)                    !< Optimal weights.
+   real(R8P),    intent(in)    :: weno_p(1:,0:,0:,1:)                 !< Polinomials coefficients.
+   real(R8P),    intent(in)    :: weno_d(0:,0:,0:,1:)                 !< Smoothness indicators coefficients.
+   integer(I4P), intent(in)    :: si(3)                               !< Stencil increment.
+   real(R8P),    intent(in)    :: sir(3)                              !< Stencil increment, real cast.
+   real(R8P),    intent(in)    :: g                                   !< Specific heats ratio.
+   real(R8P),    intent(in)    :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Auxiliary variables.
+   real(R8P),    intent(inout) :: fluxes(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Fluxes.
+   real(R8P)                   :: fmpc(1:2,1-weno_s:-1+weno_s,1:nv)   !< Fluxes -+ decomposition in c. space.
+   real(R8P)                   :: fpmr(1:2,1:nv)                      !< Fluxes +- reconstructed.
+   real(R8P)                   :: el(nv,nv), er(nv,nv)                !< Left and right eigenvalues.
+   integer(I4P)                :: v, vv                               !< Counter.
+
+   call compute_eigenvectors(si=si,sir=sir,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,g=g,q_aux=q_aux,el=el,er=er)
+   call decompose_fluxes_convective(weno_s=weno_s,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,si=si,sir=sir,el=el,q_aux=q_aux,fmpc=fmpc)
+   do v=1, nv
+      call weno_reconstruct_upwind(S=weno_s, weno_a=weno_a, weno_p=weno_p, weno_d=weno_d,&
+                                   weno_zeps=weno_zeps, V=fmpc(:,:,v), VR=fpmr(:,v))
+   enddo
+   ! back projection in conservative variables space
+   do v=1, nv
+      fluxes(v,i,j,k,b) = 0._R8P
+      do vv=1,nv
+         fluxes(v,i,j,k,b) = fluxes(v,i,j,k,b) + er(vv,v) * (fpmr(1,vv) + fpmr(2,vv))
+      enddo
+   enddo
+   endsubroutine compute_fluxes_convective_ri
 
    subroutine compute_fluxes_difference(null_xyz, blocks_number, ni, nj, nk, ngc, nv, ib_eps, dx, dy, dz, flx, fly, flz, phi, dq)
    !< Compute fluxes difference.
@@ -980,160 +943,62 @@ contains
    endif
    endsubroutine compute_fluxes_difference
 
-   subroutine compute_fluxes_diffusive(null_xyz, blocks_number, ni, nj, nk, ngc, mu, kd, q_aux, dx, dy, dz, flx, fly, flz)
-   !< Compute diffusive fluxes.
-   logical,      intent(in)    :: null_xyz(3)                           !< Nullified directions tags.
-   integer(I4P), intent(in)    :: blocks_number                         !< Blocks number.
-   integer(I4P), intent(in)    :: ni, nj, nk                            !< Grid dimensionns.
-   integer(I4P), intent(in)    :: ngc                                   !< Number of ghost cells.
-   real(R8P),    intent(in)    :: mu                                    !< Viscosity.
-   real(R8P),    intent(in)    :: kd                                    !< Thermal diffusivity.
-   real(R8P),    intent(in)    :: dx(1:), dy(1:), dz(1:)                !< Space steps.
-   real(R8P),    intent(in)    :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Auxiliary varibales
-   real(R8P),    intent(inout) ::   flx(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Fluxes along x.
-   real(R8P),    intent(inout) ::   fly(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Fluxes along y.
-   real(R8P),    intent(inout) ::   flz(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Fluxes along z.
-   real(R8P)                   :: vel_u, vel_v, vel_w                   !< (Mean) velocity.
-   real(R8P)                   :: du_dx, dv_dx, dw_dx                   !< Velocity derivative along x.
-   real(R8P)                   :: du_dy, dv_dy, dw_dy                   !< Velocity derivative along y.
-   real(R8P)                   :: du_dz, dv_dz, dw_dz                   !< Velocity derivative along z.
-   real(R8P)                   :: sigq, sigl                            !< Sigmas.
-   real(R8P)                   :: tau_1_1, tau_2_1, tau_3_1, dT_dx      !< Stress tensor, x elements.
-   real(R8P)                   :: tau_1_2, tau_2_2, tau_3_2, dT_dy      !< Stress tensor, y elements.
-   real(R8P)                   :: tau_1_3, tau_2_3, tau_3_3, dT_dz      !< Stress tensor, z elements.
-   integer(I4P)                :: b, i, j, k                            !< Counter.
+   pure subroutine compute_eigenvectors(si,sir,b,i,j,k,ngc,nv,g,q_aux,el,er)
+   ! Compute eigenvectors centered in inteface i,j,k/ip,jp,kp.
+   integer(I4P), intent(in)    :: si(3)                             !< Directional (1=x,2=y,3=z) increment.
+   real(R8P),    intent(in)    :: sir(3)                            !< Directional (1=x,2=y,3=z) increment.
+   integer(I4P), intent(in)    :: b, i, j, k                        !< Cell indexes.
+   integer(I4P), intent(in)    :: ngc                               !< Ghost cells number.
+   integer(I4P), intent(in)    :: nv                                !< Number of conservative varibales.
+   real(R8P),    intent(in)    :: g                                 !< Specific heats ratio.
+   real(R8P),    intent(in)    :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(inout) :: el(1:nv,1:nv), er(1:nv,1:nv)      !< Left and right eigenvectors.
+   real(R8P)                   :: uu, vv, ww, h, qq, c, ci, b1, b2  !< Roe average states.
+   real(R8P)                   :: uvw, uvw_r1, uvw_r2               !< Velocity rotation accordingly dir.
+   real(R8P), parameter        :: o_2=0.5_R8P                       !< Alias 1/2.
+   real(R8P)                   :: ci1,ci2,ci3                       !< Alias sir(1)/c, sir(2)/c, sir(3)/c.
 
-   !$omp parallel default(firstprivate) shared(dx,dy,dz,q_aux,flx,fly,flz)
-   if (.not.null_xyz(1)) then
-   !$omp do collapse(4)
-   do b=1,blocks_number
-      do k=1,nk
-         do j=1,nj
-            do i=0,ni ! loop on faces
-                du_dx = (q_aux(2,i+1,j,k,b)-q_aux(2,i,j,k,b))/dx(b)
-                dv_dx = (q_aux(3,i+1,j,k,b)-q_aux(3,i,j,k,b))/dx(b)
-                dw_dx = (q_aux(4,i+1,j,k,b)-q_aux(4,i,j,k,b))/dx(b)
+   call compute_roe_average(q_aux=q_aux, g=g, ngc=ngc, b=b, i=i, j=j, k=k, ip=i+si(1), jp=j+si(2), kp=k+si(3), &
+                            uu=uu, vv=vv, ww=ww, h=h, qq=qq, c=c, ci=ci, b1=b1, b2=b2)
 
-                du_dy = (q_aux(2,i+1,j+1,k,b) - q_aux(2,i+1,j-1,k,b)+ &
-                         q_aux(2,i,  j+1,k,b) - q_aux(2,i,  j-1,k,b))*0.25_R8P/dy(b)
-                dv_dy = (q_aux(3,i+1,j+1,k,b) - q_aux(3,i+1,j-1,k,b)+ &
-                         q_aux(3,i,  j+1,k,b) - q_aux(3,i,  j-1,k,b))*0.25_R8P/dy(b)
+   uvw    = uu*sir(1)+vv*sir(2)+ww*sir(3)
+   uvw_r1 = (vv-uvw*sir(2))*sir(1)+(uvw*sir(1)-uu)*sir(2)+(uu-uvw*sir(1))*sir(3)
+   uvw_r2 = (uvw*sir(3)-ww)*sir(1)+(ww-uvw*sir(3))*sir(2)+(uvw*sir(2)-vv)*sir(3)
+   ci1    = ci*sir(1)
+   ci2    = ci*sir(2)
+   ci3    = ci*sir(3)
 
-                du_dz = (q_aux(2,i+1,j,k+1,b) - q_aux(2,i+1,j,k-1,b)+ &
-                         q_aux(2,i,  j,k+1,b) - q_aux(2,i,  j,k-1,b))*0.25_R8P/dz(b)
-                dw_dz = (q_aux(4,i+1,j,k+1,b) - q_aux(4,i+1,j,k-1,b)+ &
-                         q_aux(4,i,  j,k+1,b) - q_aux(4,i,  j,k-1,b))*0.25_R8P/dz(b)
+   er(1,1)= 1._R8P      ; er(1,2)= 1._R8P ; er(1,3)= 1._R8P      ; er(1,4)= 0._R8P              ; er(1,5)= 0._R8P
+   er(2,1)= uu-c*sir(1) ; er(2,2)= uu     ; er(2,3)= uu+c*sir(1) ; er(2,4)= sir(2)              ; er(2,5)=-sir(3)
+   er(3,1)= vv-c*sir(2) ; er(3,2)= vv     ; er(3,3)= vv+c*sir(2) ; er(3,4)=-sir(1)              ; er(3,5)= 0._R8P
+   er(4,1)= ww-c*sir(3) ; er(4,2)= ww     ; er(4,3)= ww+c*sir(3) ; er(4,4)= 0._R8P              ; er(4,5)= sir(1)
+   er(5,1)= h-uvw*c     ; er(5,2)= qq     ; er(5,3)= h+uvw*c     ; er(5,4)= uu*sir(2)-vv*sir(1) ; er(5,5)= ww*sir(1)-uu*sir(3)
 
-                vel_u = 0.5*(q_aux(2,i,j,k,b) + q_aux(2,i+1,j,k,b))
-                vel_v = 0.5*(q_aux(3,i,j,k,b) + q_aux(3,i+1,j,k,b))
-                vel_w = 0.5*(q_aux(4,i,j,k,b) + q_aux(4,i+1,j,k,b))
+   el(1,1)= o_2*(b1+uvw*ci);el(1,2)=-o_2*(b2*uu+ci1);el(1,3)=-o_2*(b2*vv+ci2);el(1,4)=-o_2*(b2*ww+ci3);el(1,5)= o_2*b2
+   el(2,1)= 1._R8P-b1      ;el(2,2)= b2*uu          ;el(2,3)= b2*vv          ;el(2,4)= b2*ww          ;el(2,5)=-b2
+   el(3,1)= o_2*(b1-uvw*ci);el(3,2)=-o_2*(b2*uu-ci1);el(3,3)=-o_2*(b2*vv-ci2);el(3,4)=-o_2*(b2*ww-ci3);el(3,5)= o_2*b2
+   el(4,1)= uvw_r1         ;el(4,2)= sir(2)-sir(3)  ;el(4,3)=-sir(1)         ;el(4,4)= 0._R8P         ;el(4,5)= 0._R8P
+   el(5,1)= uvw_r2         ;el(5,2)= 0._R8P         ;el(5,3)= sir(3)         ;el(5,4)= sir(1)-sir(2)  ;el(5,5)= 0._R8P
+   endsubroutine compute_eigenvectors
 
-                tau_1_1 = 2.0*mu*(du_dx-1./3.*(du_dx+dv_dy+dw_dz))
-                tau_2_1 = mu*(dv_dx+du_dy)
-                tau_3_1 = mu*(dw_dx+du_dz)
+   pure subroutine compute_max_eigenvalues(si,weno_s,b,i,j,k,ngc,nv,q_aux,evmax)
+   ! Compute maximum eigenvalues in the big stencil.
+   integer(I4P), intent(in)  :: si(3)                             !< Directional (1=x,2=y,3=z) increment.
+   integer(I4P), intent(in)  :: weno_s                            !< Weno stencils number/dimension.
+   integer(I4P), intent(in)  :: b, i, j, k                        !< Cell indexes.
+   integer(I4P), intent(in)  :: ngc                               !< Ghost cells number.
+   integer(I4P), intent(in)  :: nv                                !< Number of conservative varibales.
+   real(R8P),    intent(in)  :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(out) :: evmax                             !< Maximum eigenvalue in the big stencil.
+   integer(I4P)              :: s, is, js, ks                     !< Counter.
 
-                dT_dx = (q_aux(6,i+1,j,k,b)-q_aux(6,i,j,k,b))/dx(b)
-
-                sigq = kd*dT_dx
-                sigl = vel_u*tau_1_1+vel_v*tau_2_1+vel_w*tau_3_1
-
-                flx(2,i,j,k,b) = flx(2,i,j,k,b) - tau_1_1
-                flx(3,i,j,k,b) = flx(3,i,j,k,b) - tau_2_1
-                flx(4,i,j,k,b) = flx(4,i,j,k,b) - tau_3_1
-                flx(5,i,j,k,b) = flx(5,i,j,k,b) - sigq + sigl
-            enddo
-         enddo
-      enddo
+   evmax = -1._R8P
+   do s=1, 2*weno_s
+      is = i + (s-weno_s) * si(1) ; js = j + (s-weno_s) * si(2) ; ks = k + (s-weno_s) * si(3)
+      evmax = max(abs(q_aux(VAR_U*si(1)+VAR_V*si(2)+VAR_W*si(3),is,js,ks,b)) + &
+                      q_aux(VAR_A                              ,is,js,ks,b), evmax)
    enddo
-   endif
-
-   if (.not.null_xyz(2)) then
-   !$omp do collapse(4)
-   do b=1,blocks_number
-      do k=1,nk
-         do j=0,nj ! loop on faces
-            do i=1,ni
-                du_dy = (q_aux(2,i,j+1,k,b)-q_aux(2,i,j,k,b))/dy(b)
-                dv_dy = (q_aux(3,i,j+1,k,b)-q_aux(3,i,j,k,b))/dy(b)
-                dw_dy = (q_aux(4,i,j+1,k,b)-q_aux(4,i,j,k,b))/dy(b)
-
-                du_dx = (q_aux(2,i+1,j+1,k,b) - q_aux(2,i-1,j+1,k,b)+ &
-                         q_aux(2,i+1,j,  k,b) - q_aux(2,i-1,j,  k,b))*0.25_R8P/dx(b)
-                dv_dx = (q_aux(3,i+1,j+1,k,b) - q_aux(3,i-1,j+1,k,b)+ &
-                         q_aux(3,i+1,j,  k,b) - q_aux(3,i-1,j,  k,b))*0.25_R8P/dx(b)
-
-                dv_dz = (q_aux(3,i+1,j,k+1,b) - q_aux(3,i-1,j,k+1,b)+ &
-                         q_aux(3,i+1,j,k,  b) - q_aux(3,i-1,j,k,  b))*0.25_R8P/dz(b)
-                dw_dz = (q_aux(4,i+1,j,k+1,b) - q_aux(4,i-1,j,k+1,b)+ &
-                         q_aux(4,i+1,j,k,  b) - q_aux(4,i-1,j,k,  b))*0.25_R8P/dz(b)
-
-                vel_u = 0.5*(q_aux(2,i,j,k,b) + q_aux(2,i,j+1,k,b))
-                vel_v = 0.5*(q_aux(3,i,j,k,b) + q_aux(3,i,j+1,k,b))
-                vel_w = 0.5*(q_aux(4,i,j,k,b) + q_aux(4,i,j+1,k,b))
-
-                tau_1_2 = mu*(du_dy+dv_dx)
-                tau_2_2 = 2.0*mu*(dv_dy-1./3.*(du_dx+dv_dy+dw_dz))
-                tau_3_2 = mu*(dw_dy+dv_dz)
-
-                dT_dy = (q_aux(6,i,j+1,k,b)-q_aux(6,i,j,k,b))/dy(b)
-
-                sigq = kd*dT_dy
-                sigl = vel_u*tau_1_2+vel_v*tau_2_2+vel_w*tau_3_2
-
-                fly(2,i,j,k,b) = fly(2,i,j,k,b) - tau_1_2
-                fly(3,i,j,k,b) = fly(3,i,j,k,b) - tau_2_2
-                fly(4,i,j,k,b) = fly(4,i,j,k,b) - tau_3_2
-                fly(5,i,j,k,b) = fly(5,i,j,k,b) - sigq + sigl
-            enddo
-         enddo
-      enddo
-   enddo
-   endif
-
-   if (.not.null_xyz(3)) then
-   !$omp do collapse(4)
-   do b=1,blocks_number
-      do k=0,nk ! loop on faces
-         do j=1,nj
-            do i=1,ni
-                du_dz = (q_aux(2,i,j,k+1,b)-q_aux(2,i,j,k,b))/dz(b)
-                dv_dz = (q_aux(3,i,j,k+1,b)-q_aux(3,i,j,k,b))/dz(b)
-                dw_dz = (q_aux(4,i,j,k+1,b)-q_aux(4,i,j,k,b))/dz(b)
-
-                du_dx = (q_aux(2,i+1,j,k+1,b) - q_aux(2,i-1,j,k+1,b)+ &
-                         q_aux(2,i+1,j,k,  b) - q_aux(2,i-1,j,k,  b))*0.25_R8P/dx(b)
-                dw_dx = (q_aux(4,i+1,j,k+1,b) - q_aux(4,i-1,j,k+1,b)+ &
-                         q_aux(4,i+1,j,k,  b) - q_aux(4,i-1,j,k,  b))*0.25_R8P/dx(b)
-
-                dv_dy = (q_aux(3,i,j+1,k+1,b) - q_aux(3,i,j-1,k+1,b)+ &
-                         q_aux(3,i,j+1,k,  b) - q_aux(3,i,j-1,k,  b))*0.25_R8P/dy(b)
-                dw_dy = (q_aux(4,i,j+1,k+1,b) - q_aux(4,i,j-1,k+1,b)+ &
-                         q_aux(4,i,j+1,k,  b) - q_aux(4,i,j-1,k,  b))*0.25_R8P/dy(b)
-
-                vel_u = 0.5*(q_aux(2,i,j,k,b) + q_aux(2,i,j,k+1,b))
-                vel_v = 0.5*(q_aux(3,i,j,k,b) + q_aux(3,i,j,k+1,b))
-                vel_w = 0.5*(q_aux(4,i,j,k,b) + q_aux(4,i,j,k+1,b))
-
-                tau_1_3 = mu*(du_dz+dw_dx)
-                tau_2_3 = mu*(dv_dz+dw_dy)
-                tau_3_3 = 2.0*mu*(dw_dz-1./3.*(du_dx+dv_dy+dw_dz))
-
-                dT_dz = (q_aux(6,i,j,k+1,b)-q_aux(6,i,j,k,b))/dz(b)
-
-                sigq = kd*dT_dz
-                sigl = vel_u*tau_1_3+vel_v*tau_2_3+vel_w*tau_3_3
-
-                flz(2,i,j,k,b) = flz(2,i,j,k,b) - tau_1_3
-                flz(3,i,j,k,b) = flz(3,i,j,k,b) - tau_2_3
-                flz(4,i,j,k,b) = flz(4,i,j,k,b) - tau_3_3
-                flz(5,i,j,k,b) = flz(5,i,j,k,b) - sigq + sigl
-            enddo
-         enddo
-      enddo
-   enddo
-   endif
-   !$omp end parallel
-   endsubroutine compute_fluxes_diffusive
+   endsubroutine compute_max_eigenvalues
 
    subroutine compute_q_gradient(b, ni, nj, nk, ngc, dx, dy, dz, q, ivar, gradient)
    !< Compute gradient of q(ivar).
@@ -1168,31 +1033,65 @@ contains
    !$omp end parallel do
    endsubroutine compute_q_gradient
 
-   ! private methods
-   pure subroutine decompose_fluxes_convective(si,sir,el,weno_s,b,i,j,k,ngc,nv,g,q_aux,fmpc)
+   pure subroutine compute_roe_average(ngc, b, i, j, k, ip, jp, kp, g, q_aux, &
+                                       uu, vv, ww, h, qq, c, ci, b1, b2)
+   !< Compute Roe averaged quantities.
+   integer(I4P), intent(in)  :: ngc                               !< Number of ghost cells.
+   integer(I4P), intent(in)  :: b, i, j, k, ip, jp, kp            !< Left/right cells indexes.
+   real(R8P),    intent(in)  :: g                                 !< Specific heats ratio.
+   real(R8P),    intent(in)  :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(out) :: uu, vv, ww, h, qq, c, ci, b1, b2  !< Roe state average variables.
+   real(R8P)                 :: ri, up, vp, wp, hp, r, rp1, cc    !< Local varbiables.
+
+   ! left state (node i)
+   ri = 1._R8P/q_aux(VAR_R,i,j,k,b)
+   uu = q_aux(VAR_U,i,j,k,b)
+   vv = q_aux(VAR_V,i,j,k,b)
+   ww = q_aux(VAR_W,i,j,k,b)
+   h  = q_aux(VAR_H,i,j,k,b)
+   ! right state (node i+1)
+   up = q_aux(VAR_U,ip,jp,kp,b)
+   vp = q_aux(VAR_V,ip,jp,kp,b)
+   wp = q_aux(VAR_W,ip,jp,kp,b)
+   hp = q_aux(VAR_H,ip,jp,kp,b)
+   ! Roe average state
+   r   = sqrt(q_aux(VAR_R,ip,jp,kp,b)*ri)
+   rp1 = 1._R8P/(r+1._R8P)
+   uu  = (r*up+uu)*rp1
+   vv  = (r*vp+vv)*rp1
+   ww  = (r*wp+ww)*rp1
+   h   = (r*hp+h)*rp1
+   qq  = 0.5_R8P * (uu*uu+vv*vv+ww*ww)
+   cc  = (g-1._R8P) * (h - qq)
+   c   = sqrt(cc)
+   ci  = 1._R8P/c
+   b2  = (g-1._R8P)/cc  ! alias 1/(cp*theta)
+   b1  = b2 * qq        ! alias q/(cp*theta)
+   endsubroutine compute_roe_average
+
+   pure subroutine decompose_fluxes_convective(weno_s,b,i,j,k,ngc,nv,si,sir,el,q_aux,fmpc)
    !< Decompose convective fluxes.
-   !< Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo-characteristics psace.
-   integer(I4P), intent(in)    :: si(3)                             !< Stencil increment.
-   real(R8P),    intent(in)    :: sir(3)                            !< Stencil increment, real cast.
-   real(R8P),    intent(in)    :: el(1:,1:)                         !< Left eigeinvectors.
+   !< Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo-characteristics space.
    integer(I4P), intent(in)    :: weno_s                            !< Weno stencils number/dimension.
    integer(I4P), intent(in)    :: b, i, j, k                        !< Counter.
    integer(I4P), intent(in)    :: ngc                               !< Ghost cells number.
    integer(I4P), intent(in)    :: nv                                !< Number of conservative varibales.
-   real(R8P),    intent(in)    :: g                                 !< Specific heats ratio.
+   integer(I4P), intent(in)    :: si(3)                             !< Stencil increment.
+   real(R8P),    intent(in)    :: sir(3)                            !< Stencil increment, real cast.
+   real(R8P),    intent(in)    :: el(1:,1:)                         !< Left eigeinvectors.
    real(R8P),    intent(in)    :: q_aux(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
    real(R8P),    intent(inout) :: fmpc(1:,1-weno_s:,1:)             !< Fluxes -+ decomposition in characteristics space.
    real(R8P)                   :: fmp(2)                            !< Fluxes -+ decomposition in each cell stencils.
-   real(R8P)                   :: evmax(nv)                         !< Signals speeds.
+   real(R8P)                   :: evmax                             !< Maximum eigenvalue.
    real(R8P)                   :: q(nv), f(nv)                      !< Conservative variables and fluxes.
    real(R8P)                   :: gc, wc                            !< Increments for fluxes decomposition.
    integer(I4P)                :: v, vv, s, is, js, ks              !< Counter.
 
-   call compute_max_eigenvalues(si=si,sir=sir,weno_s=weno_s,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,q_aux=q_aux,evmax=evmax)
+   call compute_max_eigenvalues(si=si,weno_s=weno_s,b=b,i=i,j=j,k=k,ngc=ngc,nv=nv,q_aux=q_aux,evmax=evmax)
    do s=1-weno_s, weno_s
       is = i + (s) * si(1) ; js = j + (s) * si(2) ; ks = k + (s) * si(3)
-      call compute_conservatives(b=b,i=is,j=js,k=ks,ngc=ngc,q_aux=q_aux,q=q)
-      call compute_conservative_fluxes(sir=sir,b=b,i=is,j=js,k=ks,ngc=ngc,q_aux=q_aux,f=f)
+      call compute_conservative(auxiliary=q_aux(:,is,js,ks,b),conservative=q)
+      call compute_fluxes_conservative(sir=sir,auxiliary=q_aux(:,is,js,ks,b),fluxes=f)
       do v=1, nv
          wc = 0._R8P
          gc = 0._R8P
@@ -1200,32 +1099,11 @@ contains
             wc = wc + el(vv,v) * q(vv)
             gc = gc + el(vv,v) * f(vv)
          enddo
-         fmp(2) = 0.5_R8P * (gc + evmax(v) * wc)
+         fmp(2) = 0.5_R8P * (gc + evmax * wc)
          fmp(1) = gc - fmp(2)
-         ! fmp(2) = 0.5_R8P * (f(v) + evmax(v) * q(v))
-         ! fmp(1) = f(v) - fmp(2)
          if (s<weno_s)   fmpc(2,s  ,v) = fmp(2)
          if (s>1-weno_s) fmpc(1,s-1,v) = fmp(1)
       enddo
    enddo
    endsubroutine decompose_fluxes_convective
-
-   pure subroutine decompose_fluxes_convective_llf(sir, nv, q_aux, evmax, fmp)
-   !< Decompose convective fluxes using the Local-Lax-Friedrichs (LLF, Rusanov) approximation
-   real(R8P),    intent(in)    :: sir(3)        !< Directional (1=x,2=y,3=z) increment.
-   integer(I4P), intent(in)    :: nv            !< Number of conservative varibales.
-   real(R8P),    intent(in)    :: q_aux(1:)     !< Auxiliary variables.
-   real(R8P),    intent(in)    :: evmax(1:)     !< Maximum waves speeds estimation.
-   real(R8P),    intent(inout) :: fmp(1:,1:)    !< Fluxes, negative/positive terms [1:2,1:nv].
-   real(R8P)                   :: q(1:nv)       !< Conservative variables.
-   real(R8P)                   :: f(1:nv)       !< Conservative fluxes.
-   integer(I4P)                :: v             !< Counter.
-
-   call compute_conservatives_scalar(q_aux=q_aux,q=q)
-   call compute_conservative_fluxes_scalar(sir=sir,q_aux=q_aux,f=f)
-   do v=1, nv
-      fmp(2,v) = 0.5_R8P * (f(v) + evmax(v) * q(v))
-      fmp(1,v) = f(v) - fmp(2,v)
-   enddo
-   endsubroutine decompose_fluxes_convective_llf
-endmodule adam_nasto_cpu_object
+endmodule adam_chase_cpu_object
