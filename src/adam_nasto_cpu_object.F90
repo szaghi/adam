@@ -109,7 +109,7 @@ contains
       is_grid_changed_all = .false.
       do i_marker=1, self%amr%markers_number
          amr_marker = self%amr%markers(i_marker)
-         call self%update_ghost(q=self%field%q)
+         call self%update_ghost(q=self%q)
          select case(amr_marker%mode)
          case(AMR_GEO)
             call self%mark_by_geo(delta_fine=amr_marker%delta_fine, delta_coarse=amr_marker%delta_coarse)
@@ -233,8 +233,8 @@ contains
             dc(b) = maxval(dxyz(:,b))
          enddo
       endselect
-      call self%update_ghost(q=self%field%q)
-      call self%compute_q_auxiliary(q=self%field%q, q_aux=self%q_aux)
+      call self%update_ghost(q=self%q)
+      call self%compute_q_auxiliary(q=self%q, q_aux=self%q_aux)
       do b=1, blocks_number
          call compute_q_gradient(b=b, ni=ni, nj=nj, nk=nk, ngc=ngc, &
                                  dx=dxyz(1,b), dy=dxyz(2,b), dz=dxyz(3,b), q=self%q_aux, ivar=ivar_, gradient=grad_var)
@@ -338,14 +338,14 @@ contains
    if (present(output_basename)) output_basename_ = trim(output_basename)
    if (self%ib%solids_number>0) then
       call self%adam%save_hdf5(basename=trim(output_basename_),                                                       &
-                               q=self%field%q,                                                                        &
+                               q=self%q,                                                                              &
                                q_aux=self%q_aux,                                                                      &
                                q_name=['rho','rhu','rhv','rhw','rhe'],                                                &
                                q_aux_name=['rhob ','u    ','v    ','w    ','ya   ','tem  ','pres ','ental','csp  '],  &
                                with_cell_morton=.true., phi=self%ib%phi)
    else
       call self%adam%save_hdf5(basename=trim(output_basename_),                                                       &
-                               q=self%field%q,                                                                        &
+                               q=self%q,                                                                              &
                                q_aux=self%q_aux,                                                                      &
                                q_name=['rho','rhu','rhv','rhw','rhe'],                                                &
                                q_aux_name=['rhob ','u    ','v    ','w    ','ya   ','tem  ','pres ','ental','csp  '],  &
@@ -389,8 +389,8 @@ contains
    if ((self%time%is_to_save(it_save=self%io%it_save)).or.      &
        (self%time%is_to_save(it_save=self%io%restart_save)).or. &
        (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))) then
-      call self%update_ghost(q=self%field%q)
-      call self%compute_q_auxiliary(q=self%field%q, q_aux=self%q_aux)
+      call self%update_ghost(q=self%q)
+      call self%compute_q_auxiliary(q=self%q, q_aux=self%q_aux)
 
       if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_hdf5
       if (mod(self%time%it,self%io%restart_save)==0) call self%save_restart_files
@@ -401,7 +401,7 @@ contains
                                    time=self%time%time,              &
                                    time_max=self%time%time_max,      &
                                    adam=self%adam,                   &
-                                   q=self%field%q,                   &
+                                   q=self%q,                         &
                                    q_name=['rho','rhu','rhv','rhw','rhe'])
    endif
    endsubroutine save_simulation_data
@@ -461,7 +461,7 @@ contains
    !< Set initial conditions of field.
    class(nasto_cpu_object), intent(inout) :: self !< The equation.
 
-   call self%ic%set_initial_conditions(physics=self%physics, field=self%field)
+   call self%ic%set_initial_conditions(physics=self%physics, field=self%field, q=self%q)
    endsubroutine set_initial_conditions
 
    subroutine update_ghost(self, q, step)
@@ -502,7 +502,7 @@ contains
    real(R8P)                              :: dx_locale, dy_locale, dz_locale !< Local space steps.
    integer(I4P)                           :: b, i, j, k                      !< Counter.
 
-   call self%compute_q_auxiliary(q=self%field%q, q_aux=self%q_aux)
+   call self%compute_q_auxiliary(q=self%q, q_aux=self%q_aux)
    self%time%dt = huge(1._R8P)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, blocks_number=>self%blocks_number, mu=>self%physics%eos(1)%mu, &
              dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), q_aux=>self%q_aux)
@@ -623,17 +623,17 @@ contains
    integer(I4P)                                   :: s                !< Counter.
 
    do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
-   call self%rk%initialize_stages(q=self%field%q)
+   call self%rk%initialize_stages(q=self%q)
    select case(self%rk%scheme)
    case(RK_1, RK_2, RK_3)
       ! low storage RK working on q_rk_gpu(:,:,:,:,:,1)/q_gpu as stages, update q_gpu in place
       do s=1, self%rk%nrk
-         call self%compute_residuals(q=self%field%q, dq=self%dq)
+         call self%compute_residuals(q=self%q, dq=self%dq)
          if (s==1) call self%save_residuals
          if (self%ib%solids_number>0) then
-            call self%rk%compute_stage_ls(s=s,dt=self%time%dt,phi=self%ib%phi,dq=self%dq,q=self%field%q)
+            call self%rk%compute_stage_ls(s=s,dt=self%time%dt,phi=self%ib%phi,dq=self%dq,q=self%q)
          else
-            call self%rk%compute_stage_ls(s=s,dt=self%time%dt,dq=self%dq,q=self%field%q)
+            call self%rk%compute_stage_ls(s=s,dt=self%time%dt,dq=self%dq,q=self%q)
          endif
       enddo
    case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
@@ -653,9 +653,9 @@ contains
          endif
       enddo
       if (self%ib%solids_number>0) then
-         call self%rk%update_q(dt=self%time%dt, phi=self%ib%phi, q=self%field%q)
+         call self%rk%update_q(dt=self%time%dt, phi=self%ib%phi, q=self%q)
       else
-         call self%rk%update_q(dt=self%time%dt, q=self%field%q)
+         call self%rk%update_q(dt=self%time%dt, q=self%q)
       endif
    endselect
    endsubroutine integrate
@@ -697,6 +697,7 @@ contains
    integration: do
       call self%mpih%barrier(tictoc=.true., timing=timing_step(1), single=.true.)
       self%time%it = self%time%it + 1
+      print*, 'cazzo before integrate t, q', self%time%it, self%q(1,0:1,1,1,1), self%q(1,self%ni:self%ni+1,1,1,1)
 
       if (self%io%save_memory_status) then
          call save_memory_status(file_name='memory_cpu-'//self%mpih%myrankstr//'.dat', tag=str(self%time%it,.true.))
@@ -713,6 +714,7 @@ contains
          self%time%dt=self%time%time_max-self%time%time
 
       call self%integrate
+      print*, 'cazzo after integrate t, q', self%time%it, self%q(1,0:1,1,1,1), self%q(1,self%ni:self%ni+1,1,1,1)
 
       self%time%time = self%time%time + self%time%dt
       call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)

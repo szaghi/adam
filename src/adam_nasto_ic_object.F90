@@ -125,11 +125,16 @@ contains
    endif
    endsubroutine load_from_file
 
-   subroutine set_initial_conditions(self, physics, field)
+   subroutine set_initial_conditions(self, physics, field, q)
    !< Set initial conditions on NASTO fields.
    class(nasto_ic_object),     intent(in)    :: self                 !< IC.
    type(nasto_physics_object), intent(in)    :: physics              !< Fluids physiscs.
-   type(field_object),         intent(inout) :: field                !< Field object.
+   type(field_object),         intent(in)    :: field                !< Field object.
+   real(R8P),                  intent(inout) :: q(1:,               &
+                                                  1-field%grid%ngc:,&
+                                                  1-field%grid%ngc:,&
+                                                  1-field%grid%ngc:,&
+                                                  1:)                !< Conservative variables.
    integer(I4P)                              :: b, i, j, k, ri       !< Counter.
    real(R8P)                                 :: rn                   !< Random number.
    real(R8P)                                 :: cv, R, g, delta, gm1 !< Fluid physics constants.
@@ -140,7 +145,7 @@ contains
    real(R8P)                                 :: Mv, Mv2              !< Isentropic vortex Mach number.
 
    associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
-             q=>field%q, x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
+             x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
    select case(self%ic_type)
    case(IC_TYPE_UNIFORM) ! uniform, only one region (s=1); q(6,1) is the base level for random velocity perturbation
       cv = physics%eos(1)%cv

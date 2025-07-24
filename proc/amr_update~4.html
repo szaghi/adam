@@ -180,7 +180,7 @@
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~109"></span>
+              <span class="anchor" id="variable-self~114"></span>
               class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -751,7 +751,7 @@ implementation in a submodule of an interface in a parent module.
 <span class="w">      </span><span class="n">is_grid_changed_all</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">.</span><span class="n">false</span><span class="p">.</span>
 <span class="w">      </span><span class="k">do </span><span class="n">i_marker</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">self</span><span class="p">%</span><span class="n">amr</span><span class="p">%</span><span class="n">markers_number</span>
 <span class="w">         </span><span class="n">amr_marker</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">self</span><span class="p">%</span><span class="n">amr</span><span class="p">%</span><span class="n">markers</span><span class="p">(</span><span class="n">i_marker</span><span class="p">)</span>
-<span class="w">         </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">update_ghost</span><span class="p">(</span><span class="n">q</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">field</span><span class="p">%</span><span class="n">q</span><span class="p">)</span>
+<span class="w">         </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">update_ghost</span><span class="p">(</span><span class="n">q</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">q</span><span class="p">)</span>
 <span class="w">         </span><span class="k">select case</span><span class="p">(</span><span class="n">amr_marker</span><span class="p">%</span><span class="n">mode</span><span class="p">)</span>
 <span class="w">         </span><span class="k">case</span><span class="p">(</span><span class="n">AMR_GEO</span><span class="p">)</span>
 <span class="w">            </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">mark_by_geo</span><span class="p">(</span><span class="n">delta_fine</span><span class="o">=</span><span class="n">amr_marker</span><span class="p">%</span><span class="n">delta_fine</span><span class="p">,</span><span class="w"> </span><span class="n">delta_coarse</span><span class="o">=</span><span class="n">amr_marker</span><span class="p">%</span><span class="n">delta_coarse</span><span class="p">)</span>
