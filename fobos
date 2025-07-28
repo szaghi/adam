@@ -10,6 +10,7 @@ modes = ascot-nvf-cuda
         prism-gnu               prism-gnu-debug
         prism-fnl-nvf-oac       prism-fnl-nvf-oac-debug
         chase-gnu               chase-gnu-debug
+        patch-gnu               patch-gnu-debug
 
 # main modes
 
@@ -108,6 +109,19 @@ help     = Build CHASE app with GNU compiler, debug mode
 template = template-gnu-debug
 preproc  = -D_MPI_ -w
 target   = adam_chase_cpu.F90
+
+# patch
+[patch-gnu]
+help     = Build PATCH app with GNU compiler
+template = template-gnu
+preproc  = -D_MPI_ -w
+target   = adam_patch_cpu.F90
+
+[patch-gnu-debug]
+help     = Build PATCH app with GNU compiler, debug mode
+template = template-gnu-debug
+preproc  = -D_MPI_ -w
+target   = adam_patch_cpu.F90
 
 # nasto
 [nasto-fnl-nvf-oac]
