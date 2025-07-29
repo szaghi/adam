@@ -6,6 +6,7 @@ module adam_patch_common_object
 use adam_adam_object
 use adam_amr_object
 use adam_field_object
+use adam_flail_object
 use adam_grid_object
 use adam_ib_object
 use adam_mpih_object
@@ -31,6 +32,7 @@ type :: patch_common_object
    type(grid_object),  pointer :: grid=>null()  !< The grid.
    type(amr_object)            :: amr           !< AMR marker handler.
    type(ib_object)             :: ib            !< Immersed Boundary (IB) handler.
+   type(flail_object)          :: flail         !< Linear algebra methods handler.
    ! PATCH library objects
    type(patch_io_object)      :: io   !< IO handler.
    type(patch_ic_object)      :: ic   !< Initial Conditions (IC) handler.
@@ -101,6 +103,7 @@ contains
    call self%time%initialize(file_parameters=file_parameters)
    call self%ic%initialize(file_parameters=file_parameters)
    call self%ib%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
+   call self%flail%initialize(file_parameters=file_parameters)
    call self%allocate_common
    call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field, q1_R8P=self%r, q1_R8P_name=['rho'])
    endassociate

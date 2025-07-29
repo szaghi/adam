@@ -46,25 +46,25 @@ type, extends(patch_common_object) :: patch_cpu_object
       procedure, pass(self) :: simulate  !< Perform the simulation.
 endtype patch_cpu_object
 
-interface
-   subroutine compute_smoothing_interface(ni, nj, nk, ngc, dx2, dy2, dz2, r, dq, q, dq_max, iterations)
-   !< Compute smoothing, abstract interface.
-   import :: I4P, R8P
-   integer(I4P), intent(in)              :: ni,nj,nk,ngc !< Grid dimensions.
-   real(R8P),    intent(in)              :: dx2,dy2,dz2  !< Square space steps.
-   real(R8P),    intent(in)              :: r(1-ngc:,&
-                                              1-ngc:,&
-                                              1-ngc:)    !< Rho distribution.
-   real(R8P),    intent(inout), optional :: dq(1-ngc:,&
-                                               1-ngc:,&
-                                               1-ngc:)   !< Residuals.
-   real(R8P),    intent(inout)           :: q(1-ngc:,&
-                                              1-ngc:,&
-                                              1-ngc:)    !< Poisson field variable.
-   real(R8P),    intent(inout), optional :: dq_max       !< Maximum residual.
-   integer(I4P), intent(in),    optional :: iterations   !< Smoothing iterations.
-   endsubroutine compute_smoothing_interface
-endinterface
+!interface
+!   subroutine compute_smoothing_interface(ni, nj, nk, ngc, dx2, dy2, dz2, r, dq, q, dq_max, iterations)
+!   !< Compute smoothing, abstract interface.
+!   import :: I4P, R8P
+!   integer(I4P), intent(in)              :: ni,nj,nk,ngc !< Grid dimensions.
+!   real(R8P),    intent(in)              :: dx2,dy2,dz2  !< Square space steps.
+!   real(R8P),    intent(in)              :: r(1-ngc:,&
+!                                              1-ngc:,&
+!                                              1-ngc:)    !< Rho distribution.
+!   real(R8P),    intent(inout), optional :: dq(1-ngc:,&
+!                                               1-ngc:,&
+!                                               1-ngc:)   !< Residuals.
+!   real(R8P),    intent(inout)           :: q(1-ngc:,&
+!                                              1-ngc:,&
+!                                              1-ngc:)    !< Poisson field variable.
+!   real(R8P),    intent(inout), optional :: dq_max       !< Maximum residual.
+!   integer(I4P), intent(in),    optional :: iterations   !< Smoothing iterations.
+!   endsubroutine compute_smoothing_interface
+!endinterface
 contains
    ! auxiliary methods
    subroutine allocate_cpu(self)
@@ -488,8 +488,8 @@ contains
    real(R8P)                              :: timing_step(1:2)  !< Tic toc timing.
    real(R8P)                              :: tolerance         !< Maximum residual tolerance.
    real(R8P)                              :: dq_max            !< Maximum residual.
-   integer(I4P)                           :: i                 !< Counter.
-   integer(I4P)                           :: b                 !< Counter.
+   ! integer(I4P)                           :: i                 !< Counter.
+   ! integer(I4P)                           :: b                 !< Counter.
    real(R8P)                              :: dx2,dy2,dz2       !< Square space steps.
 
    tolerance = 0.000001_R8P
@@ -503,13 +503,18 @@ contains
       endif
 
       if (self%blocks_number>0) then
-         do b=1, self%blocks_number
-            dx2 = self%field%dxyz(1,b)*self%field%dxyz(1,b)
-            dy2 = self%field%dxyz(2,b)*self%field%dxyz(2,b)
-            dz2 = self%field%dxyz(3,b)*self%field%dxyz(3,b)
-            call compute_smoothing(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, dx2=dx2, dy2=dy2, dz2=dz2, &
-                                   r=self%r(1,:,:,:,b), dq=self%dq(1,:,:,:,b), q=self%q(1,:,:,:,b), dq_max=dq_max)
-         enddo
+         ! do b=1, self%blocks_number
+         !    dx2 = self%field%dxyz(1,b)*self%field%dxyz(1,b)
+         !    dy2 = self%field%dxyz(2,b)*self%field%dxyz(2,b)
+         !    dz2 = self%field%dxyz(3,b)*self%field%dxyz(3,b)
+         !    call compute_smoothing(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, dx2=dx2, dy2=dy2, dz2=dz2, &
+         !                           r=self%r(1,:,:,:,b), dq=self%dq(1,:,:,:,b), q=self%q(1,:,:,:,b), dq_max=dq_max)
+         ! enddo
+         call compute_smoothing(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, nv=self%nv, blocks_number=self%blocks_number, &
+                                dxyz=self%field%dxyz, f=self%r, q=self%q, dq_max=dq_max, dq=self%dq,                            &
+                                iterations_init=self%flail%iterations_init,                                                     &
+                                iterations_fine=self%flail%iterations_fine,                                                     &
+                                iterations_coarse=self%flail%iterations_coarse)
       endif
 
       if (dq_max < tolerance) then
@@ -537,7 +542,7 @@ contains
 
    call self%initialize(filename=filename)
 
-   select case(self%time%smoothing)
+   select case(self%flail%smoothing)
    case(SMOOTHING_MULTIGRID)
       call self%integrate(compute_smoothing=compute_smoothing_multigrid)
    case(SMOOTHING_GAUSS_SEIDEL)
@@ -546,301 +551,302 @@ contains
       call self%integrate(compute_smoothing=compute_smoothing_sor)
    case(SMOOTHING_SOR_OMP)
       call self%integrate(compute_smoothing=compute_smoothing_sor_omp)
+   case default
    endselect
 
    call self%finalize
    endsubroutine simulate
 
    ! non TBP
-   subroutine apply_bc_dirichlet(ni, nj, nk, ngc, q)
-   integer(I4P), intent(in)    :: ni,nj,nk,ngc !< Grid dimensions.
-   real(R8P),    intent(inout) :: q(1-ngc:,&
-                                    1-ngc:,&
-                                    1-ngc:)    !< Poisson field variable.
-   q(0,:,:) = 0._R8P ; q(ni+1,:   ,:   ) = 0._R8P
-   q(:,0,:) = 0._R8P ; q(:   ,nj+1,:   ) = 0._R8P
-   q(:,:,0) = 0._R8P ; q(:   ,:   ,nk+1) = 0._R8P
-   endsubroutine apply_bc_dirichlet
+   !subroutine apply_bc_dirichlet(ni, nj, nk, ngc, q)
+   !integer(I4P), intent(in)    :: ni,nj,nk,ngc !< Grid dimensions.
+   !real(R8P),    intent(inout) :: q(1-ngc:,&
+   !                                 1-ngc:,&
+   !                                 1-ngc:)    !< Poisson field variable.
+   !q(0,:,:) = 0._R8P ; q(ni+1,:   ,:   ) = 0._R8P
+   !q(:,0,:) = 0._R8P ; q(:   ,nj+1,:   ) = 0._R8P
+   !q(:,:,0) = 0._R8P ; q(:   ,:   ,nk+1) = 0._R8P
+   !endsubroutine apply_bc_dirichlet
 
-   subroutine compute_prolongation(ngc, nic, njc, nkc, coarse, fine)
-   !< Compute trilinear prolongation.
-   integer(I4P), intent(in)    :: ngc            !< Number of ghost cells.
-   integer(I4P), intent(in)    :: nic,njc,nkc  !< Coarse grid dimensions.
-   real(R8P),    intent(in)    :: coarse(1-ngc:,&
-                                         1-ngc:,&
-                                         1-ngc:) !< Coarse grid field variable.
-   real(R8P),    intent(inout) :: fine(1-ngc:,&
-                                       1-ngc:,&
-                                       1-ngc:)   !< Fine grid field variable.
-   integer(I4P)                :: i,j,k,b        !< Counter.
-   integer(I4P)                :: ii,jj,kk       !< Counter.
+   !subroutine compute_prolongation(ngc, nic, njc, nkc, coarse, fine)
+   !!< Compute trilinear prolongation.
+   !integer(I4P), intent(in)    :: ngc            !< Number of ghost cells.
+   !integer(I4P), intent(in)    :: nic,njc,nkc  !< Coarse grid dimensions.
+   !real(R8P),    intent(in)    :: coarse(1-ngc:,&
+   !                                      1-ngc:,&
+   !                                      1-ngc:) !< Coarse grid field variable.
+   !real(R8P),    intent(inout) :: fine(1-ngc:,&
+   !                                    1-ngc:,&
+   !                                    1-ngc:)   !< Fine grid field variable.
+   !integer(I4P)                :: i,j,k,b        !< Counter.
+   !integer(I4P)                :: ii,jj,kk       !< Counter.
 
-   fine = 0._R8P
-   do k = 1, nkc
-   do j = 1, njc
-   do i = 1, nic
-      ii = 2*i - 1
-      jj = 2*j - 1
-      kk = 2*k - 1
-      fine(ii,  jj,  kk  ) =              coarse(i,  j,  k  )
-      fine(ii+1,jj,  kk  ) = 0.5_R8P   * (coarse(i,  j,  k  ) + coarse(i+1,j,  k  ))
-      fine(ii,  jj+1,kk  ) = 0.5_R8P   * (coarse(i,  j,  k  ) + coarse(i,  j+1,k  ))
-      fine(ii,  jj,  kk+1) = 0.5_R8P   * (coarse(i,  j,  k  ) + coarse(i,  j,  k+1))
-      fine(ii+1,jj+1,kk  ) = 0.25_R8P  * (coarse(i,  j,  k  ) + coarse(i+1,j,  k  ) + &
-                                          coarse(i,  j+1,k  ) + coarse(i+1,j+1,k  ))
-      fine(ii+1,jj,  kk+1) = 0.25_R8P  * (coarse(i,  j,  k  ) + coarse(i+1,j,  k  ) + &
-                                          coarse(i,  j,  k+1) + coarse(i+1,j,  k+1))
-      fine(ii,  jj+1,kk+1) = 0.25_R8P  * (coarse(i,  j,  k  ) + coarse(i,  j+1,k  ) + &
-                                          coarse(i,  j,  k+1) + coarse(i,  j+1,k+1))
-      fine(ii+1,jj+1,kk+1) = 0.125_R8P * (coarse(i,  j,  k  ) + coarse(i+1,j,  k  ) + &
-                                          coarse(i,  j+1,k  ) + coarse(i,  j,  k+1) + &
-                                          coarse(i+1,j+1,k  ) + coarse(i+1,j,  k+1) + &
-                                          coarse(i,  j+1,k+1) + coarse(i+1,j+1,k+1))
-   enddo
-   enddo
-   enddo
-   endsubroutine compute_prolongation
+   !fine = 0._R8P
+   !do k = 1, nkc
+   !do j = 1, njc
+   !do i = 1, nic
+   !   ii = 2*i - 1
+   !   jj = 2*j - 1
+   !   kk = 2*k - 1
+   !   fine(ii,  jj,  kk  ) =              coarse(i,  j,  k  )
+   !   fine(ii+1,jj,  kk  ) = 0.5_R8P   * (coarse(i,  j,  k  ) + coarse(i+1,j,  k  ))
+   !   fine(ii,  jj+1,kk  ) = 0.5_R8P   * (coarse(i,  j,  k  ) + coarse(i,  j+1,k  ))
+   !   fine(ii,  jj,  kk+1) = 0.5_R8P   * (coarse(i,  j,  k  ) + coarse(i,  j,  k+1))
+   !   fine(ii+1,jj+1,kk  ) = 0.25_R8P  * (coarse(i,  j,  k  ) + coarse(i+1,j,  k  ) + &
+   !                                       coarse(i,  j+1,k  ) + coarse(i+1,j+1,k  ))
+   !   fine(ii+1,jj,  kk+1) = 0.25_R8P  * (coarse(i,  j,  k  ) + coarse(i+1,j,  k  ) + &
+   !                                       coarse(i,  j,  k+1) + coarse(i+1,j,  k+1))
+   !   fine(ii,  jj+1,kk+1) = 0.25_R8P  * (coarse(i,  j,  k  ) + coarse(i,  j+1,k  ) + &
+   !                                       coarse(i,  j,  k+1) + coarse(i,  j+1,k+1))
+   !   fine(ii+1,jj+1,kk+1) = 0.125_R8P * (coarse(i,  j,  k  ) + coarse(i+1,j,  k  ) + &
+   !                                       coarse(i,  j+1,k  ) + coarse(i,  j,  k+1) + &
+   !                                       coarse(i+1,j+1,k  ) + coarse(i+1,j,  k+1) + &
+   !                                       coarse(i,  j+1,k+1) + coarse(i+1,j+1,k+1))
+   !enddo
+   !enddo
+   !enddo
+   !endsubroutine compute_prolongation
 
-   subroutine compute_residuals(ni, nj, nk, ngc, dx2, dy2, dz2, r, q, dq)
-   !< Compute residuals of `r-laplacian(q)`.
-   integer(I4P), intent(in)    :: ni,nj,nk,ngc !< Grid dimensions.
-   real(R8P),    intent(in)    :: dx2,dy2,dz2  !< Square space steps.
-   real(R8P),    intent(in)    :: r(1-ngc:,&
-                                    1-ngc:,&
-                                    1-ngc:)    !< Rho distribution.
-   real(R8P),    intent(in)    :: q(1-ngc:,&
-                                    1-ngc:,&
-                                    1-ngc:)    !< Poisson field variable.
-   real(R8P),    intent(inout) :: dq(1-ngc:,&
-                                     1-ngc:,&
-                                     1-ngc:)   !< Residuals.
-   real(R8P)                   :: laplacian    !< Laplacian value.
-   integer(I4P)                :: i,j,k,b      !< Counter.
+   !subroutine compute_residuals(ni, nj, nk, ngc, dx2, dy2, dz2, r, q, dq)
+   !!< Compute residuals of `r-laplacian(q)`.
+   !integer(I4P), intent(in)    :: ni,nj,nk,ngc !< Grid dimensions.
+   !real(R8P),    intent(in)    :: dx2,dy2,dz2  !< Square space steps.
+   !real(R8P),    intent(in)    :: r(1-ngc:,&
+   !                                 1-ngc:,&
+   !                                 1-ngc:)    !< Rho distribution.
+   !real(R8P),    intent(in)    :: q(1-ngc:,&
+   !                                 1-ngc:,&
+   !                                 1-ngc:)    !< Poisson field variable.
+   !real(R8P),    intent(inout) :: dq(1-ngc:,&
+   !                                  1-ngc:,&
+   !                                  1-ngc:)   !< Residuals.
+   !real(R8P)                   :: laplacian    !< Laplacian value.
+   !integer(I4P)                :: i,j,k,b      !< Counter.
 
-   do k = 1, nk
-   do j = 1, nj
-   do i = 1, ni
-      laplacian = (q(i+1,j,  k  ) - 2._R8P * q(i,j,k) + q(i-1,j,  k  )) / dx2 + &
-                  (q(i,  j+1,k  ) - 2._R8P * q(i,j,k) + q(i,  j-1,k  )) / dy2 + &
-                  (q(i,  j,  k+1) - 2._R8P * q(i,j,k) + q(i,  j,  k-1)) / dz2
-      dq(i,j,k) = r(i,j,k) - laplacian
-   enddo
-   enddo
-   enddo
-   call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, q=dq)
-   endsubroutine compute_residuals
+   !do k = 1, nk
+   !do j = 1, nj
+   !do i = 1, ni
+   !   laplacian = (q(i+1,j,  k  ) - 2._R8P * q(i,j,k) + q(i-1,j,  k  )) / dx2 + &
+   !               (q(i,  j+1,k  ) - 2._R8P * q(i,j,k) + q(i,  j-1,k  )) / dy2 + &
+   !               (q(i,  j,  k+1) - 2._R8P * q(i,j,k) + q(i,  j,  k-1)) / dz2
+   !   dq(i,j,k) = r(i,j,k) - laplacian
+   !enddo
+   !enddo
+   !enddo
+   !call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, q=dq)
+   !endsubroutine compute_residuals
 
-   subroutine compute_restriction(ngc, nic, njc, nkc, fine, coarse)
-   !< Compute full weighting restriction.
-   integer(I4P), intent(in)    :: ngc            !< Number of ghost cells.
-   integer(I4P), intent(in)    :: nic,njc,nkc    !< Coarse grid dimensions.
-   real(R8P),    intent(in)    :: fine(1-ngc:,&
-                                       1-ngc:,&
-                                       1-ngc:)   !< Fine grid field variable.
-   real(R8P),    intent(inout) :: coarse(1-ngc:,&
-                                         1-ngc:,&
-                                         1-ngc:) !< Coarse grid field variable.
-   integer(I4P)                :: i,j,k,b        !< Counter.
-   integer(I4P)                :: ii,jj,kk       !< Counter.
+   !subroutine compute_restriction(ngc, nic, njc, nkc, fine, coarse)
+   !!< Compute full weighting restriction.
+   !integer(I4P), intent(in)    :: ngc            !< Number of ghost cells.
+   !integer(I4P), intent(in)    :: nic,njc,nkc    !< Coarse grid dimensions.
+   !real(R8P),    intent(in)    :: fine(1-ngc:,&
+   !                                    1-ngc:,&
+   !                                    1-ngc:)   !< Fine grid field variable.
+   !real(R8P),    intent(inout) :: coarse(1-ngc:,&
+   !                                      1-ngc:,&
+   !                                      1-ngc:) !< Coarse grid field variable.
+   !integer(I4P)                :: i,j,k,b        !< Counter.
+   !integer(I4P)                :: ii,jj,kk       !< Counter.
 
-   do k = 1, nkc
-   do j = 1, njc
-   do i = 1, nic
-      ii = 2*i - 1
-      jj = 2*j - 1
-      kk = 2*k - 1
-      coarse(i,j,k) = 0.125_R8P * (fine(ii,  jj,  kk  ) + fine(ii+1,jj,  kk  ) + &
-                                   fine(ii,  jj+1,kk  ) + fine(ii,  jj,  kk+1) + &
-                                   fine(ii+1,jj+1,kk  ) + fine(ii+1,jj,  kk+1) + &
-                                   fine(ii,  jj+1,kk+1) + fine(ii+1,jj+1,kk+1))
-   enddo
-   enddo
-   enddo
-   call apply_bc_dirichlet(ni=nic, nj=njc, nk=nkc, ngc=ngc, q=coarse)
-   endsubroutine compute_restriction
+   !do k = 1, nkc
+   !do j = 1, njc
+   !do i = 1, nic
+   !   ii = 2*i - 1
+   !   jj = 2*j - 1
+   !   kk = 2*k - 1
+   !   coarse(i,j,k) = 0.125_R8P * (fine(ii,  jj,  kk  ) + fine(ii+1,jj,  kk  ) + &
+   !                                fine(ii,  jj+1,kk  ) + fine(ii,  jj,  kk+1) + &
+   !                                fine(ii+1,jj+1,kk  ) + fine(ii+1,jj,  kk+1) + &
+   !                                fine(ii,  jj+1,kk+1) + fine(ii+1,jj+1,kk+1))
+   !enddo
+   !enddo
+   !enddo
+   !call apply_bc_dirichlet(ni=nic, nj=njc, nk=nkc, ngc=ngc, q=coarse)
+   !endsubroutine compute_restriction
 
-   subroutine compute_smoothing_gauss_seidel(ni, nj, nk, ngc, dx2, dy2, dz2, r, dq, q, dq_max, iterations)
-   !< Compute smoothing by Gauss-Seidel method.
-   integer(I4P), intent(in)              :: ni,nj,nk,ngc !< Grid dimensions.
-   real(R8P),    intent(in)              :: dx2,dy2,dz2  !< Square space steps.
-   real(R8P),    intent(in)              :: r(1-ngc:,&
-                                              1-ngc:,&
-                                              1-ngc:)    !< Rho distribution.
-   real(R8P),    intent(inout), optional :: dq(1-ngc:,&
-                                               1-ngc:,&
-                                               1-ngc:)   !< Residuals.
-   real(R8P),    intent(inout)           :: q(1-ngc:,&
-                                              1-ngc:,&
-                                              1-ngc:)    !< Poisson field variable.
-   real(R8P),    intent(inout), optional :: dq_max       !< Maximum residual.
-   integer(I4P), intent(in),    optional :: iterations   !< Smoothing iterations.
-   integer(I4P)                          :: iterations_  !< Smoothing iterations, local var.
-   real(R8P)                             :: dq_max_      !< Maximum residual, local var.
-   real(R8P)                             :: q_old        !< Previous q.
-   real(R8P)                             :: factor       !< Jacobi relaxation factor.
-   integer(I4P)                          :: i,j,k,b,iter !< Counter.
+   !subroutine compute_smoothing_gauss_seidel(ni, nj, nk, ngc, dx2, dy2, dz2, r, dq, q, dq_max, iterations)
+   !!< Compute smoothing by Gauss-Seidel method.
+   !integer(I4P), intent(in)              :: ni,nj,nk,ngc !< Grid dimensions.
+   !real(R8P),    intent(in)              :: dx2,dy2,dz2  !< Square space steps.
+   !real(R8P),    intent(in)              :: r(1-ngc:,&
+   !                                           1-ngc:,&
+   !                                           1-ngc:)    !< Rho distribution.
+   !real(R8P),    intent(inout), optional :: dq(1-ngc:,&
+   !                                            1-ngc:,&
+   !                                            1-ngc:)   !< Residuals.
+   !real(R8P),    intent(inout)           :: q(1-ngc:,&
+   !                                           1-ngc:,&
+   !                                           1-ngc:)    !< Poisson field variable.
+   !real(R8P),    intent(inout), optional :: dq_max       !< Maximum residual.
+   !integer(I4P), intent(in),    optional :: iterations   !< Smoothing iterations.
+   !integer(I4P)                          :: iterations_  !< Smoothing iterations, local var.
+   !real(R8P)                             :: dq_max_      !< Maximum residual, local var.
+   !real(R8P)                             :: q_old        !< Previous q.
+   !real(R8P)                             :: factor       !< Jacobi relaxation factor.
+   !integer(I4P)                          :: i,j,k,b,iter !< Counter.
 
-   iterations_ = 1 ; if (present(iterations)) iterations_ = iterations
-   factor = 1._R8P / (2._R8P * (1._R8P/dx2 + 1._R8P/dy2 + 1._R8P/dz2))
-   dq_max_ = 0._R8P
-   do iter=1, iterations_
-      call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, q=q)
-      do k = 1, nk
-      do j = 1, nj
-      do i = 1, ni
-         q_old = q(i,j,k)
-         q(i,j,k) = factor * ((q(i+1,j,  k  ) + q(i-1,j,  k  )) / dx2 + &
-                              (q(i,  j+1,k  ) + q(i,  j-1,k  )) / dy2 + &
-                              (q(i,  j,  k+1) + q(i,  j,  k-1)) / dz2 - &
-                               r(i,  j,  k  ))
-         dq_max_ = max(dq_max_, abs(q(i,j,k) - q_old))
-      enddo
-      enddo
-      enddo
-   enddo
-   if (present(dq_max)) dq_max = dq_max_
-   endsubroutine compute_smoothing_gauss_seidel
+   !iterations_ = 1 ; if (present(iterations)) iterations_ = iterations
+   !factor = 1._R8P / (2._R8P * (1._R8P/dx2 + 1._R8P/dy2 + 1._R8P/dz2))
+   !dq_max_ = 0._R8P
+   !do iter=1, iterations_
+   !   call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, q=q)
+   !   do k = 1, nk
+   !   do j = 1, nj
+   !   do i = 1, ni
+   !      q_old = q(i,j,k)
+   !      q(i,j,k) = factor * ((q(i+1,j,  k  ) + q(i-1,j,  k  )) / dx2 + &
+   !                           (q(i,  j+1,k  ) + q(i,  j-1,k  )) / dy2 + &
+   !                           (q(i,  j,  k+1) + q(i,  j,  k-1)) / dz2 - &
+   !                            r(i,  j,  k  ))
+   !      dq_max_ = max(dq_max_, abs(q(i,j,k) - q_old))
+   !   enddo
+   !   enddo
+   !   enddo
+   !enddo
+   !if (present(dq_max)) dq_max = dq_max_
+   !endsubroutine compute_smoothing_gauss_seidel
 
-   subroutine compute_smoothing_multigrid(ni, nj, nk, ngc, dx2, dy2, dz2, r, dq, q, dq_max, iterations)
-   integer(I4P), intent(in)              :: ni,nj,nk,ngc         !< Grid dimensions.
-   real(R8P),    intent(in)              :: dx2,dy2,dz2          !< Square space steps.
-   real(R8P),    intent(in)              :: r(1-ngc:,&
-                                              1-ngc:,&
-                                              1-ngc:)            !< Rho distribution.
-   real(R8P),    intent(inout), optional :: dq(1-ngc:,&
-                                               1-ngc:,&
-                                               1-ngc:)           !< Residuals.
-   real(R8P),    intent(inout)           :: q(1-ngc:,&
-                                              1-ngc:,&
-                                              1-ngc:)            !< Poisson field variable.
-   real(R8P),    intent(inout), optional :: dq_max               !< Maximum residual.
-   integer(I4P), intent(in),    optional :: iterations           !< Smoothing iterations.
-   integer(I4P)                          :: iterations_          !< Smoothing iterations, local var.
-   real(R8P)                             :: r_c(1-ngc:ni/2+ngc,&
-                                                1-ngc:nj/2+ngc,&
-                                                1-ngc:nk/2+ngc)  !< Rho distribution, coarse grid.
-   real(R8P)                             :: dq_c(1-ngc:ni/2+ngc,&
-                                                 1-ngc:nj/2+ngc,&
-                                                 1-ngc:nk/2+ngc) !< Residuals, coarse grid.
-   real(R8P)                             :: q_c(1-ngc:ni/2+ngc,&
-                                                1-ngc:nj/2+ngc,&
-                                                1-ngc:nk/2+ngc)  !< Poisson field variable, coarse grid.
-   integer(I4P)                          :: iter                 !< Counter.
+   !subroutine compute_smoothing_multigrid(ni, nj, nk, ngc, dx2, dy2, dz2, r, dq, q, dq_max, iterations)
+   !integer(I4P), intent(in)              :: ni,nj,nk,ngc         !< Grid dimensions.
+   !real(R8P),    intent(in)              :: dx2,dy2,dz2          !< Square space steps.
+   !real(R8P),    intent(in)              :: r(1-ngc:,&
+   !                                           1-ngc:,&
+   !                                           1-ngc:)            !< Rho distribution.
+   !real(R8P),    intent(inout), optional :: dq(1-ngc:,&
+   !                                            1-ngc:,&
+   !                                            1-ngc:)           !< Residuals.
+   !real(R8P),    intent(inout)           :: q(1-ngc:,&
+   !                                           1-ngc:,&
+   !                                           1-ngc:)            !< Poisson field variable.
+   !real(R8P),    intent(inout), optional :: dq_max               !< Maximum residual.
+   !integer(I4P), intent(in),    optional :: iterations           !< Smoothing iterations.
+   !integer(I4P)                          :: iterations_          !< Smoothing iterations, local var.
+   !real(R8P)                             :: r_c(1-ngc:ni/2+ngc,&
+   !                                             1-ngc:nj/2+ngc,&
+   !                                             1-ngc:nk/2+ngc)  !< Rho distribution, coarse grid.
+   !real(R8P)                             :: dq_c(1-ngc:ni/2+ngc,&
+   !                                              1-ngc:nj/2+ngc,&
+   !                                              1-ngc:nk/2+ngc) !< Residuals, coarse grid.
+   !real(R8P)                             :: q_c(1-ngc:ni/2+ngc,&
+   !                                             1-ngc:nj/2+ngc,&
+   !                                             1-ngc:nk/2+ngc)  !< Poisson field variable, coarse grid.
+   !integer(I4P)                          :: iter                 !< Counter.
 
-   iterations_ = 1 ; if (present(iterations)) iterations_ = iterations
-   ! V-cicle
-   do iter=1, iterations_
-      call compute_smoothing_gauss_seidel(ni=ni,nj=nj,nk=nk,ngc=ngc,dx2=dx2,dy2=dy2,dz2=dz2,r=r,q=q,iterations=3)
-      call compute_residuals(ni=ni,nj=nj,nk=nk,ngc=ngc,dx2=dx2,dy2=dy2,dz2=dz2,r=r,q=q,dq=dq)
-      call compute_restriction(ngc=ngc, nic=ni/2, njc=nj/2, nkc=nk/2, fine=dq, coarse=r_c)
-      q_c = 0._R8P
-      call compute_smoothing_gauss_seidel(ni=ni/2,nj=nj/2,nk=nk/2,ngc=ngc,dx2=dx2*4,dy2=dy2*4,dz2=dz2*4,r=r_c,q=q_c,iterations=10)
-      call compute_prolongation(ngc=ngc, nic=ni/2, njc=nj/2, nkc=nk/2, coarse=q_c, fine=dq)
-      q = q + dq
-      call compute_smoothing_gauss_seidel(ni=ni,nj=nj,nk=nk,ngc=ngc,dx2=dx2,dy2=dy2,dz2=dz2,r=r,q=q,dq_max=dq_max,iterations=3)
-   enddo
-   endsubroutine compute_smoothing_multigrid
+   !iterations_ = 1 ; if (present(iterations)) iterations_ = iterations
+   !! V-cicle
+   !do iter=1, iterations_
+   !   call compute_smoothing_gauss_seidel(ni=ni,nj=nj,nk=nk,ngc=ngc,dx2=dx2,dy2=dy2,dz2=dz2,r=r,q=q,iterations=3)
+   !   call compute_residuals(ni=ni,nj=nj,nk=nk,ngc=ngc,dx2=dx2,dy2=dy2,dz2=dz2,r=r,q=q,dq=dq)
+   !   call compute_restriction(ngc=ngc, nic=ni/2, njc=nj/2, nkc=nk/2, fine=dq, coarse=r_c)
+   !   q_c = 0._R8P
+   !   call compute_smoothing_gauss_seidel(ni=ni/2,nj=nj/2,nk=nk/2,ngc=ngc,dx2=dx2*4,dy2=dy2*4,dz2=dz2*4,r=r_c,q=q_c,iterations=10)
+   !   call compute_prolongation(ngc=ngc, nic=ni/2, njc=nj/2, nkc=nk/2, coarse=q_c, fine=dq)
+   !   q = q + dq
+   !   call compute_smoothing_gauss_seidel(ni=ni,nj=nj,nk=nk,ngc=ngc,dx2=dx2,dy2=dy2,dz2=dz2,r=r,q=q,dq_max=dq_max,iterations=3)
+   !enddo
+   !endsubroutine compute_smoothing_multigrid
 
-   subroutine compute_smoothing_sor(ni, nj, nk, ngc, dx2, dy2, dz2, r, dq, q, dq_max, iterations)
-   !< Compute smoothing by SOR, Successive Overrelaxation.
-   integer(I4P), intent(in)              :: ni,nj,nk,ngc !< Grid dimensions.
-   real(R8P),    intent(in)              :: dx2,dy2,dz2  !< Square space steps.
-   real(R8P),    intent(in)              :: r(1-ngc:,&
-                                              1-ngc:,&
-                                              1-ngc:)    !< Rho distribution.
-   real(R8P),    intent(inout), optional :: dq(1-ngc:,&
-                                               1-ngc:,&
-                                               1-ngc:)   !< Residuals.
-   real(R8P),    intent(inout)           :: q(1-ngc:,&
-                                              1-ngc:,&
-                                              1-ngc:)    !< Poisson field variable.
-   real(R8P),    intent(inout), optional :: dq_max       !< Maximum residual.
-   integer(I4P), intent(in),    optional :: iterations   !< Smoothing iterations.
-   integer(I4P)                          :: iterations_  !< Smoothing iterations, local var.
-   real(R8P)                             :: dq_max_      !< Maximum residual, local var.
-   real(R8P)                             :: factor       !< Jacobi relaxation factor.
-   real(R8P)                             :: omega        !< Overrelaxation parameter.
-   real(R8P)                             :: q_old        !< Previous q.
-   integer(I4P)                          :: i,j,k,b,iter !< Counter.
+   !subroutine compute_smoothing_sor(ni, nj, nk, ngc, dx2, dy2, dz2, r, dq, q, dq_max, iterations)
+   !!< Compute smoothing by SOR, Successive Overrelaxation.
+   !integer(I4P), intent(in)              :: ni,nj,nk,ngc !< Grid dimensions.
+   !real(R8P),    intent(in)              :: dx2,dy2,dz2  !< Square space steps.
+   !real(R8P),    intent(in)              :: r(1-ngc:,&
+   !                                           1-ngc:,&
+   !                                           1-ngc:)    !< Rho distribution.
+   !real(R8P),    intent(inout), optional :: dq(1-ngc:,&
+   !                                            1-ngc:,&
+   !                                            1-ngc:)   !< Residuals.
+   !real(R8P),    intent(inout)           :: q(1-ngc:,&
+   !                                           1-ngc:,&
+   !                                           1-ngc:)    !< Poisson field variable.
+   !real(R8P),    intent(inout), optional :: dq_max       !< Maximum residual.
+   !integer(I4P), intent(in),    optional :: iterations   !< Smoothing iterations.
+   !integer(I4P)                          :: iterations_  !< Smoothing iterations, local var.
+   !real(R8P)                             :: dq_max_      !< Maximum residual, local var.
+   !real(R8P)                             :: factor       !< Jacobi relaxation factor.
+   !real(R8P)                             :: omega        !< Overrelaxation parameter.
+   !real(R8P)                             :: q_old        !< Previous q.
+   !integer(I4P)                          :: i,j,k,b,iter !< Counter.
 
-   iterations_ = 1 ; if (present(iterations)) iterations_ = iterations
-   omega = 1.8_R8P
-   factor = 1._R8P / (2._R8P * (1._R8P/dx2 + 1._R8P/dy2 + 1._R8P/dz2))
-   dq_max_ = 0._R8P
-   do iter=1, iterations_
-      call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, q=q)
-      do k = 1, nk
-      do j = 1, nj
-      do i = 1, ni
-         q_old = q(i,j,k)
-         q(i,j,k) = factor * ((q(i+1,j,  k  ) +  q(i-1,j,  k  )) / dx2 + &
-                              (q(i,  j+1,k  ) +  q(i,  j-1,k  )) / dy2 + &
-                              (q(i,  j,  k+1) +  q(i,  j,  k-1)) / dz2 - &
-                               r(i,  j,  k  ))
-         q(i,j,k) = q_old + omega * (q(i,j,k) - q_old)
-         dq_max_ = max(dq_max, abs(q(i,j,k) - q_old))
-      enddo
-      enddo
-      enddo
-   enddo
-   if (present(dq_max)) dq_max = dq_max_
-   endsubroutine compute_smoothing_sor
+   !iterations_ = 1 ; if (present(iterations)) iterations_ = iterations
+   !omega = 1.8_R8P
+   !factor = 1._R8P / (2._R8P * (1._R8P/dx2 + 1._R8P/dy2 + 1._R8P/dz2))
+   !dq_max_ = 0._R8P
+   !do iter=1, iterations_
+   !   call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, q=q)
+   !   do k = 1, nk
+   !   do j = 1, nj
+   !   do i = 1, ni
+   !      q_old = q(i,j,k)
+   !      q(i,j,k) = factor * ((q(i+1,j,  k  ) +  q(i-1,j,  k  )) / dx2 + &
+   !                           (q(i,  j+1,k  ) +  q(i,  j-1,k  )) / dy2 + &
+   !                           (q(i,  j,  k+1) +  q(i,  j,  k-1)) / dz2 - &
+   !                            r(i,  j,  k  ))
+   !      q(i,j,k) = q_old + omega * (q(i,j,k) - q_old)
+   !      dq_max_ = max(dq_max, abs(q(i,j,k) - q_old))
+   !   enddo
+   !   enddo
+   !   enddo
+   !enddo
+   !if (present(dq_max)) dq_max = dq_max_
+   !endsubroutine compute_smoothing_sor
 
-   subroutine compute_smoothing_sor_omp(ni, nj, nk, ngc, dx2, dy2, dz2, r, dq, q, dq_max, iterations)
-   !< Compute smoothing by SOR, Successive Overrelaxation (parallel OpenMP) method: red-black 3D scheme.
-   integer(I4P), intent(in)              :: ni,nj,nk,ngc !< Grid dimensions.
-   real(R8P),    intent(in)              :: dx2,dy2,dz2  !< Square space steps.
-   real(R8P),    intent(in)              :: r(1-ngc:,&
-                                              1-ngc:,&
-                                              1-ngc:)    !< Rho distribution.
-   real(R8P),    intent(inout), optional :: dq(1-ngc:,&
-                                               1-ngc:,&
-                                               1-ngc:)   !< Residuals.
-   real(R8P),    intent(inout)           :: q(1-ngc:,&
-                                              1-ngc:,&
-                                              1-ngc:)    !< Poisson field variable.
-   real(R8P),    intent(inout), optional :: dq_max       !< Maximum residual.
-   integer(I4P), intent(in),    optional :: iterations   !< Smoothing iterations.
-   integer(I4P)                          :: iterations_  !< Smoothing iterations, local var.
-   real(R8P)                             :: dq_max_      !< Maximum residual, local var.
-   real(R8P)                             :: factor       !< Jacobi relaxation factor.
-   real(R8P)                             :: omega        !< Overrelaxation parameter.
-   integer(I4P)                          :: i,j,k,b,iter !< Counter.
-   integer(I4P)                          :: color        !< Color counter.
-   real(R8P)                             :: residual     !< Residual.
+   !subroutine compute_smoothing_sor_omp(ni, nj, nk, ngc, dx2, dy2, dz2, r, dq, q, dq_max, iterations)
+   !!< Compute smoothing by SOR, Successive Overrelaxation (parallel OpenMP) method: red-black 3D scheme.
+   !integer(I4P), intent(in)              :: ni,nj,nk,ngc !< Grid dimensions.
+   !real(R8P),    intent(in)              :: dx2,dy2,dz2  !< Square space steps.
+   !real(R8P),    intent(in)              :: r(1-ngc:,&
+   !                                           1-ngc:,&
+   !                                           1-ngc:)    !< Rho distribution.
+   !real(R8P),    intent(inout), optional :: dq(1-ngc:,&
+   !                                            1-ngc:,&
+   !                                            1-ngc:)   !< Residuals.
+   !real(R8P),    intent(inout)           :: q(1-ngc:,&
+   !                                           1-ngc:,&
+   !                                           1-ngc:)    !< Poisson field variable.
+   !real(R8P),    intent(inout), optional :: dq_max       !< Maximum residual.
+   !integer(I4P), intent(in),    optional :: iterations   !< Smoothing iterations.
+   !integer(I4P)                          :: iterations_  !< Smoothing iterations, local var.
+   !real(R8P)                             :: dq_max_      !< Maximum residual, local var.
+   !real(R8P)                             :: factor       !< Jacobi relaxation factor.
+   !real(R8P)                             :: omega        !< Overrelaxation parameter.
+   !integer(I4P)                          :: i,j,k,b,iter !< Counter.
+   !integer(I4P)                          :: color        !< Color counter.
+   !real(R8P)                             :: residual     !< Residual.
 
-   iterations_ = 1 ; if (present(iterations)) iterations_ = iterations
-   omega = 1.8_R8P
-   factor = 1._R8P / (2._R8P * (1._R8P/dx2 + 1._R8P/dy2 + 1._R8P/dz2))
-   dq_max_ = 0._R8P
-   do iter=1, iterations_
-      call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, q=q)
-      do color=0, 7
-         !$omp parallel do firstprivate(b,factor,omega,color) private(residual) shared(q,dq) reduction(max:dq_max) collapse(3)
-         do k = 1, nk
-         do j = 1, nj
-         do i = 1, ni
-            if (mod(i+j+k,8)==color) then
-               residual = factor * ((q(i+1,j,  k  ) +  q(i-1,j,  k  )) / dx2 + &
-                                    (q(i,  j+1,k  ) +  q(i,  j-1,k  )) / dy2 + &
-                                    (q(i,  j,  k+1) +  q(i,  j,  k-1)) / dz2 - &
-                                     r(i,  j,  k  ))
-               dq(i,j,k) = q(i,j,k) + omega * (residual - q(i,j,k))
-               dq_max_ = max(dq_max_, abs(residual - q(i,j,k)))
-            endif
-         enddo
-         enddo
-         enddo
-         !$omp parallel do firstprivate(b,color) shared(q,dq) collapse(3)
-         do k = 1, nk
-         do j = 1, nj
-         do i = 1, ni
-            if (mod(i+j+k,8)==color) q(i,j,k) = dq(i,j,k)
-         enddo
-         enddo
-         enddo
-      enddo
-   enddo
-   if (present(dq_max)) dq_max = dq_max_
-   endsubroutine compute_smoothing_sor_omp
+   !iterations_ = 1 ; if (present(iterations)) iterations_ = iterations
+   !omega = 1.8_R8P
+   !factor = 1._R8P / (2._R8P * (1._R8P/dx2 + 1._R8P/dy2 + 1._R8P/dz2))
+   !dq_max_ = 0._R8P
+   !do iter=1, iterations_
+   !   call apply_bc_dirichlet(ni=ni, nj=nj, nk=nk, ngc=ngc, q=q)
+   !   do color=0, 7
+   !      !$omp parallel do firstprivate(b,factor,omega,color) private(residual) shared(q,dq) reduction(max:dq_max) collapse(3)
+   !      do k = 1, nk
+   !      do j = 1, nj
+   !      do i = 1, ni
+   !         if (mod(i+j+k,8)==color) then
+   !            residual = factor * ((q(i+1,j,  k  ) +  q(i-1,j,  k  )) / dx2 + &
+   !                                 (q(i,  j+1,k  ) +  q(i,  j-1,k  )) / dy2 + &
+   !                                 (q(i,  j,  k+1) +  q(i,  j,  k-1)) / dz2 - &
+   !                                  r(i,  j,  k  ))
+   !            dq(i,j,k) = q(i,j,k) + omega * (residual - q(i,j,k))
+   !            dq_max_ = max(dq_max_, abs(residual - q(i,j,k)))
+   !         endif
+   !      enddo
+   !      enddo
+   !      enddo
+   !      !$omp parallel do firstprivate(b,color) shared(q,dq) collapse(3)
+   !      do k = 1, nk
+   !      do j = 1, nj
+   !      do i = 1, ni
+   !         if (mod(i+j+k,8)==color) q(i,j,k) = dq(i,j,k)
+   !      enddo
+   !      enddo
+   !      enddo
+   !   enddo
+   !enddo
+   !if (present(dq_max)) dq_max = dq_max_
+   !endsubroutine compute_smoothing_sor_omp
 endmodule adam_patch_cpu_object

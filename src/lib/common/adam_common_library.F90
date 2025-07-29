@@ -6,6 +6,7 @@ use adam_adam_object
 use adam_amr_object
 use adam_eos_ic_object
 use adam_field_object
+use adam_flail_object
 use adam_grid_object
 use adam_ib_object
 use adam_io_object

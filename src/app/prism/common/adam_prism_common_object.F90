@@ -5,6 +5,7 @@ module adam_prism_common_object
 use adam_adam_object
 use adam_amr_object
 use adam_field_object
+use adam_flail_object
 use adam_grid_object
 use adam_ib_object
 use adam_mpih_object
@@ -38,6 +39,7 @@ type :: prism_common_object
    type(slices_object)         :: slices        !< Slices handler.
    type(rk_object)             :: rk            !< RK integrator.
    type(weno_object)           :: weno          !< WENO reconstructor.
+   type(flail_object)          :: flail         !< Linear algebra methods handler.
    ! PRISM library objects
    type(prism_io_object)      :: io      !< IO handler.
    type(prism_physics_object) :: physics !< Fluids physiscs handler.
@@ -59,6 +61,7 @@ type :: prism_common_object
    ! fields data
    real(R8P), allocatable    :: field_div(:,:,:,:,:) !< Field divergence.
    real(R8P), allocatable    :: q(:,:,:,:,:)         !< Conservative cell centered variables.
+   real(R8P), allocatable    :: phid(:,:,:,:,:)      !< Potential field of D.
    character(3), allocatable :: q_name(:)            !< Fields names.
    contains
       procedure, pass(self) :: allocate_common   !< Allocate common data.
@@ -78,6 +81,14 @@ contains
                                        1,nb],[2,5]), &
                           msg=self%mpih%myrankstr//'prsim_common_object%allocate_common(field_div) ', verbose=.true.)
    self%field_div = 0._R8P
+   call allocate_variable(var=self%phid,             &
+                          ulb=reshape([1,1,          &
+                                       1-ngc,ni+ngc, &
+                                       1-ngc,nj+ngc, &
+                                       1-ngc,nk+ngc, &
+                                       1,nb],[2,5]), &
+                          msg=self%mpih%myrankstr//'prsim_common_object%allocate_common(phid) ', verbose=.true.)
+   self%phid = 0._R8P
    endassociate
    endsubroutine allocate_common
 
@@ -118,11 +129,13 @@ contains
    call self%slices%initialize(file_parameters=file_parameters)
    call self%rk%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    call self%weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
+   call self%flail%initialize(file_parameters=file_parameters)
    call self%allocate_common
    call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field,                                             &
-                                q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivD_f','DivB_f',           &
+                                q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivJ_d','DivG0_',           &
                                                                          'DivG1_','DivG2_','DivG3_','DivG4_','DivG5_'], &
                                 q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3'],                &
+                                q3_R8P=self%phid,           q3_R8P_name=['phid'],                                       &
                                 s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag')
    if     ((.not.self%physics%d_divergence_cleaner).and.(.not.self%physics%b_divergence_cleaner)) then
       self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']

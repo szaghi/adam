@@ -12,10 +12,10 @@ public :: patch_time_object
 
 character(len=4), parameter :: INI_SECTION_NAME="time" !< INI (config) file section name containing time configs.
 
-character(9),  parameter, public :: SMOOTHING_MULTIGRID   ='MULTIGRID'    !< Smoothing multigrid parameter.
-character(12), parameter, public :: SMOOTHING_GAUSS_SEIDEL='GAUSS-SEIDEL' !< Smoothing Gauss-Seidel parameter.
-character(3),  parameter, public :: SMOOTHING_SOR         ='SOR'          !< Smoothing SOR parameter.
-character(7),  parameter, public :: SMOOTHING_SOR_OMP     ='SOR-OMP'      !< Smoothing SOR-OpenMP parameter.
+! character(9),  parameter, public :: SMOOTHING_MULTIGRID   ='MULTIGRID'    !< Smoothing multigrid parameter.
+! character(12), parameter, public :: SMOOTHING_GAUSS_SEIDEL='GAUSS-SEIDEL' !< Smoothing Gauss-Seidel parameter.
+! character(3),  parameter, public :: SMOOTHING_SOR         ='SOR'          !< Smoothing SOR parameter.
+! character(7),  parameter, public :: SMOOTHING_SOR_OMP     ='SOR-OMP'      !< Smoothing SOR-OpenMP parameter.
 
 type :: patch_time_object
    !< PATCH time handler class definition, CPU backend.
@@ -26,7 +26,7 @@ type :: patch_time_object
    integer(I4P)      :: it=0_I4P          !< Time steps counter.
    real(R8P)         :: time=0._R8P       !< Time.
    real(R8P)         :: dt=0.0001_R8P     !< Maximum time step accordingly to CFL criterion.
-   character(:), allocatable :: smoothing !< Iterative smoothing method.
+   ! character(:), allocatable :: smoothing !< Iterative smoothing method.
    contains
       procedure, pass(self) :: description    !< Return pretty-printed object description.
       procedure, pass(self) :: initialize     !< Initialize time handler.
@@ -46,8 +46,8 @@ contains
    desc =       self%mpih%myrankstr//'Time main data'//NL
    desc = desc//self%mpih%myrankstr//'  it_max:    '//trim(str(self%it_max  ))//NL
    desc = desc//self%mpih%myrankstr//'  time_max:  '//trim(str(self%time_max))//NL
-   desc = desc//self%mpih%myrankstr//'  CFL:       '//trim(str(self%CFL     ))//NL
-   desc = desc//self%mpih%myrankstr//'  smoothing: '//self%smoothing
+   desc = desc//self%mpih%myrankstr//'  CFL:       '//trim(str(self%CFL     ))!//NL
+   ! desc = desc//self%mpih%myrankstr//'  smoothing: '//self%smoothing
    endfunction description
 
    subroutine initialize(self, file_parameters)
@@ -91,18 +91,18 @@ contains
    if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(time_max)')
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='CFL', val=self%CFL, error=error)
    if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(CFL)')
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='smoothing', val=buffer, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(smoothing)')
-   select case(trim(adjustl(buffer)))
-   case('MULTIGRID','multigrid','Multigrid')
-      self%smoothing = SMOOTHING_MULTIGRID
-   case('GAUSS-SEIDEL','gauss-seidel','Gauss-Seidel')
-      self%smoothing = SMOOTHING_GAUSS_SEIDEL
-   case('SOR','sor','Sor')
-      self%smoothing = SMOOTHING_SOR
-   case('SOR-OMP','sor-omp','Sor-omp')
-      self%smoothing = SMOOTHING_SOR_OMP
-   endselect
+   ! call file_parameters%get(section_name=INI_SECTION_NAME, option_name='smoothing', val=buffer, error=error)
+   ! if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(smoothing)')
+   ! select case(trim(adjustl(buffer)))
+   ! case('MULTIGRID','multigrid','Multigrid')
+   !    self%smoothing = SMOOTHING_MULTIGRID
+   ! case('GAUSS-SEIDEL','gauss-seidel','Gauss-Seidel')
+   !    self%smoothing = SMOOTHING_GAUSS_SEIDEL
+   ! case('SOR','sor','Sor')
+   !    self%smoothing = SMOOTHING_SOR
+   ! case('SOR-OMP','sor-omp','Sor-omp')
+   !    self%smoothing = SMOOTHING_SOR_OMP
+   ! endselect
    endsubroutine load_from_file
 
    subroutine print_progress(self, nodes_number)
