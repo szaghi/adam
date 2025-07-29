@@ -143,12 +143,12 @@
       </a>
       <div id="subs-0" class="collapse">
         <div class="list-group list-group-flush">
-            <a class="list-group-item" href="../module/adam_nasto_nvf_cns_kernels.html#proc-compute_conservatives_device~2">compute_conservatives_device</a>
-            <a class="list-group-item" href="../module/adam_nasto_nvf_cns_kernels.html#proc-compute_conservative_fluxes_device~2">compute_conservative_fluxes_device</a>
-            <a class="list-group-item" href="../module/adam_nasto_nvf_cns_kernels.html#proc-compute_max_eigenvalues_device~2">compute_max_eigenvalues_device</a>
-            <a class="list-group-item" href="../module/adam_nasto_nvf_cns_kernels.html#proc-compute_eigenvectors_device~2">compute_eigenvectors_device</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_cns_kernels.html#proc-compute_conservatives_device">compute_conservatives_device</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_cns_kernels.html#proc-compute_conservative_fluxes_device">compute_conservative_fluxes_device</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_cns_kernels.html#proc-compute_max_eigenvalues_device">compute_max_eigenvalues_device</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_cns_kernels.html#proc-compute_eigenvectors_device">compute_eigenvectors_device</a>
             <a class="list-group-item" href="../module/adam_nasto_nvf_cns_kernels.html#proc-compute_q_aux_cuf">compute_q_aux_cuf</a>
-            <a class="list-group-item" href="../module/adam_nasto_nvf_cns_kernels.html#proc-compute_roe_average_device~3">compute_roe_average_device</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_cns_kernels.html#proc-compute_roe_average_device~2">compute_roe_average_device</a>
         </div>
       </div>
     </div>
@@ -457,7 +457,7 @@ modules which it uses.
         <section>
           <h2>Subroutines</h2>
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-compute_conservatives_device~2"></span> <h3>public  subroutine <a href='../proc/compute_conservatives_device~2.html'>compute_conservatives_device</a>(b, i, j, k, ngc, q_aux_gpu, q)  
+    <div class="card-header codesum"><span class="anchor" id="proc-compute_conservatives_device"></span> <h3>public  subroutine <a href='../proc/compute_conservatives_device.html'>compute_conservatives_device</a>(b, i, j, k, ngc, q_aux_gpu, q)  
 </h3></div>
     <div class="card-body">
           
@@ -551,7 +551,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux_gpu~34"></span>
+              <span class="anchor" id="variable-q_aux_gpu~28"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -566,7 +566,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q~18"></span>
+              <span class="anchor" id="variable-q~20"></span>
               real(kind=R8P),
             </td>
 <td>intent(inout),</td>
@@ -587,7 +587,7 @@ modules which it uses.
   </div>
 
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-compute_conservative_fluxes_device~2"></span> <h3>public  subroutine <a href='../proc/compute_conservative_fluxes_device~2.html'>compute_conservative_fluxes_device</a>(sir, b, i, j, k, ngc, q_aux_gpu, f)  
+    <div class="card-header codesum"><span class="anchor" id="proc-compute_conservative_fluxes_device"></span> <h3>public  subroutine <a href='../proc/compute_conservative_fluxes_device.html'>compute_conservative_fluxes_device</a>(sir, b, i, j, k, ngc, q_aux_gpu, f)  
 </h3></div>
     <div class="card-body">
           
@@ -606,7 +606,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-sir~19"></span>
+              <span class="anchor" id="variable-sir~26"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -696,7 +696,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux_gpu~35"></span>
+              <span class="anchor" id="variable-q_aux_gpu~29"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -711,7 +711,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-f~8"></span>
+              <span class="anchor" id="variable-f~9"></span>
               real(kind=R8P),
             </td>
 <td>intent(inout),</td>
@@ -732,7 +732,7 @@ modules which it uses.
   </div>
 
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-compute_max_eigenvalues_device~2"></span> <h3>public  subroutine <a href='../proc/compute_max_eigenvalues_device~2.html'>compute_max_eigenvalues_device</a>(si, sir, weno_s, b, i, j, k, ngc, nv, q_aux_gpu, evmax)  
+    <div class="card-header codesum"><span class="anchor" id="proc-compute_max_eigenvalues_device"></span> <h3>public  subroutine <a href='../proc/compute_max_eigenvalues_device.html'>compute_max_eigenvalues_device</a>(si, sir, weno_s, b, i, j, k, ngc, nv, q_aux_gpu, evmax)  
 </h3></div>
     <div class="card-body">
           
@@ -751,7 +751,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-si~16"></span>
+              <span class="anchor" id="variable-si~22"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -766,7 +766,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-sir~20"></span>
+              <span class="anchor" id="variable-sir~27"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -871,7 +871,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nv~30"></span>
+              <span class="anchor" id="variable-nv~36"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -886,7 +886,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux_gpu~36"></span>
+              <span class="anchor" id="variable-q_aux_gpu~30"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -922,7 +922,7 @@ modules which it uses.
   </div>
 
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-compute_eigenvectors_device~2"></span> <h3>public  subroutine <a href='../proc/compute_eigenvectors_device~2.html'>compute_eigenvectors_device</a>(si, sir, b, i, j, k, ngc, nv, g, q_aux_gpu, el, er)  
+    <div class="card-header codesum"><span class="anchor" id="proc-compute_eigenvectors_device"></span> <h3>public  subroutine <a href='../proc/compute_eigenvectors_device.html'>compute_eigenvectors_device</a>(si, sir, b, i, j, k, ngc, nv, g, q_aux_gpu, el, er)  
 </h3></div>
     <div class="card-body">
           
@@ -941,7 +941,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-si~17"></span>
+              <span class="anchor" id="variable-si~23"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -956,7 +956,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-sir~21"></span>
+              <span class="anchor" id="variable-sir~28"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1046,7 +1046,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nv~31"></span>
+              <span class="anchor" id="variable-nv~37"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -1061,7 +1061,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-g~25"></span>
+              <span class="anchor" id="variable-g~27"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1076,7 +1076,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux_gpu~37"></span>
+              <span class="anchor" id="variable-q_aux_gpu~31"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1251,7 +1251,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-g~26"></span>
+              <span class="anchor" id="variable-g~28"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1266,7 +1266,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_gpu~27"></span>
+              <span class="anchor" id="variable-q_gpu~26"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1281,7 +1281,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux_gpu~38"></span>
+              <span class="anchor" id="variable-q_aux_gpu~32"></span>
               real(kind=R8P),
             </td>
 <td>intent(out),</td>
@@ -1302,7 +1302,7 @@ modules which it uses.
   </div>
 
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-compute_roe_average_device~3"></span> <h3>private  subroutine <a href='../proc/compute_roe_average_device~3.html'>compute_roe_average_device</a>(ngc, b, i, j, k, ip, jp, kp, g, q_aux_gpu, uu, vv, ww, h, qq, c, ci, b1, b2)  
+    <div class="card-header codesum"><span class="anchor" id="proc-compute_roe_average_device~2"></span> <h3>private  subroutine <a href='../proc/compute_roe_average_device~2.html'>compute_roe_average_device</a>(ngc, b, i, j, k, ip, jp, kp, g, q_aux_gpu, uu, vv, ww, h, qq, c, ci, b1, b2)  
 </h3></div>
     <div class="card-body">
           
@@ -1441,7 +1441,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-g~27"></span>
+              <span class="anchor" id="variable-g~29"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1456,7 +1456,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux_gpu~39"></span>
+              <span class="anchor" id="variable-q_aux_gpu~33"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
