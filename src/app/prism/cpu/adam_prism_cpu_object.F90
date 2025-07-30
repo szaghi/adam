@@ -37,6 +37,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       ! numerical methods
       procedure, pass(self) :: compute_dt        !< Compute time step.
       procedure, pass(self) :: compute_residuals !< Compute residuals.
+      procedure, pass(self) :: correct_div       !< Correct divergence of q(ivar:2).
       procedure, pass(self) :: integrate         !< Perform one step integration.
       procedure, pass(self) :: simulate          !< Perform the simulation.
 endtype prism_cpu_object
@@ -481,8 +482,7 @@ contains
    class(prism_cpu_object), intent(inout)         :: self             !< The equation.
    logical,                 intent(in),  optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
    logical                                        :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
-   real(R8P)                                      :: dq_max           !< Maximum residual.
-   integer(I4P)                                   :: s,iter           !< Counter.
+   integer(I4P)                                   :: s                !< Counter.
 
    do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
@@ -493,22 +493,6 @@ contains
    if (self%coil%total_coils_number >= 1_I4P) then
       call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, time=time, A=A, d=d, &
                                  f=f, phase=phase, coil_flag=coil_flag, td=td, j_vec=j_vec, dx=dx, q=self%q)
-   ! call compute_div_d_b_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, dx=dx, q=self%q, div=self%field_div)
-   ! if (self%blocks_number>0) then
-   !    do iter=1, self%flail%iterations
-   !       call compute_smoothing_multigrid(ni=self%ni,nj=self%nj,nk=self%nk,ngc=self%ngc,nv=1,blocks_number=self%blocks_number,&
-   !                                        dxyz=dxyz,                                                                          &
-   !                                        f=self%field_div(3:3,:,:,:,:),q=self%phid,dq_max=dq_max,dq=self%dq(1:1,:,:,:,:),    &
-   !                                        iterations_init=self%flail%iterations_init,                                         &
-   !                                        iterations_fine=self%flail%iterations_fine,                                         &
-   !                                        iterations_coarse=self%flail%iterations_coarse)
-   !       if (dq_max < self%flail%tolerance) exit
-   !    enddo
-   !    call self%mpih%print_message('FLAIL convergence reached at iteration '//trim(str(iter,.true.)))
-   !    call compute_q_gradient(ni=ni,nj=nj,nk=nk,ngc=ngc,blocks_number=blocks_number,dxyz=dxyz,ivar=1,q=self%phid,grad=self%dq)
-   !    self%q(7:9,1:ni,1:nj,1:nk,1:blocks_number) = self%q( 7:9,1:ni,1:nj,1:nk,1:blocks_number) &
-   !                                               - self%dq(1:3,1:ni,1:nj,1:nk,1:blocks_number)
-   ! endif
    endif
 
    call self%rk%initialize_stages(q=self%q)
@@ -549,24 +533,10 @@ contains
          call self%rk%update_q(dt=self%time%dt, q=self%q)
       endif
    endselect
-   ! call compute_div_d_b_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, dx=dx, q=self%q, div=self%field_div)
-   ! if (self%blocks_number>0) then
-   !    do iter=1, self%flail%iterations
-   !       call compute_smoothing_multigrid(ni=self%ni,nj=self%nj,nk=self%nk,ngc=self%ngc,nv=1,blocks_number=self%blocks_number,&
-   !                                        dxyz=dxyz,                                                                          &
-   !                                        f=self%field_div(1:1,:,:,:,:),q=self%phid,dq_max=dq_max,dq=self%dq(1:1,:,:,:,:),    &
-   !                                        iterations_init=self%flail%iterations_init,                                         &
-   !                                        iterations_fine=self%flail%iterations_fine,                                         &
-   !                                        iterations_coarse=self%flail%iterations_coarse)
-   !       if (dq_max < self%flail%tolerance) exit
-   !    enddo
-   !    call self%mpih%print_message('FLAIL convergence reached at iteration '//trim(str(iter,.true.)))
-   !    call compute_q_gradient(ni=ni,nj=nj,nk=nk,ngc=ngc,blocks_number=blocks_number,dxyz=dxyz,ivar=1,q=self%phid,grad=self%dq)
-   !    self%q(1:3,1:ni,1:nj,1:nk,1:blocks_number) = self%q( 1:3,1:ni,1:nj,1:nk,1:blocks_number) &
-   !                                               - self%dq(1:3,1:ni,1:nj,1:nk,1:blocks_number)
-   ! endif
-
-   call compute_div_d_b_dev(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, dx=dx, q=self%q, div=self%field_div)
+   call self%correct_div(ivar=1) ! correct div(D)
+   call compute_div(ni=ni,nj=nj,nk=nk,ngc=ngc,blocks_number=blocks_number,dxyz=dxyz,ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
+   call compute_div(ni=ni,nj=nj,nk=nk,ngc=ngc,blocks_number=blocks_number,dxyz=dxyz,ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
+   call compute_div(ni=ni,nj=nj,nk=nk,ngc=ngc,blocks_number=blocks_number,dxyz=dxyz,ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
    endassociate
    endsubroutine integrate
 
@@ -641,38 +611,107 @@ contains
    call self%mpih%finalize
    endsubroutine simulate
 
+   subroutine correct_div(self, ivar)
+   !< Correct divergence of q(ivar:2).
+   class(prism_cpu_object), intent(inout) :: self                       !< The equation.
+   integer(I4P),            intent(in)    :: ivar                       !< Variable (start) index in q.
+   real(R8P)                              :: div(1:1,                        &
+                                                 1-self%ngc:self%ni+self%ngc,&
+                                                 1-self%ngc:self%nj+self%ngc,&
+                                                 1-self%ngc:self%nk+self%ngc,&
+                                                 1:self%blocks_number)  !< Divergence of q(ivar).
+   real(R8P)                              ::  dq(1:1,                        &
+                                                 1-self%ngc:self%ni+self%ngc,&
+                                                 1-self%ngc:self%nj+self%ngc,&
+                                                 1-self%ngc:self%nk+self%ngc,&
+                                                 1:self%blocks_number)  !< Residual of smoothing.
+   real(R8P)                              :: grad(1:3,                        &
+                                                  1-self%ngc:self%ni+self%ngc,&
+                                                  1-self%ngc:self%nj+self%ngc,&
+                                                  1-self%ngc:self%nk+self%ngc,&
+                                                  1:self%blocks_number) !< Gradient of phi.
+   real(R8P)                              :: dq_max                     !< Maximum residual.
+   integer(I4P)                           :: iter                       !< Counter.
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, dxyz=>self%field%dxyz)
+   call compute_div(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, dxyz=dxyz, ivar=1_I4P, &
+                    q=self%q, div=div(1,:,:,:,:))
+   if (blocks_number>0) then
+      do iter=1, self%flail%iterations
+         call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
+                                          dxyz=dxyz,                                                      &
+                                          f=-div(1:1,:,:,:,:),                                            &
+                                          q=self%phid,                                                    &
+                                          dq_max=dq_max,                                                  &
+                                          dq=dq(1:1,:,:,:,:),                                             &
+                                          iterations_init=self%flail%iterations_init,                     &
+                                          iterations_fine=self%flail%iterations_fine,                     &
+                                          iterations_coarse=self%flail%iterations_coarse)
+         if (dq_max < self%flail%tolerance) exit
+      enddo
+      call self%mpih%print_message('FLAIL convergence reached at iteration '//trim(str(iter,.true.)))
+      call compute_grad(ni=ni,nj=nj,nk=nk,ngc=ngc,blocks_number=blocks_number,dxyz=dxyz,ivar=1,q=self%phid,grad=grad)
+      self%q(ivar:ivar+2,1:ni,1:nj,1:nk,1:blocks_number) = self%q(ivar:ivar+2,1:ni,1:nj,1:nk,1:blocks_number) &
+                                                         + grad(  1:3,        1:ni,1:nj,1:nk,1:blocks_number)
+   endif
+   endassociate
+   endsubroutine correct_div
+
    ! non TBP
-   subroutine compute_div_d_b_dev(ni, nj, nk, ngc, blocks_number, dx, q, div)
-   !< Compute div(D), div(B).
+   subroutine compute_div(ni, nj, nk, ngc, blocks_number, dxyz, ivar, q, div)
+   !< Compute div(q(ivar). Finite difference central scheme.
    integer(I4P), intent(in)    :: ni                              !< Grid cells number in I direction.
    integer(I4P), intent(in)    :: nj                              !< Grid cells number in J direction.
    integer(I4P), intent(in)    :: nk                              !< Grid cells number in K direction.
    integer(I4P), intent(in)    :: ngc                             !< Ghost cells number.
    integer(I4P), intent(in)    :: blocks_number                   !< Number of blocks.
-   real(R8P),    intent(in)    :: dx                              !< Space step in x direction (m)
+   real(R8P),    intent(in)    :: dxyz(1:,1:)                     !< Space steps.
+   integer(I4P), intent(in)    :: ivar                            !< Variable (vectorial) of q.
    real(R8P),    intent(in)    ::   q(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field variables.
-   real(R8P),    intent(inout) :: div(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Divergence of D, B.
+   real(R8P),    intent(inout) :: div(   1-ngc:,1-ngc:,1-ngc:,1:) !< Divergence of D, B.
    integer(I4P)                :: i,j,k,b                         !< Counter
 
    do b=1, blocks_number
    do k=1, nk
    do j=1, nj
    do i=1, ni
-      div(1,i,j,k,b) = 0.5_R8P*((q(1,i+1,j,k,b) - q(1,i-1,j,k,b))/dx + &
-                                (q(2,i,j+1,k,b) - q(2,i,j-1,k,b))/dx + &
-                                (q(3,i,j,k+1,b) - q(3,i,j,k-1,b))/dx)
-      div(2,i,j,k,b) = 0.5_R8P*((q(4,i+1,j,k,b) - q(4,i-1,j,k,b))/dx + &
-                                (q(5,i,j+1,k,b) - q(5,i,j-1,k,b))/dx + &
-                                (q(6,i,j,k+1,b) - q(6,i,j,k-1,b))/dx)
-      div(3,i,j,k,b) = 0.5_R8P*((q(7,i+1,j,k,b) - q(7,i-1,j,k,b))/dx + &
-                                (q(8,i,j+1,k,b) - q(8,i,j-1,k,b))/dx + &
-                                (q(9,i,j,k+1,b) - q(9,i,j,k-1,b))/dx)
+      div(i,j,k,b) = 0.5_R8P*((q(ivar  ,i+1,j,k,b) - q(ivar  ,i-1,j,k,b))/dxyz(1,b) + &
+                              (q(ivar+1,i,j+1,k,b) - q(ivar+1,i,j-1,k,b))/dxyz(2,b) + &
+                              (q(ivar+2,i,j,k+1,b) - q(ivar+2,i,j,k-1,b))/dxyz(3,b))
 
    enddo
    enddo
    enddo
    enddo
-   endsubroutine compute_div_d_b_dev
+   endsubroutine compute_div
+
+   subroutine compute_grad(ni, nj, nk, ngc, blocks_number, dxyz, q, ivar, grad)
+   !< Compute gradient of q(ivar). Finite difference central scheme.
+   integer(I4P), intent(in)    :: ni                               !< Grid cells number in I direction.
+   integer(I4P), intent(in)    :: nj                               !< Grid cells number in J direction.
+   integer(I4P), intent(in)    :: nk                               !< Grid cells number in K direction.
+   integer(I4P), intent(in)    :: ngc                              !< Ghost cells number.
+   integer(I4P), intent(in)    :: blocks_number                    !< Number of current blocks.
+   real(R8P),    intent(in)    :: dxyz(1:,1:)                      !< Space steps.
+   real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Field component to which apply gradient.
+   integer(I4P), intent(in)    :: ivar                             !< Index of variable for computing the gradient.
+   real(R8P),    intent(inout) :: grad(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Gradient of q(ivar).
+   integer(I4P)                :: i, j, k, b                       !< Counter.
+
+   !$omp parallel do collapse(4) default(firstprivate) shared(q,grad)
+   do b=1, blocks_number
+      do k=1, nk
+      do j=1, nj
+      do i=1, ni
+         grad(1,i,j,k,b) = (q(ivar,i+1,j,k,b) - q(ivar,i-1,j,k,b))/(2*dxyz(1,b))
+         grad(2,i,j,k,b) = (q(ivar,i,j+1,k,b) - q(ivar,i,j-1,k,b))/(2*dxyz(2,b))
+         grad(3,i,j,k,b) = (q(ivar,i,j,k+1,b) - q(ivar,i,j,k-1,b))/(2*dxyz(3,b))
+      enddo
+      enddo
+      enddo
+   enddo
+   !$omp end parallel do
+   endsubroutine compute_grad
 
    subroutine compute_dxyz_min(blocks_number, dxyz, dxyz_min)
    !< Compute minimum dxyz space step.
@@ -823,34 +862,6 @@ contains
    enddo
    enddo
    endsubroutine compute_fluxes_difference
-
-   subroutine compute_q_gradient(ni, nj, nk, ngc, blocks_number, dxyz, q, ivar, grad)
-   !< Compute gradient of q(ivar).
-   integer(I4P), intent(in)    :: ni                               !< Grid cells number in I direction.
-   integer(I4P), intent(in)    :: nj                               !< Grid cells number in J direction.
-   integer(I4P), intent(in)    :: nk                               !< Grid cells number in K direction.
-   integer(I4P), intent(in)    :: ngc                              !< Ghost cells number.
-   integer(I4P), intent(in)    :: blocks_number                    !< Number of current blocks.
-   real(R8P),    intent(in)    :: dxyz(1:,1:)                      !< Space steps.
-   real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Field component to which apply gradient.
-   integer(I4P), intent(in)    :: ivar                             !< Index of variable for computing the gradient.
-   real(R8P),    intent(inout) :: grad(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Gradient of q(ivar).
-   integer(I4P)                :: i, j, k, b                       !< Counter.
-
-   !$omp parallel do collapse(4) default(firstprivate) shared(q,grad)
-   do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         grad(1,i,j,k,b) = (q(ivar,i+1,j,k,b) - q(ivar,i-1,j,k,b))/(2*dxyz(1,b))
-         grad(2,i,j,k,b) = (q(ivar,i,j+1,k,b) - q(ivar,i,j-1,k,b))/(2*dxyz(2,b))
-         grad(3,i,j,k,b) = (q(ivar,i,j,k+1,b) - q(ivar,i,j,k-1,b))/(2*dxyz(3,b))
-      enddo
-      enddo
-      enddo
-   enddo
-   !$omp end parallel do
-   endsubroutine compute_q_gradient
 
    subroutine decompose_fluxes_convective(dir,si,sir,b,i,j,k,ngc,nv_c,weno_s,evmax,elw,q,fmpc)
    !< Decompose convective fluxes.
