@@ -16,7 +16,6 @@ public :: prism_cpu_object
 
 type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR e IB
    !< Maxwell equations system class definition, CPU backend.
-   real(R8P), allocatable :: dq( :,:,:,:,:) !< Residuals right hand side.
    real(R8P), allocatable :: flx(:,:,:,:,:) !< Fluxes along x.
    real(R8P), allocatable :: fly(:,:,:,:,:) !< Fluxes along y.
    real(R8P), allocatable :: flz(:,:,:,:,:) !< Fluxes along z.
@@ -54,9 +53,6 @@ contains
    msg_ = self%mpih%myrankstr//'prism_cpu_object%allocate_cpu '
    associate(nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, &
               nb=>self%nb, weno_s=>self%weno%S, solids_number=>self%ib%solids_number)
-   msg = msg_//' dq '
-   call allocate_variable(var=self%dq, ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
-   self%dq = 0._R8P
    msg = msg_//' flx '
    call allocate_variable(var=self%flx,ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
    self%flx = 0._R8P

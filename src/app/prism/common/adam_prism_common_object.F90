@@ -61,6 +61,7 @@ type :: prism_common_object
    ! fields data
    real(R8P), allocatable    :: field_div(:,:,:,:,:) !< Field divergence.
    real(R8P), allocatable    :: q(:,:,:,:,:)         !< Conservative cell centered variables.
+   real(R8P), allocatable    :: dq(:,:,:,:,:)        !< Residuals right hand side.
    real(R8P), allocatable    :: phid(:,:,:,:,:)      !< Potential field of D.
    character(3), allocatable :: q_name(:)            !< Fields names.
    contains
@@ -73,6 +74,14 @@ contains
    class(prism_common_object), intent(inout) :: self !< The equation.
 
    associate(nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb)
+   call allocate_variable(var=self%dq,               &
+                          ulb=reshape([1,nv,         &
+                                       1-ngc,ni+ngc, &
+                                       1-ngc,nj+ngc, &
+                                       1-ngc,nk+ngc, &
+                                       1,nb],[2,5]), &
+                          msg=self%mpih%myrankstr//'prsim_common_object%allocate_common(dq) ', verbose=.true.)
+   self%dq = 0._R8P
    call allocate_variable(var=self%field_div,        &
                           ulb=reshape([1,self%nv,    &
                                        1-ngc,ni+ngc, &
@@ -136,6 +145,9 @@ contains
                                                                          'DivG1_','DivG2_','DivG3_','DivG4_','DivG5_'], &
                                 q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3'],                &
                                 q3_R8P=self%phid,           q3_R8P_name=['phid'],                                       &
+                                q4_R8P=self%dq,             q4_R8P_name=['res_Dx','res_Dy','res_Dz',                    &
+                                                                         'res_Bx','res_By','res_Bz',                    &
+                                                                         'res_Jx','res_Jy','res_Jz'],                   &
                                 s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag')
    if     ((.not.self%physics%d_divergence_cleaner).and.(.not.self%physics%b_divergence_cleaner)) then
       self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
