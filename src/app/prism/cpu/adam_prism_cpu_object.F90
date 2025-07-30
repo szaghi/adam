@@ -529,7 +529,7 @@ contains
          call self%rk%update_q(dt=self%time%dt, q=self%q)
       endif
    endselect
-   call self%correct_div(ivar=1) ! correct div(D)
+   !call self%correct_div(ivar=1) ! correct div(D)
    call compute_div(ni=ni,nj=nj,nk=nk,ngc=ngc,blocks_number=blocks_number,dxyz=dxyz,ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
    call compute_div(ni=ni,nj=nj,nk=nk,ngc=ngc,blocks_number=blocks_number,dxyz=dxyz,ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
    call compute_div(ni=ni,nj=nj,nk=nk,ngc=ngc,blocks_number=blocks_number,dxyz=dxyz,ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
