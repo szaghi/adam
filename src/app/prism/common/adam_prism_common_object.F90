@@ -143,19 +143,23 @@ contains
    call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field,                                             &
                                 q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivJ_d','DivG0_',           &
                                                                          'DivG1_','DivG2_','DivG3_','DivG4_','DivG5_'], &
-                                q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3'],                &
+                                q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3','f_Gauss'],      &
                                 q3_R8P=self%phid,           q3_R8P_name=['phid'],                                       &
                                 q4_R8P=self%dq,             q4_R8P_name=['res_Dx','res_Dy','res_Dz',                    &
                                                                          'res_Bx','res_By','res_Bz',                    &
                                                                          'res_Jx','res_Jy','res_Jz'],                   &
                                 s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag')
-   if     ((.not.self%physics%d_divergence_cleaner).and.(.not.self%physics%b_divergence_cleaner)) then
+   if     ((.not.self%physics%d_divergence_cleaner).and.(.not.self%physics%b_divergence_cleaner) .or. &
+            (self%physics%div_corr_var == DIV_CORR_VAR_POISS)) then
       self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
-   elseif ((     self%physics%d_divergence_cleaner).and.(.not.self%physics%b_divergence_cleaner)) then
+   elseif ((     self%physics%d_divergence_cleaner).and.(.not.self%physics%b_divergence_cleaner) &
+      .and. (self%physics%div_corr_var == DIV_CORR_VAR_HYPER)) then
       self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi']
-   elseif ((     self%physics%d_divergence_cleaner).and.(     self%physics%b_divergence_cleaner)) then
+   elseif ((     self%physics%d_divergence_cleaner).and.(     self%physics%b_divergence_cleaner) &
+      .and. (self%physics%div_corr_var == DIV_CORR_VAR_HYPER)) then
       self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi', 'psi']
    endif
+
    endassociate
    if (verbose_) call self%mpih%print_message('prism_common_object%initialize finish')
    contains

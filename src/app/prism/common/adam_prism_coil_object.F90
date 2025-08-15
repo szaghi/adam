@@ -21,6 +21,8 @@ public :: CURRENT_TYPE_AC
 public :: CURRENT_TYPE_DC
 public :: INF_COIL_REPRESENTATION
 public :: FIN_COIL_REPRESENTATION
+public :: CONST_CURRENT_DISTRIBUTION
+public :: GAUSS_CURRENT_DISTRIBUTION
 public :: prism_coil_object
 
 character(len=11), parameter :: INI_SECTION_NAME="coils_input"        !< INI (config) file section name containing coils configs.
@@ -30,6 +32,8 @@ character(len=10), parameter :: CURRENT_TYPE_DC="DC_current"          !< DC curr
 character(len=10), parameter :: CURRENT_TYPE_AC="AC_current"          !< AC current
 character(len=8),  parameter :: INF_COIL_REPRESENTATION="Infinite"    !< Coil composed by infinite wires.
 character(len=6),  parameter :: FIN_COIL_REPRESENTATION="Finite"      !< Coil composed by finite wires.
+character(len=8),  parameter :: CONST_CURRENT_DISTRIBUTION="Constant"      !< Coil composed by finite wires.
+character(len=8),  parameter :: GAUSS_CURRENT_DISTRIBUTION="Gaussian"      !< Coil composed by finite wires.
 
 type :: prism_coil_object
    !< ADAM, PRISM coil source definition, CPU backend.
@@ -37,6 +41,7 @@ type :: prism_coil_object
    character(len=99), allocatable :: coil_type(:)                          !< Coil type.
    character(len=99), allocatable :: current_type(:)                       !< Current type.
    character(len=99), allocatable :: coil_rep(:)                           !< Coil representation.
+   character(len=99), allocatable :: current_distribution(:)               !< Coil representation.
    real(R8P), allocatable         :: A(:)                                  !< Current amplitude (A)
    real(R8P), allocatable         :: f(:)                                  !< Current frequency, if AC (Hz)
    real(R8P), allocatable         :: phase(:)                              !< Current initial phase, if AC
@@ -54,7 +59,7 @@ type :: prism_coil_object
    integer(I4P)                   :: total_coils_number=0_I4P              !< Number of coils
    contains
       ! public methods
-      procedure, pass(self) :: description                      !< Return pretty-printed object description.
+      procedure, pass(self) :: description                       !< Return pretty-printed object description.
       procedure, pass(self) :: initialize                        !< Initialize IC.
       procedure, pass(self) :: load_from_file                    !< Load config from file.
       procedure, pass(self) :: set_coils                         !< Set coil_object on PRISM fields.
@@ -118,7 +123,7 @@ contains
    call self%mpih%initialize(do_mpi_init=.false.)
    print '(A)', self%mpih%myrankstr//'prism_coil_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters, field=field)
-   !print '(A)', self%description()
+   print '(A)', self%description()
    print '(A)', self%mpih%myrankstr//'prism_coil_object%initialize finish'
    endsubroutine initialize
 
@@ -154,21 +159,22 @@ contains
    if (self%total_coils_number>=1_I4P) then
 
       ! Alloczione variabili dell'oggetto spira
-      allocate(self%r_coil        (0:self%total_coils_number))
-      allocate(self%ly            (0:self%total_coils_number))
-      allocate(self%lx            (0:self%total_coils_number))
-      allocate(self%d             (0:self%total_coils_number))
-      allocate(self%r_c           (0:self%total_coils_number))
-      allocate(self%normal      (3,0:self%total_coils_number))
-      allocate(self%x_center      (0:self%total_coils_number))
-      allocate(self%y_center      (0:self%total_coils_number))
-      allocate(self%z_center      (0:self%total_coils_number))
-      allocate(self%coil_type     (0:self%total_coils_number))
-      allocate(self%current_type  (0:self%total_coils_number))
-      allocate(self%coil_rep      (0:self%total_coils_number))
-      allocate(self%A             (0:self%total_coils_number))
-      allocate(self%f             (0:self%total_coils_number))
-      allocate(self%phase         (0:self%total_coils_number))
+      allocate(self%r_coil              (0:self%total_coils_number))
+      allocate(self%ly                  (0:self%total_coils_number))
+      allocate(self%lx                  (0:self%total_coils_number))
+      allocate(self%d                   (0:self%total_coils_number))
+      allocate(self%r_c                 (0:self%total_coils_number))
+      allocate(self%normal            (3,0:self%total_coils_number))
+      allocate(self%x_center            (0:self%total_coils_number))
+      allocate(self%y_center            (0:self%total_coils_number))
+      allocate(self%z_center            (0:self%total_coils_number))
+      allocate(self%coil_type           (0:self%total_coils_number))
+      allocate(self%current_type        (0:self%total_coils_number))
+      allocate(self%coil_rep            (0:self%total_coils_number))
+      allocate(self%current_distribution(0:self%total_coils_number))
+      allocate(self%A                   (0:self%total_coils_number))
+      allocate(self%f                   (0:self%total_coils_number))
+      allocate(self%phase               (0:self%total_coils_number))
       self%r_coil = 0.0_R8P
       self%ly = 0.0_R8P
       self%lx = 0.0_R8P
@@ -181,6 +187,7 @@ contains
       self%coil_type = ' '
       self%current_type = ' '
       self%coil_rep = ' '
+      self%current_distribution = ' '
       self%A = 0.0_R8P
       self%f = 0.0_R8P
       self%phase = 0.0_R8P
@@ -192,7 +199,7 @@ contains
       allocate(self%coil_flag(1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
       self%coil_flag = 0_I4P
 
-      allocate(self%J_vec(3, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
+      allocate(self%J_vec(4, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
       self%J_vec = 0._R8P
 
       endassociate
@@ -210,9 +217,13 @@ contains
          self%current_type(i) = trim(buff_char)
          self%current_type(i) = trim(self%current_type(i))
 
+         call file_parameters%get(section_name=sname, option_name='current_distribution', val=buff_char, error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(current_distribution)')
+         self%current_distribution(i) = trim(buff_char)
+         self%current_distribution(i) = trim(self%current_distribution(i))
+
          select case(self%coil_type(i))
          case(COIL_TYPE_CIRCULAR)
-
             call file_parameters%get(section_name=sname, option_name='r_coil', val=self%r_coil(i), error=error)
             if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(r_coil)')
 
@@ -242,11 +253,8 @@ contains
             self%ly(i) = 0.0_R8P
 
          case(COIL_TYPE_RECTANGULAR)
-
             call file_parameters%get(section_name=sname, option_name='coil_representation', val=buff_char, error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop & 
-            (msg=': failed to load ['//sname//'].(coil_representation)')
-            print*, 'coil_representation: ', trim(buff_char)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop (msg=': failed to load ['//sname//'].(coil_rep)')
             self%coil_rep(i) = trim(buff_char)
             self%coil_rep(i) = trim(self%coil_rep(i))
 
@@ -333,7 +341,7 @@ contains
             case(INF_COIL_REPRESENTATION) !Caso spire rettangolari infinite
                call self%set_rectangular_coil_infinite(physics = physics, field = field, n = i)
             case(FIN_COIL_REPRESENTATION) !Caso spire rettangolari finite
-               call self%set_rectangular_coil(physics = physics, field = field, n = i)
+               call self%set_rectangular_coil_quad_section(physics = physics, field = field, n = i)
             endselect
 
          endselect
@@ -383,11 +391,11 @@ contains
                         abs(dotproduct(a=(cell_coord-c_c),b=normal)) <= d/r_coil .and. self%coil_flag(i,j,k,b) /= 0_I4P ) then
 
                      !q(7:9,i,j,k,b) = crossproduct(a=normal,b=(cell_coord-c_c))
-                     self%J_vec(:,i,j,k,b) = crossproduct(a=normal,b=(cell_coord-c_c))
+                     self%J_vec(1:3,i,j,k,b) = crossproduct(a=normal,b=(cell_coord-c_c))
 
                      !normalizzo per ottenere, alla fine il versore della corrente nella cella
                      !q(7:9,i,j,k,b) = q(7:9,i,j,k,b)/sqrt(sq_norm(q(7:9,i,j,k,b)))
-                     self%J_vec(:,i,j,k,b) = self%J_vec(:,i,j,k,b)/sqrt(sq_norm(self%J_vec(:,i,j,k,b)))
+                     self%J_vec(1:3,i,j,k,b) = self%J_vec(1:3,i,j,k,b)/sqrt(sq_norm(self%J_vec(1:3,i,j,k,b)))
 
                      !metto flag su quale spira passa per la cella
                      self%coil_flag(i,j,k,b) = n
@@ -483,7 +491,8 @@ contains
    V(1,:) = V1
    V(2,:) = V2
    V(3,:) = V3
-   V(4,:) = V4 !genero matrice [V1; V2; V3; V4], quindi le colonne sono le coordinate x y z e le righe i vari vertici nell'ordine descritto prima
+   V(4,:) = V4
+   !genero matrice [V1; V2; V3; V4], quindi le colonne sono le coordinate x y z e le righe i vari vertici nell'ordine descritto prima
 
    v_l1 = matmul(R,vx)
    v_l1 = v_l1/sqrt(sq_norm(v_l1))
@@ -526,12 +535,13 @@ contains
 
          !modificata per avere termine sorgente come Filippo, se infittiamo o aumentiamo sezione spira torna la precedente
          dmax =  maxval([dx(b),dy(b),dz(b)])/2
+
          do k=1, nk
             do j=1, nj
                do i=1, ni
                   cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
                   dist = sqrt(sq_norm(crossproduct(a=(cell_coord-V(w,:)),b=vec(w,:)))) !Distanza punto retta |(P-A) x v| / |v| con A punto sulla retta e v versore della retta
-                  prj_v = V(w,:)+dotproduct(a=(cell_coord-V(w,:)),b=vec(w,:))*vec(w,:); !Formula proiezione di un punto su una retta con A punto della retta A+[(P-A)*v]*v
+                  prj_v = V(w,:)+dotproduct(a=(cell_coord-V(w,:)),b=vec(w,:))*vec(w,:) !Formula proiezione di un punto su una retta con A punto della retta A+[(P-A)*v]*v
                   !primo if: Il centro cella deve avere distanza dalla retta passante per il lato inferiore alla distanza massima e deve essere all'interno
                   !della proiezione dei lati, altrimenti prendo i punti su tutta la retta. Metto inoltre if sul flag, altrimenti ho sovrapposizioni dal secondo loop
                   !if ( flag(i,j,k,b) == 0_I4P .and. dist <= dmax .and. prj_v(1) <= maxval(V(:,1)) + dmax .and. &
@@ -545,6 +555,8 @@ contains
                        minval(V(:,3))-dmax <= prj_v(3) ) then
 
                         flag(i,j,k,b) = w
+                        !print*, cell_coord
+                        !print*, w
 
                   endif
                    !secondo if: per ogni lato verifico di essere dal "lato giusto" dei piani definiti dalle diagonali, al fine di
@@ -588,7 +600,7 @@ contains
                if (flag(i,j,k,b) /= 0 .and. self%coil_flag(i,j,k,b) == 0_I4P) then
 
                   !q(7:9,i,j,k,b) = vec(flag(i,j,k,b),:)
-                  self%J_vec(:,i,j,k,b) = vec(flag(i,j,k,b),:)
+                  self%J_vec(1:3,i,j,k,b) = vec(flag(i,j,k,b),:)
 
                   if (abs(self%J_vec(1,i,j,k,b)) < 1.0e-10_R8P) then
                      self%J_vec(1,i,j,k,b) = 0._R8P
@@ -603,11 +615,7 @@ contains
                   !metto flag su quale spira passa per la cella
 
                   self%coil_flag(i,j,k,b) = n
-                  !print*, self%coil_flag(i,j,k,b)
-
-               !elseif (flag(i,j,k,b) == 0) then
-
-                  !q(7:9,i,j,k,b) = 0._R8P
+                  
 
                endif
             enddo
@@ -624,6 +632,7 @@ contains
    type(prism_physics_object),   intent(in)    :: physics                                                         !< Fluids physiscs.
    integer(I4P),                 intent(in)    :: n                                                               !< Coil number.
    integer(I4P),                 allocatable   :: flag(:,:,:,:)                                                   !< Flag per identificare se la spira passa per la cella
+   real(R8P),                    allocatable   :: Gaussian(:,:,:,:)                                               !< Matrice gaussiana per distribuzione corrente 
    real(R8P)                                   :: dmax                                                            !< Vincolo distanza massima dalla spira.
    real(R8P)                                   :: c_c(3)                                                          !< Vettore posizione centro spira
    real(R8P)                                   :: cell_coord(3)                                                   !< Vettore posizione centro cella
@@ -642,7 +651,8 @@ contains
    associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
              x_c => self%x_center(n), y_c => self%y_center(n), z_c => self%z_center(n),                                        &
              dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), lx => self%lx(n),                            &
-             ly => self%ly(n), normal => self%normal(:,n), d => self%d(n), nb =>field%nb)
+             ly => self%ly(n), normal => self%normal(:,n), d => self%d(n), nb =>field%nb,                                      &
+             current_distribution => self%current_distribution(n))
    c_c = [ x_c, y_c, z_c ] !Vettore posizione centro spira
    !vertici del rettangolo, lo costruisco come se avesse normale asse z e fosse centrato nell'origine;
    !vertici in senso antiorario, partendo da in basso a sinistra; si ipotizza
@@ -729,9 +739,18 @@ contains
 
    allocate(flag(1:ni,1:nj,1:nk,1:nb))
    flag(:,:,:,:) = 0_I4P !inizializzo matrice flag a zero, per indicare che nessun lato passa per le celle
+   allocate(Gaussian(1:ni,1:nj,1:nk,1:nb))
+   Gaussian(:,:,:,:) = 0_I4P !inizializzo matrice gaussiana a zero
 
+   !modificata per avere termine sorgente come Filippo, se infittiamo o aumentiamo sezione spira torna la precedente
    do w = 1, 4 !per ogni lato del rettangolo
       do b=1, blocks_number
+            ! If che mi serve per fare spire quadrate avendo dimensioni celle comparabili a sezione spira
+            if (abs(d-dx(b))>1.0e-10_R8P) then
+               dmax = (d+dx(b))/2
+            else
+               dmax = d/2
+            endif
          ! chiamo funzione che restituisce le coordinate delle varie celle che compongono il blocco
          call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          !print *, x_cell, 'xcell'
@@ -741,8 +760,6 @@ contains
          !associata ai vettori dx dy e dz contenuti in field
          !dmax = d/2 + maxval([dx(b),dy(b),dz(b)])/2
 
-         !modificata per avere termine sorgente come Filippo, se infittiamo o aumentiamo sezione spira torna la precedente
-         dmax =  d/2
          do k=1, nk
             do j=1, nj
                do i=1, ni
@@ -756,9 +773,8 @@ contains
                        prj_v(2) <= maxval(V(:,2)) + dmax .and. prj_v(3) <= maxval(V(:,3)) + dmax .and. &
                        minval(V(:,1))-dmax <= prj_v(1) .and. minval(V(:,2))-dmax <= prj_v(2) .and. &
                        minval(V(:,3))-dmax <= prj_v(3) ) then
-
-                        flag(i,j,k,b) = w
-
+                     
+                     flag(i,j,k,b) = w
                   endif
                    !secondo if: per ogni lato verifico di essere dal "lato giusto" dei piani definiti dalle diagonali, al fine di
                    !non avere sovrapposizioni in prossimità dei vertici
@@ -787,6 +803,14 @@ contains
                         !print *, w
                      endif
                   endif
+                  if (flag(i,j,k,b) == w) then
+                     selectcase (current_distribution)
+                     case (GAUSS_CURRENT_DISTRIBUTION)
+                        Gaussian(i,j,k,b) = gaussian_2D_ind(sigma = d/6, r = dist)
+                     case (CONST_CURRENT_DISTRIBUTION)
+                        Gaussian(i,j,k,b) = 1/d**2
+                     endselect
+                  endif
                enddo
             enddo
          enddo
@@ -800,8 +824,8 @@ contains
             do i=1, ni
                if (flag(i,j,k,b) /= 0 .and. self%coil_flag(i,j,k,b) == 0_I4P) then
 
-                  !q(7:9,i,j,k,b) = vec(flag(i,j,k,b),:)
-                  self%J_vec(:,i,j,k,b) = vec(flag(i,j,k,b),:)
+                  self%J_vec(1:3,i,j,k,b) = vec(flag(i,j,k,b),:)
+                  self%J_vec(4,i,j,k,b) = Gaussian(i,j,k,b)
 
                   if (abs(self%J_vec(1,i,j,k,b)) < 1.0e-10_R8P) then
                      self%J_vec(1,i,j,k,b) = 0._R8P
@@ -813,15 +837,7 @@ contains
                      self%J_vec(3,i,j,k,b) = 0._R8P
                   endif
 
-                  !metto flag su quale spira passa per la cella
-
                   self%coil_flag(i,j,k,b) = n
-
-               !elseif (flag(i,j,k,b) == 0) then
-
-                  !q(7:9,i,j,k,b) = 0._R8P
-                  !print *, self%coil_flag(i,j,k,b), 'coil flag'
-                  !print *, self%J_vec(:,i,j,k,b), 'J vec'
 
                endif
             enddo
@@ -944,7 +960,7 @@ contains
    allocate(flag(1:ni,1:nj,1:nk,1:nb))
    flag(:,:,:,:) = 0_I4P !inizializzo matrice flag a zero, per indicare che nessun lato passa per le celle
 
-   do w = 1, 4 !per ogni lato del rettangolo
+   do w = 1,4 !per ogni lato del rettangolo
       do b=1, blocks_number
          ! chiamo funzione che restituisce le coordinate delle varie celle che compongono il blocco
          call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
@@ -969,9 +985,19 @@ contains
 
                   if (  dist <= dmax ) then
 
-                        flag(i,j,k,b) = w
-                        self%J_vec(:,i,j,k,b) = self%J_vec(:,i,j,k,b)+vec(flag(i,j,k,b),:)
-                        self%coil_flag(i,j,k,b) = n
+                     flag(i,j,k,b) = w
+                     self%J_vec(1:3,i,j,k,b) = self%J_vec(1:3,i,j,k,b)+vec(flag(i,j,k,b),:)
+                     self%coil_flag(i,j,k,b) = n
+
+                     if (abs(self%J_vec(2,i,j,k,b)) < 1.0e-10_R8P) then
+                        self%J_vec(1,i,j,k,b) = 0._R8P 
+                     endif                 
+                     if (abs(self%J_vec(2,i,j,k,b)) < 1.0e-10_R8P) then
+                        self%J_vec(2,i,j,k,b) = 0._R8P
+                     endif
+                     if (abs(self%J_vec(3,i,j,k,b)) < 1.0e-10_R8P) then
+                        self%J_vec(3,i,j,k,b) = 0._R8P
+                     endif
 
                   endif
                enddo
@@ -1188,7 +1214,7 @@ contains
             endif
             if (flag(i,j,k,b)/= 0_I4P) then
                self%coil_flag(i,j,k,b) = numb
-               self%J_vec(:,i,j,k,b) = crossproduct(a=normal,b=(cell_coord-C))/sq_norm(cell_coord-C)**0.5
+               self%J_vec(1:3,i,j,k,b) = crossproduct(a=normal,b=(cell_coord-C))/sq_norm(cell_coord-C)**0.5
             endif
          enddo
       enddo
@@ -1221,7 +1247,7 @@ contains
                (minval(V(:,3))-dmax) <= prj_v(3)) then
 
                self%coil_flag(i,j,k,b) = numb
-               self%J_vec(:,i,j,k,b) = vec
+               self%J_vec(1:3,i,j,k,b) = vec
             endif
          enddo
       enddo
@@ -1264,25 +1290,19 @@ contains
 
    function sq_norm(a) result(sq)
    !< Return the square of the norm of vector.
-   !<
-   !< The square norm if defined as \( N = x^2  + y^2  + z^2 \).
-   !<
-   !<```fortran
-   !< type(vector_RPP) :: pt
-   !< pt = ex_RPP + ey_RPP
-   !< print "(F3.1)", pt%sq_norm()
-   !<```
-   !=> 2.0 <<<
-   !<
-   !<```fortran
-   !< type(vector_RPP) :: pt
-   !< pt = ex_RPP + ey_RPP
-   !< print "(F3.1)", sq_norm_RPP(pt)
-   !<```
-   !=> 2.0 <<<
    real(R8P), intent(in)  :: a(3)     !< Input vector
    real(R8P)              :: sq       !< Square norm of input
 
    sq = (a(1) * a(1)) + (a(2) * a(2)) + (a(3) * a(3))
    endfunction sq_norm
+
+   function gaussian_2D_ind(sigma, r) result(f)
+   ! Compute the 2D Gaussian function for indipendent variables x,y linked with the distance from the cell centre to the
+   ! coil wire in the plain perpendicular to the coil direction. Mu is 0 (obviously)
+   real(R8P), intent(in)  :: sigma, r  !< Standard deviation and distance from the coil wire
+   real(R8P)              :: f         !< Density of probability function value
+
+   f = exp(-0.5 * (r / sigma)**2) / (2.0 * PI * sigma**2)
+   endfunction gaussian_2D_ind
+
 endmodule adam_prism_coil_object

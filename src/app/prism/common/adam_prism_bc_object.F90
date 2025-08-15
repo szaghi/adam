@@ -13,13 +13,15 @@ private
 public :: prism_bc_object
 public :: BC_EXTRAPOLATION
 public :: BC_fWLayer
+public :: BC_Silver_Muller
 
 character(len=8), parameter :: INI_SECTION_NAMES(6)=["bc_x_min", "bc_x_max", &
                                                      "bc_y_min", "bc_y_max", &
                                                      "bc_z_min", "bc_z_max"] !< INI (config) file section name containing BC configs.
 
 integer(I4P), parameter :: BC_EXTRAPOLATION   = 1_I4P !< Extrapolation.
-integer(I4P), parameter :: BC_fWLayer         = 2_I4P !< Supersonic inflow.
+integer(I4P), parameter :: BC_fWLayer         = 2_I4P !< fWLayer BC
+integer(I4P), parameter :: BC_Silver_Muller   = 3_I4P !< Silver-Muller BC.
 
 type :: prism_bc_object
    !< Boundary Conditions class definition, CPU backend.
@@ -59,14 +61,16 @@ contains
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
    do b=1, 6
-     sname = INI_SECTION_NAMES(b)
-     call file_parameters%get(section_name=sname, option_name='type', val=buff_c, error=error)
-     if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(type)')
-     select case(trim(adjustl(buff_c)))
-     case('extrapolation')
-        self%bc_type(b) = BC_EXTRAPOLATION
-     case('fWLayer')
-        self%bc_type(b) = BC_fWLayer
+      sname = INI_SECTION_NAMES(b)
+      call file_parameters%get(section_name=sname, option_name='type', val=buff_c, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(type)')
+      select case(trim(adjustl(buff_c)))
+      case('extrapolation')
+         self%bc_type(b) = BC_EXTRAPOLATION
+      case('fWLayer')
+         self%bc_type(b) = BC_fWLayer
+      case('Silver_Muller')
+         self%bc_type(b) = BC_Silver_Muller
       endselect
    enddo
    endsubroutine load_from_file

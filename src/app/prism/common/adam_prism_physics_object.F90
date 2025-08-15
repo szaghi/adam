@@ -52,6 +52,8 @@ integer(I4P),  parameter, public :: VAR_JY = 8_I4P                      !< Sourc
 integer(I4P),  parameter, public :: VAR_JZ = 9_I4P                      !< Source variable 3, Jz.
 character(12), parameter, public :: WENO_REC_VAR_CONS='CONSERVATIVE'    !< WENO reconstruction on conservative variables.
 character(15), parameter, public :: WENO_REC_VAR_CHAR='CHARACTERISTICS' !< WENO reconstruction on characteristics variables.
+character(7),  parameter, public :: DIV_CORR_VAR_POISS='POISSON'        !< Poisson divergence correction.
+character(10), parameter, public :: DIV_CORR_VAR_HYPER='HYPERBOLIC'     !< Hyperbolic divergence correction.
 
 type :: prism_physics_object
    !< PRISM physics class definition.
@@ -66,6 +68,7 @@ type :: prism_physics_object
    real(R8P)                 :: eta                          !< Coefficiente for B div-cleaning.
    real(R8P)                 :: evmax                        !< Maximum signal speed (eigenvalue).
    character(:), allocatable :: weno_rec_var                 !< Type of WENO reconstruction variables (cons., charct.,...).
+   character(:), allocatable :: div_corr_var                 !< Type of divergence correction variables (poisson, hyperbolic,...).
    real(R8P), pointer        :: erw(:,:,:)=>null()           !< Right eigenvectors for WENO reconstruction.
    real(R8P), pointer        :: elw(:,:,:)=>null()           !< Left  eigenvectors for WENO reconstruction.
    contains
@@ -86,11 +89,12 @@ contains
    desc =       self%mpih%myrankstr//'Physics main data:'                                                                    //NL
    desc = desc//self%mpih%myrankstr//'  number of variables in q (nv):                '//trim(str(self%nv                  ))//NL
    desc = desc//self%mpih%myrankstr//'  number of conservative variables in q (nv_c): '//trim(str(self%nv_c                ))//NL
+   desc = desc//self%mpih%myrankstr//'  WENO reconstruction variables:                '//self%weno_rec_var                   //NL
+   desc = desc//self%mpih%myrankstr//'  Divergence correction:                        '//self%div_corr_var                   //NL    
    desc = desc//self%mpih%myrankstr//'  D divergence correction:                      '//trim(str(self%d_divergence_cleaner))//NL
    desc = desc//self%mpih%myrankstr//'  B divergence correction:                      '//trim(str(self%b_divergence_cleaner))//NL
    desc = desc//self%mpih%myrankstr//'  Chi:                                          '//trim(str(self%chi                 ))//NL
    desc = desc//self%mpih%myrankstr//'  Eta:                                          '//trim(str(self%eta                 ))//NL
-   desc = desc//self%mpih%myrankstr//'  WENO reconstruction variables:                '//self%weno_rec_var
    endfunction description
 
    subroutine initialize(self, file_parameters)
@@ -136,6 +140,19 @@ contains
       self%elw => EL
    endselect
 
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='divergence_correction', val=buff,error=error)
+   if (.not.go_on_fail_.and.error>0) &
+      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(divergence_correction)')
+   select case(trim(adjustl(buff)))
+   case('POISSON', 'poisson', 'Poisson')
+      self%div_corr_var = DIV_CORR_VAR_POISS
+   case('HYPERBOLIC', 'hyperbolic', 'Hyperbolic')
+      self%div_corr_var = DIV_CORR_VAR_HYPER
+   case default
+      call self%mpih%print_message(msg='warning: divergence correction variable not activated')
+      self%weno_rec_var = 'No'
+   endselect   
+
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='d_divergence_cleaner', &
                             val=self%d_divergence_cleaner,error=error)
    if (.not.go_on_fail_.and.error>0) &
@@ -149,10 +166,10 @@ contains
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='eta', val=self%eta, error=error)
    if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(eta)')
    ! increase variables number if q if cleaners are used
-   if     (self%d_divergence_cleaner.and..not.self%b_divergence_cleaner) then
+   if     (self%d_divergence_cleaner.and..not.self%b_divergence_cleaner.and.self%div_corr_var==DIV_CORR_VAR_HYPER)then
       self%nv = self%nv + 1_I4P
       self%nv_cl = 1_I4P
-   elseif (self%d_divergence_cleaner.and.     self%b_divergence_cleaner) then
+   elseif (self%d_divergence_cleaner.and.self%b_divergence_cleaner.and.self%div_corr_var == DIV_CORR_VAR_HYPER) then
       self%nv = self%nv + 2_I4P
       self%nv_cl = 2_I4P
    endif
@@ -164,8 +181,9 @@ contains
    elseif (self%d_divergence_cleaner.and.self%chi<=1._R8P) then
       call self%mpih%error_stop(msg=': if D divergence cleaner is true chi cannot be lower than 1.0')
    endif
-
    self%evmax = sqrt(1._R8P/(EPS0*MU0))
-   if (self%d_divergence_cleaner) self%evmax = self%chi*sqrt(1._R8P/(EPS0*MU0))
+   if (self%d_divergence_cleaner .and. self%div_corr_var == DIV_CORR_VAR_HYPER) then 
+      self%evmax = self%chi*sqrt(1._R8P/(EPS0*MU0))
+   endif
    endsubroutine load_from_file
 endmodule adam_prism_physics_object

@@ -342,34 +342,114 @@ contains
                      q(gamma_B,i,j,k,b) = ref(gamma_B)
 
                      q(7:9,i,j,k,b) = 0._R8P
-
-                     !print *, 'i valori del vettore di stato nella gc della faccia', fec, 'sono:'
-                     !print *, ref
-                     !print *, 'Dx = ', q(1,i,j,k,b)
-                     !print *, 'Dy = ', q(2,i,j,k,b)
-                     !print *, 'Dz = ', q(3,i,j,k,b)
-                     !print *, 'Bx = ', q(4,i,j,k,b)
-                     !print *, 'By = ', q(5,i,j,k,b)
-                     !print *, 'Bz = ', q(6,i,j,k,b)
-                     !print *, 'Jx = ', q(7,i,j,k,b)
-                     !print *, 'Jy = ', q(8,i,j,k,b)
-                     !print *, 'Jz = ', q(9,i,j,k,b)
-
                   else
                      do v=1, nv
                        q(v,i,j,k,b) = 0.0_R8P
                      enddo
                   endif
+               elseif (bc_type == BC_Silver_Muller) then
+                  !print *, fec
+                  if (fec <= 6) then
+                     select case(fec)
+                     !Identifico gli alfa beta gamma come nel paper di Barbas, distinguendo tra alfa_D e alfa_B ecc
 
-               !elseif (bc_type == BC_INFLOW) then
-               !    q(1,i,j,k,b) = q_bc_vars(1, fec_1_6)
-               !    q(2,i,j,k,b) = q_bc_vars(1, fec_1_6)* q_bc_vars(2, fec_1_6)
-               !    q(3,i,j,k,b) = q_bc_vars(1, fec_1_6)* q_bc_vars(3, fec_1_6)
-               !    q(4,i,j,k,b) = q_bc_vars(1, fec_1_6)* q_bc_vars(4, fec_1_6)
-               !    q(5,i,j,k,b) = q_bc_vars(1, fec_1_6)*                                &
-               !                   (cv*q_bc_vars(5, fec_1_6)/(q_bc_vars(1, fec_1_6)*R) + &
-               !                   0.5_R8P*(q_bc_vars(2, fec_1_6)**2+q_bc_vars(3, fec_1_6)**2+q_bc_vars(4, fec_1_6)**2))
+                     case(1) ! x- face alfa = 2, beta = 3, gamma = 1
+                        s1 = 1.0_R8P
+                        alfa_D = 2_I4P
+                        beta_D = 3_I4P
+                        gamma_D = 1_I4P
+                        alfa_B = 5_I4P
+                        beta_B = 6_I4P
+                        gamma_B = 4_I4P
+                        ds = dx(b) !distanza tra le celle in x
+                        ref = q(:,i+1,j,k,b) !vettore di stato di riferimento per assegnazione gc
+
+                     case(2) ! x+ face
+                        s1 = -1.0_R8P
+                        alfa_D = 2_I4P
+                        beta_D = 3_I4P
+                        gamma_D = 1_I4P
+                        alfa_B = 5_I4P
+                        beta_B = 6_I4P
+                        gamma_B = 4_I4P
+                        ds = dx(b) !distanza tra le celle in x
+                        ref = q(:,i-1,j,k,b)
+
+                     case(3) ! y- face
+                        s1 = 1.0_R8P
+                        alfa_D = 3_I4P
+                        beta_D = 1_I4P
+                        gamma_D = 2_I4P
+                        alfa_B = 6_I4P
+                        beta_B = 4_I4P
+                        gamma_B = 5_I4P
+                        ds = dy(b) !distanza tra le celle in y
+                        ref = q(:,i,j+1,k,b)
+
+                     case(4) ! y+ face
+                        s1 = -1.0_R8P
+                        alfa_D = 3_I4P
+                        beta_D = 1_I4P
+                        gamma_D = 2_I4P
+                        alfa_B = 6_I4P
+                        beta_B = 4_I4P
+                        gamma_B = 5_I4P
+                        ds = dy(b) !distanza tra le celle in y
+                        ref = q(:,i,j-1,k,b)
+
+                     case(5) ! z- face
+                        s1 = 1.0_R8P
+                        alfa_D = 1_I4P
+                        beta_D = 2_I4P
+                        gamma_D = 3_I4P
+                        alfa_B = 4_I4P
+                        beta_B = 5_I4P
+                        gamma_B = 6_I4P
+                        ds = dz(b) !distanza tra le celle in z
+                        ref = q(:,i,j,k+1,b)
+
+                     case(6) ! z+ face
+                        s1 = -1.0_R8P
+                        alfa_D = 1_I4P
+                        beta_D = 2_I4P
+                        gamma_D = 3_I4P
+                        alfa_B = 4_I4P
+                        beta_B = 5_I4P
+                        gamma_B = 6_I4P
+                        ds = dz(b) !distanza tra le celle in z
+                        ref = q(:,i,j,k-1,b)
+
+                     endselect
+                     ngc_r = real(ngc,R8P)
+                     crown_r = real(crown, R8P)
+
+                     ! fWLayer con f = 0 è Silver-Muller
+                     f = 0._R8P !funzione f
+
+                     q(alfa_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(s1*(f-1._R8P)*ref(beta_B)*EPS0**0.5_R8P + &
+                                          (f+1._R8P)*ref(alfa_D)*MU0**0.5_R8P)
+
+                     q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f+1._R8P)*ref(beta_B)*EPS0**0.5_R8P + &
+                                          s1*(f-1._R8P)*ref(alfa_D)*MU0**0.5_R8P)
+
+                     q(beta_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(-s1*(f-1._R8P)*ref(alfa_B)*EPS0**0.5_R8P + &
+                                          (f+1._R8P)*ref(beta_D)*MU0**0.5_R8P)
+
+                     q(alfa_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f+1._R8P)*ref(alfa_B)*EPS0**0.5_R8P - &
+                                          s1*(f-1._R8P)*ref(beta_D)*MU0**0.5_R8P)
+
+                     q(gamma_D,i,j,k,b) = ref(gamma_D)
+
+                     q(gamma_B,i,j,k,b) = ref(gamma_B)
+
+                     q(7:9,i,j,k,b) = 0._R8P
+                  else
+                     do v=1, nv
+                        q(v,i,j,k,b) = 0.0_R8P
+                     enddo
+                  endif
                endif
+
             endif
          enddo
       enddo
@@ -427,7 +507,7 @@ contains
              chi=>self%physics%chi, eta=>self%physics%eta)
    call compute_dxyz_min(blocks_number=blocks_number, dxyz=dxyz, dxyz_min=dxyz_min)
    umax = C0
-   if (d_divergence_cleaner) umax = max(chi*C0, eta*C0)
+   if (d_divergence_cleaner .and. self%physics%div_corr_var == DIV_CORR_VAR_HYPER) umax = max(chi*C0, eta*C0)
    self%time%dt = self%time%CFL*dxyz_min / umax
    endassociate
    call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih%error)
@@ -492,6 +572,7 @@ contains
    endif
 
    call self%rk%initialize_stages(q=self%q)
+
    select case(self%rk%scheme)
    case(RK_1, RK_2, RK_3)
       ! low storage RK working on q_rk(:,:,:,:,:,1)/q_gpu as stages, update q_gpu in place
@@ -529,7 +610,12 @@ contains
          call self%rk%update_q(dt=self%time%dt, q=self%q)
       endif
    endselect
-   !call self%correct_div(ivar=1) ! correct div(D)
+   if (self%physics%div_corr_var == 'POISSON' .and. self%physics%D_divergence_cleaner) then
+      call self%correct_div(ivar=1_I4P) ! correct div(D)
+   endif
+      if (self%physics%div_corr_var == 'POISSON' .and. self%physics%D_divergence_cleaner) then
+      call self%correct_div(ivar=1_I4P) ! correct div(D)
+   endif
    call compute_div(ni=ni,nj=nj,nk=nk,ngc=ngc,blocks_number=blocks_number,dxyz=dxyz,ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
    call compute_div(ni=ni,nj=nj,nk=nk,ngc=ngc,blocks_number=blocks_number,dxyz=dxyz,ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
    call compute_div(ni=ni,nj=nj,nk=nk,ngc=ngc,blocks_number=blocks_number,dxyz=dxyz,ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
@@ -630,7 +716,7 @@ contains
    integer(I4P)                           :: iter                       !< Counter.
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, dxyz=>self%field%dxyz)
-   call compute_div(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, dxyz=dxyz, ivar=1_I4P, &
+   call compute_div(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, dxyz=dxyz, ivar=ivar, &
                     q=self%q, div=div(1,:,:,:,:))
    if (blocks_number>0) then
       do iter=1, self%flail%iterations
@@ -913,68 +999,53 @@ contains
    real(R8P),    intent(in)    :: dx                                 !< Space step in x direction.
    real(R8P),    intent(inout) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Field variables.
    real(R8P)                   :: current_density                    !< Current density.
-   real(R8P)                   :: current_density_                   !< Current density.
    real(R8P)                   :: g                                  !< Starting polynomial transitory of coils.
    integer(I4P)                :: w_, w_c_                           !< Step function coeff to avoid if in parallel regions.
    real(R8P)                   :: g_, f_                             !< Current coefficients.
    integer(I4P)                :: coil_id                            !< Uniq coild ID.
    integer(I4P)                :: i,j,k,b                            !< Counter.
 
-   g = 10._R8P*(time/td)**3 - 15._R8P*(time/td)**4 + 6._R8P*(time/td)**5
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      coil_id = coil_flag(i,j,k,b)
+   !if (time >= td) then
+   !   q(VAR_JX,:,:,:,:) = 0._R8P
+   !   q(VAR_JY,:,:,:,:) = 0._R8P
+   !   q(VAR_JZ,:,:,:,:) = 0._R8P
+   !else  
+      g = 10._R8P*(time/td)**3 - 15._R8P*(time/td)**4 + 6._R8P*(time/td)**5
+      do b=1, blocks_number
+      do k=1, nk
+      do j=1, nj
+      do i=1, ni
+         coil_id = coil_flag(i,j,k,b)
 
-      ! use step function to avoid the following original if
-      !if (time < td) then
-      !   current_density = g*A(coil_id)/((d(coil_id)-dx)**2)*cos(phase(coil_id)*pi/180.0_R8P)
-      !else
-      !   current_density = A(coil_id)/((d(coil_id)-dx)**2)*cos(2*pi*f(coil_id)*(time-td) + &
-      !   phase(coil_id)*pi/180.0_R8P)
-      !endif
-      w_   = nint(sign(1._R8P,td-time) + 1._R8P)/2   ! = 1 if td>time, = 0                              if td<time
-      w_c_ = 1_I4P - w_                            ! = 0 if td>time, = 1                              if td<time
-      g_   = w_ * g + w_c_                         ! = g if td>time, = 1                              if td<time
-      f_   = w_c_ * 2._R8P*PI*f(coil_id)*(time-td) ! = 0 if td>time, = 2._R8P*PI*f(coil_id)*(time-td) if td<time
-      current_density = g_ * A(coil_id) / ((d(coil_id)-dx)**2) * cos(f_ + phase(coil_id)*PI/180.0_R8P)
+         ! use step function to avoid the following original if
+         !if (time < td) then
+         !   current_density = g*A(coil_id)/((d(coil_id)-dx)**2)*cos(phase(coil_id)*pi/180.0_R8P)
+         !else
+         !   current_density = A(coil_id)/((d(coil_id)-dx)**2)*cos(2*pi*f(coil_id)*(time-td) + &
+         !   phase(coil_id)*pi/180.0_R8P)
+         !endif
+         w_   = nint(sign(1._R8P,td-time) + 1._R8P)/2   ! = 1 if td>time, = 0                            if td<time
+         w_c_ = 1_I4P - w_                            ! = 0 if td>time, = 1                              if td<time
+         g_   = w_ * g + w_c_                         ! = g if td>time, = 1                              if td<time
+         f_   = w_c_ * 2._R8P*PI*f(coil_id)*(time-td) ! = 0 if td>time, = 2._R8P*PI*f(coil_id)*(time-td) if td<time
+         !current_density = g_ * A(coil_id) / ((d(coil_id))**2) * cos(f_ + phase(coil_id)*PI/180.0_R8P)
+         current_density = g_ * A(coil_id) * cos(f_ + phase(coil_id)*PI/180.0_R8P)*j_vec(4,i,j,k,b)
 
-      ! the following if is not necessary because j_vec is zero everywhere except in coils
-      ! if (coil_id /= 0_I4P) then
-      q(VAR_JX,i,j,k,b) = current_density * j_vec(1,i,j,k,b)
-      q(VAR_JY,i,j,k,b) = current_density * j_vec(2,i,j,k,b)
-      q(VAR_JZ,i,j,k,b) = current_density * j_vec(3,i,j,k,b)
-   enddo
-   enddo
-   enddo
-   enddo
-   !print*, sign(td-time,1._R8P)
-   !print*, A(coil_id), d(coil_id), f(coil_id), phase(coil_id)
-   !print*, time, td
-   !print*, w_, w_c_, f_
-   !print*, maxval(q(VAR_JX,:,:,:,:)), maxval(q(VAR_JY,:,:,:,:)), maxval(q(VAR_JZ,:,:,:,:))
-   !print*, minval(q(VAR_JX,:,:,:,:)), minval(q(VAR_JY,:,:,:,:)), minval(q(VAR_JZ,:,:,:,:))
+         ! the following if is not necessary because j_vec is zero everywhere except in coils
+         if (coil_id /= 0_I4P) then
+            q(VAR_JX,i,j,k,b) = current_density * j_vec(1,i,j,k,b)
+            q(VAR_JY,i,j,k,b) = current_density * j_vec(2,i,j,k,b)
+            q(VAR_JZ,i,j,k,b) = current_density * j_vec(3,i,j,k,b)
+         endif
+      enddo
+      enddo
+      enddo
+      enddo
+   !endif
    endsubroutine compute_coils_current
 
    function sq_norm(a) result(sq)
    !< Return the square of the norm of vector.
-   !<
-   !< The square norm if defined as \( N = x^2  + y^2  + z^2 \).
-   !<
-   !<```fortran
-   !< type(vector_RPP) :: pt
-   !< pt = ex_RPP + ey_RPP
-   !< print "(F3.1)", pt%sq_norm()
-   !<```
-   !=> 2.0 <<<
-   !<
-   !<```fortran
-   !< type(vector_RPP) :: pt
-   !< pt = ex_RPP + ey_RPP
-   !< print "(F3.1)", sq_norm_RPP(pt)
-   !<```
-   !=> 2.0 <<<
    real(R8P), intent(in)  :: a(3)     !< Input vector
    real(R8P)              :: sq       !< Square norm of input
 
