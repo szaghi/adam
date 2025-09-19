@@ -29,8 +29,8 @@ contains
    real(R8P)                           :: F4(1:nv) !< State 4 fluxes.
 
    lmax = sqrt(1._R8P/(EPS0*MU0))
-   call compute_convective_fluxes_Maxwell(sir=sir,q=q1,f=F1)
-   call compute_convective_fluxes_Maxwell(sir=sir,q=q4,f=F4)
+   call compute_convective_fluxes_maxwell(sir=sir,q=q1,f=F1)
+   call compute_convective_fluxes_maxwell(sir=sir,q=q4,f=F4)
    f(1) = 0.5_R8P*(F1(1)+F4(1)-lmax*(q4(1)-q1(1)))
    f(2) = 0.5_R8P*(F1(2)+F4(2)-lmax*(q4(2)-q1(2)))
    f(3) = 0.5_R8P*(F1(3)+F4(3)-lmax*(q4(3)-q1(3)))
@@ -53,8 +53,8 @@ contains
 
    lmax = sqrt(1._R8P/(EPS0*MU0))
    lmin = -lmax
-   call compute_convective_fluxes_Maxwell(sir=sir,q=q1,f=F1)
-   call compute_convective_fluxes_Maxwell(sir=sir,q=q4,f=F4)
+   call compute_convective_fluxes_maxwell(sir=sir,q=q1,f=F1)
+   call compute_convective_fluxes_maxwell(sir=sir,q=q4,f=F4)
    f(1) = (lmax*F1(1)-lmin*F4(1)+lmax*lmin*(F4(1)-F1(1)))/(lmax-lmin)
    f(2) = (lmax*F1(2)-lmin*F4(2)+lmax*lmin*(F4(2)-F1(2)))/(lmax-lmin)
    f(3) = (lmax*F1(3)-lmin*F4(3)+lmax*lmin*(F4(3)-F1(3)))/(lmax-lmin)
@@ -74,7 +74,7 @@ contains
    !< Fx(5) = -Dz/epsz Fy(5) =  0       Fz(5) =  Dx/epsx
    !< Fx(6) =  Dy/epsy Fy(6) = -Dx/epsx Fz(6) =  0
    !<```
-   real(R8P), intent(in)    :: sir(3) !< Directional (1=x,2=y,3=z) increment.
+   real(R8P), intent(in)    :: sir(3) !< Direction array 
    real(R8P), intent(in)    :: q(1:)  !< Auxiliary variables.
    real(R8P), intent(inout) :: f(1:)  !< Conservative fluxes.
 

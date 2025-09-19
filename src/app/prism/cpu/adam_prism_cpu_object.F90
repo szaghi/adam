@@ -23,6 +23,8 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       ! auxiliary methods
       procedure, pass(self) :: allocate_cpu !< Allocate CPU data.
       procedure, pass(self) :: initialize   !< Initialize the equation.
+      ! IB methods
+      procedure, pass(self) :: integrate_eikonal_coils !< Integrate eikonal equation for coils.
       ! IO methods
       procedure, pass(self) :: load_restart_files   !< Load restart files.
       procedure, pass(self) :: save_xh5f            !< Save simulation data in XH5F format.
@@ -34,11 +36,12 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions (and coils) of equation.
       procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
       ! numerical methods
-      procedure, pass(self) :: compute_dt        !< Compute time step.
-      procedure, pass(self) :: compute_residuals !< Compute residuals.
-      procedure, pass(self) :: correct_div       !< Correct divergence of q(ivar:2).
-      procedure, pass(self) :: integrate         !< Perform one step integration.
-      procedure, pass(self) :: simulate          !< Perform the simulation.
+      procedure, pass(self) :: compute_dt                 !< Compute time step.
+      procedure, pass(self) :: compute_residuals          !< Compute residuals.
+      procedure, pass(self) :: compute_residuals_centered !< Compute residuals, centered scheme.
+      procedure, pass(self) :: correct_div                !< Correct divergence of q(ivar:2).
+      procedure, pass(self) :: integrate                  !< Perform one step integration.
+      procedure, pass(self) :: simulate                   !< Perform the simulation.
 endtype prism_cpu_object
 
 contains
@@ -78,6 +81,33 @@ contains
    print '(A)', self%mpih%description()
    call self%mpih%print_message('prism_cpu_object%initialize finish')
    endsubroutine initialize
+
+   ! IB methods
+   subroutine integrate_eikonal_coils(self, q)
+   !< Integrate eikonal equation.
+   class(prism_cpu_object), intent(inout) :: self      !< The equation.
+   real(R8P),               intent(inout) :: q(1:,         &
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1:)     !< Conservative variables.
+   integer(I4P)                           :: i_eikonal !< Counter.
+
+   associate(blocks_number=>self%blocks_number, total_coils_number=>self%coil%total_coils_number)
+      if (blocks_number > 0) then
+         if (total_coils_number > 0) then
+            call self%update_ghost(q=q)
+            do i_eikonal=1, self%ib%n_eikonal
+               call self%mpih%barrier
+               call self%ib%evolve_eikonal_coils(q=q, phi=self%coil%phi, n_coils=total_coils_number)
+               call self%update_ghost(q=q)
+            enddo
+            !call self%ib%invert_eikonal_coils(q=q)
+            call self%mpih%barrier
+         endif
+      endif
+   endassociate
+   endsubroutine integrate_eikonal_coils
 
    ! IO methods
    subroutine load_restart_files(self, t, time)
@@ -147,7 +177,7 @@ contains
        (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))) then
       call self%update_ghost(q=self%q)
 
-      if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_xh5f
+      if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
       if (mod(self%time%it,self%io%restart_save)==0) call self%save_restart_files
       if (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max)) then
          if (.not.self%physics%D_divergence_cleaner .and. .not.self%physics%B_Divergence_cleaner) then
@@ -159,7 +189,8 @@ contains
                                       adam=self%adam,                   &
                                       q=self%q,                         &
                                       q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz '])
-         elseif (self%physics%D_divergence_cleaner .and. .not.self%physics%B_Divergence_cleaner) then
+         elseif (self%physics%div_corr_var == DIV_CORR_VAR_HYPER .and. self%physics%D_divergence_cleaner & 
+                  .and. .not.self%physics%B_Divergence_cleaner) then
             call self%slices%save_mat(basename=self%io%output_basename, &
                                       it=self%time%it,                  &
                                       it_max=self%time%it_max,          &
@@ -168,7 +199,8 @@ contains
                                       adam=self%adam,                   &
                                       q=self%q,                         &
                                       q_name=['Dx  ','Dy  ','Dz  ','Bx  ','By  ','Bz  ','Jx  ','Jy  ','Jz  ','Phi '])
-         elseif (self%physics%D_divergence_cleaner .and. self%physics%B_Divergence_cleaner) then
+         elseif (self%physics%div_corr_var == DIV_CORR_VAR_HYPER .and. self%physics%D_divergence_cleaner &
+                  .and. self%physics%B_Divergence_cleaner) then
             call self%slices%save_mat(basename=self%io%output_basename, &
                                       it=self%time%it,                  &
                                       it_max=self%time%it_max,          &
@@ -324,7 +356,7 @@ contains
                      !è pari quindi a C * ds
 
                      f = 1._R8P/fi*LOG10(((ngc_r-crown_r)*ds)/(ngc_r*ds)*(10._R8P**fi-1._R8P)+1._R8P) !funzione f
-
+      
                      q(alfa_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(s1*(f-1._R8P)*ref(beta_B)*EPS0**0.5_R8P + &
                                           (f+1._R8P)*ref(alfa_D)*MU0**0.5_R8P)
 
@@ -448,6 +480,10 @@ contains
                         q(v,i,j,k,b) = 0.0_R8P
                      enddo
                   endif
+               elseif (bc_type == BC_EXTRAP_DIRICHLET) then
+                     do v=1, 9
+                        q(v,i,j,k,b) = 0._R8P
+                     enddo
                endif
 
             endif
@@ -528,6 +564,7 @@ contains
                                                 1:) !< Residuals.
 
    call self%update_ghost(q=q)
+   !call self%integrate_eikonal_coils(q=q)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
              dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),                         &
              flx=>self%flx, fly=>self%fly, flz=>self%flz,                                                          &
@@ -552,6 +589,62 @@ contains
    endif
    endassociate
    endsubroutine compute_residuals
+
+   subroutine compute_residuals_centered(self, q, dq)
+   !< Compute residuals of equation, centerd scheme.
+   class(prism_cpu_object), intent(inout) :: self                 !< The equation.
+   real(R8P),               intent(inout) :: q(1:,       &
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1:)                !< Conservative variables.
+   real(R8P),               intent(inout) :: dq(1:,         &
+                                                1-self%ngc:,&
+                                                1-self%ngc:,&
+                                                1-self%ngc:,&
+                                                1:)               !< Residuals.
+   integer(I4P)                           :: b, i, j, k, v        !< Counter.
+
+   call self%update_ghost(q=q)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
+             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),                         &
+             flx=>self%flx, fly=>self%fly, flz=>self%flz)
+   
+   
+
+   do b=1, blocks_number
+      do k=1-ngc, nk+ngc
+         do j=1-ngc, nj+ngc
+            do i=1-ngc, ni+ngc
+               call compute_convective_fluxes_maxwell(sir=[1.0_R8P, 0.0_R8P, 0.0_R8P], q=q(:,i,j,k,b), f=flx(:,i,j,k,b))
+               call compute_convective_fluxes_maxwell(sir=[0.0_R8P, 1.0_R8P, 0.0_R8P], q=q(:,i,j,k,b), f=fly(:,i,j,k,b))
+               call compute_convective_fluxes_maxwell(sir=[0.0_R8P, 0.0_R8P, 1.0_R8P], q=q(:,i,j,k,b), f=flz(:,i,j,k,b))
+            enddo
+         enddo
+      enddo
+   enddo
+
+   do b=1, blocks_number
+      do v=1, nv_c
+         do k=1, nk
+            do j=1, nj
+               do i=1, ni
+                  dq(v,i,j,k,b) = -( (flx(v,i+1,j,k,b)-flx(v,i-1,j,k,b))/(2*dx(b)) + &
+                                     (fly(v,i,j+1,k,b)-fly(v,i,j-1,k,b))/(2*dy(b)) + &
+                                     (flz(v,i,j,k+1,b)-flz(v,i,j,k-1,b))/(2*dz(b)))
+               enddo
+            enddo
+         enddo
+      enddo
+   enddo
+
+   !J sources
+   dq(VAR_DX,:,:,:,:) = dq(VAR_DX,:,:,:,:) - q(VAR_JX,:,:,:,:)
+   dq(VAR_DY,:,:,:,:) = dq(VAR_DY,:,:,:,:) - q(VAR_JY,:,:,:,:)
+   dq(VAR_DZ,:,:,:,:) = dq(VAR_DZ,:,:,:,:) - q(VAR_JZ,:,:,:,:)
+
+   endassociate
+   endsubroutine compute_residuals_centered
 
    subroutine integrate(self, do_ghost_syncro)
    !< Perform one step integration.
@@ -578,7 +671,7 @@ contains
       ! low storage RK working on q_rk(:,:,:,:,:,1)/q_gpu as stages, update q_gpu in place
       do s=1, self%rk%nrk
 
-         call self%compute_residuals(q=self%q, dq=self%dq)
+         call self%compute_residuals_centered(q=self%q, dq=self%dq)
 
          if (s==1) call self%save_residuals
          if (self%ib%solids_number>0) then
@@ -596,7 +689,7 @@ contains
          else
             call self%rk%compute_stage(s=s, dt=self%time%dt)
          endif
-         call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq)
+         call self%compute_residuals_centered(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq)
          if (s==1) call self%save_residuals
          if (self%ib%solids_number>0) then
             call self%rk%assign_stage(s=s, q=self%dq, phi=self%ib%phi)
@@ -749,7 +842,7 @@ contains
    integer(I4P), intent(in)    :: blocks_number                   !< Number of blocks.
    real(R8P),    intent(in)    :: dxyz(1:,1:)                     !< Space steps.
    integer(I4P), intent(in)    :: ivar                            !< Variable (vectorial) of q.
-   real(R8P),    intent(in)    ::   q(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field variables.
+   real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Field variables.
    real(R8P),    intent(inout) :: div(   1-ngc:,1-ngc:,1-ngc:,1:) !< Divergence of D, B.
    integer(I4P)                :: i,j,k,b                         !< Counter
 
@@ -1030,12 +1123,17 @@ contains
          f_   = w_c_ * 2._R8P*PI*f(coil_id)*(time-td) ! = 0 if td>time, = 2._R8P*PI*f(coil_id)*(time-td) if td<time
          !current_density = g_ * A(coil_id) / ((d(coil_id))**2) * cos(f_ + phase(coil_id)*PI/180.0_R8P)
          current_density = g_ * A(coil_id) * cos(f_ + phase(coil_id)*PI/180.0_R8P)*j_vec(4,i,j,k,b)
-
+         !if (coil_id == 1_I4P) then
+         !   print*, A(coil_id)
+         !   print*, current_density
+         !   print*, j_vec(4,i,j,k,b)
+         !endif
          ! the following if is not necessary because j_vec is zero everywhere except in coils
          if (coil_id /= 0_I4P) then
             q(VAR_JX,i,j,k,b) = current_density * j_vec(1,i,j,k,b)
             q(VAR_JY,i,j,k,b) = current_density * j_vec(2,i,j,k,b)
             q(VAR_JZ,i,j,k,b) = current_density * j_vec(3,i,j,k,b)
+            !print*, q(VAR_JX,i,j,k,b), q(VAR_JY,i,j,k,b), q(VAR_JZ,i,j,k,b)
          endif
       enddo
       enddo

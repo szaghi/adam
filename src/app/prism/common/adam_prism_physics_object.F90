@@ -150,7 +150,7 @@ contains
       self%div_corr_var = DIV_CORR_VAR_HYPER
    case default
       call self%mpih%print_message(msg='warning: divergence correction variable not activated')
-      self%weno_rec_var = 'No'
+      self%div_corr_var = 'No'
    endselect   
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='d_divergence_cleaner', &

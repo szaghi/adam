@@ -80,7 +80,7 @@ contains
                                        1-ngc,nj+ngc, &
                                        1-ngc,nk+ngc, &
                                        1,nb],[2,5]), &
-                          msg=self%mpih%myrankstr//'prsim_common_object%allocate_common(dq) ', verbose=.true.)
+                          msg=self%mpih%myrankstr//'prism_common_object%allocate_common(dq) ', verbose=.true.)
    self%dq = 0._R8P
    call allocate_variable(var=self%field_div,        &
                           ulb=reshape([1,self%nv,    &
@@ -88,7 +88,7 @@ contains
                                        1-ngc,nj+ngc, &
                                        1-ngc,nk+ngc, &
                                        1,nb],[2,5]), &
-                          msg=self%mpih%myrankstr//'prsim_common_object%allocate_common(field_div) ', verbose=.true.)
+                          msg=self%mpih%myrankstr//'prism_common_object%allocate_common(field_div) ', verbose=.true.)
    self%field_div = 0._R8P
    call allocate_variable(var=self%phid,             &
                           ulb=reshape([1,1,          &
@@ -96,7 +96,7 @@ contains
                                        1-ngc,nj+ngc, &
                                        1-ngc,nk+ngc, &
                                        1,nb],[2,5]), &
-                          msg=self%mpih%myrankstr//'prsim_common_object%allocate_common(phid) ', verbose=.true.)
+                          msg=self%mpih%myrankstr//'prism_common_object%allocate_common(phid) ', verbose=.true.)
    self%phid = 0._R8P
    endassociate
    endsubroutine allocate_common
@@ -148,7 +148,8 @@ contains
                                 q4_R8P=self%dq,             q4_R8P_name=['res_Dx','res_Dy','res_Dz',                    &
                                                                          'res_Bx','res_By','res_Bz',                    &
                                                                          'res_Jx','res_Jy','res_Jz'],                   &
-                                s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag')
+                                s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag',                                    &
+                                s1_R8P=self%coil%phi(1,:,:,:,:),       s1_R8P_name='coil_phi') 
    if     ((.not.self%physics%d_divergence_cleaner).and.(.not.self%physics%b_divergence_cleaner) .or. &
             (self%physics%div_corr_var == DIV_CORR_VAR_POISS)) then
       self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']

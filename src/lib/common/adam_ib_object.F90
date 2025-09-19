@@ -64,8 +64,10 @@ type :: ib_object
       procedure, pass(self) :: compute_phi_all_solids !< Compute last phi index, all solids summary.
       procedure, pass(self) :: description            !< Return pretty-printed object description.
       procedure, pass(self) :: evolve_eikonal         !< Evolve eikonal equation.
+      procedure, pass(self) :: evolve_eikonal_coils   !< Evolve eikonal equation for coils.
       procedure, pass(self) :: initialize             !< Initialize IB.
       procedure, pass(self) :: invert_eikonal         !< Invert eikonal equation over q inside IB.
+      procedure, pass(self) :: invert_eikonal_coils   !< Invert eikonal equation over q inside IB for coils.
       procedure, pass(self) :: load_from_file         !< Load config from file.
       procedure, pass(self) :: move_phi               !< Move phi and the actual ptree representation.
       procedure, pass(self) :: sphere_to_array        !< Convert analytical sphere class data to array data.
@@ -380,6 +382,122 @@ contains
    !$omp end parallel do
    endassociate
    endsubroutine invert_eikonal
+
+   subroutine evolve_eikonal_coils(self, q, phi, n_coils)
+   !< Evolve eikonal equation.
+   class(ib_object), intent(in)    :: self                             !< IB.
+   real(R8P),        intent(inout) ::  q(1:,               &
+                                         1-self%grid%ngc:, &
+                                         1-self%grid%ngc:, &
+                                         1-self%grid%ngc:, &
+                                         1:)                           !< Conservative variables.
+   real(R8P),        intent(inout) :: phi(1:,               &
+                                          1-self%grid%ngc:, &
+                                          1-self%grid%ngc:, &
+                                          1-self%grid%ngc:, &
+                                          1:)                          !< Distance function for coils.
+   integer(I4P),     intent(in)    :: n_coils                          !< Number of coils.
+   real(R8P)                       :: dq(1:self%field%nv)              !< Conservative variables differences.
+   real(R8P)                       :: n_phi_x, n_phi_y, n_phi_z, n_phi !< Eikonal directions.
+   integer(I4P)                    :: i, j, k, b, s                    !< Counter.
+
+   associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, &
+             nv=>self%field%nv)
+   !!$omp parallel do collapse(4) default(firstprivate) shared(q,self)
+   do b=1, blocks_number
+      do k=1, nk
+         do j=1, nj
+            do i=1,ni
+               coils_loop : do s=1, n_coils
+                  if (self%phi(s,i,j,k,b) > 0._R8P) then
+                     ! compute dq
+                     n_phi_x = (phi(s,i+1,j,k,b) - phi(s,i-1,j,k,b))
+                     n_phi_y = (phi(s,i,j+1,k,b) - phi(s,i,j-1,k,b))
+                     n_phi_z = (phi(s,i,j,k+1,b) - phi(s,i,j,k-1,b))
+                     n_phi = abs(n_phi_x) + abs(n_phi_y) + abs(n_phi_z) + 10e-12
+                     n_phi = 0.9_R8P / n_phi
+                     n_phi_x = n_phi_x * n_phi
+                     n_phi_y = n_phi_y * n_phi
+                     n_phi_z = n_phi_z * n_phi
+                     dq(:) = 0._R8P
+                     if (n_phi_x > 0._R8P) then
+                        dq(:) = dq(:) + abs(n_phi_x) * (q(:,i,j,k,b) - q(:,i-1,j,k,b))
+                     else
+                        dq(:) = dq(:) + abs(n_phi_x) * (q(:,i,j,k,b) - q(:,i+1,j,k,b))
+                     endif
+                     if (n_phi_y > 0._R8P) then
+                        dq(:) = dq(:) + abs(n_phi_y) * (q(:,i,j,k,b) - q(:,i,j-1,k,b))
+                     else
+                        dq(:) = dq(:) + abs(n_phi_y) * (q(:,i,j,k,b) - q(:,i,j+1,k,b))
+                     endif
+                     if (n_phi_z > 0._R8P) then
+                        dq(:) = dq(:) + abs(n_phi_z) * (q(:,i,j,k,b) - q(:,i,j,k-1,b))
+                     else
+                        dq(:) = dq(:) + abs(n_phi_z) * (q(:,i,j,k,b) - q(:,i,j,k+1,b))
+                     endif
+                     ! evolve q
+                     q(:,i,j,k,b) = q(:,i,j,k,b) - dq(:)
+                     exit coils_loop
+                  endif
+               enddo coils_loop
+            enddo
+         enddo
+      enddo
+   enddo
+   !!$omp end parallel do
+   endassociate
+   endsubroutine evolve_eikonal_coils
+
+   subroutine invert_eikonal_coils(self, q, phi, n_coils)
+   !< Invert eikonal equation over q inside IB.
+   class(ib_object), intent(in)    :: self                      !< IB.
+   real(R8P),        intent(inout) ::  q(1:,               &    
+                                         1-self%grid%ngc:, &    
+                                         1-self%grid%ngc:, &    
+                                         1-self%grid%ngc:, &    
+                                         1:)                    !< Conservative variables.
+   real(R8P),        intent(inout) :: phi(1:,               &
+                                          1-self%grid%ngc:, &
+                                          1-self%grid%ngc:, &
+                                          1-self%grid%ngc:, &
+                                          1:)                   !< Distance function for coils.
+   integer(I4P),     intent(in)    :: n_coils                   !< Number of coils.
+   integer(I4P)                    :: i, j, k, b, s             !< Counter.
+   real(R8P)                       :: n_phi_x, n_phi_y, n_phi_z !< Distance function normals.
+   real(R8P)                       :: n_phi_mod, un_mod         !< Distance abs normal and normal velocity.
+
+   associate(blocks_number=>self%field%blocks_number, ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc, &
+             solids_number=>self%solids_number)
+   !!$omp parallel do collapse(4) default(firstprivate) shared(q,self)
+   do b=1, blocks_number
+      do k=1, nk
+         do j=1, nj
+            do i=1,ni
+               coils_loop : do s=1, n_coils
+                  if (self%phi(s,i,j,k,b) > 0) then
+                     q(1,i,j,k,b) = - q(1,i,j,k,b)
+                     q(2,i,j,k,b) = - q(2,i,j,k,b)
+                     q(3,i,j,k,b) = - q(3,i,j,k,b)
+                     n_phi_x = self%phi(s,i+1,j,k,b) - self%phi(s,i-1,j,k,b)
+                     n_phi_y = self%phi(s,i,j+1,k,b) - self%phi(s,i,j-1,k,b)
+                     n_phi_z = self%phi(s,i,j,k+1,b) - self%phi(s,i,j,k-1,b)
+                     n_phi_mod = sqrt(n_phi_x**2 + n_phi_y**2 + n_phi_z**2)
+                     n_phi_x = n_phi_x/n_phi_mod
+                     n_phi_y = n_phi_y/n_phi_mod
+                     n_phi_z = n_phi_z/n_phi_mod
+
+                     !Come faccio per la BC con Ks? Tieni presente che in q hai già i valori della corrente volumica
+                     !nelle varie celle al momento
+
+                  endif
+               enddo coils_loop
+            enddo
+         enddo
+      enddo
+   enddo
+   !!$omp end parallel do
+   endassociate
+   endsubroutine invert_eikonal_coils
 
    ! private methods
    subroutine compute_phi_analytical_sphere(self, solid, sphere)

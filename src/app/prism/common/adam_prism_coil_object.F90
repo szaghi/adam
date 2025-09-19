@@ -44,6 +44,7 @@ type :: prism_coil_object
    character(len=99), allocatable :: current_distribution(:)               !< Coil representation.
    real(R8P), allocatable         :: A(:)                                  !< Current amplitude (A)
    real(R8P), allocatable         :: f(:)                                  !< Current frequency, if AC (Hz)
+   real(R8P), allocatable         :: phi(:,:,:,:,:)                        !< Distance function from the coils
    real(R8P), allocatable         :: phase(:)                              !< Current initial phase, if AC
    real(R8P), allocatable         :: d(:)                                  !< Coil wire diameter
    real(R8P), allocatable         :: x_center(:), y_center(:), z_center(:) !< Coil center
@@ -59,6 +60,8 @@ type :: prism_coil_object
    integer(I4P)                   :: total_coils_number=0_I4P              !< Number of coils
    contains
       ! public methods
+      procedure, pass(self) :: compute_distance_naive            !< Compute distance between point and wire (naive way).
+      procedure, pass(self) :: curved_wire                       !< Set coils current on PRISM fields.
       procedure, pass(self) :: description                       !< Return pretty-printed object description.
       procedure, pass(self) :: initialize                        !< Initialize IC.
       procedure, pass(self) :: load_from_file                    !< Load config from file.
@@ -69,7 +72,7 @@ type :: prism_coil_object
       procedure, pass(self) :: set_rectangular_coil_junction     !< Set rectangular coils on PRISM fields with junction
       procedure, pass(self) :: set_rectangular_coil_infinite     !< Set rectangular coils on PRISM fields with infinite wires
       procedure, pass(self) :: straight_wire                     !< Straight wire function.
-      procedure, pass(self) :: curved_wire                       !< Set coils current on PRISM fields.
+
 endtype prism_coil_object
 
 contains
@@ -126,6 +129,56 @@ contains
    print '(A)', self%description()
    print '(A)', self%mpih%myrankstr//'prism_coil_object%initialize finish'
    endsubroutine initialize
+
+   subroutine compute_distance_naive(self,field)
+
+      class(prism_coil_object), intent(inout) :: self
+      type(field_object), intent(in)          :: field
+      real(R8P)                               :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
+                                                 y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
+                                                 z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)  !< Vettori posizione centro celle del blocco b
+      real(R8P)                               :: distance
+      integer(I4P)                            :: i,j,k,ii,jj,kk,b,r,n_sweep
+
+      associate(ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, blocks_number=>field%blocks_number, &
+                ngc=>field%grid%ngc, nb=>field%nb, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:))
+      self%phi = 1.0E4_R8P
+      n_sweep = 1_I4P !numero di celle da considerare per il calcolo della distanza minima
+      !n_sweep = max(ni/2,nj/2,nk/2)
+      do r = 1, self%total_coils_number
+         do b=1, blocks_number
+            call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
+            do k=1, nk
+               do j=1, nj
+                  do i=1, ni
+                     if (self%coil_flag(i,j,k,b) == 0_I4P) then
+                        do kk= k-n_sweep, k+n_sweep
+                           if (kk > nk + ngc .or. kk < 1 - ngc) cycle
+                           do jj= j-n_sweep, j+n_sweep
+                              if (jj > nj + ngc .or. jj < 1 - ngc) cycle
+                              do ii= i-n_sweep, i+n_sweep
+                                 if (ii > ni + ngc .or. ii < 1 - ngc) cycle
+                                 if (self%coil_flag(ii,jj,kk,b) /= 0_I4P) then
+                                    distance = sqrt((x_cell(i)-x_cell(ii))**2 + (y_cell(j)-y_cell(jj))**2 &
+                                     + (z_cell(k)-z_cell(kk))**2) - dx(b)/2
+                                    self%phi(r,i,j,k,b) = min(self%phi(r,i,j,k,b), distance)
+                                 endif
+                              enddo
+                           enddo
+                        enddo
+                     else
+                        self%phi(r,i,j,k,b) = -dx(b)/2
+                     endif
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      self%phi = -self%phi
+      endassociate
+
+   endsubroutine compute_distance_naive
+
 
    subroutine load_from_file(self, file_parameters, field, go_on_fail)
    !< Load config from file.
@@ -201,6 +254,9 @@ contains
 
       allocate(self%J_vec(4, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
       self%J_vec = 0._R8P
+      
+      allocate(self%phi(self%total_coils_number,1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
+      self%phi = 0._R8P
 
       endassociate
 
@@ -341,12 +397,13 @@ contains
             case(INF_COIL_REPRESENTATION) !Caso spire rettangolari infinite
                call self%set_rectangular_coil_infinite(physics = physics, field = field, n = i)
             case(FIN_COIL_REPRESENTATION) !Caso spire rettangolari finite
-               call self%set_rectangular_coil_quad_section(physics = physics, field = field, n = i)
+               call self%set_rectangular_coil(physics = physics, field = field, n = i)
             endselect
 
          endselect
 
       enddo
+      call self%compute_distance_naive(field=field)
    endif
    endsubroutine set_coils
 
@@ -359,8 +416,9 @@ contains
       type(field_object),           intent(inout) :: field                                                               !< Field object.
       type(prism_physics_object),   intent(in)    :: physics                                                             !< Fluids physiscs.
       integer(I4P),                 intent(in)    :: n                                                                   !< Coil number.
-      !real(R8P),                    allocatable   :: flag(:,:,:,:)                                                       !< Flag per identificare se la spira passa per la cella
-      real(R8P)                                   :: dmax                                                                !< Vincolo distanza massima dalla spira.
+      !real(R8P),                    allocatable   :: flag(:,:,:,:)                                                      !< Flag per identificare se la spira passa per la cella
+      real(R8P),                    allocatable   :: Gaussian(:,:,:,:)                                                   !< Matrice gaussiana per distribuzione corrente 
+      real(R8P)                                   :: dmax, dist                                                                !< Vincolo distanza massima dalla spira.
       real(R8P)                                   :: c_c(3)                                                              !< Vettore posizione centro spira
       real(R8P)                                   :: cell_coord(3)                                                       !< Vettore posizione centro cella
       real(R8P)                                   :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
@@ -371,7 +429,8 @@ contains
       associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
                 x_c => self%x_center(n), y_c => self%y_center(n), z_c => self%z_center(n), &
                 dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), r_coil => self%r_coil(n), &
-                normal => self%normal(:,n), d => self%d(n), nb=>field%nb)
+                normal => self%normal(:,n), d => self%d(n), nb=>field%nb, &
+                current_distribution => self%current_distribution(n))
 
       c_c = [ x_c, y_c, z_c ] !Vettore posizione centro spira
 
@@ -381,16 +440,19 @@ contains
          call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          !calcolo distanza massima dall'asse del filo della spira: somma di raggio del filo e metà della dimensione
          !massima della cella associata ai vettori dx dy e dz contenuti in field
-         dmax = maxval([dx(b),dy(b),dz(b)])/2
+         dmax = d/2
          do k=1, nk
             do j=1, nj
                do i=1, ni
-                  !Scrivi qua vettore posizione cella b i j k :: cell_coord
                   cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
-                  if ( sq_norm(cell_coord-c_c) <= (r_coil+dmax)**2 .and. (r_coil-dmax)**2 <= sq_norm(cell_coord-c_c) .and. &
-                        abs(dotproduct(a=(cell_coord-c_c),b=normal)) <= d/r_coil .and. self%coil_flag(i,j,k,b) /= 0_I4P ) then
-
+                  !if (sq_norm(cell_coord-c_c) <= (r_coil+dmax)**2 .and. (r_coil-dmax)**2 <= sq_norm(cell_coord-c_c) .and. &
+                      !PI/2-acos(abs((dotproduct(a=(cell_coord-c_c),b=normal)))/sqrt(sq_norm(cell_coord-c_c))) <= asin(d/(2*r_coil)) & 
+                      !.and. self%coil_flag(i,j,k,b) == 0_I4P ) then
                      !q(7:9,i,j,k,b) = crossproduct(a=normal,b=(cell_coord-c_c))
+                  if ((dotproduct(a=(cell_coord-c_c),b=normal))**2 + (sqrt(sq_norm(cell_coord-c_c) - &
+                     (dotproduct(a=(cell_coord-c_c),b=normal))**2) - r_coil)**2 <= (d/2)**2 .and. &
+                     self%coil_flag(i,j,k,b) == 0_I4P) then
+
                      self%J_vec(1:3,i,j,k,b) = crossproduct(a=normal,b=(cell_coord-c_c))
 
                      !normalizzo per ottenere, alla fine il versore della corrente nella cella
@@ -399,6 +461,15 @@ contains
 
                      !metto flag su quale spira passa per la cella
                      self%coil_flag(i,j,k,b) = n
+
+                     selectcase (current_distribution)
+                     case (GAUSS_CURRENT_DISTRIBUTION)
+                        dist = sqrt((dotproduct(a=(cell_coord-c_c),b=normal))**2 + (sqrt(sq_norm(cell_coord-c_c) - &
+                               (dotproduct(a=(cell_coord-c_c),b=normal))**2) - r_coil)**2)
+                        self%J_vec(4,i,j,k,b) = gaussian_2D_ind(sigma = d/6, r = dist)
+                     case (CONST_CURRENT_DISTRIBUTION)
+                        self%J_vec(4,i,j,k,b) = 4.0/(PI*d**2)
+                     endselect
 
                   endif
                enddo
@@ -410,6 +481,7 @@ contains
 
    subroutine set_rectangular_coil(self, physics, field, n) !modificata per avere input equivalente a Filippo, ossia spira a
       !quadrata con dimensione pari a quella della cella. OSS se la spira passa su un'interfaccia non la trova!
+      !DA CORREGGERE TUTTA LA SUBROUTINE
    class(prism_coil_object),     intent(inout) :: self                                                            !< Coils
    type(field_object),           intent(inout) :: field                                                           !< Field object.
    type(prism_physics_object),   intent(in)    :: physics                                                         !< Fluids physiscs.
@@ -534,7 +606,7 @@ contains
          !dmax = d/2 + maxval([dx(b),dy(b),dz(b)])/2
 
          !modificata per avere termine sorgente come Filippo, se infittiamo o aumentiamo sezione spira torna la precedente
-         dmax =  maxval([dx(b),dy(b),dz(b)])/2
+         dmax = d/2
 
          do k=1, nk
             do j=1, nj
@@ -544,19 +616,29 @@ contains
                   prj_v = V(w,:)+dotproduct(a=(cell_coord-V(w,:)),b=vec(w,:))*vec(w,:) !Formula proiezione di un punto su una retta con A punto della retta A+[(P-A)*v]*v
                   !primo if: Il centro cella deve avere distanza dalla retta passante per il lato inferiore alla distanza massima e deve essere all'interno
                   !della proiezione dei lati, altrimenti prendo i punti su tutta la retta. Metto inoltre if sul flag, altrimenti ho sovrapposizioni dal secondo loop
+
                   !if ( flag(i,j,k,b) == 0_I4P .and. dist <= dmax .and. prj_v(1) <= maxval(V(:,1)) + dmax .and. &
                   !     prj_v(2) <= maxval(V(:,2)) + dmax .and. prj_v(3) <= maxval(V(:,3)) + dmax .and. &
                   !     minval(V(:,1))-dmax <= prj_v(1) .and. minval(V(:,2))-dmax <= prj_v(2) .and. &
                   !     minval(V(:,3))-dmax <= prj_v(3) ) then
-                  if ( flag(i,j,k,b) /= 1_I4P .and. flag(i,j,k,b) /= 3_I4P  .and. &
-                       dist <= dmax .and. prj_v(1) <= maxval(V(:,1)) + dmax .and. &
-                       prj_v(2) <= maxval(V(:,2)) + dmax .and. prj_v(3) <= maxval(V(:,3)) + dmax .and. &
-                       minval(V(:,1))-dmax <= prj_v(1) .and. minval(V(:,2))-dmax <= prj_v(2) .and. &
-                       minval(V(:,3))-dmax <= prj_v(3) ) then
 
-                        flag(i,j,k,b) = w
+                  !if ( flag(i,j,k,b) /= 1_I4P .and. flag(i,j,k,b) /= 3_I4P  .and. &
+                  if (    dist <= dmax .and. prj_v(1) <= maxval(V(:,1)) + dmax .and. &
+                     prj_v(2) <= maxval(V(:,2)) + dmax .and. prj_v(3) <= maxval(V(:,3)) + dmax .and. &
+                     minval(V(:,1))-dmax <= prj_v(1) .and. minval(V(:,2))-dmax <= prj_v(2) .and. &
+                     minval(V(:,3))-dmax <= prj_v(3) ) then
+
+                     flag(i,j,k,b) = w
+
+                     !if (flag(i,j,k,b) == w .and. self%coil_flag(i,j,k,b) == 0_I4P) then
+
+                        !q(7:9,i,j,k,b) = vec(flag(i,j,k,b),:)
+                     self%J_vec(1:3,i,j,k,b) = self%J_vec(1:3,i,j,k,b) + vec(w,:)
+                     self%coil_flag(i,j,k,b) = n
+                     self%J_vec(4,i,j,k,b) = 1.0/(d**2) !Distribuzione uniforme, poi normalizzo in compute_coils_current
                         !print*, cell_coord
                         !print*, w
+                     !endif
 
                   endif
                    !secondo if: per ogni lato verifico di essere dal "lato giusto" dei piani definiti dalle diagonali, al fine di
@@ -597,10 +679,9 @@ contains
       do k=1, nk
          do j=1, nj
             do i=1, ni
-               if (flag(i,j,k,b) /= 0 .and. self%coil_flag(i,j,k,b) == 0_I4P) then
+               !if (flag(i,j,k,b) /= 0 .and. self%coil_flag(i,j,k,b) == 0_I4P) then
 
-                  !q(7:9,i,j,k,b) = vec(flag(i,j,k,b),:)
-                  self%J_vec(1:3,i,j,k,b) = vec(flag(i,j,k,b),:)
+                  !self%J_vec(1:3,i,j,k,b) = self%J_vec(1:3,i,j,k,b) + vec(flag(i,j,k,b),:)
 
                   if (abs(self%J_vec(1,i,j,k,b)) < 1.0e-10_R8P) then
                      self%J_vec(1,i,j,k,b) = 0._R8P
@@ -613,11 +694,16 @@ contains
                   endif
 
                   !metto flag su quale spira passa per la cella
+                  !self%coil_flag(i,j,k,b) = n
 
-                  self%coil_flag(i,j,k,b) = n
-                  
-
+                  !Azzero gli spigoli
+               if (sq_norm(self%J_vec(1:3,i,j,k,b)) > 1.1_R8P) then
+                  self%J_vec(1:4,i,j,k,b) = 0._R8P
+                  self%coil_flag(i,j,k,b) = 0_I4P     
+                  print *, 'spigolo azzerato'             
                endif
+                  
+               !endif
             enddo
          enddo
       enddo
