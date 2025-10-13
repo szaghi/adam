@@ -18,27 +18,36 @@ public :: RK_3
 public :: RK_SSP_22
 public :: RK_SSP_33
 public :: RK_SSP_54
+public :: RK_YOSHIDA
+public :: RK_LEAPFROG
 
-character(len=13), parameter :: RK_1     ="runge-kutta-1"      !< Parameter of time scheme, Runge-Kutta 1.
-character(len=13), parameter :: RK_2     ="runge-kutta-2"      !< Parameter of time scheme, Runge-Kutta 2.
-character(len=13), parameter :: RK_3     ="runge-kutta-3"      !< Parameter of time scheme, Runge-Kutta 3.
-character(len=18), parameter :: RK_SSP_22="runge-kutta-ssp-22" !< Parameter of time scheme, Runge-Kutta SSP 22.
-character(len=18), parameter :: RK_SSP_33="runge-kutta-ssp-33" !< Parameter of time scheme, Runge-Kutta SSP 33.
-character(len=18), parameter :: RK_SSP_54="runge-kutta-ssp-54" !< Parameter of time scheme, Runge-Kutta SSP 54.
+character(len=13), parameter :: RK_1       ="runge-kutta-1"        !< Parameter of time scheme, Runge-Kutta 1.
+character(len=13), parameter :: RK_2       ="runge-kutta-2"        !< Parameter of time scheme, Runge-Kutta 2.
+character(len=13), parameter :: RK_3       ="runge-kutta-3"        !< Parameter of time scheme, Runge-Kutta 3.
+character(len=18), parameter :: RK_SSP_22  ="runge-kutta-ssp-22"   !< Parameter of time scheme, Runge-Kutta SSP 22.
+character(len=18), parameter :: RK_SSP_33  ="runge-kutta-ssp-33"   !< Parameter of time scheme, Runge-Kutta SSP 33.
+character(len=18), parameter :: RK_SSP_54  ="runge-kutta-ssp-54"   !< Parameter of time scheme, Runge-Kutta SSP 54.
+character(len=19), parameter :: RK_YOSHIDA ="runge-kutta-yoshida"  !< Parameter of time scheme, Runge-Kutta Yoshida, symplectic 4.
+character(len=20), parameter :: RK_LEAPFROG="runge-kutta-leapfrog" !< Parameter of time scheme, leapfrog.
 
 character(len=11), parameter :: INI_SECTION_NAME="runge_kutta" !< INI (config) file section name containing time configs.
 
 type :: rk_object
    !< RK class definition.
-   type(mpih_object)         :: mpih              !< MPI handler.
-   character(:), allocatable :: scheme            !< RK scheme.
-   integer(I4P)              :: nrk=3_I4P         !< Runge-Kutta stages number.
-   real(R8P), allocatable    :: ark(:)            !< Runge-Kutta low storage alpha coefficients.
-   real(R8P), allocatable    :: brk(:)            !< Runge-Kutta low storage beta coefficients.
-   real(R8P), allocatable    :: crk(:)            !< Runge-Kutta low storage beta coefficients.
-   real(R8P), allocatable    :: alph(:,:)         !< Runge-Kutta SSP alpha coefficients.
-   real(R8P), allocatable    :: beta(:)           !< Runge-Kutta SSP beta coefficients.
-   real(R8P), allocatable    :: gamm(:)           !< Runge-Kutta SSP gamma coefficients.
+   type(mpih_object)         :: mpih      !< MPI handler.
+   character(:), allocatable :: scheme    !< RK scheme.
+   integer(I4P)              :: nrk=3_I4P !< Runge-Kutta stages number.
+   ! classic, Butcher schemes
+   real(R8P), allocatable    :: ark(:)    !< Runge-Kutta low storage alpha coefficients.
+   real(R8P), allocatable    :: brk(:)    !< Runge-Kutta low storage beta coefficients.
+   real(R8P), allocatable    :: crk(:)    !< Runge-Kutta low storage beta coefficients.
+   real(R8P), allocatable    :: alph(:,:) !< Runge-Kutta SSP alpha coefficients.
+   real(R8P), allocatable    :: beta(:)   !< Runge-Kutta SSP beta coefficients.
+   real(R8P), allocatable    :: gamm(:)   !< Runge-Kutta SSP gamma coefficients.
+   ! symplectic (splitting) schemes
+   real(R8P), allocatable :: ssa(:) !< Runge-Kutta sympletic-splitting part A coefficients.
+   real(R8P), allocatable :: ssb(:) !< Runge-Kutta sympletic-splitting part B coefficients.
+   ! RK data
    real(R8P), allocatable    :: q_rk(:,:,:,:,:,:) !< Field cell centered variables, RK stages.
    ! grid/field data replica for easy handling
    type(field_object), pointer :: field=>null()         !< The field.
@@ -303,6 +312,7 @@ contains
    character(*),       intent(in), optional :: scheme          !< Runge-Kutta scheme.
    type(grid_object),  intent(in), target   :: grid            !< The grid.
    type(field_object), intent(in), target   :: field           !< The field.
+   real(R8P)                                :: w0, w1          !< Sympletic RK coefficients.
 
    call self%mpih%initialize(do_mpi_init=.false.)
    call self%mpih%print_message('rk_object%initialize start')
@@ -382,6 +392,17 @@ contains
       self%gamm(3) = 0.58607968896780_R8P
       self%gamm(4) = 0.47454236302687_R8P
       self%gamm(5) = 0.93501063100924_R8P
+   case(RK_YOSHIDA)
+      self%nrk = 4
+      w0 = -1.702414383919315_R8P
+      w1 =  1.351207191959658_R8P
+      allocate(self%ssa(self%nrk), self%ssb(self%nrk-1))
+      self%ssa = [w1/2.0_R8P,(w0+w1)/2.0_R8P,(w0+w1)/2.0_R8P,w1/2.0_R8P]
+      self%ssb = [w1,w0,w1]
+   case(RK_LEAPFROG)
+      self%nrk = 2
+   case default
+      !@TODO write error trap
    endselect
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nb=>self%nb, nrk=>self%nrk)
@@ -395,7 +416,7 @@ contains
                                           1,nb,         &
                                           1,1],[2,6]),  &
                              msg=self%mpih%myrankstr//'rk_object%initialize allocate q_rk')
-   case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
+   case(RK_SSP_22, RK_SSP_33, RK_SSP_54, RK_LEAPFROG)
       call allocate_variable(var=self%q_rk,          &
                              ulb=reshape([1,nv,          &
                                           1-ngc,ni+ngc,  &

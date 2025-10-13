@@ -189,7 +189,7 @@ contains
                                       adam=self%adam,                   &
                                       q=self%q,                         &
                                       q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz '])
-         elseif (self%physics%div_corr_var == DIV_CORR_VAR_HYPER .and. self%physics%D_divergence_cleaner & 
+         elseif (self%physics%div_corr_var == DIV_CORR_VAR_HYPER .and. self%physics%D_divergence_cleaner &
                   .and. .not.self%physics%B_Divergence_cleaner) then
             call self%slices%save_mat(basename=self%io%output_basename, &
                                       it=self%time%it,                  &
@@ -356,7 +356,7 @@ contains
                      !è pari quindi a C * ds
 
                      f = 1._R8P/fi*LOG10(((ngc_r-crown_r)*ds)/(ngc_r*ds)*(10._R8P**fi-1._R8P)+1._R8P) !funzione f
-      
+
                      q(alfa_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(s1*(f-1._R8P)*ref(beta_B)*EPS0**0.5_R8P + &
                                           (f+1._R8P)*ref(alfa_D)*MU0**0.5_R8P)
 
@@ -609,8 +609,6 @@ contains
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
              dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),                         &
              flx=>self%flx, fly=>self%fly, flz=>self%flz)
-   
-   
 
    do b=1, blocks_number
       do k=1-ngc, nk+ngc
@@ -664,22 +662,20 @@ contains
                                  f=f, phase=phase, coil_flag=coil_flag, td=td, j_vec=j_vec, dx=dx, q=self%q)
    endif
 
-   call self%rk%initialize_stages(q=self%q)
+   if (self%rk%scheme/=RK_YOSHIDA.and.self%rk%scheme/=RK_LEAPFROG) call self%rk%initialize_stages(q=self%q)
 
    select case(self%rk%scheme)
    case(RK_1, RK_2, RK_3)
-      ! low storage RK working on q_rk(:,:,:,:,:,1)/q_gpu as stages, update q_gpu in place
+      ! low storage RK working on q_rk(:,:,:,:,:,1)/q as stages, update q in place
       do s=1, self%rk%nrk
-
-         call self%compute_residuals_centered(q=self%q, dq=self%dq)
-
+         ! call self%compute_residuals_centered(q=self%q, dq=self%dq)
+         call self%compute_residuals(q=self%q, dq=self%dq)
          if (s==1) call self%save_residuals
          if (self%ib%solids_number>0) then
             call self%rk%compute_stage_ls(s=s,dt=self%time%dt,phi=self%ib%phi,dq=self%dq,q=self%q)
          else
             call self%rk%compute_stage_ls(s=s,dt=self%time%dt,dq=self%dq,q=self%q)
          endif
-
       enddo
    case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
       ! RK working on q_rk as stages
@@ -689,7 +685,8 @@ contains
          else
             call self%rk%compute_stage(s=s, dt=self%time%dt)
          endif
-         call self%compute_residuals_centered(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq)
+         ! call self%compute_residuals_centered(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq)
+         call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq)
          if (s==1) call self%save_residuals
          if (self%ib%solids_number>0) then
             call self%rk%assign_stage(s=s, q=self%dq, phi=self%ib%phi)
@@ -702,11 +699,28 @@ contains
       else
          call self%rk%update_q(dt=self%time%dt, q=self%q)
       endif
+   case(RK_YOSHIDA)
+      do s=1, self%rk%nrk - 1
+         call self%compute_residuals(q=self%q, dq=self%dq)
+         self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + self%rk%ssa(s) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
+         self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + self%rk%ssa(s) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
+         self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + self%rk%ssa(s) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
+         call self%compute_residuals(q=self%q, dq=self%dq)
+         self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + self%rk%ssb(s) * self%time%dt * self%dq(VAR_DX,:,:,:,:)
+         self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + self%rk%ssb(s) * self%time%dt * self%dq(VAR_DY,:,:,:,:)
+         self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + self%rk%ssb(s) * self%time%dt * self%dq(VAR_DZ,:,:,:,:)
+      enddo
+      call self%compute_residuals(q=self%q, dq=self%dq)
+      self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
+      self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
+      self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
+   case(RK_LEAPFROG)
+      call self%compute_residuals(q=self%q, dq=self%dq)
+      self%rk%q_rk(:,:,:,:,:,2) = self%rk%q_rk(:,:,:,:,:,1) + 2._R8P * self%time%dt * self%dq
+      self%rk%q_rk(:,:,:,:,:,1) = self%q
+      self%q = self%rk%q_rk(:,:,:,:,:,2)
    endselect
    if (self%physics%div_corr_var == 'POISSON' .and. self%physics%D_divergence_cleaner) then
-      call self%correct_div(ivar=1_I4P) ! correct div(D)
-   endif
-      if (self%physics%div_corr_var == 'POISSON' .and. self%physics%D_divergence_cleaner) then
       call self%correct_div(ivar=1_I4P) ! correct div(D)
    endif
    call compute_div(ni=ni,nj=nj,nk=nk,ngc=ngc,blocks_number=blocks_number,dxyz=dxyz,ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
@@ -747,6 +761,14 @@ contains
    call self%save_simulation_data
 
    if (self%mpih%myrank==0) call self%io%open_file_residuals(nv=self%nv)
+
+   if (self%rk%scheme==RK_LEAPFROG) then
+      ! first time integration done apart with explicit euler scheme to iniziale leapfrog
+      call self%compute_dt
+      call self%compute_residuals(q=self%q, dq=self%dq)
+      self%rk%q_rk(:,:,:,:,:,1) = self%q
+      self%q = self%q + 0.5_R8P * self%time%dt * self%dq
+   endif
 
    ! integration
    call self%mpih%barrier(tictoc=.true., timing=timing(1), single=.true.)
@@ -968,31 +990,45 @@ contains
    real(R8P),    intent(in)    :: weno_a(1:,0:,1:)                    !< Optimal weights.
    real(R8P),    intent(in)    :: weno_p(1:,0:,0:,1:)                 !< Polinomials coefficients.
    real(R8P),    intent(in)    :: weno_d(0:,0:,0:,1:)                 !< Smoothness indicators coefficients.
-   real(R8P),    intent(in)    :: evmax                              !< Maximum waves speed estimation.
-   real(R8P),    intent(in)    :: erw(1:,1:,1:)                      !< Right eigenvectors for WENO reconstruction.
-   real(R8P),    intent(in)    :: elw(1:,1:,1:)                      !< Left  eigenvectors for WENO reconstruction.
+   real(R8P),    intent(in)    :: evmax                               !< Maximum waves speed estimation.
+   real(R8P),    intent(in)    :: erw(1:,1:,1:)                       !< Right eigenvectors for WENO reconstruction.
+   real(R8P),    intent(in)    :: elw(1:,1:,1:)                       !< Left  eigenvectors for WENO reconstruction.
    integer(I4P), intent(in)    :: si(3)                               !< Stencil increment.
    real(R8P),    intent(in)    :: sir(3)                              !< Stencil increment, real cast.
    real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)       !< Fields variables.
    real(R8P),    intent(inout) :: fluxes(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Fluxes.
-   real(R8P)                   :: fmpc(1:2,1-S_MAX:-1+S_MAX,1:NV_MAX) !< Fluxes -+ decomposition in c. space.
-   real(R8P)                   :: fpmr(1:2,1:NV_MAX)                  !< Fluxes +- reconstructed.
-   integer(I4P)                :: v, vv                               !< Counter.
+   ! real(R8P)                   :: fmpc(1:2,1-S_MAX:-1+S_MAX,1:NV_MAX) !< Fluxes -+ decomposition in c. space.
+   ! real(R8P)                   :: fpmr(1:2,1:NV_MAX)                  !< Fluxes +- reconstructed.
+   ! integer(I4P)                :: v, vv                               !< Counter.
 
-   call decompose_fluxes_convective(dir=dir, si=si, sir=sir,                &
-                                    b=b, i=i, j=j, k=k, ngc=ngc, nv_c=nv_c, &
-                                    weno_s=weno_s, evmax=evmax, elw=elw,    &
-                                    q=q, fmpc=fmpc)
-   do v=1, nv_c
-      call weno_reconstruct_upwind(S=weno_s, weno_a=weno_a, weno_p=weno_p, weno_d=weno_d,&
-                                   weno_zeps=weno_zeps, V=fmpc(:,:,v), VR=fpmr(:,v))
+   ! call decompose_fluxes_convective(dir=dir, si=si, sir=sir,                &
+   !                                  b=b, i=i, j=j, k=k, ngc=ngc, nv_c=nv_c, &
+   !                                  weno_s=weno_s, evmax=evmax, elw=elw,    &
+   !                                  q=q, fmpc=fmpc)
+   ! do v=1, nv_c
+   !    call weno_reconstruct_upwind(S=weno_s, weno_a=weno_a, weno_p=weno_p, weno_d=weno_d,&
+   !                                 weno_zeps=weno_zeps, V=fmpc(:,:,v), VR=fpmr(:,v))
+   ! enddo
+   ! ! back projection in conservative variables space
+   ! do v=1, nv_c
+   !    fluxes(v,i,j,k,b) = 0._R8P
+   !    do vv=1,nv_c
+   !       fluxes(v,i,j,k,b) = fluxes(v,i,j,k,b) + erw(vv,v,dir) * (fpmr(1,vv) + fpmr(2,vv))
+   !    enddo
+   ! enddo
+
+   integer(I4P)                :: v, s, is, js, ks                    !< Counter.
+   real(R8P)                   :: f(NV_MAX,-2:2)                      !< Conservative fluxes.
+
+   do s=-2, 2
+      is = i + (s) * si(1) ; js = j + (s) * si(2) ; ks = k + (s) * si(3)
+      call compute_convective_fluxes_maxwell(sir=sir,q=q(:,is,js,ks,b),f=f(:,s))
    enddo
-   ! back projection in conservative variables space
    do v=1, nv_c
-      fluxes(v,i,j,k,b) = 0._R8P
-      do vv=1,nv_c
-         fluxes(v,i,j,k,b) = fluxes(v,i,j,k,b) + erw(vv,v,dir) * (fpmr(1,vv) + fpmr(2,vv))
-      enddo
+      ! 2th order centered finite difference
+      fluxes(v,i,j,k,b) = (f(v,0) + f(v,1)) / 2._R8P
+      ! 4th order centered finite difference
+      ! fluxes(v,i,j,k,b) = (-f(v,-1) + 7._R8P * f(v,0) + 7._R8P * f(v,1) - f(v,2)) / 12._R8P
    enddo
    endsubroutine compute_fluxes_convective_ri
 
@@ -1102,7 +1138,7 @@ contains
    !   q(VAR_JX,:,:,:,:) = 0._R8P
    !   q(VAR_JY,:,:,:,:) = 0._R8P
    !   q(VAR_JZ,:,:,:,:) = 0._R8P
-   !else  
+   !else
       g = 10._R8P*(time/td)**3 - 15._R8P*(time/td)**4 + 6._R8P*(time/td)**5
       do b=1, blocks_number
       do k=1, nk
