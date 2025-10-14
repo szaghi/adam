@@ -1023,30 +1023,19 @@ contains
 
    call decompose_fluxes_convective_centered(dir=dir, si=si, sir=sir,                &
                                              b=b, i=i, j=j, k=k, ngc=ngc, nv_c=nv_c, &
-                                             weno_s=weno_s, evmax=evmax, elw=elw,    &
+                                             weno_s=weno_s, evmax=evmax,             &
                                              q=q, fmpc=fmpc(:,1-weno_s:weno_s,:))
    do v=1, nv_c
       do f=1, 2
-         ! 6th order centered
-         call reconstruct_6c(x=fmpc(f,-2:3,v), xr=fmpr(f,v))
+         call reconstruct_centered_6(x=fmpc(f,-2:3,v), xr=fmpr(f,v))
       enddo
-      ! 2nd order centered
-      ! fluxes(v,i,j,k,b) = (f(v,0) + f(v,1)) / 2._R8P
-      ! 4th order centered
-      ! fluxes(v,i,j,k,b) = (-f(v,-1) + 7._R8P * f(v,0) + 7._R8P * f(v,1) - f(v,2)) / 12._R8P
    enddo
    do v=1, nv_c
       fluxes(v,i,j,k,b) = fmpr(1,v) + fmpr(2,v)
    enddo
-   ! do v=1, nv_c
-   !    fluxes(v,i,j,k,b) = 0._R8P
-   !    do vv=1, nv_c
-   !       fluxes(v,i,j,k,b) = fluxes(v,i,j,k,b) + erw(vv,v,dir) * (fmpr(1,vv) + fmpr(2,vv))
-   !    enddo
-   ! enddo
    endsubroutine compute_fluxes_convective_ri
 
-   pure subroutine reconstruct_6c(x, xr)
+   pure subroutine reconstruct_centered_6(x, xr)
    !< Polynomial reconstruction at right interface, 6h order centered, stencil [i-3+1:i+3].
    real(R8P), intent(in)  :: x(-2:)                  !< Cell centered values over stencil.
    real(R8P), intent(out) :: xr                      !< Reconstructed value at right interface.
@@ -1057,17 +1046,58 @@ contains
    xr = c1 * (x( 0) + x(1)) + &
         c2 * (x(-1) + x(2)) + &
         c3 * (x(-2) + x(3))
-   endsubroutine reconstruct_6c
+   ! 2nd order centered
+   ! xr = (x(0) + x(1)) / 2._R8P
+   ! 4th order centered
+   ! xr = (-x(-1) + 7._R8P * x(0) + 7._R8P * x(1) - x(2)) / 12._R8P
+   endsubroutine reconstruct_centered_6
 
-   !pure function reconstruct_flux_m(f) result(flux)
-   !!< Left (-1/2) flux reconstruction, 6h order.
-   !real(R8P), intent(in) :: f(NV_MAX,-4:4) !< Conservative fluxes over stencil.
-   !real(R8P)             :: flux           !< Reconstructed flux.
+   subroutine reconstruct_wenoc_6(v, w)
+   !< WENOC reconstruction at right interface, 6h order centered, stencil [i-3+1:i+3].
+   real(R8P), intent(in)  :: v(-2:3)               !< Variable to reconstructed on stencil.
+   real(R8P), intent(out) :: vr                    !< Reconstructed variable.
+   real(R8P)              :: beta(0:2)             !< Smoothness indicators.
+   real(R8P)              :: alpha(0:2), sum_alpha !< Linear weights.
+   real(R8P)              :: tau                   !< Z mapping.
+   real(R8P)              :: w(0:2)                !< Weights of WENOC stencils.
+   real(R8P)              :: vp(0:2)               !< Polynomial reconstructions on stencils.
+   integer(I4P)           :: s                     !< Counter.
+   real(R8P), parameter   :: d0 = 3.0_R8P/10.0_R8P, &
+                             d1 = 3.0_R8P/5.0_R8P,  &
+                             d2 = 1.0_R8P/10.0_R8P !< Reconstruction coefficients.
 
-   !flux = c1 * (f(-1) + f(0)) + &
-   !       c2 * (f(-2) + f(1)) + &
-   !       c3 * (f(-3) + f(2))
-   !endfunction reconstruct_flux_m
+   ! compute smoothness indicators
+   beta(0) = (13.0_R8P/12.0_R8P) * (v(-2) - 2.0_R8P*v(-1) +         v(0))**2 + &
+             (1.0_R8P/4.0_R8P)   * (v(-2) - 4.0_R8P*v(-1) + 3.0_R8P*v(0))**2
+
+   beta(1) = (13.0_R8P/12.0_R8P) * (v(-1) - 2.0_R8P*v(0) + v(1))**2 + &
+             (1.0_R8P/4.0_R8P)   * (v(-1)                - v(1))**2
+
+   beta(2) = (13.0_R8P/12.0_R8P) * (v(0)         - 2.0_R8P*v(1) + v(2))**2 + &
+             (1.0_R8P/4.0_R8P)   * (3.0_R8P*v(0) - 4.0_R8P*v(1) + v(2))**2
+
+   ! compute Z mapping
+   tau = abs(beta(0) - beta(2))
+
+   ! compute linear weights
+   alpha(0) = d0 * (1.0_R8P + (tau/(beta(0) + eps))**2)
+   alpha(1) = d1 * (1.0_R8P + (tau/(beta(1) + eps))**2)
+   alpha(2) = d2 * (1.0_R8P + (tau/(beta(2) + eps))**2)
+
+   ! compute non linear weights
+   sum_alpha = alpha(0) + alpha(1) + alpha(2)
+   do s = 0, 2
+      w(s) = alpha(s) / sum_alpha
+   enddo
+
+   ! compute polynomial reconstructions
+   vp(0) = ( 3.0_R8P*v(-2) - 10.0_R8P*v(-1) + 15.0_R8P*v(0)       )/ 8.0_R8P
+   vp(1) = (        -v(-1) +  9.0_R8P*v( 0) +  9.0_R8P*v(1) - v(2))/16.0_R8P
+   vp(2) = (15.0_R8P*v( 1) - 10.0_R8P*v( 2) +  3.0_R8P*v(3)       )/ 8.0_R8P
+
+   ! compute weighted reconstruction
+   vr = w(0)*vp(0) + w(1)*vp(1) + w(2)*vp(2)
+   endsubroutine reconstruct_wenoc_6
 
    subroutine compute_fluxes_difference(blocks_number, ni, nj, nk, ngc, nv_c, dx, dy, dz, flx, fly, flz, q, dq)
    !< Compute fluxes difference.
@@ -1147,7 +1177,7 @@ contains
    enddo
    endsubroutine decompose_fluxes_convective
 
-   subroutine decompose_fluxes_convective_centered(dir,si,sir,b,i,j,k,ngc,nv_c,weno_s,evmax,elw,q,fmpc)
+   subroutine decompose_fluxes_convective_centered(dir,si,sir,b,i,j,k,ngc,nv_c,weno_s,evmax,q,fmpc)
    !< Decompose convective fluxes, centered stencil, no upwind shift.
    integer(I4P), intent(in)    :: dir                           !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P), intent(in)    :: si(3)                         !< Stencil increment.
@@ -1157,12 +1187,9 @@ contains
    integer(I4P), intent(in)    :: nv_c                          !< Number of conservative varibales in q vector.
    integer(I4P), intent(in)    :: weno_s                        !< Weno stencils number/dimension.
    real(R8P),    intent(in)    :: evmax                         !< Maximum eigenvalue.
-   real(R8P),    intent(in)    :: elw(1:,1:,1:)                 !< Left eigenvectors for WENO reconstruction.
    real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
    real(R8P),    intent(inout) :: fmpc(1:,1-weno_s:,1:)         !< Fluxes -+ decomposition in characteristics space.
-   ! real(R8P)                   :: gc, wc                        !< Increments for fluxes decomposition.
-   ! integer(I4P)                :: v, vv, s, is, js, ks          !< Counter.
-   integer(I4P)                :: v, s, is, js, ks          !< Counter.
+   integer(I4P)                :: v, s, is, js, ks              !< Counter.
    real(R8P)                   :: f(NV_MAX)                     !< Conservative fluxes.
 
    do s=1-weno_s, weno_s
@@ -1172,16 +1199,6 @@ contains
          fmpc(2,s,v) = 0.5_R8P * (f(v) + evmax * q(v,is,js,ks,b))
          fmpc(1,s,v) = f(v) - fmpc(2,s,v)
       enddo
-      ! do v=1, nv_c
-      !    wc = 0._R8P
-      !    gc = 0._R8P
-      !    do vv=1, nv_c
-      !       wc = wc + elw(vv,v,dir) * q(vv,is,js,ks,b)
-      !       gc = gc + elw(vv,v,dir) * f(vv)
-      !    enddo
-      !    fmpc(2,s,v) = 0.5_R8P * (gc + evmax * wc)
-      !    fmpc(1,s,v) = gc - fmpc(2,s,v)
-      ! enddo
    enddo
    endsubroutine decompose_fluxes_convective_centered
 
