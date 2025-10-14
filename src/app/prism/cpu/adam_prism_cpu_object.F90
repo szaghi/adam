@@ -1016,21 +1016,58 @@ contains
    !       fluxes(v,i,j,k,b) = fluxes(v,i,j,k,b) + erw(vv,v,dir) * (fpmr(1,vv) + fpmr(2,vv))
    !    enddo
    ! enddo
+   ! 2nd, 4th, 6th order centered
+   integer(I4P)                :: v, vv, f, s, is, js, ks          !< Counter.
+   real(R8P)                   :: fmpc(1:2,1-S_MAX:S_MAX,1:NV_MAX) !< Fluxes -+ decomposition in c. space.
+   real(R8P)                   :: fmpr(1:2,1:NV_MAX)               !< Fluxes -+ reconstructed.
 
-   integer(I4P)                :: v, s, is, js, ks                    !< Counter.
-   real(R8P)                   :: f(NV_MAX,-2:2)                      !< Conservative fluxes.
-
-   do s=-2, 2
-      is = i + (s) * si(1) ; js = j + (s) * si(2) ; ks = k + (s) * si(3)
-      call compute_convective_fluxes_maxwell(sir=sir,q=q(:,is,js,ks,b),f=f(:,s))
-   enddo
+   call decompose_fluxes_convective_centered(dir=dir, si=si, sir=sir,                &
+                                             b=b, i=i, j=j, k=k, ngc=ngc, nv_c=nv_c, &
+                                             weno_s=weno_s, evmax=evmax, elw=elw,    &
+                                             q=q, fmpc=fmpc(:,1-weno_s:weno_s,:))
    do v=1, nv_c
-      ! 2th order centered finite difference
-      fluxes(v,i,j,k,b) = (f(v,0) + f(v,1)) / 2._R8P
-      ! 4th order centered finite difference
+      do f=1, 2
+         ! 6th order centered
+         call reconstruct_6c(x=fmpc(f,-2:3,v), xr=fmpr(f,v))
+      enddo
+      ! 2nd order centered
+      ! fluxes(v,i,j,k,b) = (f(v,0) + f(v,1)) / 2._R8P
+      ! 4th order centered
       ! fluxes(v,i,j,k,b) = (-f(v,-1) + 7._R8P * f(v,0) + 7._R8P * f(v,1) - f(v,2)) / 12._R8P
    enddo
+   do v=1, nv_c
+      fluxes(v,i,j,k,b) = fmpr(1,v) + fmpr(2,v)
+   enddo
+   ! do v=1, nv_c
+   !    fluxes(v,i,j,k,b) = 0._R8P
+   !    do vv=1, nv_c
+   !       fluxes(v,i,j,k,b) = fluxes(v,i,j,k,b) + erw(vv,v,dir) * (fmpr(1,vv) + fmpr(2,vv))
+   !    enddo
+   ! enddo
    endsubroutine compute_fluxes_convective_ri
+
+   pure subroutine reconstruct_6c(x, xr)
+   !< Polynomial reconstruction at right interface, 6h order centered, stencil [i-3+1:i+3].
+   real(R8P), intent(in)  :: x(-2:)                  !< Cell centered values over stencil.
+   real(R8P), intent(out) :: xr                      !< Reconstructed value at right interface.
+   real(R8P), parameter   :: c1 =  37.0_R8P/60.0_R8P, &
+                             c2 = -2.0_R8P /15.0_R8P, &
+                             c3 =  1.0_R8P /60.0_R8P !< PPM coefficients.
+
+   xr = c1 * (x( 0) + x(1)) + &
+        c2 * (x(-1) + x(2)) + &
+        c3 * (x(-2) + x(3))
+   endsubroutine reconstruct_6c
+
+   !pure function reconstruct_flux_m(f) result(flux)
+   !!< Left (-1/2) flux reconstruction, 6h order.
+   !real(R8P), intent(in) :: f(NV_MAX,-4:4) !< Conservative fluxes over stencil.
+   !real(R8P)             :: flux           !< Reconstructed flux.
+
+   !flux = c1 * (f(-1) + f(0)) + &
+   !       c2 * (f(-2) + f(1)) + &
+   !       c3 * (f(-3) + f(2))
+   !endfunction reconstruct_flux_m
 
    subroutine compute_fluxes_difference(blocks_number, ni, nj, nk, ngc, nv_c, dx, dy, dz, flx, fly, flz, q, dq)
    !< Compute fluxes difference.
@@ -1109,6 +1146,44 @@ contains
       enddo
    enddo
    endsubroutine decompose_fluxes_convective
+
+   subroutine decompose_fluxes_convective_centered(dir,si,sir,b,i,j,k,ngc,nv_c,weno_s,evmax,elw,q,fmpc)
+   !< Decompose convective fluxes, centered stencil, no upwind shift.
+   integer(I4P), intent(in)    :: dir                           !< Direction, 1=X, 2=Y, 3=Z.
+   integer(I4P), intent(in)    :: si(3)                         !< Stencil increment.
+   real(R8P),    intent(in)    :: sir(3)                        !< Stencil increment, real cast.
+   integer(I4P), intent(in)    :: b, i, j, k                    !< Counter.
+   integer(I4P), intent(in)    :: ngc                           !< Ghost cells number.
+   integer(I4P), intent(in)    :: nv_c                          !< Number of conservative varibales in q vector.
+   integer(I4P), intent(in)    :: weno_s                        !< Weno stencils number/dimension.
+   real(R8P),    intent(in)    :: evmax                         !< Maximum eigenvalue.
+   real(R8P),    intent(in)    :: elw(1:,1:,1:)                 !< Left eigenvectors for WENO reconstruction.
+   real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(inout) :: fmpc(1:,1-weno_s:,1:)         !< Fluxes -+ decomposition in characteristics space.
+   ! real(R8P)                   :: gc, wc                        !< Increments for fluxes decomposition.
+   ! integer(I4P)                :: v, vv, s, is, js, ks          !< Counter.
+   integer(I4P)                :: v, s, is, js, ks          !< Counter.
+   real(R8P)                   :: f(NV_MAX)                     !< Conservative fluxes.
+
+   do s=1-weno_s, weno_s
+      is = i + (s) * si(1) ; js = j + (s) * si(2) ; ks = k + (s) * si(3)
+      call compute_convective_fluxes_maxwell(sir=sir,q=q(:,is,js,ks,b),f=f)
+      do v=1, nv_c
+         fmpc(2,s,v) = 0.5_R8P * (f(v) + evmax * q(v,is,js,ks,b))
+         fmpc(1,s,v) = f(v) - fmpc(2,s,v)
+      enddo
+      ! do v=1, nv_c
+      !    wc = 0._R8P
+      !    gc = 0._R8P
+      !    do vv=1, nv_c
+      !       wc = wc + elw(vv,v,dir) * q(vv,is,js,ks,b)
+      !       gc = gc + elw(vv,v,dir) * f(vv)
+      !    enddo
+      !    fmpc(2,s,v) = 0.5_R8P * (gc + evmax * wc)
+      !    fmpc(1,s,v) = gc - fmpc(2,s,v)
+      ! enddo
+   enddo
+   endsubroutine decompose_fluxes_convective_centered
 
    subroutine compute_coils_current(ni, nj, nk, ngc, blocks_number, time, A, d, f, phase, coil_flag, td, j_vec, dx, q)
    !< Compute current coils sources.
