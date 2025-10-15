@@ -235,7 +235,10 @@ contains
    real(R8P)                           :: ngc_r, crown_r          !< Numero di gc totale, reale
    real(R8P)                           :: ref(1:9)                !< Vettore di stato di riferimento per assegnazione gc.
    real(R8P)                           :: fi, f                   !< Variabili phi e f fWL.
-
+   real(R8P)                           :: x_cell(1-self%field%grid%ngc:self%field%grid%ni+self%field%grid%ngc), &
+                                          y_cell(1-self%field%grid%ngc:self%field%grid%nj+self%field%grid%ngc), &
+                                          z_cell(1-self%field%grid%ngc:self%field%grid%nk+self%field%grid%ngc)
+   
    associate(local_map_bc_crown=>self%field%maps%local_map_bc_crown, &
              nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), &
              dz=>self%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, &
@@ -484,8 +487,31 @@ contains
                      do v=1, 9
                         q(v,i,j,k,b) = 0._R8P
                      enddo
-               endif
+               elseif (bc_type == BC_PERIOD) then
+                  call self%field%grid%cell_xyz(coordinates = self%field%coordinates(:,b), &
+                     x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
+                  q(1,i,j,k,b) = self%ic%B0*C0*EPS0*self%ic%kz*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
+                                 self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
+                                 -C0*2*PI/self%ic%lambda*self%time%time) !Dx
+                  q(2,i,j,k,b) = self%ic%B0*C0*EPS0*self%ic%kx*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
+                                 self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
+                                 -C0*2*PI/self%ic%lambda*self%time%time) !Dy
+                  q(3,i,j,k,b) = self%ic%B0*C0*EPS0*self%ic%ky*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
+                                 self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
+                                 -C0*2*PI/self%ic%lambda*self%time%time) !Dz
 
+                  q(4,i,j,k,b) = self%ic%B0*self%ic%ky*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
+                                 self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
+                                 -C0*2*PI/self%ic%lambda*self%time%time) !Bx
+                  q(5,i,j,k,b) = self%ic%B0*self%ic%kz*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
+                                 self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
+                                 -C0*2*PI/self%ic%lambda*self%time%time) !By
+                  q(6,i,j,k,b) = self%ic%B0*self%ic%kx*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
+                                 self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
+                                 -C0*2*PI/self%ic%lambda*self%time%time) !Bz
+
+                  q(7:9,i,j,k,b) = 0._R8P
+               endif
             endif
          enddo
       enddo
@@ -997,42 +1023,49 @@ contains
    real(R8P),    intent(in)    :: sir(3)                              !< Stencil increment, real cast.
    real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)       !< Fields variables.
    real(R8P),    intent(inout) :: fluxes(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Fluxes.
-   ! real(R8P)                   :: fmpc(1:2,1-S_MAX:-1+S_MAX,1:NV_MAX) !< Fluxes -+ decomposition in c. space.
-   ! real(R8P)                   :: fpmr(1:2,1:NV_MAX)                  !< Fluxes +- reconstructed.
-   ! integer(I4P)                :: v, vv                               !< Counter.
+   real(R8P)                   :: fmpc(1:2,1-S_MAX:-1+S_MAX,1:NV_MAX) !< Fluxes -+ decomposition in c. space.
+   real(R8P)                   :: fpmr(1:2,1:NV_MAX)                  !< Fluxes +- reconstructed.
+   integer(I4P)                :: v, vv                               !< Counter.
 
-   ! call decompose_fluxes_convective(dir=dir, si=si, sir=sir,                &
-   !                                  b=b, i=i, j=j, k=k, ngc=ngc, nv_c=nv_c, &
-   !                                  weno_s=weno_s, evmax=evmax, elw=elw,    &
-   !                                  q=q, fmpc=fmpc)
-   ! do v=1, nv_c
-   !    call weno_reconstruct_upwind(S=weno_s, weno_a=weno_a, weno_p=weno_p, weno_d=weno_d,&
-   !                                 weno_zeps=weno_zeps, V=fmpc(:,:,v), VR=fpmr(:,v))
-   ! enddo
-   ! ! back projection in conservative variables space
-   ! do v=1, nv_c
-   !    fluxes(v,i,j,k,b) = 0._R8P
-   !    do vv=1,nv_c
-   !       fluxes(v,i,j,k,b) = fluxes(v,i,j,k,b) + erw(vv,v,dir) * (fpmr(1,vv) + fpmr(2,vv))
-   !    enddo
-   ! enddo
-   ! 2nd, 4th, 6th order centered
-   integer(I4P)                :: v, vv, f, s, is, js, ks          !< Counter.
-   real(R8P)                   :: fmpc(1:2,1-S_MAX:S_MAX,1:NV_MAX) !< Fluxes -+ decomposition in c. space.
-   real(R8P)                   :: fmpr(1:2,1:NV_MAX)               !< Fluxes -+ reconstructed.
-
-   call decompose_fluxes_convective_centered(dir=dir, si=si, sir=sir,                &
-                                             b=b, i=i, j=j, k=k, ngc=ngc, nv_c=nv_c, &
-                                             weno_s=weno_s, evmax=evmax,             &
-                                             q=q, fmpc=fmpc(:,1-weno_s:weno_s,:))
+   call decompose_fluxes_convective(dir=dir, si=si, sir=sir,                &
+                                    b=b, i=i, j=j, k=k, ngc=ngc, nv_c=nv_c, &
+                                    weno_s=weno_s, evmax=evmax, elw=elw,    &
+                                    q=q, fmpc=fmpc)
    do v=1, nv_c
-      do f=1, 2
-         call reconstruct_centered_6(x=fmpc(f,-2:3,v), xr=fmpr(f,v))
+      call weno_reconstruct_upwind(S=weno_s, weno_a=weno_a, weno_p=weno_p, weno_d=weno_d,&
+                                   weno_zeps=weno_zeps, V=fmpc(:,:,v), VR=fpmr(:,v))
+   enddo
+   ! back projection in conservative variables space
+   do v=1, nv_c
+      fluxes(v,i,j,k,b) = 0._R8P
+      do vv=1,nv_c
+         fluxes(v,i,j,k,b) = fluxes(v,i,j,k,b) + erw(vv,v,dir) * (fpmr(1,vv) + fpmr(2,vv))
       enddo
    enddo
-   do v=1, nv_c
-      fluxes(v,i,j,k,b) = fmpr(1,v) + fmpr(2,v)
-   enddo
+
+   ! 2nd, 4th, 6th order centered
+   ! integer(I4P)                :: v, vv, f, s, is, js, ks          !< Counter.
+   ! real(R8P)                   :: fmpc(1:2,1-S_MAX:S_MAX,1:NV_MAX) !< Fluxes -+ decomposition in c. space.
+   ! real(R8P)                   :: fmpr_ho(1:2,1:NV_MAX)            !< Fluxes -+ reconstructed 6th order.
+   ! real(R8P)                   :: fmpr_lo(1:2,1:NV_MAX)            !< Fluxes -+ reconstructed 2nd order
+   ! real(R8P)                   :: fi(1:NV_MAX)               !< Fluxes -+ reconstructed.
+   !
+   ! call decompose_fluxes_convective_centered(dir=dir, si=si, sir=sir,                &
+   !                                           b=b, i=i, j=j, k=k, ngc=ngc, nv_c=nv_c, &
+   !                                           weno_s=weno_s, evmax=evmax,             &
+   !                                           q=q, fmpc=fmpc(:,1-weno_s:weno_s,:))
+   ! do v=1, nv_c
+   !    do f=1, 2
+   !       call reconstruct_centered_6(x=fmpc(f,-2:3,v), xr=fmpr(f,v))
+   !       call reconstruct_centered_2(x=fmpc(f,-1:1,v), xr=fmpr_lo(f,v))
+   !    enddo
+   !    call minmod(qp=q(v,i,j,k,b), qe=q(v,i+si(1),j+si(2),k+si(3),b), & 
+   !                qw=q(v,i-si(1),j-si(2),k-si(3),b), fi=fi(v))
+   ! enddo
+   ! do v=1, nv_c
+   !   fluxes(v,i,j,k,b) = (fmpr_lo(1,v) + fmpr_lo(2,v))- &
+   !                        fi(v)*((fmpr_lo(1,v) + fmpr_lo(2,v))-(fmpr_ho(1,v) + fmpr_ho(2,v)))
+   ! enddo
    endsubroutine compute_fluxes_convective_ri
 
    pure subroutine reconstruct_centered_6(x, xr)
@@ -1052,52 +1085,72 @@ contains
    ! xr = (-x(-1) + 7._R8P * x(0) + 7._R8P * x(1) - x(2)) / 12._R8P
    endsubroutine reconstruct_centered_6
 
-   subroutine reconstruct_wenoc_6(v, w)
-   !< WENOC reconstruction at right interface, 6h order centered, stencil [i-3+1:i+3].
-   real(R8P), intent(in)  :: v(-2:3)               !< Variable to reconstructed on stencil.
-   real(R8P), intent(out) :: vr                    !< Reconstructed variable.
-   real(R8P)              :: beta(0:2)             !< Smoothness indicators.
-   real(R8P)              :: alpha(0:2), sum_alpha !< Linear weights.
-   real(R8P)              :: tau                   !< Z mapping.
-   real(R8P)              :: w(0:2)                !< Weights of WENOC stencils.
-   real(R8P)              :: vp(0:2)               !< Polynomial reconstructions on stencils.
-   integer(I4P)           :: s                     !< Counter.
-   real(R8P), parameter   :: d0 = 3.0_R8P/10.0_R8P, &
-                             d1 = 3.0_R8P/5.0_R8P,  &
-                             d2 = 1.0_R8P/10.0_R8P !< Reconstruction coefficients.
+   pure subroutine reconstruct_centered_2(x, xr)
+   !< Polynomial reconstruction at right interface, 2h order centered, stencil [i-1:i+1].
+   real(R8P), intent(in)  :: x(-1:1)                 !< Cell centered values over stencil.
+   real(R8P), intent(out) :: xr                      !< Reconstructed value at right interface.
 
-   ! compute smoothness indicators
-   beta(0) = (13.0_R8P/12.0_R8P) * (v(-2) - 2.0_R8P*v(-1) +         v(0))**2 + &
-             (1.0_R8P/4.0_R8P)   * (v(-2) - 4.0_R8P*v(-1) + 3.0_R8P*v(0))**2
+   xr = 0.5_R8P * (x(-1) + x(1)) 
+   endsubroutine reconstruct_centered_2
 
-   beta(1) = (13.0_R8P/12.0_R8P) * (v(-1) - 2.0_R8P*v(0) + v(1))**2 + &
-             (1.0_R8P/4.0_R8P)   * (v(-1)                - v(1))**2
+   pure subroutine minmod(qp, qe, qw, fi)
+   !< Minmod limiter.
+   real(R8P), intent(in)  :: qp
+   real(R8P), intent(in)  :: qe
+   real(R8P), intent(in)  :: qw
+   real(R8P)              :: ri 
+   real(R8P), intent(out) :: fi
 
-   beta(2) = (13.0_R8P/12.0_R8P) * (v(0)         - 2.0_R8P*v(1) + v(2))**2 + &
-             (1.0_R8P/4.0_R8P)   * (3.0_R8P*v(0) - 4.0_R8P*v(1) + v(2))**2
+   ri = (qp - qw)/(qe - qp + 1.0e-16_R8P)
+   fi = max(0._R8P, min(1._R8P, ri))
+   endsubroutine minmod
 
-   ! compute Z mapping
-   tau = abs(beta(0) - beta(2))
-
-   ! compute linear weights
-   alpha(0) = d0 * (1.0_R8P + (tau/(beta(0) + eps))**2)
-   alpha(1) = d1 * (1.0_R8P + (tau/(beta(1) + eps))**2)
-   alpha(2) = d2 * (1.0_R8P + (tau/(beta(2) + eps))**2)
-
-   ! compute non linear weights
-   sum_alpha = alpha(0) + alpha(1) + alpha(2)
-   do s = 0, 2
-      w(s) = alpha(s) / sum_alpha
-   enddo
-
-   ! compute polynomial reconstructions
-   vp(0) = ( 3.0_R8P*v(-2) - 10.0_R8P*v(-1) + 15.0_R8P*v(0)       )/ 8.0_R8P
-   vp(1) = (        -v(-1) +  9.0_R8P*v( 0) +  9.0_R8P*v(1) - v(2))/16.0_R8P
-   vp(2) = (15.0_R8P*v( 1) - 10.0_R8P*v( 2) +  3.0_R8P*v(3)       )/ 8.0_R8P
-
-   ! compute weighted reconstruction
-   vr = w(0)*vp(0) + w(1)*vp(1) + w(2)*vp(2)
-   endsubroutine reconstruct_wenoc_6
+   ! subroutine reconstruct_wenoc_6(v, w)
+   ! !< WENOC reconstruction at right interface, 6h order centered, stencil [i-3+1:i+3].
+   ! real(R8P), intent(in)  :: v(-2:3)               !< Variable to reconstructed on stencil.
+   ! real(R8P), intent(out) :: vr                    !< Reconstructed variable.
+   ! real(R8P)              :: beta(0:2)             !< Smoothness indicators.
+   ! real(R8P)              :: alpha(0:2), sum_alpha !< Linear weights.
+   ! real(R8P)              :: tau                   !< Z mapping.
+   ! real(R8P)              :: w(0:2)                !< Weights of WENOC stencils.
+   ! real(R8P)              :: vp(0:2)               !< Polynomial reconstructions on stencils.
+   ! integer(I4P)           :: s                     !< Counter.
+   ! real(R8P), parameter   :: d0 = 3.0_R8P/10.0_R8P, &
+   !                           d1 = 3.0_R8P/5.0_R8P,  &
+   !                           d2 = 1.0_R8P/10.0_R8P !< Reconstruction coefficients.
+! 
+   ! ! compute smoothness indicators
+   ! beta(0) = (13.0_R8P/12.0_R8P) * (v(-2) - 2.0_R8P*v(-1) +         v(0))**2 + &
+   !           (1.0_R8P/4.0_R8P)   * (v(-2) - 4.0_R8P*v(-1) + 3.0_R8P*v(0))**2
+! 
+   ! beta(1) = (13.0_R8P/12.0_R8P) * (v(-1) - 2.0_R8P*v(0) + v(1))**2 + &
+   !           (1.0_R8P/4.0_R8P)   * (v(-1)                - v(1))**2
+! 
+   ! beta(2) = (13.0_R8P/12.0_R8P) * (v(0)         - 2.0_R8P*v(1) + v(2))**2 + &
+   !           (1.0_R8P/4.0_R8P)   * (3.0_R8P*v(0) - 4.0_R8P*v(1) + v(2))**2
+! 
+   ! ! compute Z mapping
+   ! tau = abs(beta(0) - beta(2))
+! 
+   ! ! compute linear weights
+   ! alpha(0) = d0 * (1.0_R8P + (tau/(beta(0) + eps))**2)
+   ! alpha(1) = d1 * (1.0_R8P + (tau/(beta(1) + eps))**2)
+   ! alpha(2) = d2 * (1.0_R8P + (tau/(beta(2) + eps))**2)
+! 
+   ! ! compute non linear weights
+   ! sum_alpha = alpha(0) + alpha(1) + alpha(2)
+   ! do s = 0, 2
+   !    w(s) = alpha(s) / sum_alpha
+   ! enddo
+! 
+   ! ! compute polynomial reconstructions
+   ! vp(0) = ( 3.0_R8P*v(-2) - 10.0_R8P*v(-1) + 15.0_R8P*v(0)       )/ 8.0_R8P
+   ! vp(1) = (        -v(-1) +  9.0_R8P*v( 0) +  9.0_R8P*v(1) - v(2))/16.0_R8P
+   ! vp(2) = (15.0_R8P*v( 1) - 10.0_R8P*v( 2) +  3.0_R8P*v(3)       )/ 8.0_R8P
+! 
+   ! ! compute weighted reconstruction
+   ! vr = w(0)*vp(0) + w(1)*vp(1) + w(2)*vp(2)
+   ! endsubroutine reconstruct_wenoc_6
 
    subroutine compute_fluxes_difference(blocks_number, ni, nj, nk, ngc, nv_c, dx, dy, dz, flx, fly, flz, q, dq)
    !< Compute fluxes difference.

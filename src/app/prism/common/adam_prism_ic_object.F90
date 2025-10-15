@@ -10,16 +10,19 @@ use adam_prism_physics_object, only : prism_physics_object
 ! third party modules
 use finer
 use penf
+use adam_prism_parameters
 
 implicit none
 private
 public :: IC_TYPE_RP
 public :: IC_TYPE_VACUUM
+public :: IC_TYPE_PLANE_WAVE
 public :: prism_ic_object
 
 character(len=18), parameter :: INI_SECTION_NAME="initial_conditions" !< INI (config) file section name containing IC configs.
 character(len=6),  parameter :: IC_TYPE_VACUUM="vacuum"               !< Vacuum IC TYPE parameter.
-character(len=15), parameter :: IC_TYPE_RP="riemann-problem"          !< Riemann Problem IC TYPE parameter.
+character(len=15), parameter :: IC_TYPE_RP="riemann-problem" 
+character(len=10), parameter :: IC_TYPE_PLANE_WAVE="plane_wave"         !< Riemann Problem IC TYPE parameter.
 
 type :: prism_ic_object
    !< Initial Conditions class definition, CPU backend.
@@ -29,6 +32,11 @@ type :: prism_ic_object
    integer(I4P)              :: regions_number=1_I4P !< Number of IC regions.
    real(R8P), allocatable    :: q(:,:)               !< Primitive variables (Dx,Dy,Dz,Bx,By,Bz,Jx,Jy,Jz).
    real(R8P), allocatable    :: emin(:,:), emax(:,:) !< IC regions bounding box.
+   real(R8P)                 :: kx=0.0_R8P           !< Plane wave number in x direction.
+   real(R8P)                 :: ky=0.0_R8P           !< Plane wave number in y direction.
+   real(R8P)                 :: kz=0.0_R8P           !< Plane wave number in z direction.
+   real(R8P)                 :: lambda=0.0_R8P       !< Plane wave wavelength.
+   real(R8P)                 :: B0=0.0_R8P           !< Plane wave background magnetic field amplitude.
    contains
       ! public methods
       procedure, pass(self) :: description            !< Return pretty-printed object description.
@@ -131,6 +139,24 @@ contains
          if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(emax_z)')
       enddo
    endif
+   if (self%ic_type == IC_TYPE_PLANE_WAVE) then
+      print *, 'Plane wave'
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='kx', val=self%kx, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(kx)')
+      print*, 'kx=', self%kx
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ky', val=self%ky, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ky)')
+      print*, 'ky=', self%ky
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='kz', val=self%kz, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(kz)')
+      print*, 'kz=', self%kz
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='lambda', val=self%lambda, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(lambda)')
+      print*, 'lambda=', self%lambda
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='B0', val=self%B0, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B0)')    
+      print*, 'B0=', self%B0      
+   endif 
    endsubroutine load_from_file
 
    subroutine set_initial_conditions(self, physics, field, q)
@@ -138,15 +164,18 @@ contains
       class(prism_ic_object),     intent(in)    :: self                 !< IC.
       type(prism_physics_object), intent(in)    :: physics              !< Fluids physiscs.
       type(field_object),         intent(in)    :: field                !< Field object.
-      real(R8P),                  intent(inout) :: q(1:,               &
-                                                     1-field%grid%ngc:,&
-                                                     1-field%grid%ngc:,&
-                                                     1-field%grid%ngc:,&
-                                                     1:)                !< Field cell centered variables.
+      real(R8P),                  intent(inout) :: q(1:,             &
+                                                   1-field%grid%ngc:,&
+                                                   1-field%grid%ngc:,&
+                                                   1-field%grid%ngc:,&
+                                                   1:)                  !< Field cell centered variables.
+      real(R8P)                                 :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
+                                                   y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
+                                                   z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc) 
+                                                                        !< Vettori posizione centro celle del blocco b
       integer(I4P)                              :: b, i, j, k, ri, var  !< Counter.
-
    associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
-             x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell, nv=>physics%nv)
+             nv=>physics%nv)
    select case(self%ic_type)
    case(IC_TYPE_VACUUM) ! vacuum initial conditions
       do b=1, blocks_number
@@ -156,6 +185,30 @@ contains
                   do var=1, nv
                      q(var,i,j,k,b) = 0.0_R8P
                   enddo
+               enddo
+            enddo
+         enddo
+      enddo
+   case(IC_TYPE_PLANE_WAVE) !plane wave initial conditions
+      do b=1, blocks_number
+         call field%grid%cell_xyz(coordinates = field%coordinates(:,b), &
+               x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
+         do k=1, nk
+            do j=1, nj
+               do i=1, ni
+                  q(1,i,j,k,b) = self%B0*C0*EPS0*self%kz*cos(self%kx*2*PI/self%lambda*x_cell(i)+ &
+                                 self%ky*2*PI/self%lambda*y_cell(j)+self%kz*2*PI/self%lambda*z_cell(k)) !Dx
+                  q(2,i,j,k,b) = self%B0*C0*EPS0*self%kx*cos(self%kx*2*PI/self%lambda*x_cell(i)+ &
+                                 self%ky*2*PI/self%lambda*y_cell(j)+self%kz*2*PI/self%lambda*z_cell(k)) !Dy
+                  q(3,i,j,k,b) = self%B0*C0*EPS0*self%ky*cos(self%kx*2*PI/self%lambda*x_cell(i)+ &
+                                 self%ky*2*PI/self%lambda*y_cell(j)+self%kz*2*PI/self%lambda*z_cell(k)) !Dz
+
+                  q(4,i,j,k,b) = self%B0*self%ky*cos(self%kx*2*PI/self%lambda*x_cell(i)+ &
+                                 self%ky*2*PI/self%lambda*y_cell(j)+self%kz*2*PI/self%lambda*z_cell(k)) !Bx
+                  q(5,i,j,k,b) = self%B0*self%kz*cos(self%kx*2*PI/self%lambda*x_cell(i)+ &
+                                 self%ky*2*PI/self%lambda*y_cell(j)+self%kz*2*PI/self%lambda*z_cell(k)) !By
+                  q(6,i,j,k,b) = self%B0*self%kx*cos(self%kx*2*PI/self%lambda*x_cell(i)+ &
+                                 self%ky*2*PI/self%lambda*y_cell(j)+self%kz*2*PI/self%lambda*z_cell(k)) !Bz
                enddo
             enddo
          enddo

@@ -94,7 +94,7 @@ contains
    desc = desc//self%mpih%myrankstr//'  D divergence correction:                      '//trim(str(self%d_divergence_cleaner))//NL
    desc = desc//self%mpih%myrankstr//'  B divergence correction:                      '//trim(str(self%b_divergence_cleaner))//NL
    desc = desc//self%mpih%myrankstr//'  Chi:                                          '//trim(str(self%chi                 ))//NL
-   desc = desc//self%mpih%myrankstr//'  Eta:                                          '//trim(str(self%eta                 ))//NL
+   desc = desc//self%mpih%myrankstr//'  Eta:                                          '//trim(str(self%eta                 ))
    endfunction description
 
    subroutine initialize(self, file_parameters)

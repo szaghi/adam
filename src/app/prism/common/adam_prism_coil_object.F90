@@ -85,36 +85,40 @@ contains
    integer(I4P)                         :: r                !< Counter.
 
    desc =       self%mpih%myrankstr//'Coils main data'//NL
-   do r=1, self%total_coils_number
-      desc = desc//self%mpih%myrankstr//'  Coil('//trim(str(r,.true.))//')'
-      select case(self%coil_type(r))
-      case(COIL_TYPE_CIRCULAR)
-      !desc = desc//NL//self%mpih%myrankstr//'    Coil type: '//trim(str(self%coil_type(r)))
-      !desc = desc//NL//self%mpih%myrankstr//'    Current type:'//trim(str(self%current_type(r)))
-      desc = desc//NL//self%mpih%myrankstr//'    Radius: '//trim(str(self%r_coil(r)))
-      desc = desc//NL//self%mpih%myrankstr//'    Section diameter: '//trim(str(self%d(r)))
-      desc = desc//NL//self%mpih%myrankstr//'    Normal: '//trim(str(self%normal(:,r)))
-      desc = desc//NL//self%mpih%myrankstr//'    X_center: '//trim(str(self%x_center(r)))
-      desc = desc//NL//self%mpih%myrankstr//'    Y_center: '//trim(str(self%y_center(r)))
-      desc = desc//NL//self%mpih%myrankstr//'    Z_center: '//trim(str(self%z_center(r)))
-      desc = desc//NL//self%mpih%myrankstr//'    Amplitude: '//trim(str(self%A(r)))
-      desc = desc//NL//self%mpih%myrankstr//'    requency: '//trim(str(self%f(r)))
-      desc = desc//NL//self%mpih%myrankstr//'    Phase: '//trim(str(self%phase(r)))
-      case(COIL_TYPE_RECTANGULAR)
-      !desc = desc//NL//self%mpih%myrankstr//'    Coil type: '//trim(str(self%coil_type(r)))
-      !desc = desc//NL//self%mpih%myrankstr//'    Current type:'//trim(str(self%current_type(r)))
-      desc = desc//NL//self%mpih%myrankstr//'    L1: '//trim(str(self%lx(r)))
-      desc = desc//NL//self%mpih%myrankstr//'    L2: '//trim(str(self%ly(r)))
-      desc = desc//NL//self%mpih%myrankstr//'    Section diameter: '//trim(str(self%d(r)))
-      desc = desc//NL//self%mpih%myrankstr//'    Normal: '//trim(str(self%normal(:,r)))
-      desc = desc//NL//self%mpih%myrankstr//'    X_center: '//trim(str(self%x_center(r)))
-      desc = desc//NL//self%mpih%myrankstr//'    Y_center: '//trim(str(self%y_center(r)))
-      desc = desc//NL//self%mpih%myrankstr//'    Z_center: '//trim(str(self%z_center(r)))
-      desc = desc//NL//self%mpih%myrankstr//'    Amplitude: '//trim(str(self%A(r)))
-      desc = desc//NL//self%mpih%myrankstr//'    requency: '//trim(str(self%f(r)))
-      desc = desc//NL//self%mpih%myrankstr//'    Phase: '//trim(str(self%phase(r)))
-      endselect
-   enddo
+   if (self%total_coils_number > 0_I4P) then
+      do r=1, self%total_coils_number
+         desc = desc//self%mpih%myrankstr//'  Coil('//trim(str(r,.true.))//')'
+         select case(self%coil_type(r))
+         case(COIL_TYPE_CIRCULAR)
+         !desc = desc//NL//self%mpih%myrankstr//'    Coil type: '//trim(str(self%coil_type(r)))
+         !desc = desc//NL//self%mpih%myrankstr//'    Current type:'//trim(str(self%current_type(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Radius: '//trim(str(self%r_coil(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Section diameter: '//trim(str(self%d(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Normal: '//trim(str(self%normal(:,r)))
+         desc = desc//NL//self%mpih%myrankstr//'    X_center: '//trim(str(self%x_center(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Y_center: '//trim(str(self%y_center(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Z_center: '//trim(str(self%z_center(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Amplitude: '//trim(str(self%A(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    requency: '//trim(str(self%f(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Phase: '//trim(str(self%phase(r)))
+         case(COIL_TYPE_RECTANGULAR)
+         !desc = desc//NL//self%mpih%myrankstr//'    Coil type: '//trim(str(self%coil_type(r)))
+         !desc = desc//NL//self%mpih%myrankstr//'    Current type:'//trim(str(self%current_type(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    L1: '//trim(str(self%lx(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    L2: '//trim(str(self%ly(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Section diameter: '//trim(str(self%d(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Normal: '//trim(str(self%normal(:,r)))
+         desc = desc//NL//self%mpih%myrankstr//'    X_center: '//trim(str(self%x_center(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Y_center: '//trim(str(self%y_center(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Z_center: '//trim(str(self%z_center(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Amplitude: '//trim(str(self%A(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    requency: '//trim(str(self%f(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Phase: '//trim(str(self%phase(r)))
+         endselect
+      enddo
+   else
+      desc = desc//self%mpih%myrankstr//'  No coils defined.'
+   endif
    endfunction description
 
    subroutine initialize(self, file_parameters, field) !Cfr ic%initialize, ma commentata parte descrizione perchè da implementare
@@ -209,8 +213,6 @@ contains
 
    self%total_coils_number = self%circular_coils_number + self%rectangular_coils_number
 
-   if (self%total_coils_number>=1_I4P) then
-
       ! Alloczione variabili dell'oggetto spira
       allocate(self%r_coil              (0:self%total_coils_number))
       allocate(self%ly                  (0:self%total_coils_number))
@@ -260,6 +262,8 @@ contains
 
       endassociate
 
+   if (self%total_coils_number>=1_I4P) then
+      
       do i=1, self%total_coils_number
          sname = INI_SECTION_NAME//'_coil_'//trim(str(i,.true.))
 

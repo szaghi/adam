@@ -15,6 +15,7 @@ public :: BC_EXTRAPOLATION
 public :: BC_fWLayer
 public :: BC_Silver_Muller
 public :: BC_EXTRAP_DIRICHLET
+public :: BC_PERIOD
 
 character(len=8), parameter :: INI_SECTION_NAMES(6)=["bc_x_min", "bc_x_max", &
                                                      "bc_y_min", "bc_y_max", &
@@ -24,6 +25,7 @@ integer(I4P), parameter :: BC_EXTRAPOLATION   = 1_I4P !< Extrapolation.
 integer(I4P), parameter :: BC_fWLayer         = 2_I4P !< fWLayer BC
 integer(I4P), parameter :: BC_Silver_Muller   = 3_I4P !< Silver-Muller BC.
 integer(I4P), parameter :: BC_EXTRAP_DIRICHLET= 4_I4P !< Prova
+integer(I4P), parameter :: BC_PERIOD          = 5_I4P !< Periodic BC.
 
 type :: prism_bc_object
    !< Boundary Conditions class definition, CPU backend.
@@ -75,6 +77,9 @@ contains
          self%bc_type(b) = BC_Silver_Muller
       case('Extr_Diric')
          self%bc_type(b) = BC_EXTRAP_DIRICHLET
+      case('periodic')
+         self%bc_type(b) = BC_PERIOD
+         print *, 'Periodic BC selected'
       endselect
    enddo
    endsubroutine load_from_file
