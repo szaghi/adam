@@ -179,9 +179,9 @@
       </a>
       <div id="subs-0" class="collapse">
         <div class="list-group list-group-flush">
-            <a class="list-group-item" href="../module/adam_nasto_ic_object.html#proc-initialize~4">initialize</a>
+            <a class="list-group-item" href="../module/adam_nasto_ic_object.html#proc-initialize~6">initialize</a>
             <a class="list-group-item" href="../module/adam_nasto_ic_object.html#proc-load_from_file~3">load_from_file</a>
-            <a class="list-group-item" href="../module/adam_nasto_ic_object.html#proc-set_initial_conditions~2">set_initial_conditions</a>
+            <a class="list-group-item" href="../module/adam_nasto_ic_object.html#proc-set_initial_conditions~4">set_initial_conditions</a>
         </div>
       </div>
     </div>
@@ -210,8 +210,8 @@
                   <li class="list-inline-item">adam_mpih_object</li>
                   <li class="list-inline-item"><a href='adam_nasto_physics_object.html'>adam_nasto_physics_object</a></li>
                   <li class="list-inline-item">adam_field_object</li>
-                  <li class="list-inline-item">penf</li>
                   <li class="list-inline-item">finer</li>
+                  <li class="list-inline-item">penf</li>
               </ul>
             </li>
             <li class="list-group-item">
@@ -822,7 +822,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-mpih~3"></span>
+              <span class="anchor" id="variable-mpih~4"></span>
               type(mpih_object),
             </td>
               <td>public</td>
@@ -890,7 +890,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q~5"></span>
+              <span class="anchor" id="variable-q~19"></span>
               real(kind=R8P),
             </td>
               <td>public,</td>
@@ -955,7 +955,7 @@ parameter
               </tr>
               <tr>
                 <td>  procedure, public, pass(self) ::
-  <strong><a href='../type/nasto_ic_object.html#boundprocedure-initialize~4'>initialize</a></strong></td>
+  <strong><a href='../type/nasto_ic_object.html#boundprocedure-initialize~6'>initialize</a></strong></td>
                   <td><p>Initialize IC.</p></td>
               </tr>
               <tr>
@@ -965,7 +965,7 @@ parameter
               </tr>
               <tr>
                 <td>  procedure, public, pass(self) ::
-  <strong><a href='../type/nasto_ic_object.html#boundprocedure-set_initial_conditions~2'>set_initial_conditions</a></strong></td>
+  <strong><a href='../type/nasto_ic_object.html#boundprocedure-set_initial_conditions~4'>set_initial_conditions</a></strong></td>
                   <td><p>Set initial conditions on NASTO fields.</p></td>
               </tr>
           </tbody>
@@ -998,7 +998,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~36"></span>
+              <span class="anchor" id="variable-self~94"></span>
               class(<a href='../type/nasto_ic_object.html'>nasto_ic_object</a>),
             </td>
 <td>intent(in)</td>
@@ -1029,7 +1029,7 @@ parameter
         <section>
           <h2>Subroutines</h2>
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-initialize~4"></span> <h3>private  subroutine <a href='../proc/initialize~4.html'>initialize</a>(self, file_parameters)  
+    <div class="card-header codesum"><span class="anchor" id="proc-initialize~6"></span> <h3>private  subroutine <a href='../proc/initialize~6.html'>initialize</a>(self, file_parameters)  
 </h3></div>
     <div class="card-body">
           
@@ -1048,7 +1048,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~37"></span>
+              <span class="anchor" id="variable-self~95"></span>
               class(<a href='../type/nasto_ic_object.html'>nasto_ic_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -1103,7 +1103,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~38"></span>
+              <span class="anchor" id="variable-self~96"></span>
               class(<a href='../type/nasto_ic_object.html'>nasto_ic_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -1154,7 +1154,7 @@ parameter
   </div>
 
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-set_initial_conditions~2"></span> <h3>private  subroutine <a href='../proc/set_initial_conditions~2.html'>set_initial_conditions</a>(self, physics, field, q)  
+    <div class="card-header codesum"><span class="anchor" id="proc-set_initial_conditions~4"></span> <h3>private  subroutine <a href='../proc/set_initial_conditions~4.html'>set_initial_conditions</a>(self, physics, field, q)  
 </h3></div>
     <div class="card-body">
           
@@ -1173,7 +1173,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~39"></span>
+              <span class="anchor" id="variable-self~97"></span>
               class(<a href='../type/nasto_ic_object.html'>nasto_ic_object</a>),
             </td>
 <td>intent(in)</td>
@@ -1188,7 +1188,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-physics"></span>
+              <span class="anchor" id="variable-physics~4"></span>
               type(<a href='../type/nasto_physics_object.html'>nasto_physics_object</a>),
             </td>
 <td>intent(in)</td>
@@ -1203,7 +1203,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-field"></span>
+              <span class="anchor" id="variable-field~3"></span>
               type(field_object),
             </td>
 <td>intent(in)</td>
@@ -1218,7 +1218,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q~6"></span>
+              <span class="anchor" id="variable-q~20"></span>
               real(kind=R8P),
             </td>
 <td>intent(inout)</td>
