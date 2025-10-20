@@ -596,20 +596,21 @@ contains
              flx=>self%flx, fly=>self%fly, flz=>self%flz,                                                          &
              weno_s=>self%weno%S, weno_zeps=>self%weno%zeps,                                                       &
              weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d,                                        &
-             evmax=>self%physics%evmax, erw=>self%physics%erw, elw=>self%physics%elw)
+             evmax=>self%physics%evmax, erw=>self%physics%erw, elw=>self%physics%elw, &
+             num_scheme_type=>self%physics%num_scheme_type)
    if (blocks_number > 0) then
       call compute_fluxes_convective(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,      &
                                      weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,&
                                      evmax=evmax,erw=erw,elw=elw,                                                &
-                                     q=q,fluxes=flx)
+                                     q=q,num_scheme_type=num_scheme_type,fluxes=flx)
       call compute_fluxes_convective(dir=2,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,      &
                                      weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,&
                                      evmax=evmax,erw=erw,elw=elw,                                                &
-                                     q=q,fluxes=fly)
+                                     q=q,num_scheme_type=num_scheme_type,fluxes=fly)
       call compute_fluxes_convective(dir=3,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,      &
                                      weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,&
                                      evmax=evmax,erw=erw,elw=elw,                                                &
-                                     q=q,fluxes=flz)
+                                     q=q,num_scheme_type=num_scheme_type,fluxes=flz)
       call compute_fluxes_difference(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv_c=nv_c, &
                                      dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz, dq=dq, q=q)
    endif
@@ -952,7 +953,7 @@ contains
    endsubroutine compute_dxyz_min
 
    subroutine compute_fluxes_convective(dir,blocks_number,ni,nj,nk,ngc,nv_c,weno_s,weno_a,weno_p,weno_d,weno_zeps,&
-                                        evmax,erw,elw,q,fluxes)
+                                        evmax,erw,elw,q,num_scheme_type,fluxes)
    !< Compute convective fluxes along direction `dir`.
    integer(I4P), intent(in)    :: dir                                !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P), intent(in)    :: blocks_number                      !< Number of blocks.
@@ -970,6 +971,7 @@ contains
    real(R8P),    intent(in)    :: erw(1:,1:,1:)                      !< Right eigenvectors for WENO reconstruction.
    real(R8P),    intent(in)    :: elw(1:,1:,1:)                      !< Left  eigenvectors for WENO reconstruction.
    real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Field variables.
+   character(*), intent(in)    :: num_scheme_type                    !< Numerical scheme type.
    real(R8P),    intent(inout) :: fluxes(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes.
    integer(I4P)                :: si(3), si_i, si_j, si_k            !< Directional (1=x,2=y,3=z) increment.
    real(R8P)                   :: sir(3)                             !< Directional (1=x,2=y,3=z) increment, real.
@@ -992,20 +994,20 @@ contains
    do k=si_k, nk
    do j=si_j, nj
    do i=si_i, ni
-      call compute_fluxes_convective_ri(dir=dir,b=b,i=i,j=j,k=k,ngc=ngc,nv_c=nv_c,  &
-                                        weno_s=weno_s, weno_zeps=weno_zeps,         &
-                                        weno_a=weno_a, weno_p=weno_p, weno_d=weno_d,&
-                                        evmax=evmax,erw=erw,elw=elw,                &
-                                        si=si,sir=sir,q=q,fluxes=fluxes)
+      call compute_fluxes_convective_ri(dir=dir,b=b,i=i,j=j,k=k,ngc=ngc,nv_c=nv_c,                       &
+                                        weno_s=weno_s, weno_zeps=weno_zeps,                              &
+                                        weno_a=weno_a, weno_p=weno_p, weno_d=weno_d,                     &
+                                        evmax=evmax,erw=erw,elw=elw,                                     &
+                                        si=si,sir=sir,q=q,num_scheme_type=num_scheme_type,fluxes=fluxes)
    enddo
    enddo
    enddo
    enddo
    endsubroutine compute_fluxes_convective
 
-   subroutine compute_fluxes_convective_ri(dir,b,i,j,k,ngc,nv_c,                  &
-                                           weno_s,weno_zeps,weno_a,weno_p,weno_d, &
-                                           evmax,erw,elw,si,sir,q,fluxes)
+   subroutine compute_fluxes_convective_ri(dir,b,i,j,k,ngc,nv_c,                          &
+                                           weno_s,weno_zeps,weno_a,weno_p,weno_d,         &
+                                           evmax,erw,elw,si,sir,q,num_scheme_type,fluxes)
    !< Compute convective fluxes at right interface of b,i,j,k.
    integer(I4P), intent(in)    :: dir                                 !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P), intent(in)    :: b, i, j, k                          !< Counter.
@@ -1022,50 +1024,53 @@ contains
    integer(I4P), intent(in)    :: si(3)                               !< Stencil increment.
    real(R8P),    intent(in)    :: sir(3)                              !< Stencil increment, real cast.
    real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)       !< Fields variables.
+   character(*), intent(in)    :: num_scheme_type                     !< Numerical scheme type.
    real(R8P),    intent(inout) :: fluxes(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Fluxes.
    real(R8P)                   :: fmpc(1:2,1-S_MAX:-1+S_MAX,1:NV_MAX) !< Fluxes -+ decomposition in c. space.
    real(R8P)                   :: fpmr(1:2,1:NV_MAX)                  !< Fluxes +- reconstructed.
-   integer(I4P)                :: v, vv                               !< Counter.
-
-   call decompose_fluxes_convective(dir=dir, si=si, sir=sir,                &
+   real(R8P)                   :: fmpr_ho(1:2,1:NV_MAX)               !< Fluxes -+ reconstructed 6th order.
+   real(R8P)                   :: fmpr_lo(1:2,1:NV_MAX)               !< Fluxes -+ reconstructed 2nd order
+   real(R8P)                   :: fi(1:NV_MAX)                        !< Minmod function.
+   integer(I4P)                :: v, vv, f, s, is, js, ks             !< Counter.
+   
+   select case(num_scheme_type)
+   case(NUM_SCHEME_UPWIND)
+      call decompose_fluxes_convective(dir=dir, si=si, sir=sir,                &
                                     b=b, i=i, j=j, k=k, ngc=ngc, nv_c=nv_c, &
                                     weno_s=weno_s, evmax=evmax, elw=elw,    &
                                     q=q, fmpc=fmpc)
-   do v=1, nv_c
-      call weno_reconstruct_upwind(S=weno_s, weno_a=weno_a, weno_p=weno_p, weno_d=weno_d,&
-                                   weno_zeps=weno_zeps, V=fmpc(:,:,v), VR=fpmr(:,v))
-   enddo
-   ! back projection in conservative variables space
-   do v=1, nv_c
-      fluxes(v,i,j,k,b) = 0._R8P
-      do vv=1,nv_c
-         fluxes(v,i,j,k,b) = fluxes(v,i,j,k,b) + erw(vv,v,dir) * (fpmr(1,vv) + fpmr(2,vv))
+      do v=1, nv_c
+         call weno_reconstruct_upwind(S=weno_s, weno_a=weno_a, weno_p=weno_p, weno_d=weno_d,&
+                                      weno_zeps=weno_zeps, V=fmpc(:,:,v), VR=fpmr(:,v))
       enddo
-   enddo
-
-   ! 2nd, 4th, 6th order centered
-   ! integer(I4P)                :: v, vv, f, s, is, js, ks          !< Counter.
-   ! real(R8P)                   :: fmpc(1:2,1-S_MAX:S_MAX,1:NV_MAX) !< Fluxes -+ decomposition in c. space.
-   ! real(R8P)                   :: fmpr_ho(1:2,1:NV_MAX)            !< Fluxes -+ reconstructed 6th order.
-   ! real(R8P)                   :: fmpr_lo(1:2,1:NV_MAX)            !< Fluxes -+ reconstructed 2nd order
-   ! real(R8P)                   :: fi(1:NV_MAX)               !< Fluxes -+ reconstructed.
-   !
-   ! call decompose_fluxes_convective_centered(dir=dir, si=si, sir=sir,                &
-   !                                           b=b, i=i, j=j, k=k, ngc=ngc, nv_c=nv_c, &
-   !                                           weno_s=weno_s, evmax=evmax,             &
-   !                                           q=q, fmpc=fmpc(:,1-weno_s:weno_s,:))
-   ! do v=1, nv_c
-   !    do f=1, 2
-   !       call reconstruct_centered_6(x=fmpc(f,-2:3,v), xr=fmpr(f,v))
-   !       call reconstruct_centered_2(x=fmpc(f,-1:1,v), xr=fmpr_lo(f,v))
-   !    enddo
-   !    call minmod(qp=q(v,i,j,k,b), qe=q(v,i+si(1),j+si(2),k+si(3),b), & 
-   !                qw=q(v,i-si(1),j-si(2),k-si(3),b), fi=fi(v))
-   ! enddo
-   ! do v=1, nv_c
-   !   fluxes(v,i,j,k,b) = (fmpr_lo(1,v) + fmpr_lo(2,v))- &
-   !                        fi(v)*((fmpr_lo(1,v) + fmpr_lo(2,v))-(fmpr_ho(1,v) + fmpr_ho(2,v)))
-   ! enddo
+      ! back projection in conservative variables space
+      do v=1, nv_c
+         fluxes(v,i,j,k,b) = 0._R8P
+         do vv=1,nv_c
+            fluxes(v,i,j,k,b) = fluxes(v,i,j,k,b) + erw(vv,v,dir) * (fpmr(1,vv) + fpmr(2,vv))
+         enddo
+      enddo
+   case(NUM_SCHEME_CENTERED)
+      call decompose_fluxes_convective_centered(dir=dir, si=si, sir=sir,                &
+                                                b=b, i=i, j=j, k=k, ngc=ngc, nv_c=nv_c, &
+                                                weno_s=weno_s, evmax=evmax,             &
+                                                q=q, fmpc=fmpc(:,1-weno_s:weno_s,:))
+      do v=1, nv_c
+         do f=1, 2
+            call reconstruct_centered_6(x=fmpc(f,-2:3,v), xr=fmpr_ho(f,v))
+            !call reconstruct_centered_2(x=fmpc(f,-1:1,v), xr=fmpr_lo(f,v))
+         enddo
+         !call minmod(qp=q(v,i,j,k,b), qe=q(v,i+si(1),j+si(2),k+si(3),b), & 
+         !            qw=q(v,i-si(1),j-si(2),k-si(3),b), fi=fi(v))
+      enddo
+      do v=1, nv_c
+         !fluxes(v,i,j,k,b) = (fmpr_lo(1,v) + fmpr_lo(2,v))
+         fluxes(v,i,j,k,b) = (fmpr_ho(1,v) + fmpr_ho(2,v))
+         !fluxes(v,i,j,k,b) = (fmpr_lo(1,v) + fmpr_lo(2,v))- &
+         !                    fi(v)*((fmpr_lo(1,v) + fmpr_lo(2,v))-(fmpr_ho(1,v) + fmpr_ho(2,v)))
+      enddo
+   !case(NUM_CHEME_HYBRID)
+   endselect
    endsubroutine compute_fluxes_convective_ri
 
    pure subroutine reconstruct_centered_6(x, xr)

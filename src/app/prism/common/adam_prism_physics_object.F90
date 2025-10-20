@@ -50,6 +50,9 @@ integer(I4P),  parameter, public :: VAR_BZ = 6_I4P                      !< Conse
 integer(I4P),  parameter, public :: VAR_JX = 7_I4P                      !< Source variable 1, Jx.
 integer(I4P),  parameter, public :: VAR_JY = 8_I4P                      !< Source variable 2, Jy.
 integer(I4P),  parameter, public :: VAR_JZ = 9_I4P                      !< Source variable 3, Jz.
+character(8),  parameter, public :: NUM_SCHEME_CENTERED='CENTERED'      !< Centered numerical scheme.
+character(6),  parameter, public :: NUM_SCHEME_UPWIND='UPWIND'          !< Upwind numerical scheme.
+character(6),  parameter, public :: NUM_SCHEME_HYBRID='HYBRID'          !< Hybrid numerical scheme.
 character(12), parameter, public :: WENO_REC_VAR_CONS='CONSERVATIVE'    !< WENO reconstruction on conservative variables.
 character(15), parameter, public :: WENO_REC_VAR_CHAR='CHARACTERISTICS' !< WENO reconstruction on characteristics variables.
 character(7),  parameter, public :: DIV_CORR_VAR_POISS='POISSON'        !< Poisson divergence correction.
@@ -67,6 +70,7 @@ type :: prism_physics_object
    real(R8P)                 :: chi                          !< Coefficiente for D div-cleaning.
    real(R8P)                 :: eta                          !< Coefficiente for B div-cleaning.
    real(R8P)                 :: evmax                        !< Maximum signal speed (eigenvalue).
+   character(:), allocatable :: num_scheme_type              !< Type of numerical scheme (upwind, centerd, hybrid...).
    character(:), allocatable :: weno_rec_var                 !< Type of WENO reconstruction variables (cons., charct.,...).
    character(:), allocatable :: div_corr_var                 !< Type of divergence correction variables (poisson, hyperbolic,...).
    real(R8P), pointer        :: erw(:,:,:)=>null()           !< Right eigenvectors for WENO reconstruction.
@@ -89,6 +93,7 @@ contains
    desc =       self%mpih%myrankstr//'Physics main data:'                                                                    //NL
    desc = desc//self%mpih%myrankstr//'  number of variables in q (nv):                '//trim(str(self%nv                  ))//NL
    desc = desc//self%mpih%myrankstr//'  number of conservative variables in q (nv_c): '//trim(str(self%nv_c                ))//NL
+   desc = desc//self%mpih%myrankstr//'  Numerical scheme chosen:                      '//self%num_scheme_type                //NL   
    desc = desc//self%mpih%myrankstr//'  WENO reconstruction variables:                '//self%weno_rec_var                   //NL
    desc = desc//self%mpih%myrankstr//'  Divergence correction:                        '//self%div_corr_var                   //NL    
    desc = desc//self%mpih%myrankstr//'  D divergence correction:                      '//trim(str(self%d_divergence_cleaner))//NL
@@ -120,6 +125,23 @@ contains
    character(99)                                     :: buff            !< Character buffer.
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
+
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='num_scheme_type', val=buff,error=error)
+   if (.not.go_on_fail_.and.error>0) &
+      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(num_scheme_type)')
+   select case(trim(adjustl(buff)))
+   case('CENTERED', 'centered', 'Centered')
+      self%num_scheme_type = NUM_SCHEME_CENTERED
+   case('UPWIND', 'upwind', 'Upwind')
+      self%num_scheme_type = NUM_SCHEME_UPWIND
+   case('HYBRID', 'hybrid', 'Hybrid')
+      self%num_scheme_type = NUM_SCHEME_HYBRID
+   case default
+      call self%mpih%print_message(msg='warning: numerical scheme type "'//trim(adjustl(buff))// &
+                                   '" unknown. Revert back to upwind scheme')
+      self%num_scheme_type = NUM_SCHEME_UPWIND
+   endselect
+
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='weno_rec_var', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
       call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(weno_rec_var)')
