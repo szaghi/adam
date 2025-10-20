@@ -19,6 +19,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
    real(R8P), allocatable :: flx(:,:,:,:,:) !< Fluxes along x.
    real(R8P), allocatable :: fly(:,:,:,:,:) !< Fluxes along y.
    real(R8P), allocatable :: flz(:,:,:,:,:) !< Fluxes along z.
+   procedure(compute_residuals_interface), pass(self), pointer :: compute_residuals=>null() !< Compute residuals.
    contains
       ! auxiliary methods
       procedure, pass(self) :: allocate_cpu !< Allocate CPU data.
@@ -36,13 +37,29 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions (and coils) of equation.
       procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
       ! numerical methods
-      procedure, pass(self) :: compute_dt                 !< Compute time step.
-      procedure, pass(self) :: compute_residuals          !< Compute residuals.
-      procedure, pass(self) :: compute_residuals_centered !< Compute residuals, centered scheme.
-      procedure, pass(self) :: correct_div                !< Correct divergence of q(ivar:2).
-      procedure, pass(self) :: integrate                  !< Perform one step integration.
-      procedure, pass(self) :: simulate                   !< Perform the simulation.
+      procedure, pass(self) :: compute_dt                !< Compute time step.
+      procedure, pass(self) :: correct_div               !< Correct divergence of q(ivar:2).
+      procedure, pass(self) :: integrate                 !< Perform one step integration.
+      procedure, pass(self) :: simulate                  !< Perform the simulation.
 endtype prism_cpu_object
+
+interface
+   subroutine compute_residuals_interface(self, q, dq)
+   !< Compute residuals of equation.
+   import :: prism_cpu_object, R8P
+   class(prism_cpu_object), intent(inout) :: self   !< The equation.
+   real(R8P),               intent(inout) :: q(1:,         &
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1:)  !< Conservative variables.
+   real(R8P),               intent(inout) :: dq(1:,         &
+                                                1-self%ngc:,&
+                                                1-self%ngc:,&
+                                                1-self%ngc:,&
+                                                1:) !< Residuals.
+   endsubroutine compute_residuals_interface
+endinterface
 
 contains
    ! auxiliary methods
@@ -78,6 +95,12 @@ contains
    call self%mpih%print_message('prism_cpu_object%initialize start')
    call self%initialize_common(field = self%adam%field, filename=filename, memory_avail=self%mpih%memory_avail)
    call self%allocate_cpu
+   select case(self%physics%scheme_space)
+   case(NUM_SCHEME_SPACE_WENO)
+      self%compute_residuals => compute_residuals_weno
+   case(NUM_SCHEME_SPACE_CENTERED)
+      self%compute_residuals => compute_residuals_centered
+   endselect
    print '(A)', self%mpih%description()
    call self%mpih%print_message('prism_cpu_object%initialize finish')
    endsubroutine initialize
@@ -238,7 +261,7 @@ contains
    real(R8P)                           :: x_cell(1-self%field%grid%ngc:self%field%grid%ni+self%field%grid%ngc), &
                                           y_cell(1-self%field%grid%ngc:self%field%grid%nj+self%field%grid%ngc), &
                                           z_cell(1-self%field%grid%ngc:self%field%grid%nk+self%field%grid%ngc)
-   
+
    associate(local_map_bc_crown=>self%field%maps%local_map_bc_crown, &
              nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), &
              dz=>self%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, &
@@ -575,7 +598,7 @@ contains
    call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih%error)
    endsubroutine compute_dt
 
-   subroutine compute_residuals(self, q, dq)
+   subroutine compute_residuals_centered(self, q, dq)
    !< Compute residuals of equation.
    class(prism_cpu_object), intent(inout) :: self   !< The equation.
    real(R8P),               intent(inout) :: q(1:,       &
@@ -592,84 +615,70 @@ contains
    call self%update_ghost(q=q)
    !call self%integrate_eikonal_coils(q=q)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
-             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),                         &
-             flx=>self%flx, fly=>self%fly, flz=>self%flz,                                                          &
-             weno_s=>self%weno%S, weno_zeps=>self%weno%zeps,                                                       &
-             weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d,                                        &
-             evmax=>self%physics%evmax, erw=>self%physics%erw, elw=>self%physics%elw, &
-             num_scheme_type=>self%physics%num_scheme_type)
+             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),       &
+             flx=>self%flx, fly=>self%fly, flz=>self%flz,                                        &
+             weno_s=>self%weno%S, weno_zeps=>self%weno%zeps,                                     &
+             weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, weno_c=>self%weno%c, &
+             evmax=>self%physics%evmax, erw=>self%physics%erw, elw=>self%physics%elw)
    if (blocks_number > 0) then
-      call compute_fluxes_convective(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,      &
-                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,&
-                                     evmax=evmax,erw=erw,elw=elw,                                                &
-                                     q=q,num_scheme_type=num_scheme_type,fluxes=flx)
-      call compute_fluxes_convective(dir=2,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,      &
-                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,&
-                                     evmax=evmax,erw=erw,elw=elw,                                                &
-                                     q=q,num_scheme_type=num_scheme_type,fluxes=fly)
-      call compute_fluxes_convective(dir=3,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,      &
-                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_zeps=weno_zeps,&
-                                     evmax=evmax,erw=erw,elw=elw,                                                &
-                                     q=q,num_scheme_type=num_scheme_type,fluxes=flz)
+      call compute_fluxes_convective_centered(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,           &
+                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
+                                     evmax=evmax,erw=erw,elw=elw,                                                              &
+                                     q=q,fluxes=flx)
+      call compute_fluxes_convective_centered(dir=2,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,           &
+                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
+                                     evmax=evmax,erw=erw,elw=elw,                                                              &
+                                     q=q,fluxes=fly)
+      call compute_fluxes_convective_centered(dir=3,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,           &
+                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
+                                     evmax=evmax,erw=erw,elw=elw,                                                              &
+                                     q=q,fluxes=flz)
       call compute_fluxes_difference(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv_c=nv_c, &
                                      dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz, dq=dq, q=q)
    endif
    endassociate
-   endsubroutine compute_residuals
+   endsubroutine compute_residuals_centered
 
-   subroutine compute_residuals_centered(self, q, dq)
-   !< Compute residuals of equation, centerd scheme.
-   class(prism_cpu_object), intent(inout) :: self                 !< The equation.
+   subroutine compute_residuals_weno(self, q, dq)
+   !< Compute residuals of equation.
+   class(prism_cpu_object), intent(inout) :: self   !< The equation.
    real(R8P),               intent(inout) :: q(1:,       &
                                                1-self%ngc:,&
                                                1-self%ngc:,&
                                                1-self%ngc:,&
-                                               1:)                !< Conservative variables.
+                                               1:)  !< Conservative variables.
    real(R8P),               intent(inout) :: dq(1:,         &
                                                 1-self%ngc:,&
                                                 1-self%ngc:,&
                                                 1-self%ngc:,&
-                                                1:)               !< Residuals.
-   integer(I4P)                           :: b, i, j, k, v        !< Counter.
+                                                1:) !< Residuals.
 
    call self%update_ghost(q=q)
+   !call self%integrate_eikonal_coils(q=q)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
-             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),                         &
-             flx=>self%flx, fly=>self%fly, flz=>self%flz)
-
-   do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               call compute_convective_fluxes_maxwell(sir=[1.0_R8P, 0.0_R8P, 0.0_R8P], q=q(:,i,j,k,b), f=flx(:,i,j,k,b))
-               call compute_convective_fluxes_maxwell(sir=[0.0_R8P, 1.0_R8P, 0.0_R8P], q=q(:,i,j,k,b), f=fly(:,i,j,k,b))
-               call compute_convective_fluxes_maxwell(sir=[0.0_R8P, 0.0_R8P, 1.0_R8P], q=q(:,i,j,k,b), f=flz(:,i,j,k,b))
-            enddo
-         enddo
-      enddo
-   enddo
-
-   do b=1, blocks_number
-      do v=1, nv_c
-         do k=1, nk
-            do j=1, nj
-               do i=1, ni
-                  dq(v,i,j,k,b) = -( (flx(v,i+1,j,k,b)-flx(v,i-1,j,k,b))/(2*dx(b)) + &
-                                     (fly(v,i,j+1,k,b)-fly(v,i,j-1,k,b))/(2*dy(b)) + &
-                                     (flz(v,i,j,k+1,b)-flz(v,i,j,k-1,b))/(2*dz(b)))
-               enddo
-            enddo
-         enddo
-      enddo
-   enddo
-
-   !J sources
-   dq(VAR_DX,:,:,:,:) = dq(VAR_DX,:,:,:,:) - q(VAR_JX,:,:,:,:)
-   dq(VAR_DY,:,:,:,:) = dq(VAR_DY,:,:,:,:) - q(VAR_JY,:,:,:,:)
-   dq(VAR_DZ,:,:,:,:) = dq(VAR_DZ,:,:,:,:) - q(VAR_JZ,:,:,:,:)
-
+             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),       &
+             flx=>self%flx, fly=>self%fly, flz=>self%flz,                                        &
+             weno_s=>self%weno%S, weno_zeps=>self%weno%zeps,                                     &
+             weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, weno_c=>self%weno%c, &
+             evmax=>self%physics%evmax, erw=>self%physics%erw, elw=>self%physics%elw)
+   if (blocks_number > 0) then
+      call compute_fluxes_convective_weno(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,               &
+                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
+                                     evmax=evmax,erw=erw,elw=elw,                                                              &
+                                     q=q,fluxes=flx)
+      call compute_fluxes_convective_weno(dir=2,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,               &
+                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
+                                     evmax=evmax,erw=erw,elw=elw,                                                              &
+                                     q=q,fluxes=fly)
+      call compute_fluxes_convective_weno(dir=3,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,               &
+                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
+                                     evmax=evmax,erw=erw,elw=elw,                                                              &
+                                     q=q,fluxes=flz)
+      call compute_fluxes_difference(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv_c=nv_c, &
+                                     dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz, dq=dq, q=q)
+   endif
    endassociate
-   endsubroutine compute_residuals_centered
+   endsubroutine compute_residuals_weno
 
    subroutine integrate(self, do_ghost_syncro)
    !< Perform one step integration.
@@ -695,7 +704,6 @@ contains
    case(RK_1, RK_2, RK_3)
       ! low storage RK working on q_rk(:,:,:,:,:,1)/q as stages, update q in place
       do s=1, self%rk%nrk
-         ! call self%compute_residuals_centered(q=self%q, dq=self%dq)
          call self%compute_residuals(q=self%q, dq=self%dq)
          if (s==1) call self%save_residuals
          if (self%ib%solids_number>0) then
@@ -712,7 +720,6 @@ contains
          else
             call self%rk%compute_stage(s=s, dt=self%time%dt)
          endif
-         ! call self%compute_residuals_centered(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq)
          call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq)
          if (s==1) call self%save_residuals
          if (self%ib%solids_number>0) then
@@ -952,9 +959,9 @@ contains
    dxyz_min = dxyz_min * 0.5_R8P
    endsubroutine compute_dxyz_min
 
-   subroutine compute_fluxes_convective(dir,blocks_number,ni,nj,nk,ngc,nv_c,weno_s,weno_a,weno_p,weno_d,weno_zeps,&
-                                        evmax,erw,elw,q,num_scheme_type,fluxes)
-   !< Compute convective fluxes along direction `dir`.
+   subroutine compute_fluxes_convective_centered(dir,blocks_number,ni,nj,nk,ngc,nv_c,weno_s,weno_a,weno_p,weno_d,weno_c,weno_zeps,&
+                                                 evmax,erw,elw,q,fluxes)
+   !< Compute convective fluxes along direction `dir`, centered scheme for space operator.
    integer(I4P), intent(in)    :: dir                                !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P), intent(in)    :: blocks_number                      !< Number of blocks.
    integer(I4P), intent(in)    :: ni                                 !< Grid cells number in I direction.
@@ -966,12 +973,12 @@ contains
    real(R8P),    intent(in)    :: weno_a(1:,0:,1:)                   !< Optimal weights.
    real(R8P),    intent(in)    :: weno_p(1:,0:,0:,1:)                !< Polinomials coefficients.
    real(R8P),    intent(in)    :: weno_d(0:,0:,0:,1:)                !< Smoothness indicators coefficients.
+   real(R8P),    intent(in)    :: weno_c(1-weno_s:,1:)               !< Centered polinomials coefficients.
    real(R8P),    intent(in)    :: weno_zeps                          !< Parameter for avoiding division by zero in computing IS.
    real(R8P),    intent(in)    :: evmax                              !< Maximum waves speed estimation.
    real(R8P),    intent(in)    :: erw(1:,1:,1:)                      !< Right eigenvectors for WENO reconstruction.
    real(R8P),    intent(in)    :: elw(1:,1:,1:)                      !< Left  eigenvectors for WENO reconstruction.
    real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Field variables.
-   character(*), intent(in)    :: num_scheme_type                    !< Numerical scheme type.
    real(R8P),    intent(inout) :: fluxes(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes.
    integer(I4P)                :: si(3), si_i, si_j, si_k            !< Directional (1=x,2=y,3=z) increment.
    real(R8P)                   :: sir(3)                             !< Directional (1=x,2=y,3=z) increment, real.
@@ -994,20 +1001,73 @@ contains
    do k=si_k, nk
    do j=si_j, nj
    do i=si_i, ni
-      call compute_fluxes_convective_ri(dir=dir,b=b,i=i,j=j,k=k,ngc=ngc,nv_c=nv_c,                       &
-                                        weno_s=weno_s, weno_zeps=weno_zeps,                              &
-                                        weno_a=weno_a, weno_p=weno_p, weno_d=weno_d,                     &
-                                        evmax=evmax,erw=erw,elw=elw,                                     &
-                                        si=si,sir=sir,q=q,num_scheme_type=num_scheme_type,fluxes=fluxes)
+      call compute_fluxes_convective_ri_centered(dir=dir,b=b,i=i,j=j,k=k,ngc=ngc,nv_c=nv_c,                 &
+                                                 weno_s=weno_s, weno_zeps=weno_zeps,                        &
+                                                 weno_a=weno_a, weno_p=weno_p, weno_d=weno_d, weno_c=weno_c,&
+                                                 evmax=evmax,erw=erw,elw=elw,                               &
+                                                 si=si,sir=sir,q=q,fluxes=fluxes)
    enddo
    enddo
    enddo
    enddo
-   endsubroutine compute_fluxes_convective
+   endsubroutine compute_fluxes_convective_centered
 
-   subroutine compute_fluxes_convective_ri(dir,b,i,j,k,ngc,nv_c,                          &
-                                           weno_s,weno_zeps,weno_a,weno_p,weno_d,         &
-                                           evmax,erw,elw,si,sir,q,num_scheme_type,fluxes)
+   subroutine compute_fluxes_convective_weno(dir,blocks_number,ni,nj,nk,ngc,nv_c,weno_s,weno_a,weno_p,weno_d,weno_c,weno_zeps,&
+                                             evmax,erw,elw,q,fluxes)
+   !< Compute convective fluxes along direction `dir`, WENO scheme for space operator.
+   integer(I4P), intent(in)    :: dir                                !< Direction, 1=X, 2=Y, 3=Z.
+   integer(I4P), intent(in)    :: blocks_number                      !< Number of blocks.
+   integer(I4P), intent(in)    :: ni                                 !< Grid cells number in I direction.
+   integer(I4P), intent(in)    :: nj                                 !< Grid cells number in J direction.
+   integer(I4P), intent(in)    :: nk                                 !< Grid cells number in K direction.
+   integer(I4P), intent(in)    :: ngc                                !< Ghost cells number.
+   integer(I4P), intent(in)    :: nv_c                               !< Number of conservative varibales.
+   integer(I4P), intent(in)    :: weno_s                             !< Weno stencils number/dimension.
+   real(R8P),    intent(in)    :: weno_a(1:,0:,1:)                   !< Optimal weights.
+   real(R8P),    intent(in)    :: weno_p(1:,0:,0:,1:)                !< Polinomials coefficients.
+   real(R8P),    intent(in)    :: weno_d(0:,0:,0:,1:)                !< Smoothness indicators coefficients.
+   real(R8P),    intent(in)    :: weno_c(1-weno_s:,1:)               !< Centered polinomials coefficients.
+   real(R8P),    intent(in)    :: weno_zeps                          !< Parameter for avoiding division by zero in computing IS.
+   real(R8P),    intent(in)    :: evmax                              !< Maximum waves speed estimation.
+   real(R8P),    intent(in)    :: erw(1:,1:,1:)                      !< Right eigenvectors for WENO reconstruction.
+   real(R8P),    intent(in)    :: elw(1:,1:,1:)                      !< Left  eigenvectors for WENO reconstruction.
+   real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Field variables.
+   real(R8P),    intent(inout) :: fluxes(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes.
+   integer(I4P)                :: si(3), si_i, si_j, si_k            !< Directional (1=x,2=y,3=z) increment.
+   real(R8P)                   :: sir(3)                             !< Directional (1=x,2=y,3=z) increment, real.
+   integer(I4P)                :: b, i, j, k                         !< Counter.
+
+   select case(dir)
+   case(1)
+      si = [1,0,0]
+   case(2)
+      si = [0,1,0]
+   case(3)
+      si = [0,0,1]
+   endselect
+   sir = real(si,R8P)
+   si_i = 1-si(1)
+   si_j = 1-si(2)
+   si_k = 1-si(3)
+
+   do b=1, blocks_number
+   do k=si_k, nk
+   do j=si_j, nj
+   do i=si_i, ni
+      call compute_fluxes_convective_ri_weno(dir=dir,b=b,i=i,j=j,k=k,ngc=ngc,nv_c=nv_c,                 &
+                                             weno_s=weno_s, weno_zeps=weno_zeps,                        &
+                                             weno_a=weno_a, weno_p=weno_p, weno_d=weno_d, weno_c=weno_c,&
+                                             evmax=evmax,erw=erw,elw=elw,                               &
+                                             si=si,sir=sir,q=q,fluxes=fluxes)
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine compute_fluxes_convective_weno
+
+   subroutine compute_fluxes_convective_ri_centered(dir,b,i,j,k,ngc,nv_c,                         &
+                                                    weno_s,weno_zeps,weno_a,weno_p,weno_d,weno_c, &
+                                                    evmax,erw,elw,si,sir,q,fluxes)
    !< Compute convective fluxes at right interface of b,i,j,k.
    integer(I4P), intent(in)    :: dir                                 !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P), intent(in)    :: b, i, j, k                          !< Counter.
@@ -1018,13 +1078,13 @@ contains
    real(R8P),    intent(in)    :: weno_a(1:,0:,1:)                    !< Optimal weights.
    real(R8P),    intent(in)    :: weno_p(1:,0:,0:,1:)                 !< Polinomials coefficients.
    real(R8P),    intent(in)    :: weno_d(0:,0:,0:,1:)                 !< Smoothness indicators coefficients.
+   real(R8P),    intent(in)    :: weno_c(1-weno_s:,1:)               !< Centered polinomials coefficients.
    real(R8P),    intent(in)    :: evmax                               !< Maximum waves speed estimation.
    real(R8P),    intent(in)    :: erw(1:,1:,1:)                       !< Right eigenvectors for WENO reconstruction.
    real(R8P),    intent(in)    :: elw(1:,1:,1:)                       !< Left  eigenvectors for WENO reconstruction.
    integer(I4P), intent(in)    :: si(3)                               !< Stencil increment.
    real(R8P),    intent(in)    :: sir(3)                              !< Stencil increment, real cast.
    real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)       !< Fields variables.
-   character(*), intent(in)    :: num_scheme_type                     !< Numerical scheme type.
    real(R8P),    intent(inout) :: fluxes(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Fluxes.
    real(R8P)                   :: fmpc(1:2,1-S_MAX:-1+S_MAX,1:NV_MAX) !< Fluxes -+ decomposition in c. space.
    real(R8P)                   :: fpmr(1:2,1:NV_MAX)                  !< Fluxes +- reconstructed.
@@ -1032,130 +1092,68 @@ contains
    real(R8P)                   :: fmpr_lo(1:2,1:NV_MAX)               !< Fluxes -+ reconstructed 2nd order
    real(R8P)                   :: fi(1:NV_MAX)                        !< Minmod function.
    integer(I4P)                :: v, vv, f, s, is, js, ks             !< Counter.
-   
-   select case(num_scheme_type)
-   case(NUM_SCHEME_UPWIND)
-      call decompose_fluxes_convective(dir=dir, si=si, sir=sir,                &
+
+   call decompose_fluxes_convective_centered(dir=dir, si=si, sir=sir,                &
+                                             b=b, i=i, j=j, k=k, ngc=ngc, nv_c=nv_c, &
+                                             weno_s=weno_s, evmax=evmax,             &
+                                             q=q, fmpc=fmpc(:,1-weno_s:weno_s,:))
+   do v=1, nv_c
+      do f=1, 2
+         call reconstruct_centered_6(x=fmpc(f,-2:3,v), xr=fmpr_ho(f,v))
+         !call reconstruct_centered_2(x=fmpc(f,-1:1,v), xr=fmpr_lo(f,v))
+      enddo
+      !call minmod(qp=q(v,i,j,k,b), qe=q(v,i+si(1),j+si(2),k+si(3),b), &
+      !            qw=q(v,i-si(1),j-si(2),k-si(3),b), fi=fi(v))
+   enddo
+   do v=1, nv_c
+      !fluxes(v,i,j,k,b) = (fmpr_lo(1,v) + fmpr_lo(2,v))
+      fluxes(v,i,j,k,b) = (fmpr_ho(1,v) + fmpr_ho(2,v))
+      !fluxes(v,i,j,k,b) = (fmpr_lo(1,v) + fmpr_lo(2,v))- &
+      !                    fi(v)*((fmpr_lo(1,v) + fmpr_lo(2,v))-(fmpr_ho(1,v) + fmpr_ho(2,v)))
+   enddo
+   endsubroutine compute_fluxes_convective_ri_centered
+
+   subroutine compute_fluxes_convective_ri_weno(dir,b,i,j,k,ngc,nv_c,                         &
+                                                weno_s,weno_zeps,weno_a,weno_p,weno_d,weno_c, &
+                                                evmax,erw,elw,si,sir,q,fluxes)
+   !< Compute convective fluxes at right interface of b,i,j,k.
+   integer(I4P), intent(in)    :: dir                                 !< Direction, 1=X, 2=Y, 3=Z.
+   integer(I4P), intent(in)    :: b, i, j, k                          !< Counter.
+   integer(I4P), intent(in)    :: ngc                                 !< Ghost cells number.
+   integer(I4P), intent(in)    :: nv_c                                !< Number of conservative varibales in q vector.
+   integer(I4P), intent(in)    :: weno_s                              !< Weno stencils number/dimension.
+   real(R8P),    intent(in)    :: weno_zeps                           !< Parameter to avoid division by zero.
+   real(R8P),    intent(in)    :: weno_a(1:,0:,1:)                    !< Optimal weights.
+   real(R8P),    intent(in)    :: weno_p(1:,0:,0:,1:)                 !< Polinomials coefficients.
+   real(R8P),    intent(in)    :: weno_d(0:,0:,0:,1:)                 !< Smoothness indicators coefficients.
+   real(R8P),    intent(in)    :: weno_c(1-weno_s:,1:)               !< Centered polinomials coefficients.
+   real(R8P),    intent(in)    :: evmax                               !< Maximum waves speed estimation.
+   real(R8P),    intent(in)    :: erw(1:,1:,1:)                       !< Right eigenvectors for WENO reconstruction.
+   real(R8P),    intent(in)    :: elw(1:,1:,1:)                       !< Left  eigenvectors for WENO reconstruction.
+   integer(I4P), intent(in)    :: si(3)                               !< Stencil increment.
+   real(R8P),    intent(in)    :: sir(3)                              !< Stencil increment, real cast.
+   real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)       !< Fields variables.
+   real(R8P),    intent(inout) :: fluxes(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Fluxes.
+   real(R8P)                   :: fmpc(1:2,1-S_MAX:-1+S_MAX,1:NV_MAX) !< Fluxes -+ decomposition in c. space.
+   real(R8P)                   :: fpmr(1:2,1:NV_MAX)                  !< Fluxes +- reconstructed.
+   integer(I4P)                :: v, vv                               !< Counter.
+
+   call decompose_fluxes_convective(dir=dir, si=si, sir=sir,                &
                                     b=b, i=i, j=j, k=k, ngc=ngc, nv_c=nv_c, &
                                     weno_s=weno_s, evmax=evmax, elw=elw,    &
-                                    q=q, fmpc=fmpc)
-      do v=1, nv_c
-         call weno_reconstruct_upwind(S=weno_s, weno_a=weno_a, weno_p=weno_p, weno_d=weno_d,&
-                                      weno_zeps=weno_zeps, V=fmpc(:,:,v), VR=fpmr(:,v))
+                                    q=q, fmpc=fmpc(1:2,1-weno_s:-1+weno_s,1:NV_MAX))
+   do v=1, nv_c
+      call weno_reconstruct_upwind(S=weno_s, weno_a=weno_a, weno_p=weno_p, weno_d=weno_d,&
+                                   weno_zeps=weno_zeps, V=fmpc(1:2,1-weno_s:-1+weno_s,v), VR=fpmr(1:2,v))
+   enddo
+   ! back projection in conservative variables space
+   do v=1, nv_c
+      fluxes(v,i,j,k,b) = 0._R8P
+      do vv=1,nv_c
+         fluxes(v,i,j,k,b) = fluxes(v,i,j,k,b) + erw(vv,v,dir) * (fpmr(1,vv) + fpmr(2,vv))
       enddo
-      ! back projection in conservative variables space
-      do v=1, nv_c
-         fluxes(v,i,j,k,b) = 0._R8P
-         do vv=1,nv_c
-            fluxes(v,i,j,k,b) = fluxes(v,i,j,k,b) + erw(vv,v,dir) * (fpmr(1,vv) + fpmr(2,vv))
-         enddo
-      enddo
-   case(NUM_SCHEME_CENTERED)
-      call decompose_fluxes_convective_centered(dir=dir, si=si, sir=sir,                &
-                                                b=b, i=i, j=j, k=k, ngc=ngc, nv_c=nv_c, &
-                                                weno_s=weno_s, evmax=evmax,             &
-                                                q=q, fmpc=fmpc(:,1-weno_s:weno_s,:))
-      do v=1, nv_c
-         do f=1, 2
-            call reconstruct_centered_6(x=fmpc(f,-2:3,v), xr=fmpr_ho(f,v))
-            !call reconstruct_centered_2(x=fmpc(f,-1:1,v), xr=fmpr_lo(f,v))
-         enddo
-         !call minmod(qp=q(v,i,j,k,b), qe=q(v,i+si(1),j+si(2),k+si(3),b), & 
-         !            qw=q(v,i-si(1),j-si(2),k-si(3),b), fi=fi(v))
-      enddo
-      do v=1, nv_c
-         !fluxes(v,i,j,k,b) = (fmpr_lo(1,v) + fmpr_lo(2,v))
-         fluxes(v,i,j,k,b) = (fmpr_ho(1,v) + fmpr_ho(2,v))
-         !fluxes(v,i,j,k,b) = (fmpr_lo(1,v) + fmpr_lo(2,v))- &
-         !                    fi(v)*((fmpr_lo(1,v) + fmpr_lo(2,v))-(fmpr_ho(1,v) + fmpr_ho(2,v)))
-      enddo
-   !case(NUM_CHEME_HYBRID)
-   endselect
-   endsubroutine compute_fluxes_convective_ri
-
-   pure subroutine reconstruct_centered_6(x, xr)
-   !< Polynomial reconstruction at right interface, 6h order centered, stencil [i-3+1:i+3].
-   real(R8P), intent(in)  :: x(-2:)                  !< Cell centered values over stencil.
-   real(R8P), intent(out) :: xr                      !< Reconstructed value at right interface.
-   real(R8P), parameter   :: c1 =  37.0_R8P/60.0_R8P, &
-                             c2 = -2.0_R8P /15.0_R8P, &
-                             c3 =  1.0_R8P /60.0_R8P !< PPM coefficients.
-
-   xr = c1 * (x( 0) + x(1)) + &
-        c2 * (x(-1) + x(2)) + &
-        c3 * (x(-2) + x(3))
-   ! 2nd order centered
-   ! xr = (x(0) + x(1)) / 2._R8P
-   ! 4th order centered
-   ! xr = (-x(-1) + 7._R8P * x(0) + 7._R8P * x(1) - x(2)) / 12._R8P
-   endsubroutine reconstruct_centered_6
-
-   pure subroutine reconstruct_centered_2(x, xr)
-   !< Polynomial reconstruction at right interface, 2h order centered, stencil [i-1:i+1].
-   real(R8P), intent(in)  :: x(-1:1)                 !< Cell centered values over stencil.
-   real(R8P), intent(out) :: xr                      !< Reconstructed value at right interface.
-
-   xr = 0.5_R8P * (x(-1) + x(1)) 
-   endsubroutine reconstruct_centered_2
-
-   pure subroutine minmod(qp, qe, qw, fi)
-   !< Minmod limiter.
-   real(R8P), intent(in)  :: qp
-   real(R8P), intent(in)  :: qe
-   real(R8P), intent(in)  :: qw
-   real(R8P)              :: ri 
-   real(R8P), intent(out) :: fi
-
-   ri = (qp - qw)/(qe - qp + 1.0e-16_R8P)
-   fi = max(0._R8P, min(1._R8P, ri))
-   endsubroutine minmod
-
-   ! subroutine reconstruct_wenoc_6(v, w)
-   ! !< WENOC reconstruction at right interface, 6h order centered, stencil [i-3+1:i+3].
-   ! real(R8P), intent(in)  :: v(-2:3)               !< Variable to reconstructed on stencil.
-   ! real(R8P), intent(out) :: vr                    !< Reconstructed variable.
-   ! real(R8P)              :: beta(0:2)             !< Smoothness indicators.
-   ! real(R8P)              :: alpha(0:2), sum_alpha !< Linear weights.
-   ! real(R8P)              :: tau                   !< Z mapping.
-   ! real(R8P)              :: w(0:2)                !< Weights of WENOC stencils.
-   ! real(R8P)              :: vp(0:2)               !< Polynomial reconstructions on stencils.
-   ! integer(I4P)           :: s                     !< Counter.
-   ! real(R8P), parameter   :: d0 = 3.0_R8P/10.0_R8P, &
-   !                           d1 = 3.0_R8P/5.0_R8P,  &
-   !                           d2 = 1.0_R8P/10.0_R8P !< Reconstruction coefficients.
-! 
-   ! ! compute smoothness indicators
-   ! beta(0) = (13.0_R8P/12.0_R8P) * (v(-2) - 2.0_R8P*v(-1) +         v(0))**2 + &
-   !           (1.0_R8P/4.0_R8P)   * (v(-2) - 4.0_R8P*v(-1) + 3.0_R8P*v(0))**2
-! 
-   ! beta(1) = (13.0_R8P/12.0_R8P) * (v(-1) - 2.0_R8P*v(0) + v(1))**2 + &
-   !           (1.0_R8P/4.0_R8P)   * (v(-1)                - v(1))**2
-! 
-   ! beta(2) = (13.0_R8P/12.0_R8P) * (v(0)         - 2.0_R8P*v(1) + v(2))**2 + &
-   !           (1.0_R8P/4.0_R8P)   * (3.0_R8P*v(0) - 4.0_R8P*v(1) + v(2))**2
-! 
-   ! ! compute Z mapping
-   ! tau = abs(beta(0) - beta(2))
-! 
-   ! ! compute linear weights
-   ! alpha(0) = d0 * (1.0_R8P + (tau/(beta(0) + eps))**2)
-   ! alpha(1) = d1 * (1.0_R8P + (tau/(beta(1) + eps))**2)
-   ! alpha(2) = d2 * (1.0_R8P + (tau/(beta(2) + eps))**2)
-! 
-   ! ! compute non linear weights
-   ! sum_alpha = alpha(0) + alpha(1) + alpha(2)
-   ! do s = 0, 2
-   !    w(s) = alpha(s) / sum_alpha
-   ! enddo
-! 
-   ! ! compute polynomial reconstructions
-   ! vp(0) = ( 3.0_R8P*v(-2) - 10.0_R8P*v(-1) + 15.0_R8P*v(0)       )/ 8.0_R8P
-   ! vp(1) = (        -v(-1) +  9.0_R8P*v( 0) +  9.0_R8P*v(1) - v(2))/16.0_R8P
-   ! vp(2) = (15.0_R8P*v( 1) - 10.0_R8P*v( 2) +  3.0_R8P*v(3)       )/ 8.0_R8P
-! 
-   ! ! compute weighted reconstruction
-   ! vr = w(0)*vp(0) + w(1)*vp(1) + w(2)*vp(2)
-   ! endsubroutine reconstruct_wenoc_6
+   enddo
+   endsubroutine compute_fluxes_convective_ri_weno
 
    subroutine compute_fluxes_difference(blocks_number, ni, nj, nk, ngc, nv_c, dx, dy, dz, flx, fly, flz, q, dq)
    !< Compute fluxes difference.
@@ -1328,11 +1326,41 @@ contains
    !endif
    endsubroutine compute_coils_current
 
-   function sq_norm(a) result(sq)
-   !< Return the square of the norm of vector.
-   real(R8P), intent(in)  :: a(3)     !< Input vector
-   real(R8P)              :: sq       !< Square norm of input
+   ! TO BE MOVED AWAY FROM THIS MODULE
+   pure subroutine reconstruct_centered_6(x, xr)
+   !< Polynomial reconstruction at right interface, 6h order centered, stencil [i-3+1:i+3].
+   real(R8P), intent(in)  :: x(-2:)                  !< Cell centered values over stencil.
+   real(R8P), intent(out) :: xr                      !< Reconstructed value at right interface.
+   real(R8P), parameter   :: c1 =  37.0_R8P/60.0_R8P, &
+                             c2 = -2.0_R8P /15.0_R8P, &
+                             c3 =  1.0_R8P /60.0_R8P !< PPM coefficients.
 
-   sq = (a(1) * a(1)) + (a(2) * a(2)) + (a(3) * a(3))
-   endfunction sq_norm
+   xr = c1 * (x( 0) + x(1)) + &
+        c2 * (x(-1) + x(2)) + &
+        c3 * (x(-2) + x(3))
+   ! 2nd order centered
+   ! xr = (x(0) + x(1)) / 2._R8P
+   ! 4th order centered
+   ! xr = (-x(-1) + 7._R8P * x(0) + 7._R8P * x(1) - x(2)) / 12._R8P
+   endsubroutine reconstruct_centered_6
+
+   pure subroutine reconstruct_centered_2(x, xr)
+   !< Polynomial reconstruction at right interface, 2h order centered, stencil [i-1:i+1].
+   real(R8P), intent(in)  :: x(-1:1)                 !< Cell centered values over stencil.
+   real(R8P), intent(out) :: xr                      !< Reconstructed value at right interface.
+
+   xr = 0.5_R8P * (x(-1) + x(1))
+   endsubroutine reconstruct_centered_2
+
+   pure subroutine minmod(qp, qe, qw, fi)
+   !< Minmod limiter.
+   real(R8P), intent(in)  :: qp
+   real(R8P), intent(in)  :: qe
+   real(R8P), intent(in)  :: qw
+   real(R8P)              :: ri
+   real(R8P), intent(out) :: fi
+
+   ri = (qp - qw)/(qe - qp + 1.0e-16_R8P)
+   fi = max(0._R8P, min(1._R8P, ri))
+   endsubroutine minmod
 endmodule adam_prism_cpu_object

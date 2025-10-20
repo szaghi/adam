@@ -149,7 +149,7 @@ contains
                                                                          'res_Bx','res_By','res_Bz',                    &
                                                                          'res_Jx','res_Jy','res_Jz'],                   &
                                 s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag',                                    &
-                                s1_R8P=self%coil%phi(1,:,:,:,:),       s1_R8P_name='coil_phi') 
+                                s1_R8P=self%coil%phi(1,:,:,:,:),       s1_R8P_name='coil_phi')
    if     ((.not.self%physics%d_divergence_cleaner).and.(.not.self%physics%b_divergence_cleaner) .or. &
             (self%physics%div_corr_var == DIV_CORR_VAR_POISS)) then
       self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
