@@ -1317,7 +1317,6 @@ contains
             q(VAR_JX,i,j,k,b) = current_density * j_vec(1,i,j,k,b)
             q(VAR_JY,i,j,k,b) = current_density * j_vec(2,i,j,k,b)
             q(VAR_JZ,i,j,k,b) = current_density * j_vec(3,i,j,k,b)
-            !print*, q(VAR_JX,i,j,k,b), q(VAR_JY,i,j,k,b), q(VAR_JZ,i,j,k,b)
          endif
       enddo
       enddo
