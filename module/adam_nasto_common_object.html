@@ -181,22 +181,22 @@
         <ul class="list-group list-group-flush">
             <li class="list-group-item">
               <ul class="list-inline">
-                  <li class="list-inline-item">adam_grid_object</li>
-                  <li class="list-inline-item">adam_amr_object</li>
-                  <li class="list-inline-item"><a href='http://fortranwiki.org/fortran/show/iso_c_binding'>iso_c_binding</a></li>
                   <li class="list-inline-item">adam_rk_object</li>
-                  <li class="list-inline-item">adam_adam_object</li>
+                  <li class="list-inline-item">adam_grid_object</li>
                   <li class="list-inline-item">penf</li>
+                  <li class="list-inline-item">adam_amr_object</li>
                   <li class="list-inline-item"><a href='adam_nasto_physics_object.html'>adam_nasto_physics_object</a></li>
+                  <li class="list-inline-item"><a href='adam_nasto_io_object.html'>adam_nasto_io_object</a></li>
+                  <li class="list-inline-item">adam_ib_object</li>
+                  <li class="list-inline-item">adam_slices_object</li>
+                  <li class="list-inline-item"><a href='adam_nasto_ic_object.html'>adam_nasto_ic_object</a></li>
+                  <li class="list-inline-item"><a href='adam_nasto_bc_object.html'>adam_nasto_bc_object</a></li>
                   <li class="list-inline-item">adam_field_object</li>
                   <li class="list-inline-item">adam_weno_object</li>
-                  <li class="list-inline-item"><a href='adam_nasto_io_object.html'>adam_nasto_io_object</a></li>
-                  <li class="list-inline-item"><a href='adam_nasto_ic_object.html'>adam_nasto_ic_object</a></li>
                   <li class="list-inline-item"><a href='adam_nasto_time_object.html'>adam_nasto_time_object</a></li>
-                  <li class="list-inline-item">adam_slices_object</li>
-                  <li class="list-inline-item"><a href='adam_nasto_bc_object.html'>adam_nasto_bc_object</a></li>
-                  <li class="list-inline-item">adam_ib_object</li>
                   <li class="list-inline-item">adam_mpih_object</li>
+                  <li class="list-inline-item">adam_adam_object</li>
+                  <li class="list-inline-item"><a href='http://fortranwiki.org/fortran/show/iso_c_binding'>iso_c_binding</a></li>
               </ul>
             </li>
             <li class="list-group-item">
@@ -938,7 +938,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-mpih~3"></span>
+              <span class="anchor" id="variable-mpih~2"></span>
               type(mpih_object),
             </td>
               <td>public</td>
@@ -972,7 +972,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-field~2"></span>
+              <span class="anchor" id="variable-field"></span>
               type(field_object),
             </td>
               <td>public,</td>
@@ -1108,7 +1108,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-physics~2"></span>
+              <span class="anchor" id="variable-physics"></span>
               type(<a href='../type/nasto_physics_object.html'>nasto_physics_object</a>),
             </td>
               <td>public</td>
@@ -1159,7 +1159,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-time~3"></span>
+              <span class="anchor" id="variable-time~2"></span>
               type(<a href='../type/nasto_time_object.html'>nasto_time_object</a>),
             </td>
               <td>public</td>
@@ -1176,7 +1176,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ngc~8"></span>
+              <span class="anchor" id="variable-ngc"></span>
               integer(kind=I4P),
             </td>
               <td>public,</td>
@@ -1193,7 +1193,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ni~5"></span>
+              <span class="anchor" id="variable-ni"></span>
               integer(kind=I4P),
             </td>
               <td>public,</td>
@@ -1210,7 +1210,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nj~5"></span>
+              <span class="anchor" id="variable-nj"></span>
               integer(kind=I4P),
             </td>
               <td>public,</td>
@@ -1227,7 +1227,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nk~5"></span>
+              <span class="anchor" id="variable-nk"></span>
               integer(kind=I4P),
             </td>
               <td>public,</td>
@@ -1261,7 +1261,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-blocks_number~6"></span>
+              <span class="anchor" id="variable-blocks_number"></span>
               integer(kind=I4P),
             </td>
               <td>public,</td>
@@ -1295,7 +1295,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nv~8"></span>
+              <span class="anchor" id="variable-nv"></span>
               integer(kind=I4P),
             </td>
               <td>public,</td>
@@ -1329,7 +1329,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q~4"></span>
+              <span class="anchor" id="variable-q~2"></span>
               real(kind=R8P),
             </td>
               <td>public,</td>
@@ -1411,7 +1411,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~35"></span>
+              <span class="anchor" id="variable-self~27"></span>
               class(<a href='../type/nasto_common_object.html'>nasto_common_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -1451,7 +1451,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~36"></span>
+              <span class="anchor" id="variable-self~28"></span>
               class(<a href='../type/nasto_common_object.html'>nasto_common_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -1466,7 +1466,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-filename~4"></span>
+              <span class="anchor" id="variable-filename~3"></span>
               character(len=*),
             </td>
 <td>intent(in)</td>

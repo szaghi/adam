@@ -91,20 +91,20 @@
 
             <li class="list-inline-item" id="statements"><i class="fa fa-list-ol"></i>
               <a data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-html="true"
-                 title=" 0.2% of total for procedures.">10 statements</a>
+                 title=" 0.3% of total for procedures.">17 statements</a>
             </li>
 
             <li class="list-inline-item" id="source-file">
               <i class="fa fa-code"></i>
-              <a href="../src/adam_nasto_cpu_object.F90"> Source File</a>
+              <a href="../src/adam_nasto_eos_object.F90"> Source File</a>
             </li>
         </ul>
       </div>
       <div class="col">
         <nav aria-label="breadcrumb">
           <ol class="breadcrumb justify-content-end mb-0">
-                <li class="breadcrumb-item"><a href='../sourcefile/adam_nasto_cpu_object.f90.html'>adam_nasto_cpu_object.F90</a></li>
-                <li class="breadcrumb-item"><a href='../module/adam_nasto_cpu_object.html'>adam_nasto_cpu_object</a></li>
+                <li class="breadcrumb-item"><a href='../sourcefile/adam_nasto_eos_object.f90.html'>adam_nasto_eos_object.F90</a></li>
+                <li class="breadcrumb-item"><a href='../module/adam_nasto_eos_object.html'>adam_nasto_eos_object</a></li>
             <li class="breadcrumb-item active" aria-current="page">initialize</li>
           </ol>
         </nav>
@@ -158,14 +158,14 @@
     </div>
     
     <div class="col-md-9" id='text'>
-    <h2>private  subroutine initialize(self, filename)  
+    <h2>private  subroutine initialize(self, physics, mu, kd, dha, cp, cv, gam, R)  
 </h2>
     
 
-    <p>Initialize the equation.</p>
+    <p>Initialize fluid physics.</p>
 
     <h3>Type Bound</h3>
-    <p><a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a></p>
+    <p><a href='../type/nasto_eos_object.html'>nasto_eos_object</a></p>
 
     <h3>Arguments</h3>
         <table class="table table-striped varlist">
@@ -180,8 +180,8 @@
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~113"></span>
-              class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
+              <span class="anchor" id="variable-self~123"></span>
+              class(<a href='../type/nasto_eos_object.html'>nasto_eos_object</a>),
             </td>
 <td>intent(inout)</td>
               <td></td>            <td>
@@ -190,22 +190,127 @@
             <td>::</td>
             <td><strong>self</strong></td>
             <td>
-                <p>The equation.</p>
+                <p>Fluid physics.</p>
             </td>
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-filename~9"></span>
-              character(len=*),
+              <span class="anchor" id="variable-physics~4"></span>
+              type(<a href='../type/nasto_eos_object.html'>nasto_eos_object</a>),
             </td>
-<td>intent(in)</td>
-              <td></td>            <td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
               
             </td>
             <td>::</td>
-            <td><strong>filename</strong></td>
+            <td><strong>physics</strong></td>
             <td>
-                <p>Input file name.</p>
+                <p>Fluid physics.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-mu~7"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>mu</strong></td>
+            <td>
+                <p>Dynamic viscosity.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-kd~5"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>kd</strong></td>
+            <td>
+                <p>Thermal diffusivity.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-dha~2"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>dha</strong></td>
+            <td>
+                <p>Entalpy formation.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-cp~2"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>cp</strong></td>
+            <td>
+                <p>Specific heat at constant pressure <code>cp</code> value.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-cv~8"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>cv</strong></td>
+            <td>
+                <p>Specific heat at constant volume <code>cv</code> value.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-gam"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>gam</strong></td>
+            <td>
+                <p>Specific heats ratio <code>gamma=cp/cv</code> value.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-r~8"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in),</td>
+              <td>optional</td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>R</strong></td>
+            <td>
+                <p>Fluid constant <code>R=cp-cv</code> value.</p>
             </td>
         </tr>
     </tbody>
@@ -223,307 +328,35 @@
 <!-- Generated by graphviz version 2.43.0 (0)
  -->
 <!-- Title: proc~~initialize~10~~CallsGraph Pages: 1 -->
-<svg id="procinitialize10CallsGraph" width="641pt" height="286pt"
- viewBox="0.00 0.00 641.00 286.48" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
-<g id="proc~~initialize~10~~CallsGraph" class="graph" transform="scale(0.9 0.9) rotate(0) translate(4 316)">
+<svg id="procinitialize10CallsGraph" width="259pt" height="32pt"
+ viewBox="0.00 0.00 259.00 32.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="proc~~initialize~10~~CallsGraph" class="graph" transform="scale(1 1) rotate(0) translate(4 28)">
 <title>proc~~initialize~10~~CallsGraph</title>
-<polygon fill="white" stroke="transparent" points="-4,4 -4,-316 712,-316 712,4 -4,4"/>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 255,-28 255,4 -4,4"/>
 <!-- proc~initialize~10 -->
 <g id="proc~~initialize~10~~CallsGraph_node1" class="node">
 <title>proc~initialize~10</title>
-<polygon fill="none" stroke="black" points="159,-230 0,-230 0,-206 159,-206 159,-230"/>
-<text text-anchor="middle" x="79.5" y="-215.6" font-family="Helvetica,sans-Serif" font-size="10.50">nasto_cpu_object%initialize</text>
-</g>
-<!-- description -->
-<g id="proc~~initialize~10~~CallsGraph_node2" class="node">
-<title>description</title>
-<polygon fill="#777777" stroke="#777777" points="350.5,-312 278.5,-312 278.5,-288 350.5,-288 350.5,-312"/>
-<text text-anchor="middle" x="314.5" y="-297.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">description</text>
-</g>
-<!-- proc~initialize~10&#45;&gt;description -->
-<g id="proc~~initialize~10~~CallsGraph_edge1" class="edge">
-<title>proc~initialize~10&#45;&gt;description</title>
-<path fill="none" stroke="#000000" d="M98.72,-230.04C120.64,-243.97 159.02,-266.58 195,-279 218.55,-287.13 245.87,-292.24 268.34,-295.38"/>
-<polygon fill="#000000" stroke="#000000" points="267.92,-298.86 278.29,-296.69 268.83,-291.92 267.92,-298.86"/>
+<polygon fill="none" stroke="black" points="158,-24 0,-24 0,0 158,0 158,-24"/>
+<text text-anchor="middle" x="79" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">nasto_eos_object%initialize</text>
 </g>
 <!-- initialize -->
-<g id="proc~~initialize~10~~CallsGraph_node3" class="node">
+<g id="proc~~initialize~10~~CallsGraph_node2" class="node">
 <title>initialize</title>
-<polygon fill="#777777" stroke="#777777" points="617.5,-192 560.5,-192 560.5,-168 617.5,-168 617.5,-192"/>
-<text text-anchor="middle" x="589" y="-177.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">initialize</text>
+<polygon fill="#777777" stroke="#777777" points="251,-24 194,-24 194,0 251,0 251,-24"/>
+<text text-anchor="middle" x="222.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">initialize</text>
 </g>
 <!-- proc~initialize~10&#45;&gt;initialize -->
-<g id="proc~~initialize~10~~CallsGraph_edge2" class="edge">
+<g id="proc~~initialize~10~~CallsGraph_edge1" class="edge">
 <title>proc~initialize~10&#45;&gt;initialize</title>
-<path fill="none" stroke="#000000" d="M159.24,-212.1C270.06,-203.81 467.72,-189.01 550.21,-182.83"/>
-<polygon fill="#000000" stroke="#000000" points="550.67,-186.31 560.38,-182.07 550.14,-179.32 550.67,-186.31"/>
-</g>
-<!-- print_message -->
-<g id="proc~~initialize~10~~CallsGraph_node4" class="node">
-<title>print_message</title>
-<polygon fill="#777777" stroke="#777777" points="634.5,-234 543.5,-234 543.5,-210 634.5,-210 634.5,-234"/>
-<text text-anchor="middle" x="589" y="-219.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">print_message</text>
-</g>
-<!-- proc~initialize~10&#45;&gt;print_message -->
-<g id="proc~~initialize~10~~CallsGraph_edge3" class="edge">
-<title>proc~initialize~10&#45;&gt;print_message</title>
-<path fill="none" stroke="#000000" d="M159.24,-218.62C263.12,-219.44 443.3,-220.86 533.4,-221.57"/>
-<polygon fill="#000000" stroke="#000000" points="533.38,-225.07 543.41,-221.65 533.44,-218.07 533.38,-225.07"/>
-</g>
-<!-- proc~allocate_cpu -->
-<g id="proc~~initialize~10~~CallsGraph_node5" class="node">
-<title>proc~allocate_cpu</title>
-<g id="a_proc~~initialize~10~~CallsGraph_node5"><a xlink:href="../proc/allocate_cpu.html" xlink:title="nasto_cpu_object%allocate_cpu">
-<polygon fill="#d9534f" stroke="#d9534f" points="405.5,-270 223.5,-270 223.5,-246 405.5,-246 405.5,-270"/>
-<text text-anchor="middle" x="314.5" y="-255.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_cpu_object%allocate_cpu</text>
-</a>
-</g>
-</g>
-<!-- proc~initialize~10&#45;&gt;proc~allocate_cpu -->
-<g id="proc~~initialize~10~~CallsGraph_edge4" class="edge">
-<title>proc~initialize~10&#45;&gt;proc~allocate_cpu</title>
-<path fill="none" stroke="#000000" d="M150.41,-230C176.44,-234.47 206.18,-239.58 233.08,-244.19"/>
-<polygon fill="#000000" stroke="#000000" points="232.79,-247.7 243.24,-245.94 233.98,-240.8 232.79,-247.7"/>
-</g>
-<!-- proc~initialize_common -->
-<g id="proc~~initialize~10~~CallsGraph_node6" class="node">
-<title>proc~initialize_common</title>
-<g id="a_proc~~initialize~10~~CallsGraph_node6"><a xlink:href="../proc/initialize_common.html" xlink:title="nasto_common_object%initialize_common">
-<polygon fill="#d9534f" stroke="#d9534f" points="434,-150 195,-150 195,-126 434,-126 434,-150"/>
-<text text-anchor="middle" x="314.5" y="-135.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_common_object%initialize_common</text>
-</a>
-</g>
-</g>
-<!-- proc~initialize~10&#45;&gt;proc~initialize_common -->
-<g id="proc~~initialize~10~~CallsGraph_edge5" class="edge">
-<title>proc~initialize~10&#45;&gt;proc~initialize_common</title>
-<path fill="none" stroke="#000000" d="M103.64,-205.88C126.39,-194.35 162.36,-177.15 195,-166 210.24,-160.79 226.91,-156.21 242.8,-152.33"/>
-<polygon fill="#000000" stroke="#000000" points="243.65,-155.73 252.57,-150.01 242.03,-148.91 243.65,-155.73"/>
-</g>
-<!-- proc~allocate_cpu&#45;&gt;print_message -->
-<g id="proc~~initialize~10~~CallsGraph_edge7" class="edge">
-<title>proc~allocate_cpu&#45;&gt;print_message</title>
-<path fill="none" stroke="#000000" d="M405.86,-246.06C448.06,-240.49 496.91,-234.03 533.39,-229.21"/>
-<polygon fill="#000000" stroke="#000000" points="533.88,-232.68 543.34,-227.9 532.96,-225.74 533.88,-232.68"/>
-</g>
-<!-- allocate_variable -->
-<g id="proc~~initialize~10~~CallsGraph_node7" class="node">
-<title>allocate_variable</title>
-<polygon fill="#777777" stroke="#777777" points="641,-276 537,-276 537,-252 641,-252 641,-276"/>
-<text text-anchor="middle" x="589" y="-261.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">allocate_variable</text>
-</g>
-<!-- proc~allocate_cpu&#45;&gt;allocate_variable -->
-<g id="proc~~initialize~10~~CallsGraph_edge6" class="edge">
-<title>proc~allocate_cpu&#45;&gt;allocate_variable</title>
-<path fill="none" stroke="#000000" d="M405.86,-259.99C445.48,-260.86 490.97,-261.86 526.57,-262.65"/>
-<polygon fill="#000000" stroke="#000000" points="526.74,-266.15 536.81,-262.87 526.89,-259.15 526.74,-266.15"/>
-</g>
-<!-- proc~initialize_common&#45;&gt;initialize -->
-<g id="proc~~initialize~10~~CallsGraph_edge9" class="edge">
-<title>proc~initialize_common&#45;&gt;initialize</title>
-<path fill="none" stroke="#000000" d="M393.59,-150.04C445.09,-157.97 510.25,-168.02 550.52,-174.22"/>
-<polygon fill="#000000" stroke="#000000" points="550.03,-177.69 560.45,-175.75 551.1,-170.77 550.03,-177.69"/>
-</g>
-<!-- proc~initialize_common&#45;&gt;print_message -->
-<g id="proc~~initialize~10~~CallsGraph_edge10" class="edge">
-<title>proc~initialize_common&#45;&gt;print_message</title>
-<path fill="none" stroke="#000000" d="M340.34,-150.04C370.4,-164.16 422.84,-187.35 470,-201 490.35,-206.89 513.17,-211.41 533.29,-214.73"/>
-<polygon fill="#000000" stroke="#000000" points="532.8,-218.2 543.22,-216.31 533.9,-211.28 532.8,-218.2"/>
-</g>
-<!-- compute_blocks_number -->
-<g id="proc~~initialize~10~~CallsGraph_node8" class="node">
-<title>compute_blocks_number</title>
-<polygon fill="#777777" stroke="#777777" points="662,-108 516,-108 516,-84 662,-84 662,-108"/>
-<text text-anchor="middle" x="589" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_blocks_number</text>
-</g>
-<!-- proc~initialize_common&#45;&gt;compute_blocks_number -->
-<g id="proc~~initialize~10~~CallsGraph_edge8" class="edge">
-<title>proc~initialize_common&#45;&gt;compute_blocks_number</title>
-<path fill="none" stroke="#000000" d="M393.59,-125.96C428.81,-120.54 470.41,-114.12 506.08,-108.63"/>
-<polygon fill="#000000" stroke="#000000" points="506.62,-112.08 515.97,-107.1 505.55,-105.17 506.62,-112.08"/>
-</g>
-<!-- proc~allocate_common -->
-<g id="proc~~initialize~10~~CallsGraph_node9" class="node">
-<title>proc~allocate_common</title>
-<g id="a_proc~~initialize~10~~CallsGraph_node9"><a xlink:href="../proc/allocate_common.html" xlink:title="nasto_common_object%allocate_common">
-<polygon fill="#d9534f" stroke="#d9534f" points="708,-66 470,-66 470,-42 708,-42 708,-66"/>
-<text text-anchor="middle" x="589" y="-51.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_common_object%allocate_common</text>
-</a>
-</g>
-</g>
-<!-- proc~initialize_common&#45;&gt;proc~allocate_common -->
-<g id="proc~~initialize~10~~CallsGraph_edge11" class="edge">
-<title>proc~initialize_common&#45;&gt;proc~allocate_common</title>
-<path fill="none" stroke="#000000" d="M340.34,-125.96C370.4,-111.84 422.84,-88.65 470,-75 478.73,-72.47 487.92,-70.2 497.16,-68.16"/>
-<polygon fill="#000000" stroke="#000000" points="498.12,-71.53 507.18,-66.04 496.67,-64.68 498.12,-71.53"/>
-</g>
-<!-- prune -->
-<g id="proc~~initialize~10~~CallsGraph_node10" class="node">
-<title>prune</title>
-<polygon fill="#777777" stroke="#777777" points="616,-24 562,-24 562,0 616,0 616,-24"/>
-<text text-anchor="middle" x="589" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">prune</text>
-</g>
-<!-- proc~initialize_common&#45;&gt;prune -->
-<g id="proc~~initialize~10~~CallsGraph_edge12" class="edge">
-<title>proc~initialize_common&#45;&gt;prune</title>
-<path fill="none" stroke="#000000" d="M328.83,-125.99C354.26,-103.8 412.33,-56.47 470,-33 496.19,-22.34 527.82,-17.08 551.74,-14.49"/>
-<polygon fill="#000000" stroke="#000000" points="552.2,-17.96 561.81,-13.51 551.52,-11 552.2,-17.96"/>
-</g>
-<!-- refine_uniform -->
-<g id="proc~~initialize~10~~CallsGraph_node11" class="node">
-<title>refine_uniform</title>
-<polygon fill="#777777" stroke="#777777" points="634.5,-150 543.5,-150 543.5,-126 634.5,-126 634.5,-150"/>
-<text text-anchor="middle" x="589" y="-135.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">refine_uniform</text>
-</g>
-<!-- proc~initialize_common&#45;&gt;refine_uniform -->
-<g id="proc~~initialize~10~~CallsGraph_edge13" class="edge">
-<title>proc~initialize_common&#45;&gt;refine_uniform</title>
-<path fill="none" stroke="#000000" d="M434.23,-138C468.72,-138 504.73,-138 533.23,-138"/>
-<polygon fill="#000000" stroke="#000000" points="533.37,-141.5 543.37,-138 533.37,-134.5 533.37,-141.5"/>
-</g>
-</g>
-</svg>
-</div>                <script>
-                  var panprocinitialize10CallsGraph = svgPanZoom('#procinitialize10CallsGraph',
-                    {zoomEnabled: true, controlIconsEnabled: true, fit: true, center: true,}
-                  );
-                </script>          <div>
-            <a type="button" class="graph-help" data-bs-toggle="modal" href="#CallsGraph-help-text">Help</a>
-          </div>
-          <div class="modal fade" id="CallsGraph-help-text" tabindex="-1" role="dialog">
-            <div class="modal-dialog modal-lg" role="document">
-              <div class="modal-content">
-                <div class="modal-header">
-                  <h4 class="modal-title" id="-graph-help-label">Graph Key</h4>
-                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-<p>Nodes of different colours represent the following: </p>
-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
- "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<!-- Generated by graphviz version 2.43.0 (0)
- -->
-<!-- Title: Graph Key Pages: 1 -->
-<svg width="641pt" height="28pt"
- viewBox="0.00 0.00 641.00 27.51" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
-<g id="graph0" class="graph" transform="scale(0.86 0.86) rotate(0) translate(4 28)">
-<title>Graph Key</title>
-<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 741.5,-28 741.5,4 -4,4"/>
-<!-- Subroutine -->
-<g id="node1" class="node">
-<title>Subroutine</title>
-<polygon fill="#d9534f" stroke="#d9534f" points="70,-24 0,-24 0,0 70,0 70,-24"/>
-<text text-anchor="middle" x="35" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Subroutine</text>
-</g>
-<!-- Function -->
-<g id="node2" class="node">
-<title>Function</title>
-<polygon fill="#d94e8f" stroke="#d94e8f" points="146,-24 88,-24 88,0 146,0 146,-24"/>
-<text text-anchor="middle" x="117" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Function</text>
-</g>
-<!-- Interface -->
-<g id="node3" class="node">
-<title>Interface</title>
-<polygon fill="#a7506f" stroke="#a7506f" points="225.5,-24 164.5,-24 164.5,0 225.5,0 225.5,-24"/>
-<text text-anchor="middle" x="195" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Interface</text>
-</g>
-<!-- Type Bound Procedure -->
-<g id="node4" class="node">
-<title>Type Bound Procedure</title>
-<polygon fill="#a7506f" stroke="#a7506f" points="374,-24 244,-24 244,0 374,0 374,-24"/>
-<text text-anchor="middle" x="309" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Type Bound Procedure</text>
-</g>
-<!-- Unknown Procedure Type -->
-<g id="node5" class="node">
-<title>Unknown Procedure Type</title>
-<polygon fill="#777777" stroke="#777777" points="537.5,-24 392.5,-24 392.5,0 537.5,0 537.5,-24"/>
-<text text-anchor="middle" x="465" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Unknown Procedure Type</text>
-</g>
-<!-- Program -->
-<g id="node6" class="node">
-<title>Program</title>
-<polygon fill="#f0ad4e" stroke="#f0ad4e" points="614,-24 556,-24 556,0 614,0 614,-24"/>
-<text text-anchor="middle" x="585" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">Program</text>
-</g>
-<!-- This Page&#39;s Entity -->
-<g id="node7" class="node">
-<title>This Page&#39;s Entity</title>
-<polygon fill="none" stroke="black" points="737.5,-24 632.5,-24 632.5,0 737.5,0 737.5,-24"/>
-<text text-anchor="middle" x="685" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">This Page&#39;s Entity</text>
-</g>
-</g>
-</svg>
-
-<p>Solid arrows point from a procedure to one which it calls. Dashed 
-arrows point from an interface to procedures which implement that interface.
-This could include the module procedures in a generic interface or the
-implementation in a submodule of an interface in a parent module.
-</p>
- </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-header">
-  <h3 class="card-title">Called by</h3>
-      </div>
-      <div class="card-body">
-  <div class="depgraph"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
- "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<!-- Generated by graphviz version 2.43.0 (0)
- -->
-<!-- Title: proc~~initialize~10~~CalledByGraph Pages: 1 -->
-<svg id="procinitialize10CalledByGraph" width="502pt" height="32pt"
- viewBox="0.00 0.00 502.00 32.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
-<g id="proc~~initialize~10~~CalledByGraph" class="graph" transform="scale(1 1) rotate(0) translate(4 28)">
-<title>proc~~initialize~10~~CalledByGraph</title>
-<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 498,-28 498,4 -4,4"/>
-<!-- proc~initialize~10 -->
-<g id="proc~~initialize~10~~CalledByGraph_node1" class="node">
-<title>proc~initialize~10</title>
-<polygon fill="none" stroke="black" points="494,-24 335,-24 335,0 494,0 494,-24"/>
-<text text-anchor="middle" x="414.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">nasto_cpu_object%initialize</text>
-</g>
-<!-- proc~simulate~4 -->
-<g id="proc~~initialize~10~~CalledByGraph_node2" class="node">
-<title>proc~simulate~4</title>
-<g id="a_proc~~initialize~10~~CalledByGraph_node2"><a xlink:href="../proc/simulate~4.html" xlink:title="nasto_cpu_object%simulate">
-<polygon fill="#d9534f" stroke="#d9534f" points="299,-24 139,-24 139,0 299,0 299,-24"/>
-<text text-anchor="middle" x="219" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_cpu_object%simulate</text>
-</a>
-</g>
-</g>
-<!-- proc~simulate~4&#45;&gt;proc~initialize~10 -->
-<g id="proc~~initialize~10~~CalledByGraph_edge1" class="edge">
-<title>proc~simulate~4&#45;&gt;proc~initialize~10</title>
-<path fill="none" stroke="#000000" d="M299.26,-12C307.74,-12 316.4,-12 324.98,-12"/>
-<polygon fill="#000000" stroke="#000000" points="324.99,-15.5 334.99,-12 324.99,-8.5 324.99,-15.5"/>
-</g>
-<!-- program~adam_nasto_cpu -->
-<g id="proc~~initialize~10~~CalledByGraph_node3" class="node">
-<title>program~adam_nasto_cpu</title>
-<g id="a_proc~~initialize~10~~CalledByGraph_node3"><a xlink:href="../program/adam_nasto_cpu.html" xlink:title="adam_nasto_cpu">
-<polygon fill="#f0ad4e" stroke="#f0ad4e" points="103,-24 0,-24 0,0 103,0 103,-24"/>
-<text text-anchor="middle" x="51.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_cpu</text>
-</a>
-</g>
-</g>
-<!-- program~adam_nasto_cpu&#45;&gt;proc~simulate~4 -->
-<g id="proc~~initialize~10~~CalledByGraph_edge2" class="edge">
-<title>program~adam_nasto_cpu&#45;&gt;proc~simulate~4</title>
-<path fill="none" stroke="#000000" d="M103.05,-12C111.19,-12 119.81,-12 128.53,-12"/>
-<polygon fill="#000000" stroke="#000000" points="128.79,-15.5 138.79,-12 128.79,-8.5 128.79,-15.5"/>
+<path fill="none" stroke="#000000" d="M158.2,-12C167.09,-12 175.82,-12 183.82,-12"/>
+<polygon fill="#000000" stroke="#000000" points="183.87,-15.5 193.87,-12 183.87,-8.5 183.87,-15.5"/>
 </g>
 </g>
 </svg>
 </div>          <div>
-            <a type="button" class="graph-help" data-bs-toggle="modal" href="#CalledByGraph-help-text">Help</a>
+            <a type="button" class="graph-help" data-bs-toggle="modal" href="#CallsGraph-help-text">Help</a>
           </div>
-          <div class="modal fade" id="CalledByGraph-help-text" tabindex="-1" role="dialog">
+          <div class="modal fade" id="CallsGraph-help-text" tabindex="-1" role="dialog">
             <div class="modal-dialog modal-lg" role="document">
               <div class="modal-content">
                 <div class="modal-header">
@@ -613,18 +446,25 @@ implementation in a submodule of an interface in a parent module.
     
     <section>
     <h2><span class="anchor" id="src"></span>Source Code</h2>
-    <div class="hl codehilite"><pre><span></span><span class="w">   </span><span class="k">subroutine </span><span class="n">initialize</span><span class="p">(</span><span class="n">self</span><span class="p">,</span><span class="w"> </span><span class="n">filename</span><span class="p">)</span>
-<span class="w">   </span><span class="c">!&lt; Initialize the equation.</span>
-<span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_cpu_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">inout</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w">     </span><span class="c">!&lt; The equation.</span>
-<span class="w">   </span><span class="kt">character</span><span class="p">(</span><span class="o">*</span><span class="p">),</span><span class="w">            </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">    </span><span class="kd">::</span><span class="w"> </span><span class="n">filename</span><span class="w"> </span><span class="c">!&lt; Input file name.</span>
+    <div class="hl codehilite"><pre><span></span><span class="w">   </span><span class="k">subroutine </span><span class="n">initialize</span><span class="p">(</span><span class="n">self</span><span class="p">,</span><span class="w"> </span><span class="n">physics</span><span class="p">,</span><span class="w"> </span><span class="n">mu</span><span class="p">,</span><span class="w"> </span><span class="n">kd</span><span class="p">,</span><span class="w"> </span><span class="n">dha</span><span class="p">,</span><span class="w"> </span><span class="n">cp</span><span class="p">,</span><span class="w"> </span><span class="n">cv</span><span class="p">,</span><span class="w"> </span><span class="n">gam</span><span class="p">,</span><span class="w"> </span><span class="n">R</span><span class="p">)</span>
+<span class="w">   </span><span class="c">!&lt; Initialize fluid physics.</span>
+<span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">inout</span><span class="p">)</span><span class="w">        </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w">    </span><span class="c">!&lt; Fluid physics.</span>
+<span class="w">   </span><span class="k">type</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">),</span><span class="w">  </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">physics</span><span class="w"> </span><span class="c">!&lt; Fluid physics.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">mu</span><span class="w">      </span><span class="c">!&lt; Dynamic viscosity.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">kd</span><span class="w">      </span><span class="c">!&lt; Thermal diffusivity.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">dha</span><span class="w">     </span><span class="c">!&lt; Entalpy formation.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">cp</span><span class="w">      </span><span class="c">!&lt; Specific heat at constant pressure `cp` value.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">cv</span><span class="w">      </span><span class="c">!&lt; Specific heat at constant volume `cv` value.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">gam</span><span class="w">     </span><span class="c">!&lt; Specific heats ratio `gamma=cp/cv` value.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">R</span><span class="w">       </span><span class="c">!&lt; Fluid constant `R=cp-cv` value.</span>
 
-<span class="w">   </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">mpih</span><span class="p">%</span><span class="n">initialize</span><span class="p">(</span><span class="n">do_mpi_init</span><span class="o">=</span><span class="p">.</span><span class="n">true</span><span class="p">.)</span>
-<span class="w">   </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">mpih</span><span class="p">%</span><span class="n">print_message</span><span class="p">(</span><span class="s1">&#39;nasto_cpu_object%initialize start&#39;</span><span class="p">)</span>
-<span class="w">   </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">initialize_common</span><span class="p">(</span><span class="n">filename</span><span class="o">=</span><span class="n">filename</span><span class="p">,</span><span class="w"> </span><span class="n">memory_avail</span><span class="o">=</span><span class="n">self</span><span class="p">%</span><span class="n">mpih</span><span class="p">%</span><span class="n">memory_avail</span><span class="p">)</span>
-<span class="w">   </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">allocate_cpu</span>
-<span class="w">   </span><span class="k">print</span><span class="w"> </span><span class="s1">&#39;(A)&#39;</span><span class="p">,</span><span class="w"> </span><span class="n">self</span><span class="p">%</span><span class="n">mpih</span><span class="p">%</span><span class="n">description</span><span class="p">()</span>
-<span class="w">   </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">mpih</span><span class="p">%</span><span class="n">print_message</span><span class="p">(</span><span class="s1">&#39;nasto_cpu_object%initialize finish&#39;</span><span class="p">)</span>
-<span class="w">   </span><span class="k">endsubroutine </span><span class="n">initialize</span>
+<span class="w">   </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">mpih</span><span class="p">%</span><span class="n">initialize</span>
+<span class="w">   </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">present</span><span class="p">(</span><span class="n">physics</span><span class="p">))</span><span class="w"> </span><span class="k">then</span>
+<span class="k">      </span><span class="n">self</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">physics</span>
+<span class="w">   </span><span class="k">else</span>
+<span class="k">      </span><span class="n">self</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">nasto_eos_object</span><span class="p">(</span><span class="n">mu</span><span class="o">=</span><span class="n">mu</span><span class="p">,</span><span class="w"> </span><span class="n">kd</span><span class="o">=</span><span class="n">kd</span><span class="p">,</span><span class="w"> </span><span class="n">dha</span><span class="o">=</span><span class="n">dha</span><span class="p">,</span><span class="w"> </span><span class="n">cp</span><span class="o">=</span><span class="n">cp</span><span class="p">,</span><span class="w"> </span><span class="n">cv</span><span class="o">=</span><span class="n">cv</span><span class="p">,</span><span class="w"> </span><span class="n">gam</span><span class="o">=</span><span class="n">gam</span><span class="p">,</span><span class="w"> </span><span class="n">R</span><span class="o">=</span><span class="n">R</span><span class="p">)</span>
+<span class="w">   </span><span class="k">endif</span>
+<span class="k">   endsubroutine </span><span class="n">initialize</span>
 </pre></div>
 
     </section>
