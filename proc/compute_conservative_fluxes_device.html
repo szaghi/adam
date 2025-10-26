@@ -96,15 +96,15 @@
 
             <li class="list-inline-item" id="source-file">
               <i class="fa fa-code"></i>
-              <a href="../src/adam_nasto_gmp_cns_kernels.F90"> Source File</a>
+              <a href="../src/adam_nasto_nvf_cns_kernels.F90"> Source File</a>
             </li>
         </ul>
       </div>
       <div class="col">
         <nav aria-label="breadcrumb">
           <ol class="breadcrumb justify-content-end mb-0">
-                <li class="breadcrumb-item"><a href='../sourcefile/adam_nasto_gmp_cns_kernels.f90.html'>adam_nasto_gmp_cns_kernels.F90</a></li>
-                <li class="breadcrumb-item"><a href='../module/adam_nasto_gmp_cns_kernels.html'>adam_nasto_gmp_cns_kernels</a></li>
+                <li class="breadcrumb-item"><a href='../sourcefile/adam_nasto_nvf_cns_kernels.f90.html'>adam_nasto_nvf_cns_kernels.F90</a></li>
+                <li class="breadcrumb-item"><a href='../module/adam_nasto_nvf_cns_kernels.html'>adam_nasto_nvf_cns_kernels</a></li>
             <li class="breadcrumb-item active" aria-current="page">compute_conservative_fluxes_device</li>
           </ol>
         </nav>
@@ -178,12 +178,12 @@
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-sir~7"></span>
+              <span class="anchor" id="variable-sir~4"></span>
               real(kind=R8P),
             </td>
-<td>intent(in)</td>
+<td>intent(in),</td>
               <td></td>            <td>
-              
+              device
             </td>
             <td>::</td>
             <td><strong>sir</strong>(3)</td>
@@ -193,12 +193,12 @@
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-b~27"></span>
+              <span class="anchor" id="variable-b~9"></span>
               integer(kind=I4P),
             </td>
-<td>intent(in)</td>
+<td>intent(in),</td>
               <td></td>            <td>
-              
+              value
             </td>
             <td>::</td>
             <td><strong>b</strong></td>
@@ -208,12 +208,12 @@
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-i~24"></span>
+              <span class="anchor" id="variable-i~10"></span>
               integer(kind=I4P),
             </td>
-<td>intent(in)</td>
+<td>intent(in),</td>
               <td></td>            <td>
-              
+              value
             </td>
             <td>::</td>
             <td><strong>i</strong></td>
@@ -223,12 +223,12 @@
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-j~18"></span>
+              <span class="anchor" id="variable-j~9"></span>
               integer(kind=I4P),
             </td>
-<td>intent(in)</td>
+<td>intent(in),</td>
               <td></td>            <td>
-              
+              value
             </td>
             <td>::</td>
             <td><strong>j</strong></td>
@@ -238,12 +238,12 @@
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-k~18"></span>
+              <span class="anchor" id="variable-k~9"></span>
               integer(kind=I4P),
             </td>
-<td>intent(in)</td>
+<td>intent(in),</td>
               <td></td>            <td>
-              
+              value
             </td>
             <td>::</td>
             <td><strong>k</strong></td>
@@ -253,12 +253,12 @@
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ngc~16"></span>
+              <span class="anchor" id="variable-ngc~8"></span>
               integer(kind=I4P),
             </td>
-<td>intent(in)</td>
+<td>intent(in),</td>
               <td></td>            <td>
-              
+              value
             </td>
             <td>::</td>
             <td><strong>ngc</strong></td>
@@ -268,12 +268,12 @@
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux_gpu~11"></span>
+              <span class="anchor" id="variable-q_aux_gpu~8"></span>
               real(kind=R8P),
             </td>
-<td>intent(in)</td>
+<td>intent(in),</td>
               <td></td>            <td>
-              
+              device
             </td>
             <td>::</td>
             <td><strong>q_aux_gpu</strong>(1:,1-ngc:,1-ngc:,1-ngc:,1:)</td>
@@ -283,12 +283,12 @@
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-f~4"></span>
+              <span class="anchor" id="variable-f~2"></span>
               real(kind=R8P),
             </td>
-<td>intent(inout)</td>
+<td>intent(inout),</td>
               <td></td>            <td>
-              
+              device
             </td>
             <td>::</td>
             <td><strong>f</strong>(1:)</td>
@@ -312,120 +312,120 @@
  -->
 <!-- Title: proc~~compute_conservative_fluxes_device~~CalledByGraph Pages: 1 -->
 <svg id="proccompute_conservative_fluxes_deviceCalledByGraph" width="641pt" height="12pt"
- viewBox="0.00 0.00 641.00 11.83" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+ viewBox="0.00 0.00 641.00 11.97" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
 <g id="proc~~compute_conservative_fluxes_device~~CalledByGraph" class="graph" transform="scale(0.37 0.37) rotate(0) translate(4 28)">
 <title>proc~~compute_conservative_fluxes_device~~CalledByGraph</title>
-<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 1730,-28 1730,4 -4,4"/>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 1709,-28 1709,4 -4,4"/>
 <!-- proc~compute_conservative_fluxes_device -->
 <g id="proc~~compute_conservative_fluxes_device~~CalledByGraph_node1" class="node">
 <title>proc~compute_conservative_fluxes_device</title>
-<polygon fill="none" stroke="black" points="1726,-24 1515,-24 1515,0 1726,0 1726,-24"/>
-<text text-anchor="middle" x="1620.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">compute_conservative_fluxes_device</text>
+<polygon fill="none" stroke="black" points="1705,-24 1494,-24 1494,0 1705,0 1705,-24"/>
+<text text-anchor="middle" x="1599.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">compute_conservative_fluxes_device</text>
 </g>
 <!-- proc~decompose_fluxes_convective_device~2 -->
 <g id="proc~~compute_conservative_fluxes_device~~CalledByGraph_node2" class="node">
 <title>proc~decompose_fluxes_convective_device~2</title>
 <g id="a_proc~~compute_conservative_fluxes_device~~CalledByGraph_node2"><a xlink:href="../proc/decompose_fluxes_convective_device~2.html" xlink:title="decompose_fluxes_convective_device">
-<polygon fill="#d9534f" stroke="#d9534f" points="1479,-24 1264,-24 1264,0 1479,0 1479,-24"/>
-<text text-anchor="middle" x="1371.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">decompose_fluxes_convective_device</text>
+<polygon fill="#d9534f" stroke="#d9534f" points="1458,-24 1243,-24 1243,0 1458,0 1458,-24"/>
+<text text-anchor="middle" x="1350.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">decompose_fluxes_convective_device</text>
 </a>
 </g>
 </g>
 <!-- proc~decompose_fluxes_convective_device~2&#45;&gt;proc~compute_conservative_fluxes_device -->
 <g id="proc~~compute_conservative_fluxes_device~~CalledByGraph_edge1" class="edge">
 <title>proc~decompose_fluxes_convective_device~2&#45;&gt;proc~compute_conservative_fluxes_device</title>
-<path fill="none" stroke="#000000" d="M1479.04,-12C1487.58,-12 1496.23,-12 1504.83,-12"/>
-<polygon fill="#000000" stroke="#000000" points="1504.88,-15.5 1514.88,-12 1504.88,-8.5 1504.88,-15.5"/>
+<path fill="none" stroke="#000000" d="M1458.04,-12C1466.58,-12 1475.23,-12 1483.83,-12"/>
+<polygon fill="#000000" stroke="#000000" points="1483.88,-15.5 1493.88,-12 1483.88,-8.5 1483.88,-15.5"/>
 </g>
 <!-- proc~compute_fluxes_convective_device~2 -->
 <g id="proc~~compute_conservative_fluxes_device~~CalledByGraph_node3" class="node">
 <title>proc~compute_fluxes_convective_device~2</title>
 <g id="a_proc~~compute_conservative_fluxes_device~~CalledByGraph_node3"><a xlink:href="../proc/compute_fluxes_convective_device~2.html" xlink:title="compute_fluxes_convective_device">
-<polygon fill="#d9534f" stroke="#d9534f" points="1228,-24 1028,-24 1028,0 1228,0 1228,-24"/>
-<text text-anchor="middle" x="1128" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_fluxes_convective_device</text>
+<polygon fill="#d9534f" stroke="#d9534f" points="1207,-24 1007,-24 1007,0 1207,0 1207,-24"/>
+<text text-anchor="middle" x="1107" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_fluxes_convective_device</text>
 </a>
 </g>
 </g>
 <!-- proc~compute_fluxes_convective_device~2&#45;&gt;proc~decompose_fluxes_convective_device~2 -->
 <g id="proc~~compute_conservative_fluxes_device~~CalledByGraph_edge2" class="edge">
 <title>proc~compute_fluxes_convective_device~2&#45;&gt;proc~decompose_fluxes_convective_device~2</title>
-<path fill="none" stroke="#000000" d="M1228.27,-12C1236.6,-12 1245.06,-12 1253.5,-12"/>
-<polygon fill="#000000" stroke="#000000" points="1253.77,-15.5 1263.77,-12 1253.77,-8.5 1253.77,-15.5"/>
+<path fill="none" stroke="#000000" d="M1207.27,-12C1215.6,-12 1224.06,-12 1232.5,-12"/>
+<polygon fill="#000000" stroke="#000000" points="1232.77,-15.5 1242.77,-12 1232.77,-8.5 1232.77,-15.5"/>
 </g>
-<!-- proc~compute_fluxes_convective_gmp -->
+<!-- proc~compute_fluxes_convective_kernel -->
 <g id="proc~~compute_conservative_fluxes_device~~CalledByGraph_node4" class="node">
-<title>proc~compute_fluxes_convective_gmp</title>
-<g id="a_proc~~compute_conservative_fluxes_device~~CalledByGraph_node4"><a xlink:href="../proc/compute_fluxes_convective_gmp.html" xlink:title="compute_fluxes_convective_gmp">
-<polygon fill="#d9534f" stroke="#d9534f" points="992,-24 803,-24 803,0 992,0 992,-24"/>
-<text text-anchor="middle" x="897.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_fluxes_convective_gmp</text>
+<title>proc~compute_fluxes_convective_kernel</title>
+<g id="a_proc~~compute_conservative_fluxes_device~~CalledByGraph_node4"><a xlink:href="../proc/compute_fluxes_convective_kernel.html" xlink:title="compute_fluxes_convective_kernel">
+<polygon fill="#d9534f" stroke="#d9534f" points="971,-24 772,-24 772,0 971,0 971,-24"/>
+<text text-anchor="middle" x="871.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_fluxes_convective_kernel</text>
 </a>
 </g>
 </g>
-<!-- proc~compute_fluxes_convective_gmp&#45;&gt;proc~compute_fluxes_convective_device~2 -->
+<!-- proc~compute_fluxes_convective_kernel&#45;&gt;proc~compute_fluxes_convective_device~2 -->
 <g id="proc~~compute_conservative_fluxes_device~~CalledByGraph_edge3" class="edge">
-<title>proc~compute_fluxes_convective_gmp&#45;&gt;proc~compute_fluxes_convective_device~2</title>
-<path fill="none" stroke="#000000" d="M992.1,-12C1000.6,-12 1009.27,-12 1017.89,-12"/>
-<polygon fill="#000000" stroke="#000000" points="1017.98,-15.5 1027.98,-12 1017.98,-8.5 1017.98,-15.5"/>
+<title>proc~compute_fluxes_convective_kernel&#45;&gt;proc~compute_fluxes_convective_device~2</title>
+<path fill="none" stroke="#000000" d="M971.19,-12C979.69,-12 988.32,-12 996.89,-12"/>
+<polygon fill="#000000" stroke="#000000" points="996.92,-15.5 1006.92,-12 996.92,-8.5 996.92,-15.5"/>
 </g>
-<!-- proc~compute_residuals~4 -->
+<!-- proc~compute_residuals -->
 <g id="proc~~compute_conservative_fluxes_device~~CalledByGraph_node5" class="node">
-<title>proc~compute_residuals~4</title>
-<g id="a_proc~~compute_conservative_fluxes_device~~CalledByGraph_node5"><a xlink:href="../proc/compute_residuals~4.html" xlink:title="nasto_gmp_object%compute_residuals">
-<polygon fill="#d9534f" stroke="#d9534f" points="767,-24 548,-24 548,0 767,0 767,-24"/>
-<text text-anchor="middle" x="657.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%compute_residuals</text>
+<title>proc~compute_residuals</title>
+<g id="a_proc~~compute_conservative_fluxes_device~~CalledByGraph_node5"><a xlink:href="../proc/compute_residuals.html" xlink:title="nasto_nvf_object%compute_residuals">
+<polygon fill="#d9534f" stroke="#d9534f" points="736,-24 525,-24 525,0 736,0 736,-24"/>
+<text text-anchor="middle" x="630.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_nvf_object%compute_residuals</text>
 </a>
 </g>
 </g>
-<!-- proc~compute_residuals~4&#45;&gt;proc~compute_fluxes_convective_gmp -->
+<!-- proc~compute_residuals&#45;&gt;proc~compute_fluxes_convective_kernel -->
 <g id="proc~~compute_conservative_fluxes_device~~CalledByGraph_edge4" class="edge">
-<title>proc~compute_residuals~4&#45;&gt;proc~compute_fluxes_convective_gmp</title>
-<path fill="none" stroke="#000000" d="M767.05,-12C775.51,-12 784.03,-12 792.46,-12"/>
-<polygon fill="#000000" stroke="#000000" points="792.67,-15.5 802.67,-12 792.67,-8.5 792.67,-15.5"/>
+<title>proc~compute_residuals&#45;&gt;proc~compute_fluxes_convective_kernel</title>
+<path fill="none" stroke="#000000" d="M736.33,-12C744.71,-12 753.19,-12 761.6,-12"/>
+<polygon fill="#000000" stroke="#000000" points="761.81,-15.5 771.81,-12 761.81,-8.5 761.81,-15.5"/>
 </g>
-<!-- proc~integrate~4 -->
+<!-- proc~integrate -->
 <g id="proc~~compute_conservative_fluxes_device~~CalledByGraph_node6" class="node">
-<title>proc~integrate~4</title>
-<g id="a_proc~~compute_conservative_fluxes_device~~CalledByGraph_node6"><a xlink:href="../proc/integrate~4.html" xlink:title="nasto_gmp_object%integrate">
-<polygon fill="#d9534f" stroke="#d9534f" points="512,-24 344,-24 344,0 512,0 512,-24"/>
-<text text-anchor="middle" x="428" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%integrate</text>
+<title>proc~integrate</title>
+<g id="a_proc~~compute_conservative_fluxes_device~~CalledByGraph_node6"><a xlink:href="../proc/integrate.html" xlink:title="nasto_nvf_object%integrate">
+<polygon fill="#d9534f" stroke="#d9534f" points="489,-24 329,-24 329,0 489,0 489,-24"/>
+<text text-anchor="middle" x="409" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_nvf_object%integrate</text>
 </a>
 </g>
 </g>
-<!-- proc~integrate~4&#45;&gt;proc~compute_residuals~4 -->
+<!-- proc~integrate&#45;&gt;proc~compute_residuals -->
 <g id="proc~~compute_conservative_fluxes_device~~CalledByGraph_edge5" class="edge">
-<title>proc~integrate~4&#45;&gt;proc~compute_residuals~4</title>
-<path fill="none" stroke="#000000" d="M512.1,-12C520.49,-12 529.13,-12 537.8,-12"/>
-<polygon fill="#000000" stroke="#000000" points="537.98,-15.5 547.98,-12 537.98,-8.5 537.98,-15.5"/>
+<title>proc~integrate&#45;&gt;proc~compute_residuals</title>
+<path fill="none" stroke="#000000" d="M489.24,-12C497.54,-12 506.09,-12 514.68,-12"/>
+<polygon fill="#000000" stroke="#000000" points="514.77,-15.5 524.77,-12 514.77,-8.5 514.77,-15.5"/>
 </g>
-<!-- proc~simulate~4 -->
+<!-- proc~simulate -->
 <g id="proc~~compute_conservative_fluxes_device~~CalledByGraph_node7" class="node">
-<title>proc~simulate~4</title>
-<g id="a_proc~~compute_conservative_fluxes_device~~CalledByGraph_node7"><a xlink:href="../proc/simulate~4.html" xlink:title="nasto_gmp_object%simulate">
-<polygon fill="#d9534f" stroke="#d9534f" points="308,-24 143,-24 143,0 308,0 308,-24"/>
-<text text-anchor="middle" x="225.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%simulate</text>
+<title>proc~simulate</title>
+<g id="a_proc~~compute_conservative_fluxes_device~~CalledByGraph_node7"><a xlink:href="../proc/simulate.html" xlink:title="nasto_nvf_object%simulate">
+<polygon fill="#d9534f" stroke="#d9534f" points="293,-24 136,-24 136,0 293,0 293,-24"/>
+<text text-anchor="middle" x="214.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_nvf_object%simulate</text>
 </a>
 </g>
 </g>
-<!-- proc~simulate~4&#45;&gt;proc~integrate~4 -->
+<!-- proc~simulate&#45;&gt;proc~integrate -->
 <g id="proc~~compute_conservative_fluxes_device~~CalledByGraph_edge6" class="edge">
-<title>proc~simulate~4&#45;&gt;proc~integrate~4</title>
-<path fill="none" stroke="#000000" d="M308.05,-12C316.54,-12 325.22,-12 333.83,-12"/>
-<polygon fill="#000000" stroke="#000000" points="333.89,-15.5 343.89,-12 333.89,-8.5 333.89,-15.5"/>
+<title>proc~simulate&#45;&gt;proc~integrate</title>
+<path fill="none" stroke="#000000" d="M293.24,-12C301.55,-12 310.05,-12 318.48,-12"/>
+<polygon fill="#000000" stroke="#000000" points="318.71,-15.5 328.71,-12 318.71,-8.5 318.71,-15.5"/>
 </g>
-<!-- program~adam_nasto_gmp -->
+<!-- program~adam_nasto_nvf -->
 <g id="proc~~compute_conservative_fluxes_device~~CalledByGraph_node8" class="node">
-<title>program~adam_nasto_gmp</title>
-<g id="a_proc~~compute_conservative_fluxes_device~~CalledByGraph_node8"><a xlink:href="../program/adam_nasto_gmp.html" xlink:title="adam_nasto_gmp">
-<polygon fill="#f0ad4e" stroke="#f0ad4e" points="107,-24 0,-24 0,0 107,0 107,-24"/>
-<text text-anchor="middle" x="53.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_gmp</text>
+<title>program~adam_nasto_nvf</title>
+<g id="a_proc~~compute_conservative_fluxes_device~~CalledByGraph_node8"><a xlink:href="../program/adam_nasto_nvf.html" xlink:title="adam_nasto_nvf">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="100,-24 0,-24 0,0 100,0 100,-24"/>
+<text text-anchor="middle" x="50" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_nvf</text>
 </a>
 </g>
 </g>
-<!-- program~adam_nasto_gmp&#45;&gt;proc~simulate~4 -->
+<!-- program~adam_nasto_nvf&#45;&gt;proc~simulate -->
 <g id="proc~~compute_conservative_fluxes_device~~CalledByGraph_edge7" class="edge">
-<title>program~adam_nasto_gmp&#45;&gt;proc~simulate~4</title>
-<path fill="none" stroke="#000000" d="M107.36,-12C115.48,-12 124.07,-12 132.75,-12"/>
-<polygon fill="#000000" stroke="#000000" points="132.96,-15.5 142.96,-12 132.96,-8.5 132.96,-15.5"/>
+<title>program~adam_nasto_nvf&#45;&gt;proc~simulate</title>
+<path fill="none" stroke="#000000" d="M100.2,-12C108.32,-12 116.95,-12 125.69,-12"/>
+<polygon fill="#000000" stroke="#000000" points="125.97,-15.5 135.97,-12 125.97,-8.5 125.97,-15.5"/>
 </g>
 </g>
 </svg>
@@ -526,15 +526,14 @@ implementation in a submodule of an interface in a parent module.
     
     <section>
     <h2><span class="anchor" id="src"></span>Source Code</h2>
-    <div class="hl codehilite"><pre><span></span><span class="w">   </span><span class="k">subroutine </span><span class="n">compute_conservative_fluxes_device</span><span class="p">(</span><span class="n">sir</span><span class="p">,</span><span class="n">b</span><span class="p">,</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">,</span><span class="n">ngc</span><span class="p">,</span><span class="n">q_aux_gpu</span><span class="p">,</span><span class="n">f</span><span class="p">)</span>
+    <div class="hl codehilite"><pre><span></span><span class="w">   </span><span class="n">attributes</span><span class="p">(</span><span class="n">device</span><span class="p">)</span><span class="w"> </span><span class="k">subroutine </span><span class="n">compute_conservative_fluxes_device</span><span class="p">(</span><span class="n">sir</span><span class="p">,</span><span class="n">b</span><span class="p">,</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">,</span><span class="n">ngc</span><span class="p">,</span><span class="n">q_aux_gpu</span><span class="p">,</span><span class="n">f</span><span class="p">)</span>
 <span class="w">   </span><span class="c">!&lt; Compute convervative fluxes from auxiliary variables.</span>
-<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">    </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">    </span><span class="kd">::</span><span class="w"> </span><span class="n">sir</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span><span class="w">                                </span><span class="c">!&lt; Directional (1=x,2=y,3=z) increment.</span>
-<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">    </span><span class="kd">::</span><span class="w"> </span><span class="n">b</span><span class="p">,</span><span class="w"> </span><span class="n">i</span><span class="p">,</span><span class="w"> </span><span class="n">j</span><span class="p">,</span><span class="w"> </span><span class="n">k</span><span class="w">                            </span><span class="c">!&lt; Cell indexes.</span>
-<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">    </span><span class="kd">::</span><span class="w"> </span><span class="n">ngc</span><span class="w">                                   </span><span class="c">!&lt; Ghost cells number.</span>
-<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">    </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">    </span><span class="kd">::</span><span class="w"> </span><span class="n">q_aux_gpu</span><span class="p">(</span><span class="mi">1</span><span class="p">:,</span><span class="mi">1</span><span class="o">-</span><span class="n">ngc</span><span class="p">:,</span><span class="mi">1</span><span class="o">-</span><span class="n">ngc</span><span class="p">:,</span><span class="mi">1</span><span class="o">-</span><span class="n">ngc</span><span class="p">:,</span><span class="mi">1</span><span class="p">:)</span><span class="w"> </span><span class="c">!&lt; Auxiliary variables.</span>
-<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">    </span><span class="k">intent</span><span class="p">(</span><span class="n">inout</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">f</span><span class="p">(</span><span class="mi">1</span><span class="p">:)</span><span class="w">                                 </span><span class="c">!&lt; Conservative fluxes.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">    </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w">    </span><span class="n">device</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">sir</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span><span class="w">                                </span><span class="c">!&lt; Directional (1=x,2=y,3=z) increment.</span>
+<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w">    </span><span class="k">value</span><span class="w">  </span><span class="kd">::</span><span class="w"> </span><span class="n">b</span><span class="p">,</span><span class="w"> </span><span class="n">i</span><span class="p">,</span><span class="w"> </span><span class="n">j</span><span class="p">,</span><span class="w"> </span><span class="n">k</span><span class="w">                            </span><span class="c">!&lt; Cell indexes.</span>
+<span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w">    </span><span class="k">value</span><span class="w">  </span><span class="kd">::</span><span class="w"> </span><span class="n">ngc</span><span class="w">                                   </span><span class="c">!&lt; Ghost cells number.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">    </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w">    </span><span class="n">device</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">q_aux_gpu</span><span class="p">(</span><span class="mi">1</span><span class="p">:,</span><span class="mi">1</span><span class="o">-</span><span class="n">ngc</span><span class="p">:,</span><span class="mi">1</span><span class="o">-</span><span class="n">ngc</span><span class="p">:,</span><span class="mi">1</span><span class="o">-</span><span class="n">ngc</span><span class="p">:,</span><span class="mi">1</span><span class="p">:)</span><span class="w"> </span><span class="c">!&lt; Auxiliary variables.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">    </span><span class="k">intent</span><span class="p">(</span><span class="n">inout</span><span class="p">),</span><span class="w"> </span><span class="n">device</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">f</span><span class="p">(</span><span class="mi">1</span><span class="p">:)</span><span class="w">                                 </span><span class="c">!&lt; Conservative fluxes.</span>
 
-<span class="w">   </span><span class="c">!$omp declare target(compute_conservative_fluxes_device)</span>
 <span class="w">   </span><span class="n">f</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">q_aux_gpu</span><span class="p">(</span><span class="n">b</span><span class="p">,</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">,</span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="n">q_aux_gpu</span><span class="p">(</span><span class="n">b</span><span class="p">,</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">,</span><span class="mi">2</span><span class="p">)</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">&amp;</span>
 <span class="w">          </span><span class="n">q_aux_gpu</span><span class="p">(</span><span class="n">b</span><span class="p">,</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">,</span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="n">q_aux_gpu</span><span class="p">(</span><span class="n">b</span><span class="p">,</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">,</span><span class="mi">3</span><span class="p">)</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">&amp;</span>
 <span class="w">          </span><span class="n">q_aux_gpu</span><span class="p">(</span><span class="n">b</span><span class="p">,</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">,</span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="n">q_aux_gpu</span><span class="p">(</span><span class="n">b</span><span class="p">,</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">,</span><span class="mi">4</span><span class="p">)</span><span class="o">*</span><span class="n">sir</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
