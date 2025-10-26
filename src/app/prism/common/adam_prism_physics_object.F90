@@ -30,6 +30,7 @@ module adam_prism_physics_object
 ! ADAM modules
 use :: adam_mpih_object, only : mpih_object
 ! PRISM modules
+use :: adam_prism_numerics_object, only : RECONSTRUCTION_VARS_CONS, RECONSTRUCTION_VARS_CHAR
 use :: adam_prism_parameters
 ! third party modules
 use :: finer, only : file_ini
@@ -41,40 +42,28 @@ public :: prism_physics_object
 
 character(len=7), parameter :: INI_SECTION_NAME='physics' !< INI file section name containing fluid physics.
 
-integer(I4P),  parameter, public :: VAR_DX = 1_I4P                            !< Conservative variable 1, Dx.
-integer(I4P),  parameter, public :: VAR_DY = 2_I4P                            !< Conservative variable 2, Dy.
-integer(I4P),  parameter, public :: VAR_DZ = 3_I4P                            !< Conservative variable 3, Dz.
-integer(I4P),  parameter, public :: VAR_BX = 4_I4P                            !< Conservative variable 4, Bx.
-integer(I4P),  parameter, public :: VAR_BY = 5_I4P                            !< Conservative variable 5, By.
-integer(I4P),  parameter, public :: VAR_BZ = 6_I4P                            !< Conservative variable 6, Bz.
-integer(I4P),  parameter, public :: VAR_JX = 7_I4P                            !< Source variable 1, Jx.
-integer(I4P),  parameter, public :: VAR_JY = 8_I4P                            !< Source variable 2, Jy.
-integer(I4P),  parameter, public :: VAR_JZ = 9_I4P                            !< Source variable 3, Jz.
-character(8),  parameter, public :: NUM_SCHEME_SPACE_CENTERED='CENTERED'      !< Centered numerical scheme for space operator.
-character(4),  parameter, public :: NUM_SCHEME_SPACE_WENO='WENO'              !< WENO numerical scheme for space operator.
-character(12), parameter, public :: RECONSTRUCTION_VARS_CONS='CONSERVATIVE'   !< High-order reconstruction on conservative vars.
-character(15), parameter, public :: RECONSTRUCTION_VARS_CHAR='CHARACTERISTICS'!< High-order reconstruction on characteristics vars.
-character(7),  parameter, public :: DIV_CORR_VAR_POISS='POISSON'              !< Poisson divergence correction.
-character(10), parameter, public :: DIV_CORR_VAR_HYPER='HYPERBOLIC'           !< Hyperbolic divergence correction.
+integer(I4P),  parameter, public :: VAR_DX = 1_I4P !< Conservative variable 1, Dx.
+integer(I4P),  parameter, public :: VAR_DY = 2_I4P !< Conservative variable 2, Dy.
+integer(I4P),  parameter, public :: VAR_DZ = 3_I4P !< Conservative variable 3, Dz.
+integer(I4P),  parameter, public :: VAR_BX = 4_I4P !< Conservative variable 4, Bx.
+integer(I4P),  parameter, public :: VAR_BY = 5_I4P !< Conservative variable 5, By.
+integer(I4P),  parameter, public :: VAR_BZ = 6_I4P !< Conservative variable 6, Bz.
+integer(I4P),  parameter, public :: VAR_JX = 7_I4P !< Source variable 1, Jx.
+integer(I4P),  parameter, public :: VAR_JY = 8_I4P !< Source variable 2, Jy.
+integer(I4P),  parameter, public :: VAR_JZ = 9_I4P !< Source variable 3, Jz.
 
 type :: prism_physics_object
    !< PRISM physics class definition.
-   type(mpih_object)         :: mpih                         !< MPI handler.
-   integer(I4P)              :: nv    = 9_I4P                !< Number of variables in q vector (nv=nv_c+nv_s+nv_cl).
-   integer(I4P)              :: nv_c  = 6_I4P                !< Number of conservative variables in q vector.
-   integer(I4P)              :: nv_s  = 3_I4P                !< Number of source variables in q vector.
-   integer(I4P)              :: nv_cl = 0_I4P                !< Number of divergence cleaning variables in q vector.
-   logical                   :: d_divergence_cleaner=.false. !< Enable electric field divergence cleaning.
-   logical                   :: b_divergence_cleaner=.false. !< Enable magnetic field divergence cleaning.
-   real(R8P)                 :: chi                          !< Coefficiente for D div-cleaning.
-   real(R8P)                 :: eta                          !< Coefficiente for B div-cleaning.
-   real(R8P)                 :: evmax                        !< Maximum signal speed (eigenvalue).
-   character(:), allocatable :: scheme_time                  !< Numerical scheme for time operator [runge_kutta, leapfrog,...].
-   character(:), allocatable :: scheme_space                 !< Numerical scheme for space operator [weno, centered].
-   character(:), allocatable :: reconstruction_vars          !< Type of WENO reconstruction variables (cons., charct.,...).
-   character(:), allocatable :: div_corr_var                 !< Type of divergence correction variables (poisson, hyperbolic,...).
-   real(R8P), pointer        :: erw(:,:,:)=>null()           !< Right eigenvectors for high order reconstruction.
-   real(R8P), pointer        :: elw(:,:,:)=>null()           !< Left  eigenvectors for high order reconstruction.
+   type(mpih_object)  :: mpih               !< MPI handler.
+   integer(I4P)       :: nv    = 9_I4P      !< Number of variables in q vector (nv=nv_c+nv_s+nv_cl).
+   integer(I4P)       :: nv_c  = 6_I4P      !< Number of conservative variables in q vector.
+   integer(I4P)       :: nv_s  = 3_I4P      !< Number of source variables in q vector.
+   integer(I4P)       :: nv_cl = 0_I4P      !< Number of divergence cleaning variables in q vector.
+   real(R8P)          :: chi                !< Coefficiente for D div-cleaning.
+   real(R8P)          :: eta                !< Coefficiente for B div-cleaning.
+   real(R8P)          :: evmax              !< Maximum signal speed (eigenvalue).
+   real(R8P), pointer :: erw(:,:,:)=>null() !< Right eigenvectors for high order reconstruction.
+   real(R8P), pointer :: elw(:,:,:)=>null() !< Left  eigenvectors for high order reconstruction.
    contains
       ! public methods
       procedure, pass(self) :: description    !< Return pretty-printed object description.
@@ -90,26 +79,37 @@ contains
    character(len=:), allocatable           :: desc             !< Description.
    character(len=1), parameter             :: NL=new_line('a') !< New line character.
 
-   desc =       self%mpih%myrankstr//'Physics main data:'                                                                    //NL
-   desc = desc//self%mpih%myrankstr//'  number of variables in q (nv):                '//trim(str(self%nv                  ))//NL
-   desc = desc//self%mpih%myrankstr//'  number of conservative variables in q (nv_c): '//trim(str(self%nv_c                ))//NL
-   desc = desc//self%mpih%myrankstr//'  Numerical scheme for time operator:           '//self%scheme_time                    //NL
-   desc = desc//self%mpih%myrankstr//'  Numerical scheme for space operator:          '//self%scheme_space                   //NL
-   desc = desc//self%mpih%myrankstr//'  WENO reconstruction variables:                '//self%reconstruction_vars            //NL
-   desc = desc//self%mpih%myrankstr//'  Divergence correction:                        '//self%div_corr_var                   //NL
-   desc = desc//self%mpih%myrankstr//'  D divergence correction:                      '//trim(str(self%d_divergence_cleaner))//NL
-   desc = desc//self%mpih%myrankstr//'  B divergence correction:                      '//trim(str(self%b_divergence_cleaner))//NL
-   desc = desc//self%mpih%myrankstr//'  Chi:                                          '//trim(str(self%chi                 ))//NL
-   desc = desc//self%mpih%myrankstr//'  Eta:                                          '//trim(str(self%eta                 ))
+   desc =       self%mpih%myrankstr//'Physics main data:'                                                    //NL
+   desc = desc//self%mpih%myrankstr//'  number of variables in q (nv):                '//trim(str(self%nv  ))//NL
+   desc = desc//self%mpih%myrankstr//'  number of conservative variables in q (nv_c): '//trim(str(self%nv_c))//NL
+   desc = desc//self%mpih%myrankstr//'  Chi:                                          '//trim(str(self%chi ))//NL
+   desc = desc//self%mpih%myrankstr//'  Eta:                                          '//trim(str(self%eta ))
    endfunction description
 
-   subroutine initialize(self, file_parameters)
+   subroutine initialize(self, file_parameters, reconstruction_vars)
    !< Initialize the equation.
-   class(prism_physics_object), intent(inout) :: self            !< Physics.
-   type(file_ini),              intent(in)    :: file_parameters !< Simulation parameters ini file handler.
+   class(prism_physics_object), intent(inout)        :: self                 !< Physics.
+   type(file_ini),              intent(in)           :: file_parameters      !< Simulation parameters ini file handler.
+   character(*),                intent(in), optional :: reconstruction_vars  !< Variables used for HO reconstruction.
+   character(:), allocatable                         :: reconstruction_vars_ !< Variables used for HO reconstruction, local var.
 
+   reconstruction_vars_ = RECONSTRUCTION_VARS_CONS
+   if (present(reconstruction_vars)) reconstruction_vars_ = trim(adjustl(reconstruction_vars))
    call self%mpih%initialize(do_mpi_init=.false.)
    print '(A)', self%mpih%myrankstr//'prism_physics_object%initialize start'
+   select case(reconstruction_vars_)
+   case(RECONSTRUCTION_VARS_CONS)
+      self%erw => IERL
+      self%elw => IERL
+   case(RECONSTRUCTION_VARS_CHAR)
+      self%erw => ER
+      self%elw => EL
+   case default
+      call self%mpih%print_message(msg='warning: HO reconstruction variable "'//reconstruction_vars_// &
+                                   '" unknown. Revert back to conservative variables reconstruction')
+      self%erw => IERL
+      self%elw => IERL
+   endselect
    call self%load_from_file(file_parameters=file_parameters)
    print '(A)', self%description()
    print '(A)', self%mpih%myrankstr//'prism_physics_object%initialize finish'
@@ -127,85 +127,10 @@ contains
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme_time', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_time)')
-   self%scheme_time = trim(adjustl(buff))
-
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme_space', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_space)')
-   select case(trim(adjustl(buff)))
-   case('WENO', 'weno', 'Weno')
-      self%scheme_space = NUM_SCHEME_SPACE_WENO
-   case('CENTERED', 'centered', 'Centered')
-      self%scheme_space = NUM_SCHEME_SPACE_CENTERED
-   case default
-      call self%mpih%print_message(msg='warning: numerical scheme "'//trim(adjustl(buff))//'" unknown. Revert back to WENO scheme')
-   endselect
-
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='reconstruction_variables', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(reconstruction_variables)')
-   select case(trim(adjustl(buff)))
-   case('CONSERVATIVE', 'conservative', 'Conservative')
-      self%reconstruction_vars = RECONSTRUCTION_VARS_CONS
-      self%erw => IERL
-      self%elw => IERL
-   case('CHARACTERISTICS', 'characteristics', 'Characteristics')
-      self%reconstruction_vars = RECONSTRUCTION_VARS_CHAR
-      self%erw => ER
-      self%elw => EL
-   case default
-      call self%mpih%print_message(msg='warning: WENO reconstruction variable "'//trim(adjustl(buff))// &
-                                   '" unknown. Revert back to conservative variables WENO reconstruction')
-      self%reconstruction_vars = RECONSTRUCTION_VARS_CONS
-      self%erw => IERL
-      self%elw => IERL
-   endselect
-
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='divergence_correction', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(divergence_correction)')
-   select case(trim(adjustl(buff)))
-   case('POISSON', 'poisson', 'Poisson')
-      self%div_corr_var = DIV_CORR_VAR_POISS
-   case('HYPERBOLIC', 'hyperbolic', 'Hyperbolic')
-      self%div_corr_var = DIV_CORR_VAR_HYPER
-   case default
-      call self%mpih%print_message(msg='warning: divergence correction variable not activated')
-      self%div_corr_var = 'No'
-   endselect
-
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='d_divergence_cleaner', &
-                            val=self%d_divergence_cleaner,error=error)
-   if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(d_divergence_cleaner)')
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='b_divergence_cleaner', &
-                            val=self%b_divergence_cleaner,error=error)
-   if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(b_divergence_cleaner)')
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='chi', val=self%chi, error=error)
    if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(chi)')
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='eta', val=self%eta, error=error)
    if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(eta)')
-   ! increase variables number if q if cleaners are used
-   if     (self%d_divergence_cleaner.and..not.self%b_divergence_cleaner.and.self%div_corr_var==DIV_CORR_VAR_HYPER)then
-      self%nv = self%nv + 1_I4P
-      self%nv_cl = 1_I4P
-   elseif (self%d_divergence_cleaner.and.self%b_divergence_cleaner.and.self%div_corr_var == DIV_CORR_VAR_HYPER) then
-      self%nv = self%nv + 2_I4P
-      self%nv_cl = 2_I4P
-   endif
-   ! consistency check
-   if     (.not.self%d_divergence_cleaner.and..not.self%b_divergence_cleaner.and.self%nv/=9_I4P) then
-      call self%mpih%error_stop(msg=': D and B divergence cleaners are false but nv /= 9')
-   elseif (.not.self%d_divergence_cleaner.and.self%b_divergence_cleaner) then
-      call self%mpih%error_stop(msg=': D divergence cleaner is false but B divergence cleaner is true')
-   elseif (self%d_divergence_cleaner.and.self%chi<=1._R8P) then
-      call self%mpih%error_stop(msg=': if D divergence cleaner is true chi cannot be lower than 1.0')
-   endif
    self%evmax = sqrt(1._R8P/(EPS0*MU0))
-   if (self%d_divergence_cleaner .and. self%div_corr_var == DIV_CORR_VAR_HYPER) then
-      self%evmax = self%chi*sqrt(1._R8P/(EPS0*MU0))
-   endif
    endsubroutine load_from_file
 endmodule adam_prism_physics_object

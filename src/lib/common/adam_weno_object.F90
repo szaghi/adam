@@ -796,7 +796,7 @@ contains
    !$omp declare target(weno_reconstruct_centered)
 #endif
    ! upwind reconstruction
-   do s1=1-S, -1+S
+   do s1=1-S, S
       if (s1>1-S) vu(1,s1-1) = v(1,s1)
       if (s1<S  ) vu(2,s1  ) = v(2,s1)
    enddo

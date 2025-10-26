@@ -19,7 +19,9 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
    real(R8P), allocatable :: flx(:,:,:,:,:) !< Fluxes along x.
    real(R8P), allocatable :: fly(:,:,:,:,:) !< Fluxes along y.
    real(R8P), allocatable :: flz(:,:,:,:,:) !< Fluxes along z.
-   procedure(compute_residuals_interface), pass(self), pointer :: compute_residuals=>null() !< Compute residuals.
+   !< Pointer (abstract) TBP.
+   procedure(compute_residuals_interface), pass(self), pointer :: compute_residuals=>null() !< Compute residuals, space operator.
+   procedure(integrate_interface),         pass(self), pointer :: integrate        =>null() !< Integrate, time operator.
    contains
       ! auxiliary methods
       procedure, pass(self) :: allocate_cpu !< Allocate CPU data.
@@ -37,15 +39,16 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions (and coils) of equation.
       procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
       ! numerical methods
-      procedure, pass(self) :: compute_dt                !< Compute time step.
-      procedure, pass(self) :: correct_div               !< Correct divergence of q(ivar:2).
-      procedure, pass(self) :: integrate                 !< Perform one step integration.
-      procedure, pass(self) :: simulate                  !< Perform the simulation.
+      procedure, pass(self) :: compute_divergence   !< Compute divergence of vector field.
+      procedure, pass(self) :: compute_dt           !< Compute time step.
+      procedure, pass(self) :: compute_gradient     !< Compute gradient of scalar field.
+      procedure, pass(self) :: impose_ct_correction !< Impose Constrained Transport correction on q(ivar:ivar+2).
+      procedure, pass(self) :: simulate             !< Perform the simulation.
 endtype prism_cpu_object
 
 interface
    subroutine compute_residuals_interface(self, q, dq)
-   !< Compute residuals of equation.
+   !< Compute residuals of equation, space operator.
    import :: prism_cpu_object, R8P
    class(prism_cpu_object), intent(inout) :: self   !< The equation.
    real(R8P),               intent(inout) :: q(1:,         &
@@ -59,6 +62,13 @@ interface
                                                 1-self%ngc:,&
                                                 1:) !< Residuals.
    endsubroutine compute_residuals_interface
+
+   subroutine integrate_interface(self, do_ghost_syncro)
+   !< Integrate equation, time operator.
+   import :: prism_cpu_object, R8P
+   class(prism_cpu_object), intent(inout)         :: self            !< The equation.
+   logical,                 intent(in),  optional :: do_ghost_syncro !< Flag to do syncrous ghost update.
+   endsubroutine integrate_interface
 endinterface
 
 contains
@@ -95,7 +105,23 @@ contains
    call self%mpih%print_message('prism_cpu_object%initialize start')
    call self%initialize_common(field = self%adam%field, filename=filename, memory_avail=self%mpih%memory_avail)
    call self%allocate_cpu
-   select case(self%physics%scheme_space)
+   ! set pointer (abstract) TBP
+   select case(self%numerics%scheme_time)
+   case(NUM_SCHEME_TIME_RUNGE_KUTTA)
+      select case(self%rk%scheme)
+      case(RK_1, RK_2, RK_3)
+         self%integrate => integrate_rk_ls
+      case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
+         self%integrate => integrate_rk_ssp
+      case(RK_YOSHIDA)
+         self%integrate => integrate_rk_yoshida
+      case(RK_LEAPFROG)
+         self%integrate => integrate_leapfrog
+      endselect
+   case(NUM_SCHEME_TIME_LEAPFROG)
+      ! to be extracted from RK schemes...
+   endselect
+   select case(self%numerics%scheme_space)
    case(NUM_SCHEME_SPACE_WENO)
       self%compute_residuals => compute_residuals_weno
    case(NUM_SCHEME_SPACE_CENTERED)
@@ -203,36 +229,15 @@ contains
       if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
       if (mod(self%time%it,self%io%restart_save)==0) call self%save_restart_files
       if (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max)) then
-         if (.not.self%physics%D_divergence_cleaner .and. .not.self%physics%B_Divergence_cleaner) then
-            call self%slices%save_mat(basename=self%io%output_basename, &
-                                      it=self%time%it,                  &
-                                      it_max=self%time%it_max,          &
-                                      time=self%time%time,              &
-                                      time_max=self%time%time_max,      &
-                                      adam=self%adam,                   &
-                                      q=self%q,                         &
-                                      q_name=['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz '])
-         elseif (self%physics%div_corr_var == DIV_CORR_VAR_HYPER .and. self%physics%D_divergence_cleaner &
-                  .and. .not.self%physics%B_Divergence_cleaner) then
-            call self%slices%save_mat(basename=self%io%output_basename, &
-                                      it=self%time%it,                  &
-                                      it_max=self%time%it_max,          &
-                                      time=self%time%time,              &
-                                      time_max=self%time%time_max,      &
-                                      adam=self%adam,                   &
-                                      q=self%q,                         &
-                                      q_name=['Dx  ','Dy  ','Dz  ','Bx  ','By  ','Bz  ','Jx  ','Jy  ','Jz  ','Phi '])
-         elseif (self%physics%div_corr_var == DIV_CORR_VAR_HYPER .and. self%physics%D_divergence_cleaner &
-                  .and. self%physics%B_Divergence_cleaner) then
-            call self%slices%save_mat(basename=self%io%output_basename, &
-                                      it=self%time%it,                  &
-                                      it_max=self%time%it_max,          &
-                                      time=self%time%time,              &
-                                      time_max=self%time%time_max,      &
-                                      adam=self%adam,                   &
-                                      q=self%q,                         &
-                                      q_name=['Dx  ','Dy  ','Dz  ','Bx  ','By  ','Bz  ','Jx  ','Jy  ','Jz  ','Phi ','Psi '])
-         endif
+         call self%slices%save_mat(basename=self%io%output_basename, &
+                                   it=self%time%it,                  &
+                                   it_max=self%time%it_max,          &
+                                   time=self%time%time,              &
+                                   time_max=self%time%time_max,      &
+                                   adam=self%adam,                   &
+                                   q=self%q,                         &
+                                   q_name=self%q_name)
+
       endif
    endif
    endsubroutine save_simulation_data
@@ -262,11 +267,10 @@ contains
                                           y_cell(1-self%field%grid%ngc:self%field%grid%nj+self%field%grid%ngc), &
                                           z_cell(1-self%field%grid%ngc:self%field%grid%nk+self%field%grid%ngc)
 
-   associate(local_map_bc_crown=>self%field%maps%local_map_bc_crown, &
+   associate(local_map_bc_crown=>self%field%maps%local_map_bc_crown,                                               &
              nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), &
-             dz=>self%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, &
-             D_divergence_cleaner=>self%physics%D_divergence_cleaner, dt=>self%time%dt, &
-             B_divergence_cleaner=>self%physics%B_divergence_cleaner, chi=>self%physics%chi)
+             dz=>self%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi)!, &
+             ! D_divergence_cleaner=>self%physics%D_divergence_cleaner, B_divergence_cleaner=>self%physics%B_divergence_cleaner)
    if (allocated(self%field%maps%local_map_bc_crown)) then
       do crown=1, ngc
          do c=1, size(local_map_bc_crown, dim=1)
@@ -285,16 +289,16 @@ contains
                   do v=1, 9
                      q(v,i,j,k,b) = q(v,i-idelta,j-jdelta,k-kdelta,b) !ni,j,k coordinate della cella da cui prendo i valori
                   enddo
-                  if (self%physics%D_divergence_cleaner) then
-                     q(10,i,j,k,b) = 0._R8P
-                     !q(10,i,j,k,b) = q(10,i-idelta,j-jdelta,k-kdelta,b) - dx(b)/((chi*sqrt(1/(MU0*EPS0)))*dt)* &
-                                    !(q(10,i-idelta,j-jdelta,k-kdelta,b)-q_old(10,i-idelta,j-jdelta,k-kdelta,b))
-                  endif
-                  if (self%physics%B_divergence_cleaner) then
-                     q(11,i,j,k,b) = 0._R8P
-                     !q(11,i,j,k,b) = q(11,i-idelta,j-jdelta,k-kdelta,b) - dx(b)/((chi*sqrt(1/(MU0*EPS0)))*dt)* &
-                                    !(q(11,i-idelta,j-jdelta,k-kdelta,b)-q_old(11,i-idelta,j-jdelta,k-kdelta,b))
-                  endif
+                  !if (self%physics%D_divergence_cleaner) then
+                  !   q(10,i,j,k,b) = 0._R8P
+                  !   !q(10,i,j,k,b) = q(10,i-idelta,j-jdelta,k-kdelta,b) - dx(b)/((chi*sqrt(1/(MU0*EPS0)))*dt)* &
+                  !                  !(q(10,i-idelta,j-jdelta,k-kdelta,b)-q_old(10,i-idelta,j-jdelta,k-kdelta,b))
+                  !endif
+                  !if (self%physics%B_divergence_cleaner) then
+                  !   q(11,i,j,k,b) = 0._R8P
+                  !   !q(11,i,j,k,b) = q(11,i-idelta,j-jdelta,k-kdelta,b) - dx(b)/((chi*sqrt(1/(MU0*EPS0)))*dt)* &
+                  !                  !(q(11,i-idelta,j-jdelta,k-kdelta,b)-q_old(11,i-idelta,j-jdelta,k-kdelta,b))
+                  !endif
                elseif (bc_type == BC_fWLayer) then
                   !print *, fec
                   if (fec <= 6) then
@@ -580,6 +584,30 @@ contains
    endsubroutine update_ghost
 
    ! numerical methods
+   subroutine compute_divergence(self, ivar, q, div)
+   !< Compute divergence of vector fields, div(q(ivar:ivar+2).
+   class(prism_cpu_object), intent(in)    :: self                                         !< The equation.
+   integer(I4P),            intent(in)    :: ivar                                         !< Start index of (vec.) variable of q.
+   real(R8P),               intent(in)    :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
+   real(R8P),               intent(inout) :: div( 1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
+   integer(I4P)                           :: i,j,k,b                                      !< Counter.
+
+   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz)
+   do b=1, blocks_number
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+      call compute_divergence_centered(ngc=ngc,dxyz=dxyz,order=2,                                                           &
+                                       q=q(ivar:ivar+2,i-self%ngc:i+self%ngc,j-self%ngc:j+self%ngc,k-self%ngc:k+self%ngc,b),&
+                                       div=div(i,j,k,b))
+
+   enddo
+   enddo
+   enddo
+   enddo
+   endassociate
+   endsubroutine compute_divergence
+
    subroutine compute_dt(self)
    class(prism_cpu_object), intent(inout) :: self                            !< The equation.
    real(R8P)                              :: umax                            !< Maximum speed of waves propagation (light speed).
@@ -588,180 +616,79 @@ contains
    integer(I4P)                           :: b                               !< Counter.
 
    dxyz_min = huge(1._R8P)
-   associate(blocks_number=>self%blocks_number, dxyz=>self%field%dxyz, d_divergence_cleaner=>self%physics%d_divergence_cleaner,&
-             chi=>self%physics%chi, eta=>self%physics%eta)
+   associate(blocks_number=>self%blocks_number, dxyz=>self%field%dxyz,chi=>self%physics%chi, eta=>self%physics%eta)!,&
+             ! d_divergence_cleaner=>self%physics%d_divergence_cleaner)
    call compute_dxyz_min(blocks_number=blocks_number, dxyz=dxyz, dxyz_min=dxyz_min)
    umax = C0
-   if (d_divergence_cleaner .and. self%physics%div_corr_var == DIV_CORR_VAR_HYPER) umax = max(chi*C0, eta*C0)
+   ! if (d_divergence_cleaner .and. self%physics%div_corr_var == DIV_CORR_VAR_HYPER) umax = max(chi*C0, eta*C0)
    self%time%dt = self%time%CFL*dxyz_min / umax
    endassociate
    call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih%error)
    endsubroutine compute_dt
 
-   subroutine compute_residuals_centered(self, q, dq)
-   !< Compute residuals of equation.
-   class(prism_cpu_object), intent(inout) :: self   !< The equation.
-   real(R8P),               intent(inout) :: q(1:,       &
-                                               1-self%ngc:,&
-                                               1-self%ngc:,&
-                                               1-self%ngc:,&
-                                               1:)  !< Conservative variables.
-   real(R8P),               intent(inout) :: dq(1:,         &
-                                                1-self%ngc:,&
-                                                1-self%ngc:,&
-                                                1-self%ngc:,&
-                                                1:) !< Residuals.
+   subroutine compute_gradient(self, ivar, q, grad)
+   !< Compute gradient of scalar variable q(ivar).
+   class(prism_cpu_object), intent(in)    :: self                                            !< The equation.
+   integer(I4P),            intent(in)    :: ivar                                            !< Index of scalar variable of q.
+   real(R8P),               intent(in)    :: q(   1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
+   real(R8P),               intent(inout) :: grad(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Gradient.
+   integer(I4P)                           :: i, j, k, b                                      !< Counter.
 
-   call self%update_ghost(q=q)
-   !call self%integrate_eikonal_coils(q=q)
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
-             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),       &
-             flx=>self%flx, fly=>self%fly, flz=>self%flz,                                        &
-             weno_s=>self%weno%S, weno_zeps=>self%weno%zeps,                                     &
-             weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, weno_c=>self%weno%c, &
-             evmax=>self%physics%evmax, erw=>self%physics%erw, elw=>self%physics%elw)
-   if (blocks_number > 0) then
-      call compute_fluxes_convective_centered(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,           &
-                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
-                                     evmax=evmax,erw=erw,elw=elw,                                                              &
-                                     q=q,fluxes=flx)
-      call compute_fluxes_convective_centered(dir=2,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,           &
-                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
-                                     evmax=evmax,erw=erw,elw=elw,                                                              &
-                                     q=q,fluxes=fly)
-      call compute_fluxes_convective_centered(dir=3,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,           &
-                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
-                                     evmax=evmax,erw=erw,elw=elw,                                                              &
-                                     q=q,fluxes=flz)
-      call compute_fluxes_difference(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv_c=nv_c, &
-                                     dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz, dq=dq, q=q)
+   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz)
+   do b=1, blocks_number
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+      call compute_gradient_centered(ngc=ngc,dxyz=dxyz,order=2,                                                    &
+                                     q=q(ivar,i-self%ngc:i+self%ngc,j-self%ngc:j+self%ngc,k-self%ngc:k+self%ngc,b),&
+                                     grad=grad(1:3,i,j,k,b))
+   enddo
+   enddo
+   enddo
+   enddo
+   endassociate
+   endsubroutine compute_gradient
+
+   subroutine impose_ct_correction(self, ivar)
+   !< Impose Constrained Transport Correction on vectorial variable q(ivar:ivar+2).
+   !< Note that self%field_div memory is used as buffer, be carefull.
+   class(prism_cpu_object), intent(inout) :: self      !< The equation.
+   integer(I4P),            intent(in)    :: ivar      !< Variable (start) index in q.
+   real(R8P)                              :: dq_max    !< Maximum residual.
+   integer(I4P)                           :: iter      !< Counter.
+   integer(I4P)                           :: i,j,k,b,v !< Counter.
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, buffer=>self%field_div)
+   call self%compute_divergence(ivar=ivar,q=self%q,div=buffer(4,:,:,:,:))
+   if (blocks_number>0) then
+      do iter=1, self%flail%iterations
+         call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
+                                          dxyz=self%field%dxyz,                                           &
+                                          f=-buffer(4:4,:,:,:,:),                                         &
+                                          q=buffer(7:7,:,:,:,:),                                          &
+                                          dq_max=dq_max,                                                  &
+                                          dq=buffer(5:5,:,:,:,:),                                         &
+                                          iterations_init=self%flail%iterations_init,                     &
+                                          iterations_fine=self%flail%iterations_fine,                     &
+                                          iterations_coarse=self%flail%iterations_coarse)
+         if (dq_max < self%flail%tolerance) exit
+      enddo
+      call self%mpih%print_message('FLAIL convergence reached at iteration '//trim(str(iter,.true.)))
+      call self%compute_gradient(ivar=1,q=buffer(7:7,:,:,:,:),grad=buffer(4:6,:,:,:,:))
+      do b=1, blocks_number
+         do k=1, nk
+            do j=1, nj
+               do i=1, nj
+                  do v=1, 3
+                     self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) + buffer(3+v,i,j,k,b)
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
    endif
    endassociate
-   endsubroutine compute_residuals_centered
-
-   subroutine compute_residuals_weno(self, q, dq)
-   !< Compute residuals of equation.
-   class(prism_cpu_object), intent(inout) :: self   !< The equation.
-   real(R8P),               intent(inout) :: q(1:,       &
-                                               1-self%ngc:,&
-                                               1-self%ngc:,&
-                                               1-self%ngc:,&
-                                               1:)  !< Conservative variables.
-   real(R8P),               intent(inout) :: dq(1:,         &
-                                                1-self%ngc:,&
-                                                1-self%ngc:,&
-                                                1-self%ngc:,&
-                                                1:) !< Residuals.
-
-   call self%update_ghost(q=q)
-   !call self%integrate_eikonal_coils(q=q)
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
-             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),       &
-             flx=>self%flx, fly=>self%fly, flz=>self%flz,                                        &
-             weno_s=>self%weno%S, weno_zeps=>self%weno%zeps,                                     &
-             weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, weno_c=>self%weno%c, &
-             evmax=>self%physics%evmax, erw=>self%physics%erw, elw=>self%physics%elw)
-   if (blocks_number > 0) then
-      call compute_fluxes_convective_weno(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,               &
-                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
-                                     evmax=evmax,erw=erw,elw=elw,                                                              &
-                                     q=q,fluxes=flx)
-      call compute_fluxes_convective_weno(dir=2,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,               &
-                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
-                                     evmax=evmax,erw=erw,elw=elw,                                                              &
-                                     q=q,fluxes=fly)
-      call compute_fluxes_convective_weno(dir=3,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,               &
-                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
-                                     evmax=evmax,erw=erw,elw=elw,                                                              &
-                                     q=q,fluxes=flz)
-      call compute_fluxes_difference(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv_c=nv_c, &
-                                     dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz, dq=dq, q=q)
-   endif
-   endassociate
-   endsubroutine compute_residuals_weno
-
-   subroutine integrate(self, do_ghost_syncro)
-   !< Perform one step integration.
-   class(prism_cpu_object), intent(inout)         :: self             !< The equation.
-   logical,                 intent(in),  optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
-   logical                                        :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
-   integer(I4P)                                   :: s                !< Counter.
-
-   do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
-             time=>self%time%time, A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,              &
-             coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, j_vec=>self%coil%j_vec, &
-             dx=>self%field%dxyz(1,1), dxyz=>self%field%dxyz)
-
-   if (self%coil%total_coils_number >= 1_I4P) then
-      call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, time=time, A=A, d=d, &
-                                 f=f, phase=phase, coil_flag=coil_flag, td=td, j_vec=j_vec, dx=dx, q=self%q)
-   endif
-
-   if (self%rk%scheme/=RK_YOSHIDA.and.self%rk%scheme/=RK_LEAPFROG) call self%rk%initialize_stages(q=self%q)
-
-   select case(self%rk%scheme)
-   case(RK_1, RK_2, RK_3)
-      ! low storage RK working on q_rk(:,:,:,:,:,1)/q as stages, update q in place
-      do s=1, self%rk%nrk
-         call self%compute_residuals(q=self%q, dq=self%dq)
-         if (s==1) call self%save_residuals
-         if (self%ib%solids_number>0) then
-            call self%rk%compute_stage_ls(s=s,dt=self%time%dt,phi=self%ib%phi,dq=self%dq,q=self%q)
-         else
-            call self%rk%compute_stage_ls(s=s,dt=self%time%dt,dq=self%dq,q=self%q)
-         endif
-      enddo
-   case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
-      ! RK working on q_rk as stages
-      do s=1, self%rk%nrk
-         if (self%ib%solids_number>0) then
-            call self%rk%compute_stage(s=s, dt=self%time%dt, phi=self%ib%phi)
-         else
-            call self%rk%compute_stage(s=s, dt=self%time%dt)
-         endif
-         call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq)
-         if (s==1) call self%save_residuals
-         if (self%ib%solids_number>0) then
-            call self%rk%assign_stage(s=s, q=self%dq, phi=self%ib%phi)
-         else
-            call self%rk%assign_stage(s=s, q=self%dq)
-         endif
-      enddo
-      if (self%ib%solids_number>0) then
-         call self%rk%update_q(dt=self%time%dt, phi=self%ib%phi, q=self%q)
-      else
-         call self%rk%update_q(dt=self%time%dt, q=self%q)
-      endif
-   case(RK_YOSHIDA)
-      do s=1, self%rk%nrk - 1
-         call self%compute_residuals(q=self%q, dq=self%dq)
-         self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + self%rk%ssa(s) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
-         self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + self%rk%ssa(s) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
-         self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + self%rk%ssa(s) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
-         call self%compute_residuals(q=self%q, dq=self%dq)
-         self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + self%rk%ssb(s) * self%time%dt * self%dq(VAR_DX,:,:,:,:)
-         self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + self%rk%ssb(s) * self%time%dt * self%dq(VAR_DY,:,:,:,:)
-         self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + self%rk%ssb(s) * self%time%dt * self%dq(VAR_DZ,:,:,:,:)
-      enddo
-      call self%compute_residuals(q=self%q, dq=self%dq)
-      self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
-      self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
-      self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
-   case(RK_LEAPFROG)
-      call self%compute_residuals(q=self%q, dq=self%dq)
-      self%rk%q_rk(:,:,:,:,:,2) = self%rk%q_rk(:,:,:,:,:,1) + 2._R8P * self%time%dt * self%dq
-      self%rk%q_rk(:,:,:,:,:,1) = self%q
-      self%q = self%rk%q_rk(:,:,:,:,:,2)
-   endselect
-   if (self%physics%div_corr_var == 'POISSON' .and. self%physics%D_divergence_cleaner) then
-      call self%correct_div(ivar=1_I4P) ! correct div(D)
-   endif
-   call compute_div(ni=ni,nj=nj,nk=nk,ngc=ngc,blocks_number=blocks_number,dxyz=dxyz,ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
-   call compute_div(ni=ni,nj=nj,nk=nk,ngc=ngc,blocks_number=blocks_number,dxyz=dxyz,ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
-   call compute_div(ni=ni,nj=nj,nk=nk,ngc=ngc,blocks_number=blocks_number,dxyz=dxyz,ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
-   endassociate
-   endsubroutine integrate
+   endsubroutine impose_ct_correction
 
    subroutine simulate(self, filename)
    !< Perform the simulation.
@@ -842,108 +769,237 @@ contains
    call self%mpih%finalize
    endsubroutine simulate
 
-   subroutine correct_div(self, ivar)
-   !< Correct divergence of q(ivar:2).
-   class(prism_cpu_object), intent(inout) :: self                       !< The equation.
-   integer(I4P),            intent(in)    :: ivar                       !< Variable (start) index in q.
-   real(R8P)                              :: div(1:1,                        &
-                                                 1-self%ngc:self%ni+self%ngc,&
-                                                 1-self%ngc:self%nj+self%ngc,&
-                                                 1-self%ngc:self%nk+self%ngc,&
-                                                 1:self%blocks_number)  !< Divergence of q(ivar).
-   real(R8P)                              ::  dq(1:1,                        &
-                                                 1-self%ngc:self%ni+self%ngc,&
-                                                 1-self%ngc:self%nj+self%ngc,&
-                                                 1-self%ngc:self%nk+self%ngc,&
-                                                 1:self%blocks_number)  !< Residual of smoothing.
-   real(R8P)                              :: grad(1:3,                        &
-                                                  1-self%ngc:self%ni+self%ngc,&
-                                                  1-self%ngc:self%nj+self%ngc,&
-                                                  1-self%ngc:self%nk+self%ngc,&
-                                                  1:self%blocks_number) !< Gradient of phi.
-   real(R8P)                              :: dq_max                     !< Maximum residual.
-   integer(I4P)                           :: iter                       !< Counter.
+   ! pointer TBP concrete implementations
+   subroutine compute_residuals_centered(self, q, dq)
+   !< Compute residuals of equation, space operator, centered schemes.
+   class(prism_cpu_object), intent(inout) :: self   !< The equation.
+   real(R8P),               intent(inout) :: q(1:,       &
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1:)  !< Conservative variables.
+   real(R8P),               intent(inout) :: dq(1:,         &
+                                                1-self%ngc:,&
+                                                1-self%ngc:,&
+                                                1-self%ngc:,&
+                                                1:) !< Residuals.
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, dxyz=>self%field%dxyz)
-   call compute_div(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, dxyz=dxyz, ivar=ivar, &
-                    q=self%q, div=div(1,:,:,:,:))
-   if (blocks_number>0) then
-      do iter=1, self%flail%iterations
-         call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
-                                          dxyz=dxyz,                                                      &
-                                          f=-div(1:1,:,:,:,:),                                            &
-                                          q=self%phid,                                                    &
-                                          dq_max=dq_max,                                                  &
-                                          dq=dq(1:1,:,:,:,:),                                             &
-                                          iterations_init=self%flail%iterations_init,                     &
-                                          iterations_fine=self%flail%iterations_fine,                     &
-                                          iterations_coarse=self%flail%iterations_coarse)
-         if (dq_max < self%flail%tolerance) exit
-      enddo
-      call self%mpih%print_message('FLAIL convergence reached at iteration '//trim(str(iter,.true.)))
-      call compute_grad(ni=ni,nj=nj,nk=nk,ngc=ngc,blocks_number=blocks_number,dxyz=dxyz,ivar=1,q=self%phid,grad=grad)
-      self%q(ivar:ivar+2,1:ni,1:nj,1:nk,1:blocks_number) = self%q(ivar:ivar+2,1:ni,1:nj,1:nk,1:blocks_number) &
-                                                         + grad(  1:3,        1:ni,1:nj,1:nk,1:blocks_number)
+   call self%update_ghost(q=q)
+   !call self%integrate_eikonal_coils(q=q)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
+             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),       &
+             flx=>self%flx, fly=>self%fly, flz=>self%flz,                                        &
+             weno_s=>self%weno%S, weno_zeps=>self%weno%zeps,                                     &
+             weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, weno_c=>self%weno%c, &
+             evmax=>self%physics%evmax, erw=>self%physics%erw, elw=>self%physics%elw)
+   if (blocks_number > 0) then
+      call compute_fluxes_convective_centered(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,           &
+                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
+                                     evmax=evmax,erw=erw,elw=elw,                                                              &
+                                     q=q,fluxes=flx)
+      call compute_fluxes_convective_centered(dir=2,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,           &
+                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
+                                     evmax=evmax,erw=erw,elw=elw,                                                              &
+                                     q=q,fluxes=fly)
+      call compute_fluxes_convective_centered(dir=3,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,           &
+                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
+                                     evmax=evmax,erw=erw,elw=elw,                                                              &
+                                     q=q,fluxes=flz)
+      call compute_fluxes_difference(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv_c=nv_c, &
+                                     dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz, dq=dq, q=q)
    endif
    endassociate
-   endsubroutine correct_div
+   endsubroutine compute_residuals_centered
+
+   subroutine compute_residuals_weno(self, q, dq)
+   !< Compute residuals of equation, space operator, WENO schemes.
+   class(prism_cpu_object), intent(inout) :: self   !< The equation.
+   real(R8P),               intent(inout) :: q(1:,       &
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1:)  !< Conservative variables.
+   real(R8P),               intent(inout) :: dq(1:,         &
+                                                1-self%ngc:,&
+                                                1-self%ngc:,&
+                                                1-self%ngc:,&
+                                                1:) !< Residuals.
+
+   call self%update_ghost(q=q)
+   !call self%integrate_eikonal_coils(q=q)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
+             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),       &
+             flx=>self%flx, fly=>self%fly, flz=>self%flz,                                        &
+             weno_s=>self%weno%S, weno_zeps=>self%weno%zeps,                                     &
+             weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, weno_c=>self%weno%c, &
+             evmax=>self%physics%evmax, erw=>self%physics%erw, elw=>self%physics%elw)
+   if (blocks_number > 0) then
+      call compute_fluxes_convective_weno(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,               &
+                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
+                                     evmax=evmax,erw=erw,elw=elw,                                                              &
+                                     q=q,fluxes=flx)
+      call compute_fluxes_convective_weno(dir=2,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,               &
+                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
+                                     evmax=evmax,erw=erw,elw=elw,                                                              &
+                                     q=q,fluxes=fly)
+      call compute_fluxes_convective_weno(dir=3,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,               &
+                                     weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
+                                     evmax=evmax,erw=erw,elw=elw,                                                              &
+                                     q=q,fluxes=flz)
+      call compute_fluxes_difference(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv_c=nv_c, &
+                                     dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz, dq=dq, q=q)
+   endif
+   endassociate
+   endsubroutine compute_residuals_weno
+
+   subroutine integrate_rk_ls(self, do_ghost_syncro)
+   !< Integrate equation, time operator, RK classical low storage schemes.
+   !< Low storage RK working on q_rk(:,:,:,:,:,1)/q as stages, update q in place.
+   class(prism_cpu_object), intent(inout)         :: self             !< The equation.
+   logical,                 intent(in),  optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
+   logical                                        :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
+   integer(I4P)                                   :: s                !< Counter.
+
+   do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
+             time=>self%time%time, A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,              &
+             coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, j_vec=>self%coil%j_vec, &
+             dx=>self%field%dxyz(1,1), dxyz=>self%field%dxyz)
+   if (self%coil%total_coils_number >= 1_I4P) then
+      call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, time=time, A=A, d=d, &
+                                 f=f, phase=phase, coil_flag=coil_flag, td=td, j_vec=j_vec, dx=dx, q=self%q)
+   endif
+   call self%rk%initialize_stages(q=self%q)
+   do s=1, self%rk%nrk
+      call self%compute_residuals(q=self%q, dq=self%dq)
+      if (s==1) call self%save_residuals
+      if (self%ib%solids_number>0) then
+         call self%rk%compute_stage_ls(s=s,dt=self%time%dt,phi=self%ib%phi,dq=self%dq,q=self%q)
+      else
+         call self%rk%compute_stage_ls(s=s,dt=self%time%dt,dq=self%dq,q=self%q)
+      endif
+   enddo
+   if (self%numerics%constrained_transport_D) call self%impose_ct_correction(ivar=1_I4P)
+   if (self%numerics%constrained_transport_B) call self%impose_ct_correction(ivar=4_I4P)
+   call self%compute_divergence(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
+   call self%compute_divergence(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
+   call self%compute_divergence(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
+   endassociate
+   endsubroutine integrate_rk_ls
+
+   subroutine integrate_rk_ssp(self, do_ghost_syncro)
+   !< Integrate equation, time operator, SSP RK schemes.
+   !< SSP RK working on q_rk as stages.
+   class(prism_cpu_object), intent(inout)         :: self             !< The equation.
+   logical,                 intent(in),  optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
+   logical                                        :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
+   integer(I4P)                                   :: s                !< Counter.
+
+   do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
+             time=>self%time%time, A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,              &
+             coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, j_vec=>self%coil%j_vec, &
+             dx=>self%field%dxyz(1,1), dxyz=>self%field%dxyz)
+
+   if (self%coil%total_coils_number >= 1_I4P) then
+      call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, time=time, A=A, d=d, &
+                                 f=f, phase=phase, coil_flag=coil_flag, td=td, j_vec=j_vec, dx=dx, q=self%q)
+   endif
+   call self%rk%initialize_stages(q=self%q)
+   do s=1, self%rk%nrk
+      if (self%ib%solids_number>0) then
+         call self%rk%compute_stage(s=s, dt=self%time%dt, phi=self%ib%phi)
+      else
+         call self%rk%compute_stage(s=s, dt=self%time%dt)
+      endif
+      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq)
+      if (s==1) call self%save_residuals
+      if (self%ib%solids_number>0) then
+         call self%rk%assign_stage(s=s, q=self%dq, phi=self%ib%phi)
+      else
+         call self%rk%assign_stage(s=s, q=self%dq)
+      endif
+   enddo
+   if (self%ib%solids_number>0) then
+      call self%rk%update_q(dt=self%time%dt, phi=self%ib%phi, q=self%q)
+   else
+      call self%rk%update_q(dt=self%time%dt, q=self%q)
+   endif
+   if (self%numerics%constrained_transport_D) call self%impose_ct_correction(ivar=1_I4P)
+   if (self%numerics%constrained_transport_B) call self%impose_ct_correction(ivar=4_I4P)
+   call self%compute_divergence(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
+   call self%compute_divergence(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
+   call self%compute_divergence(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
+   endassociate
+   endsubroutine integrate_rk_ssp
+
+   subroutine integrate_rk_yoshida(self, do_ghost_syncro)
+   !< Integrate equation, time operator, Yoshida RK scheme.
+   class(prism_cpu_object), intent(inout)         :: self             !< The equation.
+   logical,                 intent(in),  optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
+   logical                                        :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
+   integer(I4P)                                   :: s                !< Counter.
+
+   do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
+             time=>self%time%time, A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,              &
+             coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, j_vec=>self%coil%j_vec, &
+             dx=>self%field%dxyz(1,1), dxyz=>self%field%dxyz)
+   if (self%coil%total_coils_number >= 1_I4P) then
+      call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, time=time, A=A, d=d, &
+                                 f=f, phase=phase, coil_flag=coil_flag, td=td, j_vec=j_vec, dx=dx, q=self%q)
+   endif
+   do s=1, self%rk%nrk - 1
+      call self%compute_residuals(q=self%q, dq=self%dq)
+      self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + self%rk%ssa(s) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
+      self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + self%rk%ssa(s) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
+      self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + self%rk%ssa(s) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
+      call self%compute_residuals(q=self%q, dq=self%dq)
+      self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + self%rk%ssb(s) * self%time%dt * self%dq(VAR_DX,:,:,:,:)
+      self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + self%rk%ssb(s) * self%time%dt * self%dq(VAR_DY,:,:,:,:)
+      self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + self%rk%ssb(s) * self%time%dt * self%dq(VAR_DZ,:,:,:,:)
+   enddo
+   call self%compute_residuals(q=self%q, dq=self%dq)
+   self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
+   self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
+   self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
+   if (self%numerics%constrained_transport_D) call self%impose_ct_correction(ivar=1_I4P)
+   if (self%numerics%constrained_transport_B) call self%impose_ct_correction(ivar=4_I4P)
+   call self%compute_divergence(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
+   call self%compute_divergence(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
+   call self%compute_divergence(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
+   endassociate
+   endsubroutine integrate_rk_yoshida
+
+   subroutine integrate_leapfrog(self, do_ghost_syncro)
+   !< Integrate equation, time operator, leapfrog scheme.
+   class(prism_cpu_object), intent(inout)         :: self             !< The equation.
+   logical,                 intent(in),  optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
+   logical                                        :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
+   integer(I4P)                                   :: s                !< Counter.
+
+   do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
+             time=>self%time%time, A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,              &
+             coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, j_vec=>self%coil%j_vec, &
+             dx=>self%field%dxyz(1,1), dxyz=>self%field%dxyz)
+   if (self%coil%total_coils_number >= 1_I4P) then
+      call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, time=time, A=A, d=d, &
+                                 f=f, phase=phase, coil_flag=coil_flag, td=td, j_vec=j_vec, dx=dx, q=self%q)
+   endif
+   call self%compute_residuals(q=self%q, dq=self%dq)
+   self%rk%q_rk(:,:,:,:,:,2) = self%rk%q_rk(:,:,:,:,:,1) + 2._R8P * self%time%dt * self%dq
+   self%rk%q_rk(:,:,:,:,:,1) = self%q
+   self%q = self%rk%q_rk(:,:,:,:,:,2)
+   if (self%numerics%constrained_transport_D) call self%impose_ct_correction(ivar=1_I4P)
+   if (self%numerics%constrained_transport_B) call self%impose_ct_correction(ivar=4_I4P)
+   call self%compute_divergence(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
+   call self%compute_divergence(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
+   call self%compute_divergence(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
+   endassociate
+   endsubroutine integrate_leapfrog
 
    ! non TBP
-   subroutine compute_div(ni, nj, nk, ngc, blocks_number, dxyz, ivar, q, div)
-   !< Compute div(q(ivar). Finite difference central scheme.
-   integer(I4P), intent(in)    :: ni                              !< Grid cells number in I direction.
-   integer(I4P), intent(in)    :: nj                              !< Grid cells number in J direction.
-   integer(I4P), intent(in)    :: nk                              !< Grid cells number in K direction.
-   integer(I4P), intent(in)    :: ngc                             !< Ghost cells number.
-   integer(I4P), intent(in)    :: blocks_number                   !< Number of blocks.
-   real(R8P),    intent(in)    :: dxyz(1:,1:)                     !< Space steps.
-   integer(I4P), intent(in)    :: ivar                            !< Variable (vectorial) of q.
-   real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Field variables.
-   real(R8P),    intent(inout) :: div(   1-ngc:,1-ngc:,1-ngc:,1:) !< Divergence of D, B.
-   integer(I4P)                :: i,j,k,b                         !< Counter
-
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      div(i,j,k,b) = 0.5_R8P*((q(ivar  ,i+1,j,k,b) - q(ivar  ,i-1,j,k,b))/dxyz(1,b) + &
-                              (q(ivar+1,i,j+1,k,b) - q(ivar+1,i,j-1,k,b))/dxyz(2,b) + &
-                              (q(ivar+2,i,j,k+1,b) - q(ivar+2,i,j,k-1,b))/dxyz(3,b))
-
-   enddo
-   enddo
-   enddo
-   enddo
-   endsubroutine compute_div
-
-   subroutine compute_grad(ni, nj, nk, ngc, blocks_number, dxyz, q, ivar, grad)
-   !< Compute gradient of q(ivar). Finite difference central scheme.
-   integer(I4P), intent(in)    :: ni                               !< Grid cells number in I direction.
-   integer(I4P), intent(in)    :: nj                               !< Grid cells number in J direction.
-   integer(I4P), intent(in)    :: nk                               !< Grid cells number in K direction.
-   integer(I4P), intent(in)    :: ngc                              !< Ghost cells number.
-   integer(I4P), intent(in)    :: blocks_number                    !< Number of current blocks.
-   real(R8P),    intent(in)    :: dxyz(1:,1:)                      !< Space steps.
-   real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)    !< Field component to which apply gradient.
-   integer(I4P), intent(in)    :: ivar                             !< Index of variable for computing the gradient.
-   real(R8P),    intent(inout) :: grad(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Gradient of q(ivar).
-   integer(I4P)                :: i, j, k, b                       !< Counter.
-
-   !$omp parallel do collapse(4) default(firstprivate) shared(q,grad)
-   do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         grad(1,i,j,k,b) = (q(ivar,i+1,j,k,b) - q(ivar,i-1,j,k,b))/(2*dxyz(1,b))
-         grad(2,i,j,k,b) = (q(ivar,i,j+1,k,b) - q(ivar,i,j-1,k,b))/(2*dxyz(2,b))
-         grad(3,i,j,k,b) = (q(ivar,i,j,k+1,b) - q(ivar,i,j,k-1,b))/(2*dxyz(3,b))
-      enddo
-      enddo
-      enddo
-   enddo
-   !$omp end parallel do
-   endsubroutine compute_grad
-
    subroutine compute_dxyz_min(blocks_number, dxyz, dxyz_min)
    !< Compute minimum dxyz space step.
    integer(I4P), intent(in)  :: blocks_number !< Number of blocks.

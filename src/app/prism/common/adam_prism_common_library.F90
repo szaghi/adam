@@ -7,6 +7,7 @@ use adam_prism_coil_object
 use adam_prism_common_object
 use adam_prism_ic_object
 use adam_prism_io_object
+use adam_prism_numerics_object
 use adam_prism_parameters
 use adam_prism_physics_object
 use adam_prism_time_object

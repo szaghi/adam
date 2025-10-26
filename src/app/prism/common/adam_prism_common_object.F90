@@ -13,10 +13,11 @@ use adam_rk_object
 use adam_slices_object
 use adam_weno_object
 ! PRISM modules
-use adam_prism_ic_object
-use adam_prism_coil_object
-use adam_prism_io_object
 use adam_prism_bc_object
+use adam_prism_coil_object
+use adam_prism_ic_object
+use adam_prism_io_object
+use adam_prism_numerics_object
 use adam_prism_physics_object
 use adam_prism_time_object
 ! third party modules
@@ -41,12 +42,13 @@ type :: prism_common_object
    type(weno_object)           :: weno          !< WENO reconstructor.
    type(flail_object)          :: flail         !< Linear algebra methods handler.
    ! PRISM library objects
-   type(prism_io_object)      :: io      !< IO handler.
-   type(prism_physics_object) :: physics !< Fluids physiscs handler.
-   type(prism_ic_object)      :: ic      !< Initial Conditions (IC) handler.
-   type(prism_bc_object)      :: bc      !< Boundary Conditions (BC) handler.
-   type(prism_time_object)    :: time    !< Time handler.
-   type(prism_coil_object)    :: coil    !< Oggetto con informazioni su spire.
+   type(prism_io_object)       :: io       !< IO handler.
+   type(prism_numerics_object) :: numerics !< Numerics handler.
+   type(prism_physics_object)  :: physics  !< Fluids physiscs handler.
+   type(prism_ic_object)       :: ic       !< Initial Conditions (IC) handler.
+   type(prism_bc_object)       :: bc       !< Boundary Conditions (BC) handler.
+   type(prism_time_object)     :: time     !< Time handler.
+   type(prism_coil_object)     :: coil     !< Oggetto con informazioni su spire.
    ! grid/field data replica for easy handling
    integer(I4P), pointer :: ngc=>null()           !< Number of ghost cells.
    integer(I4P), pointer :: ni=>null()            !< Number of cells in i direction.
@@ -62,7 +64,6 @@ type :: prism_common_object
    real(R8P), allocatable    :: field_div(:,:,:,:,:) !< Field divergence.
    real(R8P), allocatable    :: q(:,:,:,:,:)         !< Conservative cell centered variables.
    real(R8P), allocatable    :: dq(:,:,:,:,:)        !< Residuals right hand side.
-   real(R8P), allocatable    :: phid(:,:,:,:,:)      !< Potential field of D.
    character(3), allocatable :: q_name(:)            !< Fields names.
    contains
       procedure, pass(self) :: allocate_common   !< Allocate common data.
@@ -90,14 +91,6 @@ contains
                                        1,nb],[2,5]), &
                           msg=self%mpih%myrankstr//'prism_common_object%allocate_common(field_div) ', verbose=.true.)
    self%field_div = 0._R8P
-   call allocate_variable(var=self%phid,             &
-                          ulb=reshape([1,1,          &
-                                       1-ngc,ni+ngc, &
-                                       1-ngc,nj+ngc, &
-                                       1-ngc,nk+ngc, &
-                                       1,nb],[2,5]), &
-                          msg=self%mpih%myrankstr//'prism_common_object%allocate_common(phid) ', verbose=.true.)
-   self%phid = 0._R8P
    endassociate
    endsubroutine allocate_common
 
@@ -119,7 +112,8 @@ contains
    call self%io%initialize(filename=trim(filename))
    associate(file_parameters=>self%io%file_parameters)
    call self%bc%initialize(file_parameters=file_parameters)
-   call self%physics%initialize(file_parameters=file_parameters)
+   call self%numerics%initialize(file_parameters=file_parameters)
+   call self%physics%initialize(file_parameters=file_parameters, reconstruction_vars=self%numerics%reconstruction_vars)
    call self%adam%grid%initialize(file_parameters=file_parameters,bc_type=self%bc%bc_type, verbose=.true.)
    call self%adam%compute_blocks_number(memory_avail=memory_avail, fields_number=80, nb=nb, nodes_number=nodes_number)
    call self%adam%initialize(file_parameters=file_parameters, &
@@ -136,6 +130,7 @@ contains
    call self%coil%initialize(file_parameters=file_parameters, field=self%field)
    call self%ib%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    call self%slices%initialize(file_parameters=file_parameters)
+   if (self%numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
    call self%rk%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    call self%weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
    call self%flail%initialize(file_parameters=file_parameters)
@@ -144,23 +139,22 @@ contains
                                 q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivJ_d','DivG0_',           &
                                                                          'DivG1_','DivG2_','DivG3_','DivG4_','DivG5_'], &
                                 q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3','f_Gauss'],      &
-                                q3_R8P=self%phid,           q3_R8P_name=['phid'],                                       &
                                 q4_R8P=self%dq,             q4_R8P_name=['res_Dx','res_Dy','res_Dz',                    &
                                                                          'res_Bx','res_By','res_Bz',                    &
                                                                          'res_Jx','res_Jy','res_Jz'],                   &
                                 s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag',                                    &
                                 s1_R8P=self%coil%phi(1,:,:,:,:),       s1_R8P_name='coil_phi')
-   if     ((.not.self%physics%d_divergence_cleaner).and.(.not.self%physics%b_divergence_cleaner) .or. &
-            (self%physics%div_corr_var == DIV_CORR_VAR_POISS)) then
-      self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
-   elseif ((     self%physics%d_divergence_cleaner).and.(.not.self%physics%b_divergence_cleaner) &
-      .and. (self%physics%div_corr_var == DIV_CORR_VAR_HYPER)) then
-      self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi']
-   elseif ((     self%physics%d_divergence_cleaner).and.(     self%physics%b_divergence_cleaner) &
-      .and. (self%physics%div_corr_var == DIV_CORR_VAR_HYPER)) then
-      self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi', 'psi']
-   endif
-
+   self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
+   ! if     ((.not.self%physics%d_divergence_cleaner).and.(.not.self%physics%b_divergence_cleaner) .or. &
+   !          (self%physics%div_corr_var == DIV_CORR_VAR_POISS)) then
+   !    self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
+   ! elseif ((     self%physics%d_divergence_cleaner).and.(.not.self%physics%b_divergence_cleaner) &
+   !    .and. (self%physics%div_corr_var == DIV_CORR_VAR_HYPER)) then
+   !    self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi']
+   ! elseif ((     self%physics%d_divergence_cleaner).and.(     self%physics%b_divergence_cleaner) &
+   !    .and. (self%physics%div_corr_var == DIV_CORR_VAR_HYPER)) then
+   !    self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi', 'psi']
+   ! endif
    endassociate
    if (verbose_) call self%mpih%print_message('prism_common_object%initialize finish')
    contains

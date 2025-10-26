@@ -19,6 +19,7 @@ use adam_slices_object
 use adam_tree_node_object
 use adam_tree_bucket_object
 use adam_tree_object
+use adam_vector_field_operators_library
 use adam_weno_object
 
 implicit none
