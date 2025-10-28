@@ -178,7 +178,7 @@
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-bc_extrapolation~3"></span>
+              <span class="anchor" id="variable-bc_extrapolation"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -193,7 +193,7 @@
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-bc_inflow~3"></span>
+              <span class="anchor" id="variable-bc_inflow"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -208,7 +208,7 @@
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nv~36"></span>
+              <span class="anchor" id="variable-nv~25"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -223,7 +223,7 @@
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ngc~44"></span>
+              <span class="anchor" id="variable-ngc~36"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -238,7 +238,7 @@
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-cv~10"></span>
+              <span class="anchor" id="variable-cv~9"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -253,7 +253,7 @@
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-r~11"></span>
+              <span class="anchor" id="variable-r~10"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -283,7 +283,7 @@
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-fec_1_6_array_gpu~3"></span>
+              <span class="anchor" id="variable-fec_1_6_array_gpu"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -298,7 +298,7 @@
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_bc_vars_gpu~6"></span>
+              <span class="anchor" id="variable-q_bc_vars_gpu~3"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -313,7 +313,7 @@
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_gpu~26"></span>
+              <span class="anchor" id="variable-q_gpu~18"></span>
               real(kind=R8P),
             </td>
 <td>intent(inout)</td>
@@ -352,162 +352,162 @@
 <polygon fill="none" stroke="black" points="1672,-102 1563,-102 1563,-78 1672,-78 1672,-102"/>
 <text text-anchor="middle" x="1617.5" y="-87.6" font-family="Helvetica,sans-Serif" font-size="10.50">set_bc_q_gpu_dev</text>
 </g>
-<!-- proc~set_boundary_conditions~4 -->
+<!-- proc~set_boundary_conditions -->
 <g id="proc~~set_bc_q_gpu_dev~~CalledByGraph_node2" class="node">
-<title>proc~set_boundary_conditions~4</title>
-<g id="a_proc~~set_bc_q_gpu_dev~~CalledByGraph_node2"><a xlink:href="../proc/set_boundary_conditions~4.html" xlink:title="nasto_fnl_object%set_boundary_conditions">
+<title>proc~set_boundary_conditions</title>
+<g id="a_proc~~set_bc_q_gpu_dev~~CalledByGraph_node2"><a xlink:href="../proc/set_boundary_conditions.html" xlink:title="nasto_fnl_object%set_boundary_conditions">
 <polygon fill="#d9534f" stroke="#d9534f" points="1527,-102 1286,-102 1286,-78 1527,-78 1527,-102"/>
 <text text-anchor="middle" x="1406.5" y="-87.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_fnl_object%set_boundary_conditions</text>
 </a>
 </g>
 </g>
-<!-- proc~set_boundary_conditions~4&#45;&gt;proc~set_bc_q_gpu_dev -->
+<!-- proc~set_boundary_conditions&#45;&gt;proc~set_bc_q_gpu_dev -->
 <g id="proc~~set_bc_q_gpu_dev~~CalledByGraph_edge1" class="edge">
-<title>proc~set_boundary_conditions~4&#45;&gt;proc~set_bc_q_gpu_dev</title>
+<title>proc~set_boundary_conditions&#45;&gt;proc~set_bc_q_gpu_dev</title>
 <path fill="none" stroke="#000000" d="M1527.26,-90C1535.98,-90 1544.56,-90 1552.74,-90"/>
 <polygon fill="#000000" stroke="#000000" points="1552.87,-93.5 1562.87,-90 1552.87,-86.5 1552.87,-93.5"/>
 </g>
-<!-- proc~update_ghost~4 -->
+<!-- proc~update_ghost -->
 <g id="proc~~set_bc_q_gpu_dev~~CalledByGraph_node3" class="node">
-<title>proc~update_ghost~4</title>
-<g id="a_proc~~set_bc_q_gpu_dev~~CalledByGraph_node3"><a xlink:href="../proc/update_ghost~4.html" xlink:title="nasto_fnl_object%update_ghost">
+<title>proc~update_ghost</title>
+<g id="a_proc~~set_bc_q_gpu_dev~~CalledByGraph_node3"><a xlink:href="../proc/update_ghost.html" xlink:title="nasto_fnl_object%update_ghost">
 <polygon fill="#d9534f" stroke="#d9534f" points="1250,-102 1069,-102 1069,-78 1250,-78 1250,-102"/>
 <text text-anchor="middle" x="1159.5" y="-87.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_fnl_object%update_ghost</text>
 </a>
 </g>
 </g>
-<!-- proc~update_ghost~4&#45;&gt;proc~set_boundary_conditions~4 -->
+<!-- proc~update_ghost&#45;&gt;proc~set_boundary_conditions -->
 <g id="proc~~set_bc_q_gpu_dev~~CalledByGraph_edge2" class="edge">
-<title>proc~update_ghost~4&#45;&gt;proc~set_boundary_conditions~4</title>
+<title>proc~update_ghost&#45;&gt;proc~set_boundary_conditions</title>
 <path fill="none" stroke="#000000" d="M1250.34,-90C1258.68,-90 1267.24,-90 1275.85,-90"/>
 <polygon fill="#000000" stroke="#000000" points="1275.97,-93.5 1285.97,-90 1275.97,-86.5 1275.97,-93.5"/>
 </g>
-<!-- proc~amr_update~4 -->
+<!-- proc~amr_update -->
 <g id="proc~~set_bc_q_gpu_dev~~CalledByGraph_node4" class="node">
-<title>proc~amr_update~4</title>
-<g id="a_proc~~set_bc_q_gpu_dev~~CalledByGraph_node4"><a xlink:href="../proc/amr_update~4.html" xlink:title="nasto_fnl_object%amr_update">
+<title>proc~amr_update</title>
+<g id="a_proc~~set_bc_q_gpu_dev~~CalledByGraph_node4"><a xlink:href="../proc/amr_update.html" xlink:title="nasto_fnl_object%amr_update">
 <polygon fill="#d9534f" stroke="#d9534f" points="772.5,-142 599.5,-142 599.5,-118 772.5,-118 772.5,-142"/>
 <text text-anchor="middle" x="686" y="-127.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_fnl_object%amr_update</text>
 </a>
 </g>
 </g>
-<!-- proc~amr_update~4&#45;&gt;proc~update_ghost~4 -->
+<!-- proc~amr_update&#45;&gt;proc~update_ghost -->
 <g id="proc~~set_bc_q_gpu_dev~~CalledByGraph_edge3" class="edge">
-<title>proc~amr_update~4&#45;&gt;proc~update_ghost~4</title>
+<title>proc~amr_update&#45;&gt;proc~update_ghost</title>
 <path fill="none" stroke="#000000" d="M737.88,-142.01C806.01,-156.08 930.22,-174.65 1033,-151 1069.22,-142.66 1107.09,-122.42 1131.64,-107.52"/>
 <polygon fill="#000000" stroke="#000000" points="1133.7,-110.36 1140.36,-102.11 1130.01,-104.41 1133.7,-110.36"/>
 </g>
-<!-- proc~mark_by_grad_var~4 -->
+<!-- proc~mark_by_grad_var -->
 <g id="proc~~set_bc_q_gpu_dev~~CalledByGraph_node7" class="node">
-<title>proc~mark_by_grad_var~4</title>
-<g id="a_proc~~set_bc_q_gpu_dev~~CalledByGraph_node7"><a xlink:href="../proc/mark_by_grad_var~4.html" xlink:title="nasto_fnl_object%mark_by_grad_var">
+<title>proc~mark_by_grad_var</title>
+<g id="a_proc~~set_bc_q_gpu_dev~~CalledByGraph_node7"><a xlink:href="../proc/mark_by_grad_var.html" xlink:title="nasto_fnl_object%mark_by_grad_var">
 <polygon fill="#d9534f" stroke="#d9534f" points="1033,-142 826,-142 826,-118 1033,-118 1033,-142"/>
 <text text-anchor="middle" x="929.5" y="-127.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_fnl_object%mark_by_grad_var</text>
 </a>
 </g>
 </g>
-<!-- proc~amr_update~4&#45;&gt;proc~mark_by_grad_var~4 -->
+<!-- proc~amr_update&#45;&gt;proc~mark_by_grad_var -->
 <g id="proc~~set_bc_q_gpu_dev~~CalledByGraph_edge11" class="edge">
-<title>proc~amr_update~4&#45;&gt;proc~mark_by_grad_var~4</title>
+<title>proc~amr_update&#45;&gt;proc~mark_by_grad_var</title>
 <path fill="none" stroke="#000000" d="M772.82,-130C786.57,-130 800.98,-130 815.24,-130"/>
 <polygon fill="#000000" stroke="#000000" points="815.6,-133.5 825.6,-130 815.6,-126.5 815.6,-133.5"/>
 </g>
-<!-- proc~compute_residuals~4 -->
+<!-- proc~compute_residuals -->
 <g id="proc~~set_bc_q_gpu_dev~~CalledByGraph_node5" class="node">
-<title>proc~compute_residuals~4</title>
-<g id="a_proc~~set_bc_q_gpu_dev~~CalledByGraph_node5"><a xlink:href="../proc/compute_residuals~4.html" xlink:title="nasto_fnl_object%compute_residuals">
+<title>proc~compute_residuals</title>
+<g id="a_proc~~set_bc_q_gpu_dev~~CalledByGraph_node5"><a xlink:href="../proc/compute_residuals.html" xlink:title="nasto_fnl_object%compute_residuals">
 <polygon fill="#d9534f" stroke="#d9534f" points="790,-60 582,-60 582,-36 790,-36 790,-60"/>
 <text text-anchor="middle" x="686" y="-45.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_fnl_object%compute_residuals</text>
 </a>
 </g>
 </g>
-<!-- proc~compute_residuals~4&#45;&gt;proc~update_ghost~4 -->
+<!-- proc~compute_residuals&#45;&gt;proc~update_ghost -->
 <g id="proc~~set_bc_q_gpu_dev~~CalledByGraph_edge4" class="edge">
-<title>proc~compute_residuals~4&#45;&gt;proc~update_ghost~4</title>
+<title>proc~compute_residuals&#45;&gt;proc~update_ghost</title>
 <path fill="none" stroke="#000000" d="M790.02,-55.51C858.86,-60.74 951.42,-68.15 1033,-76 1041.31,-76.8 1049.93,-77.67 1058.58,-78.58"/>
 <polygon fill="#000000" stroke="#000000" points="1058.42,-82.08 1068.73,-79.65 1059.15,-75.12 1058.42,-82.08"/>
 </g>
-<!-- proc~integrate_eikonal~4 -->
+<!-- proc~integrate_eikonal -->
 <g id="proc~~set_bc_q_gpu_dev~~CalledByGraph_node6" class="node">
-<title>proc~integrate_eikonal~4</title>
-<g id="a_proc~~set_bc_q_gpu_dev~~CalledByGraph_node6"><a xlink:href="../proc/integrate_eikonal~4.html" xlink:title="nasto_fnl_object%integrate_eikonal">
+<title>proc~integrate_eikonal</title>
+<g id="a_proc~~set_bc_q_gpu_dev~~CalledByGraph_node6"><a xlink:href="../proc/integrate_eikonal.html" xlink:title="nasto_fnl_object%integrate_eikonal">
 <polygon fill="#d9534f" stroke="#d9534f" points="1030.5,-24 828.5,-24 828.5,0 1030.5,0 1030.5,-24"/>
 <text text-anchor="middle" x="929.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_fnl_object%integrate_eikonal</text>
 </a>
 </g>
 </g>
-<!-- proc~compute_residuals~4&#45;&gt;proc~integrate_eikonal~4 -->
+<!-- proc~compute_residuals&#45;&gt;proc~integrate_eikonal -->
 <g id="proc~~set_bc_q_gpu_dev~~CalledByGraph_edge10" class="edge">
-<title>proc~compute_residuals~4&#45;&gt;proc~integrate_eikonal~4</title>
+<title>proc~compute_residuals&#45;&gt;proc~integrate_eikonal</title>
 <path fill="none" stroke="#000000" d="M767.75,-35.96C790.21,-32.62 814.74,-28.96 837.73,-25.53"/>
 <polygon fill="#000000" stroke="#000000" points="838.45,-28.96 847.82,-24.03 837.42,-22.04 838.45,-28.96"/>
 </g>
-<!-- proc~integrate_eikonal~4&#45;&gt;proc~update_ghost~4 -->
+<!-- proc~integrate_eikonal&#45;&gt;proc~update_ghost -->
 <g id="proc~~set_bc_q_gpu_dev~~CalledByGraph_edge5" class="edge">
-<title>proc~integrate_eikonal~4&#45;&gt;proc~update_ghost~4</title>
+<title>proc~integrate_eikonal&#45;&gt;proc~update_ghost</title>
 <path fill="none" stroke="#000000" d="M984.12,-24.05C1000,-28.03 1017.32,-32.79 1033,-38 1064.02,-48.3 1098.24,-62.69 1123.1,-73.72"/>
 <polygon fill="#000000" stroke="#000000" points="1121.92,-77.03 1132.48,-77.92 1124.78,-70.64 1121.92,-77.03"/>
 </g>
-<!-- proc~mark_by_grad_var~4&#45;&gt;proc~update_ghost~4 -->
+<!-- proc~mark_by_grad_var&#45;&gt;proc~update_ghost -->
 <g id="proc~~set_bc_q_gpu_dev~~CalledByGraph_edge6" class="edge">
-<title>proc~mark_by_grad_var~4&#45;&gt;proc~update_ghost~4</title>
+<title>proc~mark_by_grad_var&#45;&gt;proc~update_ghost</title>
 <path fill="none" stroke="#000000" d="M998.91,-118C1024.38,-113.53 1053.49,-108.42 1079.81,-103.81"/>
 <polygon fill="#000000" stroke="#000000" points="1080.5,-107.24 1089.75,-102.06 1079.29,-100.34 1080.5,-107.24"/>
 </g>
-<!-- proc~save_simulation_data~4 -->
+<!-- proc~save_simulation_data -->
 <g id="proc~~set_bc_q_gpu_dev~~CalledByGraph_node8" class="node">
-<title>proc~save_simulation_data~4</title>
-<g id="a_proc~~set_bc_q_gpu_dev~~CalledByGraph_node8"><a xlink:href="../proc/save_simulation_data~4.html" xlink:title="nasto_fnl_object%save_simulation_data">
+<title>proc~save_simulation_data</title>
+<g id="a_proc~~set_bc_q_gpu_dev~~CalledByGraph_node8"><a xlink:href="../proc/save_simulation_data.html" xlink:title="nasto_fnl_object%save_simulation_data">
 <polygon fill="#d9534f" stroke="#d9534f" points="546,-102 323,-102 323,-78 546,-78 546,-102"/>
 <text text-anchor="middle" x="434.5" y="-87.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_fnl_object%save_simulation_data</text>
 </a>
 </g>
 </g>
-<!-- proc~save_simulation_data~4&#45;&gt;proc~update_ghost~4 -->
+<!-- proc~save_simulation_data&#45;&gt;proc~update_ghost -->
 <g id="proc~~set_bc_q_gpu_dev~~CalledByGraph_edge7" class="edge">
-<title>proc~save_simulation_data~4&#45;&gt;proc~update_ghost~4</title>
+<title>proc~save_simulation_data&#45;&gt;proc~update_ghost</title>
 <path fill="none" stroke="#000000" d="M546.1,-90C685.75,-90 924,-90 1058.46,-90"/>
 <polygon fill="#000000" stroke="#000000" points="1058.76,-93.5 1068.76,-90 1058.76,-86.5 1058.76,-93.5"/>
 </g>
-<!-- proc~integrate~4 -->
+<!-- proc~integrate -->
 <g id="proc~~set_bc_q_gpu_dev~~CalledByGraph_node9" class="node">
-<title>proc~integrate~4</title>
-<g id="a_proc~~set_bc_q_gpu_dev~~CalledByGraph_node9"><a xlink:href="../proc/integrate~4.html" xlink:title="nasto_fnl_object%integrate">
+<title>proc~integrate</title>
+<g id="a_proc~~set_bc_q_gpu_dev~~CalledByGraph_node9"><a xlink:href="../proc/integrate.html" xlink:title="nasto_fnl_object%integrate">
 <polygon fill="#d9534f" stroke="#d9534f" points="513,-60 356,-60 356,-36 513,-36 513,-60"/>
 <text text-anchor="middle" x="434.5" y="-45.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_fnl_object%integrate</text>
 </a>
 </g>
 </g>
-<!-- proc~integrate~4&#45;&gt;proc~compute_residuals~4 -->
+<!-- proc~integrate&#45;&gt;proc~compute_residuals -->
 <g id="proc~~set_bc_q_gpu_dev~~CalledByGraph_edge9" class="edge">
-<title>proc~integrate~4&#45;&gt;proc~compute_residuals~4</title>
+<title>proc~integrate&#45;&gt;proc~compute_residuals</title>
 <path fill="none" stroke="#000000" d="M513.08,-48C531.68,-48 551.92,-48 571.77,-48"/>
 <polygon fill="#000000" stroke="#000000" points="571.79,-51.5 581.79,-48 571.79,-44.5 571.79,-51.5"/>
 </g>
-<!-- proc~simulate~4 -->
+<!-- proc~simulate -->
 <g id="proc~~set_bc_q_gpu_dev~~CalledByGraph_node10" class="node">
-<title>proc~simulate~4</title>
-<g id="a_proc~~set_bc_q_gpu_dev~~CalledByGraph_node10"><a xlink:href="../proc/simulate~4.html" xlink:title="nasto_fnl_object%simulate">
+<title>proc~simulate</title>
+<g id="a_proc~~set_bc_q_gpu_dev~~CalledByGraph_node10"><a xlink:href="../proc/simulate.html" xlink:title="nasto_fnl_object%simulate">
 <polygon fill="#d9534f" stroke="#d9534f" points="287,-102 133,-102 133,-78 287,-78 287,-102"/>
 <text text-anchor="middle" x="210" y="-87.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_fnl_object%simulate</text>
 </a>
 </g>
 </g>
-<!-- proc~simulate~4&#45;&gt;proc~amr_update~4 -->
+<!-- proc~simulate&#45;&gt;proc~amr_update -->
 <g id="proc~~set_bc_q_gpu_dev~~CalledByGraph_edge8" class="edge">
-<title>proc~simulate~4&#45;&gt;proc~amr_update~4</title>
+<title>proc~simulate&#45;&gt;proc~amr_update</title>
 <path fill="none" stroke="#000000" d="M267.18,-102.05C284.96,-105.45 304.73,-108.82 323,-111 412.82,-121.73 515.9,-126.4 589.03,-128.43"/>
 <polygon fill="#000000" stroke="#000000" points="589.06,-131.94 599.15,-128.7 589.25,-124.94 589.06,-131.94"/>
 </g>
-<!-- proc~simulate~4&#45;&gt;proc~save_simulation_data~4 -->
+<!-- proc~simulate&#45;&gt;proc~save_simulation_data -->
 <g id="proc~~set_bc_q_gpu_dev~~CalledByGraph_edge12" class="edge">
-<title>proc~simulate~4&#45;&gt;proc~save_simulation_data~4</title>
+<title>proc~simulate&#45;&gt;proc~save_simulation_data</title>
 <path fill="none" stroke="#000000" d="M287.26,-90C295.49,-90 304,-90 312.59,-90"/>
 <polygon fill="#000000" stroke="#000000" points="312.7,-93.5 322.7,-90 312.7,-86.5 312.7,-93.5"/>
 </g>
-<!-- proc~simulate~4&#45;&gt;proc~integrate~4 -->
+<!-- proc~simulate&#45;&gt;proc~integrate -->
 <g id="proc~~set_bc_q_gpu_dev~~CalledByGraph_edge13" class="edge">
-<title>proc~simulate~4&#45;&gt;proc~integrate~4</title>
+<title>proc~simulate&#45;&gt;proc~integrate</title>
 <path fill="none" stroke="#000000" d="M274.76,-77.96C301.29,-72.96 332.26,-67.11 359.77,-61.92"/>
 <polygon fill="#000000" stroke="#000000" points="360.55,-65.33 369.73,-60.04 359.26,-58.45 360.55,-65.33"/>
 </g>
@@ -520,9 +520,9 @@
 </a>
 </g>
 </g>
-<!-- program~adam_nasto_fnl&#45;&gt;proc~simulate~4 -->
+<!-- program~adam_nasto_fnl&#45;&gt;proc~simulate -->
 <g id="proc~~set_bc_q_gpu_dev~~CalledByGraph_edge14" class="edge">
-<title>program~adam_nasto_fnl&#45;&gt;proc~simulate~4</title>
+<title>program~adam_nasto_fnl&#45;&gt;proc~simulate</title>
 <path fill="none" stroke="#000000" d="M97.36,-90C105.4,-90 113.97,-90 122.64,-90"/>
 <polygon fill="#000000" stroke="#000000" points="122.84,-93.5 132.84,-90 122.84,-86.5 122.84,-93.5"/>
 </g>
