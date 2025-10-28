@@ -23,7 +23,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
    !< Pointer (abstract) TBP.
    procedure(compute_residuals_interface),         pass(self), pointer :: compute_residuals      =>null() !< Compute residuals, space operator.
    procedure(integrate_interface),                 pass(self), pointer :: integrate              =>null() !< Integrate, time operator.
-   
+
    contains
       ! auxiliary methods
       procedure, pass(self) :: allocate_cpu !< Allocate CPU data.
@@ -41,11 +41,12 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions (and coils) of equation.
       procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
       ! numerical methods
-      procedure, pass(self) :: compute_divergence   !< Compute divergence of vector field.
-      procedure, pass(self) :: compute_dt           !< Compute time step.
-      procedure, pass(self) :: compute_gradient     !< Compute gradient of scalar field.
-      procedure, pass(self) :: impose_ct_correction !< Impose Constrained Transport correction on q(ivar:ivar+2).
-      procedure, pass(self) :: simulate             !< Perform the simulation.
+      procedure, pass(self) :: compute_divergence_fd !< Compute divergence of vector field, finite difference scheme.
+      procedure, pass(self) :: compute_divergence_fv !< Compute divergence of vector field, finite volume     scheme.
+      procedure, pass(self) :: compute_dt            !< Compute time step.
+      procedure, pass(self) :: compute_gradient      !< Compute gradient of scalar field.
+      procedure, pass(self) :: impose_ct_correction  !< Impose Constrained Transport correction on q(ivar:ivar+2).
+      procedure, pass(self) :: simulate              !< Perform the simulation.
 endtype prism_cpu_object
 
 interface
@@ -71,7 +72,6 @@ interface
    class(prism_cpu_object), intent(inout)         :: self            !< The equation.
    logical,                 intent(in),  optional :: do_ghost_syncro !< Flag to do syncrous ghost update.
    endsubroutine integrate_interface
-
 endinterface
 
 contains
@@ -147,7 +147,7 @@ contains
    case default
       compute_fluxes_Maxwell => compute_convective_fluxes_maxwell
    endselect
-      
+
    print '(A)', self%mpih%description()
    call self%mpih%print_message('prism_cpu_object%initialize finish')
    endsubroutine initialize
@@ -605,8 +605,8 @@ contains
    endsubroutine update_ghost
 
    ! numerical methods
-   subroutine compute_divergence(self, ivar, q, div)
-   !< Compute divergence of vector fields, div(q(ivar:ivar+2).
+   subroutine compute_divergence_fd(self, ivar, q, div)
+   !< Compute divergence of vector fields, div(q(ivar:ivar+2), centered finite difference scheme.
    class(prism_cpu_object), intent(in)    :: self                                         !< The equation.
    integer(I4P),            intent(in)    :: ivar                                         !< Start index of (vec.) variable of q.
    real(R8P),               intent(in)    :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
@@ -618,16 +618,38 @@ contains
    do k=1, nk
    do j=1, nj
    do i=1, ni
-      call compute_divergence_centered(ngc=ngc,dxyz=dxyz,order=2,                                                           &
-                                       q=q(ivar:ivar+2,i-self%ngc:i+self%ngc,j-self%ngc:j+self%ngc,k-self%ngc:k+self%ngc,b),&
+      call compute_divergence_fd_centered(s=1,dxyz=dxyz(:,b),                        &
+                                          q=q(ivar:ivar+2,i-1:i+1,j-1:j+1,k-1:k+1,b),&
                                        div=div(i,j,k,b))
-
    enddo
    enddo
    enddo
    enddo
    endassociate
-   endsubroutine compute_divergence
+   endsubroutine compute_divergence_fd
+
+   subroutine compute_divergence_fv(self, ivar, q, div)
+   !< Compute divergence of vector fields, div(q(ivar:ivar+2), centered finite volume scheme.
+   class(prism_cpu_object), intent(in)    :: self                                         !< The equation.
+   integer(I4P),            intent(in)    :: ivar                                         !< Start index of (vec.) variable of q.
+   real(R8P),               intent(in)    :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
+   real(R8P),               intent(inout) :: div( 1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
+   integer(I4P)                           :: i,j,k,b                                      !< Counter.
+
+   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz)
+   do b=1, blocks_number
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+      call compute_divergence_fv_centered(s=1,dxyz=dxyz(:,b),                        &
+                                          q=q(ivar:ivar+2,i-1:i+1,j-1:j+1,k-1:k+1,b),&
+                                          div=div(i,j,k,b))
+   enddo
+   enddo
+   enddo
+   enddo
+   endassociate
+   endsubroutine compute_divergence_fv
 
    subroutine compute_dt(self)
    class(prism_cpu_object), intent(inout) :: self                            !< The equation.
@@ -658,8 +680,8 @@ contains
    do k=1, nk
    do j=1, nj
    do i=1, ni
-      call compute_gradient_centered(ngc=ngc,dxyz=dxyz,order=2,                                                    &
-                                     q=q(ivar,i-self%ngc:i+self%ngc,j-self%ngc:j+self%ngc,k-self%ngc:k+self%ngc,b),&
+      call compute_gradient_fd_centered(s=1,dxyz=dxyz(:,b),                 &
+                                        q=q(ivar,i-1:i+1,j-1:j+1,k-1:k+1,b),&
                                      grad=grad(1:3,i,j,k,b))
    enddo
    enddo
@@ -678,7 +700,7 @@ contains
    integer(I4P)                           :: i,j,k,b,v !< Counter.
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, buffer=>self%field_div)
-   call self%compute_divergence(ivar=ivar,q=self%q,div=buffer(4,:,:,:,:))
+   call self%compute_divergence_fd(ivar=ivar,q=self%q,div=buffer(4,:,:,:,:))
    if (blocks_number>0) then
       do iter=1, self%flail%iterations
          call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
@@ -738,6 +760,9 @@ contains
    endif
    !if (self%ib%solids_number > 0) call self%compute_phi()
    ! call self%amr_update
+   call self%compute_divergence_fd(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
+   call self%compute_divergence_fd(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
+   call self%compute_divergence_fd(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
    call self%save_simulation_data
 
    if (self%mpih%myrank==0) call self%io%open_file_residuals(nv=self%nv)
@@ -810,7 +835,7 @@ contains
              flx=>self%flx, fly=>self%fly, flz=>self%flz,                                                                          &
              weno_s=>self%weno%S, weno_zeps=>self%weno%zeps,                                                                       &
              weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, weno_c=>self%weno%c,                                   &
-             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz, chi=>self%physics%chi,         & 
+             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz, chi=>self%physics%chi,         &
              evmax=>self%physics%evmax, erw=>self%physics%erw, elw=>self%physics%elw)
    if (blocks_number > 0) then
       call compute_fluxes_convective_centered(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,           &
@@ -906,11 +931,37 @@ contains
    enddo
    if (self%numerics%constrained_transport_D .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=1_I4P)
    if (self%numerics%constrained_transport_B .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=4_I4P)
-   call self%compute_divergence(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
-   call self%compute_divergence(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
-   call self%compute_divergence(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
+   call self%compute_divergence_fd(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
+   call self%compute_divergence_fd(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
+   call self%compute_divergence_fd(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
    endassociate
    endsubroutine integrate_rk_ls
+
+   subroutine compute_div(ni, nj, nk, ngc, blocks_number, dxyz, ivar, q, div)
+   !< Compute div(q(ivar). Finite difference central scheme.
+   integer(I4P), intent(in)    :: ni                              !< Grid cells number in I direction.
+   integer(I4P), intent(in)    :: nj                              !< Grid cells number in J direction.
+   integer(I4P), intent(in)    :: nk                              !< Grid cells number in K direction.
+   integer(I4P), intent(in)    :: ngc                             !< Ghost cells number.
+   integer(I4P), intent(in)    :: blocks_number                   !< Number of blocks.
+   real(R8P),    intent(in)    :: dxyz(1:,1:)                     !< Space steps.
+   integer(I4P), intent(in)    :: ivar                            !< Variable (vectorial) of q.
+   real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Field variables.
+   real(R8P),    intent(inout) :: div(   1-ngc:,1-ngc:,1-ngc:,1:) !< Divergence of D, B.
+   integer(I4P)                :: i,j,k,b                         !< Counter
+
+   do b=1, blocks_number
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+      div(i,j,k,b) = 0.5_R8P*((q(ivar  ,i+1,j,k,b) - q(ivar  ,i-1,j,k,b))/dxyz(1,b) + &
+                              (q(ivar+1,i,j+1,k,b) - q(ivar+1,i,j-1,k,b))/dxyz(2,b) + &
+                              (q(ivar+2,i,j,k+1,b) - q(ivar+2,i,j,k-1,b))/dxyz(3,b))
+   enddo
+   enddo
+   enddo
+   enddo
+   endsubroutine compute_div
 
    subroutine integrate_rk_ssp(self, do_ghost_syncro)
    !< Integrate equation, time operator, SSP RK schemes.
@@ -954,9 +1005,9 @@ contains
    endif
    if (self%numerics%constrained_transport_D .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=1_I4P)
    if (self%numerics%constrained_transport_B .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=4_I4P)
-   call self%compute_divergence(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
-   call self%compute_divergence(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
-   call self%compute_divergence(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
+   call self%compute_divergence_fd(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
+   call self%compute_divergence_fd(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
+   call self%compute_divergence_fd(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
    endassociate
    endsubroutine integrate_rk_ssp
 
@@ -994,18 +1045,18 @@ contains
    self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
    if (self%numerics%constrained_transport_D .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=1_I4P)
    if (self%numerics%constrained_transport_B .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=4_I4P)
-   call self%compute_divergence(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
-   call self%compute_divergence(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
-   call self%compute_divergence(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
+   call self%compute_divergence_fd(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
+   call self%compute_divergence_fd(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
+   call self%compute_divergence_fd(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
    endassociate
    endsubroutine integrate_rk_yoshida
 
    subroutine integrate_leapfrog(self, do_ghost_syncro)
    !< Integrate equation, time operator, leapfrog scheme.
-   class(prism_cpu_object), intent(inout)         :: self             !< The equation.
-   logical,                 intent(in),  optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
-   logical                                        :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
-   integer(I4P)                                   :: s                !< Counter.
+   class(prism_cpu_object), intent(inout)        :: self             !< The equation.
+   logical,                 intent(in), optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
+   logical                                       :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
+   integer(I4P)                                  :: s                !< Counter.
 
    do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
@@ -1024,9 +1075,9 @@ contains
    self%q = self%rk%q_rk(:,:,:,:,:,2)
    if (self%numerics%constrained_transport_D .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=1_I4P)
    if (self%numerics%constrained_transport_B .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=4_I4P)
-   call self%compute_divergence(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
-   call self%compute_divergence(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
-   call self%compute_divergence(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
+   call self%compute_divergence_fd(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
+   call self%compute_divergence_fd(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
+   call self%compute_divergence_fd(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
    endassociate
    endsubroutine integrate_leapfrog
 
