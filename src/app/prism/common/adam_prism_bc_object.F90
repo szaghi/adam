@@ -79,7 +79,6 @@ contains
          self%bc_type(b) = BC_EXTRAP_DIRICHLET
       case('periodic')
          self%bc_type(b) = BC_PERIOD
-         print *, 'Periodic BC selected'
       endselect
    enddo
    endsubroutine load_from_file

@@ -23,8 +23,8 @@ character(8),  parameter, public :: NUM_SCHEME_SPACE_CENTERED='CENTERED'      !<
 character(4),  parameter, public :: NUM_SCHEME_SPACE_WENO='WENO'              !< WENO numerical scheme for space operator.
 character(12), parameter, public :: RECONSTRUCTION_VARS_CONS='CONSERVATIVE'   !< High-order reconstruction on conservative vars.
 character(15), parameter, public :: RECONSTRUCTION_VARS_CHAR='CHARACTERISTICS'!< High-order reconstruction on characteristics vars.
-! character(7),  parameter, public :: DIV_CORR_VAR_POISS='POISSON'              !< Poisson divergence correction.
-! character(10), parameter, public :: DIV_CORR_VAR_HYPER='HYPERBOLIC'           !< Hyperbolic divergence correction.
+character(7),  parameter, public :: DIV_CORR_VAR_POISS='POISSON'              !< Poisson divergence correction.
+character(10), parameter, public :: DIV_CORR_VAR_HYPER='HYPERBOLIC'           !< Hyperbolic divergence correction.
 
 type :: prism_numerics_object
    !< PRISM numerics class definition.
@@ -36,7 +36,7 @@ type :: prism_numerics_object
    logical                   :: constrained_transport_B=.false. !< Enable Constrained Transport Correction on D.
    ! logical                   :: d_divergence_cleaner=.false. !< Enable electric field divergence cleaning.
    ! logical                   :: b_divergence_cleaner=.false. !< Enable magnetic field divergence cleaning.
-   ! character(:), allocatable :: div_corr_var                 !< Type of divergence correction variables (poisson, hyperbolic,...).
+   character(:), allocatable :: div_corr_var                    !< Type of divergence correction variables (poisson, hyperbolic,...).
    contains
       ! public methods
       procedure, pass(self) :: description    !< Return pretty-printed object description.
@@ -57,8 +57,8 @@ contains
    desc = desc//self%mpih%myrankstr//'  Numerical scheme for space operator:          '//self%scheme_space                //NL
    desc = desc//self%mpih%myrankstr//'  Reconstruction variables:                     '//self%reconstruction_vars         //NL
    desc = desc//self%mpih%myrankstr//'  Enable Constrained Transport Correction on D: '//str(self%constrained_transport_D)//NL
-   desc = desc//self%mpih%myrankstr//'  Enable Constrained Transport Correction on B: '//str(self%constrained_transport_B)
-   ! desc = desc//self%mpih%myrankstr//'  Divergence correction:                        '//self%div_corr_var                   //NL
+   desc = desc//self%mpih%myrankstr//'  Enable Constrained Transport Correction on B: '//str(self%constrained_transport_B)//NL
+   desc = desc//self%mpih%myrankstr//'  Divergence correction:                        '//self%div_corr_var                   
    ! desc = desc//self%mpih%myrankstr//'  D divergence correction:                      '//trim(str(self%d_divergence_cleaner))//NL
    ! desc = desc//self%mpih%myrankstr//'  B divergence correction:                      '//trim(str(self%b_divergence_cleaner))//NL
    endfunction description
@@ -147,18 +147,20 @@ contains
       self%constrained_transport_B = .false.
    endselect
 
-   ! call file_parameters%get(section_name=INI_SECTION_NAME, option_name='divergence_correction', val=buff,error=error)
-   ! if (.not.go_on_fail_.and.error>0) &
-   !    call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(divergence_correction)')
-   ! select case(trim(adjustl(buff)))
-   ! case('POISSON', 'poisson', 'Poisson')
-   !    self%div_corr_var = DIV_CORR_VAR_POISS
-   ! case('HYPERBOLIC', 'hyperbolic', 'Hyperbolic')
-   !    self%div_corr_var = DIV_CORR_VAR_HYPER
-   ! case default
-   !    call self%mpih%print_message(msg='warning: divergence correction variable not activated')
-   !    self%div_corr_var = 'No'
-   ! endselect
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='divergence_correction', val=buff,error=error)
+   if (.not.go_on_fail_.and.error>0) &
+      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(divergence_correction)')
+   select case(trim(adjustl(buff)))
+   case('POISSON', 'poisson', 'Poisson')
+      self%div_corr_var = DIV_CORR_VAR_POISS
+   case('HYPERBOLIC', 'hyperbolic', 'Hyperbolic')
+      self%div_corr_var = DIV_CORR_VAR_HYPER
+   case default
+      call self%mpih%print_message(msg='warning: divergence correction variable not activated: divergence correction disabled!')
+      self%div_corr_var = 'No'
+      self%constrained_transport_D = .false.
+      self%constrained_transport_B = .false.
+   endselect
 
    ! call file_parameters%get(section_name=INI_SECTION_NAME, option_name='d_divergence_cleaner', &
    !                          val=self%d_divergence_cleaner,error=error)

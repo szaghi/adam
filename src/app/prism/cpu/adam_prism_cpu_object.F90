@@ -13,6 +13,7 @@ use mpi
 implicit none
 private
 public :: prism_cpu_object
+procedure(compute_convective_fluxes_interface), pointer :: compute_fluxes_Maxwell =>null() !< Compute convective fluxes for Maxwell equations.
 
 type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR e IB
    !< Maxwell equations system class definition, CPU backend.
@@ -20,8 +21,9 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
    real(R8P), allocatable :: fly(:,:,:,:,:) !< Fluxes along y.
    real(R8P), allocatable :: flz(:,:,:,:,:) !< Fluxes along z.
    !< Pointer (abstract) TBP.
-   procedure(compute_residuals_interface), pass(self), pointer :: compute_residuals=>null() !< Compute residuals, space operator.
-   procedure(integrate_interface),         pass(self), pointer :: integrate        =>null() !< Integrate, time operator.
+   procedure(compute_residuals_interface),         pass(self), pointer :: compute_residuals      =>null() !< Compute residuals, space operator.
+   procedure(integrate_interface),                 pass(self), pointer :: integrate              =>null() !< Integrate, time operator.
+   
    contains
       ! auxiliary methods
       procedure, pass(self) :: allocate_cpu !< Allocate CPU data.
@@ -69,6 +71,7 @@ interface
    class(prism_cpu_object), intent(inout)         :: self            !< The equation.
    logical,                 intent(in),  optional :: do_ghost_syncro !< Flag to do syncrous ghost update.
    endsubroutine integrate_interface
+
 endinterface
 
 contains
@@ -105,6 +108,7 @@ contains
    call self%mpih%print_message('prism_cpu_object%initialize start')
    call self%initialize_common(field = self%adam%field, filename=filename, memory_avail=self%mpih%memory_avail)
    call self%allocate_cpu
+
    ! set pointer (abstract) TBP
    select case(self%numerics%scheme_time)
    case(NUM_SCHEME_TIME_RUNGE_KUTTA)
@@ -121,12 +125,29 @@ contains
    case(NUM_SCHEME_TIME_LEAPFROG)
       ! to be extracted from RK schemes...
    endselect
+
    select case(self%numerics%scheme_space)
    case(NUM_SCHEME_SPACE_WENO)
       self%compute_residuals => compute_residuals_weno
    case(NUM_SCHEME_SPACE_CENTERED)
       self%compute_residuals => compute_residuals_centered
    endselect
+
+   select case(self%numerics%div_corr_var)
+   case(DIV_CORR_VAR_POISS)
+      compute_fluxes_Maxwell => compute_convective_fluxes_maxwell
+   case(DIV_CORR_VAR_HYPER)
+      if (self%numerics%constrained_transport_D .and. .not.self%numerics%constrained_transport_B) then
+         compute_fluxes_Maxwell => compute_convective_fluxes_maxwell_div_d
+      elseif (.not.self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
+         compute_fluxes_Maxwell => compute_convective_fluxes_maxwell_div_b
+      elseif (self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
+         compute_fluxes_Maxwell => compute_convective_fluxes_maxwell_div_d_b
+      endif
+   case default
+      compute_fluxes_Maxwell => compute_convective_fluxes_maxwell
+   endselect
+      
    print '(A)', self%mpih%description()
    call self%mpih%print_message('prism_cpu_object%initialize finish')
    endsubroutine initialize
@@ -267,10 +288,12 @@ contains
                                           y_cell(1-self%field%grid%ngc:self%field%grid%nj+self%field%grid%ngc), &
                                           z_cell(1-self%field%grid%ngc:self%field%grid%nk+self%field%grid%ngc)
 
-   associate(local_map_bc_crown=>self%field%maps%local_map_bc_crown,                                               &
-             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), &
-             dz=>self%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi)!, &
-             ! D_divergence_cleaner=>self%physics%D_divergence_cleaner, B_divergence_cleaner=>self%physics%B_divergence_cleaner)
+   associate(local_map_bc_crown=>self%field%maps%local_map_bc_crown,                                                             &
+             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:),               &
+             dz=>self%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,           &
+             nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl, constrained_transport_B=>self%numerics%constrained_transport_B, &
+             constrained_transport_D=>self%numerics%constrained_transport_D)
+
    if (allocated(self%field%maps%local_map_bc_crown)) then
       do crown=1, ngc
          do c=1, size(local_map_bc_crown, dim=1)
@@ -286,19 +309,12 @@ contains
                fec     = local_map_bc_crown(c, 9 ,crown) !da qua la faccia e quindi la normale
                fec_1_6 = fec_1_6_array(fec)
                if (bc_type == BC_EXTRAPOLATION) then
-                  do v=1, 9
+                  do v=1, (nv_c-nv_cl)
                      q(v,i,j,k,b) = q(v,i-idelta,j-jdelta,k-kdelta,b) !ni,j,k coordinate della cella da cui prendo i valori
                   enddo
-                  !if (self%physics%D_divergence_cleaner) then
-                  !   q(10,i,j,k,b) = 0._R8P
-                  !   !q(10,i,j,k,b) = q(10,i-idelta,j-jdelta,k-kdelta,b) - dx(b)/((chi*sqrt(1/(MU0*EPS0)))*dt)* &
-                  !                  !(q(10,i-idelta,j-jdelta,k-kdelta,b)-q_old(10,i-idelta,j-jdelta,k-kdelta,b))
-                  !endif
-                  !if (self%physics%B_divergence_cleaner) then
-                  !   q(11,i,j,k,b) = 0._R8P
-                  !   !q(11,i,j,k,b) = q(11,i-idelta,j-jdelta,k-kdelta,b) - dx(b)/((chi*sqrt(1/(MU0*EPS0)))*dt)* &
-                  !                  !(q(11,i-idelta,j-jdelta,k-kdelta,b)-q_old(11,i-idelta,j-jdelta,k-kdelta,b))
-                  !endif
+                  do v=(nv_c-nv_cl+1), nv
+                     q(v,i,j,k,b) = 0._R8P
+                  enddo
                elseif (bc_type == BC_fWLayer) then
                   !print *, fec
                   if (fec <= 6) then
@@ -403,7 +419,9 @@ contains
 
                      q(gamma_B,i,j,k,b) = ref(gamma_B)
 
-                     q(7:9,i,j,k,b) = 0._R8P
+                  do v=(nv_c-nv_cl+1), nv
+                     q(v,i,j,k,b) = 0._R8P
+                  enddo
                   else
                      do v=1, nv
                        q(v,i,j,k,b) = 0.0_R8P
@@ -504,14 +522,16 @@ contains
 
                      q(gamma_B,i,j,k,b) = ref(gamma_B)
 
-                     q(7:9,i,j,k,b) = 0._R8P
+                     do v=(nv_c-nv_cl+1), nv
+                        q(v,i,j,k,b) = 0._R8P
+                     enddo
                   else
                      do v=1, nv
                         q(v,i,j,k,b) = 0.0_R8P
                      enddo
                   endif
                elseif (bc_type == BC_EXTRAP_DIRICHLET) then
-                     do v=1, 9
+                     do v=1, nv
                         q(v,i,j,k,b) = 0._R8P
                      enddo
                elseif (bc_type == BC_PERIOD) then
@@ -536,8 +556,9 @@ contains
                   q(6,i,j,k,b) = self%ic%B0*self%ic%kx*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
                                  self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
                                  -C0*2*PI/self%ic%lambda*self%time%time) !Bz
-
-                  q(7:9,i,j,k,b) = 0._R8P
+                  do v=(nv_c-nv_cl+1), nv
+                     q(v,i,j,k,b) = 0._R8P
+                  enddo
                endif
             endif
          enddo
@@ -616,11 +637,9 @@ contains
    integer(I4P)                           :: b                               !< Counter.
 
    dxyz_min = huge(1._R8P)
-   associate(blocks_number=>self%blocks_number, dxyz=>self%field%dxyz,chi=>self%physics%chi, eta=>self%physics%eta)!,&
-             ! d_divergence_cleaner=>self%physics%d_divergence_cleaner)
+   associate(blocks_number=>self%blocks_number, dxyz=>self%field%dxyz,chi=>self%physics%chi, evmax=>self%physics%evmax)
    call compute_dxyz_min(blocks_number=blocks_number, dxyz=dxyz, dxyz_min=dxyz_min)
-   umax = C0
-   ! if (d_divergence_cleaner .and. self%physics%div_corr_var == DIV_CORR_VAR_HYPER) umax = max(chi*C0, eta*C0)
+   umax = evmax
    self%time%dt = self%time%CFL*dxyz_min / umax
    endassociate
    call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih%error)
@@ -787,25 +806,27 @@ contains
    call self%update_ghost(q=q)
    !call self%integrate_eikonal_coils(q=q)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
-             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),       &
-             flx=>self%flx, fly=>self%fly, flz=>self%flz,                                        &
-             weno_s=>self%weno%S, weno_zeps=>self%weno%zeps,                                     &
-             weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, weno_c=>self%weno%c, &
+             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),                                         &
+             flx=>self%flx, fly=>self%fly, flz=>self%flz,                                                                          &
+             weno_s=>self%weno%S, weno_zeps=>self%weno%zeps,                                                                       &
+             weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, weno_c=>self%weno%c,                                   &
+             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz, chi=>self%physics%chi,         & 
              evmax=>self%physics%evmax, erw=>self%physics%erw, elw=>self%physics%elw)
    if (blocks_number > 0) then
       call compute_fluxes_convective_centered(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,           &
                                      weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
-                                     evmax=evmax,erw=erw,elw=elw,                                                              &
+                                     evmax=evmax,erw=erw,elw=elw,chi=chi,                                                      &
                                      q=q,fluxes=flx)
       call compute_fluxes_convective_centered(dir=2,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,           &
                                      weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
-                                     evmax=evmax,erw=erw,elw=elw,                                                              &
+                                     evmax=evmax,erw=erw,elw=elw,chi=chi,                                                      &
                                      q=q,fluxes=fly)
       call compute_fluxes_convective_centered(dir=3,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,           &
                                      weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
-                                     evmax=evmax,erw=erw,elw=elw,                                                              &
+                                     evmax=evmax,erw=erw,elw=elw,chi=chi,                                                      &
                                      q=q,fluxes=flz)
       call compute_fluxes_difference(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv_c=nv_c, &
+                                     var_Jx=var_Jx, var_Jy=var_Jy, var_Jz=var_Jz, &
                                      dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz, dq=dq, q=q)
    endif
    endassociate
@@ -828,25 +849,27 @@ contains
    call self%update_ghost(q=q)
    !call self%integrate_eikonal_coils(q=q)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
-             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),       &
-             flx=>self%flx, fly=>self%fly, flz=>self%flz,                                        &
-             weno_s=>self%weno%S, weno_zeps=>self%weno%zeps,                                     &
-             weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, weno_c=>self%weno%c, &
+             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),                                         &
+             flx=>self%flx, fly=>self%fly, flz=>self%flz,                                                                          &
+             weno_s=>self%weno%S, weno_zeps=>self%weno%zeps,                                                                       &
+             weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, weno_c=>self%weno%c,                                   &
+             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz, chi=>self%physics%chi,         &
              evmax=>self%physics%evmax, erw=>self%physics%erw, elw=>self%physics%elw)
    if (blocks_number > 0) then
       call compute_fluxes_convective_weno(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,               &
                                      weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
-                                     evmax=evmax,erw=erw,elw=elw,                                                              &
+                                     evmax=evmax,erw=erw,elw=elw,chi=chi,                                                      &
                                      q=q,fluxes=flx)
       call compute_fluxes_convective_weno(dir=2,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,               &
                                      weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
-                                     evmax=evmax,erw=erw,elw=elw,                                                              &
+                                     evmax=evmax,erw=erw,elw=elw,chi=chi,                                                      &
                                      q=q,fluxes=fly)
       call compute_fluxes_convective_weno(dir=3,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,               &
                                      weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
-                                     evmax=evmax,erw=erw,elw=elw,                                                              &
+                                     evmax=evmax,erw=erw,elw=elw,chi=chi,                                                      &
                                      q=q,fluxes=flz)
       call compute_fluxes_difference(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv_c=nv_c, &
+                                     var_Jx=var_Jx, var_Jy=var_Jy, var_Jz=var_Jz, &
                                      dx=dx, dy=dy, dz=dz, flx=flx, fly=fly, flz=flz, dq=dq, q=q)
    endif
    endassociate
@@ -864,9 +887,11 @@ contains
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
              time=>self%time%time, A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,              &
              coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, j_vec=>self%coil%j_vec, &
-             dx=>self%field%dxyz(1,1), dxyz=>self%field%dxyz)
+             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz,     &
+             dx=>self%field%dxyz(1,1), dxyz=>self%field%dxyz, div_corr_var=>self%numerics%div_corr_var)
    if (self%coil%total_coils_number >= 1_I4P) then
-      call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, time=time, A=A, d=d, &
+      call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, var_Jx=var_Jx, var_Jy=var_Jy,            &
+                                 var_Jz=var_Jz, blocks_number=blocks_number, time=time, A=A, d=d,       &
                                  f=f, phase=phase, coil_flag=coil_flag, td=td, j_vec=j_vec, dx=dx, q=self%q)
    endif
    call self%rk%initialize_stages(q=self%q)
@@ -879,8 +904,8 @@ contains
          call self%rk%compute_stage_ls(s=s,dt=self%time%dt,dq=self%dq,q=self%q)
       endif
    enddo
-   if (self%numerics%constrained_transport_D) call self%impose_ct_correction(ivar=1_I4P)
-   if (self%numerics%constrained_transport_B) call self%impose_ct_correction(ivar=4_I4P)
+   if (self%numerics%constrained_transport_D .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=1_I4P)
+   if (self%numerics%constrained_transport_B .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=4_I4P)
    call self%compute_divergence(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
    call self%compute_divergence(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
    call self%compute_divergence(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
@@ -899,10 +924,12 @@ contains
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
              time=>self%time%time, A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,              &
              coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, j_vec=>self%coil%j_vec, &
-             dx=>self%field%dxyz(1,1), dxyz=>self%field%dxyz)
+             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz,     &
+             dx=>self%field%dxyz(1,1), dxyz=>self%field%dxyz, div_corr_var=>self%numerics%div_corr_var)
 
    if (self%coil%total_coils_number >= 1_I4P) then
-      call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, time=time, A=A, d=d, &
+      call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, var_Jx=var_Jx, var_Jy=var_Jy,            &
+                                 var_Jz=var_Jz, blocks_number=blocks_number, time=time, A=A, d=d,       &
                                  f=f, phase=phase, coil_flag=coil_flag, td=td, j_vec=j_vec, dx=dx, q=self%q)
    endif
    call self%rk%initialize_stages(q=self%q)
@@ -925,8 +952,8 @@ contains
    else
       call self%rk%update_q(dt=self%time%dt, q=self%q)
    endif
-   if (self%numerics%constrained_transport_D) call self%impose_ct_correction(ivar=1_I4P)
-   if (self%numerics%constrained_transport_B) call self%impose_ct_correction(ivar=4_I4P)
+   if (self%numerics%constrained_transport_D .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=1_I4P)
+   if (self%numerics%constrained_transport_B .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=4_I4P)
    call self%compute_divergence(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
    call self%compute_divergence(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
    call self%compute_divergence(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
@@ -944,9 +971,11 @@ contains
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
              time=>self%time%time, A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,              &
              coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, j_vec=>self%coil%j_vec, &
-             dx=>self%field%dxyz(1,1), dxyz=>self%field%dxyz)
+             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz,     &
+             dx=>self%field%dxyz(1,1), dxyz=>self%field%dxyz, div_corr_var=>self%numerics%div_corr_var)
    if (self%coil%total_coils_number >= 1_I4P) then
-      call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, time=time, A=A, d=d, &
+      call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, var_Jx=var_Jx, var_Jy=var_Jy,            &
+                                 var_Jz=var_Jz, blocks_number=blocks_number, time=time, A=A, d=d,       &
                                  f=f, phase=phase, coil_flag=coil_flag, td=td, j_vec=j_vec, dx=dx, q=self%q)
    endif
    do s=1, self%rk%nrk - 1
@@ -963,8 +992,8 @@ contains
    self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
    self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
    self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
-   if (self%numerics%constrained_transport_D) call self%impose_ct_correction(ivar=1_I4P)
-   if (self%numerics%constrained_transport_B) call self%impose_ct_correction(ivar=4_I4P)
+   if (self%numerics%constrained_transport_D .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=1_I4P)
+   if (self%numerics%constrained_transport_B .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=4_I4P)
    call self%compute_divergence(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
    call self%compute_divergence(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
    call self%compute_divergence(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
@@ -982,17 +1011,19 @@ contains
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
              time=>self%time%time, A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,              &
              coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, j_vec=>self%coil%j_vec, &
-             dx=>self%field%dxyz(1,1), dxyz=>self%field%dxyz)
+             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz,     &
+             dx=>self%field%dxyz(1,1), dxyz=>self%field%dxyz, div_corr_var=>self%numerics%div_corr_var)
    if (self%coil%total_coils_number >= 1_I4P) then
-      call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, blocks_number=blocks_number, time=time, A=A, d=d, &
+      call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, var_Jx=var_Jx, var_Jy=var_Jy,            &
+                                 var_Jz=var_Jz, blocks_number=blocks_number, time=time, A=A, d=d,       &
                                  f=f, phase=phase, coil_flag=coil_flag, td=td, j_vec=j_vec, dx=dx, q=self%q)
    endif
    call self%compute_residuals(q=self%q, dq=self%dq)
    self%rk%q_rk(:,:,:,:,:,2) = self%rk%q_rk(:,:,:,:,:,1) + 2._R8P * self%time%dt * self%dq
    self%rk%q_rk(:,:,:,:,:,1) = self%q
    self%q = self%rk%q_rk(:,:,:,:,:,2)
-   if (self%numerics%constrained_transport_D) call self%impose_ct_correction(ivar=1_I4P)
-   if (self%numerics%constrained_transport_B) call self%impose_ct_correction(ivar=4_I4P)
+   if (self%numerics%constrained_transport_D .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=1_I4P)
+   if (self%numerics%constrained_transport_B .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=4_I4P)
    call self%compute_divergence(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
    call self%compute_divergence(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
    call self%compute_divergence(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
@@ -1016,7 +1047,7 @@ contains
    endsubroutine compute_dxyz_min
 
    subroutine compute_fluxes_convective_centered(dir,blocks_number,ni,nj,nk,ngc,nv_c,weno_s,weno_a,weno_p,weno_d,weno_c,weno_zeps,&
-                                                 evmax,erw,elw,q,fluxes)
+                                                 evmax,erw,elw,chi,q,fluxes)
    !< Compute convective fluxes along direction `dir`, centered scheme for space operator.
    integer(I4P), intent(in)    :: dir                                !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P), intent(in)    :: blocks_number                      !< Number of blocks.
@@ -1034,6 +1065,7 @@ contains
    real(R8P),    intent(in)    :: evmax                              !< Maximum waves speed estimation.
    real(R8P),    intent(in)    :: erw(1:,1:,1:)                      !< Right eigenvectors for WENO reconstruction.
    real(R8P),    intent(in)    :: elw(1:,1:,1:)                      !< Left  eigenvectors for WENO reconstruction.
+   real(R8P),    intent(in)    :: chi                                !< Speed parameter for divergence cleaning.
    real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Field variables.
    real(R8P),    intent(inout) :: fluxes(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes.
    integer(I4P)                :: si(3), si_i, si_j, si_k            !< Directional (1=x,2=y,3=z) increment.
@@ -1060,7 +1092,7 @@ contains
       call compute_fluxes_convective_ri_centered(dir=dir,b=b,i=i,j=j,k=k,ngc=ngc,nv_c=nv_c,                 &
                                                  weno_s=weno_s, weno_zeps=weno_zeps,                        &
                                                  weno_a=weno_a, weno_p=weno_p, weno_d=weno_d, weno_c=weno_c,&
-                                                 evmax=evmax,erw=erw,elw=elw,                               &
+                                                 evmax=evmax,erw=erw,elw=elw,chi=chi,                       &
                                                  si=si,sir=sir,q=q,fluxes=fluxes)
    enddo
    enddo
@@ -1069,7 +1101,7 @@ contains
    endsubroutine compute_fluxes_convective_centered
 
    subroutine compute_fluxes_convective_weno(dir,blocks_number,ni,nj,nk,ngc,nv_c,weno_s,weno_a,weno_p,weno_d,weno_c,weno_zeps,&
-                                             evmax,erw,elw,q,fluxes)
+                                             evmax,erw,elw,chi,q,fluxes)
    !< Compute convective fluxes along direction `dir`, WENO scheme for space operator.
    integer(I4P), intent(in)    :: dir                                !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P), intent(in)    :: blocks_number                      !< Number of blocks.
@@ -1087,6 +1119,7 @@ contains
    real(R8P),    intent(in)    :: evmax                              !< Maximum waves speed estimation.
    real(R8P),    intent(in)    :: erw(1:,1:,1:)                      !< Right eigenvectors for WENO reconstruction.
    real(R8P),    intent(in)    :: elw(1:,1:,1:)                      !< Left  eigenvectors for WENO reconstruction.
+   real(R8P),    intent(in)    :: chi                                !< Speed parameter for divergence cleaning.
    real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Field variables.
    real(R8P),    intent(inout) :: fluxes(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Fluxes.
    integer(I4P)                :: si(3), si_i, si_j, si_k            !< Directional (1=x,2=y,3=z) increment.
@@ -1113,7 +1146,7 @@ contains
       call compute_fluxes_convective_ri_weno(dir=dir,b=b,i=i,j=j,k=k,ngc=ngc,nv_c=nv_c,                 &
                                              weno_s=weno_s, weno_zeps=weno_zeps,                        &
                                              weno_a=weno_a, weno_p=weno_p, weno_d=weno_d, weno_c=weno_c,&
-                                             evmax=evmax,erw=erw,elw=elw,                               &
+                                             evmax=evmax,erw=erw,elw=elw,chi=chi,                       &
                                              si=si,sir=sir,q=q,fluxes=fluxes)
    enddo
    enddo
@@ -1123,7 +1156,7 @@ contains
 
    subroutine compute_fluxes_convective_ri_centered(dir,b,i,j,k,ngc,nv_c,                         &
                                                     weno_s,weno_zeps,weno_a,weno_p,weno_d,weno_c, &
-                                                    evmax,erw,elw,si,sir,q,fluxes)
+                                                    evmax,erw,elw,chi,si,sir,q,fluxes)
    !< Compute convective fluxes at right interface of b,i,j,k.
    integer(I4P), intent(in)    :: dir                                 !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P), intent(in)    :: b, i, j, k                          !< Counter.
@@ -1134,10 +1167,11 @@ contains
    real(R8P),    intent(in)    :: weno_a(1:,0:,1:)                    !< Optimal weights.
    real(R8P),    intent(in)    :: weno_p(1:,0:,0:,1:)                 !< Polinomials coefficients.
    real(R8P),    intent(in)    :: weno_d(0:,0:,0:,1:)                 !< Smoothness indicators coefficients.
-   real(R8P),    intent(in)    :: weno_c(1-weno_s:,1:)               !< Centered polinomials coefficients.
+   real(R8P),    intent(in)    :: weno_c(1-weno_s:,1:)                !< Centered polinomials coefficients.
    real(R8P),    intent(in)    :: evmax                               !< Maximum waves speed estimation.
    real(R8P),    intent(in)    :: erw(1:,1:,1:)                       !< Right eigenvectors for WENO reconstruction.
    real(R8P),    intent(in)    :: elw(1:,1:,1:)                       !< Left  eigenvectors for WENO reconstruction.
+   real(R8P),    intent(in)    :: chi                                 !< Speed parameter for divergence cleaning.
    integer(I4P), intent(in)    :: si(3)                               !< Stencil increment.
    real(R8P),    intent(in)    :: sir(3)                              !< Stencil increment, real cast.
    real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)       !< Fields variables.
@@ -1151,7 +1185,7 @@ contains
 
    call decompose_fluxes_convective_centered(dir=dir, si=si, sir=sir,                &
                                              b=b, i=i, j=j, k=k, ngc=ngc, nv_c=nv_c, &
-                                             weno_s=weno_s, evmax=evmax,             &
+                                             weno_s=weno_s, evmax=evmax, chi=chi,    &
                                              q=q, fmpc=fmpc(:,1-weno_s:weno_s,:))
    do v=1, nv_c
       do f=1, 2
@@ -1171,7 +1205,7 @@ contains
 
    subroutine compute_fluxes_convective_ri_weno(dir,b,i,j,k,ngc,nv_c,                         &
                                                 weno_s,weno_zeps,weno_a,weno_p,weno_d,weno_c, &
-                                                evmax,erw,elw,si,sir,q,fluxes)
+                                                evmax,erw,elw,chi,si,sir,q,fluxes)
    !< Compute convective fluxes at right interface of b,i,j,k.
    integer(I4P), intent(in)    :: dir                                 !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P), intent(in)    :: b, i, j, k                          !< Counter.
@@ -1182,10 +1216,11 @@ contains
    real(R8P),    intent(in)    :: weno_a(1:,0:,1:)                    !< Optimal weights.
    real(R8P),    intent(in)    :: weno_p(1:,0:,0:,1:)                 !< Polinomials coefficients.
    real(R8P),    intent(in)    :: weno_d(0:,0:,0:,1:)                 !< Smoothness indicators coefficients.
-   real(R8P),    intent(in)    :: weno_c(1-weno_s:,1:)               !< Centered polinomials coefficients.
+   real(R8P),    intent(in)    :: weno_c(1-weno_s:,1:)                !< Centered polinomials coefficients.
    real(R8P),    intent(in)    :: evmax                               !< Maximum waves speed estimation.
    real(R8P),    intent(in)    :: erw(1:,1:,1:)                       !< Right eigenvectors for WENO reconstruction.
    real(R8P),    intent(in)    :: elw(1:,1:,1:)                       !< Left  eigenvectors for WENO reconstruction.
+   real(R8P),    intent(in)    :: chi                                 !< Speed parameter for divergence cleaning.
    integer(I4P), intent(in)    :: si(3)                               !< Stencil increment.
    real(R8P),    intent(in)    :: sir(3)                              !< Stencil increment, real cast.
    real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)       !< Fields variables.
@@ -1196,7 +1231,7 @@ contains
 
    call decompose_fluxes_convective(dir=dir, si=si, sir=sir,                &
                                     b=b, i=i, j=j, k=k, ngc=ngc, nv_c=nv_c, &
-                                    weno_s=weno_s, evmax=evmax, elw=elw,    &
+                                    weno_s=weno_s, evmax=evmax, elw=elw, chi=chi,    &
                                     q=q, fmpc=fmpc(1:2,1-weno_s:-1+weno_s,1:NV_MAX))
    do v=1, nv_c
       call weno_reconstruct_upwind(S=weno_s, weno_a=weno_a, weno_p=weno_p, weno_d=weno_d,&
@@ -1211,7 +1246,8 @@ contains
    enddo
    endsubroutine compute_fluxes_convective_ri_weno
 
-   subroutine compute_fluxes_difference(blocks_number, ni, nj, nk, ngc, nv_c, dx, dy, dz, flx, fly, flz, q, dq)
+   subroutine compute_fluxes_difference(blocks_number, ni, nj, nk, ngc, nv_c, var_Jx, var_Jy, var_Jz, &
+                                       dx, dy, dz, flx, fly, flz, q, dq)
    !< Compute fluxes difference.
    integer(I4P), intent(in)    :: blocks_number                   !< Number of blocks.
    integer(I4P), intent(in)    :: ni                              !< Grid cells number in I direction.
@@ -1219,6 +1255,7 @@ contains
    integer(I4P), intent(in)    :: nk                              !< Grid cells number in K direction.
    integer(I4P), intent(in)    :: ngc                             !< Ghost cells number.
    integer(I4P), intent(in)    :: nv_c                            !< Number of conservative varibales in q.
+   integer(I4P), intent(in)    :: var_Jx, var_Jy, var_Jz          !< Current variable indices.
    real(R8P),    intent(in)    :: dx(1:), dy(1:), dz(1:)          !< Space steps.
    real(R8P),    intent(in)    :: flx(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< X direction fluxes.
    real(R8P),    intent(in)    :: fly(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Y direction fluxes.
@@ -1237,9 +1274,9 @@ contains
                          - (flz(v,i,j,k,b) - flz(v,i,j,k-1,b)) / dz(b)
       enddo
       ! J sources
-      dq(VAR_DX,i,j,k,b) = dq(VAR_DX,i,j,k,b) - q(VAR_JX,i,j,k,b)
-      dq(VAR_DY,i,j,k,b) = dq(VAR_DY,i,j,k,b) - q(VAR_JY,i,j,k,b)
-      dq(VAR_DZ,i,j,k,b) = dq(VAR_DZ,i,j,k,b) - q(VAR_JZ,i,j,k,b)
+      dq(VAR_DX,i,j,k,b) = dq(VAR_DX,i,j,k,b) - q(var_Jx,i,j,k,b)
+      dq(VAR_DY,i,j,k,b) = dq(VAR_DY,i,j,k,b) - q(var_Jy,i,j,k,b)
+      dq(VAR_DZ,i,j,k,b) = dq(VAR_DZ,i,j,k,b) - q(var_Jz,i,j,k,b)
       ! corrections
       ! if (d_divergence_cleaner .and. .not.b_divergence_cleaner .and. eta>0._R8P) then
       !    dq(10,i,j,k,b) = dq(10,i,j,k,b) - chi/eta*chi/eta*q(10,i,j,k,b)
@@ -1253,7 +1290,7 @@ contains
    enddo
    endsubroutine compute_fluxes_difference
 
-   subroutine decompose_fluxes_convective(dir,si,sir,b,i,j,k,ngc,nv_c,weno_s,evmax,elw,q,fmpc)
+   subroutine decompose_fluxes_convective(dir,si,sir,b,i,j,k,ngc,nv_c,weno_s,evmax,elw,q,chi,fmpc)
    !< Decompose convective fluxes.
    integer(I4P), intent(in)    :: dir                           !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P), intent(in)    :: si(3)                         !< Stencil increment.
@@ -1265,6 +1302,7 @@ contains
    real(R8P),    intent(in)    :: evmax                         !< Maximum eigenvalue.
    real(R8P),    intent(in)    :: elw(1:,1:,1:)                 !< Left eigenvectors for WENO reconstruction.
    real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(in)    :: chi                           !< Speed coefficient for D & B div-cleaning.
    real(R8P),    intent(inout) :: fmpc(1:,1-weno_s:,1:)         !< Fluxes -+ decomposition in characteristics space.
    real(R8P)                   :: fmp(2)                        !< Fluxes -+ decomposition in each cell stencils.
    real(R8P)                   :: gc, wc                        !< Increments for fluxes decomposition.
@@ -1273,7 +1311,7 @@ contains
 
    do s=1-weno_s, weno_s
       is = i + (s) * si(1) ; js = j + (s) * si(2) ; ks = k + (s) * si(3)
-      call compute_convective_fluxes_maxwell(sir=sir,q=q(:,is,js,ks,b),f=f)
+      call compute_fluxes_Maxwell(sir=sir,q=q(:,is,js,ks,b),f=f,chi=chi)
       do v=1, nv_c
          wc = 0._R8P
          gc = 0._R8P
@@ -1289,7 +1327,7 @@ contains
    enddo
    endsubroutine decompose_fluxes_convective
 
-   subroutine decompose_fluxes_convective_centered(dir,si,sir,b,i,j,k,ngc,nv_c,weno_s,evmax,q,fmpc)
+   subroutine decompose_fluxes_convective_centered(dir,si,sir,b,i,j,k,ngc,nv_c,weno_s,evmax,q,chi,fmpc)
    !< Decompose convective fluxes, centered stencil, no upwind shift.
    integer(I4P), intent(in)    :: dir                           !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P), intent(in)    :: si(3)                         !< Stencil increment.
@@ -1300,13 +1338,14 @@ contains
    integer(I4P), intent(in)    :: weno_s                        !< Weno stencils number/dimension.
    real(R8P),    intent(in)    :: evmax                         !< Maximum eigenvalue.
    real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Auxiliary variables.
+   real(R8P),    intent(in)    :: chi                           !< Speed coefficient for D & B div-cleaning.
    real(R8P),    intent(inout) :: fmpc(1:,1-weno_s:,1:)         !< Fluxes -+ decomposition in characteristics space.
    integer(I4P)                :: v, s, is, js, ks              !< Counter.
    real(R8P)                   :: f(NV_MAX)                     !< Conservative fluxes.
 
    do s=1-weno_s, weno_s
       is = i + (s) * si(1) ; js = j + (s) * si(2) ; ks = k + (s) * si(3)
-      call compute_convective_fluxes_maxwell(sir=sir,q=q(:,is,js,ks,b),f=f)
+      call compute_fluxes_Maxwell(sir=sir,q=q(:,is,js,ks,b),f=f,chi=chi)
       do v=1, nv_c
          fmpc(2,s,v) = 0.5_R8P * (f(v) + evmax * q(v,is,js,ks,b))
          fmpc(1,s,v) = f(v) - fmpc(2,s,v)
@@ -1314,13 +1353,15 @@ contains
    enddo
    endsubroutine decompose_fluxes_convective_centered
 
-   subroutine compute_coils_current(ni, nj, nk, ngc, blocks_number, time, A, d, f, phase, coil_flag, td, j_vec, dx, q)
+   subroutine compute_coils_current(ni, nj, nk, ngc, var_Jx, var_Jy, var_Jz, blocks_number, time, &
+                                     A, d, f, phase, coil_flag, td, j_vec, dx, q)
    !< Compute current coils sources.
    integer(I4P), intent(in)    :: blocks_number                      !< Number of blocks.
    integer(I4P), intent(in)    :: ni                                 !< Grid cells number in I direction.
    integer(I4P), intent(in)    :: nj                                 !< Grid cells number in J direction.
    integer(I4P), intent(in)    :: nk                                 !< Grid cells number in K direction.
    integer(I4P), intent(in)    :: ngc                                !< Ghost cells number.
+   integer(I4P), intent(in)    :: var_Jx, var_Jy, var_Jz             !< Current variable indices.
    real(R8P),    intent(in)    :: time                               !< Simulation time, to compute current value if AC.
    real(R8P),    intent(in)    :: A(0:)                              !< Current amplitude (A).
    real(R8P),    intent(in)    :: d(0:)                              !< Wire diameter.

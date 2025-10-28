@@ -113,7 +113,10 @@ contains
    associate(file_parameters=>self%io%file_parameters)
    call self%bc%initialize(file_parameters=file_parameters)
    call self%numerics%initialize(file_parameters=file_parameters)
-   call self%physics%initialize(file_parameters=file_parameters, reconstruction_vars=self%numerics%reconstruction_vars)
+   call self%physics%initialize(file_parameters=file_parameters, reconstruction_vars=self%numerics%reconstruction_vars, &
+                                 div_corr_var=self%numerics%div_corr_var,                                               &
+                                 constrained_transport_D=self%numerics%constrained_transport_D,                         &
+                                 constrained_transport_B=self%numerics%constrained_transport_B)
    call self%adam%grid%initialize(file_parameters=file_parameters,bc_type=self%bc%bc_type, verbose=.true.)
    call self%adam%compute_blocks_number(memory_avail=memory_avail, fields_number=80, nb=nb, nodes_number=nodes_number)
    call self%adam%initialize(file_parameters=file_parameters, &
@@ -135,26 +138,66 @@ contains
    call self%weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
    call self%flail%initialize(file_parameters=file_parameters)
    call self%allocate_common
-   call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field,                                             &
+
+   select case(self%numerics%div_corr_var)
+   case(DIV_CORR_VAR_POISS)
+      self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
+      call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field,                                       &
+                             q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivJ_d','DivG0_',           &
+                                                                      'DivG1_','DivG2_','DivG3_','DivG4_','DivG5_'], &
+                             q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3','f_Gauss'],      &
+                             !q4_R8P=self%dq,             q4_R8P_name=['res_Dx','res_Dy','res_Dz',                    &
+                             !                                         'res_Bx','res_By','res_Bz',                    &
+                             !                                         'res_Jx','res_Jy','res_Jz'],                   &
+                             s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag',                                    &
+                             s1_R8P=self%coil%phi(1,:,:,:,:),       s1_R8P_name='coil_phi')
+   case(DIV_CORR_VAR_HYPER)
+      if (self%numerics%constrained_transport_D .and. .not.self%numerics%constrained_transport_B) then
+         self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi']
+         call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field,                                       &
                                 q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivJ_d','DivG0_',           &
                                                                          'DivG1_','DivG2_','DivG3_','DivG4_','DivG5_'], &
                                 q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3','f_Gauss'],      &
                                 q4_R8P=self%dq,             q4_R8P_name=['res_Dx','res_Dy','res_Dz',                    &
-                                                                         'res_Bx','res_By','res_Bz',                    &
+                                                                         'res_Bx','res_By','res_Bz','res_ph',           &
                                                                          'res_Jx','res_Jy','res_Jz'],                   &
                                 s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag',                                    &
                                 s1_R8P=self%coil%phi(1,:,:,:,:),       s1_R8P_name='coil_phi')
-   self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
-   ! if     ((.not.self%physics%d_divergence_cleaner).and.(.not.self%physics%b_divergence_cleaner) .or. &
-   !          (self%physics%div_corr_var == DIV_CORR_VAR_POISS)) then
-   !    self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
-   ! elseif ((     self%physics%d_divergence_cleaner).and.(.not.self%physics%b_divergence_cleaner) &
-   !    .and. (self%physics%div_corr_var == DIV_CORR_VAR_HYPER)) then
-   !    self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi']
-   ! elseif ((     self%physics%d_divergence_cleaner).and.(     self%physics%b_divergence_cleaner) &
-   !    .and. (self%physics%div_corr_var == DIV_CORR_VAR_HYPER)) then
-   !    self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi', 'psi']
-   ! endif
+      elseif (.not.self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
+         self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'psi']
+         call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field,                                       &
+                                q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivJ_d','DivG0_',           &
+                                                                         'DivG1_','DivG2_','DivG3_','DivG4_','DivG5_'], &
+                                q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3','f_Gauss'],      &
+                                q4_R8P=self%dq,             q4_R8P_name=['res_Dx','res_Dy','res_Dz',                    &
+                                                                         'res_Bx','res_By','res_Bz','res_ps',           &
+                                                                         'res_Jx','res_Jy','res_Jz'],                   &
+                                s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag',                                    &
+                                s1_R8P=self%coil%phi(1,:,:,:,:),       s1_R8P_name='coil_phi')
+      elseif (self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
+         self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi', 'psi']
+               call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field,                                 &
+                                q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivJ_d','DivG0_',           &
+                                                                         'DivG1_','DivG2_','DivG3_','DivG4_','DivG5_'], &
+                                q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3','f_Gauss'],      &
+                                q4_R8P=self%dq,             q4_R8P_name=['res_Dx','res_Dy','res_Dz',                    &
+                                                                         'res_Bx','res_By','res_Bz','res_ph',           &
+                                                                         'res_ps','res_Jx','res_Jy','res_Jz'],          &
+                                s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag',                                    &
+                                s1_R8P=self%coil%phi(1,:,:,:,:),       s1_R8P_name='coil_phi')
+      endif
+   case default
+      self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
+      call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field,                                    &
+                          q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivJ_d','DivG0_',           &
+                                                                   'DivG1_','DivG2_','DivG3_','DivG4_','DivG5_'], &
+                          q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3','f_Gauss'],      &
+                          q4_R8P=self%dq,             q4_R8P_name=['res_Dx','res_Dy','res_Dz',                    &
+                                                                   'res_Bx','res_By','res_Bz',                    &
+                                                                   'res_Jx','res_Jy','res_Jz'],                   &
+                          s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag',                                    &
+                          s1_R8P=self%coil%phi(1,:,:,:,:),       s1_R8P_name='coil_phi')
+   endselect
    endassociate
    if (verbose_) call self%mpih%print_message('prism_common_object%initialize finish')
    contains

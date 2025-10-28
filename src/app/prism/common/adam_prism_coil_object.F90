@@ -1127,6 +1127,10 @@ contains
                               enddo
                            enddo
                         enddo
+                     else
+                        if (flag(i,j,k,b) == 0_I4P) then
+                           flag(i,j,k,b) = w
+                        endif
                      endif
 
                   endif
@@ -1223,6 +1227,10 @@ contains
                               enddo
                            enddo
                         enddo
+                     else
+                        if (flag(i,j,k,b) == 0_I4P) then
+                           flag(i,j,k,b) = w
+                        endif
                      endif
 
                   endif

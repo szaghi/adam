@@ -449,7 +449,6 @@ contains
                                              1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
                                              1,self%nb],[2,5]),                          &
                                 msg=self%mpih%myrankstr//'field_object%initialize(q) ', verbose=.true.)
-         q = 0._R8P
       endif
       call allocate_variable(var=self%q_work,                                         &
                              ulb=reshape([1,self%nv,                                  &

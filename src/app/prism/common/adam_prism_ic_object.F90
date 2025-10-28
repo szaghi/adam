@@ -140,22 +140,16 @@ contains
       enddo
    endif
    if (self%ic_type == IC_TYPE_PLANE_WAVE) then
-      print *, 'Plane wave'
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='kx', val=self%kx, error=error)
       if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(kx)')
-      print*, 'kx=', self%kx
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='ky', val=self%ky, error=error)
       if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(ky)')
-      print*, 'ky=', self%ky
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='kz', val=self%kz, error=error)
       if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(kz)')
-      print*, 'kz=', self%kz
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='lambda', val=self%lambda, error=error)
       if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(lambda)')
-      print*, 'lambda=', self%lambda
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='B0', val=self%B0, error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B0)')    
-      print*, 'B0=', self%B0      
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B0)')        
    endif 
    endsubroutine load_from_file
 
@@ -175,7 +169,7 @@ contains
                                                                         !< Vettori posizione centro celle del blocco b
       integer(I4P)                              :: b, i, j, k, ri, var  !< Counter.
    associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
-             nv=>physics%nv)
+             nv=>physics%nv, nv_c=>physics%nv_c, nv_cl=>physics%nv_cl)
    select case(self%ic_type)
    case(IC_TYPE_VACUUM) ! vacuum initial conditions
       do b=1, blocks_number
@@ -209,6 +203,9 @@ contains
                                  self%ky*2*PI/self%lambda*y_cell(j)+self%kz*2*PI/self%lambda*z_cell(k)) !By
                   q(6,i,j,k,b) = self%B0*self%kx*cos(self%kx*2*PI/self%lambda*x_cell(i)+ &
                                  self%ky*2*PI/self%lambda*y_cell(j)+self%kz*2*PI/self%lambda*z_cell(k)) !Bz
+                  do var= (nv_c-nv_cl+1), nv
+                     q(var,i,j,k,b) = 0.0_R8P
+                  enddo
                enddo
             enddo
          enddo
