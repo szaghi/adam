@@ -19,7 +19,8 @@ character(len=8), parameter :: INI_SECTION_NAME='numerics' !< INI file section n
 
 character(11), parameter, public :: NUM_SCHEME_TIME_RUNGE_KUTTA='RUNGE_KUTTA' !< Runge-Kutta numerical scheme for time operator.
 character(8),  parameter, public :: NUM_SCHEME_TIME_LEAPFROG='LEAPFROG'       !< Leapfrog numerical scheme for time operator.
-character(8),  parameter, public :: NUM_SCHEME_SPACE_CENTERED='CENTERED'      !< Centered numerical scheme for space operator.
+character(11), parameter, public :: NUM_SCHEME_SPACE_FD_CENTERED='FD_CENTERED'!< FD centered scheme for space operator.
+character(11), parameter, public :: NUM_SCHEME_SPACE_FV_CENTERED='FV_CENTERED'!< FV centered scheme for space operator.
 character(4),  parameter, public :: NUM_SCHEME_SPACE_WENO='WENO'              !< WENO numerical scheme for space operator.
 character(12), parameter, public :: RECONSTRUCTION_VARS_CONS='CONSERVATIVE'   !< High-order reconstruction on conservative vars.
 character(15), parameter, public :: RECONSTRUCTION_VARS_CHAR='CHARACTERISTICS'!< High-order reconstruction on characteristics vars.
@@ -31,6 +32,8 @@ type :: prism_numerics_object
    type(mpih_object)         :: mpih                            !< MPI handler.
    character(:), allocatable :: scheme_time                     !< Numerical scheme for time operator [runge_kutta, leapfrog,...].
    character(:), allocatable :: scheme_space                    !< Numerical scheme for space operator [weno, centered].
+   integer(I4P)              :: fdv_order=2_I4P                 !< Order of finite difference/volume schemes.
+   integer(I4P)              :: fdv_half_stencil=1_I4P          !< Half stencil length of finite difference/volume schemes.
    character(:), allocatable :: reconstruction_vars             !< Type of WENO reconstruction variables (cons., charct.,...).
    logical                   :: constrained_transport_D=.false. !< Enable Constrained Transport Correction on D.
    logical                   :: constrained_transport_B=.false. !< Enable Constrained Transport Correction on D.
@@ -52,15 +55,17 @@ contains
    character(len=:), allocatable            :: desc             !< Description.
    character(len=1), parameter              :: NL=new_line('a') !< New line character.
 
-   desc =       self%mpih%myrankstr//'numerics main data:'                                                                //NL
-   desc = desc//self%mpih%myrankstr//'  Numerical scheme for time operator:           '//self%scheme_time                 //NL
-   desc = desc//self%mpih%myrankstr//'  Numerical scheme for space operator:          '//self%scheme_space                //NL
-   desc = desc//self%mpih%myrankstr//'  Reconstruction variables:                     '//self%reconstruction_vars         //NL
-   desc = desc//self%mpih%myrankstr//'  Enable Constrained Transport Correction on D: '//str(self%constrained_transport_D)//NL
-   desc = desc//self%mpih%myrankstr//'  Enable Constrained Transport Correction on B: '//str(self%constrained_transport_B)//NL
-   desc = desc//self%mpih%myrankstr//'  Divergence correction:                        '//self%div_corr_var                   
-   ! desc = desc//self%mpih%myrankstr//'  D divergence correction:                      '//trim(str(self%d_divergence_cleaner))//NL
-   ! desc = desc//self%mpih%myrankstr//'  B divergence correction:                      '//trim(str(self%b_divergence_cleaner))//NL
+   desc =       self%mpih%myrankstr//'numerics main data:'                                                                    //NL
+   desc = desc//self%mpih%myrankstr//'  Numerical scheme for time operator:               '//self%scheme_time                 //NL
+   desc = desc//self%mpih%myrankstr//'  Numerical scheme for space operator:              '//self%scheme_space                //NL
+   desc = desc//self%mpih%myrankstr//'  Order of finite difference/volume schemes:        '//trim(str(self%fdv_order))        //NL
+   desc = desc//self%mpih%myrankstr//'  Half stencil of finite difference/volume schemes: '//trim(str(self%fdv_half_stencil)) //NL
+   desc = desc//self%mpih%myrankstr//'  Reconstruction variables:                         '//self%reconstruction_vars         //NL
+   desc = desc//self%mpih%myrankstr//'  Enable Constrained Transport Correction on D:     '//str(self%constrained_transport_D)//NL
+   desc = desc//self%mpih%myrankstr//'  Enable Constrained Transport Correction on B:     '//str(self%constrained_transport_B)//NL
+   desc = desc//self%mpih%myrankstr//'  Divergence correction:                            '//self%div_corr_var
+   ! desc = desc//self%mpih%myrankstr//'  D divergence correction:                     '//trim(str(self%d_divergence_cleaner))//NL
+   ! desc = desc//self%mpih%myrankstr//'  B divergence correction:                     '//trim(str(self%b_divergence_cleaner))//NL
    endfunction description
 
    subroutine initialize(self, file_parameters)
@@ -104,12 +109,18 @@ contains
    select case(trim(adjustl(buff)))
    case('WENO', 'weno', 'Weno')
       self%scheme_space = NUM_SCHEME_SPACE_WENO
-   case('CENTERED', 'centered', 'Centered')
-      self%scheme_space = NUM_SCHEME_SPACE_CENTERED
+   case('FD_CENTERED', 'fd_centered', 'FD_Centered')
+      self%scheme_space = NUM_SCHEME_SPACE_FD_CENTERED
+   case('FV_CENTERED', 'fv_centered', 'FV_Centered')
+      self%scheme_space = NUM_SCHEME_SPACE_FV_CENTERED
    case default
       call self%mpih%print_message(msg='warning: numerical scheme "'//trim(adjustl(buff))//'" unknown. Revert back to WENO scheme')
       self%scheme_space = NUM_SCHEME_SPACE_WENO
    endselect
+
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='fdv_order', val=self%fdv_order,error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(fdv_order)')
+   self%fdv_half_stencil = self%fdv_order / 2 ! valid only for centered schems
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='reconstruction_variables', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
