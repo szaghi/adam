@@ -146,44 +146,47 @@ contains
                              q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivJ_d','DivG0_',           &
                                                                       'DivG1_','DivG2_','DivG3_','DivG4_','DivG5_'], &
                              q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3','f_Gauss'],      &
-                             !q4_R8P=self%dq,             q4_R8P_name=['res_Dx','res_Dy','res_Dz',                    &
-                             !                                         'res_Bx','res_By','res_Bz',                    &
-                             !                                         'res_Jx','res_Jy','res_Jz'],                   &
+                             q4_R8P=self%dq,             q4_R8P_name=['res_Dx','res_Dy','res_Dz',                    &
+                                                                      'res_Bx','res_By','res_Bz',                    &
+                                                                      'res_Jx','res_Jy','res_Jz'],                   &
                              s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag',                                    &
                              s1_R8P=self%coil%phi(1,:,:,:,:),       s1_R8P_name='coil_phi')
    case(DIV_CORR_VAR_HYPER)
       if (self%numerics%constrained_transport_D .and. .not.self%numerics%constrained_transport_B) then
-         self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi']
-         call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field,                                       &
-                                q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivJ_d','DivG0_',           &
-                                                                         'DivG1_','DivG2_','DivG3_','DivG4_','DivG5_'], &
-                                q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3','f_Gauss'],      &
-                                q4_R8P=self%dq,             q4_R8P_name=['res_Dx','res_Dy','res_Dz',                    &
-                                                                         'res_Bx','res_By','res_Bz','res_ph',           &
-                                                                         'res_Jx','res_Jy','res_Jz'],                   &
-                                s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag',                                    &
+         self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','phi','Jx ','Jy ','Jz ']
+         call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field,                                      &
+                                q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivJ_d','DivG0_',          &
+                                                                         'DivG1_','DivG2_','DivG3_','DivG4_','DivG5_', &
+                                                                         'DivG6_'],                                    &
+                                q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3','f_Gauss'],     &
+                                q4_R8P=self%dq,             q4_R8P_name=['res_Dx','res_Dy','res_Dz',                   &
+                                                                         'res_Bx','res_By','res_Bz','res_ph',          &
+                                                                         'res_Jx','res_Jy','res_Jz'],                  &
+                                s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag',                                   &
                                 s1_R8P=self%coil%phi(1,:,:,:,:),       s1_R8P_name='coil_phi')
       elseif (.not.self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
-         self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'psi']
-         call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field,                                       &
-                                q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivJ_d','DivG0_',           &
-                                                                         'DivG1_','DivG2_','DivG3_','DivG4_','DivG5_'], &
-                                q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3','f_Gauss'],      &
-                                q4_R8P=self%dq,             q4_R8P_name=['res_Dx','res_Dy','res_Dz',                    &
-                                                                         'res_Bx','res_By','res_Bz','res_ps',           &
-                                                                         'res_Jx','res_Jy','res_Jz'],                   &
-                                s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag',                                    &
+         self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','psi','Jx ','Jy ','Jz ']
+         call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field,                                      &
+                                q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivJ_d','DivG0_',          &
+                                                                         'DivG1_','DivG2_','DivG3_','DivG4_','DivG5_', &
+                                                                         'DivG6_'],                                    &
+                                q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3','f_Gauss'],     &
+                                q4_R8P=self%dq,             q4_R8P_name=['res_Dx','res_Dy','res_Dz',                   &
+                                                                         'res_Bx','res_By','res_Bz','res_ps',          &
+                                                                         'res_Jx','res_Jy','res_Jz'],                  &
+                                s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag',                                   &
                                 s1_R8P=self%coil%phi(1,:,:,:,:),       s1_R8P_name='coil_phi')
       elseif (self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
-         self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi', 'psi']
-               call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field,                                 &
-                                q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivJ_d','DivG0_',           &
-                                                                         'DivG1_','DivG2_','DivG3_','DivG4_','DivG5_'], &
-                                q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3','f_Gauss'],      &
-                                q4_R8P=self%dq,             q4_R8P_name=['res_Dx','res_Dy','res_Dz',                    &
-                                                                         'res_Bx','res_By','res_Bz','res_ph',           &
-                                                                         'res_ps','res_Jx','res_Jy','res_Jz'],          &
-                                s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag',                                    &
+         self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','phi','psi','Jx ','Jy ','Jz ']
+               call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field,                                &
+                                q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivJ_d','DivG0_',          &
+                                                                         'DivG1_','DivG2_','DivG3_','DivG4_','DivG5_', &
+                                                                         'DivG6_','DivG7_'],                           &
+                                q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3','f_Gauss'],     &
+                                q4_R8P=self%dq,             q4_R8P_name=['res_Dx','res_Dy','res_Dz',                   &
+                                                                         'res_Bx','res_By','res_Bz','res_ph',          &
+                                                                         'res_ps','res_Jx','res_Jy','res_Jz'],         &
+                                s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag',                                   &
                                 s1_R8P=self%coil%phi(1,:,:,:,:),       s1_R8P_name='coil_phi')
       endif
    case default
