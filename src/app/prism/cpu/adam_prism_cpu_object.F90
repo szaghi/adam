@@ -966,6 +966,7 @@ contains
              weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, weno_c=>self%weno%c,                                   &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz, chi=>self%physics%chi,         &
              evmax=>self%physics%evmax, erw=>self%physics%erw, elw=>self%physics%elw)
+   
    if (blocks_number > 0) then
       call compute_fluxes_convective_weno(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,               &
                                      weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
@@ -1445,7 +1446,7 @@ contains
    real(R8P)                   :: gc, wc                        !< Increments for fluxes decomposition.
    integer(I4P)                :: v, vv, s, is, js, ks          !< Counter.
    real(R8P)                   :: f(NV_MAX)                     !< Conservative fluxes.
-
+   
    do s=1-weno_s, weno_s
       is = i + (s) * si(1) ; js = j + (s) * si(2) ; ks = k + (s) * si(3)
       call compute_fluxes_Maxwell(sir=sir,q=q(:,is,js,ks,b),f=f,chi=chi)

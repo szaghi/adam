@@ -66,6 +66,16 @@ type :: prism_physics_object
    real(R8P)                   :: evmax                  !< Maximum signal speed (eigenvalue).
    real(R8P), pointer          :: erw(:,:,:)=>null()     !< Right eigenvectors for high order reconstruction.
    real(R8P), pointer          :: elw(:,:,:)=>null()     !< Left  eigenvectors for high order reconstruction.
+   real(R8P)                   :: EV_D(7)                 !< Eigenvalues with D divergence cleaning.
+   real(R8P)                   :: EV_B(7)                 !< Eigenvalues with B divergence cleaning.
+   real(R8P)                   :: EV_D_B(8)               !< Eigenvalues with D and B divergence cleaning.
+   real(R8P)                   :: ER_D(7,7,3)             !< Right eigenvectors with D divergence cleaning.
+   real(R8P)                   :: ER_B(7,7,3)             !< Right eigenvectors with B divergence cleaning.
+   real(R8P)                   :: ER_D_B(8,8,3)           !< Right eigenvectors with D and B divergence cleaning.
+   real(R8P)                   :: EL_D(7,7,3)             !< Left eigenvectors with D divergence cleaning.
+   real(R8P)                   :: EL_B(7,7,3)             !< Left eigenvectors with B divergence cleaning.
+   real(R8P)                   :: EL_D_B(8,8,3)           !< Left eigenvectors with D and B divergence cleaning.
+
    contains
       ! public methods
       procedure, pass(self) :: description    !< Return pretty-printed object description.
@@ -91,7 +101,7 @@ contains
    subroutine initialize(self, file_parameters, reconstruction_vars, div_corr_var, &
                          constrained_transport_D, constrained_transport_B)
    !< Initialize the equation.
-   class(prism_physics_object), intent(inout)        :: self                    !< Physics.
+   class(prism_physics_object), target, intent(inout)        :: self                    !< Physics.
    type(file_ini),              intent(in)           :: file_parameters         !< Simulation parameters ini file handler.
    character(*),                intent(in), optional :: reconstruction_vars     !< Variables used for HO reconstruction.
    character(*),                intent(in), optional :: div_corr_var            !< Type of divergence correction variables (poisson, hyperbolic,...).
@@ -99,25 +109,16 @@ contains
    logical,                     intent(in), optional :: constrained_transport_B !< Enable Constrained Transport Correction
    character(:), allocatable                         :: reconstruction_vars_    !< Variables used for HO reconstruction, local var.
    character(:), allocatable                         :: div_corr_var_           !< Type of divergence correction variables, local var.
-   real(R8P),    target                              :: EV_D(7)                 !< Eigenvalues with D divergence cleaning.
-   real(R8P),    target                              :: EV_B(7)                 !< Eigenvalues with B divergence cleaning.
-   real(R8P),    target                              :: EV_D_B(8)               !< Eigenvalues with D and B divergence cleaning.
-   real(R8P),    target                              :: ER_D(7,7,3)             !< Right eigenvectors with D divergence cleaning.
-   real(R8P),    target                              :: ER_B(7,7,3)             !< Right eigenvectors with B divergence cleaning.
-   real(R8P),    target                              :: ER_D_B(8,8,3)           !< Right eigenvectors with D and B divergence cleaning.
-   real(R8P),    target                              :: EL_D(7,7,3)             !< Left eigenvectors with D divergence cleaning.
-   real(R8P),    target                              :: EL_B(7,7,3)             !< Left eigenvectors with B divergence cleaning.
-   real(R8P),    target                              :: EL_D_B(8,8,3)           !< Left eigenvectors with D and B divergence cleaning.
    real(R8P)                                         :: ch                      !< Propagation speed for divergence cleaning.
 
    call self%load_from_file(file_parameters=file_parameters, div_corr_var=div_corr_var)
    ch = self%evmax
 
-   EV_D =   [0._R8P,ch,-ch,C0,C0,-C0,-C0]
-   EV_B =   [0._R8P,ch,-ch,C0,C0,-C0,-C0]
-   EV_D_B = [ch,ch,-ch,-ch,C0,C0,-C0,-C0]
+   self%EV_D =   [0._R8P,ch,-ch,C0,C0,-C0,-C0]
+   self%EV_B =   [0._R8P,ch,-ch,C0,C0,-C0,-C0]
+   self%EV_D_B = [ch,ch,-ch,-ch,C0,C0,-C0,-C0]
    
-   ER_D   = reshape([0._R8P, 1._R8P/ch, -1._R8P/ch, 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , & !x
+   self%ER_D   = reshape([0._R8P, 1._R8P/ch, -1._R8P/ch, 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , & !x
                      0._R8P, 0._R8P   , 0._R8P    , 0._R8P         , sqrt(EPS0/MU0), 0._R8P        , -sqrt(EPS0/MU0), &
                      0._R8P, 0._R8P   , 0._R8P    , -sqrt(EPS0/MU0), 0._R8P        , sqrt(EPS0/MU0), 0._R8P         , &
                      1._R8P, 0._R8P   , 0._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
@@ -142,7 +143,7 @@ contains
                      0._R8P, 1._R8P   , 1._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         ] &
                      , [7,7,3])
 
-   ER_B   = reshape([1._R8P, 0._R8P   , 0._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , & !x
+   self%ER_B   = reshape([1._R8P, 0._R8P   , 0._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , & !x
                      0._R8P, 0._R8P   , 0._R8P    , 0._R8P         , sqrt(EPS0/MU0), 0._R8P        , -sqrt(EPS0/MU0), &
                      0._R8P, 0._R8P   , 0._R8P    , -sqrt(EPS0/MU0), 0._R8P        , sqrt(EPS0/MU0), 0._R8P         , &
                      0._R8P, 1._R8P/ch, -1._R8P/ch, 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
@@ -167,7 +168,7 @@ contains
                      0._R8P, 1._R8P   , 1._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         ] &
                      , [7,7,3])
 
-   ER_D_B = reshape([1._R8P/ch, 0._R8P,    -1._R8P/ch, 0._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , & !x
+   self%ER_D_B = reshape([1._R8P/ch, 0._R8P,    -1._R8P/ch, 0._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , & !x
                      0._R8P   , 0._R8P,    0._R8P    , 0._R8P    , 0._R8P         , sqrt(EPS0/MU0), 0._R8P        , -sqrt(EPS0/MU0), &
                      0._R8P   , 0._R8P,    0._R8P    , 0._R8P    , -sqrt(EPS0/MU0), 0._R8P        , sqrt(EPS0/MU0), 0._R8P         , &
                      0._R8P   , 1._R8P/ch, 0._R8P    , -1._R8P/ch, 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
@@ -196,7 +197,7 @@ contains
                      , [8,8,3]) ! < Right eigenvectors, D and B divergence cleaning.
 
 
-   EL_D   = reshape([0._R8P    , 0._R8P                , 0._R8P                , 1._R8P, 0._R8P       , 0._R8P       , 0._R8P       , & !x
+   self%EL_D   = reshape([0._R8P    , 0._R8P                , 0._R8P                , 1._R8P, 0._R8P       , 0._R8P       , 0._R8P       , & !x
                      ch/2._R8P , 0._R8P                , 0._R8P                , 0._R8P, 0._R8P       , 0._R8P       , 1._R8P/2._R8P, &
                      -ch/2._R8P, 0._R8P                , 0._R8P                , 0._R8P, 0._R8P       , 0._R8P       , 1._R8P/2._R8P, &
                      0._R8P    , 0._R8P                , -sqrt(MU0/EPS0)/2._R8P, 0._R8P, 1._R8P/2._R8P, 0._R8P       , 0._R8P       , &
@@ -221,32 +222,32 @@ contains
                      -sqrt(MU0/EPS0)/2._R8P, 0._R8P                , 0._R8P    , 0._R8P       , 1._R8P/2._R8P, 0._R8P, 0._R8P       ] &
                      , [7,7,3])
 
-   EL_B   = reshape([1._R8P, 0._R8P                , 0._R8P                , 0._R8P    , 0._R8P       , 0._R8P       , 0._R8P       , & !x
-                     0._R8P, 0._R8P                , 0._R8P                ,  ch/2._R8P, 0._R8P       , 0._R8P       , 1._R8P/2._R8P, &
+   self%EL_B   = reshape([1._R8P, 0._R8P                , 0._R8P                , 0._R8P    , 0._R8P       , 0._R8P       , 0._R8P       , & !x
+                     0._R8P, 0._R8P                , 0._R8P                , ch/2._R8P , 0._R8P       , 0._R8P       , 1._R8P/2._R8P, &
                      0._R8P, 0._R8P                , 0._R8P                , -ch/2._R8P, 0._R8P       , 0._R8P       , 1._R8P/2._R8P, &
                      0._R8P, 0._R8P                , -sqrt(MU0/EPS0)/2._R8P, 0._R8P    , 1._R8P/2._R8P, 0._R8P       , 0._R8P       , &
                      0._R8P, sqrt(MU0/EPS0)/2._R8P , 0._R8P                , 0._R8P    , 0._R8P       , 1._R8P/2._R8P, 0._R8P       , &
                      0._R8P, 0._R8P                , sqrt(MU0/EPS0)/2._R8P , 0._R8P    , 1._R8P/2._R8P, 0._R8P       , 0._R8P       , &
                      0._R8P, -sqrt(MU0/EPS0)/2._R8P, 0._R8P                , 0._R8P    , 0._R8P       , 1._R8P/2._R8P, 0._R8P       , &
 
-                     0._R8P                , 0._R8P    , 0._R8P                , 0._R8P       , 1._R8P, 0._R8P       , 0._R8P       , & !y
-                     0._R8P                ,  ch/2._R8P, 0._R8P                , 0._R8P       , 0._R8P, 0._R8P       , 1._R8P/2._R8P, &
-                     0._R8P                , -ch/2._R8P, 0._R8P                , 0._R8P       , 0._R8P, 0._R8P       , 1._R8P/2._R8P, &
-                     0._R8P                , 0._R8P    ,  sqrt(MU0/EPS0)/2._R8P, 1._R8P/2._R8P, 0._R8P, 0._R8P       , 0._R8P       , &
-                     -sqrt(MU0/EPS0)/2._R8P, 0._R8P    , 0._R8P                , 0._R8P       , 0._R8P, 1._R8P/2._R8P, 0._R8P       , &
-                     0._R8P                , 0._R8P    , -sqrt(MU0/EPS0)/2._R8P, 1._R8P/2._R8P, 0._R8P, 0._R8P       , 0._R8P       , &
-                     sqrt(MU0/EPS0)/2._R8P , 0._R8P    , 0._R8P                , 0._R8P       , 0._R8P, 1._R8P/2._R8P, 0._R8P       , &
+                     0._R8P                , 1._R8P, 0._R8P                , 0._R8P       , 0._R8P    , 0._R8P       , 0._R8P       , & !y
+                     0._R8P                , 0._R8P, 0._R8P                , 0._R8P       , ch/2._R8P , 0._R8P       , 1._R8P/2._R8P, &
+                     0._R8P                , 0._R8P, 0._R8P                , 0._R8P       , -ch/2._R8P, 0._R8P       , 1._R8P/2._R8P, &
+                     0._R8P                , 0._R8P, sqrt(MU0/EPS0)/2._R8P , 1._R8P/2._R8P, 0._R8P    , 0._R8P       , 0._R8P       , &
+                     -sqrt(MU0/EPS0)/2._R8P, 0._R8P, 0._R8P                , 0._R8P       , 0._R8P    , 1._R8P/2._R8P, 0._R8P       , &
+                     0._R8P                , 0._R8P, -sqrt(MU0/EPS0)/2._R8P, 1._R8P/2._R8P, 0._R8P    , 0._R8P       , 0._R8P       , &
+                     sqrt(MU0/EPS0)/2._R8P , 0._R8P, 0._R8P                , 0._R8P       , 0._R8P    , 1._R8P/2._R8P, 0._R8P       , &
 
-                     0._R8P                , 0._R8P                , 1._R8P    , 0._R8P       , 0._R8P       , 0._R8P, 0._R8P       , & !z
-                     0._R8P                , 0._R8P                ,  ch/2._R8P, 0._R8P       , 0._R8P       , 0._R8P, 1._R8P/2._R8P, &
-                     0._R8P                , 0._R8P                , -ch/2._R8P, 0._R8P       , 0._R8P       , 0._R8P, 1._R8P/2._R8P, &
-                     0._R8P                , -sqrt(MU0/EPS0)/2._R8P, 0._R8P    , 1._R8P/2._R8P, 0._R8P       , 0._R8P, 0._R8P       , &
-                     sqrt(MU0/EPS0)/2._R8P , 0._R8P                , 0._R8P    , 0._R8P       , 1._R8P/2._R8P, 0._R8P, 0._R8P       , &
-                     0._R8P                , sqrt(MU0/EPS0)/2._R8P , 0._R8P    , 1._R8P/2._R8P, 0._R8P       , 0._R8P, 0._R8P       , &
-                     -sqrt(MU0/EPS0)/2._R8P, 0._R8P                , 0._R8P    , 0._R8P       , 1._R8P/2._R8P, 0._R8P, 0._R8P       ] &
+                     0._R8P                , 0._R8P                , 1._R8P, 0._R8P       , 0._R8P       , 0._R8P    , 0._R8P       , & !z
+                     0._R8P                , 0._R8P                , 0._R8P, 0._R8P       , 0._R8P       , ch/2._R8P , 1._R8P/2._R8P, &
+                     0._R8P                , 0._R8P                , 0._R8P, 0._R8P       , 0._R8P       , -ch/2._R8P, 1._R8P/2._R8P, &
+                     0._R8P                , -sqrt(MU0/EPS0)/2._R8P, 0._R8P, 1._R8P/2._R8P, 0._R8P       , 0._R8P    , 0._R8P       , &
+                     sqrt(MU0/EPS0)/2._R8P , 0._R8P                , 0._R8P, 0._R8P       , 1._R8P/2._R8P, 0._R8P    , 0._R8P       , &
+                     0._R8P                , sqrt(MU0/EPS0)/2._R8P , 0._R8P, 1._R8P/2._R8P, 0._R8P       , 0._R8P    , 0._R8P       , &
+                     -sqrt(MU0/EPS0)/2._R8P, 0._R8P                , 0._R8P, 0._R8P       , 1._R8P/2._R8P, 0._R8P    , 0._R8P       ] &
                      , [7,7,3])
 
-   EL_D_B = reshape([ch/2._R8P , 0._R8P                , 0._R8P                , 0._R8P    , 0._R8P       , 0._R8P       , 1._R8P/2._R8P, 0._R8P       , & !x
+   self%EL_D_B = reshape([ch/2._R8P , 0._R8P                , 0._R8P                , 0._R8P    , 0._R8P       , 0._R8P       , 1._R8P/2._R8P, 0._R8P       , & !x
                      0._R8P    , 0._R8P                , 0._R8P                , ch/2._R8P , 0._R8P       , 0._R8P       , 0._R8P       , 1._R8P/2._R8P, &
                      -ch/2._R8P, 0._R8P                , 0._R8P                , 0._R8P    , 0._R8P       , 0._R8P       , 1._R8P/2._R8P, 0._R8P       , &
                      0._R8P    , 0._R8P                , 0._R8P                , -ch/2._R8P, 0._R8P       , 0._R8P       , 0._R8P       , 1._R8P/2._R8P, &
@@ -311,8 +312,8 @@ contains
                self%erw => IERL_D
                self%elw => IERL_D
             case(RECONSTRUCTION_VARS_CHAR)
-               self%erw => ER_D
-               self%elw => EL_D
+               self%erw => self%ER_D
+               self%elw => self%EL_D
             case default
                call self%mpih%print_message(msg='warning: HO reconstruction variable "'//reconstruction_vars_// &
                                             '" unknown. Revert back to conservative variables reconstruction')
@@ -329,8 +330,8 @@ contains
                self%erw => IERL_B
                self%elw => IERL_B
             case(RECONSTRUCTION_VARS_CHAR)
-               self%erw => ER_B
-               self%elw => EL_B
+               self%erw => self%ER_B
+               self%elw => self%EL_B
             case default
                call self%mpih%print_message(msg='warning: HO reconstruction variable "'//reconstruction_vars_// &
                                             '" unknown. Revert back to conservative variables reconstruction')
@@ -347,8 +348,8 @@ contains
                self%erw => IERL_D_B
                self%elw => IERL_D_B
             case(RECONSTRUCTION_VARS_CHAR)
-               self%erw => ER_D_B
-               self%elw => EL_D_B
+               self%erw => self%ER_D_B
+               self%elw => self%EL_D_B
             case default
                call self%mpih%print_message(msg='warning: HO reconstruction variable "'//reconstruction_vars_// &
                                             '" unknown. Revert back to conservative variables reconstruction')
@@ -378,6 +379,51 @@ contains
    endselect
    self%nv = self%nv_c + self%nv_s + self%nv_cl
    self%nv_c = self%nv_c + self%nv_cl
+
+   !print*, 'cazzo'
+   !print*, self%erw(1,:,1)
+   !print*, self%erw(2,:,1)
+   !print*, self%erw(3,:,1)
+   !print*, self%erw(4,:,1)
+   !print*, self%erw(5,:,1)
+   !print*, self%erw(6,:,1)
+   !print*, self%erw(7,:,1)
+   !print*, self%erw(1,:,2)
+   !print*, self%erw(2,:,2)
+   !print*, self%erw(3,:,2)
+   !print*, self%erw(4,:,2)
+   !print*, self%erw(5,:,2)
+   !print*, self%erw(6,:,2)
+   !print*, self%erw(7,:,2)
+   !print*, self%erw(1,:,3)
+   !print*, self%erw(2,:,3)
+   !print*, self%erw(3,:,3)
+   !print*, self%erw(4,:,3)
+   !print*, self%erw(5,:,3)
+   !print*, self%erw(6,:,3)
+   !print*, self%erw(7,:,3)
+!
+   !print*, self%elw(1,:,1)
+   !print*, self%elw(2,:,1)
+   !print*, self%elw(3,:,1)
+   !print*, self%elw(4,:,1)
+   !print*, self%elw(5,:,1)
+   !print*, self%elw(6,:,1)
+   !print*, self%elw(7,:,1)
+   !print*, self%elw(1,:,2)
+   !print*, self%elw(2,:,2)
+   !print*, self%elw(3,:,2)
+   !print*, self%elw(4,:,2)
+   !print*, self%elw(5,:,2)
+   !print*, self%elw(6,:,2)
+   !print*, self%elw(7,:,2)
+   !print*, self%elw(1,:,3)
+   !print*, self%elw(2,:,3)
+   !print*, self%elw(3,:,3)
+   !print*, self%elw(4,:,3)
+   !print*, self%elw(5,:,3)
+   !print*, self%elw(6,:,3)
+   !print*, self%elw(7,:,3)
 
    print '(A)', self%description()
    print '(A)', self%mpih%myrankstr//'prism_physics_object%initialize finish'
