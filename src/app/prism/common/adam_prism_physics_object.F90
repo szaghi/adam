@@ -102,14 +102,15 @@ contains
                          constrained_transport_D, constrained_transport_B)
    !< Initialize the equation.
    class(prism_physics_object), target, intent(inout)        :: self                    !< Physics.
-   type(file_ini),              intent(in)           :: file_parameters         !< Simulation parameters ini file handler.
-   character(*),                intent(in), optional :: reconstruction_vars     !< Variables used for HO reconstruction.
-   character(*),                intent(in), optional :: div_corr_var            !< Type of divergence correction variables (poisson, hyperbolic,...).
-   logical,                     intent(in), optional :: constrained_transport_D !< Enable Constrained Transport Correction on D.
-   logical,                     intent(in), optional :: constrained_transport_B !< Enable Constrained Transport Correction
-   character(:), allocatable                         :: reconstruction_vars_    !< Variables used for HO reconstruction, local var.
-   character(:), allocatable                         :: div_corr_var_           !< Type of divergence correction variables, local var.
-   real(R8P)                                         :: ch                      !< Propagation speed for divergence cleaning.
+   type(file_ini),                      intent(in)           :: file_parameters         !< Simulation parameters ini file handler.
+   character(*),                        intent(in), optional :: reconstruction_vars     !< Variables used for HO reconstruction.
+   character(*),                        intent(in), optional :: div_corr_var            !< Type of divergence correction variables
+                                                                                        !<  (poisson, hyperbolic,...).
+   logical,                             intent(in), optional :: constrained_transport_D !< Enable CT-Correction on D.
+   logical,                             intent(in), optional :: constrained_transport_B !< Enable CT-Correction on B.
+   character(:), allocatable                                 :: reconstruction_vars_    !< Variables used for HO reconstruction.
+   character(:), allocatable                                 :: div_corr_var_           !< Type of divergence correction variables.
+   real(R8P)                                                 :: ch                      !< Divergence cleaning propagation speed.
 
    call self%load_from_file(file_parameters=file_parameters, div_corr_var=div_corr_var)
    ch = self%evmax
@@ -117,163 +118,168 @@ contains
    self%EV_D =   [0._R8P,ch,-ch,C0,C0,-C0,-C0]
    self%EV_B =   [0._R8P,ch,-ch,C0,C0,-C0,-C0]
    self%EV_D_B = [ch,ch,-ch,-ch,C0,C0,-C0,-C0]
-   
-   self%ER_D   = reshape([0._R8P, 1._R8P/ch, -1._R8P/ch, 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , & !x
-                     0._R8P, 0._R8P   , 0._R8P    , 0._R8P         , sqrt(EPS0/MU0), 0._R8P        , -sqrt(EPS0/MU0), &
-                     0._R8P, 0._R8P   , 0._R8P    , -sqrt(EPS0/MU0), 0._R8P        , sqrt(EPS0/MU0), 0._R8P         , &
-                     1._R8P, 0._R8P   , 0._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
-                     0._R8P, 0._R8P   , 0._R8P    , 1._R8P         , 0._R8P        , 1._R8P        , 0._R8P         , &
-                     0._R8P, 0._R8P   , 0._R8P    , 0._R8P         , 1._R8P        , 0._R8P        , 1._R8P         , &
-                     0._R8P, 1._R8P   , 1._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
 
-                     0._R8P, 0._R8P   , 0._R8P    , 0._R8P        , -sqrt(EPS0/MU0), 0._R8P         , sqrt(EPS0/MU0), & !y
-                     0._R8P, 1._R8P/ch, -1._R8P/ch, 0._R8P        , 0._R8P         , 0._R8P         , 0._R8P        , &
-                     0._R8P, 0._R8P   , 0._R8P    , sqrt(EPS0/MU0), 0._R8P         , -sqrt(EPS0/MU0), 0._R8P        , &
-                     0._R8P, 0._R8P   , 0._R8P    , 1._R8P        , 0._R8P         , 1._R8P         , 0._R8P        , &
-                     1._R8P, 0._R8P   , 0._R8P    , 0._R8P        , 0._R8P         , 0._R8P         , 0._R8P        , &
-                     0._R8P, 0._R8P   , 0._R8P    , 0._R8P        , 1._R8P         , 0._R8P         , 1._R8P        , &
-                     0._R8P, 1._R8P   , 1._R8P    , 0._R8P        , 0._R8P         , 0._R8P         , 0._R8P        , &
+   self%ER_D   = reshape([                                                                                        &
+                 0._R8P, 1._R8P/ch, -1._R8P/ch, 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
+                 0._R8P, 0._R8P   , 0._R8P    , 0._R8P         , sqrt(EPS0/MU0), 0._R8P        , -sqrt(EPS0/MU0), &
+                 0._R8P, 0._R8P   , 0._R8P    , -sqrt(EPS0/MU0), 0._R8P        , sqrt(EPS0/MU0), 0._R8P         , &
+                 1._R8P, 0._R8P   , 0._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
+                 0._R8P, 0._R8P   , 0._R8P    , 1._R8P         , 0._R8P        , 1._R8P        , 0._R8P         , &
+                 0._R8P, 0._R8P   , 0._R8P    , 0._R8P         , 1._R8P        , 0._R8P        , 1._R8P         , &
+                 0._R8P, 1._R8P   , 1._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
 
-                     0._R8P, 0._R8P   , 0._R8P    , 0._R8P         , sqrt(EPS0/MU0), 0._R8P        , -sqrt(EPS0/MU0), & !z
-                     0._R8P, 0._R8P   , 0._R8P    , -sqrt(EPS0/MU0), 0._R8P        , sqrt(EPS0/MU0), 0._R8P         , &
-                     0._R8P, 1._R8P/ch, -1._R8P/ch, 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
-                     0._R8P, 0._R8P   , 0._R8P    , 1._R8P         , 0._R8P        , 1._R8P        , 0._R8P         , &
-                     0._R8P, 0._R8P   , 0._R8P    , 0._R8P         , 1._R8P        , 0._R8P        , 1._R8P         , &
-                     1._R8P, 0._R8P   , 0._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
-                     0._R8P, 1._R8P   , 1._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         ] &
-                     , [7,7,3])
+                 0._R8P, 0._R8P   , 0._R8P    , 0._R8P        , -sqrt(EPS0/MU0), 0._R8P         , sqrt(EPS0/MU0), &
+                 0._R8P, 1._R8P/ch, -1._R8P/ch, 0._R8P        , 0._R8P         , 0._R8P         , 0._R8P        , &
+                 0._R8P, 0._R8P   , 0._R8P    , sqrt(EPS0/MU0), 0._R8P         , -sqrt(EPS0/MU0), 0._R8P        , &
+                 0._R8P, 0._R8P   , 0._R8P    , 1._R8P        , 0._R8P         , 1._R8P         , 0._R8P        , &
+                 1._R8P, 0._R8P   , 0._R8P    , 0._R8P        , 0._R8P         , 0._R8P         , 0._R8P        , &
+                 0._R8P, 0._R8P   , 0._R8P    , 0._R8P        , 1._R8P         , 0._R8P         , 1._R8P        , &
+                 0._R8P, 1._R8P   , 1._R8P    , 0._R8P        , 0._R8P         , 0._R8P         , 0._R8P        , &
 
-   self%ER_B   = reshape([1._R8P, 0._R8P   , 0._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , & !x
-                     0._R8P, 0._R8P   , 0._R8P    , 0._R8P         , sqrt(EPS0/MU0), 0._R8P        , -sqrt(EPS0/MU0), &
-                     0._R8P, 0._R8P   , 0._R8P    , -sqrt(EPS0/MU0), 0._R8P        , sqrt(EPS0/MU0), 0._R8P         , &
-                     0._R8P, 1._R8P/ch, -1._R8P/ch, 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
-                     0._R8P, 0._R8P   , 0._R8P    , 1._R8P         , 0._R8P        , 1._R8P        , 0._R8P         , &
-                     0._R8P, 0._R8P   , 0._R8P    , 0._R8P         , 1._R8P        , 0._R8P        , 1._R8P         , &
-                     0._R8P, 1._R8P   , 1._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
+                 0._R8P, 0._R8P   , 0._R8P    , 0._R8P         , sqrt(EPS0/MU0), 0._R8P        , -sqrt(EPS0/MU0), &
+                 0._R8P, 0._R8P   , 0._R8P    , -sqrt(EPS0/MU0), 0._R8P        , sqrt(EPS0/MU0), 0._R8P         , &
+                 0._R8P, 1._R8P/ch, -1._R8P/ch, 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
+                 0._R8P, 0._R8P   , 0._R8P    , 1._R8P         , 0._R8P        , 1._R8P        , 0._R8P         , &
+                 0._R8P, 0._R8P   , 0._R8P    , 0._R8P         , 1._R8P        , 0._R8P        , 1._R8P         , &
+                 1._R8P, 0._R8P   , 0._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
+                 0._R8P, 1._R8P   , 1._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         ] &
+                 , [7,7,3])
 
-                     0._R8P, 0._R8P   , 0._R8P    , 0._R8P        , -sqrt(EPS0/MU0), 0._R8P         , sqrt(EPS0/MU0), & !y
-                     1._R8P, 0._R8P   , 0._R8P    , 0._R8P        , 0._R8P         , 0._R8P         , 0._R8P        , &
-                     0._R8P, 0._R8P   , 0._R8P    , sqrt(EPS0/MU0), 0._R8P         , -sqrt(EPS0/MU0), 0._R8P        , &
-                     0._R8P, 0._R8P   , 0._R8P    , 1._R8P        , 0._R8P         , 1._R8P         , 0._R8P        , &
-                     0._R8P, 1._R8P/ch, -1._R8P/ch, 0._R8P        , 0._R8P         , 0._R8P         , 0._R8P        , &
-                     0._R8P, 0._R8P   , 0._R8P    , 0._R8P        , 1._R8P         , 0._R8P         , 1._R8P        , &
-                     0._R8P, 1._R8P   , 1._R8P    , 0._R8P        , 0._R8P         , 0._R8P         , 0._R8P        , &
+   self%ER_B   = reshape([                                                                                        &
+                 1._R8P, 0._R8P   , 0._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
+                 0._R8P, 0._R8P   , 0._R8P    , 0._R8P         , sqrt(EPS0/MU0), 0._R8P        , -sqrt(EPS0/MU0), &
+                 0._R8P, 0._R8P   , 0._R8P    , -sqrt(EPS0/MU0), 0._R8P        , sqrt(EPS0/MU0), 0._R8P         , &
+                 0._R8P, 1._R8P/ch, -1._R8P/ch, 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
+                 0._R8P, 0._R8P   , 0._R8P    , 1._R8P         , 0._R8P        , 1._R8P        , 0._R8P         , &
+                 0._R8P, 0._R8P   , 0._R8P    , 0._R8P         , 1._R8P        , 0._R8P        , 1._R8P         , &
+                 0._R8P, 1._R8P   , 1._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
 
-                     0._R8P, 0._R8P   , 0._R8P    , 0._R8P         , sqrt(EPS0/MU0), 0._R8P        , -sqrt(EPS0/MU0), & !z
-                     0._R8P, 0._R8P   , 0._R8P    , -sqrt(EPS0/MU0), 0._R8P        , sqrt(EPS0/MU0), 0._R8P         , &
-                     1._R8P, 0._R8P   , 0._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
-                     0._R8P, 0._R8P   , 0._R8P    , 1._R8P         , 0._R8P        , 1._R8P        , 0._R8P         , &
-                     0._R8P, 0._R8P   , 0._R8P    , 0._R8P         , 1._R8P        , 0._R8P        , 1._R8P         , &
-                     0._R8P, 1._R8P/ch, -1._R8P/ch, 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
-                     0._R8P, 1._R8P   , 1._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         ] &
-                     , [7,7,3])
+                 0._R8P, 0._R8P   , 0._R8P    , 0._R8P        , -sqrt(EPS0/MU0), 0._R8P         , sqrt(EPS0/MU0), &
+                 1._R8P, 0._R8P   , 0._R8P    , 0._R8P        , 0._R8P         , 0._R8P         , 0._R8P        , &
+                 0._R8P, 0._R8P   , 0._R8P    , sqrt(EPS0/MU0), 0._R8P         , -sqrt(EPS0/MU0), 0._R8P        , &
+                 0._R8P, 0._R8P   , 0._R8P    , 1._R8P        , 0._R8P         , 1._R8P         , 0._R8P        , &
+                 0._R8P, 1._R8P/ch, -1._R8P/ch, 0._R8P        , 0._R8P         , 0._R8P         , 0._R8P        , &
+                 0._R8P, 0._R8P   , 0._R8P    , 0._R8P        , 1._R8P         , 0._R8P         , 1._R8P        , &
+                 0._R8P, 1._R8P   , 1._R8P    , 0._R8P        , 0._R8P         , 0._R8P         , 0._R8P        , &
 
-   self%ER_D_B = reshape([1._R8P/ch, 0._R8P,    -1._R8P/ch, 0._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , & !x
-                     0._R8P   , 0._R8P,    0._R8P    , 0._R8P    , 0._R8P         , sqrt(EPS0/MU0), 0._R8P        , -sqrt(EPS0/MU0), &
-                     0._R8P   , 0._R8P,    0._R8P    , 0._R8P    , -sqrt(EPS0/MU0), 0._R8P        , sqrt(EPS0/MU0), 0._R8P         , &
-                     0._R8P   , 1._R8P/ch, 0._R8P    , -1._R8P/ch, 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
-                     0._R8P   , 0._R8P,    0._R8P    , 0._R8P    , 1._R8P         , 0._R8P        , 1._R8P        , 0._R8P         , &
-                     0._R8P   , 0._R8P,    0._R8P    , 0._R8P    , 0._R8P         , 1._R8P        , 0._R8P        , 1._R8P         , &
-                     1._R8P   , 0._R8P,    1._R8P    , 0._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
-                     0._R8P   , 1._R8P,    0._R8P    , 1._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
-                     !
-                     0._R8P   , 0._R8P,    0._R8P    , 0._R8P    , 0._R8P        , -sqrt(EPS0/MU0), 0._R8P         , sqrt(EPS0/MU0), & !y
-                     1._R8P/ch, 0._R8P,    -1._R8P/ch, 0._R8P    , 0._R8P        , 0._R8P         , 0._R8P         , 0._R8P        , &
-                     0._R8P   , 0._R8P,    0._R8P    , 0._R8P    , sqrt(EPS0/MU0), 0._R8P         , -sqrt(EPS0/MU0), 0._R8P        , &
-                     0._R8P   , 0._R8P,    0._R8P    , 0._R8P    , 1._R8P        , 0._R8P         , 1._R8P         , 0._R8P        , &
-                     0._R8P   , 1._R8P/ch, 0._R8P    , -1._R8P/ch, 0._R8P        , 0._R8P         , 0._R8P         , 0._R8P        , &
-                     0._R8P   , 0._R8P,    0._R8P    , 0._R8P    , 0._R8P        , 1._R8P         , 0._R8P         , 1._R8P        , &
-                     1._R8P   , 0._R8P,    1._R8P    , 0._R8P    , 0._R8P        , 0._R8P         , 0._R8P         , 0._R8P        , &
-                     0._R8P   , 1._R8P,    0._R8P    , 1._R8P    , 0._R8P        , 0._R8P         , 0._R8P         , 0._R8P        , &
-                     !
-                     0._R8P   , 0._R8P   , 0._R8P    , 0._R8P    , 0._R8P         , sqrt(EPS0/MU0), 0._R8P        , -sqrt(EPS0/MU0), & !z
-                     0._R8P   , 0._R8P   , 0._R8P    , 0._R8P    , -sqrt(EPS0/MU0), 0._R8P        , sqrt(EPS0/MU0), 0._R8P         , &
-                     1._R8P/ch, 0._R8P   , -1._R8P/ch, 0._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
-                     0._R8P   , 0._R8P   , 0._R8P    , 0._R8P    , 1._R8P         , 0._R8P        , 1._R8P        , 0._R8P         , &
-                     0._R8P   , 0._R8P   , 0._R8P    , 0._R8P    , 0._R8P         , 1._R8P        , 0._R8P        , 1._R8P         , &
-                     0._R8P   , 1._R8P/ch, 0._R8P    , -1._R8P/ch, 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
-                     1._R8P   , 0._R8P   , 1._R8P    , 0._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
-                     0._R8P   , 1._R8P   , 0._R8P    , 1._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         ] &
-                     , [8,8,3]) ! < Right eigenvectors, D and B divergence cleaning.
+                 0._R8P, 0._R8P   , 0._R8P    , 0._R8P         , sqrt(EPS0/MU0), 0._R8P        , -sqrt(EPS0/MU0), &
+                 0._R8P, 0._R8P   , 0._R8P    , -sqrt(EPS0/MU0), 0._R8P        , sqrt(EPS0/MU0), 0._R8P         , &
+                 1._R8P, 0._R8P   , 0._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
+                 0._R8P, 0._R8P   , 0._R8P    , 1._R8P         , 0._R8P        , 1._R8P        , 0._R8P         , &
+                 0._R8P, 0._R8P   , 0._R8P    , 0._R8P         , 1._R8P        , 0._R8P        , 1._R8P         , &
+                 0._R8P, 1._R8P/ch, -1._R8P/ch, 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
+                 0._R8P, 1._R8P   , 1._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         ] &
+                 , [7,7,3])
 
+   self%ER_D_B = reshape([                                                                                                       &
+                 1._R8P/ch, 0._R8P,    -1._R8P/ch, 0._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
+                 0._R8P   , 0._R8P,    0._R8P    , 0._R8P    , 0._R8P         , sqrt(EPS0/MU0), 0._R8P        , -sqrt(EPS0/MU0), &
+                 0._R8P   , 0._R8P,    0._R8P    , 0._R8P    , -sqrt(EPS0/MU0), 0._R8P        , sqrt(EPS0/MU0), 0._R8P         , &
+                 0._R8P   , 1._R8P/ch, 0._R8P    , -1._R8P/ch, 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
+                 0._R8P   , 0._R8P,    0._R8P    , 0._R8P    , 1._R8P         , 0._R8P        , 1._R8P        , 0._R8P         , &
+                 0._R8P   , 0._R8P,    0._R8P    , 0._R8P    , 0._R8P         , 1._R8P        , 0._R8P        , 1._R8P         , &
+                 1._R8P   , 0._R8P,    1._R8P    , 0._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
+                 0._R8P   , 1._R8P,    0._R8P    , 1._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
+                 !
+                 0._R8P   , 0._R8P,    0._R8P    , 0._R8P    , 0._R8P        , -sqrt(EPS0/MU0), 0._R8P         , sqrt(EPS0/MU0), &
+                 1._R8P/ch, 0._R8P,    -1._R8P/ch, 0._R8P    , 0._R8P        , 0._R8P         , 0._R8P         , 0._R8P        , &
+                 0._R8P   , 0._R8P,    0._R8P    , 0._R8P    , sqrt(EPS0/MU0), 0._R8P         , -sqrt(EPS0/MU0), 0._R8P        , &
+                 0._R8P   , 0._R8P,    0._R8P    , 0._R8P    , 1._R8P        , 0._R8P         , 1._R8P         , 0._R8P        , &
+                 0._R8P   , 1._R8P/ch, 0._R8P    , -1._R8P/ch, 0._R8P        , 0._R8P         , 0._R8P         , 0._R8P        , &
+                 0._R8P   , 0._R8P,    0._R8P    , 0._R8P    , 0._R8P        , 1._R8P         , 0._R8P         , 1._R8P        , &
+                 1._R8P   , 0._R8P,    1._R8P    , 0._R8P    , 0._R8P        , 0._R8P         , 0._R8P         , 0._R8P        , &
+                 0._R8P   , 1._R8P,    0._R8P    , 1._R8P    , 0._R8P        , 0._R8P         , 0._R8P         , 0._R8P        , &
+                 !
+                 0._R8P   , 0._R8P   , 0._R8P    , 0._R8P    , 0._R8P         , sqrt(EPS0/MU0), 0._R8P        , -sqrt(EPS0/MU0), &
+                 0._R8P   , 0._R8P   , 0._R8P    , 0._R8P    , -sqrt(EPS0/MU0), 0._R8P        , sqrt(EPS0/MU0), 0._R8P         , &
+                 1._R8P/ch, 0._R8P   , -1._R8P/ch, 0._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
+                 0._R8P   , 0._R8P   , 0._R8P    , 0._R8P    , 1._R8P         , 0._R8P        , 1._R8P        , 0._R8P         , &
+                 0._R8P   , 0._R8P   , 0._R8P    , 0._R8P    , 0._R8P         , 1._R8P        , 0._R8P        , 1._R8P         , &
+                 0._R8P   , 1._R8P/ch, 0._R8P    , -1._R8P/ch, 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
+                 1._R8P   , 0._R8P   , 1._R8P    , 0._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         , &
+                 0._R8P   , 1._R8P   , 0._R8P    , 1._R8P    , 0._R8P         , 0._R8P        , 0._R8P        , 0._R8P         ] &
+                 , [8,8,3]) ! < Right eigenvectors, D and B divergence cleaning.
 
-   self%EL_D   = reshape([0._R8P    , 0._R8P                , 0._R8P                , 1._R8P, 0._R8P       , 0._R8P       , 0._R8P       , & !x
-                     ch/2._R8P , 0._R8P                , 0._R8P                , 0._R8P, 0._R8P       , 0._R8P       , 1._R8P/2._R8P, &
-                     -ch/2._R8P, 0._R8P                , 0._R8P                , 0._R8P, 0._R8P       , 0._R8P       , 1._R8P/2._R8P, &
-                     0._R8P    , 0._R8P                , -sqrt(MU0/EPS0)/2._R8P, 0._R8P, 1._R8P/2._R8P, 0._R8P       , 0._R8P       , &
-                     0._R8P    , sqrt(MU0/EPS0)/2._R8P , 0._R8P                , 0._R8P, 0._R8P       , 1._R8P/2._R8P, 0._R8P       , &
-                     0._R8P    , 0._R8P                , sqrt(MU0/EPS0)/2._R8P , 0._R8P, 1._R8P/2._R8P, 0._R8P       , 0._R8P       , &
-                     0._R8P    , -sqrt(MU0/EPS0)/2._R8P, 0._R8P                , 0._R8P, 0._R8P       , 1._R8P/2._R8P, 0._R8P       , &
+   self%EL_D   = reshape([                                                                                                        &
+                 0._R8P    , 0._R8P                , 0._R8P                , 1._R8P, 0._R8P       , 0._R8P       , 0._R8P       , &
+                 ch/2._R8P , 0._R8P                , 0._R8P                , 0._R8P, 0._R8P       , 0._R8P       , 1._R8P/2._R8P, &
+                 -ch/2._R8P, 0._R8P                , 0._R8P                , 0._R8P, 0._R8P       , 0._R8P       , 1._R8P/2._R8P, &
+                 0._R8P    , 0._R8P                , -sqrt(MU0/EPS0)/2._R8P, 0._R8P, 1._R8P/2._R8P, 0._R8P       , 0._R8P       , &
+                 0._R8P    , sqrt(MU0/EPS0)/2._R8P , 0._R8P                , 0._R8P, 0._R8P       , 1._R8P/2._R8P, 0._R8P       , &
+                 0._R8P    , 0._R8P                , sqrt(MU0/EPS0)/2._R8P , 0._R8P, 1._R8P/2._R8P, 0._R8P       , 0._R8P       , &
+                 0._R8P    , -sqrt(MU0/EPS0)/2._R8P, 0._R8P                , 0._R8P, 0._R8P       , 1._R8P/2._R8P, 0._R8P       , &
 
-                     0._R8P                , 0._R8P    , 0._R8P                , 0._R8P       , 1._R8P, 0._R8P       , 0._R8P       , & !y
-                     0._R8P                , ch/2._R8P , 0._R8P                , 0._R8P       , 0._R8P, 0._R8P       , 1._R8P/2._R8P, &
-                     0._R8P                , -ch/2._R8P, 0._R8P                , 0._R8P       , 0._R8P, 0._R8P       , 1._R8P/2._R8P, &
-                     0._R8P                , 0._R8P    , sqrt(MU0/EPS0)/2._R8P , 1._R8P/2._R8P, 0._R8P, 0._R8P       , 0._R8P       , &
-                     -sqrt(MU0/EPS0)/2._R8P, 0._R8P    , 0._R8P                , 0._R8P       , 0._R8P, 1._R8P/2._R8P, 0._R8P       , &
-                     0._R8P                , 0._R8P    , -sqrt(MU0/EPS0)/2._R8P, 1._R8P/2._R8P, 0._R8P, 0._R8P       , 0._R8P       , &
-                     sqrt(MU0/EPS0)/2._R8P , 0._R8P    , 0._R8P                , 0._R8P       , 0._R8P, 1._R8P/2._R8P, 0._R8P       , &
+                 0._R8P                , 0._R8P    , 0._R8P                , 0._R8P       , 1._R8P, 0._R8P       , 0._R8P       , &
+                 0._R8P                , ch/2._R8P , 0._R8P                , 0._R8P       , 0._R8P, 0._R8P       , 1._R8P/2._R8P, &
+                 0._R8P                , -ch/2._R8P, 0._R8P                , 0._R8P       , 0._R8P, 0._R8P       , 1._R8P/2._R8P, &
+                 0._R8P                , 0._R8P    , sqrt(MU0/EPS0)/2._R8P , 1._R8P/2._R8P, 0._R8P, 0._R8P       , 0._R8P       , &
+                 -sqrt(MU0/EPS0)/2._R8P, 0._R8P    , 0._R8P                , 0._R8P       , 0._R8P, 1._R8P/2._R8P, 0._R8P       , &
+                 0._R8P                , 0._R8P    , -sqrt(MU0/EPS0)/2._R8P, 1._R8P/2._R8P, 0._R8P, 0._R8P       , 0._R8P       , &
+                 sqrt(MU0/EPS0)/2._R8P , 0._R8P    , 0._R8P                , 0._R8P       , 0._R8P, 1._R8P/2._R8P, 0._R8P       , &
 
-                     0._R8P                , 0._R8P                , 0._R8P    , 0._R8P       , 0._R8P       , 1._R8P, 0._R8P       , & !z
-                     0._R8P                , 0._R8P                , ch/2._R8P , 0._R8P       , 0._R8P       , 0._R8P, 1._R8P/2._R8P, &
-                     0._R8P                , 0._R8P                , -ch/2._R8P, 0._R8P       , 0._R8P       , 0._R8P, 1._R8P/2._R8P, &
-                     0._R8P                , -sqrt(MU0/EPS0)/2._R8P, 0._R8P    , 1._R8P/2._R8P, 0._R8P       , 0._R8P, 0._R8P       , &
-                     sqrt(MU0/EPS0)/2._R8P , 0._R8P                , 0._R8P    , 0._R8P       , 1._R8P/2._R8P, 0._R8P, 0._R8P       , &
-                     0._R8P                , sqrt(MU0/EPS0)/2._R8P , 0._R8P    , 1._R8P/2._R8P, 0._R8P       , 0._R8P, 0._R8P       , &
-                     -sqrt(MU0/EPS0)/2._R8P, 0._R8P                , 0._R8P    , 0._R8P       , 1._R8P/2._R8P, 0._R8P, 0._R8P       ] &
-                     , [7,7,3])
+                 0._R8P                , 0._R8P                , 0._R8P    , 0._R8P       , 0._R8P       , 1._R8P, 0._R8P       , &
+                 0._R8P                , 0._R8P                , ch/2._R8P , 0._R8P       , 0._R8P       , 0._R8P, 1._R8P/2._R8P, &
+                 0._R8P                , 0._R8P                , -ch/2._R8P, 0._R8P       , 0._R8P       , 0._R8P, 1._R8P/2._R8P, &
+                 0._R8P                , -sqrt(MU0/EPS0)/2._R8P, 0._R8P    , 1._R8P/2._R8P, 0._R8P       , 0._R8P, 0._R8P       , &
+                 sqrt(MU0/EPS0)/2._R8P , 0._R8P                , 0._R8P    , 0._R8P       , 1._R8P/2._R8P, 0._R8P, 0._R8P       , &
+                 0._R8P                , sqrt(MU0/EPS0)/2._R8P , 0._R8P    , 1._R8P/2._R8P, 0._R8P       , 0._R8P, 0._R8P       , &
+                 -sqrt(MU0/EPS0)/2._R8P, 0._R8P                , 0._R8P    , 0._R8P       , 1._R8P/2._R8P, 0._R8P, 0._R8P       ] &
+                 , [7,7,3])
 
-   self%EL_B   = reshape([1._R8P, 0._R8P                , 0._R8P                , 0._R8P    , 0._R8P       , 0._R8P       , 0._R8P       , & !x
-                     0._R8P, 0._R8P                , 0._R8P                , ch/2._R8P , 0._R8P       , 0._R8P       , 1._R8P/2._R8P, &
-                     0._R8P, 0._R8P                , 0._R8P                , -ch/2._R8P, 0._R8P       , 0._R8P       , 1._R8P/2._R8P, &
-                     0._R8P, 0._R8P                , -sqrt(MU0/EPS0)/2._R8P, 0._R8P    , 1._R8P/2._R8P, 0._R8P       , 0._R8P       , &
-                     0._R8P, sqrt(MU0/EPS0)/2._R8P , 0._R8P                , 0._R8P    , 0._R8P       , 1._R8P/2._R8P, 0._R8P       , &
-                     0._R8P, 0._R8P                , sqrt(MU0/EPS0)/2._R8P , 0._R8P    , 1._R8P/2._R8P, 0._R8P       , 0._R8P       , &
-                     0._R8P, -sqrt(MU0/EPS0)/2._R8P, 0._R8P                , 0._R8P    , 0._R8P       , 1._R8P/2._R8P, 0._R8P       , &
+   self%EL_B   = reshape([                                                                                                        &
+                 1._R8P, 0._R8P                , 0._R8P                , 0._R8P    , 0._R8P       , 0._R8P       , 0._R8P       , &
+                 0._R8P, 0._R8P                , 0._R8P                , ch/2._R8P , 0._R8P       , 0._R8P       , 1._R8P/2._R8P, &
+                 0._R8P, 0._R8P                , 0._R8P                , -ch/2._R8P, 0._R8P       , 0._R8P       , 1._R8P/2._R8P, &
+                 0._R8P, 0._R8P                , -sqrt(MU0/EPS0)/2._R8P, 0._R8P    , 1._R8P/2._R8P, 0._R8P       , 0._R8P       , &
+                 0._R8P, sqrt(MU0/EPS0)/2._R8P , 0._R8P                , 0._R8P    , 0._R8P       , 1._R8P/2._R8P, 0._R8P       , &
+                 0._R8P, 0._R8P                , sqrt(MU0/EPS0)/2._R8P , 0._R8P    , 1._R8P/2._R8P, 0._R8P       , 0._R8P       , &
+                 0._R8P, -sqrt(MU0/EPS0)/2._R8P, 0._R8P                , 0._R8P    , 0._R8P       , 1._R8P/2._R8P, 0._R8P       , &
 
-                     0._R8P                , 1._R8P, 0._R8P                , 0._R8P       , 0._R8P    , 0._R8P       , 0._R8P       , & !y
-                     0._R8P                , 0._R8P, 0._R8P                , 0._R8P       , ch/2._R8P , 0._R8P       , 1._R8P/2._R8P, &
-                     0._R8P                , 0._R8P, 0._R8P                , 0._R8P       , -ch/2._R8P, 0._R8P       , 1._R8P/2._R8P, &
-                     0._R8P                , 0._R8P, sqrt(MU0/EPS0)/2._R8P , 1._R8P/2._R8P, 0._R8P    , 0._R8P       , 0._R8P       , &
-                     -sqrt(MU0/EPS0)/2._R8P, 0._R8P, 0._R8P                , 0._R8P       , 0._R8P    , 1._R8P/2._R8P, 0._R8P       , &
-                     0._R8P                , 0._R8P, -sqrt(MU0/EPS0)/2._R8P, 1._R8P/2._R8P, 0._R8P    , 0._R8P       , 0._R8P       , &
-                     sqrt(MU0/EPS0)/2._R8P , 0._R8P, 0._R8P                , 0._R8P       , 0._R8P    , 1._R8P/2._R8P, 0._R8P       , &
+                 0._R8P                , 1._R8P, 0._R8P                , 0._R8P       , 0._R8P    , 0._R8P       , 0._R8P       , &
+                 0._R8P                , 0._R8P, 0._R8P                , 0._R8P       , ch/2._R8P , 0._R8P       , 1._R8P/2._R8P, &
+                 0._R8P                , 0._R8P, 0._R8P                , 0._R8P       , -ch/2._R8P, 0._R8P       , 1._R8P/2._R8P, &
+                 0._R8P                , 0._R8P, sqrt(MU0/EPS0)/2._R8P , 1._R8P/2._R8P, 0._R8P    , 0._R8P       , 0._R8P       , &
+                 -sqrt(MU0/EPS0)/2._R8P, 0._R8P, 0._R8P                , 0._R8P       , 0._R8P    , 1._R8P/2._R8P, 0._R8P       , &
+                 0._R8P                , 0._R8P, -sqrt(MU0/EPS0)/2._R8P, 1._R8P/2._R8P, 0._R8P    , 0._R8P       , 0._R8P       , &
+                 sqrt(MU0/EPS0)/2._R8P , 0._R8P, 0._R8P                , 0._R8P       , 0._R8P    , 1._R8P/2._R8P, 0._R8P       , &
 
-                     0._R8P                , 0._R8P                , 1._R8P, 0._R8P       , 0._R8P       , 0._R8P    , 0._R8P       , & !z
-                     0._R8P                , 0._R8P                , 0._R8P, 0._R8P       , 0._R8P       , ch/2._R8P , 1._R8P/2._R8P, &
-                     0._R8P                , 0._R8P                , 0._R8P, 0._R8P       , 0._R8P       , -ch/2._R8P, 1._R8P/2._R8P, &
-                     0._R8P                , -sqrt(MU0/EPS0)/2._R8P, 0._R8P, 1._R8P/2._R8P, 0._R8P       , 0._R8P    , 0._R8P       , &
-                     sqrt(MU0/EPS0)/2._R8P , 0._R8P                , 0._R8P, 0._R8P       , 1._R8P/2._R8P, 0._R8P    , 0._R8P       , &
-                     0._R8P                , sqrt(MU0/EPS0)/2._R8P , 0._R8P, 1._R8P/2._R8P, 0._R8P       , 0._R8P    , 0._R8P       , &
-                     -sqrt(MU0/EPS0)/2._R8P, 0._R8P                , 0._R8P, 0._R8P       , 1._R8P/2._R8P, 0._R8P    , 0._R8P       ] &
-                     , [7,7,3])
+                 0._R8P                , 0._R8P                , 1._R8P, 0._R8P       , 0._R8P       , 0._R8P    , 0._R8P       , &
+                 0._R8P                , 0._R8P                , 0._R8P, 0._R8P       , 0._R8P       , ch/2._R8P , 1._R8P/2._R8P, &
+                 0._R8P                , 0._R8P                , 0._R8P, 0._R8P       , 0._R8P       , -ch/2._R8P, 1._R8P/2._R8P, &
+                 0._R8P                , -sqrt(MU0/EPS0)/2._R8P, 0._R8P, 1._R8P/2._R8P, 0._R8P       , 0._R8P    , 0._R8P       , &
+                 sqrt(MU0/EPS0)/2._R8P , 0._R8P                , 0._R8P, 0._R8P       , 1._R8P/2._R8P, 0._R8P    , 0._R8P       , &
+                 0._R8P                , sqrt(MU0/EPS0)/2._R8P , 0._R8P, 1._R8P/2._R8P, 0._R8P       , 0._R8P    , 0._R8P       , &
+                 -sqrt(MU0/EPS0)/2._R8P, 0._R8P                , 0._R8P, 0._R8P       , 1._R8P/2._R8P, 0._R8P    , 0._R8P       ] &
+                 , [7,7,3])
 
-   self%EL_D_B = reshape([ch/2._R8P , 0._R8P                , 0._R8P                , 0._R8P    , 0._R8P       , 0._R8P       , 1._R8P/2._R8P, 0._R8P       , & !x
-                     0._R8P    , 0._R8P                , 0._R8P                , ch/2._R8P , 0._R8P       , 0._R8P       , 0._R8P       , 1._R8P/2._R8P, &
-                     -ch/2._R8P, 0._R8P                , 0._R8P                , 0._R8P    , 0._R8P       , 0._R8P       , 1._R8P/2._R8P, 0._R8P       , &
-                     0._R8P    , 0._R8P                , 0._R8P                , -ch/2._R8P, 0._R8P       , 0._R8P       , 0._R8P       , 1._R8P/2._R8P, &
-                     0._R8P    , 0._R8P                , -sqrt(MU0/EPS0)/2._R8P, 0._R8P    , 1._R8P/2._R8P, 0._R8P       , 0._R8P       , 0._R8P       , &
-                     0._R8P    , sqrt(MU0/EPS0)/2._R8P , 0._R8P                , 0._R8P    , 0._R8P       , 1._R8P/2._R8P, 0._R8P       , 0._R8P       , &
-                     0._R8P    , 0._R8P                , sqrt(MU0/EPS0)/2._R8P , 0._R8P    , 1._R8P/2._R8P, 0._R8P       , 0._R8P       , 0._R8P       , &
-                     0._R8P    , -sqrt(MU0/EPS0)/2._R8P, 0._R8P                , 0._R8P    , 0._R8P       , 1._R8P/2._R8P, 0._R8P       , 0._R8P       , &
+   self%EL_D_B = reshape([                                                                                                        &
+      ch/2._R8P ,0._R8P                ,0._R8P                ,0._R8P    ,0._R8P       ,0._R8P       ,1._R8P/2._R8P,0._R8P       ,&
+      0._R8P    ,0._R8P                ,0._R8P                ,ch/2._R8P ,0._R8P       ,0._R8P       ,0._R8P       ,1._R8P/2._R8P,&
+      -ch/2._R8P,0._R8P                ,0._R8P                ,0._R8P    ,0._R8P       ,0._R8P       ,1._R8P/2._R8P,0._R8P       ,&
+      0._R8P    ,0._R8P                ,0._R8P                ,-ch/2._R8P,0._R8P       ,0._R8P       ,0._R8P       ,1._R8P/2._R8P,&
+      0._R8P    ,0._R8P                ,-sqrt(MU0/EPS0)/2._R8P,0._R8P    ,1._R8P/2._R8P,0._R8P       ,0._R8P       ,0._R8P       ,&
+      0._R8P    ,sqrt(MU0/EPS0)/2._R8P ,0._R8P                ,0._R8P    ,0._R8P       ,1._R8P/2._R8P,0._R8P       ,0._R8P       ,&
+      0._R8P    ,0._R8P                ,sqrt(MU0/EPS0)/2._R8P ,0._R8P    ,1._R8P/2._R8P,0._R8P       ,0._R8P       ,0._R8P       ,&
+      0._R8P    ,-sqrt(MU0/EPS0)/2._R8P,0._R8P                ,0._R8P    ,0._R8P       ,1._R8P/2._R8P,0._R8P       ,0._R8P       ,&
 
-                     0._R8P                , ch/2._R8P , 0._R8P                , 0._R8P       , 0._R8P    , 0._R8P       , 1._R8P/2._R8P, 0._R8P       , & !y
-                     0._R8P                , 0._R8P    , 0._R8P                , 0._R8P       , ch/2._R8P , 0._R8P       , 0._R8P       , 1._R8P/2._R8P, &
-                     0._R8P                , -ch/2._R8P, 0._R8P                , 0._R8P       , 0._R8P    , 0._R8P       , 1._R8P/2._R8P, 0._R8P       , &
-                     0._R8P                , 0._R8P    , 0._R8P                , 0._R8P       , -ch/2._R8P, 0._R8P       , 0._R8P       , 1._R8P/2._R8P, &
-                     0._R8P                , 0._R8P    , sqrt(MU0/EPS0)/2._R8P , 1._R8P/2._R8P, 0._R8P    , 0._R8P       , 0._R8P       , 0._R8P       , &
-                     -sqrt(MU0/EPS0)/2._R8P, 0._R8P    , 0._R8P                , 0._R8P       , 0._R8P    , 1._R8P/2._R8P, 0._R8P       , 0._R8P       , &
-                     0._R8P                , 0._R8P    , -sqrt(MU0/EPS0)/2._R8P, 1._R8P/2._R8P, 0._R8P    , 0._R8P       , 0._R8P       , 0._R8P       , &
-                     sqrt(MU0/EPS0)/2._R8P , 0._R8P    , 0._R8P                , 0._R8P       , 0._R8P    , 1._R8P/2._R8P, 0._R8P       , 0._R8P       , &
+      0._R8P                ,ch/2._R8P ,0._R8P                ,0._R8P       ,0._R8P    ,0._R8P       ,1._R8P/2._R8P,0._R8P       ,&
+      0._R8P                ,0._R8P    ,0._R8P                ,0._R8P       ,ch/2._R8P ,0._R8P       ,0._R8P       ,1._R8P/2._R8P,&
+      0._R8P                ,-ch/2._R8P,0._R8P                ,0._R8P       ,0._R8P    ,0._R8P       ,1._R8P/2._R8P,0._R8P       ,&
+      0._R8P                ,0._R8P    ,0._R8P                ,0._R8P       ,-ch/2._R8P,0._R8P       ,0._R8P       ,1._R8P/2._R8P,&
+      0._R8P                ,0._R8P    ,sqrt(MU0/EPS0)/2._R8P ,1._R8P/2._R8P,0._R8P    ,0._R8P       ,0._R8P       ,0._R8P       ,&
+      -sqrt(MU0/EPS0)/2._R8P,0._R8P    ,0._R8P                ,0._R8P       ,0._R8P    ,1._R8P/2._R8P,0._R8P       ,0._R8P       ,&
+      0._R8P                ,0._R8P    ,-sqrt(MU0/EPS0)/2._R8P,1._R8P/2._R8P,0._R8P    ,0._R8P       ,0._R8P       ,0._R8P       ,&
+      sqrt(MU0/EPS0)/2._R8P ,0._R8P    ,0._R8P                ,0._R8P       ,0._R8P    ,1._R8P/2._R8P,0._R8P       ,0._R8P       ,&
 
-                     0._R8P                , 0._R8P                , ch/2._R8P , 0._R8P       , 0._R8P       , 0._R8P    , 1._R8P/2._R8P, 0._R8P       , & !z
-                     0._R8P                , 0._R8P                , 0._R8P    , 0._R8P       , 0._R8P       , ch/2._R8P , 0._R8P       , 1._R8P/2._R8P, &
-                     0._R8P                , 0._R8P                , -ch/2._R8P, 0._R8P       , 0._R8P       , 0._R8P    , 1._R8P/2._R8P, 0._R8P       , &
-                     0._R8P                , 0._R8P                , 0._R8P    , 0._R8P       , 0._R8P       , -ch/2._R8P, 0._R8P       , 1._R8P/2._R8P, &
-                     0._R8P                , -sqrt(MU0/EPS0)/2._R8P, 0._R8P    , 1._R8P/2._R8P, 0._R8P       , 0._R8P    , 0._R8P       , 0._R8P       , &
-                     sqrt(MU0/EPS0)/2._R8P , 0._R8P                , 0._R8P    , 0._R8P       , 1._R8P/2._R8P, 0._R8P    , 0._R8P       , 0._R8P       , &
-                     0._R8P                ,  sqrt(MU0/EPS0)/2._R8P, 0._R8P    , 1._R8P/2._R8P, 0._R8P       , 0._R8P    , 0._R8P       , 0._R8P       , &
-                     -sqrt(MU0/EPS0)/2._R8P, 0._R8P                , 0._R8P    , 0._R8P       , 1._R8P/2._R8P, 0._R8P    , 0._R8P       , 0._R8P       ] &
-                     , [8,8,3])
+      0._R8P                ,0._R8P                ,ch/2._R8P ,0._R8P       ,0._R8P       ,0._R8P    ,1._R8P/2._R8P,0._R8P       ,&
+      0._R8P                ,0._R8P                ,0._R8P    ,0._R8P       ,0._R8P       ,ch/2._R8P ,0._R8P       ,1._R8P/2._R8P,&
+      0._R8P                ,0._R8P                ,-ch/2._R8P,0._R8P       ,0._R8P       ,0._R8P    ,1._R8P/2._R8P,0._R8P       ,&
+      0._R8P                ,0._R8P                ,0._R8P    ,0._R8P       ,0._R8P       ,-ch/2._R8P,0._R8P       ,1._R8P/2._R8P,&
+      0._R8P                ,-sqrt(MU0/EPS0)/2._R8P,0._R8P    ,1._R8P/2._R8P,0._R8P       ,0._R8P    ,0._R8P       ,0._R8P       ,&
+      sqrt(MU0/EPS0)/2._R8P ,0._R8P                ,0._R8P    ,0._R8P       ,1._R8P/2._R8P,0._R8P    ,0._R8P       ,0._R8P       ,&
+      0._R8P                , sqrt(MU0/EPS0)/2._R8P,0._R8P    ,1._R8P/2._R8P,0._R8P       ,0._R8P    ,0._R8P       ,0._R8P       ,&
+      -sqrt(MU0/EPS0)/2._R8P,0._R8P                ,0._R8P    ,0._R8P       ,1._R8P/2._R8P,0._R8P    ,0._R8P       ,0._R8P       ]&
+      , [8,8,3])
 
    reconstruction_vars_ = RECONSTRUCTION_VARS_CONS
    if (present(reconstruction_vars)) reconstruction_vars_ = trim(adjustl(reconstruction_vars))
@@ -442,13 +448,12 @@ contains
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
-   
    if (div_corr_var == DIV_CORR_VAR_HYPER) then
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='chi', val=self%chi, error=error)
       if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(chi)')
       !call file_parameters%get(section_name=INI_SECTION_NAME, option_name='eta', val=self%eta, error=error)
       !if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(eta)')
-      
+
       !In case of hyperbolic divergence cleaning, set evmax to physical max eigenvalue
       self%evmax = self%chi*C0
    else
@@ -457,5 +462,4 @@ contains
       self%evmax = C0
    end if
    endsubroutine load_from_file
-
 endmodule adam_prism_physics_object

@@ -13,16 +13,21 @@ use mpi
 implicit none
 private
 public :: prism_cpu_object
-procedure(compute_convective_fluxes_interface), pointer :: compute_fluxes_Maxwell =>null() !< Compute convective fluxes for Maxwell equations.
+! pointer (abstract) procedures
+procedure(compute_convective_fluxes_interface), pointer :: compute_fluxes_Maxwell =>null() !< Compute convective fluxes.
+procedure(compute_divergence_fdv_interface),    pointer :: compute_divergence_fdv =>null() !< Compute divergence.
+procedure(compute_gradient_fdv_interface),      pointer :: compute_gradient_fdv   =>null() !< Compute gradient.
 
 type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR e IB
    !< Maxwell equations system class definition, CPU backend.
-   real(R8P), allocatable :: flx(:,:,:,:,:) !< Fluxes along x.
-   real(R8P), allocatable :: fly(:,:,:,:,:) !< Fluxes along y.
-   real(R8P), allocatable :: flz(:,:,:,:,:) !< Fluxes along z.
+   real(R8P), allocatable ::     flx(:,:,:,:,:    ) !< Fluxes along x.
+   real(R8P), allocatable ::     fly(:,:,:,:,:    ) !< Fluxes along y.
+   real(R8P), allocatable ::     flz(:,:,:,:,:    ) !< Fluxes along z.
+   real(R8P), allocatable :: flxyz_c(:,:,:,:,:,:,:) !< Fluxes at cell center with positive/negative decomposition for all directions.
+   real(R8P), allocatable ::   flx_f(:,:,:,:,:    ) !< Fluxes along x at cell face.
+   real(R8P), allocatable ::   fly_f(:,:,:,:,:    ) !< Fluxes along y at cell face.
+   real(R8P), allocatable ::   flz_f(:,:,:,:,:    ) !< Fluxes along z at cell face.
    !< Pointer (abstract) TBP.
-   procedure(compute_divergence_interface), pass(self), pointer :: compute_divergence=>null() !< Compute divergence of vector field.
-   procedure(compute_gradient_interface),   pass(self), pointer :: compute_gradient  =>null() !< Compute gradient of scalar field.
    procedure(compute_residuals_interface),  pass(self), pointer :: compute_residuals =>null() !< Compute residuals, space operator.
    procedure(integrate_interface),          pass(self), pointer :: integrate         =>null() !< Integrate, time operator.
    contains
@@ -42,30 +47,14 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions (and coils) of equation.
       procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
       ! numerical methods
+      procedure, pass(self) :: compute_divergence   !< Compute divergence of vector field.
       procedure, pass(self) :: compute_dt           !< Compute time step.
+      procedure, pass(self) :: compute_gradient     !< Compute gradient of scalar field.
       procedure, pass(self) :: impose_ct_correction !< Impose Constrained Transport correction on q(ivar:ivar+2).
       procedure, pass(self) :: simulate             !< Perform the simulation.
 endtype prism_cpu_object
 
 interface
-   subroutine compute_divergence_interface(self, ivar, q, div)
-   !< Compute divergence of vector fields, div(q(ivar:ivar+2).
-   import :: prism_cpu_object, R8P, I4P
-   class(prism_cpu_object), intent(in)    :: self                                         !< The equation.
-   integer(I4P),            intent(in)    :: ivar                                         !< Start index of (vec.) variable of q.
-   real(R8P),               intent(in)    :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: div( 1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
-   endsubroutine compute_divergence_interface
-
-   subroutine compute_gradient_interface(self, ivar, q, grad)
-   !< Compute gradient of scalar variable q(ivar).
-   import :: prism_cpu_object, R8P, I4P
-   class(prism_cpu_object), intent(in)    :: self                                            !< The equation.
-   integer(I4P),            intent(in)    :: ivar                                            !< Index of scalar variable of q.
-   real(R8P),               intent(in)    :: q(   1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: grad(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Gradient.
-   endsubroutine compute_gradient_interface
-
    subroutine compute_residuals_interface(self, q, dq)
    !< Compute residuals of equation, space operator.
    import :: prism_cpu_object, R8P
@@ -111,6 +100,21 @@ contains
    msg = msg_//' flz '
    call allocate_variable(var=self%flz,ulb=reshape([1,nv,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,5]),msg=msg)
    self%flz = 0._R8P
+   msg = msg_//' flxyz_c '
+   call allocate_variable(var=self%flxyz_c,ulb=reshape([1,nv, &
+                                                        1,3,  & ! f at center, f positive at center, f negative at center
+                                                        1,3,  & ! direction x, y, z
+                                                        1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nb],[2,7]),msg=msg)
+   self%flxyz_c = 0._R8P
+   msg = msg_//' flx_f '
+   call allocate_variable(var=self%flx_f,ulb=reshape([1,nv,0,ni,1,nj,1,nk,1,nb],[2,5]),msg=msg)
+   self%flx_f = 0._R8P
+   msg = msg_//' fly_f '
+   call allocate_variable(var=self%fly_f,ulb=reshape([1,nv,1,ni,0,nj,1,nk,1,nb],[2,5]),msg=msg)
+   self%fly_f = 0._R8P
+   msg = msg_//' flz_f '
+   call allocate_variable(var=self%flz_f,ulb=reshape([1,nv,1,ni,1,nj,0,nk,1,nb],[2,5]),msg=msg)
+   self%flz_f = 0._R8P
    endassociate
    call self%mpih%print_message('prism_cpu_object%allocate_cpu finish')
    endsubroutine allocate_cpu
@@ -145,16 +149,16 @@ contains
    select case(self%numerics%scheme_space)
    case(NUM_SCHEME_SPACE_WENO)
       self%compute_residuals => compute_residuals_weno
-      self%compute_divergence => compute_divergence_fv
-      self%compute_gradient   => compute_gradient_fv
+      compute_divergence_fdv => compute_divergence_fv_centered
+      compute_gradient_fdv   => compute_gradient_fv_centered
    case(NUM_SCHEME_SPACE_FD_CENTERED)
-      self%compute_residuals  => compute_residuals_fd_centered
-      self%compute_divergence => compute_divergence_fd
-      self%compute_gradient   => compute_gradient_fd
+      ! self%compute_residuals  => compute_residuals_fd_centered
+      compute_divergence_fdv => compute_divergence_fd_centered
+      compute_gradient_fdv   => compute_gradient_fd_centered
    case(NUM_SCHEME_SPACE_FV_CENTERED)
-      self%compute_residuals  => compute_residuals_centered
-      self%compute_divergence => compute_divergence_fv
-      self%compute_gradient   => compute_gradient_fv
+      self%compute_residuals  => compute_residuals_fv_centered
+      compute_divergence_fdv => compute_divergence_fv_centered
+      compute_gradient_fdv   => compute_gradient_fv_centered
    endselect
 
    select case(self%numerics%div_corr_var)
@@ -559,30 +563,45 @@ contains
                         q(v,i,j,k,b) = 0._R8P
                      enddo
                elseif (bc_type == BC_PERIOD) then
-                  call self%field%grid%cell_xyz(coordinates = self%field%coordinates(:,b), &
-                     x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
-                  q(1,i,j,k,b) = self%ic%B0*C0*EPS0*self%ic%kz*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
-                                 self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
-                                 -C0*2*PI/self%ic%lambda*self%time%time) !Dx
-                  q(2,i,j,k,b) = self%ic%B0*C0*EPS0*self%ic%kx*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
-                                 self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
-                                 -C0*2*PI/self%ic%lambda*self%time%time) !Dy
-                  q(3,i,j,k,b) = self%ic%B0*C0*EPS0*self%ic%ky*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
-                                 self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
-                                 -C0*2*PI/self%ic%lambda*self%time%time) !Dz
+                  ! call self%field%grid%cell_xyz(coordinates = self%field%coordinates(:,b), &
+                  !    x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
+                  ! q(1,i,j,k,b) = self%ic%B0*C0*EPS0*self%ic%kz*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
+                  !                self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
+                  !                -C0*2*PI/self%ic%lambda*self%time%time) !Dx
+                  ! q(2,i,j,k,b) = self%ic%B0*C0*EPS0*self%ic%kx*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
+                  !                self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
+                  !                -C0*2*PI/self%ic%lambda*self%time%time) !Dy
+                  ! q(3,i,j,k,b) = self%ic%B0*C0*EPS0*self%ic%ky*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
+                  !                self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
+                  !                -C0*2*PI/self%ic%lambda*self%time%time) !Dz
 
-                  q(4,i,j,k,b) = self%ic%B0*self%ic%ky*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
-                                 self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
-                                 -C0*2*PI/self%ic%lambda*self%time%time) !Bx
-                  q(5,i,j,k,b) = self%ic%B0*self%ic%kz*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
-                                 self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
-                                 -C0*2*PI/self%ic%lambda*self%time%time) !By
-                  q(6,i,j,k,b) = self%ic%B0*self%ic%kx*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
-                                 self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
-                                 -C0*2*PI/self%ic%lambda*self%time%time) !Bz
-                  do v=(nv_c-nv_cl+1), nv
-                     q(v,i,j,k,b) = 0._R8P
-                  enddo
+                  ! q(4,i,j,k,b) = self%ic%B0*self%ic%ky*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
+                  !                self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
+                  !                -C0*2*PI/self%ic%lambda*self%time%time) !Bx
+                  ! q(5,i,j,k,b) = self%ic%B0*self%ic%kz*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
+                  !                self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
+                  !                -C0*2*PI/self%ic%lambda*self%time%time) !By
+                  ! q(6,i,j,k,b) = self%ic%B0*self%ic%kx*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
+                  !                self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
+                  !                -C0*2*PI/self%ic%lambda*self%time%time) !Bz
+                  ! do v=(nv_c-nv_cl+1), nv
+                  !    q(v,i,j,k,b) = 0._R8P
+                  ! enddo
+                  q(:,i,j,k,b) = 0._R8P
+                  select case(fec_1_6)
+                  case(1)
+                     q(1:nv_c,i,j,k,b) = q(1:nv_c,ni+i,j   ,k   ,b)
+                  case(2)
+                     q(1:nv_c,i,j,k,b) = q(1:nv_c,i-ni,j   ,k   ,b)
+                  case(3)
+                     q(1:nv_c,i,j,k,b) = q(1:nv_c,i   ,nj+j,k   ,b)
+                  case(4)
+                     q(1:nv_c,i,j,k,b) = q(1:nv_c,i   ,j-ni,k   ,b)
+                  case(5)
+                     q(1:nv_c,i,j,k,b) = q(1:nv_c,i   ,j   ,nk+k,b)
+                  case(6)
+                     q(1:nv_c,i,j,k,b) = q(1:nv_c,i   ,j   ,k-nk,b)
+                  endselect
                endif
             endif
          enddo
@@ -629,8 +648,8 @@ contains
    endsubroutine update_ghost
 
    ! numerical methods
-   subroutine compute_divergence_fd(self, ivar, q, div)
-   !< Compute divergence of vector fields, div(q(ivar:ivar+2), centered finite difference scheme.
+   subroutine compute_divergence(self, ivar, q, div)
+   !< Compute divergence of vector fields, div(q(ivar:ivar+2).
    class(prism_cpu_object), intent(in)    :: self                                         !< The equation.
    integer(I4P),            intent(in)    :: ivar                                         !< Start index of (vec.) variable of q.
    real(R8P),               intent(in)    :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
@@ -643,38 +662,13 @@ contains
    do k=1, nk
    do j=1, nj
    do i=1, ni
-      call compute_divergence_fd_centered(s=hs,dxyz=dxyz(:,b), &
-                                          q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),div=div(i,j,k,b))
-      ! to be completed
+      call compute_divergence_fdv(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),div=div(i,j,k,b))
    enddo
    enddo
    enddo
    enddo
    endassociate
-   endsubroutine compute_divergence_fd
-
-   subroutine compute_divergence_fv(self, ivar, q, div)
-   !< Compute divergence of vector fields, div(q(ivar:ivar+2), centered finite volume scheme.
-   class(prism_cpu_object), intent(in)    :: self                                         !< The equation.
-   integer(I4P),            intent(in)    :: ivar                                         !< Start index of (vec.) variable of q.
-   real(R8P),               intent(in)    :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: div( 1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
-   integer(I4P)                           :: i,j,k,b                                      !< Counter.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencil)
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      call compute_divergence_fv_centered(s=hs,dxyz=dxyz(:,b), &
-                                          q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),div=div(i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_divergence_fv
+   endsubroutine compute_divergence
 
    subroutine compute_dt(self)
    class(prism_cpu_object), intent(inout) :: self                            !< The equation.
@@ -692,8 +686,8 @@ contains
    call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih%error)
    endsubroutine compute_dt
 
-   subroutine compute_gradient_fd(self, ivar, q, grad)
-   !< Compute gradient of scalar variable q(ivar), centered finite difference scheme.
+   subroutine compute_gradient(self, ivar, q, grad)
+   !< Compute gradient of scalar variable q(ivar).
    class(prism_cpu_object), intent(in)    :: self                                            !< The equation.
    integer(I4P),            intent(in)    :: ivar                                            !< Index of scalar variable of q.
    real(R8P),               intent(in)    :: q(   1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
@@ -706,37 +700,13 @@ contains
    do k=1, nk
    do j=1, nj
    do i=1, ni
-      call compute_gradient_fd_centered(s=hs,dxyz=dxyz(:,b), &
-                                        q=q(ivar,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),grad=grad(1:3,i,j,k,b))
+      call compute_gradient_fdv(s=hs,dxyz=dxyz(:,b),q=q(ivar,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),grad=grad(1:3,i,j,k,b))
    enddo
    enddo
    enddo
    enddo
    endassociate
-   endsubroutine compute_gradient_fd
-
-   subroutine compute_gradient_fv(self, ivar, q, grad)
-   !< Compute gradient of scalar variable q(ivar), centered finite volume scheme.
-   class(prism_cpu_object), intent(in)    :: self                                            !< The equation.
-   integer(I4P),            intent(in)    :: ivar                                            !< Index of scalar variable of q.
-   real(R8P),               intent(in)    :: q(   1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: grad(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Gradient.
-   integer(I4P)                           :: i, j, k, b                                      !< Counter.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencil)
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      call compute_gradient_fv_centered(s=hs,dxyz=dxyz(:,b), &
-                                        q=q(ivar,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),grad=grad(1:3,i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_gradient_fv
+   endsubroutine compute_gradient
 
    subroutine impose_ct_correction(self, ivar)
    !< Impose Constrained Transport Correction on vectorial variable q(ivar:ivar+2).
@@ -862,43 +832,99 @@ contains
    endsubroutine simulate
 
    ! pointer TBP concrete implementations
-   subroutine compute_residuals_fd_centered(self, q, dq)
-   !< Compute residuals of equation, space operator, centered finite difference schemes.
-   class(prism_cpu_object), intent(inout) :: self   !< The equation.
+   subroutine compute_residuals_fv_centered(self, q, dq)
+   !< Compute residuals of equation, space operator, centered finite volume schemes.
+   class(prism_cpu_object), intent(inout) :: self                                             !< The equation.
    real(R8P),               intent(inout) :: q(1:,         &
                                                1-self%ngc:,&
                                                1-self%ngc:,&
                                                1-self%ngc:,&
-                                               1:)  !< Conservative variables.
+                                               1:)                                            !< Conservative variables.
    real(R8P),               intent(inout) :: dq(1:,         &
                                                 1-self%ngc:,&
                                                 1-self%ngc:,&
                                                 1-self%ngc:,&
-                                                1:) !< Residuals.
-   integer(I4P)                           :: i,j,k,b!< Counter
-
+                                                1:)                                           !< Residuals.
+   integer(I4P)                           :: i,j,k,b,d,v                                      !< Counter
+   real(R8P),    parameter                :: sir(3,3) = reshape([1._R8P,0._R8P,0._R8P,&
+                                                                 0._R8P,1._R8P,0._R8P,&
+                                                                 0._R8P,0._R8P,1._R8P],[3,3]) !< Direction versor, real.
    call self%update_ghost(q=q)
-   !call self%integrate_eikonal_coils(q=q)
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
-             dxyz=>self%field%dxyz,                                                                                                &
-             flx=>self%flx, fly=>self%fly, flz=>self%flz,                                                                          &
-             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz, chi=>self%physics%chi,         &
-             evmax=>self%physics%evmax)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
+             dxyz=>self%field%dxyz, flxyz_c=>self%flxyz_c, flx_f=>self%flx_f, fly_f=>self%fly_f, flz_f=>self%flz_f,   &
+             s=>self%numerics%fdv_half_stencil,                                                                       &
+             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz, chi=>self%physics%chi)
    if (blocks_number > 0) then
+      ! compute fluxes at cell centers
       do b=1, blocks_number
       do k=1-ngc, nk+ngc
       do j=1-ngc, nj+ngc
       do i=1-ngc, ni+ngc
-         call compute_fluxes_Maxwell(sir=[1._R8P,0._R8P,0._R8P],q=q(:,i,j,k,b),f=flx(:,i,j,k,b),chi=chi)
-         call compute_fluxes_Maxwell(sir=[0._R8P,1._R8P,0._R8P],q=q(:,i,j,k,b),f=fly(:,i,j,k,b),chi=chi)
-         call compute_fluxes_Maxwell(sir=[0._R8P,0._R8P,1._R8P],q=q(:,i,j,k,b),f=flz(:,i,j,k,b),chi=chi)
+         do d=1,3 ! x, y, z
+            call compute_fluxes_Maxwell(sir=sir(:,d),q=q(:,i,j,k,b),f=flxyz_c(:,1,d,i,j,k,b),chi=chi)
+         enddo
+      enddo
+      enddo
+      enddo
+      enddo
+      ! reconstruct fluxes at cell faces
+      d = 1
+      do b=1, blocks_number
+      do k=1, nk
+      do j=1, nj
+      do i=0, ni
+         do v=1, nv_c
+            call compute_reconstruction_r_fv_centered(s=s,q=flxyz_c(v,1,d,1+i-s:i+s,j,k,b),qr=flx_f(v,i,j,k,b))
+         enddo
+      enddo
+      enddo
+      enddo
+      enddo
+      d = 2
+      do b=1, blocks_number
+      do k=1, nk
+      do j=0, nj
+      do i=1, ni
+         do v=1, nv_c
+            call compute_reconstruction_r_fv_centered(s=s,q=flxyz_c(v,1,d,i,1+j-s:j+s,k,b),qr=fly_f(v,i,j,k,b))
+         enddo
+      enddo
+      enddo
+      enddo
+      enddo
+      d = 3
+      do b=1, blocks_number
+      do k=0, nk
+      do j=1, nj
+      do i=1, ni
+         do v=1, nv_c
+            call compute_reconstruction_r_fv_centered(s=s,q=flxyz_c(v,1,d,i,j,1+k-s:k+s,b),qr=flz_f(v,i,j,k,b))
+         enddo
+      enddo
+      enddo
+      enddo
+      enddo
+      ! compute fluxes difference for RHS, dF/ds = (F(i+1/2)-F(i-1/2))/Ds
+      do b=1,blocks_number
+      do k=1,nk
+      do j=1,nj
+      do i=1,ni
+         do v=1, nv_c
+            dq(v,i,j,k,b) = - (flx_f(v,i,j,k,b) - flx_f(v,i-1,j,k,b)) / dxyz(1,b) &
+                            - (fly_f(v,i,j,k,b) - fly_f(v,i,j-1,k,b)) / dxyz(2,b) &
+                            - (flz_f(v,i,j,k,b) - flz_f(v,i,j,k-1,b)) / dxyz(3,b)
+         enddo
+         ! J sources
+         dq(VAR_DX,i,j,k,b) = dq(VAR_DX,i,j,k,b) - q(var_Jx,i,j,k,b)
+         dq(VAR_DY,i,j,k,b) = dq(VAR_DY,i,j,k,b) - q(var_Jy,i,j,k,b)
+         dq(VAR_DZ,i,j,k,b) = dq(VAR_DZ,i,j,k,b) - q(var_Jz,i,j,k,b)
       enddo
       enddo
       enddo
       enddo
    endif
    endassociate
-   endsubroutine compute_residuals_fd_centered
+   endsubroutine compute_residuals_fv_centered
 
    subroutine compute_residuals_centered(self, q, dq)
    !< Compute residuals of equation, space operator, centered schemes.
@@ -966,7 +992,7 @@ contains
              weno_a=>self%weno%a, weno_p=>self%weno%p, weno_d=>self%weno%d, weno_c=>self%weno%c,                                   &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz, chi=>self%physics%chi,         &
              evmax=>self%physics%evmax, erw=>self%physics%erw, elw=>self%physics%elw)
-   
+
    if (blocks_number > 0) then
       call compute_fluxes_convective_weno(dir=1,blocks_number=blocks_number,ni=ni,nj=nj,nk=nk,ngc=ngc,nv_c=nv_c,               &
                                      weno_s=weno_S,weno_a=weno_a,weno_p=weno_p,weno_d=weno_d,weno_c=weno_c,weno_zeps=weno_zeps,&
@@ -1446,7 +1472,7 @@ contains
    real(R8P)                   :: gc, wc                        !< Increments for fluxes decomposition.
    integer(I4P)                :: v, vv, s, is, js, ks          !< Counter.
    real(R8P)                   :: f(NV_MAX)                     !< Conservative fluxes.
-   
+
    do s=1-weno_s, weno_s
       is = i + (s) * si(1) ; js = j + (s) * si(2) ; ks = k + (s) * si(3)
       call compute_fluxes_Maxwell(sir=sir,q=q(:,is,js,ks,b),f=f,chi=chi)

@@ -7,6 +7,9 @@ use penf
 implicit none
 save
 private
+! interfaces
+public :: compute_divergence_fdv_interface
+public :: compute_gradient_fdv_interface
 ! finite difference
 public :: compute_derivative1_fd_centered
 public :: compute_divergence_fd_centered
@@ -15,6 +18,7 @@ public :: compute_gradient_fd_centered
 public :: compute_derivative1_fv_centered
 public :: compute_divergence_fv_centered
 public :: compute_gradient_fv_centered
+public :: compute_reconstruction_r_fv_centered
 
 integer(I4P), parameter :: S_MAX=5_I4P !< Maximum stencil length.
 !< Finite Difference (pointwise values at cell centers)
@@ -63,10 +67,10 @@ real(R8P), parameter :: FD_CC(S_MAX,S_MAX)=reshape([FD_CC_S1, &
 !< where \(b_m^{(p)} = a_m^{(p)} - a_{m-1}^{(p)}\).
 !< | Order \(p\) | Stencil points \(m\)             | Coefficients \(a_m^{(p)}\) for \(q_{i+1/2}\) reconstruction |
 !< |-------------|----------------------------------|-------------------------------------------------------------|
-!< | 2nd  (S=1)  |                 0, 1             | 1/2   *(                   1,    1                      )   |
-!< | 4th  (S=2)  |             -1, 0, 1, 2          | 1/12  *(             -1,   7,    7,    -1               )   |
-!< | 6th  (S=3)  |         -2, -1, 0, 1, 2, 3       | 1/60  *(        1,   -8,   37,   37,   -8,   1          )   |
-!< | 8th  (S=4)  |     -3, -2, -1, 0, 1, 2, 3, 4    | 1/840 *(   -3,  29,  -139, 533,  533,  -139, 29,  -3    )   |
+!< | 2nd  (S=1)  |                 0, 1             | 1/2   *(                   1   , 1                      )   |
+!< | 4th  (S=2)  |             -1, 0, 1, 2          | 1/12  *(             -1  , 7   , 7   , -1               )   |
+!< | 6th  (S=3)  |         -2, -1, 0, 1, 2, 3       | 1/60  *(        1  , -8  , 37  , 37  , -8  , 1          )   |
+!< | 8th  (S=4)  |     -3, -2, -1, 0, 1, 2, 3, 4    | 1/840 *(   -3 , 29 , -139, 533 , 533 , -139, 29 , -3    )   |
 !< | 10th (S=5)  | -4, -3, -2, -1, 0, 1, 2, 3, 4, 5 | 1/2520*(3, -30, 180, -840, 2107, 2107, -840, 180, -30, 3)   |
 !< Coefficient are symmetric respect i+1/2, parametrize only half of the stencil coefficients.
                                            !1         2         3        4        5
@@ -81,6 +85,27 @@ real(R8P), parameter :: FV_CC(S_MAX,S_MAX)=reshape([FV_CC_S1, &
                                                     FV_CC_S4, &
                                                     FV_CC_S5],&
                                                     [S_MAX,S_MAX]) !< Finite volume centered coefficients.
+
+interface
+   subroutine compute_divergence_fdv_interface(s,dxyz,q,div)
+   !< Compute divergence of q vector field.
+   import :: R8P, I4P
+   integer(I4P), intent(in)  :: s                    !< Stencil len, half of accuracy order.
+   real(R8P),    intent(in)  :: dxyz(1:3)            !< Space steps.
+   real(R8P),    intent(in)  :: q(1:,1-s:,1-s:,1-s:) !< Vector field over the stencil [1-s:1+s].
+   real(R8P),    intent(out) :: div                  !< Divergence of q.
+   endsubroutine compute_divergence_fdv_interface
+
+   subroutine compute_gradient_fdv_interface(s,dxyz,q,grad)
+   !< Compute gradient of q scalar field with finite difference centered scheme.
+   import :: R8P, I4P
+   integer(I4P), intent(in)  :: s                 !< Stencil len, half of accuracy order.
+   real(R8P),    intent(in)  :: dxyz(1:3)         !< Space steps.
+   real(R8P),    intent(in)  :: q(1-s:,1-s:,1-s:) !< Scalar field over the stencil [1-s:1+s].
+   real(R8P),    intent(out) :: grad(1:3)         !< Gradient of q.
+   endsubroutine compute_gradient_fdv_interface
+endinterface
+
 contains
    ! public methods
    ! finite difference schemes
@@ -183,7 +208,6 @@ contains
    call compute_derivative1_fv_centered(s=s,ds=dxyz(3),q=q(1,1,1-s:1+s),dq_ds=grad(3))
    endsubroutine compute_gradient_fv_centered
 
-   ! private methods
    pure subroutine compute_reconstruction_r_fv_centered(s,q,qr)
    !< Compute reconstruction at right interface from cell center average values. Used for finite volume approach where
    !< first derivative at cell center can be written as fluxes difference at cell interfaces
@@ -202,7 +226,7 @@ contains
 
    qr = 0.0_R8P
    do m=1, s
-      qr = qr + FV_CC(s,m)*(q(1+m) + q(1-m))
+      qr = qr + FV_CC(s,m)*(q(m) + q(1-m))
    enddo
    endsubroutine compute_reconstruction_r_fv_centered
 endmodule adam_fdv_operators_library
