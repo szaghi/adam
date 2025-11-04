@@ -47,6 +47,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions (and coils) of equation.
       procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
       ! numerical methods
+      procedure, pass(self) :: compute_div_old      !< Compute divergence of vector field, old working version.
       procedure, pass(self) :: compute_divergence   !< Compute divergence of vector field.
       procedure, pass(self) :: compute_dt           !< Compute time step.
       procedure, pass(self) :: compute_gradient     !< Compute gradient of scalar field.
@@ -596,7 +597,7 @@ contains
                   case(3)
                      q(1:nv_c,i,j,k,b) = q(1:nv_c,i   ,nj+j,k   ,b)
                   case(4)
-                     q(1:nv_c,i,j,k,b) = q(1:nv_c,i   ,j-ni,k   ,b)
+                     q(1:nv_c,i,j,k,b) = q(1:nv_c,i   ,j-nj,k   ,b)
                   case(5)
                      q(1:nv_c,i,j,k,b) = q(1:nv_c,i   ,j   ,nk+k,b)
                   case(6)
@@ -648,6 +649,29 @@ contains
    endsubroutine update_ghost
 
    ! numerical methods
+   subroutine compute_div_old(self, ivar, q, div)
+   !< Compute div(q(ivar). Finite difference central scheme. Old version, working.
+   class(prism_cpu_object), intent(in)    :: self                                         !< The equation.
+   integer(I4P),            intent(in)    :: ivar                                         !< Variable (vectorial) of q.
+   real(R8P),               intent(in)    :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
+   real(R8P),               intent(inout) :: div( 1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
+   integer(I4P)                           :: i,j,k,b                                      !< Counter
+
+   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz)
+   do b=1, blocks_number
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+      div(i,j,k,b) = 0.5_R8P*((q(ivar  ,i+1,j,k,b) - q(ivar  ,i-1,j,k,b))/dxyz(1,b) + &
+                              (q(ivar+1,i,j+1,k,b) - q(ivar+1,i,j-1,k,b))/dxyz(2,b) + &
+                              (q(ivar+2,i,j,k+1,b) - q(ivar+2,i,j,k-1,b))/dxyz(3,b))
+   enddo
+   enddo
+   enddo
+   enddo
+   endassociate
+   endsubroutine compute_div_old
+
    subroutine compute_divergence(self, ivar, q, div)
    !< Compute divergence of vector fields, div(q(ivar:ivar+2).
    class(prism_cpu_object), intent(in)    :: self                                         !< The equation.
@@ -1044,37 +1068,16 @@ contains
    enddo
    if (self%numerics%constrained_transport_D .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=1_I4P)
    if (self%numerics%constrained_transport_B .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=4_I4P)
+   ! compute divergence for check
+   call self%update_ghost(q=self%q)
+   self%field_div = 0._R8P
    call self%compute_divergence(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
    call self%compute_divergence(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
    call self%compute_divergence(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
+   call self%compute_div_old(   ivar=1,q=self%q,div=self%field_div(8,:,:,:,:))
+   call self%compute_div_old(   ivar=4,q=self%q,div=self%field_div(9,:,:,:,:))
    endassociate
    endsubroutine integrate_rk_ls
-
-   subroutine compute_div(ni, nj, nk, ngc, blocks_number, dxyz, ivar, q, div)
-   !< Compute div(q(ivar). Finite difference central scheme.
-   integer(I4P), intent(in)    :: ni                              !< Grid cells number in I direction.
-   integer(I4P), intent(in)    :: nj                              !< Grid cells number in J direction.
-   integer(I4P), intent(in)    :: nk                              !< Grid cells number in K direction.
-   integer(I4P), intent(in)    :: ngc                             !< Ghost cells number.
-   integer(I4P), intent(in)    :: blocks_number                   !< Number of blocks.
-   real(R8P),    intent(in)    :: dxyz(1:,1:)                     !< Space steps.
-   integer(I4P), intent(in)    :: ivar                            !< Variable (vectorial) of q.
-   real(R8P),    intent(in)    :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)   !< Field variables.
-   real(R8P),    intent(inout) :: div(   1-ngc:,1-ngc:,1-ngc:,1:) !< Divergence of D, B.
-   integer(I4P)                :: i,j,k,b                         !< Counter
-
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      div(i,j,k,b) = 0.5_R8P*((q(ivar  ,i+1,j,k,b) - q(ivar  ,i-1,j,k,b))/dxyz(1,b) + &
-                              (q(ivar+1,i,j+1,k,b) - q(ivar+1,i,j-1,k,b))/dxyz(2,b) + &
-                              (q(ivar+2,i,j,k+1,b) - q(ivar+2,i,j,k-1,b))/dxyz(3,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endsubroutine compute_div
 
    subroutine integrate_rk_ssp(self, do_ghost_syncro)
    !< Integrate equation, time operator, SSP RK schemes.
