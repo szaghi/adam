@@ -133,8 +133,8 @@
       <div id="vars-0" class="collapse">
         <div class="list-group list-group-flush">
             <a class="list-group-item" href="../module/adam_nasto_bc_object.html#variable-ini_section_names">INI_SECTION_NAMES</a>
-            <a class="list-group-item" href="../module/adam_nasto_bc_object.html#variable-bc_extrapolation">BC_EXTRAPOLATION</a>
-            <a class="list-group-item" href="../module/adam_nasto_bc_object.html#variable-bc_inflow">BC_INFLOW</a>
+            <a class="list-group-item" href="../module/adam_nasto_bc_object.html#variable-bc_extrapolation~3">BC_EXTRAPOLATION</a>
+            <a class="list-group-item" href="../module/adam_nasto_bc_object.html#variable-bc_inflow~3">BC_INFLOW</a>
             <a class="list-group-item" href="../module/adam_nasto_bc_object.html#variable-bc_wall_inviscid">BC_WALL_INVISCID</a>
         </div>
       </div>
@@ -168,8 +168,8 @@
       </a>
       <div id="subs-0" class="collapse">
         <div class="list-group list-group-flush">
-            <a class="list-group-item" href="../module/adam_nasto_bc_object.html#proc-initialize~2">initialize</a>
-            <a class="list-group-item" href="../module/adam_nasto_bc_object.html#proc-load_from_file~2">load_from_file</a>
+            <a class="list-group-item" href="../module/adam_nasto_bc_object.html#proc-initialize~9">initialize</a>
+            <a class="list-group-item" href="../module/adam_nasto_bc_object.html#proc-load_from_file~5">load_from_file</a>
         </div>
       </div>
     </div>
@@ -639,7 +639,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-bc_extrapolation"></span>
+              <span class="anchor" id="variable-bc_extrapolation~3"></span>
               integer(kind=I4P),
             </td>
               <td>public,</td>
@@ -656,7 +656,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-bc_inflow"></span>
+              <span class="anchor" id="variable-bc_inflow~3"></span>
               integer(kind=I4P),
             </td>
               <td>public,</td>
@@ -724,7 +724,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-mpih~2"></span>
+              <span class="anchor" id="variable-mpih~6"></span>
               type(mpih_object),
             </td>
               <td>public</td>
@@ -741,7 +741,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-bc_type"></span>
+              <span class="anchor" id="variable-bc_type~4"></span>
               integer(kind=I4P),
             </td>
               <td>public</td>
@@ -758,7 +758,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q~2"></span>
+              <span class="anchor" id="variable-q~20"></span>
               real(kind=R8P),
             </td>
               <td>public,</td>
@@ -784,12 +784,12 @@ parameter
           <tbody>
               <tr>
                 <td>  procedure, public, pass(self) ::
-  <strong><a href='../type/nasto_bc_object.html#boundprocedure-initialize~2'>initialize</a></strong></td>
+  <strong><a href='../type/nasto_bc_object.html#boundprocedure-initialize~9'>initialize</a></strong></td>
                   <td><p>Initialize BC.</p></td>
               </tr>
               <tr>
                 <td>  procedure, public, pass(self) ::
-  <strong><a href='../type/nasto_bc_object.html#boundprocedure-load_from_file~2'>load_from_file</a></strong></td>
+  <strong><a href='../type/nasto_bc_object.html#boundprocedure-load_from_file~5'>load_from_file</a></strong></td>
                   <td><p>Load config from file.</p></td>
               </tr>
           </tbody>
@@ -804,7 +804,7 @@ parameter
         <section>
           <h2>Subroutines</h2>
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-initialize~2"></span> <h3>private  subroutine <a href='../proc/initialize~2.html'>initialize</a>(self, file_parameters)  
+    <div class="card-header codesum"><span class="anchor" id="proc-initialize~9"></span> <h3>private  subroutine <a href='../proc/initialize~9.html'>initialize</a>(self, file_parameters)  
 </h3></div>
     <div class="card-body">
           
@@ -823,7 +823,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~7"></span>
+              <span class="anchor" id="variable-self~127"></span>
               class(<a href='../type/nasto_bc_object.html'>nasto_bc_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -838,7 +838,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-file_parameters~3"></span>
+              <span class="anchor" id="variable-file_parameters~9"></span>
               type(file_ini),
             </td>
 <td>intent(in)</td>
@@ -859,7 +859,7 @@ parameter
   </div>
 
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-load_from_file~2"></span> <h3>private  subroutine <a href='../proc/load_from_file~2.html'>load_from_file</a>(self, file_parameters, go_on_fail)  
+    <div class="card-header codesum"><span class="anchor" id="proc-load_from_file~5"></span> <h3>private  subroutine <a href='../proc/load_from_file~5.html'>load_from_file</a>(self, file_parameters, go_on_fail)  
 </h3></div>
     <div class="card-body">
           
@@ -878,7 +878,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~8"></span>
+              <span class="anchor" id="variable-self~128"></span>
               class(<a href='../type/nasto_bc_object.html'>nasto_bc_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -893,7 +893,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-file_parameters~4"></span>
+              <span class="anchor" id="variable-file_parameters~10"></span>
               type(file_ini),
             </td>
 <td>intent(in)</td>
@@ -908,7 +908,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-go_on_fail~2"></span>
+              <span class="anchor" id="variable-go_on_fail~5"></span>
               logical,
             </td>
 <td>intent(in),</td>
