@@ -226,7 +226,7 @@ contains
 
    qr = 0.0_R8P
    do m=1, s
-      qr = qr + FV_CC(s,m)*(q(m) + q(1-m))
+      qr = qr + FV_CC(m,s)*(q(m) + q(1-m))
    enddo
    endsubroutine compute_reconstruction_r_fv_centered
 endmodule adam_fdv_operators_library

@@ -19,16 +19,14 @@ public :: RK_SSP_22
 public :: RK_SSP_33
 public :: RK_SSP_54
 public :: RK_YOSHIDA
-public :: RK_LEAPFROG
 
-character(len=13), parameter :: RK_1       ="runge-kutta-1"        !< Parameter of time scheme, Runge-Kutta 1.
-character(len=13), parameter :: RK_2       ="runge-kutta-2"        !< Parameter of time scheme, Runge-Kutta 2.
-character(len=13), parameter :: RK_3       ="runge-kutta-3"        !< Parameter of time scheme, Runge-Kutta 3.
-character(len=18), parameter :: RK_SSP_22  ="runge-kutta-ssp-22"   !< Parameter of time scheme, Runge-Kutta SSP 22.
-character(len=18), parameter :: RK_SSP_33  ="runge-kutta-ssp-33"   !< Parameter of time scheme, Runge-Kutta SSP 33.
-character(len=18), parameter :: RK_SSP_54  ="runge-kutta-ssp-54"   !< Parameter of time scheme, Runge-Kutta SSP 54.
-character(len=19), parameter :: RK_YOSHIDA ="runge-kutta-yoshida"  !< Parameter of time scheme, Runge-Kutta Yoshida, symplectic 4.
-character(len=20), parameter :: RK_LEAPFROG="runge-kutta-leapfrog" !< Parameter of time scheme, leapfrog.
+character(len=13), parameter :: RK_1       ="runge-kutta-1"       !< Parameter of time scheme, Runge-Kutta 1.
+character(len=13), parameter :: RK_2       ="runge-kutta-2"       !< Parameter of time scheme, Runge-Kutta 2.
+character(len=13), parameter :: RK_3       ="runge-kutta-3"       !< Parameter of time scheme, Runge-Kutta 3.
+character(len=18), parameter :: RK_SSP_22  ="runge-kutta-ssp-22"  !< Parameter of time scheme, Runge-Kutta SSP 22.
+character(len=18), parameter :: RK_SSP_33  ="runge-kutta-ssp-33"  !< Parameter of time scheme, Runge-Kutta SSP 33.
+character(len=18), parameter :: RK_SSP_54  ="runge-kutta-ssp-54"  !< Parameter of time scheme, Runge-Kutta SSP 54.
+character(len=19), parameter :: RK_YOSHIDA ="runge-kutta-yoshida" !< Parameter of time scheme, Runge-Kutta Yoshida, symplectic 4.
 
 character(len=11), parameter :: INI_SECTION_NAME="runge_kutta" !< INI (config) file section name containing time configs.
 
@@ -399,8 +397,6 @@ contains
       allocate(self%ssa(self%nrk), self%ssb(self%nrk-1))
       self%ssa = [w1/2.0_R8P,(w0+w1)/2.0_R8P,(w0+w1)/2.0_R8P,w1/2.0_R8P]
       self%ssb = [w1,w0,w1]
-   case(RK_LEAPFROG)
-      self%nrk = 2
    case default
       !@TODO write error trap
    endselect
@@ -416,8 +412,8 @@ contains
                                           1,nb,         &
                                           1,1],[2,6]),  &
                              msg=self%mpih%myrankstr//'rk_object%initialize allocate q_rk')
-   case(RK_SSP_22, RK_SSP_33, RK_SSP_54, RK_LEAPFROG)
-      call allocate_variable(var=self%q_rk,          &
+   case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
+      call allocate_variable(var=self%q_rk,              &
                              ulb=reshape([1,nv,          &
                                           1-ngc,ni+ngc,  &
                                           1-ngc,nj+ngc,  &

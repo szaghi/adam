@@ -8,6 +8,7 @@ use adam_field_object
 use adam_flail_object
 use adam_grid_object
 use adam_ib_object
+use adam_leapfrog_object
 use adam_mpih_object
 use adam_rk_object
 use adam_slices_object
@@ -38,6 +39,7 @@ type :: prism_common_object
    type(amr_object)            :: amr           !< AMR marker handler.
    type(ib_object)             :: ib            !< Immersed Boundary (IB) handler.
    type(slices_object)         :: slices        !< Slices handler.
+   type(leapfrog_object)       :: leapfrog      !< Leapfrog integrator.
    type(rk_object)             :: rk            !< RK integrator.
    type(weno_object)           :: weno          !< WENO reconstructor.
    type(flail_object)          :: flail         !< Linear algebra methods handler.
@@ -135,6 +137,8 @@ contains
    call self%slices%initialize(file_parameters=file_parameters)
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
    call self%rk%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
+   if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) &
+   call self%leapfrog%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    call self%weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
    call self%flail%initialize(file_parameters=file_parameters)
    call self%allocate_common

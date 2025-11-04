@@ -42,15 +42,18 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: save_residuals       !< Save residuals history.
       procedure, pass(self) :: save_restart_files   !< Save restart files.
       procedure, pass(self) :: save_simulation_data !< Save all simulation data.
-      ! IC/BC
+      ! IC/BC/sources
+      procedure, pass(self) :: compute_coils_current   !< Compute current coils sources.
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation.
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions (and coils) of equation.
       procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
       ! numerical methods
+      procedure, pass(self) :: compute_check_fields !< Compute check fields.
       procedure, pass(self) :: compute_div_old      !< Compute divergence of vector field, old working version.
       procedure, pass(self) :: compute_divergence   !< Compute divergence of vector field.
       procedure, pass(self) :: compute_dt           !< Compute time step.
       procedure, pass(self) :: compute_gradient     !< Compute gradient of scalar field.
+      procedure, pass(self) :: impose_div_free      !< Impose divergence-free property.
       procedure, pass(self) :: impose_ct_correction !< Impose Constrained Transport correction on q(ivar:ivar+2).
       procedure, pass(self) :: simulate             !< Perform the simulation.
 endtype prism_cpu_object
@@ -72,11 +75,10 @@ interface
                                                 1:) !< Residuals.
    endsubroutine compute_residuals_interface
 
-   subroutine integrate_interface(self, do_ghost_syncro)
+   subroutine integrate_interface(self)
    !< Integrate equation, time operator.
    import :: prism_cpu_object, R8P
-   class(prism_cpu_object), intent(inout)         :: self            !< The equation.
-   logical,                 intent(in),  optional :: do_ghost_syncro !< Flag to do syncrous ghost update.
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
    endsubroutine integrate_interface
 endinterface
 
@@ -140,11 +142,9 @@ contains
          self%integrate => integrate_rk_ssp
       case(RK_YOSHIDA)
          self%integrate => integrate_rk_yoshida
-      case(RK_LEAPFROG)
-         self%integrate => integrate_leapfrog
       endselect
    case(NUM_SCHEME_TIME_LEAPFROG)
-      ! to be extracted from RK schemes...
+      self%integrate => integrate_leapfrog
    endselect
 
    select case(self%numerics%scheme_space)
@@ -292,7 +292,68 @@ contains
    endif
    endsubroutine save_simulation_data
 
-   ! IC/BC
+   ! IC/BC/sources
+   subroutine compute_coils_current(self)
+   !< Compute current coils sources.
+   class(prism_cpu_object), intent(inout) :: self            !< The equation.
+   real(R8P)                              :: current_density !< Current density.
+   real(R8P)                              :: g               !< Starting polynomial transitory of coils.
+   integer(I4P)                           :: w_, w_c_        !< Step function coeff to avoid if in parallel regions.
+   real(R8P)                              :: g_, f_          !< Current coefficients.
+   integer(I4P)                           :: coil_id         !< Uniq coild ID.
+   integer(I4P)                           :: i,j,k,b         !< Counter.
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
+             time=>self%time%time, A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,              &
+             coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, j_vec=>self%coil%j_vec, &
+             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz,     &
+             dx=>self%field%dxyz(1,1),q=>self%q)
+   if (self%coil%total_coils_number >= 1_I4P) then
+   !if (time >= td) then
+   !   q(VAR_JX,:,:,:,:) = 0._R8P
+   !   q(VAR_JY,:,:,:,:) = 0._R8P
+   !   q(VAR_JZ,:,:,:,:) = 0._R8P
+   !else
+      g = 10._R8P*(time/td)**3 - 15._R8P*(time/td)**4 + 6._R8P*(time/td)**5
+      do b=1, blocks_number
+      do k=1, nk
+      do j=1, nj
+      do i=1, ni
+         coil_id = coil_flag(i,j,k,b)
+
+         ! use step function to avoid the following original if
+         !if (time < td) then
+         !   current_density = g*A(coil_id)/((d(coil_id)-dx)**2)*cos(phase(coil_id)*pi/180.0_R8P)
+         !else
+         !   current_density = A(coil_id)/((d(coil_id)-dx)**2)*cos(2*pi*f(coil_id)*(time-td) + &
+         !   phase(coil_id)*pi/180.0_R8P)
+         !endif
+         w_   = nint(sign(1._R8P,td-time) + 1._R8P)/2   ! = 1 if td>time, = 0                            if td<time
+         w_c_ = 1_I4P - w_                            ! = 0 if td>time, = 1                              if td<time
+         g_   = w_ * g + w_c_                         ! = g if td>time, = 1                              if td<time
+         f_   = w_c_ * 2._R8P*PI*f(coil_id)*(time-td) ! = 0 if td>time, = 2._R8P*PI*f(coil_id)*(time-td) if td<time
+         !current_density = g_ * A(coil_id) / ((d(coil_id))**2) * cos(f_ + phase(coil_id)*PI/180.0_R8P)
+         current_density = g_ * A(coil_id) * cos(f_ + phase(coil_id)*PI/180.0_R8P)*j_vec(4,i,j,k,b)
+         !if (coil_id == 1_I4P) then
+         !   print*, A(coil_id)
+         !   print*, current_density
+         !   print*, j_vec(4,i,j,k,b)
+         !endif
+         ! the following if is not necessary because j_vec is zero everywhere except in coils
+         if (coil_id /= 0_I4P) then
+            q(VAR_JX,i,j,k,b) = current_density * j_vec(1,i,j,k,b)
+            q(VAR_JY,i,j,k,b) = current_density * j_vec(2,i,j,k,b)
+            q(VAR_JZ,i,j,k,b) = current_density * j_vec(3,i,j,k,b)
+         endif
+      enddo
+      enddo
+      enddo
+      enddo
+   !endif
+   endif
+   endassociate
+   endsubroutine compute_coils_current
+
    subroutine set_boundary_conditions(self, q)
    !< Set boundary conditions of equation.
    class(prism_cpu_object), intent(in)    :: self                 !< The equation.
@@ -649,6 +710,20 @@ contains
    endsubroutine update_ghost
 
    ! numerical methods
+   subroutine compute_check_fields(self)
+   !< Compute check fields.
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
+
+   call self%update_ghost(q=self%q)
+   ! compute divergence fields
+   self%field_div = 0._R8P
+   call self%compute_divergence(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
+   call self%compute_divergence(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
+   call self%compute_divergence(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
+   ! call self%compute_div_old(   ivar=1,q=self%q,div=self%field_div(8,:,:,:,:))
+   ! call self%compute_div_old(   ivar=4,q=self%q,div=self%field_div(9,:,:,:,:))
+   endsubroutine compute_check_fields
+
    subroutine compute_div_old(self, ivar, q, div)
    !< Compute div(q(ivar). Finite difference central scheme. Old version, working.
    class(prism_cpu_object), intent(in)    :: self                                         !< The equation.
@@ -732,6 +807,18 @@ contains
    endassociate
    endsubroutine compute_gradient
 
+   subroutine impose_div_free(self)
+   !< Impose divergence-free property.
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
+
+   associate(constrained_transport_D=>self%numerics%constrained_transport_D,&
+             constrained_transport_B=>self%numerics%constrained_transport_B,div_corr_var=>self%numerics%div_corr_var)
+   if (constrained_transport_D.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=1_I4P)
+   if (constrained_transport_B.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=4_I4P)
+   ! here should go also other corrections...
+   endassociate
+   endsubroutine impose_div_free
+
    subroutine impose_ct_correction(self, ivar)
    !< Impose Constrained Transport Correction on vectorial variable q(ivar:ivar+2).
    !< Note that self%field_div memory is used as buffer, be carefull.
@@ -809,11 +896,11 @@ contains
 
    if (self%mpih%myrank==0) call self%io%open_file_residuals(nv=self%nv)
 
-   if (self%rk%scheme==RK_LEAPFROG) then
+   if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
       ! first time integration done apart with explicit euler scheme to iniziale leapfrog
+      call self%leapfrog%assign_step(s=1, q=self%q)
       call self%compute_dt
       call self%compute_residuals(q=self%q, dq=self%dq)
-      self%rk%q_rk(:,:,:,:,:,1) = self%q
       self%q = self%q + 0.5_R8P * self%time%dt * self%dq
    endif
 
@@ -1037,25 +1124,13 @@ contains
    endassociate
    endsubroutine compute_residuals_weno
 
-   subroutine integrate_rk_ls(self, do_ghost_syncro)
+   subroutine integrate_rk_ls(self)
    !< Integrate equation, time operator, RK classical low storage schemes.
    !< Low storage RK working on q_rk(:,:,:,:,:,1)/q as stages, update q in place.
-   class(prism_cpu_object), intent(inout)         :: self             !< The equation.
-   logical,                 intent(in),  optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
-   logical                                        :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
-   integer(I4P)                                   :: s                !< Counter.
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
+   integer(I4P)                           :: s    !< Counter.
 
-   do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
-             time=>self%time%time, A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,              &
-             coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, j_vec=>self%coil%j_vec, &
-             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz,     &
-             dx=>self%field%dxyz(1,1), dxyz=>self%field%dxyz, div_corr_var=>self%numerics%div_corr_var)
-   if (self%coil%total_coils_number >= 1_I4P) then
-      call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, var_Jx=var_Jx, var_Jy=var_Jy,            &
-                                 var_Jz=var_Jz, blocks_number=blocks_number, time=time, A=A, d=d,       &
-                                 f=f, phase=phase, coil_flag=coil_flag, td=td, j_vec=j_vec, dx=dx, q=self%q)
-   endif
+   call self%compute_coils_current
    call self%rk%initialize_stages(q=self%q)
    do s=1, self%rk%nrk
       call self%compute_residuals(q=self%q, dq=self%dq)
@@ -1066,39 +1141,17 @@ contains
          call self%rk%compute_stage_ls(s=s,dt=self%time%dt,dq=self%dq,q=self%q)
       endif
    enddo
-   if (self%numerics%constrained_transport_D .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=1_I4P)
-   if (self%numerics%constrained_transport_B .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=4_I4P)
-   ! compute divergence for check
-   call self%update_ghost(q=self%q)
-   self%field_div = 0._R8P
-   call self%compute_divergence(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
-   call self%compute_divergence(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
-   call self%compute_divergence(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
-   call self%compute_div_old(   ivar=1,q=self%q,div=self%field_div(8,:,:,:,:))
-   call self%compute_div_old(   ivar=4,q=self%q,div=self%field_div(9,:,:,:,:))
-   endassociate
+   call self%impose_div_free
+   call self%compute_check_fields
    endsubroutine integrate_rk_ls
 
-   subroutine integrate_rk_ssp(self, do_ghost_syncro)
+   subroutine integrate_rk_ssp(self)
    !< Integrate equation, time operator, SSP RK schemes.
    !< SSP RK working on q_rk as stages.
-   class(prism_cpu_object), intent(inout)         :: self             !< The equation.
-   logical,                 intent(in),  optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
-   logical                                        :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
-   integer(I4P)                                   :: s                !< Counter.
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
+   integer(I4P)                           :: s    !< Counter.
 
-   do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
-             time=>self%time%time, A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,              &
-             coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, j_vec=>self%coil%j_vec, &
-             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz,     &
-             dx=>self%field%dxyz(1,1), dxyz=>self%field%dxyz, div_corr_var=>self%numerics%div_corr_var)
-
-   if (self%coil%total_coils_number >= 1_I4P) then
-      call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, var_Jx=var_Jx, var_Jy=var_Jy,            &
-                                 var_Jz=var_Jz, blocks_number=blocks_number, time=time, A=A, d=d,       &
-                                 f=f, phase=phase, coil_flag=coil_flag, td=td, j_vec=j_vec, dx=dx, q=self%q)
-   endif
+   call self%compute_coils_current
    call self%rk%initialize_stages(q=self%q)
    do s=1, self%rk%nrk
       if (self%ib%solids_number>0) then
@@ -1119,34 +1172,19 @@ contains
    else
       call self%rk%update_q(dt=self%time%dt, q=self%q)
    endif
-   if (self%numerics%constrained_transport_D .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=1_I4P)
-   if (self%numerics%constrained_transport_B .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=4_I4P)
-   call self%compute_divergence(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
-   call self%compute_divergence(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
-   call self%compute_divergence(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
-   endassociate
+   call self%impose_div_free
+   call self%compute_check_fields
    endsubroutine integrate_rk_ssp
 
-   subroutine integrate_rk_yoshida(self, do_ghost_syncro)
+   subroutine integrate_rk_yoshida(self)
    !< Integrate equation, time operator, Yoshida RK scheme.
-   class(prism_cpu_object), intent(inout)         :: self             !< The equation.
-   logical,                 intent(in),  optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
-   logical                                        :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
-   integer(I4P)                                   :: s                !< Counter.
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
+   integer(I4P)                           :: s    !< Counter.
 
-   do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
-             time=>self%time%time, A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,              &
-             coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, j_vec=>self%coil%j_vec, &
-             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz,     &
-             dx=>self%field%dxyz(1,1), dxyz=>self%field%dxyz, div_corr_var=>self%numerics%div_corr_var)
-   if (self%coil%total_coils_number >= 1_I4P) then
-      call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, var_Jx=var_Jx, var_Jy=var_Jy,            &
-                                 var_Jz=var_Jz, blocks_number=blocks_number, time=time, A=A, d=d,       &
-                                 f=f, phase=phase, coil_flag=coil_flag, td=td, j_vec=j_vec, dx=dx, q=self%q)
-   endif
+   call self%compute_coils_current
    do s=1, self%rk%nrk - 1
       call self%compute_residuals(q=self%q, dq=self%dq)
+      if (s==1) call self%save_residuals
       self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + self%rk%ssa(s) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
       self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + self%rk%ssa(s) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
       self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + self%rk%ssa(s) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
@@ -1159,42 +1197,20 @@ contains
    self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
    self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
    self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
-   if (self%numerics%constrained_transport_D .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=1_I4P)
-   if (self%numerics%constrained_transport_B .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=4_I4P)
-   call self%compute_divergence(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
-   call self%compute_divergence(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
-   call self%compute_divergence(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
-   endassociate
+   call self%impose_div_free
+   call self%compute_check_fields
    endsubroutine integrate_rk_yoshida
 
-   subroutine integrate_leapfrog(self, do_ghost_syncro)
+   subroutine integrate_leapfrog(self)
    !< Integrate equation, time operator, leapfrog scheme.
-   class(prism_cpu_object), intent(inout)        :: self             !< The equation.
-   logical,                 intent(in), optional :: do_ghost_syncro  !< Flag to do syncrous ghost update.
-   logical                                       :: do_ghost_syncro_ !< Flag to do syncrous ghost update, local var.
-   integer(I4P)                                  :: s                !< Counter.
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
 
-   do_ghost_syncro_ = .true. ; if (present(do_ghost_syncro)) do_ghost_syncro_ = do_ghost_syncro
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
-             time=>self%time%time, A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,              &
-             coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, j_vec=>self%coil%j_vec, &
-             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz,     &
-             dx=>self%field%dxyz(1,1), dxyz=>self%field%dxyz, div_corr_var=>self%numerics%div_corr_var)
-   if (self%coil%total_coils_number >= 1_I4P) then
-      call compute_coils_current(ni=ni, nj=nj, nk=nk, ngc=ngc, var_Jx=var_Jx, var_Jy=var_Jy,            &
-                                 var_Jz=var_Jz, blocks_number=blocks_number, time=time, A=A, d=d,       &
-                                 f=f, phase=phase, coil_flag=coil_flag, td=td, j_vec=j_vec, dx=dx, q=self%q)
-   endif
+   call self%compute_coils_current
    call self%compute_residuals(q=self%q, dq=self%dq)
-   self%rk%q_rk(:,:,:,:,:,2) = self%rk%q_rk(:,:,:,:,:,1) + 2._R8P * self%time%dt * self%dq
-   self%rk%q_rk(:,:,:,:,:,1) = self%q
-   self%q = self%rk%q_rk(:,:,:,:,:,2)
-   if (self%numerics%constrained_transport_D .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=1_I4P)
-   if (self%numerics%constrained_transport_B .and. div_corr_var == DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=4_I4P)
-   call self%compute_divergence(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
-   call self%compute_divergence(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
-   call self%compute_divergence(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
-   endassociate
+   call self%save_residuals
+   call self%leapfrog%integrate(dt=self%time%dt, q=self%q, dq=self%dq)
+   call self%impose_div_free
+   call self%compute_check_fields
    endsubroutine integrate_leapfrog
 
    ! non TBP
@@ -1519,75 +1535,6 @@ contains
       enddo
    enddo
    endsubroutine decompose_fluxes_convective_centered
-
-   subroutine compute_coils_current(ni, nj, nk, ngc, var_Jx, var_Jy, var_Jz, blocks_number, time, &
-                                     A, d, f, phase, coil_flag, td, j_vec, dx, q)
-   !< Compute current coils sources.
-   integer(I4P), intent(in)    :: blocks_number                      !< Number of blocks.
-   integer(I4P), intent(in)    :: ni                                 !< Grid cells number in I direction.
-   integer(I4P), intent(in)    :: nj                                 !< Grid cells number in J direction.
-   integer(I4P), intent(in)    :: nk                                 !< Grid cells number in K direction.
-   integer(I4P), intent(in)    :: ngc                                !< Ghost cells number.
-   integer(I4P), intent(in)    :: var_Jx, var_Jy, var_Jz             !< Current variable indices.
-   real(R8P),    intent(in)    :: time                               !< Simulation time, to compute current value if AC.
-   real(R8P),    intent(in)    :: A(0:)                              !< Current amplitude (A).
-   real(R8P),    intent(in)    :: d(0:)                              !< Wire diameter.
-   real(R8P),    intent(in)    :: f(0:)                              !< Current frequency, if AC (Hz).
-   real(R8P),    intent(in)    :: phase(0:)                          !< Current initial phase, if AC.
-   integer(I4P), intent(in)    :: coil_flag(1-ngc:,1-ngc:,1-ngc:,1:) !< Coils ID map.
-   real(R8P),    intent(in)    :: td                                 !< Coils transitory delay.
-   real(R8P),    intent(in)    :: j_vec(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Current J versors into coils.
-   real(R8P),    intent(in)    :: dx                                 !< Space step in x direction.
-   real(R8P),    intent(inout) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Field variables.
-   real(R8P)                   :: current_density                    !< Current density.
-   real(R8P)                   :: g                                  !< Starting polynomial transitory of coils.
-   integer(I4P)                :: w_, w_c_                           !< Step function coeff to avoid if in parallel regions.
-   real(R8P)                   :: g_, f_                             !< Current coefficients.
-   integer(I4P)                :: coil_id                            !< Uniq coild ID.
-   integer(I4P)                :: i,j,k,b                            !< Counter.
-
-   !if (time >= td) then
-   !   q(VAR_JX,:,:,:,:) = 0._R8P
-   !   q(VAR_JY,:,:,:,:) = 0._R8P
-   !   q(VAR_JZ,:,:,:,:) = 0._R8P
-   !else
-      g = 10._R8P*(time/td)**3 - 15._R8P*(time/td)**4 + 6._R8P*(time/td)**5
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         coil_id = coil_flag(i,j,k,b)
-
-         ! use step function to avoid the following original if
-         !if (time < td) then
-         !   current_density = g*A(coil_id)/((d(coil_id)-dx)**2)*cos(phase(coil_id)*pi/180.0_R8P)
-         !else
-         !   current_density = A(coil_id)/((d(coil_id)-dx)**2)*cos(2*pi*f(coil_id)*(time-td) + &
-         !   phase(coil_id)*pi/180.0_R8P)
-         !endif
-         w_   = nint(sign(1._R8P,td-time) + 1._R8P)/2   ! = 1 if td>time, = 0                            if td<time
-         w_c_ = 1_I4P - w_                            ! = 0 if td>time, = 1                              if td<time
-         g_   = w_ * g + w_c_                         ! = g if td>time, = 1                              if td<time
-         f_   = w_c_ * 2._R8P*PI*f(coil_id)*(time-td) ! = 0 if td>time, = 2._R8P*PI*f(coil_id)*(time-td) if td<time
-         !current_density = g_ * A(coil_id) / ((d(coil_id))**2) * cos(f_ + phase(coil_id)*PI/180.0_R8P)
-         current_density = g_ * A(coil_id) * cos(f_ + phase(coil_id)*PI/180.0_R8P)*j_vec(4,i,j,k,b)
-         !if (coil_id == 1_I4P) then
-         !   print*, A(coil_id)
-         !   print*, current_density
-         !   print*, j_vec(4,i,j,k,b)
-         !endif
-         ! the following if is not necessary because j_vec is zero everywhere except in coils
-         if (coil_id /= 0_I4P) then
-            q(VAR_JX,i,j,k,b) = current_density * j_vec(1,i,j,k,b)
-            q(VAR_JY,i,j,k,b) = current_density * j_vec(2,i,j,k,b)
-            q(VAR_JZ,i,j,k,b) = current_density * j_vec(3,i,j,k,b)
-         endif
-      enddo
-      enddo
-      enddo
-      enddo
-   !endif
-   endsubroutine compute_coils_current
 
    ! TO BE MOVED AWAY FROM THIS MODULE
    pure subroutine reconstruct_centered_6(x, xr)

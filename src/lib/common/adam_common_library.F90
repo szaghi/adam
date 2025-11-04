@@ -11,6 +11,7 @@ use adam_flail_object
 use adam_grid_object
 use adam_ib_object
 use adam_io_object
+use adam_leapfrog_object
 use adam_maps_object
 use adam_mpih_object
 use adam_parameters
