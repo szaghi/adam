@@ -20,13 +20,17 @@ type :: io_object
    type(grid_object),  pointer :: grid=>null()  !< The grid.
    type(field_object), pointer :: field=>null() !< The field.
    ! auxiliary fields data, pointer to user data
-   ! vector data (q) have [nv,ni,nj.nk,nb] dimensions
-   ! scalar data (s) have [   ni,nj.nk,nb] dimensions
+   ! vector data (q) have [nv,ni,nj,nk,nb] dimensions
+   ! scalar data (s) have [   ni,nj,nk,nb] dimensions
    real(R8P),    pointer :: q1_R8P(:,:,:,:,:)=>null() !< Auxiliary (1) vector cell centered fields [nv,ni,nj,nk,nb], kind R8P.
    real(R8P),    pointer :: q2_R8P(:,:,:,:,:)=>null() !< Auxiliary (2) vector cell centered fields [nv,ni,nj,nk,nb], kind R8P.
    real(R8P),    pointer :: q3_R8P(:,:,:,:,:)=>null() !< Auxiliary (3) vector cell centered fields [nv,ni,nj,nk,nb], kind R8P.
    real(R8P),    pointer :: q4_R8P(:,:,:,:,:)=>null() !< Auxiliary (4) vector cell centered fields [nv,ni,nj,nk,nb], kind R8P.
    real(R8P),    pointer :: q5_R8P(:,:,:,:,:)=>null() !< Auxiliary (5) vector cell centered fields [nv,ni,nj,nk,nb], kind R8P.
+   real(R8P),    pointer :: q6_R8P(:,:,:,:,:)=>null() !< Auxiliary (6) vector cell centered fields [nv,ni,nj,nk,nb], kind R8P.
+   real(R8P),    pointer :: q7_R8P(:,:,:,:,:)=>null() !< Auxiliary (7) vector cell centered fields [nv,ni,nj,nk,nb], kind R8P.
+   real(R8P),    pointer :: q8_R8P(:,:,:,:,:)=>null() !< Auxiliary (8) vector cell centered fields [nv,ni,nj,nk,nb], kind R8P.
+   real(R8P),    pointer :: q9_R8P(:,:,:,:,:)=>null() !< Auxiliary (9) vector cell centered fields [nv,ni,nj,nk,nb], kind R8P.
    real(R4P),    pointer :: q1_R4P(:,:,:,:,:)=>null() !< Auxiliary (1) vector cell centered fields [nv,ni,nj,nk,nb], kind R4P.
    real(R4P),    pointer :: q2_R4P(:,:,:,:,:)=>null() !< Auxiliary (2) vector cell centered fields [nv,ni,nj,nk,nb], kind R4P.
    real(R4P),    pointer :: q3_R4P(:,:,:,:,:)=>null() !< Auxiliary (3) vector cell centered fields [nv,ni,nj,nk,nb], kind R4P.
@@ -88,6 +92,10 @@ type :: io_object
    type(string), allocatable :: q3_R8P_name(:) !< Auxiliary (3) vector fields names [nv], kind R8P.
    type(string), allocatable :: q4_R8P_name(:) !< Auxiliary (4) vector fields names [nv], kind R8P.
    type(string), allocatable :: q5_R8P_name(:) !< Auxiliary (5) vector fields names [nv], kind R8P.
+   type(string), allocatable :: q6_R8P_name(:) !< Auxiliary (6) vector fields names [nv], kind R8P.
+   type(string), allocatable :: q7_R8P_name(:) !< Auxiliary (7) vector fields names [nv], kind R8P.
+   type(string), allocatable :: q8_R8P_name(:) !< Auxiliary (8) vector fields names [nv], kind R8P.
+   type(string), allocatable :: q9_R8P_name(:) !< Auxiliary (9) vector fields names [nv], kind R8P.
    type(string), allocatable :: q1_R4P_name(:) !< Auxiliary (1) vector fields names [nv], kind R4P.
    type(string), allocatable :: q2_R4P_name(:) !< Auxiliary (2) vector fields names [nv], kind R4P.
    type(string), allocatable :: q3_R4P_name(:) !< Auxiliary (3) vector fields names [nv], kind R4P.
@@ -146,6 +154,7 @@ type :: io_object
    contains
       ! public methods
       procedure, pass(self) :: initialize             !< Initialize class.
+      procedure, pass(self) :: register_aux_field     !< Register auxiliary field.
       procedure, pass(self) :: save_xh5f              !< Save in XH5F (XDMF/HDF5) format.
       generic               :: save_field =>           &
                                save_xh5f_field_4D_R8P, &
@@ -175,8 +184,8 @@ type :: io_object
       procedure, pass(self), private :: save_xh5f_field_5D_I1P !< Save fields by XH5F file handler, rank 5D, kind I1P.
 endtype io_object
 
-interface register_aux_field
-   !< Register auxiliary fields data into ADAM IO class.
+interface reg_aux_field
+   !< Register auxiliary fields data into ADAM IO class, non TBP.
    module procedure register_aux_field_4D_R8P, &
                     register_aux_field_4D_R4P, &
                     register_aux_field_4D_I8P, &
@@ -189,11 +198,12 @@ interface register_aux_field
                     register_aux_field_5D_I4P, &
                     register_aux_field_5D_I2P, &
                     register_aux_field_5D_I1P
-endinterface register_aux_field
+endinterface reg_aux_field
 contains
    ! public methods
    subroutine initialize(self, grid, field,                                                                              &
                          q1_R8P,q1_R8P_name,q2_R8P,q2_R8P_name,q3_R8P,q3_R8P_name,q4_R8P,q4_R8P_name,q5_R8P,q5_R8P_name, &
+                         q6_R8P,q6_R8P_name,q7_R8P,q7_R8P_name,q8_R8P,q8_R8P_name,q9_R8P,q9_R8P_name,                    &
                          q1_R4P,q1_R4P_name,q2_R4P,q2_R4P_name,q3_R4P,q3_R4P_name,q4_R4P,q4_R4P_name,q5_R4P,q5_R4P_name, &
                          q1_I8P,q1_I8P_name,q2_I8P,q2_I8P_name,q3_I8P,q3_I8P_name,q4_I8P,q4_I8P_name,q5_I8P,q5_I8P_name, &
                          q1_I4P,q1_I4P_name,q2_I4P,q2_I4P_name,q3_I4P,q3_I4P_name,q4_I4P,q4_I4P_name,q5_I4P,q5_I4P_name, &
@@ -206,197 +216,368 @@ contains
                          s1_I2P,s1_I2P_name,s2_I2P,s2_I2P_name,s3_I2P,s3_I2P_name,s4_I2P,s4_I2P_name,s5_I2P,s5_I2P_name, &
                          s1_I1P,s1_I1P_name,s2_I1P,s2_I1P_name,s3_I1P,s3_I1P_name,s4_I1P,s4_I1P_name,s5_I1P,s5_I1P_name)
    !< Initialize class.
-   class(io_object),   intent(inout)                 :: self              !< IO handler.
-   type(grid_object),  intent(in), target            :: grid              !< The grid.
-   type(field_object), intent(in), target            :: field             !< The field.
-   real(R8P),          intent(in), pointer, optional :: q1_R8P(:,:,:,:,:) !< Auxiliary (1) vector cell centered fields, kind R8P.
-   real(R8P),          intent(in), pointer, optional :: q2_R8P(:,:,:,:,:) !< Auxiliary (2) vector cell centered fields, kind R8P.
-   real(R8P),          intent(in), pointer, optional :: q3_R8P(:,:,:,:,:) !< Auxiliary (3) vector cell centered fields, kind R8P.
-   real(R8P),          intent(in), pointer, optional :: q4_R8P(:,:,:,:,:) !< Auxiliary (4) vector cell centered fields, kind R8P.
-   real(R8P),          intent(in), pointer, optional :: q5_R8P(:,:,:,:,:) !< Auxiliary (5) vector cell centered fields, kind R8P.
-   real(R4P),          intent(in), pointer, optional :: q1_R4P(:,:,:,:,:) !< Auxiliary (1) vector cell centered fields, kind R4P.
-   real(R4P),          intent(in), pointer, optional :: q2_R4P(:,:,:,:,:) !< Auxiliary (2) vector cell centered fields, kind R4P.
-   real(R4P),          intent(in), pointer, optional :: q3_R4P(:,:,:,:,:) !< Auxiliary (3) vector cell centered fields, kind R4P.
-   real(R4P),          intent(in), pointer, optional :: q4_R4P(:,:,:,:,:) !< Auxiliary (4) vector cell centered fields, kind R4P.
-   real(R4P),          intent(in), pointer, optional :: q5_R4P(:,:,:,:,:) !< Auxiliary (5) vector cell centered fields, kind R4P.
-   integer(I8P),       intent(in), pointer, optional :: q1_I8P(:,:,:,:,:) !< Auxiliary (1) vector cell centered fields, kind I8P.
-   integer(I8P),       intent(in), pointer, optional :: q2_I8P(:,:,:,:,:) !< Auxiliary (2) vector cell centered fields, kind I8P.
-   integer(I8P),       intent(in), pointer, optional :: q3_I8P(:,:,:,:,:) !< Auxiliary (3) vector cell centered fields, kind I8P.
-   integer(I8P),       intent(in), pointer, optional :: q4_I8P(:,:,:,:,:) !< Auxiliary (4) vector cell centered fields, kind I8P.
-   integer(I8P),       intent(in), pointer, optional :: q5_I8P(:,:,:,:,:) !< Auxiliary (5) vector cell centered fields, kind I8P.
-   integer(I4P),       intent(in), pointer, optional :: q1_I4P(:,:,:,:,:) !< Auxiliary (1) vector cell centered fields, kind I4P.
-   integer(I4P),       intent(in), pointer, optional :: q2_I4P(:,:,:,:,:) !< Auxiliary (2) vector cell centered fields, kind I4P.
-   integer(I4P),       intent(in), pointer, optional :: q3_I4P(:,:,:,:,:) !< Auxiliary (3) vector cell centered fields, kind I4P.
-   integer(I4P),       intent(in), pointer, optional :: q4_I4P(:,:,:,:,:) !< Auxiliary (4) vector cell centered fields, kind I4P.
-   integer(I4P),       intent(in), pointer, optional :: q5_I4P(:,:,:,:,:) !< Auxiliary (5) vector cell centered fields, kind I4P.
-   integer(I2P),       intent(in), pointer, optional :: q1_I2P(:,:,:,:,:) !< Auxiliary (1) vector cell centered fields, kind I2P.
-   integer(I2P),       intent(in), pointer, optional :: q2_I2P(:,:,:,:,:) !< Auxiliary (2) vector cell centered fields, kind I2P.
-   integer(I2P),       intent(in), pointer, optional :: q3_I2P(:,:,:,:,:) !< Auxiliary (3) vector cell centered fields, kind I2P.
-   integer(I2P),       intent(in), pointer, optional :: q4_I2P(:,:,:,:,:) !< Auxiliary (4) vector cell centered fields, kind I2P.
-   integer(I2P),       intent(in), pointer, optional :: q5_I2P(:,:,:,:,:) !< Auxiliary (5) vector cell centered fields, kind I2P.
-   integer(I1P),       intent(in), pointer, optional :: q1_I1P(:,:,:,:,:) !< Auxiliary (1) vector cell centered fields, kind I1P.
-   integer(I1P),       intent(in), pointer, optional :: q2_I1P(:,:,:,:,:) !< Auxiliary (2) vector cell centered fields, kind I1P.
-   integer(I1P),       intent(in), pointer, optional :: q3_I1P(:,:,:,:,:) !< Auxiliary (3) vector cell centered fields, kind I1P.
-   integer(I1P),       intent(in), pointer, optional :: q4_I1P(:,:,:,:,:) !< Auxiliary (4) vector cell centered fields, kind I1P.
-   integer(I1P),       intent(in), pointer, optional :: q5_I1P(:,:,:,:,:) !< Auxiliary (5) vector cell centered fields, kind I1P.
-   real(R8P),          intent(in), pointer, optional :: s1_R8P(  :,:,:,:) !< Auxiliary (1) scalar cell centered fields, kind R8P.
-   real(R8P),          intent(in), pointer, optional :: s2_R8P(  :,:,:,:) !< Auxiliary (2) scalar cell centered fields, kind R8P.
-   real(R8P),          intent(in), pointer, optional :: s3_R8P(  :,:,:,:) !< Auxiliary (3) scalar cell centered fields, kind R8P.
-   real(R8P),          intent(in), pointer, optional :: s4_R8P(  :,:,:,:) !< Auxiliary (4) scalar cell centered fields, kind R8P.
-   real(R8P),          intent(in), pointer, optional :: s5_R8P(  :,:,:,:) !< Auxiliary (5) scalar cell centered fields, kind R8P.
-   real(R4P),          intent(in), pointer, optional :: s1_R4P(  :,:,:,:) !< Auxiliary (1) scalar cell centered fields, kind R4P.
-   real(R4P),          intent(in), pointer, optional :: s2_R4P(  :,:,:,:) !< Auxiliary (2) scalar cell centered fields, kind R4P.
-   real(R4P),          intent(in), pointer, optional :: s3_R4P(  :,:,:,:) !< Auxiliary (3) scalar cell centered fields, kind R4P.
-   real(R4P),          intent(in), pointer, optional :: s4_R4P(  :,:,:,:) !< Auxiliary (4) scalar cell centered fields, kind R4P.
-   real(R4P),          intent(in), pointer, optional :: s5_R4P(  :,:,:,:) !< Auxiliary (5) scalar cell centered fields, kind R4P.
-   integer(I8P),       intent(in), pointer, optional :: s1_I8P(  :,:,:,:) !< Auxiliary (1) scalar cell centered fields, kind I8P.
-   integer(I8P),       intent(in), pointer, optional :: s2_I8P(  :,:,:,:) !< Auxiliary (2) scalar cell centered fields, kind I8P.
-   integer(I8P),       intent(in), pointer, optional :: s3_I8P(  :,:,:,:) !< Auxiliary (3) scalar cell centered fields, kind I8P.
-   integer(I8P),       intent(in), pointer, optional :: s4_I8P(  :,:,:,:) !< Auxiliary (4) scalar cell centered fields, kind I8P.
-   integer(I8P),       intent(in), pointer, optional :: s5_I8P(  :,:,:,:) !< Auxiliary (5) scalar cell centered fields, kind I8P.
-   integer(I4P),       intent(in), pointer, optional :: s1_I4P(  :,:,:,:) !< Auxiliary (1) scalar cell centered fields, kind I4P.
-   integer(I4P),       intent(in), pointer, optional :: s2_I4P(  :,:,:,:) !< Auxiliary (2) scalar cell centered fields, kind I4P.
-   integer(I4P),       intent(in), pointer, optional :: s3_I4P(  :,:,:,:) !< Auxiliary (3) scalar cell centered fields, kind I4P.
-   integer(I4P),       intent(in), pointer, optional :: s4_I4P(  :,:,:,:) !< Auxiliary (4) scalar cell centered fields, kind I4P.
-   integer(I4P),       intent(in), pointer, optional :: s5_I4P(  :,:,:,:) !< Auxiliary (5) scalar cell centered fields, kind I4P.
-   integer(I2P),       intent(in), pointer, optional :: s1_I2P(  :,:,:,:) !< Auxiliary (1) scalar cell centered fields, kind I2P.
-   integer(I2P),       intent(in), pointer, optional :: s2_I2P(  :,:,:,:) !< Auxiliary (2) scalar cell centered fields, kind I2P.
-   integer(I2P),       intent(in), pointer, optional :: s3_I2P(  :,:,:,:) !< Auxiliary (3) scalar cell centered fields, kind I2P.
-   integer(I2P),       intent(in), pointer, optional :: s4_I2P(  :,:,:,:) !< Auxiliary (4) scalar cell centered fields, kind I2P.
-   integer(I2P),       intent(in), pointer, optional :: s5_I2P(  :,:,:,:) !< Auxiliary (5) scalar cell centered fields, kind I2P.
-   integer(I1P),       intent(in), pointer, optional :: s1_I1P(  :,:,:,:) !< Auxiliary (1) scalar cell centered fields, kind I1P.
-   integer(I1P),       intent(in), pointer, optional :: s2_I1P(  :,:,:,:) !< Auxiliary (2) scalar cell centered fields, kind I1P.
-   integer(I1P),       intent(in), pointer, optional :: s3_I1P(  :,:,:,:) !< Auxiliary (3) scalar cell centered fields, kind I1P.
-   integer(I1P),       intent(in), pointer, optional :: s4_I1P(  :,:,:,:) !< Auxiliary (4) scalar cell centered fields, kind I1P.
-   integer(I1P),       intent(in), pointer, optional :: s5_I1P(  :,:,:,:) !< Auxiliary (5) scalar cell centered fields, kind I1P.
-   character(*),       intent(in),          optional :: q1_R8P_name(:)    !< Auxiliary (1) vector fields names, kind R8P.
-   character(*),       intent(in),          optional :: q2_R8P_name(:)    !< Auxiliary (2) vector fields names, kind R8P.
-   character(*),       intent(in),          optional :: q3_R8P_name(:)    !< Auxiliary (3) vector fields names, kind R8P.
-   character(*),       intent(in),          optional :: q4_R8P_name(:)    !< Auxiliary (4) vector fields names, kind R8P.
-   character(*),       intent(in),          optional :: q5_R8P_name(:)    !< Auxiliary (5) vector fields names, kind R8P.
-   character(*),       intent(in),          optional :: q1_R4P_name(:)    !< Auxiliary (1) vector fields names, kind R4P.
-   character(*),       intent(in),          optional :: q2_R4P_name(:)    !< Auxiliary (2) vector fields names, kind R4P.
-   character(*),       intent(in),          optional :: q3_R4P_name(:)    !< Auxiliary (3) vector fields names, kind R4P.
-   character(*),       intent(in),          optional :: q4_R4P_name(:)    !< Auxiliary (4) vector fields names, kind R4P.
-   character(*),       intent(in),          optional :: q5_R4P_name(:)    !< Auxiliary (5) vector fields names, kind R4P.
-   character(*),       intent(in),          optional :: q1_I8P_name(:)    !< Auxiliary (1) vector fields names, kind I8P.
-   character(*),       intent(in),          optional :: q2_I8P_name(:)    !< Auxiliary (2) vector fields names, kind I8P.
-   character(*),       intent(in),          optional :: q3_I8P_name(:)    !< Auxiliary (3) vector fields names, kind I8P.
-   character(*),       intent(in),          optional :: q4_I8P_name(:)    !< Auxiliary (4) vector fields names, kind I8P.
-   character(*),       intent(in),          optional :: q5_I8P_name(:)    !< Auxiliary (5) vector fields names, kind I8P.
-   character(*),       intent(in),          optional :: q1_I4P_name(:)    !< Auxiliary (1) vector fields names, kind I4P.
-   character(*),       intent(in),          optional :: q2_I4P_name(:)    !< Auxiliary (2) vector fields names, kind I4P.
-   character(*),       intent(in),          optional :: q3_I4P_name(:)    !< Auxiliary (3) vector fields names, kind I4P.
-   character(*),       intent(in),          optional :: q4_I4P_name(:)    !< Auxiliary (4) vector fields names, kind I4P.
-   character(*),       intent(in),          optional :: q5_I4P_name(:)    !< Auxiliary (5) vector fields names, kind I4P.
-   character(*),       intent(in),          optional :: q1_I2P_name(:)    !< Auxiliary (1) vector fields names, kind I2P.
-   character(*),       intent(in),          optional :: q2_I2P_name(:)    !< Auxiliary (2) vector fields names, kind I2P.
-   character(*),       intent(in),          optional :: q3_I2P_name(:)    !< Auxiliary (3) vector fields names, kind I2P.
-   character(*),       intent(in),          optional :: q4_I2P_name(:)    !< Auxiliary (4) vector fields names, kind I2P.
-   character(*),       intent(in),          optional :: q5_I2P_name(:)    !< Auxiliary (5) vector fields names, kind I2P.
-   character(*),       intent(in),          optional :: q1_I1P_name(:)    !< Auxiliary (1) vector fields names, kind I1P.
-   character(*),       intent(in),          optional :: q2_I1P_name(:)    !< Auxiliary (2) vector fields names, kind I1P.
-   character(*),       intent(in),          optional :: q3_I1P_name(:)    !< Auxiliary (3) vector fields names, kind I1P.
-   character(*),       intent(in),          optional :: q4_I1P_name(:)    !< Auxiliary (4) vector fields names, kind I1P.
-   character(*),       intent(in),          optional :: q5_I1P_name(:)    !< Auxiliary (5) vector fields names, kind I1P.
-   character(*),       intent(in),          optional :: s1_R8P_name       !< Auxiliary (1) scalar field name, kind R8P.
-   character(*),       intent(in),          optional :: s2_R8P_name       !< Auxiliary (2) scalar field name, kind R8P.
-   character(*),       intent(in),          optional :: s3_R8P_name       !< Auxiliary (3) scalar field name, kind R8P.
-   character(*),       intent(in),          optional :: s4_R8P_name       !< Auxiliary (4) scalar field name, kind R8P.
-   character(*),       intent(in),          optional :: s5_R8P_name       !< Auxiliary (5) scalar field name, kind R8P.
-   character(*),       intent(in),          optional :: s1_R4P_name       !< Auxiliary (1) scalar field name, kind R4P.
-   character(*),       intent(in),          optional :: s2_R4P_name       !< Auxiliary (2) scalar field name, kind R4P.
-   character(*),       intent(in),          optional :: s3_R4P_name       !< Auxiliary (3) scalar field name, kind R4P.
-   character(*),       intent(in),          optional :: s4_R4P_name       !< Auxiliary (4) scalar field name, kind R4P.
-   character(*),       intent(in),          optional :: s5_R4P_name       !< Auxiliary (5) scalar field name, kind R4P.
-   character(*),       intent(in),          optional :: s1_I8P_name       !< Auxiliary (1) scalar field name, kind I8P.
-   character(*),       intent(in),          optional :: s2_I8P_name       !< Auxiliary (2) scalar field name, kind I8P.
-   character(*),       intent(in),          optional :: s3_I8P_name       !< Auxiliary (3) scalar field name, kind I8P.
-   character(*),       intent(in),          optional :: s4_I8P_name       !< Auxiliary (4) scalar field name, kind I8P.
-   character(*),       intent(in),          optional :: s5_I8P_name       !< Auxiliary (5) scalar field name, kind I8P.
-   character(*),       intent(in),          optional :: s1_I4P_name       !< Auxiliary (1) scalar field name, kind I4P.
-   character(*),       intent(in),          optional :: s2_I4P_name       !< Auxiliary (2) scalar field name, kind I4P.
-   character(*),       intent(in),          optional :: s3_I4P_name       !< Auxiliary (3) scalar field name, kind I4P.
-   character(*),       intent(in),          optional :: s4_I4P_name       !< Auxiliary (4) scalar field name, kind I4P.
-   character(*),       intent(in),          optional :: s5_I4P_name       !< Auxiliary (5) scalar field name, kind I4P.
-   character(*),       intent(in),          optional :: s1_I2P_name       !< Auxiliary (1) scalar field name, kind I2P.
-   character(*),       intent(in),          optional :: s2_I2P_name       !< Auxiliary (2) scalar field name, kind I2P.
-   character(*),       intent(in),          optional :: s3_I2P_name       !< Auxiliary (3) scalar field name, kind I2P.
-   character(*),       intent(in),          optional :: s4_I2P_name       !< Auxiliary (4) scalar field name, kind I2P.
-   character(*),       intent(in),          optional :: s5_I2P_name       !< Auxiliary (5) scalar field name, kind I2P.
-   character(*),       intent(in),          optional :: s1_I1P_name       !< Auxiliary (1) scalar field name, kind I1P.
-   character(*),       intent(in),          optional :: s2_I1P_name       !< Auxiliary (2) scalar field name, kind I1P.
-   character(*),       intent(in),          optional :: s3_I1P_name       !< Auxiliary (3) scalar field name, kind I1P.
-   character(*),       intent(in),          optional :: s4_I1P_name       !< Auxiliary (4) scalar field name, kind I1P.
-   character(*),       intent(in),          optional :: s5_I1P_name       !< Auxiliary (5) scalar field name, kind I1P.
+   class(io_object),   intent(inout)                :: self              !< IO handler.
+   type(grid_object),  intent(in), target           :: grid              !< The grid.
+   type(field_object), intent(in), target           :: field             !< The field.
+   real(R8P),          intent(in), target, optional :: q1_R8P(:,:,:,:,:) !< Auxiliary (1) vector cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: q2_R8P(:,:,:,:,:) !< Auxiliary (2) vector cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: q3_R8P(:,:,:,:,:) !< Auxiliary (3) vector cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: q4_R8P(:,:,:,:,:) !< Auxiliary (4) vector cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: q5_R8P(:,:,:,:,:) !< Auxiliary (5) vector cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: q6_R8P(:,:,:,:,:) !< Auxiliary (6) vector cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: q7_R8P(:,:,:,:,:) !< Auxiliary (7) vector cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: q8_R8P(:,:,:,:,:) !< Auxiliary (8) vector cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: q9_R8P(:,:,:,:,:) !< Auxiliary (9) vector cell centered fields, kind R8P.
+   real(R4P),          intent(in), target, optional :: q1_R4P(:,:,:,:,:) !< Auxiliary (1) vector cell centered fields, kind R4P.
+   real(R4P),          intent(in), target, optional :: q2_R4P(:,:,:,:,:) !< Auxiliary (2) vector cell centered fields, kind R4P.
+   real(R4P),          intent(in), target, optional :: q3_R4P(:,:,:,:,:) !< Auxiliary (3) vector cell centered fields, kind R4P.
+   real(R4P),          intent(in), target, optional :: q4_R4P(:,:,:,:,:) !< Auxiliary (4) vector cell centered fields, kind R4P.
+   real(R4P),          intent(in), target, optional :: q5_R4P(:,:,:,:,:) !< Auxiliary (5) vector cell centered fields, kind R4P.
+   integer(I8P),       intent(in), target, optional :: q1_I8P(:,:,:,:,:) !< Auxiliary (1) vector cell centered fields, kind I8P.
+   integer(I8P),       intent(in), target, optional :: q2_I8P(:,:,:,:,:) !< Auxiliary (2) vector cell centered fields, kind I8P.
+   integer(I8P),       intent(in), target, optional :: q3_I8P(:,:,:,:,:) !< Auxiliary (3) vector cell centered fields, kind I8P.
+   integer(I8P),       intent(in), target, optional :: q4_I8P(:,:,:,:,:) !< Auxiliary (4) vector cell centered fields, kind I8P.
+   integer(I8P),       intent(in), target, optional :: q5_I8P(:,:,:,:,:) !< Auxiliary (5) vector cell centered fields, kind I8P.
+   integer(I4P),       intent(in), target, optional :: q1_I4P(:,:,:,:,:) !< Auxiliary (1) vector cell centered fields, kind I4P.
+   integer(I4P),       intent(in), target, optional :: q2_I4P(:,:,:,:,:) !< Auxiliary (2) vector cell centered fields, kind I4P.
+   integer(I4P),       intent(in), target, optional :: q3_I4P(:,:,:,:,:) !< Auxiliary (3) vector cell centered fields, kind I4P.
+   integer(I4P),       intent(in), target, optional :: q4_I4P(:,:,:,:,:) !< Auxiliary (4) vector cell centered fields, kind I4P.
+   integer(I4P),       intent(in), target, optional :: q5_I4P(:,:,:,:,:) !< Auxiliary (5) vector cell centered fields, kind I4P.
+   integer(I2P),       intent(in), target, optional :: q1_I2P(:,:,:,:,:) !< Auxiliary (1) vector cell centered fields, kind I2P.
+   integer(I2P),       intent(in), target, optional :: q2_I2P(:,:,:,:,:) !< Auxiliary (2) vector cell centered fields, kind I2P.
+   integer(I2P),       intent(in), target, optional :: q3_I2P(:,:,:,:,:) !< Auxiliary (3) vector cell centered fields, kind I2P.
+   integer(I2P),       intent(in), target, optional :: q4_I2P(:,:,:,:,:) !< Auxiliary (4) vector cell centered fields, kind I2P.
+   integer(I2P),       intent(in), target, optional :: q5_I2P(:,:,:,:,:) !< Auxiliary (5) vector cell centered fields, kind I2P.
+   integer(I1P),       intent(in), target, optional :: q1_I1P(:,:,:,:,:) !< Auxiliary (1) vector cell centered fields, kind I1P.
+   integer(I1P),       intent(in), target, optional :: q2_I1P(:,:,:,:,:) !< Auxiliary (2) vector cell centered fields, kind I1P.
+   integer(I1P),       intent(in), target, optional :: q3_I1P(:,:,:,:,:) !< Auxiliary (3) vector cell centered fields, kind I1P.
+   integer(I1P),       intent(in), target, optional :: q4_I1P(:,:,:,:,:) !< Auxiliary (4) vector cell centered fields, kind I1P.
+   integer(I1P),       intent(in), target, optional :: q5_I1P(:,:,:,:,:) !< Auxiliary (5) vector cell centered fields, kind I1P.
+   real(R8P),          intent(in), target, optional :: s1_R8P(  :,:,:,:) !< Auxiliary (1) scalar cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: s2_R8P(  :,:,:,:) !< Auxiliary (2) scalar cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: s3_R8P(  :,:,:,:) !< Auxiliary (3) scalar cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: s4_R8P(  :,:,:,:) !< Auxiliary (4) scalar cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: s5_R8P(  :,:,:,:) !< Auxiliary (5) scalar cell centered fields, kind R8P.
+   real(R4P),          intent(in), target, optional :: s1_R4P(  :,:,:,:) !< Auxiliary (1) scalar cell centered fields, kind R4P.
+   real(R4P),          intent(in), target, optional :: s2_R4P(  :,:,:,:) !< Auxiliary (2) scalar cell centered fields, kind R4P.
+   real(R4P),          intent(in), target, optional :: s3_R4P(  :,:,:,:) !< Auxiliary (3) scalar cell centered fields, kind R4P.
+   real(R4P),          intent(in), target, optional :: s4_R4P(  :,:,:,:) !< Auxiliary (4) scalar cell centered fields, kind R4P.
+   real(R4P),          intent(in), target, optional :: s5_R4P(  :,:,:,:) !< Auxiliary (5) scalar cell centered fields, kind R4P.
+   integer(I8P),       intent(in), target, optional :: s1_I8P(  :,:,:,:) !< Auxiliary (1) scalar cell centered fields, kind I8P.
+   integer(I8P),       intent(in), target, optional :: s2_I8P(  :,:,:,:) !< Auxiliary (2) scalar cell centered fields, kind I8P.
+   integer(I8P),       intent(in), target, optional :: s3_I8P(  :,:,:,:) !< Auxiliary (3) scalar cell centered fields, kind I8P.
+   integer(I8P),       intent(in), target, optional :: s4_I8P(  :,:,:,:) !< Auxiliary (4) scalar cell centered fields, kind I8P.
+   integer(I8P),       intent(in), target, optional :: s5_I8P(  :,:,:,:) !< Auxiliary (5) scalar cell centered fields, kind I8P.
+   integer(I4P),       intent(in), target, optional :: s1_I4P(  :,:,:,:) !< Auxiliary (1) scalar cell centered fields, kind I4P.
+   integer(I4P),       intent(in), target, optional :: s2_I4P(  :,:,:,:) !< Auxiliary (2) scalar cell centered fields, kind I4P.
+   integer(I4P),       intent(in), target, optional :: s3_I4P(  :,:,:,:) !< Auxiliary (3) scalar cell centered fields, kind I4P.
+   integer(I4P),       intent(in), target, optional :: s4_I4P(  :,:,:,:) !< Auxiliary (4) scalar cell centered fields, kind I4P.
+   integer(I4P),       intent(in), target, optional :: s5_I4P(  :,:,:,:) !< Auxiliary (5) scalar cell centered fields, kind I4P.
+   integer(I2P),       intent(in), target, optional :: s1_I2P(  :,:,:,:) !< Auxiliary (1) scalar cell centered fields, kind I2P.
+   integer(I2P),       intent(in), target, optional :: s2_I2P(  :,:,:,:) !< Auxiliary (2) scalar cell centered fields, kind I2P.
+   integer(I2P),       intent(in), target, optional :: s3_I2P(  :,:,:,:) !< Auxiliary (3) scalar cell centered fields, kind I2P.
+   integer(I2P),       intent(in), target, optional :: s4_I2P(  :,:,:,:) !< Auxiliary (4) scalar cell centered fields, kind I2P.
+   integer(I2P),       intent(in), target, optional :: s5_I2P(  :,:,:,:) !< Auxiliary (5) scalar cell centered fields, kind I2P.
+   integer(I1P),       intent(in), target, optional :: s1_I1P(  :,:,:,:) !< Auxiliary (1) scalar cell centered fields, kind I1P.
+   integer(I1P),       intent(in), target, optional :: s2_I1P(  :,:,:,:) !< Auxiliary (2) scalar cell centered fields, kind I1P.
+   integer(I1P),       intent(in), target, optional :: s3_I1P(  :,:,:,:) !< Auxiliary (3) scalar cell centered fields, kind I1P.
+   integer(I1P),       intent(in), target, optional :: s4_I1P(  :,:,:,:) !< Auxiliary (4) scalar cell centered fields, kind I1P.
+   integer(I1P),       intent(in), target, optional :: s5_I1P(  :,:,:,:) !< Auxiliary (5) scalar cell centered fields, kind I1P.
+   character(*),       intent(in),         optional :: q1_R8P_name(:)    !< Auxiliary (1) vector fields names, kind R8P.
+   character(*),       intent(in),         optional :: q2_R8P_name(:)    !< Auxiliary (2) vector fields names, kind R8P.
+   character(*),       intent(in),         optional :: q3_R8P_name(:)    !< Auxiliary (3) vector fields names, kind R8P.
+   character(*),       intent(in),         optional :: q4_R8P_name(:)    !< Auxiliary (4) vector fields names, kind R8P.
+   character(*),       intent(in),         optional :: q5_R8P_name(:)    !< Auxiliary (5) vector fields names, kind R8P.
+   character(*),       intent(in),         optional :: q6_R8P_name(:)    !< Auxiliary (6) vector fields names, kind R8P.
+   character(*),       intent(in),         optional :: q7_R8P_name(:)    !< Auxiliary (7) vector fields names, kind R8P.
+   character(*),       intent(in),         optional :: q8_R8P_name(:)    !< Auxiliary (8) vector fields names, kind R8P.
+   character(*),       intent(in),         optional :: q9_R8P_name(:)    !< Auxiliary (9) vector fields names, kind R8P.
+   character(*),       intent(in),         optional :: q1_R4P_name(:)    !< Auxiliary (1) vector fields names, kind R4P.
+   character(*),       intent(in),         optional :: q2_R4P_name(:)    !< Auxiliary (2) vector fields names, kind R4P.
+   character(*),       intent(in),         optional :: q3_R4P_name(:)    !< Auxiliary (3) vector fields names, kind R4P.
+   character(*),       intent(in),         optional :: q4_R4P_name(:)    !< Auxiliary (4) vector fields names, kind R4P.
+   character(*),       intent(in),         optional :: q5_R4P_name(:)    !< Auxiliary (5) vector fields names, kind R4P.
+   character(*),       intent(in),         optional :: q1_I8P_name(:)    !< Auxiliary (1) vector fields names, kind I8P.
+   character(*),       intent(in),         optional :: q2_I8P_name(:)    !< Auxiliary (2) vector fields names, kind I8P.
+   character(*),       intent(in),         optional :: q3_I8P_name(:)    !< Auxiliary (3) vector fields names, kind I8P.
+   character(*),       intent(in),         optional :: q4_I8P_name(:)    !< Auxiliary (4) vector fields names, kind I8P.
+   character(*),       intent(in),         optional :: q5_I8P_name(:)    !< Auxiliary (5) vector fields names, kind I8P.
+   character(*),       intent(in),         optional :: q1_I4P_name(:)    !< Auxiliary (1) vector fields names, kind I4P.
+   character(*),       intent(in),         optional :: q2_I4P_name(:)    !< Auxiliary (2) vector fields names, kind I4P.
+   character(*),       intent(in),         optional :: q3_I4P_name(:)    !< Auxiliary (3) vector fields names, kind I4P.
+   character(*),       intent(in),         optional :: q4_I4P_name(:)    !< Auxiliary (4) vector fields names, kind I4P.
+   character(*),       intent(in),         optional :: q5_I4P_name(:)    !< Auxiliary (5) vector fields names, kind I4P.
+   character(*),       intent(in),         optional :: q1_I2P_name(:)    !< Auxiliary (1) vector fields names, kind I2P.
+   character(*),       intent(in),         optional :: q2_I2P_name(:)    !< Auxiliary (2) vector fields names, kind I2P.
+   character(*),       intent(in),         optional :: q3_I2P_name(:)    !< Auxiliary (3) vector fields names, kind I2P.
+   character(*),       intent(in),         optional :: q4_I2P_name(:)    !< Auxiliary (4) vector fields names, kind I2P.
+   character(*),       intent(in),         optional :: q5_I2P_name(:)    !< Auxiliary (5) vector fields names, kind I2P.
+   character(*),       intent(in),         optional :: q1_I1P_name(:)    !< Auxiliary (1) vector fields names, kind I1P.
+   character(*),       intent(in),         optional :: q2_I1P_name(:)    !< Auxiliary (2) vector fields names, kind I1P.
+   character(*),       intent(in),         optional :: q3_I1P_name(:)    !< Auxiliary (3) vector fields names, kind I1P.
+   character(*),       intent(in),         optional :: q4_I1P_name(:)    !< Auxiliary (4) vector fields names, kind I1P.
+   character(*),       intent(in),         optional :: q5_I1P_name(:)    !< Auxiliary (5) vector fields names, kind I1P.
+   character(*),       intent(in),         optional :: s1_R8P_name       !< Auxiliary (1) scalar field name, kind R8P.
+   character(*),       intent(in),         optional :: s2_R8P_name       !< Auxiliary (2) scalar field name, kind R8P.
+   character(*),       intent(in),         optional :: s3_R8P_name       !< Auxiliary (3) scalar field name, kind R8P.
+   character(*),       intent(in),         optional :: s4_R8P_name       !< Auxiliary (4) scalar field name, kind R8P.
+   character(*),       intent(in),         optional :: s5_R8P_name       !< Auxiliary (5) scalar field name, kind R8P.
+   character(*),       intent(in),         optional :: s1_R4P_name       !< Auxiliary (1) scalar field name, kind R4P.
+   character(*),       intent(in),         optional :: s2_R4P_name       !< Auxiliary (2) scalar field name, kind R4P.
+   character(*),       intent(in),         optional :: s3_R4P_name       !< Auxiliary (3) scalar field name, kind R4P.
+   character(*),       intent(in),         optional :: s4_R4P_name       !< Auxiliary (4) scalar field name, kind R4P.
+   character(*),       intent(in),         optional :: s5_R4P_name       !< Auxiliary (5) scalar field name, kind R4P.
+   character(*),       intent(in),         optional :: s1_I8P_name       !< Auxiliary (1) scalar field name, kind I8P.
+   character(*),       intent(in),         optional :: s2_I8P_name       !< Auxiliary (2) scalar field name, kind I8P.
+   character(*),       intent(in),         optional :: s3_I8P_name       !< Auxiliary (3) scalar field name, kind I8P.
+   character(*),       intent(in),         optional :: s4_I8P_name       !< Auxiliary (4) scalar field name, kind I8P.
+   character(*),       intent(in),         optional :: s5_I8P_name       !< Auxiliary (5) scalar field name, kind I8P.
+   character(*),       intent(in),         optional :: s1_I4P_name       !< Auxiliary (1) scalar field name, kind I4P.
+   character(*),       intent(in),         optional :: s2_I4P_name       !< Auxiliary (2) scalar field name, kind I4P.
+   character(*),       intent(in),         optional :: s3_I4P_name       !< Auxiliary (3) scalar field name, kind I4P.
+   character(*),       intent(in),         optional :: s4_I4P_name       !< Auxiliary (4) scalar field name, kind I4P.
+   character(*),       intent(in),         optional :: s5_I4P_name       !< Auxiliary (5) scalar field name, kind I4P.
+   character(*),       intent(in),         optional :: s1_I2P_name       !< Auxiliary (1) scalar field name, kind I2P.
+   character(*),       intent(in),         optional :: s2_I2P_name       !< Auxiliary (2) scalar field name, kind I2P.
+   character(*),       intent(in),         optional :: s3_I2P_name       !< Auxiliary (3) scalar field name, kind I2P.
+   character(*),       intent(in),         optional :: s4_I2P_name       !< Auxiliary (4) scalar field name, kind I2P.
+   character(*),       intent(in),         optional :: s5_I2P_name       !< Auxiliary (5) scalar field name, kind I2P.
+   character(*),       intent(in),         optional :: s1_I1P_name       !< Auxiliary (1) scalar field name, kind I1P.
+   character(*),       intent(in),         optional :: s2_I1P_name       !< Auxiliary (2) scalar field name, kind I1P.
+   character(*),       intent(in),         optional :: s3_I1P_name       !< Auxiliary (3) scalar field name, kind I1P.
+   character(*),       intent(in),         optional :: s4_I1P_name       !< Auxiliary (4) scalar field name, kind I1P.
+   character(*),       intent(in),         optional :: s5_I1P_name       !< Auxiliary (5) scalar field name, kind I1P.
 
    call self%mpih%initialize
    call self%mpih%print_message('io_object%initialize start')
    self%grid  => grid
    self%field => field
-   ! "register" user auxiliary fields data
-   if (present(q1_R8P)) call register_aux_field(q_src=q1_R8P,q_name_src=q1_R8P_name,q_reg=self%q1_R8P,q_name_reg=self%q1_R8P_name)
-   if (present(q2_R8P)) call register_aux_field(q_src=q2_R8P,q_name_src=q2_R8P_name,q_reg=self%q2_R8P,q_name_reg=self%q2_R8P_name)
-   if (present(q3_R8P)) call register_aux_field(q_src=q3_R8P,q_name_src=q3_R8P_name,q_reg=self%q3_R8P,q_name_reg=self%q3_R8P_name)
-   if (present(q4_R8P)) call register_aux_field(q_src=q4_R8P,q_name_src=q4_R8P_name,q_reg=self%q4_R8P,q_name_reg=self%q4_R8P_name)
-   if (present(q5_R8P)) call register_aux_field(q_src=q5_R8P,q_name_src=q5_R8P_name,q_reg=self%q5_R8P,q_name_reg=self%q5_R8P_name)
-   if (present(q1_R4P)) call register_aux_field(q_src=q1_R4P,q_name_src=q1_R4P_name,q_reg=self%q1_R4P,q_name_reg=self%q1_R4P_name)
-   if (present(q2_R4P)) call register_aux_field(q_src=q2_R4P,q_name_src=q2_R4P_name,q_reg=self%q2_R4P,q_name_reg=self%q2_R4P_name)
-   if (present(q3_R4P)) call register_aux_field(q_src=q3_R4P,q_name_src=q3_R4P_name,q_reg=self%q3_R4P,q_name_reg=self%q3_R4P_name)
-   if (present(q4_R4P)) call register_aux_field(q_src=q4_R4P,q_name_src=q4_R4P_name,q_reg=self%q4_R4P,q_name_reg=self%q4_R4P_name)
-   if (present(q5_R4P)) call register_aux_field(q_src=q5_R4P,q_name_src=q5_R4P_name,q_reg=self%q5_R4P,q_name_reg=self%q5_R4P_name)
-   if (present(q1_I8P)) call register_aux_field(q_src=q1_I8P,q_name_src=q1_I8P_name,q_reg=self%q1_I8P,q_name_reg=self%q1_I8P_name)
-   if (present(q2_I8P)) call register_aux_field(q_src=q2_I8P,q_name_src=q2_I8P_name,q_reg=self%q2_I8P,q_name_reg=self%q2_I8P_name)
-   if (present(q3_I8P)) call register_aux_field(q_src=q3_I8P,q_name_src=q3_I8P_name,q_reg=self%q3_I8P,q_name_reg=self%q3_I8P_name)
-   if (present(q4_I8P)) call register_aux_field(q_src=q4_I8P,q_name_src=q4_I8P_name,q_reg=self%q4_I8P,q_name_reg=self%q4_I8P_name)
-   if (present(q5_I8P)) call register_aux_field(q_src=q5_I8P,q_name_src=q5_I8P_name,q_reg=self%q5_I8P,q_name_reg=self%q5_I8P_name)
-   if (present(q1_I4P)) call register_aux_field(q_src=q1_I4P,q_name_src=q1_I4P_name,q_reg=self%q1_I4P,q_name_reg=self%q1_I4P_name)
-   if (present(q2_I4P)) call register_aux_field(q_src=q2_I4P,q_name_src=q2_I4P_name,q_reg=self%q2_I4P,q_name_reg=self%q2_I4P_name)
-   if (present(q3_I4P)) call register_aux_field(q_src=q3_I4P,q_name_src=q3_I4P_name,q_reg=self%q3_I4P,q_name_reg=self%q3_I4P_name)
-   if (present(q4_I4P)) call register_aux_field(q_src=q4_I4P,q_name_src=q4_I4P_name,q_reg=self%q4_I4P,q_name_reg=self%q4_I4P_name)
-   if (present(q5_I4P)) call register_aux_field(q_src=q5_I4P,q_name_src=q5_I4P_name,q_reg=self%q5_I4P,q_name_reg=self%q5_I4P_name)
-   if (present(q1_I2P)) call register_aux_field(q_src=q1_I2P,q_name_src=q1_I2P_name,q_reg=self%q1_I2P,q_name_reg=self%q1_I2P_name)
-   if (present(q2_I2P)) call register_aux_field(q_src=q2_I2P,q_name_src=q2_I2P_name,q_reg=self%q2_I2P,q_name_reg=self%q2_I2P_name)
-   if (present(q3_I2P)) call register_aux_field(q_src=q3_I2P,q_name_src=q3_I2P_name,q_reg=self%q3_I2P,q_name_reg=self%q3_I2P_name)
-   if (present(q4_I2P)) call register_aux_field(q_src=q4_I2P,q_name_src=q4_I2P_name,q_reg=self%q4_I2P,q_name_reg=self%q4_I2P_name)
-   if (present(q5_I2P)) call register_aux_field(q_src=q5_I2P,q_name_src=q5_I2P_name,q_reg=self%q5_I2P,q_name_reg=self%q5_I2P_name)
-   if (present(q1_I1P)) call register_aux_field(q_src=q1_I1P,q_name_src=q1_I1P_name,q_reg=self%q1_I1P,q_name_reg=self%q1_I1P_name)
-   if (present(q2_I1P)) call register_aux_field(q_src=q2_I1P,q_name_src=q2_I1P_name,q_reg=self%q2_I1P,q_name_reg=self%q2_I1P_name)
-   if (present(q3_I1P)) call register_aux_field(q_src=q3_I1P,q_name_src=q3_I1P_name,q_reg=self%q3_I1P,q_name_reg=self%q3_I1P_name)
-   if (present(q4_I1P)) call register_aux_field(q_src=q4_I1P,q_name_src=q4_I1P_name,q_reg=self%q4_I1P,q_name_reg=self%q4_I1P_name)
-   if (present(q5_I1P)) call register_aux_field(q_src=q5_I1P,q_name_src=q5_I1P_name,q_reg=self%q5_I1P,q_name_reg=self%q5_I1P_name)
-   if (present(s1_R8P)) call register_aux_field(q_src=s1_R8P,q_name_src=s1_R8P_name,q_reg=self%s1_R8P,q_name_reg=self%s1_R8P_name)
-   if (present(s2_R8P)) call register_aux_field(q_src=s2_R8P,q_name_src=s2_R8P_name,q_reg=self%s2_R8P,q_name_reg=self%s2_R8P_name)
-   if (present(s3_R8P)) call register_aux_field(q_src=s3_R8P,q_name_src=s3_R8P_name,q_reg=self%s3_R8P,q_name_reg=self%s3_R8P_name)
-   if (present(s4_R8P)) call register_aux_field(q_src=s4_R8P,q_name_src=s4_R8P_name,q_reg=self%s4_R8P,q_name_reg=self%s4_R8P_name)
-   if (present(s5_R8P)) call register_aux_field(q_src=s5_R8P,q_name_src=s5_R8P_name,q_reg=self%s5_R8P,q_name_reg=self%s5_R8P_name)
-   if (present(s1_R4P)) call register_aux_field(q_src=s1_R4P,q_name_src=s1_R4P_name,q_reg=self%s1_R4P,q_name_reg=self%s1_R4P_name)
-   if (present(s2_R4P)) call register_aux_field(q_src=s2_R4P,q_name_src=s2_R4P_name,q_reg=self%s2_R4P,q_name_reg=self%s2_R4P_name)
-   if (present(s3_R4P)) call register_aux_field(q_src=s3_R4P,q_name_src=s3_R4P_name,q_reg=self%s3_R4P,q_name_reg=self%s3_R4P_name)
-   if (present(s4_R4P)) call register_aux_field(q_src=s4_R4P,q_name_src=s4_R4P_name,q_reg=self%s4_R4P,q_name_reg=self%s4_R4P_name)
-   if (present(s5_R4P)) call register_aux_field(q_src=s5_R4P,q_name_src=s5_R4P_name,q_reg=self%s5_R4P,q_name_reg=self%s5_R4P_name)
-   if (present(s1_I8P)) call register_aux_field(q_src=s1_I8P,q_name_src=s1_I8P_name,q_reg=self%s1_I8P,q_name_reg=self%s1_I8P_name)
-   if (present(s2_I8P)) call register_aux_field(q_src=s2_I8P,q_name_src=s2_I8P_name,q_reg=self%s2_I8P,q_name_reg=self%s2_I8P_name)
-   if (present(s3_I8P)) call register_aux_field(q_src=s3_I8P,q_name_src=s3_I8P_name,q_reg=self%s3_I8P,q_name_reg=self%s3_I8P_name)
-   if (present(s4_I8P)) call register_aux_field(q_src=s4_I8P,q_name_src=s4_I8P_name,q_reg=self%s4_I8P,q_name_reg=self%s4_I8P_name)
-   if (present(s5_I8P)) call register_aux_field(q_src=s5_I8P,q_name_src=s5_I8P_name,q_reg=self%s5_I8P,q_name_reg=self%s5_I8P_name)
-   if (present(s1_I4P)) call register_aux_field(q_src=s1_I4P,q_name_src=s1_I4P_name,q_reg=self%s1_I4P,q_name_reg=self%s1_I4P_name)
-   if (present(s2_I4P)) call register_aux_field(q_src=s2_I4P,q_name_src=s2_I4P_name,q_reg=self%s2_I4P,q_name_reg=self%s2_I4P_name)
-   if (present(s3_I4P)) call register_aux_field(q_src=s3_I4P,q_name_src=s3_I4P_name,q_reg=self%s3_I4P,q_name_reg=self%s3_I4P_name)
-   if (present(s4_I4P)) call register_aux_field(q_src=s4_I4P,q_name_src=s4_I4P_name,q_reg=self%s4_I4P,q_name_reg=self%s4_I4P_name)
-   if (present(s5_I4P)) call register_aux_field(q_src=s5_I4P,q_name_src=s5_I4P_name,q_reg=self%s5_I4P,q_name_reg=self%s5_I4P_name)
-   if (present(s1_I2P)) call register_aux_field(q_src=s1_I2P,q_name_src=s1_I2P_name,q_reg=self%s1_I2P,q_name_reg=self%s1_I2P_name)
-   if (present(s2_I2P)) call register_aux_field(q_src=s2_I2P,q_name_src=s2_I2P_name,q_reg=self%s2_I2P,q_name_reg=self%s2_I2P_name)
-   if (present(s3_I2P)) call register_aux_field(q_src=s3_I2P,q_name_src=s3_I2P_name,q_reg=self%s3_I2P,q_name_reg=self%s3_I2P_name)
-   if (present(s4_I2P)) call register_aux_field(q_src=s4_I2P,q_name_src=s4_I2P_name,q_reg=self%s4_I2P,q_name_reg=self%s4_I2P_name)
-   if (present(s5_I2P)) call register_aux_field(q_src=s5_I2P,q_name_src=s5_I2P_name,q_reg=self%s5_I2P,q_name_reg=self%s5_I2P_name)
-   if (present(s1_I1P)) call register_aux_field(q_src=s1_I1P,q_name_src=s1_I1P_name,q_reg=self%s1_I1P,q_name_reg=self%s1_I1P_name)
-   if (present(s2_I1P)) call register_aux_field(q_src=s2_I1P,q_name_src=s2_I1P_name,q_reg=self%s2_I1P,q_name_reg=self%s2_I1P_name)
-   if (present(s3_I1P)) call register_aux_field(q_src=s3_I1P,q_name_src=s3_I1P_name,q_reg=self%s3_I1P,q_name_reg=self%s3_I1P_name)
-   if (present(s4_I1P)) call register_aux_field(q_src=s4_I1P,q_name_src=s4_I1P_name,q_reg=self%s4_I1P,q_name_reg=self%s4_I1P_name)
-   if (present(s5_I1P)) call register_aux_field(q_src=s5_I1P,q_name_src=s5_I1P_name,q_reg=self%s5_I1P,q_name_reg=self%s5_I1P_name)
+   call self%register_aux_field(q1_R8P,q1_R8P_name,q2_R8P,q2_R8P_name,q3_R8P,q3_R8P_name,q4_R8P,q4_R8P_name,q5_R8P,q5_R8P_name, &
+                                q6_R8P,q6_R8P_name,q7_R8P,q7_R8P_name,q8_R8P,q8_R8P_name,q9_R8P,q9_R8P_name,                    &
+                                q1_R4P,q1_R4P_name,q2_R4P,q2_R4P_name,q3_R4P,q3_R4P_name,q4_R4P,q4_R4P_name,q5_R4P,q5_R4P_name, &
+                                q1_I8P,q1_I8P_name,q2_I8P,q2_I8P_name,q3_I8P,q3_I8P_name,q4_I8P,q4_I8P_name,q5_I8P,q5_I8P_name, &
+                                q1_I4P,q1_I4P_name,q2_I4P,q2_I4P_name,q3_I4P,q3_I4P_name,q4_I4P,q4_I4P_name,q5_I4P,q5_I4P_name, &
+                                q1_I2P,q1_I2P_name,q2_I2P,q2_I2P_name,q3_I2P,q3_I2P_name,q4_I2P,q4_I2P_name,q5_I2P,q5_I2P_name, &
+                                q1_I1P,q1_I1P_name,q2_I1P,q2_I1P_name,q3_I1P,q3_I1P_name,q4_I1P,q4_I1P_name,q5_I1P,q5_I1P_name, &
+                                s1_R8P,s1_R8P_name,s2_R8P,s2_R8P_name,s3_R8P,s3_R8P_name,s4_R8P,s4_R8P_name,s5_R8P,s5_R8P_name, &
+                                s1_R4P,s1_R4P_name,s2_R4P,s2_R4P_name,s3_R4P,s3_R4P_name,s4_R4P,s4_R4P_name,s5_R4P,s5_R4P_name, &
+                                s1_I8P,s1_I8P_name,s2_I8P,s2_I8P_name,s3_I8P,s3_I8P_name,s4_I8P,s4_I8P_name,s5_I8P,s5_I8P_name, &
+                                s1_I4P,s1_I4P_name,s2_I4P,s2_I4P_name,s3_I4P,s3_I4P_name,s4_I4P,s4_I4P_name,s5_I4P,s5_I4P_name, &
+                                s1_I2P,s1_I2P_name,s2_I2P,s2_I2P_name,s3_I2P,s3_I2P_name,s4_I2P,s4_I2P_name,s5_I2P,s5_I2P_name, &
+                                s1_I1P,s1_I1P_name,s2_I1P,s2_I1P_name,s3_I1P,s3_I1P_name,s4_I1P,s4_I1P_name,s5_I1P,s5_I1P_name)
    call self%mpih%print_message('io_object%initialize finish')
    endsubroutine initialize
+
+   subroutine register_aux_field(self,                                                                                           &
+                                 q1_R8P,q1_R8P_name,q2_R8P,q2_R8P_name,q3_R8P,q3_R8P_name,q4_R8P,q4_R8P_name,q5_R8P,q5_R8P_name, &
+                                 q6_R8P,q6_R8P_name,q7_R8P,q7_R8P_name,q8_R8P,q8_R8P_name,q9_R8P,q9_R8P_name,                    &
+                                 q1_R4P,q1_R4P_name,q2_R4P,q2_R4P_name,q3_R4P,q3_R4P_name,q4_R4P,q4_R4P_name,q5_R4P,q5_R4P_name, &
+                                 q1_I8P,q1_I8P_name,q2_I8P,q2_I8P_name,q3_I8P,q3_I8P_name,q4_I8P,q4_I8P_name,q5_I8P,q5_I8P_name, &
+                                 q1_I4P,q1_I4P_name,q2_I4P,q2_I4P_name,q3_I4P,q3_I4P_name,q4_I4P,q4_I4P_name,q5_I4P,q5_I4P_name, &
+                                 q1_I2P,q1_I2P_name,q2_I2P,q2_I2P_name,q3_I2P,q3_I2P_name,q4_I2P,q4_I2P_name,q5_I2P,q5_I2P_name, &
+                                 q1_I1P,q1_I1P_name,q2_I1P,q2_I1P_name,q3_I1P,q3_I1P_name,q4_I1P,q4_I1P_name,q5_I1P,q5_I1P_name, &
+                                 s1_R8P,s1_R8P_name,s2_R8P,s2_R8P_name,s3_R8P,s3_R8P_name,s4_R8P,s4_R8P_name,s5_R8P,s5_R8P_name, &
+                                 s1_R4P,s1_R4P_name,s2_R4P,s2_R4P_name,s3_R4P,s3_R4P_name,s4_R4P,s4_R4P_name,s5_R4P,s5_R4P_name, &
+                                 s1_I8P,s1_I8P_name,s2_I8P,s2_I8P_name,s3_I8P,s3_I8P_name,s4_I8P,s4_I8P_name,s5_I8P,s5_I8P_name, &
+                                 s1_I4P,s1_I4P_name,s2_I4P,s2_I4P_name,s3_I4P,s3_I4P_name,s4_I4P,s4_I4P_name,s5_I4P,s5_I4P_name, &
+                                 s1_I2P,s1_I2P_name,s2_I2P,s2_I2P_name,s3_I2P,s3_I2P_name,s4_I2P,s4_I2P_name,s5_I2P,s5_I2P_name, &
+                                 s1_I1P,s1_I1P_name,s2_I1P,s2_I1P_name,s3_I1P,s3_I1P_name,s4_I1P,s4_I1P_name,s5_I1P,s5_I1P_name)
+   !< Register auxiliary fields.
+   class(io_object),   intent(inout)                :: self              !< IO handler.
+   real(R8P),          intent(in), target, optional :: q1_R8P(:,:,:,:,:) !< Auxiliary (1) vector cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: q2_R8P(:,:,:,:,:) !< Auxiliary (2) vector cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: q3_R8P(:,:,:,:,:) !< Auxiliary (3) vector cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: q4_R8P(:,:,:,:,:) !< Auxiliary (4) vector cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: q5_R8P(:,:,:,:,:) !< Auxiliary (5) vector cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: q6_R8P(:,:,:,:,:) !< Auxiliary (6) vector cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: q7_R8P(:,:,:,:,:) !< Auxiliary (7) vector cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: q8_R8P(:,:,:,:,:) !< Auxiliary (8) vector cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: q9_R8P(:,:,:,:,:) !< Auxiliary (9) vector cell centered fields, kind R8P.
+   real(R4P),          intent(in), target, optional :: q1_R4P(:,:,:,:,:) !< Auxiliary (1) vector cell centered fields, kind R4P.
+   real(R4P),          intent(in), target, optional :: q2_R4P(:,:,:,:,:) !< Auxiliary (2) vector cell centered fields, kind R4P.
+   real(R4P),          intent(in), target, optional :: q3_R4P(:,:,:,:,:) !< Auxiliary (3) vector cell centered fields, kind R4P.
+   real(R4P),          intent(in), target, optional :: q4_R4P(:,:,:,:,:) !< Auxiliary (4) vector cell centered fields, kind R4P.
+   real(R4P),          intent(in), target, optional :: q5_R4P(:,:,:,:,:) !< Auxiliary (5) vector cell centered fields, kind R4P.
+   integer(I8P),       intent(in), target, optional :: q1_I8P(:,:,:,:,:) !< Auxiliary (1) vector cell centered fields, kind I8P.
+   integer(I8P),       intent(in), target, optional :: q2_I8P(:,:,:,:,:) !< Auxiliary (2) vector cell centered fields, kind I8P.
+   integer(I8P),       intent(in), target, optional :: q3_I8P(:,:,:,:,:) !< Auxiliary (3) vector cell centered fields, kind I8P.
+   integer(I8P),       intent(in), target, optional :: q4_I8P(:,:,:,:,:) !< Auxiliary (4) vector cell centered fields, kind I8P.
+   integer(I8P),       intent(in), target, optional :: q5_I8P(:,:,:,:,:) !< Auxiliary (5) vector cell centered fields, kind I8P.
+   integer(I4P),       intent(in), target, optional :: q1_I4P(:,:,:,:,:) !< Auxiliary (1) vector cell centered fields, kind I4P.
+   integer(I4P),       intent(in), target, optional :: q2_I4P(:,:,:,:,:) !< Auxiliary (2) vector cell centered fields, kind I4P.
+   integer(I4P),       intent(in), target, optional :: q3_I4P(:,:,:,:,:) !< Auxiliary (3) vector cell centered fields, kind I4P.
+   integer(I4P),       intent(in), target, optional :: q4_I4P(:,:,:,:,:) !< Auxiliary (4) vector cell centered fields, kind I4P.
+   integer(I4P),       intent(in), target, optional :: q5_I4P(:,:,:,:,:) !< Auxiliary (5) vector cell centered fields, kind I4P.
+   integer(I2P),       intent(in), target, optional :: q1_I2P(:,:,:,:,:) !< Auxiliary (1) vector cell centered fields, kind I2P.
+   integer(I2P),       intent(in), target, optional :: q2_I2P(:,:,:,:,:) !< Auxiliary (2) vector cell centered fields, kind I2P.
+   integer(I2P),       intent(in), target, optional :: q3_I2P(:,:,:,:,:) !< Auxiliary (3) vector cell centered fields, kind I2P.
+   integer(I2P),       intent(in), target, optional :: q4_I2P(:,:,:,:,:) !< Auxiliary (4) vector cell centered fields, kind I2P.
+   integer(I2P),       intent(in), target, optional :: q5_I2P(:,:,:,:,:) !< Auxiliary (5) vector cell centered fields, kind I2P.
+   integer(I1P),       intent(in), target, optional :: q1_I1P(:,:,:,:,:) !< Auxiliary (1) vector cell centered fields, kind I1P.
+   integer(I1P),       intent(in), target, optional :: q2_I1P(:,:,:,:,:) !< Auxiliary (2) vector cell centered fields, kind I1P.
+   integer(I1P),       intent(in), target, optional :: q3_I1P(:,:,:,:,:) !< Auxiliary (3) vector cell centered fields, kind I1P.
+   integer(I1P),       intent(in), target, optional :: q4_I1P(:,:,:,:,:) !< Auxiliary (4) vector cell centered fields, kind I1P.
+   integer(I1P),       intent(in), target, optional :: q5_I1P(:,:,:,:,:) !< Auxiliary (5) vector cell centered fields, kind I1P.
+   real(R8P),          intent(in), target, optional :: s1_R8P(  :,:,:,:) !< Auxiliary (1) scalar cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: s2_R8P(  :,:,:,:) !< Auxiliary (2) scalar cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: s3_R8P(  :,:,:,:) !< Auxiliary (3) scalar cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: s4_R8P(  :,:,:,:) !< Auxiliary (4) scalar cell centered fields, kind R8P.
+   real(R8P),          intent(in), target, optional :: s5_R8P(  :,:,:,:) !< Auxiliary (5) scalar cell centered fields, kind R8P.
+   real(R4P),          intent(in), target, optional :: s1_R4P(  :,:,:,:) !< Auxiliary (1) scalar cell centered fields, kind R4P.
+   real(R4P),          intent(in), target, optional :: s2_R4P(  :,:,:,:) !< Auxiliary (2) scalar cell centered fields, kind R4P.
+   real(R4P),          intent(in), target, optional :: s3_R4P(  :,:,:,:) !< Auxiliary (3) scalar cell centered fields, kind R4P.
+   real(R4P),          intent(in), target, optional :: s4_R4P(  :,:,:,:) !< Auxiliary (4) scalar cell centered fields, kind R4P.
+   real(R4P),          intent(in), target, optional :: s5_R4P(  :,:,:,:) !< Auxiliary (5) scalar cell centered fields, kind R4P.
+   integer(I8P),       intent(in), target, optional :: s1_I8P(  :,:,:,:) !< Auxiliary (1) scalar cell centered fields, kind I8P.
+   integer(I8P),       intent(in), target, optional :: s2_I8P(  :,:,:,:) !< Auxiliary (2) scalar cell centered fields, kind I8P.
+   integer(I8P),       intent(in), target, optional :: s3_I8P(  :,:,:,:) !< Auxiliary (3) scalar cell centered fields, kind I8P.
+   integer(I8P),       intent(in), target, optional :: s4_I8P(  :,:,:,:) !< Auxiliary (4) scalar cell centered fields, kind I8P.
+   integer(I8P),       intent(in), target, optional :: s5_I8P(  :,:,:,:) !< Auxiliary (5) scalar cell centered fields, kind I8P.
+   integer(I4P),       intent(in), target, optional :: s1_I4P(  :,:,:,:) !< Auxiliary (1) scalar cell centered fields, kind I4P.
+   integer(I4P),       intent(in), target, optional :: s2_I4P(  :,:,:,:) !< Auxiliary (2) scalar cell centered fields, kind I4P.
+   integer(I4P),       intent(in), target, optional :: s3_I4P(  :,:,:,:) !< Auxiliary (3) scalar cell centered fields, kind I4P.
+   integer(I4P),       intent(in), target, optional :: s4_I4P(  :,:,:,:) !< Auxiliary (4) scalar cell centered fields, kind I4P.
+   integer(I4P),       intent(in), target, optional :: s5_I4P(  :,:,:,:) !< Auxiliary (5) scalar cell centered fields, kind I4P.
+   integer(I2P),       intent(in), target, optional :: s1_I2P(  :,:,:,:) !< Auxiliary (1) scalar cell centered fields, kind I2P.
+   integer(I2P),       intent(in), target, optional :: s2_I2P(  :,:,:,:) !< Auxiliary (2) scalar cell centered fields, kind I2P.
+   integer(I2P),       intent(in), target, optional :: s3_I2P(  :,:,:,:) !< Auxiliary (3) scalar cell centered fields, kind I2P.
+   integer(I2P),       intent(in), target, optional :: s4_I2P(  :,:,:,:) !< Auxiliary (4) scalar cell centered fields, kind I2P.
+   integer(I2P),       intent(in), target, optional :: s5_I2P(  :,:,:,:) !< Auxiliary (5) scalar cell centered fields, kind I2P.
+   integer(I1P),       intent(in), target, optional :: s1_I1P(  :,:,:,:) !< Auxiliary (1) scalar cell centered fields, kind I1P.
+   integer(I1P),       intent(in), target, optional :: s2_I1P(  :,:,:,:) !< Auxiliary (2) scalar cell centered fields, kind I1P.
+   integer(I1P),       intent(in), target, optional :: s3_I1P(  :,:,:,:) !< Auxiliary (3) scalar cell centered fields, kind I1P.
+   integer(I1P),       intent(in), target, optional :: s4_I1P(  :,:,:,:) !< Auxiliary (4) scalar cell centered fields, kind I1P.
+   integer(I1P),       intent(in), target, optional :: s5_I1P(  :,:,:,:) !< Auxiliary (5) scalar cell centered fields, kind I1P.
+   character(*),       intent(in),         optional :: q1_R8P_name(:)    !< Auxiliary (1) vector fields names, kind R8P.
+   character(*),       intent(in),         optional :: q2_R8P_name(:)    !< Auxiliary (2) vector fields names, kind R8P.
+   character(*),       intent(in),         optional :: q3_R8P_name(:)    !< Auxiliary (3) vector fields names, kind R8P.
+   character(*),       intent(in),         optional :: q4_R8P_name(:)    !< Auxiliary (4) vector fields names, kind R8P.
+   character(*),       intent(in),         optional :: q5_R8P_name(:)    !< Auxiliary (5) vector fields names, kind R8P.
+   character(*),       intent(in),         optional :: q6_R8P_name(:)    !< Auxiliary (6) vector fields names, kind R8P.
+   character(*),       intent(in),         optional :: q7_R8P_name(:)    !< Auxiliary (7) vector fields names, kind R8P.
+   character(*),       intent(in),         optional :: q8_R8P_name(:)    !< Auxiliary (8) vector fields names, kind R8P.
+   character(*),       intent(in),         optional :: q9_R8P_name(:)    !< Auxiliary (9) vector fields names, kind R8P.
+   character(*),       intent(in),         optional :: q1_R4P_name(:)    !< Auxiliary (1) vector fields names, kind R4P.
+   character(*),       intent(in),         optional :: q2_R4P_name(:)    !< Auxiliary (2) vector fields names, kind R4P.
+   character(*),       intent(in),         optional :: q3_R4P_name(:)    !< Auxiliary (3) vector fields names, kind R4P.
+   character(*),       intent(in),         optional :: q4_R4P_name(:)    !< Auxiliary (4) vector fields names, kind R4P.
+   character(*),       intent(in),         optional :: q5_R4P_name(:)    !< Auxiliary (5) vector fields names, kind R4P.
+   character(*),       intent(in),         optional :: q1_I8P_name(:)    !< Auxiliary (1) vector fields names, kind I8P.
+   character(*),       intent(in),         optional :: q2_I8P_name(:)    !< Auxiliary (2) vector fields names, kind I8P.
+   character(*),       intent(in),         optional :: q3_I8P_name(:)    !< Auxiliary (3) vector fields names, kind I8P.
+   character(*),       intent(in),         optional :: q4_I8P_name(:)    !< Auxiliary (4) vector fields names, kind I8P.
+   character(*),       intent(in),         optional :: q5_I8P_name(:)    !< Auxiliary (5) vector fields names, kind I8P.
+   character(*),       intent(in),         optional :: q1_I4P_name(:)    !< Auxiliary (1) vector fields names, kind I4P.
+   character(*),       intent(in),         optional :: q2_I4P_name(:)    !< Auxiliary (2) vector fields names, kind I4P.
+   character(*),       intent(in),         optional :: q3_I4P_name(:)    !< Auxiliary (3) vector fields names, kind I4P.
+   character(*),       intent(in),         optional :: q4_I4P_name(:)    !< Auxiliary (4) vector fields names, kind I4P.
+   character(*),       intent(in),         optional :: q5_I4P_name(:)    !< Auxiliary (5) vector fields names, kind I4P.
+   character(*),       intent(in),         optional :: q1_I2P_name(:)    !< Auxiliary (1) vector fields names, kind I2P.
+   character(*),       intent(in),         optional :: q2_I2P_name(:)    !< Auxiliary (2) vector fields names, kind I2P.
+   character(*),       intent(in),         optional :: q3_I2P_name(:)    !< Auxiliary (3) vector fields names, kind I2P.
+   character(*),       intent(in),         optional :: q4_I2P_name(:)    !< Auxiliary (4) vector fields names, kind I2P.
+   character(*),       intent(in),         optional :: q5_I2P_name(:)    !< Auxiliary (5) vector fields names, kind I2P.
+   character(*),       intent(in),         optional :: q1_I1P_name(:)    !< Auxiliary (1) vector fields names, kind I1P.
+   character(*),       intent(in),         optional :: q2_I1P_name(:)    !< Auxiliary (2) vector fields names, kind I1P.
+   character(*),       intent(in),         optional :: q3_I1P_name(:)    !< Auxiliary (3) vector fields names, kind I1P.
+   character(*),       intent(in),         optional :: q4_I1P_name(:)    !< Auxiliary (4) vector fields names, kind I1P.
+   character(*),       intent(in),         optional :: q5_I1P_name(:)    !< Auxiliary (5) vector fields names, kind I1P.
+   character(*),       intent(in),         optional :: s1_R8P_name       !< Auxiliary (1) scalar field name, kind R8P.
+   character(*),       intent(in),         optional :: s2_R8P_name       !< Auxiliary (2) scalar field name, kind R8P.
+   character(*),       intent(in),         optional :: s3_R8P_name       !< Auxiliary (3) scalar field name, kind R8P.
+   character(*),       intent(in),         optional :: s4_R8P_name       !< Auxiliary (4) scalar field name, kind R8P.
+   character(*),       intent(in),         optional :: s5_R8P_name       !< Auxiliary (5) scalar field name, kind R8P.
+   character(*),       intent(in),         optional :: s1_R4P_name       !< Auxiliary (1) scalar field name, kind R4P.
+   character(*),       intent(in),         optional :: s2_R4P_name       !< Auxiliary (2) scalar field name, kind R4P.
+   character(*),       intent(in),         optional :: s3_R4P_name       !< Auxiliary (3) scalar field name, kind R4P.
+   character(*),       intent(in),         optional :: s4_R4P_name       !< Auxiliary (4) scalar field name, kind R4P.
+   character(*),       intent(in),         optional :: s5_R4P_name       !< Auxiliary (5) scalar field name, kind R4P.
+   character(*),       intent(in),         optional :: s1_I8P_name       !< Auxiliary (1) scalar field name, kind I8P.
+   character(*),       intent(in),         optional :: s2_I8P_name       !< Auxiliary (2) scalar field name, kind I8P.
+   character(*),       intent(in),         optional :: s3_I8P_name       !< Auxiliary (3) scalar field name, kind I8P.
+   character(*),       intent(in),         optional :: s4_I8P_name       !< Auxiliary (4) scalar field name, kind I8P.
+   character(*),       intent(in),         optional :: s5_I8P_name       !< Auxiliary (5) scalar field name, kind I8P.
+   character(*),       intent(in),         optional :: s1_I4P_name       !< Auxiliary (1) scalar field name, kind I4P.
+   character(*),       intent(in),         optional :: s2_I4P_name       !< Auxiliary (2) scalar field name, kind I4P.
+   character(*),       intent(in),         optional :: s3_I4P_name       !< Auxiliary (3) scalar field name, kind I4P.
+   character(*),       intent(in),         optional :: s4_I4P_name       !< Auxiliary (4) scalar field name, kind I4P.
+   character(*),       intent(in),         optional :: s5_I4P_name       !< Auxiliary (5) scalar field name, kind I4P.
+   character(*),       intent(in),         optional :: s1_I2P_name       !< Auxiliary (1) scalar field name, kind I2P.
+   character(*),       intent(in),         optional :: s2_I2P_name       !< Auxiliary (2) scalar field name, kind I2P.
+   character(*),       intent(in),         optional :: s3_I2P_name       !< Auxiliary (3) scalar field name, kind I2P.
+   character(*),       intent(in),         optional :: s4_I2P_name       !< Auxiliary (4) scalar field name, kind I2P.
+   character(*),       intent(in),         optional :: s5_I2P_name       !< Auxiliary (5) scalar field name, kind I2P.
+   character(*),       intent(in),         optional :: s1_I1P_name       !< Auxiliary (1) scalar field name, kind I1P.
+   character(*),       intent(in),         optional :: s2_I1P_name       !< Auxiliary (2) scalar field name, kind I1P.
+   character(*),       intent(in),         optional :: s3_I1P_name       !< Auxiliary (3) scalar field name, kind I1P.
+   character(*),       intent(in),         optional :: s4_I1P_name       !< Auxiliary (4) scalar field name, kind I1P.
+   character(*),       intent(in),         optional :: s5_I1P_name       !< Auxiliary (5) scalar field name, kind I1P.
+
+   if (present(q1_R8P)) call reg_aux_field(q_src=q1_R8P,q_name_src=q1_R8P_name,q_reg=self%q1_R8P,q_name_reg=self%q1_R8P_name)
+   if (present(q2_R8P)) call reg_aux_field(q_src=q2_R8P,q_name_src=q2_R8P_name,q_reg=self%q2_R8P,q_name_reg=self%q2_R8P_name)
+   if (present(q3_R8P)) call reg_aux_field(q_src=q3_R8P,q_name_src=q3_R8P_name,q_reg=self%q3_R8P,q_name_reg=self%q3_R8P_name)
+   if (present(q4_R8P)) call reg_aux_field(q_src=q4_R8P,q_name_src=q4_R8P_name,q_reg=self%q4_R8P,q_name_reg=self%q4_R8P_name)
+   if (present(q5_R8P)) call reg_aux_field(q_src=q5_R8P,q_name_src=q5_R8P_name,q_reg=self%q5_R8P,q_name_reg=self%q5_R8P_name)
+   if (present(q6_R8P)) call reg_aux_field(q_src=q6_R8P,q_name_src=q6_R8P_name,q_reg=self%q6_R8P,q_name_reg=self%q6_R8P_name)
+   if (present(q7_R8P)) call reg_aux_field(q_src=q7_R8P,q_name_src=q7_R8P_name,q_reg=self%q7_R8P,q_name_reg=self%q7_R8P_name)
+   if (present(q8_R8P)) call reg_aux_field(q_src=q8_R8P,q_name_src=q8_R8P_name,q_reg=self%q8_R8P,q_name_reg=self%q8_R8P_name)
+   if (present(q9_R8P)) call reg_aux_field(q_src=q9_R8P,q_name_src=q9_R8P_name,q_reg=self%q9_R8P,q_name_reg=self%q9_R8P_name)
+   if (present(q1_R4P)) call reg_aux_field(q_src=q1_R4P,q_name_src=q1_R4P_name,q_reg=self%q1_R4P,q_name_reg=self%q1_R4P_name)
+   if (present(q2_R4P)) call reg_aux_field(q_src=q2_R4P,q_name_src=q2_R4P_name,q_reg=self%q2_R4P,q_name_reg=self%q2_R4P_name)
+   if (present(q3_R4P)) call reg_aux_field(q_src=q3_R4P,q_name_src=q3_R4P_name,q_reg=self%q3_R4P,q_name_reg=self%q3_R4P_name)
+   if (present(q4_R4P)) call reg_aux_field(q_src=q4_R4P,q_name_src=q4_R4P_name,q_reg=self%q4_R4P,q_name_reg=self%q4_R4P_name)
+   if (present(q5_R4P)) call reg_aux_field(q_src=q5_R4P,q_name_src=q5_R4P_name,q_reg=self%q5_R4P,q_name_reg=self%q5_R4P_name)
+   if (present(q1_I8P)) call reg_aux_field(q_src=q1_I8P,q_name_src=q1_I8P_name,q_reg=self%q1_I8P,q_name_reg=self%q1_I8P_name)
+   if (present(q2_I8P)) call reg_aux_field(q_src=q2_I8P,q_name_src=q2_I8P_name,q_reg=self%q2_I8P,q_name_reg=self%q2_I8P_name)
+   if (present(q3_I8P)) call reg_aux_field(q_src=q3_I8P,q_name_src=q3_I8P_name,q_reg=self%q3_I8P,q_name_reg=self%q3_I8P_name)
+   if (present(q4_I8P)) call reg_aux_field(q_src=q4_I8P,q_name_src=q4_I8P_name,q_reg=self%q4_I8P,q_name_reg=self%q4_I8P_name)
+   if (present(q5_I8P)) call reg_aux_field(q_src=q5_I8P,q_name_src=q5_I8P_name,q_reg=self%q5_I8P,q_name_reg=self%q5_I8P_name)
+   if (present(q1_I4P)) call reg_aux_field(q_src=q1_I4P,q_name_src=q1_I4P_name,q_reg=self%q1_I4P,q_name_reg=self%q1_I4P_name)
+   if (present(q2_I4P)) call reg_aux_field(q_src=q2_I4P,q_name_src=q2_I4P_name,q_reg=self%q2_I4P,q_name_reg=self%q2_I4P_name)
+   if (present(q3_I4P)) call reg_aux_field(q_src=q3_I4P,q_name_src=q3_I4P_name,q_reg=self%q3_I4P,q_name_reg=self%q3_I4P_name)
+   if (present(q4_I4P)) call reg_aux_field(q_src=q4_I4P,q_name_src=q4_I4P_name,q_reg=self%q4_I4P,q_name_reg=self%q4_I4P_name)
+   if (present(q5_I4P)) call reg_aux_field(q_src=q5_I4P,q_name_src=q5_I4P_name,q_reg=self%q5_I4P,q_name_reg=self%q5_I4P_name)
+   if (present(q1_I2P)) call reg_aux_field(q_src=q1_I2P,q_name_src=q1_I2P_name,q_reg=self%q1_I2P,q_name_reg=self%q1_I2P_name)
+   if (present(q2_I2P)) call reg_aux_field(q_src=q2_I2P,q_name_src=q2_I2P_name,q_reg=self%q2_I2P,q_name_reg=self%q2_I2P_name)
+   if (present(q3_I2P)) call reg_aux_field(q_src=q3_I2P,q_name_src=q3_I2P_name,q_reg=self%q3_I2P,q_name_reg=self%q3_I2P_name)
+   if (present(q4_I2P)) call reg_aux_field(q_src=q4_I2P,q_name_src=q4_I2P_name,q_reg=self%q4_I2P,q_name_reg=self%q4_I2P_name)
+   if (present(q5_I2P)) call reg_aux_field(q_src=q5_I2P,q_name_src=q5_I2P_name,q_reg=self%q5_I2P,q_name_reg=self%q5_I2P_name)
+   if (present(q1_I1P)) call reg_aux_field(q_src=q1_I1P,q_name_src=q1_I1P_name,q_reg=self%q1_I1P,q_name_reg=self%q1_I1P_name)
+   if (present(q2_I1P)) call reg_aux_field(q_src=q2_I1P,q_name_src=q2_I1P_name,q_reg=self%q2_I1P,q_name_reg=self%q2_I1P_name)
+   if (present(q3_I1P)) call reg_aux_field(q_src=q3_I1P,q_name_src=q3_I1P_name,q_reg=self%q3_I1P,q_name_reg=self%q3_I1P_name)
+   if (present(q4_I1P)) call reg_aux_field(q_src=q4_I1P,q_name_src=q4_I1P_name,q_reg=self%q4_I1P,q_name_reg=self%q4_I1P_name)
+   if (present(q5_I1P)) call reg_aux_field(q_src=q5_I1P,q_name_src=q5_I1P_name,q_reg=self%q5_I1P,q_name_reg=self%q5_I1P_name)
+   if (present(s1_R8P)) call reg_aux_field(q_src=s1_R8P,q_name_src=s1_R8P_name,q_reg=self%s1_R8P,q_name_reg=self%s1_R8P_name)
+   if (present(s2_R8P)) call reg_aux_field(q_src=s2_R8P,q_name_src=s2_R8P_name,q_reg=self%s2_R8P,q_name_reg=self%s2_R8P_name)
+   if (present(s3_R8P)) call reg_aux_field(q_src=s3_R8P,q_name_src=s3_R8P_name,q_reg=self%s3_R8P,q_name_reg=self%s3_R8P_name)
+   if (present(s4_R8P)) call reg_aux_field(q_src=s4_R8P,q_name_src=s4_R8P_name,q_reg=self%s4_R8P,q_name_reg=self%s4_R8P_name)
+   if (present(s5_R8P)) call reg_aux_field(q_src=s5_R8P,q_name_src=s5_R8P_name,q_reg=self%s5_R8P,q_name_reg=self%s5_R8P_name)
+   if (present(s1_R4P)) call reg_aux_field(q_src=s1_R4P,q_name_src=s1_R4P_name,q_reg=self%s1_R4P,q_name_reg=self%s1_R4P_name)
+   if (present(s2_R4P)) call reg_aux_field(q_src=s2_R4P,q_name_src=s2_R4P_name,q_reg=self%s2_R4P,q_name_reg=self%s2_R4P_name)
+   if (present(s3_R4P)) call reg_aux_field(q_src=s3_R4P,q_name_src=s3_R4P_name,q_reg=self%s3_R4P,q_name_reg=self%s3_R4P_name)
+   if (present(s4_R4P)) call reg_aux_field(q_src=s4_R4P,q_name_src=s4_R4P_name,q_reg=self%s4_R4P,q_name_reg=self%s4_R4P_name)
+   if (present(s5_R4P)) call reg_aux_field(q_src=s5_R4P,q_name_src=s5_R4P_name,q_reg=self%s5_R4P,q_name_reg=self%s5_R4P_name)
+   if (present(s1_I8P)) call reg_aux_field(q_src=s1_I8P,q_name_src=s1_I8P_name,q_reg=self%s1_I8P,q_name_reg=self%s1_I8P_name)
+   if (present(s2_I8P)) call reg_aux_field(q_src=s2_I8P,q_name_src=s2_I8P_name,q_reg=self%s2_I8P,q_name_reg=self%s2_I8P_name)
+   if (present(s3_I8P)) call reg_aux_field(q_src=s3_I8P,q_name_src=s3_I8P_name,q_reg=self%s3_I8P,q_name_reg=self%s3_I8P_name)
+   if (present(s4_I8P)) call reg_aux_field(q_src=s4_I8P,q_name_src=s4_I8P_name,q_reg=self%s4_I8P,q_name_reg=self%s4_I8P_name)
+   if (present(s5_I8P)) call reg_aux_field(q_src=s5_I8P,q_name_src=s5_I8P_name,q_reg=self%s5_I8P,q_name_reg=self%s5_I8P_name)
+   if (present(s1_I4P)) call reg_aux_field(q_src=s1_I4P,q_name_src=s1_I4P_name,q_reg=self%s1_I4P,q_name_reg=self%s1_I4P_name)
+   if (present(s2_I4P)) call reg_aux_field(q_src=s2_I4P,q_name_src=s2_I4P_name,q_reg=self%s2_I4P,q_name_reg=self%s2_I4P_name)
+   if (present(s3_I4P)) call reg_aux_field(q_src=s3_I4P,q_name_src=s3_I4P_name,q_reg=self%s3_I4P,q_name_reg=self%s3_I4P_name)
+   if (present(s4_I4P)) call reg_aux_field(q_src=s4_I4P,q_name_src=s4_I4P_name,q_reg=self%s4_I4P,q_name_reg=self%s4_I4P_name)
+   if (present(s5_I4P)) call reg_aux_field(q_src=s5_I4P,q_name_src=s5_I4P_name,q_reg=self%s5_I4P,q_name_reg=self%s5_I4P_name)
+   if (present(s1_I2P)) call reg_aux_field(q_src=s1_I2P,q_name_src=s1_I2P_name,q_reg=self%s1_I2P,q_name_reg=self%s1_I2P_name)
+   if (present(s2_I2P)) call reg_aux_field(q_src=s2_I2P,q_name_src=s2_I2P_name,q_reg=self%s2_I2P,q_name_reg=self%s2_I2P_name)
+   if (present(s3_I2P)) call reg_aux_field(q_src=s3_I2P,q_name_src=s3_I2P_name,q_reg=self%s3_I2P,q_name_reg=self%s3_I2P_name)
+   if (present(s4_I2P)) call reg_aux_field(q_src=s4_I2P,q_name_src=s4_I2P_name,q_reg=self%s4_I2P,q_name_reg=self%s4_I2P_name)
+   if (present(s5_I2P)) call reg_aux_field(q_src=s5_I2P,q_name_src=s5_I2P_name,q_reg=self%s5_I2P,q_name_reg=self%s5_I2P_name)
+   if (present(s1_I1P)) call reg_aux_field(q_src=s1_I1P,q_name_src=s1_I1P_name,q_reg=self%s1_I1P,q_name_reg=self%s1_I1P_name)
+   if (present(s2_I1P)) call reg_aux_field(q_src=s2_I1P,q_name_src=s2_I1P_name,q_reg=self%s2_I1P,q_name_reg=self%s2_I1P_name)
+   if (present(s3_I1P)) call reg_aux_field(q_src=s3_I1P,q_name_src=s3_I1P_name,q_reg=self%s3_I1P,q_name_reg=self%s3_I1P_name)
+   if (present(s4_I1P)) call reg_aux_field(q_src=s4_I1P,q_name_src=s4_I1P_name,q_reg=self%s4_I1P,q_name_reg=self%s4_I1P_name)
+   if (present(s5_I1P)) call reg_aux_field(q_src=s5_I1P,q_name_src=s5_I1P_name,q_reg=self%s5_I1P,q_name_reg=self%s5_I1P_name)
+   endsubroutine register_aux_field
 
    subroutine save_xh5f(self, basename, q, q_name, directory, with_ghost, with_cell_morton, t, time)
    !< Save ADAM in XH5F format.

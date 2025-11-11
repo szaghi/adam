@@ -23,7 +23,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
    real(R8P), allocatable ::     flx(:,:,:,:,:    ) !< Fluxes along x.
    real(R8P), allocatable ::     fly(:,:,:,:,:    ) !< Fluxes along y.
    real(R8P), allocatable ::     flz(:,:,:,:,:    ) !< Fluxes along z.
-   real(R8P), allocatable :: flxyz_c(:,:,:,:,:,:,:) !< Fluxes at cell center with positive/negative decomposition for all directions.
+   real(R8P), allocatable :: flxyz_c(:,:,:,:,:,:,:) !< Fluxes at cell center with +/- decomposition for all directions.
    real(R8P), allocatable ::   flx_f(:,:,:,:,:    ) !< Fluxes along x at cell face.
    real(R8P), allocatable ::   fly_f(:,:,:,:,:    ) !< Fluxes along y at cell face.
    real(R8P), allocatable ::   flz_f(:,:,:,:,:    ) !< Fluxes along z at cell face.
@@ -38,6 +38,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: integrate_eikonal_coils !< Integrate eikonal equation for coils.
       ! IO methods
       procedure, pass(self) :: load_restart_files   !< Load restart files.
+      procedure, pass(self) :: save_energy_error    !< Save energy error history.
       procedure, pass(self) :: save_xh5f            !< Save simulation data in XH5F format.
       procedure, pass(self) :: save_residuals       !< Save residuals history.
       procedure, pass(self) :: save_restart_files   !< Save restart files.
@@ -48,14 +49,22 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions (and coils) of equation.
       procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
       ! numerical methods
-      procedure, pass(self) :: compute_check_fields !< Compute check fields.
-      procedure, pass(self) :: compute_div_old      !< Compute divergence of vector field, old working version.
-      procedure, pass(self) :: compute_divergence   !< Compute divergence of vector field.
-      procedure, pass(self) :: compute_dt           !< Compute time step.
-      procedure, pass(self) :: compute_gradient     !< Compute gradient of scalar field.
-      procedure, pass(self) :: impose_div_free      !< Impose divergence-free property.
-      procedure, pass(self) :: impose_ct_correction !< Impose Constrained Transport correction on q(ivar:ivar+2).
-      procedure, pass(self) :: simulate             !< Perform the simulation.
+      procedure, pass(self) :: compute_check_fields   !< Compute check fields.
+      procedure, pass(self) :: compute_curl_fd        !< Compute curl of vector field by finite difference.
+      procedure, pass(self) :: compute_curl_fv        !< Compute curl of vector field by finite volume.
+      procedure, pass(self) :: compute_derivative1_fd !< Compute derivative1 of scalar fields, finite difference schemes.
+      procedure, pass(self) :: compute_derivative1_fv !< Compute derivative1 of scalar fields, finite volume schemes.
+      procedure, pass(self) :: compute_div_old        !< Compute divergence of vector field, old working version.
+      procedure, pass(self) :: compute_divergence     !< Compute divergence of vector field.
+      procedure, pass(self) :: compute_divergence_fd  !< Compute divergence of vector field by finite difference.
+      procedure, pass(self) :: compute_divergence_fv  !< Compute divergence of vector field by finite volume.
+      procedure, pass(self) :: compute_dt             !< Compute time step.
+      procedure, pass(self) :: compute_energy         !< Compute energy.
+      procedure, pass(self) :: compute_energy_error   !< Compute energy error.
+      procedure, pass(self) :: compute_gradient       !< Compute gradient of scalar field.
+      procedure, pass(self) :: impose_div_free        !< Impose divergence-free property.
+      procedure, pass(self) :: impose_ct_correction   !< Impose Constrained Transport correction on q(ivar:ivar+2).
+      procedure, pass(self) :: simulate               !< Perform the simulation.
 endtype prism_cpu_object
 
 interface
@@ -134,6 +143,10 @@ contains
 
    ! set pointer (abstract) TBP
    select case(self%numerics%scheme_time)
+   case(NUM_SCHEME_TIME_BLANES_MOAN)
+      self%integrate => integrate_blanesmoan
+   case(NUM_SCHEME_TIME_LEAPFROG)
+      self%integrate => integrate_leapfrog
    case(NUM_SCHEME_TIME_RUNGE_KUTTA)
       select case(self%rk%scheme)
       case(RK_1, RK_2, RK_3)
@@ -143,8 +156,6 @@ contains
       case(RK_YOSHIDA)
          self%integrate => integrate_rk_yoshida
       endselect
-   case(NUM_SCHEME_TIME_LEAPFROG)
-      self%integrate => integrate_leapfrog
    endselect
 
    select case(self%numerics%scheme_space)
@@ -153,11 +164,11 @@ contains
       compute_divergence_fdv => compute_divergence_fv_centered
       compute_gradient_fdv   => compute_gradient_fv_centered
    case(NUM_SCHEME_SPACE_FD_CENTERED)
-      ! self%compute_residuals  => compute_residuals_fd_centered
+      self%compute_residuals => compute_residuals_fd_centered
       compute_divergence_fdv => compute_divergence_fd_centered
       compute_gradient_fdv   => compute_gradient_fd_centered
    case(NUM_SCHEME_SPACE_FV_CENTERED)
-      self%compute_residuals  => compute_residuals_fv_centered
+      self%compute_residuals => compute_residuals_fv_centered
       compute_divergence_fdv => compute_divergence_fv_centered
       compute_gradient_fdv   => compute_gradient_fv_centered
    endselect
@@ -219,6 +230,20 @@ contains
    call self%adam%make_comm_local_maps_ghost_bc
    endsubroutine load_restart_files
 
+   subroutine save_energy_error(self, is_to_open, is_to_close)
+   !< Save energy error history.
+   class(prism_cpu_object), intent(inout)        :: self        !< The equation.
+   logical,                 intent(in), optional :: is_to_open  !< Flag to open  file before first saving.
+   logical,                 intent(in), optional :: is_to_close !< Flag to close file after last saving.
+
+   if (self%time%is_to_save(it_save=self%io%energy_error_save)) then
+      call self%io%save_energy_error(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number,                 &
+                                     energy_D=self%energy_D,energy_B=self%energy_B,                                        &
+                                     rms_energy_error_D=self%rms_energy_error_D,rms_energy_error_B=self%rms_energy_error_B,&
+                                     is_to_open=is_to_open,is_to_close=is_to_close)
+   endif
+   endsubroutine save_energy_error
+
    subroutine save_xh5f(self, output_basename, with_ghost)
    !< Save simulation data in HDF5 format.
    class(prism_cpu_object), intent(inout)        :: self             !< The equation.
@@ -275,6 +300,7 @@ contains
        (self%time%is_to_save(it_save=self%io%restart_save)).or. &
        (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))) then
       call self%update_ghost(q=self%q)
+      call self%compute_check_fields
 
       if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
       if (mod(self%time%it,self%io%restart_save)==0) call self%save_restart_files
@@ -714,15 +740,166 @@ contains
    !< Compute check fields.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
 
-   call self%update_ghost(q=self%q)
    ! compute divergence fields
    self%field_div = 0._R8P
-   call self%compute_divergence(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
-   call self%compute_divergence(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
-   call self%compute_divergence(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
+   ! call self%compute_divergence(ivar=1,q=self%q,div=self%field_div(1,:,:,:,:))
+   ! call self%compute_divergence(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
+   ! call self%compute_divergence(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
+   call self%compute_divergence_fv(ivar=4,q=self%q,div=self%field_div(1,:,:,:,:))
+   call self%compute_divergence_fd(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
    ! call self%compute_div_old(   ivar=1,q=self%q,div=self%field_div(8,:,:,:,:))
    ! call self%compute_div_old(   ivar=4,q=self%q,div=self%field_div(9,:,:,:,:))
+
+   self%curlB_fd = 0._R8P
+   self%curlB_fv = 0._R8P
+   self%dBz_ds_fd = 0._R8P
+   self%dBz_ds_fv = 0._R8P
+   call self%compute_curl_fd(ivar=4,q=self%q,curl=self%curlB_fd)
+   call self%compute_curl_fv(ivar=4,q=self%q,curl=self%curlB_fv)
+   call self%compute_derivative1_fd(dir=1,ivar=6,q=self%q,dq_ds=self%dBz_ds_fd(1,:,:,:,:))
+   call self%compute_derivative1_fd(dir=2,ivar=6,q=self%q,dq_ds=self%dBz_ds_fd(2,:,:,:,:))
+   call self%compute_derivative1_fd(dir=3,ivar=6,q=self%q,dq_ds=self%dBz_ds_fd(3,:,:,:,:))
+   call self%compute_derivative1_fv(dir=1,ivar=6,q=self%q,dq_ds=self%dBz_ds_fv(1,:,:,:,:))
+   call self%compute_derivative1_fv(dir=2,ivar=6,q=self%q,dq_ds=self%dBz_ds_fv(2,:,:,:,:))
+   call self%compute_derivative1_fv(dir=3,ivar=6,q=self%q,dq_ds=self%dBz_ds_fv(3,:,:,:,:))
    endsubroutine compute_check_fields
+
+   subroutine compute_curl_fd(self, ivar, q, curl)
+   !< Compute curl of vector fields, div(q(ivar:ivar+2), using finite difference schemes.
+   class(prism_cpu_object), intent(in)    :: self                                            !< The equation.
+   integer(I4P),            intent(in)    :: ivar                                            !< Start index of (vec.) variable of q.
+   real(R8P),               intent(in)    :: q(   1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
+   real(R8P),               intent(inout) :: curl(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Curl.
+   integer(I4P)                           :: i,j,k,b                                         !< Counter.
+
+   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
+             hs=>self%numerics%fdv_half_stencil)
+   do b=1, blocks_number
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+      call compute_curl_fd_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),curl=curl(ivar:,i,j,k,b))
+   enddo
+   enddo
+   enddo
+   enddo
+   endassociate
+   endsubroutine compute_curl_fd
+
+   subroutine compute_curl_fv(self, ivar, q, curl)
+   !< Compute curl of vector fields, div(q(ivar:ivar+2), using finite volume schemes.
+   class(prism_cpu_object), intent(in)    :: self                                            !< The equation.
+   integer(I4P),            intent(in)    :: ivar                                            !< Start index of (vec.) variable of q.
+   real(R8P),               intent(in)    :: q(   1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
+   real(R8P),               intent(inout) :: curl(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Curl.
+   integer(I4P)                           :: i,j,k,b                                         !< Counter.
+
+   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
+             hs=>self%numerics%fdv_half_stencil)
+   do b=1, blocks_number
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+      call compute_curl_fv_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),curl=curl(ivar:,i,j,k,b))
+   enddo
+   enddo
+   enddo
+   enddo
+   endassociate
+   endsubroutine compute_curl_fv
+
+   subroutine compute_derivative1_fd(self, dir, ivar, q, dq_ds)
+   !< Compute derivative1 of scalar fields, dq(ivar)/ds, using finite difference schemes.
+   class(prism_cpu_object), intent(in)    :: self                                          !< The equation.
+   integer(I4P),            intent(in)    :: dir                                           !< Direction, 1=X, 2=Y, 3=Z.
+   integer(I4P),            intent(in)    :: ivar                                          !< Start index of (vec.) variable of q.
+   real(R8P),               intent(in)    :: q(1:, 1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
+   real(R8P),               intent(inout) :: dq_ds(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative1, dq/ds.
+   integer(I4P)                           :: i,j,k,b                                       !< Counter.
+   integer(I4P)                           :: is,js,ks                                      !< Stencils.
+
+   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
+             hs=>self%numerics%fdv_half_stencil)
+   select case(dir)
+   case(1)
+      do b=1, blocks_number
+      do k=1, nk
+      do j=1, nj
+      do i=1, ni
+         call compute_derivative1_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i-hs:i+hs,j,k,b),dq_ds=dq_ds(i,j,k,b))
+      enddo
+      enddo
+      enddo
+      enddo
+   case(2)
+      do b=1, blocks_number
+      do k=1, nk
+      do j=1, nj
+      do i=1, ni
+         call compute_derivative1_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j-hs:j+hs,k,b),dq_ds=dq_ds(i,j,k,b))
+      enddo
+      enddo
+      enddo
+      enddo
+   case(3)
+      do b=1, blocks_number
+      do k=1, nk
+      do j=1, nj
+      do i=1, ni
+         call compute_derivative1_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j,k-hs:k+hs,b),dq_ds=dq_ds(i,j,k,b))
+      enddo
+      enddo
+      enddo
+      enddo
+   endselect
+   endassociate
+   endsubroutine compute_derivative1_fd
+
+   subroutine compute_derivative1_fv(self, dir, ivar, q, dq_ds)
+   !< Compute derivative1 of scalar fields, dq(ivar)/ds, using finite volume schemes.
+   class(prism_cpu_object), intent(in)    :: self                                          !< The equation.
+   integer(I4P),            intent(in)    :: dir                                           !< Direction, 1=X, 2=Y, 3=Z.
+   integer(I4P),            intent(in)    :: ivar                                          !< Start index of (vec.) variable of q.
+   real(R8P),               intent(in)    :: q(1:, 1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
+   real(R8P),               intent(inout) :: dq_ds(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative1, dq/ds.
+   integer(I4P)                           :: i,j,k,b                                       !< Counter.
+
+   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
+             hs=>self%numerics%fdv_half_stencil)
+   select case(dir)
+   case(1)
+      do b=1, blocks_number
+      do k=1, nk
+      do j=1, nj
+      do i=1, ni
+         call compute_derivative1_fv_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i-hs:i+hs,j,k,b),dq_ds=dq_ds(i,j,k,b))
+      enddo
+      enddo
+      enddo
+      enddo
+   case(2)
+      do b=1, blocks_number
+      do k=1, nk
+      do j=1, nj
+      do i=1, ni
+         call compute_derivative1_fv_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j-hs:j+hs,k,b),dq_ds=dq_ds(i,j,k,b))
+      enddo
+      enddo
+      enddo
+      enddo
+   case(3)
+      do b=1, blocks_number
+      do k=1, nk
+      do j=1, nj
+      do i=1, ni
+         call compute_derivative1_fv_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j,k-hs:k+hs,b),dq_ds=dq_ds(i,j,k,b))
+      enddo
+      enddo
+      enddo
+      enddo
+   endselect
+   endassociate
+   endsubroutine compute_derivative1_fv
 
    subroutine compute_div_old(self, ivar, q, div)
    !< Compute div(q(ivar). Finite difference central scheme. Old version, working.
@@ -769,6 +946,50 @@ contains
    endassociate
    endsubroutine compute_divergence
 
+   subroutine compute_divergence_fd(self, ivar, q, div)
+   !< Compute divergence of vector fields, div(q(ivar:ivar+2), using finite difference schemes.
+   class(prism_cpu_object), intent(in)    :: self                                         !< The equation.
+   integer(I4P),            intent(in)    :: ivar                                         !< Start index of (vec.) variable of q.
+   real(R8P),               intent(in)    :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
+   real(R8P),               intent(inout) :: div( 1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
+   integer(I4P)                           :: i,j,k,b                                      !< Counter.
+
+   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
+             hs=>self%numerics%fdv_half_stencil)
+   do b=1, blocks_number
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+      call compute_divergence_fd_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),div=div(i,j,k,b))
+   enddo
+   enddo
+   enddo
+   enddo
+   endassociate
+   endsubroutine compute_divergence_fd
+
+   subroutine compute_divergence_fv(self, ivar, q, div)
+   !< Compute divergence of vector fields, div(q(ivar:ivar+2), using finite volume schemes.
+   class(prism_cpu_object), intent(in)    :: self                                         !< The equation.
+   integer(I4P),            intent(in)    :: ivar                                         !< Start index of (vec.) variable of q.
+   real(R8P),               intent(in)    :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
+   real(R8P),               intent(inout) :: div( 1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
+   integer(I4P)                           :: i,j,k,b                                      !< Counter.
+
+   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
+             hs=>self%numerics%fdv_half_stencil)
+   do b=1, blocks_number
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
+      call compute_divergence_fv_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),div=div(i,j,k,b))
+   enddo
+   enddo
+   enddo
+   enddo
+   endassociate
+   endsubroutine compute_divergence_fv
+
    subroutine compute_dt(self)
    class(prism_cpu_object), intent(inout) :: self                            !< The equation.
    real(R8P)                              :: umax                            !< Maximum speed of waves propagation (light speed).
@@ -784,6 +1005,69 @@ contains
    endassociate
    call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih%error)
    endsubroutine compute_dt
+
+   subroutine compute_energy(self)
+   !< Compute energy.
+   class(prism_cpu_object), intent(inout) :: self     !< The equation.
+   real(R8P)                              :: energy_D !< Energy of D field.
+   real(R8P)                              :: energy_B !< Energy of B field.
+
+   call compute_e(ivar=1, energy=energy_D)
+   call compute_e(ivar=4, energy=energy_B)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, energy_D, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, energy_B, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+   if (allocated(self%energy_D).and.allocated(self%energy_B)) then
+      self%energy_D = [self%energy_D, energy_D]
+      self%energy_B = [self%energy_B, energy_B]
+   else
+      allocate(self%energy_D(1:self%time%it))
+      allocate(self%energy_B(1:self%time%it))
+      self%energy_D = energy_D
+      self%energy_B = energy_B
+   endif
+   contains
+      subroutine compute_e(ivar, energy)
+      !< Compute energy of vector field starting from ivar.
+      integer(I4P), intent(in)  :: ivar    !< Starting position of vector field.
+      real(R8P),    intent(out) :: energy  !< Energy of the vector field starting from ivar.
+      integer(I4P)              :: i,j,k,b !< Counter.
+
+      energy = 0.0_R8P
+      associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number)
+      do b=1, blocks_number
+      do k=1, nk
+      do j=1, nj
+      do i=1, ni
+         energy = energy + 0.5_R8P * (self%q(ivar  ,i,j,k,b)*self%q(ivar  ,i,j,k,b) + &
+                                      self%q(ivar+1,i,j,k,b)*self%q(ivar+1,i,j,k,b) + &
+                                      self%q(ivar+2,i,j,k,b)*self%q(ivar+2,i,j,k,b))
+      enddo
+      enddo
+      enddo
+      enddo
+      endassociate
+      endsubroutine compute_e
+   endsubroutine compute_energy
+
+   subroutine compute_energy_error(self)
+   !< Compute energy error.
+   class(prism_cpu_object), intent(inout) :: self       !< The equation.
+   real(R8P)                              :: energy_D0  !< Initial energy of D field.
+   real(R8P)                              :: energy_B0  !< Initial energy of B field.
+   real(R8P), allocatable                 :: error_D(:) !< Error (normalized) of energy of D field.
+   real(R8P), allocatable                 :: error_B(:) !< Error (normalized) of energy of B field.
+
+   if (allocated(self%energy_D).and.allocated(self%energy_B)) then
+      energy_D0 = self%energy_D(1)
+      energy_B0 = self%energy_B(1)
+
+      error_D = abs(self%energy_D - energy_D0) / abs(energy_D0)
+      error_B = abs(self%energy_B - energy_B0) / abs(energy_B0)
+
+      self%rms_energy_error_D = sqrt(sum(error_D)/size(error_D))
+      self%rms_energy_error_B = sqrt(sum(error_B)/size(error_B))
+   endif
+   endsubroutine compute_energy_error
 
    subroutine compute_gradient(self, ivar, q, grad)
    !< Compute gradient of scalar variable q(ivar).
@@ -893,15 +1177,16 @@ contains
    call self%compute_divergence(ivar=4,q=self%q,div=self%field_div(2,:,:,:,:))
    call self%compute_divergence(ivar=7,q=self%q,div=self%field_div(3,:,:,:,:))
    call self%save_simulation_data
-
-   if (self%mpih%myrank==0) call self%io%open_file_residuals(nv=self%nv)
+   call self%compute_energy
+   call self%save_energy_error(is_to_open=.true.)
+   call self%io%open_file_residuals(nv=self%nv)
 
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
       ! first time integration done apart with explicit euler scheme to iniziale leapfrog
       call self%leapfrog%assign_step(s=1, q=self%q)
       call self%compute_dt
       call self%compute_residuals(q=self%q, dq=self%dq)
-      self%q = self%q + 0.5_R8P * self%time%dt * self%dq
+      self%q = self%q + self%time%dt * self%dq
    endif
 
    ! integration
@@ -930,6 +1215,8 @@ contains
       call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
 
       call self%save_simulation_data
+      call self%compute_energy
+      call self%save_energy_error
 
       if (((self%time%it_max <= 0).and.(self%time%time >= self%time%time_max)).or.&
          ((self%time%it>=self%time%it_max).and.(self%time%it_max > 0))) exit integration
@@ -937,12 +1224,67 @@ contains
       call self%mpih%barrier(tictoc=.true., timing=timing_step(2), single=.true.)
    enddo integration
    call self%mpih%barrier(tictoc=.true., timing=timing(2), single=.true.)
+   call self%compute_energy_error
    call self%save_simulation_data
-   if (self%mpih%myrank==0) call self%io%close_file_residuals
+   call self%io%close_file_residuals
+   call self%save_energy_error(is_to_close=.true.)
+   call self%mpih%print_message('Initial/final energy of D field: '//trim(str(sqrt(self%energy_D(1))))//' '//&
+                                                                     trim(str(sqrt(self%energy_D(size(self%energy_D))))))
+   call self%mpih%print_message('Initial/final energy of B field: '//trim(str(sqrt(self%energy_B(1))))//' '//&
+                                                                     trim(str(sqrt(self%energy_D(size(self%energy_B))))))
+   call self%mpih%print_message('RMS Error of D field: '//trim(str(self%rms_energy_error_D)))
+   call self%mpih%print_message('RMS Error of B field: '//trim(str(self%rms_energy_error_B)))
    call self%mpih%finalize
    endsubroutine simulate
 
    ! pointer TBP concrete implementations
+   subroutine compute_residuals_fd_centered(self, q, dq)
+   !< Compute residuals of equation, space operator, centered finite difference schemes.
+   class(prism_cpu_object), intent(inout) :: self               !< The equation.
+   real(R8P),               intent(inout) :: q(1:,         &
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1:)              !< Conservative variables.
+   real(R8P),               intent(inout) :: dq(1:,         &
+                                                1-self%ngc:,&
+                                                1-self%ngc:,&
+                                                1-self%ngc:,&
+                                                1:)             !< Residuals.
+   integer(I4P)                           :: i,j,k,b            !< Counter
+   real(R8P)                              :: curlD(3), curlB(3) !< Residuals components.
+
+   call self%update_ghost(q=q)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
+             dxyz=>self%field%dxyz, flxyz_c=>self%flxyz_c, flx_f=>self%flx_f, fly_f=>self%fly_f, flz_f=>self%flz_f,   &
+             s=>self%numerics%fdv_half_stencil,                                                                       &
+             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz, chi=>self%physics%chi)
+   if (blocks_number > 0) then
+      ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0)
+      do b=1,blocks_number
+      do k=1,nk
+      do j=1,nj
+      do i=1,ni
+         call compute_curl_fd_centered(s=s,dxyz=dxyz(1:3,b),                        &
+                                       q=q(VAR_DX:VAR_DZ,i-s:i+s,j-s:j+s,k-s:k+s,b),&
+                                       curl=curlD)
+         call compute_curl_fd_centered(s=s,dxyz=dxyz(1:3,b),                        &
+                                       q=q(VAR_BX:VAR_BZ,i-s:i+s,j-s:j+s,k-s:k+s,b),&
+                                       curl=curlB)
+         dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - q(var_Jx,i,j,k,b)
+         dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - q(var_Jy,i,j,k,b)
+         dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - q(var_Jz,i,j,k,b)
+         dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0
+         dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0
+         dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0
+      enddo
+      enddo
+      enddo
+      enddo
+   endif
+   endassociate
+   endsubroutine compute_residuals_fd_centered
+
    subroutine compute_residuals_fv_centered(self, q, dq)
    !< Compute residuals of equation, space operator, centered finite volume schemes.
    class(prism_cpu_object), intent(inout) :: self                                             !< The equation.
@@ -960,6 +1302,7 @@ contains
    real(R8P),    parameter                :: sir(3,3) = reshape([1._R8P,0._R8P,0._R8P,&
                                                                  0._R8P,1._R8P,0._R8P,&
                                                                  0._R8P,0._R8P,1._R8P],[3,3]) !< Direction versor, real.
+
    call self%update_ghost(q=q)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
              dxyz=>self%field%dxyz, flxyz_c=>self%flxyz_c, flx_f=>self%flx_f, fly_f=>self%fly_f, flz_f=>self%flz_f,   &
@@ -1124,6 +1467,39 @@ contains
    endassociate
    endsubroutine compute_residuals_weno
 
+   subroutine integrate_blanesmoan(self)
+   !< Integrate equation, time operator, Yoshida RK scheme.
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
+   integer(I4P)                           :: s    !< Counter.
+
+   associate(nc=>self%blanesmoan%nc,a=>self%blanesmoan%a,b=>self%blanesmoan%b)
+   call self%compute_coils_current
+   do s=1, nc
+      call self%compute_residuals(q=self%q, dq=self%dq)
+      if (s==1) call self%save_residuals
+      self%q(VAR_BX,:,:,:,:) = self%q(VAR_BX,:,:,:,:) + b(s) * self%time%dt * self%dq(VAR_BX,:,:,:,:)
+      self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + b(s) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
+      self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + b(s) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
+      call self%compute_residuals(q=self%q, dq=self%dq)
+      self%q(VAR_DX,:,:,:,:) = self%q(VAR_DX,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DX,:,:,:,:)
+      self%q(VAR_DY,:,:,:,:) = self%q(VAR_DY,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DY,:,:,:,:)
+      self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DZ,:,:,:,:)
+   enddo
+   call self%impose_div_free
+   endassociate
+   endsubroutine integrate_blanesmoan
+
+   subroutine integrate_leapfrog(self)
+   !< Integrate equation, time operator, leapfrog scheme.
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
+
+   call self%compute_coils_current
+   call self%compute_residuals(q=self%q, dq=self%dq)
+   call self%save_residuals
+   call self%leapfrog%integrate(dt=self%time%dt, q=self%q, dq=self%dq)
+   call self%impose_div_free
+   endsubroutine integrate_leapfrog
+
    subroutine integrate_rk_ls(self)
    !< Integrate equation, time operator, RK classical low storage schemes.
    !< Low storage RK working on q_rk(:,:,:,:,:,1)/q as stages, update q in place.
@@ -1142,7 +1518,6 @@ contains
       endif
    enddo
    call self%impose_div_free
-   call self%compute_check_fields
    endsubroutine integrate_rk_ls
 
    subroutine integrate_rk_ssp(self)
@@ -1173,7 +1548,6 @@ contains
       call self%rk%update_q(dt=self%time%dt, q=self%q)
    endif
    call self%impose_div_free
-   call self%compute_check_fields
    endsubroutine integrate_rk_ssp
 
    subroutine integrate_rk_yoshida(self)
@@ -1198,20 +1572,7 @@ contains
    self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
    self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
    call self%impose_div_free
-   call self%compute_check_fields
    endsubroutine integrate_rk_yoshida
-
-   subroutine integrate_leapfrog(self)
-   !< Integrate equation, time operator, leapfrog scheme.
-   class(prism_cpu_object), intent(inout) :: self !< The equation.
-
-   call self%compute_coils_current
-   call self%compute_residuals(q=self%q, dq=self%dq)
-   call self%save_residuals
-   call self%leapfrog%integrate(dt=self%time%dt, q=self%q, dq=self%dq)
-   call self%impose_div_free
-   call self%compute_check_fields
-   endsubroutine integrate_leapfrog
 
    ! non TBP
    subroutine compute_dxyz_min(blocks_number, dxyz, dxyz_min)

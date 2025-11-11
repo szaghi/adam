@@ -4,6 +4,7 @@ module adam_common_library
 
 use adam_adam_object
 use adam_amr_object
+use adam_blanes_moan_object
 use adam_eos_ic_object
 use adam_fdv_operators_library
 use adam_field_object

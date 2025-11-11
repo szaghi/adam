@@ -26,10 +26,13 @@ type :: prism_io_object
    logical                   :: save_memory_status=.false. !< Enable save of memory status during allocations.
    integer(I4P)              :: residuals_save=10_I4P      !< Residuals (norm) output iteration save frequency.
    integer(I4P)              :: residuals_unit             !< Residuals file unit.
+   integer(I4P)              :: energy_error_save=10_I4P   !< Energy error output iteration save frequency.
+   integer(I4P)              :: energy_error_unit          !< Energy error hystory file unit.
    contains
-      procedure, pass(self) :: description          !< Return pretty-printed object description.
-      procedure, pass(self) :: initialize           !< Initialize time handler.
-      procedure, pass(self) :: load_from_file       !< Load config from file.
+      procedure, pass(self) :: description       !< Return pretty-printed object description.
+      procedure, pass(self) :: initialize        !< Initialize time handler.
+      procedure, pass(self) :: load_from_file    !< Load config from file.
+      procedure, pass(self) :: save_energy_error !< Save energy error history.
       ! residuals IO
       procedure, pass(self) :: close_file_residuals !< Close file for saving residuals history.
       procedure, pass(self) :: open_file_residuals  !< Open file for saving residuals history.
@@ -44,15 +47,16 @@ contains
    character(len=:), allocatable      :: desc             !< Description.
    character(len=1), parameter        :: NL=new_line('a') !< New line character.
 
-   desc =       self%mpih%myrankstr//'IO main data'                                               //NL
-   desc = desc//self%mpih%myrankstr//'  file parameters:     '//self%file_parameters%filename     //NL
-   desc = desc//self%mpih%myrankstr//'  it save:             '//trim(str(self%it_save))           //NL
-   desc = desc//self%mpih%myrankstr//'  output basename:     '//self%output_basename              //NL
-   desc = desc//self%mpih%myrankstr//'  restart:             '//trim(str(self%restart))           //NL
-   desc = desc//self%mpih%myrankstr//'  restart basename:    '//self%restart_basename             //NL
-   desc = desc//self%mpih%myrankstr//'  restart (it) save:   '//trim(str(self%restart_save))      //NL
-   desc = desc//self%mpih%myrankstr//'  save memory status:  '//trim(str(self%save_memory_status))//NL
-   desc = desc//self%mpih%myrankstr//'  residuals (it) save: '//trim(str(self%residuals_save))
+   desc =       self%mpih%myrankstr//'IO main data'                                                  //NL
+   desc = desc//self%mpih%myrankstr//'  file parameters:        '//self%file_parameters%filename     //NL
+   desc = desc//self%mpih%myrankstr//'  it save:                '//trim(str(self%it_save))           //NL
+   desc = desc//self%mpih%myrankstr//'  output basename:        '//self%output_basename              //NL
+   desc = desc//self%mpih%myrankstr//'  restart:                '//trim(str(self%restart))           //NL
+   desc = desc//self%mpih%myrankstr//'  restart basename:       '//self%restart_basename             //NL
+   desc = desc//self%mpih%myrankstr//'  restart (it) save:      '//trim(str(self%restart_save))      //NL
+   desc = desc//self%mpih%myrankstr//'  save memory status:     '//trim(str(self%save_memory_status))//NL
+   desc = desc//self%mpih%myrankstr//'  residuals (it) save:    '//trim(str(self%residuals_save))    //NL
+   desc = desc//self%mpih%myrankstr//'  energy error (it) save: '//trim(str(self%energy_error_save))
    endfunction description
 
    subroutine initialize(self, filename)
@@ -98,12 +102,46 @@ contains
    if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(save_memory_status)')
    endsubroutine load_from_file
 
+   subroutine save_energy_error(self,it,time,blocks_number,energy_D,energy_B,rms_energy_error_D,rms_energy_error_B,&
+                                is_to_open,is_to_close)
+   !< Save energy error history.
+   class(prism_io_object), intent(inout)        :: self               !< IO handler.
+   integer(I4P),           intent(in)           :: it                 !< Current iteration.
+   real(R8P),              intent(in)           :: time               !< Current time.
+   integer(I4P),           intent(in)           :: blocks_number      !< Current number of blocks.
+   real(R8P),              intent(in)           :: energy_D(1:)       !< Energy history of D.
+   real(R8P),              intent(in)           :: energy_B(1:)       !< Energy history of B.
+   real(R8P),              intent(in)           :: rms_energy_error_D !< RMS of energy history of D.
+   real(R8P),              intent(in)           :: rms_energy_error_B !< RMS of energy history of B.
+   logical,                intent(in), optional :: is_to_open         !< Flag to open  file before first saving.
+   logical,                intent(in), optional :: is_to_close        !< Flag to close file after last saving.
+   logical                                      :: is_to_open_        !< Flag to open  file before first saving, local var.
+   logical                                      :: is_to_close_       !< Flag to close file after last saving, local var.
+
+   if (self%mpih%myrank==0) then
+      is_to_open_  = .false. ; if (present(is_to_open )) is_to_open_  = is_to_open
+      is_to_close_ = .false. ; if (present(is_to_close)) is_to_close_ = is_to_close
+      if (is_to_open_) then
+         open(newunit=self%energy_error_unit, file=self%output_basename//'-energy_error.dat')
+         write(self%energy_error_unit,'(A)')'VARIABLES="it" "blocks_number" "time" "error_D" "error_B" "rms_error_D" "rms_error_B"'
+      endif
+      write(self%energy_error_unit, '(A)') trim(str(it                                                  ))//' '//&
+                                           trim(str(blocks_number                                       ))//' '//&
+                                           trim(str(time                                                ))//' '//&
+                                           trim(str(sqrt(abs(energy_D(it)-energy_D(1))/abs(energy_D(1)))))//' '//&
+                                           trim(str(sqrt(abs(energy_B(it)-energy_B(1))/abs(energy_B(1)))))//' '//&
+                                           trim(str(rms_energy_error_D                                  ))//' '//&
+                                           trim(str(rms_energy_error_B                                  ))
+      if (is_to_close_) close(self%energy_error_unit)
+   endif
+   endsubroutine save_energy_error
+
    ! residuals IO
    subroutine  close_file_residuals(self)
    !< Close file for saving residuals history.
    class(prism_io_object), intent(in) :: self !< IO handler.
 
-   close(self%residuals_unit)
+   if (self%mpih%myrank==0) close(self%residuals_unit)
    endsubroutine close_file_residuals
 
    subroutine open_file_residuals(self, nv)
@@ -113,12 +151,14 @@ contains
    character(:), allocatable             :: rqs  !< String buffer.
    integer(I4P)                          :: v    !< Counter.
 
-   rqs = ''
-   do v=1, nv
-      rqs = rqs//' "rq'//trim(str(v,.true.))//'"'
-   enddo
-   open(newunit=self%residuals_unit, file=self%output_basename//'-residuals.dat')
-   write(self%residuals_unit, '(A)') 'VARIABLES="it" "time" "blocks_number"'//rqs
+   if (self%mpih%myrank==0) then
+      rqs = ''
+      do v=1, nv
+         rqs = rqs//' "rq'//trim(str(v,.true.))//'"'
+      enddo
+      open(newunit=self%residuals_unit, file=self%output_basename//'-residuals.dat')
+      write(self%residuals_unit, '(A)') 'VARIABLES="it" "time" "blocks_number"'//rqs
+   endif
    endsubroutine open_file_residuals
 
    subroutine save_residuals(self, it, time, blocks_number, residuals)

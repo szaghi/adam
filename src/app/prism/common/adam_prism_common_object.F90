@@ -4,6 +4,7 @@ module adam_prism_common_object
 ! ADAM modules
 use adam_adam_object
 use adam_amr_object
+use adam_blanes_moan_object
 use adam_field_object
 use adam_flail_object
 use adam_grid_object
@@ -39,6 +40,7 @@ type :: prism_common_object
    type(amr_object)            :: amr           !< AMR marker handler.
    type(ib_object)             :: ib            !< Immersed Boundary (IB) handler.
    type(slices_object)         :: slices        !< Slices handler.
+   type(blanesmoan_object)     :: blanesmoan    !< Blanes-Moan integrator.
    type(leapfrog_object)       :: leapfrog      !< Leapfrog integrator.
    type(rk_object)             :: rk            !< RK integrator.
    type(weno_object)           :: weno          !< WENO reconstructor.
@@ -66,7 +68,16 @@ type :: prism_common_object
    real(R8P), allocatable    :: field_div(:,:,:,:,:) !< Field divergence.
    real(R8P), allocatable    :: q(:,:,:,:,:)         !< Conservative cell centered variables.
    real(R8P), allocatable    :: dq(:,:,:,:,:)        !< Residuals right hand side.
+   real(R8P), allocatable    :: curlB_fd(:,:,:,:,:)  !< Curl of B, finite difference shemes.
+   real(R8P), allocatable    :: curlB_fv(:,:,:,:,:)  !< Curl of B, finite volume shemes.
+   real(R8P), allocatable    :: dBz_ds_fd(:,:,:,:,:) !< Derivative1 of Bz, finite difference shemes.
+   real(R8P), allocatable    :: dBz_ds_fv(:,:,:,:,:) !< Derivative1 of Bz, finite volume shemes.
    character(3), allocatable :: q_name(:)            !< Fields names.
+   ! auxiliary data
+   real(R8P), allocatable :: energy_D(:)                !< Energy of field D, time history.
+   real(R8P), allocatable :: energy_B(:)                !< Energy of field B, time history.
+   real(R8P)              :: rms_energy_error_D=0.0_R8P !< RMS energy error of D field.
+   real(R8P)              :: rms_energy_error_B=0.0_R8P !< RMS energy error of B field.
    contains
       procedure, pass(self) :: allocate_common   !< Allocate common data.
       procedure, pass(self) :: initialize_common !< Initialize the equation common data.
@@ -93,6 +104,39 @@ contains
                                        1,nb],[2,5]), &
                           msg=self%mpih%myrankstr//'prism_common_object%allocate_common(field_div) ', verbose=.true.)
    self%field_div = 0._R8P
+
+   call allocate_variable(var=self%curlB_fv,         &
+                          ulb=reshape([1,3,          &
+                                       1-ngc,ni+ngc, &
+                                       1-ngc,nj+ngc, &
+                                       1-ngc,nk+ngc, &
+                                       1,nb],[2,5]), &
+                          msg=self%mpih%myrankstr//'prism_common_object%allocate_common(curlB_fv) ', verbose=.true.)
+   self%curlB_fv = 0._R8P
+   call allocate_variable(var=self%curlB_fd,         &
+                          ulb=reshape([1,3,          &
+                                       1-ngc,ni+ngc, &
+                                       1-ngc,nj+ngc, &
+                                       1-ngc,nk+ngc, &
+                                       1,nb],[2,5]), &
+                          msg=self%mpih%myrankstr//'prism_common_object%allocate_common(curlB_fd) ', verbose=.true.)
+   self%curlB_fd = 0._R8P
+   call allocate_variable(var=self%dBz_ds_fv,        &
+                          ulb=reshape([1,3,          &
+                                       1-ngc,ni+ngc, &
+                                       1-ngc,nj+ngc, &
+                                       1-ngc,nk+ngc, &
+                                       1,nb],[2,5]), &
+                          msg=self%mpih%myrankstr//'prism_common_object%allocate_common(dBz_ds_fv) ', verbose=.true.)
+   self%dBz_ds_fv = 0._R8P
+   call allocate_variable(var=self%dBz_ds_fd,        &
+                          ulb=reshape([1,3,          &
+                                       1-ngc,ni+ngc, &
+                                       1-ngc,nj+ngc, &
+                                       1-ngc,nk+ngc, &
+                                       1,nb],[2,5]), &
+                          msg=self%mpih%myrankstr//'prism_common_object%allocate_common(dBz_ds_fd) ', verbose=.true.)
+   self%dBz_ds_fd = 0._R8P
    endassociate
    endsubroutine allocate_common
 
@@ -107,6 +151,7 @@ contains
    logical                                           :: verbose_     !< Trigger verbose output, local variable.
    integer(I8P)                                      :: nodes_number !< Allocated nodes on tree.
    integer(I4P)                                      :: nb           !< Number of allocated blocks.
+   integer(I4P)                                      :: c            !< Counter.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    call self%mpih%initialize(do_mpi_init=do_mpi_init, verbose=verbose_)
@@ -139,72 +184,65 @@ contains
    call self%rk%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) &
    call self%leapfrog%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
+   if (self%numerics%scheme_time==NUM_SCHEME_TIME_BLANES_MOAN) &
+   call self%blanesmoan%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    call self%weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
    call self%flail%initialize(file_parameters=file_parameters)
    call self%allocate_common
-
+   call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field)
    select case(self%numerics%div_corr_var)
    case(DIV_CORR_VAR_POISS)
       self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
-      call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field,                                       &
-                             q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivJ_d','DivG0_',           &
-                                                                      'DivG1_','DivG2_','DivG3_','DivG4_','DivG5_'], &
-                             q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3','f_Gauss'],      &
-                             q4_R8P=self%dq,             q4_R8P_name=['res_Dx','res_Dy','res_Dz',                    &
-                                                                      'res_Bx','res_By','res_Bz',                    &
-                                                                      'res_Jx','res_Jy','res_Jz'],                   &
-                             s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag',                                    &
-                             s1_R8P=self%coil%phi(1,:,:,:,:),       s1_R8P_name='coil_phi')
+      call self%adam%io%register_aux_field(q1_R8P=self%dq,       q1_R8P_name=['res_Dx','res_Dy','res_Dz',&
+                                                                              'res_Bx','res_By','res_Bz',&
+                                                                              'res_Jx','res_Jy','res_Jz'])
+      call self%adam%io%register_aux_field(q2_R8P=self%field_div,q2_R8P_name=['div_D','div_B','div_J',&
+                                                                              'div04','div05','div06','div07','div08','div09'])
    case(DIV_CORR_VAR_HYPER)
       if (self%numerics%constrained_transport_D .and. .not.self%numerics%constrained_transport_B) then
          self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','phi','Jx ','Jy ','Jz ']
-         call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field,                                      &
-                                q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivJ_d','DivG0_',          &
-                                                                         'DivG1_','DivG2_','DivG3_','DivG4_','DivG5_', &
-                                                                         'DivG6_'],                                    &
-                                q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3','f_Gauss'],     &
-                                q4_R8P=self%dq,             q4_R8P_name=['res_Dx','res_Dy','res_Dz',                   &
-                                                                         'res_Bx','res_By','res_Bz','res_ph',          &
-                                                                         'res_Jx','res_Jy','res_Jz'],                  &
-                                s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag',                                   &
-                                s1_R8P=self%coil%phi(1,:,:,:,:),       s1_R8P_name='coil_phi')
+         call self%adam%io%register_aux_field(q1_R8P=self%dq,       q1_R8P_name=['res_Dx','res_Dy','res_Dz',&
+                                                                                 'res_Bx','res_By','res_Bz',&
+                                                                                 'res_ph',                  &
+                                                                                 'res_Jx','res_Jy','res_Jz'])
+         call self%adam%io%register_aux_field(q2_R8P=self%field_div,q2_R8P_name=['div_D','div_B','div_J','div04',&
+                                                                                 'div05','div06','div07','div08','div09','div10'])
       elseif (.not.self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
          self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','psi','Jx ','Jy ','Jz ']
-         call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field,                                      &
-                                q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivJ_d','DivG0_',          &
-                                                                         'DivG1_','DivG2_','DivG3_','DivG4_','DivG5_', &
-                                                                         'DivG6_'],                                    &
-                                q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3','f_Gauss'],     &
-                                q4_R8P=self%dq,             q4_R8P_name=['res_Dx','res_Dy','res_Dz',                   &
-                                                                         'res_Bx','res_By','res_Bz','res_ps',          &
-                                                                         'res_Jx','res_Jy','res_Jz'],                  &
-                                s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag',                                   &
-                                s1_R8P=self%coil%phi(1,:,:,:,:),       s1_R8P_name='coil_phi')
+         call self%adam%io%register_aux_field(q1_R8P=self%dq,       q1_R8P_name=['res_Dx','res_Dy','res_Dz',&
+                                                                                 'res_Bx','res_By','res_Bz',&
+                                                                                 'res_ps',                  &
+                                                                                 'res_Jx','res_Jy','res_Jz'])
+         call self%adam%io%register_aux_field(q2_R8P=self%field_div,q2_R8P_name=['div_D','div_B','div_J','div04',&
+                                                                                 'div05','div06','div07','div08','div09','div10'])
       elseif (self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
          self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','phi','psi','Jx ','Jy ','Jz ']
-               call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field,                                &
-                                q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivJ_d','DivG0_',          &
-                                                                         'DivG1_','DivG2_','DivG3_','DivG4_','DivG5_', &
-                                                                         'DivG6_','DivG7_'],                           &
-                                q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3','f_Gauss'],     &
-                                q4_R8P=self%dq,             q4_R8P_name=['res_Dx','res_Dy','res_Dz',                   &
-                                                                         'res_Bx','res_By','res_Bz','res_ph',          &
-                                                                         'res_ps','res_Jx','res_Jy','res_Jz'],         &
-                                s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag',                                   &
-                                s1_R8P=self%coil%phi(1,:,:,:,:),       s1_R8P_name='coil_phi')
+         call self%adam%io%register_aux_field(q1_R8P=self%dq,       q1_R8P_name=['res_Dx','res_Dy','res_Dz',&
+                                                                                 'res_Bx','res_By','res_Bz',&
+                                                                                 'res_ph','res_ps',         &
+                                                                                 'res_Jx','res_Jy','res_Jz'])
+         call self%adam%io%register_aux_field(q2_R8P=self%field_div,q2_R8P_name=['div_D','div_B','div_J','div04','div05',&
+                                                                                 'div06','div07','div08','div09','div10','div11'])
       endif
    case default
       self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
-      call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field,                                    &
-                          q1_R8P=self%field_div,      q1_R8P_name=['DivD_d','DivB_d','DivJ_d','DivG0_',           &
-                                                                   'DivG1_','DivG2_','DivG3_','DivG4_','DivG5_'], &
-                          q2_R8P=self%coil%j_vec,     q2_R8P_name=['j_vec_1','j_vec_2','j_vec_3','f_Gauss'],      &
-                          q4_R8P=self%dq,             q4_R8P_name=['res_Dx','res_Dy','res_Dz',                    &
-                                                                   'res_Bx','res_By','res_Bz',                    &
-                                                                   'res_Jx','res_Jy','res_Jz'],                   &
-                          s1_I4P=self%coil%coil_flag, s1_I4P_name='coil_flag',                                    &
-                          s1_R8P=self%coil%phi(1,:,:,:,:),       s1_R8P_name='coil_phi')
+      call self%adam%io%register_aux_field(q1_R8P=self%dq,       q1_R8P_name=['res_Dx','res_Dy','res_Dz',&
+                                                                              'res_Bx','res_By','res_Bz',&
+                                                                              'res_Jx','res_Jy','res_Jz'])
+      call self%adam%io%register_aux_field(q2_R8P=self%field_div,q2_R8P_name=['div_D','div_B','div_J',&
+                                                                              'div04','div05','div06','div07','div08','div09'])
    endselect
+   if (self%coil%total_coils_number>0) then
+      call self%adam%io%register_aux_field(q3_R8P=self%coil%j_vec,    q3_R8P_name=['j_vec_1','j_vec_2','j_vec_3','f_Gauss'])
+      call self%adam%io%register_aux_field(q4_R8P=self%coil%phi,      q4_R8P_name=[('coil_phi_'//trim(strz(c,3)),&
+                                                                                    c=1,self%coil%total_coils_number)])
+      call self%adam%io%register_aux_field(s1_I4P=self%coil%coil_flag,s1_I4P_name='coil_flag')
+   endif
+
+      call self%adam%io%register_aux_field(q5_R8P=self%curlB_fd, q5_R8P_name=['curlB_x_fd','curlB_y_fd','curlB_z_fd'])
+      call self%adam%io%register_aux_field(q6_R8P=self%curlB_fv, q6_R8P_name=['curlB_x_fv','curlB_y_fv','curlB_z_fv'])
+      call self%adam%io%register_aux_field(q7_R8P=self%dBz_ds_fd,q7_R8P_name=['dBz_dx_fd','dBz_dy_fd','dBz_dz_fd'])
+      call self%adam%io%register_aux_field(q8_R8P=self%dBz_ds_fv,q8_R8P_name=['dBz_dx_fv','dBz_dy_fv','dBz_dz_fv'])
    endassociate
    if (verbose_) call self%mpih%print_message('prism_common_object%initialize finish')
    contains

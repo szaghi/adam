@@ -17,8 +17,9 @@ public :: prism_numerics_object
 
 character(len=8), parameter :: INI_SECTION_NAME='numerics' !< INI file section name containing fluid numerics.
 
-character(11), parameter, public :: NUM_SCHEME_TIME_RUNGE_KUTTA='RUNGE_KUTTA' !< Runge-Kutta numerical scheme for time operator.
+character(11), parameter, public :: NUM_SCHEME_TIME_BLANES_MOAN='BLANES_MOAN' !< Blanes-Moan numerical scheme for time operator.
 character(8),  parameter, public :: NUM_SCHEME_TIME_LEAPFROG='LEAPFROG'       !< Leapfrog numerical scheme for time operator.
+character(11), parameter, public :: NUM_SCHEME_TIME_RUNGE_KUTTA='RUNGE_KUTTA' !< Runge-Kutta numerical scheme for time operator.
 character(11), parameter, public :: NUM_SCHEME_SPACE_FD_CENTERED='FD_CENTERED'!< FD centered scheme for space operator.
 character(11), parameter, public :: NUM_SCHEME_SPACE_FV_CENTERED='FV_CENTERED'!< FV centered scheme for space operator.
 character(4),  parameter, public :: NUM_SCHEME_SPACE_WENO='WENO'              !< WENO numerical scheme for space operator.
@@ -95,10 +96,12 @@ contains
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme_time', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_time)')
    select case(trim(adjustl(buff)))
-   case('RUNGE_KUTTA', 'runge_kutta', 'Runge_Kutta')
-      self%scheme_time = NUM_SCHEME_TIME_RUNGE_KUTTA
+   case('BLANES_MOAN', 'blanes_moan', 'Blanes_Moan')
+      self%scheme_time = NUM_SCHEME_TIME_BLANES_MOAN
    case('LEAPFROG', 'leapfrog', 'Leapfrog')
       self%scheme_time = NUM_SCHEME_TIME_LEAPFROG
+   case('RUNGE_KUTTA', 'runge_kutta', 'Runge_Kutta')
+      self%scheme_time = NUM_SCHEME_TIME_RUNGE_KUTTA
    case default
       call self%mpih%print_message(msg='warning: numerical scheme "'//trim(adjustl(buff))//'" unknown. Revert back to RK scheme')
       self%scheme_time = NUM_SCHEME_TIME_RUNGE_KUTTA

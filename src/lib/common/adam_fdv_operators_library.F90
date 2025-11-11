@@ -8,13 +8,17 @@ implicit none
 save
 private
 ! interfaces
+public :: compute_curl_fdv_interface
+public :: compute_derivative1_fdv_interface
 public :: compute_divergence_fdv_interface
 public :: compute_gradient_fdv_interface
 ! finite difference
+public :: compute_curl_fd_centered
 public :: compute_derivative1_fd_centered
 public :: compute_divergence_fd_centered
 public :: compute_gradient_fd_centered
 ! finite volume
+public :: compute_curl_fv_centered
 public :: compute_derivative1_fv_centered
 public :: compute_divergence_fv_centered
 public :: compute_gradient_fv_centered
@@ -29,20 +33,20 @@ integer(I4P), parameter :: S_MAX=5_I4P !< Maximum stencil length.
 !< where \(p\) is the order of accuracy (2, 4, 6, 8, 10), \(M = \frac{p}{2}\), and
 !< coefficients \(c_m^{(p)}\) are symmetric.
 !< Finite Difference Coefficients \(c_m^{(p)}\):
-!< | Order \(p\) | Stencil points \(m\)                 | Coefficients \(c_m^{(p)}\)                                     |
-!< |-------------|--------------------------------------|----------------------------------------------------------------|
-!< | 2nd  (S=1)  |                 -1, 0, 1             | 1/2   *(                    -1,    0, 1                      ) |
-!< | 4th  (S=2)  |             -2, -1, 0, 1, 2          | 1/12  *(              1  ,  -8,    0, 8  ,  -1               ) |
-!< | 6th  (S=3)  |         -3, -2, -1, 0, 1, 2, 3       | 1/60  *(        -1 ,  9  ,  -45,   0, 45 ,  -9  , 1          ) |
-!< | 8th  (S=4)  |     -4, -3, -2, -1, 0, 1, 2, 3, 4    | 1/840 *(    3 , -32,  168,  -672,  0, 672,  -168, 32,  -3    ) |
-!< | 10th (S=5)  | -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5 | 1/2520*(-3, 33, -210, 1020, -2947, 0, 2947, -1020,210, -33, 3) |
+!< | Order \(p\) | Stencil points \(m\)                 | Coefficients \(c_m^{(p)}\)                                    |
+!< |-------------|--------------------------------------|---------------------------------------------------------------|
+!< | 2nd  (S=1)  |                 -1, 0, 1             | 1/2   *(                   -1  ,  0, 1                      ) |
+!< | 4th  (S=2)  |             -2, -1, 0, 1, 2          | 1/12  *(              1  , -8  ,  0, 8   , -1               ) |
+!< | 6th  (S=3)  |         -3, -2, -1, 0, 1, 2, 3       | 1/60  *(        -1  , 9  , -45 ,  0, 45  , -9  ,  1         ) |
+!< | 8th  (S=4)  |     -4, -3, -2, -1, 0, 1, 2, 3, 4    | 1/840 *(    3 , -32 , 168, -672,  0, 672 , -168,  32,  -3   ) |
+!< | 10th (S=5)  | -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5 | 1/2520*(-2, 25, -150, 600, -2100, 0, 2100, -600, 150, -25, 2) |
 !< Coefficient are antisymmetric respect i, parametrize only half of the stencil coefficients.
                                            !1         2         3        4         5
-real(R8P), parameter :: FD_CC_S1(S_MAX)   =[   1._R8P,    0._R8P,  0._R8P,  0._R8P,0._R8P]/2._R8P    !< FD c-coef, S1.
-real(R8P), parameter :: FD_CC_S2(S_MAX)   =[   8._R8P,   -1._R8P,  0._R8P,  0._R8P,0._R8P]/12._R8P   !< FD c-coef, S2.
-real(R8P), parameter :: FD_CC_S3(S_MAX)   =[  45._R8P,   -9._R8P,  1._R8P,  0._R8P,0._R8P]/60._R8P   !< FD c-coef, S3.
-real(R8P), parameter :: FD_CC_S4(S_MAX)   =[ 672._R8P, -168._R8P, 32._R8P, -3._R8P,0._R8P]/840._R8P  !< FD c-coef, S4.
-real(R8P), parameter :: FD_CC_S5(S_MAX)   =[2947._R8P,-1020._R8P,210._R8P,-33._R8P,3._R8P]/2520._R8P !< FD c-coef, S5.
+real(R8P), parameter :: FD_CC_S1(S_MAX)   =[   1._R8P,   0._R8P,  0._R8P,  0._R8P,0._R8P]/2._R8P    !< FD c-coef, S1.
+real(R8P), parameter :: FD_CC_S2(S_MAX)   =[   8._R8P,  -1._R8P,  0._R8P,  0._R8P,0._R8P]/12._R8P   !< FD c-coef, S2.
+real(R8P), parameter :: FD_CC_S3(S_MAX)   =[  45._R8P,  -9._R8P,  1._R8P,  0._R8P,0._R8P]/60._R8P   !< FD c-coef, S3.
+real(R8P), parameter :: FD_CC_S4(S_MAX)   =[ 672._R8P,-168._R8P, 32._R8P, -3._R8P,0._R8P]/840._R8P  !< FD c-coef, S4.
+real(R8P), parameter :: FD_CC_S5(S_MAX)   =[2100._R8P,-600._R8P,150._R8P,-25._R8P,2._R8P]/2520._R8P !< FD c-coef, S5.
 real(R8P), parameter :: FD_CC(S_MAX,S_MAX)=reshape([FD_CC_S1, &
                                                     FD_CC_S2, &
                                                     FD_CC_S3, &
@@ -87,28 +91,72 @@ real(R8P), parameter :: FV_CC(S_MAX,S_MAX)=reshape([FV_CC_S1, &
                                                     [S_MAX,S_MAX]) !< Finite volume centered coefficients.
 
 interface
-   subroutine compute_divergence_fdv_interface(s,dxyz,q,div)
+   pure subroutine compute_curl_fdv_interface(s,dxyz,q,curl)
+   !< Compute curl of q vector field.
+   import :: R8P, I4P
+   integer(I4P), intent(in)  :: s                    !< Stencil len, half of accuracy order.
+   real(R8P),    intent(in)  :: dxyz(1:)             !< Space steps [1:3].
+   real(R8P),    intent(in)  :: q(1:,1-s:,1-s:,1-s:) !< Vector field over the stencil [1:3,1-s:1+s,1-s:1+s,1-s:1+s].
+   real(R8P),    intent(out) :: curl(1:)             !< Gradient of q [1:3].
+   endsubroutine compute_curl_fdv_interface
+
+   pure subroutine compute_derivative1_fdv_interface(s,ds,q,dq_ds)
+   !< Compute derivative of order 1 of scalar field.
+   import :: R8P, I4P
+   integer(I4P), intent(in)  :: s       !< Stencil len, half of accuracy order.
+   real(R8P),    intent(in)  :: ds      !< Space step.
+   real(R8P),    intent(in)  :: q(1-s:) !< Scalar field over the stencil [1-s:1+s].
+   real(R8P),    intent(out) :: dq_ds   !< Derivative of order 1 of q, dq/ds.
+   endsubroutine compute_derivative1_fdv_interface
+
+   pure subroutine compute_divergence_fdv_interface(s,dxyz,q,div)
    !< Compute divergence of q vector field.
    import :: R8P, I4P
    integer(I4P), intent(in)  :: s                    !< Stencil len, half of accuracy order.
-   real(R8P),    intent(in)  :: dxyz(1:3)            !< Space steps.
-   real(R8P),    intent(in)  :: q(1:,1-s:,1-s:,1-s:) !< Vector field over the stencil [1-s:1+s].
+   real(R8P),    intent(in)  :: dxyz(1:)             !< Space steps [1:3].
+   real(R8P),    intent(in)  :: q(1:,1-s:,1-s:,1-s:) !< Vector field over the stencil [1:3,1-s:1+s,1-s:1+s,1-s:1+s].
    real(R8P),    intent(out) :: div                  !< Divergence of q.
    endsubroutine compute_divergence_fdv_interface
 
-   subroutine compute_gradient_fdv_interface(s,dxyz,q,grad)
-   !< Compute gradient of q scalar field with finite difference centered scheme.
+   pure subroutine compute_gradient_fdv_interface(s,dxyz,q,grad)
+   !< Compute gradient of q scalar field.
    import :: R8P, I4P
    integer(I4P), intent(in)  :: s                 !< Stencil len, half of accuracy order.
-   real(R8P),    intent(in)  :: dxyz(1:3)         !< Space steps.
-   real(R8P),    intent(in)  :: q(1-s:,1-s:,1-s:) !< Scalar field over the stencil [1-s:1+s].
-   real(R8P),    intent(out) :: grad(1:3)         !< Gradient of q.
+   real(R8P),    intent(in)  :: dxyz(1:)          !< Space steps [1:3].
+   real(R8P),    intent(in)  :: q(1-s:,1-s:,1-s:) !< Scalar field over the stencil [1-s:1+s,1-s:1+s,1-s:1+s].
+   real(R8P),    intent(out) :: grad(1:)          !< Gradient of q [1:3].
    endsubroutine compute_gradient_fdv_interface
 endinterface
 
 contains
    ! public methods
    ! finite difference schemes
+   pure subroutine compute_curl_fd_centered(s,dxyz,q,curl)
+   !< Compute curl of q vector field with finite difference centered scheme.
+   !< The scalar field q must be passed with a stencil large enough to computed the gradient with selected order of accuracy and
+   !< the stencil must be centered in i,j,k, i.e. q = q(i-order/2:i+order/2,j-order/2:j+order/2,k-order/2:k+order/2).
+   integer(I4P), intent(in)  :: s                    !< Stencil len, half of accuracy order.
+   real(R8P),    intent(in)  :: dxyz(1:)             !< Space steps [1:3].
+   real(R8P),    intent(in)  :: q(1:,1-s:,1-s:,1-s:) !< Vector field over the stencil [1:3,1-s:1+s,1-s:1+s,1-s:1+s].
+   real(R8P),    intent(out) :: curl(1:)             !< Curl of q [1:3].
+   real(R8P)                 :: dqx_dy, dqx_dz       !< Derivatives of qx.
+   real(R8P)                 :: dqy_dx, dqy_dz       !< Derivatives of qy.
+   real(R8P)                 :: dqz_dx, dqz_dy       !< Derivatives of qz.
+
+   call compute_derivative1_fd_centered(s=s,ds=dxyz(2),q=q(1,1      ,1-s:1+s,1      ),dq_ds=dqx_dy)
+   call compute_derivative1_fd_centered(s=s,ds=dxyz(3),q=q(1,1      ,1      ,1-s:1+s),dq_ds=dqx_dz)
+
+   call compute_derivative1_fd_centered(s=s,ds=dxyz(1),q=q(2,1-s:1+s,1      ,1      ),dq_ds=dqy_dx)
+   call compute_derivative1_fd_centered(s=s,ds=dxyz(3),q=q(2,1      ,1      ,1-s:1+s),dq_ds=dqy_dz)
+
+   call compute_derivative1_fd_centered(s=s,ds=dxyz(1),q=q(3,1-s:1+s,1      ,1      ),dq_ds=dqz_dx)
+   call compute_derivative1_fd_centered(s=s,ds=dxyz(2),q=q(3,1      ,1-s:1+s,1      ),dq_ds=dqz_dy)
+
+   curl(1) = dqz_dy - dqy_dz
+   curl(2) = dqx_dz - dqz_dx
+   curl(3) = dqy_dx - dqx_dy
+   endsubroutine compute_curl_fd_centered
+
    pure subroutine compute_derivative1_fd_centered(s,ds,q,dq_ds)
    !< Compute derivative of order 1 with finite difference centered scheme.
    !< \[
@@ -124,8 +172,9 @@ contains
 
    dq_ds = 0.0_R8P
    do m=1, s
-      dq_ds = dq_ds + FD_CC(s,m)*(q(1+m) - q(1-m))/ds
+      dq_ds = dq_ds + FD_CC(m,s)*(q(1+m) - q(1-m))/ds
    enddo
+!< | 4th  (S=2)  |             -2, -1, 0, 1, 2          | 1/12  *(              1  , -8  ,  0, 8   , -1               ) |
    endsubroutine compute_derivative1_fd_centered
 
    pure subroutine compute_divergence_fd_centered(s,dxyz,q,div)
@@ -133,8 +182,8 @@ contains
    !< The vector field q must be passed with a stencil large enough to computed the divergence with selected order of accuracy and
    !< the stencil must be centered in i,j,k, i.e. q = q(1:3,i-order/2:i+order/2,j-order/2:j+order/2,k-order/2:k+order/2).
    integer(I4P), intent(in)  :: s                    !< Stencil len, half of accuracy order.
-   real(R8P),    intent(in)  :: dxyz(1:3)            !< Space steps.
-   real(R8P),    intent(in)  :: q(1:,1-s:,1-s:,1-s:) !< Vector field over the stencil [1-s:1+s].
+   real(R8P),    intent(in)  :: dxyz(1:)             !< Space steps [1:3].
+   real(R8P),    intent(in)  :: q(1:,1-s:,1-s:,1-s:) !< Vector field over the stencil [1:3,1-s:1+s,1-s:1+s,1-s:1+s].
    real(R8P),    intent(out) :: div                  !< Divergence of q.
    real(R8P)                 :: div_x, div_y, div_z  !< Divergence components.
 
@@ -149,9 +198,9 @@ contains
    !< The scalar field q must be passed with a stencil large enough to computed the gradient with selected order of accuracy and
    !< the stencil must be centered in i,j,k, i.e. q = q(i-order/2:i+order/2,j-order/2:j+order/2,k-order/2:k+order/2).
    integer(I4P), intent(in)  :: s                 !< Stencil len, half of accuracy order.
-   real(R8P),    intent(in)  :: dxyz(1:3)         !< Space steps.
-   real(R8P),    intent(in)  :: q(1-s:,1-s:,1-s:) !< Scalar field over the stencil [1-s:1+s].
-   real(R8P),    intent(out) :: grad(1:3)         !< Gradient of q.
+   real(R8P),    intent(in)  :: dxyz(1:)          !< Space steps [1:3].
+   real(R8P),    intent(in)  :: q(1-s:,1-s:,1-s:) !< Scalar field over the stencil [1-s:1+s,1-s:1+s,1-s:1+s].
+   real(R8P),    intent(out) :: grad(1:)          !< Gradient of q [1:3].
 
    call compute_derivative1_fd_centered(s=s,ds=dxyz(1),q=q(1-s:1+s,1,1),dq_ds=grad(1))
    call compute_derivative1_fd_centered(s=s,ds=dxyz(2),q=q(1,1-s:1+s,1),dq_ds=grad(2))
@@ -159,6 +208,32 @@ contains
    endsubroutine compute_gradient_fd_centered
 
    ! finite volume schemes
+   pure subroutine compute_curl_fv_centered(s,dxyz,q,curl)
+   !< Compute curl of q vector field with finite volume centered scheme.
+   !< The scalar field q must be passed with a stencil large enough to computed the gradient with selected order of accuracy and
+   !< the stencil must be centered in i,j,k, i.e. q = q(i-order/2:i+order/2,j-order/2:j+order/2,k-order/2:k+order/2).
+   integer(I4P), intent(in)  :: s                    !< Stencil len, half of accuracy order.
+   real(R8P),    intent(in)  :: dxyz(1:)             !< Space steps [1:3].
+   real(R8P),    intent(in)  :: q(1:,1-s:,1-s:,1-s:) !< Vector field over the stencil [1:3,1-s:1+s,1-s:1+s,1-s:1+s].
+   real(R8P),    intent(out) :: curl(1:)             !< Curl of q [1:3].
+   real(R8P)                 :: dqx_dy, dqx_dz       !< Derivatives of qx.
+   real(R8P)                 :: dqy_dx, dqy_dz       !< Derivatives of qy.
+   real(R8P)                 :: dqz_dx, dqz_dy       !< Derivatives of qz.
+
+   call compute_derivative1_fv_centered(s=s,ds=dxyz(2),q=q(1,1      ,1-s:1+s,1      ),dq_ds=dqx_dy)
+   call compute_derivative1_fv_centered(s=s,ds=dxyz(3),q=q(1,1      ,1      ,1-s:1+s),dq_ds=dqx_dz)
+
+   call compute_derivative1_fv_centered(s=s,ds=dxyz(1),q=q(2,1-s:1+s,1      ,1      ),dq_ds=dqy_dx)
+   call compute_derivative1_fv_centered(s=s,ds=dxyz(3),q=q(2,1      ,1      ,1-s:1+s),dq_ds=dqy_dz)
+
+   call compute_derivative1_fv_centered(s=s,ds=dxyz(1),q=q(3,1-s:1+s,1      ,1      ),dq_ds=dqz_dx)
+   call compute_derivative1_fv_centered(s=s,ds=dxyz(2),q=q(3,1      ,1-s:1+s,1      ),dq_ds=dqz_dy)
+
+   curl(1) = dqz_dy - dqy_dz
+   curl(2) = dqx_dz - dqz_dx
+   curl(3) = dqy_dx - dqx_dy
+   endsubroutine compute_curl_fv_centered
+
    pure subroutine compute_derivative1_fv_centered(s,ds,q,dq_ds)
    !< Compute derivative of order 1 with finite volume centered scheme.
    !< \[
@@ -183,8 +258,8 @@ contains
    !< The vector field q must be passed with a stencil large enough to computed the divergence with selected order of accuracy and
    !< the stencil must be centered in i,j,k, i.e. q = q(1:3,i-order/2:i+order/2,j-order/2:j+order/2,k-order/2:k+order/2).
    integer(I4P), intent(in)  :: s                    !< Stencil len, half of accuracy order.
-   real(R8P),    intent(in)  :: dxyz(1:3)            !< Space steps.
-   real(R8P),    intent(in)  :: q(1:,1-s:,1-s:,1-s:) !< Vector field over the stencil [1-s:1+s].
+   real(R8P),    intent(in)  :: dxyz(1:)             !< Space steps [1:3].
+   real(R8P),    intent(in)  :: q(1:,1-s:,1-s:,1-s:) !< Vector field over the stencil [1:3,1-s:1+s,1-s:1+s,1-s:1+s].
    real(R8P),    intent(out) :: div                  !< Divergence of q.
    real(R8P)                 :: div_x, div_y, div_z  !< Divergence components.
 
@@ -199,9 +274,9 @@ contains
    !< The scalar field q must be passed with a stencil large enough to computed the gradient with selected order of accuracy and
    !< the stencil must be centered in i,j,k, i.e. q = q(i-order/2:i+order/2,j-order/2:j+order/2,k-order/2:k+order/2).
    integer(I4P), intent(in)  :: s                 !< Stencil len, half of accuracy order.
-   real(R8P),    intent(in)  :: dxyz(1:3)         !< Space steps.
-   real(R8P),    intent(in)  :: q(1-s:,1-s:,1-s:) !< Scalar field over the stencil [1-s:1+s].
-   real(R8P),    intent(out) :: grad(1:3)         !< Gradient of q.
+   real(R8P),    intent(in)  :: dxyz(1:)          !< Space steps [1:3].
+   real(R8P),    intent(in)  :: q(1-s:,1-s:,1-s:) !< Scalar field over the stencil [1-s:1+s,1-s:1+s,1-s:1+s].
+   real(R8P),    intent(out) :: grad(1:)          !< Gradient of q [1:3].
 
    call compute_derivative1_fv_centered(s=s,ds=dxyz(1),q=q(1-s:1+s,1,1),dq_ds=grad(1))
    call compute_derivative1_fv_centered(s=s,ds=dxyz(2),q=q(1,1-s:1+s,1),dq_ds=grad(2))

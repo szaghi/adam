@@ -58,8 +58,16 @@ type :: prism_coil_object
    integer(I4P)                   :: circular_coils_number=0_I4P           !< Number of circular coils
    integer(I4P)                   :: rectangular_coils_number=0_I4P        !< Number of rectangular coils
    integer(I4P)                   :: total_coils_number=0_I4P              !< Number of coils
+   ! grid data replica for easy handling
+   integer(I4P), pointer :: ngc=>null()           !< Number of ghost cells.
+   integer(I4P), pointer :: ni=>null()            !< Number of cells in i direction.
+   integer(I4P), pointer :: nj=>null()            !< Number of cells in j direction.
+   integer(I4P), pointer :: nk=>null()            !< Number of cells in k direction.
+   integer(I4P), pointer :: nb=>null()            !< Total blocks number for MPI.
+   integer(I4P), pointer :: blocks_number=>null() !< Actual blocks number.
    contains
       ! public methods
+      procedure, pass(self) :: allocate_coil                        !< Allocate coil data.
       procedure, pass(self) :: compute_distance_naive               !< Compute distance between point and wire (naive way).
       procedure, pass(self) :: curved_wire                          !< Set coils current on PRISM fields.
       procedure, pass(self) :: description                          !< Return pretty-printed object description.
@@ -78,6 +86,34 @@ endtype prism_coil_object
 
 contains
    ! public methods
+   subroutine allocate_coil(self)
+   !< Allocate coil data.
+   class(prism_coil_object), intent(inout) :: self            !< Coils.
+
+   associate(ngc=>self%ngc,ni=>self%ni,nj=>self%nj,nk=>self%nk,nb=>self%nb,total_coils_number=>self%total_coils_number)
+   allocate(self%r_coil              (  0:total_coils_number)) ; self%r_coil = 0.0_R8P
+   allocate(self%ly                  (  0:total_coils_number)) ; self%ly = 0.0_R8P
+   allocate(self%lx                  (  0:total_coils_number)) ; self%lx = 0.0_R8P
+   allocate(self%d                   (  0:total_coils_number)) ; self%d = 0.0_R8P
+   allocate(self%r_c                 (  0:total_coils_number)) ; self%r_c = 0.0_R8P
+   allocate(self%normal              (3,0:total_coils_number)) ; self%normal = 0.0_R8P
+   allocate(self%x_center            (  0:total_coils_number)) ; self%x_center = 0.0_R8P
+   allocate(self%y_center            (  0:total_coils_number)) ; self%y_center = 0.0_R8P
+   allocate(self%z_center            (  0:total_coils_number)) ; self%z_center = 0.0_R8P
+   allocate(self%coil_type           (  0:total_coils_number)) ; self%coil_type = ' '
+   allocate(self%current_type        (  0:total_coils_number)) ; self%current_type = ' '
+   allocate(self%coil_rep            (  0:total_coils_number)) ; self%coil_rep = ' '
+   allocate(self%current_distribution(  0:total_coils_number)) ; self%current_distribution = ' '
+   allocate(self%A                   (  0:total_coils_number)) ; self%A = 0.0_R8P
+   allocate(self%f                   (  0:total_coils_number)) ; self%f = 0.0_R8P
+   allocate(self%phase               (  0:total_coils_number)) ; self%phase = 0.0_R8P
+
+   allocate(self%coil_flag(                        1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb)) ; self%coil_flag = 0_I4P
+   allocate(self%J_vec(    4                      ,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb)) ; self%J_vec = 0._R8P
+   allocate(self%phi(      self%total_coils_number,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb)) ; self%phi = 0._R8P
+   endassociate
+   endsubroutine allocate_coil
+
    pure function description(self) result(desc)
    !< Return a pretty-formatted object description.
    class(prism_coil_object), intent(in) :: self             !< IC.
@@ -125,8 +161,8 @@ contains
    subroutine initialize(self, file_parameters, field) !Cfr ic%initialize, ma commentata parte descrizione perchè da implementare
    !< Initialize the equation.
    class(prism_coil_object), intent(inout) :: self            !< Coils.
-   type(file_ini),         intent(in)      :: file_parameters !< Simulation parameters ini file handler.
-   type(field_object),     intent(in)      :: field           !< The field.
+   type(file_ini),           intent(in)    :: file_parameters !< Simulation parameters ini file handler.
+   type(field_object),       intent(in)    :: field           !< The field.
 
    call self%mpih%initialize(do_mpi_init=.false.)
    print '(A)', self%mpih%myrankstr//'prism_coil_object%initialize start'
@@ -136,251 +172,213 @@ contains
    endsubroutine initialize
 
    subroutine compute_distance_naive(self,field)
+   !< Compute distance between point and wire (naive way).
+   class(prism_coil_object), intent(inout) :: self                                                  !< Coil object.
+   type(field_object),       intent(in)    :: field                                                 !< Field object.
+   real(R8P)                               :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
+                                              y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
+                                              z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc) !< Cells coordinates.
+   real(R8P)                               :: distance                                              !< Coil center distance.
+   integer(I4P)                            :: i,j,k,ii,jj,kk,b,r,n_sweep                            !< Counter.
 
-      class(prism_coil_object), intent(inout) :: self
-      type(field_object), intent(in)          :: field
-      real(R8P)                               :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
-                                                 y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
-                                                 z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)  !< Vettori posizione centro celle del blocco b
-      real(R8P)                               :: distance
-      integer(I4P)                            :: i,j,k,ii,jj,kk,b,r,n_sweep
-
-      associate(ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, blocks_number=>field%blocks_number, &
-                ngc=>field%grid%ngc, nb=>field%nb, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:))
-      self%phi = 1.0E4_R8P
-      n_sweep = 1_I4P !numero di celle da considerare per il calcolo della distanza minima
-      !n_sweep = max(ni/2,nj/2,nk/2)
-      do r = 1, self%total_coils_number
-         do b=1, blocks_number
-            call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
-            do k=1, nk
-               do j=1, nj
-                  do i=1, ni
-                     if (self%coil_flag(i,j,k,b) == 0_I4P) then
-                        do kk= k-n_sweep, k+n_sweep
-                           if (kk > nk + ngc .or. kk < 1 - ngc) cycle
-                           do jj= j-n_sweep, j+n_sweep
-                              if (jj > nj + ngc .or. jj < 1 - ngc) cycle
-                              do ii= i-n_sweep, i+n_sweep
-                                 if (ii > ni + ngc .or. ii < 1 - ngc) cycle
-                                 if (self%coil_flag(ii,jj,kk,b) /= 0_I4P) then
-                                    distance = sqrt((x_cell(i)-x_cell(ii))**2 + (y_cell(j)-y_cell(jj))**2 &
-                                     + (z_cell(k)-z_cell(kk))**2) - dx(b)/2
-                                    self%phi(r,i,j,k,b) = min(self%phi(r,i,j,k,b), distance)
-                                 endif
-                              enddo
-                           enddo
-                        enddo
-                     else
-                        self%phi(r,i,j,k,b) = -dx(b)/2
-                     endif
+   associate(ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, blocks_number=>field%blocks_number, &
+             ngc=>field%grid%ngc, nb=>field%nb, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:))
+   self%phi = 1.0E4_R8P
+   n_sweep = 1_I4P !numero di celle da considerare per il calcolo della distanza minima
+   !n_sweep = max(ni/2,nj/2,nk/2)
+   do r = 1, self%total_coils_number
+      do b=1, blocks_number
+         call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
+         do k=1, nk
+         do j=1, nj
+         do i=1, ni
+            if (self%coil_flag(i,j,k,b) == 0_I4P) then
+               do kk= k-n_sweep, k+n_sweep
+                  if (kk > nk + ngc .or. kk < 1 - ngc) cycle
+                  do jj= j-n_sweep, j+n_sweep
+                     if (jj > nj + ngc .or. jj < 1 - ngc) cycle
+                     do ii= i-n_sweep, i+n_sweep
+                        if (ii > ni + ngc .or. ii < 1 - ngc) cycle
+                        if (self%coil_flag(ii,jj,kk,b) /= 0_I4P) then
+                           distance = sqrt((x_cell(i)-x_cell(ii))**2 + &
+                                           (y_cell(j)-y_cell(jj))**2 + &
+                                           (z_cell(k)-z_cell(kk))**2) - dx(b)/2
+                           self%phi(r,i,j,k,b) = min(self%phi(r,i,j,k,b), distance)
+                        endif
+                     enddo
                   enddo
                enddo
-            enddo
+            else
+               self%phi(r,i,j,k,b) = -dx(b)/2
+            endif
+         enddo
+         enddo
          enddo
       enddo
-      self%phi = -self%phi
-      endassociate
-
+   enddo
+   self%phi = -self%phi
+   endassociate
    endsubroutine compute_distance_naive
-
 
    subroutine load_from_file(self, file_parameters, field, go_on_fail)
    !< Load config from file.
-   class(prism_coil_object), intent(inout)      :: self            !< coils.
-   type(file_ini),         intent(in)           :: file_parameters !< Simulation parameters ini file handler.
-   type(field_object),     intent(in)           :: field           !< The field.
-   logical,                intent(in), optional :: go_on_fail      !< Go on if load fails.
-   logical                                      :: go_on_fail_     !< Go on if load fails.
-   character(:), allocatable                    :: sname           !< Section name.
-   integer(I4P)                                 :: i               !< Counter.
-   integer(I4P)                                 :: error           !< Error status.
-   character(99)                                :: buff_char       !< Option character buffer.
+   class(prism_coil_object), intent(inout)        :: self            !< coils.
+   type(file_ini),           intent(in)           :: file_parameters !< Simulation parameters ini file handler.
+   type(field_object),       intent(in), target   :: field           !< The field.
+   logical,                  intent(in), optional :: go_on_fail      !< Go on if load fails.
+   logical                                        :: go_on_fail_     !< Go on if load fails.
+   character(:), allocatable                      :: sname           !< Section name.
+   integer(I4P)                                   :: i               !< Counter.
+   integer(I4P)                                   :: error           !< Error status.
+   character(99)                                  :: buff_char       !< Option character buffer.
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='circular_coils_number', &
                             val=self%circular_coils_number, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load &
-                                                               ['//INI_SECTION_NAME//'].(circular_coils_number)')
+   if (.not.go_on_fail_.and.error>0) &
+      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(circular_coils_number)')
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='rectangular_coils_number', &
                             val=self%rectangular_coils_number, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load &
-                                                               ['//INI_SECTION_NAME//'].(rectangular_coils_number)')
+   if (.not.go_on_fail_.and.error>0) &
+      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(rectangular_coils_number)')
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='time_delay', val=self%td, error=error)
    if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(time_delay)')
 
    self%total_coils_number = self%circular_coils_number + self%rectangular_coils_number
 
-      ! Alloczione variabili dell'oggetto spira
-      allocate(self%r_coil              (0:self%total_coils_number))
-      allocate(self%ly                  (0:self%total_coils_number))
-      allocate(self%lx                  (0:self%total_coils_number))
-      allocate(self%d                   (0:self%total_coils_number))
-      allocate(self%r_c                 (0:self%total_coils_number))
-      allocate(self%normal            (3,0:self%total_coils_number))
-      allocate(self%x_center            (0:self%total_coils_number))
-      allocate(self%y_center            (0:self%total_coils_number))
-      allocate(self%z_center            (0:self%total_coils_number))
-      allocate(self%coil_type           (0:self%total_coils_number))
-      allocate(self%current_type        (0:self%total_coils_number))
-      allocate(self%coil_rep            (0:self%total_coils_number))
-      allocate(self%current_distribution(0:self%total_coils_number))
-      allocate(self%A                   (0:self%total_coils_number))
-      allocate(self%f                   (0:self%total_coils_number))
-      allocate(self%phase               (0:self%total_coils_number))
-      self%r_coil = 0.0_R8P
-      self%ly = 0.0_R8P
-      self%lx = 0.0_R8P
-      self%d = 0.0_R8P
-      self%r_c = 0.0_R8P
-      self%normal = 0.0_R8P
-      self%x_center = 0.0_R8P
-      self%y_center = 0.0_R8P
-      self%z_center = 0.0_R8P
-      self%coil_type = ' '
-      self%current_type = ' '
-      self%coil_rep = ' '
-      self%current_distribution = ' '
-      self%A = 0.0_R8P
-      self%f = 0.0_R8P
-      self%phase = 0.0_R8P
+   if (self%total_coils_number==0_I4P) return
 
-      !Allocazione matrice identificazione spire nelle celle e matrice versori corrente spire nelle celle
-      associate(ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, blocks_number=>field%blocks_number, &
-                ngc=>field%grid%ngc, nb=>field%nb)
+   call associate_adam_data(field=field)
 
-      allocate(self%coil_flag(1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
-      self%coil_flag = 0_I4P
+   call self%allocate_coil
 
-      allocate(self%J_vec(4, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
-      self%J_vec = 0._R8P
-      
-      allocate(self%phi(self%total_coils_number,1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:nb))
-      self%phi = 0._R8P
+   do i=1, self%total_coils_number
+      sname = INI_SECTION_NAME//'_coil_'//trim(str(i,.true.))
 
-      endassociate
+      call file_parameters%get(section_name=sname, option_name='coil_type', val=buff_char, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(coil_type)')
+      self%coil_type(i) = trim(buff_char)
+      self%coil_type(i) = trim(self%coil_type(i))
 
-   if (self%total_coils_number>=1_I4P) then
-      
-      do i=1, self%total_coils_number
-         sname = INI_SECTION_NAME//'_coil_'//trim(str(i,.true.))
+      call file_parameters%get(section_name=sname, option_name='current_type', val=buff_char, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(current_type)')
+      self%current_type(i) = trim(buff_char)
+      self%current_type(i) = trim(self%current_type(i))
 
-         call file_parameters%get(section_name=sname, option_name='coil_type', val=buff_char, error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(coil_type)')
-         self%coil_type(i) = trim(buff_char)
-         self%coil_type(i) = trim(self%coil_type(i))
+      call file_parameters%get(section_name=sname, option_name='current_distribution', val=buff_char, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(current_distribution)')
+      self%current_distribution(i) = trim(buff_char)
+      self%current_distribution(i) = trim(self%current_distribution(i))
 
-         call file_parameters%get(section_name=sname, option_name='current_type', val=buff_char, error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(current_type)')
-         self%current_type(i) = trim(buff_char)
-         self%current_type(i) = trim(self%current_type(i))
+      select case(self%coil_type(i))
+      case(COIL_TYPE_CIRCULAR)
+         call file_parameters%get(section_name=sname, option_name='r_coil', val=self%r_coil(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(r_coil)')
 
-         call file_parameters%get(section_name=sname, option_name='current_distribution', val=buff_char, error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(current_distribution)')
-         self%current_distribution(i) = trim(buff_char)
-         self%current_distribution(i) = trim(self%current_distribution(i))
+         call file_parameters%get(section_name=sname, option_name='d', val=self%d(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(d)')
 
-         select case(self%coil_type(i))
-         case(COIL_TYPE_CIRCULAR)
-            call file_parameters%get(section_name=sname, option_name='r_coil', val=self%r_coil(i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(r_coil)')
+         call file_parameters%get(section_name=sname, option_name='x_center', val=self%x_center(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
 
-            call file_parameters%get(section_name=sname, option_name='d', val=self%d(i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(d)')
+         call file_parameters%get(section_name=sname, option_name='y_center', val=self%y_center(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
 
-            call file_parameters%get(section_name=sname, option_name='x_center', val=self%x_center(i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
+         call file_parameters%get(section_name=sname, option_name='z_center', val=self%z_center(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
 
-            call file_parameters%get(section_name=sname, option_name='y_center', val=self%y_center(i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
+         call file_parameters%get(section_name=sname, option_name='nx', val=self%normal(1,i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(nx)')
 
-            call file_parameters%get(section_name=sname, option_name='z_center', val=self%z_center(i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
+         call file_parameters%get(section_name=sname, option_name='ny', val=self%normal(2,i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(ny)')
 
-            call file_parameters%get(section_name=sname, option_name='nx', val=self%normal(1,i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(nx)')
+         call file_parameters%get(section_name=sname, option_name='nz', val=self%normal(3,i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(nz)')
 
-            call file_parameters%get(section_name=sname, option_name='ny', val=self%normal(2,i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(ny)')
+         self%lx(i) = 0.0_R8P
 
-            call file_parameters%get(section_name=sname, option_name='nz', val=self%normal(3,i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(nz)')
+         self%ly(i) = 0.0_R8P
 
-            self%lx(i) = 0.0_R8P
+      case(COIL_TYPE_RECTANGULAR)
+         call file_parameters%get(section_name=sname, option_name='coil_representation', val=buff_char, error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop (msg=': failed to load ['//sname//'].(coil_rep)')
+         self%coil_rep(i) = trim(buff_char)
+         self%coil_rep(i) = trim(self%coil_rep(i))
 
-            self%ly(i) = 0.0_R8P
+         call file_parameters%get(section_name=sname, option_name='lx', val=self%lx(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(lx)')
 
-         case(COIL_TYPE_RECTANGULAR)
-            call file_parameters%get(section_name=sname, option_name='coil_representation', val=buff_char, error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop (msg=': failed to load ['//sname//'].(coil_rep)')
-            self%coil_rep(i) = trim(buff_char)
-            self%coil_rep(i) = trim(self%coil_rep(i))
+         call file_parameters%get(section_name=sname, option_name='ly', val=self%ly(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(ly)')
 
-            call file_parameters%get(section_name=sname, option_name='lx', val=self%lx(i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(lx)')
+         call file_parameters%get(section_name=sname, option_name='d', val=self%d(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(d)')
 
-            call file_parameters%get(section_name=sname, option_name='ly', val=self%ly(i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(ly)')
+         call file_parameters%get(section_name=sname, option_name='r_c', val=self%r_c(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(r_c)')
 
-            call file_parameters%get(section_name=sname, option_name='d', val=self%d(i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(d)')
+         call file_parameters%get(section_name=sname, option_name='x_center', val=self%x_center(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
 
-            call file_parameters%get(section_name=sname, option_name='r_c', val=self%r_c(i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(r_c)')
+         call file_parameters%get(section_name=sname, option_name='y_center', val=self%y_center(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
 
-            call file_parameters%get(section_name=sname, option_name='x_center', val=self%x_center(i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
+         call file_parameters%get(section_name=sname, option_name='z_center', val=self%z_center(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
 
-            call file_parameters%get(section_name=sname, option_name='y_center', val=self%y_center(i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
+         call file_parameters%get(section_name=sname, option_name='nx', val=self%normal(1,i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(nx)')
 
-            call file_parameters%get(section_name=sname, option_name='z_center', val=self%z_center(i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
+         call file_parameters%get(section_name=sname, option_name='ny', val=self%normal(2,i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(ny)')
 
-            call file_parameters%get(section_name=sname, option_name='nx', val=self%normal(1,i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(nx)')
+         call file_parameters%get(section_name=sname, option_name='nz', val=self%normal(3,i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(nz)')
 
-            call file_parameters%get(section_name=sname, option_name='ny', val=self%normal(2,i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(ny)')
+         self%r_coil(i) = 0.0_R8P
 
-            call file_parameters%get(section_name=sname, option_name='nz', val=self%normal(3,i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(nz)')
+      endselect
 
-            self%r_coil(i) = 0.0_R8P
+      select case(self%current_type(i))
+      case(CURRENT_TYPE_DC)
 
-         endselect
+         call file_parameters%get(section_name=sname, option_name='Amplitude', val=self%A(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Amplitude)')
 
-         select case(self%current_type(i))
-         case(CURRENT_TYPE_DC)
+         self%f(i) = 0.0_R8P
 
-            call file_parameters%get(section_name=sname, option_name='Amplitude', val=self%A(i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Amplitude)')
+         self%phase(i) = 0.0_R8P
 
-            self%f(i) = 0.0_R8P
+      case(CURRENT_TYPE_AC)
 
-            self%phase(i) = 0.0_R8P
+         call file_parameters%get(section_name=sname, option_name='Amplitude', val=self%A(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Amplitude)')
 
-         case(CURRENT_TYPE_AC)
+         call file_parameters%get(section_name=sname, option_name='Frequency', val=self%f(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Frequency)')
 
-            call file_parameters%get(section_name=sname, option_name='Amplitude', val=self%A(i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Amplitude)')
+         call file_parameters%get(section_name=sname, option_name='Phase', val=self%phase(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Phase)')
 
-            call file_parameters%get(section_name=sname, option_name='Frequency', val=self%f(i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Frequency)')
+      endselect
+   enddo
+   contains
+      subroutine associate_adam_data(field)
+      !< Associate objects data for easy handling.
+      type(field_object), intent(in), target :: field !< The field.
 
-            call file_parameters%get(section_name=sname, option_name='Phase', val=self%phase(i), error=error)
-            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Phase)')
-
-         endselect
-         enddo
-   endif
+      self%blocks_number => field%blocks_number
+      self%ni            => field%grid%ni
+      self%nj            => field%grid%nj
+      self%nk            => field%grid%nk
+      self%ngc           => field%grid%ngc
+      self%nb            => field%nb
+      endsubroutine associate_adam_data
    endsubroutine load_from_file
-
-   !Schema: -subroutine set coils: ciclo do con lettura di numero di coil
-   !                                    -lettura coil type e conseguente chiamata alla subroutine di riferimento
 
    subroutine set_coils(self, physics, field)
    !< Set initial conditions on PRISM fields.
@@ -393,7 +391,7 @@ contains
       do i=1, self%total_coils_number
 
          select case(self%coil_type(i))
-            
+
          case(COIL_TYPE_CIRCULAR) !Caso spire circolari
             call self%set_circular_coil (physics = physics, field = field, n = i)
 
@@ -422,7 +420,7 @@ contains
       type(prism_physics_object),   intent(in)    :: physics                                                             !< Fluids physiscs.
       integer(I4P),                 intent(in)    :: n                                                                   !< Coil number.
       !real(R8P),                    allocatable   :: flag(:,:,:,:)                                                      !< Flag per identificare se la spira passa per la cella
-      real(R8P),                    allocatable   :: Gaussian(:,:,:,:)                                                   !< Matrice gaussiana per distribuzione corrente 
+      real(R8P),                    allocatable   :: Gaussian(:,:,:,:)                                                   !< Matrice gaussiana per distribuzione corrente
       real(R8P)                                   :: dmax, dist                                                                !< Vincolo distanza massima dalla spira.
       real(R8P)                                   :: c_c(3)                                                              !< Vettore posizione centro spira
       real(R8P)                                   :: cell_coord(3)                                                       !< Vettore posizione centro cella
@@ -451,7 +449,7 @@ contains
                do i=1, ni
                   cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
                   !if (sq_norm(cell_coord-c_c) <= (r_coil+dmax)**2 .and. (r_coil-dmax)**2 <= sq_norm(cell_coord-c_c) .and. &
-                      !PI/2-acos(abs((dotproduct(a=(cell_coord-c_c),b=normal)))/sqrt(sq_norm(cell_coord-c_c))) <= asin(d/(2*r_coil)) & 
+                      !PI/2-acos(abs((dotproduct(a=(cell_coord-c_c),b=normal)))/sqrt(sq_norm(cell_coord-c_c))) <= asin(d/(2*r_coil)) &
                       !.and. self%coil_flag(i,j,k,b) == 0_I4P ) then
                      !q(7:9,i,j,k,b) = crossproduct(a=normal,b=(cell_coord-c_c))
                   if ((dotproduct(a=(cell_coord-c_c),b=normal))**2 + (sqrt(sq_norm(cell_coord-c_c) - &
@@ -704,10 +702,10 @@ contains
                   !Azzero gli spigoli
                if (sq_norm(self%J_vec(1:3,i,j,k,b)) > 1.1_R8P) then
                   self%J_vec(1:4,i,j,k,b) = 0._R8P
-                  self%coil_flag(i,j,k,b) = 0_I4P     
-                  print *, 'spigolo azzerato'             
+                  self%coil_flag(i,j,k,b) = 0_I4P
+                  print *, 'spigolo azzerato'
                endif
-                  
+
                !endif
             enddo
          enddo
@@ -723,7 +721,7 @@ contains
    type(prism_physics_object),   intent(in)    :: physics                                                         !< Fluids physiscs.
    integer(I4P),                 intent(in)    :: n                                                               !< Coil number.
    integer(I4P),                 allocatable   :: flag(:,:,:,:)                                                   !< Flag per identificare se la spira passa per la cella
-   real(R8P),                    allocatable   :: Gaussian(:,:,:,:)                                               !< Matrice gaussiana per distribuzione corrente 
+   real(R8P),                    allocatable   :: Gaussian(:,:,:,:)                                               !< Matrice gaussiana per distribuzione corrente
    real(R8P)                                   :: dmax                                                            !< Vincolo distanza massima dalla spira.
    real(R8P)                                   :: c_c(3)                                                          !< Vettore posizione centro spira
    real(R8P)                                   :: cell_coord(3)                                                   !< Vettore posizione centro cella
@@ -864,7 +862,7 @@ contains
                        prj_v(2) <= maxval(V(:,2)) + dmax .and. prj_v(3) <= maxval(V(:,3)) + dmax .and. &
                        minval(V(:,1))-dmax <= prj_v(1) .and. minval(V(:,2))-dmax <= prj_v(2) .and. &
                        minval(V(:,3))-dmax <= prj_v(3) ) then
-                     
+
                      flag(i,j,k,b) = w
                   endif
                    !secondo if: per ogni lato verifico di essere dal "lato giusto" dei piani definiti dalle diagonali, al fine di
@@ -945,7 +943,7 @@ contains
    type(prism_physics_object),   intent(in)    :: physics                                                         !< Fluids physiscs.
    integer(I4P),                 intent(in)    :: n                                                               !< Coil number.
    integer(I4P),                 allocatable   :: flag(:,:,:,:)                                                   !< Flag per identificare se la spira passa per la cella
-   real(R8P),                    allocatable   :: Gaussian(:,:,:,:)                                               !< Matrice gaussiana per distribuzione corrente 
+   real(R8P),                    allocatable   :: Gaussian(:,:,:,:)                                               !< Matrice gaussiana per distribuzione corrente
    real(R8P)                                   :: dmax                                                            !< Vincolo distanza massima dalla spira.
    real(R8P)                                   :: c_c(3)                                                          !< Vettore posizione centro spira
    real(R8P)                                   :: cell_coord(3)                                                   !< Vettore posizione centro cella
@@ -954,7 +952,7 @@ contains
                                                   z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)           !< Vettori posizione centro celle del blocco b
    real(R8P)                                   :: vx(3), vy(3), vz(3)                                             !< Versori assi cartesiani
    real(R8P)                                   :: V1(3), V2(3), V3(3), V4(3), V(4,3)                              !< Vertici rettangolo e relativa matrice
-   real(R8P)                                   :: V1_1(3), V2_1(3), V3_1(3), V4_1(3) 
+   real(R8P)                                   :: V1_1(3), V2_1(3), V3_1(3), V4_1(3)
    real(R8P)                                   :: V1_2(3), V2_2(3), V3_2(3), V4_2(3)
    real(R8P)                                   :: v_l1(3), v_l2(3), vec(4,3)                                      !< Versori lati rettangolo (vale regola mano dx) e relativa matrice
    real(R8P)                                   :: n1(3), d1, n2(3), d2, n3(3), d3, n4(3), d4                      !< Parametri piani diagonali perpendicolari a spira, per evitare sovrapposizioni
@@ -1041,12 +1039,12 @@ contains
 
    V1_1 = matmul(R,V1_1)+c_c
    V2_1 = matmul(R,V2_1)+c_c
-   V3_1 = matmul(R,V3_1)+c_c  
-   V4_1 = matmul(R,V4_1)+c_c 
+   V3_1 = matmul(R,V3_1)+c_c
+   V4_1 = matmul(R,V4_1)+c_c
    V1_2 = matmul(R,V1_2)+c_c
    V2_2 = matmul(R,V2_2)+c_c
-   V3_2 = matmul(R,V3_2)+c_c  
-   V4_2 = matmul(R,V4_2)+c_c 
+   V3_2 = matmul(R,V3_2)+c_c
+   V4_2 = matmul(R,V4_2)+c_c
    v_l1 = matmul(R,vx)
    v_l1 = v_l1/sqrt(sq_norm(v_l1))
    v_l2 = matmul(R,vy);
@@ -1085,7 +1083,7 @@ contains
    eps = 1*10e-10
    !modificata per avere termine sorgente come Filippo, se infittiamo o aumentiamo sezione spira torna la precedente
    do w = 1, 4, 2 !per ogni lato del rettangolo
-      do b=1, blocks_number      
+      do b=1, blocks_number
          dmax = dx(b)*d_real+eps
          ! chiamo funzione che restituisce le coordinate delle varie celle che compongono il blocco
          call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
@@ -1103,17 +1101,17 @@ contains
                   !     minval(V(:,1))-dmax <= prj_v(1) .and. minval(V(:,2))-dmax <= prj_v(2) .and. &
                   !     minval(V(:,3))-dmax <= prj_v(3) ) then
 
-                  !if ((flag(i,j,k,b) == 0_I4P .or. flag(i,j,k,b) == w) .and. dist <= dx(b)/2 .and. & 
+                  !if ((flag(i,j,k,b) == 0_I4P .or. flag(i,j,k,b) == w) .and. dist <= dx(b)/2 .and. &
                   !   prj_v(1) <= maxval(V(:,1)) + dmax .and. &
                   !   prj_v(2) <= maxval(V(:,2)) + dmax .and. prj_v(3) <= maxval(V(:,3)) + dmax .and. &
                   !   minval(V(:,1))-dmax <= prj_v(1) .and. minval(V(:,2))-dmax <= prj_v(2) .and. &
                   !   minval(V(:,3))-dmax <= prj_v(3) ) then
 
-                  if (dist <= dx(b)/2 .and. & 
+                  if (dist <= dx(b)/2 .and. &
                      prj_v(1) <= maxval(V(:,1)) + dmax .and. &
                      prj_v(2) <= maxval(V(:,2)) + dmax .and. prj_v(3) <= maxval(V(:,3)) + dmax .and. &
                      minval(V(:,1))-dmax <= prj_v(1) .and. minval(V(:,2))-dmax <= prj_v(2) .and. &
-                     minval(V(:,3))-dmax <= prj_v(3) ) then  
+                     minval(V(:,3))-dmax <= prj_v(3) ) then
 
                      !flag(i,j,k,b) = w
 
@@ -1123,7 +1121,7 @@ contains
                               do k1 = -d_int, d_int
                                  if (flag(i+i1,j+j1,k+k1,b) == 0_I4P) then
                                     flag(i+i1,j+j1,k+k1,b) = w
-                                 endif 
+                                 endif
                               enddo
                            enddo
                         enddo
@@ -1186,8 +1184,8 @@ contains
       enddo
    enddo
 
-   do w = 2, 4, 2 
-      do b=1, blocks_number      
+   do w = 2, 4, 2
+      do b=1, blocks_number
          dmax = dx(b)*d_real+eps
          ! chiamo funzione che restituisce le coordinate delle varie celle che compongono il blocco
          call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
@@ -1204,12 +1202,12 @@ contains
                   !     prj_v(2) <= maxval(V(:,2)) + dmax .and. prj_v(3) <= maxval(V(:,3)) + dmax .and. &
                   !     minval(V(:,1))-dmax <= prj_v(1) .and. minval(V(:,2))-dmax <= prj_v(2) .and. &
                   !     minval(V(:,3))-dmax <= prj_v(3) ) then
-                  !if ((flag(i,j,k,b) == 0_I4P .or. flag(i,j,k,b) == w) .and. dist <= dx(b)/2 .and. & 
+                  !if ((flag(i,j,k,b) == 0_I4P .or. flag(i,j,k,b) == w) .and. dist <= dx(b)/2 .and. &
                   !   prj_v(1) <= maxval(V(:,1)) + dmax .and. &
                   !   prj_v(2) <= maxval(V(:,2)) + dmax .and. prj_v(3) <= maxval(V(:,3)) + dmax .and. &
                   !   minval(V(:,1))-dmax <= prj_v(1) .and. minval(V(:,2))-dmax <= prj_v(2) .and. &
-                  !   minval(V(:,3))-dmax <= prj_v(3) ) then  
-                  if (dist <= dx(b)/2 .and. & 
+                  !   minval(V(:,3))-dmax <= prj_v(3) ) then
+                  if (dist <= dx(b)/2 .and. &
                   prj_v(1) <= maxval(V(:,1)) + dmax .and. &
                   prj_v(2) <= maxval(V(:,2)) + dmax .and. prj_v(3) <= maxval(V(:,3)) + dmax .and. &
                   minval(V(:,1))-dmax <= prj_v(1) .and. minval(V(:,2))-dmax <= prj_v(2) .and. &
@@ -1223,7 +1221,7 @@ contains
                               do k1 = -d_int, d_int
                                  if (flag(i+i1,j+j1,k+k1,b) == 0_I4P) then
                                     flag(i+i1,j+j1,k+k1,b) = w
-                                 endif 
+                                 endif
                               enddo
                            enddo
                         enddo
@@ -1459,8 +1457,8 @@ contains
                      self%coil_flag(i,j,k,b) = n
 
                      if (abs(self%J_vec(2,i,j,k,b)) < 1.0e-10_R8P) then
-                        self%J_vec(1,i,j,k,b) = 0._R8P 
-                     endif                 
+                        self%J_vec(1,i,j,k,b) = 0._R8P
+                     endif
                      if (abs(self%J_vec(2,i,j,k,b)) < 1.0e-10_R8P) then
                         self%J_vec(2,i,j,k,b) = 0._R8P
                      endif
@@ -1491,15 +1489,14 @@ contains
    real(R8P)                                   :: vx(3), vy(3), vz(3)                            !< Versori assi cartesiani
    real(R8P)                                   :: V1(3), V2(3), V3(3), V4(3), V(4,3)             !< Vertici rettangolo e relativa matrice
    real(R8P)                                   :: C1(3), C2(3), C3(3), C4(3), C(4,3)             !< Centri di curvatura e relativa matrice
-   real(R8P)                                   :: prj_C1_l1(3), prj_C2_l1(3), C_l1(2,3) 
-   real(R8P)                                   :: prj_C2_l2(3), prj_C3_l2(3), C_l2(2,3)                      
-   real(R8P)                                   :: prj_C3_l3(3), prj_C4_l3(3), C_l3(2,3) 
+   real(R8P)                                   :: prj_C1_l1(3), prj_C2_l1(3), C_l1(2,3)
+   real(R8P)                                   :: prj_C2_l2(3), prj_C3_l2(3), C_l2(2,3)
+   real(R8P)                                   :: prj_C3_l3(3), prj_C4_l3(3), C_l3(2,3)
    real(R8P)                                   :: prj_C4_l4(3), prj_C1_l4(3), C_l4(2,3)          !< Proiezioni dei centri di curvatura sui lati
    real(R8P)                                   :: v_l1(3), v_l2(3), vec(4,3)                     !< Versori lati rettangolo (vale regola mano dx) e relativa matrice
    integer(I4P),                 intent(in)    :: n                                              !< Coil number.
    integer(I4P)                                :: b                                               !< Counter.
 
-   
    !associo per dati su posizioni delle celle e contatori
    associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk,      &
                ngc=>field%grid%ngc, x_c => self%x_center(n), y_c => self%y_center(n), z_c => self%z_center(n), &
@@ -1602,7 +1599,7 @@ contains
    vec(1,:) = v_l1
    vec(2,:) = v_l2
    vec(3,:) = -v_l1
-   vec(4,:) = -v_l2   
+   vec(4,:) = -v_l2
 
    !proiezione dei centri di curvatura sui lati del rettangolo
    prj_C1_l1 = V1+dotproduct(a=(C1-V1),b=vec(1,:))*vec(1,:)
@@ -1622,7 +1619,6 @@ contains
    C_l3(2,:) = prj_C4_l3
    C_l4(1,:) = prj_C4_l4
    C_l4(2,:) = prj_C1_l4
-
 
    dmax = 0.001
 
@@ -1698,7 +1694,7 @@ contains
                                  z_cell(1-ngc:nk+ngc)                                        !< Block b cell center coordinates.
    real(R8P),    intent(in)   :: V(2,3)                                                      !< Extremal points of the wire.
    real(R8P),    intent(in)   :: dmax                                                        !< Maximum distance from the wire axis.
-   real(R8P),    intent(in)   :: vec(3)                                                      !< Direction vector of the wire. 
+   real(R8P),    intent(in)   :: vec(3)                                                      !< Direction vector of the wire.
    real(R8P)                  :: cell_coord(3), dist, prj_v(3)                               !< Cell center coordinates.
    integer(I4P), intent(in)   :: ni,nj,nk,blocks_number,ngc,b                                !< Grid dimensions & block number
    integer(I4P), intent(in)   :: numb                                                        !< Coil number.
@@ -1773,5 +1769,4 @@ contains
 
    f = exp(-0.5 * (r / sigma)**2) / (2.0 * PI * sigma**2)
    endfunction gaussian_2D_ind
-
 endmodule adam_prism_coil_object

@@ -423,6 +423,7 @@ contains
                              msg=self%mpih%myrankstr//'rk_object%initialize allocate q_rk')
    endselect
    endassociate
+   print '(A)', self%description()
    call self%mpih%print_message('rk_object%initialize finish')
    contains
       subroutine associate_adam_data(grid, field)
