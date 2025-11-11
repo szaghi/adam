@@ -96,15 +96,15 @@
 
             <li class="list-inline-item" id="source-file">
               <i class="fa fa-code"></i>
-              <a href="../src/adam_nasto_gmp_kernels.F90"> Source File</a>
+              <a href="../src/adam_nasto_fnl_kernels.F90"> Source File</a>
             </li>
         </ul>
       </div>
       <div class="col">
         <nav aria-label="breadcrumb">
           <ol class="breadcrumb justify-content-end mb-0">
-                <li class="breadcrumb-item"><a href='../sourcefile/adam_nasto_gmp_kernels.f90.html'>adam_nasto_gmp_kernels.F90</a></li>
-                <li class="breadcrumb-item"><a href='../module/adam_nasto_gmp_kernels.html'>adam_nasto_gmp_kernels</a></li>
+                <li class="breadcrumb-item"><a href='../sourcefile/adam_nasto_fnl_kernels.f90.html'>adam_nasto_fnl_kernels.F90</a></li>
+                <li class="breadcrumb-item"><a href='../module/adam_nasto_fnl_kernels.html'>adam_nasto_fnl_kernels</a></li>
             <li class="breadcrumb-item active" aria-current="page">decompose_fluxes_convective_device</li>
           </ol>
         </nav>
@@ -179,7 +179,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-si~6"></span>
+              <span class="anchor" id="variable-si~18"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -194,7 +194,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-sir~6"></span>
+              <span class="anchor" id="variable-sir~22"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -209,7 +209,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-el~4"></span>
+              <span class="anchor" id="variable-el~8"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -224,7 +224,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-weno_s~6"></span>
+              <span class="anchor" id="variable-weno_s~10"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -239,7 +239,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-b~21"></span>
+              <span class="anchor" id="variable-b~44"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -254,7 +254,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-i~18"></span>
+              <span class="anchor" id="variable-i~41"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -269,7 +269,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-j~14"></span>
+              <span class="anchor" id="variable-j~35"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -284,7 +284,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-k~14"></span>
+              <span class="anchor" id="variable-k~35"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -299,7 +299,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ngc~14"></span>
+              <span class="anchor" id="variable-ngc~33"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -314,7 +314,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nv~12"></span>
+              <span class="anchor" id="variable-nv~28"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -329,7 +329,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-g~6"></span>
+              <span class="anchor" id="variable-g~16"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -344,7 +344,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux_gpu~14"></span>
+              <span class="anchor" id="variable-q_aux_gpu~20"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -359,7 +359,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-fmpc~4"></span>
+              <span class="anchor" id="variable-fmpc~6"></span>
               real(kind=R8P),
             </td>
 <td>intent(inout)</td>
@@ -387,61 +387,61 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
 <!-- Generated by graphviz version 2.43.0 (0)
  -->
 <!-- Title: proc~~decompose_fluxes_convective_device~2~~CallsGraph Pages: 1 -->
-<svg id="procdecompose_fluxes_convective_device2CallsGraph" width="470pt" height="116pt"
- viewBox="0.00 0.00 470.00 116.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<svg id="procdecompose_fluxes_convective_device2CallsGraph" width="454pt" height="116pt"
+ viewBox="0.00 0.00 454.00 116.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
 <g id="proc~~decompose_fluxes_convective_device~2~~CallsGraph" class="graph" transform="scale(1 1) rotate(0) translate(4 112)">
 <title>proc~~decompose_fluxes_convective_device~2~~CallsGraph</title>
-<polygon fill="white" stroke="transparent" points="-4,4 -4,-112 466,-112 466,4 -4,4"/>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-112 450,-112 450,4 -4,4"/>
 <!-- proc~decompose_fluxes_convective_device~2 -->
 <g id="proc~~decompose_fluxes_convective_device~2~~CallsGraph_node1" class="node">
 <title>proc~decompose_fluxes_convective_device~2</title>
 <polygon fill="none" stroke="black" points="215,-66 0,-66 0,-42 215,-42 215,-66"/>
 <text text-anchor="middle" x="107.5" y="-51.6" font-family="Helvetica,sans-Serif" font-size="10.50">decompose_fluxes_convective_device</text>
 </g>
-<!-- proc~compute_conservative_fluxes_device~2 -->
+<!-- proc~compute_conservative_fluxes_dev -->
 <g id="proc~~decompose_fluxes_convective_device~2~~CallsGraph_node2" class="node">
-<title>proc~compute_conservative_fluxes_device~2</title>
-<g id="a_proc~~decompose_fluxes_convective_device~2~~CallsGraph_node2"><a xlink:href="../proc/compute_conservative_fluxes_device~2.html" xlink:title="compute_conservative_fluxes_device">
-<polygon fill="#d9534f" stroke="#d9534f" points="462,-108 251,-108 251,-84 462,-84 462,-108"/>
-<text text-anchor="middle" x="356.5" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_conservative_fluxes_device</text>
+<title>proc~compute_conservative_fluxes_dev</title>
+<g id="a_proc~~decompose_fluxes_convective_device~2~~CallsGraph_node2"><a xlink:href="../proc/compute_conservative_fluxes_dev.html" xlink:title="compute_conservative_fluxes_dev">
+<polygon fill="#d9534f" stroke="#d9534f" points="446,-108 251,-108 251,-84 446,-84 446,-108"/>
+<text text-anchor="middle" x="348.5" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_conservative_fluxes_dev</text>
 </a>
 </g>
 </g>
-<!-- proc~decompose_fluxes_convective_device~2&#45;&gt;proc~compute_conservative_fluxes_device~2 -->
+<!-- proc~decompose_fluxes_convective_device~2&#45;&gt;proc~compute_conservative_fluxes_dev -->
 <g id="proc~~decompose_fluxes_convective_device~2~~CallsGraph_edge1" class="edge">
-<title>proc~decompose_fluxes_convective_device~2&#45;&gt;proc~compute_conservative_fluxes_device~2</title>
-<path fill="none" stroke="#000000" d="M179.28,-66.04C208.99,-71.09 243.72,-76.99 274.45,-82.22"/>
-<polygon fill="#000000" stroke="#000000" points="274.26,-85.74 284.71,-83.96 275.44,-78.84 274.26,-85.74"/>
+<title>proc~decompose_fluxes_convective_device~2&#45;&gt;proc~compute_conservative_fluxes_dev</title>
+<path fill="none" stroke="#000000" d="M176.99,-66.04C205.74,-71.09 239.34,-76.99 269.08,-82.22"/>
+<polygon fill="#000000" stroke="#000000" points="268.55,-85.68 279,-83.96 269.76,-78.78 268.55,-85.68"/>
 </g>
-<!-- proc~compute_conservatives_device~2 -->
+<!-- proc~compute_conservatives_dev -->
 <g id="proc~~decompose_fluxes_convective_device~2~~CallsGraph_node3" class="node">
-<title>proc~compute_conservatives_device~2</title>
-<g id="a_proc~~decompose_fluxes_convective_device~2~~CallsGraph_node3"><a xlink:href="../proc/compute_conservatives_device~2.html" xlink:title="compute_conservatives_device">
-<polygon fill="#d9534f" stroke="#d9534f" points="446,-66 267,-66 267,-42 446,-42 446,-66"/>
-<text text-anchor="middle" x="356.5" y="-51.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_conservatives_device</text>
+<title>proc~compute_conservatives_dev</title>
+<g id="a_proc~~decompose_fluxes_convective_device~2~~CallsGraph_node3"><a xlink:href="../proc/compute_conservatives_dev.html" xlink:title="compute_conservatives_dev">
+<polygon fill="#d9534f" stroke="#d9534f" points="430,-66 267,-66 267,-42 430,-42 430,-66"/>
+<text text-anchor="middle" x="348.5" y="-51.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_conservatives_dev</text>
 </a>
 </g>
 </g>
-<!-- proc~decompose_fluxes_convective_device~2&#45;&gt;proc~compute_conservatives_device~2 -->
+<!-- proc~decompose_fluxes_convective_device~2&#45;&gt;proc~compute_conservatives_dev -->
 <g id="proc~~decompose_fluxes_convective_device~2~~CallsGraph_edge2" class="edge">
-<title>proc~decompose_fluxes_convective_device~2&#45;&gt;proc~compute_conservatives_device~2</title>
-<path fill="none" stroke="#000000" d="M215.04,-54C228.78,-54 242.8,-54 256.4,-54"/>
-<polygon fill="#000000" stroke="#000000" points="256.72,-57.5 266.72,-54 256.72,-50.5 256.72,-57.5"/>
+<title>proc~decompose_fluxes_convective_device~2&#45;&gt;proc~compute_conservatives_dev</title>
+<path fill="none" stroke="#000000" d="M215.07,-54C228.96,-54 243.08,-54 256.68,-54"/>
+<polygon fill="#000000" stroke="#000000" points="256.96,-57.5 266.96,-54 256.96,-50.5 256.96,-57.5"/>
 </g>
-<!-- proc~compute_max_eigenvalues_device~2 -->
+<!-- proc~compute_max_eigenvalues_dev -->
 <g id="proc~~decompose_fluxes_convective_device~2~~CallsGraph_node4" class="node">
-<title>proc~compute_max_eigenvalues_device~2</title>
-<g id="a_proc~~decompose_fluxes_convective_device~2~~CallsGraph_node4"><a xlink:href="../proc/compute_max_eigenvalues_device~2.html" xlink:title="compute_max_eigenvalues_device">
-<polygon fill="#d9534f" stroke="#d9534f" points="456,-24 257,-24 257,0 456,0 456,-24"/>
-<text text-anchor="middle" x="356.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_max_eigenvalues_device</text>
+<title>proc~compute_max_eigenvalues_dev</title>
+<g id="a_proc~~decompose_fluxes_convective_device~2~~CallsGraph_node4"><a xlink:href="../proc/compute_max_eigenvalues_dev.html" xlink:title="compute_max_eigenvalues_dev">
+<polygon fill="#d9534f" stroke="#d9534f" points="440,-24 257,-24 257,0 440,0 440,-24"/>
+<text text-anchor="middle" x="348.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_max_eigenvalues_dev</text>
 </a>
 </g>
 </g>
-<!-- proc~decompose_fluxes_convective_device~2&#45;&gt;proc~compute_max_eigenvalues_device~2 -->
+<!-- proc~decompose_fluxes_convective_device~2&#45;&gt;proc~compute_max_eigenvalues_dev -->
 <g id="proc~~decompose_fluxes_convective_device~2~~CallsGraph_edge3" class="edge">
-<title>proc~decompose_fluxes_convective_device~2&#45;&gt;proc~compute_max_eigenvalues_device~2</title>
-<path fill="none" stroke="#000000" d="M179.28,-41.96C208.99,-36.91 243.72,-31.01 274.45,-25.78"/>
-<polygon fill="#000000" stroke="#000000" points="275.44,-29.16 284.71,-24.04 274.26,-22.26 275.44,-29.16"/>
+<title>proc~decompose_fluxes_convective_device~2&#45;&gt;proc~compute_max_eigenvalues_dev</title>
+<path fill="none" stroke="#000000" d="M176.99,-41.96C205.74,-36.91 239.34,-31.01 269.08,-25.78"/>
+<polygon fill="#000000" stroke="#000000" points="269.76,-29.22 279,-24.04 268.55,-22.32 269.76,-29.22"/>
 </g>
 </g>
 </svg>
@@ -536,105 +536,105 @@ implementation in a submodule of an interface in a parent module.
  -->
 <!-- Title: proc~~decompose_fluxes_convective_device~2~~CalledByGraph Pages: 1 -->
 <svg id="procdecompose_fluxes_convective_device2CalledByGraph" width="641pt" height="14pt"
- viewBox="0.00 0.00 641.00 13.79" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
-<g id="proc~~decompose_fluxes_convective_device~2~~CalledByGraph" class="graph" transform="scale(0.43 0.43) rotate(0) translate(4 28)">
+ viewBox="0.00 0.00 641.00 14.28" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="proc~~decompose_fluxes_convective_device~2~~CalledByGraph" class="graph" transform="scale(0.45 0.45) rotate(0) translate(4 28)">
 <title>proc~~decompose_fluxes_convective_device~2~~CalledByGraph</title>
-<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 1483,-28 1483,4 -4,4"/>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 1432,-28 1432,4 -4,4"/>
 <!-- proc~decompose_fluxes_convective_device~2 -->
 <g id="proc~~decompose_fluxes_convective_device~2~~CalledByGraph_node1" class="node">
 <title>proc~decompose_fluxes_convective_device~2</title>
-<polygon fill="none" stroke="black" points="1479,-24 1264,-24 1264,0 1479,0 1479,-24"/>
-<text text-anchor="middle" x="1371.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">decompose_fluxes_convective_device</text>
+<polygon fill="none" stroke="black" points="1428,-24 1213,-24 1213,0 1428,0 1428,-24"/>
+<text text-anchor="middle" x="1320.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">decompose_fluxes_convective_device</text>
 </g>
-<!-- proc~compute_fluxes_convective_device~2 -->
+<!-- proc~compute_fluxes_convective_ri_dev -->
 <g id="proc~~decompose_fluxes_convective_device~2~~CalledByGraph_node2" class="node">
-<title>proc~compute_fluxes_convective_device~2</title>
-<g id="a_proc~~decompose_fluxes_convective_device~2~~CalledByGraph_node2"><a xlink:href="../proc/compute_fluxes_convective_device~2.html" xlink:title="compute_fluxes_convective_device">
-<polygon fill="#d9534f" stroke="#d9534f" points="1228,-24 1028,-24 1028,0 1228,0 1228,-24"/>
-<text text-anchor="middle" x="1128" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_fluxes_convective_device</text>
+<title>proc~compute_fluxes_convective_ri_dev</title>
+<g id="a_proc~~decompose_fluxes_convective_device~2~~CalledByGraph_node2"><a xlink:href="../proc/compute_fluxes_convective_ri_dev.html" xlink:title="compute_fluxes_convective_ri_dev">
+<polygon fill="#d9534f" stroke="#d9534f" points="1177,-24 980,-24 980,0 1177,0 1177,-24"/>
+<text text-anchor="middle" x="1078.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_fluxes_convective_ri_dev</text>
 </a>
 </g>
 </g>
-<!-- proc~compute_fluxes_convective_device~2&#45;&gt;proc~decompose_fluxes_convective_device~2 -->
+<!-- proc~compute_fluxes_convective_ri_dev&#45;&gt;proc~decompose_fluxes_convective_device~2 -->
 <g id="proc~~decompose_fluxes_convective_device~2~~CalledByGraph_edge1" class="edge">
-<title>proc~compute_fluxes_convective_device~2&#45;&gt;proc~decompose_fluxes_convective_device~2</title>
-<path fill="none" stroke="#000000" d="M1228.27,-12C1236.6,-12 1245.06,-12 1253.5,-12"/>
-<polygon fill="#000000" stroke="#000000" points="1253.77,-15.5 1263.77,-12 1253.77,-8.5 1253.77,-15.5"/>
+<title>proc~compute_fluxes_convective_ri_dev&#45;&gt;proc~decompose_fluxes_convective_device~2</title>
+<path fill="none" stroke="#000000" d="M1177.12,-12C1185.61,-12 1194.25,-12 1202.87,-12"/>
+<polygon fill="#000000" stroke="#000000" points="1202.97,-15.5 1212.97,-12 1202.97,-8.5 1202.97,-15.5"/>
 </g>
-<!-- proc~compute_fluxes_convective_gmp -->
+<!-- proc~compute_fluxes_convective_dev -->
 <g id="proc~~decompose_fluxes_convective_device~2~~CalledByGraph_node3" class="node">
-<title>proc~compute_fluxes_convective_gmp</title>
-<g id="a_proc~~decompose_fluxes_convective_device~2~~CalledByGraph_node3"><a xlink:href="../proc/compute_fluxes_convective_gmp.html" xlink:title="compute_fluxes_convective_gmp">
-<polygon fill="#d9534f" stroke="#d9534f" points="992,-24 803,-24 803,0 992,0 992,-24"/>
-<text text-anchor="middle" x="897.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_fluxes_convective_gmp</text>
+<title>proc~compute_fluxes_convective_dev</title>
+<g id="a_proc~~decompose_fluxes_convective_device~2~~CalledByGraph_node3"><a xlink:href="../proc/compute_fluxes_convective_dev.html" xlink:title="compute_fluxes_convective_dev">
+<polygon fill="#d9534f" stroke="#d9534f" points="944,-24 760,-24 760,0 944,0 944,-24"/>
+<text text-anchor="middle" x="852" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">compute_fluxes_convective_dev</text>
 </a>
 </g>
 </g>
-<!-- proc~compute_fluxes_convective_gmp&#45;&gt;proc~compute_fluxes_convective_device~2 -->
+<!-- proc~compute_fluxes_convective_dev&#45;&gt;proc~compute_fluxes_convective_ri_dev -->
 <g id="proc~~decompose_fluxes_convective_device~2~~CalledByGraph_edge2" class="edge">
-<title>proc~compute_fluxes_convective_gmp&#45;&gt;proc~compute_fluxes_convective_device~2</title>
-<path fill="none" stroke="#000000" d="M992.1,-12C1000.6,-12 1009.27,-12 1017.89,-12"/>
-<polygon fill="#000000" stroke="#000000" points="1017.98,-15.5 1027.98,-12 1017.98,-8.5 1017.98,-15.5"/>
+<title>proc~compute_fluxes_convective_dev&#45;&gt;proc~compute_fluxes_convective_ri_dev</title>
+<path fill="none" stroke="#000000" d="M944.31,-12C952.6,-12 961.04,-12 969.45,-12"/>
+<polygon fill="#000000" stroke="#000000" points="969.68,-15.5 979.68,-12 969.68,-8.5 969.68,-15.5"/>
 </g>
 <!-- proc~compute_residuals -->
 <g id="proc~~decompose_fluxes_convective_device~2~~CalledByGraph_node4" class="node">
 <title>proc~compute_residuals</title>
-<g id="a_proc~~decompose_fluxes_convective_device~2~~CalledByGraph_node4"><a xlink:href="../proc/compute_residuals.html" xlink:title="nasto_gmp_object%compute_residuals">
-<polygon fill="#d9534f" stroke="#d9534f" points="767,-24 548,-24 548,0 767,0 767,-24"/>
-<text text-anchor="middle" x="657.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%compute_residuals</text>
+<g id="a_proc~~decompose_fluxes_convective_device~2~~CalledByGraph_node4"><a xlink:href="../proc/compute_residuals.html" xlink:title="nasto_fnl_object%compute_residuals">
+<polygon fill="#d9534f" stroke="#d9534f" points="724,-24 516,-24 516,0 724,0 724,-24"/>
+<text text-anchor="middle" x="620" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_fnl_object%compute_residuals</text>
 </a>
 </g>
 </g>
-<!-- proc~compute_residuals&#45;&gt;proc~compute_fluxes_convective_gmp -->
+<!-- proc~compute_residuals&#45;&gt;proc~compute_fluxes_convective_dev -->
 <g id="proc~~decompose_fluxes_convective_device~2~~CalledByGraph_edge3" class="edge">
-<title>proc~compute_residuals&#45;&gt;proc~compute_fluxes_convective_gmp</title>
-<path fill="none" stroke="#000000" d="M767.05,-12C775.51,-12 784.03,-12 792.46,-12"/>
-<polygon fill="#000000" stroke="#000000" points="792.67,-15.5 802.67,-12 792.67,-8.5 792.67,-15.5"/>
+<title>proc~compute_residuals&#45;&gt;proc~compute_fluxes_convective_dev</title>
+<path fill="none" stroke="#000000" d="M724.23,-12C732.63,-12 741.12,-12 749.51,-12"/>
+<polygon fill="#000000" stroke="#000000" points="749.69,-15.5 759.69,-12 749.69,-8.5 749.69,-15.5"/>
 </g>
 <!-- proc~integrate -->
 <g id="proc~~decompose_fluxes_convective_device~2~~CalledByGraph_node5" class="node">
 <title>proc~integrate</title>
-<g id="a_proc~~decompose_fluxes_convective_device~2~~CalledByGraph_node5"><a xlink:href="../proc/integrate.html" xlink:title="nasto_gmp_object%integrate">
-<polygon fill="#d9534f" stroke="#d9534f" points="512,-24 344,-24 344,0 512,0 512,-24"/>
-<text text-anchor="middle" x="428" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%integrate</text>
+<g id="a_proc~~decompose_fluxes_convective_device~2~~CalledByGraph_node5"><a xlink:href="../proc/integrate.html" xlink:title="nasto_fnl_object%integrate">
+<polygon fill="#d9534f" stroke="#d9534f" points="480,-24 323,-24 323,0 480,0 480,-24"/>
+<text text-anchor="middle" x="401.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_fnl_object%integrate</text>
 </a>
 </g>
 </g>
 <!-- proc~integrate&#45;&gt;proc~compute_residuals -->
 <g id="proc~~decompose_fluxes_convective_device~2~~CalledByGraph_edge4" class="edge">
 <title>proc~integrate&#45;&gt;proc~compute_residuals</title>
-<path fill="none" stroke="#000000" d="M512.1,-12C520.49,-12 529.13,-12 537.8,-12"/>
-<polygon fill="#000000" stroke="#000000" points="537.98,-15.5 547.98,-12 537.98,-8.5 537.98,-15.5"/>
+<path fill="none" stroke="#000000" d="M480.05,-12C488.42,-12 497.06,-12 505.74,-12"/>
+<polygon fill="#000000" stroke="#000000" points="505.94,-15.5 515.94,-12 505.94,-8.5 505.94,-15.5"/>
 </g>
 <!-- proc~simulate -->
 <g id="proc~~decompose_fluxes_convective_device~2~~CalledByGraph_node6" class="node">
 <title>proc~simulate</title>
-<g id="a_proc~~decompose_fluxes_convective_device~2~~CalledByGraph_node6"><a xlink:href="../proc/simulate.html" xlink:title="nasto_gmp_object%simulate">
-<polygon fill="#d9534f" stroke="#d9534f" points="308,-24 143,-24 143,0 308,0 308,-24"/>
-<text text-anchor="middle" x="225.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%simulate</text>
+<g id="a_proc~~decompose_fluxes_convective_device~2~~CalledByGraph_node6"><a xlink:href="../proc/simulate.html" xlink:title="nasto_fnl_object%simulate">
+<polygon fill="#d9534f" stroke="#d9534f" points="287,-24 133,-24 133,0 287,0 287,-24"/>
+<text text-anchor="middle" x="210" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_fnl_object%simulate</text>
 </a>
 </g>
 </g>
 <!-- proc~simulate&#45;&gt;proc~integrate -->
 <g id="proc~~decompose_fluxes_convective_device~2~~CalledByGraph_edge5" class="edge">
 <title>proc~simulate&#45;&gt;proc~integrate</title>
-<path fill="none" stroke="#000000" d="M308.05,-12C316.54,-12 325.22,-12 333.83,-12"/>
-<polygon fill="#000000" stroke="#000000" points="333.89,-15.5 343.89,-12 333.89,-8.5 333.89,-15.5"/>
+<path fill="none" stroke="#000000" d="M287.26,-12C295.59,-12 304.13,-12 312.59,-12"/>
+<polygon fill="#000000" stroke="#000000" points="312.85,-15.5 322.85,-12 312.85,-8.5 312.85,-15.5"/>
 </g>
-<!-- program~adam_nasto_gmp -->
+<!-- program~adam_nasto_fnl -->
 <g id="proc~~decompose_fluxes_convective_device~2~~CalledByGraph_node7" class="node">
-<title>program~adam_nasto_gmp</title>
-<g id="a_proc~~decompose_fluxes_convective_device~2~~CalledByGraph_node7"><a xlink:href="../program/adam_nasto_gmp.html" xlink:title="adam_nasto_gmp">
-<polygon fill="#f0ad4e" stroke="#f0ad4e" points="107,-24 0,-24 0,0 107,0 107,-24"/>
-<text text-anchor="middle" x="53.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_gmp</text>
+<title>program~adam_nasto_fnl</title>
+<g id="a_proc~~decompose_fluxes_convective_device~2~~CalledByGraph_node7"><a xlink:href="../program/adam_nasto_fnl.html" xlink:title="adam_nasto_fnl">
+<polygon fill="#f0ad4e" stroke="#f0ad4e" points="97,-24 0,-24 0,0 97,0 97,-24"/>
+<text text-anchor="middle" x="48.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">adam_nasto_fnl</text>
 </a>
 </g>
 </g>
-<!-- program~adam_nasto_gmp&#45;&gt;proc~simulate -->
+<!-- program~adam_nasto_fnl&#45;&gt;proc~simulate -->
 <g id="proc~~decompose_fluxes_convective_device~2~~CalledByGraph_edge6" class="edge">
-<title>program~adam_nasto_gmp&#45;&gt;proc~simulate</title>
-<path fill="none" stroke="#000000" d="M107.36,-12C115.48,-12 124.07,-12 132.75,-12"/>
-<polygon fill="#000000" stroke="#000000" points="132.96,-15.5 142.96,-12 132.96,-8.5 132.96,-15.5"/>
+<title>program~adam_nasto_fnl&#45;&gt;proc~simulate</title>
+<path fill="none" stroke="#000000" d="M97.36,-12C105.4,-12 113.97,-12 122.64,-12"/>
+<polygon fill="#000000" stroke="#000000" points="122.84,-15.5 132.84,-12 122.84,-8.5 122.84,-15.5"/>
 </g>
 </g>
 </svg>
@@ -749,17 +749,18 @@ implementation in a submodule of an interface in a parent module.
 <span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">    </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">    </span><span class="kd">::</span><span class="w"> </span><span class="n">q_aux_gpu</span><span class="p">(</span><span class="mi">1</span><span class="p">:,</span><span class="mi">1</span><span class="o">-</span><span class="n">ngc</span><span class="p">:,</span><span class="mi">1</span><span class="o">-</span><span class="n">ngc</span><span class="p">:,</span><span class="mi">1</span><span class="o">-</span><span class="n">ngc</span><span class="p">:,</span><span class="mi">1</span><span class="p">:)</span><span class="w"> </span><span class="c">!&lt; Auxiliary variables.</span>
 <span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">    </span><span class="k">intent</span><span class="p">(</span><span class="n">inout</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">fmpc</span><span class="p">(</span><span class="mi">1</span><span class="p">:,</span><span class="mi">1</span><span class="o">-</span><span class="n">weno_s</span><span class="p">:,</span><span class="mi">1</span><span class="p">:)</span><span class="w">                 </span><span class="c">!&lt; Fluxes -+ decomposition in characteristics space.</span>
 <span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">                   </span><span class="kd">::</span><span class="w"> </span><span class="n">fmp</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="w">                                </span><span class="c">!&lt; Fluxes -+ decomposition in each cell stencils.</span>
-<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">                   </span><span class="kd">::</span><span class="w"> </span><span class="n">evmax</span><span class="p">(</span><span class="n">nv</span><span class="p">)</span><span class="w">                             </span><span class="c">!&lt; Signals speeds.</span>
-<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">                   </span><span class="kd">::</span><span class="w"> </span><span class="n">q</span><span class="p">(</span><span class="n">nv</span><span class="p">),</span><span class="w"> </span><span class="n">f</span><span class="p">(</span><span class="n">nv</span><span class="p">)</span><span class="w">                          </span><span class="c">!&lt; Conservative variables and fluxes.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">                   </span><span class="kd">::</span><span class="w"> </span><span class="n">evmax</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span><span class="w">                              </span><span class="c">!&lt; Signals speeds.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">                   </span><span class="kd">::</span><span class="w"> </span><span class="n">q</span><span class="p">(</span><span class="mi">5</span><span class="p">),</span><span class="w"> </span><span class="n">f</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span><span class="w">                            </span><span class="c">!&lt; Conservative variables and fluxes.</span>
 <span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">                   </span><span class="kd">::</span><span class="w"> </span><span class="n">gc</span><span class="p">,</span><span class="w"> </span><span class="n">wc</span><span class="w">                                </span><span class="c">!&lt; Increments for fluxes decomposition.</span>
 <span class="w">   </span><span class="kt">integer</span><span class="p">(</span><span class="n">I4P</span><span class="p">)</span><span class="w">                </span><span class="kd">::</span><span class="w"> </span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="n">vv</span><span class="p">,</span><span class="w"> </span><span class="n">s</span><span class="p">,</span><span class="w"> </span><span class="k">is</span><span class="p">,</span><span class="w"> </span><span class="n">js</span><span class="p">,</span><span class="w"> </span><span class="n">ks</span><span class="w">                  </span><span class="c">!&lt; Counter.</span>
-
+<span class="w">   </span><span class="c">!$acc routine(decompose_fluxes_convective_device)</span>
 <span class="w">   </span><span class="c">!$omp declare target(decompose_fluxes_convective_device)</span>
-<span class="w">   </span><span class="k">call </span><span class="n">compute_max_eigenvalues_device</span><span class="p">(</span><span class="n">si</span><span class="o">=</span><span class="n">si</span><span class="p">,</span><span class="n">sir</span><span class="o">=</span><span class="n">sir</span><span class="p">,</span><span class="n">weno_s</span><span class="o">=</span><span class="n">weno_s</span><span class="p">,</span><span class="n">b</span><span class="o">=</span><span class="n">b</span><span class="p">,</span><span class="n">i</span><span class="o">=</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="o">=</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="o">=</span><span class="n">k</span><span class="p">,</span><span class="n">ngc</span><span class="o">=</span><span class="n">ngc</span><span class="p">,</span><span class="n">nv</span><span class="o">=</span><span class="n">nv</span><span class="p">,</span><span class="n">q_aux_gpu</span><span class="o">=</span><span class="n">q_aux_gpu</span><span class="p">,</span><span class="n">evmax</span><span class="o">=</span><span class="n">evmax</span><span class="p">)</span>
+
+<span class="w">   </span><span class="k">call </span><span class="n">compute_max_eigenvalues_dev</span><span class="p">(</span><span class="n">si</span><span class="o">=</span><span class="n">si</span><span class="p">,</span><span class="n">sir</span><span class="o">=</span><span class="n">sir</span><span class="p">,</span><span class="n">weno_s</span><span class="o">=</span><span class="n">weno_s</span><span class="p">,</span><span class="n">b</span><span class="o">=</span><span class="n">b</span><span class="p">,</span><span class="n">i</span><span class="o">=</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="o">=</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="o">=</span><span class="n">k</span><span class="p">,</span><span class="n">ngc</span><span class="o">=</span><span class="n">ngc</span><span class="p">,</span><span class="n">nv</span><span class="o">=</span><span class="n">nv</span><span class="p">,</span><span class="n">q_aux_gpu</span><span class="o">=</span><span class="n">q_aux_gpu</span><span class="p">,</span><span class="n">evmax</span><span class="o">=</span><span class="n">evmax</span><span class="p">)</span>
 <span class="w">   </span><span class="k">do </span><span class="n">s</span><span class="o">=</span><span class="mi">1</span><span class="o">-</span><span class="n">weno_s</span><span class="p">,</span><span class="w"> </span><span class="n">weno_s</span>
 <span class="w">      </span><span class="k">is</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">si</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="p">;</span><span class="w"> </span><span class="n">js</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">si</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="p">;</span><span class="w"> </span><span class="n">ks</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">k</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">si</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
-<span class="w">      </span><span class="k">call </span><span class="n">compute_conservatives_device</span><span class="p">(</span><span class="n">b</span><span class="o">=</span><span class="n">b</span><span class="p">,</span><span class="n">i</span><span class="o">=</span><span class="k">is</span><span class="p">,</span><span class="n">j</span><span class="o">=</span><span class="n">js</span><span class="p">,</span><span class="n">k</span><span class="o">=</span><span class="n">ks</span><span class="p">,</span><span class="n">ngc</span><span class="o">=</span><span class="n">ngc</span><span class="p">,</span><span class="n">q_aux_gpu</span><span class="o">=</span><span class="n">q_aux_gpu</span><span class="p">,</span><span class="n">q</span><span class="o">=</span><span class="n">q</span><span class="p">)</span>
-<span class="w">      </span><span class="k">call </span><span class="n">compute_conservative_fluxes_device</span><span class="p">(</span><span class="n">sir</span><span class="o">=</span><span class="n">sir</span><span class="p">,</span><span class="n">b</span><span class="o">=</span><span class="n">b</span><span class="p">,</span><span class="n">i</span><span class="o">=</span><span class="k">is</span><span class="p">,</span><span class="n">j</span><span class="o">=</span><span class="n">js</span><span class="p">,</span><span class="n">k</span><span class="o">=</span><span class="n">ks</span><span class="p">,</span><span class="n">ngc</span><span class="o">=</span><span class="n">ngc</span><span class="p">,</span><span class="n">q_aux_gpu</span><span class="o">=</span><span class="n">q_aux_gpu</span><span class="p">,</span><span class="n">f</span><span class="o">=</span><span class="n">f</span><span class="p">)</span>
+<span class="w">      </span><span class="k">call </span><span class="n">compute_conservatives_dev</span><span class="p">(</span><span class="n">b</span><span class="o">=</span><span class="n">b</span><span class="p">,</span><span class="n">i</span><span class="o">=</span><span class="k">is</span><span class="p">,</span><span class="n">j</span><span class="o">=</span><span class="n">js</span><span class="p">,</span><span class="n">k</span><span class="o">=</span><span class="n">ks</span><span class="p">,</span><span class="n">ngc</span><span class="o">=</span><span class="n">ngc</span><span class="p">,</span><span class="n">q_aux_gpu</span><span class="o">=</span><span class="n">q_aux_gpu</span><span class="p">,</span><span class="n">q</span><span class="o">=</span><span class="n">q</span><span class="p">)</span>
+<span class="w">      </span><span class="k">call </span><span class="n">compute_conservative_fluxes_dev</span><span class="p">(</span><span class="n">sir</span><span class="o">=</span><span class="n">sir</span><span class="p">,</span><span class="n">b</span><span class="o">=</span><span class="n">b</span><span class="p">,</span><span class="n">i</span><span class="o">=</span><span class="k">is</span><span class="p">,</span><span class="n">j</span><span class="o">=</span><span class="n">js</span><span class="p">,</span><span class="n">k</span><span class="o">=</span><span class="n">ks</span><span class="p">,</span><span class="n">ngc</span><span class="o">=</span><span class="n">ngc</span><span class="p">,</span><span class="n">q_aux_gpu</span><span class="o">=</span><span class="n">q_aux_gpu</span><span class="p">,</span><span class="n">f</span><span class="o">=</span><span class="n">f</span><span class="p">)</span>
 <span class="w">      </span><span class="k">do </span><span class="n">v</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">nv</span>
 <span class="w">         </span><span class="n">wc</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0._R8P</span>
 <span class="w">         </span><span class="n">gc</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0._R8P</span>
