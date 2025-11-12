@@ -28,6 +28,12 @@ type :: prism_io_object
    integer(I4P)              :: residuals_unit             !< Residuals file unit.
    integer(I4P)              :: energy_error_save=10_I4P   !< Energy error output iteration save frequency.
    integer(I4P)              :: energy_error_unit          !< Energy error hystory file unit.
+   ! auxiliary fields saving
+   logical :: save_residual_fields  =.false. !< Flag to activate residual fields saving.
+   logical :: save_curl_fields      =.false. !< Flag to activate curl fields saving.
+   logical :: save_divergence_fields=.false. !< Flag to activate divergence fields saving.
+   logical :: save_gradient_fields  =.false. !< Flag to activate gradient fields saving.
+   logical :: save_laplacian_fields =.false. !< Flag to activate gradient fields saving.
    contains
       procedure, pass(self) :: description       !< Return pretty-printed object description.
       procedure, pass(self) :: initialize        !< Initialize time handler.
@@ -83,23 +89,34 @@ contains
    integer(I4P)                                 :: error           !< Error status.
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
-
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='output_basename', val=buff_c, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(output_basename)')
-   self%output_basename = trim(adjustl(buff_c))
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='it_save', val=self%it_save, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(it_save)')
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='restart', val=self%restart, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(restart)')
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='restart_basename', val=buff_c, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(restart_basename)')
-   self%restart_basename = trim(adjustl(buff_c))
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='restart_save', val=self%restart_save, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(restart_save)')
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='residuals_save', val=self%residuals_save, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(residuals_save)')
-   call file_parameters%get(section_name=INI_SECTION_NAME,option_name='save_memory_status',val=self%save_memory_status,error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(save_memory_status)')
+   associate(ISN=>INI_SECTION_NAME)
+      call file_parameters%get(section_name=ISN, option_name='output_basename', val=buff_c, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(output_basename)')
+      self%output_basename = trim(adjustl(buff_c))
+      call file_parameters%get(section_name=ISN, option_name='it_save', val=self%it_save, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(it_save)')
+      call file_parameters%get(section_name=ISN, option_name='restart', val=self%restart, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(restart)')
+      call file_parameters%get(section_name=ISN, option_name='restart_basename', val=buff_c, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(restart_basename)')
+      self%restart_basename = trim(adjustl(buff_c))
+      call file_parameters%get(section_name=ISN, option_name='restart_save', val=self%restart_save, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(restart_save)')
+      call file_parameters%get(section_name=ISN, option_name='residuals_save', val=self%residuals_save, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(residuals_save)')
+      call file_parameters%get(section_name=ISN,option_name='save_memory_status',val=self%save_memory_status,error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(save_memory_status)')
+      call file_parameters%get(section_name=ISN,option_name='save_residual_fields',val=self%save_residual_fields,error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(save_residual_fields)')
+      call file_parameters%get(section_name=ISN,option_name='save_curl_fields',val=self%save_curl_fields,error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(save_curl_fields)')
+      call file_parameters%get(section_name=ISN,option_name='save_divergence_fields',val=self%save_divergence_fields,error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(save_divergence_fields)')
+      call file_parameters%get(section_name=ISN,option_name='save_gradient_fields',val=self%save_gradient_fields,error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(save_gradient_fields)')
+      call file_parameters%get(section_name=ISN,option_name='save_laplacian_fields',val=self%save_laplacian_fields,error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//ISN//'].(save_laplacian_fields)')
+   endassociate
    endsubroutine load_from_file
 
    subroutine save_energy_error(self,it,time,blocks_number,energy_D,energy_B,rms_energy_error_D,rms_energy_error_B,&

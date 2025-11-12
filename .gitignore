@@ -2,6 +2,7 @@ building-errors.log
 exe/
 simulations/
 references/xall/
+references/untrack/
 run/
 src/tests/backup
 src/tests/euler_cpu

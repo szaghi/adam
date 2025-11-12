@@ -64,15 +64,12 @@ type :: prism_common_object
    integer(I4P), pointer :: nv_c=>null()          !< Number of conservative variables in q vector.
    integer(I4P), pointer :: nv_s=>null()          !< Number of source variables in q vector.
    integer(I4P), pointer :: nv_cl=>null()         !< Number of divergence cleaning variables in q vector.
-   ! fields data
-   real(R8P), allocatable    :: field_div(:,:,:,:,:) !< Field divergence.
-   real(R8P), allocatable    :: q(:,:,:,:,:)         !< Conservative cell centered variables.
-   real(R8P), allocatable    :: dq(:,:,:,:,:)        !< Residuals right hand side.
-   real(R8P), allocatable    :: curlB_fd(:,:,:,:,:)  !< Curl of B, finite difference shemes.
-   real(R8P), allocatable    :: curlB_fv(:,:,:,:,:)  !< Curl of B, finite volume shemes.
-   real(R8P), allocatable    :: dBz_ds_fd(:,:,:,:,:) !< Derivative1 of Bz, finite difference shemes.
-   real(R8P), allocatable    :: dBz_ds_fv(:,:,:,:,:) !< Derivative1 of Bz, finite volume shemes.
-   character(3), allocatable :: q_name(:)            !< Fields names.
+   ! fields data [1:nv,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb].
+   real(R8P), allocatable    :: q(         :,:,:,:,:) !< Conservative cell centered variables.
+   real(R8P), allocatable    :: dq(        :,:,:,:,:) !< Residuals right hand side.
+   real(R8P), allocatable    :: curl(      :,:,:,:,:) !< Curl fields.
+   real(R8P), allocatable    :: divergence(:,:,:,:,:) !< Divergence fields.
+   character(3), allocatable :: q_name(:)             !< Fields names [1:nv].
    ! auxiliary data
    real(R8P), allocatable :: energy_D(:)                !< Energy of field D, time history.
    real(R8P), allocatable :: energy_B(:)                !< Energy of field B, time history.
@@ -96,47 +93,22 @@ contains
                                        1,nb],[2,5]), &
                           msg=self%mpih%myrankstr//'prism_common_object%allocate_common(dq) ', verbose=.true.)
    self%dq = 0._R8P
-   call allocate_variable(var=self%field_div,        &
+   call allocate_variable(var=self%divergence,        &
                           ulb=reshape([1,self%nv,    &
                                        1-ngc,ni+ngc, &
                                        1-ngc,nj+ngc, &
                                        1-ngc,nk+ngc, &
                                        1,nb],[2,5]), &
-                          msg=self%mpih%myrankstr//'prism_common_object%allocate_common(field_div) ', verbose=.true.)
-   self%field_div = 0._R8P
-
-   call allocate_variable(var=self%curlB_fv,         &
-                          ulb=reshape([1,3,          &
+                          msg=self%mpih%myrankstr//'prism_common_object%allocate_common(divergence) ', verbose=.true.)
+   self%divergence = 0._R8P
+   call allocate_variable(var=self%curl,             &
+                          ulb=reshape([1,self%nv,    &
                                        1-ngc,ni+ngc, &
                                        1-ngc,nj+ngc, &
                                        1-ngc,nk+ngc, &
                                        1,nb],[2,5]), &
-                          msg=self%mpih%myrankstr//'prism_common_object%allocate_common(curlB_fv) ', verbose=.true.)
-   self%curlB_fv = 0._R8P
-   call allocate_variable(var=self%curlB_fd,         &
-                          ulb=reshape([1,3,          &
-                                       1-ngc,ni+ngc, &
-                                       1-ngc,nj+ngc, &
-                                       1-ngc,nk+ngc, &
-                                       1,nb],[2,5]), &
-                          msg=self%mpih%myrankstr//'prism_common_object%allocate_common(curlB_fd) ', verbose=.true.)
-   self%curlB_fd = 0._R8P
-   call allocate_variable(var=self%dBz_ds_fv,        &
-                          ulb=reshape([1,3,          &
-                                       1-ngc,ni+ngc, &
-                                       1-ngc,nj+ngc, &
-                                       1-ngc,nk+ngc, &
-                                       1,nb],[2,5]), &
-                          msg=self%mpih%myrankstr//'prism_common_object%allocate_common(dBz_ds_fv) ', verbose=.true.)
-   self%dBz_ds_fv = 0._R8P
-   call allocate_variable(var=self%dBz_ds_fd,        &
-                          ulb=reshape([1,3,          &
-                                       1-ngc,ni+ngc, &
-                                       1-ngc,nj+ngc, &
-                                       1-ngc,nk+ngc, &
-                                       1,nb],[2,5]), &
-                          msg=self%mpih%myrankstr//'prism_common_object%allocate_common(dBz_ds_fd) ', verbose=.true.)
-   self%dBz_ds_fd = 0._R8P
+                          msg=self%mpih%myrankstr//'prism_common_object%allocate_common(curl) ', verbose=.true.)
+   self%curl = 0._R8P
    endassociate
    endsubroutine allocate_common
 
@@ -151,7 +123,6 @@ contains
    logical                                           :: verbose_     !< Trigger verbose output, local variable.
    integer(I8P)                                      :: nodes_number !< Allocated nodes on tree.
    integer(I4P)                                      :: nb           !< Number of allocated blocks.
-   integer(I4P)                                      :: c            !< Counter.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    call self%mpih%initialize(do_mpi_init=do_mpi_init, verbose=verbose_)
@@ -186,63 +157,12 @@ contains
    call self%leapfrog%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_BLANES_MOAN) &
    call self%blanesmoan%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
+   if (self%numerics%scheme_space==NUM_SCHEME_SPACE_WENO) &
    call self%weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
    call self%flail%initialize(file_parameters=file_parameters)
+   call check_ngc_number
    call self%allocate_common
-   call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field)
-   select case(self%numerics%div_corr_var)
-   case(DIV_CORR_VAR_POISS)
-      self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
-      call self%adam%io%register_aux_field(q1_R8P=self%dq,       q1_R8P_name=['res_Dx','res_Dy','res_Dz',&
-                                                                              'res_Bx','res_By','res_Bz',&
-                                                                              'res_Jx','res_Jy','res_Jz'])
-      call self%adam%io%register_aux_field(q2_R8P=self%field_div,q2_R8P_name=['div_D','div_B','div_J',&
-                                                                              'div04','div05','div06','div07','div08','div09'])
-   case(DIV_CORR_VAR_HYPER)
-      if (self%numerics%constrained_transport_D .and. .not.self%numerics%constrained_transport_B) then
-         self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','phi','Jx ','Jy ','Jz ']
-         call self%adam%io%register_aux_field(q1_R8P=self%dq,       q1_R8P_name=['res_Dx','res_Dy','res_Dz',&
-                                                                                 'res_Bx','res_By','res_Bz',&
-                                                                                 'res_ph',                  &
-                                                                                 'res_Jx','res_Jy','res_Jz'])
-         call self%adam%io%register_aux_field(q2_R8P=self%field_div,q2_R8P_name=['div_D','div_B','div_J','div04',&
-                                                                                 'div05','div06','div07','div08','div09','div10'])
-      elseif (.not.self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
-         self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','psi','Jx ','Jy ','Jz ']
-         call self%adam%io%register_aux_field(q1_R8P=self%dq,       q1_R8P_name=['res_Dx','res_Dy','res_Dz',&
-                                                                                 'res_Bx','res_By','res_Bz',&
-                                                                                 'res_ps',                  &
-                                                                                 'res_Jx','res_Jy','res_Jz'])
-         call self%adam%io%register_aux_field(q2_R8P=self%field_div,q2_R8P_name=['div_D','div_B','div_J','div04',&
-                                                                                 'div05','div06','div07','div08','div09','div10'])
-      elseif (self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
-         self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','phi','psi','Jx ','Jy ','Jz ']
-         call self%adam%io%register_aux_field(q1_R8P=self%dq,       q1_R8P_name=['res_Dx','res_Dy','res_Dz',&
-                                                                                 'res_Bx','res_By','res_Bz',&
-                                                                                 'res_ph','res_ps',         &
-                                                                                 'res_Jx','res_Jy','res_Jz'])
-         call self%adam%io%register_aux_field(q2_R8P=self%field_div,q2_R8P_name=['div_D','div_B','div_J','div04','div05',&
-                                                                                 'div06','div07','div08','div09','div10','div11'])
-      endif
-   case default
-      self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
-      call self%adam%io%register_aux_field(q1_R8P=self%dq,       q1_R8P_name=['res_Dx','res_Dy','res_Dz',&
-                                                                              'res_Bx','res_By','res_Bz',&
-                                                                              'res_Jx','res_Jy','res_Jz'])
-      call self%adam%io%register_aux_field(q2_R8P=self%field_div,q2_R8P_name=['div_D','div_B','div_J',&
-                                                                              'div04','div05','div06','div07','div08','div09'])
-   endselect
-   if (self%coil%total_coils_number>0) then
-      call self%adam%io%register_aux_field(q3_R8P=self%coil%j_vec,    q3_R8P_name=['j_vec_1','j_vec_2','j_vec_3','f_Gauss'])
-      call self%adam%io%register_aux_field(q4_R8P=self%coil%phi,      q4_R8P_name=[('coil_phi_'//trim(strz(c,3)),&
-                                                                                    c=1,self%coil%total_coils_number)])
-      call self%adam%io%register_aux_field(s1_I4P=self%coil%coil_flag,s1_I4P_name='coil_flag')
-   endif
-
-      call self%adam%io%register_aux_field(q5_R8P=self%curlB_fd, q5_R8P_name=['curlB_x_fd','curlB_y_fd','curlB_z_fd'])
-      call self%adam%io%register_aux_field(q6_R8P=self%curlB_fv, q6_R8P_name=['curlB_x_fv','curlB_y_fv','curlB_z_fv'])
-      call self%adam%io%register_aux_field(q7_R8P=self%dBz_ds_fd,q7_R8P_name=['dBz_dx_fd','dBz_dy_fd','dBz_dz_fd'])
-      call self%adam%io%register_aux_field(q8_R8P=self%dBz_ds_fv,q8_R8P_name=['dBz_dx_fv','dBz_dy_fv','dBz_dz_fv'])
+   call io_initialize
    endassociate
    if (verbose_) call self%mpih%print_message('prism_common_object%initialize finish')
    contains
@@ -265,5 +185,66 @@ contains
       self%nv_s          => physics%nv_s
       self%nv_cl         => physics%nv_cl
       endsubroutine associate_adam_data
+
+      subroutine check_ngc_number
+      !< Check if the number of ghost cells is consistent with the numerical schemes used, if not an error is echoed and
+      !< the simulation is stop.
+
+      if (self%numerics%scheme_space==NUM_SCHEME_SPACE_WENO) then
+         if (self%weno%S > self%grid%ngc) &
+            call self%mpih%error_stop(msg=': ghost cells number (ngc) must be >= of weno stencil number (weno%S):'//&
+                                      ' ngc='//trim(str(self%grid%ngc))//' weno%S='//trim(str(self%weno%S)))
+      endif
+      if (self%numerics%fdv_half_stencil > self%grid%ngc) &
+         call self%mpih%error_stop(msg=': ghost cells number (ngc) must be >= of FDV half stencil number (numerics%fdv_hs):'//&
+                                  ' ngc='//trim(str(self%grid%ngc))//' numerics%fdv_hs='//trim(str(self%numerics%fdv_half_stencil)))
+      endsubroutine check_ngc_number
+
+      subroutine io_initialize
+      !< Initialize IO data.
+      character(6),  allocatable :: q1_R8P_name(:) !< Variables names buffer.
+      character(5),  allocatable :: q2_R8P_name(:) !< Variables names buffer.
+      character(7),  allocatable :: q3_R8P_name(:) !< Variables names buffer.
+      character(12), allocatable :: q4_R8P_name(:) !< Variables names buffer.
+      character(7),  allocatable :: q5_R8P_name(:) !< Variables names buffer.
+      integer(I4P)               :: c              !< Counter.
+
+      call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field)
+      select case(self%numerics%div_corr_var)
+      case(DIV_CORR_VAR_POISS)
+         self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
+         q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_Jx','res_Jy','res_Jz']
+         q2_R8P_name = ['div_D','div_B','div_J','div04','div05','div06','div07','div08','div09']
+      case(DIV_CORR_VAR_HYPER)
+         if (self%numerics%constrained_transport_D .and. .not.self%numerics%constrained_transport_B) then
+            self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','phi','Jx ','Jy ','Jz ']
+            q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_ph','res_Jx','res_Jy','res_Jz']
+            q2_R8P_name = ['div_D','div_B','div_J','div04','div05','div06','div07','div08','div09','div10']
+         elseif (.not.self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
+            self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','psi','Jx ','Jy ','Jz ']
+            q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_ps','res_Jx','res_Jy','res_Jz']
+            q2_R8P_name = ['div_D','div_B','div_J','div04','div05','div06','div07','div08','div09','div10']
+         elseif (self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
+            self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','phi','psi','Jx ','Jy ','Jz ']
+            q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_ph','res_ps','res_Jx','res_Jy','res_Jz']
+            q2_R8P_name = ['div_D','div_B','div_J','div04','div05','div06','div07','div08','div09','div10','div11']
+         endif
+      case default
+         self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
+         q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_Jx','res_Jy','res_Jz']
+         q2_R8P_name = ['div_D','div_B','div_J','div04','div05','div06','div07','div08','div09']
+      endselect
+      q5_R8P_name = ['curlD_x','curlD_y','curlD_z','curlB_x','curlB_y','curlB_z','curlJ_x','curlJ_y','curlJ_z']
+      if (self%io%save_residual_fields) call self%adam%io%register_aux_field(q1_R8P=self%dq,q1_R8P_name=q1_R8P_name)
+      if (self%io%save_divergence_fields) call self%adam%io%register_aux_field(q2_R8P=self%divergence,q2_R8P_name=q2_R8P_name)
+      if (self%coil%total_coils_number>0) then
+         q3_R8P_name = ['j_vec_1','j_vec_2','j_vec_3','f_Gauss']
+         q4_R8P_name = [('coil_phi_'//trim(strz(c,3)),c=1,self%coil%total_coils_number)]
+         call self%adam%io%register_aux_field(q3_R8P=self%coil%j_vec,    q3_R8P_name=q3_R8P_name)
+         call self%adam%io%register_aux_field(q4_R8P=self%coil%phi,      q4_R8P_name=q4_R8P_name)
+         call self%adam%io%register_aux_field(s1_I4P=self%coil%coil_flag,s1_I4P_name='coil_flag')
+      endif
+      if (self%io%save_curl_fields) call self%adam%io%register_aux_field(q5_R8P=self%curl,q5_R8P_name=q5_R8P_name)
+      endsubroutine io_initialize
    endsubroutine initialize_common
 endmodule adam_prism_common_object
