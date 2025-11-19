@@ -166,7 +166,7 @@
       <div id="subs-0" class="collapse">
         <div class="list-group list-group-flush">
             <a class="list-group-item" href="../module/adam_nasto_cpu_object.html#proc-allocate_cpu">allocate_cpu</a>
-            <a class="list-group-item" href="../module/adam_nasto_cpu_object.html#proc-initialize~5">initialize</a>
+            <a class="list-group-item" href="../module/adam_nasto_cpu_object.html#proc-initialize~7">initialize</a>
             <a class="list-group-item" href="../module/adam_nasto_cpu_object.html#proc-amr_update~3">amr_update</a>
             <a class="list-group-item" href="../module/adam_nasto_cpu_object.html#proc-compute_phi~3">compute_phi</a>
             <a class="list-group-item" href="../module/adam_nasto_cpu_object.html#proc-mark_by_geo~3">mark_by_geo</a>
@@ -219,12 +219,12 @@
         <ul class="list-group list-group-flush">
             <li class="list-group-item">
               <ul class="list-inline">
-                  <li class="list-inline-item">penf</li>
                   <li class="list-inline-item"><a href='adam_nasto_common_library.html'>adam_nasto_common_library</a></li>
+                  <li class="list-inline-item">adam_common_library</li>
+                  <li class="list-inline-item">adam_riemann_euler_library</li>
+                  <li class="list-inline-item">penf</li>
                   <li class="list-inline-item"><a href='http://www.mpi-forum.org/docs/mpi-3.1/mpi31-report/node410.htm'>mpi</a></li>
                   <li class="list-inline-item"><a href='adam_nasto_cpu_cns.html'>adam_nasto_cpu_cns</a></li>
-                  <li class="list-inline-item">adam_riemann_euler_library</li>
-                  <li class="list-inline-item">adam_common_library</li>
               </ul>
             </li>
             <li class="list-group-item">
@@ -1090,7 +1090,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-mpih~7"></span>
+              <span class="anchor" id="variable-mpih~5"></span>
               type(mpih_object),
             </td>
               <td>public</td>
@@ -1124,7 +1124,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-field~2"></span>
+              <span class="anchor" id="variable-field"></span>
               type(field_object),
             </td>
               <td>public,</td>
@@ -1175,7 +1175,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ib~4"></span>
+              <span class="anchor" id="variable-ib~3"></span>
               type(ib_object),
             </td>
               <td>public</td>
@@ -1260,7 +1260,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-physics~3"></span>
+              <span class="anchor" id="variable-physics~2"></span>
               type(<a href='../type/nasto_physics_object.html'>nasto_physics_object</a>),
             </td>
               <td>public</td>
@@ -1311,7 +1311,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-time~7"></span>
+              <span class="anchor" id="variable-time~6"></span>
               type(<a href='../type/nasto_time_object.html'>nasto_time_object</a>),
             </td>
               <td>public</td>
@@ -1328,7 +1328,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ngc~33"></span>
+              <span class="anchor" id="variable-ngc~27"></span>
               integer(kind=I4P),
             </td>
               <td>public,</td>
@@ -1345,7 +1345,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ni~16"></span>
+              <span class="anchor" id="variable-ni~15"></span>
               integer(kind=I4P),
             </td>
               <td>public,</td>
@@ -1362,7 +1362,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nj~16"></span>
+              <span class="anchor" id="variable-nj~15"></span>
               integer(kind=I4P),
             </td>
               <td>public,</td>
@@ -1379,7 +1379,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nk~16"></span>
+              <span class="anchor" id="variable-nk~15"></span>
               integer(kind=I4P),
             </td>
               <td>public,</td>
@@ -1413,7 +1413,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-blocks_number~16"></span>
+              <span class="anchor" id="variable-blocks_number~15"></span>
               integer(kind=I4P),
             </td>
               <td>public,</td>
@@ -1447,7 +1447,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nv~24"></span>
+              <span class="anchor" id="variable-nv~28"></span>
               integer(kind=I4P),
             </td>
               <td>public,</td>
@@ -1481,7 +1481,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q~16"></span>
+              <span class="anchor" id="variable-q~14"></span>
               real(kind=R8P),
             </td>
               <td>public,</td>
@@ -1498,7 +1498,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux~6"></span>
+              <span class="anchor" id="variable-q_aux~14"></span>
               real(kind=R8P),
             </td>
               <td>public,</td>
@@ -1607,7 +1607,7 @@ modules which it uses.
               </tr>
               <tr>
                 <td>  procedure, public, pass(self) ::
-  <strong><a href='../type/nasto_cpu_object.html#boundprocedure-initialize~5'>initialize</a></strong></td>
+  <strong><a href='../type/nasto_cpu_object.html#boundprocedure-initialize~7'>initialize</a></strong></td>
                   <td><p>Initialize the equation.</p></td>
               </tr>
               <tr>
@@ -1741,7 +1741,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~70"></span>
+              <span class="anchor" id="variable-self~80"></span>
               class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -1762,7 +1762,7 @@ modules which it uses.
   </div>
 
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-initialize~5"></span> <h3>private  subroutine <a href='../proc/initialize~5.html'>initialize</a>(self, filename)  
+    <div class="card-header codesum"><span class="anchor" id="proc-initialize~7"></span> <h3>private  subroutine <a href='../proc/initialize~7.html'>initialize</a>(self, filename)  
 </h3></div>
     <div class="card-body">
           
@@ -1781,7 +1781,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~71"></span>
+              <span class="anchor" id="variable-self~81"></span>
               class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -1836,7 +1836,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~72"></span>
+              <span class="anchor" id="variable-self~82"></span>
               class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -1876,7 +1876,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~73"></span>
+              <span class="anchor" id="variable-self~83"></span>
               class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -1916,7 +1916,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~74"></span>
+              <span class="anchor" id="variable-self~84"></span>
               class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2016,7 +2016,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~75"></span>
+              <span class="anchor" id="variable-self~85"></span>
               class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2161,7 +2161,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~76"></span>
+              <span class="anchor" id="variable-self~86"></span>
               class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2191,7 +2191,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-s~9"></span>
+              <span class="anchor" id="variable-s~11"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -2231,7 +2231,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~77"></span>
+              <span class="anchor" id="variable-self~87"></span>
               class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2286,7 +2286,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~78"></span>
+              <span class="anchor" id="variable-self~88"></span>
               class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2301,7 +2301,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q~4"></span>
+              <span class="anchor" id="variable-q~6"></span>
               real(kind=R8P),
             </td>
 <td>intent(inout)</td>
@@ -2341,7 +2341,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~79"></span>
+              <span class="anchor" id="variable-self~89"></span>
               class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2371,7 +2371,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-time~4"></span>
+              <span class="anchor" id="variable-time~5"></span>
               real(kind=R8P),
             </td>
 <td>intent(out)</td>
@@ -2411,7 +2411,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~80"></span>
+              <span class="anchor" id="variable-self~90"></span>
               class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2466,7 +2466,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~81"></span>
+              <span class="anchor" id="variable-self~91"></span>
               class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2506,7 +2506,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~82"></span>
+              <span class="anchor" id="variable-self~92"></span>
               class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2546,7 +2546,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~83"></span>
+              <span class="anchor" id="variable-self~93"></span>
               class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2586,7 +2586,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~84"></span>
+              <span class="anchor" id="variable-self~94"></span>
               class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
             </td>
 <td>intent(in)</td>
@@ -2601,7 +2601,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q~5"></span>
+              <span class="anchor" id="variable-q~7"></span>
               real(kind=R8P),
             </td>
 <td>intent(inout)</td>
@@ -2641,7 +2641,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~85"></span>
+              <span class="anchor" id="variable-self~95"></span>
               class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2682,7 +2682,7 @@ If not specified all steps are perfermod, syncronous computation</p>
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~86"></span>
+              <span class="anchor" id="variable-self~96"></span>
               class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2697,7 +2697,7 @@ If not specified all steps are perfermod, syncronous computation</p>
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q~6"></span>
+              <span class="anchor" id="variable-q~8"></span>
               real(kind=R8P),
             </td>
 <td>intent(inout)</td>
@@ -2752,7 +2752,7 @@ If not specified all steps are perfermod, syncronous computation</p>
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~87"></span>
+              <span class="anchor" id="variable-self~97"></span>
               class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2792,7 +2792,7 @@ If not specified all steps are perfermod, syncronous computation</p>
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~88"></span>
+              <span class="anchor" id="variable-self~98"></span>
               class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
             </td>
 <td>intent(in)</td>
@@ -2807,7 +2807,7 @@ If not specified all steps are perfermod, syncronous computation</p>
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q~7"></span>
+              <span class="anchor" id="variable-q~9"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -2822,7 +2822,7 @@ If not specified all steps are perfermod, syncronous computation</p>
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux"></span>
+              <span class="anchor" id="variable-q_aux~9"></span>
               real(kind=R8P),
             </td>
 <td>intent(out)</td>
@@ -2862,7 +2862,7 @@ If not specified all steps are perfermod, syncronous computation</p>
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~89"></span>
+              <span class="anchor" id="variable-self~99"></span>
               class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2877,7 +2877,7 @@ If not specified all steps are perfermod, syncronous computation</p>
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q~8"></span>
+              <span class="anchor" id="variable-q~10"></span>
               real(kind=R8P),
             </td>
 <td>intent(inout)</td>
@@ -2932,7 +2932,7 @@ If not specified all steps are perfermod, syncronous computation</p>
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~90"></span>
+              <span class="anchor" id="variable-self~100"></span>
               class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2987,7 +2987,7 @@ If not specified all steps are perfermod, syncronous computation</p>
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~91"></span>
+              <span class="anchor" id="variable-self~101"></span>
               class(<a href='../type/nasto_cpu_object.html'>nasto_cpu_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -3217,7 +3217,7 @@ If not specified all steps are perfermod, syncronous computation</p>
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nv~17"></span>
+              <span class="anchor" id="variable-nv~24"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -3307,7 +3307,7 @@ If not specified all steps are perfermod, syncronous computation</p>
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-g~14"></span>
+              <span class="anchor" id="variable-g~18"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -3322,7 +3322,7 @@ If not specified all steps are perfermod, syncronous computation</p>
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux~2"></span>
+              <span class="anchor" id="variable-q_aux~10"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -3467,7 +3467,7 @@ If not specified all steps are perfermod, syncronous computation</p>
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nv~18"></span>
+              <span class="anchor" id="variable-nv~25"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -3762,7 +3762,7 @@ If not specified all steps are perfermod, syncronous computation</p>
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux~3"></span>
+              <span class="anchor" id="variable-q_aux~11"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -4012,7 +4012,7 @@ If not specified all steps are perfermod, syncronous computation</p>
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q~9"></span>
+              <span class="anchor" id="variable-q~11"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -4083,7 +4083,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-si~10"></span>
+              <span class="anchor" id="variable-si~16"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -4098,7 +4098,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-sir~11"></span>
+              <span class="anchor" id="variable-sir~18"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -4218,7 +4218,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nv~19"></span>
+              <span class="anchor" id="variable-nv~26"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -4233,7 +4233,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-g~15"></span>
+              <span class="anchor" id="variable-g~19"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -4248,7 +4248,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux~4"></span>
+              <span class="anchor" id="variable-q_aux~12"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -4303,7 +4303,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-sir~12"></span>
+              <span class="anchor" id="variable-sir~19"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -4318,7 +4318,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nv~20"></span>
+              <span class="anchor" id="variable-nv~27"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -4333,7 +4333,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux~5"></span>
+              <span class="anchor" id="variable-q_aux~13"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>

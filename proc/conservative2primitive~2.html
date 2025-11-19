@@ -91,20 +91,20 @@
 
             <li class="list-inline-item" id="statements"><i class="fa fa-list-ol"></i>
               <a data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-html="true"
-                 title=" 0.3% of total for procedures.">16 statements</a>
+                 title=" 0.2% of total for procedures.">10 statements</a>
             </li>
 
             <li class="list-inline-item" id="source-file">
               <i class="fa fa-code"></i>
-              <a href="../src/adam_nasto_physics_object.F90"> Source File</a>
+              <a href="../src/adam_nasto_eos_object.F90"> Source File</a>
             </li>
         </ul>
       </div>
       <div class="col">
         <nav aria-label="breadcrumb">
           <ol class="breadcrumb justify-content-end mb-0">
-                <li class="breadcrumb-item"><a href='../sourcefile/adam_nasto_physics_object.f90.html'>adam_nasto_physics_object.F90</a></li>
-                <li class="breadcrumb-item"><a href='../module/adam_nasto_physics_object.html'>adam_nasto_physics_object</a></li>
+                <li class="breadcrumb-item"><a href='../sourcefile/adam_nasto_eos_object.f90.html'>adam_nasto_eos_object.F90</a></li>
+                <li class="breadcrumb-item"><a href='../module/adam_nasto_eos_object.html'>adam_nasto_eos_object</a></li>
             <li class="breadcrumb-item active" aria-current="page">conservative2primitive</li>
           </ol>
         </nav>
@@ -162,10 +162,10 @@
 </h2>
     
 
-    <p>Return primitive variables (rs, u, v, w, r, p, g) from conservative variables (rs, ru, rv, rw, rE).</p>
+    <p>Return primitive variables (r, u, v, w, p) from conservative variables (r, ru, rv, rw, rE).</p>
 
     <h3>Type Bound</h3>
-    <p><a href='../type/nasto_physics_object.html'>nasto_physics_object</a></p>
+    <p><a href='../type/nasto_eos_object.html'>nasto_eos_object</a></p>
 
     <h3>Arguments</h3>
         <table class="table table-striped varlist">
@@ -180,8 +180,8 @@
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~127"></span>
-              class(<a href='../type/nasto_physics_object.html'>nasto_physics_object</a>),
+              <span class="anchor" id="variable-self~7"></span>
+              class(<a href='../type/nasto_eos_object.html'>nasto_eos_object</a>),
             </td>
 <td>intent(in)</td>
               <td></td>            <td>
@@ -190,7 +190,7 @@
             <td>::</td>
             <td><strong>self</strong></td>
             <td>
-                <p>Equation of state.</p>
+                <p>Fluid physics.</p>
             </td>
         </tr>
         <tr>
@@ -203,7 +203,7 @@
               
             </td>
             <td>::</td>
-            <td><strong>conservative</strong>(self%nv)</td>
+            <td><strong>conservative</strong>(5)</td>
             <td>
                 <p>Conservative variables</p>
             </td>
@@ -214,7 +214,7 @@
       <h3>Return Value
         <small>
           <span class="anchor" id="variable-primitive~3"></span>
-          real(kind=R8P), (self%nv_aux)
+          real(kind=R8P), (5)
         </small>
       </h3>
       <p>Primitive variables</p>
@@ -233,23 +233,17 @@
     <section>
     <h2><span class="anchor" id="src"></span>Source Code</h2>
     <div class="hl codehilite"><pre><span></span><span class="w">   </span><span class="k">pure function </span><span class="n">conservative2primitive</span><span class="p">(</span><span class="n">self</span><span class="p">,</span><span class="w"> </span><span class="n">conservative</span><span class="p">)</span><span class="w"> </span><span class="k">result</span><span class="p">(</span><span class="n">primitive</span><span class="p">)</span>
-<span class="w">   </span><span class="c">!&lt; Return primitive variables (rs, u, v, w, r, p, g) from conservative variables (rs, ru, rv, rw, rE).</span>
-<span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_physics_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w">                   </span><span class="c">!&lt; Equation of state.</span>
-<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">                   </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">conservative</span><span class="p">(</span><span class="n">self</span><span class="p">%</span><span class="n">nv</span><span class="p">)</span><span class="w">  </span><span class="c">!&lt; Conservative variables</span>
-<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">                               </span><span class="kd">::</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="n">self</span><span class="p">%</span><span class="n">nv_aux</span><span class="p">)</span><span class="w"> </span><span class="c">!&lt; Primitive variables</span>
-<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">                               </span><span class="kd">::</span><span class="w"> </span><span class="n">c</span><span class="p">(</span><span class="mi">1</span><span class="p">:</span><span class="n">self</span><span class="p">%</span><span class="n">ns</span><span class="p">)</span><span class="w">           </span><span class="c">!&lt; Species concentration.</span>
+<span class="w">   </span><span class="c">!&lt; Return primitive variables (r, u, v, w, p) from conservative variables (r, ru, rv, rw, rE).</span>
+<span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w">            </span><span class="c">!&lt; Fluid physics.</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">conservative</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span><span class="w"> </span><span class="c">!&lt; Conservative variables</span>
+<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">)</span><span class="w">                           </span><span class="kd">::</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span><span class="w">    </span><span class="c">!&lt; Primitive variables</span>
 
-<span class="w">   </span><span class="k">associate</span><span class="p">(</span><span class="n">ns</span><span class="o">=&gt;</span><span class="n">self</span><span class="p">%</span><span class="n">ns</span><span class="p">,</span><span class="w"> </span><span class="n">eos</span><span class="o">=&gt;</span><span class="n">self</span><span class="p">%</span><span class="n">eos</span><span class="p">)</span>
-<span class="w">   </span><span class="n">primitive</span><span class="p">(</span><span class="mi">1</span><span class="p">:</span><span class="n">ns</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w">  </span><span class="n">conservative</span><span class="p">(</span><span class="mi">1</span><span class="p">:</span><span class="n">ns</span><span class="p">)</span>
-<span class="w">   </span><span class="n">primitive</span><span class="p">(</span><span class="n">IR</span><span class="p">)</span><span class="w">   </span><span class="o">=</span><span class="w">  </span><span class="nb">sum</span><span class="p">(</span><span class="n">conservative</span><span class="p">(</span><span class="mi">1</span><span class="p">:</span><span class="n">ns</span><span class="p">))</span><span class="w"> </span><span class="p">;</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="mi">1</span><span class="p">:</span><span class="n">ns</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="n">IR</span><span class="p">)</span>
-<span class="w">   </span><span class="n">primitive</span><span class="p">(</span><span class="n">IU</span><span class="p">)</span><span class="w">   </span><span class="o">=</span><span class="w">  </span><span class="n">conservative</span><span class="p">(</span><span class="n">ns</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="n">IR</span><span class="p">)</span>
-<span class="w">   </span><span class="n">primitive</span><span class="p">(</span><span class="n">IV</span><span class="p">)</span><span class="w">   </span><span class="o">=</span><span class="w">  </span><span class="n">conservative</span><span class="p">(</span><span class="n">ns</span><span class="o">+</span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="n">IR</span><span class="p">)</span>
-<span class="w">   </span><span class="n">primitive</span><span class="p">(</span><span class="n">IW</span><span class="p">)</span><span class="w">   </span><span class="o">=</span><span class="w">  </span><span class="n">conservative</span><span class="p">(</span><span class="n">ns</span><span class="o">+</span><span class="mi">3</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="n">IR</span><span class="p">)</span>
-<span class="w">   </span><span class="n">primitive</span><span class="p">(</span><span class="n">IG</span><span class="p">)</span><span class="w">   </span><span class="o">=</span><span class="w">  </span><span class="nb">dot_product</span><span class="p">(</span><span class="n">c</span><span class="p">,</span><span class="w"> </span><span class="n">eos</span><span class="p">%</span><span class="n">cp</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="nb">dot_product</span><span class="p">(</span><span class="n">c</span><span class="p">,</span><span class="w"> </span><span class="n">eos</span><span class="p">%</span><span class="n">cv</span><span class="p">)</span>
-<span class="w">   </span><span class="n">primitive</span><span class="p">(</span><span class="n">IP</span><span class="p">)</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">conservative</span><span class="p">(</span><span class="n">ns</span><span class="o">+</span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">0.5_R8P</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="n">IR</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="n">primitive</span><span class="p">(</span><span class="n">IU</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="o">+</span><span class="n">primitive</span><span class="p">(</span><span class="n">IV</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="o">+</span><span class="n">primitive</span><span class="p">(</span><span class="n">IW</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="p">))</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">&amp;</span>
-<span class="w">                     </span><span class="p">(</span><span class="n">primitive</span><span class="p">(</span><span class="n">IG</span><span class="p">)</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">1._R8P</span><span class="p">)</span>
-<span class="w">   </span><span class="k">endassociate</span>
-<span class="k">   endfunction </span><span class="n">conservative2primitive</span>
+<span class="w">   </span><span class="n">primitive</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w">  </span><span class="n">conservative</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="w">   </span><span class="n">primitive</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w">  </span><span class="n">conservative</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="w">   </span><span class="n">primitive</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w">  </span><span class="n">conservative</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="w">   </span><span class="n">primitive</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w">  </span><span class="n">conservative</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="w">   </span><span class="n">primitive</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">conservative</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mf">0.5_R8P</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">primitive</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="n">primitive</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="o">+</span><span class="n">primitive</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="o">+</span><span class="n">primitive</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="p">))</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">self</span><span class="p">%</span><span class="n">gm1</span>
+<span class="w">   </span><span class="k">endfunction </span><span class="n">conservative2primitive</span>
 </pre></div>
 
     </section>
