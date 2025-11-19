@@ -28,7 +28,7 @@ character(len=18), parameter :: RK_SSP_33  ="runge-kutta-ssp-33"  !< Parameter o
 character(len=18), parameter :: RK_SSP_54  ="runge-kutta-ssp-54"  !< Parameter of time scheme, Runge-Kutta SSP 54.
 character(len=19), parameter :: RK_YOSHIDA ="runge-kutta-yoshida" !< Parameter of time scheme, Runge-Kutta Yoshida, symplectic 4.
 
-character(len=11), parameter :: INI_SECTION_NAME="runge_kutta" !< INI (config) file section name containing time configs.
+character(len=11), parameter :: INI_SECTION_NAME="runge_kutta" !< INI (config) file section name containing configs.
 
 type :: rk_object
    !< RK class definition.

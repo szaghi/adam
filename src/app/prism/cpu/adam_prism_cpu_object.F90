@@ -196,6 +196,8 @@ contains
    select case(self%numerics%scheme_time)
    case(NUM_SCHEME_TIME_BLANES_MOAN)
       self%integrate => integrate_blanesmoan
+   case(NUM_SCHEME_TIME_CFM)
+      self%integrate => integrate_cfm
    case(NUM_SCHEME_TIME_LEAPFROG)
       self%integrate => integrate_leapfrog
    case(NUM_SCHEME_TIME_RUNGE_KUTTA)
@@ -1205,8 +1207,8 @@ contains
    real(R8P)                              :: energy_D !< Energy of D field.
    real(R8P)                              :: energy_B !< Energy of B field.
 
-   call compute_e(ivar=1, energy=energy_D)
-   call compute_e(ivar=4, energy=energy_B)
+   call compute_e(ivar=VAR_DX, energy=energy_D)
+   call compute_e(ivar=VAR_BX, energy=energy_B)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_D, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_B, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
    if (allocated(self%energy_D).and.allocated(self%energy_B)) then
@@ -1616,6 +1618,33 @@ contains
    call self%impose_div_free
    endassociate
    endsubroutine integrate_blanesmoan
+
+   subroutine integrate_cfm(self)
+   !< Integrate equation, time operator, Commutator-Free Magnus integrator.
+   class(prism_cpu_object), intent(inout) :: self             !< The equation.
+   real(R8P), parameter                   :: toll=1.0e-14_R8P !< CFM coefficients tollerance.
+   integer(I4P)                           :: s,ss             !< Counter.
+
+   call self%compute_coils_current
+   associate(dt=>self%time%dt,s_coeffs=>self%cfm%s_coeffs,e_coeffs=>self%cfm%e_coeffs)
+   self%cfm%q = self%q
+   call self%compute_residuals(q=self%cfm%q, dq=self%cfm%dq(:,:,:,:,:,1))
+   do s=2, self%cfm%n_stages
+      do ss=1, s-1
+         if (abs(s_coeffs(s,ss))>toll) &
+            call self%cfm%compute_exponential_update(alpha=dt*s_coeffs(s,ss),dq=self%cfm%dq(:,:,:,:,:,ss),q=self%cfm%q)
+      enddo
+      call self%compute_residuals(q=self%cfm%q, dq=self%cfm%dq(:,:,:,:,:,s))
+   enddo
+   self%cfm%q = self%q
+   do s=1, self%cfm%n_stages
+      if (abs(self%cfm%e_coeffs(s))>toll) &
+         call self%cfm%compute_exponential_update(alpha=dt*e_coeffs(s),dq=self%cfm%dq(:,:,:,:,:,s),q=self%cfm%q)
+   enddo
+   self%q = self%cfm%q
+   endassociate
+   call self%impose_div_free
+   endsubroutine integrate_cfm
 
    subroutine integrate_leapfrog(self)
    !< Integrate equation, time operator, leapfrog scheme.

@@ -5,6 +5,7 @@ module adam_prism_common_object
 use adam_adam_object
 use adam_amr_object
 use adam_blanes_moan_object
+use adam_cfm_object
 use adam_field_object
 use adam_flail_object
 use adam_grid_object
@@ -41,6 +42,7 @@ type :: prism_common_object
    type(ib_object)             :: ib            !< Immersed Boundary (IB) handler.
    type(slices_object)         :: slices        !< Slices handler.
    type(blanesmoan_object)     :: blanesmoan    !< Blanes-Moan integrator.
+   type(cfm_object)            :: cfm           !< Commutator-Free Magnus integrator.
    type(leapfrog_object)       :: leapfrog      !< Leapfrog integrator.
    type(rk_object)             :: rk            !< RK integrator.
    type(weno_object)           :: weno          !< WENO reconstructor.
@@ -157,6 +159,8 @@ contains
    call self%leapfrog%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_BLANES_MOAN) &
    call self%blanesmoan%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
+   if (self%numerics%scheme_time==NUM_SCHEME_TIME_CFM) &
+   call self%cfm%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    if (self%numerics%scheme_space==NUM_SCHEME_SPACE_WENO) &
    call self%weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
    call self%flail%initialize(file_parameters=file_parameters)

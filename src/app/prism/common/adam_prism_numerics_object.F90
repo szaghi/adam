@@ -17,16 +17,17 @@ public :: prism_numerics_object
 
 character(len=8), parameter :: INI_SECTION_NAME='numerics' !< INI file section name containing fluid numerics.
 
-character(11), parameter, public :: NUM_SCHEME_TIME_BLANES_MOAN='BLANES_MOAN' !< Blanes-Moan numerical scheme for time operator.
-character(8),  parameter, public :: NUM_SCHEME_TIME_LEAPFROG='LEAPFROG'       !< Leapfrog numerical scheme for time operator.
-character(11), parameter, public :: NUM_SCHEME_TIME_RUNGE_KUTTA='RUNGE_KUTTA' !< Runge-Kutta numerical scheme for time operator.
-character(11), parameter, public :: NUM_SCHEME_SPACE_FD_CENTERED='FD_CENTERED'!< FD centered scheme for space operator.
-character(11), parameter, public :: NUM_SCHEME_SPACE_FV_CENTERED='FV_CENTERED'!< FV centered scheme for space operator.
-character(4),  parameter, public :: NUM_SCHEME_SPACE_WENO='WENO'              !< WENO numerical scheme for space operator.
-character(12), parameter, public :: RECONSTRUCTION_VARS_CONS='CONSERVATIVE'   !< High-order reconstruction on conservative vars.
-character(15), parameter, public :: RECONSTRUCTION_VARS_CHAR='CHARACTERISTICS'!< High-order reconstruction on characteristics vars.
-character(7),  parameter, public :: DIV_CORR_VAR_POISS='POISSON'              !< Poisson divergence correction.
-character(10), parameter, public :: DIV_CORR_VAR_HYPER='HYPERBOLIC'           !< Hyperbolic divergence correction.
+character(11), parameter, public :: NUM_SCHEME_TIME_BLANES_MOAN='BLANES_MOAN'    !< Blanes-Moan numerical scheme for time operator.
+character(22), parameter, public :: NUM_SCHEME_TIME_CFM='COMMUTATOR_FREE_MAGNUS' !< Commutator-Free Magnus scheme for time operator.
+character(8),  parameter, public :: NUM_SCHEME_TIME_LEAPFROG='LEAPFROG'          !< Leapfrog numerical scheme for time operator.
+character(11), parameter, public :: NUM_SCHEME_TIME_RUNGE_KUTTA='RUNGE_KUTTA'    !< Runge-Kutta numerical scheme for time operator.
+character(11), parameter, public :: NUM_SCHEME_SPACE_FD_CENTERED='FD_CENTERED'   !< FD centered scheme for space operator.
+character(11), parameter, public :: NUM_SCHEME_SPACE_FV_CENTERED='FV_CENTERED'   !< FV centered scheme for space operator.
+character(4),  parameter, public :: NUM_SCHEME_SPACE_WENO='WENO'                 !< WENO numerical scheme for space operator.
+character(12), parameter, public :: RECONSTRUCTION_VARS_CONS='CONSERVATIVE'      !< High-order reconstruction on conservative vars.
+character(15), parameter, public :: RECONSTRUCTION_VARS_CHAR='CHARACTERISTICS'   !< High-order reconstruction on charact. vars.
+character(7),  parameter, public :: DIV_CORR_VAR_POISS='POISSON'                 !< Poisson divergence correction.
+character(10), parameter, public :: DIV_CORR_VAR_HYPER='HYPERBOLIC'              !< Hyperbolic divergence correction.
 
 type :: prism_numerics_object
    !< PRISM numerics class definition.
@@ -98,6 +99,8 @@ contains
    select case(trim(adjustl(buff)))
    case('BLANES_MOAN', 'blanes_moan', 'Blanes_Moan')
       self%scheme_time = NUM_SCHEME_TIME_BLANES_MOAN
+   case('COMMUTATOR_FREE_MAGNUS', 'commutator_free_magnus', 'Commutator_Free_Magnus')
+      self%scheme_time = NUM_SCHEME_TIME_CFM
    case('LEAPFROG', 'leapfrog', 'Leapfrog')
       self%scheme_time = NUM_SCHEME_TIME_LEAPFROG
    case('RUNGE_KUTTA', 'runge_kutta', 'Runge_Kutta')
