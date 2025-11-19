@@ -18,6 +18,8 @@ public :: compute_laplacian_fdv_interface
 public :: compute_curl_fd_centered
 public :: compute_derivative1_fd_centered
 public :: compute_derivative2_fd_centered
+public :: compute_derivative4_fd_centered
+public :: compute_derivative6_fd_centered
 public :: compute_divergence_fd_centered
 public :: compute_gradient_fd_centered
 public :: compute_laplacian_fd_centered
@@ -38,13 +40,13 @@ integer(I4P), parameter :: S_MAX=5_I4P !< Maximum stencil length.
 !< where \(p\) is the order of accuracy (2, 4, 6, 8, 10), \(M = \frac{p}{2}\), and
 !< coefficients \(c_m^{(p)}\) are symmetric.
 !< Finite Difference Coefficients \(c_m^{(p)}\):
-!< | Order \(p\) | Stencil points \(m\)                 | Coefficients \(c_m^{(p)}\)                                    |
-!< |-------------|--------------------------------------|---------------------------------------------------------------|
-!< | 2nd  (S=1)  |                 -1, 0, 1             | 1/2   *(                   -1  ,  0, 1                      ) |
-!< | 4th  (S=2)  |             -2, -1, 0, 1, 2          | 1/12  *(              1  , -8  ,  0, 8   , -1               ) |
-!< | 6th  (S=3)  |         -3, -2, -1, 0, 1, 2, 3       | 1/60  *(        -1  , 9  , -45 ,  0, 45  , -9  ,  1         ) |
-!< | 8th  (S=4)  |     -4, -3, -2, -1, 0, 1, 2, 3, 4    | 1/840 *(    3 , -32 , 168, -672,  0, 672 , -168,  32,  -3   ) |
-!< | 10th (S=5)  | -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5 | 1/2520*(-2, 25, -150, 600, -2100, 0, 2100, -600, 150, -25, 2) |
+!< | Order \(p\) | Stencil points \(m\)     | Coefficients \(c_m^{(p)}\)                                    |
+!< |-------------|--------------------------|---------------------------------------------------------------|
+!< | 2nd  (S=1)  |            -1,0,1        | 1/2   *(                   -1  ,  0, 1                      ) |
+!< | 4th  (S=2)  |         -2,-1,0,1,2      | 1/12  *(              1  , -8  ,  0, 8   , -1               ) |
+!< | 6th  (S=3)  |      -3,-2,-1,0,1,2,3    | 1/60  *(        -1  , 9  , -45 ,  0, 45  , -9  ,  1         ) |
+!< | 8th  (S=4)  |   -4,-3,-2,-1,0,1,2,3,4  | 1/840 *(    3 , -32 , 168, -672,  0, 672 , -168,  32,  -3   ) |
+!< | 10th (S=5)  |-5,-4,-3,-2,-1,0,1,2,3,4,5| 1/2520*(-2, 25, -150, 600, -2100, 0, 2100, -600, 150, -25, 2) |
 !< Coefficient are antisymmetric respect i, parametrize only half of the stencil coefficients.
                                          !1         2         3        4        5
 real(R8P), parameter :: FD1_CC_S1(S_MAX)=[   1._R8P,   0._R8P,  0._R8P,  0._R8P,0._R8P]/2._R8P    !< FD1C, S1.
@@ -67,16 +69,16 @@ real(R8P), parameter :: FD1_CC(S_MAX,S_MAX)=reshape([FD1_CC_S1, &
 !< where \(p\) is the order of accuracy (2, 4, 6, 8, 10), \(M = \frac{p}{2}\), and
 !< coefficients \(c_m^{(p)}\) are symmetric.
 !< Finite Difference Coefficients \(c_m^{(p)}\):
-!< | Order \(p\) | Stencil points \(m\)                 | Coefficients \(c_m^{(p)}\)                                       |
-!< |-------------|--------------------------------------|------------------------------------------------------------------|
-!< | 2nd  (S=1)  |                 -1, 0, 1             | 1      *(                     1 ,    -2, 1                     ) |
-!< | 4th  (S=2)  |             -2, -1, 0, 1, 2          | 1/12   *(              -1 ,   16,   -30, 16  , -1              ) |
-!< | 6th  (S=3)  |         -3, -2, -1, 0, 1, 2, 3       | 1/180  *(          2,  -27,  270,  -490, 270 , -27 ,  2        ) |
-!< | 8th  (S=4)  |     -4, -3, -2, -1, 0, 1, 2, 3, 4    | 1/5040 *(    -9, 128,-1008, 8064,-14350, 8064,-1008, 128,  -9  ) |
-!< | 10th (S=5)  | -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5 | 1/25200*(8,-125,1000,-6000,42000,-73766,42000,-6000,1000,-125,8) |
-!< Coefficient are antisymmetric respect i, parametrize only half of the stencil coefficients.
+!< | Order \(p\) | Stencil points \(m\)     | Coefficients \(c_m^{(p)}\)                                       |
+!< |-------------|--------------------------|------------------------------------------------------------------|
+!< | 2nd  (S=1)  |            -1,0,1        | 1      *(                     1 ,    -2, 1                     ) |
+!< | 4th  (S=2)  |         -2,-1,0,1,2      | 1/12   *(              -1 ,   16,   -30, 16  , -1              ) |
+!< | 6th  (S=3)  |      -3,-2,-1,0,1,2,3    | 1/180  *(          2,  -27,  270,  -490, 270 , -27 ,  2        ) |
+!< | 8th  (S=4)  |   -4,-3,-2,-1,0,1,2,3,4  | 1/5040 *(    -9, 128,-1008, 8064,-14350, 8064,-1008, 128,  -9  ) |
+!< | 10th (S=5)  |-5,-4,-3,-2,-1,0,1,2,3,4,5| 1/25200*(8,-125,1000,-6000,42000,-73766,42000,-6000,1000,-125,8) |
+!< Coefficient are symmetric respect i, parametrize only half of the stencil coefficients.
                                            !0           1          2          3         4         5
-real(R8P), parameter :: FD2_CC_S1(S_MAX+1)=[    -2._R8P,    1._R8P,    0._R8P,   0._R8P,   0._R8P,0._R8P]           !< FD1C, S1.
+real(R8P), parameter :: FD2_CC_S1(S_MAX+1)=[    -2._R8P,    1._R8P,    0._R8P,   0._R8P,   0._R8P,0._R8P]           !< FD2C, S1.
 real(R8P), parameter :: FD2_CC_S2(S_MAX+1)=[   -30._R8P,   16._R8P,   -1._R8P,   0._R8P,   0._R8P,0._R8P]/12._R8P   !< FD2C, S2.
 real(R8P), parameter :: FD2_CC_S3(S_MAX+1)=[  -490._R8P,  270._R8P,  -27._R8P,   2._R8P,   0._R8P,0._R8P]/180._R8P  !< FD2C, S3.
 real(R8P), parameter :: FD2_CC_S4(S_MAX+1)=[-14350._R8P, 8064._R8P,-1008._R8P, 128._R8P,  -9._R8P,0._R8P]/5040._R8P !< FD2C, S4.
@@ -86,7 +88,56 @@ real(R8P), parameter :: FD2_CC(S_MAX+1,S_MAX)=reshape([FD2_CC_S1, &
                                                        FD2_CC_S3, &
                                                        FD2_CC_S4, &
                                                        FD2_CC_S5],&
-                                                      [S_MAX+1,S_MAX]) !< Finite difference derivative 1 centered coefficients.
+                                                      [S_MAX+1,S_MAX]) !< Finite difference derivative 2 centered coefficients.
+
+!< Derivative of order 4 Finite Difference (pointwise values at cell centers) centered schemes
+!< Approximate \(\frac{dq}{ds}\) at \(x_i\) as:
+!< \[
+!< \frac{d^4q}{ds^4}\bigg|_i \approx \frac{1}{Ds} \sum_{m=-M}^{M} c_m^{(p)} q_{i+m}
+!< \]
+!< where \(p\) is the order of accuracy (2, 4, 6, 8), \(M = \frac{p}{2}\), and
+!< coefficients \(c_m^{(p)}\) are symmetric.
+!< Finite Difference Coefficients \(c_m^{(p)}\):
+!< |Order p   | Stencil points \(m\)     | Coefficients \(c_m^{(p)}\)                                                 |
+!< |----------|--------------------------|----------------------------------------------------------------------------|
+!< |2th  (S=2)|         -2,-1,0,1,2      | 1/1    *(                   1,     -4,     6,     -4,    1                 |
+!< |4th  (S=3)|      -3,-2,-1,0,1,2,3    | 1/6    *(            -1,   12,    -39,    56,    -39,   12,   -1         ) |
+!< |6th  (S=4)|   -4,-3,-2,-1,0,1,2,3,4  | 1/240  *(       7,  -96,  676,  -1952,  2730,  -1952,  676,  -96,   7    ) |
+!< |8th  (S=5)|-5,-4,-3,-2,-1,0,1,2,3,4,5| 1/15120*(-82,1261,-9738,52428,-140196,192654,-140196,52428,-9738,1261,-82) |
+!< Coefficient are symmetric respect i, parametrize only half of the stencil coefficients.
+                                           !0           1            2          3          4         5
+real(R8P), parameter :: FD4_CC_S2(S_MAX+1)=[     6._R8P,     -4._R8P,    1._R8P,    0._R8P,   0._R8P,  0._R8P]           !< FD4C,S2.
+real(R8P), parameter :: FD4_CC_S3(S_MAX+1)=[    56._R8P,    -39._R8P,   12._R8P,   -1._R8P,   0._R8P,  0._R8P]/6._R8P    !< FD4C,S3.
+real(R8P), parameter :: FD4_CC_S4(S_MAX+1)=[  2730._R8P,  -1952._R8P,  676._R8P,  -96._R8P,   7._R8P,  0._R8P]/240._R8P  !< FD4C,S4.
+real(R8P), parameter :: FD4_CC_S5(S_MAX+1)=[192654._R8P,-140196._R8P,52428._R8P,-9738._R8P,1261._R8P,-82._R8P]/15120._R8P!< FD4C,S5.
+real(R8P), parameter :: FD4_CC(S_MAX+1,S_MAX-1)=reshape([FD4_CC_S2, &
+                                                         FD4_CC_S3, &
+                                                         FD4_CC_S4, &
+                                                         FD4_CC_S5],&
+                                                        [S_MAX+1,S_MAX-1]) !< Finite difference derivative 4 centered coefficients.
+
+!< Derivative of order 6 Finite Difference (pointwise values at cell centers) centered schemes
+!< Approximate \(\frac{dq}{ds}\) at \(x_i\) as:
+!< \[
+!< \frac{d^6q}{ds^6}\bigg|_i \approx \frac{1}{Ds} \sum_{m=-M}^{M} c_m^{(p)} q_{i+m}
+!< \]
+!< where \(p\) is the order of accuracy (2, 4, 6), \(M = \frac{p}{2}\), and
+!< coefficients \(c_m^{(p)}\) are symmetric.
+!< Finite Difference Coefficients \(c_m^{(p)}\):
+!< |Order p   | Stencil points \(m\)     | Coefficients \(c_m^{(p)}\)                                     |
+!< |----------|--------------------------|----------------------------------------------------------------|
+!< |2th  (S=3)|      -3,-2,-1,0,1,2,3    | 1/1  *(           1,   -6,  15,   -20,  15,   -6,   1        ) |
+!< |4th  (S=4)|   -4,-3,-2,-1,0,1,2,3,4  | 1/4  *(     -1,  12,  -52, 116,  -150, 116,  -52,  12,  -1   ) |
+!< |6th  (S=5)|-5,-4,-3,-2,-1,0,1,2,3,4,5| 1/240*(13,-190,1305,-4680,9690,-12276,9690,-4680,1305,-190,13) |
+!< Coefficient are symmetric respect i, parametrize only half of the stencil coefficients.
+                                           !0           1         2          3         4         5
+real(R8P), parameter :: FD6_CC_S3(S_MAX+1)=[   -20._R8P,  15._R8P,   -6._R8P,   1._R8P,   0._R8P, 0._R8P]         !< FD6C,S3.
+real(R8P), parameter :: FD6_CC_S4(S_MAX+1)=[  -150._R8P, 116._R8P,  -52._R8P,  12._R8P,  -1._R8P, 0._R8P]/4._R8P  !< FD6C,S4.
+real(R8P), parameter :: FD6_CC_S5(S_MAX+1)=[-12276._R8P,9690._R8P,-4680._R8P,1305._R8P,-190._R8P,13._R8P]/240._R8P!< FD6C,S5.
+real(R8P), parameter :: FD6_CC(S_MAX+1,S_MAX-2)=reshape([FD6_CC_S3, &
+                                                         FD6_CC_S4, &
+                                                         FD6_CC_S5],&
+                                                        [S_MAX+1,S_MAX-2]) !< Finite difference derivative 6 centered coefficients.
 
 !< Derivative of order 1 Finite Difference Finite Volume (volumetric averages, derivative from flux differences) centered schemes
 !< Approximate face values \(q_{i+1/2}\) and \(q_{i-1/2}\) as:
@@ -216,7 +267,7 @@ contains
    !< \]
    !< The vector field q must be passed with a stencil large enough to computed the derivative with selected order of accuracy and
    !< the stencil must be centered in i,j,k, i.e. q = q(1:3,i-order/2:i+order/2,j-order/2:j+order/2,k-order/2:k+order/2).
-   integer(I4P), intent(in)  :: s       !< Stencil len, half of accuracy order.
+   integer(I4P), intent(in)  :: s       !< Stencil len, order=2*s.
    real(R8P),    intent(in)  :: ds      !< Space step.
    real(R8P),    intent(in)  :: q(1-s:) !< Scalar field over the stencil [1-s:1+s].
    real(R8P),    intent(out) :: dq_ds   !< Derivative of order 1 of q, dq/ds.
@@ -235,7 +286,7 @@ contains
    !< \]
    !< The vector field q must be passed with a stencil large enough to computed the derivative with selected order of accuracy and
    !< the stencil must be centered in i,j,k, i.e. q = q(1:3,i-order/2:i+order/2,j-order/2:j+order/2,k-order/2:k+order/2).
-   integer(I4P), intent(in)  :: s       !< Stencil len, half of accuracy order.
+   integer(I4P), intent(in)  :: s       !< Stencil len, order=2*s.
    real(R8P),    intent(in)  :: ds      !< Space step.
    real(R8P),    intent(in)  :: q(1-s:) !< Scalar field over the stencil [1-s:1+s].
    real(R8P),    intent(out) :: d2q_ds2 !< Derivative of order 2 of q, d2q/ds2.
@@ -246,6 +297,44 @@ contains
       d2q_ds2 = d2q_ds2 + FD2_CC(m+1,s)*(q(1+m) + q(1-m))/ds/ds
    enddo
    endsubroutine compute_derivative2_fd_centered
+
+   pure subroutine compute_derivative4_fd_centered(s,ds,q,d4q_ds4)
+   !< Compute derivative of order 4 with finite difference centered scheme.
+   !< \[
+   !< \frac{d^4q}{ds^4}\bigg|_i \approx \frac{1}{Ds} \sum_{m=-M}^{M} c_m^{(p)} q_{i+m}
+   !< \]
+   !< The vector field q must be passed with a stencil large enough to computed the derivative with selected order of accuracy and
+   !< the stencil must be centered in i,j,k, i.e. q=q(1:3,i-order/2-1:i+order/2+1,j-order/2-1:j+order/2+1,k-order/2-1:k+order/2+1).
+   integer(I4P), intent(in)  :: s       !< Stencil len, order=2*s-2.
+   real(R8P),    intent(in)  :: ds      !< Space step.
+   real(R8P),    intent(in)  :: q(1-s:) !< Scalar field over the stencil [1-s:1+s].
+   real(R8P),    intent(out) :: d4q_ds4 !< Derivative of order 4 of q, d4q/ds4.
+   integer(I4P)              :: m       !< Counter.
+
+   d4q_ds4 = FD4_CC(1,s-1)*q(0)/ds/ds/ds/ds
+   do m=1, s
+      d4q_ds4 = d4q_ds4 + FD4_CC(m+1,s-1)*(q(1+m) + q(1-m))/ds/ds/ds/ds
+   enddo
+   endsubroutine compute_derivative4_fd_centered
+
+   pure subroutine compute_derivative6_fd_centered(s,ds,q,d6q_ds6)
+   !< Compute derivative of order 6 with finite difference centered scheme.
+   !< \[
+   !< \frac{d^6q}{ds^6}\bigg|_i \approx \frac{1}{Ds} \sum_{m=-M}^{M} c_m^{(p)} q_{i+m}
+   !< \]
+   !< The vector field q must be passed with a stencil large enough to computed the derivative with selected order of accuracy and
+   !< the stencil must be centered in i,j,k, i.e. q=q(1:3,i-order/2-2:i+order/2+2,j-order/2-2:j+order/2+2,k-order/2-2:k+order/2+2).
+   integer(I4P), intent(in)  :: s       !< Stencil len, order=2*s-4.
+   real(R8P),    intent(in)  :: ds      !< Space step.
+   real(R8P),    intent(in)  :: q(1-s:) !< Scalar field over the stencil [1-s:1+s].
+   real(R8P),    intent(out) :: d6q_ds6 !< Derivative of order 6 of q, d6q/ds6.
+   integer(I4P)              :: m       !< Counter.
+
+   d6q_ds6 = FD6_CC(1,s-2)*q(0)/ds/ds/ds/ds/ds/ds
+   do m=1, s
+      d6q_ds6 = d6q_ds6 + FD6_CC(m+1,s-2)*(q(1+m) + q(1-m))/ds/ds/ds/ds/ds/ds
+   enddo
+   endsubroutine compute_derivative6_fd_centered
 
    pure subroutine compute_divergence_fd_centered(s,dxyz,q,divergence)
    !< Compute divergence of q vector field with finite difference centered scheme.
