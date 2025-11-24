@@ -206,8 +206,8 @@
         <div class="list-group list-group-flush">
             <a class="list-group-item" href="../module/adam_nasto_eos_object.html#proc-compute_derivate">compute_derivate</a>
             <a class="list-group-item" href="../module/adam_nasto_eos_object.html#proc-destroy">destroy</a>
-            <a class="list-group-item" href="../module/adam_nasto_eos_object.html#proc-initialize~4">initialize</a>
-            <a class="list-group-item" href="../module/adam_nasto_eos_object.html#proc-load_from_file~2">load_from_file</a>
+            <a class="list-group-item" href="../module/adam_nasto_eos_object.html#proc-initialize">initialize</a>
+            <a class="list-group-item" href="../module/adam_nasto_eos_object.html#proc-load_from_file">load_from_file</a>
             <a class="list-group-item" href="../module/adam_nasto_eos_object.html#proc-save_into_file">save_into_file</a>
             <a class="list-group-item" href="../module/adam_nasto_eos_object.html#proc-nasto_physics_assign_nasto_physics">nasto_physics_assign_nasto_physics</a>
         </div>
@@ -235,9 +235,9 @@
         <ul class="list-group list-group-flush">
             <li class="list-group-item">
               <ul class="list-inline">
-                  <li class="list-inline-item">finer</li>
-                  <li class="list-inline-item">adam_mpih_object</li>
                   <li class="list-inline-item">penf</li>
+                  <li class="list-inline-item">adam_mpih_object</li>
+                  <li class="list-inline-item">finer</li>
               </ul>
             </li>
             <li class="list-group-item">
@@ -766,7 +766,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-mu~5"></span>
+              <span class="anchor" id="variable-mu~3"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -781,7 +781,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-kd~4"></span>
+              <span class="anchor" id="variable-kd~3"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -826,7 +826,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-cv~4"></span>
+              <span class="anchor" id="variable-cv~3"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -856,7 +856,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-r~5"></span>
+              <span class="anchor" id="variable-r~4"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -913,7 +913,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-mpih~2"></span>
+              <span class="anchor" id="variable-mpih"></span>
               type(mpih_object),
             </td>
               <td>public</td>
@@ -947,7 +947,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-cv~2"></span>
+              <span class="anchor" id="variable-cv"></span>
               real(kind=R8P),
             </td>
               <td>public</td>
@@ -964,7 +964,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-g~4"></span>
+              <span class="anchor" id="variable-g"></span>
               real(kind=R8P),
             </td>
               <td>public</td>
@@ -981,7 +981,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-r~2"></span>
+              <span class="anchor" id="variable-r"></span>
               real(kind=R8P),
             </td>
               <td>public</td>
@@ -1032,7 +1032,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-delta~5"></span>
+              <span class="anchor" id="variable-delta"></span>
               real(kind=R8P),
             </td>
               <td>public</td>
@@ -1066,7 +1066,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-mu~3"></span>
+              <span class="anchor" id="variable-mu"></span>
               real(kind=R8P),
             </td>
               <td>public</td>
@@ -1083,7 +1083,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-kd~2"></span>
+              <span class="anchor" id="variable-kd"></span>
               real(kind=R8P),
             </td>
               <td>public</td>
@@ -1163,12 +1163,12 @@ parameter
               </tr>
               <tr>
                 <td>  procedure, public, pass(self) ::
-  <strong><a href='../type/nasto_eos_object.html#boundprocedure-initialize~4'>initialize</a></strong></td>
+  <strong><a href='../type/nasto_eos_object.html#boundprocedure-initialize'>initialize</a></strong></td>
                   <td><p>initialize physics.</p></td>
               </tr>
               <tr>
                 <td>  procedure, public, pass(self) ::
-  <strong><a href='../type/nasto_eos_object.html#boundprocedure-load_from_file~2'>load_from_file</a></strong></td>
+  <strong><a href='../type/nasto_eos_object.html#boundprocedure-load_from_file'>load_from_file</a></strong></td>
                   <td><p>Load from finer file.</p></td>
               </tr>
               <tr>
@@ -1256,7 +1256,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~52"></span>
+              <span class="anchor" id="variable-self~2"></span>
               class(<a href='../type/nasto_eos_object.html'>nasto_eos_object</a>),
             </td>
 <td>intent(in)</td>
@@ -1316,7 +1316,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~53"></span>
+              <span class="anchor" id="variable-self~3"></span>
               class(<a href='../type/nasto_eos_object.html'>nasto_eos_object</a>),
             </td>
 <td>intent(in)</td>
@@ -1376,7 +1376,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~57"></span>
+              <span class="anchor" id="variable-self~7"></span>
               class(<a href='../type/nasto_eos_object.html'>nasto_eos_object</a>),
             </td>
 <td>intent(in)</td>
@@ -1436,7 +1436,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~59"></span>
+              <span class="anchor" id="variable-self~9"></span>
               class(<a href='../type/nasto_eos_object.html'>nasto_eos_object</a>),
             </td>
 <td>intent(in)</td>
@@ -1511,7 +1511,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~60"></span>
+              <span class="anchor" id="variable-self~10"></span>
               class(<a href='../type/nasto_eos_object.html'>nasto_eos_object</a>),
             </td>
 <td>intent(in)</td>
@@ -1586,7 +1586,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~61"></span>
+              <span class="anchor" id="variable-self~11"></span>
               class(<a href='../type/nasto_eos_object.html'>nasto_eos_object</a>),
             </td>
 <td>intent(in)</td>
@@ -1661,7 +1661,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~62"></span>
+              <span class="anchor" id="variable-self~12"></span>
               class(<a href='../type/nasto_eos_object.html'>nasto_eos_object</a>),
             </td>
 <td>intent(in)</td>
@@ -1736,7 +1736,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~63"></span>
+              <span class="anchor" id="variable-self~13"></span>
               class(<a href='../type/nasto_eos_object.html'>nasto_eos_object</a>),
             </td>
 <td>intent(in)</td>
@@ -1811,7 +1811,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~64"></span>
+              <span class="anchor" id="variable-self~14"></span>
               class(<a href='../type/nasto_eos_object.html'>nasto_eos_object</a>),
             </td>
 <td>intent(in)</td>
@@ -1901,7 +1901,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~65"></span>
+              <span class="anchor" id="variable-self~15"></span>
               class(<a href='../type/nasto_eos_object.html'>nasto_eos_object</a>),
             </td>
 <td>intent(in)</td>
@@ -1991,7 +1991,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-g~5"></span>
+              <span class="anchor" id="variable-g~2"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -2216,7 +2216,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-g~6"></span>
+              <span class="anchor" id="variable-g~3"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -2291,7 +2291,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-r~4"></span>
+              <span class="anchor" id="variable-r~3"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -2456,7 +2456,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-g~7"></span>
+              <span class="anchor" id="variable-g~4"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -2546,7 +2546,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-mu~5"></span>
+              <span class="anchor" id="variable-mu~3"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -2561,7 +2561,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-kd~4"></span>
+              <span class="anchor" id="variable-kd~3"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -2606,7 +2606,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-cv~4"></span>
+              <span class="anchor" id="variable-cv~3"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -2636,7 +2636,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-r~5"></span>
+              <span class="anchor" id="variable-r~4"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -2686,7 +2686,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~51"></span>
+              <span class="anchor" id="variable-self"></span>
               class(<a href='../type/nasto_eos_object.html'>nasto_eos_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2726,7 +2726,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~54"></span>
+              <span class="anchor" id="variable-self~4"></span>
               class(<a href='../type/nasto_eos_object.html'>nasto_eos_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2747,7 +2747,7 @@ parameter
   </div>
 
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-initialize~4"></span> <h3>private  subroutine <a href='../proc/initialize~4.html'>initialize</a>(self, physics, mu, kd, dha, cp, cv, gam, R)  
+    <div class="card-header codesum"><span class="anchor" id="proc-initialize"></span> <h3>private  subroutine <a href='../proc/initialize.html'>initialize</a>(self, physics, mu, kd, dha, cp, cv, gam, R)  
 </h3></div>
     <div class="card-body">
           
@@ -2766,7 +2766,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~55"></span>
+              <span class="anchor" id="variable-self~5"></span>
               class(<a href='../type/nasto_eos_object.html'>nasto_eos_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2796,7 +2796,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-mu~4"></span>
+              <span class="anchor" id="variable-mu~2"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -2811,7 +2811,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-kd~3"></span>
+              <span class="anchor" id="variable-kd~2"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -2856,7 +2856,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-cv~3"></span>
+              <span class="anchor" id="variable-cv~2"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -2886,7 +2886,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-r~3"></span>
+              <span class="anchor" id="variable-r~2"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -2907,7 +2907,7 @@ parameter
   </div>
 
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-load_from_file~2"></span> <h3>private  subroutine <a href='../proc/load_from_file~2.html'>load_from_file</a>(self, file_parameters, s, go_on_fail)  
+    <div class="card-header codesum"><span class="anchor" id="proc-load_from_file"></span> <h3>private  subroutine <a href='../proc/load_from_file.html'>load_from_file</a>(self, file_parameters, s, go_on_fail)  
 </h3></div>
     <div class="card-body">
           
@@ -2926,7 +2926,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~56"></span>
+              <span class="anchor" id="variable-self~6"></span>
               class(<a href='../type/nasto_eos_object.html'>nasto_eos_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2941,7 +2941,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-file_parameters~3"></span>
+              <span class="anchor" id="variable-file_parameters"></span>
               type(file_ini),
             </td>
 <td>intent(in)</td>
@@ -2956,7 +2956,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-s~4"></span>
+              <span class="anchor" id="variable-s"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -2971,7 +2971,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-go_on_fail~2"></span>
+              <span class="anchor" id="variable-go_on_fail"></span>
               logical,
             </td>
 <td>intent(in),</td>
@@ -3011,7 +3011,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~58"></span>
+              <span class="anchor" id="variable-self~8"></span>
               class(<a href='../type/nasto_eos_object.html'>nasto_eos_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -3026,7 +3026,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-file_parameters~4"></span>
+              <span class="anchor" id="variable-file_parameters~2"></span>
               type(file_ini),
             </td>
 <td>intent(inout)</td>
@@ -3041,7 +3041,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-s~5"></span>
+              <span class="anchor" id="variable-s~2"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
