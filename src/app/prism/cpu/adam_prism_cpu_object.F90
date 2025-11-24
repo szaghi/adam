@@ -822,7 +822,7 @@ contains
    integer(I4P)                           :: i,j,k,b                                         !< Counter.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencil)
+             hs=>self%numerics%fdv_half_stencils(1))
    do b=1, blocks_number
    do k=1, nk
    do j=1, nj
@@ -844,7 +844,7 @@ contains
    integer(I4P)                           :: i,j,k,b                                         !< Counter.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencil)
+             hs=>self%numerics%fdv_half_stencils(1))
    do b=1, blocks_number
    do k=1, nk
    do j=1, nj
@@ -868,7 +868,7 @@ contains
    integer(I4P)                           :: is,js,ks                                      !< Stencils.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencil)
+             hs=>self%numerics%fdv_half_stencils(1))
    select case(dir)
    case(1)
       do b=1, blocks_number
@@ -914,7 +914,7 @@ contains
    integer(I4P)                           :: i,j,k,b                                       !< Counter.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencil)
+             hs=>self%numerics%fdv_half_stencils(1))
    select case(dir)
    case(1)
       do b=1, blocks_number
@@ -961,7 +961,7 @@ contains
    integer(I4P)                           :: is,js,ks                                        !< Stencils.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencil)
+             hs=>self%numerics%fdv_half_stencils(2))
    select case(dir)
    case(1)
       do b=1, blocks_number
@@ -1008,7 +1008,7 @@ contains
    integer(I4P)                           :: is,js,ks                                        !< Stencils.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencil)
+             hs=>self%numerics%fdv_half_stencils(2))
    select case(dir)
    case(1)
       do b=1, blocks_number
@@ -1100,7 +1100,7 @@ contains
    integer(I4P)                           :: i,j,k,b                                            !< Counter.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencil)
+             hs=>self%numerics%fdv_half_stencils(1))
    do b=1, blocks_number
    do k=1, nk
    do j=1, nj
@@ -1123,7 +1123,7 @@ contains
    integer(I4P)                           :: i,j,k,b                                            !< Counter.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencil)
+             hs=>self%numerics%fdv_half_stencils(1))
    do b=1, blocks_number
    do k=1, nk
    do j=1, nj
@@ -1146,7 +1146,7 @@ contains
    integer(I4P)                           :: i, j, k, b                                          !< Counter.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencil)
+             hs=>self%numerics%fdv_half_stencils(1))
    do b=1, blocks_number
    do k=1, nk
    do j=1, nj
@@ -1169,7 +1169,7 @@ contains
    integer(I4P)                           :: i, j, k, b                                          !< Counter.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencil)
+             hs=>self%numerics%fdv_half_stencils(1))
    do b=1, blocks_number
    do k=1, nk
    do j=1, nj
@@ -1192,7 +1192,7 @@ contains
    integer(I4P)                           :: i, j, k, b                                        !< Counter.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencil)
+             hs=>self%numerics%fdv_half_stencils(2))
    do b=1, blocks_number
    do k=1, nk
    do j=1, nj
@@ -1214,7 +1214,7 @@ contains
    integer(I4P)                           :: i, j, k, b                                        !< Counter.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencil)
+             hs=>self%numerics%fdv_half_stencils(2))
    do b=1, blocks_number
    do k=1, nk
    do j=1, nj
@@ -1496,7 +1496,8 @@ contains
    call self%update_ghost(q=q)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
              dxyz=>self%field%dxyz,                                                                                   &
-             s=>self%numerics%fdv_half_stencil,                                                                       &
+             s1=>self%numerics%fdv_half_stencils(1),                                                                  &
+             s4=>self%numerics%fdv_half_stencils(4),                                                                  &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
    if (blocks_number > 0) then
       ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0)
@@ -1504,31 +1505,31 @@ contains
       do k=1,nk
       do j=1,nj
       do i=1,ni
-         call compute_curl_fd_centered(s=s,dxyz=dxyz(1:3,b),                        &
-                                       q=q(VAR_DX:VAR_DZ,i-s:i+s,j-s:j+s,k-s:k+s,b),&
+         call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
+                                       q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),&
                                        curl=curlD)
-         call compute_curl_fd_centered(s=s,dxyz=dxyz(1:3,b),                        &
-                                       q=q(VAR_BX:VAR_BZ,i-s:i+s,j-s:j+s,k-s:k+s,b),&
+         call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
+                                       q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),&
                                        curl=curlB)
 
-       call compute_derivative4_fd_centered(s=s,ds=dxyz(1,b),q=q(VAR_DX,i-s:i+s,j,k,b),d4q_ds4=KO_Dx_x);KO_Dx_x=dxyz(1,b)**3*KO_Dx_x
-       call compute_derivative4_fd_centered(s=s,ds=dxyz(2,b),q=q(VAR_DX,i,j-s:j+s,k,b),d4q_ds4=KO_Dx_y);KO_Dx_y=dxyz(2,b)**3*KO_Dx_y
-       call compute_derivative4_fd_centered(s=s,ds=dxyz(3,b),q=q(VAR_DX,i,j,k-s:k+s,b),d4q_ds4=KO_Dx_z);KO_Dx_z=dxyz(3,b)**3*KO_Dx_z
-       call compute_derivative4_fd_centered(s=s,ds=dxyz(1,b),q=q(VAR_DY,i-s:i+s,j,k,b),d4q_ds4=KO_Dy_x);KO_Dy_x=dxyz(1,b)**3*KO_Dy_x
-       call compute_derivative4_fd_centered(s=s,ds=dxyz(2,b),q=q(VAR_DY,i,j-s:j+s,k,b),d4q_ds4=KO_Dy_y);KO_Dy_y=dxyz(2,b)**3*KO_Dy_y
-       call compute_derivative4_fd_centered(s=s,ds=dxyz(3,b),q=q(VAR_DY,i,j,k-s:k+s,b),d4q_ds4=KO_Dy_z);KO_Dy_z=dxyz(3,b)**3*KO_Dy_z
-       call compute_derivative4_fd_centered(s=s,ds=dxyz(1,b),q=q(VAR_DZ,i-s:i+s,j,k,b),d4q_ds4=KO_Dz_x);KO_Dz_x=dxyz(1,b)**3*KO_Dz_x
-       call compute_derivative4_fd_centered(s=s,ds=dxyz(2,b),q=q(VAR_DZ,i,j-s:j+s,k,b),d4q_ds4=KO_Dz_y);KO_Dz_y=dxyz(2,b)**3*KO_Dz_y
-       call compute_derivative4_fd_centered(s=s,ds=dxyz(3,b),q=q(VAR_DZ,i,j,k-s:k+s,b),d4q_ds4=KO_Dz_z);KO_Dz_z=dxyz(3,b)**3*KO_Dz_z
-       call compute_derivative4_fd_centered(s=s,ds=dxyz(1,b),q=q(VAR_BX,i-s:i+s,j,k,b),d4q_ds4=KO_Bx_x);KO_Bx_x=dxyz(1,b)**3*KO_Bx_x
-       call compute_derivative4_fd_centered(s=s,ds=dxyz(2,b),q=q(VAR_BX,i,j-s:j+s,k,b),d4q_ds4=KO_Bx_y);KO_Bx_y=dxyz(2,b)**3*KO_Bx_y
-       call compute_derivative4_fd_centered(s=s,ds=dxyz(3,b),q=q(VAR_BX,i,j,k-s:k+s,b),d4q_ds4=KO_Bx_z);KO_Bx_z=dxyz(3,b)**3*KO_Bx_z
-       call compute_derivative4_fd_centered(s=s,ds=dxyz(1,b),q=q(VAR_BY,i-s:i+s,j,k,b),d4q_ds4=KO_By_x);KO_By_x=dxyz(1,b)**3*KO_By_x
-       call compute_derivative4_fd_centered(s=s,ds=dxyz(2,b),q=q(VAR_BY,i,j-s:j+s,k,b),d4q_ds4=KO_By_y);KO_By_y=dxyz(2,b)**3*KO_By_y
-       call compute_derivative4_fd_centered(s=s,ds=dxyz(3,b),q=q(VAR_BY,i,j,k-s:k+s,b),d4q_ds4=KO_By_z);KO_By_z=dxyz(3,b)**3*KO_By_z
-       call compute_derivative4_fd_centered(s=s,ds=dxyz(1,b),q=q(VAR_BZ,i-s:i+s,j,k,b),d4q_ds4=KO_Bz_x);KO_Bz_x=dxyz(1,b)**3*KO_Bz_x
-       call compute_derivative4_fd_centered(s=s,ds=dxyz(2,b),q=q(VAR_BZ,i,j-s:j+s,k,b),d4q_ds4=KO_Bz_y);KO_Bz_y=dxyz(2,b)**3*KO_Bz_y
-       call compute_derivative4_fd_centered(s=s,ds=dxyz(3,b),q=q(VAR_BZ,i,j,k-s:k+s,b),d4q_ds4=KO_Bz_z);KO_Bz_z=dxyz(3,b)**3*KO_Bz_z
+   call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dx_x);KO_Dx_x=dxyz(1,b)**3*KO_Dx_x
+   call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dx_y);KO_Dx_y=dxyz(2,b)**3*KO_Dx_y
+   call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dx_z);KO_Dx_z=dxyz(3,b)**3*KO_Dx_z
+   call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DY,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dy_x);KO_Dy_x=dxyz(1,b)**3*KO_Dy_x
+   call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DY,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dy_y);KO_Dy_y=dxyz(2,b)**3*KO_Dy_y
+   call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DY,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dy_z);KO_Dy_z=dxyz(3,b)**3*KO_Dy_z
+   call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dz_x);KO_Dz_x=dxyz(1,b)**3*KO_Dz_x
+   call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dz_y);KO_Dz_y=dxyz(2,b)**3*KO_Dz_y
+   call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dz_z);KO_Dz_z=dxyz(3,b)**3*KO_Dz_z
+   call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bx_x);KO_Bx_x=dxyz(1,b)**3*KO_Bx_x
+   call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bx_y);KO_Bx_y=dxyz(2,b)**3*KO_Bx_y
+   call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bx_z);KO_Bx_z=dxyz(3,b)**3*KO_Bx_z
+   call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BY,i-s4:i+s4,j,k,b),d4q_ds4=KO_By_x);KO_By_x=dxyz(1,b)**3*KO_By_x
+   call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BY,i,j-s4:j+s4,k,b),d4q_ds4=KO_By_y);KO_By_y=dxyz(2,b)**3*KO_By_y
+   call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BY,i,j,k-s4:k+s4,b),d4q_ds4=KO_By_z);KO_By_z=dxyz(3,b)**3*KO_By_z
+   call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bz_x);KO_Bz_x=dxyz(1,b)**3*KO_Bz_x
+   call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bz_y);KO_Bz_y=dxyz(2,b)**3*KO_Bz_y
+   call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bz_z);KO_Bz_z=dxyz(3,b)**3*KO_Bz_z
 
          dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - q(var_Jx,i,j,k,b) - sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
          dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - q(var_Jy,i,j,k,b) - sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
@@ -1565,7 +1566,7 @@ contains
    call self%update_ghost(q=q)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
              dxyz=>self%field%dxyz, flxyz_c=>self%flxyz_c, flx_f=>self%flx_f, fly_f=>self%fly_f, flz_f=>self%flz_f,   &
-             s=>self%numerics%fdv_half_stencil,                                                                       &
+             s=>self%numerics%fdv_half_stencils(1),                                                                   &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz, chi=>self%physics%chi)
    if (blocks_number > 0) then
       ! compute fluxes at cell centers
