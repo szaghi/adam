@@ -1,16 +1,17 @@
 [modes]
 modes = ascot-nvf-cuda
-        adam-com-gnu            adam-com-gnu-debug
-        adam-com-nvf            adam-com-nvf-debug
-        adam-nvf-cuda           adam-nvf-cuda-debug
-        nasto-fnl-nvf-oac       nasto-fnl-nvf-oac-debug
-        nasto-nvf-cuda          nasto-nvf-cuda-debug
+        adam-com-gnu                         adam-com-gnu-debug
+        adam-com-nvf                         adam-com-nvf-debug
+        adam-nvf-cuda                        adam-nvf-cuda-debug
+        nasto-fnl-nvf-oac                    nasto-fnl-nvf-oac-debug
+        nasto-nvf-cuda                       nasto-nvf-cuda-debug
         nasto-cpu-gnu
         nasto-cpu-gnu-github
-        prism-gnu               prism-gnu-debug
-        prism-fnl-nvf-oac       prism-fnl-nvf-oac-debug
-        chase-gnu               chase-gnu-debug
-        patch-gnu               patch-gnu-debug
+        prism-gnu                            prism-gnu-debug
+        prism-fnl-nvf-oac                    prism-fnl-nvf-oac-debug
+        chase-gnu                            chase-gnu-debug
+        patch-gnu                            patch-gnu-debug
+        test-fdv-operators-trigonometric-gnu test-fdv-operators-trigonometric-gnu-debug
 
 # main modes
 
@@ -166,6 +167,19 @@ libs     = lib/hdf5_github/lib/libhdf5_fortran.a lib/hdf5_github/lib/libhdf5_f90
 ext_libs = z
 lib_dir  = lib/hdf5_github/lib
 include  = lib/hdf5_github/include
+
+# tests
+[test-fdv-operators-trigonometric-gnu]
+help     = Build test fdv operators trigonometric app with GNU compiler
+template = template-gnu
+preproc  = -D_MPI_ -w
+target   = test_fdv_operators_trigonometric.F90
+
+[test-fdv-operators-trigonometric-gnu-debug]
+help     = Build test fdv operators trigonometric app with GNU compiler, debug mode
+template = template-gnu-debug
+preproc  = -D_MPI_ -w
+target   = test_fdv_operators_trigonometric.F90
 
 # templates
 [template-base]

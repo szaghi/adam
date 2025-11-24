@@ -26,6 +26,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
    procedure(compute_curl_interface),       pass(self),pointer :: compute_curl       =>null()!< Compute curl of vector field.
    procedure(compute_derivative1_interface),pass(self),pointer :: compute_derivative1=>null()!< Compute derivative1 of scalar field.
    procedure(compute_derivative2_interface),pass(self),pointer :: compute_derivative2=>null()!< Compute derivative2 of scalar field.
+   procedure(compute_derivative4_interface),pass(self),pointer :: compute_derivative4=>null()!< Compute derivative4 of scalar field.
    procedure(compute_divergence_interface), pass(self),pointer :: compute_divergence =>null()!< Compute divergence of vector field.
    procedure(compute_gradient_interface),   pass(self),pointer :: compute_gradient   =>null()!< Compute gradient of scalar field.
    procedure(compute_laplacian_interface),  pass(self),pointer :: compute_laplacian  =>null()!< Compute laplacian of scalar field.
@@ -56,6 +57,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: compute_derivative1_fv !< Compute derivative1 of scalar fields, finite volume schemes.
       procedure, pass(self) :: compute_derivative2_fd !< Compute derivative2 of scalar fields, finite difference schemes.
       procedure, pass(self) :: compute_derivative2_fv !< Compute derivative2 of scalar fields, finite volume schemes.
+      procedure, pass(self) :: compute_derivative4_fd !< Compute derivative4 of scalar fields, finite difference schemes.
       procedure, pass(self) :: compute_divergence_fd  !< Compute divergence of vector field by finite difference.
       procedure, pass(self) :: compute_divergence_fv  !< Compute divergence of vector field by finite volume.
       procedure, pass(self) :: compute_gradient_fd    !< Compute gradient of scalar field, finite difference schemes.
@@ -99,8 +101,18 @@ interface
    integer(I4P),            intent(in)    :: dir                                             !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P),            intent(in)    :: ivar                                            !< Start index of (vec.) variable of q.
    real(R8P),               intent(in)    :: q(1:,   1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: d2q_ds2(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative1, dq/ds.
+   real(R8P),               intent(inout) :: d2q_ds2(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative2, d2q/ds2.
    endsubroutine compute_derivative2_interface
+
+   subroutine compute_derivative4_interface(self, dir, ivar, q, d4q_ds4)
+   !< Compute derivative4 of scalar fields, d4q(ivar)/ds4.
+   import :: prism_cpu_object, I4P, R8P
+   class(prism_cpu_object), intent(in)    :: self                                            !< The equation.
+   integer(I4P),            intent(in)    :: dir                                             !< Direction, 1=X, 2=Y, 3=Z.
+   integer(I4P),            intent(in)    :: ivar                                            !< Start index of (vec.) variable of q.
+   real(R8P),               intent(in)    :: q(1:,   1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
+   real(R8P),               intent(inout) :: d4q_ds4(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative4, d4q/ds4.
+   endsubroutine compute_derivative4_interface
 
    subroutine compute_divergence_interface(self, ivar, q, divergence)
    !< Compute divergence of vector fields, div(q(ivar:ivar+2).
@@ -944,7 +956,7 @@ contains
    integer(I4P),            intent(in)    :: dir                                             !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P),            intent(in)    :: ivar                                            !< Start index of (vec.) variable of q.
    real(R8P),               intent(in)    :: q(1:,   1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: d2q_ds2(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative1, dq/ds.
+   real(R8P),               intent(inout) :: d2q_ds2(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative2, d2q/ds2.
    integer(I4P)                           :: i,j,k,b                                         !< Counter.
    integer(I4P)                           :: is,js,ks                                        !< Stencils.
 
@@ -991,7 +1003,7 @@ contains
    integer(I4P),            intent(in)    :: dir                                             !< Direction, 1=X, 2=Y, 3=Z.
    integer(I4P),            intent(in)    :: ivar                                            !< Start index of (vec.) variable of q.
    real(R8P),               intent(in)    :: q(1:,   1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: d2q_ds2(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative1, dq/ds.
+   real(R8P),               intent(inout) :: d2q_ds2(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative2, d2q/ds2.
    integer(I4P)                           :: i,j,k,b                                         !< Counter.
    integer(I4P)                           :: is,js,ks                                        !< Stencils.
 
@@ -1031,6 +1043,53 @@ contains
    endselect
    endassociate
    endsubroutine compute_derivative2_fv
+
+   subroutine compute_derivative4_fd(self, dir, ivar, q, d4q_ds4)
+   !< Compute derivative2 of scalar fields, d4q(ivar)/ds4, using finite difference schemes.
+   class(prism_cpu_object), intent(in)    :: self                                            !< The equation.
+   integer(I4P),            intent(in)    :: dir                                             !< Direction, 1=X, 2=Y, 3=Z.
+   integer(I4P),            intent(in)    :: ivar                                            !< Start index of (vec.) variable of q.
+   real(R8P),               intent(in)    :: q(1:,   1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
+   real(R8P),               intent(inout) :: d4q_ds4(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative4, d4q/ds4.
+   integer(I4P)                           :: i,j,k,b                                         !< Counter.
+   integer(I4P)                           :: is,js,ks                                        !< Stencils.
+
+   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
+             hs=>self%numerics%fdv_half_stencil)
+   select case(dir)
+   case(1)
+      do b=1, blocks_number
+      do k=1, nk
+      do j=1, nj
+      do i=1, ni
+         call compute_derivative4_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i-hs:i+hs,j,k,b),d4q_ds4=d4q_ds4(i,j,k,b))
+      enddo
+      enddo
+      enddo
+      enddo
+   case(2)
+      do b=1, blocks_number
+      do k=1, nk
+      do j=1, nj
+      do i=1, ni
+         call compute_derivative4_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j-hs:j+hs,k,b),d4q_ds4=d4q_ds4(i,j,k,b))
+      enddo
+      enddo
+      enddo
+      enddo
+   case(3)
+      do b=1, blocks_number
+      do k=1, nk
+      do j=1, nj
+      do i=1, ni
+         call compute_derivative4_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j,k-hs:k+hs,b),d4q_ds4=d4q_ds4(i,j,k,b))
+      enddo
+      enddo
+      enddo
+      enddo
+   endselect
+   endassociate
+   endsubroutine compute_derivative4_fd
 
    subroutine compute_divergence_fd(self, ivar, q, divergence)
    !< Compute divergence of vector fields, div(q(ivar:ivar+2), using finite difference schemes.
@@ -1426,6 +1485,13 @@ contains
                                                 1:)             !< Residuals.
    integer(I4P)                           :: i,j,k,b            !< Counter
    real(R8P)                              :: curlD(3), curlB(3) !< Residuals components.
+   real(R8P)                              :: KO_Dx_x,KO_Dx_y,KO_Dx_z
+   real(R8P)                              :: KO_Dy_x,KO_Dy_y,KO_Dy_z
+   real(R8P)                              :: KO_Dz_x,KO_Dz_y,KO_Dz_z
+   real(R8P)                              :: KO_Bx_x,KO_Bx_y,KO_Bx_z
+   real(R8P)                              :: KO_By_x,KO_By_y,KO_By_z
+   real(R8P)                              :: KO_Bz_x,KO_Bz_y,KO_Bz_z
+   real(R8P), parameter :: sigma = 1000.01_R8P
 
    call self%update_ghost(q=q)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
@@ -1444,12 +1510,32 @@ contains
          call compute_curl_fd_centered(s=s,dxyz=dxyz(1:3,b),                        &
                                        q=q(VAR_BX:VAR_BZ,i-s:i+s,j-s:j+s,k-s:k+s,b),&
                                        curl=curlB)
-         dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - q(var_Jx,i,j,k,b)
-         dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - q(var_Jy,i,j,k,b)
-         dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - q(var_Jz,i,j,k,b)
-         dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0
-         dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0
-         dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0
+
+       call compute_derivative4_fd_centered(s=s,ds=dxyz(1,b),q=q(VAR_DX,i-s:i+s,j,k,b),d4q_ds4=KO_Dx_x);KO_Dx_x=dxyz(1,b)**3*KO_Dx_x
+       call compute_derivative4_fd_centered(s=s,ds=dxyz(2,b),q=q(VAR_DX,i,j-s:j+s,k,b),d4q_ds4=KO_Dx_y);KO_Dx_y=dxyz(2,b)**3*KO_Dx_y
+       call compute_derivative4_fd_centered(s=s,ds=dxyz(3,b),q=q(VAR_DX,i,j,k-s:k+s,b),d4q_ds4=KO_Dx_z);KO_Dx_z=dxyz(3,b)**3*KO_Dx_z
+       call compute_derivative4_fd_centered(s=s,ds=dxyz(1,b),q=q(VAR_DY,i-s:i+s,j,k,b),d4q_ds4=KO_Dy_x);KO_Dy_x=dxyz(1,b)**3*KO_Dy_x
+       call compute_derivative4_fd_centered(s=s,ds=dxyz(2,b),q=q(VAR_DY,i,j-s:j+s,k,b),d4q_ds4=KO_Dy_y);KO_Dy_y=dxyz(2,b)**3*KO_Dy_y
+       call compute_derivative4_fd_centered(s=s,ds=dxyz(3,b),q=q(VAR_DY,i,j,k-s:k+s,b),d4q_ds4=KO_Dy_z);KO_Dy_z=dxyz(3,b)**3*KO_Dy_z
+       call compute_derivative4_fd_centered(s=s,ds=dxyz(1,b),q=q(VAR_DZ,i-s:i+s,j,k,b),d4q_ds4=KO_Dz_x);KO_Dz_x=dxyz(1,b)**3*KO_Dz_x
+       call compute_derivative4_fd_centered(s=s,ds=dxyz(2,b),q=q(VAR_DZ,i,j-s:j+s,k,b),d4q_ds4=KO_Dz_y);KO_Dz_y=dxyz(2,b)**3*KO_Dz_y
+       call compute_derivative4_fd_centered(s=s,ds=dxyz(3,b),q=q(VAR_DZ,i,j,k-s:k+s,b),d4q_ds4=KO_Dz_z);KO_Dz_z=dxyz(3,b)**3*KO_Dz_z
+       call compute_derivative4_fd_centered(s=s,ds=dxyz(1,b),q=q(VAR_BX,i-s:i+s,j,k,b),d4q_ds4=KO_Bx_x);KO_Bx_x=dxyz(1,b)**3*KO_Bx_x
+       call compute_derivative4_fd_centered(s=s,ds=dxyz(2,b),q=q(VAR_BX,i,j-s:j+s,k,b),d4q_ds4=KO_Bx_y);KO_Bx_y=dxyz(2,b)**3*KO_Bx_y
+       call compute_derivative4_fd_centered(s=s,ds=dxyz(3,b),q=q(VAR_BX,i,j,k-s:k+s,b),d4q_ds4=KO_Bx_z);KO_Bx_z=dxyz(3,b)**3*KO_Bx_z
+       call compute_derivative4_fd_centered(s=s,ds=dxyz(1,b),q=q(VAR_BY,i-s:i+s,j,k,b),d4q_ds4=KO_By_x);KO_By_x=dxyz(1,b)**3*KO_By_x
+       call compute_derivative4_fd_centered(s=s,ds=dxyz(2,b),q=q(VAR_BY,i,j-s:j+s,k,b),d4q_ds4=KO_By_y);KO_By_y=dxyz(2,b)**3*KO_By_y
+       call compute_derivative4_fd_centered(s=s,ds=dxyz(3,b),q=q(VAR_BY,i,j,k-s:k+s,b),d4q_ds4=KO_By_z);KO_By_z=dxyz(3,b)**3*KO_By_z
+       call compute_derivative4_fd_centered(s=s,ds=dxyz(1,b),q=q(VAR_BZ,i-s:i+s,j,k,b),d4q_ds4=KO_Bz_x);KO_Bz_x=dxyz(1,b)**3*KO_Bz_x
+       call compute_derivative4_fd_centered(s=s,ds=dxyz(2,b),q=q(VAR_BZ,i,j-s:j+s,k,b),d4q_ds4=KO_Bz_y);KO_Bz_y=dxyz(2,b)**3*KO_Bz_y
+       call compute_derivative4_fd_centered(s=s,ds=dxyz(3,b),q=q(VAR_BZ,i,j,k-s:k+s,b),d4q_ds4=KO_Bz_z);KO_Bz_z=dxyz(3,b)**3*KO_Bz_z
+
+         dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - q(var_Jx,i,j,k,b) - sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
+         dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - q(var_Jy,i,j,k,b) - sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
+         dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - q(var_Jz,i,j,k,b) - sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
+         dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0                    - sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
+         dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0                    - sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
+         dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0                    - sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
       enddo
       enddo
       enddo
