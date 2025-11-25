@@ -1,15 +1,15 @@
 program test_fdv_operators_trigonometric
-!< Test ADM fdv operators library with trigonometric functions derivatives.
+!< Test ADAM fdv operators (compute derivatives) library with trigonometric functions derivatives.
 
 use adam_fdv_operators_library
 use penf
 
 implicit none
 
-integer(I4P), parameter :: ni=100                 !< Number of cells.
-integer(I4P), parameter :: gc=5                   !< Number of ghost cells.
+integer(I4P), parameter :: ni=100_I4P             !< Number of cells.
+integer(I4P), parameter :: gc=5_I4P               !< Number of ghost cells.
 real(R8P),    parameter :: PI=4._R8P*atan(1._R8P) !< PI.
-real(R8P),    parameter :: dx=2*PI/ni             !< Space step.
+real(R8P),    parameter :: dx=2_I4P*PI/ni         !< Space step.
 real(R8P)               ::    x(1-gc:ni+gc)       !< Abscissa.
 real(R8P)               :: sin0(1-gc:ni+gc)       !< Function sin.
 real(R8P)               :: sin1(1   :ni   )       !< Derivative1 of function sin, sin1=cos.
@@ -18,8 +18,10 @@ real(R8P)               :: sin3(1   :ni   )       !< Derivative3 of function sin
 real(R8P)               :: sin4(1   :ni   )       !< Derivative4 of function sin, sin4=sin.
 real(R8P)               :: sin5(1   :ni   )       !< Derivative5 of function sin, sin5=con.
 real(R8P)               :: sin6(1   :ni   )       !< Derivative6 of function sin, sin6=-sin.
+real(R8P)               :: error(1:ni,1:6)        !< Error functions.
+real(R8P)               :: errorL2                !< L2 error norm.
 integer(I4P)            :: s_d(6)                 !< Half stencil length of each derivative (depends from order of accuracy).
-integer(I4P)            :: i, o                   !< Counter.
+integer(I4P)            :: i, o, d                !< Counter.
 
 ! initialize
 do i=1-gc, ni+gc
@@ -43,6 +45,21 @@ do o=2, 6, 2
       call compute_derivative5_fd_centered(s=s_d(5),ds=dx,q=sin0(i-s_d(5):i+s_d(5)),d5q_ds5=sin5(i))
       call compute_derivative6_fd_centered(s=s_d(6),ds=dx,q=sin0(i-s_d(6):i+s_d(6)),d6q_ds6=sin6(i))
    enddo
+   error(:,1) = abs(sin1 - [( cos(x(i)),i=1,ni)])
+   error(:,2) = abs(sin2 - [(-sin(x(i)),i=1,ni)])
+   error(:,3) = abs(sin3 - [(-cos(x(i)),i=1,ni)])
+   error(:,4) = abs(sin4 - [( sin(x(i)),i=1,ni)])
+   error(:,5) = abs(sin5 - [( cos(x(i)),i=1,ni)])
+   error(:,6) = abs(sin6 - [(-sin(x(i)),i=1,ni)])
+   do d=1, 6
+      errorL2 = 0._R8P
+      do i=1, ni
+         errorL2 = errorL2 + error(i,d)*error(i,d)
+      enddo
+      errorL2 = sqrt(errorL2*dx**d)
+      print '(A)', ' FD Order '//trim(strz(o,2))//', derivative '//trim(str(d))//&
+                   ': Error L0 '//trim(str(maxval(error(:,d))))//', Error L2 '//trim(str(errorL2))
+   enddo
    call save_file(file_name='fd_d1sin-ord'//trim(strz(o,2))//'.dat',header='x sin1 cos' ,x=x(1:ni),fn=sin1,fe=[( cos(x(i)),i=1,ni)])
    call save_file(file_name='fd_d2sin-ord'//trim(strz(o,2))//'.dat',header='x sin2 -sin',x=x(1:ni),fn=sin2,fe=[(-sin(x(i)),i=1,ni)])
    call save_file(file_name='fd_d3sin-ord'//trim(strz(o,2))//'.dat',header='x sin3 -cos',x=x(1:ni),fn=sin3,fe=[(-cos(x(i)),i=1,ni)])
@@ -61,6 +78,19 @@ do o=8, 8
       call compute_derivative3_fd_centered(s=s_d(3),ds=dx,q=sin0(i-s_d(3):i+s_d(3)),d3q_ds3=sin3(i))
       call compute_derivative4_fd_centered(s=s_d(4),ds=dx,q=sin0(i-s_d(4):i+s_d(4)),d4q_ds4=sin4(i))
    enddo
+   error(:,1) = abs(sin1 - [( cos(x(i)),i=1,ni)])
+   error(:,2) = abs(sin2 - [(-sin(x(i)),i=1,ni)])
+   error(:,3) = abs(sin3 - [(-cos(x(i)),i=1,ni)])
+   error(:,4) = abs(sin4 - [( sin(x(i)),i=1,ni)])
+   do d=1, 4
+      errorL2 = 0._R8P
+      do i=1, ni
+         errorL2 = errorL2 + error(i,d)*error(i,d)
+      enddo
+      errorL2 = sqrt(errorL2*dx**d)
+      print '(A)', ' FD Order '//trim(strz(o,2))//', derivative '//trim(str(d))//&
+                   ': Error L0 '//trim(str(maxval(error(:,d))))//', Error L2 '//trim(str(errorL2))
+   enddo
    call save_file(file_name='fd_d1sin-ord'//trim(strz(o,2))//'.dat',header='x sin1 cos' ,x=x(1:ni),fn=sin1,fe=[( cos(x(i)),i=1,ni)])
    call save_file(file_name='fd_d2sin-ord'//trim(strz(o,2))//'.dat',header='x sin2 -sin',x=x(1:ni),fn=sin2,fe=[(-sin(x(i)),i=1,ni)])
    call save_file(file_name='fd_d3sin-ord'//trim(strz(o,2))//'.dat',header='x sin3 -cos',x=x(1:ni),fn=sin3,fe=[(-cos(x(i)),i=1,ni)])
@@ -72,6 +102,17 @@ do o=10, 10
    do i=1, ni
       call compute_derivative1_fd_centered(s=s_d(1),ds=dx,q=sin0(i-s_d(1):i+s_d(1)),dq_ds  =sin1(i))
       call compute_derivative2_fd_centered(s=s_d(2),ds=dx,q=sin0(i-s_d(2):i+s_d(2)),d2q_ds2=sin2(i))
+   enddo
+   error(:,1) = abs(sin1 - [( cos(x(i)),i=1,ni)])
+   error(:,2) = abs(sin2 - [(-sin(x(i)),i=1,ni)])
+   do d=1, 2
+      errorL2 = 0._R8P
+      do i=1, ni
+         errorL2 = errorL2 + error(i,d)*error(i,d)
+      enddo
+      errorL2 = sqrt(errorL2*dx**d)
+      print '(A)', ' FD Order '//trim(strz(o,2))//', derivative '//trim(str(d))//&
+                   ': Error L0 '//trim(str(maxval(error(:,d))))//', Error L2 '//trim(str(errorL2))
    enddo
    call save_file(file_name='fd_d1sin-ord'//trim(strz(o,2))//'.dat',header='x sin1 cos' ,x=x(1:ni),fn=sin1,fe=[( cos(x(i)),i=1,ni)])
    call save_file(file_name='fd_d2sin-ord'//trim(strz(o,2))//'.dat',header='x sin2 -sin',x=x(1:ni),fn=sin2,fe=[(-sin(x(i)),i=1,ni)])
@@ -90,6 +131,20 @@ do o=2, 2, 2
       call compute_derivative3_fv_centered(s=s_d(3),ds=dx,q=sin0(i-s_d(3):i+s_d(3)),d3q_ds3=sin3(i))
       call compute_derivative4_fv_centered(s=s_d(4),ds=dx,q=sin0(i-s_d(4):i+s_d(4)),d4q_ds4=sin4(i))
       call compute_derivative5_fv_centered(s=s_d(5),ds=dx,q=sin0(i-s_d(5):i+s_d(5)),d5q_ds5=sin5(i))
+   enddo
+   error(:,1) = abs(sin1 - [( cos(x(i)),i=1,ni)])
+   error(:,2) = abs(sin2 - [(-sin(x(i)),i=1,ni)])
+   error(:,3) = abs(sin3 - [(-cos(x(i)),i=1,ni)])
+   error(:,4) = abs(sin4 - [( sin(x(i)),i=1,ni)])
+   error(:,5) = abs(sin5 - [( cos(x(i)),i=1,ni)])
+   do d=1, 5
+      errorL2 = 0._R8P
+      do i=1, ni
+         errorL2 = errorL2 + error(i,d)*error(i,d)
+      enddo
+      errorL2 = sqrt(errorL2*dx**d)
+      print '(A)', ' FV Order '//trim(strz(o,2))//', derivative '//trim(str(d))//&
+                   ': Error L0 '//trim(str(maxval(error(:,d))))//', Error L2 '//trim(str(errorL2))
    enddo
    call save_file(file_name='fv_d1sin-ord'//trim(strz(o,2))//'.dat',header='x sin1 cos' ,x=x(1:ni),fn=sin1,fe=[( cos(x(i)),i=1,ni)])
    call save_file(file_name='fv_d2sin-ord'//trim(strz(o,2))//'.dat',header='x sin2 -sin',x=x(1:ni),fn=sin2,fe=[(-sin(x(i)),i=1,ni)])

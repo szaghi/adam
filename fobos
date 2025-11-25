@@ -12,6 +12,7 @@ modes = ascot-nvf-cuda
         chase-gnu                            chase-gnu-debug
         patch-gnu                            patch-gnu-debug
         test-fdv-operators-trigonometric-gnu test-fdv-operators-trigonometric-gnu-debug
+        test-fdv-laplacian-trigonometric-gnu test-fdv-laplacian-trigonometric-gnu-debug
 
 # main modes
 
@@ -180,6 +181,18 @@ help     = Build test fdv operators trigonometric app with GNU compiler, debug m
 template = template-gnu-debug
 preproc  = -D_MPI_ -w
 target   = test_fdv_operators_trigonometric.F90
+
+[test-fdv-laplacian-trigonometric-gnu]
+help     = Build test fdv laplacian trigonometric app with GNU compiler
+template = template-gnu
+preproc  = -D_MPI_ -w
+target   = test_fdv_laplacian_trigonometric.F90
+
+[test-fdv-laplacian-trigonometric-gnu-debug]
+help     = Build test fdv laplacian trigonometric app with GNU compiler, debug mode
+template = template-gnu-debug
+preproc  = -D_MPI_ -w
+target   = test_fdv_laplacian_trigonometric.F90
 
 # templates
 [template-base]
