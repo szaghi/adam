@@ -199,14 +199,14 @@ real(R8P), parameter :: FD6_CC(S_MAX+1,S_MAX)=reshape([FD6_CC_S1, &
 !< | 4th  (S=2) |         -1,0,1,2      | 1/12  *(          -1  ,7   ,7   ,-1            ) |
 !< | 6th  (S=3) |      -2,-1,0,1,2,3    | 1/60  *(      1  ,-8  ,37  ,37  ,-8  ,1        ) |
 !< | 8th  (S=4) |   -3,-2,-1,0,1,2,3,4  | 1/840 *(  -3 ,29 ,-139,533 ,533 ,-139,29 ,-3   ) |
-!< | 10th (S=5) |-4,-3,-2,-1,0,1,2,3,4,5| 1/2520*(3,-30,180,-840,2107,2107,-840,180,-30,3) |
+!< | 10th (S=5) |-4,-3,-2,-1,0,1,2,3,4,5| 1/2520*(2,-23,127,-473,1627,1627,-473,127,-23,2) |
 !< Coefficient are symmetric respect i+1/2, parametrize only half of the stencil coefficients.
                                          !1         2         3        4        5
 real(R8P), parameter :: FV1_CC_S1(S_MAX)=[   1._R8P,   0._R8P,  0._R8P,  0._R8P,0._R8P]/2._R8P    !< FV1C, S1.
 real(R8P), parameter :: FV1_CC_S2(S_MAX)=[   7._R8P,  -1._R8P,  0._R8P,  0._R8P,0._R8P]/12._R8P   !< FV1C, S2.
 real(R8P), parameter :: FV1_CC_S3(S_MAX)=[  37._R8P,  -8._R8P,  1._R8P,  0._R8P,0._R8P]/60._R8P   !< FV1C, S3.
 real(R8P), parameter :: FV1_CC_S4(S_MAX)=[ 533._R8P,-139._R8P, 29._R8P, -3._R8P,0._R8P]/840._R8P  !< FV1C, S4.
-real(R8P), parameter :: FV1_CC_S5(S_MAX)=[2107._R8P,-840._R8P,180._R8P,-30._R8P,3._R8P]/2520._R8P !< FV1C, S5.
+real(R8P), parameter :: FV1_CC_S5(S_MAX)=[1627._R8P,-473._R8P,127._R8P,-23._R8P,2._R8P]/2520._R8P !< FV1C, S5.
 real(R8P), parameter :: FV1_CC(S_MAX,S_MAX)=reshape([FV1_CC_S1, &
                                                      FV1_CC_S2, &
                                                      FV1_CC_S3, &

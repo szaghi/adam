@@ -1,18 +1,21 @@
 [modes]
 modes = ascot-nvf-cuda
-        adam-com-gnu                         adam-com-gnu-debug
-        adam-com-nvf                         adam-com-nvf-debug
-        adam-nvf-cuda                        adam-nvf-cuda-debug
-        nasto-fnl-nvf-oac                    nasto-fnl-nvf-oac-debug
-        nasto-nvf-cuda                       nasto-nvf-cuda-debug
+        adam-com-gnu                          adam-com-gnu-debug
+        adam-com-nvf                          adam-com-nvf-debug
+        adam-nvf-cuda                         adam-nvf-cuda-debug
+        nasto-fnl-nvf-oac                     nasto-fnl-nvf-oac-debug
+        nasto-nvf-cuda                        nasto-nvf-cuda-debug
         nasto-cpu-gnu
         nasto-cpu-gnu-github
-        prism-gnu                            prism-gnu-debug
-        prism-fnl-nvf-oac                    prism-fnl-nvf-oac-debug
-        chase-gnu                            chase-gnu-debug
-        patch-gnu                            patch-gnu-debug
-        test-fdv-operators-trigonometric-gnu test-fdv-operators-trigonometric-gnu-debug
-        test-fdv-laplacian-trigonometric-gnu test-fdv-laplacian-trigonometric-gnu-debug
+        prism-gnu                             prism-gnu-debug
+        prism-fnl-nvf-oac                     prism-fnl-nvf-oac-debug
+        chase-gnu                             chase-gnu-debug
+        patch-gnu                             patch-gnu-debug
+        test-fdv-operators-trigonometric-gnu  test-fdv-operators-trigonometric-gnu-debug
+        test-fdv-curl-trigonometric-gnu       test-fdv-curl-trigonometric-gnu-debug
+        test-fdv-divergence-trigonometric-gnu test-fdv-divergence-trigonometric-gnu-debug
+        test-fdv-gradient-trigonometric-gnu   test-fdv-gradient-trigonometric-gnu-debug
+        test-fdv-laplacian-trigonometric-gnu  test-fdv-laplacian-trigonometric-gnu-debug
 
 # main modes
 
@@ -181,6 +184,42 @@ help     = Build test fdv operators trigonometric app with GNU compiler, debug m
 template = template-gnu-debug
 preproc  = -D_MPI_ -w
 target   = test_fdv_operators_trigonometric.F90
+
+[test-fdv-curl-trigonometric-gnu]
+help     = Build test fdv curl trigonometric app with GNU compiler
+template = template-gnu
+preproc  = -D_MPI_ -w
+target   = test_fdv_curl_trigonometric.F90
+
+[test-fdv-curl-trigonometric-gnu-debug]
+help     = Build test fdv curl trigonometric app with GNU compiler, debug mode
+template = template-gnu-debug
+preproc  = -D_MPI_ -w
+target   = test_fdv_curl_trigonometric.F90
+
+[test-fdv-divergence-trigonometric-gnu]
+help     = Build test fdv divergence trigonometric app with GNU compiler
+template = template-gnu
+preproc  = -D_MPI_ -w
+target   = test_fdv_divergence_trigonometric.F90
+
+[test-fdv-divergence-trigonometric-gnu-debug]
+help     = Build test fdv divergence trigonometric app with GNU compiler, debug mode
+template = template-gnu-debug
+preproc  = -D_MPI_ -w
+target   = test_fdv_divergence_trigonometric.F90
+
+[test-fdv-gradient-trigonometric-gnu]
+help     = Build test fdv gradient trigonometric app with GNU compiler
+template = template-gnu
+preproc  = -D_MPI_ -w
+target   = test_fdv_gradient_trigonometric.F90
+
+[test-fdv-gradient-trigonometric-gnu-debug]
+help     = Build test fdv gradient trigonometric app with GNU compiler, debug mode
+template = template-gnu-debug
+preproc  = -D_MPI_ -w
+target   = test_fdv_gradient_trigonometric.F90
 
 [test-fdv-laplacian-trigonometric-gnu]
 help     = Build test fdv laplacian trigonometric app with GNU compiler
