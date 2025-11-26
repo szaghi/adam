@@ -41,6 +41,20 @@ public :: compute_divergence_fv_centered
 public :: compute_gradient_fv_centered
 public :: compute_laplacian_fv_centered
 public :: compute_reconstruction_r_fv_centered
+public :: compute_derivative1_fv_rupwind
+public :: compute_derivative2_fv_rupwind
+public :: compute_derivative3_fv_rupwind
+public :: compute_derivative4_fv_rupwind
+public :: compute_derivative5_fv_rupwind
+public :: compute_derivative6_fv_rupwind
+public :: compute_reconstruction_r_fv_rupwind
+public :: compute_derivative1_fv_lupwind
+public :: compute_derivative2_fv_lupwind
+public :: compute_derivative3_fv_lupwind
+public :: compute_derivative4_fv_lupwind
+public :: compute_derivative5_fv_lupwind
+public :: compute_derivative6_fv_lupwind
+public :: compute_reconstruction_r_fv_lupwind
 
 integer(I4P), parameter :: S_MAX=5_I4P !< Maximum (half) stencil length.
 
@@ -192,7 +206,8 @@ real(R8P), parameter :: FD6_CC(S_MAX+1,S_MAX)=reshape([FD6_CC_S1, &
 !< \frac{1}{Ds} \sum_{m=-M}^{M} b_m^{(p)} q_{i+m}
 !< \]
 !< where \(b_m^{(p)} = a_m^{(p)} - a_{m-1}^{(p)}\).
-!< Derivative of order 1
+
+!< Centered schemes.
 !< | Order \(p\)| Stencil points \(m\)  | Coefficients \(a_m^{(p)}\) for \(q_{i+1/2}\)     |
 !< |------------|-----------------------|--------------------------------------------------|
 !< | 2nd  (S=1) |            0,1        | 1/2   *(               1   ,1                  ) |
@@ -212,7 +227,42 @@ real(R8P), parameter :: FV1_CC(S_MAX,S_MAX)=reshape([FV1_CC_S1, &
                                                      FV1_CC_S3, &
                                                      FV1_CC_S4, &
                                                      FV1_CC_S5],&
-                                                    [S_MAX,S_MAX]) !< Finite volume derivative 1 centered coefficients.
+                                                    [S_MAX,S_MAX]) !< Finite volume centered reconstruction coefficients.
+
+!< Right-upwind schemes (left-upwind are mirrored).
+!< | Order \(p\)| Stencil points \(m\)  | Coefficients \(a_m^{(p)}\) for \(q_{i+1/2}\)                   |
+!< |------------|-----------------------|----------------------------------------------------------------|
+!< | 1st  (S=1) | 0                     | 1/1   *(   1                                                 ) |
+!< | 2nd  (S=2) | 0,1                   | 1/2   *(   3,    -1                                          ) |
+!< | 3rd  (S=3) | 0,1,2                 | 1/6   *(  11,    -7,    2                                    ) |
+!< | 4th  (S=4) | 0,1,2,3               | 1/12  *(  25,   -23,   13,    -3                             ) |
+!< | 5th  (S=5) | 0,1,2,3,4             | 1/60  *( 137,  -163,  137,   -63,   12                       ) |
+!< | 6th  (S=6) | 0,1,2,3,4,5           | 1/60  *( 147,  -213,  237,  -163,   62,   -10                ) |
+!< | 7th  (S=7) | 0,1,2,3,4,5,6         | 1/420 *(1089, -1851, 2559, -2341, 1334,  -430,   60          ) |
+!< | 8th  (S=8) | 0,1,2,3,4,5,6,7       | 1/840 *(2283, -4437, 7323, -8357, 6343, -3065,  855, -105    ) |
+!< | 9th  (S=9) | 0,1,2,3,4,5,6,7,8     | 1/2520*(7129,-15551,29809,-40751,38629,-24875,10405,-2555,280) |
+real(R8P), parameter :: FV1_UR_S1(S_MAX)=[  1._R8P,   0._R8P,  0._R8P,  0._R8P, 0._R8P]         !< FV1UR, S1.
+real(R8P), parameter :: FV1_UR_S2(S_MAX)=[  3._R8P,  -1._R8P,  0._R8P,  0._R8P, 0._R8P]/2._R8P  !< FV1UR, S2.
+real(R8P), parameter :: FV1_UR_S3(S_MAX)=[ 11._R8P,  -7._R8P,  2._R8P,  0._R8P, 0._R8P]/6._R8P  !< FV1UR, S3.
+real(R8P), parameter :: FV1_UR_S4(S_MAX)=[ 25._R8P, -23._R8P, 13._R8P, -3._R8P, 0._R8P]/12._R8P !< FV1UR, S4.
+real(R8P), parameter :: FV1_UR_S5(S_MAX)=[137._R8P,-163._R8P,137._R8P,-63._R8P,12._R8P]/60._R8P !< FV1UR, S5.
+real(R8P), parameter :: FV1_UR(S_MAX,S_MAX)=reshape([FV1_UR_S1, &
+                                                     FV1_UR_S2, &
+                                                     FV1_UR_S3, &
+                                                     FV1_UR_S4, &
+                                                     FV1_UR_S5],&
+                                                    [S_MAX,S_MAX]) !< Finite volume right-upwind reconstruction coefficients.
+real(R8P), parameter :: FV1_UL_S1(S_MAX)=[ 1._R8P,  0._R8P,  0._R8P,   0._R8P,  0._R8P]         !< FV1UL, S1.
+real(R8P), parameter :: FV1_UL_S2(S_MAX)=[-1._R8P,  3._R8P,  0._R8P,   0._R8P,  0._R8P]/2._R8P  !< FV1UL, S2.
+real(R8P), parameter :: FV1_UL_S3(S_MAX)=[ 2._R8P, -7._R8P, 11._R8P,   0._R8P,  0._R8P]/6._R8P  !< FV1UL, S3.
+real(R8P), parameter :: FV1_UL_S4(S_MAX)=[-3._R8P, 13._R8P,-23._R8P,  25._R8P,  0._R8P]/12._R8P !< FV1UL, S4.
+real(R8P), parameter :: FV1_UL_S5(S_MAX)=[12._R8P,-63._R8P,137._R8P,-163._R8P,137._R8P]/60._R8P !< FV1UL, S5.
+real(R8P), parameter :: FV1_UL(S_MAX,S_MAX)=reshape([FV1_UL_S1, &
+                                                     FV1_UL_S2, &
+                                                     FV1_UL_S3, &
+                                                     FV1_UL_S4, &
+                                                     FV1_UL_S5],&
+                                                    [S_MAX,S_MAX]) !< Finite volume left-upwind reconstruction coefficients.
 
 interface
    pure subroutine compute_curl_fdv_interface(s,dxyz,q,curl)
@@ -464,6 +514,7 @@ contains
    endsubroutine compute_laplacian_fd_centered
 
    ! finite volume schemes
+   ! centered
    pure subroutine compute_curl_fv_centered(s,dxyz,q,curl)
    !< Compute curl of q vector field with finite volume centered scheme.
    integer(I4P), intent(in)  :: s                    !< Stencil len, half of accuracy order.
@@ -607,7 +658,7 @@ contains
    endsubroutine compute_laplacian_fv_centered
 
    pure subroutine compute_reconstruction_r_fv_centered(s,q,qr)
-   !< Compute reconstruction at right interface from cell center average values. Used for finite volume approach where
+   !< Compute reconstruction at right interface from cell center average values. Centered schemes.
    integer(I4P), intent(in)  :: s       !< Stencil len, half of accuracy order.
    real(R8P),    intent(in)  :: q(1-s:) !< Scalar field over the stencil [1-s:s].
    real(R8P),    intent(out) :: qr      !< Reconstruction at right interface of field.
@@ -618,4 +669,187 @@ contains
       qr = qr + FV1_CC(m,s)*(q(m) + q(1-m))
    enddo
    endsubroutine compute_reconstruction_r_fv_centered
+
+   ! right-upwind
+   pure subroutine compute_derivative1_fv_rupwind(s,ds,q,dq_ds)
+   !< Compute derivative of order 1 with finite volume right-upwind scheme.
+   integer(I4P), intent(in)  :: s     !< Stencil len, accuracy order.
+   real(R8P),    intent(in)  :: ds    !< Space step.
+   real(R8P),    intent(in)  :: q(0:) !< Scalar field over the stencil [0:1+s].
+   real(R8P),    intent(out) :: dq_ds !< Derivative of order 1 of q, dq/ds.
+   real(R8P)                 :: ql,qr !< Reconstruction of field at left and righ interfaces.
+
+   call compute_reconstruction_r_fv_rupwind(s=s,q=q(0:  s),qr=ql)
+   call compute_reconstruction_r_fv_rupwind(s=s,q=q(1:1+s),qr=qr)
+   dq_ds = (qr-ql)/ds
+   endsubroutine compute_derivative1_fv_rupwind
+
+   pure subroutine compute_derivative2_fv_rupwind(s,ds,q,d2q_ds2)
+   !< Compute derivative of order 2 with finite volume right-upwind scheme.
+   integer(I4P), intent(in)  :: s       !< Stencil len, half of accuracy order.
+   real(R8P),    intent(in)  :: ds      !< Space step.
+   real(R8P),    intent(in)  :: q(0:)   !< Scalar field over the stencil [0:1+s].
+   real(R8P),    intent(out) :: d2q_ds2 !< Derivative of order 2 of q, d2q/ds2.
+   real(R8P)                 :: dql,dqr !< Derivative 1 at left and right cells.
+
+   call compute_derivative1_fv_rupwind(s=s-1,ds=ds,q=q(0  :1+s-2),dq_ds=dql)
+   call compute_derivative1_fv_rupwind(s=s-1,ds=ds,q=q(0+2:1+s  ),dq_ds=dqr)
+   d2q_ds2 = (dqr - dql)/(2.0_R8P * ds)
+   endsubroutine compute_derivative2_fv_rupwind
+
+   pure subroutine compute_derivative3_fv_rupwind(s,ds,q,d3q_ds3)
+   !< Compute derivative of order 3 with finite volume right-upwind scheme.
+   integer(I4P), intent(in)  :: s       !< Stencil len, half of accuracy order.
+   real(R8P),    intent(in)  :: ds      !< Space step.
+   real(R8P),    intent(in)  :: q(0:)   !< Scalar field over the stencil [0:1+s].
+   real(R8P),    intent(out) :: d3q_ds3 !< Derivative of order 3 of q, d3q/ds3.
+   real(R8P)                 :: dql,dqr !< Derivative 2 at left and right cells.
+
+   call compute_derivative2_fv_rupwind(s=s-1,ds=ds,q=q(0  :1+s-2),d2q_ds2=dql)
+   call compute_derivative2_fv_rupwind(s=s-1,ds=ds,q=q(0+2:1+s  ),d2q_ds2=dqr)
+   d3q_ds3 = (dqr - dql)/(2.0_R8P * ds)
+   endsubroutine compute_derivative3_fv_rupwind
+
+   pure subroutine compute_derivative4_fv_rupwind(s,ds,q,d4q_ds4)
+   !< Compute derivative of order 4 with finite volume right-upwind scheme.
+   integer(I4P), intent(in)  :: s       !< Stencil len, half of accuracy order.
+   real(R8P),    intent(in)  :: ds      !< Space step.
+   real(R8P),    intent(in)  :: q(0:)   !< Scalar field over the stencil [0:1+s].
+   real(R8P),    intent(out) :: d4q_ds4 !< Derivative of order 4 of q, d4q/ds4.
+   real(R8P)                 :: dql,dqr !< Derivative 3 at left and right cells.
+
+   call compute_derivative3_fv_rupwind(s=s-1,ds=ds,q=q(0  :1+s-2),d3q_ds3=dql)
+   call compute_derivative3_fv_rupwind(s=s-1,ds=ds,q=q(0+2:1+s  ),d3q_ds3=dqr)
+   d4q_ds4 = (dqr - dql)/(2.0_R8P * ds)
+   endsubroutine compute_derivative4_fv_rupwind
+
+   pure subroutine compute_derivative5_fv_rupwind(s,ds,q,d5q_ds5)
+   !< Compute derivative of order 5 with finite volume right-upwind scheme.
+   integer(I4P), intent(in)  :: s       !< Stencil len, half of accuracy order.
+   real(R8P),    intent(in)  :: ds      !< Space step.
+   real(R8P),    intent(in)  :: q(0:)   !< Scalar field over the stencil [0:1+s].
+   real(R8P),    intent(out) :: d5q_ds5 !< Derivative of order 5 of q, d5q/ds5.
+   real(R8P)                 :: dql,dqr !< Derivative 4 at left and right cells.
+
+   call compute_derivative4_fv_rupwind(s=s-1,ds=ds,q=q(0  :1+s-2),d4q_ds4=dql)
+   call compute_derivative4_fv_rupwind(s=s-1,ds=ds,q=q(0+2:1+s  ),d4q_ds4=dqr)
+   d5q_ds5 = (dqr - dql)/(2.0_R8P * ds)
+   endsubroutine compute_derivative5_fv_rupwind
+
+   pure subroutine compute_derivative6_fv_rupwind(s,ds,q,d6q_ds6)
+   !< Compute derivative of order 6 with finite volume right-upwind scheme.
+   integer(I4P), intent(in)  :: s       !< Stencil len, half of accuracy order.
+   real(R8P),    intent(in)  :: ds      !< Space step.
+   real(R8P),    intent(in)  :: q(0:)   !< Scalar field over the stencil [0:1+s].
+   real(R8P),    intent(out) :: d6q_ds6 !< Derivative of order 6 of q, d6q/ds6.
+   real(R8P)                 :: dql,dqr !< Derivative 5 at left and right cells.
+
+   call compute_derivative5_fv_rupwind(s=s-1,ds=ds,q=q(0  :1+s-2),d5q_ds5=dql)
+   call compute_derivative5_fv_rupwind(s=s-1,ds=ds,q=q(0+2:1+s  ),d5q_ds5=dqr)
+   d6q_ds6 = (dqr - dql)/(2.0_R8P * ds)
+   endsubroutine compute_derivative6_fv_rupwind
+
+   pure subroutine compute_reconstruction_r_fv_rupwind(s,q,qr)
+   !< Compute reconstruction at right interface from cell center average values, left-upwind schemes.
+   integer(I4P), intent(in)  :: s     !< Stencil len, accuracy order.
+   real(R8P),    intent(in)  :: q(0:) !< Scalar field over the stencil [0:s].
+   real(R8P),    intent(out) :: qr    !< Reconstruction at right interface of field.
+   integer(I4P)              :: m     !< Counter.
+
+   qr = 0.0_R8P
+   do m=1, s
+      qr = qr + FV1_UR(m,s)*q(m)
+   enddo
+   endsubroutine compute_reconstruction_r_fv_rupwind
+
+   pure subroutine compute_derivative1_fv_lupwind(s,ds,q,dq_ds)
+   !< Compute derivative of order 1 with finite volume left-upwind scheme.
+   integer(I4P), intent(in)  :: s      !< Stencil len, accuracy order.
+   real(R8P),    intent(in)  :: ds     !< Space step.
+   real(R8P),    intent(in)  :: q(-s:) !< Scalar field over the stencil [-s:0].
+   real(R8P),    intent(out) :: dq_ds  !< Derivative of order 1 of q, dq/ds.
+   real(R8P)                 :: ql,qr  !< Reconstruction of field at left and righ interfaces.
+
+   call compute_reconstruction_r_fv_lupwind(s=s,q=q(0-s:-1),qr=ql)
+   call compute_reconstruction_r_fv_lupwind(s=s,q=q(1-s:0 ),qr=qr)
+   dq_ds = (qr-ql)/ds
+   endsubroutine compute_derivative1_fv_lupwind
+
+   pure subroutine compute_derivative2_fv_lupwind(s,ds,q,d2q_ds2)
+   !< Compute derivative of order 2 with finite volume left-upwind scheme.
+   integer(I4P), intent(in)  :: s       !< Stencil len, half of accuracy order.
+   real(R8P),    intent(in)  :: ds      !< Space step.
+   real(R8P),    intent(in)  :: q(-s:)  !< Scalar field over the stencil [-s:0].
+   real(R8P),    intent(out) :: d2q_ds2 !< Derivative of order 2 of q, d2q/ds2.
+   real(R8P)                 :: dql,dqr !< Derivative 1 at left and right cells.
+
+   call compute_derivative1_fv_lupwind(s=s-1,ds=ds,q=q(0-s:0-2),dq_ds=dql)
+   call compute_derivative1_fv_lupwind(s=s-1,ds=ds,q=q(1-s:0  ),dq_ds=dqr)
+   d2q_ds2 = (dqr - dql)/(2.0_R8P * ds)
+   endsubroutine compute_derivative2_fv_lupwind
+
+   pure subroutine compute_derivative3_fv_lupwind(s,ds,q,d3q_ds3)
+   !< Compute derivative of order 3 with finite volume left-upwind scheme.
+   integer(I4P), intent(in)  :: s       !< Stencil len, half of accuracy order.
+   real(R8P),    intent(in)  :: ds      !< Space step.
+   real(R8P),    intent(in)  :: q(-s:)  !< Scalar field over the stencil [-s:0].
+   real(R8P),    intent(out) :: d3q_ds3 !< Derivative of order 3 of q, d3q/ds3.
+   real(R8P)                 :: dql,dqr !< Derivative 2 at left and right cells.
+
+   call compute_derivative2_fv_lupwind(s=s-1,ds=ds,q=q(0-s:0-2),d2q_ds2=dql)
+   call compute_derivative2_fv_lupwind(s=s-1,ds=ds,q=q(1-s:0  ),d2q_ds2=dqr)
+   d3q_ds3 = (dqr - dql)/(2.0_R8P * ds)
+   endsubroutine compute_derivative3_fv_lupwind
+
+   pure subroutine compute_derivative4_fv_lupwind(s,ds,q,d4q_ds4)
+   !< Compute derivative of order 4 with finite volume left-upwind scheme.
+   integer(I4P), intent(in)  :: s       !< Stencil len, half of accuracy order.
+   real(R8P),    intent(in)  :: ds      !< Space step.
+   real(R8P),    intent(in)  :: q(-s:)  !< Scalar field over the stencil [-s:0].
+   real(R8P),    intent(out) :: d4q_ds4 !< Derivative of order 4 of q, d4q/ds4.
+   real(R8P)                 :: dql,dqr !< Derivative 3 at left and right cells.
+
+   call compute_derivative3_fv_lupwind(s=s-1,ds=ds,q=q(0-s:0-2),d3q_ds3=dql)
+   call compute_derivative3_fv_lupwind(s=s-1,ds=ds,q=q(1-s:0  ),d3q_ds3=dqr)
+   d4q_ds4 = (dqr - dql)/(2.0_R8P * ds)
+   endsubroutine compute_derivative4_fv_lupwind
+
+   pure subroutine compute_derivative5_fv_lupwind(s,ds,q,d5q_ds5)
+   !< Compute derivative of order 5 with finite volume left-upwind scheme.
+   integer(I4P), intent(in)  :: s       !< Stencil len, half of accuracy order.
+   real(R8P),    intent(in)  :: ds      !< Space step.
+   real(R8P),    intent(in)  :: q(-s:)  !< Scalar field over the stencil [-s:0].
+   real(R8P),    intent(out) :: d5q_ds5 !< Derivative of order 5 of q, d5q/ds5.
+   real(R8P)                 :: dql,dqr !< Derivative 4 at left and right cells.
+
+   call compute_derivative4_fv_lupwind(s=s-1,ds=ds,q=q(0-s:0-2),d4q_ds4=dql)
+   call compute_derivative4_fv_lupwind(s=s-1,ds=ds,q=q(1-s:0  ),d4q_ds4=dqr)
+   d5q_ds5 = (dqr - dql)/(2.0_R8P * ds)
+   endsubroutine compute_derivative5_fv_lupwind
+
+   pure subroutine compute_derivative6_fv_lupwind(s,ds,q,d6q_ds6)
+   !< Compute derivative of order 6 with finite volume left-upwind scheme.
+   integer(I4P), intent(in)  :: s       !< Stencil len, half of accuracy order.
+   real(R8P),    intent(in)  :: ds      !< Space step.
+   real(R8P),    intent(in)  :: q(-s:)  !< Scalar field over the stencil [-s:0].
+   real(R8P),    intent(out) :: d6q_ds6 !< Derivative of order 6 of q, d6q/ds6.
+   real(R8P)                 :: dql,dqr !< Derivative 5 at left and right cells.
+
+   call compute_derivative5_fv_lupwind(s=s-1,ds=ds,q=q(0-s:0-2),d5q_ds5=dql)
+   call compute_derivative5_fv_lupwind(s=s-1,ds=ds,q=q(1-s:0  ),d5q_ds5=dqr)
+   d6q_ds6 = (dqr - dql)/(2.0_R8P * ds)
+   endsubroutine compute_derivative6_fv_lupwind
+
+   pure subroutine compute_reconstruction_r_fv_lupwind(s,q,qr)
+   !< Compute reconstruction at right interface from cell center average values, left-upwind schemes.
+   integer(I4P), intent(in)  :: s       !< Stencil len, accuracy order.
+   real(R8P),    intent(in)  :: q(1-s:) !< Scalar field over the stencil [1-s:0].
+   real(R8P),    intent(out) :: qr      !< Reconstruction at right interface of field.
+   integer(I4P)              :: m       !< Counter.
+
+   qr = 0.0_R8P
+   do m=1, s
+      qr = qr + FV1_UL(m,s)*q(1-m)
+   enddo
+   endsubroutine compute_reconstruction_r_fv_lupwind
 endmodule adam_fdv_operators_library

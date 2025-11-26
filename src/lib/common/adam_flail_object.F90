@@ -34,10 +34,10 @@ type :: flail_object
    real(R8P)                 :: tolerance=0.000001_R8P  !< Tolerance on maximum residuals.
    character(:), allocatable :: smoothing               !< Iterative smoothing method.
    contains
-   ! public methods
-   procedure, pass(self) :: description    !< Return pretty-printed object description.
-   procedure, pass(self) :: initialize     !< Initialize time handler.
-   procedure, pass(self) :: load_from_file !< Load config from file.
+      ! public methods
+      procedure, pass(self) :: description    !< Return pretty-printed object description.
+      procedure, pass(self) :: initialize     !< Initialize time handler.
+      procedure, pass(self) :: load_from_file !< Load config from file.
 endtype flail_object
 
 interface
