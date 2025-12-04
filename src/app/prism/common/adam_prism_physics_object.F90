@@ -442,7 +442,6 @@ contains
    logical,                     intent(in), optional :: go_on_fail      !< Go on if load fails.
    character(*),                intent(in), optional :: div_corr_var    !< Type of divergence correction variables (poisson, hyperbolic,...).
    logical                                           :: go_on_fail_     !< Go on if load fails.
-   integer(I4P)                                      :: s               !< Counter.
    integer(I4P)                                      :: error           !< Error status.
    character(99)                                     :: buff            !< Character buffer.
 

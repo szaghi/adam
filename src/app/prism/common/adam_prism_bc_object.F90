@@ -12,20 +12,20 @@ implicit none
 private
 public :: prism_bc_object
 public :: BC_EXTRAPOLATION
-public :: BC_fWLayer
+public :: BC_DIRICHLET
 public :: BC_Silver_Muller
-public :: BC_EXTRAP_DIRICHLET
 public :: BC_PERIOD
+public :: BC_radiative
 
 character(len=8), parameter :: INI_SECTION_NAMES(6)=["bc_x_min", "bc_x_max", &
                                                      "bc_y_min", "bc_y_max", &
                                                      "bc_z_min", "bc_z_max"] !< INI (config) file section name containing BC configs.
 
-integer(I4P), parameter :: BC_EXTRAPOLATION   = 1_I4P !< Extrapolation.
-integer(I4P), parameter :: BC_fWLayer         = 2_I4P !< fWLayer BC
-integer(I4P), parameter :: BC_Silver_Muller   = 3_I4P !< Silver-Muller BC.
-integer(I4P), parameter :: BC_EXTRAP_DIRICHLET= 4_I4P !< Prova
-integer(I4P), parameter :: BC_PERIOD          = 5_I4P !< Periodic BC.
+integer(I4P), parameter :: BC_EXTRAPOLATION = 1_I4P !< Extrapolation.
+integer(I4P), parameter :: BC_DIRICHLET     = 2_I4P !< Prova
+integer(I4P), parameter :: BC_Silver_Muller = 3_I4P !< Silver-Muller BC.
+integer(I4P), parameter :: BC_PERIOD        = 4_I4P !< Periodic BC.
+integer(I4P), parameter :: BC_radiative     = 5_I4P !< Radiative BC.
 
 type :: prism_bc_object
    !< Boundary Conditions class definition, CPU backend.
@@ -71,14 +71,14 @@ contains
       select case(trim(adjustl(buff_c)))
       case('extrapolation')
          self%bc_type(b) = BC_EXTRAPOLATION
-      case('fWLayer')
-         self%bc_type(b) = BC_fWLayer
+      case('Dirichlet')
+         self%bc_type(b) = BC_DIRICHLET
       case('Silver_Muller')
          self%bc_type(b) = BC_Silver_Muller
-      case('Extr_Diric')
-         self%bc_type(b) = BC_EXTRAP_DIRICHLET
       case('periodic')
          self%bc_type(b) = BC_PERIOD
+      case('radiative')
+         self%bc_type(b) = BC_radiative
       endselect
    enddo
    endsubroutine load_from_file

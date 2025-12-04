@@ -18,10 +18,12 @@ use adam_weno_object
 ! PRISM modules
 use adam_prism_bc_object
 use adam_prism_coil_object
+use adam_prism_fWLayer_object
 use adam_prism_ic_object
 use adam_prism_io_object
 use adam_prism_numerics_object
 use adam_prism_physics_object
+use adam_prism_rk_bc_object
 use adam_prism_time_object
 ! third party modules
 use penf
@@ -53,8 +55,10 @@ type :: prism_common_object
    type(prism_physics_object)  :: physics  !< Fluids physiscs handler.
    type(prism_ic_object)       :: ic       !< Initial Conditions (IC) handler.
    type(prism_bc_object)       :: bc       !< Boundary Conditions (BC) handler.
+   type(prism_rk_bc_object)    :: rk_bc    !< RK integrator for BC.
    type(prism_time_object)     :: time     !< Time handler.
-   type(prism_coil_object)     :: coil     !< Oggetto con informazioni su spire.
+   type(prism_fWLayer_object)  :: fWLayer  !< fWLayer handler.
+   type(prism_coil_object)     :: coil     !< Coils handler.
    ! grid/field data replica for easy handling
    integer(I4P), pointer :: ngc=>null()           !< Number of ghost cells.
    integer(I4P), pointer :: ni=>null()            !< Number of cells in i direction.
@@ -103,6 +107,9 @@ contains
                                        1,nb],[2,5]), &
                           msg=self%mpih%myrankstr//'prism_common_object%allocate_common(divergence) ', verbose=.true.)
    self%divergence = 0._R8P
+   self%divergence(4,:,:,:,:) = self%fWLayer%f(1,:,:,:,:)
+   self%divergence(5,:,:,:,:) = self%fWLayer%f(2,:,:,:,:)
+   self%divergence(6,:,:,:,:) = self%fWLayer%f(3,:,:,:,:)
    call allocate_variable(var=self%curl,             &
                           ulb=reshape([1,self%nv,    &
                                        1-ngc,ni+ngc, &
@@ -150,11 +157,15 @@ contains
    call self%amr%initialize(file_parameters=file_parameters)
    call self%time%initialize(file_parameters=file_parameters)
    call self%ic%initialize(file_parameters=file_parameters)
+   call self%fWLayer%initialize(file_parameters=file_parameters, physics=self%physics, field=self%field)
    call self%coil%initialize(file_parameters=file_parameters, field=self%field)
    call self%ib%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    call self%slices%initialize(file_parameters=file_parameters)
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
    call self%rk%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
+   if (self%numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
+   call self%rk_bc%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field, rk=self%rk, &
+                              physics=self%physics)
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) &
    call self%leapfrog%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_BLANES_MOAN) &
@@ -236,7 +247,7 @@ contains
       case default
          self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
          q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_Jx','res_Jy','res_Jz']
-         q2_R8P_name = ['div_D','div_B','div_J','div04','div05','div06','div07','div08','div09']
+         q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09']
       endselect
       q5_R8P_name = ['curlD_x','curlD_y','curlD_z','curlB_x','curlB_y','curlB_z','curlJ_x','curlJ_y','curlJ_z']
       if (self%io%save_residual_fields) call self%adam%io%register_aux_field(q1_R8P=self%dq,q1_R8P_name=q1_R8P_name)
