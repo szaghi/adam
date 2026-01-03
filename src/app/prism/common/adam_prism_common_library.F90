@@ -5,6 +5,7 @@ module adam_prism_common_library
 use adam_prism_bc_object
 use adam_prism_coil_object
 use adam_prism_common_object
+use adam_prism_external_fields_object
 use adam_prism_fWLayer_object
 use adam_prism_ic_object
 use adam_prism_io_object

@@ -17,8 +17,8 @@ use :: adam_field_object, only : field_object
 use :: adam_prism_parameters
 use :: adam_prism_physics_object, only : prism_physics_object
 ! third party modules
-use :: finer, only : file_ini
-use :: penf, only : I4P, R8P, str
+use :: finer
+use :: penf
 
 implicit none
 private

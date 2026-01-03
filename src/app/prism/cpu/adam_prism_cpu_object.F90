@@ -13,8 +13,10 @@ use mpi
 implicit none
 private
 public :: prism_cpu_object
+
 ! pointer (abstract) procedures
 procedure(compute_convective_fluxes_interface), pointer :: compute_fluxes_Maxwell=>null() !< Compute convective fluxes.
+procedure(add_external_fields_interface),       pointer :: add_external_fields   =>null() !< Add external fields.
 
 type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR e IB
    !< Maxwell equations system class definition, CPU backend.
@@ -46,8 +48,11 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: save_restart_files   !< Save restart files.
       procedure, pass(self) :: save_simulation_data !< Save all simulation data.
       ! IC/BC/sources
+      procedure, pass(self) :: apply_fWL_correction    !< Apply fWLayer correction (if present)
       procedure, pass(self) :: compute_coils_current   !< Compute current coils sources.
       procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation.
+      procedure, pass(self) :: compute_residuals_BC
+      procedure, pass(self) :: update_q_BC
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions (and coils) of equation.
       procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
       ! FDV operators numerical methods
@@ -141,9 +146,9 @@ interface
    real(R8P),               intent(inout) :: laplacian(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Laplacian.
    endsubroutine compute_laplacian_interface
 
-   subroutine compute_residuals_interface(self, q, dq)
+   subroutine compute_residuals_interface(self, q, dq, s)
    !< Compute residuals of equation, space operator.
-   import :: prism_cpu_object, R8P
+   import :: prism_cpu_object, R8P, I4P
    class(prism_cpu_object), intent(inout) :: self   !< The equation.
    real(R8P),               intent(inout) :: q(1:,         &
                                                1-self%ngc:,&
@@ -155,6 +160,7 @@ interface
                                                 1-self%ngc:,&
                                                 1-self%ngc:,&
                                                 1:) !< Residuals.
+   integer(I4P),  optional, intent(in)    :: s !< Stage counter.
    endsubroutine compute_residuals_interface
 
    subroutine integrate_interface(self)
@@ -263,6 +269,17 @@ contains
       endif
    case default
       compute_fluxes_Maxwell => compute_convective_fluxes_maxwell
+   endselect
+
+   select case(self%external_fields%external_field_applied)
+   case(RMF)
+      add_external_fields => add_external_fields_rmf
+   !case(MAGNETIC_NOZZLE)
+   !   add_external_fields => self%external_fields%add_external_fields_magnetic_nozzle
+   !case(RMF_AND_MAGNETIC_NOZZLE)
+   !   add_external_fields => self%external_fields%add_external_fields_rmf_and_magnetic_nozzle
+   case default
+      add_external_fields => add_external_fields_none
    endselect
 
    print '(A)', self%mpih%description()
@@ -457,29 +474,243 @@ contains
    endassociate
    endsubroutine compute_coils_current
 
-   subroutine set_boundary_conditions(self, q)
+   subroutine apply_fWL_correction(self)
+   !< Apply correction if a fWL is present
+   class(prism_cpu_object), intent(inout) :: self                    !< The equation.
+   real(R8P)                              :: s2                      !< Side coefficient
+   integer(I4P)                           :: i,j,k,b,n               !< Counters
+   integer(I4P)                           :: alfa_D, beta_D, gamma_D !< Indici alfa beta gamma come in Barbas.
+   integer(I4P)                           :: alfa_B, beta_B, gamma_B !< Indici alfa beta gamma come in Barbas.
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, &
+      f=>self%fWLayer%f, layer=>self%fWLayer%layer, C=>self%fWLayer%C, q=>self%q)
+   
+   if (C>0) then
+      !x- side
+      do b=1,blocks_number
+         if (layer(1)) then
+            n = 1_I4P
+            s2 = 1.0_R8P
+            alfa_D = 2_I4P
+            beta_D = 3_I4P
+            gamma_D = 1_I4P
+            alfa_B = 5_I4P
+            beta_B = 6_I4P
+            gamma_B = 4_I4P
+            do k=1,nk
+               do j=1, nj
+                  do i=1, C
+                     q(alfa_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(s2*(f(n,i,j,k,b)-1._R8P)*q(beta_B,i,j,k,b) &
+                     *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
+
+                     q(beta_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(-s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_B,i,j,k,b) &
+                     *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+
+                     q(alfa_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(alfa_B,i,j,k,b) &
+                     *EPS0**0.5_R8P - s2*(f(n,i,j,k,b)-1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+
+                     q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(beta_B,i,j,k,b) &
+                     *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)   
+
+                     q(gamma_D,i,j,k,b) = q(gamma_D,i,j,k,b)
+
+                     q(gamma_B,i,j,k,b) = q(gamma_B,i,j,k,b)
+                  enddo
+               enddo
+            enddo
+         endif
+         !x+ side
+         if(layer(2)) then
+            n = 1_I4P
+            s2 = -1.0_R8P
+            alfa_D = 2_I4P
+            beta_D = 3_I4P
+            gamma_D = 1_I4P
+            alfa_B = 5_I4P
+            beta_B = 6_I4P
+            gamma_B = 4_I4P            
+            do k=1,nk
+               do j=1, nj
+                  do i=ni-C, ni
+                     q(alfa_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(s2*(f(n,i,j,k,b)-1._R8P)*q(beta_B,i,j,k,b) &
+                     *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
+
+                     q(beta_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(-s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_B,i,j,k,b) &
+                     *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+
+                     q(alfa_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(alfa_B,i,j,k,b) &
+                     *EPS0**0.5_R8P - s2*(f(n,i,j,k,b)-1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+
+                     q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(beta_B,i,j,k,b) &
+                     *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)   
+
+                     q(gamma_D,i,j,k,b) = q(gamma_D,i,j,k,b)
+
+                     q(gamma_B,i,j,k,b) = q(gamma_B,i,j,k,b)
+                  enddo
+               enddo
+            enddo
+         endif
+         !y- side
+         if (layer(3)) then
+            n = 2_I4P
+            s2 = 1.0_R8P
+            alfa_D = 3_I4P
+            beta_D = 1_I4P
+            gamma_D = 2_I4P
+            alfa_B = 6_I4P
+            beta_B = 4_I4P
+            gamma_B = 5_I4P
+            do k=1,nk
+               do i=1, ni
+                  do j=1, C
+                     q(alfa_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(s2*(f(n,i,j,k,b)-1._R8P)*q(beta_B,i,j,k,b) &
+                     *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
+
+                     q(beta_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(-s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_B,i,j,k,b) &
+                     *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+
+                     q(alfa_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(alfa_B,i,j,k,b) &
+                     *EPS0**0.5_R8P - s2*(f(n,i,j,k,b)-1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+
+                     q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(beta_B,i,j,k,b) &
+                     *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)   
+
+                     q(gamma_D,i,j,k,b) = q(gamma_D,i,j,k,b)
+
+                     q(gamma_B,i,j,k,b) = q(gamma_B,i,j,k,b)
+                  enddo
+               enddo
+            enddo
+         endif
+         !y+ side
+         if (layer(4)) then
+            n = 2_I4P
+            s2 = -1.0_R8P
+            alfa_D = 3_I4P
+            beta_D = 1_I4P
+            gamma_D = 2_I4P
+            alfa_B = 6_I4P
+            beta_B = 4_I4P
+            gamma_B = 5_I4P
+            do k=1,nk
+               do i=1, ni
+                  do j=nj-C, nj
+                     q(alfa_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(s2*(f(n,i,j,k,b)-1._R8P)*q(beta_B,i,j,k,b) &
+                     *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
+
+                     q(beta_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(-s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_B,i,j,k,b) &
+                     *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+
+                     q(alfa_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(alfa_B,i,j,k,b) &
+                     *EPS0**0.5_R8P - s2*(f(n,i,j,k,b)-1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+
+                     q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(beta_B,i,j,k,b) &
+                     *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)   
+
+                     q(gamma_D,i,j,k,b) = q(gamma_D,i,j,k,b)
+
+                     q(gamma_B,i,j,k,b) = q(gamma_B,i,j,k,b)
+                  enddo
+               enddo
+            enddo
+         endif
+         !z- side
+         if (layer(5)) then
+            n = 3_I4P
+            s2 = 1.0_R8P
+            alfa_D = 1_I4P
+            beta_D = 2_I4P
+            gamma_D = 3_I4P
+            alfa_B = 4_I4P
+            beta_B = 5_I4P
+            gamma_B = 6_I4P
+            do i=1,ni
+               do j=1, nj
+                  do k=1, C
+                     q(alfa_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(s2*(f(n,i,j,k,b)-1._R8P)*q(beta_B,i,j,k,b) &
+                     *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
+
+                     q(beta_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(-s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_B,i,j,k,b) &
+                     *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+
+                     q(alfa_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(alfa_B,i,j,k,b) &
+                     *EPS0**0.5_R8P - s2*(f(n,i,j,k,b)-1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+
+                     q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(beta_B,i,j,k,b) &
+                     *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)   
+
+                     q(gamma_D,i,j,k,b) = q(gamma_D,i,j,k,b)
+
+                     q(gamma_B,i,j,k,b) = q(gamma_B,i,j,k,b)                                          
+                  enddo
+               enddo
+            enddo
+         endif
+         !z+ side
+         if (layer(6)) then
+            n = 3_I4P
+            s2 = -1.0_R8P
+            alfa_D = 1_I4P
+            beta_D = 2_I4P
+            gamma_D = 3_I4P
+            alfa_B = 4_I4P
+            beta_B = 5_I4P
+            gamma_B = 6_I4P
+            do i=1,ni
+               do j=1, nj
+                  do k=nk-C, nk
+                     q(alfa_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(s2*(f(n,i,j,k,b)-1._R8P)*q(beta_B,i,j,k,b) &
+                     *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
+
+                     q(beta_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(-s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_B,i,j,k,b) &
+                     *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+
+                     q(alfa_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(alfa_B,i,j,k,b) &
+                     *EPS0**0.5_R8P - s2*(f(n,i,j,k,b)-1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+
+                     q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(beta_B,i,j,k,b) &
+                     *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)   
+
+                     q(gamma_D,i,j,k,b) = q(gamma_D,i,j,k,b)
+
+                     q(gamma_B,i,j,k,b) = q(gamma_B,i,j,k,b)                                          
+                  enddo
+               enddo
+            enddo
+         endif
+      enddo
+   endif
+
+   endassociate
+
+   endsubroutine apply_fWL_correction
+
+   subroutine set_boundary_conditions(self, q, s)
    !< Set boundary conditions of equation.
-   class(prism_cpu_object), intent(in)    :: self                 !< The equation.
+   class(prism_cpu_object), intent(inout) :: self                 !< The equation.
    real(R8P),               intent(inout) :: q(1:,         &
                                                1-self%ngc:,&
                                                1-self%ngc:,&
                                                1-self%ngc:,1:)    !< Conservative variables.
-   integer(I4P)                        :: b, c, i, j, k, v        !< Counter.
-   integer(I4P)                        :: idelta,jdelta,kdelta    !< IJK delta step for extrapolation.
-   integer(I4P)                        :: bc_type                 !< Boundary condition type.
-   integer(I4P)                        :: crown                   !< Crown counter.
-   integer(I4P)                        :: fec                     !< Boundary fec (1 to 26).
-   integer(I4P)                        :: fec_1_6                 !< Boundary fec (1 to 6).
-   integer(I4P)                        :: alfa_D, beta_D, gamma_D !< Indici alfa beta gamma come in Barbas.
-   integer(I4P)                        :: alfa_B, beta_B, gamma_B !< Indici alfa beta gamma come in Barbas.
-   real(R8P)                           :: s1                      !< Coefficiente pari a +-1.
-   real(R8P)                           :: ds                      !< Distanza tra le celle in x, y o z.
-   real(R8P)                           :: ngc_r, crown_r          !< Numero di gc totale, reale
-   real(R8P)                           :: ref(1:9)                !< Vettore di stato di riferimento per assegnazione gc.
-   real(R8P)                           :: fi, f                   !< Variabili phi e f fWL.
-   real(R8P)                           :: x_cell(1-self%field%grid%ngc:self%field%grid%ni+self%field%grid%ngc), &
-                                          y_cell(1-self%field%grid%ngc:self%field%grid%nj+self%field%grid%ngc), &
-                                          z_cell(1-self%field%grid%ngc:self%field%grid%nk+self%field%grid%ngc)
+   integer(I4P),  optional, intent(in)    :: s !< Stage counter.
+   integer(I4P)                           :: b, c, i, j, k, v        !< Counter.
+   integer(I4P)                           :: idelta,jdelta,kdelta    !< IJK delta step for extrapolation.
+   integer(I4P)                           :: idelta_n, jdelta_n, kdelta_n !< IJK delta step for Neumann BC.
+   integer(I4P)                           :: bc_type                 !< Boundary condition type.
+   integer(I4P)                           :: crown                   !< Crown counter.
+   integer(I4P)                           :: fec                     !< Boundary fec (1 to 26).
+   integer(I4P)                           :: fec_1_6                 !< Boundary fec (1 to 6).
+   integer(I4P)                           :: alfa_D, beta_D, gamma_D !< Indici alfa beta gamma come in Barbas.
+   integer(I4P)                           :: alfa_B, beta_B, gamma_B !< Indici alfa beta gamma come in Barbas.
+   real(R8P)                              :: s1                      !< Coefficiente pari a +-1.
+   real(R8P)                              :: ds                      !< Distanza tra le celle in x, y o z.
+   real(R8P)                              :: ngc_r, crown_r          !< Numero di gc totale, reale
+   real(R8P)                              :: ref(1:9)                !< Vettore di stato di riferimento per assegnazione gc.
+   real(R8P)                              :: fi, f                   !< Variabili phi e f fWL.
+   real(R8P)                              :: x_cell(1-self%field%grid%ngc:self%field%grid%ni+self%field%grid%ngc), &
+                                             y_cell(1-self%field%grid%ngc:self%field%grid%nj+self%field%grid%ngc), &
+                                             z_cell(1-self%field%grid%ngc:self%field%grid%nk+self%field%grid%ngc)
 
    associate(local_map_bc_crown=>self%field%maps%local_map_bc_crown,                                                             &
              nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:),               &
@@ -502,20 +733,61 @@ contains
                fec     = local_map_bc_crown(c, 9 ,crown) !da qua la faccia e quindi la normale
                fec_1_6 = fec_1_6_array(fec)
                if (bc_type == BC_EXTRAPOLATION) then
-                  do v=1, (nv_c-nv_cl)
+                  do v=1, nv!(nv_c-nv_cl)
                      q(v,i,j,k,b) = q(v,i-idelta,j-jdelta,k-kdelta,b) !ni,j,k coordinate della cella da cui prendo i valori
                   enddo
-                  do v=(nv_c-nv_cl+1), nv
-                     q(v,i,j,k,b) = 0._R8P
-                  enddo
-               elseif (bc_type == BC_fWLayer) then
+               elseif (bc_type == BC_NEUMANN) then
+                  if (fec == 1) then
+                     idelta_n = nint(abs(real(i))*idelta,kind=I4P) - 1_I4P
+                     jdelta_n = jdelta
+                     kdelta_n = kdelta
+                     do v=1, nv!(nv_c-nv_cl)
+                        q(v,i,j,k,b) = q(v,-idelta_n,j-jdelta_n,k-kdelta_n,b)
+                     enddo
+                  elseif (fec == 2) then
+                     idelta_n = 2_I4P*nint(abs(real(i-ni))*idelta,kind=I4P) - 1_I4P
+                     jdelta_n = jdelta
+                     kdelta_n = kdelta
+                     do v=1, nv!(nv_c-nv_cl)
+                        q(v,i,j,k,b) = q(v,i-idelta_n,j-jdelta_n,k-kdelta_n,b)
+                     enddo
+                  elseif (fec == 3) then
+                     idelta_n = idelta
+                     jdelta_n = nint(abs(real(j))*jdelta,kind=I4P) - 1_I4P
+                     kdelta_n = kdelta
+                     do v=1, nv!(nv_c-nv_cl)
+                        q(v,i,j,k,b) = q(v,i-idelta_n,-jdelta_n,k-kdelta_n,b)
+                     enddo
+                  elseif (fec == 4) then
+                     idelta_n = idelta
+                     jdelta_n = 2_I4P*nint(abs(real(j-nj))*jdelta,kind=I4P) - 1_I4P
+                     kdelta_n = kdelta
+                     do v=1, nv!(nv_c-nv_cl)
+                        q(v,i,j,k,b) = q(v,i-idelta_n,j-jdelta_n,k-kdelta_n,b)
+                     enddo
+                  elseif (fec == 5) then
+                     idelta_n = idelta
+                     jdelta_n = jdelta
+                     kdelta_n = nint(abs(real(k))*kdelta,kind=I4P) - 1_I4P
+                     do v=1, nv!(nv_c-nv_cl)
+                        q(v,i,j,k,b) = q(v,i-idelta_n,j-jdelta_n,-kdelta_n,b)
+                     enddo
+                  elseif (fec == 6) then
+                     idelta_n = idelta
+                     jdelta_n = jdelta
+                     kdelta_n = 2_I4P*nint(abs(real(k-nk))*kdelta,kind=I4P) - 1_I4P
+                     do v=1, nv!(nv_c-nv_cl)
+                        q(v,i,j,k,b) = q(v,i-idelta_n,j-jdelta_n,k-kdelta_n,b)
+                     enddo
+                  endif
+               elseif (bc_type == BC_Silver_Muller) then !Al momento scritta per funzionare solo con un secondo ordine
                   !print *, fec
                   if (fec <= 6) then
                      select case(fec)
                      !Identifico gli alfa beta gamma come nel paper di Barbas, distinguendo tra alfa_D e alfa_B ecc
 
                      case(1) ! x- face alfa = 2, beta = 3, gamma = 1
-                        s1 = 1.0_R8P
+                        s1 = -1.0_R8P
                         alfa_D = 2_I4P
                         beta_D = 3_I4P
                         gamma_D = 1_I4P
@@ -526,232 +798,72 @@ contains
                         ref = q(:,1,j,k,b) !vettore di stato di riferimento per assegnazione gc
 
                      case(2) ! x+ face
-                        s1 = -1.0_R8P
+                        s1 = 1.0_R8P
                         alfa_D = 2_I4P
                         beta_D = 3_I4P
                         gamma_D = 1_I4P
                         alfa_B = 5_I4P
                         beta_B = 6_I4P
                         gamma_B = 4_I4P
-                        ds = dx(b) !distanza tra le celle in x
                         ref = q(:,ni,j,k,b)
 
                      case(3) ! y- face
-                        s1 = 1.0_R8P
+                        s1 = -1.0_R8P
                         alfa_D = 3_I4P
                         beta_D = 1_I4P
                         gamma_D = 2_I4P
                         alfa_B = 6_I4P
                         beta_B = 4_I4P
                         gamma_B = 5_I4P
-                        ds = dy(b) !distanza tra le celle in y
                         ref = q(:,i,1,k,b)
 
                      case(4) ! y+ face
-                        s1 = -1.0_R8P
+                        s1 = 1.0_R8P
                         alfa_D = 3_I4P
                         beta_D = 1_I4P
                         gamma_D = 2_I4P
                         alfa_B = 6_I4P
                         beta_B = 4_I4P
                         gamma_B = 5_I4P
-                        ds = dy(b) !distanza tra le celle in y
                         ref = q(:,i,nj,k,b)
 
                      case(5) ! z- face
-                        s1 = 1.0_R8P
+                        s1 = -1.0_R8P
                         alfa_D = 1_I4P
                         beta_D = 2_I4P
                         gamma_D = 3_I4P
                         alfa_B = 4_I4P
                         beta_B = 5_I4P
                         gamma_B = 6_I4P
-                        ds = dz(b) !distanza tra le celle in z
                         ref = q(:,i,j,1,b)
 
                      case(6) ! z+ face
-                        s1 = -1.0_R8P
+                        s1 = 1.0_R8P
                         alfa_D = 1_I4P
                         beta_D = 2_I4P
                         gamma_D = 3_I4P
                         alfa_B = 4_I4P
                         beta_B = 5_I4P
                         gamma_B = 6_I4P
-                        ds = dz(b) !distanza tra le celle in z
                         ref = q(:,i,j,nk,b)
-
-                     endselect
-                     ngc_r = real(ngc,R8P)
-                     crown_r = real(crown, R8P)
-                     if (ngc < 40_I4P) then
-                        fi = 1/150._R8P*(-7.0_R8P*ngc_r**2 + 255._R8P*ngc_r + 250._R8P) !polinomio di Barbas
-                     else
-                        fi = 25.0_R8P
-                     endif
-                     !x - xa è la distanza tra il centro della gc considerata e il bordo del dominio (fatto col centro cella, vedremo)
-                     !è pari quindi a (ngc_r - crown_r) * ds
-
-                     !xb - xa è la distanza tra il centro della gc più esterna considerata e il bordo del dominio (fatto col centro cella, vedremo)
-                     !è pari quindi a C * ds
-
-                     f = 1._R8P/fi*LOG10(((ngc_r-crown_r)*ds)/(ngc_r*ds)*(10._R8P**fi-1._R8P)+1._R8P) !funzione f
-
-                     q(alfa_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(s1*(f-1._R8P)*ref(beta_B)*EPS0**0.5_R8P + &
-                                          (f+1._R8P)*ref(alfa_D)*MU0**0.5_R8P)
-
-                     q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f+1._R8P)*ref(beta_B)*EPS0**0.5_R8P + &
-                                          s1*(f-1._R8P)*ref(alfa_D)*MU0**0.5_R8P)
-
-                     q(beta_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(-s1*(f-1._R8P)*ref(alfa_B)*EPS0**0.5_R8P + &
-                                          (f+1._R8P)*ref(beta_D)*MU0**0.5_R8P)
-
-                     q(alfa_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f+1._R8P)*ref(alfa_B)*EPS0**0.5_R8P - &
-                                          s1*(f-1._R8P)*ref(beta_D)*MU0**0.5_R8P)
-
+                     endselect                  
+                     q(alfa_D,i,j,k,b)  = s1*C0*ref(beta_B)*EPS0
+                     q(beta_D,i,j,k,b)  = -s1*C0*ref(alfa_B)*EPS0
                      q(gamma_D,i,j,k,b) = ref(gamma_D)
-
-                     q(gamma_B,i,j,k,b) = ref(gamma_B)
-
-                  do v=(nv_c-nv_cl+1), nv
-                     q(v,i,j,k,b) = 0._R8P
-                  enddo
-                  else
-                     do v=1, nv
-                       q(v,i,j,k,b) = 0.0_R8P
-                     enddo
-                  endif
-               elseif (bc_type == BC_Silver_Muller) then
-                  !print *, fec
-                  if (fec <= 6) then
-                     select case(fec)
-                     !Identifico gli alfa beta gamma come nel paper di Barbas, distinguendo tra alfa_D e alfa_B ecc
-
-                     case(1) ! x- face alfa = 2, beta = 3, gamma = 1
-                        s1 = 1.0_R8P
-                        alfa_D = 2_I4P
-                        beta_D = 3_I4P
-                        gamma_D = 1_I4P
-                        alfa_B = 5_I4P
-                        beta_B = 6_I4P
-                        gamma_B = 4_I4P
-                        ds = dx(b) !distanza tra le celle in x
-                        ref = q(:,i+1,j,k,b) !vettore di stato di riferimento per assegnazione gc
-
-                     case(2) ! x+ face
-                        s1 = -1.0_R8P
-                        alfa_D = 2_I4P
-                        beta_D = 3_I4P
-                        gamma_D = 1_I4P
-                        alfa_B = 5_I4P
-                        beta_B = 6_I4P
-                        gamma_B = 4_I4P
-                        ds = dx(b) !distanza tra le celle in x
-                        ref = q(:,i-1,j,k,b)
-
-                     case(3) ! y- face
-                        s1 = 1.0_R8P
-                        alfa_D = 3_I4P
-                        beta_D = 1_I4P
-                        gamma_D = 2_I4P
-                        alfa_B = 6_I4P
-                        beta_B = 4_I4P
-                        gamma_B = 5_I4P
-                        ds = dy(b) !distanza tra le celle in y
-                        ref = q(:,i,j+1,k,b)
-
-                     case(4) ! y+ face
-                        s1 = -1.0_R8P
-                        alfa_D = 3_I4P
-                        beta_D = 1_I4P
-                        gamma_D = 2_I4P
-                        alfa_B = 6_I4P
-                        beta_B = 4_I4P
-                        gamma_B = 5_I4P
-                        ds = dy(b) !distanza tra le celle in y
-                        ref = q(:,i,j-1,k,b)
-
-                     case(5) ! z- face
-                        s1 = 1.0_R8P
-                        alfa_D = 1_I4P
-                        beta_D = 2_I4P
-                        gamma_D = 3_I4P
-                        alfa_B = 4_I4P
-                        beta_B = 5_I4P
-                        gamma_B = 6_I4P
-                        ds = dz(b) !distanza tra le celle in z
-                        ref = q(:,i,j,k+1,b)
-
-                     case(6) ! z+ face
-                        s1 = -1.0_R8P
-                        alfa_D = 1_I4P
-                        beta_D = 2_I4P
-                        gamma_D = 3_I4P
-                        alfa_B = 4_I4P
-                        beta_B = 5_I4P
-                        gamma_B = 6_I4P
-                        ds = dz(b) !distanza tra le celle in z
-                        ref = q(:,i,j,k-1,b)
-
-                     endselect
-                     ngc_r = real(ngc,R8P)
-                     crown_r = real(crown, R8P)
-
-                     ! fWLayer con f = 0 è Silver-Muller
-                     f = 0._R8P !funzione f
-
-                     q(alfa_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(s1*(f-1._R8P)*ref(beta_B)*EPS0**0.5_R8P + &
-                                          (f+1._R8P)*ref(alfa_D)*MU0**0.5_R8P)
-
-                     q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f+1._R8P)*ref(beta_B)*EPS0**0.5_R8P + &
-                                          s1*(f-1._R8P)*ref(alfa_D)*MU0**0.5_R8P)
-
-                     q(beta_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(-s1*(f-1._R8P)*ref(alfa_B)*EPS0**0.5_R8P + &
-                                          (f+1._R8P)*ref(beta_D)*MU0**0.5_R8P)
-
-                     q(alfa_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f+1._R8P)*ref(alfa_B)*EPS0**0.5_R8P - &
-                                          s1*(f-1._R8P)*ref(beta_D)*MU0**0.5_R8P)
-
-                     q(gamma_D,i,j,k,b) = ref(gamma_D)
-
+                     q(alfa_B,i,j,k,b)  = -s1/C0*ref(beta_D)/EPS0
+                     q(beta_B,i,j,k,b)  = s1/C0*ref(alfa_D)/EPS0
                      q(gamma_B,i,j,k,b) = ref(gamma_B)
 
                      do v=(nv_c-nv_cl+1), nv
-                        q(v,i,j,k,b) = 0._R8P
+                        q(v,i,j,k,b) = q(v,i-idelta,j-jdelta,k-kdelta,b)
                      enddo
-                  else
-                     do v=1, nv
-                        q(v,i,j,k,b) = 0.0_R8P
-                     enddo
+
                   endif
-               elseif (bc_type == BC_EXTRAP_DIRICHLET) then
+               elseif (bc_type == BC_DIRICHLET) then
                      do v=1, nv
                         q(v,i,j,k,b) = 0._R8P
                      enddo
                elseif (bc_type == BC_PERIOD) then
-                  ! call self%field%grid%cell_xyz(coordinates = self%field%coordinates(:,b), &
-                  !    x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
-                  ! q(1,i,j,k,b) = self%ic%B0*C0*EPS0*self%ic%kz*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
-                  !                self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
-                  !                -C0*2*PI/self%ic%lambda*self%time%time) !Dx
-                  ! q(2,i,j,k,b) = self%ic%B0*C0*EPS0*self%ic%kx*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
-                  !                self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
-                  !                -C0*2*PI/self%ic%lambda*self%time%time) !Dy
-                  ! q(3,i,j,k,b) = self%ic%B0*C0*EPS0*self%ic%ky*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
-                  !                self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
-                  !                -C0*2*PI/self%ic%lambda*self%time%time) !Dz
-
-                  ! q(4,i,j,k,b) = self%ic%B0*self%ic%ky*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
-                  !                self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
-                  !                -C0*2*PI/self%ic%lambda*self%time%time) !Bx
-                  ! q(5,i,j,k,b) = self%ic%B0*self%ic%kz*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
-                  !                self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
-                  !                -C0*2*PI/self%ic%lambda*self%time%time) !By
-                  ! q(6,i,j,k,b) = self%ic%B0*self%ic%kx*cos(self%ic%kx*2*PI/self%ic%lambda*x_cell(i)+ &
-                  !                self%ic%ky*2*PI/self%ic%lambda*y_cell(j)+self%ic%kz*2*PI/self%ic%lambda*z_cell(k) &
-                  !                -C0*2*PI/self%ic%lambda*self%time%time) !Bz
-                  ! do v=(nv_c-nv_cl+1), nv
-                  !    q(v,i,j,k,b) = 0._R8P
-                  ! enddo
                   q(:,i,j,k,b) = 0._R8P
                   select case(fec_1_6)
                   case(1)
@@ -772,8 +884,140 @@ contains
          enddo
       enddo
    endif
+
+   if (self%bc%bc_type(1) == BC_radiative .or. self%bc%bc_type(2) == BC_radiative &
+       .or. self%bc%bc_type(3) == BC_radiative .or. self%bc%bc_type(4) == BC_radiative &
+       .or. self%bc%bc_type(5) == BC_radiative .or. self%bc%bc_type(6) == BC_radiative) then !Al momento scritta per funzionare solo con un secondo ordine
+      if (present(s)) then
+         if (s==1_I4P) call self%rk_bc%initialize_stages(q=q)
+         if (self%ib%solids_number>0) then !calcolo stadio per le BC
+            call self%rk_bc%compute_stage(s=s, dt=self%time%dt, phi=self%ib%phi)
+         else
+            call self%rk_bc%compute_stage(s=s, dt=self%time%dt)
+         endif
+         !Calcolo i residui per l'integrazione temporale delle BC (in un futuro da allineare con operatore spaziale qualsiasi)
+         call self%compute_residuals_BC(s=s)
+         !Imponi effettivamente la BC su q: unico punto del ciclo in cui si "uniscono"
+         !Quindi basta cambiare gli indici di quel do per imporlo su una sola variabile, eventualmente
+         !(O cambiare i cicli da 1:nv_c a nv_c-nv_cl+1:nv_c)
+         if (allocated(self%field%maps%local_map_bc_crown)) then
+            do crown=1, ngc
+               do c=1, size(local_map_bc_crown, dim=1)
+                  b = local_map_bc_crown(c, 1 ,crown)
+                  if (b>0) then
+                     i       = local_map_bc_crown(c, 2 ,crown)
+                     j       = local_map_bc_crown(c, 3 ,crown)
+                     k       = local_map_bc_crown(c, 4 ,crown)
+                     idelta  = local_map_bc_crown(c, 5 ,crown)
+                     jdelta  = local_map_bc_crown(c, 6 ,crown)
+                     kdelta  = local_map_bc_crown(c, 7 ,crown)
+                     bc_type = local_map_bc_crown(c, 8 ,crown)
+                     fec     = local_map_bc_crown(c, 9 ,crown) !da qua la faccia e quindi la normale
+                     fec_1_6 = fec_1_6_array(fec)
+                     if (bc_type == BC_radiative) then
+                        do v=1, nv_c
+                           q(v,i,j,k,b) = 2*self%rk_bc%q_bc_rk(v,i,j,k,b,s)-q(v,i-idelta,j-jdelta,k-kdelta,b)
+                        enddo
+                     endif
+                  endif
+               enddo
+            enddo
+         endif
+         !Concludi assegnando lo stadio 
+         if (self%ib%solids_number>0) then 
+            call self%rk_bc%assign_stage(s=s, phi=self%ib%phi)
+         else
+            call self%rk_bc%assign_stage(s=s)
+         endif
+      else !Mi serve solo per il t0, tanto ic è il vuoto praticamente sempre
+         q(v,i,j,k,b) = 0.0_R8P
+      endif
+   endif
    endassociate
    endsubroutine set_boundary_conditions
+
+   subroutine compute_residuals_BC(self,s)
+   !< Compute residuals BCs.
+   !< La sua scrittura si lega all'ordine di interpolazione dell'operatore spaziale. Al momento 
+   !< e' scritto per operatore di secondo ordine (1 punto ghost).
+   class(prism_cpu_object), intent(inout) :: self                    !< The equation.
+   integer(I4P),            intent(in)    :: s                       !< Stage counter.
+   real(R8P)                              :: ds                      !< Distanza tra le celle in x, y o z.
+   integer(I4P)                           :: i,j,k,b,c,v             !< Counter
+   integer(I4P)                           :: idelta,jdelta,kdelta    !< IJK delta step for extrapolation.
+   integer(I4P)                           :: bc_type                 !< Boundary condition type.
+   integer(I4P)                           :: crown                   !< Crown counter.
+   integer(I4P)                           :: fec                     !< Boundary fec (1 to 26).
+   integer(I4P)                           :: fec_1_6                 !< Boundary fec (1 to 6).
+   associate(local_map_bc_crown=>self%field%maps%local_map_bc_crown,                                                     &
+             nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:),       &
+             dz=>self%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,   &
+             nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl, div_corr_var=>self%numerics%div_corr_var,               &
+             constrained_transport_B=>self%numerics%constrained_transport_B,                                             &
+             constrained_transport_D=>self%numerics%constrained_transport_D, q_rk=>self%rk%q_rk,                         &
+             q_bc_rk=>self%rk_bc%q_bc_rk,dq_bc_rk=>self%rk_bc%dq_bc_rk)
+   if (allocated(self%field%maps%local_map_bc_crown)) then
+      do crown=1, ngc
+         do c=1, size(local_map_bc_crown, dim=1)
+            b = local_map_bc_crown(c, 1 ,crown)
+            if (b>0) then
+               bc_type = local_map_bc_crown(c, 8 ,crown)               
+               i       = local_map_bc_crown(c, 2 ,crown)
+               j       = local_map_bc_crown(c, 3 ,crown)
+               k       = local_map_bc_crown(c, 4 ,crown)
+               idelta  = local_map_bc_crown(c, 5 ,crown)
+               jdelta  = local_map_bc_crown(c, 6 ,crown)
+               kdelta  = local_map_bc_crown(c, 7 ,crown)
+               fec     = local_map_bc_crown(c, 9 ,crown) !da qua la faccia e quindi la normale
+               fec_1_6 = fec_1_6_array(fec)
+               if (fec <= 6) then
+                  select case(fec)
+                  case(1) !xmin
+                     ds = dx(b)
+                  case(2) !xmax
+                     ds = dx(b)
+                  case(3) !ymin
+                     ds = dy(b)
+                  case(4) !ymax
+                     ds = dy(b)
+                  case(5) !zmin
+                     ds = dz(b)
+                  case(6) !zmax
+                     ds = dz(b)
+                  end select
+                  do v = 1,6
+                     dq_bc_rk(v,i,j,k,b) = -C0*(q_bc_rk(v,i,j,k,b,s)-q_rk(v,i-idelta,j-jdelta,k-kdelta,b,s))/ds
+                  enddo
+                  if (nv_cl == 1_I4P) then
+                     dq_bc_rk(nv_c,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c,i,j,k,b,s)- &
+                                                q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds
+                  elseif (nv_cl == 2_I4P) then
+                     dq_bc_rk(nv_c-1,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c-1,i,j,k,b,s)- &
+                                                q_rk(nv_c-1,i-idelta,j-jdelta,k-kdelta,b,s))/ds                              
+                     dq_bc_rk(nv_c,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c,i,j,k,b,s)- &
+                                                q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds 
+                  endif                                                     
+                  !if (div_corr_var == DIV_CORR_VAR_HYPER) then
+                  !   if (constrained_transport_D .and. .not.constrained_transport_B) &
+                  !      dq_bc_rk(nv_c,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c,i,j,k,b,s)- &
+                  !                                 q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds
+                  !   if (.not.constrained_transport_D .and. constrained_transport_B) &
+                  !      dq_bc_rk(nv_c,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c,i,j,k,b,s)- &
+                  !                                 q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds
+                  !   if (constrained_transport_D .and. constrained_transport_B) &
+                  !      dq_bc_rk(nv_c-1,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c-1,i,j,k,b,s)- &
+                  !                                 q_rk(nv_c-1,i-idelta,j-jdelta,k-kdelta,b,s))/ds
+                  !   if (constrained_transport_D .and. constrained_transport_B) &                              
+                  !      dq_bc_rk(nv_c,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c,i,j,k,b,s)- &
+                  !                                 q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds
+                  !endif
+               endif                  
+            endif
+         enddo
+      enddo
+   endif
+   endassociate
+   endsubroutine compute_residuals_BC  
 
    subroutine set_initial_conditions(self)
    !< Set initial conditions and coils on field.
@@ -783,7 +1027,7 @@ contains
    call self%coil%set_coils(physics=self%physics, field=self%field)
    endsubroutine set_initial_conditions
 
-   subroutine update_ghost(self, q, step)
+   subroutine update_ghost(self, q, step, s)
    !< Update ghost cells.
    !< If not specified all steps are perfermod, syncronous computation
    class(prism_cpu_object), intent(inout)        :: self            !< The equation.
@@ -793,6 +1037,7 @@ contains
                                                       1-self%ngc:,&
                                                       1:)           !< Conservative variables.
    integer(I4P),            intent(in), optional :: step            !< Step to be perfordmed in asyncronous comp.
+   integer(I4P),            intent(in), optional :: s               !< Stage counter.
    logical                                       :: do_local_update !< Flag for triggering local update.
    logical                                       :: do_set_bc       !< Flag for triggering setting bc.
 
@@ -806,10 +1051,9 @@ contains
       if (step==1) do_local_update = .true.
       if (step==3) do_set_bc       = .true.
    endif
-
    if (do_local_update) call self%field%update_ghost_local(q=q)
                         call self%field%update_ghost_mpi(q=q, step=step)
-   if (do_set_bc)       call self%set_boundary_conditions(q=q)
+   if (do_set_bc)       call self%set_boundary_conditions(q=q, s=s)
    endsubroutine update_ghost
 
    ! FDV operators numerical methods
@@ -1470,7 +1714,7 @@ contains
    endsubroutine simulate
 
    ! pointer TBP concrete implementations
-   subroutine compute_residuals_fd_centered(self, q, dq)
+   subroutine compute_residuals_fd_centered(self, q, dq, s)
    !< Compute residuals of equation, space operator, centered finite difference schemes.
    class(prism_cpu_object), intent(inout) :: self               !< The equation.
    real(R8P),               intent(inout) :: q(1:,         &
@@ -1483,6 +1727,7 @@ contains
                                                 1-self%ngc:,&
                                                 1-self%ngc:,&
                                                 1:)             !< Residuals.
+   integer(I4P),  optional, intent(in)    :: s !< Stage counter.
    integer(I4P)                           :: i,j,k,b            !< Counter
    real(R8P)                              :: curlD(3), curlB(3) !< Residuals components.
    real(R8P)                              :: KO_Dx_x,KO_Dx_y,KO_Dx_z
@@ -1493,7 +1738,7 @@ contains
    real(R8P)                              :: KO_Bz_x,KO_Bz_y,KO_Bz_z
    real(R8P), parameter :: sigma = 1000.01_R8P
 
-   call self%update_ghost(q=q)
+   call self%update_ghost(q=q, s=s)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
              dxyz=>self%field%dxyz,                                                                                   &
              s1=>self%numerics%fdv_half_stencils(1),                                                                  &
@@ -1545,7 +1790,7 @@ contains
    endassociate
    endsubroutine compute_residuals_fd_centered
 
-   subroutine compute_residuals_fv_centered(self, q, dq)
+   subroutine compute_residuals_fv_centered(self, q, dq, s)
    !< Compute residuals of equation, space operator, centered finite volume schemes.
    class(prism_cpu_object), intent(inout) :: self                                             !< The equation.
    real(R8P),               intent(inout) :: q(1:,         &
@@ -1558,6 +1803,7 @@ contains
                                                 1-self%ngc:,&
                                                 1-self%ngc:,&
                                                 1:)                                           !< Residuals.
+   integer(I4P),  optional, intent(in)    :: s !< Stage counter.
    integer(I4P)                           :: i,j,k,b,d,v                                      !< Counter
    real(R8P),    parameter                :: sir(3,3) = reshape([1._R8P,0._R8P,0._R8P,&
                                                                  0._R8P,1._R8P,0._R8P,&
@@ -1640,7 +1886,7 @@ contains
    endassociate
    endsubroutine compute_residuals_fv_centered
 
-   subroutine compute_residuals_weno(self, q, dq)
+   subroutine compute_residuals_weno(self, q, dq, s)
    !< Compute residuals of equation, space operator, WENO schemes.
    class(prism_cpu_object), intent(inout) :: self   !< The equation.
    real(R8P),               intent(inout) :: q(1:,       &
@@ -1653,6 +1899,7 @@ contains
                                                 1-self%ngc:,&
                                                 1-self%ngc:,&
                                                 1:) !< Residuals.
+   integer(I4P),  optional, intent(in)    :: s !< Stage counter.
 
    call self%update_ghost(q=q)
    !call self%integrate_eikonal_coils(q=q)
@@ -1703,6 +1950,7 @@ contains
       self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DZ,:,:,:,:)
    enddo
    call self%impose_div_free
+   call self%apply_fWL_correction
    endassociate
    endsubroutine integrate_blanesmoan
 
@@ -1731,6 +1979,7 @@ contains
    self%q = self%cfm%q
    endassociate
    call self%impose_div_free
+   call self%apply_fWL_correction
    endsubroutine integrate_cfm
 
    subroutine integrate_leapfrog(self)
@@ -1742,6 +1991,7 @@ contains
    call self%save_residuals
    call self%leapfrog%integrate(dt=self%time%dt, q=self%q, dq=self%dq)
    call self%impose_div_free
+   call self%apply_fWL_correction
    endsubroutine integrate_leapfrog
 
    subroutine integrate_rk_ls(self)
@@ -1762,6 +2012,7 @@ contains
       endif
    enddo
    call self%impose_div_free
+   call self%apply_fWL_correction
    endsubroutine integrate_rk_ls
 
    subroutine integrate_rk_ssp(self)
@@ -1769,7 +2020,7 @@ contains
    !< SSP RK working on q_rk as stages.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
-
+   
    call self%compute_coils_current
    call self%rk%initialize_stages(q=self%q)
    do s=1, self%rk%nrk
@@ -1778,7 +2029,7 @@ contains
       else
          call self%rk%compute_stage(s=s, dt=self%time%dt)
       endif
-      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq)
+      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
       if (s==1) call self%save_residuals
       if (self%ib%solids_number>0) then
          call self%rk%assign_stage(s=s, q=self%dq, phi=self%ib%phi)
@@ -1788,11 +2039,100 @@ contains
    enddo
    if (self%ib%solids_number>0) then
       call self%rk%update_q(dt=self%time%dt, phi=self%ib%phi, q=self%q)
+      call self%update_q_BC(dt=self%time%dt, phi=self%ib%phi)
    else
       call self%rk%update_q(dt=self%time%dt, q=self%q)
+      call self%update_q_BC(dt=self%time%dt)
    endif
    call self%impose_div_free
+   call self%apply_fWL_correction
    endsubroutine integrate_rk_ssp
+
+   subroutine update_q_BC(self, dt, phi)
+   !< Update RK q ghost cells.
+   class(prism_cpu_object), intent(inout)    :: self             !< RK object.
+   real(R8P),        intent(in)           :: dt               !< Current time step.
+   real(R8P),        intent(in), optional :: phi(1:,          &
+                                                 1-self%ngc:, &
+                                                 1-self%ngc:, &
+                                                 1-self%ngc:, &
+                                                 1:)          !< IB distance.
+   integer(I4P)                           :: all_solids       !< Last phi index, all solids summary.
+   integer(I4P)                           :: i, j, k, b, v, s, c !< Counter.
+   
+   integer(I4P)                           :: idelta,jdelta,kdelta    !< IJK delta step for extrapolation.
+   integer(I4P)                           :: bc_type                 !< Boundary condition type.
+   integer(I4P)                           :: crown                   !< Crown counter.
+   associate(local_map_bc_crown=>self%field%maps%local_map_bc_crown,                                                       &
+                nv=>self%nv, ngc=>self%ngc, q_bc_vars=>self%bc%q, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:),      &
+                dz=>self%field%dxyz(3,:), ni=>self%ni, nj=>self%nj, nk=>self%nk, dt=>self%time%dt, chi=>self%physics%chi,  &
+                nv_c=>self%physics%nv_c, nv_cl=>self%physics%nv_cl,                                                        &
+                constrained_transport_B=>self%numerics%constrained_transport_B,                                            &
+                constrained_transport_D=>self%numerics%constrained_transport_D, nrk=>self%rk_bc%nrk, &
+                q_bc_rk=>self%rk_bc%q_bc_rk, blocks_number=>self%blocks_number, beta=>self%rk_bc%beta)
+
+   if (present(phi)) then
+      all_solids = ubound(phi, dim=1)
+      !$omp parallel do collapse(6) default(firstprivate) shared(phi,self)
+      do s=1, nrk
+         do b=1, blocks_number
+            do k=1-ngc, nk+ngc
+               do j=1-ngc, nj+ngc
+                  do i=1-ngc, ni+ngc
+                     !(O cambiare i cicli da 1:nv_c a nv_c-nv_cl+1:nv_c)
+                     do v=1, nv_c
+                        if (phi(all_solids,i,j,k,b) < 0._R8P) then
+                           q_bc_rk(v,i,j,k,b,nrk+1) = q_bc_rk(v,i,j,k,b,nrk+1) + dt * beta(s) * q_bc_rk(1,i,j,k,b,s)
+                        endif
+                     enddo
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !$omp end parallel do
+   else
+      !$omp parallel do collapse(6) default(firstprivate) shared(self)
+      do s=1, nrk
+         do b=1, blocks_number
+            do k=1-ngc, nk+ngc
+               do j=1-ngc, nj+ngc
+                  do i=1-ngc, ni+ngc
+                     do v=1, nv_c
+                        q_bc_rk(v,i,j,k,b,nrk+1) = q_bc_rk(v,i,j,k,b,nrk+1) + dt * beta(s) * q_bc_rk(1,i,j,k,b,s)
+                     enddo
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+      !$omp end parallel do
+   endif
+   if (allocated(self%field%maps%local_map_bc_crown)) then
+      do crown=1, ngc
+         do c=1, size(local_map_bc_crown, dim=1)
+            b = local_map_bc_crown(c, 1 ,crown)
+            if (b>0) then
+               bc_type = local_map_bc_crown(c, 8 ,crown)
+               if (bc_type == BC_radiative) then
+                  i       = local_map_bc_crown(c, 2 ,crown)
+                  j       = local_map_bc_crown(c, 3 ,crown)
+                  k       = local_map_bc_crown(c, 4 ,crown)
+                  idelta  = local_map_bc_crown(c, 5 ,crown)
+                  jdelta  = local_map_bc_crown(c, 6 ,crown)
+                  kdelta  = local_map_bc_crown(c, 7 ,crown)
+                  do v=1, nv_c
+                     self%q(nv_c,i,j,k,b) = 2*q_bc_rk(1,i,j,k,b,nrk+1)-self%q(nv_c,i-idelta,j-jdelta,k-kdelta,b)
+                  enddo
+                  !print *, 'Updating BC SM', b, ' cell (', i, ',', j, ',', k, ')'
+               endif
+            endif
+            !Qua ci aggiungi gli altri if a seconda elle variabili su cui vuoi implementare questa BC
+         enddo
+      enddo
+   endif
+   endassociate
+   endsubroutine update_q_BC
 
    subroutine integrate_rk_yoshida(self)
    !< Integrate equation, time operator, Yoshida RK scheme.
@@ -1816,6 +2156,7 @@ contains
    self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
    self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
    call self%impose_div_free
+   call self%apply_fWL_correction
    endsubroutine integrate_rk_yoshida
 
    ! non TBP

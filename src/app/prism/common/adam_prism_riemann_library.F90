@@ -19,7 +19,7 @@ public :: compute_convective_fluxes_maxwell_div_b
 public :: compute_convective_fluxes_maxwell_div_d_b
 
 interface
-subroutine compute_convective_fluxes_interface(sir,q,f,chi)
+   subroutine compute_convective_fluxes_interface(sir,q,f,chi)
    import :: R8P
    real(R8P), intent(in)    :: sir(3) !< Directional (1=x,2=y,3=z) increment.
    real(R8P), intent(in)    :: q(1:)  !< Auxiliary variables.

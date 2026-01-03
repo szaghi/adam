@@ -18,6 +18,7 @@ use adam_weno_object
 ! PRISM modules
 use adam_prism_bc_object
 use adam_prism_coil_object
+use adam_prism_external_fields_object
 use adam_prism_fWLayer_object
 use adam_prism_ic_object
 use adam_prism_io_object
@@ -50,15 +51,16 @@ type :: prism_common_object
    type(weno_object)           :: weno          !< WENO reconstructor.
    type(flail_object)          :: flail         !< Linear algebra methods handler.
    ! PRISM library objects
-   type(prism_io_object)       :: io       !< IO handler.
-   type(prism_numerics_object) :: numerics !< Numerics handler.
-   type(prism_physics_object)  :: physics  !< Fluids physiscs handler.
-   type(prism_ic_object)       :: ic       !< Initial Conditions (IC) handler.
-   type(prism_bc_object)       :: bc       !< Boundary Conditions (BC) handler.
-   type(prism_rk_bc_object)    :: rk_bc    !< RK integrator for BC.
-   type(prism_time_object)     :: time     !< Time handler.
-   type(prism_fWLayer_object)  :: fWLayer  !< fWLayer handler.
-   type(prism_coil_object)     :: coil     !< Coils handler.
+   type(prism_io_object)              :: io              !< IO handler.
+   type(prism_numerics_object)        :: numerics        !< Numerics handler.
+   type(prism_physics_object)         :: physics         !< Fluids physiscs handler.
+   type(prism_ic_object)              :: ic              !< Initial Conditions (IC) handler.
+   type(prism_bc_object)              :: bc              !< Boundary Conditions (BC) handler.
+   type(prism_rk_bc_object)           :: rk_bc           !< RK integrator for BC.
+   type(prism_time_object)            :: time            !< Time handler.
+   type(prism_fWLayer_object)         :: fWLayer         !< fWLayer handler.
+   type(prism_coil_object)            :: coil            !< Coils handler.
+   type(prism_external_fields_object) :: external_fields !< External fields handler.
    ! grid/field data replica for easy handling
    integer(I4P), pointer :: ngc=>null()           !< Number of ghost cells.
    integer(I4P), pointer :: ni=>null()            !< Number of cells in i direction.
@@ -161,6 +163,7 @@ contains
    call self%coil%initialize(file_parameters=file_parameters, field=self%field)
    call self%ib%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    call self%slices%initialize(file_parameters=file_parameters)
+   call self%external_fields%initialize(file_parameters=file_parameters)
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
    call self%rk%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
@@ -229,20 +232,20 @@ contains
       case(DIV_CORR_VAR_POISS)
          self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
          q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_Jx','res_Jy','res_Jz']
-         q2_R8P_name = ['div_D','div_B','div_J','div04','div05','div06','div07','div08','div09']
+         q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09']
       case(DIV_CORR_VAR_HYPER)
          if (self%numerics%constrained_transport_D .and. .not.self%numerics%constrained_transport_B) then
             self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','phi','Jx ','Jy ','Jz ']
             q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_ph','res_Jx','res_Jy','res_Jz']
-            q2_R8P_name = ['div_D','div_B','div_J','div04','div05','div06','div07','div08','div09','div10']
+            q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09','div10']
          elseif (.not.self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
             self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','psi','Jx ','Jy ','Jz ']
             q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_ps','res_Jx','res_Jy','res_Jz']
-            q2_R8P_name = ['div_D','div_B','div_J','div04','div05','div06','div07','div08','div09','div10']
+            q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09','div10']
          elseif (self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
             self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','phi','psi','Jx ','Jy ','Jz ']
             q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_ph','res_ps','res_Jx','res_Jy','res_Jz']
-            q2_R8P_name = ['div_D','div_B','div_J','div04','div05','div06','div07','div08','div09','div10','div11']
+            q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09','div10','div11']
          endif
       case default
          self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']

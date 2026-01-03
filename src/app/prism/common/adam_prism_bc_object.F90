@@ -12,6 +12,7 @@ implicit none
 private
 public :: prism_bc_object
 public :: BC_EXTRAPOLATION
+public :: BC_NEUMANN
 public :: BC_DIRICHLET
 public :: BC_Silver_Muller
 public :: BC_PERIOD
@@ -22,10 +23,11 @@ character(len=8), parameter :: INI_SECTION_NAMES(6)=["bc_x_min", "bc_x_max", &
                                                      "bc_z_min", "bc_z_max"] !< INI (config) file section name containing BC configs.
 
 integer(I4P), parameter :: BC_EXTRAPOLATION = 1_I4P !< Extrapolation.
-integer(I4P), parameter :: BC_DIRICHLET     = 2_I4P !< Prova
-integer(I4P), parameter :: BC_Silver_Muller = 3_I4P !< Silver-Muller BC.
-integer(I4P), parameter :: BC_PERIOD        = 4_I4P !< Periodic BC.
-integer(I4P), parameter :: BC_radiative     = 5_I4P !< Radiative BC.
+integer(I4P), parameter :: BC_NEUMANN       = 2_I4P !< Neumann BC.
+integer(I4P), parameter :: BC_DIRICHLET     = 3_I4P !< Dirichlet BC.
+integer(I4P), parameter :: BC_Silver_Muller = 4_I4P !< Silver-Muller BC.
+integer(I4P), parameter :: BC_PERIOD        = 5_I4P !< Periodic BC.
+integer(I4P), parameter :: BC_radiative     = 6_I4P !< Radiative BC.
 
 type :: prism_bc_object
    !< Boundary Conditions class definition, CPU backend.
@@ -71,6 +73,8 @@ contains
       select case(trim(adjustl(buff_c)))
       case('extrapolation')
          self%bc_type(b) = BC_EXTRAPOLATION
+      case('Neumann')
+         self%bc_type(b) = BC_NEUMANN
       case('Dirichlet')
          self%bc_type(b) = BC_DIRICHLET
       case('Silver_Muller')
