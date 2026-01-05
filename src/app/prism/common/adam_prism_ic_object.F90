@@ -17,12 +17,18 @@ private
 public :: IC_TYPE_RP
 public :: IC_TYPE_VACUUM
 public :: IC_TYPE_PLANE_WAVE
+public :: IC_TYPE_RMF
+public :: IC_TYPE_MAGNETIC_NOZZLE
+public :: IC_TYPE_RMF_NOZZLE
 public :: prism_ic_object
 
-character(len=18), parameter :: INI_SECTION_NAME="initial_conditions" !< INI (config) file section name containing IC configs.
-character(len=6),  parameter :: IC_TYPE_VACUUM="vacuum"               !< Vacuum IC TYPE parameter.
-character(len=15), parameter :: IC_TYPE_RP="riemann-problem" 
-character(len=10), parameter :: IC_TYPE_PLANE_WAVE="plane_wave"         !< Riemann Problem IC TYPE parameter.
+character(len=18), parameter :: INI_SECTION_NAME="initial_conditions"     !< INI (config) file section name containing IC configs.
+character(len=6),  parameter :: IC_TYPE_VACUUM="vacuum"                   !< Vacuum IC TYPE parameter.
+character(len=15), parameter :: IC_TYPE_RP="riemann-problem"              !< Riemann Problem IC TYPE parameter.   
+character(len=10), parameter :: IC_TYPE_PLANE_WAVE="plane_wave"           !< Riemann Problem IC TYPE parameter.
+character(len=10), parameter :: IC_TYPE_RMF="rmf_field"             !< Rotating Magnetic Field IC TYPE parameter.
+character(len=15), parameter :: IC_TYPE_MAGNETIC_NOZZLE="magnetic_nozzle" !< Nozzle IC TYPE parameter.
+character(len=15), parameter :: IC_TYPE_RMF_NOZZLE="rmf_magnetic_nozzle"  !< Rotating Magnetic Field Nozzle IC TYPE parameter.
 
 type :: prism_ic_object
    !< Initial Conditions class definition, CPU backend.
@@ -37,6 +43,12 @@ type :: prism_ic_object
    real(R8P)                 :: kz=0.0_R8P           !< Plane wave number in z direction.
    real(R8P)                 :: lambda=0.0_R8P       !< Plane wave wavelength.
    real(R8P)                 :: B0=0.0_R8P           !< Plane wave background magnetic field amplitude.
+   real(R8P)                 :: RMF_frequency        !< Rotating magnetic field frequency.
+   real(R8P)                 :: RMF_B_amplitude      !< Rotating magnetic field amplitude.
+	character(len=99)         :: RMF_rotation_axis 	  !< Rotating magnetic field rotation axis (X, Y, Z).
+	integer(I4P)              :: alpha                !< RMF rotation axis coordinate 1
+	integer(I4P)              :: beta                 !< RMF rotation axis coordinate 2
+	integer(I4P)              :: gamma                !< RMF rotation axis coordinate 3
    contains
       ! public methods
       procedure, pass(self) :: description            !< Return pretty-printed object description.
@@ -99,7 +111,6 @@ contains
    self%ic_type = trim(adjustl(buff_char))
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, error=error)
    if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(regions_number)')
-
    if (self%regions_number>=1) then
       allocate(   self%q(1:9, 1:self%regions_number))
       allocate(self%emin(1:3, 1:self%regions_number))
@@ -151,6 +162,42 @@ contains
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='B0', val=self%B0, error=error)
       if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B0)')        
    endif 
+   if (self%ic_type == IC_TYPE_RMF) then
+      call file_parameters%get(section_name='external_fields', option_name='RMF_frequency', val=self%RMF_frequency, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_frequency)')
+      call file_parameters%get(section_name='external_fields', option_name='RMF_B_amplitude', val=self%RMF_B_amplitude, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_B_amplitude)')
+      call file_parameters%get(section_name='external_fields', option_name='RMF_rotation_axis', &
+                           val=buff_char, error=error)
+      if (.not.go_on_fail_.and.error>0) &
+      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_rotation_axis)')
+      self%RMF_rotation_axis = trim(buff_char)
+      self%RMF_rotation_axis = trim(self%RMF_rotation_axis)
+	   select case(self%RMF_rotation_axis)
+	   case('X', 'x')
+	   	self%alpha = 2_I4P
+	   	self%beta  = 3_I4P
+	   	self%gamma = 1_I4P
+	   case('Y', 'y')
+	   	self%alpha = 3_I4P
+	   	self%beta  = 1_I4P
+	   	self%gamma = 2_I4P
+	   case('Z', 'z')
+	   	self%alpha = 1_I4P
+	   	self%beta  = 2_I4P
+	   	self%gamma = 3_I4P
+	   endselect
+   endif
+
+   if (self%ic_type == IC_TYPE_MAGNETIC_NOZZLE) then
+      ! to be added load magnetic nozzle parameters
+   endif
+   if (self%ic_type == IC_TYPE_RMF_NOZZLE) then
+      call file_parameters%get(section_name='external_fields', option_name='RMF_frequency', val=self%RMF_frequency, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_frequency)')
+      call file_parameters%get(section_name='external_fields', option_name='RMF_B_amplitude', val=self%RMF_B_amplitude, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_B_amplitude)')
+  endif
    endsubroutine load_from_file
 
    subroutine set_initial_conditions(self, physics, field, q)
@@ -168,6 +215,9 @@ contains
                                                    z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc) 
                                                                         !< Vettori posizione centro celle del blocco b
       integer(I4P)                              :: b, i, j, k, ri, var  !< Counter.
+	   real(R8P) 										   :: B_r, B_theta 			!< Radial and azimuthal components of the rotating magnetic field
+	   real(R8P)										   :: theta, alfa, thetaabs!< Angles in cylindrical coordinates
+	   real(R8P)										   :: cell_coord(3)	
    associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
              nv=>physics%nv, nv_c=>physics%nv_c, nv_cl=>physics%nv_cl)
    select case(self%ic_type)
@@ -210,6 +260,55 @@ contains
             enddo
          enddo
       enddo
+   case(IC_TYPE_RMF) !rotating magnetic field initial conditions
+   associate(alpha=>self%alpha, beta=>self%beta, gamma=>self%gamma)	
+   do b = 1, blocks_number
+		call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
+         do i = 1, ni
+            do j = 1, nj
+               do k = 1, nk
+					   cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
+                  theta = atan(cell_coord(beta)/cell_coord(alpha))
+					   thetaabs = abs(atan(cell_coord(beta)/cell_coord(alpha)))
+					   alfa = pi/2-thetaabs
+					   if (cell_coord(alpha) > 0.0_R8P .and. cell_coord(beta) > 0.0_R8P) then ! 1 quadrante
+                     theta = theta
+                     B_r = self%RMF_B_amplitude*cos(-theta)
+	                  B_theta = self%RMF_B_amplitude*sin(-theta)
+					   	q(alpha+3_I4P,i,j,k,b) = q(alpha+3_I4P,i,j,k,b) + B_r*cos(thetaabs) - B_theta*cos(alfa)
+					   	q(beta+3_I4P,i,j,k,b)  = q(beta+3_I4P,i,j,k,b)  + B_r*sin(thetaabs) + B_theta*sin(alfa)
+					   	q(gamma,i,j,k,b) = sqrt(cell_coord(alpha)**2 + cell_coord(beta)**2)*2*PI*self%RMF_frequency* &
+					   		self%RMF_B_amplitude*cos(-theta)*EPS0
+					   else if (cell_coord(alpha) < 0.0_R8P .and. cell_coord(beta) > 0.0_R8P) then ! 2 quadrante
+                     theta = theta+PI
+                     B_r = self%RMF_B_amplitude*cos(-theta)
+	                  B_theta = self%RMF_B_amplitude*sin(-theta)
+					   	q(alpha+3_I4P,i,j,k,b) = q(alpha+3_I4P,i,j,k,b) - B_r*cos(thetaabs) - B_theta*cos(alfa)
+					   	q(beta+3_I4P,i,j,k,b)  = q(beta+3_I4P,i,j,k,b)  + B_r*sin(thetaabs) - B_theta*sin(alfa)
+					   	q(gamma,i,j,k,b) = sqrt(cell_coord(alpha)**2 + cell_coord(beta)**2)*2*PI*self%RMF_frequency* &
+					   		self%RMF_B_amplitude*cos(-theta)*EPS0
+					   else if (cell_coord(alpha) < 0.0_R8P .and. cell_coord(beta) < 0.0_R8P) then ! 3 quadrante
+                     theta = theta+PI
+                     B_r = self%RMF_B_amplitude*cos(-theta)
+                     B_theta = self%RMF_B_amplitude*sin(-theta)
+					   	q(alpha+3_I4P,i,j,k,b) = q(alpha+3_I4P,i,j,k,b) - B_r*cos(thetaabs) + B_theta*cos(alfa)
+					   	q(beta+3_I4P,i,j,k,b)  = q(beta+3_I4P,i,j,k,b)  - B_r*sin(thetaabs) - B_theta*sin(alfa)
+					   	q(gamma,i,j,k,b) = sqrt(cell_coord(alpha)**2 + cell_coord(beta)**2)*2*PI*self%RMF_frequency* &
+					   		self%RMF_B_amplitude*cos(-theta)*EPS0
+					   else if (cell_coord(alpha) > 0.0_R8P .and. cell_coord(beta) < 0.0_R8P) then ! 4 quadrante
+                     theta = theta+2*PI
+                     B_r = self%RMF_B_amplitude*cos(-theta)
+                     B_theta = self%RMF_B_amplitude*sin(-theta)
+					   	q(alpha+3_I4P,i,j,k,b) = q(alpha+3_I4P,i,j,k,b) + B_r*cos(thetaabs) + B_theta*cos(alfa)
+					   	q(beta+3_I4P,i,j,k,b)  = q(beta+3_I4P,i,j,k,b)  - B_r*sin(thetaabs) + B_theta*sin(alfa)
+					   	q(gamma,i,j,k,b) = sqrt(cell_coord(alpha)**2 + cell_coord(beta)**2)*2*PI*self%RMF_frequency* &
+					   		self%RMF_B_amplitude*cos(-theta)*EPS0
+					   end if
+               enddo
+            enddo
+         enddo
+   enddo
+   endassociate
    case default
       ! to be added error print
    endselect
