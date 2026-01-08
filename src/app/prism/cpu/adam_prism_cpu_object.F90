@@ -17,6 +17,7 @@ public :: prism_cpu_object
 ! pointer (abstract) procedures
 procedure(compute_convective_fluxes_interface), pointer :: compute_fluxes_Maxwell=>null() !< Compute convective fluxes.
 procedure(add_external_fields_interface),       pointer :: add_external_fields   =>null() !< Add external fields.
+!procedure(particle_weighting_interface),        pointer :: particle_weighting    =>null() !< Particle weighting.
 
 type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR e IB
    !< Maxwell equations system class definition, CPU backend.
@@ -282,6 +283,19 @@ contains
       add_external_fields => add_external_fields_none
    endselect
 
+   !if (self%physics%model == PIC_PHYSICAL_MODEL) then
+   !   select case(self%pic%particle_weighting_model)
+   !   case(CIC)
+   !      particle_weighting => CIC_weighting
+   !   case(NPC)
+   !      particle_weighting => NPC_weighting
+   !   case(TSC)
+   !      particle_weighting => TSC_weighting
+   !   case default
+   !      call self%mpih%error_stop(msg=': invalid particle weighting model in prism_cpu_object%initialize')
+   !   endselect
+   !endif
+
    print '(A)', self%mpih%description()
    call self%mpih%print_message('prism_cpu_object%initialize finish')
    endsubroutine initialize
@@ -413,28 +427,36 @@ contains
    endsubroutine save_simulation_data
 
    ! IC/BC/sources
-   subroutine compute_coils_current(self)
+   subroutine compute_coils_current(self, gamma)
    !< Compute current coils sources.
-   class(prism_cpu_object), intent(inout) :: self            !< The equation.
-   real(R8P)                              :: current_density !< Current density.
-   real(R8P)                              :: g               !< Starting polynomial transitory of coils.
-   integer(I4P)                           :: w_, w_c_        !< Step function coeff to avoid if in parallel regions.
-   real(R8P)                              :: g_, f_          !< Current coefficients.
-   integer(I4P)                           :: coil_id         !< Uniq coild ID.
-   integer(I4P)                           :: i,j,k,b         !< Counter.
+   class(prism_cpu_object), intent(inout)        :: self            !< The equation.
+   real(R8P),               intent(in), optional :: gamma           !< RK coefficient.
+   real(R8P)                                     :: current_density !< Current density.
+   real(R8P)                                     :: g               !< Starting polynomial transitory of coils.
+   real(R8P)                                     :: time_s          !< Local time.
+   integer(I4P)                                  :: w_, w_c_        !< Step function coeff to avoid if in parallel regions.
+   real(R8P)                                     :: g_, f_          !< Current coefficients.
+   integer(I4P)                                  :: coil_id         !< Uniq coild ID.
+   integer(I4P)                                  :: i,j,k,b         !< Counter.
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
              time=>self%time%time, A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,              &
              coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, j_vec=>self%coil%j_vec, &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz,     &
-             dx=>self%field%dxyz(1,1),q=>self%q)
+             dx=>self%field%dxyz(1,1),q=>self%q, dt=>self%time%dt)
+
+   if (present(gamma)) then
+      time_s = time + dt*gamma
+   else
+      time_s = time
+   end if
    if (self%coil%total_coils_number >= 1_I4P) then
    !if (time >= td) then
    !   q(VAR_JX,:,:,:,:) = 0._R8P
    !   q(VAR_JY,:,:,:,:) = 0._R8P
    !   q(VAR_JZ,:,:,:,:) = 0._R8P
    !else
-      g = 10._R8P*(time/td)**3 - 15._R8P*(time/td)**4 + 6._R8P*(time/td)**5
+      g = 10._R8P*(time_s/td)**3 - 15._R8P*(time_s/td)**4 + 6._R8P*(time_s/td)**5
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
@@ -448,10 +470,10 @@ contains
          !   current_density = A(coil_id)/((d(coil_id)-dx)**2)*cos(2*pi*f(coil_id)*(time-td) + &
          !   phase(coil_id)*pi/180.0_R8P)
          !endif
-         w_   = nint(sign(1._R8P,td-time) + 1._R8P)/2   ! = 1 if td>time, = 0                            if td<time
+         w_   = nint(sign(1._R8P,td-time_s) + 1._R8P)/2   ! = 1 if td>time, = 0                            if td<time
          w_c_ = 1_I4P - w_                            ! = 0 if td>time, = 1                              if td<time
          g_   = w_ * g + w_c_                         ! = g if td>time, = 1                              if td<time
-         f_   = w_c_ * 2._R8P*PI*f(coil_id)*(time-td) ! = 0 if td>time, = 2._R8P*PI*f(coil_id)*(time-td) if td<time
+         f_   = w_c_ * 2._R8P*PI*f(coil_id)*(time_s-td) ! = 0 if td>time, = 2._R8P*PI*f(coil_id)*(time-td) if td<time
          !current_density = g_ * A(coil_id) / ((d(coil_id))**2) * cos(f_ + phase(coil_id)*PI/180.0_R8P)
          current_density = g_ * A(coil_id) * cos(f_ + phase(coil_id)*PI/180.0_R8P)*j_vec(4,i,j,k,b)
          !if (coil_id == 1_I4P) then
@@ -1019,7 +1041,7 @@ contains
    endassociate
    endsubroutine compute_residuals_BC  
 
-   subroutine set_initial_conditions(self)
+   subroutine set_initial_conditions(self) !DA CORREGGERE CON NV_PIC QUANDO SERVE PER BC CARICA SE MODELLO PIC ATTIVO
    !< Set initial conditions and coils on field.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
 
@@ -1786,6 +1808,8 @@ contains
       enddo
       enddo
       enddo
+      !call add_external_fields(self=self%external_fields, field=self%field, time=self%time%time, dt=self%time%dt, &
+      !       dq=dq)
    endif
    endassociate
    endsubroutine compute_residuals_fd_centered
@@ -1882,6 +1906,7 @@ contains
       enddo
       enddo
       enddo
+      !call add_external_fields(self = self%external_fields,field = self%field, time=self%time%time, dt=self%time%dt, gamm=self%rk%gamm(s), dq=dq)
    endif
    endassociate
    endsubroutine compute_residuals_fv_centered
@@ -2021,9 +2046,9 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
    
-   call self%compute_coils_current
    call self%rk%initialize_stages(q=self%q)
    do s=1, self%rk%nrk
+      call self%compute_coils_current(gamma=self%rk%gamm(s))
       if (self%ib%solids_number>0) then
          call self%rk%compute_stage(s=s, dt=self%time%dt, phi=self%ib%phi)
       else

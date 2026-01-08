@@ -40,8 +40,12 @@ use :: penf, only : I4P, R8P, str
 implicit none
 private
 public :: prism_physics_object
+public :: EM_PHYSICAL_MODEL
+public :: PIC_PHYSICAL_MODEL
 
-character(len=7), parameter :: INI_SECTION_NAME='physics' !< INI file section name containing fluid physics.
+character(len=7),  parameter :: INI_SECTION_NAME=   'physics'         !< INI file section name containing fluid physics.
+character(len=15), parameter :: EM_PHYSICAL_MODEL=  'electromagnetic' !< Electromagnetic physical model.
+character(len=3),  parameter :: PIC_PHYSICAL_MODEL= 'PIC'             !< PIC physical model.
 
 integer(I4P),  parameter, public :: VAR_DX = 1_I4P !< Conservative variable 1, Dx.
 integer(I4P),  parameter, public :: VAR_DY = 2_I4P !< Conservative variable 2, Dy.
@@ -56,25 +60,27 @@ integer(I4P),  parameter, public :: VAR_BZ = 6_I4P !< Conservative variable 6, B
 type :: prism_physics_object
    !< PRISM physics class definition.
    type(mpih_object)           :: mpih                   !< MPI handler.
+   character(len=99)           :: physical_model         !< Physical model.
    integer(I4P)                :: nv    = 9_I4P          !< Number of variables in q vector (nv=nv_c+nv_s+nv_cl).
    integer(I4P)                :: nv_c  = 6_I4P          !< Number of conservative variables in q vector.
    integer(I4P)                :: nv_s  = 3_I4P          !< Number of source variables in q vector.
    integer(I4P)                :: nv_cl = 0_I4P          !< Number of divergence cleaning variables in q vector.
+   integer(I4P)                :: nv_pic = 0_I4P         !< Number of PIC variables in q vector.
    integer(I4P)                :: var_Jx, var_Jy, var_Jz !< Indices of current density components in q vector.
    real(R8P)                   :: chi                    !< Speed coefficient for D & B div-cleaning.
-   !real(R8P)                   :: eta                    !< Coefficiente for B div-cleaning.
+   !real(R8P)                   :: eta                   !< Coefficiente for B div-cleaning.
    real(R8P)                   :: evmax                  !< Maximum signal speed (eigenvalue).
    real(R8P), pointer          :: erw(:,:,:)=>null()     !< Right eigenvectors for high order reconstruction.
    real(R8P), pointer          :: elw(:,:,:)=>null()     !< Left  eigenvectors for high order reconstruction.
-   real(R8P)                   :: EV_D(7)                 !< Eigenvalues with D divergence cleaning.
-   real(R8P)                   :: EV_B(7)                 !< Eigenvalues with B divergence cleaning.
-   real(R8P)                   :: EV_D_B(8)               !< Eigenvalues with D and B divergence cleaning.
-   real(R8P)                   :: ER_D(7,7,3)             !< Right eigenvectors with D divergence cleaning.
-   real(R8P)                   :: ER_B(7,7,3)             !< Right eigenvectors with B divergence cleaning.
-   real(R8P)                   :: ER_D_B(8,8,3)           !< Right eigenvectors with D and B divergence cleaning.
-   real(R8P)                   :: EL_D(7,7,3)             !< Left eigenvectors with D divergence cleaning.
-   real(R8P)                   :: EL_B(7,7,3)             !< Left eigenvectors with B divergence cleaning.
-   real(R8P)                   :: EL_D_B(8,8,3)           !< Left eigenvectors with D and B divergence cleaning.
+   real(R8P)                   :: EV_D(7)                !< Eigenvalues with D divergence cleaning.
+   real(R8P)                   :: EV_B(7)                !< Eigenvalues with B divergence cleaning.
+   real(R8P)                   :: EV_D_B(8)              !< Eigenvalues with D and B divergence cleaning.
+   real(R8P)                   :: ER_D(7,7,3)            !< Right eigenvectors with D divergence cleaning.
+   real(R8P)                   :: ER_B(7,7,3)            !< Right eigenvectors with B divergence cleaning.
+   real(R8P)                   :: ER_D_B(8,8,3)          !< Right eigenvectors with D and B divergence cleaning.
+   real(R8P)                   :: EL_D(7,7,3)            !< Left eigenvectors with D divergence cleaning.
+   real(R8P)                   :: EL_B(7,7,3)            !< Left eigenvectors with B divergence cleaning.
+   real(R8P)                   :: EL_D_B(8,8,3)          !< Left eigenvectors with D and B divergence cleaning.
 
    contains
       ! public methods
@@ -91,10 +97,12 @@ contains
    character(len=:), allocatable           :: desc             !< Description.
    character(len=1), parameter             :: NL=new_line('a') !< New line character.
 
-   desc =       self%mpih%myrankstr//'Physics main data:'                                                    //NL
-   desc = desc//self%mpih%myrankstr//'  number of variables in q (nv):                '//trim(str(self%nv  ))//NL
-   desc = desc//self%mpih%myrankstr//'  number of conservative variables in q (nv_c): '//trim(str(self%nv_c))//NL
-   desc = desc//self%mpih%myrankstr//'  Chi:                                          '//trim(str(self%chi ))!//NL
+   desc =       self%mpih%myrankstr//'Physics main data:'                                                         //NL
+   desc = desc//self%mpih%myrankstr//'  physical model:                               '//trim(self%physical_model)//NL
+   desc = desc//self%mpih%myrankstr//'  number of variables in q (nv):                '//trim(str(self%nv       ))//NL
+   desc = desc//self%mpih%myrankstr//'  number of conservative variables in q (nv_c): '//trim(str(self%nv_c     ))//NL
+   desc = desc//self%mpih%myrankstr//'  number of PIC variables in q (nv_PIC):        '//trim(str(self%nv_PIC   ))//NL
+   desc = desc//self%mpih%myrankstr//'  Chi:                                          '//trim(str(self%chi      ))!//NL
    !desc = desc//self%mpih%myrankstr//'  Eta:                                          '//trim(str(self%eta ))
    endfunction description
 
@@ -362,7 +370,6 @@ contains
                self%erw => IERL_D_B
                self%elw => IERL_D_B
          endselect
-         ! AGGIUNGI ASSOCIAZIONI A VETTORI E MATRICI CORRETTE
       end if
    case default
       self%nv_cl  = 0_I4P
@@ -385,6 +392,12 @@ contains
    endselect
    self%nv = self%nv_c + self%nv_s + self%nv_cl
    self%nv_c = self%nv_c + self%nv_cl
+   if (self%physical_model == PIC_PHYSICAL_MODEL) then
+      self%nv_pic = 1_I4P
+      self%nv = self%nv + self%nv_pic ! Per il PIC aggiungo nel vettore di stato la densita' di carica
+   elseif (self%physical_model == EM_PHYSICAL_MODEL) then
+      self%nv_pic = 0_I4P
+   end if
 
    !print*, 'cazzo'
    !print*, self%erw(1,:,1)
@@ -446,6 +459,17 @@ contains
    character(99)                                     :: buff            !< Character buffer.
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
+
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='physical_model', val=buff, error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(physical_model)')
+   select case(trim(adjustl(buff)))
+	case('Electromagnetic', 'Maxwell', 'EM', 'em', 'maxwell', 'electromagnetic')
+		self%physical_model = EM_PHYSICAL_MODEL
+	case('PIC', 'pic', 'ParticleInCell', 'particleincell')
+      self%physical_model = PIC_PHYSICAL_MODEL
+   case default
+      call self%mpih%error_stop(msg=': unknown physical model "'//trim(buff)//'" in ['//INI_SECTION_NAME//'].(physical_model)')
+	endselect
 
    if (div_corr_var == DIV_CORR_VAR_HYPER) then
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='chi', val=self%chi, error=error)

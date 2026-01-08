@@ -51,12 +51,14 @@ contains
 endtype prism_external_fields_object
 
 interface
-   subroutine add_external_fields_interface(self, field, time, dq)
+   subroutine add_external_fields_interface(self, field, time, dt, gamm, dq)
    import :: prism_external_fields_object, field_object, I4P, R8P
-   class(prism_external_fields_object), intent(inout) :: self                                                              !< External fields.
-   type(field_object),                  intent(inout) :: field                                                             !< The field.
-   real(R8P),                           intent(in)    :: time                                                              !< Current simulation time.
-   real(R8P),                           intent(inout) :: dq(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)  !< Primitive variables.
+   class(prism_external_fields_object), intent(inout)        :: self                                                              !< External fields.
+   type(field_object),                  intent(inout)        :: field                                                             !< The field.
+   real(R8P),                           intent(in)           :: time                                                              !< Current simulation time.
+   real(R8P),                           intent(in), optional :: dt                                                                !< Time step.
+   real(R8P),                           intent(in), optional :: gamm                                                              !< Gamma values of RK SSP.
+   real(R8P),                           intent(inout)        :: dq(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)  !< Primitive variables.
    endsubroutine add_external_fields_interface
 endinterface
 
@@ -111,12 +113,21 @@ contains
                             val=buff_char, error=error)
 	if (.not.go_on_fail_.and.error>0) &
 	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(external field applied)')
-	self%external_field_applied = trim(buff_char)
-	self%external_field_applied = trim(self%external_field_applied)
+
+   select case(trim(adjustl(buff_char)))
+   case('RMF', 'rmf', 'Rmf')
+      self%external_field_applied = RMF
+   case('Magnetic_nozzle', 'magnetic_nozzle', 'MAGNETIC_NOZZLE', 'MagneticNozzle', 'magneticnozzle')
+      self%external_field_applied = MAGNETIC_NOZZLE
+   case('RMF_and_magnetic_nozzle', 'rmf_and_magnetic_nozzle', 'RMF_AND_MAGNETIC_NOZZLE', &
+        'Rmf_and_magnetic_nozzle', 'rmfAndMagneticNozzle', 'RMFAndMagneticNozzle')      
+      self%external_field_applied = RMF_AND_MAGNETIC_NOZZLE
+   case default
+      self%external_field_applied = 'None'
+   endselect
 
    selectcase(self%external_field_applied)
-
-   case('RMF')
+   case(RMF)
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_frequency', &
    val=self%RMF_frequency, error=error)
    if (.not.go_on_fail_.and.error>0) & 
@@ -149,10 +160,10 @@ contains
 	endselect
 
 
-   case('MAGNETIC_NOZZLE')
+   case(MAGNETIC_NOZZLE)
 
 
-   case('RMF_AND_MAGNETIC_NOZZLE')
+   case(RMF_AND_MAGNETIC_NOZZLE)
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_frequency', &
    val=self%RMF_frequency, error=error)
    if (.not.go_on_fail_.and.error>0) & 
@@ -192,65 +203,50 @@ contains
 
    endsubroutine load_from_file
 
-   subroutine add_external_fields_rmf(self, field, time, dq)
+   subroutine add_external_fields_rmf(self, field, time, dt, gamm, dq)
    !< Add rotating magnetic field to the field.
-   class(prism_external_fields_object), intent(inout) :: self                                                              !< External fields.
-   type(field_object),                  intent(inout) :: field                                                             !< The field.
-   real(R8P),                           intent(in)    :: time                                                              !< Current simulation time.
-   real(R8P),                           intent(inout) :: dq(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)  !< Primitive variables.
-   real(R8P)                                          :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
-                                                          y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
-                                                          z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)             !< Vettori posizione centro celle del blocco b
-	real(R8P) 										   :: dB_r, dB_theta 														!< Radial and azimuthal components of the rotating magnetic field
-	real(R8P)										   :: theta, alfa, thetaabs									!< Angles in cylindrical coordinates
-   integer(I4P)                                       :: b,i,j,k															!< Counters
-	real(R8P)										   :: cell_coord(3)														!< Cell coordinates vector
+   class(prism_external_fields_object), intent(inout)           :: self                                                              !< External fields.
+   type(field_object),                  intent(inout)           :: field                                                             !< The field.
+   real(R8P),                           intent(in)              :: time                                                              !< Current simulation time.
+   real(R8P),                           intent(in), optional    :: dt                                                                !< Time step.
+   real(R8P),                           intent(in), optional    :: gamm                                                              !< Gamma values of RK SSP
+   real(R8P),                           intent(inout)           :: dq(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)  !< Primitive variables.
+   real(R8P)                                                    :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
+                                                                   y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
+                                                                   z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)             !< Vettori posizione centro celle del blocco b
+	real(R8P) 										                      :: dB_r, dB_theta 														          !< Radial and azimuthal components of the rotating magnetic field
+   real(R8P)										                      :: time1															                !< Time at the next sub-step
+	real(R8P)										                      :: theta                  								                   !< Angle in cylindrical coordinates
+   integer(I4P)                                                 :: b,i,j,k															                !< Counters
+	real(R8P)										                      :: cell_coord(3)												                   !< Cell coordinates vector and scalar variables
+   real(R8P)                                                    :: x, y, r, omega, phase, c, s
 
    associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
 		alpha=>self%alpha, beta=>self%beta, gamma=>self%gamma)	
-
+   if (present(gamm)) then
+      time1 = time + dt*gamm
+   else
+      time1 = time
+   end if
    do b = 1, blocks_number
 		call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          do i = 1, ni
             do j = 1, nj
                do k = 1, nk
 					   cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
-                  theta = atan(cell_coord(beta)/cell_coord(alpha))
-					   thetaabs = abs(atan(cell_coord(beta)/cell_coord(alpha)))
-					   alfa = pi/2-thetaabs
-					   if (cell_coord(alpha) > 0.0_R8P .and. cell_coord(beta) > 0.0_R8P) then ! 1 quadrante
-                     theta = theta
-                     dB_r = -(2*PI*self%RMF_frequency)*self%RMF_B_amplitude*sin(2*PI*self%RMF_frequency*time-theta)
-	                  dB_theta = (2*PI*self%RMF_frequency)*self%RMF_B_amplitude*cos(2*PI*self%RMF_frequency*time-theta)
-					   	dq(alpha+3_I4P,i,j,k,b) = dq(alpha+3_I4P,i,j,k,b) + dB_r*cos(thetaabs) - dB_theta*cos(alfa)
-					   	dq(beta+3_I4P,i,j,k,b)  = dq(beta+3_I4P,i,j,k,b)  + dB_r*sin(thetaabs) + dB_theta*sin(alfa)
-					   	dq(gamma,i,j,k,b) = -sqrt(cell_coord(alpha)**2 + cell_coord(beta)**2)*(2*PI*self%RMF_frequency)**2* &
-					   		self%RMF_B_amplitude*cos(2*PI*self%RMF_frequency*time-theta)*EPS0
-					   else if (cell_coord(alpha) < 0.0_R8P .and. cell_coord(beta) > 0.0_R8P) then ! 2 quadrante
-                     theta = theta+PI
-                     dB_r = -(2*PI*self%RMF_frequency)*self%RMF_B_amplitude*sin(2*PI*self%RMF_frequency*time-theta)
-	                  dB_theta = (2*PI*self%RMF_frequency)*self%RMF_B_amplitude*cos(2*PI*self%RMF_frequency*time-theta)
-					   	dq(alpha+3_I4P,i,j,k,b) = dq(alpha+3_I4P,i,j,k,b) - dB_r*cos(thetaabs) - dB_theta*cos(alfa)
-					   	dq(beta+3_I4P,i,j,k,b)  = dq(beta+3_I4P,i,j,k,b)  + dB_r*sin(thetaabs) - dB_theta*sin(alfa)
-					   	dq(gamma,i,j,k,b) = -sqrt(cell_coord(alpha)**2 + cell_coord(beta)**2)*(2*PI*self%RMF_frequency)**2* &
-					   		self%RMF_B_amplitude*cos(2*PI*self%RMF_frequency*time-theta)*EPS0
-					   else if (cell_coord(alpha) < 0.0_R8P .and. cell_coord(beta) < 0.0_R8P) then ! 3 quadrante
-                     theta = theta+PI
-                     dB_r = -(2*PI*self%RMF_frequency)*self%RMF_B_amplitude*sin(2*PI*self%RMF_frequency*time-theta)
-	                  dB_theta = (2*PI*self%RMF_frequency)*self%RMF_B_amplitude*cos(2*PI*self%RMF_frequency*time-theta)
-					   	dq(alpha+3_I4P,i,j,k,b) = dq(alpha+3_I4P,i,j,k,b) - dB_r*cos(thetaabs) + dB_theta*cos(alfa)
-					   	dq(beta+3_I4P,i,j,k,b)  = dq(beta+3_I4P,i,j,k,b)  - dB_r*sin(thetaabs) - dB_theta*sin(alfa)
-					   	dq(gamma,i,j,k,b) = -sqrt(cell_coord(alpha)**2 + cell_coord(beta)**2)*(2*PI*self%RMF_frequency)**2* &
-					   		self%RMF_B_amplitude*cos(2*PI*self%RMF_frequency*time-theta)*EPS0
-					   else if (cell_coord(alpha) > 0.0_R8P .and. cell_coord(beta) < 0.0_R8P) then ! 4 quadrante
-                     theta = theta+2*PI
-                     dB_r = -(2*PI*self%RMF_frequency)*self%RMF_B_amplitude*sin(2*PI*self%RMF_frequency*time-theta)
-	                  dB_theta = (2*PI*self%RMF_frequency)*self%RMF_B_amplitude*cos(2*PI*self%RMF_frequency*time-theta)
-					   	dq(alpha+3_I4P,i,j,k,b) = dq(alpha+3_I4P,i,j,k,b) + dB_r*cos(thetaabs) + dB_theta*cos(alfa)
-					   	dq(beta+3_I4P,i,j,k,b)  = dq(beta+3_I4P,i,j,k,b)  - dB_r*sin(thetaabs) + dB_theta*sin(alfa)
-					   	dq(gamma,i,j,k,b) = -sqrt(cell_coord(alpha)**2 + cell_coord(beta)**2)*(2*PI*self%RMF_frequency)**2* &
-					   		self%RMF_B_amplitude*cos(2*PI*self%RMF_frequency*time-theta)*EPS0
-					   end if
+                  x = cell_coord(alpha)
+                  y = cell_coord(beta)
+                  r = sqrt(x*x + y*y)
+                  theta = atan2(y, x)                   
+                  omega = 2.0_R8P*PI*self%RMF_frequency
+                  phase = omega*time1 - theta
+                  dB_r     = -omega*self%RMF_B_amplitude*sin(phase)
+                  dB_theta =  omega*self%RMF_B_amplitude*cos(phase)
+                  c = cos(theta)
+                  s = sin(theta)
+                  dq(alpha+3_I4P,i,j,k,b) = dB_r*c - dB_theta*s
+                  dq(beta +3_I4P,i,j,k,b) = dB_r*s + dB_theta*c
+                  dq(gamma,i,j,k,b) = -r*omega*omega*self%RMF_B_amplitude*sin(phase)*EPS0
                enddo
             enddo
          enddo
@@ -258,11 +254,13 @@ contains
 	endassociate
    endsubroutine add_external_fields_rmf
 
-   subroutine add_external_fields_none(self, field, time, dq)
+   subroutine add_external_fields_none(self, field, time, dt, gamm, dq)
    !< Add rotating magnetic field to the field.
    class(prism_external_fields_object), intent(inout) :: self                                                              !< External fields.
    type(field_object),                  intent(inout) :: field                                                             !< The field.
    real(R8P),                           intent(in)    :: time                                                              !< Current simulation time.
+   real(R8P),                           intent(in), optional    :: dt                                                                !< Time step.
+   real(R8P),                           intent(in), optional    :: gamm                                                              !< Gamma values oh RK SSP
    real(R8P),                           intent(inout) :: dq(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)   !< Primitive variables.
    real(R8P)                                          :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
                                                          y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &

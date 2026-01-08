@@ -15,6 +15,7 @@ use adam_prism_physics_object
 use adam_prism_rk_bc_object
 use adam_prism_time_object
 use adam_prism_riemann_library
+use adam_prism_pic_object
 
 implicit none
 public

@@ -216,8 +216,9 @@ contains
                                                                         !< Vettori posizione centro celle del blocco b
       integer(I4P)                              :: b, i, j, k, ri, var  !< Counter.
 	   real(R8P) 										   :: B_r, B_theta 			!< Radial and azimuthal components of the rotating magnetic field
-	   real(R8P)										   :: theta, alfa, thetaabs!< Angles in cylindrical coordinates
-	   real(R8P)										   :: cell_coord(3)	
+	   real(R8P)										   :: theta                !< Angles in cylindrical coordinates
+	   real(R8P)										   :: cell_coord(3)
+      real(R8P)                                 :: x, y, r, omega, phase, c, s
    associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
              nv=>physics%nv, nv_c=>physics%nv_c, nv_cl=>physics%nv_cl)
    select case(self%ic_type)
@@ -268,42 +269,19 @@ contains
             do j = 1, nj
                do k = 1, nk
 					   cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
-                  theta = atan(cell_coord(beta)/cell_coord(alpha))
-					   thetaabs = abs(atan(cell_coord(beta)/cell_coord(alpha)))
-					   alfa = pi/2-thetaabs
-					   if (cell_coord(alpha) > 0.0_R8P .and. cell_coord(beta) > 0.0_R8P) then ! 1 quadrante
-                     theta = theta
-                     B_r = self%RMF_B_amplitude*cos(-theta)
-	                  B_theta = self%RMF_B_amplitude*sin(-theta)
-					   	q(alpha+3_I4P,i,j,k,b) = q(alpha+3_I4P,i,j,k,b) + B_r*cos(thetaabs) - B_theta*cos(alfa)
-					   	q(beta+3_I4P,i,j,k,b)  = q(beta+3_I4P,i,j,k,b)  + B_r*sin(thetaabs) + B_theta*sin(alfa)
-					   	q(gamma,i,j,k,b) = sqrt(cell_coord(alpha)**2 + cell_coord(beta)**2)*2*PI*self%RMF_frequency* &
-					   		self%RMF_B_amplitude*cos(-theta)*EPS0
-					   else if (cell_coord(alpha) < 0.0_R8P .and. cell_coord(beta) > 0.0_R8P) then ! 2 quadrante
-                     theta = theta+PI
-                     B_r = self%RMF_B_amplitude*cos(-theta)
-	                  B_theta = self%RMF_B_amplitude*sin(-theta)
-					   	q(alpha+3_I4P,i,j,k,b) = q(alpha+3_I4P,i,j,k,b) - B_r*cos(thetaabs) - B_theta*cos(alfa)
-					   	q(beta+3_I4P,i,j,k,b)  = q(beta+3_I4P,i,j,k,b)  + B_r*sin(thetaabs) - B_theta*sin(alfa)
-					   	q(gamma,i,j,k,b) = sqrt(cell_coord(alpha)**2 + cell_coord(beta)**2)*2*PI*self%RMF_frequency* &
-					   		self%RMF_B_amplitude*cos(-theta)*EPS0
-					   else if (cell_coord(alpha) < 0.0_R8P .and. cell_coord(beta) < 0.0_R8P) then ! 3 quadrante
-                     theta = theta+PI
-                     B_r = self%RMF_B_amplitude*cos(-theta)
-                     B_theta = self%RMF_B_amplitude*sin(-theta)
-					   	q(alpha+3_I4P,i,j,k,b) = q(alpha+3_I4P,i,j,k,b) - B_r*cos(thetaabs) + B_theta*cos(alfa)
-					   	q(beta+3_I4P,i,j,k,b)  = q(beta+3_I4P,i,j,k,b)  - B_r*sin(thetaabs) - B_theta*sin(alfa)
-					   	q(gamma,i,j,k,b) = sqrt(cell_coord(alpha)**2 + cell_coord(beta)**2)*2*PI*self%RMF_frequency* &
-					   		self%RMF_B_amplitude*cos(-theta)*EPS0
-					   else if (cell_coord(alpha) > 0.0_R8P .and. cell_coord(beta) < 0.0_R8P) then ! 4 quadrante
-                     theta = theta+2*PI
-                     B_r = self%RMF_B_amplitude*cos(-theta)
-                     B_theta = self%RMF_B_amplitude*sin(-theta)
-					   	q(alpha+3_I4P,i,j,k,b) = q(alpha+3_I4P,i,j,k,b) + B_r*cos(thetaabs) + B_theta*cos(alfa)
-					   	q(beta+3_I4P,i,j,k,b)  = q(beta+3_I4P,i,j,k,b)  - B_r*sin(thetaabs) + B_theta*sin(alfa)
-					   	q(gamma,i,j,k,b) = sqrt(cell_coord(alpha)**2 + cell_coord(beta)**2)*2*PI*self%RMF_frequency* &
-					   		self%RMF_B_amplitude*cos(-theta)*EPS0
-					   end if
+                  x = cell_coord(alpha)
+                  y = cell_coord(beta)
+                  r = sqrt(x*x + y*y)
+                  theta = atan2(y, x)                   
+                  omega = 2.0_R8P*PI*self%RMF_frequency
+                  phase = -theta !+omega*time1 se la vuoi rendere analitica come termine sorgente
+                  B_r     = self%RMF_B_amplitude*cos(phase)
+                  B_theta = self%RMF_B_amplitude*sin(phase)
+                  c = cos(theta)
+                  s = sin(theta)
+                  q(alpha+3_I4P,i,j,k,b) = B_r*c - B_theta*s
+                  q(beta +3_I4P,i,j,k,b) = B_r*s + B_theta*c
+                  q(gamma,i,j,k,b) = r*omega*self%RMF_B_amplitude*cos(phase)*EPS0
                enddo
             enddo
          enddo
