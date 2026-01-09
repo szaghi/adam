@@ -148,7 +148,7 @@
             <a class="list-group-item" href="../module/adam_nasto_gmp_kernels.html#proc-compute_fluxes_diffusive_gmp">compute_fluxes_diffusive_gmp</a>
             <a class="list-group-item" href="../module/adam_nasto_gmp_kernels.html#proc-compute_umax_gmp">compute_umax_gmp</a>
             <a class="list-group-item" href="../module/adam_nasto_gmp_kernels.html#proc-set_bc_q_gpu_gmp">set_bc_q_gpu_gmp</a>
-            <a class="list-group-item" href="../module/adam_nasto_gmp_kernels.html#proc-compute_fluxes_convective_device">compute_fluxes_convective_device</a>
+            <a class="list-group-item" href="../module/adam_nasto_gmp_kernels.html#proc-compute_fluxes_convective_device~2">compute_fluxes_convective_device</a>
             <a class="list-group-item" href="../module/adam_nasto_gmp_kernels.html#proc-decompose_fluxes_convective_device~2">decompose_fluxes_convective_device</a>
         </div>
       </div>
@@ -175,8 +175,8 @@
         <ul class="list-group list-group-flush">
             <li class="list-group-item">
               <ul class="list-inline">
-                  <li class="list-inline-item">adam_weno_object</li>
                   <li class="list-inline-item">penf</li>
+                  <li class="list-inline-item">adam_weno_object</li>
                   <li class="list-inline-item"><a href='adam_nasto_gmp_cns_kernels.html'>adam_nasto_gmp_cns_kernels</a></li>
               </ul>
             </li>
@@ -495,7 +495,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-blocks_number~6"></span>
+              <span class="anchor" id="variable-blocks_number~7"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -735,7 +735,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-g~9"></span>
+              <span class="anchor" id="variable-g~11"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -805,7 +805,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-blocks_number~7"></span>
+              <span class="anchor" id="variable-blocks_number~8"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1055,7 +1055,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-blocks_number~8"></span>
+              <span class="anchor" id="variable-blocks_number~9"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1145,7 +1145,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-mu~3"></span>
+              <span class="anchor" id="variable-mu~6"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1160,7 +1160,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-kd~2"></span>
+              <span class="anchor" id="variable-kd~5"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1365,7 +1365,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-blocks_number~9"></span>
+              <span class="anchor" id="variable-blocks_number~10"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1380,7 +1380,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-mu~4"></span>
+              <span class="anchor" id="variable-mu~7"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1495,7 +1495,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-bc_extrapolation~3"></span>
+              <span class="anchor" id="variable-bc_extrapolation~2"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1510,7 +1510,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-bc_inflow~3"></span>
+              <span class="anchor" id="variable-bc_inflow~2"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1555,7 +1555,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-cv~3"></span>
+              <span class="anchor" id="variable-cv~6"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1570,7 +1570,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-r~3"></span>
+              <span class="anchor" id="variable-r~7"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1585,7 +1585,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-local_map_bc_gpu"></span>
+              <span class="anchor" id="variable-local_map_bc_gpu~2"></span>
               integer(kind=I8P),
             </td>
 <td>intent(in)</td>
@@ -1651,7 +1651,7 @@ modules which it uses.
   </div>
 
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-compute_fluxes_convective_device"></span> <h3>private  subroutine <a href='../proc/compute_fluxes_convective_device.html'>compute_fluxes_convective_device</a>(dir, si, sir, b, i, j, k, ngc, nv, weno_s, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, ror_number, ror_schemes_gpu, ror_threshold, ror_ivar_gpu, ror_stats_gpu, g, q_aux_gpu, fluxes_gpu)  
+    <div class="card-header codesum"><span class="anchor" id="proc-compute_fluxes_convective_device~2"></span> <h3>private  subroutine <a href='../proc/compute_fluxes_convective_device~2.html'>compute_fluxes_convective_device</a>(dir, si, sir, b, i, j, k, ngc, nv, weno_s, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, ror_number, ror_schemes_gpu, ror_threshold, ror_ivar_gpu, ror_stats_gpu, g, q_aux_gpu, fluxes_gpu)  
 </h3></div>
     <div class="card-body">
           
@@ -1715,7 +1715,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-b~20"></span>
+              <span class="anchor" id="variable-b~19"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1955,7 +1955,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-g~10"></span>
+              <span class="anchor" id="variable-g~12"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -2086,7 +2086,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-b~21"></span>
+              <span class="anchor" id="variable-b~20"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -2176,7 +2176,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-g~11"></span>
+              <span class="anchor" id="variable-g~13"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
