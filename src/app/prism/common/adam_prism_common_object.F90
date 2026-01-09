@@ -247,7 +247,7 @@ contains
       integer(I4P)               :: c              !< Counter.
 
       call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field)
-      !if (self%physics%model == EM_PHYSICAL_MODEL) then
+      if (self%physics%physical_model == EM_PHYSICAL_MODEL) then
          select case(self%numerics%div_corr_var)
          case(DIV_CORR_VAR_POISS)
             self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
@@ -283,44 +283,44 @@ contains
             call self%adam%io%register_aux_field(s1_I4P=self%coil%coil_flag,s1_I4P_name='coil_flag')
          endif
          if (self%io%save_curl_fields) call self%adam%io%register_aux_field(q5_R8P=self%curl,q5_R8P_name=q5_R8P_name)
-      !elseif(self%physics%model == PIC_PHYSICAL_MODEL) then
-      !   select case(self%numerics%div_corr_var)
-      !   case(DIV_CORR_VAR_POISS)
-      !      self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ','rho']
-      !      q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_Jx','res_Jy','res_Jz','res_rh']
-      !      q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09','div10']
-      !   case(DIV_CORR_VAR_HYPER)
-      !      if (self%numerics%constrained_transport_D .and. .not.self%numerics%constrained_transport_B) then
-      !         self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','phi','Jx ','Jy ','Jz ','rho']
-      !         q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_ph','res_Jx','res_Jy','res_Jz','res_rh']
-      !         q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09','div10','div11']
-      !      elseif (.not.self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
-      !         self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','psi','Jx ','Jy ','Jz ','rho']
-      !         q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_ps','res_Jx','res_Jy','res_Jz','res_rh']
-      !         q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09','div10','div11']
-      !      elseif (self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
-      !         self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','phi','psi','Jx ','Jy ','Jz ','rho']
-      !         q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_ph','res_ps','res_Jx','res_Jy','res_Jz','res_rh']
-      !         q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09','div10','div11','div12']
-      !      endif
-      !   case default
-      !      self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ','rho']
-      !      q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_Jx','res_Jy','res_Jz','res_rh']
-      !      q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09','div10']
-      !   endselect
-      !   q5_R8P_name = ['curlD_x','curlD_y','curlD_z','curlB_x','curlB_y','curlB_z','curlJ_x','curlJ_y','curlJ_z']
-      !   if (self%io%save_residual_fields) call self%adam%io%register_aux_field(q1_R8P=self%dq,q1_R8P_name=q1_R8P_name)
-      !   if (self%io%save_divergence_fields) call self%adam%io%register_aux_field(q2_R8P=self%divergence,q2_R8P_name=q2_R8P_name)
-      !   if (self%coil%total_coils_number>0) then
-      !      q3_R8P_name = ['j_vec_1','j_vec_2','j_vec_3','f_Gauss']
-      !      q4_R8P_name = [('coil_phi_'//trim(strz(c,3)),c=1,self%coil%total_coils_number)]
-      !      call self%adam%io%register_aux_field(q3_R8P=self%coil%j_vec,    q3_R8P_name=q3_R8P_name)
-      !      call self%adam%io%register_aux_field(q4_R8P=self%coil%phi,      q4_R8P_name=q4_R8P_name)
-      !      call self%adam%io%register_aux_field(s1_I4P=self%coil%coil_flag,s1_I4P_name='coil_flag')
-      !   endif
-      !   if (self%io%save_curl_fields) call self%adam%io%register_aux_field(q5_R8P=self%curl,q5_R8P_name=q5_R8P_name)
-      !endif
-
+      elseif(self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+         select case(self%numerics%div_corr_var)
+         case(DIV_CORR_VAR_POISS)
+            self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ','rho']
+            q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_Jx','res_Jy','res_Jz','res_rh']
+            q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09','div10']
+         case(DIV_CORR_VAR_HYPER)
+            if (self%numerics%constrained_transport_D .and. .not.self%numerics%constrained_transport_B) then
+               self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','phi','Jx ','Jy ','Jz ','rho']
+               q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_ph','res_Jx','res_Jy','res_Jz','res_rh']
+               q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09','div10','div11']
+            elseif (.not.self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
+               self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','psi','Jx ','Jy ','Jz ','rho']
+               q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_ps','res_Jx','res_Jy','res_Jz','res_rh']
+               q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09','div10','div11']
+            elseif (self%numerics%constrained_transport_D .and. self%numerics%constrained_transport_B) then
+               self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','phi','psi','Jx ','Jy ','Jz ','rho']
+               q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_ph','res_ps','res_Jx','res_Jy', &
+                              'res_Jz','res_rh']
+               q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09','div10','div11','div12']
+            endif
+         case default
+            self%q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ','rho']
+            q1_R8P_name = ['res_Dx','res_Dy','res_Dz','res_Bx','res_By','res_Bz','res_Jx','res_Jy','res_Jz','res_rh']
+            q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09','div10']
+         endselect
+         q5_R8P_name = ['curlD_x','curlD_y','curlD_z','curlB_x','curlB_y','curlB_z','curlJ_x','curlJ_y','curlJ_z']
+         if (self%io%save_residual_fields) call self%adam%io%register_aux_field(q1_R8P=self%dq,q1_R8P_name=q1_R8P_name)
+         if (self%io%save_divergence_fields) call self%adam%io%register_aux_field(q2_R8P=self%divergence,q2_R8P_name=q2_R8P_name)
+         if (self%coil%total_coils_number>0) then
+            q3_R8P_name = ['j_vec_1','j_vec_2','j_vec_3','f_Gauss']
+            q4_R8P_name = [('coil_phi_'//trim(strz(c,3)),c=1,self%coil%total_coils_number)]
+            call self%adam%io%register_aux_field(q3_R8P=self%coil%j_vec,    q3_R8P_name=q3_R8P_name)
+            call self%adam%io%register_aux_field(q4_R8P=self%coil%phi,      q4_R8P_name=q4_R8P_name)
+            call self%adam%io%register_aux_field(s1_I4P=self%coil%coil_flag,s1_I4P_name='coil_flag')
+         endif
+         if (self%io%save_curl_fields) call self%adam%io%register_aux_field(q5_R8P=self%curl,q5_R8P_name=q5_R8P_name)
+      endif
       endsubroutine io_initialize
    endsubroutine initialize_common
 endmodule adam_prism_common_object

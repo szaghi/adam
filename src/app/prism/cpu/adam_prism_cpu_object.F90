@@ -17,7 +17,8 @@ public :: prism_cpu_object
 ! pointer (abstract) procedures
 procedure(compute_convective_fluxes_interface), pointer :: compute_fluxes_Maxwell=>null() !< Compute convective fluxes.
 procedure(add_external_fields_interface),       pointer :: add_external_fields   =>null() !< Add external fields.
-!procedure(particle_weighting_interface),        pointer :: particle_weighting    =>null() !< Particle weighting.
+procedure(sub_external_fields_interface),       pointer :: sub_external_fields   =>null() !< Subtract external fields.
+procedure(particle_weighting_interface),        pointer :: particle_weighting    =>null() !< Particle weighting.
 
 type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR e IB
    !< Maxwell equations system class definition, CPU backend.
@@ -275,26 +276,28 @@ contains
    select case(self%external_fields%external_field_applied)
    case(RMF)
       add_external_fields => add_external_fields_rmf
+      sub_external_fields => sub_external_fields_rmf
    !case(MAGNETIC_NOZZLE)
    !   add_external_fields => self%external_fields%add_external_fields_magnetic_nozzle
    !case(RMF_AND_MAGNETIC_NOZZLE)
    !   add_external_fields => self%external_fields%add_external_fields_rmf_and_magnetic_nozzle
    case default
       add_external_fields => add_external_fields_none
+      sub_external_fields => sub_external_fields_none
    endselect
 
-   !if (self%physics%model == PIC_PHYSICAL_MODEL) then
-   !   select case(self%pic%particle_weighting_model)
-   !   case(CIC)
-   !      particle_weighting => CIC_weighting
-   !   case(NPC)
-   !      particle_weighting => NPC_weighting
-   !   case(TSC)
-   !      particle_weighting => TSC_weighting
-   !   case default
-   !      call self%mpih%error_stop(msg=': invalid particle weighting model in prism_cpu_object%initialize')
-   !   endselect
-   !endif
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      select case(self%pic%particle_weighting_model)
+      case(CIC_WEIGHTING_MODEL)
+         particle_weighting => CIC_weighting
+      case(NGP_WEIGHTING_MODEL)
+         particle_weighting => NGP_weighting
+      case(TSC_WEIGHTING_MODEL)
+         particle_weighting => TSC_weighting
+      case default
+         call self%mpih%error_stop(msg=': invalid particle weighting model in prism_cpu_object%initialize')
+      endselect
+   endif
 
    print '(A)', self%mpih%description()
    call self%mpih%print_message('prism_cpu_object%initialize finish')
@@ -1808,8 +1811,6 @@ contains
       enddo
       enddo
       enddo
-      !call add_external_fields(self=self%external_fields, field=self%field, time=self%time%time, dt=self%time%dt, &
-      !       dq=dq)
    endif
    endassociate
    endsubroutine compute_residuals_fd_centered
@@ -1906,7 +1907,6 @@ contains
       enddo
       enddo
       enddo
-      !call add_external_fields(self = self%external_fields,field = self%field, time=self%time%time, dt=self%time%dt, gamm=self%rk%gamm(s), dq=dq)
    endif
    endassociate
    endsubroutine compute_residuals_fv_centered
@@ -2045,7 +2045,8 @@ contains
    !< SSP RK working on q_rk as stages.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
-   
+   call sub_external_fields(self = self%external_fields, field = self%field, & 
+                           time = self%time%time, dt = self%time%dt, q = self%q)
    call self%rk%initialize_stages(q=self%q)
    do s=1, self%rk%nrk
       call self%compute_coils_current(gamma=self%rk%gamm(s))
@@ -2071,6 +2072,8 @@ contains
    endif
    call self%impose_div_free
    call self%apply_fWL_correction
+   call add_external_fields(self = self%external_fields, field = self%field, & 
+                           time = self%time%time, dt = self%time%dt, q = self%q)   
    endsubroutine integrate_rk_ssp
 
    subroutine update_q_BC(self, dt, phi)

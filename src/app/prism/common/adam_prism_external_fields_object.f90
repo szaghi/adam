@@ -18,10 +18,15 @@ public :: MAGNETIC_NOZZLE
 public :: RMF_AND_MAGNETIC_NOZZLE
 public :: prism_external_fields_object
 public :: add_external_fields_interface
+public :: sub_external_fields_interface
 public :: add_external_fields_rmf
 !public :: add_external_fields_magnetic_nozzle
 !public :: add_external_fields_rmf_and_magnetic_nozzle
 public :: add_external_fields_none
+public :: sub_external_fields_rmf
+!public :: sub_external_fields_magnetic_nozzle
+!public :: sub_external_fields_rmf_and_magnetic_nozzle
+public :: sub_external_fields_none
 
 character(len=15), parameter :: INI_SECTION_NAME        = 'external_fields'         !< INI (config) file section name containing external fields configs.
 character(len=3),  parameter :: RMF                     = 'RMF'                     !< Rotating Magnetic Field.
@@ -47,19 +52,33 @@ contains
    !procedure, pass(self) :: add_external_fields_magnetic_nozzle  !< Add magnetic nozzle to the field.
    !procedure, pass(self) :: add_external_fields_rmf_and_magnetic_nozzle !< Add rotating magnetic field and magnetic nozzle to the field.
    procedure, pass(self) :: add_external_fields_none              !< No external field applied.
+   procedure, pass(self) :: sub_external_fields_rmf               !< Add rotating magnetic field to the field.
+   !procedure, pass(self) :: sub_external_fields_magnetic_nozzle  !< Add magnetic nozzle to the field.
+   !procedure, pass(self) :: sub_external_fields_rmf_and_magnetic_nozzle !< Add rotating magnetic field and magnetic nozzle to the field.
+   procedure, pass(self) :: sub_external_fields_none              !< No external field applied.
 
 endtype prism_external_fields_object
 
 interface
-   subroutine add_external_fields_interface(self, field, time, dt, gamm, dq)
+   subroutine add_external_fields_interface(self, field, time, dt, gamm, q)
    import :: prism_external_fields_object, field_object, I4P, R8P
    class(prism_external_fields_object), intent(inout)        :: self                                                              !< External fields.
    type(field_object),                  intent(inout)        :: field                                                             !< The field.
    real(R8P),                           intent(in)           :: time                                                              !< Current simulation time.
    real(R8P),                           intent(in), optional :: dt                                                                !< Time step.
    real(R8P),                           intent(in), optional :: gamm                                                              !< Gamma values of RK SSP.
-   real(R8P),                           intent(inout)        :: dq(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)  !< Primitive variables.
+   real(R8P),                           intent(inout)        :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)  !< Primitive variables.
    endsubroutine add_external_fields_interface
+
+   subroutine sub_external_fields_interface(self, field, time, dt, gamm, q)
+   import :: prism_external_fields_object, field_object, I4P, R8P
+   class(prism_external_fields_object), intent(inout)        :: self                                                              !< External fields.
+   type(field_object),                  intent(inout)        :: field                                                             !< The field.
+   real(R8P),                           intent(in)           :: time                                                              !< Current simulation time.
+   real(R8P),                           intent(in), optional :: dt                                                                !< Time step.
+   real(R8P),                           intent(in), optional :: gamm                                                              !< Gamma values of RK SSP.
+   real(R8P),                           intent(inout)        :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)  !< Primitive variables.
+   endsubroutine sub_external_fields_interface
 endinterface
 
 contains 
@@ -203,18 +222,134 @@ contains
 
    endsubroutine load_from_file
 
-   subroutine add_external_fields_rmf(self, field, time, dt, gamm, dq)
+   !subroutine add_external_fields_rmf(self, field, time, dt, gamm, dq)
+   !!< Add rotating magnetic field to the field.
+   !class(prism_external_fields_object), intent(inout)           :: self                                                              !< External fields.
+   !type(field_object),                  intent(inout)           :: field                                                             !< The field.
+   !real(R8P),                           intent(in)              :: time                                                              !< Current simulation time.
+   !real(R8P),                           intent(in), optional    :: dt                                                                !< Time step.
+   !real(R8P),                           intent(in), optional    :: gamm                                                              !< Gamma values of RK SSP
+   !real(R8P),                           intent(inout)           :: dq(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)  !< Primitive variables.
+   !real(R8P)                                                    :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
+   !                                                                y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
+   !                                                                z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)             !< Vettori posizione centro celle del blocco b
+	!real(R8P) 										                      :: dB_r, dB_theta 														          !< Radial and azimuthal components of the rotating magnetic field
+   !real(R8P)										                      :: time1															                !< Time at the next sub-step
+	!real(R8P)										                      :: theta                  								                   !< Angle in cylindrical coordinates
+   !integer(I4P)                                                 :: b,i,j,k															                !< Counters
+	!real(R8P)										                      :: cell_coord(3)												                   !< Cell coordinates vector and scalar variables
+   !real(R8P)                                                    :: x, y, r, omega, phase, c, s
+   !associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
+	!	alpha=>self%alpha, beta=>self%beta, gamma=>self%gamma)	
+   !if (present(gamm)) then
+   !   time1 = time + dt*gamm
+   !else
+   !   time1 = time
+   !end if
+   !do b = 1, blocks_number
+	!	call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
+   !      do i = 1, ni
+   !         do j = 1, nj
+   !            do k = 1, nk
+	!				   cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
+   !               x = cell_coord(alpha)
+   !               y = cell_coord(beta)
+   !               r = sqrt(x*x + y*y)
+   !               theta = atan2(y, x)                   
+   !               omega = 2.0_R8P*PI*self%RMF_frequency
+   !               phase = omega*time1 - theta
+   !               dB_r     = -omega*self%RMF_B_amplitude*sin(phase)
+   !               dB_theta =  omega*self%RMF_B_amplitude*cos(phase)
+   !               c = cos(theta)
+   !               s = sin(theta)
+   !               dq(alpha+3_I4P,i,j,k,b) = dB_r*c - dB_theta*s
+   !               dq(beta +3_I4P,i,j,k,b) = dB_r*s + dB_theta*c
+   !               dq(gamma,i,j,k,b) = -r*omega*omega*self%RMF_B_amplitude*sin(phase)*EPS0
+   !            enddo
+   !         enddo
+   !      enddo
+   !enddo
+	!endassociate
+   !endsubroutine add_external_fields_rmf
+
+   subroutine add_external_fields_rmf(self, field, time, dt, gamm, q)
    !< Add rotating magnetic field to the field.
    class(prism_external_fields_object), intent(inout)           :: self                                                              !< External fields.
    type(field_object),                  intent(inout)           :: field                                                             !< The field.
    real(R8P),                           intent(in)              :: time                                                              !< Current simulation time.
    real(R8P),                           intent(in), optional    :: dt                                                                !< Time step.
    real(R8P),                           intent(in), optional    :: gamm                                                              !< Gamma values of RK SSP
-   real(R8P),                           intent(inout)           :: dq(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)  !< Primitive variables.
+   real(R8P),                           intent(inout)           :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)  !< Primitive variables.
    real(R8P)                                                    :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
                                                                    y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
                                                                    z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)             !< Vettori posizione centro celle del blocco b
-	real(R8P) 										                      :: dB_r, dB_theta 														          !< Radial and azimuthal components of the rotating magnetic field
+	real(R8P) 										                      :: B_r, B_theta 														          !< Radial and azimuthal components of the rotating magnetic field
+   real(R8P)										                      :: time1															                !< Time at the next sub-step
+	real(R8P)										                      :: theta                  								                   !< Angle in cylindrical coordinates
+   integer(I4P)                                                 :: b,i,j,k															                !< Counters
+	real(R8P)										                      :: cell_coord(3)												                   !< Cell coordinates vector and scalar variables
+   real(R8P)                                                    :: x, y, r, omega, phase, c, s
+
+   associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
+		alpha=>self%alpha, beta=>self%beta, gamma=>self%gamma)	
+   if (present(gamm)) then
+      time1 = time + dt*gamm
+   else
+      time1 = time + dt
+   end if
+   do b = 1, blocks_number
+		call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
+         do i = 1, ni
+            do j = 1, nj
+               do k = 1, nk
+					   cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
+                  x = cell_coord(alpha)
+                  y = cell_coord(beta)
+                  r = sqrt(x*x + y*y)
+                  theta = atan2(y, x)                   
+                  omega = 2.0_R8P*PI*self%RMF_frequency
+                  phase = omega*time1 - theta
+                  B_r     = self%RMF_B_amplitude*cos(phase)
+                  B_theta = self%RMF_B_amplitude*sin(phase)
+                  c = cos(theta)
+                  s = sin(theta)
+                  q(alpha+3_I4P,i,j,k,b) = q(alpha+3_I4P,i,j,k,b) + B_r*c - B_theta*s
+                  q(beta +3_I4P,i,j,k,b) = q(beta +3_I4P,i,j,k,b) + B_r*s + B_theta*c
+                  q(gamma,i,j,k,b) = q(gamma,i,j,k,b) + r*omega*self%RMF_B_amplitude*cos(phase)*EPS0
+               enddo
+            enddo
+         enddo
+   enddo
+	endassociate
+   endsubroutine add_external_fields_rmf
+
+   subroutine add_external_fields_none(self, field, time, dt, gamm, q)
+   !< Add rotating magnetic field to the field.
+   class(prism_external_fields_object), intent(inout) :: self                                                              !< External fields.
+   type(field_object),                  intent(inout) :: field                                                             !< The field.
+   real(R8P),                           intent(in)    :: time                                                              !< Current simulation time.
+   real(R8P),                           intent(in), optional    :: dt                                                                !< Time step.
+   real(R8P),                           intent(in), optional    :: gamm                                                              !< Gamma values oh RK SSP
+   real(R8P),                           intent(inout) :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)   !< Primitive variables.
+   real(R8P)                                          :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
+                                                         y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
+                                                         z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)             !< Vettori posizione centro celle del blocco b
+   integer(I4P)                                       :: b,i,j,k
+
+   endsubroutine add_external_fields_none
+
+   subroutine sub_external_fields_rmf(self, field, time, dt, gamm, q)
+   !< Add rotating magnetic field to the field.
+   class(prism_external_fields_object), intent(inout)           :: self                                                              !< External fields.
+   type(field_object),                  intent(inout)           :: field                                                             !< The field.
+   real(R8P),                           intent(in)              :: time                                                              !< Current simulation time.
+   real(R8P),                           intent(in), optional    :: dt                                                                !< Time step.
+   real(R8P),                           intent(in), optional    :: gamm                                                              !< Gamma values of RK SSP
+   real(R8P),                           intent(inout)           :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)  !< Primitive variables.
+   real(R8P)                                                    :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
+                                                                   y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
+                                                                   z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)             !< Vettori posizione centro celle del blocco b
+	real(R8P) 										                      :: B_r, B_theta 														          !< Radial and azimuthal components of the rotating magnetic field
    real(R8P)										                      :: time1															                !< Time at the next sub-step
 	real(R8P)										                      :: theta                  								                   !< Angle in cylindrical coordinates
    integer(I4P)                                                 :: b,i,j,k															                !< Counters
@@ -240,33 +375,33 @@ contains
                   theta = atan2(y, x)                   
                   omega = 2.0_R8P*PI*self%RMF_frequency
                   phase = omega*time1 - theta
-                  dB_r     = -omega*self%RMF_B_amplitude*sin(phase)
-                  dB_theta =  omega*self%RMF_B_amplitude*cos(phase)
+                  B_r     = self%RMF_B_amplitude*cos(phase)
+                  B_theta = self%RMF_B_amplitude*sin(phase)
                   c = cos(theta)
                   s = sin(theta)
-                  dq(alpha+3_I4P,i,j,k,b) = dB_r*c - dB_theta*s
-                  dq(beta +3_I4P,i,j,k,b) = dB_r*s + dB_theta*c
-                  dq(gamma,i,j,k,b) = -r*omega*omega*self%RMF_B_amplitude*sin(phase)*EPS0
+                  q(alpha+3_I4P,i,j,k,b) = q(alpha+3_I4P,i,j,k,b) - (B_r*c - B_theta*s)
+                  q(beta +3_I4P,i,j,k,b) = q(beta +3_I4P,i,j,k,b) - (B_r*s + B_theta*c)
+                  q(gamma,i,j,k,b) = q(gamma,i,j,k,b) - r*omega*self%RMF_B_amplitude*cos(phase)*EPS0
                enddo
             enddo
          enddo
    enddo
 	endassociate
-   endsubroutine add_external_fields_rmf
+   endsubroutine sub_external_fields_rmf
 
-   subroutine add_external_fields_none(self, field, time, dt, gamm, dq)
+   subroutine sub_external_fields_none(self, field, time, dt, gamm, q)
    !< Add rotating magnetic field to the field.
    class(prism_external_fields_object), intent(inout) :: self                                                              !< External fields.
    type(field_object),                  intent(inout) :: field                                                             !< The field.
    real(R8P),                           intent(in)    :: time                                                              !< Current simulation time.
    real(R8P),                           intent(in), optional    :: dt                                                                !< Time step.
    real(R8P),                           intent(in), optional    :: gamm                                                              !< Gamma values oh RK SSP
-   real(R8P),                           intent(inout) :: dq(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)   !< Primitive variables.
+   real(R8P),                           intent(inout) :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)   !< Primitive variables.
    real(R8P)                                          :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
                                                          y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
                                                          z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)             !< Vettori posizione centro celle del blocco b
    integer(I4P)                                       :: b,i,j,k
 
-   endsubroutine add_external_fields_none
+   endsubroutine sub_external_fields_none
 
 endmodule adam_prism_external_fields_object
