@@ -1100,21 +1100,6 @@ contains
    endfunction dotproduct
 
    function crossproduct(a, b) result(cross)
-   !< Compute the cross product.
-   !<
-   !< $$ \vec V=\left({y_1 z_2 - z_1 y_2}\right)\vec i +
-   !<           \left({z_1 x_2 - x_1 z_2}\right)\vec j +
-   !<           \left({x_1 y_2 - y_1 x_2}\right)\vec k $$
-   !< where \( x_i \), \( y_i \) and \( z_i \) \( i=1,2 \) are the components of the vectors.
-   !<
-   !<```fortran
-   !< type(vector_RPP) :: pt(0:2)
-   !< pt(1) = 2 * ex_RPP
-   !< pt(2) = ex_RPP
-   !< pt(0) = pt(1).cross.pt(2)
-   !< print "(3(F3.1,1X))", abs(pt(0)%x), abs(pt(0)%y), abs(pt(0)%z)
-   !<```
-   !=> 0.0 0.0 0.0 <<<
    real(R8P), intent(in) :: a(3)     !< Left hand side.
    real(R8P), intent(in) :: b(3)     !< Left hand side.
    real(R8P)             :: cross(3) !< Cross product.

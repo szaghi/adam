@@ -19,6 +19,8 @@ procedure(compute_convective_fluxes_interface), pointer :: compute_fluxes_Maxwel
 procedure(add_external_fields_interface),       pointer :: add_external_fields   =>null() !< Add external fields.
 procedure(sub_external_fields_interface),       pointer :: sub_external_fields   =>null() !< Subtract external fields.
 procedure(particle_weighting_interface),        pointer :: particle_weighting    =>null() !< Particle weighting.
+procedure(current_weighting_interface),         pointer :: current_weighting     =>null() !< Current weighting.
+procedure(field_weighting_interface),           pointer :: field_weighting       =>null() !< field weighting.
 
 type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR e IB
    !< Maxwell equations system class definition, CPU backend.
@@ -289,13 +291,39 @@ contains
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       select case(self%pic%particle_weighting_model)
       case(CIC_WEIGHTING_MODEL)
-         particle_weighting => CIC_weighting
+         particle_weighting => CIC_charge_weighting
       case(NGP_WEIGHTING_MODEL)
-         particle_weighting => NGP_weighting
+         particle_weighting => NGP_charge_weighting
       case(TSC_WEIGHTING_MODEL)
-         particle_weighting => TSC_weighting
+         particle_weighting => TSC_charge_weighting
       case default
          call self%mpih%error_stop(msg=': invalid particle weighting model in prism_cpu_object%initialize')
+      endselect
+   endif
+
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      select case(self%pic%current_weighting_model)
+      case(CIC_WEIGHTING_MODEL)
+         current_weighting => CIC_current_weighting
+      case(NGP_WEIGHTING_MODEL)
+         current_weighting => NGP_current_weighting
+      case(TSC_WEIGHTING_MODEL)
+         current_weighting => TSC_current_weighting
+      case default
+         call self%mpih%error_stop(msg=': invalid current weighting model in prism_cpu_object%initialize')
+      endselect
+   endif
+
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      select case(self%pic%field_weighting_model)
+      case(ZEROD_FIELDS_WEIGHTING_MODEL)
+         field_weighting => zeroD_field_weighting
+      case(ONED_FIELDS_WEIGHTING_MODEL)
+         field_weighting => oneD_field_weighting
+      !case(TSC_WEIGHTING_MODEL)
+      !   current_weighting => TSC_current_weighting
+      case default
+         call self%mpih%error_stop(msg=': invalid current weighting model in prism_cpu_object%initialize')
       endselect
    endif
 

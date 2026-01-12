@@ -128,12 +128,12 @@ contains
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       call allocate_variable(var=self%q_pic,           &
                              ulb=reshape([1,self%pic%particle_number,  &
-                                          1,7],[2,2]), &
+                                          1,8],[2,2]), &
                              msg=self%mpih%myrankstr//'prism_common_object%allocate_common(q_pic) ', verbose=.true.)
       self%q_pic = 0._R8P
       call allocate_variable(var=self%dq_pic,          &
                              ulb=reshape([1,self%pic%particle_number,  &
-                                          1,7],[2,2]), &
+                                          1,8],[2,2]), &
                              msg=self%mpih%myrankstr//'prism_common_object%allocate_common(dq_pic) ', verbose=.true.)
       self%dq_pic = 0._R8P
    endif
