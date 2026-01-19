@@ -389,6 +389,6 @@ rule = rm -rf exe building-errors.log
 
 [common-variables]
 # NVIDIA
-$HDF5_nvf = lib/hdf5/develop/nvf/25.3
+$HDF5_nvf = lib/hdf5/develop/nvf/25.11
 # GNU
 $HDF5_gnu = lib/hdf5/develop/gnu/14.2.0

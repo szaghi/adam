@@ -1,0 +1,16 @@
+prefix=/home/stefano/fortran/adam/lib/hdf5/develop/nvf/25.11
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+moddir=${prefix}/include
+
+Name: hdf5_fortran
+Description: HDF5 (Hierarchical Data Format 5) Software Library
+Version: 2.0.1
+
+Cflags: -I${includedir} -I${moddir}
+Fflags: -I${moddir}
+Libs: -L${libdir}  -lhdf5_fortran
+Requires: hdf5 = 2.0.1
+Libs.private: -lhdf5_f90cstub
+Requires.private: hdf5 = 2.0.1
