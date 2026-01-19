@@ -215,23 +215,42 @@ contains
    call self%allocate_cpu
 
    ! set pointer (abstract) TBP
-   select case(self%numerics%scheme_time)
-   case(NUM_SCHEME_TIME_BLANES_MOAN)
-      self%integrate => integrate_blanesmoan
-   case(NUM_SCHEME_TIME_CFM)
-      self%integrate => integrate_cfm
-   case(NUM_SCHEME_TIME_LEAPFROG)
-      self%integrate => integrate_leapfrog
-   case(NUM_SCHEME_TIME_RUNGE_KUTTA)
-      select case(self%rk%scheme)
-      case(RK_1, RK_2, RK_3)
-         self%integrate => integrate_rk_ls
-      case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
-         self%integrate => integrate_rk_ssp
-      case(RK_YOSHIDA)
-         self%integrate => integrate_rk_yoshida
+   if (self%physics%physical_model == EM_PHYSICAL_MODEL) then
+      select case(self%numerics%scheme_time)
+      case(NUM_SCHEME_TIME_BLANES_MOAN)
+         self%integrate => integrate_blanesmoan
+      case(NUM_SCHEME_TIME_CFM)
+         self%integrate => integrate_cfm
+      case(NUM_SCHEME_TIME_LEAPFROG)
+         self%integrate => integrate_leapfrog
+      case(NUM_SCHEME_TIME_RUNGE_KUTTA)
+         select case(self%rk%scheme)
+         case(RK_1, RK_2, RK_3)
+            self%integrate => integrate_rk_ls
+         case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
+            self%integrate => integrate_rk_ssp
+         case(RK_YOSHIDA)
+            self%integrate => integrate_rk_yoshida
+         endselect
       endselect
-   endselect
+   elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      select case(self%numerics%scheme_time)
+      case(NUM_SCHEME_TIME_LEAPFROG)
+         select case(self%pic%scheme_time)
+         case(NUM_SCHEME_TIME_PIC_LEAPFROG)
+            self%integrate => integrate_leapfrog_pic
+         case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
+            !self%integrate =>
+         endselect
+      case(NUM_SCHEME_TIME_RUNGE_KUTTA)
+         select case(self%pic%scheme_time)
+         case(NUM_SCHEME_TIME_PIC_LEAPFROG)
+            self%integrate => integrate_leapfrog_pic
+         case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
+            !self%integrate =>
+         endselect
+      endselect
+   endif
 
    select case(self%numerics%scheme_space)
    case(NUM_SCHEME_SPACE_WENO)
@@ -299,9 +318,7 @@ contains
       case default
          call self%mpih%error_stop(msg=': invalid particle weighting model in prism_cpu_object%initialize')
       endselect
-   endif
 
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       select case(self%pic%current_weighting_model)
       case(CIC_WEIGHTING_MODEL)
          current_weighting => CIC_current_weighting
@@ -312,9 +329,7 @@ contains
       case default
          call self%mpih%error_stop(msg=': invalid current weighting model in prism_cpu_object%initialize')
       endselect
-   endif
 
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       select case(self%pic%field_weighting_model)
       case(ZEROD_FIELDS_WEIGHTING_MODEL)
          field_weighting => zeroD_field_weighting
@@ -2006,7 +2021,6 @@ contains
       self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DZ,:,:,:,:)
    enddo
    call self%impose_div_free
-   call self%apply_fWL_correction
    endassociate
    endsubroutine integrate_blanesmoan
 
@@ -2035,7 +2049,6 @@ contains
    self%q = self%cfm%q
    endassociate
    call self%impose_div_free
-   call self%apply_fWL_correction
    endsubroutine integrate_cfm
 
    subroutine integrate_leapfrog(self)
@@ -2047,8 +2060,30 @@ contains
    call self%save_residuals
    call self%leapfrog%integrate(dt=self%time%dt, q=self%q, dq=self%dq)
    call self%impose_div_free
-   call self%apply_fWL_correction
    endsubroutine integrate_leapfrog
+
+   subroutine integrate_leapfrog_pic(self)
+   !< Integrate equation, time operator, leapfrog scheme.
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
+
+   call self%compute_coils_current !Fai check su come si parlano questa subroutine e quella che calcola la corrente associata alle particelle
+
+   ! qua ci va la chiamata alla subroutine che aggiorna la neighbour list delle particelle
+   ! qua ci va la chiamata alla subroutine che calcola la corrente associata alle particelle
+
+   call self%compute_residuals(q=self%q, dq=self%dq) !< Calcolo i residui relativi ai campi E e B
+   call self%save_residuals
+
+   !Qua ci va la chiamata alla subroutine che calcola i resiudi delle particellle dq_pic
+   
+   call self%leapfrog%integrate(dt=self%time%dt, q=self%q, dq=self%dq)
+
+   !Qua ci va la chiamata alla subroutine che integra aggiornando le velocita e le posizioni delle particelle
+               !decidi se fare qui all'inizio del tempo successivo l'aggiornamento della neighbour list delle particelle 
+
+   call self%impose_div_free
+   !call self%apply_fWL_correction
+   endsubroutine integrate_leapfrog_pic
 
    subroutine integrate_rk_ls(self)
    !< Integrate equation, time operator, RK classical low storage schemes.
@@ -2215,7 +2250,6 @@ contains
    self%q(VAR_BY,:,:,:,:) = self%q(VAR_BY,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BY,:,:,:,:)
    self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
    call self%impose_div_free
-   call self%apply_fWL_correction
    endsubroutine integrate_rk_yoshida
 
    ! non TBP

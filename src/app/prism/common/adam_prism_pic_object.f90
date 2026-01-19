@@ -22,6 +22,8 @@ public :: NGP_WEIGHTING_MODEL
 public :: TSC_WEIGHTING_MODEL
 public :: ZEROD_FIELDS_WEIGHTING_MODEL
 public :: ONED_FIELDS_WEIGHTING_MODEL
+public :: NUM_SCHEME_TIME_PIC_LEAPFROG
+public :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA
 public :: CIC_charge_weighting
 public :: NGP_charge_weighting
 public :: TSC_charge_weighting
@@ -31,12 +33,14 @@ public :: TSC_current_weighting
 public :: zeroD_field_weighting
 public :: oneD_field_weighting
 
-character(len=3), parameter :: INI_SECTION_NAME              = 'PIC'   !< INI file section name for PIC configuration.
-character(len=3), parameter :: CIC_WEIGHTING_MODEL           = 'CIC'   !< CIC weighting model.
-character(len=3), parameter :: NGP_WEIGHTING_MODEL           = 'NGP'   !< NGP weighting model.
-character(len=3), parameter :: TSC_WEIGHTING_MODEL           = 'TSC'   !< TSC weighting model.
-character(len=2), parameter :: ZEROD_FIELDS_WEIGHTING_MODEL  = '0D'    !< 0D field weighting.
-character(len=2), parameter :: ONED_FIELDS_WEIGHTING_MODEL   = '1D'    !< 1D field weighting.
+character(len=3), parameter :: INI_SECTION_NAME                 = 'PIC'         !< INI file section name for PIC configuration.
+character(len=3), parameter :: CIC_WEIGHTING_MODEL              = 'CIC'         !< CIC weighting model.
+character(len=3), parameter :: NGP_WEIGHTING_MODEL              = 'NGP'         !< NGP weighting model.
+character(len=3), parameter :: TSC_WEIGHTING_MODEL              = 'TSC'         !< TSC weighting model.
+character(len=2), parameter :: ZEROD_FIELDS_WEIGHTING_MODEL     = '0D'          !< 0D field weighting.
+character(len=2), parameter :: ONED_FIELDS_WEIGHTING_MODEL      = '1D'          !< 1D field weighting.
+character(8),     parameter :: NUM_SCHEME_TIME_PIC_LEAPFROG     = 'LEAPFROG'    !< Leapfrog numerical scheme for time operator.
+character(11),    parameter :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA  = 'RUNGE_KUTTA' !< Runge-Kutta numerical scheme for time operator.
 ! PIC variables layout in q_pic array:
 !q_pic(1) = x
 !q_pic(2) = y
@@ -53,6 +57,7 @@ type :: prism_pic_object
    character(len=99)         :: particle_weighting_model  !< Particle weighting model.
    character(len=99)         :: current_weighting_model   !< Current weighting model.
    character(len=99)         :: field_weighting_model     !< Field weighting model.
+   character(:), allocatable :: scheme_time               !< Numerical scheme for time operator [runge_kutta, leapfrog,...].
    integer(I4P), allocatable :: neighbour_list(:,:)       !< Particle grid positions array.
 contains
    procedure, pass(self) :: description                   !< Return pretty-printed object description.
@@ -110,6 +115,7 @@ contains
    desc = desc//NL//self%mpih%myrankstr//'    Particle weighting model: '//trim(self%particle_weighting_model)
    desc = desc//NL//self%mpih%myrankstr//'    Current weighting model: '//trim(self%current_weighting_model)
    desc = desc//NL//self%mpih%myrankstr//'    Field weighting model: '//trim(self%field_weighting_model)
+   desc = desc//NL//self%mpih%myrankstr//'    Numerical scheme for time operator: '//trim(self%scheme_time)
    endfunction description
 
    subroutine initialize(self, file_parameters)
@@ -139,9 +145,9 @@ contains
 
 	go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
-	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='charge_weighting_model', val=buff,error=error)
+	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='particle_weighting_model', val=buff,error=error)
    if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(charge_weighting_model) from file')
+      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(particle_weighting_model) from file')
    select case(trim(adjustl(buff)))
    case('CIC', 'cic', 'Cic')
       self%particle_weighting_model = CIC_WEIGHTING_MODEL
@@ -151,7 +157,7 @@ contains
 		self%particle_weighting_model = TSC_WEIGHTING_MODEL
 	case default
 		call self%mpih%error_stop(msg=': invalid particle weighting model ['//trim(adjustl(buff))//'] in  & 
-      ['//INI_SECTION_NAME//'].(charge_weighting_model)')
+      ['//INI_SECTION_NAME//'].(particle_weighting_model)')
 	endselect
 
 	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='current_weighting_model', val=buff,error=error)
@@ -180,6 +186,18 @@ contains
    case default
       call self%mpih%error_stop(msg=': invalid field weighting model ['//trim(adjustl(buff))//'] in  & 
       ['//INI_SECTION_NAME//'].(field_weighting_model)')
+   endselect
+
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='scheme_time', val=buff,error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(scheme_time)')
+   select case(trim(adjustl(buff)))
+   case('LEAPFROG', 'leapfrog', 'Leapfrog')
+      self%scheme_time = NUM_SCHEME_TIME_PIC_LEAPFROG
+   case('RUNGE_KUTTA', 'runge_kutta', 'Runge_Kutta')
+      self%scheme_time = NUM_SCHEME_TIME_PIC_RUNGE_KUTTA
+   case default
+      call self%mpih%print_message(msg='warning: numerical scheme "'//trim(adjustl(buff))//'" unknown. Revert back to RK scheme')
+      self%scheme_time = NUM_SCHEME_TIME_PIC_RUNGE_KUTTA
    endselect
 
 	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='particle_number', &
