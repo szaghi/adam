@@ -17,6 +17,7 @@ public :: compute_convective_fluxes_maxwell
 public :: compute_convective_fluxes_maxwell_div_d
 public :: compute_convective_fluxes_maxwell_div_b
 public :: compute_convective_fluxes_maxwell_div_d_b
+public :: compute_eigenvalues_vector
 
 interface
    subroutine compute_convective_fluxes_interface(sir,q,f,chi)
@@ -325,4 +326,17 @@ contains
    !   f(11) =  ch*ch*q(6)
    !endif
    endsubroutine compute_convective_fluxes_maxwell_div_d_b
+
+   subroutine compute_eigenvalues_vector(sir, p)
+   !< Compute eigenvalues vector for Maxwell equations in direction sir.
+   real(R8P), intent(in)  :: sir(3) !< Direction array
+   real(R8P), intent(out) :: p(:)   !< Eigenvalues vector
+
+   p(1) = sir(2) + sir(3) !Dx
+   p(2) = sir(1) + sir(3) !Dy
+   p(3) = sir(1) + sir(2) !Dz
+   p(4) = sir(2) + sir(3) !Bx
+   p(5) = sir(1) + sir(3) !By
+   p(6) = sir(1) + sir(2) !Bz
+   endsubroutine compute_eigenvalues_vector
 endmodule adam_prism_riemann_library

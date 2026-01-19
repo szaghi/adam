@@ -501,17 +501,20 @@ contains
          !   current_density = A(coil_id)/((d(coil_id)-dx)**2)*cos(2*pi*f(coil_id)*(time-td) + &
          !   phase(coil_id)*pi/180.0_R8P)
          !endif
-         w_   = nint(sign(1._R8P,td-time_s) + 1._R8P)/2   ! = 1 if td>time, = 0                            if td<time
-         w_c_ = 1_I4P - w_                            ! = 0 if td>time, = 1                              if td<time
-         g_   = w_ * g + w_c_                         ! = g if td>time, = 1                              if td<time
-         f_   = w_c_ * 2._R8P*PI*f(coil_id)*(time_s-td) ! = 0 if td>time, = 2._R8P*PI*f(coil_id)*(time-td) if td<time
-         !current_density = g_ * A(coil_id) / ((d(coil_id))**2) * cos(f_ + phase(coil_id)*PI/180.0_R8P)
+         w_   = nint(sign(1._R8P,td-time_s) + 1._R8P)/2   ! = 1 if td>time,            = 0                              if td<time
+         w_c_ = 1_I4P - w_                                ! = 0 if td>time,            = 1                              if td<time
+         g_   = w_ * g + w_c_                             ! = g if td>time,            = 1                              if td<time
+         f_   = w_c_ * 2._R8P*PI*f(coil_id)*(time_s-td)   ! = 0 if td>time,            = 2._R8P*PI*f(coil_id)*(time-td) if td<time
          current_density = g_ * A(coil_id) * cos(f_ + phase(coil_id)*PI/180.0_R8P)*j_vec(4,i,j,k,b)
-         !if (coil_id == 1_I4P) then
-         !   print*, A(coil_id)
-         !   print*, current_density
-         !   print*, j_vec(4,i,j,k,b)
-         !endif
+
+
+         ! Lo tengo qui, ma a pensarci bene dovrebbe andare bene così come abiamo fatto (quella sfasata resta a 0)
+         !f_   = w_c_ * (2._R8P*PI*f(coil_id)*(time_s-td) + phase(coil_id)*PI/180.0_R8P) 
+                           ! = 0 if td>time, = 2._R8P*PI*f(coil_id)*(time-td)+phase(coil_id)*PI/180.0_R8P if td<time
+         !current_density = g_ * A(coil_id) * cos(f_)*j_vec(4,i,j,k,b)
+
+
+         
          ! the following if is not necessary because j_vec is zero everywhere except in coils
          if (coil_id /= 0_I4P) then
             q(VAR_JX,i,j,k,b) = current_density * j_vec(1,i,j,k,b)
@@ -2390,10 +2393,12 @@ contains
    real(R8P)                   :: gc, wc                        !< Increments for fluxes decomposition.
    integer(I4P)                :: v, vv, s, is, js, ks          !< Counter.
    real(R8P)                   :: f(NV_MAX)                     !< Conservative fluxes.
+   real(R8P)                   :: p(NV_MAX)                     !< Eigenvalues.
 
    do s=1-weno_s, weno_s
       is = i + (s) * si(1) ; js = j + (s) * si(2) ; ks = k + (s) * si(3)
       call compute_fluxes_Maxwell(sir=sir,q=q(:,is,js,ks,b),f=f,chi=chi)
+      !call compute_eigenvalues_vector(sir=sir, p=p)
       do v=1, nv_c
          wc = 0._R8P
          gc = 0._R8P
@@ -2402,6 +2407,7 @@ contains
             gc = gc + elw(vv,v,dir) * f(vv)
          enddo
          fmp(2) = 0.5_R8P * (gc + evmax * wc)
+         !fmp(2) = 0.5_R8P * (gc + evmax * p(v) * wc)
          fmp(1) = gc - fmp(2)
          if (s<weno_s)   fmpc(2,s  ,v) = fmp(2)
          if (s>1-weno_s) fmpc(1,s-1,v) = fmp(1)
