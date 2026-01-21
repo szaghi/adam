@@ -273,6 +273,7 @@ exclude_dirs = src/lib_experimental/
                FoXy/src/third_party/
                FUNDAL/src/tests/
                FUNDAL/src/third_party/
+               FUNDAL/compilers_proofs/
                MORTIF/src/tests/
                MORTIF/src/third_party/
                MOTIOn/src/tests/

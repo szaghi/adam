@@ -368,6 +368,7 @@ contains
    real(R8P)                 :: dqx_dy, dqx_dz       !< Derivatives of qx.
    real(R8P)                 :: dqy_dx, dqy_dz       !< Derivatives of qy.
    real(R8P)                 :: dqz_dx, dqz_dy       !< Derivatives of qz.
+   !$acc routine seq
 
    call compute_derivative1_fd_centered(s=s,ds=dxyz(2),q=q(1,1      ,1-s:1+s,1      ),dq_ds=dqx_dy)
    call compute_derivative1_fd_centered(s=s,ds=dxyz(3),q=q(1,1      ,1      ,1-s:1+s),dq_ds=dqx_dz)
@@ -390,6 +391,7 @@ contains
    real(R8P),    intent(in)  :: q(1-s:) !< Scalar field over the stencil [1-s:1+s].
    real(R8P),    intent(out) :: dq_ds   !< Derivative of order 1 of q, dq/ds.
    integer(I4P)              :: m       !< Counter.
+   !$acc routine seq
 
    dq_ds = 0.0_R8P
    do m=1, s
@@ -405,6 +407,7 @@ contains
    real(R8P),    intent(in)  :: q(1-s:) !< Scalar field over the stencil [1-s:1+s].
    real(R8P),    intent(out) :: d2q_ds2 !< Derivative of order 2 of q, d2q/ds2.
    integer(I4P)              :: m       !< Counter.
+   !$acc routine seq
 
    d2q_ds2 = FD2_CC(1,s)*q(1)
    do m=1, s
@@ -420,6 +423,7 @@ contains
    real(R8P),    intent(in)  :: q(1-s:) !< Scalar field over the stencil [1-s:1+s].
    real(R8P),    intent(out) :: d3q_ds3 !< Derivative of order 3 of q, d3q/ds3.
    integer(I4P)              :: m       !< Counter.
+   !$acc routine seq
 
    d3q_ds3 = 0.0_R8P
    do m=1, s
@@ -435,6 +439,7 @@ contains
    real(R8P),    intent(in)  :: q(1-s:) !< Scalar field over the stencil [1-s:1+s].
    real(R8P),    intent(out) :: d4q_ds4 !< Derivative of order 4 of q, d4q/ds4.
    integer(I4P)              :: m       !< Counter.
+   !$acc routine seq
 
    d4q_ds4 = FD4_CC(1,s)*q(1)
    do m=1, s
@@ -450,6 +455,7 @@ contains
    real(R8P),    intent(in)  :: q(1-s:) !< Scalar field over the stencil [1-s:1+s].
    real(R8P),    intent(out) :: d5q_ds5 !< Derivative of order 5 of q, d5q/ds5.
    integer(I4P)              :: m       !< Counter.
+   !$acc routine seq
 
    d5q_ds5 = 0.0_R8P
    do m=1, s
@@ -465,6 +471,7 @@ contains
    real(R8P),    intent(in)  :: q(1-s:) !< Scalar field over the stencil [1-s:1+s].
    real(R8P),    intent(out) :: d6q_ds6 !< Derivative of order 6 of q, d6q/ds6.
    integer(I4P)              :: m       !< Counter.
+   !$acc routine seq
 
    d6q_ds6 = FD6_CC(1,s)*q(1)
    do m=1, s
@@ -480,6 +487,7 @@ contains
    real(R8P),    intent(in)  :: q(1:,1-s:,1-s:,1-s:) !< Vector field over the stencil [1:3,1-s:1+s,1-s:1+s,1-s:1+s].
    real(R8P),    intent(out) :: divergence           !< Divergence of q.
    real(R8P)                 :: div_x, div_y, div_z  !< Divergence components.
+   !$acc routine seq
 
    call compute_derivative1_fd_centered(s=s,ds=dxyz(1),q=q(1,1-s:1+s,1,1),dq_ds=div_x)
    call compute_derivative1_fd_centered(s=s,ds=dxyz(2),q=q(2,1,1-s:1+s,1),dq_ds=div_y)
@@ -493,6 +501,7 @@ contains
    real(R8P),    intent(in)  :: dxyz(1:)          !< Space steps [1:3].
    real(R8P),    intent(in)  :: q(1-s:,1-s:,1-s:) !< Scalar field over the stencil [1-s:1+s,1-s:1+s,1-s:1+s].
    real(R8P),    intent(out) :: gradient(1:)      !< Gradient of q [1:3].
+   !$acc routine seq
 
    call compute_derivative1_fd_centered(s=s,ds=dxyz(1),q=q(1-s:1+s,1,1),dq_ds=gradient(1))
    call compute_derivative1_fd_centered(s=s,ds=dxyz(2),q=q(1,1-s:1+s,1),dq_ds=gradient(2))
@@ -506,6 +515,7 @@ contains
    real(R8P),    intent(in)  :: q(1-s:,1-s:,1-s:)       !< Scalar field over the stencil [1-s:1+s,1-s:1+s,1-s:1+s].
    real(R8P),    intent(out) :: laplacian               !< Laplacian of q.
    real(R8P)                 :: d2q_dx2,d2q_dy2,d2q_dz2 !< Laplacian parts.
+   !$acc routine seq
 
    call compute_derivative2_fd_centered(s=s,ds=dxyz(1),q=q(1-s:1+s,1,1),d2q_ds2=d2q_dx2)
    call compute_derivative2_fd_centered(s=s,ds=dxyz(2),q=q(1,1-s:1+s,1),d2q_ds2=d2q_dy2)
@@ -524,6 +534,7 @@ contains
    real(R8P)                 :: dqx_dy, dqx_dz       !< Derivatives of qx.
    real(R8P)                 :: dqy_dx, dqy_dz       !< Derivatives of qy.
    real(R8P)                 :: dqz_dx, dqz_dy       !< Derivatives of qz.
+   !$acc routine seq
 
    call compute_derivative1_fv_centered(s=s,ds=dxyz(2),q=q(1,1      ,1-s:1+s,1      ),dq_ds=dqx_dy)
    call compute_derivative1_fv_centered(s=s,ds=dxyz(3),q=q(1,1      ,1      ,1-s:1+s),dq_ds=dqx_dz)
@@ -546,6 +557,7 @@ contains
    real(R8P),    intent(in)  :: q(1-s:) !< Scalar field over the stencil [1-s:1+s].
    real(R8P),    intent(out) :: dq_ds   !< Derivative of order 1 of q, dq/ds.
    real(R8P)                 :: ql,qr   !< Reconstruction of field at left and righ interfaces.
+   !$acc routine seq
 
    call compute_reconstruction_r_fv_centered(s=s,q=q(1-s:  s),qr=ql)
    call compute_reconstruction_r_fv_centered(s=s,q=q(2-s:1+s),qr=qr)
@@ -559,6 +571,7 @@ contains
    real(R8P),    intent(in)  :: q(1-s:) !< Scalar field over the stencil [1-s:1+s].
    real(R8P),    intent(out) :: d2q_ds2 !< Derivative of order 2 of q, d2q/ds2.
    real(R8P)                 :: dql,dqr !< Derivative 1 at left and right cells.
+   !$acc routine seq
 
    call compute_derivative1_fv_centered(s=s-1,ds=ds,q=q(1-s  :1+s-2),dq_ds=dql)
    call compute_derivative1_fv_centered(s=s-1,ds=ds,q=q(1-s+2:1+s  ),dq_ds=dqr)
@@ -572,6 +585,7 @@ contains
    real(R8P),    intent(in)  :: q(1-s:) !< Scalar field over the stencil [1-s:1+s].
    real(R8P),    intent(out) :: d3q_ds3 !< Derivative of order 3 of q, d3q/ds3.
    real(R8P)                 :: dql,dqr !< Derivative 2 at left and right cells.
+   !$acc routine seq
 
    call compute_derivative2_fv_centered(s=s-1,ds=ds,q=q(1-s  :1+s-2),d2q_ds2=dql)
    call compute_derivative2_fv_centered(s=s-1,ds=ds,q=q(1-s+2:1+s  ),d2q_ds2=dqr)
@@ -585,6 +599,7 @@ contains
    real(R8P),    intent(in)  :: q(1-s:) !< Scalar field over the stencil [1-s:1+s].
    real(R8P),    intent(out) :: d4q_ds4 !< Derivative of order 4 of q, d4q/ds4.
    real(R8P)                 :: dql,dqr !< Derivative 3 at left and right cells.
+   !$acc routine seq
 
    call compute_derivative3_fv_centered(s=s-1,ds=ds,q=q(1-s  :1+s-2),d3q_ds3=dql)
    call compute_derivative3_fv_centered(s=s-1,ds=ds,q=q(1-s+2:1+s  ),d3q_ds3=dqr)
@@ -598,6 +613,7 @@ contains
    real(R8P),    intent(in)  :: q(1-s:) !< Scalar field over the stencil [1-s:1+s].
    real(R8P),    intent(out) :: d5q_ds5 !< Derivative of order 5 of q, d5q/ds5.
    real(R8P)                 :: dql,dqr !< Derivative 4 at left and right cells.
+   !$acc routine seq
 
    call compute_derivative4_fv_centered(s=s-1,ds=ds,q=q(1-s  :1+s-2),d4q_ds4=dql)
    call compute_derivative4_fv_centered(s=s-1,ds=ds,q=q(1-s+2:1+s  ),d4q_ds4=dqr)
@@ -611,6 +627,7 @@ contains
    real(R8P),    intent(in)  :: q(1-s:) !< Scalar field over the stencil [1-s:1+s].
    real(R8P),    intent(out) :: d6q_ds6 !< Derivative of order 6 of q, d6q/ds6.
    real(R8P)                 :: dql,dqr !< Derivative 5 at left and right cells.
+   !$acc routine seq
 
    call compute_derivative5_fv_centered(s=s-1,ds=ds,q=q(1-s  :1+s-2),d5q_ds5=dql)
    call compute_derivative5_fv_centered(s=s-1,ds=ds,q=q(1-s+2:1+s  ),d5q_ds5=dqr)
@@ -624,6 +641,7 @@ contains
    real(R8P),    intent(in)  :: q(1:,1-s:,1-s:,1-s:) !< Vector field over the stencil [1:3,1-s:1+s,1-s:1+s,1-s:1+s].
    real(R8P),    intent(out) :: divergence           !< Divergence of q.
    real(R8P)                 :: div_x, div_y, div_z  !< Divergence components.
+   !$acc routine seq
 
    call compute_derivative1_fv_centered(s=s,ds=dxyz(1),q=q(1,1-s:1+s,1,1),dq_ds=div_x)
    call compute_derivative1_fv_centered(s=s,ds=dxyz(2),q=q(2,1,1-s:1+s,1),dq_ds=div_y)
@@ -637,6 +655,7 @@ contains
    real(R8P),    intent(in)  :: dxyz(1:)          !< Space steps [1:3].
    real(R8P),    intent(in)  :: q(1-s:,1-s:,1-s:) !< Scalar field over the stencil [1-s:1+s,1-s:1+s,1-s:1+s].
    real(R8P),    intent(out) :: gradient(1:)      !< Gradient of q [1:3].
+   !$acc routine seq
 
    call compute_derivative1_fv_centered(s=s,ds=dxyz(1),q=q(1-s:1+s,1,1),dq_ds=gradient(1))
    call compute_derivative1_fv_centered(s=s,ds=dxyz(2),q=q(1,1-s:1+s,1),dq_ds=gradient(2))
@@ -650,6 +669,7 @@ contains
    real(R8P),    intent(in)  :: q(1-s:,1-s:,1-s:)       !< Scalar field over the stencil [1-s:1+s,1-s:1+s,1-s:1+s].
    real(R8P),    intent(out) :: laplacian               !< Laplacian of q.
    real(R8P)                 :: d2q_dx2,d2q_dy2,d2q_dz2 !< Laplacian parts.
+   !$acc routine seq
 
    call compute_derivative2_fv_centered(s=s,ds=dxyz(1),q=q(1-s:1+s,1,1),d2q_ds2=d2q_dx2)
    call compute_derivative2_fv_centered(s=s,ds=dxyz(2),q=q(1,1-s:1+s,1),d2q_ds2=d2q_dy2)
@@ -663,6 +683,7 @@ contains
    real(R8P),    intent(in)  :: q(1-s:) !< Scalar field over the stencil [1-s:s].
    real(R8P),    intent(out) :: qr      !< Reconstruction at right interface of field.
    integer(I4P)              :: m       !< Counter.
+   !$acc routine seq
 
    qr = 0.0_R8P
    do m=1, s
@@ -678,6 +699,7 @@ contains
    real(R8P),    intent(in)  :: q(0:) !< Scalar field over the stencil [0:1+s].
    real(R8P),    intent(out) :: dq_ds !< Derivative of order 1 of q, dq/ds.
    real(R8P)                 :: ql,qr !< Reconstruction of field at left and righ interfaces.
+   !$acc routine seq
 
    call compute_reconstruction_r_fv_rupwind(s=s,q=q(0:  s),qr=ql)
    call compute_reconstruction_r_fv_rupwind(s=s,q=q(1:1+s),qr=qr)
@@ -691,6 +713,7 @@ contains
    real(R8P),    intent(in)  :: q(0:)   !< Scalar field over the stencil [0:1+s].
    real(R8P),    intent(out) :: d2q_ds2 !< Derivative of order 2 of q, d2q/ds2.
    real(R8P)                 :: dql,dqr !< Derivative 1 at left and right cells.
+   !$acc routine seq
 
    call compute_derivative1_fv_rupwind(s=s-1,ds=ds,q=q(0  :1+s-2),dq_ds=dql)
    call compute_derivative1_fv_rupwind(s=s-1,ds=ds,q=q(0+2:1+s  ),dq_ds=dqr)
@@ -704,6 +727,7 @@ contains
    real(R8P),    intent(in)  :: q(0:)   !< Scalar field over the stencil [0:1+s].
    real(R8P),    intent(out) :: d3q_ds3 !< Derivative of order 3 of q, d3q/ds3.
    real(R8P)                 :: dql,dqr !< Derivative 2 at left and right cells.
+   !$acc routine seq
 
    call compute_derivative2_fv_rupwind(s=s-1,ds=ds,q=q(0  :1+s-2),d2q_ds2=dql)
    call compute_derivative2_fv_rupwind(s=s-1,ds=ds,q=q(0+2:1+s  ),d2q_ds2=dqr)
@@ -717,6 +741,7 @@ contains
    real(R8P),    intent(in)  :: q(0:)   !< Scalar field over the stencil [0:1+s].
    real(R8P),    intent(out) :: d4q_ds4 !< Derivative of order 4 of q, d4q/ds4.
    real(R8P)                 :: dql,dqr !< Derivative 3 at left and right cells.
+   !$acc routine seq
 
    call compute_derivative3_fv_rupwind(s=s-1,ds=ds,q=q(0  :1+s-2),d3q_ds3=dql)
    call compute_derivative3_fv_rupwind(s=s-1,ds=ds,q=q(0+2:1+s  ),d3q_ds3=dqr)
@@ -730,6 +755,7 @@ contains
    real(R8P),    intent(in)  :: q(0:)   !< Scalar field over the stencil [0:1+s].
    real(R8P),    intent(out) :: d5q_ds5 !< Derivative of order 5 of q, d5q/ds5.
    real(R8P)                 :: dql,dqr !< Derivative 4 at left and right cells.
+   !$acc routine seq
 
    call compute_derivative4_fv_rupwind(s=s-1,ds=ds,q=q(0  :1+s-2),d4q_ds4=dql)
    call compute_derivative4_fv_rupwind(s=s-1,ds=ds,q=q(0+2:1+s  ),d4q_ds4=dqr)
@@ -743,6 +769,7 @@ contains
    real(R8P),    intent(in)  :: q(0:)   !< Scalar field over the stencil [0:1+s].
    real(R8P),    intent(out) :: d6q_ds6 !< Derivative of order 6 of q, d6q/ds6.
    real(R8P)                 :: dql,dqr !< Derivative 5 at left and right cells.
+   !$acc routine seq
 
    call compute_derivative5_fv_rupwind(s=s-1,ds=ds,q=q(0  :1+s-2),d5q_ds5=dql)
    call compute_derivative5_fv_rupwind(s=s-1,ds=ds,q=q(0+2:1+s  ),d5q_ds5=dqr)
@@ -755,6 +782,7 @@ contains
    real(R8P),    intent(in)  :: q(0:) !< Scalar field over the stencil [0:s].
    real(R8P),    intent(out) :: qr    !< Reconstruction at right interface of field.
    integer(I4P)              :: m     !< Counter.
+   !$acc routine seq
 
    qr = 0.0_R8P
    do m=1, s
@@ -769,6 +797,7 @@ contains
    real(R8P),    intent(in)  :: q(-s:) !< Scalar field over the stencil [-s:0].
    real(R8P),    intent(out) :: dq_ds  !< Derivative of order 1 of q, dq/ds.
    real(R8P)                 :: ql,qr  !< Reconstruction of field at left and righ interfaces.
+   !$acc routine seq
 
    call compute_reconstruction_r_fv_lupwind(s=s,q=q(0-s:-1),qr=ql)
    call compute_reconstruction_r_fv_lupwind(s=s,q=q(1-s:0 ),qr=qr)
@@ -782,6 +811,7 @@ contains
    real(R8P),    intent(in)  :: q(-s:)  !< Scalar field over the stencil [-s:0].
    real(R8P),    intent(out) :: d2q_ds2 !< Derivative of order 2 of q, d2q/ds2.
    real(R8P)                 :: dql,dqr !< Derivative 1 at left and right cells.
+   !$acc routine seq
 
    call compute_derivative1_fv_lupwind(s=s-1,ds=ds,q=q(0-s:0-2),dq_ds=dql)
    call compute_derivative1_fv_lupwind(s=s-1,ds=ds,q=q(1-s:0  ),dq_ds=dqr)
@@ -795,6 +825,7 @@ contains
    real(R8P),    intent(in)  :: q(-s:)  !< Scalar field over the stencil [-s:0].
    real(R8P),    intent(out) :: d3q_ds3 !< Derivative of order 3 of q, d3q/ds3.
    real(R8P)                 :: dql,dqr !< Derivative 2 at left and right cells.
+   !$acc routine seq
 
    call compute_derivative2_fv_lupwind(s=s-1,ds=ds,q=q(0-s:0-2),d2q_ds2=dql)
    call compute_derivative2_fv_lupwind(s=s-1,ds=ds,q=q(1-s:0  ),d2q_ds2=dqr)
@@ -808,6 +839,7 @@ contains
    real(R8P),    intent(in)  :: q(-s:)  !< Scalar field over the stencil [-s:0].
    real(R8P),    intent(out) :: d4q_ds4 !< Derivative of order 4 of q, d4q/ds4.
    real(R8P)                 :: dql,dqr !< Derivative 3 at left and right cells.
+   !$acc routine seq
 
    call compute_derivative3_fv_lupwind(s=s-1,ds=ds,q=q(0-s:0-2),d3q_ds3=dql)
    call compute_derivative3_fv_lupwind(s=s-1,ds=ds,q=q(1-s:0  ),d3q_ds3=dqr)
@@ -821,6 +853,7 @@ contains
    real(R8P),    intent(in)  :: q(-s:)  !< Scalar field over the stencil [-s:0].
    real(R8P),    intent(out) :: d5q_ds5 !< Derivative of order 5 of q, d5q/ds5.
    real(R8P)                 :: dql,dqr !< Derivative 4 at left and right cells.
+   !$acc routine seq
 
    call compute_derivative4_fv_lupwind(s=s-1,ds=ds,q=q(0-s:0-2),d4q_ds4=dql)
    call compute_derivative4_fv_lupwind(s=s-1,ds=ds,q=q(1-s:0  ),d4q_ds4=dqr)
@@ -834,6 +867,7 @@ contains
    real(R8P),    intent(in)  :: q(-s:)  !< Scalar field over the stencil [-s:0].
    real(R8P),    intent(out) :: d6q_ds6 !< Derivative of order 6 of q, d6q/ds6.
    real(R8P)                 :: dql,dqr !< Derivative 5 at left and right cells.
+   !$acc routine seq
 
    call compute_derivative5_fv_lupwind(s=s-1,ds=ds,q=q(0-s:0-2),d5q_ds5=dql)
    call compute_derivative5_fv_lupwind(s=s-1,ds=ds,q=q(1-s:0  ),d5q_ds5=dqr)
@@ -846,6 +880,7 @@ contains
    real(R8P),    intent(in)  :: q(1-s:) !< Scalar field over the stencil [1-s:0].
    real(R8P),    intent(out) :: qr      !< Reconstruction at right interface of field.
    integer(I4P)              :: m       !< Counter.
+   !$acc routine seq
 
    qr = 0.0_R8P
    do m=1, s

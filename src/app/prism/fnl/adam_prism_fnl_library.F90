@@ -4,7 +4,7 @@ module adam_prism_fnl_library
 
 ! PRSIM modules
 use adam_prism_common_library
-! use adam_prism_fnl_coil_object
+use adam_prism_fnl_coil_object
 ! use adam_prism_fnl_kernels
 ! ADAM modules
 use adam_fnl_library
