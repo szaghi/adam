@@ -93,11 +93,11 @@ interface
    integer(I4P),                        intent(in)    :: nv                                                                !< Number of variables.
    endsubroutine current_weighting_interface
 
-   subroutine field_weighting_interface(self, field, dq_pic, q, q_pic, nv)
+   subroutine field_weighting_interface(self, field, pic_fields, q, q_pic, nv)
    import :: prism_pic_object, field_object, I4P, R8P
    class(prism_pic_object), intent(inout) :: self                                                                          !< External fields.
    type(field_object),                  intent(inout) :: field                                                             !< The field.
-   real(R8P),                           intent(inout) :: dq_pic(1:,1:)                                                     !< PIC variables.
+   real(R8P),                           intent(inout) :: pic_fields(1:,1:)                                                 !< Fields value at particle locations.
    real(R8P),                           intent(in)    :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)   !< Field variables.
    real(R8P),                           intent(in)    :: q_pic(1:,1:)                                                      !< PIC variables.
    integer(I4P),                        intent(in)    :: nv                                                                !< Number of variables.
@@ -530,12 +530,12 @@ contains
    enddo
    endsubroutine TSC_current_weighting
 
-   subroutine zeroD_field_weighting(self, field, dq_PIC, q, q_PIC, nv)
+   subroutine zeroD_field_weighting(self, field, pic_fields, q, q_pic, nv)
    class(prism_pic_object), intent(inout) :: self                                                            !< External fields.
    type(field_object),      intent(inout) :: field                                                           !< The field.
-   real(R8P),               intent(inout) :: dq_PIC(1:,1:)                                                   !< PIC variables derivatives.
+   real(R8P),               intent(inout) :: pic_fields(1:,1:)                                               !< Fields value at particle locations
    real(R8P),               intent(in)    :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:) !< Field variables.
-   real(R8P),               intent(in)    :: q_PIC(1:,1:)                                                    !< PIC variables.
+   real(R8P),               intent(in)    :: q_pic(1:,1:)                                                    !< PIC variables.
    integer(I4P),            intent(in)    :: nv                                                              !< Number of variables.
    real(R8P)                              :: n, i, j, k ,b                                                   !< Particle counter
    real(R8P)                              :: i_p, j_p, k_p, block_p                                          !< Particle grid indices
@@ -555,33 +555,31 @@ contains
       B_p(2) = q(5, i_p, j_p, k_p, block_p)
       B_p(3) = q(6, i_p, j_p, k_p, block_p)
 
-      v_p = [q_pic(n,4), q_pic(n,5), q_pic(n,6)]
-      q_p = q_PIC(n,7)
-      m_p = q_PIC(n,8)
+      !v_p = [q_pic(n,4), q_pic(n,5), q_pic(n,6)]
+      !q_p = q_pic(n,7)
+      !m_p = q_pic(n,8)
+!
+      !F_l = crossproduct(a=v_p, b=B_p)
+      !F_p(1) = q_p*(D_p(1) + F_l(1))
+      !F_p(2) = q_p*(D_p(2) + F_l(2))
+      !F_p(3) = q_p*(D_p(3) + F_l(3))
 
-      F_l = crossproduct(a=v_p, b=B_p)
-      F_p(1) = q_p*(D_p(1) + F_l(1))
-      F_p(2) = q_p*(D_p(2) + F_l(2))
-      F_p(3) = q_p*(D_p(3) + F_l(3))
-
-      dq_pic(n,1) = v_p(1)
-      dq_pic(n,2) = v_p(2)
-      dq_pic(n,3) = v_p(3)
-      dq_pic(n,4) = F_p(1)/m_p
-      dq_pic(n,5) = F_p(2)/m_p
-      dq_pic(n,6) = F_p(3)/m_p
-      dq_pic(n,7) = 0.0_R8P
-      dq_pic(n,8) = 0.0_R8P
+      pic_fields(n,1) = D_p(1)
+      pic_fields(n,2) = D_p(2)
+      pic_fields(n,3) = D_p(3)
+      pic_fields(n,4) = B_p(1)
+      pic_fields(n,5) = B_p(2)
+      pic_fields(n,6) = B_p(3)
 
    enddo
    endsubroutine zeroD_field_weighting
 
-   subroutine oneD_field_weighting(self, field, dq_PIC, q, q_PIC, nv)
+   subroutine oneD_field_weighting(self, field, pic_fields, q, q_pic, nv)
    class(prism_pic_object), intent(inout) :: self                                                            !< External fields.
    type(field_object),      intent(inout) :: field                                                           !< The field.
-   real(R8P),               intent(inout) :: dq_PIC(1:,1:)                                                   !< PIC variables derivatives.
+   real(R8P),               intent(inout) :: pic_fields(1:,1:)                                               !< Fields value at particle locations
    real(R8P),               intent(in)    :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:) !< Field variables.
-   real(R8P),               intent(in)    :: q_PIC(1:,1:)                                                    !< PIC variables.
+   real(R8P),               intent(in)    :: q_pic(1:,1:)                                                    !< PIC variables.
    integer(I4P),            intent(in)    :: nv                                                              !< Number of variables.
    real(R8P)                              :: n, i, j, k ,b                                                   !< Particle counter
    real(R8P)                              :: i_p, j_p, k_p, block_p                                          !< Particle grid indices
@@ -701,22 +699,20 @@ contains
       B_p(2) = q(5,i_p,j_p,k_p,block_p) + dBy_dx + dBy_dy + dBy_dz
       B_p(3) = q(6,i_p,j_p,k_p,block_p) + dBz_dx + dBz_dy + dBz_dz     
 
-      v_p = [q_pic(n,4), q_pic(n,5), q_pic(n,6)]
-      q_p = q_PIC(n,7)
-      m_p = q_PIC(n,8)
-      F_l = crossproduct(a=v_p, b=B_p)
-      F_p(1) = q_p*(D_p(1) + F_l(1))
-      F_p(2) = q_p*(D_p(2) + F_l(2))
-      F_p(3) = q_p*(D_p(3) + F_l(3))
+      !v_p = [q_pic(n,4), q_pic(n,5), q_pic(n,6)]
+      !q_p = q_PIC(n,7)
+      !m_p = q_PIC(n,8)
+      !F_l = crossproduct(a=v_p, b=B_p)
+      !F_p(1) = q_p*(D_p(1) + F_l(1))
+      !F_p(2) = q_p*(D_p(2) + F_l(2))
+      !F_p(3) = q_p*(D_p(3) + F_l(3))
 
-      dq_pic(n,1) = v_p(1)
-      dq_pic(n,2) = v_p(2)
-      dq_pic(n,3) = v_p(3)
-      dq_pic(n,4) = F_p(1)/m_p
-      dq_pic(n,5) = F_p(2)/m_p
-      dq_pic(n,6) = F_p(3)/m_p
-      dq_pic(n,7) = 0.0_R8P
-      dq_pic(n,8) = 0.0_R8P
+      pic_fields(n,1) = D_p(1)
+      pic_fields(n,2) = D_p(2)
+      pic_fields(n,3) = D_p(3)
+      pic_fields(n,4) = B_p(1)
+      pic_fields(n,5) = B_p(2)
+      pic_fields(n,6) = B_p(3)
 
    enddo
    endsubroutine oneD_field_weighting

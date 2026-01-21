@@ -215,7 +215,7 @@ contains
    call self%allocate_cpu
 
    ! set pointer (abstract) TBP
-   if (self%physics%physical_model == EM_PHYSICAL_MODEL) then
+   if (self%physics%physical_model == EM_PHYSICAL_MODEL) then 
       select case(self%numerics%scheme_time)
       case(NUM_SCHEME_TIME_BLANES_MOAN)
          self%integrate => integrate_blanesmoan
@@ -233,7 +233,7 @@ contains
             self%integrate => integrate_rk_yoshida
          endselect
       endselect
-   elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+   elseif (self%physics%physical_model == PIC_PHYSICAL_MODEL) then !Metterei qualche error stop sulle combinazioni non valide
       select case(self%numerics%scheme_time)
       case(NUM_SCHEME_TIME_LEAPFROG)
          select case(self%pic%scheme_time)
@@ -247,7 +247,14 @@ contains
          case(NUM_SCHEME_TIME_PIC_LEAPFROG)
             self%integrate => integrate_leapfrog_pic
          case(NUM_SCHEME_TIME_PIC_RUNGE_KUTTA)
-            !self%integrate =>
+         select case(self%rk_pic%scheme)
+         case(RK_1, RK_2, RK_3)
+            !self%integrate => integrate_rk_ls_pic
+         case(RK_SSP_22, RK_SSP_33, RK_SSP_54)
+            self%integrate => integrate_rk_ssp_pic
+         case(RK_YOSHIDA)
+            !self%integrate => integrate_rk_yoshida_pic
+         endselect
          endselect
       endselect
    endif
@@ -545,16 +552,21 @@ contains
    endassociate
    endsubroutine compute_coils_current
 
-   subroutine apply_fWL_correction(self)
+   subroutine apply_fWL_correction(self, q)
    !< Apply correction if a fWL is present
    class(prism_cpu_object), intent(inout) :: self                    !< The equation.
+   real(R8P),               intent(inout) :: q(1:,         &
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1:)                   !< Conservative variables.
    real(R8P)                              :: s2                      !< Side coefficient
    integer(I4P)                           :: i,j,k,b,n               !< Counters
    integer(I4P)                           :: alfa_D, beta_D, gamma_D !< Indici alfa beta gamma come in Barbas.
    integer(I4P)                           :: alfa_B, beta_B, gamma_B !< Indici alfa beta gamma come in Barbas.
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, &
-      f=>self%fWLayer%f, layer=>self%fWLayer%layer, C=>self%fWLayer%C, q=>self%q)
+      f=>self%fWLayer%f, layer=>self%fWLayer%layer, C=>self%fWLayer%C)
    
    if (C>0) then
       !x- side
@@ -1124,6 +1136,7 @@ contains
    endif
    if (do_local_update) call self%field%update_ghost_local(q=q)
                         call self%field%update_ghost_mpi(q=q, step=step)
+   if (do_set_bc)       call self%apply_fWL_correction(q=q)
    if (do_set_bc)       call self%set_boundary_conditions(q=q, s=s)
    endsubroutine update_ghost
 
@@ -1732,8 +1745,31 @@ contains
       ! first time integration done apart with explicit euler scheme to iniziale leapfrog
       call self%leapfrog%assign_step(s=1, q=self%q)
       call self%compute_dt
+
+      !Qua ci manca il calcolo delle correnti delle particelle se PIC (e pure delle spire, a dire il vero)
+      !Probabilmente ti conviene metterle nelle condizioni iniziali per coerenza con if legato a se ho pic o meno
       call self%compute_residuals(q=self%q, dq=self%dq)
       self%q = self%q + self%time%dt * self%dq
+   endif
+
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      if(self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) then
+         ! first time integration done apart with explicit euler scheme to iniziale leapfrog
+         call self%leapfrog_pic%assign_step(s=1, q_pic=self%q_pic)
+         call self%compute_dt
+         !< Pic residual computation
+         !Qua ci va il calcolo dei campi nelle posizioni delle particelle se PIC
+         !ma devi metterlo nell'inizializzazione per coerenza
+         call field_weighting(self=self%pic, field=self%field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
+         !< Integration of equations
+         self%q_pic(:,1) = self%q_pic(:,1) + self%time%dt * self%q_pic(:,4)
+         self%q_pic(:,2) = self%q_pic(:,2) + self%time%dt * self%q_pic(:,5)
+         self%q_pic(:,3) = self%q_pic(:,3) + self%time%dt * self%q_pic(:,6)
+         do i = 1, self%pic%particle_number
+            self%q_pic(i,4:6) = self%q_pic(i,4:6) + self%time%dt * self%q_pic(i,8) / self%q_pic(i,7) * &
+                              (self%pic_fields(i,1:3) + crossproduct(self%q_pic(i,4:6), self%pic_fields(i,4:6)))
+         enddo
+      endif
    endif
 
    ! integration
@@ -2063,26 +2099,22 @@ contains
    endsubroutine integrate_leapfrog
 
    subroutine integrate_leapfrog_pic(self)
-   !< Integrate equation, time operator, leapfrog scheme.
+   !< Integrate equation, time operator, leapfrog scheme for particle in cell
    class(prism_cpu_object), intent(inout) :: self !< The equation.
-
-   call self%compute_coils_current !Fai check su come si parlano questa subroutine e quella che calcola la corrente associata alle particelle
-
-   ! qua ci va la chiamata alla subroutine che aggiorna la neighbour list delle particelle
-   ! qua ci va la chiamata alla subroutine che calcola la corrente associata alle particelle
-
-   call self%compute_residuals(q=self%q, dq=self%dq) !< Calcolo i residui relativi ai campi E e B
-   call self%save_residuals
-
-   !Qua ci va la chiamata alla subroutine che calcola i resiudi delle particellle dq_pic
    
+   !< Maxwell source terms computation: particles and coils
+   call self%pic%particle_cartesian_grid_index(field=self%field, q_pic=self%q_pic)
+   call current_weighting(self=self%pic, field=self%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   call self%compute_coils_current
+   !< Maxwell residuals computation
+   call self%compute_residuals(q=self%q, dq=self%dq)
+   call self%save_residuals
+   !< Pic residual computation
+   call field_weighting(self=self%pic, field=self%field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
+   !< Integration of equations
    call self%leapfrog%integrate(dt=self%time%dt, q=self%q, dq=self%dq)
-
-   !Qua ci va la chiamata alla subroutine che integra aggiornando le velocita e le posizioni delle particelle
-               !decidi se fare qui all'inizio del tempo successivo l'aggiornamento della neighbour list delle particelle 
-
+   call self%leapfrog_pic%integrate(dt=self%time%dt, q_pic=self%q_pic, pic_fields=self%pic_fields)
    call self%impose_div_free
-   !call self%apply_fWL_correction
    endsubroutine integrate_leapfrog_pic
 
    subroutine integrate_rk_ls(self)
@@ -2091,7 +2123,7 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   call self%compute_coils_current
+   !call self%compute_coils_current da modificare per avere i tempi corretti 
    call self%rk%initialize_stages(q=self%q)
    do s=1, self%rk%nrk
       call self%compute_residuals(q=self%q, dq=self%dq)
@@ -2103,7 +2135,6 @@ contains
       endif
    enddo
    call self%impose_div_free
-   call self%apply_fWL_correction
    endsubroutine integrate_rk_ls
 
    subroutine integrate_rk_ssp(self)
@@ -2137,10 +2168,65 @@ contains
       call self%update_q_BC(dt=self%time%dt)
    endif
    call self%impose_div_free
-   call self%apply_fWL_correction
    call add_external_fields(self = self%external_fields, field = self%field, & 
                            time = self%time%time, dt = self%time%dt, q = self%q)   
    endsubroutine integrate_rk_ssp
+
+  subroutine integrate_rk_ssp_pic(self)
+   !< Integrate equation, time operator, SSP RK schemes.
+   !< SSP RK working on q_rk as stages.
+   class(prism_cpu_object), intent(inout) :: self !< The equation.
+   integer(I4P)                           :: s    !< Counter.
+
+   !call sub_external_fields(self = self%external_fields, field = self%field, & 
+   !                        time = self%time%time, dt = self%time%dt, q = self%q)
+
+   !Inizializzo stadi RK per campi e PIC
+   call self%rk%initialize_stages(q=self%q)
+   call self%rk_pic%initialize_stages(q_pic=self%q_pic)
+
+   do s=1, self%rk%nrk
+      !Calcolo stadio RK per campi e PIC
+      if (self%ib%solids_number>0) then
+         call self%rk%compute_stage(s=s, dt=self%time%dt, phi=self%ib%phi)
+      else
+         call self%rk%compute_stage(s=s, dt=self%time%dt)
+      endif
+      call self%rk_pic%compute_stage(s=s, dt=self%time%dt) 
+      !Calcolo termini sorgente Maxwell da particelle e bobine
+      call self%pic%particle_cartesian_grid_index(field=self%field, q_pic=self%rk_pic%q_pic_rk(:,:,s))
+      call current_weighting(self=self%pic, field=self%field, q=self%rk%q_rk(:,:,:,:,:,s), & 
+                              q_pic=self%rk_pic%q_pic_rk(:,:,s), nv=self%nv)
+      call self%compute_coils_current(gamma=self%rk%gamm(s)) !Da modificare per avere i tempi corretti!
+      !Calcolo residui Maxwell
+      call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
+      if (s==1) call self%save_residuals
+      !Calcolo residui PIC: calcolati direttamente nell'assegnazione dello stadio RK
+      !Interpolo quindi i campi
+      call field_weighting(self=self%pic, field=self%field, q=self%rk%q_rk(:,:,:,:,:,s), & 
+                           q_pic=self%rk_pic%q_pic_rk(:,:,s), pic_fields=self%pic_fields, nv=self%nv)
+      !Assegno lo stadio RK per campi e PIC
+      if (self%ib%solids_number>0) then
+         call self%rk%assign_stage(s=s, q=self%dq, phi=self%ib%phi)
+      else
+         call self%rk%assign_stage(s=s, q=self%dq)
+      endif
+
+      
+
+   enddo
+   !if (self%ib%solids_number>0) then
+   !   call self%rk%update_q(dt=self%time%dt, phi=self%ib%phi, q=self%q)
+   !   call self%update_q_BC(dt=self%time%dt, phi=self%ib%phi)
+   !else
+   !   call self%rk%update_q(dt=self%time%dt, q=self%q)
+   !   call self%update_q_BC(dt=self%time%dt)
+   !endif
+   !call self%impose_div_free
+
+   !call add_external_fields(self = self%external_fields, field = self%field, & 
+   !                        time = self%time%time, dt = self%time%dt, q = self%q)   
+   endsubroutine integrate_rk_ssp_pic
 
    subroutine update_q_BC(self, dt, phi)
    !< Update RK q ghost cells.
@@ -2448,4 +2534,14 @@ contains
       enddo
    enddo
    endsubroutine decompose_fluxes_convective
+
+   function crossproduct(a, b) result(cross)
+   real(R8P), intent(in) :: a(3)     !< Left hand side.
+   real(R8P), intent(in) :: b(3)     !< Left hand side.
+   real(R8P)             :: cross(3) !< Cross product.
+
+   cross(1) = (a(2) * b(3)) - (a(3) * b(2))
+   cross(2) = (a(3) * b(1)) - (a(1) * b(3))
+   cross(3) = (a(1) * b(2)) - (a(2) * b(1))
+   endfunction crossproduct
 endmodule adam_prism_cpu_object

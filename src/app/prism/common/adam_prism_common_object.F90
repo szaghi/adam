@@ -22,9 +22,11 @@ use adam_prism_external_fields_object
 use adam_prism_fWLayer_object
 use adam_prism_ic_object
 use adam_prism_io_object
+use adam_prism_leapfrog_pic_object
 use adam_prism_numerics_object
 use adam_prism_physics_object
 use adam_prism_pic_object
+use adam_prism_rk_pic_object
 use adam_prism_rk_bc_object
 use adam_prism_time_object
 ! third party modules
@@ -52,17 +54,19 @@ type :: prism_common_object
    type(weno_object)           :: weno          !< WENO reconstructor.
    type(flail_object)          :: flail         !< Linear algebra methods handler.
    ! PRISM library objects
-   type(prism_io_object)              :: io              !< IO handler.
-   type(prism_numerics_object)        :: numerics        !< Numerics handler.
-   type(prism_physics_object)         :: physics         !< Fluids physiscs handler.
-   type(prism_ic_object)              :: ic              !< Initial Conditions (IC) handler.
-   type(prism_bc_object)              :: bc              !< Boundary Conditions (BC) handler.
-   type(prism_rk_bc_object)           :: rk_bc           !< RK integrator for BC.
-   type(prism_time_object)            :: time            !< Time handler.
-   type(prism_fWLayer_object)         :: fWLayer         !< fWLayer handler.
-   type(prism_coil_object)            :: coil            !< Coils handler.
-   type(prism_external_fields_object) :: external_fields !< External fields handler.
-   type(prism_pic_object)             :: pic             !< Particle-in-Cell (PIC) handler.
+   type(prism_io_object)                :: io              !< IO handler.
+   type(prism_numerics_object)          :: numerics        !< Numerics handler.
+   type(prism_physics_object)           :: physics         !< Fluids physiscs handler.
+   type(prism_ic_object)                :: ic              !< Initial Conditions (IC) handler.
+   type(prism_bc_object)                :: bc              !< Boundary Conditions (BC) handler.
+   type(prism_rk_bc_object)             :: rk_bc           !< RK integrator for BC.
+   type(prism_time_object)              :: time            !< Time handler.
+   type(prism_fWLayer_object)           :: fWLayer         !< fWLayer handler.
+   type(prism_coil_object)              :: coil            !< Coils handler.
+   type(prism_external_fields_object)   :: external_fields !< External fields handler.
+   type(prism_pic_object)               :: pic             !< Particle-in-Cell (PIC) handler.
+   type(prism_leapfrog_pic_object)      :: leapfrog_pic    !< Leapfrog PIC integrator.
+   type(prism_rk_pic_object)            :: rk_pic          !< RK PIC integrator.
    ! grid/field data replica for easy handling
    integer(I4P), pointer :: ngc=>null()           !< Number of ghost cells.
    integer(I4P), pointer :: ni=>null()            !< Number of cells in i direction.
@@ -78,7 +82,7 @@ type :: prism_common_object
    real(R8P),    allocatable :: q(         :,:,:,:,:) !< Conservative cell centered variables.
    real(R8P),    allocatable :: dq(        :,:,:,:,:) !< Residuals right hand side.
    real(R8P),    allocatable :: q_pic(           :,:) !< PIC variables.
-   real(R8P),    allocatable :: dq_pic(          :,:) !< PIC variables derivatives.
+   real(R8P),    allocatable :: pic_fields(      :,:) !< Fields value at particle locations.
    real(R8P),    allocatable :: curl(      :,:,:,:,:) !< Curl fields.
    real(R8P),    allocatable :: divergence(:,:,:,:,:) !< Divergence fields.
    character(3), allocatable :: q_name(:)             !< Fields names [1:nv].
@@ -96,7 +100,8 @@ contains
    !< Allocate common data.
    class(prism_common_object), intent(inout) :: self !< The equation.
 
-   associate(nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb)
+   associate(nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb, &
+             particle_number=>self%pic%particle_number)
    call allocate_variable(var=self%dq,               &
                           ulb=reshape([1,nv,         &
                                        1-ngc,ni+ngc, &
@@ -126,16 +131,16 @@ contains
    self%curl = 0._R8P
 
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
-      call allocate_variable(var=self%q_pic,           &
-                             ulb=reshape([1,self%pic%particle_number,  &
-                                          1,8],[2,2]), &
+      call allocate_variable(var=self%q_pic,                          &
+                             ulb=reshape([1,particle_number,          &
+                                          1,8],[2,2]),                &
                              msg=self%mpih%myrankstr//'prism_common_object%allocate_common(q_pic) ', verbose=.true.)
       self%q_pic = 0._R8P
-      call allocate_variable(var=self%dq_pic,          &
-                             ulb=reshape([1,self%pic%particle_number,  &
-                                          1,8],[2,2]), &
-                             msg=self%mpih%myrankstr//'prism_common_object%allocate_common(dq_pic) ', verbose=.true.)
-      self%dq_pic = 0._R8P
+      call allocate_variable(var=self%pic_fields,                     &
+                             ulb=reshape([1,particle_number,          &
+                                          1,6],[2,2]),                &
+                             msg=self%mpih%myrankstr//'prism_common_object%allocate_common(pic_fields) ', verbose=.true.)
+      self%pic_fields = 0._R8P
    endif
    endassociate
    endsubroutine allocate_common
@@ -195,6 +200,12 @@ contains
    call self%cfm%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    if (self%numerics%scheme_space==NUM_SCHEME_SPACE_WENO) &
    call self%weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) &
+      call self%leapfrog_pic%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field, pic=self%pic)
+      if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
+      call self%rk_pic%initialize(file_parameters=file_parameters, rk=self%rk, pic=self%pic)
+   endif
    call self%flail%initialize(file_parameters=file_parameters)
    call check_ngc_number
    call self%allocate_common

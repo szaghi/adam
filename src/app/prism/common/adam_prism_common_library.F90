@@ -9,10 +9,12 @@ use adam_prism_external_fields_object
 use adam_prism_fWLayer_object
 use adam_prism_ic_object
 use adam_prism_io_object
+use adam_prism_leapfrog_pic_object
 use adam_prism_numerics_object
 use adam_prism_parameters
 use adam_prism_physics_object
 use adam_prism_rk_bc_object
+use adam_prism_rk_pic_object
 use adam_prism_time_object
 use adam_prism_riemann_library
 use adam_prism_pic_object
