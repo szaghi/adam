@@ -2,12 +2,12 @@
 module adam_prism_fWLayer_object
 
     !in input prendi il numero di celle che compone lo strato, chiamalo C e 3 flag per definire su quali lati ho lo strato
-    !assegni la funzione f ad ognuna delle celle: essa dovrà avere tre elementi in modo tale da poter 
+    !assegni la funzione f ad ognuna delle celle: essa dovrà avere tre elementi in modo tale da poter
     !tenere conto delle celle sulla diagonale
 
     !sicuramente devi dargli in pasto field o comunque un array di celle che contenga le coordinate delle celle stesse
 
-    !ragiona su come scrivere (in cpu però, non qui) la funzione di aggiornamento dei campi. La puoi fare ricorsiva e senza if se 
+    !ragiona su come scrivere (in cpu però, non qui) la funzione di aggiornamento dei campi. La puoi fare ricorsiva e senza if se
     !vale a livello matematico, altrimenti dovrai aggiungere un flag(3) per individuare se la cella appartiene a uno o più lati dello strato e a quali (in ogni elemento + o -1)
 
 ! ADAM modules
@@ -28,17 +28,17 @@ character(len=7), parameter :: INI_SECTION_NAME='fWLayer' !< INI file section na
 
 type :: prism_fWLayer_object
    !< PRISM fWLayer class definition.
-   type(mpih_object)           :: mpih                  !< MPI handler.
-   integer(I4P)                :: C        = 0_I4P      !< Layer cell width.
-   logical                     :: layer(6) = .false.    !< Layer flags for each side (-x, +x, -y, +y, -z, +z).
-   real(R8P), allocatable      :: f(:,:,:,:,:)          !< fWLayer function values.
+   type(mpih_object)      :: mpih               !< MPI handler.
+   integer(I4P)           :: C        = 0_I4P   !< Layer cell width.
+   logical                :: layer(6) = .false. !< Layer flags for each side (-x, +x, -y, +y, -z, +z).
+   real(R8P), allocatable :: f(:,:,:,:,:)       !< fWLayer function values.
 
 contains
   ! public methods
   procedure, pass(self) :: description    !< Return pretty-printed object description.
   procedure, pass(self) :: initialize     !< Initialize physics.
-  procedure, pass(self) :: load_from_file !< Load config from file. 
-endtype prism_fWLayer_object  
+  procedure, pass(self) :: load_from_file !< Load config from file.
+endtype prism_fWLayer_object
 
 contains
    ! public methods
@@ -75,11 +75,10 @@ contains
    real(R8P)                                  :: i_r, j_r, k_r   !< (Real) counters
    real(R8P)                                  :: ds              !< Cells distance in x, y or z.
 
-
    print '(A)', self%mpih%myrankstr//'prism_fWLayer_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters)
    print '(A)', self%description()
-   
+
    !Inizializzo funzione f nelle celle dello strato
    associate(ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, blocks_number=>field%blocks_number, &
             ngc=>field%grid%ngc, nb=>field%nb, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), &
@@ -88,7 +87,7 @@ contains
    allocate(self%f(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    self%f = 1.0_R8P
    C_r = real(C, R8P)
-   
+
    if (C >0) then
       if (C < 40_I4P) then
          fi = 1/150._R8P*(-7.0_R8P*C_r**2 + 255._R8P*C_r + 250._R8P)
@@ -104,7 +103,7 @@ contains
                   do i=1, C
                      i_r = real(i, R8P)
                      distance = i_r*ds-ds/2
-                     self%f(1,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)  
+                     self%f(1,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
                   enddo
                enddo
             enddo
@@ -117,11 +116,11 @@ contains
                   do i=ni-C, ni
                      i_r = real(i, R8P)
                      distance = (ni-i_r)*ds+ds/2
-                     self%f(1,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)  
+                     self%f(1,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
                   enddo
                enddo
             enddo
-         endif      
+         endif
          !y- side
          if (self%layer(3)) then
             ds = dy(b)
@@ -130,10 +129,10 @@ contains
                   do j=1, C
                      j_r = real(j, R8P)
                      distance = j_r*ds-ds/2
-                     self%f(2,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)  
+                     self%f(2,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
                   enddo
                enddo
-            enddo 
+            enddo
          endif
          !y+ side
          if (self%layer(4)) then
@@ -143,11 +142,11 @@ contains
                   do j=nj-C, nj
                      j_r = real(j, R8P)
                      distance = (nj-j_r)*ds+ds/2
-                     self%f(2,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)  
+                     self%f(2,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
                   enddo
                enddo
-            enddo  
-         endif         
+            enddo
+         endif
             !z- side
          if(self%layer(5)) then
             ds = dz(b)
@@ -156,7 +155,7 @@ contains
                   do k=1, C
                      k_r = real(k, R8P)
                      distance = k_r*ds-ds/2
-                     self%f(3,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)  
+                     self%f(3,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
                   enddo
                enddo
             enddo
@@ -169,7 +168,7 @@ contains
                   do k=nk-C, nk
                      k_r = real(k, R8P)
                      distance = (nk-k_r)*ds+ds/2
-                     self%f(3,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)  
+                     self%f(3,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
                   enddo
                enddo
             enddo
@@ -260,5 +259,4 @@ contains
       self%layer(6) = .false.
    endselect
    endsubroutine load_from_file
-
 endmodule adam_prism_fWLayer_object

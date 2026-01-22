@@ -112,6 +112,11 @@ type :: field_object
    ! field equations data
    real(R8P), allocatable :: q_work(:,:,:,:,:) !< Field cell centered variables, working buffer memory.
    real(R8P), allocatable :: residuals(:)      !< Field residuals, normalized.
+   ! grid data replica for easy handling
+   integer(I4P), pointer :: ngc=>null() !< Number of ghost cells.
+   integer(I4P), pointer :: ni=>null()  !< Number of cells in i direction.
+   integer(I4P), pointer :: nj=>null()  !< Number of cells in j direction.
+   integer(I4P), pointer :: nk=>null()  !< Number of cells in k direction.
    contains
       ! public methods
       procedure, pass(self) :: adapt                         !< Adapt field accordingly to refine/derefine necessity.
@@ -466,6 +471,10 @@ contains
    endif
    call allocate_variable(var=self%blocks_numbers, ulb=[0,self%mpih%procs_number-1], &
                           msg=self%mpih%myrankstr//'field_object%initialize(blocks_numbers) ', verbose=.true.)
+   self%ngc => grid%ngc
+   self%ni  => grid%ni
+   self%nj  => grid%nj
+   self%nk  => grid%nk
    call self%mpih%print_message('field_object%initialize finish')
    endsubroutine initialize
 
