@@ -40,16 +40,6 @@ type, extends(prism_common_object) :: prism_fnl_object
    real(R8P), pointer :: flz_f_gpu(:,:,:,:,:)=>null()       !< Fluxes along z at cell face.
    real(R8P), pointer :: curl_gpu(:,:,:,:,:)=>null()        !< Curl fields.
    real(R8P), pointer :: divergence_gpu(:,:,:,:,:)=>null()  !< Divergence fields.
-   ! real(R8P),          pointer ::       flx_gpu(:,:,:,:,:)=>null() !< Fluxes along x.
-   ! real(R8P),          pointer ::       fly_gpu(:,:,:,:,:)=>null() !< Fluxes along y.
-   ! real(R8P),          pointer ::       flz_gpu(:,:,:,:,:)=>null() !< Fluxes along z.
-   ! real(R8P),          pointer :: field_div_gpu(:,:,:,:,:)=>null() !< Field divergence.
-   ! integer(I4P),       pointer ::              si_gpu(:,:)=>null() !< Directional (1=x,2=y,3=z) increment.
-   ! real(R8P),          pointer ::             sir_gpu(:,:)=>null() !< Directional (1=x,2=y,3=z) increment, real cast.
-   ! real(R8P),          pointer ::            ER_GPU(:,:,:)=>null() !< Right eigenvectors.
-   ! real(R8P),          pointer ::            EL_GPU(:,:,:)=>null() !< Left eigenvectors.
-   ! real(R8P),          pointer ::            IERL_GPU(:,:)=>null() !< Idendity eigenvectors.
-
    !< Pointer (abstract) TBP.
    procedure(compute_curl_interface),       pass(self),pointer :: compute_curl       =>null()!< Compute curl of vector field.
    procedure(compute_derivative1_interface),pass(self),pointer :: compute_derivative1=>null()!< Compute derivative1 of scalar field.
@@ -106,7 +96,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: integrate_rk_ssp       !< SSP RK schemes.
       procedure, pass(self) :: integrate_rk_yoshida   !< Yoshida schemes.
       ! numerical methods, miscellanea
-      ! procedure, pass(self) :: compute_dt        !< Compute time step.
+      procedure, pass(self) :: compute_dt           !< Compute time step.
       procedure, pass(self) :: impose_ct_correction !< Impose Constrained Transport correction on q(ivar:ivar+2).
       procedure, pass(self) :: impose_div_free      !< Impose divergence-free property.
       procedure, pass(self) :: simulate             !< Perform the simulation.
@@ -520,16 +510,53 @@ contains
                                                    1-self%ngc:,&
                                                    1-self%ngc:,&
                                                    1-self%ngc:,1:) !< Conservative variables.
+   integer(I4P)                           :: b                     !< Counter.
+   integer(I4P)                           :: c, i, j, k, v         !< Counter.
+   integer(I4P)                           :: idelta                !< IJK i delta step for extrapolation.
+   integer(I4P)                           :: jdelta                !< IJK j delta step for extrapolation.
+   integer(I4P)                           :: kdelta                !< IJK k delta step for extrapolation.
+   integer(I4P)                           :: bc_type               !< Boundary condition type.
+   integer(I4P)                           :: crown                 !< Crown counter.
 
-   ! if (associated(self%field_gpu%maps%local_map_bc_crown_gpu)) &
-   !    call set_bc_q_gpu_dev(BC_EXTRAPOLATION=BC_EXTRAPOLATION, BC_fWLAYER=BC_fWLAYER,     &
-   !                          nv=self%nv, ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, &
-   !                          D_divergence_cleaner=self%physics%D_divergence_cleaner,       &
-   !                          B_divergence_cleaner=self%physics%B_divergence_cleaner,       &
-   !                          dxyz_gpu=self%field_gpu%dxyz_gpu,                             &
-   !                          l_map_bc_gpu=self%field_gpu%maps%local_map_bc_crown_gpu,      &
-   !                          fec_1_6_array_gpu=self%field_gpu%fec_1_6_array_gpu,           &
-   !                          q_gpu=q_gpu)
+   associate(local_map_bc_crown_gpu=>self%field_gpu%maps%local_map_bc_crown_gpu, &
+             nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk)
+   if (associated(self%field_gpu%maps%local_map_bc_crown_gpu)) then
+      do crown=1, ngc
+         !$acc parallel loop independent gang vector DEVICEVAR(local_map_bc_crown_gpu, q_gpu)
+         do c=1, size(local_map_bc_crown_gpu, dim=1)
+            b = local_map_bc_crown_gpu(c, 1 ,crown)
+            if (b>0) then
+               i       = local_map_bc_crown_gpu(c, 2 ,crown)
+               j       = local_map_bc_crown_gpu(c, 3 ,crown)
+               k       = local_map_bc_crown_gpu(c, 4 ,crown)
+               idelta  = local_map_bc_crown_gpu(c, 5 ,crown)
+               jdelta  = local_map_bc_crown_gpu(c, 6 ,crown)
+               kdelta  = local_map_bc_crown_gpu(c, 7 ,crown)
+               bc_type = local_map_bc_crown_gpu(c, 8 ,crown)
+               if (bc_type == BC_EXTRAPOLATION) then
+                  do v=1, nv
+                     q_gpu(b,i,j,k,v) = q_gpu(b,i-idelta,j-jdelta,k-kdelta,v)
+                  enddo
+               elseif (bc_type == BC_NEUMANN) then
+                  do v=1, nv
+                     q_gpu(b,i,j,k,v) = q_gpu(b,i+abs(idelta)*(-2*i+1+(idelta+1)*ni),&
+                                                j+abs(jdelta)*(-2*j+1+(jdelta+1)*nj),&
+                                                k+abs(kdelta)*(-2*k+1+(kdelta+1)*nk),v)
+                  enddo
+               elseif (bc_type == BC_SILVER_MULLER) then
+                  ! to be impelmented
+               elseif (bc_type == BC_DIRICHLET) then
+                  do v=1, nv
+                     q_gpu(b,i,j,k,v) = 0._R8P
+                  enddo
+               elseif (bc_type == BC_PERIOD) then
+                  ! to be impelmented
+               endif
+            endif
+         enddo
+      enddo
+   endif
+   endassociate
    endsubroutine set_boundary_conditions
 
    subroutine set_initial_conditions(self)
@@ -1329,18 +1356,19 @@ contains
    subroutine compute_dt(self)
    !< Compute maximum time step accordingly to CFL stabilty criterion.
    class(prism_fnl_object), intent(inout) :: self     !< The equation.
-   real(R8P)                              :: umax     !< Maximum speed of waves propagation (light speed)
    real(R8P)                              :: dxyz_min !< Minimum space step.
+   integer(I4P)                           :: b        !< Counter.
 
-   ! call compute_dxyz_min_dev(blocks_number=self%blocks_number, dxyz_gpu=self%field_gpu%dxyz_gpu, dxyz_min=dxyz_min)
-
-   ! if (self%physics%D_divergence_cleaner) then
-   !    umax = max(self%physics%chi*sqrt(1._R8P/(EPS0*MU0)), self%physics%eta*sqrt(1._R8P/(EPS0*MU0)))
-   ! else
-   !    umax = sqrt(1._R8P/(EPS0*MU0))
-   ! endif
-   ! self%time%dt = self%time%CFL*dxyz_min/umax
-   ! call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih_gpu%error)
+   associate(blocks_number=>self%blocks_number, dxyz_gpu=>self%field_gpu%dxyz_gpu, evmax=>self%physics%evmax)
+   dxyz_min = huge(0._R8P)
+   !$acc parallel loop independent gang vector DEVICEVAR(dxyz_gpu) reduction(min: dxyz_min)
+   do b=1, blocks_number
+      dxyz_min = min(dxyz_min, dxyz_gpu(b,1), dxyz_gpu(b,2), dxyz_gpu(b,3))
+   enddo
+   dxyz_min = dxyz_min * 0.5_R8P
+   self%time%dt = self%time%CFL*dxyz_min / evmax
+   call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih_gpu%error)
+   endassociate
    endsubroutine compute_dt
 
    subroutine impose_ct_correction(self, ivar)

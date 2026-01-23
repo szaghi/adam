@@ -19,7 +19,6 @@ public :: compute_coils_current_dev
 public :: compute_div_d_b_dev
 public :: compute_fluxes_convective_dev
 public :: compute_fluxes_difference_dev
-public :: compute_dxyz_min_dev
 public :: set_bc_q_gpu_dev
 public :: set_sir_dev
 
@@ -249,78 +248,6 @@ contains
    enddo
    enddo
    endsubroutine compute_fluxes_difference_dev
-
-   subroutine compute_dxyz_min_dev(blocks_number, dxyz_gpu, dxyz_min)
-   !< Compute minimum dxyz space step.
-   integer(I4P), intent(in)  :: blocks_number !< Number of blocks.
-   real(R8P),    intent(in)  :: dxyz_gpu(:,:) !< XYZ space steps.
-   real(R8P),    intent(out) :: dxyz_min      !< Minimum space step.
-   integer(I4P)              :: b             !< Counter.
-
-   dxyz_min = huge(0._R8P)
-   !$acc parallel loop independent gang vector DEVICEVAR(dxyz_gpu) reduction(min: dxyz_min)
-   !$omp OMPLOOP DEVICEVAR(dxyz_gpu) reduction(min: dxyz_min)
-   do b=1, blocks_number
-      dxyz_min = min(dxyz_min, dxyz_gpu(b,1), dxyz_gpu(b,2), dxyz_gpu(b,3))
-   enddo
-   dxyz_min = dxyz_min * 0.5_R8P
-   endsubroutine compute_dxyz_min_dev
-
-   subroutine set_bc_q_gpu_dev(BC_EXTRAPOLATION, BC_fWLAYER, nv, ni, nj, nk, ngc,    &
-                               D_divergence_cleaner, B_divergence_cleaner, dxyz_gpu, &
-                               l_map_bc_gpu, fec_1_6_array_gpu, q_gpu)
-   !< Set BC over q.
-   integer(I4P), intent(in)    :: BC_EXTRAPOLATION     !< Extrapolation BC parameter.
-   integer(I4P), intent(in)    :: BC_fWLAYER           !< fWLAYER BC parameter.
-   integer(I4P), intent(in)    :: nv                   !< Number of variables.
-   integer(I4P), intent(in)    :: ni, nj, nk           !< Cells number.
-   integer(I4P), intent(in)    :: ngc                  !< Ghost cells number.
-   logical,      intent(in)    :: D_divergence_cleaner !< Enable electric field divergence cleaning.
-   logical,      intent(in)    :: B_divergence_cleaner !< Enable magnetic field divergence cleaning.
-   real(R8P),    intent(in)    :: dxyz_gpu(:,:)        !< Delta cells GPU.
-   integer(I8P), intent(in)    :: l_map_bc_gpu(:,:,:)  !< Local map for BC ghost cells.
-   integer(I4P), intent(in)    :: fec_1_6_array_gpu(:) !< Local map for BC ghost cells.
-   real(R8P),    intent(inout) :: q_gpu(1:,    &
-                                        1-ngc:,&
-                                        1-ngc:,&
-                                        1-ngc:,1:)     !< Conservative variables.
-   integer(I4P)                :: b                    !< Counter.
-   integer(I4P)                :: c, i, j, k, v        !< Counter.
-   integer(I4P)                :: idelta               !< IJK delta step for extrapolation.
-   integer(I4P)                :: jdelta               !< IJK delta step for extrapolation.
-   integer(I4P)                :: kdelta               !< IJK delta step for extrapolation.
-   integer(I4P)                :: bc_type              !< Boundary condition type.
-   integer(I4P)                :: crown                !< Crown counter.
-
-   do crown=1, ngc
-      !$acc parallel loop independent gang vector DEVICEVAR(l_map_bc_gpu, fec_1_6_array_gpu, q_gpu)
-      do c=1, size(l_map_bc_gpu, dim=1)
-         b = l_map_bc_gpu(c, 1 ,crown)
-         if (b>0) then
-            i       = l_map_bc_gpu(c, 2 ,crown)
-            j       = l_map_bc_gpu(c, 3 ,crown)
-            k       = l_map_bc_gpu(c, 4 ,crown)
-            idelta  = l_map_bc_gpu(c, 5 ,crown)
-            jdelta  = l_map_bc_gpu(c, 6 ,crown)
-            kdelta  = l_map_bc_gpu(c, 7 ,crown)
-            bc_type = l_map_bc_gpu(c, 8 ,crown)
-            if (bc_type == BC_EXTRAPOLATION) then
-               do v=1, nv
-                  q_gpu(b,i,j,k,v) = q_gpu(b,i-idelta,j-jdelta,k-kdelta,v)
-               enddo
-               ! if (D_divergence_cleaner) then
-               !    q_gpu(b,i,j,k,10) = 0._R8P
-               ! endif
-               ! if (B_divergence_cleaner) then
-               !    q_gpu(b,i,j,k,11) = 0._R8P
-               ! endif
-            elseif (bc_type == BC_fWLayer) then
-               ! to be re-implemented
-            endif
-         endif
-      enddo
-   enddo
-   endsubroutine set_bc_q_gpu_dev
 
    subroutine set_sir_dev(si_gpu, sir_gpu)
    !< Set directional increment si and sir on device.
