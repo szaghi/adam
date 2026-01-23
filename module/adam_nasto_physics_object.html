@@ -132,7 +132,7 @@
       </a>
       <div id="vars-0" class="collapse">
         <div class="list-group list-group-flush">
-            <a class="list-group-item" href="../module/adam_nasto_physics_object.html#variable-ini_section_name~5">INI_SECTION_NAME</a>
+            <a class="list-group-item" href="../module/adam_nasto_physics_object.html#variable-ini_section_name">INI_SECTION_NAME</a>
             <a class="list-group-item" href="../module/adam_nasto_physics_object.html#variable-ir">IR</a>
             <a class="list-group-item" href="../module/adam_nasto_physics_object.html#variable-iu">IU</a>
             <a class="list-group-item" href="../module/adam_nasto_physics_object.html#variable-iv">IV</a>
@@ -170,11 +170,11 @@
       </a>
       <div id="funcs-0" class="collapse">
         <div class="list-group list-group-flush">
-            <a class="list-group-item" href="../module/adam_nasto_physics_object.html#proc-conservative2primitive~2">conservative2primitive</a>
-            <a class="list-group-item" href="../module/adam_nasto_physics_object.html#proc-description~5">description</a>
-            <a class="list-group-item" href="../module/adam_nasto_physics_object.html#proc-primitive2conservative~2">primitive2conservative</a>
-            <a class="list-group-item" href="../module/adam_nasto_physics_object.html#proc-internal_energy~2">internal_energy</a>
-            <a class="list-group-item" href="../module/adam_nasto_physics_object.html#proc-total_energy~2">total_energy</a>
+            <a class="list-group-item" href="../module/adam_nasto_physics_object.html#proc-conservative2primitive">conservative2primitive</a>
+            <a class="list-group-item" href="../module/adam_nasto_physics_object.html#proc-description">description</a>
+            <a class="list-group-item" href="../module/adam_nasto_physics_object.html#proc-primitive2conservative">primitive2conservative</a>
+            <a class="list-group-item" href="../module/adam_nasto_physics_object.html#proc-internal_energy">internal_energy</a>
+            <a class="list-group-item" href="../module/adam_nasto_physics_object.html#proc-total_energy">total_energy</a>
         </div>
       </div>
     </div>
@@ -186,8 +186,8 @@
       </a>
       <div id="subs-0" class="collapse">
         <div class="list-group list-group-flush">
-            <a class="list-group-item" href="../module/adam_nasto_physics_object.html#proc-initialize~8">initialize</a>
-            <a class="list-group-item" href="../module/adam_nasto_physics_object.html#proc-load_from_file~5">load_from_file</a>
+            <a class="list-group-item" href="../module/adam_nasto_physics_object.html#proc-initialize">initialize</a>
+            <a class="list-group-item" href="../module/adam_nasto_physics_object.html#proc-load_from_file">load_from_file</a>
         </div>
       </div>
     </div>
@@ -213,10 +213,10 @@
         <ul class="list-group list-group-flush">
             <li class="list-group-item">
               <ul class="list-inline">
-                  <li class="list-inline-item">finer</li>
-                  <li class="list-inline-item">adam_mpih_object</li>
-                  <li class="list-inline-item">penf</li>
                   <li class="list-inline-item"><a href='adam_nasto_eos_object.html'>adam_nasto_eos_object</a></li>
+                  <li class="list-inline-item">adam_mpih_object</li>
+                  <li class="list-inline-item">finer</li>
+                  <li class="list-inline-item">penf</li>
               </ul>
             </li>
             <li class="list-group-item">
@@ -702,7 +702,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-ini_section_name~5"></span>
+              <span class="anchor" id="variable-ini_section_name"></span>
               character(len=7),
             </td>
               <td>private,</td>
@@ -855,7 +855,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-mpih~6"></span>
+              <span class="anchor" id="variable-mpih"></span>
               type(mpih_object),
             </td>
               <td>public</td>
@@ -872,7 +872,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ns~2"></span>
+              <span class="anchor" id="variable-ns"></span>
               integer(kind=I4P),
             </td>
               <td>public</td>
@@ -889,7 +889,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nv~26"></span>
+              <span class="anchor" id="variable-nv"></span>
               integer(kind=I4P),
             </td>
               <td>public</td>
@@ -906,7 +906,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nv_aux~2"></span>
+              <span class="anchor" id="variable-nv_aux"></span>
               integer(kind=I4P),
             </td>
               <td>public</td>
@@ -966,27 +966,27 @@ parameter
           <tbody>
               <tr>
                 <td>  procedure, public, pass(self) ::
-  <strong><a href='../type/nasto_physics_object.html#boundprocedure-conservative2primitive~2'>conservative2primitive</a></strong></td>
+  <strong><a href='../type/nasto_physics_object.html#boundprocedure-conservative2primitive'>conservative2primitive</a></strong></td>
                   <td><p>Return primitive variables from conservative ones.</p></td>
               </tr>
               <tr>
                 <td>  procedure, public, pass(self) ::
-  <strong><a href='../type/nasto_physics_object.html#boundprocedure-description~5'>description</a></strong></td>
+  <strong><a href='../type/nasto_physics_object.html#boundprocedure-description'>description</a></strong></td>
                   <td><p>Return pretty-printed object description.</p></td>
               </tr>
               <tr>
                 <td>  procedure, public, pass(self) ::
-  <strong><a href='../type/nasto_physics_object.html#boundprocedure-initialize~8'>initialize</a></strong></td>
+  <strong><a href='../type/nasto_physics_object.html#boundprocedure-initialize'>initialize</a></strong></td>
                   <td><p>Initialize physics.</p></td>
               </tr>
               <tr>
                 <td>  procedure, public, pass(self) ::
-  <strong><a href='../type/nasto_physics_object.html#boundprocedure-load_from_file~5'>load_from_file</a></strong></td>
+  <strong><a href='../type/nasto_physics_object.html#boundprocedure-load_from_file'>load_from_file</a></strong></td>
                   <td><p>Load config from file.</p></td>
               </tr>
               <tr>
                 <td>  procedure, public, pass(self) ::
-  <strong><a href='../type/nasto_physics_object.html#boundprocedure-primitive2conservative~2'>primitive2conservative</a></strong></td>
+  <strong><a href='../type/nasto_physics_object.html#boundprocedure-primitive2conservative'>primitive2conservative</a></strong></td>
                   <td><p>Return conservative variables from primitive ones.</p></td>
               </tr>
           </tbody>
@@ -1000,7 +1000,7 @@ parameter
         <section>
           <h2>Functions</h2>
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-conservative2primitive~2"></span> <h3>private pure function <a href='../proc/conservative2primitive~2.html'>conservative2primitive</a>(self, conservative) result(primitive)  
+    <div class="card-header codesum"><span class="anchor" id="proc-conservative2primitive"></span> <h3>private pure function <a href='../proc/conservative2primitive.html'>conservative2primitive</a>(self, conservative) result(primitive)  
 </h3></div>
     <div class="card-body">
           
@@ -1019,7 +1019,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~103"></span>
+              <span class="anchor" id="variable-self"></span>
               class(<a href='../type/nasto_physics_object.html'>nasto_physics_object</a>),
             </td>
 <td>intent(in)</td>
@@ -1034,7 +1034,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-conservative~3"></span>
+              <span class="anchor" id="variable-conservative"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1060,7 +1060,7 @@ parameter
   </div>
 
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-description~5"></span> <h3>private pure function <a href='../proc/description~5.html'>description</a>(self) result(desc)  
+    <div class="card-header codesum"><span class="anchor" id="proc-description"></span> <h3>private pure function <a href='../proc/description.html'>description</a>(self) result(desc)  
 </h3></div>
     <div class="card-body">
           
@@ -1079,7 +1079,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~104"></span>
+              <span class="anchor" id="variable-self~2"></span>
               class(<a href='../type/nasto_physics_object.html'>nasto_physics_object</a>),
             </td>
 <td>intent(in)</td>
@@ -1105,7 +1105,7 @@ parameter
   </div>
 
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-primitive2conservative~2"></span> <h3>private  function <a href='../proc/primitive2conservative~2.html'>primitive2conservative</a>(self, primitive) result(conservative)  
+    <div class="card-header codesum"><span class="anchor" id="proc-primitive2conservative"></span> <h3>private  function <a href='../proc/primitive2conservative.html'>primitive2conservative</a>(self, primitive) result(conservative)  
 </h3></div>
     <div class="card-body">
           
@@ -1124,7 +1124,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~107"></span>
+              <span class="anchor" id="variable-self~5"></span>
               class(<a href='../type/nasto_physics_object.html'>nasto_physics_object</a>),
             </td>
 <td>intent(in)</td>
@@ -1139,7 +1139,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-primitive~4"></span>
+              <span class="anchor" id="variable-primitive~2"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1165,7 +1165,7 @@ parameter
   </div>
 
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-internal_energy~2"></span> <h3>private elemental function <a href='../proc/internal_energy~2.html'>internal_energy</a>(g, density, pressure) result(energy_)  
+    <div class="card-header codesum"><span class="anchor" id="proc-internal_energy"></span> <h3>private elemental function <a href='../proc/internal_energy.html'>internal_energy</a>(g, density, pressure) result(energy_)  
 </h3></div>
     <div class="card-body">
           
@@ -1184,7 +1184,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-g~22"></span>
+              <span class="anchor" id="variable-g"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1199,7 +1199,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-density~14"></span>
+              <span class="anchor" id="variable-density"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1214,7 +1214,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-pressure~14"></span>
+              <span class="anchor" id="variable-pressure"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1240,7 +1240,7 @@ parameter
   </div>
 
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-total_energy~2"></span> <h3>private elemental function <a href='../proc/total_energy~2.html'>total_energy</a>(g, density, pressure, velocity_sq_norm) result(energy_)  
+    <div class="card-header codesum"><span class="anchor" id="proc-total_energy"></span> <h3>private elemental function <a href='../proc/total_energy.html'>total_energy</a>(g, density, pressure, velocity_sq_norm) result(energy_)  
 </h3></div>
     <div class="card-body">
           
@@ -1259,7 +1259,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-g~23"></span>
+              <span class="anchor" id="variable-g~2"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1274,7 +1274,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-density~15"></span>
+              <span class="anchor" id="variable-density~2"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1289,7 +1289,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-pressure~15"></span>
+              <span class="anchor" id="variable-pressure~2"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1304,7 +1304,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-velocity_sq_norm~5"></span>
+              <span class="anchor" id="variable-velocity_sq_norm"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1335,7 +1335,7 @@ parameter
         <section>
           <h2>Subroutines</h2>
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-initialize~8"></span> <h3>private  subroutine <a href='../proc/initialize~8.html'>initialize</a>(self, file_parameters)  
+    <div class="card-header codesum"><span class="anchor" id="proc-initialize"></span> <h3>private  subroutine <a href='../proc/initialize.html'>initialize</a>(self, file_parameters)  
 </h3></div>
     <div class="card-body">
           
@@ -1354,7 +1354,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~105"></span>
+              <span class="anchor" id="variable-self~3"></span>
               class(<a href='../type/nasto_physics_object.html'>nasto_physics_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -1369,7 +1369,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-file_parameters~9"></span>
+              <span class="anchor" id="variable-file_parameters"></span>
               type(file_ini),
             </td>
 <td>intent(in)</td>
@@ -1390,7 +1390,7 @@ parameter
   </div>
 
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-load_from_file~5"></span> <h3>private  subroutine <a href='../proc/load_from_file~5.html'>load_from_file</a>(self, file_parameters, go_on_fail)  
+    <div class="card-header codesum"><span class="anchor" id="proc-load_from_file"></span> <h3>private  subroutine <a href='../proc/load_from_file.html'>load_from_file</a>(self, file_parameters, go_on_fail)  
 </h3></div>
     <div class="card-body">
           
@@ -1409,7 +1409,7 @@ parameter
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~106"></span>
+              <span class="anchor" id="variable-self~4"></span>
               class(<a href='../type/nasto_physics_object.html'>nasto_physics_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -1424,7 +1424,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-file_parameters~10"></span>
+              <span class="anchor" id="variable-file_parameters~2"></span>
               type(file_ini),
             </td>
 <td>intent(in)</td>
@@ -1439,7 +1439,7 @@ parameter
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-go_on_fail~5"></span>
+              <span class="anchor" id="variable-go_on_fail"></span>
               logical,
             </td>
 <td>intent(in),</td>
