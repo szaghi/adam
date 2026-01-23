@@ -97,12 +97,12 @@ type :: field_object
    real(R8P),    allocatable :: emin(:,:)           !< Coordinates of minimum abscissa of each block [3,nb].
    real(R8P),    allocatable :: emax(:,:)           !< Coordinates of maximum abscissa of each block [3,nb].
    real(R8P),    allocatable :: dxyz(:,:)           !< Space steps of each block [3,nb].
-   real(R8P),    allocatable :: x_node(:,:)         !< X node coordinates [3,nb].
-   real(R8P),    allocatable :: y_node(:,:)         !< Y node coordinates [3,nb].
-   real(R8P),    allocatable :: z_node(:,:)         !< Z node coordinates [3,nb].
-   real(R8P),    allocatable :: x_cell(:,:)         !< X cell coordinates [3,nb].
-   real(R8P),    allocatable :: y_cell(:,:)         !< Y cell coordinates [3,nb].
-   real(R8P),    allocatable :: z_cell(:,:)         !< Z cell coordinates [3,nb].
+   real(R8P),    allocatable :: x_node(:,:)         !< X node coordinates [0-ngc:ni+ngc,nb].
+   real(R8P),    allocatable :: y_node(:,:)         !< Y node coordinates [0-ngc:nj+ngc,nb].
+   real(R8P),    allocatable :: z_node(:,:)         !< Z node coordinates [0-ngc:nk+ngc,nb].
+   real(R8P),    allocatable :: x_cell(:,:)         !< X cell coordinates [1-ngc:ni+ngc,nb].
+   real(R8P),    allocatable :: y_cell(:,:)         !< Y cell coordinates [1-ngc:nj+ngc,nb].
+   real(R8P),    allocatable :: z_cell(:,:)         !< Z cell coordinates [1-ngc:nk+ngc,nb].
    ! MPI data, unrelated to field equations
    integer(I4P), allocatable :: blocks_numbers(:)         !< Number of blocks actually stored in all processes.
    integer(I4P), allocatable :: refinements_needed(:)     !< Refinements needed of my blocks.

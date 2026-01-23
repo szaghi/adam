@@ -10,53 +10,53 @@ use adam_prism_parameters
 use finer
 use penf
 
-implicit none 
+implicit none
 private
 public :: INI_SECTION_NAME
-public :: RMF
-public :: MAGNETIC_NOZZLE
-public :: RMF_AND_MAGNETIC_NOZZLE
+public :: EF_TYPE_RMF
+public :: EF_TYPE_MAGNETIC_NOZZLE
+public :: EF_TYPE_NONE
+public :: EF_TYPE_RMF_AND_MAGNETIC_NOZZLE
 public :: prism_external_fields_object
 public :: add_external_fields_interface
 public :: sub_external_fields_interface
 public :: add_external_fields_rmf
 !public :: add_external_fields_magnetic_nozzle
 !public :: add_external_fields_rmf_and_magnetic_nozzle
-public :: add_external_fields_none
 public :: sub_external_fields_rmf
 !public :: sub_external_fields_magnetic_nozzle
 !public :: sub_external_fields_rmf_and_magnetic_nozzle
-public :: sub_external_fields_none
 
-character(len=15), parameter :: INI_SECTION_NAME        = 'external_fields'         !< INI (config) file section name containing external fields configs.
-character(len=3),  parameter :: RMF                     = 'RMF'                     !< Rotating Magnetic Field.
-character(len=15), parameter :: MAGNETIC_NOZZLE         = 'Magnetic_nozzle'         !< Magnetic Nozzle.
-character(len=23), parameter :: RMF_AND_MAGNETIC_NOZZLE = 'RMF_and_magnetic_nozzle' !< Rotating Magnetic Field and Magnetic Nozzle.
+character(len=15), parameter :: INI_SECTION_NAME               ='external_fields'        !< INI (config) file section name.
+character(len=15), parameter :: EF_TYPE_MAGNETIC_NOZZLE        ='magnetic_nozzle'        !< Magnetic Nozzle.
+character(len=4),  parameter :: EF_TYPE_NONE                   ='none'                   !< Disable external field.
+character(len=3),  parameter :: EF_TYPE_RMF                    ='RMF'                    !< Rotating Magnetic Field.
+character(len=23), parameter :: EF_TYPE_RMF_AND_MAGNETIC_NOZZLE='RMF_and_magnetic_nozzle'!< Rotating Magnetic Field/Magnetic Nozzle.
 
 type :: prism_external_fields_object
-    !< PRISM external fields object.
-   type(mpih_object) :: mpih                     !< MPI handler.
-   character(len=99) :: external_field_applied   !< Field type.
-   real(R8P)         :: RMF_frequency            !< Rotating magnetic field frequency.
-   real(R8P)         :: RMF_B_amplitude          !< Rotating magnetic field amplitude.
-	character(len=99) :: RMF_rotation_axis 		  !< Rotating magnetic field rotation axis (X, Y, Z).
-	integer(I4P)      :: alpha                    !< RMF rotation axis coordinate 1
-	integer(I4P)      :: beta                     !< RMF rotation axis coordinate 2
-	integer(I4P)      :: gamma                    !< RMF rotation axis coordinate 3
-
-contains
-   procedure, pass(self) :: description                           !< Return pretty-printed object description.
-   procedure, pass(self) :: initialize                            !< Initialize IC.
-   procedure, pass(self) :: load_from_file                        !< Load config from file.
-   procedure, pass(self) :: add_external_fields_rmf               !< Add rotating magnetic field to the field.
-   !procedure, pass(self) :: add_external_fields_magnetic_nozzle  !< Add magnetic nozzle to the field.
-   !procedure, pass(self) :: add_external_fields_rmf_and_magnetic_nozzle !< Add rotating magnetic field and magnetic nozzle to the field.
-   procedure, pass(self) :: add_external_fields_none              !< No external field applied.
-   procedure, pass(self) :: sub_external_fields_rmf               !< Add rotating magnetic field to the field.
-   !procedure, pass(self) :: sub_external_fields_magnetic_nozzle  !< Add magnetic nozzle to the field.
-   !procedure, pass(self) :: sub_external_fields_rmf_and_magnetic_nozzle !< Add rotating magnetic field and magnetic nozzle to the field.
-   procedure, pass(self) :: sub_external_fields_none              !< No external field applied.
-
+   !< PRISM external fields object.
+   type(mpih_object) :: mpih              !< MPI handler.
+   character(len=99) :: ef_type           !< Field type.
+   real(R8P)         :: RMF_frequency     !< Rotating magnetic field frequency.
+   real(R8P)         :: RMF_B_amplitude   !< Rotating magnetic field amplitude.
+	character(len=99) :: RMF_rotation_axis !< Rotating magnetic field rotation axis (X, Y, Z).
+	integer(I4P)      :: alpha             !< RMF rotation axis coordinate 1
+	integer(I4P)      :: beta              !< RMF rotation axis coordinate 2
+	integer(I4P)      :: gamm              !< RMF rotation axis coordinate 3
+   ! pointer methods
+   procedure(add_external_fields_interface), pointer :: add_external_fields=>null() !< Add external fields.
+   procedure(sub_external_fields_interface), pointer :: sub_external_fields=>null() !< Subtract external fields.
+   contains
+      ! public methods
+      procedure, pass(self) :: description                           !< Return pretty-printed object description.
+      procedure, pass(self) :: initialize                            !< Initialize IC.
+      procedure, pass(self) :: load_from_file                        !< Load config from file.
+      procedure, pass(self) :: add_external_fields_rmf               !< Add rotating magnetic field to the field.
+      !procedure, pass(self) :: add_external_fields_magnetic_nozzle  !< Add magnetic nozzle to the field.
+      !procedure, pass(self) :: add_external_fields_rmf_and_magnetic_nozzle !< Add rotating magnetic field and magnetic nozzle to the field.
+      procedure, pass(self) :: sub_external_fields_rmf               !< Add rotating magnetic field to the field.
+      !procedure, pass(self) :: sub_external_fields_magnetic_nozzle  !< Add magnetic nozzle to the field.
+      !procedure, pass(self) :: sub_external_fields_rmf_and_magnetic_nozzle !< Add rotating magnetic field and magnetic nozzle to the field.
 endtype prism_external_fields_object
 
 interface
@@ -81,22 +81,22 @@ interface
    endsubroutine sub_external_fields_interface
 endinterface
 
-contains 
+contains
    pure function description(self) result(desc)
    !< Return a pretty-formatted object description.
    class(prism_external_fields_object), intent(in) :: self             !< External fields.
    character(len=:), allocatable                   :: desc             !< Description.
    character(len=1), parameter                     :: NL=new_line('a') !< New line character.
    desc =       self%mpih%myrankstr//'Applied external fields:'
-   select case(self%external_field_applied)
-   case(RMF)
+   select case(self%ef_type)
+   case(EF_TYPE_RMF)
    desc = desc//NL//self%mpih%myrankstr//'    Rotating magnetic field applied '
    desc = desc//NL//self%mpih%myrankstr//'    RMF frequency: '//trim(str(self%RMF_frequency))
    desc = desc//NL//self%mpih%myrankstr//'    RMF B amplitude: '//trim(str(self%RMF_B_amplitude))
    desc = desc//NL//self%mpih%myrankstr//'    RMF rotation axis: '//trim(self%RMF_rotation_axis)
-   case(MAGNETIC_NOZZLE)
+   case(EF_TYPE_MAGNETIC_NOZZLE)
    desc = desc//NL//self%mpih%myrankstr//'    Magnetic nozzle applied '
-   case(RMF_AND_MAGNETIC_NOZZLE)
+   case(EF_TYPE_RMF_AND_MAGNETIC_NOZZLE)
    desc = desc//NL//self%mpih%myrankstr//'    Rotating magnetic field and magnetic nozzle applied '
    desc = desc//NL//self%mpih%myrankstr//'    RMF frequency: '//trim(str(self%RMF_frequency))
    desc = desc//NL//self%mpih%myrankstr//'    RMF B amplitude: '//trim(str(self%RMF_B_amplitude))
@@ -106,13 +106,23 @@ contains
    endselect
    endfunction description
 
-   subroutine initialize(self, file_parameters) 
+   subroutine initialize(self, file_parameters)
    !< Initialize external fields.
    class(prism_external_fields_object), intent(inout) :: self            !< External fields.
    type(file_ini),                      intent(in)    :: file_parameters !< Simulation parameters ini file handler.
    call self%mpih%initialize(do_mpi_init=.false.)
    print '(A)', self%mpih%myrankstr//'prism_external_fields_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters)
+
+   select case(self%ef_type)
+   case(EF_TYPE_RMF)
+      self%add_external_fields => add_external_fields_rmf
+      self%sub_external_fields => sub_external_fields_rmf
+   !case(EF_TYPE_MAGNETIC_NOZZLE)
+   !   self%add_external_fields => add_external_fields_magnetic_nozzle
+   !case(EF_TYPE_RMF_AND_MAGNETIC_NOZZLE)
+   !   self%add_external_fields => add_external_fields_rmf_and_magnetic_nozzle
+   endselect
    print '(A)', self%description()
    print '(A)', self%mpih%myrankstr//'prism_external_fields_object%initialize finish'
    endsubroutine initialize
@@ -135,91 +145,84 @@ contains
 
    select case(trim(adjustl(buff_char)))
    case('RMF', 'rmf', 'Rmf')
-      self%external_field_applied = RMF
+      self%ef_type = EF_TYPE_RMF
    case('Magnetic_nozzle', 'magnetic_nozzle', 'MAGNETIC_NOZZLE', 'MagneticNozzle', 'magneticnozzle')
-      self%external_field_applied = MAGNETIC_NOZZLE
+      self%ef_type = EF_TYPE_MAGNETIC_NOZZLE
    case('RMF_and_magnetic_nozzle', 'rmf_and_magnetic_nozzle', 'RMF_AND_MAGNETIC_NOZZLE', &
-        'Rmf_and_magnetic_nozzle', 'rmfAndMagneticNozzle', 'RMFAndMagneticNozzle')      
-      self%external_field_applied = RMF_AND_MAGNETIC_NOZZLE
+        'Rmf_and_magnetic_nozzle', 'rmfAndMagneticNozzle', 'RMFAndMagneticNozzle')
+      self%ef_type = EF_TYPE_RMF_AND_MAGNETIC_NOZZLE
    case default
-      self%external_field_applied = 'None'
+      self%ef_type = EF_TYPE_NONE
    endselect
 
-   selectcase(self%external_field_applied)
-   case(RMF)
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_frequency', &
-   val=self%RMF_frequency, error=error)
-   if (.not.go_on_fail_.and.error>0) & 
-   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_frequency)')
+   selectcase(self%ef_type)
+   case(EF_TYPE_RMF)
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_frequency', &
+      val=self%RMF_frequency, error=error)
+      if (.not.go_on_fail_.and.error>0) &
+      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_frequency)')
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_B_amplitude', &
-   val=self%RMF_B_amplitude, error=error)
-   if (.not.go_on_fail_.and.error>0) & 
-   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_B_amplitude)')
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_B_amplitude', &
+      val=self%RMF_B_amplitude, error=error)
+      if (.not.go_on_fail_.and.error>0) &
+      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_B_amplitude)')
 
-	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_rotation_axis', &
-                        val=buff_char, error=error)
-   if (.not.go_on_fail_.and.error>0) &
-   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_rotation_axis)')
-   self%RMF_rotation_axis = trim(buff_char)
-   self%RMF_rotation_axis = trim(self%RMF_rotation_axis)
-	select case(self%RMF_rotation_axis)
-	case('X', 'x')
-		self%alpha = 2_I4P
-		self%beta  = 3_I4P
-		self%gamma = 1_I4P
-	case('Y', 'y')
-		self%alpha = 3_I4P
-		self%beta  = 1_I4P
-		self%gamma = 2_I4P
-	case('Z', 'z')
-		self%alpha = 1_I4P
-		self%beta  = 2_I4P
-		self%gamma = 3_I4P
-	endselect
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_rotation_axis', &
+                           val=buff_char, error=error)
+      if (.not.go_on_fail_.and.error>0) &
+      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_rotation_axis)')
+      self%RMF_rotation_axis = trim(buff_char)
+      self%RMF_rotation_axis = trim(self%RMF_rotation_axis)
+      select case(self%RMF_rotation_axis)
+      case('X', 'x')
+         self%alpha = 2_I4P
+         self%beta  = 3_I4P
+         self%gamm  = 1_I4P
+      case('Y', 'y')
+         self%alpha = 3_I4P
+         self%beta  = 1_I4P
+         self%gamm  = 2_I4P
+      case('Z', 'z')
+         self%alpha = 1_I4P
+         self%beta  = 2_I4P
+         self%gamm  = 3_I4P
+      endselect
+   case(EF_TYPE_MAGNETIC_NOZZLE)
 
+   case(EF_TYPE_RMF_AND_MAGNETIC_NOZZLE)
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_frequency', &
+      val=self%RMF_frequency, error=error)
+      if (.not.go_on_fail_.and.error>0) &
+      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_frequency)')
 
-   case(MAGNETIC_NOZZLE)
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_B_amplitude', &
+      val=self%RMF_B_amplitude, error=error)
+      if (.not.go_on_fail_.and.error>0) &
+      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_B_amplitude)')
 
-
-   case(RMF_AND_MAGNETIC_NOZZLE)
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_frequency', &
-   val=self%RMF_frequency, error=error)
-   if (.not.go_on_fail_.and.error>0) & 
-   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_frequency)')
-
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_B_amplitude', &
-   val=self%RMF_B_amplitude, error=error)
-   if (.not.go_on_fail_.and.error>0) & 
-   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_B_amplitude)')
-
-	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_rotation_axis', &
-                        val=buff_char, error=error)
-   if (.not.go_on_fail_.and.error>0) &
-   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_rotation_axis)')
-   self%RMF_rotation_axis = trim(buff_char)
-   self%RMF_rotation_axis = trim(self%RMF_rotation_axis)
-	select case(self%RMF_rotation_axis)
-	case('X', 'x')
-		self%alpha = 2_I4P
-		self%beta  = 3_I4P
-		self%gamma = 1_I4P
-	case('Y', 'y')
-		self%alpha = 3_I4P
-		self%beta  = 1_I4P
-		self%gamma = 2_I4P
-	case('Z', 'z')
-		self%alpha = 1_I4P
-		self%beta  = 2_I4P
-		self%gamma = 3_I4P
-	endselect
-
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='RMF_rotation_axis', &
+                           val=buff_char, error=error)
+      if (.not.go_on_fail_.and.error>0) &
+      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_rotation_axis)')
+      self%RMF_rotation_axis = trim(buff_char)
+      self%RMF_rotation_axis = trim(self%RMF_rotation_axis)
+      select case(self%RMF_rotation_axis)
+      case('X', 'x')
+         self%alpha = 2_I4P
+         self%beta  = 3_I4P
+         self%gamm  = 1_I4P
+      case('Y', 'y')
+         self%alpha = 3_I4P
+         self%beta  = 1_I4P
+         self%gamm  = 2_I4P
+      case('Z', 'z')
+         self%alpha = 1_I4P
+         self%beta  = 2_I4P
+         self%gamm  = 3_I4P
+      endselect
    case default
-   call self%mpih%print_message(msg='no external field applied')
-   !self%external_field_applied = 'None'
-   !self%external_field_applied = trim(self%external_field_applied)
+      call self%mpih%print_message(msg='no external field applied')
    endselect
-
    endsubroutine load_from_file
 
    !subroutine add_external_fields_rmf(self, field, time, dt, gamm, dq)
@@ -240,7 +243,7 @@ contains
 	!real(R8P)										                      :: cell_coord(3)												                   !< Cell coordinates vector and scalar variables
    !real(R8P)                                                    :: x, y, r, omega, phase, c, s
    !associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
-	!	alpha=>self%alpha, beta=>self%beta, gamma=>self%gamma)	
+	!	alpha=>self%alpha, beta=>self%beta, gamma=>self%gamma)
    !if (present(gamm)) then
    !   time1 = time + dt*gamm
    !else
@@ -255,7 +258,7 @@ contains
    !               x = cell_coord(alpha)
    !               y = cell_coord(beta)
    !               r = sqrt(x*x + y*y)
-   !               theta = atan2(y, x)                   
+   !               theta = atan2(y, x)
    !               omega = 2.0_R8P*PI*self%RMF_frequency
    !               phase = omega*time1 - theta
    !               dB_r     = -omega*self%RMF_B_amplitude*sin(phase)
@@ -291,7 +294,7 @@ contains
    real(R8P)                                                    :: x, y, r, omega, phase, c, s
 
    associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
-		alpha=>self%alpha, beta=>self%beta, gamma=>self%gamma)	
+		alpha=>self%alpha, beta=>self%beta, ef_gamma=>self%gamm)
    if (present(gamm)) then
       time1 = time + dt*gamm
    else
@@ -306,7 +309,7 @@ contains
                   x = cell_coord(alpha)
                   y = cell_coord(beta)
                   r = sqrt(x*x + y*y)
-                  theta = atan2(y, x)                   
+                  theta = atan2(y, x)
                   omega = 2.0_R8P*PI*self%RMF_frequency
                   phase = omega*time1 - theta
                   B_r     = self%RMF_B_amplitude*cos(phase)
@@ -315,28 +318,13 @@ contains
                   s = sin(theta)
                   q(alpha+3_I4P,i,j,k,b) = q(alpha+3_I4P,i,j,k,b) + B_r*c - B_theta*s
                   q(beta +3_I4P,i,j,k,b) = q(beta +3_I4P,i,j,k,b) + B_r*s + B_theta*c
-                  q(gamma,i,j,k,b) = q(gamma,i,j,k,b) + r*omega*self%RMF_B_amplitude*cos(phase)*EPS0
+                  q(ef_gamma,i,j,k,b) = q(ef_gamma,i,j,k,b) + r*omega*self%RMF_B_amplitude*cos(phase)*EPS0
                enddo
             enddo
          enddo
    enddo
 	endassociate
    endsubroutine add_external_fields_rmf
-
-   subroutine add_external_fields_none(self, field, time, dt, gamm, q)
-   !< Add rotating magnetic field to the field.
-   class(prism_external_fields_object), intent(inout) :: self                                                              !< External fields.
-   type(field_object),                  intent(inout) :: field                                                             !< The field.
-   real(R8P),                           intent(in)    :: time                                                              !< Current simulation time.
-   real(R8P),                           intent(in), optional    :: dt                                                                !< Time step.
-   real(R8P),                           intent(in), optional    :: gamm                                                              !< Gamma values oh RK SSP
-   real(R8P),                           intent(inout) :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)   !< Primitive variables.
-   real(R8P)                                          :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
-                                                         y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
-                                                         z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)             !< Vettori posizione centro celle del blocco b
-   integer(I4P)                                       :: b,i,j,k
-
-   endsubroutine add_external_fields_none
 
    subroutine sub_external_fields_rmf(self, field, time, dt, gamm, q)
    !< Add rotating magnetic field to the field.
@@ -357,7 +345,7 @@ contains
    real(R8P)                                                    :: x, y, r, omega, phase, c, s
 
    associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
-		alpha=>self%alpha, beta=>self%beta, gamma=>self%gamma)	
+		alpha=>self%alpha, beta=>self%beta, ef_gamma=>self%gamm)
    if (present(gamm)) then
       time1 = time + dt*gamm
    else
@@ -372,7 +360,7 @@ contains
                   x = cell_coord(alpha)
                   y = cell_coord(beta)
                   r = sqrt(x*x + y*y)
-                  theta = atan2(y, x)                   
+                  theta = atan2(y, x)
                   omega = 2.0_R8P*PI*self%RMF_frequency
                   phase = omega*time1 - theta
                   B_r     = self%RMF_B_amplitude*cos(phase)
@@ -381,27 +369,11 @@ contains
                   s = sin(theta)
                   q(alpha+3_I4P,i,j,k,b) = q(alpha+3_I4P,i,j,k,b) - (B_r*c - B_theta*s)
                   q(beta +3_I4P,i,j,k,b) = q(beta +3_I4P,i,j,k,b) - (B_r*s + B_theta*c)
-                  q(gamma,i,j,k,b) = q(gamma,i,j,k,b) - r*omega*self%RMF_B_amplitude*cos(phase)*EPS0
+                  q(ef_gamma,i,j,k,b) = q(ef_gamma,i,j,k,b) - r*omega*self%RMF_B_amplitude*cos(phase)*EPS0
                enddo
             enddo
          enddo
    enddo
 	endassociate
    endsubroutine sub_external_fields_rmf
-
-   subroutine sub_external_fields_none(self, field, time, dt, gamm, q)
-   !< Add rotating magnetic field to the field.
-   class(prism_external_fields_object), intent(inout) :: self                                                              !< External fields.
-   type(field_object),                  intent(inout) :: field                                                             !< The field.
-   real(R8P),                           intent(in)    :: time                                                              !< Current simulation time.
-   real(R8P),                           intent(in), optional    :: dt                                                                !< Time step.
-   real(R8P),                           intent(in), optional    :: gamm                                                              !< Gamma values oh RK SSP
-   real(R8P),                           intent(inout) :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)   !< Primitive variables.
-   real(R8P)                                          :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
-                                                         y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
-                                                         z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)             !< Vettori posizione centro celle del blocco b
-   integer(I4P)                                       :: b,i,j,k
-
-   endsubroutine sub_external_fields_none
-
 endmodule adam_prism_external_fields_object

@@ -26,10 +26,10 @@ type :: field_fnl_object
    real(R8P),    pointer :: q_t_gpu(:,:,:,:,:)   !< Transposed cell centered variables on GPU.
    integer(I4P), pointer :: fec_1_6_array_gpu(:) !< Mapping fec1-26 to fec1-6 for boundaries (GPU).
    ! device data copied from field object
-   real(R8P), pointer :: x_cell_gpu(:,:) !< Cells x coordinates on GPU.
-   real(R8P), pointer :: y_cell_gpu(:,:) !< Cells y coordinates on GPU.
-   real(R8P), pointer :: z_cell_gpu(:,:) !< Cells z coordinates on GPU.
-   real(R8P), pointer :: dxyz_gpu(:,:)   !< Delta cells GPU.
+   real(R8P), pointer :: x_cell_gpu(:,:) !< Cells x coordinates on GPU [nb,1-ngc:ni+ngc].
+   real(R8P), pointer :: y_cell_gpu(:,:) !< Cells y coordinates on GPU [nb,1-ngc:nj+ngc].
+   real(R8P), pointer :: z_cell_gpu(:,:) !< Cells z coordinates on GPU [nb,1-ngc:nk+ngc].
+   real(R8P), pointer :: dxyz_gpu(:,:)   !< Delta cells GPU [nb,3].
    ! grid/field data replica for easy handling
    integer(I4P), pointer :: ngc=>null()           !< Number of ghost cells.
    integer(I4P), pointer :: ni=>null()            !< Number of cells in i direction.

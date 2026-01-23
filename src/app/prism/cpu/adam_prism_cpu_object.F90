@@ -16,8 +16,6 @@ public :: prism_cpu_object
 
 ! pointer (abstract) procedures
 procedure(compute_convective_fluxes_interface), pointer :: compute_fluxes_Maxwell=>null() !< Compute convective fluxes.
-procedure(add_external_fields_interface),       pointer :: add_external_fields   =>null() !< Add external fields.
-procedure(sub_external_fields_interface),       pointer :: sub_external_fields   =>null() !< Subtract external fields.
 procedure(particle_weighting_interface),        pointer :: particle_weighting    =>null() !< Particle weighting.
 procedure(current_weighting_interface),         pointer :: current_weighting     =>null() !< Current weighting.
 procedure(field_weighting_interface),           pointer :: field_weighting       =>null() !< field weighting.
@@ -215,7 +213,7 @@ contains
    call self%allocate_cpu
 
    ! set pointer (abstract) TBP
-   if (self%physics%physical_model == EM_PHYSICAL_MODEL) then 
+   if (self%physics%physical_model == EM_PHYSICAL_MODEL) then
       select case(self%numerics%scheme_time)
       case(NUM_SCHEME_TIME_BLANES_MOAN)
          self%integrate => integrate_blanesmoan
@@ -299,19 +297,6 @@ contains
       endif
    case default
       compute_fluxes_Maxwell => compute_convective_fluxes_maxwell
-   endselect
-
-   select case(self%external_fields%external_field_applied)
-   case(RMF)
-      add_external_fields => add_external_fields_rmf
-      sub_external_fields => sub_external_fields_rmf
-   !case(MAGNETIC_NOZZLE)
-   !   add_external_fields => self%external_fields%add_external_fields_magnetic_nozzle
-   !case(RMF_AND_MAGNETIC_NOZZLE)
-   !   add_external_fields => self%external_fields%add_external_fields_rmf_and_magnetic_nozzle
-   case default
-      add_external_fields => add_external_fields_none
-      sub_external_fields => sub_external_fields_none
    endselect
 
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
@@ -529,14 +514,11 @@ contains
          f_   = w_c_ * 2._R8P*PI*f(coil_id)*(time_s-td)   ! = 0 if td>time,            = 2._R8P*PI*f(coil_id)*(time-td) if td<time
          current_density = g_ * A(coil_id) * cos(f_ + phase(coil_id)*PI/180.0_R8P)*j_vec(4,i,j,k,b)
 
-
          ! Lo tengo qui, ma a pensarci bene dovrebbe andare bene così come abiamo fatto (quella sfasata resta a 0)
-         !f_   = w_c_ * (2._R8P*PI*f(coil_id)*(time_s-td) + phase(coil_id)*PI/180.0_R8P) 
+         !f_   = w_c_ * (2._R8P*PI*f(coil_id)*(time_s-td) + phase(coil_id)*PI/180.0_R8P)
                            ! = 0 if td>time, = 2._R8P*PI*f(coil_id)*(time-td)+phase(coil_id)*PI/180.0_R8P if td<time
          !current_density = g_ * A(coil_id) * cos(f_)*j_vec(4,i,j,k,b)
 
-
-         
          ! the following if is not necessary because j_vec is zero everywhere except in coils
          if (coil_id /= 0_I4P) then
             q(VAR_JX,i,j,k,b) = current_density * j_vec(1,i,j,k,b)
@@ -567,7 +549,7 @@ contains
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, &
       f=>self%fWLayer%f, layer=>self%fWLayer%layer, C=>self%fWLayer%C)
-   
+
    if (C>0) then
       !x- side
       do b=1,blocks_number
@@ -593,7 +575,7 @@ contains
                      *EPS0**0.5_R8P - s2*(f(n,i,j,k,b)-1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
 
                      q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(beta_B,i,j,k,b) &
-                     *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)   
+                     *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
 
                      q(gamma_D,i,j,k,b) = q(gamma_D,i,j,k,b)
 
@@ -611,7 +593,7 @@ contains
             gamma_D = 1_I4P
             alfa_B = 5_I4P
             beta_B = 6_I4P
-            gamma_B = 4_I4P            
+            gamma_B = 4_I4P
             do k=1,nk
                do j=1, nj
                   do i=ni-C, ni
@@ -625,7 +607,7 @@ contains
                      *EPS0**0.5_R8P - s2*(f(n,i,j,k,b)-1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
 
                      q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(beta_B,i,j,k,b) &
-                     *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)   
+                     *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
 
                      q(gamma_D,i,j,k,b) = q(gamma_D,i,j,k,b)
 
@@ -657,7 +639,7 @@ contains
                      *EPS0**0.5_R8P - s2*(f(n,i,j,k,b)-1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
 
                      q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(beta_B,i,j,k,b) &
-                     *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)   
+                     *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
 
                      q(gamma_D,i,j,k,b) = q(gamma_D,i,j,k,b)
 
@@ -689,7 +671,7 @@ contains
                      *EPS0**0.5_R8P - s2*(f(n,i,j,k,b)-1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
 
                      q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(beta_B,i,j,k,b) &
-                     *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)   
+                     *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
 
                      q(gamma_D,i,j,k,b) = q(gamma_D,i,j,k,b)
 
@@ -721,11 +703,11 @@ contains
                      *EPS0**0.5_R8P - s2*(f(n,i,j,k,b)-1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
 
                      q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(beta_B,i,j,k,b) &
-                     *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)   
+                     *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
 
                      q(gamma_D,i,j,k,b) = q(gamma_D,i,j,k,b)
 
-                     q(gamma_B,i,j,k,b) = q(gamma_B,i,j,k,b)                                          
+                     q(gamma_B,i,j,k,b) = q(gamma_B,i,j,k,b)
                   enddo
                enddo
             enddo
@@ -753,11 +735,11 @@ contains
                      *EPS0**0.5_R8P - s2*(f(n,i,j,k,b)-1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
 
                      q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(beta_B,i,j,k,b) &
-                     *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)   
+                     *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
 
                      q(gamma_D,i,j,k,b) = q(gamma_D,i,j,k,b)
 
-                     q(gamma_B,i,j,k,b) = q(gamma_B,i,j,k,b)                                          
+                     q(gamma_B,i,j,k,b) = q(gamma_B,i,j,k,b)
                   enddo
                enddo
             enddo
@@ -929,7 +911,7 @@ contains
                         beta_B = 5_I4P
                         gamma_B = 6_I4P
                         ref = q(:,i,j,nk,b)
-                     endselect                  
+                     endselect
                      q(alfa_D,i,j,k,b)  = s1*C0*ref(beta_B)*EPS0
                      q(beta_D,i,j,k,b)  = -s1*C0*ref(alfa_B)*EPS0
                      q(gamma_D,i,j,k,b) = ref(gamma_D)
@@ -1006,8 +988,8 @@ contains
                enddo
             enddo
          endif
-         !Concludi assegnando lo stadio 
-         if (self%ib%solids_number>0) then 
+         !Concludi assegnando lo stadio
+         if (self%ib%solids_number>0) then
             call self%rk_bc%assign_stage(s=s, phi=self%ib%phi)
          else
             call self%rk_bc%assign_stage(s=s)
@@ -1021,7 +1003,7 @@ contains
 
    subroutine compute_residuals_BC(self,s)
    !< Compute residuals BCs.
-   !< La sua scrittura si lega all'ordine di interpolazione dell'operatore spaziale. Al momento 
+   !< La sua scrittura si lega all'ordine di interpolazione dell'operatore spaziale. Al momento
    !< e' scritto per operatore di secondo ordine (1 punto ghost).
    class(prism_cpu_object), intent(inout) :: self                    !< The equation.
    integer(I4P),            intent(in)    :: s                       !< Stage counter.
@@ -1044,7 +1026,7 @@ contains
          do c=1, size(local_map_bc_crown, dim=1)
             b = local_map_bc_crown(c, 1 ,crown)
             if (b>0) then
-               bc_type = local_map_bc_crown(c, 8 ,crown)               
+               bc_type = local_map_bc_crown(c, 8 ,crown)
                i       = local_map_bc_crown(c, 2 ,crown)
                j       = local_map_bc_crown(c, 3 ,crown)
                k       = local_map_bc_crown(c, 4 ,crown)
@@ -1076,10 +1058,10 @@ contains
                                                 q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds
                   elseif (nv_cl == 2_I4P) then
                      dq_bc_rk(nv_c-1,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c-1,i,j,k,b,s)- &
-                                                q_rk(nv_c-1,i-idelta,j-jdelta,k-kdelta,b,s))/ds                              
+                                                q_rk(nv_c-1,i-idelta,j-jdelta,k-kdelta,b,s))/ds
                      dq_bc_rk(nv_c,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c,i,j,k,b,s)- &
-                                                q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds 
-                  endif                                                     
+                                                q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds
+                  endif
                   !if (div_corr_var == DIV_CORR_VAR_HYPER) then
                   !   if (constrained_transport_D .and. .not.constrained_transport_B) &
                   !      dq_bc_rk(nv_c,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c,i,j,k,b,s)- &
@@ -1090,17 +1072,17 @@ contains
                   !   if (constrained_transport_D .and. constrained_transport_B) &
                   !      dq_bc_rk(nv_c-1,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c-1,i,j,k,b,s)- &
                   !                                 q_rk(nv_c-1,i-idelta,j-jdelta,k-kdelta,b,s))/ds
-                  !   if (constrained_transport_D .and. constrained_transport_B) &                              
+                  !   if (constrained_transport_D .and. constrained_transport_B) &
                   !      dq_bc_rk(nv_c,i,j,k,b) = -chi*C0*(q_bc_rk(nv_c,i,j,k,b,s)- &
                   !                                 q_rk(nv_c,i-idelta,j-jdelta,k-kdelta,b,s))/ds
                   !endif
-               endif                  
+               endif
             endif
          enddo
       enddo
    endif
    endassociate
-   endsubroutine compute_residuals_BC  
+   endsubroutine compute_residuals_BC
 
    subroutine set_initial_conditions(self) !DA CORREGGERE CON NV_PIC QUANDO SERVE PER BC CARICA SE MODELLO PIC ATTIVO
    !< Set initial conditions and coils on field.
@@ -2101,7 +2083,7 @@ contains
    subroutine integrate_leapfrog_pic(self)
    !< Integrate equation, time operator, leapfrog scheme for particle in cell
    class(prism_cpu_object), intent(inout) :: self !< The equation.
-   
+
    !< Maxwell source terms computation: particles and coils
    call self%pic%particle_cartesian_grid_index(field=self%field, q_pic=self%q_pic)
    call current_weighting(self=self%pic, field=self%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
@@ -2123,7 +2105,7 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   !call self%compute_coils_current da modificare per avere i tempi corretti 
+   !call self%compute_coils_current da modificare per avere i tempi corretti
    call self%rk%initialize_stages(q=self%q)
    do s=1, self%rk%nrk
       call self%compute_residuals(q=self%q, dq=self%dq)
@@ -2142,8 +2124,9 @@ contains
    !< SSP RK working on q_rk as stages.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
-   call sub_external_fields(self = self%external_fields, field = self%field, & 
-                           time = self%time%time, dt = self%time%dt, q = self%q)
+
+   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+      call self%external_fields%sub_external_fields(field=self%field, time=self%time%time, dt=self%time%dt, q=self%q)
    call self%rk%initialize_stages(q=self%q)
    do s=1, self%rk%nrk
       call self%compute_coils_current(gamma=self%rk%gamm(s))
@@ -2168,8 +2151,8 @@ contains
       call self%update_q_BC(dt=self%time%dt)
    endif
    call self%impose_div_free
-   call add_external_fields(self = self%external_fields, field = self%field, & 
-                           time = self%time%time, dt = self%time%dt, q = self%q)   
+   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+      call self%external_fields%add_external_fields(field=self%field, time=self%time%time, dt=self%time%dt, q=self%q)
    endsubroutine integrate_rk_ssp
 
   subroutine integrate_rk_ssp_pic(self)
@@ -2178,7 +2161,7 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   !call sub_external_fields(self = self%external_fields, field = self%field, & 
+   !call sub_external_fields(self = self%external_fields, field = self%field, &
    !                        time = self%time%time, dt = self%time%dt, q = self%q)
 
    !Inizializzo stadi RK per campi e PIC
@@ -2192,10 +2175,10 @@ contains
       else
          call self%rk%compute_stage(s=s, dt=self%time%dt)
       endif
-      call self%rk_pic%compute_stage(s=s, dt=self%time%dt) 
+      call self%rk_pic%compute_stage(s=s, dt=self%time%dt)
       !Calcolo termini sorgente Maxwell da particelle e bobine
       call self%pic%particle_cartesian_grid_index(field=self%field, q_pic=self%rk_pic%q_pic_rk(:,:,s))
-      call current_weighting(self=self%pic, field=self%field, q=self%rk%q_rk(:,:,:,:,:,s), & 
+      call current_weighting(self=self%pic, field=self%field, q=self%rk%q_rk(:,:,:,:,:,s), &
                               q_pic=self%rk_pic%q_pic_rk(:,:,s), nv=self%nv)
       call self%compute_coils_current(gamma=self%rk%gamm(s)) !Da modificare per avere i tempi corretti!
       !Calcolo residui Maxwell
@@ -2203,7 +2186,7 @@ contains
       if (s==1) call self%save_residuals
       !Calcolo residui PIC: calcolati direttamente nell'assegnazione dello stadio RK
       !Interpolo quindi i campi
-      call field_weighting(self=self%pic, field=self%field, q=self%rk%q_rk(:,:,:,:,:,s), & 
+      call field_weighting(self=self%pic, field=self%field, q=self%rk%q_rk(:,:,:,:,:,s), &
                            q_pic=self%rk_pic%q_pic_rk(:,:,s), pic_fields=self%pic_fields, nv=self%nv)
       !Assegno lo stadio RK per campi e PIC
       if (self%ib%solids_number>0) then
@@ -2211,8 +2194,6 @@ contains
       else
          call self%rk%assign_stage(s=s, q=self%dq)
       endif
-
-      
 
    enddo
    !if (self%ib%solids_number>0) then
@@ -2224,8 +2205,8 @@ contains
    !endif
    !call self%impose_div_free
 
-   !call add_external_fields(self = self%external_fields, field = self%field, & 
-   !                        time = self%time%time, dt = self%time%dt, q = self%q)   
+   !call add_external_fields(self = self%external_fields, field = self%field, &
+   !                        time = self%time%time, dt = self%time%dt, q = self%q)
    endsubroutine integrate_rk_ssp_pic
 
    subroutine update_q_BC(self, dt, phi)
@@ -2239,7 +2220,7 @@ contains
                                                  1:)          !< IB distance.
    integer(I4P)                           :: all_solids       !< Last phi index, all solids summary.
    integer(I4P)                           :: i, j, k, b, v, s, c !< Counter.
-   
+
    integer(I4P)                           :: idelta,jdelta,kdelta    !< IJK delta step for extrapolation.
    integer(I4P)                           :: bc_type                 !< Boundary condition type.
    integer(I4P)                           :: crown                   !< Crown counter.

@@ -15,12 +15,17 @@ use penf
 
 implicit none
 private
+public :: external_fields_initialize_dev
+public :: add_external_fields_dev
+public :: sub_external_fields_dev
 public :: add_external_fields_dev_interface
 public :: sub_external_fields_dev_interface
-public :: add_external_fields_none_dev
-public :: sub_external_fields_none_dev
 public :: add_external_fields_rmf_dev
 public :: sub_external_fields_rmf_dev
+
+! pointer (abstract) procedures
+procedure(add_external_fields_dev_interface), pointer :: add_external_fields_dev=>null() !< Add external fields.
+procedure(sub_external_fields_dev_interface), pointer :: sub_external_fields_dev=>null() !< Subtract external fields.
 
 interface
    subroutine add_external_fields_dev_interface(external_fields, field_gpu, dt, time, q_gpu, gamm)
@@ -53,33 +58,20 @@ interface
 endinterface
 
 contains
-   subroutine add_external_fields_none_dev(external_fields, field_gpu, dt, time, q_gpu, gamm)
-   !< Add none field to the field, device kernel.
-   type(prism_external_fields_object), intent(in)    :: external_fields !< External fields handler.
-   type(field_fnl_object),             intent(in)    :: field_gpu       !< Field.
-   real(R8P),                          intent(in)    :: dt              !< Time step.
-   real(R8P),                          intent(in)    :: time            !< Current time.
-   real(R8P),                          intent(inout) :: q_gpu(1:,              &
-                                                              1-field_gpu%ngc:,&
-                                                              1-field_gpu%ngc:,&
-                                                              1-field_gpu%ngc:,&
-                                                              1:)       !< Conservative variables.
-   real(R8P), optional,                intent(in)    :: gamm            !< Gamma values of RK.
-   endsubroutine add_external_fields_none_dev
+   subroutine external_fields_initialize_dev(external_fields)
+   !< Initialize external fields device kernels.
+   type(prism_external_fields_object), intent(in) :: external_fields !< External fields handler.
 
-   subroutine sub_external_fields_none_dev(external_fields, field_gpu, dt, time, q_gpu, gamm)
-   !< Subtract none field to the field, device kernel.
-   type(prism_external_fields_object), intent(in)    :: external_fields !< External fields handler.
-   type(field_fnl_object),             intent(in)    :: field_gpu       !< Field.
-   real(R8P),                          intent(in)    :: dt              !< Time step.
-   real(R8P),                          intent(in)    :: time            !< Current time.
-   real(R8P),                          intent(inout) :: q_gpu(1:,              &
-                                                              1-field_gpu%ngc:,&
-                                                              1-field_gpu%ngc:,&
-                                                              1-field_gpu%ngc:,&
-                                                              1:)       !< Conservative variables.
-   real(R8P), optional,                intent(in)    :: gamm            !< Gamma values of RK.
-   endsubroutine sub_external_fields_none_dev
+   select case(external_fields%ef_type)
+   case(EF_TYPE_RMF)
+      add_external_fields_dev => add_external_fields_rmf_dev
+      sub_external_fields_dev => sub_external_fields_rmf_dev
+   !case(EF_TYPE_MAGNETIC_NOZZLE)
+   !   add_external_fields => self%external_fields%add_external_fields_magnetic_nozzle
+   !case(EF_TYPE_RMF_AND_MAGNETIC_NOZZLE)
+   !   add_external_fields => self%external_fields%add_external_fields_rmf_and_magnetic_nozzle
+   endselect
+   endsubroutine external_fields_initialize_dev
 
    subroutine add_external_fields_rmf_dev(external_fields, field_gpu, dt, time, q_gpu, gamm)
    !< Add rotating magnetic field to the field, device kernel.
@@ -103,7 +95,7 @@ contains
    associate(blocks_number=>field_gpu%blocks_number, ni=>field_gpu%ni, nj=>field_gpu%nj, nk=>field_gpu%nk, ngc=>field_gpu%ngc, &
              x_cell_gpu=>field_gpu%x_cell_gpu, y_cell_gpu=>field_gpu%y_cell_gpu, z_cell_gpu=>field_gpu%z_cell_gpu,             &
 		       RMF_frequency=>external_fields%RMF_frequency, RMF_B_amplitude=>external_fields%RMF_B_amplitude,                   &
-		       alpha=>external_fields%alpha, beta=>external_fields%beta, gamma=>external_fields%gamma)
+		       alpha=>external_fields%alpha, beta=>external_fields%beta, ef_gamma=>external_fields%gamm)
    time1 = time + dt ; if (present(gamm)) time1 = time + dt*gamm
    omega = 2.0_R8P*PI*RMF_frequency
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(x_cell_gpu,y_cell_gpu,z_cell_gpu,q_gpu)
@@ -121,9 +113,9 @@ contains
       B_theta = RMF_B_amplitude*sin(phase)
       c = cos(theta)
       s = sin(theta)
-      q_gpu(b,i,j,k,alpha+3) = q_gpu(b,i,j,k,alpha+3) + B_r*c - B_theta*s
-      q_gpu(b,i,j,k,beta +3) = q_gpu(b,i,j,k,beta +3) + B_r*s + B_theta*c
-      q_gpu(b,i,j,k,gamma  ) = q_gpu(b,i,j,k,gamma  ) + r*omega*RMF_B_amplitude*cos(phase)*EPS0
+      q_gpu(b,i,j,k,alpha+3 ) = q_gpu(b,i,j,k,alpha+3 ) + B_r*c - B_theta*s
+      q_gpu(b,i,j,k,beta +3 ) = q_gpu(b,i,j,k,beta +3 ) + B_r*s + B_theta*c
+      q_gpu(b,i,j,k,ef_gamma) = q_gpu(b,i,j,k,ef_gamma) + r*omega*RMF_B_amplitude*cos(phase)*EPS0
    enddo
    enddo
    enddo
@@ -153,7 +145,7 @@ contains
    associate(blocks_number=>field_gpu%blocks_number, ni=>field_gpu%ni, nj=>field_gpu%nj, nk=>field_gpu%nk, ngc=>field_gpu%ngc, &
              x_cell_gpu=>field_gpu%x_cell_gpu, y_cell_gpu=>field_gpu%y_cell_gpu, z_cell_gpu=>field_gpu%z_cell_gpu,             &
 		       RMF_frequency=>external_fields%RMF_frequency, RMF_B_amplitude=>external_fields%RMF_B_amplitude,                   &
-		       alpha=>external_fields%alpha, beta=>external_fields%beta, gamma=>external_fields%gamma)
+		       alpha=>external_fields%alpha, beta=>external_fields%beta, ef_gamma=>external_fields%gamm)
    time1 = time + dt ; if (present(gamm)) time1 = time + dt*gamm
    omega = 2.0_R8P*PI*RMF_frequency
    !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(x_cell_gpu,y_cell_gpu,z_cell_gpu,q_gpu)
@@ -171,9 +163,9 @@ contains
       B_theta = RMF_B_amplitude*sin(phase)
       c = cos(theta)
       s = sin(theta)
-      q_gpu(b,i,j,k,alpha+3) = q_gpu(b,i,j,k,alpha+3) - (B_r*c - B_theta*s)
-      q_gpu(b,i,j,k,beta +3) = q_gpu(b,i,j,k,beta +3) - (B_r*s + B_theta*c)
-      q_gpu(b,i,j,k,gamma  ) = q_gpu(b,i,j,k,gamma  ) - r*omega*RMF_B_amplitude*cos(phase)*EPS0
+      q_gpu(b,i,j,k,alpha+3 ) = q_gpu(b,i,j,k,alpha+3 ) - (B_r*c - B_theta*s)
+      q_gpu(b,i,j,k,beta +3 ) = q_gpu(b,i,j,k,beta +3 ) - (B_r*s + B_theta*c)
+      q_gpu(b,i,j,k,ef_gamma) = q_gpu(b,i,j,k,ef_gamma) - r*omega*RMF_B_amplitude*cos(phase)*EPS0
    enddo
    enddo
    enddo

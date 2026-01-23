@@ -20,10 +20,6 @@ implicit none
 private
 public :: prism_fnl_object
 
-! pointer (abstract) procedures
-procedure(add_external_fields_dev_interface), pointer :: add_external_fields_dev=>null() !< Add external fields.
-procedure(sub_external_fields_dev_interface), pointer :: sub_external_fields_dev=>null() !< Subtract external fields.
-
 type, extends(prism_common_object) :: prism_fnl_object
    !< PRISM equations system class definition, GPU (FNL) backend.
    ! ADAM library objects
@@ -62,6 +58,7 @@ type, extends(prism_common_object) :: prism_fnl_object
    procedure(compute_divergence_interface), pass(self),pointer :: compute_divergence =>null()!< Compute divergence of vector field.
    procedure(compute_gradient_interface),   pass(self),pointer :: compute_gradient   =>null()!< Compute gradient of scalar field.
    procedure(compute_laplacian_interface),  pass(self),pointer :: compute_laplacian  =>null()!< Compute laplacian of scalar field.
+   procedure(compute_residuals_interface),  pass(self),pointer :: compute_residuals  =>null()!< Compute residuals, space operator.
    procedure(integrate_interface),          pass(self),pointer :: integrate          =>null()!< Integrate, time operator.
    contains
       ! auxiliary methods
@@ -76,13 +73,13 @@ type, extends(prism_common_object) :: prism_fnl_object
       ! procedure, pass(self) :: save_restart_files   !< Save restart files.
       ! procedure, pass(self) :: save_simulation_data !< Save all simulation data.
       ! IC/BC/sources
-      procedure, pass(self) :: apply_fWL_correction    !< Apply fWLayer correction (if present)
+      procedure, pass(self) :: apply_fwl_correction    !< Apply fWLayer correction (if present)
       procedure, pass(self) :: compute_coils_current   !< Compute current coils sources.
-      ! procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation.
+      procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation.
       procedure, pass(self) :: set_initial_conditions  !< Set initial conditions of equation.
-      ! procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
+      procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
       procedure, pass(self) :: update_rk_ghost         !< Update RK stage ghost cells.
-      ! FDV operators numerical methods
+      ! numerical methods, FDV operators
       procedure, pass(self) :: compute_curl_fd        !< Compute curl of vector field by finite difference.
       procedure, pass(self) :: compute_curl_fv        !< Compute curl of vector field by finite volume.
       procedure, pass(self) :: compute_derivative1_fd !< Compute derivative1 of scalar fields, finite difference schemes.
@@ -96,13 +93,23 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: compute_gradient_fv    !< Compute gradient of scalar field, finite volume schemes.
       procedure, pass(self) :: compute_laplacian_fd   !< Compute laplacian of scalar field, finite difference schemes.
       procedure, pass(self) :: compute_laplacian_fv   !< Compute laplacian of scalar field, finite volume schemes.
-      ! ! numerical methods
+      ! numerical methods, space operators
+      procedure, pass(self) :: compute_residuals_fd_centered !< Compute residuals, centered finite difference schemes.
+      ! procedure, pass(self) :: compute_residuals_fv_centered !< Compute residuals, centered finite volume schemes.
+      ! procedure, pass(self) :: compute_residuals_weno        !< Compute residuals, WENO schemes.
+      ! numerical methods, time operators
+      procedure, pass(self) :: integrate_blanesmoan   !< Blanes and Moan scheme.
+      procedure, pass(self) :: integrate_cfm          !< Commutator-Free Magnus scheme.
+      procedure, pass(self) :: integrate_leapfrog     !< Leapfrog scheme.
+      procedure, pass(self) :: integrate_leapfrog_pic !< Leapfrog scheme, PIC version.
+      procedure, pass(self) :: integrate_rk_ls        !< RK classical low storage schemes.
+      procedure, pass(self) :: integrate_rk_ssp       !< SSP RK schemes.
+      procedure, pass(self) :: integrate_rk_yoshida   !< Yoshida schemes.
+      ! numerical methods, miscellanea
       ! procedure, pass(self) :: compute_dt        !< Compute time step.
-      ! procedure, pass(self) :: compute_residuals !< Compute residuals.
-      procedure, pass(self) :: impose_ct_correction     !< Impose Constrained Transport correction on q(ivar:ivar+2).
-      procedure, pass(self) :: impose_div_free          !< Impose divergence-free property.
-      ! procedure, pass(self) :: integrate         !< Perform one step integration.
-      procedure, pass(self) :: simulate          !< Perform the simulation.
+      procedure, pass(self) :: impose_ct_correction !< Impose Constrained Transport correction on q(ivar:ivar+2).
+      procedure, pass(self) :: impose_div_free      !< Impose divergence-free property.
+      procedure, pass(self) :: simulate             !< Perform the simulation.
 endtype prism_fnl_object
 
 interface
@@ -171,6 +178,23 @@ interface
    real(R8P),               intent(in)    :: q_gpu(     1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
    real(R8P),               intent(inout) :: laplacian_gpu(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Laplacian.
    endsubroutine compute_laplacian_interface
+
+   subroutine compute_residuals_interface(self, q_gpu, dq_gpu, s)
+   !< Compute residuals of equation, space operator.
+   import :: prism_fnl_object, R8P, I4P
+   class(prism_fnl_object), intent(inout) :: self   !< The equation.
+   real(R8P),               intent(inout) :: q_gpu(1:,     &
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1:)  !< Conservative variables.
+   real(R8P),               intent(inout) :: dq_gpu(1:,     &
+                                                1-self%ngc:,&
+                                                1-self%ngc:,&
+                                                1-self%ngc:,&
+                                                1:) !< Residuals.
+   integer(I4P),  optional, intent(in)    :: s      !< Stage counter.
+   endsubroutine compute_residuals_interface
 
    subroutine integrate_interface(self)
    !< Integrate equation, time operator.
@@ -315,7 +339,7 @@ contains
       self%compute_divergence  => compute_divergence_fd
       self%compute_gradient    => compute_gradient_fd
       self%compute_laplacian   => compute_laplacian_fd
-      ! self%compute_residuals   => compute_residuals_fd_centered
+      self%compute_residuals   => compute_residuals_fd_centered
    case(NUM_SCHEME_SPACE_FV_CENTERED)
       self%compute_curl        => compute_curl_fv
       self%compute_derivative1 => compute_derivative1_fv
@@ -326,18 +350,7 @@ contains
       ! self%compute_residuals   => compute_residuals_fv_centered
    endselect
 
-   select case(self%external_fields%external_field_applied)
-   case(RMF)
-      add_external_fields_dev => add_external_fields_rmf_dev
-      sub_external_fields_dev => sub_external_fields_rmf_dev
-   !case(MAGNETIC_NOZZLE)
-   !   add_external_fields => self%external_fields%add_external_fields_magnetic_nozzle
-   !case(RMF_AND_MAGNETIC_NOZZLE)
-   !   add_external_fields => self%external_fields%add_external_fields_rmf_and_magnetic_nozzle
-   case default
-      add_external_fields_dev => add_external_fields_none_dev
-      sub_external_fields_dev => sub_external_fields_none_dev
-   endselect
+   call external_fields_initialize_dev(external_fields=self%external_fields)
 
    call self%mpih%print_message('prism_fnl_object%initialize finish')
    endsubroutine initialize
@@ -438,7 +451,7 @@ contains
    endsubroutine save_simulation_data
 
    ! IC/BC/sources
-   subroutine apply_fWL_correction(self)
+   subroutine apply_fwl_correction(self)
    !< Apply correction if a fWL is present.
    class(prism_fnl_object), intent(inout) :: self                    !< The equation.
    integer(I4P)                           :: ni(2,6),nj(2,6),nk(2,6) !< Dimensions of FWL domain.
@@ -481,7 +494,7 @@ contains
       enddo
    endif
    endassociate
-   endsubroutine apply_fWL_correction
+   endsubroutine apply_fwl_correction
 
    subroutine compute_coils_current(self, gamma)
    !< Compute current coils sources.
@@ -528,7 +541,7 @@ contains
    call self%copy_cpu_gpu
    endsubroutine set_initial_conditions
 
-   subroutine update_ghost(self, q_gpu, step)
+   subroutine update_ghost(self, q_gpu, step, s)
    !< Update ghost cells.
    !< If not specified all steps are perfermod, syncronous computation
    class(prism_fnl_object), intent(inout)        :: self            !< The equation.
@@ -538,23 +551,25 @@ contains
                                                           1-self%ngc:,&
                                                           1:)       !< Conservative variables.
    integer(I4P),            intent(in), optional :: step            !< Step to be perfordmed in asyncronous comp.
+   integer(I4P),            intent(in), optional :: s               !< Stage counter.
    logical                                       :: do_local_update !< Flag for triggering local update.
    logical                                       :: do_set_bc       !< Flag for triggering setting bc.
 
    ! perform local update if step is not speficied or if first step is selected
-   ! do_local_update = .false.
-   ! do_set_bc       = .false.
-   ! if (.not.present(step)) then
-   !    do_local_update = .true.
-   !    do_set_bc       = .true.
-   ! else
-   !    if (step==1) do_local_update = .true.
-   !    if (step==3) do_set_bc       = .true.
-   ! endif
+   do_local_update = .false.
+   do_set_bc       = .false.
+   if (.not.present(step)) then
+      do_local_update = .true.
+      do_set_bc       = .true.
+   else
+      if (step==1) do_local_update = .true.
+      if (step==3) do_set_bc       = .true.
+   endif
 
-   ! if (do_local_update) call self%field_gpu%update_ghost_local_gpu(q_gpu=q_gpu)
-   !                      call self%field_gpu%update_ghost_mpi_gpu(q_gpu=q_gpu, step=step)
-   ! if (do_set_bc)       call self%set_boundary_conditions(q_gpu=q_gpu)
+   if (do_local_update) call self%field_gpu%update_ghost_local_gpu(q_gpu=q_gpu)
+                        call self%field_gpu%update_ghost_mpi_gpu(q_gpu=q_gpu, step=step)
+   if (do_set_bc)       call self%apply_fwl_correction
+   if (do_set_bc)       call self%set_boundary_conditions(q_gpu=q_gpu)
    endsubroutine update_ghost
 
    subroutine update_rk_ghost(self, dt, phi_gpu)
@@ -569,7 +584,7 @@ contains
    ! to be implemented
    endsubroutine update_rk_ghost
 
-   ! FDV operators numerical methods
+   ! numerical methods, FDV operators
    subroutine compute_curl_fd(self, ivar, q_gpu, curl_gpu)
    !< Compute curl of vector fields, div(q(ivar:ivar+2), using finite difference schemes.
    class(prism_fnl_object), intent(in)    :: self                                                !< The equation.
@@ -580,7 +595,7 @@ contains
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
              hs=>self%numerics%fdv_half_stencils(1))
-   !$acc parallel loop independent gang vector collapse(4) copyin(hs) DEVICEVAR(q_gpu,curl_gpu,dxyz_gpu)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,curl_gpu,dxyz_gpu)
    do b=1, blocks_number
    do k=1, nk
    do j=1, nj
@@ -604,7 +619,7 @@ contains
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
              hs=>self%numerics%fdv_half_stencils(1))
-   !$acc parallel loop independent gang vector collapse(4) copyin(hs) DEVICEVAR(q_gpu,curl_gpu,dxyz_gpu)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,curl_gpu,dxyz_gpu)
    do b=1, blocks_number
    do k=1, nk
    do j=1, nj
@@ -632,7 +647,7 @@ contains
              hs=>self%numerics%fdv_half_stencils(1))
    select case(dir)
    case(1)
-      !$acc parallel loop independent gang vector collapse(4) copyin(hs) DEVICEVAR(q_gpu,dq_ds_gpu,dxyz_gpu)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,dq_ds_gpu,dxyz_gpu)
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
@@ -643,7 +658,7 @@ contains
       enddo
       enddo
    case(2)
-      !$acc parallel loop independent gang vector collapse(4) copyin(hs) DEVICEVAR(q_gpu,dq_ds_gpu,dxyz_gpu)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,dq_ds_gpu,dxyz_gpu)
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
@@ -654,7 +669,7 @@ contains
       enddo
       enddo
    case(3)
-      !$acc parallel loop independent gang vector collapse(4) copyin(hs) DEVICEVAR(q_gpu,dq_ds_gpu,dxyz_gpu)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,dq_ds_gpu,dxyz_gpu)
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
@@ -682,7 +697,7 @@ contains
              hs=>self%numerics%fdv_half_stencils(1))
    select case(dir)
    case(1)
-      !$acc parallel loop independent gang vector collapse(4) copyin(hs) DEVICEVAR(q_gpu,dq_ds_gpu,dxyz_gpu)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,dq_ds_gpu,dxyz_gpu)
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
@@ -693,7 +708,7 @@ contains
       enddo
       enddo
    case(2)
-      !$acc parallel loop independent gang vector collapse(4) copyin(hs) DEVICEVAR(q_gpu,dq_ds_gpu,dxyz_gpu)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,dq_ds_gpu,dxyz_gpu)
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
@@ -704,7 +719,7 @@ contains
       enddo
       enddo
    case(3)
-      !$acc parallel loop independent gang vector collapse(4) copyin(hs) DEVICEVAR(q_gpu,dq_ds_gpu,dxyz_gpu)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,dq_ds_gpu,dxyz_gpu)
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
@@ -732,7 +747,7 @@ contains
              hs=>self%numerics%fdv_half_stencils(1))
    select case(dir)
    case(1)
-      !$acc parallel loop independent gang vector collapse(4) copyin(hs) DEVICEVAR(q_gpu,d2q_ds2_gpu,dxyz_gpu)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,d2q_ds2_gpu,dxyz_gpu)
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
@@ -743,7 +758,7 @@ contains
       enddo
       enddo
    case(2)
-      !$acc parallel loop independent gang vector collapse(4) copyin(hs) DEVICEVAR(q_gpu,d2q_ds2_gpu,dxyz_gpu)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,d2q_ds2_gpu,dxyz_gpu)
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
@@ -754,7 +769,7 @@ contains
       enddo
       enddo
    case(3)
-      !$acc parallel loop independent gang vector collapse(4) copyin(hs) DEVICEVAR(q_gpu,d2q_ds2_gpu,dxyz_gpu)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,d2q_ds2_gpu,dxyz_gpu)
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
@@ -782,7 +797,7 @@ contains
              hs=>self%numerics%fdv_half_stencils(1))
    select case(dir)
    case(1)
-      !$acc parallel loop independent gang vector collapse(4) copyin(hs) DEVICEVAR(q_gpu,d2q_ds2_gpu,dxyz_gpu)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,d2q_ds2_gpu,dxyz_gpu)
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
@@ -793,7 +808,7 @@ contains
       enddo
       enddo
    case(2)
-      !$acc parallel loop independent gang vector collapse(4) copyin(hs) DEVICEVAR(q_gpu,d2q_ds2_gpu,dxyz_gpu)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,d2q_ds2_gpu,dxyz_gpu)
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
@@ -804,7 +819,7 @@ contains
       enddo
       enddo
    case(3)
-      !$acc parallel loop independent gang vector collapse(4) copyin(hs) DEVICEVAR(q_gpu,d2q_ds2_gpu,dxyz_gpu)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,d2q_ds2_gpu,dxyz_gpu)
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
@@ -832,7 +847,7 @@ contains
              hs=>self%numerics%fdv_half_stencils(1))
    select case(dir)
    case(1)
-      !$acc parallel loop independent gang vector collapse(4) copyin(hs) DEVICEVAR(q_gpu,d4q_ds4_gpu,dxyz_gpu)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,d4q_ds4_gpu,dxyz_gpu)
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
@@ -843,7 +858,7 @@ contains
       enddo
       enddo
    case(2)
-      !$acc parallel loop independent gang vector collapse(4) copyin(hs) DEVICEVAR(q_gpu,d4q_ds4_gpu,dxyz_gpu)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,d4q_ds4_gpu,dxyz_gpu)
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
@@ -854,7 +869,7 @@ contains
       enddo
       enddo
    case(3)
-      !$acc parallel loop independent gang vector collapse(4) copyin(hs) DEVICEVAR(q_gpu,d4q_ds4_gpu,dxyz_gpu)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,d4q_ds4_gpu,dxyz_gpu)
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
@@ -878,7 +893,7 @@ contains
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
              hs=>self%numerics%fdv_half_stencils(1))
-   !$acc parallel loop independent gang vector collapse(4) copyin(hs) DEVICEVAR(q_gpu,divergence_gpu,dxyz_gpu)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,divergence_gpu,dxyz_gpu)
    do b=1, blocks_number
    do k=1, nk
    do j=1, nj
@@ -902,7 +917,7 @@ contains
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
              hs=>self%numerics%fdv_half_stencils(1))
-   !$acc parallel loop independent gang vector collapse(4) copyin(hs) DEVICEVAR(q_gpu,divergence_gpu,dxyz_gpu)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,divergence_gpu,dxyz_gpu)
    do b=1, blocks_number
    do k=1, nk
    do j=1, nj
@@ -926,7 +941,7 @@ contains
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
              hs=>self%numerics%fdv_half_stencils(1))
-   !$acc parallel loop independent gang vector collapse(4) copyin(hs) DEVICEVAR(q_gpu,gradient_gpu,dxyz_gpu)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,gradient_gpu,dxyz_gpu)
    do b=1, blocks_number
    do k=1, nk
    do j=1, nj
@@ -950,7 +965,7 @@ contains
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
              hs=>self%numerics%fdv_half_stencils(1))
-   !$acc parallel loop independent gang vector collapse(4) copyin(hs) DEVICEVAR(q_gpu,gradient_gpu,dxyz_gpu)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,gradient_gpu,dxyz_gpu)
    do b=1, blocks_number
    do k=1, nk
    do j=1, nj
@@ -974,7 +989,7 @@ contains
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
              hs=>self%numerics%fdv_half_stencils(2))
-   !$acc parallel loop independent gang vector collapse(4) copyin(hs) DEVICEVAR(q_gpu,laplacian_gpu,dxyz_gpu)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,laplacian_gpu,dxyz_gpu)
    do b=1, blocks_number
    do k=1, nk
    do j=1, nj
@@ -998,7 +1013,7 @@ contains
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
              hs=>self%numerics%fdv_half_stencils(2))
-   !$acc parallel loop independent gang vector collapse(4) copyin(hs) DEVICEVAR(q_gpu,laplacian_gpu,dxyz_gpu)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,laplacian_gpu,dxyz_gpu)
    do b=1, blocks_number
    do k=1, nk
    do j=1, nj
@@ -1012,224 +1027,61 @@ contains
    endassociate
    endsubroutine compute_laplacian_fv
 
-   ! numerical methods
-   subroutine compute_dt(self)
-   !< Compute maximum time step accordingly to CFL stabilty criterion.
-   class(prism_fnl_object), intent(inout) :: self     !< The equation.
-   real(R8P)                              :: umax     !< Maximum speed of waves propagation (light speed)
-   real(R8P)                              :: dxyz_min !< Minimum space step.
+   ! numerical methods, space operators
+   subroutine compute_residuals_fd_centered(self, q_gpu, dq_gpu, s)
+   !< Compute residuals of equation, space operator, centered finite difference schemes.
+   class(prism_fnl_object), intent(inout) :: self               !< The equation.
+   real(R8P),               intent(inout) :: q_gpu(1:,     &
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1-self%ngc:,&
+                                               1:)              !< Conservative variables.
+   real(R8P),               intent(inout) :: dq_gpu(1:,     &
+                                                1-self%ngc:,&
+                                                1-self%ngc:,&
+                                                1-self%ngc:,&
+                                                1:)             !< Residuals.
+   integer(I4P),  optional, intent(in)    :: s                  !< Stage counter.
+   integer(I4P)                           :: i,j,k,b            !< Counter
+   real(R8P)                              :: curlD(3), curlB(3) !< Residuals components.
 
-   ! call compute_dxyz_min_dev(blocks_number=self%blocks_number, dxyz_gpu=self%field_gpu%dxyz_gpu, dxyz_min=dxyz_min)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
+             dxyz_gpu=>self%field_gpu%dxyz_gpu,                                                                       &
+             s1=>self%numerics%fdv_half_stencils(1),                                                                  &
+             s4=>self%numerics%fdv_half_stencils(4),                                                                  &
+             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
+   if (blocks_number > 0) then
+      ! call self%update_ghost(q_gpu=q_gpu, s=s)
+      ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu)
+      do b=1,blocks_number
+      do k=1,nk
+      do j=1,nj
+      do i=1,ni
+         call compute_curl_fd_centered(s=s1,dxyz=dxyz_gpu(b,1:3),                             &
+                                       q=q_gpu(b,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,VAR_DX:VAR_DZ),&
+                                       curl=curlD)
+         call compute_curl_fd_centered(s=s1,dxyz=dxyz_gpu(1:3,b),                             &
+                                       q=q_gpu(b,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,VAR_BX:VAR_BZ),&
+                                       curl=curlB)
 
-   ! if (self%physics%D_divergence_cleaner) then
-   !    umax = max(self%physics%chi*sqrt(1._R8P/(EPS0*MU0)), self%physics%eta*sqrt(1._R8P/(EPS0*MU0)))
-   ! else
-   !    umax = sqrt(1._R8P/(EPS0*MU0))
-   ! endif
-   ! self%time%dt = self%time%CFL*dxyz_min/umax
-   ! call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih_gpu%error)
-   endsubroutine compute_dt
-
-   subroutine compute_residuals(self, q_gpu, dq_gpu)
-   !< Compute residuals of equation.
-   class(prism_fnl_object), intent(inout) :: self       !< The equation.
-   real(R8P),               intent(inout) :: q_gpu(1:,         &
-                                                   1-self%ngc:,&
-                                                   1-self%ngc:,&
-                                                   1-self%ngc:,&
-                                                   1:)  !< Conservative variables.
-   real(R8P),               intent(inout) :: dq_gpu(1:,         &
-                                                    1-self%ngc:,&
-                                                    1-self%ngc:,&
-                                                    1-self%ngc:,&
-                                                    1:) !< Residuals.
-   real(R8P)                              :: evmax      !< Maximum waves speeds estimation.
-
-   ! call self%update_ghost(q_gpu=q_gpu)
-   ! ! call self%integrate_eikonal(q_gpu=q_gpu)
-   ! ! call self%compute_q_auxiliary(q_gpu=q_gpu, q_aux_gpu=self%q_aux_gpu)
-   ! associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c, blocks_number=>self%blocks_number, &
-   !           dx_gpu=>self%field_gpu%dxyz_gpu(:,1),                                                                     &
-   !           dy_gpu=>self%field_gpu%dxyz_gpu(:,2),                                                                     &
-   !           dz_gpu=>self%field_gpu%dxyz_gpu(:,3),                                                                     &
-   !           si_gpu=>self%si_gpu, sir_gpu=>self%sir_gpu,                                                               &
-   !           q_gpu=>self%q_gpu,                                                                                        &
-   !           flx_gpu=>self%flx_gpu, fly_gpu=>self%fly_gpu, flz_gpu=>self%flz_gpu,                                      &
-   !           weno_s=>self%weno%S, weno_zeps=>self%weno%zeps,                                                           &
-   !           weno_a_gpu=>self%weno_gpu%a_gpu, weno_p_gpu=>self%weno_gpu%p_gpu, weno_d_gpu=>self%weno_gpu%d_gpu,        &
-   !           ER_GPU=>self%ER_GPU, EL_GPU=>self%EL_GPU,                                                                 &
-   !           ! ror_number=>self%weno%ror_number,                                                                         &
-   !           ! ror_schemes_gpu=>self%weno_gpu%ror_schemes_gpu, ror_ivar_gpu=>self%weno_gpu%ror_ivar_gpu,                 &
-   !           ! ror_threshold=>self%weno%ror_threshold, enable_ror_stats=>self%weno%enable_ror_stats,                     &
-   !           ! cell_scheme_gpu=>self%weno_gpu%cell_scheme_gpu, ror_stats_gpu=>self%weno_gpu%ror_stats_gpu,               &
-   !           solids_number=>self%ib%solids_number,                                                                     &
-   !           null_xyz=>self%grid%null_xyz,                                                                             &
-   !           eta=>self%physics%eta, chi=>self%physics%chi, d_divergence_cleaner=>self%physics%d_divergence_cleaner,    &
-   !           b_divergence_cleaner=>self%physics%b_divergence_cleaner)
-   ! if (blocks_number > 0) then
-   !    evmax = C0 ; if (d_divergence_cleaner) evmax = chi*C0
-   !    call compute_fluxes_convective_dev(dir=1,                                                               &
-   !                                       blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv_c=nv_c,&
-   !                                       weno_s=weno_s, weno_zeps=weno_zeps,                                  &
-   !                                       weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu, weno_d_gpu=weno_d_gpu, &
-   !                                       evmax=C0, ER_GPU=ER_GPU, EL_GPU=EL_GPU,                              &
-   !                                       si_gpu=si_gpu(:,1), sir_gpu=sir_gpu(:,1), q_gpu=q_gpu, fluxes_gpu=flx_gpu)
-   !    call compute_fluxes_convective_dev(dir=2,                                                               &
-   !                                       blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv_c=nv_c,&
-   !                                       weno_s=weno_s, weno_zeps=weno_zeps,                                  &
-   !                                       weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu, weno_d_gpu=weno_d_gpu, &
-   !                                       evmax=C0, ER_GPU=ER_GPU, EL_GPU=EL_GPU,                              &
-   !                                       si_gpu=si_gpu(:,2), sir_gpu=sir_gpu(:,2), q_gpu=q_gpu, fluxes_gpu=fly_gpu)
-   !    call compute_fluxes_convective_dev(dir=3,                                                               &
-   !                                       blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv_c=nv_c,&
-   !                                       weno_s=weno_s, weno_zeps=weno_zeps,                                  &
-   !                                       weno_a_gpu=weno_a_gpu, weno_p_gpu=weno_p_gpu, weno_d_gpu=weno_d_gpu, &
-   !                                       evmax=C0, ER_GPU=ER_GPU, EL_GPU=EL_GPU,                              &
-   !                                       si_gpu=si_gpu(:,3), sir_gpu=sir_gpu(:,3), q_gpu=q_gpu, fluxes_gpu=flz_gpu)
-   !    call compute_fluxes_difference_dev(blocks_number=blocks_number, ni=ni, nj=nj, nk=nk, ngc=ngc, nv_c=nv_c,&
-   !                                       dx_gpu=dx_gpu, dy_gpu=dy_gpu, dz_gpu=dz_gpu,                         &
-   !                                       flx_gpu=flx_gpu, fly_gpu=fly_gpu, flz_gpu=flz_gpu, q_gpu=q_gpu,      &
-   !                                       eta=eta, chi=chi, d_divergence_cleaner=d_divergence_cleaner,         &
-   !                                       b_divergence_cleaner=b_divergence_cleaner, dq_gpu=dq_gpu)
-   ! endif
-   ! endassociate
-   endsubroutine compute_residuals
-
-   subroutine impose_ct_correction(self, ivar)
-   !< Impose Constrained Transport Correction on vectorial variable q(ivar:ivar+2).
-   !< Note that self%divergence memory is used as buffer, be carefull.
-   class(prism_fnl_object), intent(inout) :: self      !< The equation.
-   integer(I4P),            intent(in)    :: ivar      !< Variable (start) index in q.
-   real(R8P)                              :: dq_max    !< Maximum residual.
-   integer(I4P)                           :: iter      !< Counter.
-   integer(I4P)                           :: i,j,k,b,v !< Counter.
-
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, buffer=>self%divergence_gpu,&
-             q_gpu=>self%q_gpu)
-   if (blocks_number>0) then
-      call self%compute_divergence(ivar=ivar,q_gpu=q_gpu,divergence_gpu=buffer(:,:,:,:,4))
-      do iter=1, self%flail%iterations
-         ! call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
-         !                                  dxyz=self%field%dxyz,                                           &
-         !                                  f=-buffer(4:4,:,:,:,:),                                         &
-         !                                  q=buffer(7:7,:,:,:,:),                                          &
-         !                                  dq_max=dq_max,                                                  &
-         !                                  dq=buffer(5:5,:,:,:,:),                                         &
-         !                                  iterations_init=self%flail%iterations_init,                     &
-         !                                  iterations_fine=self%flail%iterations_fine,                     &
-         !                                  iterations_coarse=self%flail%iterations_coarse)
-         if (dq_max < self%flail%tolerance) exit
+         dq_gpu(b,i,j,k,VAR_DX) =  curlB(1)/MU0 - q_gpu(b,i,j,k,var_Jx)
+         dq_gpu(b,i,j,k,VAR_DY) =  curlB(2)/MU0 - q_gpu(b,i,j,k,var_Jy)
+         dq_gpu(b,i,j,k,VAR_DZ) =  curlB(3)/MU0 - q_gpu(b,i,j,k,var_Jz)
+         dq_gpu(b,i,j,k,VAR_BX) = -curlD(1)/EPS0
+         dq_gpu(b,i,j,k,VAR_BY) = -curlD(2)/EPS0
+         dq_gpu(b,i,j,k,VAR_BZ) = -curlD(3)/EPS0
       enddo
-      call self%mpih_gpu%print_message('FLAIL convergence reached at iteration '//trim(str(iter,.true.)))
-      call self%compute_gradient(ivar=1,q_gpu=buffer(:,:,:,:,7:7),gradient_gpu=buffer(:,:,:,:,4:6))
-      !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(q_gpu,buffer)
-      do b=1, blocks_number
-         do k=1, nk
-            do j=1, nj
-               do i=1, nj
-                  do v=1, 3
-                     q_gpu(b,i,j,k,ivar+v-1) = q_gpu(b,i,j,k,ivar+v-1) + buffer(b,i,j,k,3+v)
-                  enddo
-               enddo
-            enddo
-         enddo
+      enddo
+      enddo
       enddo
    endif
    endassociate
-   endsubroutine impose_ct_correction
+   endsubroutine compute_residuals_fd_centered
 
-   subroutine impose_div_free(self)
-   !< Impose divergence-free property.
-   class(prism_fnl_object), intent(inout) :: self !< The equation.
-
-   associate(constrained_transport_D=>self%numerics%constrained_transport_D,&
-             constrained_transport_B=>self%numerics%constrained_transport_B,div_corr_var=>self%numerics%div_corr_var)
-   if (constrained_transport_D.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=1_I4P)
-   if (constrained_transport_B.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=4_I4P)
-   ! here should go also other corrections...
-   endassociate
-   endsubroutine impose_div_free
-
-   subroutine simulate(self, filename)
-   !< Perform the simulation.
-   class(prism_fnl_object), intent(inout) :: self             !< The equation.
-   character(*),            intent(in)    :: filename         !< Input file name.
-   real(R8P)                              :: timing(1:2)      !< Tic toc timing.
-   real(R8P)                              :: timing_step(1:2) !< Tic toc timing.
-   integer(I4P)                           :: i                !< Counter.
-
-   ! initialization
-   call self%initialize(filename=filename)
-   if (self%io%restart) then
-      call self%mpih_gpu%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
-      call self%load_restart_files(t=self%time%it, time=self%time%time)
-      call self%mpih_gpu%print_message('restart [t, time]: '//trim(str(self%time%it))//', '//trim(str(self%time%time)))
-   else
-      call self%mpih_gpu%print_message('impose initial conditions start')
-      do i=1, self%ic%amr_iterations
-         call self%mpih_gpu%print_message('  AMR/set IC iteration:'//trim(str(i,.true.)))
-         call self%set_initial_conditions
-         !if (self%ib%solids_number > 0) call self%compute_phi()
-         !call self%amr_update
-      enddo
-      call self%set_initial_conditions
-      self%time%time = 0._R8P
-      self%time%it = 0
-      call self%mpih_gpu%print_message('impose initial conditions finish')
-   endif
-   !if (self%ib%solids_number > 0) call self%compute_phi()
-   ! call self%amr_update
-   call self%compute_divergence(ivar=1,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu(1,:,:,:,:))
-   call self%compute_divergence(ivar=4,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu(2,:,:,:,:))
-   call self%compute_divergence(ivar=7,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu(3,:,:,:,:))
-   ! call self%save_simulation_data
-   ! call self%compute_energy
-   ! call self%save_energy_error(is_to_open=.true.)
-   ! call self%io%open_file_residuals(nv=self%nv)
-   !-------------------------------------------------------------------------------
-
-   ! ! integration
-   ! call self%mpih_gpu%barrier(tictoc=.true., timing=timing(1), single=.true.)
-   ! integration: do
-   !    call self%mpih_gpu%barrier(tictoc=.true., timing=timing_step(1), single=.true.)
-   !    self%time%it = self%time%it + 1
-
-   !    if (self%io%save_memory_status) then
-   !       call save_memory_status_cpu(file_name='memory_cpu-'//self%mpih_gpu%myrankstr//'.dat', tag=str(self%time%it,.true.))
-   !       call save_memory_status_gpu(file_name='memory_gpu-'//self%mpih_gpu%myrankstr//'.dat', tag=str(self%time%it,.true.))
-   !    endif
-
-   !    if (mod(self%time%it,self%amr%frequency)==0) then
-   !       call self%mpih_gpu%barrier(tictoc=.true.)
-   !       ! call self%amr_update
-   !       call self%mpih_gpu%barrier(tictoc=.true.)
-   !    endif
-
-   !    call self%compute_dt
-   !    if ((self%time%it_max <= 0).and.(self%time%time+self%time%dt > self%time%time_max)) &
-   !       self%time%dt=self%time%time_max-self%time%time
-
-   !    call self%integrate
-
-   !    self%time%time = self%time%time + self%time%dt
-   !    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
-
-   !    call self%save_simulation_data
-
-   !    if (((self%time%it_max <= 0).and.(self%time%time >= self%time%time_max)).or.&
-   !       ((self%time%it>=self%time%it_max).and.(self%time%it_max > 0))) exit integration
-
-   !    call self%mpih_gpu%barrier(tictoc=.true., timing=timing_step(2), single=.true.)
-   ! enddo integration
-   ! call self%mpih_gpu%barrier(tictoc=.true., timing=timing(2), single=.true.)
-   ! call self%save_simulation_data
-   ! if (self%mpih_gpu%myrank==0) call self%io%close_file_residuals
-   call self%mpih_gpu%finalize
-   endsubroutine simulate
-
-   ! pointer TBP concrete implementations
+   ! numerical methods, time operators
    subroutine integrate_blanesmoan(self)
-   !< Integrate equation, time operator, Yoshida RK scheme.
+   !< Integrate equation, time operator, Blanes and Moan scheme.
    class(prism_fnl_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
@@ -1339,8 +1191,9 @@ contains
    class(prism_fnl_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   call sub_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_gpu, &
-                                dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
+   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+      call sub_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_gpu, &
+                                   dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
    call self%rk_gpu%initialize_stages(q_gpu=self%q_gpu)
    do s=1, self%rk%nrk
       call self%compute_coils_current(gamma=self%rk%gamm(s))
@@ -1349,7 +1202,7 @@ contains
       else
          call self%rk_gpu%compute_stage(s=s, dt=self%time%dt)
       endif
-      ! call self%compute_residuals(q_gpu=self%rk_gpu%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
+      call self%compute_residuals(q_gpu=self%rk_gpu%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
       if (s==1) call self%save_residuals
       if (self%ib%solids_number>0) then
          call self%rk_gpu%assign_stage(s=s, q_gpu=self%dq_gpu, phi_gpu=self%ib_gpu%phi_gpu)
@@ -1365,9 +1218,10 @@ contains
       call self%update_rk_ghost(dt=self%time%dt)
    endif
    call self%impose_div_free
-   call self%apply_fWL_correction
-   call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_gpu, &
-                                dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
+   ! call self%apply_fwl_correction  ! to be removed, probably
+   if (self%external_fields%ef_type/=EF_TYPE_NONE) &
+      call add_external_fields_dev(external_fields=self%external_fields, field_gpu=self%field_gpu, &
+                                   dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
    endsubroutine integrate_rk_ssp
 
    subroutine integrate_rk_yoshida(self)
@@ -1393,4 +1247,154 @@ contains
    ! self%q(VAR_BZ,:,:,:,:) = self%q(VAR_BZ,:,:,:,:) + self%rk%ssa(self%rk%nrk) * self%time%dt * self%dq(VAR_BZ,:,:,:,:)
    ! call self%impose_div_free
    endsubroutine integrate_rk_yoshida
+
+   subroutine simulate(self, filename)
+   !< Perform the simulation.
+   class(prism_fnl_object), intent(inout) :: self             !< The equation.
+   character(*),            intent(in)    :: filename         !< Input file name.
+   real(R8P)                              :: timing(1:2)      !< Tic toc timing.
+   real(R8P)                              :: timing_step(1:2) !< Tic toc timing.
+   integer(I4P)                           :: i                !< Counter.
+
+   ! initialization
+   call self%initialize(filename=filename)
+   if (self%io%restart) then
+      call self%mpih_gpu%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
+      call self%load_restart_files(t=self%time%it, time=self%time%time)
+      call self%mpih_gpu%print_message('restart [t, time]: '//trim(str(self%time%it))//', '//trim(str(self%time%time)))
+   else
+      call self%mpih_gpu%print_message('impose initial conditions start')
+      do i=1, self%ic%amr_iterations
+         call self%mpih_gpu%print_message('  AMR/set IC iteration:'//trim(str(i,.true.)))
+         call self%set_initial_conditions
+         !if (self%ib%solids_number > 0) call self%compute_phi()
+         !call self%amr_update
+      enddo
+      call self%set_initial_conditions
+      self%time%time = 0._R8P
+      self%time%it = 0
+      call self%mpih_gpu%print_message('impose initial conditions finish')
+   endif
+   !if (self%ib%solids_number > 0) call self%compute_phi()
+   ! call self%amr_update
+   call self%compute_divergence(ivar=1,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu(1,:,:,:,:))
+   call self%compute_divergence(ivar=4,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu(2,:,:,:,:))
+   call self%compute_divergence(ivar=7,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu(3,:,:,:,:))
+   ! call self%save_simulation_data
+   ! call self%compute_energy
+   ! call self%save_energy_error(is_to_open=.true.)
+   ! call self%io%open_file_residuals(nv=self%nv)
+   !-------------------------------------------------------------------------------
+
+   ! ! integration
+   ! call self%mpih_gpu%barrier(tictoc=.true., timing=timing(1), single=.true.)
+   ! integration: do
+   !    call self%mpih_gpu%barrier(tictoc=.true., timing=timing_step(1), single=.true.)
+   !    self%time%it = self%time%it + 1
+
+   !    if (self%io%save_memory_status) then
+   !       call save_memory_status_cpu(file_name='memory_cpu-'//self%mpih_gpu%myrankstr//'.dat', tag=str(self%time%it,.true.))
+   !       call save_memory_status_gpu(file_name='memory_gpu-'//self%mpih_gpu%myrankstr//'.dat', tag=str(self%time%it,.true.))
+   !    endif
+
+   !    if (mod(self%time%it,self%amr%frequency)==0) then
+   !       call self%mpih_gpu%barrier(tictoc=.true.)
+   !       ! call self%amr_update
+   !       call self%mpih_gpu%barrier(tictoc=.true.)
+   !    endif
+
+   !    call self%compute_dt
+   !    if ((self%time%it_max <= 0).and.(self%time%time+self%time%dt > self%time%time_max)) &
+   !       self%time%dt=self%time%time_max-self%time%time
+
+   !    call self%integrate
+
+   !    self%time%time = self%time%time + self%time%dt
+   !    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
+
+   !    call self%save_simulation_data
+
+   !    if (((self%time%it_max <= 0).and.(self%time%time >= self%time%time_max)).or.&
+   !       ((self%time%it>=self%time%it_max).and.(self%time%it_max > 0))) exit integration
+
+   !    call self%mpih_gpu%barrier(tictoc=.true., timing=timing_step(2), single=.true.)
+   ! enddo integration
+   ! call self%mpih_gpu%barrier(tictoc=.true., timing=timing(2), single=.true.)
+   ! call self%save_simulation_data
+   ! if (self%mpih_gpu%myrank==0) call self%io%close_file_residuals
+   call self%mpih_gpu%finalize
+   endsubroutine simulate
+
+   ! numerical methods, miscellanea
+   subroutine compute_dt(self)
+   !< Compute maximum time step accordingly to CFL stabilty criterion.
+   class(prism_fnl_object), intent(inout) :: self     !< The equation.
+   real(R8P)                              :: umax     !< Maximum speed of waves propagation (light speed)
+   real(R8P)                              :: dxyz_min !< Minimum space step.
+
+   ! call compute_dxyz_min_dev(blocks_number=self%blocks_number, dxyz_gpu=self%field_gpu%dxyz_gpu, dxyz_min=dxyz_min)
+
+   ! if (self%physics%D_divergence_cleaner) then
+   !    umax = max(self%physics%chi*sqrt(1._R8P/(EPS0*MU0)), self%physics%eta*sqrt(1._R8P/(EPS0*MU0)))
+   ! else
+   !    umax = sqrt(1._R8P/(EPS0*MU0))
+   ! endif
+   ! self%time%dt = self%time%CFL*dxyz_min/umax
+   ! call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih_gpu%error)
+   endsubroutine compute_dt
+
+   subroutine impose_ct_correction(self, ivar)
+   !< Impose Constrained Transport Correction on vectorial variable q(ivar:ivar+2).
+   !< Note that self%divergence memory is used as buffer, be carefull.
+   class(prism_fnl_object), intent(inout) :: self      !< The equation.
+   integer(I4P),            intent(in)    :: ivar      !< Variable (start) index in q.
+   real(R8P)                              :: dq_max    !< Maximum residual.
+   integer(I4P)                           :: iter      !< Counter.
+   integer(I4P)                           :: i,j,k,b,v !< Counter.
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, buffer=>self%divergence_gpu,&
+             q_gpu=>self%q_gpu)
+   if (blocks_number>0) then
+      call self%compute_divergence(ivar=ivar,q_gpu=q_gpu,divergence_gpu=buffer(:,:,:,:,4))
+      do iter=1, self%flail%iterations
+         ! call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
+         !                                  dxyz=self%field%dxyz,                                           &
+         !                                  f=-buffer(4:4,:,:,:,:),                                         &
+         !                                  q=buffer(7:7,:,:,:,:),                                          &
+         !                                  dq_max=dq_max,                                                  &
+         !                                  dq=buffer(5:5,:,:,:,:),                                         &
+         !                                  iterations_init=self%flail%iterations_init,                     &
+         !                                  iterations_fine=self%flail%iterations_fine,                     &
+         !                                  iterations_coarse=self%flail%iterations_coarse)
+         if (dq_max < self%flail%tolerance) exit
+      enddo
+      call self%mpih_gpu%print_message('FLAIL convergence reached at iteration '//trim(str(iter,.true.)))
+      call self%compute_gradient(ivar=1,q_gpu=buffer(:,:,:,:,7:7),gradient_gpu=buffer(:,:,:,:,4:6))
+      !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(q_gpu,buffer)
+      do b=1, blocks_number
+         do k=1, nk
+            do j=1, nj
+               do i=1, nj
+                  do v=1, 3
+                     q_gpu(b,i,j,k,ivar+v-1) = q_gpu(b,i,j,k,ivar+v-1) + buffer(b,i,j,k,3+v)
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+   endif
+   endassociate
+   endsubroutine impose_ct_correction
+
+   subroutine impose_div_free(self)
+   !< Impose divergence-free property.
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+
+   associate(constrained_transport_D=>self%numerics%constrained_transport_D,&
+             constrained_transport_B=>self%numerics%constrained_transport_B,div_corr_var=>self%numerics%div_corr_var)
+   if (constrained_transport_D.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=1_I4P)
+   if (constrained_transport_B.and.div_corr_var==DIV_CORR_VAR_POISS) call self%impose_ct_correction(ivar=4_I4P)
+   ! here should go also other corrections...
+   endassociate
+   endsubroutine impose_div_free
 endmodule adam_prism_fnl_object
