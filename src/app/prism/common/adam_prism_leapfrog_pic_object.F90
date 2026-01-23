@@ -108,8 +108,8 @@ contains
    endif
    associate(particle_number=>self%particle_number)!, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nb=>self%nb)
    call allocate_variable(var=self%q_pic_old,        					 &
-                          ulb=reshape([1,particle_number,			 &
-                                       1,8,								 &
+                          ulb=reshape([1,8,								 &
+                                       1,particle_number,			 &                             
 													1,2], [2,3]),					 &
                           					msg=self%mpih%myrankstr//'leapfrog_pic_object%initialize allocate q_pic_old')
    endassociate
@@ -224,13 +224,13 @@ contains
    do p=1, particle_number
 
       !Integrazione vettore velocità con schema di Buneman-Boris
-      v_star(1) = q_pic_old(p,4,1) + 0.5_R8P * dt * pic_fields(p,1) * q_pic(p,8) / q_pic(p,7)
-      v_star(2) = q_pic_old(p,5,1) + 0.5_R8P * dt * pic_fields(p,2) * q_pic(p,8) / q_pic(p,7)
-      v_star(3) = q_pic_old(p,6,1) + 0.5_R8P * dt * pic_fields(p,3) * q_pic(p,8) / q_pic(p,7)
+      v_star(1) = q_pic_old(4,p,1) + 0.5_R8P * dt * pic_fields(1,p) * q_pic(8,p) / q_pic(7,p)
+      v_star(2) = q_pic_old(5,p,1) + 0.5_R8P * dt * pic_fields(2,p) * q_pic(8,p) / q_pic(7,p)
+      v_star(3) = q_pic_old(6,p,1) + 0.5_R8P * dt * pic_fields(3,p) * q_pic(8,p) / q_pic(7,p)
 
-      t(1) = dt / 2 * q_pic(p,7) / q_pic(p,8) * pic_fields(p,4)
-      t(2) = dt / 2 * q_pic(p,7) / q_pic(p,8) * pic_fields(p,5)
-      t(3) = dt / 2 * q_pic(p,7) / q_pic(p,8) * pic_fields(p,6)
+      t(1) = dt / 2 * q_pic(7,p) / q_pic(8,p) * pic_fields(4,p)
+      t(2) = dt / 2 * q_pic(7,p) / q_pic(8,p) * pic_fields(5,p)
+      t(3) = dt / 2 * q_pic(7,p) / q_pic(8,p) * pic_fields(6,p)
 
       w = v_star + crossproduct(v_star, t)
 
@@ -239,17 +239,17 @@ contains
       v_star_star = v_star + crossproduct(w, s)
 
       !Aggiornamento vettore di appoggio e vettore velocità
-      q_pic_old(p,4:6,1) = q_pic(p,4:6) !Salvo la velocità al tempo n, che userò nell'integrazione al tempo successivo e
+      q_pic_old(4:6,p,1) = q_pic(4:6,p) !Salvo la velocità al tempo n, che userò nell'integrazione al tempo successivo e
                                         !nell'integrazione delle posizioni delle particelle
-      q_pic_old(p,4:6,2) = v_star_star + 0.5_R8P * dt * pic_fields(p,1:3) * q_pic(p,8) / q_pic(p,7) !Integro la velocità 
+      q_pic_old(4:6,p,2) = v_star_star + 0.5_R8P * dt * pic_fields(1:3,p) * q_pic(8,p) / q_pic(7,p) !Integro la velocità 
                                                                                                     !al tempo n+1
-      q_pic(p,4:6)       = q_pic_old(p,4:6,2) !Velocità al tempo n+1
+      q_pic(4:6,p)       = q_pic_old(4:6,p,2) !Velocità al tempo n+1
 
       !Aggiornamento posizioni con schema leapfrog
       do v=1, 3
-         q_pic_old(p,v,1) = q_pic(p,v) !Salvo la posizione al tempo n, che userò nell'integrazione al tempo successivo
-         q_pic_old(p,v,2) = q_pic_old(p,v,1) + 2._R8P * dt * q_pic_old(p,v+3_I4P,1) !Integro la posizione al tempo n+1
-         q_pic(p,v)       = q_pic_old(p,v,2) !Posizione al tempo n+1
+         q_pic_old(v,p,1) = q_pic(v,p) !Salvo la posizione al tempo n, che userò nell'integrazione al tempo successivo
+         q_pic_old(v,p,2) = q_pic_old(v,p,1) + 2._R8P * dt * q_pic_old(v+3_I4P,p,1) !Integro la posizione al tempo n+1
+         q_pic(v,p)       = q_pic_old(v,p,2) !Posizione al tempo n+1
       enddo	
    enddo
    ! In uscita ho:   q_pic (velocità e posizione)            al tempo n+1
@@ -261,9 +261,9 @@ contains
    if (self%is_filtered) then
       do p=1, particle_number
       	do v=1, 8
-      	   filter = (q_pic_old(p,v,1) - (q_pic_old(p,v,2) * 2._R8P) + q_pic(p,v)) * self%nu * 0.5_R8P
-      	   q_pic_old(p,v,2) = q_pic_old(p,v,2) + (filter * self%alpha)
-      	   q_pic(p,v) = q_pic(p,v) + (filter * (self%alpha - 1._R8P))
+      	   filter = (q_pic_old(v,p,1) - (q_pic_old(v,p,2) * 2._R8P) + q_pic(v,p)) * self%nu * 0.5_R8P
+      	   q_pic_old(v,p,2) = q_pic_old(v,p,2) + (filter * self%alpha)
+      	   q_pic(v,p) = q_pic(v,p) + (filter * (self%alpha - 1._R8P))
       	enddo
       enddo
    endif

@@ -129,7 +129,7 @@ contains
    call self%load_from_file(file_parameters=file_parameters)
    print '(A)', self%description()
 
-   allocate(self%neighbour_list(self%particle_number, 4))
+   allocate(self%neighbour_list(4, self%particle_number))
 
    print '(A)', self%mpih%myrankstr//'prism_pic_object%initialize finish'
    endsubroutine initialize
@@ -226,20 +226,20 @@ contains
       k_p = (q_PIC(n,3) - e_min(3)) / dz(1)
       b_p = 1 ! Single block only for now
 
-      neighbour_list(n,1) = ceiling(b_p)
-      neighbour_list(n,2) = ceiling(i_p)
-      neighbour_list(n,3) = ceiling(j_p)
-      neighbour_list(n,4) = ceiling(k_p)
+      neighbour_list(1,n) = ceiling(b_p)
+      neighbour_list(2,n) = ceiling(i_p)
+      neighbour_list(3,n) = ceiling(j_p)
+      neighbour_list(4,n) = ceiling(k_p)
    enddo
    endassociate
    endsubroutine particle_cartesian_grid_index
 
-   subroutine NGP_charge_weighting(self, field, q, q_PIC, nv)
+   subroutine NGP_charge_weighting(self, field, q, q_pic, nv)
    !!< Nearest Grid Point weighting of particle quantities to the grid.
    class(prism_pic_object), intent(inout) :: self                                                            !< External fields.
    type(field_object),      intent(inout) :: field                                                           !< The field.
    real(R8P),               intent(inout) :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:) !< Field variables.
-   real(R8P),               intent(in)    :: q_PIC(1:,1:)                                                    !< PIC variables.
+   real(R8P),               intent(in)    :: q_pic(1:,1:)                                                    !< PIC variables.
    integer(I4P),            intent(in)    :: nv                                                              !< Number of variables.
    real(R8P)                              :: n, i, j, k ,b                                                   !< Particle counter
    real(R8P)                              :: i_p, j_p, k_p, b_p                                              !< Particle grid indices
@@ -248,13 +248,13 @@ contains
 
    do n = 1, self%particle_number
       ! Get particle grid indices
-      b_p = self%neighbour_list(n,1)
-      i_p = self%neighbour_list(n,2)
-      j_p = self%neighbour_list(n,3)
-      k_p = self%neighbour_list(n,4)
+      b_p = self%neighbour_list(1,n)
+      i_p = self%neighbour_list(2,n)
+      j_p = self%neighbour_list(3,n)
+      k_p = self%neighbour_list(4,n)
 
       !Qua ci va sicuramente un if per le celle di confine, altrimenti darà errore quando arrivo alla frontiera
-      q(nv, i_p, j_p, k_p, b_p) = q(nv, i_p, j_p, k_p, b_p) + q_PIC(7,n)
+      q(nv, i_p, j_p, k_p, b_p) = q(nv, i_p, j_p, k_p, b_p) + q_pic(7,n)
       !Ok, ma va normalizzata e la carica nel vettore di stato va necessariamente azzerata a monte di ogni assegnazione
       !se scritta in questo modo
    enddo
@@ -278,10 +278,10 @@ contains
 
    do n = 1, self%particle_number
       ! Get particle grid indices
-      b_p = self%neighbour_list(n,1)
-      i_p = self%neighbour_list(n,2)
-      j_p = self%neighbour_list(n,3)
-      k_p = self%neighbour_list(n,4)
+      b_p = self%neighbour_list(1,n)
+      i_p = self%neighbour_list(2,n)
+      j_p = self%neighbour_list(3,n)
+      k_p = self%neighbour_list(4,n)
 
       ! Qua va capito come gestire la questione dei blocchi multipli
       call field%grid%cell_xyz(coordinates = field%coordinates(:,b_p), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
@@ -295,18 +295,18 @@ contains
          do j = j_p-1, j_p+1
             do k = k_p-1, k_p+1
                cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
-               if (abs((q_PIC(1,n) - cell_coord(1))/dx) <= 1.0_R8P) then
-                  Wx = 1.0_R8P - abs((q_PIC(1,n) - cell_coord(1))/dx)
+               if (abs((q_pic(1,n) - cell_coord(1))/dx) <= 1.0_R8P) then
+                  Wx = 1.0_R8P - abs((q_pic(1,n) - cell_coord(1))/dx)
                else
                   Wx = 0.0_R8P
                end if   
-               if (abs((q_PIC(2,n) - cell_coord(2))/dy) <= 1.0_R8P) then
-                  Wy = 1.0_R8P - abs((q_PIC(2,n) - cell_coord(2))/dy)
+               if (abs((q_pic(2,n) - cell_coord(2))/dy) <= 1.0_R8P) then
+                  Wy = 1.0_R8P - abs((q_pic(2,n) - cell_coord(2))/dy)
                else
                   Wy = 0.0_R8P
                end if
-               if (abs((q_PIC(3,n) - cell_coord(3))/dz) <= 1.0_R8P) then
-                  Wz = 1.0_R8P - abs((q_PIC(3,n) - cell_coord(3))/dz)
+               if (abs((q_pic(3,n) - cell_coord(3))/dz) <= 1.0_R8P) then
+                  Wz = 1.0_R8P - abs((q_pic(3,n) - cell_coord(3))/dz)
                else
                   Wz = 0.0_R8P
                end if
@@ -320,12 +320,12 @@ contains
    enddo
    endsubroutine CIC_charge_weighting
 
-   subroutine TSC_charge_weighting(self, field, q, q_PIC, nv)
+   subroutine TSC_charge_weighting(self, field, q, q_pic, nv)
    !!< Triangular Shaped Cloud weighting of particle quantities to the grid.
    class(prism_pic_object), intent(inout) :: self                                                            !< External fields.
    type(field_object),      intent(inout) :: field                                                           !< The field.
    real(R8P),               intent(inout) :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:) !< Field variables.
-   real(R8P),               intent(in)    :: q_PIC(1:,1:)                                                    !< PIC variables.
+   real(R8P),               intent(in)    :: q_pic(1:,1:)                                                    !< PIC variables.
    integer(I4P),            intent(in)    :: nv                                                              !< Number of variables.
    real(R8P)                              :: n, i, j, k ,b                                                   !< Particle counter
    real(R8P)                              :: i_p, j_p, k_p, b_p                                              !< Particle grid indices
@@ -338,10 +338,10 @@ contains
 
    do n = 1, self%particle_number
       ! Get particle grid indices
-      b_p = self%neighbour_list(n,1)
-      i_p = self%neighbour_list(n,2)
-      j_p = self%neighbour_list(n,3)
-      k_p = self%neighbour_list(n,4)
+      b_p = self%neighbour_list(1,n)
+      i_p = self%neighbour_list(2,n)
+      j_p = self%neighbour_list(3,n)
+      k_p = self%neighbour_list(4,n)
 
       ! Qua va capito come gestire la questione dei blocchi multipli
       call field%grid%cell_xyz(coordinates = field%coordinates(:,b_p), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
@@ -355,21 +355,21 @@ contains
          do j = j_p-1, j_p+1
             do k = k_p-1, k_p+1
                cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
-               if (abs((q_PIC(1,n) - cell_coord(1))/dx) <= 0.5_R8P) then
-                  Wx = 0.75_R8P - ((q_PIC(1,n) - cell_coord(1))/dx)**2
-               elseif (abs((q_PIC(1,n) - cell_coord(1))/dx) <= 1.5_R8P .and. abs((q_PIC(1,n) - cell_coord(1))/dx) > 0.5_R8P) then
-                  Wx = 0.5_R8P * (1.5_R8P - abs((q_PIC(1,n) - cell_coord(1))/dx))**2
+               if (abs((q_pic(1,n) - cell_coord(1))/dx) <= 0.5_R8P) then
+                  Wx = 0.75_R8P - ((q_pic(1,n) - cell_coord(1))/dx)**2
+               elseif (abs((q_pic(1,n) - cell_coord(1))/dx) <= 1.5_R8P .and. abs((q_pic(1,n) - cell_coord(1))/dx) > 0.5_R8P) then
+                  Wx = 0.5_R8P * (1.5_R8P - abs((q_pic(1,n) - cell_coord(1))/dx))**2
                else
                   Wx = 0.0_R8P
                end if
-               if (abs((q_PIC(2,n) - cell_coord(2))/dy) <= 0.5_R8P) then
-                  Wy = 0.75_R8P - ((q_PIC(2,n) - cell_coord(2))/dy)**2
-               elseif (abs((q_PIC(2,n) - cell_coord(2))/dy) <= 1.5_R8P .and. abs((q_PIC(2,n) - cell_coord(2))/dy) > 0.5_R8P) then
-                  Wy = 0.5_R8P * (1.5_R8P - abs((q_PIC(2,n) - cell_coord(2))/dy))**2
+               if (abs((q_pic(2,n) - cell_coord(2))/dy) <= 0.5_R8P) then
+                  Wy = 0.75_R8P - ((q_pic(2,n) - cell_coord(2))/dy)**2
+               elseif (abs((q_pic(2,n) - cell_coord(2))/dy) <= 1.5_R8P .and. abs((q_pic(2,n) - cell_coord(2))/dy) > 0.5_R8P) then
+                  Wy = 0.5_R8P * (1.5_R8P - abs((q_pic(2,n) - cell_coord(2))/dy))**2
                else
                   Wy = 0.0_R8P
                end if
-               q(nv, i, j, k, b_p) = q(nv, i, j, k, b_p) + q_PIC(7,n) * Wx * Wy * Wz
+               q(nv, i, j, k, b_p) = q(nv, i, j, k, b_p) + q_pic(7,n) * Wx * Wy * Wz
 
                !Ok, ma va normalizzata e la carica nel vettore di stato va necessariamente azzerata a monte di ogni assegnazione
                !se scritta in questo modo
@@ -379,12 +379,12 @@ contains
    enddo
    endsubroutine TSC_charge_weighting
 
-   subroutine NGP_current_weighting(self, field, q, q_PIC, nv)
+   subroutine NGP_current_weighting(self, field, q, q_pic, nv)
    !!< Nearest Grid Point weighting of particle quantities to the grid.
    class(prism_pic_object), intent(inout) :: self                                                            !< External fields.
    type(field_object),      intent(inout) :: field                                                           !< The field.
    real(R8P),               intent(inout) :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:) !< Field variables.
-   real(R8P),               intent(in)    :: q_PIC(1:,1:)                                                    !< PIC variables.
+   real(R8P),               intent(in)    :: q_pic(1:,1:)                                                    !< PIC variables.
    integer(I4P),            intent(in)    :: nv                                                              !< Number of variables.
    real(R8P)                              :: n, i, j, k ,b                                                   !< Particle counter
    real(R8P)                              :: i_p, j_p, k_p, b_p                                              !< Particle grid indices
@@ -393,26 +393,26 @@ contains
 
    do n = 1, self%particle_number
       ! Get particle grid indices
-      b_p = self%neighbour_list(n,1)
-      i_p = self%neighbour_list(n,2)
-      j_p = self%neighbour_list(n,3)
-      k_p = self%neighbour_list(n,4)
+      b_p = self%neighbour_list(1,n)
+      i_p = self%neighbour_list(2,n)
+      j_p = self%neighbour_list(3,n)
+      k_p = self%neighbour_list(4,n)
 
       !Qua ci va sicuramente un if per le celle di confine, altrimenti darà errore quando arrivo alla frontiera
-      q(nv-3, i_p, j_p, k_p, b_p) = q(nv-3, i_p, j_p, k_p, b_p) + q_PIC(7,n)*q_PIC(4,n)
-      q(nv-2, i_p, j_p, k_p, b_p) = q(nv-2, i_p, j_p, k_p, b_p) + q_PIC(7,n)*q_PIC(5,n)
-      q(nv-1, i_p, j_p, k_p, b_p) = q(nv-1, i_p, j_p, k_p, b_p) + q_PIC(7,n)*q_PIC(6,n)
+      q(nv-3, i_p, j_p, k_p, b_p) = q(nv-3, i_p, j_p, k_p, b_p) + q_pic(7,n)*q_pic(4,n)
+      q(nv-2, i_p, j_p, k_p, b_p) = q(nv-2, i_p, j_p, k_p, b_p) + q_pic(7,n)*q_pic(5,n)
+      q(nv-1, i_p, j_p, k_p, b_p) = q(nv-1, i_p, j_p, k_p, b_p) + q_pic(7,n)*q_pic(6,n)
       !Ok, ma va normalizzata e la carica nel vettore di stato va necessariamente azzerata a monte di ogni assegnazione
       !se scritta in questo modo
    enddo
    endsubroutine NGP_current_weighting
 
-   subroutine CIC_current_weighting(self, field, q, q_PIC, nv)
+   subroutine CIC_current_weighting(self, field, q, q_pic, nv)
    !< Cloud-in-Cell weighting of particle quantities to the grid.
    class(prism_pic_object), intent(inout) :: self                                                            !< External fields.
    type(field_object),      intent(inout) :: field                                                           !< The field.
    real(R8P),               intent(inout) :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:) !< Field variables.
-   real(R8P),               intent(in)    :: q_PIC(1:,1:)                                                    !< PIC variables.
+   real(R8P),               intent(in)    :: q_pic(1:,1:)                                                    !< PIC variables.
    integer(I4P),            intent(in)    :: nv                                                              !< Number of variables.
    real(R8P)                              :: n, i, j, k ,b                                                   !< Particle counter
    real(R8P)                              :: i_p, j_p, k_p, b_p                                              !< Particle grid indices
@@ -425,10 +425,10 @@ contains
 
    do n = 1, self%particle_number
       ! Get particle grid indices
-      b_p = self%neighbour_list(n,1)
-      i_p = self%neighbour_list(n,2)
-      j_p = self%neighbour_list(n,3)
-      k_p = self%neighbour_list(n,4)
+      b_p = self%neighbour_list(1,n)
+      i_p = self%neighbour_list(2,n)
+      j_p = self%neighbour_list(3,n)
+      k_p = self%neighbour_list(4,n)
 
       ! Qua va capito come gestire la questione dei blocchi multipli
       call field%grid%cell_xyz(coordinates = field%coordinates(:,b_p), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
@@ -442,24 +442,24 @@ contains
          do j = j_p-1, j_p+1
             do k = k_p-1, k_p+1
                cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
-               if (abs((q_PIC(1,n) - cell_coord(1))/dx) <= 1.0_R8P) then
-                  Wx = 1.0_R8P - abs((q_PIC(1,n) - cell_coord(1))/dx)
+               if (abs((q_pic(1,n) - cell_coord(1))/dx) <= 1.0_R8P) then
+                  Wx = 1.0_R8P - abs((q_pic(1,n) - cell_coord(1))/dx)
                else
                   Wx = 0.0_R8P
                end if   
-               if (abs((q_PIC(2,n) - cell_coord(2))/dy) <= 1.0_R8P) then
-                  Wy = 1.0_R8P - abs((q_PIC(2,n) - cell_coord(2))/dy)
+               if (abs((q_pic(2,n) - cell_coord(2))/dy) <= 1.0_R8P) then
+                  Wy = 1.0_R8P - abs((q_pic(2,n) - cell_coord(2))/dy)
                else
                   Wy = 0.0_R8P
                end if
-               if (abs((q_PIC(3,n) - cell_coord(3))/dz) <= 1.0_R8P) then
-                  Wz = 1.0_R8P - abs((q_PIC(3,n) - cell_coord(3))/dz)
+               if (abs((q_pic(3,n) - cell_coord(3))/dz) <= 1.0_R8P) then
+                  Wz = 1.0_R8P - abs((q_pic(3,n) - cell_coord(3))/dz)
                else
                   Wz = 0.0_R8P
                end if
-               q(nv-3, i_p, j_p, k_p, b_p) = q(nv-3, i_p, j_p, k_p, b_p) + q_PIC(7,n)*q_PIC(4,n)* Wx * Wy * Wz
-               q(nv-2, i_p, j_p, k_p, b_p) = q(nv-2, i_p, j_p, k_p, b_p) + q_PIC(7,n)*q_PIC(5,n)* Wx * Wy * Wz
-               q(nv-1, i_p, j_p, k_p, b_p) = q(nv-1, i_p, j_p, k_p, b_p) + q_PIC(7,n)*q_PIC(6,n)* Wx * Wy * Wz
+               q(nv-3, i_p, j_p, k_p, b_p) = q(nv-3, i_p, j_p, k_p, b_p) + q_pic(7,n)*q_pic(4,n)* Wx * Wy * Wz
+               q(nv-2, i_p, j_p, k_p, b_p) = q(nv-2, i_p, j_p, k_p, b_p) + q_pic(7,n)*q_pic(5,n)* Wx * Wy * Wz
+               q(nv-1, i_p, j_p, k_p, b_p) = q(nv-1, i_p, j_p, k_p, b_p) + q_pic(7,n)*q_pic(6,n)* Wx * Wy * Wz
 
                !Ok, ma va normalizzata e la carica nel vettore di stato va necessariamente azzerata a monte di ogni assegnazione
                !se scritta in questo modo
@@ -469,12 +469,12 @@ contains
    enddo
    endsubroutine CIC_current_weighting
 
-   subroutine TSC_current_weighting(self, field, q, q_PIC, nv)
+   subroutine TSC_current_weighting(self, field, q, q_pic, nv)
    !!< Triangular Shaped Cloud weighting of particle quantities to the grid.
    class(prism_pic_object), intent(inout) :: self                                                            !< External fields.
    type(field_object),      intent(inout) :: field                                                           !< The field.
    real(R8P),               intent(inout) :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:) !< Field variables.
-   real(R8P),               intent(in)    :: q_PIC(1:,1:)                                                    !< PIC variables.
+   real(R8P),               intent(in)    :: q_pic(1:,1:)                                                    !< PIC variables.
    integer(I4P),            intent(in)    :: nv                                                              !< Number of variables.
    real(R8P)                              :: n, i, j, k ,b                                                   !< Particle counter
    real(R8P)                              :: i_p, j_p, k_p, b_p                                              !< Particle grid indices
@@ -487,10 +487,10 @@ contains
 
    do n = 1, self%particle_number
       ! Get particle grid indices
-      b_p = self%neighbour_list(n,1)
-      i_p = self%neighbour_list(n,2)
-      j_p = self%neighbour_list(n,3)
-      k_p = self%neighbour_list(n,4)
+      b_p = self%neighbour_list(1,n)
+      i_p = self%neighbour_list(2,n)
+      j_p = self%neighbour_list(3,n)
+      k_p = self%neighbour_list(4,n)
 
       ! Qua va capito come gestire la questione dei blocchi multipli
       call field%grid%cell_xyz(coordinates = field%coordinates(:,b_p), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
@@ -504,23 +504,23 @@ contains
          do j = j_p-1, j_p+1
             do k = k_p-1, k_p+1
                cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
-               if (abs((q_PIC(1,n) - cell_coord(1))/dx) <= 0.5_R8P) then
-                  Wx = 0.75_R8P - ((q_PIC(1,n) - cell_coord(1))/dx)**2
-               elseif (abs((q_PIC(1,n) - cell_coord(1))/dx) <= 1.5_R8P .and. abs((q_PIC(1,n) - cell_coord(1))/dx) > 0.5_R8P) then
-                  Wx = 0.5_R8P * (1.5_R8P - abs((q_PIC(1,n) - cell_coord(1))/dx))**2
+               if (abs((q_pic(1,n) - cell_coord(1))/dx) <= 0.5_R8P) then
+                  Wx = 0.75_R8P - ((q_pic(1,n) - cell_coord(1))/dx)**2
+               elseif (abs((q_PIC(1,n) - cell_coord(1))/dx) <= 1.5_R8P .and. abs((q_pic(1,n) - cell_coord(1))/dx) > 0.5_R8P) then
+                  Wx = 0.5_R8P * (1.5_R8P - abs((q_pic(1,n) - cell_coord(1))/dx))**2
                else
                   Wx = 0.0_R8P
                end if
-               if (abs((q_PIC(2,n) - cell_coord(2))/dy) <= 0.5_R8P) then
-                  Wy = 0.75_R8P - ((q_PIC(2,n) - cell_coord(2))/dy)**2
-               elseif (abs((q_PIC(2,n) - cell_coord(2))/dy) <= 1.5_R8P .and. abs((q_PIC(2,n) - cell_coord(2))/dy) > 0.5_R8P) then
-                  Wy = 0.5_R8P * (1.5_R8P - abs((q_PIC(2,n) - cell_coord(2))/dy))**2
+               if (abs((q_pic(2,n) - cell_coord(2))/dy) <= 0.5_R8P) then
+                  Wy = 0.75_R8P - ((q_pic(2,n) - cell_coord(2))/dy)**2
+               elseif (abs((q_pic(2,n) - cell_coord(2))/dy) <= 1.5_R8P .and. abs((q_pic(2,n) - cell_coord(2))/dy) > 0.5_R8P) then
+                  Wy = 0.5_R8P * (1.5_R8P - abs((q_pic(2,n) - cell_coord(2))/dy))**2
                else
                   Wy = 0.0_R8P
                end if
-               q(nv-3, i_p, j_p, k_p, b_p) = q(nv-3, i_p, j_p, k_p, b_p) + q_PIC(7,n)*q_PIC(4,n)* Wx * Wy * Wz
-               q(nv-2, i_p, j_p, k_p, b_p) = q(nv-2, i_p, j_p, k_p, b_p) + q_PIC(7,n)*q_PIC(5,n)* Wx * Wy * Wz
-               q(nv-1, i_p, j_p, k_p, b_p) = q(nv-1, i_p, j_p, k_p, b_p) + q_PIC(7,n)*q_PIC(6,n)* Wx * Wy * Wz
+               q(nv-3, i_p, j_p, k_p, b_p) = q(nv-3, i_p, j_p, k_p, b_p) + q_pic(7,n)*q_pic(4,n)* Wx * Wy * Wz
+               q(nv-2, i_p, j_p, k_p, b_p) = q(nv-2, i_p, j_p, k_p, b_p) + q_pic(7,n)*q_pic(5,n)* Wx * Wy * Wz
+               q(nv-1, i_p, j_p, k_p, b_p) = q(nv-1, i_p, j_p, k_p, b_p) + q_pic(7,n)*q_pic(6,n)* Wx * Wy * Wz
 
                !Ok, ma va normalizzata e la carica nel vettore di stato va necessariamente azzerata a monte di ogni assegnazione
                !se scritta in questo modo
@@ -543,10 +543,10 @@ contains
 
    do n = 1, self%particle_number
       ! Get particle grid indices
-      block_p = self%neighbour_list(n,1)
-      i_p = self%neighbour_list(n,2)
-      j_p = self%neighbour_list(n,3)
-      k_p = self%neighbour_list(n,4)
+      block_p = self%neighbour_list(1,n)
+      i_p     = self%neighbour_list(2,n)
+      j_p     = self%neighbour_list(3,n)
+      k_p     = self%neighbour_list(4,n)
 
       D_p(1) = q(1, i_p, j_p, k_p, block_p)
       D_p(2) = q(2, i_p, j_p, k_p, block_p)
@@ -564,12 +564,12 @@ contains
       !F_p(2) = q_p*(D_p(2) + F_l(2))
       !F_p(3) = q_p*(D_p(3) + F_l(3))
 
-      pic_fields(n,1) = D_p(1)
-      pic_fields(n,2) = D_p(2)
-      pic_fields(n,3) = D_p(3)
-      pic_fields(n,4) = B_p(1)
-      pic_fields(n,5) = B_p(2)
-      pic_fields(n,6) = B_p(3)
+      pic_fields(1,n) = D_p(1)
+      pic_fields(2,n) = D_p(2)
+      pic_fields(3,n) = D_p(3)
+      pic_fields(4,n) = B_p(1)
+      pic_fields(5,n) = B_p(2)
+      pic_fields(6,n) = B_p(3)
 
    enddo
    endsubroutine zeroD_field_weighting
@@ -599,97 +599,97 @@ contains
    do n = 1, self%particle_number
 
       ! Get particle grid indices
-      block_p = self%neighbour_list(n,1)
-      i_p     = self%neighbour_list(n,2)
-      j_p     = self%neighbour_list(n,3)
-      k_p     = self%neighbour_list(n,4)
+      block_p = self%neighbour_list(1,n)
+      i_p     = self%neighbour_list(2,n)
+      j_p     = self%neighbour_list(3,n)
+      k_p     = self%neighbour_list(4,n)
 
       ! Qua va capito come gestire la questione dei blocchi multipli
       call field%grid%cell_xyz(coordinates = field%coordinates(:,block_p), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
       !Interpolazione lineare dei campi nella posizione delle particelle
       !x
-      if (x_cell(i_p) >= q_pic(n,1)) then !La particella è nella metà sinistra della cella
+      if (x_cell(i_p) >= q_pic(1,n)) then !La particella è nella metà sinistra della cella
          dDx_dx = lininterp(x2=x_cell(i_p-1), y2=q(1,i_p-1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(1,i_p,j_p,k_p,block_p), & 
-                  xp=q_pic(n,1)) 
+                  xp=q_pic(1,n)) 
          dDy_dx = lininterp(x2=x_cell(i_p-1), y2=q(2,i_p-1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(2,i_p,j_p,k_p,block_p), & 
-                  xp=q_pic(n,1)) 
+                  xp=q_pic(1,n)) 
          dDz_dx = lininterp(x2=x_cell(i_p-1), y2=q(3,i_p-1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(3,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,1)) 
+                  xp=q_pic(1,n)) 
          dBx_dx = lininterp(x2=x_cell(i_p-1), y2=q(4,i_p-1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(4,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,1)) 
+                  xp=q_pic(1,n)) 
          dBy_dx = lininterp(x2=x_cell(i_p-1), y2=q(5,i_p-1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(5,i_p,j_p,k_p,block_p), & 
-                  xp=q_pic(n,1)) 
+                  xp=q_pic(1,n)) 
          dBz_dz = lininterp(x2=x_cell(i_p-1), y2=q(6,i_p-1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(6,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,1)) 
+                  xp=q_pic(1,n)) 
       else
          dDx_dx = lininterp(x2=x_cell(i_p+1), y2=q(1,i_p+1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(1,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,1)) 
+                  xp=q_pic(1,n)) 
          dDy_dx = lininterp(x2=x_cell(i_p+1), y2=q(2,i_p+1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(2,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,1)) 
+                  xp=q_pic(1,n)) 
          dDz_dx = lininterp(x2=x_cell(i_p+1), y2=q(3,i_p+1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(3,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,1)) 
+                  xp=q_pic(1,n)) 
          dBx_dx = lininterp(x2=x_cell(i_p+1), y2=q(4,i_p+1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(4,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,1)) 
+                  xp=q_pic(1,n)) 
          dBy_dx = lininterp(x2=x_cell(i_p+1), y2=q(5,i_p+1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(5,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,1)) 
+                  xp=q_pic(1,n)) 
          dBz_dz = lininterp(x2=x_cell(i_p+1), y2=q(6,i_p+1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(6,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,1)) 
+                  xp=q_pic(1,n)) 
       endif
       !y
-      if (y_cell(j_p) >= q_pic(n,2)) then !La particella è nella metà sinistra della cella
+      if (y_cell(j_p) >= q_pic(2,n)) then !La particella è nella metà sinistra della cella
          dDx_dy = lininterp(x2=y_cell(j_p-1), y2=q(1,i_p,j_p-1,k_p,block_p), x1=y_cell(j_p), y1=q(1,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,2)) 
+                  xp=q_pic(2,n)) 
          dDy_dy = lininterp(x2=y_cell(j_p-1), y2=q(2,i_p,j_p-1,k_p,block_p), x1=y_cell(j_p), y1=q(2,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,2)) 
+                  xp=q_pic(2,n)) 
          dDz_dy = lininterp(x2=y_cell(j_p-1), y2=q(3,i_p,j_p-1,k_p,block_p), x1=y_cell(j_p), y1=q(3,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,2)) 
+                  xp=q_pic(2,n)) 
          dBx_dy = lininterp(x2=y_cell(j_p-1), y2=q(4,i_p,j_p-1,k_p,block_p), x1=y_cell(j_p), y1=q(4,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,2)) 
+                  xp=q_pic(2,n)) 
          dBy_dy = lininterp(x2=y_cell(j_p-1), y2=q(5,i_p,j_p-1,k_p,block_p), x1=y_cell(j_p), y1=q(5,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,2)) 
+                  xp=q_pic(2,n)) 
          dBz_dy = lininterp(x2=y_cell(j_p-1), y2=q(6,i_p,j_p-1,k_p,block_p), x1=y_cell(j_p), y1=q(6,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,2)) 
+                  xp=q_pic(2,n)) 
       else
          dDx_dy = lininterp(x2=y_cell(j_p+1), y2=q(1,i_p,j_p+1,k_p,block_p), x1=y_cell(j_p), y1=q(1,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,2)) 
+                  xp=q_pic(2,n)) 
          dDy_dy = lininterp(x2=y_cell(j_p+1), y2=q(2,i_p,j_p+1,k_p,block_p), x1=y_cell(j_p), y1=q(2,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,2)) 
+                  xp=q_pic(2,n)) 
          dDz_dy = lininterp(x2=y_cell(j_p+1), y2=q(3,i_p,j_p+1,k_p,block_p), x1=y_cell(j_p), y1=q(3,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,2)) 
+                  xp=q_pic(2,n)) 
          dBx_dy = lininterp(x2=y_cell(j_p+1), y2=q(4,i_p,j_p+1,k_p,block_p), x1=y_cell(j_p), y1=q(4,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,2)) 
+                  xp=q_pic(2,n)) 
          dBy_dy = lininterp(x2=y_cell(j_p+1), y2=q(5,i_p,j_p+1,k_p,block_p), x1=y_cell(j_p), y1=q(5,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,2)) 
+                  xp=q_pic(2,n)) 
          dBz_dy = lininterp(x2=y_cell(j_p+1), y2=q(6,i_p,j_p+1,k_p,block_p), x1=y_cell(j_p), y1=q(6,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,2)) 
+                  xp=q_pic(2,n)) 
       endif
       !z
-      if (z_cell(k_p) >= q_pic(n,3)) then !La particella è nella metà sinistra della cella
+      if (z_cell(k_p) >= q_pic(3,n)) then !La particella è nella metà sinistra della cella
          dDx_dz = lininterp(x2=z_cell(k_p-1), y2=q(1,i_p,j_p,k_p-1,block_p), x1=z_cell(k_p), y1=q(1,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,3)) 
+                  xp=q_pic(3,n)) 
          dDy_dz = lininterp(x2=z_cell(k_p-1), y2=q(2,i_p,j_p,k_p-1,block_p), x1=z_cell(k_p), y1=q(2,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,3)) 
+                  xp=q_pic(3,n)) 
          dDz_dz = lininterp(x2=z_cell(k_p-1), y2=q(3,i_p,j_p,k_p-1,block_p), x1=z_cell(k_p), y1=q(3,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,3)) 
+                  xp=q_pic(3,n)) 
          dBx_dz = lininterp(x2=z_cell(k_p-1), y2=q(4,i_p,j_p,k_p-1,block_p), x1=z_cell(k_p), y1=q(4,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,3)) 
+                  xp=q_pic(3,n)) 
          dBy_dz = lininterp(x2=z_cell(k_p-1), y2=q(5,i_p,j_p,k_p-1,block_p), x1=z_cell(k_p), y1=q(5,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,3)) 
+                  xp=q_pic(3,n)) 
          dBz_dz = lininterp(x2=z_cell(k_p-1), y2=q(6,i_p,j_p,k_p-1,block_p), x1=z_cell(k_p), y1=q(6,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,3)) 
+                  xp=q_pic(3,n)) 
       else
          dDx_dz = lininterp(x2=z_cell(k_p+1), y2=q(1,i_p,j_p,k_p+1,block_p), x1=z_cell(k_p), y1=q(1,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,3)) 
+                  xp=q_pic(3,n)) 
          dDy_dz = lininterp(x2=z_cell(k_p+1), y2=q(2,i_p,j_p,k_p+1,block_p), x1=z_cell(k_p), y1=q(2,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,3)) 
+                  xp=q_pic(3,n)) 
          dDz_dz = lininterp(x2=z_cell(k_p+1), y2=q(3,i_p,j_p,k_p+1,block_p), x1=z_cell(k_p), y1=q(3,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,3)) 
+                  xp=q_pic(3,n)) 
          dBx_dz = lininterp(x2=z_cell(k_p+1), y2=q(4,i_p,j_p,k_p+1,block_p), x1=z_cell(k_p), y1=q(4,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,3)) 
+                  xp=q_pic(3,n)) 
          dBy_dz = lininterp(x2=z_cell(k_p+1), y2=q(5,i_p,j_p,k_p+1,block_p), x1=z_cell(k_p), y1=q(5,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,3)) 
+                  xp=q_pic(3,n)) 
          dBz_dz = lininterp(x2=z_cell(k_p+1), y2=q(6,i_p,j_p,k_p+1,block_p), x1=z_cell(k_p), y1=q(6,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(n,3)) 
+                  xp=q_pic(3,n)) 
       endif     
 
       D_p(1) = q(1,i_p,j_p,k_p,block_p) + dDx_dx + dDx_dy + dDx_dz
@@ -707,12 +707,12 @@ contains
       !F_p(2) = q_p*(D_p(2) + F_l(2))
       !F_p(3) = q_p*(D_p(3) + F_l(3))
 
-      pic_fields(n,1) = D_p(1)
-      pic_fields(n,2) = D_p(2)
-      pic_fields(n,3) = D_p(3)
-      pic_fields(n,4) = B_p(1)
-      pic_fields(n,5) = B_p(2)
-      pic_fields(n,6) = B_p(3)
+      pic_fields(1,n) = D_p(1)
+      pic_fields(2,n) = D_p(2)
+      pic_fields(3,n) = D_p(3)
+      pic_fields(4,n) = B_p(1)
+      pic_fields(5,n) = B_p(2)
+      pic_fields(6,n) = B_p(3)
 
    enddo
    endsubroutine oneD_field_weighting

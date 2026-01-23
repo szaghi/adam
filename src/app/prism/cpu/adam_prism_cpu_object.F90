@@ -330,7 +330,7 @@ contains
       !case(TSC_WEIGHTING_MODEL)
       !   current_weighting => TSC_current_weighting
       case default
-         call self%mpih%error_stop(msg=': invalid current weighting model in prism_cpu_object%initialize')
+         call self%mpih%error_stop(msg=': invalid field weighting model in prism_cpu_object%initialize')
       endselect
    endif
 
@@ -465,23 +465,28 @@ contains
    endsubroutine save_simulation_data
 
    ! IC/BC/sources
-   subroutine compute_coils_current(self, gamma)
+   subroutine compute_coils_current(self, q, gamma)
    !< Compute current coils sources.
-   class(prism_cpu_object), intent(inout)        :: self            !< The equation.
-   real(R8P),               intent(in), optional :: gamma           !< RK coefficient.
-   real(R8P)                                     :: current_density !< Current density.
-   real(R8P)                                     :: g               !< Starting polynomial transitory of coils.
-   real(R8P)                                     :: time_s          !< Local time.
-   integer(I4P)                                  :: w_, w_c_        !< Step function coeff to avoid if in parallel regions.
-   real(R8P)                                     :: g_, f_          !< Current coefficients.
-   integer(I4P)                                  :: coil_id         !< Uniq coild ID.
-   integer(I4P)                                  :: i,j,k,b         !< Counter.
+   class(prism_cpu_object), intent(inout)        :: self             !< The equation.
+   real(R8P),               intent(inout)        :: q(1:,          & 
+                                                      1-self%ngc:, & 
+                                                      1-self%ngc:, & 
+                                                      1-self%ngc:, & 
+                                                      1:)            !< Conservative variables.
+   real(R8P),               intent(in), optional :: gamma            !< RK coefficient.
+   real(R8P)                                     :: current_density  !< Current density.
+   real(R8P)                                     :: g                !< Starting polynomial transitory of coils.
+   real(R8P)                                     :: time_s           !< Local time.
+   integer(I4P)                                  :: w_, w_c_         !< Step function coeff to avoid if in parallel regions.
+   real(R8P)                                     :: g_, f_           !< Current coefficients.
+   integer(I4P)                                  :: coil_id          !< Uniq coild ID.
+   integer(I4P)                                  :: i,j,k,b          !< Counter.
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
              time=>self%time%time, A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,              &
              coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, j_vec=>self%coil%j_vec, &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz,     &
-             dx=>self%field%dxyz(1,1),q=>self%q, dt=>self%time%dt)
+             dx=>self%field%dxyz(1,1), dt=>self%time%dt)
 
    if (present(gamma)) then
       time_s = time + dt*gamma
@@ -514,11 +519,14 @@ contains
          f_   = w_c_ * 2._R8P*PI*f(coil_id)*(time_s-td)   ! = 0 if td>time,            = 2._R8P*PI*f(coil_id)*(time-td) if td<time
          current_density = g_ * A(coil_id) * cos(f_ + phase(coil_id)*PI/180.0_R8P)*j_vec(4,i,j,k,b)
 
+
          ! Lo tengo qui, ma a pensarci bene dovrebbe andare bene così come abiamo fatto (quella sfasata resta a 0)
-         !f_   = w_c_ * (2._R8P*PI*f(coil_id)*(time_s-td) + phase(coil_id)*PI/180.0_R8P)
+         !f_   = w_c_ * (2._R8P*PI*f(coil_id)*(time_s-td) + phase(coil_id)*PI/180.0_R8P) 
                            ! = 0 if td>time, = 2._R8P*PI*f(coil_id)*(time-td)+phase(coil_id)*PI/180.0_R8P if td<time
          !current_density = g_ * A(coil_id) * cos(f_)*j_vec(4,i,j,k,b)
 
+
+         
          ! the following if is not necessary because j_vec is zero everywhere except in coils
          if (coil_id /= 0_I4P) then
             q(VAR_JX,i,j,k,b) = current_density * j_vec(1,i,j,k,b)
@@ -1744,12 +1752,12 @@ contains
          !ma devi metterlo nell'inizializzazione per coerenza
          call field_weighting(self=self%pic, field=self%field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
          !< Integration of equations
-         self%q_pic(:,1) = self%q_pic(:,1) + self%time%dt * self%q_pic(:,4)
-         self%q_pic(:,2) = self%q_pic(:,2) + self%time%dt * self%q_pic(:,5)
-         self%q_pic(:,3) = self%q_pic(:,3) + self%time%dt * self%q_pic(:,6)
+         self%q_pic(1,:) = self%q_pic(1,:) + self%time%dt * self%q_pic(4,:)
+         self%q_pic(2,:) = self%q_pic(2,:) + self%time%dt * self%q_pic(5,:)
+         self%q_pic(3,:) = self%q_pic(3,:) + self%time%dt * self%q_pic(6,:)
          do i = 1, self%pic%particle_number
-            self%q_pic(i,4:6) = self%q_pic(i,4:6) + self%time%dt * self%q_pic(i,8) / self%q_pic(i,7) * &
-                              (self%pic_fields(i,1:3) + crossproduct(self%q_pic(i,4:6), self%pic_fields(i,4:6)))
+            self%q_pic(4:6,i) = self%q_pic(4:6,i) + self%time%dt * self%q_pic(8,i) / self%q_pic(7,i) * &
+                              (self%pic_fields(1:3,i) + crossproduct(self%q_pic(4:6,i), self%pic_fields(4:6,i)))
          enddo
       endif
    endif
@@ -2026,7 +2034,7 @@ contains
    integer(I4P)                           :: s    !< Counter.
 
    associate(nc=>self%blanesmoan%nc,a=>self%blanesmoan%a,b=>self%blanesmoan%b)
-   call self%compute_coils_current
+   call self%compute_coils_current(q=self%q)
    do s=1, nc
       call self%compute_residuals(q=self%q, dq=self%dq)
       if (s==1) call self%save_residuals
@@ -2048,7 +2056,7 @@ contains
    real(R8P), parameter                   :: toll=1.0e-14_R8P !< CFM coefficients tollerance.
    integer(I4P)                           :: s,ss             !< Counter.
 
-   call self%compute_coils_current
+   call self%compute_coils_current(q=self%q)
    associate(dt=>self%time%dt,s_coeffs=>self%cfm%s_coeffs,e_coeffs=>self%cfm%e_coeffs)
    self%cfm%q = self%q
    call self%compute_residuals(q=self%cfm%q, dq=self%cfm%dq(:,:,:,:,:,1))
@@ -2073,7 +2081,7 @@ contains
    !< Integrate equation, time operator, leapfrog scheme.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
 
-   call self%compute_coils_current
+   call self%compute_coils_current(q=self%q)
    call self%compute_residuals(q=self%q, dq=self%dq)
    call self%save_residuals
    call self%leapfrog%integrate(dt=self%time%dt, q=self%q, dq=self%dq)
@@ -2087,7 +2095,7 @@ contains
    !< Maxwell source terms computation: particles and coils
    call self%pic%particle_cartesian_grid_index(field=self%field, q_pic=self%q_pic)
    call current_weighting(self=self%pic, field=self%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
-   call self%compute_coils_current
+   call self%compute_coils_current(q=self%q)
    !< Maxwell residuals computation
    call self%compute_residuals(q=self%q, dq=self%dq)
    call self%save_residuals
@@ -2105,7 +2113,7 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   !call self%compute_coils_current da modificare per avere i tempi corretti
+   call self%compute_coils_current(q=self%q) !da modificare per avere i tempi corretti 
    call self%rk%initialize_stages(q=self%q)
    do s=1, self%rk%nrk
       call self%compute_residuals(q=self%q, dq=self%dq)
@@ -2129,12 +2137,12 @@ contains
       call self%external_fields%sub_external_fields(field=self%field, time=self%time%time, dt=self%time%dt, q=self%q)
    call self%rk%initialize_stages(q=self%q)
    do s=1, self%rk%nrk
-      call self%compute_coils_current(gamma=self%rk%gamm(s))
       if (self%ib%solids_number>0) then
          call self%rk%compute_stage(s=s, dt=self%time%dt, phi=self%ib%phi)
       else
          call self%rk%compute_stage(s=s, dt=self%time%dt)
       endif
+      call self%compute_coils_current(q=self%rk%q_rk(:,:,:,:,:,s), gamma=self%rk%gamm(s))
       call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
       if (s==1) call self%save_residuals
       if (self%ib%solids_number>0) then
@@ -2150,18 +2158,19 @@ contains
       call self%rk%update_q(dt=self%time%dt, q=self%q)
       call self%update_q_BC(dt=self%time%dt)
    endif
+   call self%compute_coils_current(q=self%q)
    call self%impose_div_free
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
       call self%external_fields%add_external_fields(field=self%field, time=self%time%time, dt=self%time%dt, q=self%q)
    endsubroutine integrate_rk_ssp
 
-  subroutine integrate_rk_ssp_pic(self)
+   subroutine integrate_rk_ssp_pic(self)
    !< Integrate equation, time operator, SSP RK schemes.
    !< SSP RK working on q_rk as stages.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   !call sub_external_fields(self = self%external_fields, field = self%field, &
+   !call sub_external_fields(self = self%external_fields, field = self%field, & 
    !                        time = self%time%time, dt = self%time%dt, q = self%q)
 
    !Inizializzo stadi RK per campi e PIC
@@ -2175,18 +2184,18 @@ contains
       else
          call self%rk%compute_stage(s=s, dt=self%time%dt)
       endif
-      call self%rk_pic%compute_stage(s=s, dt=self%time%dt)
+      call self%rk_pic%compute_stage(s=s, dt=self%time%dt) 
       !Calcolo termini sorgente Maxwell da particelle e bobine
       call self%pic%particle_cartesian_grid_index(field=self%field, q_pic=self%rk_pic%q_pic_rk(:,:,s))
-      call current_weighting(self=self%pic, field=self%field, q=self%rk%q_rk(:,:,:,:,:,s), &
+      call current_weighting(self=self%pic, field=self%field, q=self%rk%q_rk(:,:,:,:,:,s), & 
                               q_pic=self%rk_pic%q_pic_rk(:,:,s), nv=self%nv)
-      call self%compute_coils_current(gamma=self%rk%gamm(s)) !Da modificare per avere i tempi corretti!
+      call self%compute_coils_current(q=self%rk%q_rk(:,:,:,:,:,s), gamma=self%rk%gamm(s))
       !Calcolo residui Maxwell
       call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
       if (s==1) call self%save_residuals
       !Calcolo residui PIC: calcolati direttamente nell'assegnazione dello stadio RK
-      !Interpolo quindi i campi
-      call field_weighting(self=self%pic, field=self%field, q=self%rk%q_rk(:,:,:,:,:,s), &
+      !Interpolo quindi i campi (probabilmente è qui che ti conviene sommare e sottrarre i campi esterni)
+      call field_weighting(self=self%pic, field=self%field, q=self%rk%q_rk(:,:,:,:,:,s), & 
                            q_pic=self%rk_pic%q_pic_rk(:,:,s), pic_fields=self%pic_fields, nv=self%nv)
       !Assegno lo stadio RK per campi e PIC
       if (self%ib%solids_number>0) then
@@ -2194,19 +2203,23 @@ contains
       else
          call self%rk%assign_stage(s=s, q=self%dq)
       endif
-
+      call self%rk_pic%assign_stage(s=s, pic_fields=self%pic_fields)
    enddo
-   !if (self%ib%solids_number>0) then
-   !   call self%rk%update_q(dt=self%time%dt, phi=self%ib%phi, q=self%q)
-   !   call self%update_q_BC(dt=self%time%dt, phi=self%ib%phi)
-   !else
-   !   call self%rk%update_q(dt=self%time%dt, q=self%q)
-   !   call self%update_q_BC(dt=self%time%dt)
-   !endif
-   !call self%impose_div_free
+   ! Completo l'integrazione temporale
+   if (self%ib%solids_number>0) then
+      call self%rk%update_q(dt=self%time%dt, phi=self%ib%phi, q=self%q)
+      call self%update_q_BC(dt=self%time%dt, phi=self%ib%phi)
+   else
+      call self%rk%update_q(dt=self%time%dt, q=self%q)
+      call self%update_q_BC(dt=self%time%dt)
+   endif
+   call self%compute_coils_current(q=self%q)
+   !Forse qui ci va un'altra interpolazione delle correnti particellari, vediamo
+   call self%impose_div_free
+   call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
 
-   !call add_external_fields(self = self%external_fields, field = self%field, &
-   !                        time = self%time%time, dt = self%time%dt, q = self%q)
+   !call add_external_fields(self = self%external_fields, field = self%field, & 
+   !                        time = self%time%time, dt = self%time%dt, q = self%q)   
    endsubroutine integrate_rk_ssp_pic
 
    subroutine update_q_BC(self, dt, phi)
@@ -2300,7 +2313,7 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   call self%compute_coils_current
+   call self%compute_coils_current(q=self%q)
    do s=1, self%rk%nrk - 1
       call self%compute_residuals(q=self%q, dq=self%dq)
       if (s==1) call self%save_residuals
