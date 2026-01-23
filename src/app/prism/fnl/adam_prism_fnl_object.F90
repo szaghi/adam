@@ -58,10 +58,11 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: initialize   !< Initialize the equation.
       ! IO methods
       procedure, pass(self) :: load_restart_files   !< Load restart files.
-      ! procedure, pass(self) :: save_xh5f            !< Save simulation data in XH5F format.
+      procedure, pass(self) :: save_energy_error    !< Save energy error history.
+      procedure, pass(self) :: save_xh5f            !< Save simulation data in XH5F format.
       procedure, pass(self) :: save_residuals       !< Save residuals history.
-      ! procedure, pass(self) :: save_restart_files   !< Save restart files.
-      ! procedure, pass(self) :: save_simulation_data !< Save all simulation data.
+      procedure, pass(self) :: save_restart_files   !< Save restart files.
+      procedure, pass(self) :: save_simulation_data !< Save all simulation data.
       ! IC/BC/sources
       procedure, pass(self) :: apply_fwl_correction    !< Apply fWLayer correction (if present)
       procedure, pass(self) :: compute_coils_current   !< Compute current coils sources.
@@ -96,10 +97,12 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: integrate_rk_ssp       !< SSP RK schemes.
       procedure, pass(self) :: integrate_rk_yoshida   !< Yoshida schemes.
       ! numerical methods, miscellanea
-      procedure, pass(self) :: compute_dt           !< Compute time step.
-      procedure, pass(self) :: impose_ct_correction !< Impose Constrained Transport correction on q(ivar:ivar+2).
-      procedure, pass(self) :: impose_div_free      !< Impose divergence-free property.
-      procedure, pass(self) :: simulate             !< Perform the simulation.
+      procedure, pass(self) :: compute_auxiliary_fields !< Compute auxiliary fields.
+      procedure, pass(self) :: compute_dt               !< Compute time step.
+      procedure, pass(self) :: compute_energy           !< Compute energy.
+      procedure, pass(self) :: impose_ct_correction     !< Impose Constrained Transport correction on q(ivar:ivar+2).
+      procedure, pass(self) :: impose_div_free          !< Impose divergence-free property.
+      procedure, pass(self) :: simulate                 !< Perform the simulation.
 endtype prism_fnl_object
 
 interface
@@ -357,6 +360,20 @@ contains
    call self%copy_cpu_gpu
    endsubroutine load_restart_files
 
+   subroutine save_energy_error(self, is_to_open, is_to_close)
+   !< Save energy error history.
+   class(prism_fnl_object), intent(inout)        :: self        !< The equation.
+   logical,                 intent(in), optional :: is_to_open  !< Flag to open  file before first saving.
+   logical,                 intent(in), optional :: is_to_close !< Flag to close file after last saving.
+
+   if (self%time%is_to_save(it_save=self%io%energy_error_save)) then
+      call self%io%save_energy_error(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number,                 &
+                                     energy_D=self%energy_D,energy_B=self%energy_B,                                        &
+                                     rms_energy_error_D=self%rms_energy_error_D,rms_energy_error_B=self%rms_energy_error_B,&
+                                     is_to_open=is_to_open,is_to_close=is_to_close)
+   endif
+   endsubroutine save_energy_error
+
    subroutine save_xh5f(self, output_basename, with_ghost)
    !< Save simulation data in HDF5 format.
    class(prism_fnl_object), intent(inout)        :: self             !< The equation.
@@ -364,18 +381,17 @@ contains
    logical,                 intent(in), optional :: with_ghost       !< Flag to save ghost cells.
    character(:), allocatable                     :: output_basename_ !< Output basename, local var.
 
-   ! call self%mpih_gpu%barrier(tictoc=.true.)
-   ! call self%mpih_gpu%print_message('save HDF5 files t: '//trim(str(self%time%it,.true.))//', time: '//&
-   !                                  trim(str(self%time%time,.true.)))
-   ! output_basename_ = trim(self%io%output_basename)//'-'//trim(strz(self%time%it,9))
-   ! if (present(output_basename)) output_basename_ = trim(output_basename)
-   ! call self%adam%io%save_xh5f(basename=trim(output_basename_), &
-   !                             q=self%q, q_name=self%q_name,    &
-   !                             with_ghost=with_ghost,           &
-   !                             with_cell_morton=.true.,         &
-   !                             t=self%time%it, time=self%time%time)
-
-   ! call self%mpih_gpu%barrier(tictoc=.true.)
+   call self%mpih_gpu%barrier(tictoc=.true.)
+   call self%mpih_gpu%print_message('save HDF5 files t: '//trim(str(self%time%it,.true.))//', time: '//&
+                                    trim(str(self%time%time,.true.)))
+   output_basename_ = trim(self%io%output_basename)//'-'//trim(strz(self%time%it,9))
+   if (present(output_basename)) output_basename_ = trim(output_basename)
+   call self%adam%io%save_xh5f(basename=trim(output_basename_), &
+                               q=self%q, q_name=self%q_name,    &
+                               with_ghost=with_ghost,           &
+                               with_cell_morton=.true.,         &
+                               t=self%time%it, time=self%time%time)
+   call self%mpih_gpu%barrier(tictoc=.true.)
    endsubroutine save_xh5f
 
    subroutine save_residuals(self)
@@ -399,45 +415,40 @@ contains
    !< Save restart files.
    class(prism_fnl_object), intent(inout) :: self !< The equation.
 
-   ! call self%mpih_gpu%barrier(tictoc=.true.)
-   ! call self%mpih_gpu%print_message('save restart files t: '//trim(str(self%time%it,.true.))//', time: '//&
-   !                                  trim(str(self%time%time,.true.)))
-   ! call self%adam%save_restart_files(basename=self%io%restart_basename, t=self%time%it, time=self%time%time, q=self%q)
-   ! call self%save_xh5f(output_basename=self%io%restart_basename)
-   ! call self%mpih_gpu%barrier(tictoc=.true.)
+   call self%mpih_gpu%barrier(tictoc=.true.)
+   call self%mpih_gpu%print_message('save restart files t: '//trim(str(self%time%it,.true.))//', time: '//&
+                                    trim(str(self%time%time,.true.)))
+   call self%adam%save_restart_files(basename=self%io%restart_basename, t=self%time%it, time=self%time%time, q=self%q)
+   call self%save_xh5f(output_basename=self%io%restart_basename)
+   call self%mpih_gpu%barrier(tictoc=.true.)
+   call self%mpih%barrier(tictoc=.true.)
    endsubroutine save_restart_files
 
    subroutine save_simulation_data(self)
    !< Save all simulation data.
    class(prism_fnl_object), intent(inout) :: self      !< The equation.
-   character(3), allocatable              :: q_name(:) !< Fields name.
 
-   ! if ((.not.self%physics%D_divergence_cleaner).and.(.not.self%physics%B_divergence_cleaner)) then
-   !    q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ']
-   ! elseif ((self%physics%D_divergence_cleaner).and.(.not.self%physics%B_divergence_cleaner)) then
-   !    q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi']
-   ! elseif ((self%physics%D_divergence_cleaner).and.(self%physics%B_divergence_cleaner)) then
-   !    q_name = ['Dx ','Dy ','Dz ','Bx ','By ','Bz ','Jx ','Jy ','Jz ', 'phi', 'psi']
-   ! endif
+   if ((self%time%is_to_save(it_save=self%io%it_save)).or.      &
+       (self%time%is_to_save(it_save=self%io%restart_save)).or. &
+       (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))) then
+      call self%update_ghost(q_gpu=self%q_gpu)
+      call self%copy_gpu_cpu
+      call self%compute_auxiliary_fields
 
-   ! if ((self%time%is_to_save(it_save=self%io%it_save)).or.      &
-   !     (self%time%is_to_save(it_save=self%io%restart_save)).or. &
-   !     (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))) then
-   !    call self%update_ghost(q_gpu=self%q_gpu)
-   !    call self%copy_gpu_cpu(compute_copy_q_aux=.true., copy_phi=.true.)
+      if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_xh5f(with_ghost=.true.)
+      if (mod(self%time%it,self%io%restart_save)==0) call self%save_restart_files
+      if (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max)) then
+         call self%slices%save_mat(basename=self%io%output_basename, &
+                                   it=self%time%it,                  &
+                                   it_max=self%time%it_max,          &
+                                   time=self%time%time,              &
+                                   time_max=self%time%time_max,      &
+                                   adam=self%adam,                   &
+                                   q=self%q,                         &
+                                   q_name=self%q_name)
 
-   !    if (self%time%is_to_save(it_save=self%io%it_save)) call self%save_xh5f
-   !    if (mod(self%time%it,self%io%restart_save)==0) call self%save_restart_files
-   !    if (self%slices%is_to_save(it=self%time%it,it_max=self%time%it_max,time=self%time%time,time_max=self%time%time_max))&
-   !       call self%slices%save_mat(basename=self%io%output_basename, &
-   !                                 it=self%time%it,                  &
-   !                                 it_max=self%time%it_max,          &
-   !                                 time=self%time%time,              &
-   !                                 time_max=self%time%time_max,      &
-   !                                 adam=self%adam,                   &
-   !                                 q=self%q,                         &
-   !                                 q_name=q_name)
-   ! endif
+      endif
+   endif
    endsubroutine save_simulation_data
 
    ! IC/BC/sources
@@ -1078,7 +1089,7 @@ contains
              s4=>self%numerics%fdv_half_stencils(4),                                                                  &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
    if (blocks_number > 0) then
-      ! call self%update_ghost(q_gpu=q_gpu, s=s)
+      call self%update_ghost(q_gpu=q_gpu, s=s)
       ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0)
       !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu)
       do b=1,blocks_number
@@ -1307,10 +1318,10 @@ contains
    call self%compute_divergence(ivar=1,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu(1,:,:,:,:))
    call self%compute_divergence(ivar=4,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu(2,:,:,:,:))
    call self%compute_divergence(ivar=7,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu(3,:,:,:,:))
-   ! call self%save_simulation_data
-   ! call self%compute_energy
-   ! call self%save_energy_error(is_to_open=.true.)
-   ! call self%io%open_file_residuals(nv=self%nv)
+   call self%save_simulation_data
+   call self%compute_energy
+   call self%save_energy_error(is_to_open=.true.)
+   call self%io%open_file_residuals(nv=self%nv)
    !-------------------------------------------------------------------------------
 
    ! ! integration
@@ -1353,6 +1364,22 @@ contains
    endsubroutine simulate
 
    ! numerical methods, miscellanea
+   subroutine compute_auxiliary_fields(self)
+   !< Compute auxiliary fields.
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+
+   if (self%io%save_divergence_fields) then
+      call self%compute_divergence(ivar=VAR_DX,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu(1,:,:,:,:))
+      call self%compute_divergence(ivar=VAR_BX,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu(2,:,:,:,:))
+      ! call self%compute_divergence(ivar=7,q=self%q,divergence=self%divergence(3,:,:,:,:))
+   endif
+   if (self%io%save_curl_fields) then
+      call self%compute_curl(ivar=VAR_DX,q_gpu=self%q_gpu,curl_gpu=self%curl_gpu(1:3,:,:,:,:))
+      call self%compute_curl(ivar=VAR_BX,q_gpu=self%q_gpu,curl_gpu=self%curl_gpu(4:6,:,:,:,:))
+      ! call self%compute_curl(ivar=7,q=self%q,curl=self%curl(7:9,:,:,:,:))
+   endif
+   endsubroutine compute_auxiliary_fields
+
    subroutine compute_dt(self)
    !< Compute maximum time step accordingly to CFL stabilty criterion.
    class(prism_fnl_object), intent(inout) :: self     !< The equation.
@@ -1370,6 +1397,56 @@ contains
    call MPI_ALLREDUCE(MPI_IN_PLACE, self%time%dt, 1, MPI_REAL8, MPI_MIN, MPI_COMM_WORLD, self%mpih_gpu%error)
    endassociate
    endsubroutine compute_dt
+
+   subroutine compute_energy(self)
+   !< Compute energy.
+   class(prism_fnl_object), intent(inout) :: self     !< The equation.
+   real(R8P)                              :: energy_D !< Energy of D field.
+   real(R8P)                              :: energy_B !< Energy of B field.
+
+   call compute_e(ivar=VAR_DX, ngc=self%ngc, q_gpu=self%q_gpu, energy=energy_D)
+   call compute_e(ivar=VAR_BX, ngc=self%ngc, q_gpu=self%q_gpu, energy=energy_B)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, energy_D, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, energy_B, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+   if (allocated(self%energy_D).and.allocated(self%energy_B)) then
+      self%energy_D = [self%energy_D, energy_D]
+      self%energy_B = [self%energy_B, energy_B]
+   else
+      allocate(self%energy_D(1:self%time%it))
+      allocate(self%energy_B(1:self%time%it))
+      self%energy_D = energy_D
+      self%energy_B = energy_B
+   endif
+   contains
+      subroutine compute_e(ivar, ngc, q_gpu, energy)
+      !< Compute energy of vector field starting from ivar.
+      integer(I4P), intent(in)  :: ivar    !< Starting position of vector field.
+      integer(I4P), intent(in)  :: ngc     !< Number of ghost cells.
+      real(R8P),    intent(in)  :: q_gpu(1:,&
+                                     1-ngc:,&
+                                     1-ngc:,&
+                                     1-ngc:,&
+                                     1:)   !< Conservative variables.
+      real(R8P),    intent(out) :: energy  !< Energy of the vector field starting from ivar.
+      integer(I4P)              :: i,j,k,b !< Counter.
+
+      energy = 0.0_R8P
+      associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,blocks_number=>self%blocks_number)
+      !$acc parallel loop independent gang vector DEVICEVAR(q_gpu) reduction(+: energy)
+      do b=1, blocks_number
+      do k=1, nk
+      do j=1, nj
+      do i=1, ni
+         energy = energy + 0.5_R8P * (q_gpu(b,i,j,k,ivar  )*q_gpu(b,i,j,k,ivar  ) + &
+                                      q_gpu(b,i,j,k,ivar+1)*q_gpu(b,i,j,k,ivar+1) + &
+                                      q_gpu(b,i,j,k,ivar+2)*q_gpu(b,i,j,k,ivar+2))
+      enddo
+      enddo
+      enddo
+      enddo
+      endassociate
+      endsubroutine compute_e
+   endsubroutine compute_energy
 
    subroutine impose_ct_correction(self, ivar)
    !< Impose Constrained Transport Correction on vectorial variable q(ivar:ivar+2).
