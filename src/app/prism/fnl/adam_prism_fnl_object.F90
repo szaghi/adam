@@ -6,7 +6,7 @@ module adam_prism_fnl_object
 !< ADAM, PRISM (Plasma Research usIng Simulation Methods) equations system class definition, GPU (FNL) backend.
 
 ! ADAM modules
-! use :: adam_common_library
+use :: adam_common_library
 ! PRSIM modules
 use :: adam_prism_common_library
 use :: adam_prism_fnl_library
@@ -100,6 +100,7 @@ type, extends(prism_common_object) :: prism_fnl_object
       procedure, pass(self) :: compute_auxiliary_fields !< Compute auxiliary fields.
       procedure, pass(self) :: compute_dt               !< Compute time step.
       procedure, pass(self) :: compute_energy           !< Compute energy.
+      procedure, pass(self) :: compute_energy_error     !< Compute energy error.
       procedure, pass(self) :: impose_ct_correction     !< Impose Constrained Transport correction on q(ivar:ivar+2).
       procedure, pass(self) :: impose_div_free          !< Impose divergence-free property.
       procedure, pass(self) :: simulate                 !< Perform the simulation.
@@ -1322,44 +1323,67 @@ contains
    call self%compute_energy
    call self%save_energy_error(is_to_open=.true.)
    call self%io%open_file_residuals(nv=self%nv)
-   !-------------------------------------------------------------------------------
 
-   ! ! integration
-   ! call self%mpih_gpu%barrier(tictoc=.true., timing=timing(1), single=.true.)
-   ! integration: do
-   !    call self%mpih_gpu%barrier(tictoc=.true., timing=timing_step(1), single=.true.)
-   !    self%time%it = self%time%it + 1
+   if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
+      ! to be implemented leapfrog on device
+      ! call self%leapfrog%assign_step(s=1, q=self%q)
+      ! call self%compute_dt
+      ! call self%compute_residuals(q=self%q, dq=self%dq)
+      ! self%q = self%q + self%time%dt * self%dq
+   endif
 
-   !    if (self%io%save_memory_status) then
-   !       call save_memory_status_cpu(file_name='memory_cpu-'//self%mpih_gpu%myrankstr//'.dat', tag=str(self%time%it,.true.))
-   !       call save_memory_status_gpu(file_name='memory_gpu-'//self%mpih_gpu%myrankstr//'.dat', tag=str(self%time%it,.true.))
-   !    endif
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) then
+         ! to be implemented
+      endif
+   endif
 
-   !    if (mod(self%time%it,self%amr%frequency)==0) then
-   !       call self%mpih_gpu%barrier(tictoc=.true.)
-   !       ! call self%amr_update
-   !       call self%mpih_gpu%barrier(tictoc=.true.)
-   !    endif
+   ! integration
+   call self%mpih_gpu%barrier(tictoc=.true., timing=timing(1), single=.true.)
+   integration: do
+      call self%mpih_gpu%barrier(tictoc=.true., timing=timing_step(1), single=.true.)
+      self%time%it = self%time%it + 1
 
-   !    call self%compute_dt
-   !    if ((self%time%it_max <= 0).and.(self%time%time+self%time%dt > self%time%time_max)) &
-   !       self%time%dt=self%time%time_max-self%time%time
+      if (self%io%save_memory_status) then
+         call save_memory_status_cpu(file_name='memory_cpu-'//self%mpih_gpu%myrankstr//'.dat', tag=str(self%time%it,.true.))
+         call save_memory_status_gpu(file_name='memory_gpu-'//self%mpih_gpu%myrankstr//'.dat', tag=str(self%time%it,.true.))
+      endif
 
-   !    call self%integrate
+      if (mod(self%time%it,self%amr%frequency)==0) then
+         call self%mpih_gpu%barrier(tictoc=.true.)
+         !call self%amr_update
+         call self%mpih_gpu%barrier(tictoc=.true.)
+      endif
 
-   !    self%time%time = self%time%time + self%time%dt
-   !    call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
+      call self%compute_dt
+      if ((self%time%it_max <= 0).and.(self%time%time+self%time%dt > self%time%time_max)) &
+         self%time%dt=self%time%time_max-self%time%time
 
-   !    call self%save_simulation_data
+      call self%integrate
 
-   !    if (((self%time%it_max <= 0).and.(self%time%time >= self%time%time_max)).or.&
-   !       ((self%time%it>=self%time%it_max).and.(self%time%it_max > 0))) exit integration
+      self%time%time = self%time%time + self%time%dt
+      call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
 
-   !    call self%mpih_gpu%barrier(tictoc=.true., timing=timing_step(2), single=.true.)
-   ! enddo integration
-   ! call self%mpih_gpu%barrier(tictoc=.true., timing=timing(2), single=.true.)
-   ! call self%save_simulation_data
-   ! if (self%mpih_gpu%myrank==0) call self%io%close_file_residuals
+      call self%save_simulation_data
+      call self%compute_energy
+      call self%save_energy_error
+
+      if (((self%time%it_max <= 0).and.(self%time%time >= self%time%time_max)).or.&
+         ((self%time%it>=self%time%it_max).and.(self%time%it_max > 0))) exit integration
+
+      call self%mpih_gpu%barrier(tictoc=.true., timing=timing_step(2), single=.true.)
+   enddo integration
+   call self%mpih_gpu%barrier(tictoc=.true., timing=timing(2), single=.true.)
+   call self%compute_energy_error
+   call self%save_simulation_data
+   call self%io%close_file_residuals
+   call self%save_energy_error(is_to_close=.true.)
+   call self%mpih_gpu%print_message('Initial/final energy of D field: '//trim(str(sqrt(self%energy_D(1))))//' '//&
+                                                                         trim(str(sqrt(self%energy_D(size(self%energy_D))))))
+   call self%mpih_gpu%print_message('Initial/final energy of B field: '//trim(str(sqrt(self%energy_B(1))))//' '//&
+                                                                         trim(str(sqrt(self%energy_D(size(self%energy_B))))))
+   call self%mpih_gpu%print_message('RMS Error of D field: '//trim(str(self%rms_energy_error_D)))
+   call self%mpih_gpu%print_message('RMS Error of B field: '//trim(str(self%rms_energy_error_B)))
    call self%mpih_gpu%finalize
    endsubroutine simulate
 
@@ -1447,6 +1471,26 @@ contains
       endassociate
       endsubroutine compute_e
    endsubroutine compute_energy
+
+   subroutine compute_energy_error(self)
+   !< Compute energy error.
+   class(prism_fnl_object), intent(inout) :: self       !< The equation.
+   real(R8P)                              :: energy_D0  !< Initial energy of D field.
+   real(R8P)                              :: energy_B0  !< Initial energy of B field.
+   real(R8P), allocatable                 :: error_D(:) !< Error (normalized) of energy of D field.
+   real(R8P), allocatable                 :: error_B(:) !< Error (normalized) of energy of B field.
+
+   if (allocated(self%energy_D).and.allocated(self%energy_B)) then
+      energy_D0 = self%energy_D(1)
+      energy_B0 = self%energy_B(1)
+
+      error_D = abs(self%energy_D - energy_D0) / abs(energy_D0)
+      error_B = abs(self%energy_B - energy_B0) / abs(energy_B0)
+
+      self%rms_energy_error_D = sqrt(sum(error_D)/size(error_D))
+      self%rms_energy_error_B = sqrt(sum(error_B)/size(error_B))
+   endif
+   endsubroutine compute_energy_error
 
    subroutine impose_ct_correction(self, ivar)
    !< Impose Constrained Transport Correction on vectorial variable q(ivar:ivar+2).
