@@ -14,24 +14,27 @@ implicit none
 private
 public :: INI_SECTION_NAME
 public :: prism_pic_object
-public :: particle_weighting_interface
-public :: current_weighting_interface
-public :: field_weighting_interface
-public :: CIC_WEIGHTING_MODEL
-public :: NGP_WEIGHTING_MODEL
-public :: TSC_WEIGHTING_MODEL
-public :: ZEROD_FIELDS_WEIGHTING_MODEL
-public :: ONED_FIELDS_WEIGHTING_MODEL
+!public :: particle_weighting_interface
+!public :: current_weighting_interface
+!public :: field_weighting_interface
+!public :: particle_weighting
+!public :: current_weighting
+!public :: field_weighting
+!public :: CIC_WEIGHTING_MODEL
+!public :: NGP_WEIGHTING_MODEL
+!public :: TSC_WEIGHTING_MODEL
+!public :: ZEROD_FIELDS_WEIGHTING_MODEL
+!public :: ONED_FIELDS_WEIGHTING_MODEL
 public :: NUM_SCHEME_TIME_PIC_LEAPFROG
 public :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA
-public :: CIC_charge_weighting
-public :: NGP_charge_weighting
-public :: TSC_charge_weighting
-public :: CIC_current_weighting
-public :: NGP_current_weighting
-public :: TSC_current_weighting
-public :: zeroD_field_weighting
-public :: oneD_field_weighting
+!public :: CIC_charge_weighting
+!public :: NGP_charge_weighting
+!public :: TSC_charge_weighting
+!public :: CIC_current_weighting
+!public :: NGP_current_weighting
+!public :: TSC_current_weighting
+!public :: zeroD_field_weighting
+!public :: oneD_field_weighting
 
 character(len=3), parameter :: INI_SECTION_NAME                 = 'PIC'         !< INI file section name for PIC configuration.
 character(len=3), parameter :: CIC_WEIGHTING_MODEL              = 'CIC'         !< CIC weighting model.
@@ -59,6 +62,10 @@ type :: prism_pic_object
    character(len=99)         :: field_weighting_model     !< Field weighting model.
    character(:), allocatable :: scheme_time               !< Numerical scheme for time operator [runge_kutta, leapfrog,...].
    integer(I4P), allocatable :: neighbour_list(:,:)       !< Particle grid positions array.
+   !< Pointer (abstract) TBP.
+   procedure(particle_weighting_interface), pass(self), pointer :: particle_weighting =>null() !< Particle weighting.
+   procedure(current_weighting_interface),  pass(self), pointer :: current_weighting  =>null() !< Current weighting.
+   procedure(field_weighting_interface),    pass(self), pointer :: field_weighting    =>null() !< field weighting.
 contains
    procedure, pass(self) :: description                   !< Return pretty-printed object description.
    procedure, pass(self) :: initialize                    !< Initialize IC.
@@ -131,6 +138,39 @@ contains
 
    allocate(self%neighbour_list(4, self%particle_number))
 
+   select case(self%particle_weighting_model)
+   case(CIC_WEIGHTING_MODEL)
+      self%particle_weighting => CIC_charge_weighting
+   case(NGP_WEIGHTING_MODEL)
+      self%particle_weighting => NGP_charge_weighting
+   case(TSC_WEIGHTING_MODEL)
+      self%particle_weighting => TSC_charge_weighting
+   case default
+      call self%mpih%error_stop(msg=': invalid particle weighting model in prism_cpu_object%initialize')
+   endselect
+
+   select case(self%current_weighting_model)
+   case(CIC_WEIGHTING_MODEL)
+      self%current_weighting => CIC_current_weighting
+   case(NGP_WEIGHTING_MODEL)
+      self%current_weighting => NGP_current_weighting
+   case(TSC_WEIGHTING_MODEL)
+      self%current_weighting => TSC_current_weighting
+   case default
+      call self%mpih%error_stop(msg=': invalid current weighting model in prism_cpu_object%initialize')
+   endselect
+
+   select case(self%field_weighting_model)
+   case(ZEROD_FIELDS_WEIGHTING_MODEL)
+      self%field_weighting => zeroD_field_weighting
+   case(ONED_FIELDS_WEIGHTING_MODEL)
+      self%field_weighting => oneD_field_weighting
+   !case(TSC_WEIGHTING_MODEL)
+   !   current_weighting => TSC_current_weighting
+   case default
+      call self%mpih%error_stop(msg=': invalid field weighting model in prism_cpu_object%initialize')
+   endselect
+   
    print '(A)', self%mpih%myrankstr//'prism_pic_object%initialize finish'
    endsubroutine initialize
 
@@ -270,12 +310,10 @@ contains
    real(R8P)                              :: n, i, j, k ,b                                                   !< Particle counter
    real(R8P)                              :: i_p, j_p, k_p, b_p                                              !< Particle grid indices
    real(R8P)                              :: dx, dy, dz                                                      !< Grid spacing
-   real(R8P)                              :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
-                                             y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
-                                             z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)
    real(R8P)                              :: wx, wy, wz                                                      !< Weighting factors
    real(R8P)                              :: cell_coord(3)                                                   !< Cell coordinates 
 
+   associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
    do n = 1, self%particle_number
       ! Get particle grid indices
       b_p = self%neighbour_list(1,n)
@@ -284,7 +322,6 @@ contains
       k_p = self%neighbour_list(4,n)
 
       ! Qua va capito come gestire la questione dei blocchi multipli
-      call field%grid%cell_xyz(coordinates = field%coordinates(:,b_p), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
       dx = field%dxyz(1,b_p)
       dy = field%dxyz(2,b_p)
       dz = field%dxyz(3,b_p)
@@ -294,7 +331,7 @@ contains
       do i = i_p-1, i_p+1
          do j = j_p-1, j_p+1
             do k = k_p-1, k_p+1
-               cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
+               cell_coord = [x_cell(i,b_p), y_cell(j,b_p), z_cell(k,b_p)]
                if (abs((q_pic(1,n) - cell_coord(1))/dx) <= 1.0_R8P) then
                   Wx = 1.0_R8P - abs((q_pic(1,n) - cell_coord(1))/dx)
                else
@@ -318,6 +355,7 @@ contains
          enddo
       enddo
    enddo
+   endassociate
    endsubroutine CIC_charge_weighting
 
    subroutine TSC_charge_weighting(self, field, q, q_pic, nv)
@@ -330,12 +368,10 @@ contains
    real(R8P)                              :: n, i, j, k ,b                                                   !< Particle counter
    real(R8P)                              :: i_p, j_p, k_p, b_p                                              !< Particle grid indices
    real(R8P)                              :: dx, dy, dz                                                      !< Grid spacing
-   real(R8P)                              :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
-                                             y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
-                                             z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)
    real(R8P)                              :: wx, wy, wz                                                      !< Weighting factors
    real(R8P)                              :: cell_coord(3)                                                   !< Cell coordinates 
 
+   associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
    do n = 1, self%particle_number
       ! Get particle grid indices
       b_p = self%neighbour_list(1,n)
@@ -344,7 +380,6 @@ contains
       k_p = self%neighbour_list(4,n)
 
       ! Qua va capito come gestire la questione dei blocchi multipli
-      call field%grid%cell_xyz(coordinates = field%coordinates(:,b_p), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
       dx = field%dxyz(1,b_p)
       dy = field%dxyz(2,b_p)
       dz = field%dxyz(3,b_p)
@@ -354,7 +389,7 @@ contains
       do i = i_p-1, i_p+1
          do j = j_p-1, j_p+1
             do k = k_p-1, k_p+1
-               cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
+               cell_coord = [x_cell(i,b_p), y_cell(j,b_p), z_cell(k,b_p)]
                if (abs((q_pic(1,n) - cell_coord(1))/dx) <= 0.5_R8P) then
                   Wx = 0.75_R8P - ((q_pic(1,n) - cell_coord(1))/dx)**2
                elseif (abs((q_pic(1,n) - cell_coord(1))/dx) <= 1.5_R8P .and. abs((q_pic(1,n) - cell_coord(1))/dx) > 0.5_R8P) then
@@ -377,6 +412,7 @@ contains
          enddo
       enddo
    enddo
+   endassociate
    endsubroutine TSC_charge_weighting
 
    subroutine NGP_current_weighting(self, field, q, q_pic, nv)
@@ -417,12 +453,10 @@ contains
    real(R8P)                              :: n, i, j, k ,b                                                   !< Particle counter
    real(R8P)                              :: i_p, j_p, k_p, b_p                                              !< Particle grid indices
    real(R8P)                              :: dx, dy, dz                                                      !< Grid spacing
-   real(R8P)                              :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
-                                             y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
-                                             z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)
    real(R8P)                              :: wx, wy, wz                                                      !< Weighting factors
    real(R8P)                              :: cell_coord(3)                                                   !< Cell coordinates 
 
+   associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
    do n = 1, self%particle_number
       ! Get particle grid indices
       b_p = self%neighbour_list(1,n)
@@ -431,7 +465,6 @@ contains
       k_p = self%neighbour_list(4,n)
 
       ! Qua va capito come gestire la questione dei blocchi multipli
-      call field%grid%cell_xyz(coordinates = field%coordinates(:,b_p), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
       dx = field%dxyz(1,b_p)
       dy = field%dxyz(2,b_p)
       dz = field%dxyz(3,b_p)
@@ -441,7 +474,7 @@ contains
       do i = i_p-1, i_p+1
          do j = j_p-1, j_p+1
             do k = k_p-1, k_p+1
-               cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
+               cell_coord = [x_cell(i,b_p), y_cell(j,b_p), z_cell(k,b_p)]
                if (abs((q_pic(1,n) - cell_coord(1))/dx) <= 1.0_R8P) then
                   Wx = 1.0_R8P - abs((q_pic(1,n) - cell_coord(1))/dx)
                else
@@ -467,6 +500,7 @@ contains
          enddo
       enddo
    enddo
+   endassociate
    endsubroutine CIC_current_weighting
 
    subroutine TSC_current_weighting(self, field, q, q_pic, nv)
@@ -479,12 +513,10 @@ contains
    real(R8P)                              :: n, i, j, k ,b                                                   !< Particle counter
    real(R8P)                              :: i_p, j_p, k_p, b_p                                              !< Particle grid indices
    real(R8P)                              :: dx, dy, dz                                                      !< Grid spacing
-   real(R8P)                              :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
-                                             y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
-                                             z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)
    real(R8P)                              :: wx, wy, wz                                                      !< Weighting factors
    real(R8P)                              :: cell_coord(3)                                                   !< Cell coordinates 
 
+   associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
    do n = 1, self%particle_number
       ! Get particle grid indices
       b_p = self%neighbour_list(1,n)
@@ -493,7 +525,6 @@ contains
       k_p = self%neighbour_list(4,n)
 
       ! Qua va capito come gestire la questione dei blocchi multipli
-      call field%grid%cell_xyz(coordinates = field%coordinates(:,b_p), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
       dx = field%dxyz(1,b_p)
       dy = field%dxyz(2,b_p)
       dz = field%dxyz(3,b_p)
@@ -503,7 +534,7 @@ contains
       do i = i_p-1, i_p+1
          do j = j_p-1, j_p+1
             do k = k_p-1, k_p+1
-               cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
+               cell_coord = [x_cell(i,b_p), y_cell(j,b_p), z_cell(k,b_p)]
                if (abs((q_pic(1,n) - cell_coord(1))/dx) <= 0.5_R8P) then
                   Wx = 0.75_R8P - ((q_pic(1,n) - cell_coord(1))/dx)**2
                elseif (abs((q_PIC(1,n) - cell_coord(1))/dx) <= 1.5_R8P .and. abs((q_pic(1,n) - cell_coord(1))/dx) > 0.5_R8P) then
@@ -528,6 +559,7 @@ contains
          enddo
       enddo
    enddo
+   endassociate
    endsubroutine TSC_current_weighting
 
    subroutine zeroD_field_weighting(self, field, pic_fields, q, q_pic, nv)
@@ -586,9 +618,6 @@ contains
    real(R8P)                              :: x_p, y_p, z_p                                                   !< Particle position scalar
    real(R8P)                              :: v_p(3), D_p(3), B_p(3), F_p(3), F_l(3), m_p, q_p                !< Particle scalars
    real(R8P)                              :: dx, dy, dz                                                      !< Grid spacing
-   real(R8P)                              :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
-                                             y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
-                                             z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)
    real(R8P)                              :: dDx_dx, dDx_dy, dDx_dz     
    real(R8P)                              :: dDy_dx, dDy_dy, dDy_dz
    real(R8P)                              :: dDz_dx, dDz_dy, dDz_dz
@@ -596,6 +625,7 @@ contains
    real(R8P)                              :: dBy_dx, dBy_dy, dBy_dz
    real(R8P)                              :: dBz_dx, dBz_dy, dBz_dz
 
+   associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
    do n = 1, self%particle_number
 
       ! Get particle grid indices
@@ -605,91 +635,91 @@ contains
       k_p     = self%neighbour_list(4,n)
 
       ! Qua va capito come gestire la questione dei blocchi multipli
-      call field%grid%cell_xyz(coordinates = field%coordinates(:,block_p), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
+
       !Interpolazione lineare dei campi nella posizione delle particelle
       !x
-      if (x_cell(i_p) >= q_pic(1,n)) then !La particella è nella metà sinistra della cella
-         dDx_dx = lininterp(x2=x_cell(i_p-1), y2=q(1,i_p-1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(1,i_p,j_p,k_p,block_p), & 
-                  xp=q_pic(1,n)) 
-         dDy_dx = lininterp(x2=x_cell(i_p-1), y2=q(2,i_p-1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(2,i_p,j_p,k_p,block_p), & 
-                  xp=q_pic(1,n)) 
-         dDz_dx = lininterp(x2=x_cell(i_p-1), y2=q(3,i_p-1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(3,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(1,n)) 
-         dBx_dx = lininterp(x2=x_cell(i_p-1), y2=q(4,i_p-1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(4,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(1,n)) 
-         dBy_dx = lininterp(x2=x_cell(i_p-1), y2=q(5,i_p-1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(5,i_p,j_p,k_p,block_p), & 
-                  xp=q_pic(1,n)) 
-         dBz_dz = lininterp(x2=x_cell(i_p-1), y2=q(6,i_p-1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(6,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(1,n)) 
+      if (x_cell(i_p,block_p) >= q_pic(1,n)) then !La particella è nella metà sinistra della cella
+         dDx_dx = lininterp(x2=x_cell(i_p-1,block_p), y2=q(1,i_p-1,j_p,k_p,block_p), & 
+                            x1=x_cell(i_p,block_p), y1=q(1,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
+         dDy_dx = lininterp(x2=x_cell(i_p-1,block_p), y2=q(2,i_p-1,j_p,k_p,block_p), &
+                            x1=x_cell(i_p,block_p), y1=q(2,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
+         dDz_dx = lininterp(x2=x_cell(i_p-1,block_p), y2=q(3,i_p-1,j_p,k_p,block_p), &
+                            x1=x_cell(i_p,block_p), y1=q(3,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
+         dBx_dx = lininterp(x2=x_cell(i_p-1,block_p), y2=q(4,i_p-1,j_p,k_p,block_p), &
+                            x1=x_cell(i_p,block_p), y1=q(4,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
+         dBy_dx = lininterp(x2=x_cell(i_p-1,block_p), y2=q(5,i_p-1,j_p,k_p,block_p), &
+                            x1=x_cell(i_p,block_p), y1=q(5,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
+         dBz_dz = lininterp(x2=x_cell(i_p-1,block_p), y2=q(6,i_p-1,j_p,k_p,block_p), &
+                            x1=x_cell(i_p,block_p), y1=q(6,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
       else
-         dDx_dx = lininterp(x2=x_cell(i_p+1), y2=q(1,i_p+1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(1,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(1,n)) 
-         dDy_dx = lininterp(x2=x_cell(i_p+1), y2=q(2,i_p+1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(2,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(1,n)) 
-         dDz_dx = lininterp(x2=x_cell(i_p+1), y2=q(3,i_p+1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(3,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(1,n)) 
-         dBx_dx = lininterp(x2=x_cell(i_p+1), y2=q(4,i_p+1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(4,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(1,n)) 
-         dBy_dx = lininterp(x2=x_cell(i_p+1), y2=q(5,i_p+1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(5,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(1,n)) 
-         dBz_dz = lininterp(x2=x_cell(i_p+1), y2=q(6,i_p+1,j_p,k_p,block_p), x1=x_cell(i_p), y1=q(6,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(1,n)) 
+         dDx_dx = lininterp(x2=x_cell(i_p+1,block_p), y2=q(1,i_p+1,j_p,k_p,block_p), &
+                            x1=x_cell(i_p,block_p), y1=q(1,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
+         dDy_dx = lininterp(x2=x_cell(i_p+1,block_p), y2=q(2,i_p+1,j_p,k_p,block_p), &
+                            x1=x_cell(i_p,block_p), y1=q(2,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
+         dDz_dx = lininterp(x2=x_cell(i_p+1,block_p), y2=q(3,i_p+1,j_p,k_p,block_p), &
+                            x1=x_cell(i_p,block_p), y1=q(3,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
+         dBx_dx = lininterp(x2=x_cell(i_p+1,block_p), y2=q(4,i_p+1,j_p,k_p,block_p), &
+                            x1=x_cell(i_p,block_p), y1=q(4,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
+         dBy_dx = lininterp(x2=x_cell(i_p+1,block_p), y2=q(5,i_p+1,j_p,k_p,block_p), &
+                            x1=x_cell(i_p,block_p), y1=q(5,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
+         dBz_dz = lininterp(x2=x_cell(i_p+1,block_p), y2=q(6,i_p+1,j_p,k_p,block_p), &
+                            x1=x_cell(i_p,block_p), y1=q(6,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
       endif
       !y
-      if (y_cell(j_p) >= q_pic(2,n)) then !La particella è nella metà sinistra della cella
-         dDx_dy = lininterp(x2=y_cell(j_p-1), y2=q(1,i_p,j_p-1,k_p,block_p), x1=y_cell(j_p), y1=q(1,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(2,n)) 
-         dDy_dy = lininterp(x2=y_cell(j_p-1), y2=q(2,i_p,j_p-1,k_p,block_p), x1=y_cell(j_p), y1=q(2,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(2,n)) 
-         dDz_dy = lininterp(x2=y_cell(j_p-1), y2=q(3,i_p,j_p-1,k_p,block_p), x1=y_cell(j_p), y1=q(3,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(2,n)) 
-         dBx_dy = lininterp(x2=y_cell(j_p-1), y2=q(4,i_p,j_p-1,k_p,block_p), x1=y_cell(j_p), y1=q(4,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(2,n)) 
-         dBy_dy = lininterp(x2=y_cell(j_p-1), y2=q(5,i_p,j_p-1,k_p,block_p), x1=y_cell(j_p), y1=q(5,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(2,n)) 
-         dBz_dy = lininterp(x2=y_cell(j_p-1), y2=q(6,i_p,j_p-1,k_p,block_p), x1=y_cell(j_p), y1=q(6,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(2,n)) 
+      if (y_cell(j_p,block_p) >= q_pic(2,n)) then !La particella è nella metà sinistra della cella
+         dDx_dy = lininterp(x2=y_cell(j_p-1,block_p), y2=q(1,i_p,j_p-1,k_p,block_p), &
+                            x1=y_cell(j_p,block_p), y1=q(1,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
+         dDy_dy = lininterp(x2=y_cell(j_p-1,block_p), y2=q(2,i_p,j_p-1,k_p,block_p), &
+                            x1=y_cell(j_p,block_p), y1=q(2,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
+         dDz_dy = lininterp(x2=y_cell(j_p-1,block_p), y2=q(3,i_p,j_p-1,k_p,block_p), &
+                            x1=y_cell(j_p,block_p), y1=q(3,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
+         dBx_dy = lininterp(x2=y_cell(j_p-1,block_p), y2=q(4,i_p,j_p-1,k_p,block_p), &
+                            x1=y_cell(j_p,block_p), y1=q(4,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
+         dBy_dy = lininterp(x2=y_cell(j_p-1,block_p), y2=q(5,i_p,j_p-1,k_p,block_p), &
+                            x1=y_cell(j_p,block_p), y1=q(5,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
+         dBz_dy = lininterp(x2=y_cell(j_p-1,block_p), y2=q(6,i_p,j_p-1,k_p,block_p), &
+                            x1=y_cell(j_p,block_p), y1=q(6,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
       else
-         dDx_dy = lininterp(x2=y_cell(j_p+1), y2=q(1,i_p,j_p+1,k_p,block_p), x1=y_cell(j_p), y1=q(1,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(2,n)) 
-         dDy_dy = lininterp(x2=y_cell(j_p+1), y2=q(2,i_p,j_p+1,k_p,block_p), x1=y_cell(j_p), y1=q(2,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(2,n)) 
-         dDz_dy = lininterp(x2=y_cell(j_p+1), y2=q(3,i_p,j_p+1,k_p,block_p), x1=y_cell(j_p), y1=q(3,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(2,n)) 
-         dBx_dy = lininterp(x2=y_cell(j_p+1), y2=q(4,i_p,j_p+1,k_p,block_p), x1=y_cell(j_p), y1=q(4,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(2,n)) 
-         dBy_dy = lininterp(x2=y_cell(j_p+1), y2=q(5,i_p,j_p+1,k_p,block_p), x1=y_cell(j_p), y1=q(5,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(2,n)) 
-         dBz_dy = lininterp(x2=y_cell(j_p+1), y2=q(6,i_p,j_p+1,k_p,block_p), x1=y_cell(j_p), y1=q(6,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(2,n)) 
+         dDx_dy = lininterp(x2=y_cell(j_p+1,block_p), y2=q(1,i_p,j_p+1,k_p,block_p), &
+                            x1=y_cell(j_p,block_p), y1=q(1,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
+         dDy_dy = lininterp(x2=y_cell(j_p+1,block_p), y2=q(2,i_p,j_p+1,k_p,block_p), &
+                            x1=y_cell(j_p,block_p), y1=q(2,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
+         dDz_dy = lininterp(x2=y_cell(j_p+1,block_p), y2=q(3,i_p,j_p+1,k_p,block_p), &
+                            x1=y_cell(j_p,block_p), y1=q(3,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
+         dBx_dy = lininterp(x2=y_cell(j_p+1,block_p), y2=q(4,i_p,j_p+1,k_p,block_p), &
+                            x1=y_cell(j_p,block_p), y1=q(4,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
+         dBy_dy = lininterp(x2=y_cell(j_p+1,block_p), y2=q(5,i_p,j_p+1,k_p,block_p), &
+                            x1=y_cell(j_p,block_p), y1=q(5,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
+         dBz_dy = lininterp(x2=y_cell(j_p+1,block_p), y2=q(6,i_p,j_p+1,k_p,block_p), &
+                            x1=y_cell(j_p,block_p), y1=q(6,i_p,j_p,k_p,block_p), xp=q_pic(2,n)) 
       endif
       !z
-      if (z_cell(k_p) >= q_pic(3,n)) then !La particella è nella metà sinistra della cella
-         dDx_dz = lininterp(x2=z_cell(k_p-1), y2=q(1,i_p,j_p,k_p-1,block_p), x1=z_cell(k_p), y1=q(1,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(3,n)) 
-         dDy_dz = lininterp(x2=z_cell(k_p-1), y2=q(2,i_p,j_p,k_p-1,block_p), x1=z_cell(k_p), y1=q(2,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(3,n)) 
-         dDz_dz = lininterp(x2=z_cell(k_p-1), y2=q(3,i_p,j_p,k_p-1,block_p), x1=z_cell(k_p), y1=q(3,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(3,n)) 
-         dBx_dz = lininterp(x2=z_cell(k_p-1), y2=q(4,i_p,j_p,k_p-1,block_p), x1=z_cell(k_p), y1=q(4,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(3,n)) 
-         dBy_dz = lininterp(x2=z_cell(k_p-1), y2=q(5,i_p,j_p,k_p-1,block_p), x1=z_cell(k_p), y1=q(5,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(3,n)) 
-         dBz_dz = lininterp(x2=z_cell(k_p-1), y2=q(6,i_p,j_p,k_p-1,block_p), x1=z_cell(k_p), y1=q(6,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(3,n)) 
+      if (z_cell(k_p,block_p) >= q_pic(3,n)) then !La particella è nella metà sinistra della cella
+         dDx_dz = lininterp(x2=z_cell(k_p-1,block_p), y2=q(1,i_p,j_p,k_p-1,block_p), &
+                            x1=z_cell(k_p,block_p), y1=q(1,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
+         dDy_dz = lininterp(x2=z_cell(k_p-1,block_p), y2=q(2,i_p,j_p,k_p-1,block_p), &
+                            x1=z_cell(k_p,block_p), y1=q(2,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
+         dDz_dz = lininterp(x2=z_cell(k_p-1,block_p), y2=q(3,i_p,j_p,k_p-1,block_p), &
+                            x1=z_cell(k_p,block_p), y1=q(3,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
+         dBx_dz = lininterp(x2=z_cell(k_p-1,block_p), y2=q(4,i_p,j_p,k_p-1,block_p), &
+                            x1=z_cell(k_p,block_p), y1=q(4,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
+         dBy_dz = lininterp(x2=z_cell(k_p-1,block_p), y2=q(5,i_p,j_p,k_p-1,block_p), &
+                            x1=z_cell(k_p,block_p), y1=q(5,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
+         dBz_dz = lininterp(x2=z_cell(k_p-1,block_p), y2=q(6,i_p,j_p,k_p-1,block_p), &
+                            x1=z_cell(k_p,block_p), y1=q(6,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
       else
-         dDx_dz = lininterp(x2=z_cell(k_p+1), y2=q(1,i_p,j_p,k_p+1,block_p), x1=z_cell(k_p), y1=q(1,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(3,n)) 
-         dDy_dz = lininterp(x2=z_cell(k_p+1), y2=q(2,i_p,j_p,k_p+1,block_p), x1=z_cell(k_p), y1=q(2,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(3,n)) 
-         dDz_dz = lininterp(x2=z_cell(k_p+1), y2=q(3,i_p,j_p,k_p+1,block_p), x1=z_cell(k_p), y1=q(3,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(3,n)) 
-         dBx_dz = lininterp(x2=z_cell(k_p+1), y2=q(4,i_p,j_p,k_p+1,block_p), x1=z_cell(k_p), y1=q(4,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(3,n)) 
-         dBy_dz = lininterp(x2=z_cell(k_p+1), y2=q(5,i_p,j_p,k_p+1,block_p), x1=z_cell(k_p), y1=q(5,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(3,n)) 
-         dBz_dz = lininterp(x2=z_cell(k_p+1), y2=q(6,i_p,j_p,k_p+1,block_p), x1=z_cell(k_p), y1=q(6,i_p,j_p,k_p,block_p), &
-                  xp=q_pic(3,n)) 
+         dDx_dz = lininterp(x2=z_cell(k_p+1,block_p), y2=q(1,i_p,j_p,k_p+1,block_p), &
+                            x1=z_cell(k_p,block_p), y1=q(1,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
+         dDy_dz = lininterp(x2=z_cell(k_p+1,block_p), y2=q(2,i_p,j_p,k_p+1,block_p), &
+                            x1=z_cell(k_p,block_p), y1=q(2,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
+         dDz_dz = lininterp(x2=z_cell(k_p+1,block_p), y2=q(3,i_p,j_p,k_p+1,block_p), &
+                            x1=z_cell(k_p,block_p), y1=q(3,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
+         dBx_dz = lininterp(x2=z_cell(k_p+1,block_p), y2=q(4,i_p,j_p,k_p+1,block_p), &
+                            x1=z_cell(k_p,block_p), y1=q(4,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
+         dBy_dz = lininterp(x2=z_cell(k_p+1,block_p), y2=q(5,i_p,j_p,k_p+1,block_p), &
+                            x1=z_cell(k_p,block_p), y1=q(5,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
+         dBz_dz = lininterp(x2=z_cell(k_p+1,block_p), y2=q(6,i_p,j_p,k_p+1,block_p), &
+                            x1=z_cell(k_p,block_p), y1=q(6,i_p,j_p,k_p,block_p), xp=q_pic(3,n)) 
       endif     
 
       D_p(1) = q(1,i_p,j_p,k_p,block_p) + dDx_dx + dDx_dy + dDx_dz
@@ -715,6 +745,7 @@ contains
       pic_fields(6,n) = B_p(3)
 
    enddo
+   endassociate
    endsubroutine oneD_field_weighting
 
    function crossproduct(a, b) result(cross)

@@ -13,17 +13,17 @@ use penf
 implicit none
 private
 public :: INI_SECTION_NAME
-public :: EF_TYPE_RMF
-public :: EF_TYPE_MAGNETIC_NOZZLE
+!public :: EF_TYPE_RMF
+!public :: EF_TYPE_MAGNETIC_NOZZLE
 public :: EF_TYPE_NONE
-public :: EF_TYPE_RMF_AND_MAGNETIC_NOZZLE
+!public :: EF_TYPE_RMF_AND_MAGNETIC_NOZZLE
 public :: prism_external_fields_object
-public :: add_external_fields_interface
-public :: sub_external_fields_interface
-public :: add_external_fields_rmf
+!public :: add_external_fields_interface
+!public :: sub_external_fields_interface
+!public :: add_external_fields_rmf
 !public :: add_external_fields_magnetic_nozzle
 !public :: add_external_fields_rmf_and_magnetic_nozzle
-public :: sub_external_fields_rmf
+!public :: sub_external_fields_rmf
 !public :: sub_external_fields_magnetic_nozzle
 !public :: sub_external_fields_rmf_and_magnetic_nozzle
 
@@ -44,8 +44,8 @@ type :: prism_external_fields_object
 	integer(I4P)      :: beta              !< RMF rotation axis coordinate 2
 	integer(I4P)      :: gamm              !< RMF rotation axis coordinate 3
    ! pointer methods
-   procedure(add_external_fields_interface), pointer :: add_external_fields=>null() !< Add external fields.
-   procedure(sub_external_fields_interface), pointer :: sub_external_fields=>null() !< Subtract external fields.
+   procedure(add_external_fields_interface), pass(self), pointer :: add_external_fields=>null() !< Add external fields.
+   procedure(sub_external_fields_interface), pass(self), pointer :: sub_external_fields=>null() !< Subtract external fields.
    contains
       ! public methods
       procedure, pass(self) :: description                           !< Return pretty-printed object description.
@@ -282,11 +282,8 @@ contains
    real(R8P),                           intent(in)              :: time                                                              !< Current simulation time.
    real(R8P),                           intent(in), optional    :: dt                                                                !< Time step.
    real(R8P),                           intent(in), optional    :: gamm                                                              !< Gamma values of RK SSP
-   real(R8P),                           intent(inout)           :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)  !< Primitive variables.
-   real(R8P)                                                    :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
-                                                                   y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
-                                                                   z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)             !< Vettori posizione centro celle del blocco b
-	real(R8P) 										                      :: B_r, B_theta 														          !< Radial and azimuthal components of the rotating magnetic field
+   real(R8P),                           intent(inout)           :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)   !< Primitive variables.
+	real(R8P) 										                      :: B_r, B_theta 														             !< Radial and azimuthal components of the rotating magnetic field
    real(R8P)										                      :: time1															                !< Time at the next sub-step
 	real(R8P)										                      :: theta                  								                   !< Angle in cylindrical coordinates
    integer(I4P)                                                 :: b,i,j,k															                !< Counters
@@ -294,18 +291,17 @@ contains
    real(R8P)                                                    :: x, y, r, omega, phase, c, s
 
    associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
-		alpha=>self%alpha, beta=>self%beta, ef_gamma=>self%gamm)
+		alpha=>self%alpha, beta=>self%beta, ef_gamma=>self%gamm, x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
    if (present(gamm)) then
       time1 = time + dt*gamm
    else
       time1 = time + dt
    end if
    do b = 1, blocks_number
-		call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          do i = 1, ni
             do j = 1, nj
                do k = 1, nk
-					   cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
+					   cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
                   x = cell_coord(alpha)
                   y = cell_coord(beta)
                   r = sqrt(x*x + y*y)
@@ -333,11 +329,8 @@ contains
    real(R8P),                           intent(in)              :: time                                                              !< Current simulation time.
    real(R8P),                           intent(in), optional    :: dt                                                                !< Time step.
    real(R8P),                           intent(in), optional    :: gamm                                                              !< Gamma values of RK SSP
-   real(R8P),                           intent(inout)           :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)  !< Primitive variables.
-   real(R8P)                                                    :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
-                                                                   y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
-                                                                   z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)             !< Vettori posizione centro celle del blocco b
-	real(R8P) 										                      :: B_r, B_theta 														          !< Radial and azimuthal components of the rotating magnetic field
+   real(R8P),                           intent(inout)           :: q(1:, 1-field%grid%ngc:,1-field%grid%ngc:,1-field%grid%ngc:,1:)   !< Primitive variables.
+	real(R8P) 										                      :: B_r, B_theta 														             !< Radial and azimuthal components of the rotating magnetic field
    real(R8P)										                      :: time1															                !< Time at the next sub-step
 	real(R8P)										                      :: theta                  								                   !< Angle in cylindrical coordinates
    integer(I4P)                                                 :: b,i,j,k															                !< Counters
@@ -345,18 +338,17 @@ contains
    real(R8P)                                                    :: x, y, r, omega, phase, c, s
 
    associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
-		alpha=>self%alpha, beta=>self%beta, ef_gamma=>self%gamm)
+		alpha=>self%alpha, beta=>self%beta, ef_gamma=>self%gamm, x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
    if (present(gamm)) then
       time1 = time + dt*gamm
    else
       time1 = time
    end if
    do b = 1, blocks_number
-		call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          do i = 1, ni
             do j = 1, nj
                do k = 1, nk
-					   cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
+					   cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
                   x = cell_coord(alpha)
                   y = cell_coord(beta)
                   r = sqrt(x*x + y*y)

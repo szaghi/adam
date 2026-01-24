@@ -16,9 +16,6 @@ public :: prism_cpu_object
 
 ! pointer (abstract) procedures
 procedure(compute_convective_fluxes_interface), pointer :: compute_fluxes_Maxwell=>null() !< Compute convective fluxes.
-procedure(particle_weighting_interface),        pointer :: particle_weighting    =>null() !< Particle weighting.
-procedure(current_weighting_interface),         pointer :: current_weighting     =>null() !< Current weighting.
-procedure(field_weighting_interface),           pointer :: field_weighting       =>null() !< field weighting.
 
 type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR e IB
    !< Maxwell equations system class definition, CPU backend.
@@ -299,41 +296,6 @@ contains
       compute_fluxes_Maxwell => compute_convective_fluxes_maxwell
    endselect
 
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
-      select case(self%pic%particle_weighting_model)
-      case(CIC_WEIGHTING_MODEL)
-         particle_weighting => CIC_charge_weighting
-      case(NGP_WEIGHTING_MODEL)
-         particle_weighting => NGP_charge_weighting
-      case(TSC_WEIGHTING_MODEL)
-         particle_weighting => TSC_charge_weighting
-      case default
-         call self%mpih%error_stop(msg=': invalid particle weighting model in prism_cpu_object%initialize')
-      endselect
-
-      select case(self%pic%current_weighting_model)
-      case(CIC_WEIGHTING_MODEL)
-         current_weighting => CIC_current_weighting
-      case(NGP_WEIGHTING_MODEL)
-         current_weighting => NGP_current_weighting
-      case(TSC_WEIGHTING_MODEL)
-         current_weighting => TSC_current_weighting
-      case default
-         call self%mpih%error_stop(msg=': invalid current weighting model in prism_cpu_object%initialize')
-      endselect
-
-      select case(self%pic%field_weighting_model)
-      case(ZEROD_FIELDS_WEIGHTING_MODEL)
-         field_weighting => zeroD_field_weighting
-      case(ONED_FIELDS_WEIGHTING_MODEL)
-         field_weighting => oneD_field_weighting
-      !case(TSC_WEIGHTING_MODEL)
-      !   current_weighting => TSC_current_weighting
-      case default
-         call self%mpih%error_stop(msg=': invalid field weighting model in prism_cpu_object%initialize')
-      endselect
-   endif
-
    print '(A)', self%mpih%description()
    call self%mpih%print_message('prism_cpu_object%initialize finish')
    endsubroutine initialize
@@ -505,7 +467,6 @@ contains
       do j=1, nj
       do i=1, ni
          coil_id = coil_flag(i,j,k,b)
-
          ! use step function to avoid the following original if
          !if (time < td) then
          !   current_density = g*A(coil_id)/((d(coil_id)-dx)**2)*cos(phase(coil_id)*pi/180.0_R8P)
@@ -1747,7 +1708,7 @@ contains
          !< Pic residual computation
          !Qua ci va il calcolo dei campi nelle posizioni delle particelle se PIC
          !ma devi metterlo nell'inizializzazione per coerenza
-         call field_weighting(self=self%pic, field=self%field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
+         call self%pic%field_weighting(field=self%field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
          !< Integration of equations
          self%q_pic(1,:) = self%q_pic(1,:) + self%time%dt * self%q_pic(4,:)
          self%q_pic(2,:) = self%q_pic(2,:) + self%time%dt * self%q_pic(5,:)
@@ -2091,13 +2052,13 @@ contains
 
    !< Maxwell source terms computation: particles and coils
    call self%pic%particle_cartesian_grid_index(field=self%field, q_pic=self%q_pic)
-   call current_weighting(self=self%pic, field=self%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   call self%pic%current_weighting(field=self%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
    call self%compute_coils_current(q=self%q)
    !< Maxwell residuals computation
    call self%compute_residuals(q=self%q, dq=self%dq)
    call self%save_residuals
    !< Pic residual computation
-   call field_weighting(self=self%pic, field=self%field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
+   call self%pic%field_weighting(field=self%field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
    !< Integration of equations
    call self%leapfrog%integrate(dt=self%time%dt, q=self%q, dq=self%dq)
    call self%leapfrog_pic%integrate(dt=self%time%dt, q_pic=self%q_pic, pic_fields=self%pic_fields)
@@ -2110,7 +2071,7 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   call self%compute_coils_current(q=self%q) !da modificare per avere i tempi corretti
+   call self%compute_coils_current(q=self%q) !da modificare per avere i tempi corretti 
    call self%rk%initialize_stages(q=self%q)
    do s=1, self%rk%nrk
       call self%compute_residuals(q=self%q, dq=self%dq)
@@ -2167,7 +2128,7 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   !call sub_external_fields(self = self%external_fields, field = self%field, &
+   !call sub_external_fields(self = self%external_fields, field = self%field, & 
    !                        time = self%time%time, dt = self%time%dt, q = self%q)
 
    !Inizializzo stadi RK per campi e PIC
@@ -2181,19 +2142,19 @@ contains
       else
          call self%rk%compute_stage(s=s, dt=self%time%dt)
       endif
-      call self%rk_pic%compute_stage(s=s, dt=self%time%dt)
+      call self%rk_pic%compute_stage(s=s, dt=self%time%dt) 
       !Calcolo termini sorgente Maxwell da particelle e bobine
       call self%pic%particle_cartesian_grid_index(field=self%field, q_pic=self%rk_pic%q_pic_rk(:,:,s))
-      call current_weighting(self=self%pic, field=self%field, q=self%rk%q_rk(:,:,:,:,:,s), &
-                              q_pic=self%rk_pic%q_pic_rk(:,:,s), nv=self%nv)
+      call self%pic%current_weighting(field=self%field, q=self%rk%q_rk(:,:,:,:,:,s), & 
+                                       q_pic=self%rk_pic%q_pic_rk(:,:,s), nv=self%nv)
       call self%compute_coils_current(q=self%rk%q_rk(:,:,:,:,:,s), gamma=self%rk%gamm(s))
       !Calcolo residui Maxwell
       call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
       if (s==1) call self%save_residuals
       !Calcolo residui PIC: calcolati direttamente nell'assegnazione dello stadio RK
       !Interpolo quindi i campi (probabilmente è qui che ti conviene sommare e sottrarre i campi esterni)
-      call field_weighting(self=self%pic, field=self%field, q=self%rk%q_rk(:,:,:,:,:,s), &
-                           q_pic=self%rk_pic%q_pic_rk(:,:,s), pic_fields=self%pic_fields, nv=self%nv)
+      call self%pic%field_weighting(field=self%field, q=self%rk%q_rk(:,:,:,:,:,s), & 
+                                    q_pic=self%rk_pic%q_pic_rk(:,:,s), pic_fields=self%pic_fields, nv=self%nv)
       !Assegno lo stadio RK per campi e PIC
       if (self%ib%solids_number>0) then
          call self%rk%assign_stage(s=s, q=self%dq, phi=self%ib%phi)
@@ -2215,8 +2176,8 @@ contains
    call self%impose_div_free
    call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
 
-   !call add_external_fields(self = self%external_fields, field = self%field, &
-   !                        time = self%time%time, dt = self%time%dt, q = self%q)
+   !call add_external_fields(self = self%external_fields, field = self%field, & 
+   !                        time = self%time%time, dt = self%time%dt, q = self%q)   
    endsubroutine integrate_rk_ssp_pic
 
    subroutine update_q_BC(self, dt, phi)

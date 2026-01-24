@@ -116,7 +116,7 @@ contains
    character(len=1), parameter          :: NL=new_line('a') !< New line character.
    integer(I4P)                         :: r                !< Counter.
 
-   desc =       self%mpih%myrankstr//'Coils main data'//NL
+   desc =       self%mpih%myrankstr//'Coils main data'
    if (self%total_coils_number > 0_I4P) then
       do r=1, self%total_coils_number
          desc = desc//NL//self%mpih%myrankstr//'  Coil('//trim(str(r,.true.))//')'
@@ -417,30 +417,26 @@ contains
       real(R8P)                                   :: dmax, dist                                                                !< Vincolo distanza massima dalla spira.
       real(R8P)                                   :: c_c(3)                                                              !< Vettore posizione centro spira
       real(R8P)                                   :: cell_coord(3)                                                       !< Vettore posizione centro cella
-      real(R8P)                                   :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
-                                                     y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
-                                                     z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)               !< Vettori posizione centro celle del blocco b
       integer(I4P)                                :: b,i,j,k                                                             !< Counter.
       !associo per dati su posizioni delle celle e contatori
       associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
-                x_c => self%x_center(n), y_c => self%y_center(n), z_c => self%z_center(n), &
-                dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), r_coil => self%r_coil(n), &
-                normal => self%normal(:,n), d => self%d(n), nb=>field%nb, &
-                current_distribution => self%current_distribution(n))
+               x_c => self%x_center(n), y_c => self%y_center(n), z_c => self%z_center(n), &
+               dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), r_coil => self%r_coil(n), &
+               normal => self%normal(:,n), d => self%d(n), nb=>field%nb,current_distribution => self%current_distribution(n), &
+               x_cell => field%x_cell, y_cell => field%y_cell, z_cell => field%z_cell)
 
       c_c = [ x_c, y_c, z_c ] !Vettore posizione centro spira
 
       !allocate(flag(ni,nj,nk,blocks_number))
       do b=1, blocks_number
          ! chiamo funzione che restituisce le coordinate delle varie celle che compongono il blocco
-         call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          !calcolo distanza massima dall'asse del filo della spira: somma di raggio del filo e metà della dimensione
          !massima della cella associata ai vettori dx dy e dz contenuti in field
          dmax = d/2
          do k=1, nk
             do j=1, nj
                do i=1, ni
-                  cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
+                  cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
                   if ((dotproduct(a=(cell_coord-c_c),b=normal))**2 + (sqrt(sq_norm(cell_coord-c_c) - &
                      (dotproduct(a=(cell_coord-c_c),b=normal))**2) - r_coil)**2 <= (d/2)**2 .and. &
                      self%coil_flag(i,j,k,b) == 0_I4P) then
@@ -480,9 +476,6 @@ contains
    real(R8P)                                   :: dmax                                                            !< Vincolo distanza massima dalla spira.
    real(R8P)                                   :: c_c(3)                                                          !< Vettore posizione centro spira
    real(R8P)                                   :: cell_coord(3)                                                   !< Vettore posizione centro cella
-   real(R8P)                                   :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
-                                                  y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
-                                                  z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)           !< Vettori posizione centro celle del blocco b
    real(R8P)                                   :: vx(3), vy(3), vz(3)                                             !< Versori assi cartesiani
    real(R8P)                                   :: V1(3), V2(3), V3(3), V4(3), V(4,3)                              !< Vertici rettangolo e relativa matrice
    real(R8P)                                   :: V1_1(3), V2_1(3), V3_1(3), V4_1(3)
@@ -497,10 +490,10 @@ contains
    integer(I4P)                                :: d_int
    !associo per dati su posizioni delle celle e contatori
    associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
-             x_c => self%x_center(n), y_c => self%y_center(n), z_c => self%z_center(n),                                        &
-             dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), lx => self%lx(n),                            &
-             ly => self%ly(n), normal => self%normal(:,n), d => self%d(n), nb =>field%nb,                                      &
-             current_distribution => self%current_distribution(n))
+            x_c => self%x_center(n), y_c => self%y_center(n), z_c => self%z_center(n),                                         &
+            dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), lx => self%lx(n), ly => self%ly(n),           &
+            normal => self%normal(:,n), d => self%d(n), nb =>field%nb, current_distribution => self%current_distribution(n),   &
+            x_cell => field%x_cell, y_cell => field%y_cell, z_cell => field%z_cell)
    c_c = [ x_c, y_c, z_c ] !Vettore posizione centro spira
    !vertici del rettangolo, lo costruisco come se avesse normale asse z e fosse centrato nell'origine;
    !vertici in senso antiorario, partendo da in basso a sinistra; si ipotizza
@@ -613,11 +606,10 @@ contains
       do b=1, blocks_number
          dmax = dx(b)*d_real+eps
          ! chiamo funzione che restituisce le coordinate delle varie celle che compongono il blocco
-         call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          do k=1+d_int, nk-d_int
             do j=1+d_int, nj-d_int
                do i=1+d_int, ni-d_int
-                  cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
+                  cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
                   dist = sqrt(sq_norm(crossproduct(a=(cell_coord-V(w,:)),b=vec(w,:)))) !Distanza punto retta |(P-A) x v| / |v| con A punto sulla retta e v versore della retta
                   prj_v = V(w,:)+dotproduct(a=(cell_coord-V(w,:)),b=vec(w,:))*vec(w,:); !Formula proiezione di un punto su una retta con A punto della retta A+[(P-A)*v]*v
                   if (dist <= dx(b)/2 .and. &
@@ -647,11 +639,10 @@ contains
          enddo
       enddo
       do b=1, blocks_number
-         call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          do k = 1, nk
             do j = 1, nj
                do i = 1, ni
-                  cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
+                  cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
                   dist = sqrt(sq_norm(crossproduct(a=(cell_coord-V(w,:)),b=vec(w,:))))
                    !secondo if: per ogni lato verifico di essere dal "lato giusto" dei piani definiti dalle diagonali, al fine di
                    !non avere sovrapposizioni in prossimità dei vertici
@@ -686,11 +677,10 @@ contains
       do b=1, blocks_number
          dmax = dx(b)*d_real+eps
          ! chiamo funzione che restituisce le coordinate delle varie celle che compongono il blocco
-         call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          do k=1+d_int, nk-d_int
             do j=1+d_int, nj-d_int
                do i=1+d_int, ni-d_int
-                  cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
+                  cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
                   dist = sqrt(sq_norm(crossproduct(a=(cell_coord-V(w,:)),b=vec(w,:)))) !Distanza punto retta |(P-A) x v| / |v| con A punto sulla retta e v versore della retta
                   prj_v = V(w,:)+dotproduct(a=(cell_coord-V(w,:)),b=vec(w,:))*vec(w,:); !Formula proiezione di un punto su una retta con A punto della retta A+[(P-A)*v]*v
                   if (dist <= dx(b)/2 .and. &
@@ -719,11 +709,10 @@ contains
          enddo
       enddo
       do b=1, blocks_number
-         call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          do k = 1, nk
             do j = 1, nj
                do i = 1, ni
-                  cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
+                  cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
                   dist = sqrt(sq_norm(crossproduct(a=(cell_coord-V(w,:)),b=vec(w,:))))
                   if (w == 2) then
                      if ((dotproduct(a=n2,b=cell_coord)+d2 <= -eps .or. dotproduct(a=n3,b=cell_coord)+d3 >= eps) .and. &
@@ -790,9 +779,6 @@ contains
    real(R8P)                                   :: dmax                                                            !< Vincolo distanza massima dalla spira.
    real(R8P)                                   :: c_c(3)                                                          !< Vettore posizione centro spira
    real(R8P)                                   :: cell_coord(3)                                                   !< Vettore posizione centro cella
-   real(R8P)                                   :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
-                                                  y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
-                                                  z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)           !< Vettori posizione centro celle del blocco b
    real(R8P)                                   :: vx(3), vy(3), vz(3)                                             !< Versori assi cartesiani
    real(R8P)                                   :: V1(3), V2(3), V3(3), V4(3), V(4,3)                              !< Vertici rettangolo e relativa matrice
    real(R8P)                                   :: V1_1(3), V2_1(3), V3_1(3), V4_1(3)
@@ -807,10 +793,10 @@ contains
    integer(I4P)                                :: d_int
    !associo per dati su posizioni delle celle e contatori
    associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
-             x_c => self%x_center(n), y_c => self%y_center(n), z_c => self%z_center(n),                                        &
-             dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), lx => self%lx(n),                            &
-             ly => self%ly(n), normal => self%normal(:,n), d => self%d(n), nb =>field%nb,                                      &
-             current_distribution => self%current_distribution(n))
+            x_c => self%x_center(n), y_c => self%y_center(n), z_c => self%z_center(n),                                         &
+            dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), lx => self%lx(n), ly => self%ly(n),           &
+            normal => self%normal(:,n), d => self%d(n), nb =>field%nb, current_distribution => self%current_distribution(n),   &
+            x_cell => field%x_cell, y_cell => field%y_cell, z_cell => field%z_cell)
    c_c = [ x_c, y_c, z_c ] !Vettore posizione centro spira
    !vertici del rettangolo, lo costruisco come se avesse normale asse z e fosse centrato nell'origine;
    !vertici in senso antiorario, partendo da in basso a sinistra; si ipotizza
@@ -923,11 +909,11 @@ contains
       do b=1, blocks_number
          dmax = dx(b)+eps
          ! chiamo funzione che restituisce le coordinate delle varie celle che compongono il blocco
-         call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          do k=1+d_int, nk-d_int
             do j=1+d_int, nj-d_int
                do i=1+d_int, ni-d_int
-                  cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
+                  cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+                  !print *, cell_coord, 'Coordinata della cella'
                   dist = sqrt(sq_norm(crossproduct(a=(cell_coord-V(w,:)),b=vec(w,:)))) !Distanza punto retta |(P-A) x v| / |v| con A punto sulla retta e v versore della retta
                   prj_v = V(w,:)+dotproduct(a=(cell_coord-V(w,:)),b=vec(w,:))*vec(w,:); !Formula proiezione di un punto su una retta con A punto della retta A+[(P-A)*v]*v
                   if (dist <= dmax .and. &
@@ -958,11 +944,10 @@ contains
          enddo
       enddo
       do b=1, blocks_number
-         call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          do k = 1, nk
             do j = 1, nj
                do i = 1, ni
-                  cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
+                  cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
                   dist = sqrt(sq_norm(crossproduct(a=(cell_coord-V(w,:)),b=vec(w,:))))
                   !secondo if: per ogni lato verifico di essere dal "lato giusto" dei piani definiti dalle diagonali, al fine di
                   !non avere sovrapposizioni in prossimità dei vertici
@@ -997,11 +982,10 @@ contains
       do b=1, blocks_number
          dmax = dx(b)+eps
          ! chiamo funzione che restituisce le coordinate delle varie celle che compongono il blocco
-         call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          do k=1+d_int, nk-d_int
             do j=1+d_int, nj-d_int
                do i=1+d_int, ni-d_int
-                  cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
+                  cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
                   dist = sqrt(sq_norm(crossproduct(a=(cell_coord-V(w,:)),b=vec(w,:)))) !Distanza punto retta |(P-A) x v| / |v| con A punto sulla retta e v versore della retta
                   prj_v = V(w,:)+dotproduct(a=(cell_coord-V(w,:)),b=vec(w,:))*vec(w,:); !Formula proiezione di un punto su una retta con A punto della retta A+[(P-A)*v]*v
                   if (dist <= dmax .and. &
@@ -1030,11 +1014,10 @@ contains
          enddo
       enddo
       do b=1, blocks_number
-         call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          do k = 1, nk
             do j = 1, nj
                do i = 1, ni
-                  cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
+                  cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
                   dist = sqrt(sq_norm(crossproduct(a=(cell_coord-V(w,:)),b=vec(w,:))))
                   if (w == 2) then
                      if ((dotproduct(a=n2,b=cell_coord)+d2 <= -eps .or. dotproduct(a=n3,b=cell_coord)+d3 >= eps) .and. &
@@ -1103,9 +1086,6 @@ contains
    real(R8P)                                   :: dmax                                                            !< Vincolo distanza massima dalla spira.
    real(R8P)                                   :: c_c(3)                                                          !< Vettore posizione centro spira
    real(R8P)                                   :: cell_coord(3)                                                   !< Vettore posizione centro cella
-   real(R8P)                                   :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
-                                                  y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
-                                                  z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)           !< Vettori posizione centro celle del blocco b
    real(R8P)                                   :: vx(3), vy(3), vz(3)                                             !< Versori assi cartesiani
    real(R8P)                                   :: V1(3), V2(3), V3(3), V4(3), V(4,3)                              !< Vertici rettangolo e relativa matrice
    real(R8P)                                   :: V1_1(3), V2_1(3), V3_1(3), V4_1(3)
@@ -1120,10 +1100,10 @@ contains
    integer(I4P)                                :: d_int
    !associo per dati su posizioni delle celle e contatori
    associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, &
-             x_c => self%x_center(n), y_c => self%y_center(n), z_c => self%z_center(n),                                        &
-             dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), lx => self%lx(n),                            &
-             ly => self%ly(n), normal => self%normal(:,n), d => self%d(n), nb =>field%nb,                                      &
-             current_distribution => self%current_distribution(n))
+            x_c => self%x_center(n), y_c => self%y_center(n), z_c => self%z_center(n),                                         &
+            dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), lx => self%lx(n), ly => self%ly(n),           &
+            normal => self%normal(:,n), d => self%d(n), nb =>field%nb, current_distribution => self%current_distribution(n),   &
+            x_cell => field%x_cell, y_cell => field%y_cell, z_cell => field%z_cell)
    c_c = [ x_c, y_c, z_c ] !Vettore posizione centro spira
    !vertici del rettangolo, lo costruisco come se avesse normale asse z e fosse centrato nell'origine;
    !vertici in senso antiorario, partendo da in basso a sinistra; si ipotizza
@@ -1235,11 +1215,10 @@ contains
       do b=1, blocks_number
          dmax = d/2+eps
          ! chiamo funzione che restituisce le coordinate delle varie celle che compongono il blocco
-         call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          do k=1+d_int, nk-d_int
             do j=1+d_int, nj-d_int
                do i=1+d_int, ni-d_int
-                  cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
+                  cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
                   dist = sqrt(sq_norm(crossproduct(a=(cell_coord-V(w,:)),b=vec(w,:)))) !Distanza punto retta |(P-A) x v| / |v| con A punto sulla retta e v versore della retta
                   prj_v = V(w,:)+dotproduct(a=(cell_coord-V(w,:)),b=vec(w,:))*vec(w,:); !Formula proiezione di un punto su una retta con A punto della retta A+[(P-A)*v]*v
                   !Con questo if inziale traccio tutta la "linea mediana" della spira
@@ -1252,8 +1231,8 @@ contains
                         do i1 = -d_int, d_int
                            do j1 = -d_int, d_int
                               do k1 = -d_int, d_int
-                                 dist_sec = sqrt((x_cell(i)-x_cell(i+i1))**2.0_R8P + (y_cell(j)-y_cell(j+j1))**2.0_R8P + &
-                                                    (z_cell(k)-z_cell(k+k1))**2.0_R8P)
+                                 dist_sec = sqrt((x_cell(i,b)-x_cell(i+i1,b))**2.0_R8P + (y_cell(j,b)-y_cell(j+j1,b))**2.0_R8P + &
+                                                    (z_cell(k,b)-z_cell(k+k1,b))**2.0_R8P)
                                  if (flag(i+i1,j+j1,k+k1,b) == 0_I4P .and. dist_sec <= d/2+eps) then
                                     flag(i+i1,j+j1,k+k1,b) = w
                                  endif
@@ -1271,11 +1250,10 @@ contains
          enddo
       enddo
       do b=1, blocks_number
-         call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          do k = 1, nk
             do j = 1, nj
                do i = 1, ni
-                  cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
+                  cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
                   dist = sqrt(sq_norm(crossproduct(a=(cell_coord-V(w,:)),b=vec(w,:))))                  
                   if (w == 1) then
                      if ((dotproduct(a=n1,b=cell_coord)+d1 > eps .or. dotproduct(a=n2,b=cell_coord)+d2 > eps) .and. &
@@ -1307,11 +1285,10 @@ contains
       do b=1, blocks_number
          !dmax = 0.0_R8P!*d_real+eps
          ! chiamo funzione che restituisce le coordinate delle varie celle che compongono il blocco
-         call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          do k=1+d_int, nk-d_int
             do j=1+d_int, nj-d_int
                do i=1+d_int, ni-d_int
-                  cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
+                  cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
                   dist = sqrt(sq_norm(crossproduct(a=(cell_coord-V(w,:)),b=vec(w,:)))) !Distanza punto retta |(P-A) x v| / |v| con A punto sulla retta e v versore della retta
                   prj_v = V(w,:)+dotproduct(a=(cell_coord-V(w,:)),b=vec(w,:))*vec(w,:); !Formula proiezione di un punto su una retta con A punto della retta A+[(P-A)*v]*v
                   if (dist <= dx(b)/2 .and. &
@@ -1326,8 +1303,8 @@ contains
                         do i1 = -d_int, d_int
                            do j1 = -d_int, d_int
                               do k1 = -d_int, d_int
-                                 dist_sec = sqrt((x_cell(i)-x_cell(i+i1))**2.0_R8P + (y_cell(j)-y_cell(j+j1))**2.0_R8P + &
-                                                    (z_cell(k)-z_cell(k+k1))**2.0_R8P)
+                                 dist_sec = sqrt((x_cell(i,b)-x_cell(i+i1,b))**2.0_R8P + (y_cell(j,b)-y_cell(j+j1,b))**2.0_R8P + &
+                                                    (z_cell(k,b)-z_cell(k+k1,b))**2.0_R8P)
                                  if (flag(i+i1,j+j1,k+k1,b) == 0_I4P .and. dist_sec <= d/2+eps) then
                                     flag(i+i1,j+j1,k+k1,b) = w
                                  endif
@@ -1345,11 +1322,10 @@ contains
          enddo
       enddo
       do b=1, blocks_number
-         call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          do k = 1, nk
             do j = 1, nj
                do i = 1, ni
-                  cell_coord = [x_cell(i), y_cell(j), z_cell(k)]
+                  cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
                   dist = sqrt(sq_norm(crossproduct(a=(cell_coord-V(w,:)),b=vec(w,:))))
                   if (w == 2) then
                      if ((dotproduct(a=n2,b=cell_coord)+d2 <= -eps .or. dotproduct(a=n3,b=cell_coord)+d3 >= eps) .and. &
