@@ -157,7 +157,7 @@
             <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-allocate_gpu~2">allocate_gpu</a>
             <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-copy_cpu_gpu~2">copy_cpu_gpu</a>
             <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-copy_gpu_cpu~2">copy_gpu_cpu</a>
-            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-initialize~9">initialize</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-initialize~5">initialize</a>
             <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-amr_update~3">amr_update</a>
             <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-compute_phi~3">compute_phi</a>
             <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-mark_by_geo~3">mark_by_geo</a>
@@ -167,11 +167,11 @@
             <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-integrate_eikonal~3">integrate_eikonal</a>
             <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-load_restart_files~3">load_restart_files</a>
             <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-save_hdf5~3">save_hdf5</a>
-            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-save_residuals~4">save_residuals</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-save_residuals~3">save_residuals</a>
             <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-save_restart_files~3">save_restart_files</a>
             <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-save_simulation_data~3">save_simulation_data</a>
             <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-set_boundary_conditions~3">set_boundary_conditions</a>
-            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-set_initial_conditions~4">set_initial_conditions</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-set_initial_conditions~3">set_initial_conditions</a>
             <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-update_ghost~3">update_ghost</a>
             <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-compute_dt~3">compute_dt</a>
             <a class="list-group-item" href="../module/adam_nasto_nvf_object.html#proc-compute_q_auxiliary~3">compute_q_auxiliary</a>
@@ -203,12 +203,12 @@
         <ul class="list-group list-group-flush">
             <li class="list-group-item">
               <ul class="list-inline">
+                  <li class="list-inline-item">cudafor</li>
                   <li class="list-inline-item"><a href='http://www.mpi-forum.org/docs/mpi-3.1/mpi31-report/node410.htm'>mpi</a></li>
                   <li class="list-inline-item">adam_common_library</li>
                   <li class="list-inline-item">adam_nvf_library</li>
-                  <li class="list-inline-item">penf</li>
                   <li class="list-inline-item"><a href='adam_nasto_nvf_kernels.html'>adam_nasto_nvf_kernels</a></li>
-                  <li class="list-inline-item">cudafor</li>
+                  <li class="list-inline-item">penf</li>
                   <li class="list-inline-item"><a href='adam_nasto_common_library.html'>adam_nasto_common_library</a></li>
               </ul>
             </li>
@@ -1029,7 +1029,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-mpih~6"></span>
+              <span class="anchor" id="variable-mpih~4"></span>
               type(mpih_object),
             </td>
               <td>public</td>
@@ -1063,7 +1063,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-field~2"></span>
+              <span class="anchor" id="variable-field"></span>
               type(field_object),
             </td>
               <td>public,</td>
@@ -1114,7 +1114,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ib~2"></span>
+              <span class="anchor" id="variable-ib~3"></span>
               type(ib_object),
             </td>
               <td>public</td>
@@ -1199,7 +1199,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-physics~2"></span>
+              <span class="anchor" id="variable-physics"></span>
               type(<a href='../type/nasto_physics_object.html'>nasto_physics_object</a>),
             </td>
               <td>public</td>
@@ -1267,7 +1267,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ngc~39"></span>
+              <span class="anchor" id="variable-ngc~33"></span>
               integer(kind=I4P),
             </td>
               <td>public,</td>
@@ -1284,7 +1284,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ni~17"></span>
+              <span class="anchor" id="variable-ni~16"></span>
               integer(kind=I4P),
             </td>
               <td>public,</td>
@@ -1301,7 +1301,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nj~17"></span>
+              <span class="anchor" id="variable-nj~16"></span>
               integer(kind=I4P),
             </td>
               <td>public,</td>
@@ -1318,7 +1318,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nk~17"></span>
+              <span class="anchor" id="variable-nk~16"></span>
               integer(kind=I4P),
             </td>
               <td>public,</td>
@@ -1352,7 +1352,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-blocks_number~17"></span>
+              <span class="anchor" id="variable-blocks_number~15"></span>
               integer(kind=I4P),
             </td>
               <td>public,</td>
@@ -1386,7 +1386,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nv~32"></span>
+              <span class="anchor" id="variable-nv~23"></span>
               integer(kind=I4P),
             </td>
               <td>public,</td>
@@ -1420,7 +1420,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q~19"></span>
+              <span class="anchor" id="variable-q~14"></span>
               real(kind=R8P),
             </td>
               <td>public,</td>
@@ -1437,7 +1437,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux~14"></span>
+              <span class="anchor" id="variable-q_aux~6"></span>
               real(kind=R8P),
             </td>
               <td>public,</td>
@@ -1539,7 +1539,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_gpu~12"></span>
+              <span class="anchor" id="variable-q_gpu~11"></span>
               real(kind=R8P),
             </td>
               <td>public,</td>
@@ -1556,7 +1556,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux_gpu~25"></span>
+              <span class="anchor" id="variable-q_aux_gpu~19"></span>
               real(kind=R8P),
             </td>
               <td>public,</td>
@@ -1692,7 +1692,7 @@ modules which it uses.
               </tr>
               <tr>
                 <td>  procedure, public, pass(self) ::
-  <strong><a href='../type/nasto_nvf_object.html#boundprocedure-initialize~9'>initialize</a></strong></td>
+  <strong><a href='../type/nasto_nvf_object.html#boundprocedure-initialize~5'>initialize</a></strong></td>
                   <td><p>Initialize the equation.</p></td>
               </tr>
               <tr>
@@ -1742,7 +1742,7 @@ modules which it uses.
               </tr>
               <tr>
                 <td>  procedure, public, pass(self) ::
-  <strong><a href='../type/nasto_nvf_object.html#boundprocedure-save_residuals~4'>save_residuals</a></strong></td>
+  <strong><a href='../type/nasto_nvf_object.html#boundprocedure-save_residuals~3'>save_residuals</a></strong></td>
                   <td><p>Save residuals history.</p></td>
               </tr>
               <tr>
@@ -1762,7 +1762,7 @@ modules which it uses.
               </tr>
               <tr>
                 <td>  procedure, public, pass(self) ::
-  <strong><a href='../type/nasto_nvf_object.html#boundprocedure-set_initial_conditions~4'>set_initial_conditions</a></strong></td>
+  <strong><a href='../type/nasto_nvf_object.html#boundprocedure-set_initial_conditions~3'>set_initial_conditions</a></strong></td>
                   <td><p>Set initial conditions of equation.</p></td>
               </tr>
               <tr>
@@ -1826,7 +1826,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~86"></span>
+              <span class="anchor" id="variable-self~54"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -1841,7 +1841,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_gpu~13"></span>
+              <span class="anchor" id="variable-q_gpu~12"></span>
               real(kind=R8P),
             </td>
 <td>intent(inout),</td>
@@ -1881,7 +1881,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~87"></span>
+              <span class="anchor" id="variable-self~55"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -1921,7 +1921,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~88"></span>
+              <span class="anchor" id="variable-self~56"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -1972,7 +1972,7 @@ modules which it uses.
   </div>
 
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-initialize~9"></span> <h3>private  subroutine <a href='../proc/initialize~9.html'>initialize</a>(self, filename)  
+    <div class="card-header codesum"><span class="anchor" id="proc-initialize~5"></span> <h3>private  subroutine <a href='../proc/initialize~5.html'>initialize</a>(self, filename)  
 </h3></div>
     <div class="card-body">
           
@@ -1991,7 +1991,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~89"></span>
+              <span class="anchor" id="variable-self~57"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2006,7 +2006,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-filename~7"></span>
+              <span class="anchor" id="variable-filename~5"></span>
               character(len=*),
             </td>
 <td>intent(in)</td>
@@ -2046,7 +2046,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~90"></span>
+              <span class="anchor" id="variable-self~58"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2086,7 +2086,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~91"></span>
+              <span class="anchor" id="variable-self~59"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2126,7 +2126,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~92"></span>
+              <span class="anchor" id="variable-self~60"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2226,7 +2226,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~93"></span>
+              <span class="anchor" id="variable-self~61"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2256,7 +2256,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-delta_type~2"></span>
+              <span class="anchor" id="variable-delta_type~3"></span>
               character(len=*),
             </td>
 <td>intent(in)</td>
@@ -2371,7 +2371,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~94"></span>
+              <span class="anchor" id="variable-self~62"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2426,7 +2426,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~95"></span>
+              <span class="anchor" id="variable-self~63"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2481,7 +2481,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~96"></span>
+              <span class="anchor" id="variable-self~64"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2496,7 +2496,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_gpu~14"></span>
+              <span class="anchor" id="variable-q_gpu~13"></span>
               real(kind=R8P),
             </td>
 <td>intent(inout),</td>
@@ -2536,7 +2536,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~97"></span>
+              <span class="anchor" id="variable-self~65"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2566,7 +2566,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-time~6"></span>
+              <span class="anchor" id="variable-time~4"></span>
               real(kind=R8P),
             </td>
 <td>intent(out)</td>
@@ -2606,7 +2606,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~98"></span>
+              <span class="anchor" id="variable-self~66"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2621,7 +2621,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-output_basename~4"></span>
+              <span class="anchor" id="variable-output_basename~3"></span>
               character(len=*),
             </td>
 <td>intent(in),</td>
@@ -2642,7 +2642,7 @@ modules which it uses.
   </div>
 
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-save_residuals~4"></span> <h3>private  subroutine <a href='../proc/save_residuals~4.html'>save_residuals</a>(self)  
+    <div class="card-header codesum"><span class="anchor" id="proc-save_residuals~3"></span> <h3>private  subroutine <a href='../proc/save_residuals~3.html'>save_residuals</a>(self)  
 </h3></div>
     <div class="card-body">
           
@@ -2661,7 +2661,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~99"></span>
+              <span class="anchor" id="variable-self~67"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2701,7 +2701,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~100"></span>
+              <span class="anchor" id="variable-self~68"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2741,7 +2741,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~101"></span>
+              <span class="anchor" id="variable-self~69"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2781,7 +2781,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~102"></span>
+              <span class="anchor" id="variable-self~70"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(in)</td>
@@ -2796,7 +2796,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_gpu~15"></span>
+              <span class="anchor" id="variable-q_gpu~14"></span>
               real(kind=R8P),
             </td>
 <td>intent(inout),</td>
@@ -2817,7 +2817,7 @@ modules which it uses.
   </div>
 
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-set_initial_conditions~4"></span> <h3>private  subroutine <a href='../proc/set_initial_conditions~4.html'>set_initial_conditions</a>(self)  
+    <div class="card-header codesum"><span class="anchor" id="proc-set_initial_conditions~3"></span> <h3>private  subroutine <a href='../proc/set_initial_conditions~3.html'>set_initial_conditions</a>(self)  
 </h3></div>
     <div class="card-body">
           
@@ -2836,7 +2836,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~103"></span>
+              <span class="anchor" id="variable-self~71"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2877,7 +2877,7 @@ If not specified all steps are perfermod, syncronous computation</p>
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~104"></span>
+              <span class="anchor" id="variable-self~72"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2892,7 +2892,7 @@ If not specified all steps are perfermod, syncronous computation</p>
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_gpu~16"></span>
+              <span class="anchor" id="variable-q_gpu~15"></span>
               real(kind=R8P),
             </td>
 <td>intent(inout),</td>
@@ -2947,7 +2947,7 @@ If not specified all steps are perfermod, syncronous computation</p>
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~105"></span>
+              <span class="anchor" id="variable-self~73"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -2987,7 +2987,7 @@ If not specified all steps are perfermod, syncronous computation</p>
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~106"></span>
+              <span class="anchor" id="variable-self~74"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(in)</td>
@@ -3002,7 +3002,7 @@ If not specified all steps are perfermod, syncronous computation</p>
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_gpu~17"></span>
+              <span class="anchor" id="variable-q_gpu~16"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -3017,7 +3017,7 @@ If not specified all steps are perfermod, syncronous computation</p>
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux_gpu~26"></span>
+              <span class="anchor" id="variable-q_aux_gpu~20"></span>
               real(kind=R8P),
             </td>
 <td>intent(out),</td>
@@ -3057,7 +3057,7 @@ If not specified all steps are perfermod, syncronous computation</p>
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~107"></span>
+              <span class="anchor" id="variable-self~75"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -3072,7 +3072,7 @@ If not specified all steps are perfermod, syncronous computation</p>
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_gpu~18"></span>
+              <span class="anchor" id="variable-q_gpu~17"></span>
               real(kind=R8P),
             </td>
 <td>intent(inout),</td>
@@ -3127,7 +3127,7 @@ If not specified all steps are perfermod, syncronous computation</p>
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~108"></span>
+              <span class="anchor" id="variable-self~76"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -3182,7 +3182,7 @@ If not specified all steps are perfermod, syncronous computation</p>
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~109"></span>
+              <span class="anchor" id="variable-self~77"></span>
               class(<a href='../type/nasto_nvf_object.html'>nasto_nvf_object</a>),
             </td>
 <td>intent(inout)</td>
@@ -3197,7 +3197,7 @@ If not specified all steps are perfermod, syncronous computation</p>
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-filename~8"></span>
+              <span class="anchor" id="variable-filename~6"></span>
               character(len=*),
             </td>
 <td>intent(in)</td>
