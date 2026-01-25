@@ -1,10 +1,10 @@
 !< ADAM, RK class FNL (FNL backend of [[rk_object]]).
-module adam_rk_fnl_object
+module adam_fnl_rk_object
 !< ADAM, RK class FNL (FNL backend of [[rk_object]]).
 
 use adam_rk_object
-use adam_mpih_fnl_object
-use adam_rk_fnl_kernels
+use adam_fnl_mpih_object
+use adam_fnl_rk_kernels
 use fundal
 use penf
 
@@ -169,4 +169,4 @@ contains
                            phi_gpu=phi_gpu,q_rk_gpu=self%q_rk_gpu,q_gpu=q_gpu)
    endassociate
    endsubroutine update_q
-endmodule adam_rk_fnl_object
+endmodule adam_fnl_rk_object

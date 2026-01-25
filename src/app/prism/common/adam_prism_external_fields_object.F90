@@ -13,7 +13,7 @@ use penf
 implicit none
 private
 public :: INI_SECTION_NAME
-!public :: EF_TYPE_RMF
+public :: EF_TYPE_RMF
 !public :: EF_TYPE_MAGNETIC_NOZZLE
 public :: EF_TYPE_NONE
 !public :: EF_TYPE_RMF_AND_MAGNETIC_NOZZLE

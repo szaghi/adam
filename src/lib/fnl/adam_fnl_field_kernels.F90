@@ -2,7 +2,7 @@
 
 #include "fundal.H"
 
-module adam_field_fnl_kernels
+module adam_fnl_field_kernels
 !< ADAM, field class FNL kernels (FNL backend of [[field_object]]).
 
 use fundal
@@ -231,4 +231,4 @@ contains
       enddo
    enddo
    endsubroutine update_ghost_local_gpu_dev
-endmodule adam_field_fnl_kernels
+endmodule adam_fnl_field_kernels

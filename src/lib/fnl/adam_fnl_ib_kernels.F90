@@ -2,7 +2,7 @@
 
 #include "fundal.H"
 
-module adam_ib_fnl_kernels
+module adam_fnl_ib_kernels
 !< ADAM, IB class FNL kernels (FNL backend of [[ib_object]]).
 
 use penf, only : I4P, R8P
@@ -397,4 +397,4 @@ contains
       enddo
    enddo
    endsubroutine reduce_cell_order_phi_dev
-endmodule adam_ib_fnl_kernels
+endmodule adam_fnl_ib_kernels

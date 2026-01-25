@@ -1,11 +1,11 @@
 !< ADAM, IB class FNL (FNL backend of [[ib_object]]).
-module adam_ib_fnl_object
+module adam_fnl_ib_object
 !< ADAM, IB class FNL (FNL backend of [[ib_object]]).
 
 use adam_ib_object
-use adam_ib_fnl_kernels
-use adam_field_fnl_object
-use adam_mpih_fnl_object
+use adam_fnl_ib_kernels
+use adam_fnl_field_object
+use adam_fnl_mpih_object
 use fundal
 use penf
 
@@ -117,4 +117,4 @@ contains
       enddo
    endassociate
    endsubroutine invert_eikonal
-endmodule adam_ib_fnl_object
+endmodule adam_fnl_ib_object

@@ -9,7 +9,7 @@ module adam_prism_fnl_coil_object
 use adam_prism_coil_object
 use adam_prism_parameters
 ! ADAM modules
-use adam_mpih_fnl_object
+use adam_fnl_mpih_object
 ! third party modules
 use fundal
 use penf

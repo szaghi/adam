@@ -1,9 +1,9 @@
 !< ADAM, maps class definition, FNL backend.
-module adam_maps_fnl_object
+module adam_fnl_maps_object
 !< ADAM, maps class definition, FNL backend.
 
 use adam_maps_object, only : maps_object
-use adam_mpih_fnl_object, only : mpih_fnl_object
+use adam_fnl_mpih_object, only : mpih_fnl_object
 use fundal
 use penf
 use mpi
@@ -64,4 +64,4 @@ contains
    call self%copy_cpu_gpu(verbose=.true.)
    call self%mpih%print_message('maps_fnl_object%initialize finish')
    endsubroutine initialize
-endmodule adam_maps_fnl_object
+endmodule adam_fnl_maps_object

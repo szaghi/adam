@@ -1,8 +1,8 @@
 !< ADAM, WENO class FNL (FNL backend of [[weno_object]]).
-module adam_weno_fnl_object
+module adam_fnl_weno_object
 !< ADAM, WENO class FNL (FNL backend of [[weno_object]]).
 
-use adam_mpih_fnl_object
+use adam_fnl_mpih_object
 use adam_weno_object
 use fundal
 use penf
@@ -49,4 +49,4 @@ contains
    call dev_assign_to_device(dst=self%cell_scheme_gpu, src=weno%cell_scheme)
    call self%mpih%print_message('weno_fnl_object%initialize finish')
    endsubroutine initialize
-endmodule adam_weno_fnl_object
+endmodule adam_fnl_weno_object

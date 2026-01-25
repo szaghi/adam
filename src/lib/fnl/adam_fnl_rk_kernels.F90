@@ -2,7 +2,7 @@
 
 #include "fundal.H"
 
-module adam_rk_fnl_kernels
+module adam_fnl_rk_kernels
 !< ADAM, RK FNL kernels (FNL backend of [[rk_fnl_object]]).
 
 use fundal
@@ -255,4 +255,4 @@ contains
       enddo
    endif
    endsubroutine rk_update_q_dev
-endmodule adam_rk_fnl_kernels
+endmodule adam_fnl_rk_kernels

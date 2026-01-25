@@ -6,7 +6,7 @@ module adam_prism_fnl_external_fields_kernels
 !< ADAM, PRISM external fields definition, FNL backend kernels.
 
 ! ADAM modules
-use adam_field_fnl_object
+use adam_fnl_field_object
 ! PRISM modules
 use adam_prism_external_fields_object
 use adam_prism_parameters

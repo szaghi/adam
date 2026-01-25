@@ -8,7 +8,7 @@ module adam_prism_fnl_kernels
 ! PRSIM modules
 use :: adam_prism_common_library
 ! ADAM modules
-use :: adam_weno_fnl_kernels
+use :: adam_fnl_weno_kernels
 ! third party modules
 use :: fundal
 use :: penf, only : I4P, I8P, R8P

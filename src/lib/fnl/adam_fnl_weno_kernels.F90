@@ -1,6 +1,6 @@
 !< ADAM, WENO class FNL kernels (FNL backend of [[weno_fnl_object]]).
 
-module adam_weno_fnl_kernels
+module adam_fnl_weno_kernels
 !< ADAM, WENO class FNL kernels (FNL backend of [[weno_fnl_object]]).
 
 use adam_weno_object, only : S_max, S_max_m1
@@ -109,4 +109,4 @@ contains
       enddo
    enddo
    endsubroutine weno_compute_weights_device
-endmodule adam_weno_fnl_kernels
+endmodule adam_fnl_weno_kernels

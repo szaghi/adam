@@ -1,11 +1,11 @@
 !< ADAM, field class definition, FNL backend.
-module adam_field_fnl_object
+module adam_fnl_field_object
 !< ADAM, field class definition, FNL backend.
 
 use adam_common_library
-use adam_field_fnl_kernels
-use adam_maps_fnl_object
-use adam_mpih_fnl_object
+use adam_fnl_field_kernels
+use adam_fnl_maps_object
+use adam_fnl_mpih_object
 use fundal
 use penf
 use mpi
@@ -268,4 +268,4 @@ contains
    call MPI_Barrier(MPI_COMM_WORLD, error)
    endassociate
    endsubroutine update_ghost_mpi_gpu
-endmodule adam_field_fnl_object
+endmodule adam_fnl_field_object
