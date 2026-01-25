@@ -5,7 +5,7 @@
 module adam_nasto_fnl_kernels
 !< ADAM, NASTO FNL application kernels.
 
-use adam_weno_fnl_kernels
+use adam_fnl_weno_kernels
 use adam_nasto_fnl_cns_kernels
 use fundal
 use penf, only : I4P, I8P, R8P
