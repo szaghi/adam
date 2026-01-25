@@ -500,6 +500,43 @@ contains
    endassociate
    endsubroutine compute_coils_current
 
+   !subroutine apply_fWL_correction(self, q)
+   !!< Apply correction if a fWL is present
+   !class(prism_cpu_object), intent(inout) :: self            !< The equation.
+   !real(R8P),               intent(inout) :: q(1:,         &
+   !                                            1-self%ngc:,&
+   !                                            1-self%ngc:,&
+   !                                            1-self%ngc:,&
+   !                                            1:)           !< Conservative variables.
+   !integer(I4P)                           :: face            !< Counter
+   !associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,         &
+   !         f=>self%fWLayer%f, layer=>self%fWLayer%layer, C=>self%fWLayer%C, ni_fWL=>self%fWLayer%ni_fWL,     &
+   !         nj_fWL=>self%fWLayer%nj_fWL, nk_fWL=>self%fWLayer%nk_fWL, n=>self%fWLayer%n, s2=>self%fWLayer%s2, &
+   !         alfa_D=>self%fWLayer%alfa_D, alfa_B=>self%fWLayer%alfa_B, beta_D=>self%fWLayer%beta_D,            &
+   !         beta_B=>self%fWLayer%beta_B)
+   !if (C>0) then       
+   !   do face=1, 6
+   !      if (layer(face)) call apply_fWL_correction_fun(blocks_number = blocks_number,      &
+   !                                                     ngc           = ngc,                &
+   !                                                     ni1           = ni_fWL(1,face),     &
+   !                                                     ni2           = ni_fWL(2,face),     &
+   !                                                     nj1           = nj_fWL(1,face),     &
+   !                                                     nj2           = nj_fWL(2,face),     &
+   !                                                     nk1           = nk_fWL(1,face),     &
+   !                                                     nk2           = nk_fWL(2,face),     &
+   !                                                     n             = n(face),            &
+   !                                                     s2            = s2(face),           &
+   !                                                     alfa_D        = alfa_D(face),       &
+   !                                                     beta_D        = beta_D(face),       &
+   !                                                     alfa_B        = alfa_B(face),       &
+   !                                                     beta_B        = beta_B(face),       &
+   !                                                     f             = self%fWLayer%f,     &
+   !                                                     q             = q)
+   !   enddo
+   !endif
+   !endassociate
+   !endsubroutine apply_fWL_correction
+
    subroutine apply_fWL_correction(self, q)
    !< Apply correction if a fWL is present
    class(prism_cpu_object), intent(inout) :: self                    !< The equation.
@@ -512,10 +549,8 @@ contains
    integer(I4P)                           :: i,j,k,b,n               !< Counters
    integer(I4P)                           :: alfa_D, beta_D, gamma_D !< Indici alfa beta gamma come in Barbas.
    integer(I4P)                           :: alfa_B, beta_B, gamma_B !< Indici alfa beta gamma come in Barbas.
-
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, &
       f=>self%fWLayer%f, layer=>self%fWLayer%layer, C=>self%fWLayer%C)
-
    if (C>0) then
       !x- side
       do b=1,blocks_number
@@ -712,9 +747,7 @@ contains
          endif
       enddo
    endif
-
    endassociate
-
    endsubroutine apply_fWL_correction
 
    subroutine set_boundary_conditions(self, q, s)

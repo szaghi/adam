@@ -23,15 +23,21 @@ use :: penf
 implicit none
 private
 public :: prism_fWLayer_object
+public :: apply_fWL_correction_fun
 
 character(len=7), parameter :: INI_SECTION_NAME='fWLayer' !< INI file section name containing flWLayer datas.
 
 type :: prism_fWLayer_object
    !< PRISM fWLayer class definition.
-   type(mpih_object)      :: mpih               !< MPI handler.
-   integer(I4P)           :: C        = 0_I4P   !< Layer cell width.
-   logical                :: layer(6) = .false. !< Layer flags for each side (-x, +x, -y, +y, -z, +z).
-   real(R8P), allocatable :: f(:,:,:,:,:)       !< fWLayer function values.
+   type(mpih_object)      :: mpih                                  !< MPI handler.
+   logical                :: layer(6) = .false.                    !< Layer flags for each side (-x, +x, -y, +y, -z, +z).
+   integer(I4P)           :: C        = 0_I4P                      !< Layer cell width.
+   integer(I4P)           :: ni_fWL(2,6), nj_fWL(2,6), nk_fWL(2,6) !< Dimensions of FWL domain.
+   real(R8P)              :: s2(6)                                 !< Side coefficient.
+   integer(I4P)           :: n(6)                                  !< FWL f function index.
+   integer(I4P)           :: alfa_D(6), beta_D(6)                  !< Corrected var index of D (Barbas' notation).
+   integer(I4P)           :: alfa_B(6), beta_B(6)                  !< Corrected var index of B (Barbas' notation).
+   real(R8P), allocatable :: f(:,:,:,:,:)                          !< fWLayer function values.
 
 contains
   ! public methods
@@ -80,15 +86,30 @@ contains
    print '(A)', self%description()
 
    !Inizializzo funzione f nelle celle dello strato
-   associate(ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, blocks_number=>field%blocks_number, &
+   associate(ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, blocks_number=>field%blocks_number,     &
             ngc=>field%grid%ngc, nb=>field%nb, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), &
-            C=>self%C)
+            C=>self%C, ni_fWL=>self%ni_fWL, nj_fWL=>self%nj_fWL, nk_fWL=>self%nk_fWL, n=>self%n, s2=>self%s2, &
+            alfa_D=>self%alfa_D, alfa_B=>self%alfa_B, beta_D=>self%beta_D, beta_B=>self%beta_B)
 
    allocate(self%f(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    self%f = 1.0_R8P
    C_r = real(C, R8P)
 
    if (C >0) then
+      ni_fWL(1,1)=1_I4P  ; ni_fWL(1,2)=ni-C    ; ni_fWL(1,3)=1_I4P  ; ni_fWL(1,4)=1_I4P   ; ni_fWL(1,5)=1_I4P  ; ni_fWL(1,6)=1_I4P
+      ni_fWL(2,1)=C      ; ni_fWL(2,2)=ni      ; ni_fWL(2,3)=ni     ; ni_fWL(2,4)=ni      ; ni_fWL(2,5)=ni     ; ni_fWL(2,6)=ni
+      nj_fWL(1,1)=1_I4P  ; nj_fWL(1,2)=1_I4P   ; nj_fWL(1,3)=1_I4P  ; nj_fWL(1,4)=nj-C    ; nj_fWL(1,5)=1_I4P  ; nj_fWL(1,6)=1_I4P
+      nj_fWL(2,1)=nj     ; nj_fWL(2,2)=nj      ; nj_fWL(2,3)=C      ; nj_fWL(2,4)=nj      ; nj_fWL(2,5)=nj     ; nj_fWL(2,6)=nj
+      nk_fWL(1,1)=1_I4P  ; nk_fWL(1,2)=1_I4P   ; nk_fWL(1,3)=1_I4P  ; nk_fWL(1,4)=1_I4P   ; nk_fWL(1,5)=1_I4P  ; nk_fWL(1,6)=nk-C
+      nk_fWL(2,1)=nk     ; nk_fWL(2,2)=nk      ; nk_fWL(2,3)=nk     ; nk_fWL(2,4)=nk      ; nk_fWL(2,5)=C      ; nk_fWL(2,6)=nk
+
+      n(1)      =1_I4P  ; n(2)      =1_I4P   ; n(3)      =2_I4P  ; n(4)      =2_I4P   ; n(5)      =3_I4P  ; n(6)      =3_I4P
+      s2(1)     =1.0_R8P; s2(2)     =-1.0_R8P; s2(3)     =1.0_R8P; s2(4)     =-1.0_R8P; s2(5)     =1.0_R8P; s2(6)     =-1.0_R8P
+      alfa_D(1) =2_I4P  ; alfa_D(2) =2_I4P   ; alfa_D(3) =3_I4P  ; alfa_D(4) =3_I4P   ; alfa_D(5) =1_I4P  ; alfa_D(6) =1_I4P
+      beta_D(1) =3_I4P  ; beta_D(2) =3_I4P   ; beta_D(3) =1_I4P  ; beta_D(4) =1_I4P   ; beta_D(5) =2_I4P  ; beta_D(6) =2_I4P
+      alfa_B(1) =5_I4P  ; alfa_B(2) =5_I4P   ; alfa_B(3) =6_I4P  ; alfa_B(4) =6_I4P   ; alfa_B(5) =4_I4P  ; alfa_B(6) =4_I4P
+      beta_B(1) =6_I4P  ; beta_B(2) =6_I4P   ; beta_B(3) =4_I4P  ; beta_B(4) =4_I4P   ; beta_B(5) =5_I4P  ; beta_B(6) =5_I4P
+
       if (C < 40_I4P) then
          fi = 1/150._R8P*(-7.0_R8P*C_r**2 + 255._R8P*C_r + 250._R8P)
       else
@@ -259,4 +280,47 @@ contains
       self%layer(6) = .false.
    endselect
    endsubroutine load_from_file
+
+   subroutine apply_fWL_correction_fun(blocks_number,ngc,ni1,ni2,nj1,nj2,nk1,nk2,n,s2,alfa_D,beta_D,alfa_B,beta_B,f,q)
+   !< Applay FWL correction, direction agnostic.
+   integer(I4P), intent(in)    :: blocks_number                     !< Blocks number.
+   integer(I4P), intent(in)    :: ngc                               !< Number of ghost cells.
+   integer(I4P), intent(in)    :: ni1,ni2,nj1,nj2,nk1,nk2           !< Dimensions of FWL domain.
+   integer(I4P), intent(in)    :: n                                 !< f component.
+   real(R8P),    intent(in)    :: s2                                !< Side coefficient.
+   integer(I4P), intent(in)    :: alfa_D, beta_D                    !< Corrected var index of D (Barbas' notation).
+   integer(I4P), intent(in)    :: alfa_B, beta_B                    !< Corrected var index of D (Barbas' notation).
+   real(R8P),    intent(in)    :: f(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< fWLayer function values.
+   real(R8P),    intent(inout) :: q(1:,1-ngc:,1-ngc:,1-ngc:,1:)     !< Field variables.
+   real(R8P)                   :: fm1, fp1                          !< fWLayer function values in -+ cell.
+   integer(I4P)                :: b,i,j,k                           !< Counter.
+
+   do b=1,blocks_number
+      do k=nk1, nk2
+         do j=nj1, nj2
+            do i=ni1, ni2
+               fm1 = f(n,i,j,k,b) - 1._R8P
+               fp1 = f(n,i,j,k,b) + 1._R8P
+               q(alfa_D,i,j,k,b) = MU0_SQ_I2  * ( s2*fm1*q(beta_B,i,j,k,b)*EPS0_SQ +    fp1*q(alfa_D,i,j,k,b)*MU0_SQ)
+               q(beta_D,i,j,k,b) = MU0_SQ_I2  * (-s2*fm1*q(alfa_B,i,j,k,b)*EPS0_SQ +    fp1*q(beta_D,i,j,k,b)*MU0_SQ)
+               q(alfa_B,i,j,k,b) = EPS0_SQ_I2 * (    fp1*q(alfa_B,i,j,k,b)*EPS0_SQ - s2*fm1*q(beta_D,i,j,k,b)*MU0_SQ)
+               q(beta_B,i,j,k,b) = EPS0_SQ_I2 * (    fp1*q(beta_B,i,j,k,b)*EPS0_SQ + s2*fm1*q(alfa_B,i,j,k,b)*MU0_SQ)
+
+   !                  q(alfa_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(s2*(f(n,i,j,k,b)-1._R8P)*q(beta_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(beta_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(-s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(alfa_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(alfa_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P - s2*(f(n,i,j,k,b)-1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(beta_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
+            enddo
+         enddo
+      enddo
+   enddo
+   endsubroutine apply_fWL_correction_fun
+
 endmodule adam_prism_fWLayer_object
