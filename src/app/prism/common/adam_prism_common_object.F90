@@ -94,6 +94,11 @@ type :: prism_common_object
    contains
       procedure, pass(self) :: allocate_common   !< Allocate common data.
       procedure, pass(self) :: initialize_common !< Initialize the equation common data.
+      ! IO methods
+      procedure, pass(self) :: load_restart_files !< Load restart files.
+      procedure, pass(self) :: save_energy_error  !< Save energy error history.
+      procedure, pass(self) :: save_restart_files !< Save restart files.
+      procedure, pass(self) :: save_xh5f          !< Save simulation data in XH5F format.
 endtype prism_common_object
 contains
    subroutine allocate_common(self)
@@ -337,4 +342,61 @@ contains
       endif
       endsubroutine io_initialize
    endsubroutine initialize_common
+
+   ! IO methods
+   subroutine load_restart_files(self, t, time)
+   !< Save restart files.
+   class(prism_common_object), intent(inout) :: self !< The equation.
+   integer(I4P),               intent(out)   :: t    !< Time iteration.
+   real(R8P),                  intent(out)   :: time !< Time.
+
+   call self%adam%load_restart_files(basename=self%io%restart_basename, t=t, time=time, q=self%q)
+   call self%adam%make_comm_local_maps_ghost_bc
+   endsubroutine load_restart_files
+
+   subroutine save_energy_error(self, is_to_open, is_to_close)
+   !< Save energy error history.
+   class(prism_common_object), intent(inout)        :: self        !< The equation.
+   logical,                    intent(in), optional :: is_to_open  !< Flag to open  file before first saving.
+   logical,                    intent(in), optional :: is_to_close !< Flag to close file after last saving.
+
+   if (self%time%is_to_save(it_save=self%io%energy_error_save)) then
+      call self%io%save_energy_error(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number,                 &
+                                     energy_D=self%energy_D,energy_B=self%energy_B,                                        &
+                                     rms_energy_error_D=self%rms_energy_error_D,rms_energy_error_B=self%rms_energy_error_B,&
+                                     is_to_open=is_to_open,is_to_close=is_to_close)
+   endif
+   endsubroutine save_energy_error
+
+   subroutine save_restart_files(self)
+   !< Save restart files.
+   class(prism_common_object), intent(inout) :: self !< The equation.
+
+   call self%mpih%barrier(tictoc=.true.)
+   call self%mpih%print_message('save restart files t: '//trim(str(self%time%it,.true.))//', time: '//&
+                                    trim(str(self%time%time,.true.)))
+   call self%adam%save_restart_files(basename=self%io%restart_basename, t=self%time%it, time=self%time%time, q=self%q)
+   call self%save_xh5f(output_basename=self%io%restart_basename)
+   call self%mpih%barrier(tictoc=.true.)
+   endsubroutine save_restart_files
+
+   subroutine save_xh5f(self, output_basename, with_ghost)
+   !< Save simulation data in HDF5 format.
+   class(prism_common_object), intent(inout)        :: self             !< The equation.
+   character(*),               intent(in), optional :: output_basename  !< Output basename.
+   logical,                    intent(in), optional :: with_ghost       !< Flag to save ghost cells.
+   character(:), allocatable                        :: output_basename_ !< Output basename, local var.
+
+   call self%mpih%barrier(tictoc=.true.)
+   call self%mpih%print_message('save HDF5 files t: '//trim(str(self%time%it,.true.))//', time: '//&
+                                trim(str(self%time%time,.true.)))
+   output_basename_ = trim(self%io%output_basename)//'-'//trim(strz(self%time%it,9))
+   if (present(output_basename)) output_basename_ = trim(output_basename)
+   call self%adam%io%save_xh5f(basename=trim(output_basename_), &
+                               q=self%q, q_name=self%q_name,    &
+                               with_ghost=with_ghost,           &
+                               with_cell_morton=.true.,         &
+                               t=self%time%it, time=self%time%time)
+   call self%mpih%barrier(tictoc=.true.)
+   endsubroutine save_xh5f
 endmodule adam_prism_common_object

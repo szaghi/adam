@@ -40,11 +40,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       ! IB methods
       procedure, pass(self) :: integrate_eikonal_coils !< Integrate eikonal equation for coils.
       ! IO methods
-      procedure, pass(self) :: load_restart_files   !< Load restart files.
-      procedure, pass(self) :: save_energy_error    !< Save energy error history.
-      procedure, pass(self) :: save_xh5f            !< Save simulation data in XH5F format.
       procedure, pass(self) :: save_residuals       !< Save residuals history.
-      procedure, pass(self) :: save_restart_files   !< Save restart files.
       procedure, pass(self) :: save_simulation_data !< Save all simulation data.
       ! IC/BC/sources
       procedure, pass(self) :: apply_fWL_correction    !< Apply fWLayer correction (if present)
@@ -328,50 +324,6 @@ contains
    endsubroutine integrate_eikonal_coils
 
    ! IO methods
-   subroutine load_restart_files(self, t, time)
-   !< Save restart files.
-   class(prism_cpu_object), intent(inout) :: self !< The equation.
-   integer(I4P),            intent(out)   :: t    !< Time iteration.
-   real(R8P),               intent(out)   :: time !< Time.
-
-   call self%adam%load_restart_files(basename=self%io%restart_basename, t=t, time=time, q=self%q)
-   call self%adam%make_comm_local_maps_ghost_bc
-   endsubroutine load_restart_files
-
-   subroutine save_energy_error(self, is_to_open, is_to_close)
-   !< Save energy error history.
-   class(prism_cpu_object), intent(inout)        :: self        !< The equation.
-   logical,                 intent(in), optional :: is_to_open  !< Flag to open  file before first saving.
-   logical,                 intent(in), optional :: is_to_close !< Flag to close file after last saving.
-
-   if (self%time%is_to_save(it_save=self%io%energy_error_save)) then
-      call self%io%save_energy_error(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number,                 &
-                                     energy_D=self%energy_D,energy_B=self%energy_B,                                        &
-                                     rms_energy_error_D=self%rms_energy_error_D,rms_energy_error_B=self%rms_energy_error_B,&
-                                     is_to_open=is_to_open,is_to_close=is_to_close)
-   endif
-   endsubroutine save_energy_error
-
-   subroutine save_xh5f(self, output_basename, with_ghost)
-   !< Save simulation data in HDF5 format.
-   class(prism_cpu_object), intent(inout)        :: self             !< The equation.
-   character(*),            intent(in), optional :: output_basename  !< Output basename.
-   logical,                 intent(in), optional :: with_ghost       !< Flag to save ghost cells.
-   character(:), allocatable                     :: output_basename_ !< Output basename, local var.
-
-   call self%mpih%barrier(tictoc=.true.)
-   call self%mpih%print_message('save HDF5 files t: '//trim(str(self%time%it,.true.))//', time: '//&
-                                trim(str(self%time%time,.true.)))
-   output_basename_ = trim(self%io%output_basename)//'-'//trim(strz(self%time%it,9))
-   if (present(output_basename)) output_basename_ = trim(output_basename)
-   call self%adam%io%save_xh5f(basename=trim(output_basename_), &
-                               q=self%q, q_name=self%q_name,    &
-                               with_ghost=with_ghost,           &
-                               with_cell_morton=.true.,         &
-                               t=self%time%it, time=self%time%time)
-   call self%mpih%barrier(tictoc=.true.)
-   endsubroutine save_xh5f
-
    subroutine save_residuals(self)
    !< Save residuals history.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
@@ -387,18 +339,6 @@ contains
                                                            blocks_number=self%blocks_number, residuals=self%field%residuals)
    endif
    endsubroutine save_residuals
-
-   subroutine save_restart_files(self)
-   !< Save restart files.
-   class(prism_cpu_object), intent(inout) :: self !< The equation.
-
-   call self%mpih%barrier(tictoc=.true.)
-   call self%mpih%print_message('save restart files t: '//trim(str(self%time%it,.true.))//', time: '//&
-                                trim(str(self%time%time,.true.)))
-   call self%adam%save_restart_files(basename=self%io%restart_basename, t=self%time%it, time=self%time%time, q=self%q)
-   call self%save_xh5f(output_basename=self%io%restart_basename)
-   call self%mpih%barrier(tictoc=.true.)
-   endsubroutine save_restart_files
 
    subroutine save_simulation_data(self)
    !< Save all simulation data.
@@ -514,7 +454,7 @@ contains
    !         nj_fWL=>self%fWLayer%nj_fWL, nk_fWL=>self%fWLayer%nk_fWL, n=>self%fWLayer%n, s2=>self%fWLayer%s2, &
    !         alfa_D=>self%fWLayer%alfa_D, alfa_B=>self%fWLayer%alfa_B, beta_D=>self%fWLayer%beta_D,            &
    !         beta_B=>self%fWLayer%beta_B)
-   !if (C>0) then       
+   !if (C>0) then
    !   do face=1, 6
    !      if (layer(face)) call apply_fWL_correction_fun(blocks_number = blocks_number,      &
    !                                                     ngc           = ngc,                &
@@ -2104,7 +2044,7 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   call self%compute_coils_current(q=self%q) !da modificare per avere i tempi corretti 
+   call self%compute_coils_current(q=self%q) !da modificare per avere i tempi corretti
    call self%rk%initialize_stages(q=self%q)
    do s=1, self%rk%nrk
       call self%compute_residuals(q=self%q, dq=self%dq)
@@ -2161,7 +2101,7 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   !call sub_external_fields(self = self%external_fields, field = self%field, & 
+   !call sub_external_fields(self = self%external_fields, field = self%field, &
    !                        time = self%time%time, dt = self%time%dt, q = self%q)
 
    !Inizializzo stadi RK per campi e PIC
@@ -2175,10 +2115,10 @@ contains
       else
          call self%rk%compute_stage(s=s, dt=self%time%dt)
       endif
-      call self%rk_pic%compute_stage(s=s, dt=self%time%dt) 
+      call self%rk_pic%compute_stage(s=s, dt=self%time%dt)
       !Calcolo termini sorgente Maxwell da particelle e bobine
       call self%pic%particle_cartesian_grid_index(field=self%field, q_pic=self%rk_pic%q_pic_rk(:,:,s))
-      call self%pic%current_weighting(field=self%field, q=self%rk%q_rk(:,:,:,:,:,s), & 
+      call self%pic%current_weighting(field=self%field, q=self%rk%q_rk(:,:,:,:,:,s), &
                                        q_pic=self%rk_pic%q_pic_rk(:,:,s), nv=self%nv)
       call self%compute_coils_current(q=self%rk%q_rk(:,:,:,:,:,s), gamma=self%rk%gamm(s))
       !Calcolo residui Maxwell
@@ -2186,7 +2126,7 @@ contains
       if (s==1) call self%save_residuals
       !Calcolo residui PIC: calcolati direttamente nell'assegnazione dello stadio RK
       !Interpolo quindi i campi (probabilmente è qui che ti conviene sommare e sottrarre i campi esterni)
-      call self%pic%field_weighting(field=self%field, q=self%rk%q_rk(:,:,:,:,:,s), & 
+      call self%pic%field_weighting(field=self%field, q=self%rk%q_rk(:,:,:,:,:,s), &
                                     q_pic=self%rk_pic%q_pic_rk(:,:,s), pic_fields=self%pic_fields, nv=self%nv)
       !Assegno lo stadio RK per campi e PIC
       if (self%ib%solids_number>0) then
@@ -2209,8 +2149,8 @@ contains
    call self%impose_div_free
    call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
 
-   !call add_external_fields(self = self%external_fields, field = self%field, & 
-   !                        time = self%time%time, dt = self%time%dt, q = self%q)   
+   !call add_external_fields(self = self%external_fields, field = self%field, &
+   !                        time = self%time%time, dt = self%time%dt, q = self%q)
    endsubroutine integrate_rk_ssp_pic
 
    subroutine update_q_BC(self, dt, phi)
