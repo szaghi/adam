@@ -178,7 +178,7 @@
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-ni~14"></span>
+              <span class="anchor" id="variable-ni~22"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -193,7 +193,7 @@
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nj~14"></span>
+              <span class="anchor" id="variable-nj~22"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -208,7 +208,7 @@
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nk~14"></span>
+              <span class="anchor" id="variable-nk~22"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -223,7 +223,7 @@
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ngc~25"></span>
+              <span class="anchor" id="variable-ngc~49"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -238,7 +238,7 @@
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-blocks_number~14"></span>
+              <span class="anchor" id="variable-blocks_number~22"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -253,7 +253,7 @@
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-mu~6"></span>
+              <span class="anchor" id="variable-mu~10"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -313,7 +313,7 @@
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux_gpu~19"></span>
+              <span class="anchor" id="variable-q_aux_gpu~37"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -328,7 +328,7 @@
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-umax~3"></span>
+              <span class="anchor" id="variable-umax~7"></span>
               real(kind=R8P),
             </td>
 <td>intent(out)</td>
@@ -367,33 +367,33 @@
 <polygon fill="none" stroke="black" points="686,-24 562,-24 562,0 686,0 686,-24"/>
 <text text-anchor="middle" x="624" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">compute_umax_gmp</text>
 </g>
-<!-- proc~compute_dt -->
+<!-- proc~compute_dt~3 -->
 <g id="proc~~compute_umax_gmp~~CalledByGraph_node2" class="node">
-<title>proc~compute_dt</title>
-<g id="a_proc~~compute_umax_gmp~~CalledByGraph_node2"><a xlink:href="../proc/compute_dt.html" xlink:title="nasto_gmp_object%compute_dt">
+<title>proc~compute_dt~3</title>
+<g id="a_proc~~compute_umax_gmp~~CalledByGraph_node2"><a xlink:href="../proc/compute_dt~3.html" xlink:title="nasto_gmp_object%compute_dt">
 <polygon fill="#d9534f" stroke="#d9534f" points="526,-24 344,-24 344,0 526,0 526,-24"/>
 <text text-anchor="middle" x="435" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%compute_dt</text>
 </a>
 </g>
 </g>
-<!-- proc~compute_dt&#45;&gt;proc~compute_umax_gmp -->
+<!-- proc~compute_dt~3&#45;&gt;proc~compute_umax_gmp -->
 <g id="proc~~compute_umax_gmp~~CalledByGraph_edge1" class="edge">
-<title>proc~compute_dt&#45;&gt;proc~compute_umax_gmp</title>
+<title>proc~compute_dt~3&#45;&gt;proc~compute_umax_gmp</title>
 <path fill="none" stroke="#000000" d="M526.21,-12C534.78,-12 543.38,-12 551.73,-12"/>
 <polygon fill="#000000" stroke="#000000" points="551.78,-15.5 561.78,-12 551.78,-8.5 551.78,-15.5"/>
 </g>
-<!-- proc~simulate -->
+<!-- proc~simulate~3 -->
 <g id="proc~~compute_umax_gmp~~CalledByGraph_node3" class="node">
-<title>proc~simulate</title>
-<g id="a_proc~~compute_umax_gmp~~CalledByGraph_node3"><a xlink:href="../proc/simulate.html" xlink:title="nasto_gmp_object%simulate">
+<title>proc~simulate~3</title>
+<g id="a_proc~~compute_umax_gmp~~CalledByGraph_node3"><a xlink:href="../proc/simulate~3.html" xlink:title="nasto_gmp_object%simulate">
 <polygon fill="#d9534f" stroke="#d9534f" points="308,-24 143,-24 143,0 308,0 308,-24"/>
 <text text-anchor="middle" x="225.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_gmp_object%simulate</text>
 </a>
 </g>
 </g>
-<!-- proc~simulate&#45;&gt;proc~compute_dt -->
+<!-- proc~simulate~3&#45;&gt;proc~compute_dt~3 -->
 <g id="proc~~compute_umax_gmp~~CalledByGraph_edge2" class="edge">
-<title>proc~simulate&#45;&gt;proc~compute_dt</title>
+<title>proc~simulate~3&#45;&gt;proc~compute_dt~3</title>
 <path fill="none" stroke="#000000" d="M308.21,-12C316.61,-12 325.21,-12 333.77,-12"/>
 <polygon fill="#000000" stroke="#000000" points="333.8,-15.5 343.8,-12 333.8,-8.5 333.8,-15.5"/>
 </g>
@@ -406,9 +406,9 @@
 </a>
 </g>
 </g>
-<!-- program~adam_nasto_gmp&#45;&gt;proc~simulate -->
+<!-- program~adam_nasto_gmp&#45;&gt;proc~simulate~3 -->
 <g id="proc~~compute_umax_gmp~~CalledByGraph_edge3" class="edge">
-<title>program~adam_nasto_gmp&#45;&gt;proc~simulate</title>
+<title>program~adam_nasto_gmp&#45;&gt;proc~simulate~3</title>
 <path fill="none" stroke="#000000" d="M107.36,-12C115.48,-12 124.07,-12 132.75,-12"/>
 <polygon fill="#000000" stroke="#000000" points="132.96,-15.5 142.96,-12 132.96,-8.5 132.96,-15.5"/>
 </g>
