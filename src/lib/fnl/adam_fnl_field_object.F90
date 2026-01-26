@@ -89,7 +89,7 @@ contains
    subroutine copy_transpose_cpu_gpu(self, nv, q_cpu, q_gpu)
    !< Copy transposed data from CPU to GPU.
    !< This routine is called by equation typically passing either q_gpu or q_aux_gpu.
-   class(field_fnl_object), intent(inout) :: self          !< The equation.
+   class(field_fnl_object), intent(inout) :: self          !< The field.
    integer(I4P),            intent(in)    :: nv            !< Number of varibales.
    real(R8P),               intent(in)    :: q_cpu(1:,                    &
                                                    1-self%field%grid%ngc:,&
@@ -97,10 +97,10 @@ contains
                                                    1-self%field%grid%ngc:,&
                                                    1:)     !< Conservative variables on CPU.
    real(R8P),               intent(out)   :: q_gpu(1:,                    &
-                                                  1-self%field%grid%ngc:,&
-                                                  1-self%field%grid%ngc:,&
-                                                  1-self%field%grid%ngc:,&
-                                                  1:)      !< Conservative variables on GPU.
+                                                   1-self%field%grid%ngc:,&
+                                                   1-self%field%grid%ngc:,&
+                                                   1-self%field%grid%ngc:,&
+                                                   1:)     !< Conservative variables on GPU.
    integer(I4P)                           :: i, j, k, b, v !< Counter.
 
    associate(blocks_number=>self%field%blocks_number, &
@@ -120,7 +120,7 @@ contains
             enddo
          enddo
       enddo
-      call dev_memcpy_to_device(dst=q_gpu, src=q_t)
+      call dev_memcpy_to_device(dst=q_gpu, src=q_t(1:blocks_number,:,:,:,1:nv))
    endassociate
    endsubroutine copy_transpose_cpu_gpu
 

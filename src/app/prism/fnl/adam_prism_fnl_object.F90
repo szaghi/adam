@@ -142,13 +142,14 @@ interface
    real(R8P),               intent(inout) :: d4q_ds4_gpu(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative4, d4q/ds4.
    endsubroutine compute_derivative4_interface
 
-   subroutine compute_divergence_interface(self, ivar, q_gpu, divergence_gpu)
+   subroutine compute_divergence_interface(self, ivar, ovar, q_gpu, divergence_gpu)
    !< Compute divergence of vector fields, div(q(ivar:ivar+2).
    import :: prism_fnl_object, I4P, R8P
    class(prism_fnl_object), intent(in)    :: self                                                   !< The equation.
    integer(I4P),            intent(in)    :: ivar                                                   !< Start index of field of q.
+   integer(I4P),            intent(in)    :: ovar                                                   !< Output index in divergence.
    real(R8P),               intent(in)    :: q_gpu(1:,      1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: divergence_gpu(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
+   real(R8P),               intent(inout) :: divergence_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
    endsubroutine compute_divergence_interface
 
    subroutine compute_gradient_interface(self, ivar, q_gpu, gradient_gpu)
@@ -870,13 +871,24 @@ contains
    endassociate
    endsubroutine compute_derivative4_fd
 
-   subroutine compute_divergence_fd(self, ivar, q_gpu, divergence_gpu)
+   subroutine compute_divergence_fd(self, ivar, ovar, q_gpu, divergence_gpu)
    !< Compute divergence of vector fields, div(q(ivar:ivar+2), using finite difference schemes.
+   !< Directly computes divergence from transposed GPU layout (b,i,j,k,v).
    class(prism_fnl_object), intent(in)    :: self                                                   !< The equation.
    integer(I4P),            intent(in)    :: ivar                                                   !< Start index of field of q.
+   integer(I4P),            intent(in)    :: ovar                                                   !< Output index in divergence.
    real(R8P),               intent(in)    :: q_gpu(1:,      1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: divergence_gpu(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
-   integer(I4P)                           :: i,j,k,b                                                !< Counter.
+   real(R8P),               intent(inout) :: divergence_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
+   integer(I4P)                           :: i,j,k,b,m                                              !< Counter.
+   real(R8P)                              :: div_x, div_y, div_z                                    !< Partial derivatives.
+   ! FD centered 1st derivative coefficients (up to 10th order = s=5)
+   integer(I4P), parameter :: S_MAX=5_I4P
+   real(R8P), parameter :: FD1_CC_S1(S_MAX)=[   1._R8P,   0._R8P,  0._R8P,  0._R8P,0._R8P]/2._R8P
+   real(R8P), parameter :: FD1_CC_S2(S_MAX)=[   8._R8P,  -1._R8P,  0._R8P,  0._R8P,0._R8P]/12._R8P
+   real(R8P), parameter :: FD1_CC_S3(S_MAX)=[  45._R8P,  -9._R8P,  1._R8P,  0._R8P,0._R8P]/60._R8P
+   real(R8P), parameter :: FD1_CC_S4(S_MAX)=[ 672._R8P,-168._R8P, 32._R8P, -3._R8P,0._R8P]/840._R8P
+   real(R8P), parameter :: FD1_CC_S5(S_MAX)=[2100._R8P,-600._R8P,150._R8P,-25._R8P,2._R8P]/2520._R8P
+   real(R8P), parameter :: FD1_CC(S_MAX,S_MAX)=reshape([FD1_CC_S1, FD1_CC_S2, FD1_CC_S3, FD1_CC_S4, FD1_CC_S5],[S_MAX,S_MAX])
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
              hs=>self%numerics%fdv_half_stencils(1))
@@ -885,8 +897,26 @@ contains
    do k=1, nk
    do j=1, nj
    do i=1, ni
-      call compute_divergence_fd_centered(s=hs,dxyz=dxyz_gpu(b,:),q=q_gpu(b,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,ivar:ivar+2),&
-                                          divergence=divergence_gpu(b,i,j,k))
+      ! Compute dqx/dx directly from GPU layout q_gpu(b,i,j,k,v)
+      div_x = 0._R8P
+      do m=1, hs
+         div_x = div_x + FD1_CC(m,hs)*(q_gpu(b,i+m,j,k,ivar) - q_gpu(b,i-m,j,k,ivar))
+      enddo
+      div_x = div_x / dxyz_gpu(b,1)
+      ! Compute dqy/dy
+      div_y = 0._R8P
+      do m=1, hs
+         div_y = div_y + FD1_CC(m,hs)*(q_gpu(b,i,j+m,k,ivar+1) - q_gpu(b,i,j-m,k,ivar+1))
+      enddo
+      div_y = div_y / dxyz_gpu(b,2)
+      ! Compute dqz/dz
+      div_z = 0._R8P
+      do m=1, hs
+         div_z = div_z + FD1_CC(m,hs)*(q_gpu(b,i,j,k+m,ivar+2) - q_gpu(b,i,j,k-m,ivar+2))
+      enddo
+      div_z = div_z / dxyz_gpu(b,3)
+      ! Sum to get divergence
+      divergence_gpu(b,i,j,k,ovar) = div_x + div_y + div_z
    enddo
    enddo
    enddo
@@ -894,23 +924,49 @@ contains
    endassociate
    endsubroutine compute_divergence_fd
 
-   subroutine compute_divergence_fv(self, ivar, q_gpu, divergence_gpu)
+   subroutine compute_divergence_fv(self, ivar, ovar, q_gpu, divergence_gpu)
    !< Compute divergence of vector fields, div(q(ivar:ivar+2), using finite volume schemes.
+   !< Directly computes divergence from transposed GPU layout (b,i,j,k,v).
    class(prism_fnl_object), intent(in)    :: self                                                   !< The equation.
    integer(I4P),            intent(in)    :: ivar                                                   !< Start index of field of q.
+   integer(I4P),            intent(in)    :: ovar                                                   !< Output index in divergence.
    real(R8P),               intent(in)    :: q_gpu(1:,      1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: divergence_gpu(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
-   integer(I4P)                           :: i,j,k,b                                                !< Counter.
+   real(R8P),               intent(inout) :: divergence_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
+   integer(I4P)                           :: i,j,k,b,m                                              !< Counter.
+   real(R8P)                              :: div_x, div_y, div_z                                    !< Partial derivatives.
+   real(R8P)                              :: q_line(1-4:1+4)                                        !< 1D stencil for reconstruction.
+   real(R8P)                              :: ql, qr                                                 !< Left/right reconstructions.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
              hs=>self%numerics%fdv_half_stencils(1))
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,divergence_gpu,dxyz_gpu)
+   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,divergence_gpu,dxyz_gpu) private(q_line)
    do b=1, blocks_number
    do k=1, nk
    do j=1, nj
    do i=1, ni
-      call compute_divergence_fv_centered(s=hs,dxyz=dxyz_gpu(b,:),q=q_gpu(b,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,ivar:ivar+2),&
-                                          divergence=divergence_gpu(b,i,j,k))
+      ! Compute dqx/dx using FV reconstruction
+      do m=1-hs, 1+hs
+         q_line(m) = q_gpu(b,i-1+m,j,k,ivar)
+      enddo
+      call compute_reconstruction_r_fv_centered(s=hs,q=q_line(1-hs:hs),qr=ql)
+      call compute_reconstruction_r_fv_centered(s=hs,q=q_line(2-hs:1+hs),qr=qr)
+      div_x = (qr-ql) / dxyz_gpu(b,1)
+      ! Compute dqy/dy
+      do m=1-hs, 1+hs
+         q_line(m) = q_gpu(b,i,j-1+m,k,ivar+1)
+      enddo
+      call compute_reconstruction_r_fv_centered(s=hs,q=q_line(1-hs:hs),qr=ql)
+      call compute_reconstruction_r_fv_centered(s=hs,q=q_line(2-hs:1+hs),qr=qr)
+      div_y = (qr-ql) / dxyz_gpu(b,2)
+      ! Compute dqz/dz
+      do m=1-hs, 1+hs
+         q_line(m) = q_gpu(b,i,j,k-1+m,ivar+2)
+      enddo
+      call compute_reconstruction_r_fv_centered(s=hs,q=q_line(1-hs:hs),qr=ql)
+      call compute_reconstruction_r_fv_centered(s=hs,q=q_line(2-hs:1+hs),qr=qr)
+      div_z = (qr-ql) / dxyz_gpu(b,3)
+      ! Sum to get divergence
+      divergence_gpu(b,i,j,k,ovar) = div_x + div_y + div_z
    enddo
    enddo
    enddo
@@ -1017,6 +1073,7 @@ contains
    ! numerical methods, space operators
    subroutine compute_residuals_fd_centered(self, q_gpu, dq_gpu, s)
    !< Compute residuals of equation, space operator, centered finite difference schemes.
+   !< Directly computes curl from transposed GPU layout (b,i,j,k,v).
    class(prism_fnl_object), intent(inout) :: self               !< The equation.
    real(R8P),               intent(inout) :: q_gpu(1:,     &
                                                1-self%ngc:,&
@@ -1029,12 +1086,21 @@ contains
                                                 1-self%ngc:,&
                                                 1:)             !< Residuals.
    integer(I4P),  optional, intent(in)    :: s                  !< Stage counter.
-   integer(I4P)                           :: i,j,k,b            !< Counter
+   integer(I4P)                           :: i,j,k,b,m          !< Counter
    real(R8P)                              :: curlD(3), curlB(3) !< Residuals components.
+   real(R8P)                              :: dqx_dy, dqx_dz, dqy_dx, dqy_dz, dqz_dx, dqz_dy !< Derivatives.
+   ! FD centered 1st derivative coefficients (up to 10th order = s=5)
+   integer(I4P), parameter :: S_MAX=5_I4P
+   real(R8P), parameter :: FD1_CC_S1(S_MAX)=[   1._R8P,   0._R8P,  0._R8P,  0._R8P,0._R8P]/2._R8P
+   real(R8P), parameter :: FD1_CC_S2(S_MAX)=[   8._R8P,  -1._R8P,  0._R8P,  0._R8P,0._R8P]/12._R8P
+   real(R8P), parameter :: FD1_CC_S3(S_MAX)=[  45._R8P,  -9._R8P,  1._R8P,  0._R8P,0._R8P]/60._R8P
+   real(R8P), parameter :: FD1_CC_S4(S_MAX)=[ 672._R8P,-168._R8P, 32._R8P, -3._R8P,0._R8P]/840._R8P
+   real(R8P), parameter :: FD1_CC_S5(S_MAX)=[2100._R8P,-600._R8P,150._R8P,-25._R8P,2._R8P]/2520._R8P
+   real(R8P), parameter :: FD1_CC(S_MAX,S_MAX)=reshape([FD1_CC_S1, FD1_CC_S2, FD1_CC_S3, FD1_CC_S4, FD1_CC_S5],[S_MAX,S_MAX])
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
              dxyz_gpu=>self%field_gpu%dxyz_gpu,                                                                       &
-             s1=>self%numerics%fdv_half_stencils(1),                                                                  &
+             hs=>self%numerics%fdv_half_stencils(1),                                                                  &
              s4=>self%numerics%fdv_half_stencils(4),                                                                  &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
    if (blocks_number > 0) then
@@ -1045,12 +1111,51 @@ contains
       do k=1,nk
       do j=1,nj
       do i=1,ni
-         call compute_curl_fd_centered(s=s1,dxyz=dxyz_gpu(b,1:3),                             &
-                                       q=q_gpu(b,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,VAR_DX:VAR_DZ),&
-                                       curl=curlD)
-         call compute_curl_fd_centered(s=s1,dxyz=dxyz_gpu(1:3,b),                             &
-                                       q=q_gpu(b,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,VAR_BX:VAR_BZ),&
-                                       curl=curlB)
+         ! Compute curl(D) directly from GPU layout q_gpu(b,i,j,k,v)
+         ! curl_x = dDz/dy - dDy/dz
+         dqz_dy = 0._R8P; dqy_dz = 0._R8P
+         do m=1, hs
+            dqz_dy = dqz_dy + FD1_CC(m,hs)*(q_gpu(b,i,j+m,k,VAR_DZ) - q_gpu(b,i,j-m,k,VAR_DZ))
+            dqy_dz = dqy_dz + FD1_CC(m,hs)*(q_gpu(b,i,j,k+m,VAR_DY) - q_gpu(b,i,j,k-m,VAR_DY))
+         enddo
+         curlD(1) = dqz_dy/dxyz_gpu(b,2) - dqy_dz/dxyz_gpu(b,3)
+         ! curl_y = dDx/dz - dDz/dx
+         dqx_dz = 0._R8P; dqz_dx = 0._R8P
+         do m=1, hs
+            dqx_dz = dqx_dz + FD1_CC(m,hs)*(q_gpu(b,i,j,k+m,VAR_DX) - q_gpu(b,i,j,k-m,VAR_DX))
+            dqz_dx = dqz_dx + FD1_CC(m,hs)*(q_gpu(b,i+m,j,k,VAR_DZ) - q_gpu(b,i-m,j,k,VAR_DZ))
+         enddo
+         curlD(2) = dqx_dz/dxyz_gpu(b,3) - dqz_dx/dxyz_gpu(b,1)
+         ! curl_z = dDy/dx - dDx/dy
+         dqy_dx = 0._R8P; dqx_dy = 0._R8P
+         do m=1, hs
+            dqy_dx = dqy_dx + FD1_CC(m,hs)*(q_gpu(b,i+m,j,k,VAR_DY) - q_gpu(b,i-m,j,k,VAR_DY))
+            dqx_dy = dqx_dy + FD1_CC(m,hs)*(q_gpu(b,i,j+m,k,VAR_DX) - q_gpu(b,i,j-m,k,VAR_DX))
+         enddo
+         curlD(3) = dqy_dx/dxyz_gpu(b,1) - dqx_dy/dxyz_gpu(b,2)
+
+         ! Compute curl(B) directly from GPU layout
+         ! curl_x = dBz/dy - dBy/dz
+         dqz_dy = 0._R8P; dqy_dz = 0._R8P
+         do m=1, hs
+            dqz_dy = dqz_dy + FD1_CC(m,hs)*(q_gpu(b,i,j+m,k,VAR_BZ) - q_gpu(b,i,j-m,k,VAR_BZ))
+            dqy_dz = dqy_dz + FD1_CC(m,hs)*(q_gpu(b,i,j,k+m,VAR_BY) - q_gpu(b,i,j,k-m,VAR_BY))
+         enddo
+         curlB(1) = dqz_dy/dxyz_gpu(b,2) - dqy_dz/dxyz_gpu(b,3)
+         ! curl_y = dBx/dz - dBz/dx
+         dqx_dz = 0._R8P; dqz_dx = 0._R8P
+         do m=1, hs
+            dqx_dz = dqx_dz + FD1_CC(m,hs)*(q_gpu(b,i,j,k+m,VAR_BX) - q_gpu(b,i,j,k-m,VAR_BX))
+            dqz_dx = dqz_dx + FD1_CC(m,hs)*(q_gpu(b,i+m,j,k,VAR_BZ) - q_gpu(b,i-m,j,k,VAR_BZ))
+         enddo
+         curlB(2) = dqx_dz/dxyz_gpu(b,3) - dqz_dx/dxyz_gpu(b,1)
+         ! curl_z = dBy/dx - dBx/dy
+         dqy_dx = 0._R8P; dqx_dy = 0._R8P
+         do m=1, hs
+            dqy_dx = dqy_dx + FD1_CC(m,hs)*(q_gpu(b,i+m,j,k,VAR_BY) - q_gpu(b,i-m,j,k,VAR_BY))
+            dqx_dy = dqx_dy + FD1_CC(m,hs)*(q_gpu(b,i,j+m,k,VAR_BX) - q_gpu(b,i,j-m,k,VAR_BX))
+         enddo
+         curlB(3) = dqy_dx/dxyz_gpu(b,1) - dqx_dy/dxyz_gpu(b,2)
 
          dq_gpu(b,i,j,k,VAR_DX) =  curlB(1)/MU0 - q_gpu(b,i,j,k,var_Jx)
          dq_gpu(b,i,j,k,VAR_DY) =  curlB(2)/MU0 - q_gpu(b,i,j,k,var_Jy)
@@ -1264,9 +1369,9 @@ contains
    endif
    !if (self%ib%solids_number > 0) call self%compute_phi()
    ! call self%amr_update
-   call self%compute_divergence(ivar=1,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu(1,:,:,:,:))
-   call self%compute_divergence(ivar=4,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu(2,:,:,:,:))
-   call self%compute_divergence(ivar=7,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu(3,:,:,:,:))
+   call self%compute_divergence(ivar=1,ovar=1,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
+   call self%compute_divergence(ivar=4,ovar=2,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
+   call self%compute_divergence(ivar=7,ovar=3,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
    call self%save_simulation_data
    call self%compute_energy
    call self%save_energy_error(is_to_open=.true.)
@@ -1341,8 +1446,8 @@ contains
    class(prism_fnl_object), intent(inout) :: self !< The equation.
 
    if (self%io%save_divergence_fields) then
-      call self%compute_divergence(ivar=VAR_DX,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu(1,:,:,:,:))
-      call self%compute_divergence(ivar=VAR_BX,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu(2,:,:,:,:))
+      call self%compute_divergence(ivar=VAR_DX,ovar=1,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
+      call self%compute_divergence(ivar=VAR_BX,ovar=2,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
       ! call self%compute_divergence(ivar=7,q=self%q,divergence=self%divergence(3,:,:,:,:))
    endif
    if (self%io%save_curl_fields) then
@@ -1452,7 +1557,7 @@ contains
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, buffer=>self%divergence_gpu,&
              q_gpu=>self%q_gpu)
    if (blocks_number>0) then
-      call self%compute_divergence(ivar=ivar,q_gpu=q_gpu,divergence_gpu=buffer(:,:,:,:,4))
+      call self%compute_divergence(ivar=ivar,ovar=4,q_gpu=q_gpu,divergence_gpu=buffer)
       do iter=1, self%flail%iterations
          ! call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
          !                                  dxyz=self%field%dxyz,                                           &
