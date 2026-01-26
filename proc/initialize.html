@@ -91,20 +91,20 @@
 
             <li class="list-inline-item" id="statements"><i class="fa fa-list-ol"></i>
               <a data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-html="true"
-                 title=" 0.3% of total for procedures.">17 statements</a>
+                 title=" 0.2% of total for procedures.">9 statements</a>
             </li>
 
             <li class="list-inline-item" id="source-file">
               <i class="fa fa-code"></i>
-              <a href="../src/adam_nasto_eos_object.F90"> Source File</a>
+              <a href="../src/adam_nasto_time_object.F90"> Source File</a>
             </li>
         </ul>
       </div>
       <div class="col">
         <nav aria-label="breadcrumb">
           <ol class="breadcrumb justify-content-end mb-0">
-                <li class="breadcrumb-item"><a href='../sourcefile/adam_nasto_eos_object.f90.html'>adam_nasto_eos_object.F90</a></li>
-                <li class="breadcrumb-item"><a href='../module/adam_nasto_eos_object.html'>adam_nasto_eos_object</a></li>
+                <li class="breadcrumb-item"><a href='../sourcefile/adam_nasto_time_object.f90.html'>adam_nasto_time_object.F90</a></li>
+                <li class="breadcrumb-item"><a href='../module/adam_nasto_time_object.html'>adam_nasto_time_object</a></li>
             <li class="breadcrumb-item active" aria-current="page">initialize</li>
           </ol>
         </nav>
@@ -158,14 +158,14 @@
     </div>
     
     <div class="col-md-9" id='text'>
-    <h2>private  subroutine initialize(self, physics, mu, kd, dha, cp, cv, gam, R)  
+    <h2>private  subroutine initialize(self, file_parameters)  
 </h2>
     
 
-    <p>Initialize fluid physics.</p>
+    <p>Initialize time handler.</p>
 
     <h3>Type Bound</h3>
-    <p><a href='../type/nasto_eos_object.html'>nasto_eos_object</a></p>
+    <p><a href='../type/nasto_time_object.html'>nasto_time_object</a></p>
 
     <h3>Arguments</h3>
         <table class="table table-striped varlist">
@@ -180,8 +180,8 @@
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-self~5"></span>
-              class(<a href='../type/nasto_eos_object.html'>nasto_eos_object</a>),
+              <span class="anchor" id="variable-self~2"></span>
+              class(<a href='../type/nasto_time_object.html'>nasto_time_object</a>),
             </td>
 <td>intent(inout)</td>
               <td></td>            <td>
@@ -190,127 +190,22 @@
             <td>::</td>
             <td><strong>self</strong></td>
             <td>
-                <p>Fluid physics.</p>
+                <p>Time handler.</p>
             </td>
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-physics"></span>
-              type(<a href='../type/nasto_eos_object.html'>nasto_eos_object</a>),
+              <span class="anchor" id="variable-file_parameters"></span>
+              type(file_ini),
             </td>
-<td>intent(in),</td>
-              <td>optional</td>            <td>
+<td>intent(in)</td>
+              <td></td>            <td>
               
             </td>
             <td>::</td>
-            <td><strong>physics</strong></td>
+            <td><strong>file_parameters</strong></td>
             <td>
-                <p>Fluid physics.</p>
-            </td>
-        </tr>
-        <tr>
-            <td>
-              <span class="anchor" id="variable-mu~2"></span>
-              real(kind=R8P),
-            </td>
-<td>intent(in),</td>
-              <td>optional</td>            <td>
-              
-            </td>
-            <td>::</td>
-            <td><strong>mu</strong></td>
-            <td>
-                <p>Dynamic viscosity.</p>
-            </td>
-        </tr>
-        <tr>
-            <td>
-              <span class="anchor" id="variable-kd~2"></span>
-              real(kind=R8P),
-            </td>
-<td>intent(in),</td>
-              <td>optional</td>            <td>
-              
-            </td>
-            <td>::</td>
-            <td><strong>kd</strong></td>
-            <td>
-                <p>Thermal diffusivity.</p>
-            </td>
-        </tr>
-        <tr>
-            <td>
-              <span class="anchor" id="variable-dha~2"></span>
-              real(kind=R8P),
-            </td>
-<td>intent(in),</td>
-              <td>optional</td>            <td>
-              
-            </td>
-            <td>::</td>
-            <td><strong>dha</strong></td>
-            <td>
-                <p>Entalpy formation.</p>
-            </td>
-        </tr>
-        <tr>
-            <td>
-              <span class="anchor" id="variable-cp~2"></span>
-              real(kind=R8P),
-            </td>
-<td>intent(in),</td>
-              <td>optional</td>            <td>
-              
-            </td>
-            <td>::</td>
-            <td><strong>cp</strong></td>
-            <td>
-                <p>Specific heat at constant pressure <code>cp</code> value.</p>
-            </td>
-        </tr>
-        <tr>
-            <td>
-              <span class="anchor" id="variable-cv~2"></span>
-              real(kind=R8P),
-            </td>
-<td>intent(in),</td>
-              <td>optional</td>            <td>
-              
-            </td>
-            <td>::</td>
-            <td><strong>cv</strong></td>
-            <td>
-                <p>Specific heat at constant volume <code>cv</code> value.</p>
-            </td>
-        </tr>
-        <tr>
-            <td>
-              <span class="anchor" id="variable-gam"></span>
-              real(kind=R8P),
-            </td>
-<td>intent(in),</td>
-              <td>optional</td>            <td>
-              
-            </td>
-            <td>::</td>
-            <td><strong>gam</strong></td>
-            <td>
-                <p>Specific heats ratio <code>gamma=cp/cv</code> value.</p>
-            </td>
-        </tr>
-        <tr>
-            <td>
-              <span class="anchor" id="variable-r~2"></span>
-              real(kind=R8P),
-            </td>
-<td>intent(in),</td>
-              <td>optional</td>            <td>
-              
-            </td>
-            <td>::</td>
-            <td><strong>R</strong></td>
-            <td>
-                <p>Fluid constant <code>R=cp-cv</code> value.</p>
+                <p>Simulation parameters ini file handler.</p>
             </td>
         </tr>
     </tbody>
@@ -328,28 +223,94 @@
 <!-- Generated by graphviz version 2.43.0 (0)
  -->
 <!-- Title: proc~~initialize~~CallsGraph Pages: 1 -->
-<svg id="procinitializeCallsGraph" width="259pt" height="32pt"
- viewBox="0.00 0.00 259.00 32.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
-<g id="proc~~initialize~~CallsGraph" class="graph" transform="scale(1 1) rotate(0) translate(4 28)">
+<svg id="procinitializeCallsGraph" width="504pt" height="158pt"
+ viewBox="0.00 0.00 504.00 158.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="proc~~initialize~~CallsGraph" class="graph" transform="scale(1 1) rotate(0) translate(4 154)">
 <title>proc~~initialize~~CallsGraph</title>
-<polygon fill="white" stroke="transparent" points="-4,4 -4,-28 255,-28 255,4 -4,4"/>
+<polygon fill="white" stroke="transparent" points="-4,4 -4,-154 500,-154 500,4 -4,4"/>
 <!-- proc~initialize -->
 <g id="proc~~initialize~~CallsGraph_node1" class="node">
 <title>proc~initialize</title>
-<polygon fill="none" stroke="black" points="158,-24 0,-24 0,0 158,0 158,-24"/>
-<text text-anchor="middle" x="79" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50">nasto_eos_object%initialize</text>
+<polygon fill="none" stroke="black" points="163,-108 0,-108 0,-84 163,-84 163,-108"/>
+<text text-anchor="middle" x="81.5" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50">nasto_time_object%initialize</text>
 </g>
 <!-- initialize -->
 <g id="proc~~initialize~~CallsGraph_node2" class="node">
 <title>initialize</title>
-<polygon fill="#777777" stroke="#777777" points="251,-24 194,-24 194,0 251,0 251,-24"/>
-<text text-anchor="middle" x="222.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">initialize</text>
+<polygon fill="#777777" stroke="#777777" points="324.5,-150 267.5,-150 267.5,-126 324.5,-126 324.5,-150"/>
+<text text-anchor="middle" x="296" y="-135.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">initialize</text>
 </g>
 <!-- proc~initialize&#45;&gt;initialize -->
 <g id="proc~~initialize~~CallsGraph_edge1" class="edge">
 <title>proc~initialize&#45;&gt;initialize</title>
-<path fill="none" stroke="#000000" d="M158.2,-12C167.09,-12 175.82,-12 183.82,-12"/>
-<polygon fill="#000000" stroke="#000000" points="183.87,-15.5 193.87,-12 183.87,-8.5 183.87,-15.5"/>
+<path fill="none" stroke="#000000" d="M143.39,-108.04C180.09,-115.29 225.66,-124.3 257.21,-130.53"/>
+<polygon fill="#000000" stroke="#000000" points="256.85,-134.03 267.34,-132.53 258.21,-127.16 256.85,-134.03"/>
+</g>
+<!-- proc~description -->
+<g id="proc~~initialize~~CallsGraph_node3" class="node">
+<title>proc~description</title>
+<g id="a_proc~~initialize~~CallsGraph_node3"><a xlink:href="../proc/description.html" xlink:title="nasto_time_object%description">
+<polygon fill="#d94e8f" stroke="#d94e8f" points="385,-108 207,-108 207,-84 385,-84 385,-108"/>
+<text text-anchor="middle" x="296" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_time_object%description</text>
+</a>
+</g>
+</g>
+<!-- proc~initialize&#45;&gt;proc~description -->
+<g id="proc~~initialize~~CallsGraph_edge2" class="edge">
+<title>proc~initialize&#45;&gt;proc~description</title>
+<path fill="none" stroke="#000000" d="M163.14,-96C174.11,-96 185.46,-96 196.7,-96"/>
+<polygon fill="#000000" stroke="#000000" points="196.97,-99.5 206.97,-96 196.97,-92.5 196.97,-99.5"/>
+</g>
+<!-- proc~load_from_file -->
+<g id="proc~~initialize~~CallsGraph_node4" class="node">
+<title>proc~load_from_file</title>
+<g id="a_proc~~initialize~~CallsGraph_node4"><a xlink:href="../proc/load_from_file.html" xlink:title="nasto_time_object%load_from_file">
+<polygon fill="#d9534f" stroke="#d9534f" points="393,-66 199,-66 199,-42 393,-42 393,-66"/>
+<text text-anchor="middle" x="296" y="-51.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">nasto_time_object%load_from_file</text>
+</a>
+</g>
+</g>
+<!-- proc~initialize&#45;&gt;proc~load_from_file -->
+<g id="proc~~initialize~~CallsGraph_edge3" class="edge">
+<title>proc~initialize&#45;&gt;proc~load_from_file</title>
+<path fill="none" stroke="#000000" d="M143.39,-83.96C168.62,-78.98 198.05,-73.16 224.24,-67.99"/>
+<polygon fill="#000000" stroke="#000000" points="224.97,-71.41 234.1,-66.04 223.61,-64.54 224.97,-71.41"/>
+</g>
+<!-- str -->
+<g id="proc~~initialize~~CallsGraph_node7" class="node">
+<title>str</title>
+<polygon fill="#777777" stroke="#777777" points="489.5,-108 435.5,-108 435.5,-84 489.5,-84 489.5,-108"/>
+<text text-anchor="middle" x="462.5" y="-93.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">str</text>
+</g>
+<!-- proc~description&#45;&gt;str -->
+<g id="proc~~initialize~~CallsGraph_edge4" class="edge">
+<title>proc~description&#45;&gt;str</title>
+<path fill="none" stroke="#000000" d="M385.03,-96C399.21,-96 413.16,-96 425.18,-96"/>
+<polygon fill="#000000" stroke="#000000" points="425.21,-99.5 435.21,-96 425.21,-92.5 425.21,-99.5"/>
+</g>
+<!-- error_stop -->
+<g id="proc~~initialize~~CallsGraph_node5" class="node">
+<title>error_stop</title>
+<polygon fill="#777777" stroke="#777777" points="496,-66 429,-66 429,-42 496,-42 496,-66"/>
+<text text-anchor="middle" x="462.5" y="-51.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">error_stop</text>
+</g>
+<!-- proc~load_from_file&#45;&gt;error_stop -->
+<g id="proc~~initialize~~CallsGraph_edge5" class="edge">
+<title>proc~load_from_file&#45;&gt;error_stop</title>
+<path fill="none" stroke="#000000" d="M393.17,-54C402.06,-54 410.74,-54 418.75,-54"/>
+<polygon fill="#000000" stroke="#000000" points="418.88,-57.5 428.88,-54 418.88,-50.5 418.88,-57.5"/>
+</g>
+<!-- get -->
+<g id="proc~~initialize~~CallsGraph_node6" class="node">
+<title>get</title>
+<polygon fill="#777777" stroke="#777777" points="489.5,-24 435.5,-24 435.5,0 489.5,0 489.5,-24"/>
+<text text-anchor="middle" x="462.5" y="-9.6" font-family="Helvetica,sans-Serif" font-size="10.50" fill="white">get</text>
+</g>
+<!-- proc~load_from_file&#45;&gt;get -->
+<g id="proc~~initialize~~CallsGraph_edge6" class="edge">
+<title>proc~load_from_file&#45;&gt;get</title>
+<path fill="none" stroke="#000000" d="M344.14,-41.96C370.06,-35.35 401.7,-27.27 425.6,-21.17"/>
+<polygon fill="#000000" stroke="#000000" points="426.5,-24.55 435.33,-18.68 424.77,-17.77 426.5,-24.55"/>
 </g>
 </g>
 </svg>
@@ -446,25 +407,17 @@ implementation in a submodule of an interface in a parent module.
     
     <section>
     <h2><span class="anchor" id="src"></span>Source Code</h2>
-    <div class="hl codehilite"><pre><span></span><span class="w">   </span><span class="k">subroutine </span><span class="n">initialize</span><span class="p">(</span><span class="n">self</span><span class="p">,</span><span class="w"> </span><span class="n">physics</span><span class="p">,</span><span class="w"> </span><span class="n">mu</span><span class="p">,</span><span class="w"> </span><span class="n">kd</span><span class="p">,</span><span class="w"> </span><span class="n">dha</span><span class="p">,</span><span class="w"> </span><span class="n">cp</span><span class="p">,</span><span class="w"> </span><span class="n">cv</span><span class="p">,</span><span class="w"> </span><span class="n">gam</span><span class="p">,</span><span class="w"> </span><span class="n">R</span><span class="p">)</span>
-<span class="w">   </span><span class="c">!&lt; Initialize fluid physics.</span>
-<span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">inout</span><span class="p">)</span><span class="w">        </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w">    </span><span class="c">!&lt; Fluid physics.</span>
-<span class="w">   </span><span class="k">type</span><span class="p">(</span><span class="n">nasto_eos_object</span><span class="p">),</span><span class="w">  </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">physics</span><span class="w"> </span><span class="c">!&lt; Fluid physics.</span>
-<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">mu</span><span class="w">      </span><span class="c">!&lt; Dynamic viscosity.</span>
-<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">kd</span><span class="w">      </span><span class="c">!&lt; Thermal diffusivity.</span>
-<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">dha</span><span class="w">     </span><span class="c">!&lt; Entalpy formation.</span>
-<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">cp</span><span class="w">      </span><span class="c">!&lt; Specific heat at constant pressure `cp` value.</span>
-<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">cv</span><span class="w">      </span><span class="c">!&lt; Specific heat at constant volume `cv` value.</span>
-<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">gam</span><span class="w">     </span><span class="c">!&lt; Specific heats ratio `gamma=cp/cv` value.</span>
-<span class="w">   </span><span class="kt">real</span><span class="p">(</span><span class="n">R8P</span><span class="p">),</span><span class="w">               </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">),</span><span class="w"> </span><span class="k">optional</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">R</span><span class="w">       </span><span class="c">!&lt; Fluid constant `R=cp-cv` value.</span>
+    <div class="hl codehilite"><pre><span></span><span class="w">   </span><span class="k">subroutine </span><span class="n">initialize</span><span class="p">(</span><span class="n">self</span><span class="p">,</span><span class="w"> </span><span class="n">file_parameters</span><span class="p">)</span>
+<span class="w">   </span><span class="c">!&lt; Initialize time handler.</span>
+<span class="w">   </span><span class="k">class</span><span class="p">(</span><span class="n">nasto_time_object</span><span class="p">),</span><span class="w"> </span><span class="k">intent</span><span class="p">(</span><span class="n">inout</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">self</span><span class="w">            </span><span class="c">!&lt; Time handler.</span>
+<span class="w">   </span><span class="k">type</span><span class="p">(</span><span class="n">file_ini</span><span class="p">),</span><span class="w">           </span><span class="k">intent</span><span class="p">(</span><span class="n">in</span><span class="p">)</span><span class="w">    </span><span class="kd">::</span><span class="w"> </span><span class="n">file_parameters</span><span class="w"> </span><span class="c">!&lt; Simulation parameters ini file handler.</span>
 
-<span class="w">   </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">mpih</span><span class="p">%</span><span class="n">initialize</span>
-<span class="w">   </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">present</span><span class="p">(</span><span class="n">physics</span><span class="p">))</span><span class="w"> </span><span class="k">then</span>
-<span class="k">      </span><span class="n">self</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">physics</span>
-<span class="w">   </span><span class="k">else</span>
-<span class="k">      </span><span class="n">self</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">nasto_eos_object</span><span class="p">(</span><span class="n">mu</span><span class="o">=</span><span class="n">mu</span><span class="p">,</span><span class="w"> </span><span class="n">kd</span><span class="o">=</span><span class="n">kd</span><span class="p">,</span><span class="w"> </span><span class="n">dha</span><span class="o">=</span><span class="n">dha</span><span class="p">,</span><span class="w"> </span><span class="n">cp</span><span class="o">=</span><span class="n">cp</span><span class="p">,</span><span class="w"> </span><span class="n">cv</span><span class="o">=</span><span class="n">cv</span><span class="p">,</span><span class="w"> </span><span class="n">gam</span><span class="o">=</span><span class="n">gam</span><span class="p">,</span><span class="w"> </span><span class="n">R</span><span class="o">=</span><span class="n">R</span><span class="p">)</span>
-<span class="w">   </span><span class="k">endif</span>
-<span class="k">   endsubroutine </span><span class="n">initialize</span>
+<span class="w">   </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">mpih</span><span class="p">%</span><span class="n">initialize</span><span class="p">(</span><span class="n">do_mpi_init</span><span class="o">=</span><span class="p">.</span><span class="n">false</span><span class="p">.)</span>
+<span class="w">   </span><span class="k">print</span><span class="w"> </span><span class="s1">&#39;(A)&#39;</span><span class="p">,</span><span class="w"> </span><span class="n">self</span><span class="p">%</span><span class="n">mpih</span><span class="p">%</span><span class="n">myrankstr</span><span class="o">//</span><span class="s1">&#39;nasto_time_object%initialize start&#39;</span>
+<span class="w">   </span><span class="k">call </span><span class="n">self</span><span class="p">%</span><span class="n">load_from_file</span><span class="p">(</span><span class="n">file_parameters</span><span class="o">=</span><span class="n">file_parameters</span><span class="p">)</span>
+<span class="w">   </span><span class="k">print</span><span class="w"> </span><span class="s1">&#39;(A)&#39;</span><span class="p">,</span><span class="w"> </span><span class="n">self</span><span class="p">%</span><span class="n">description</span><span class="p">()</span>
+<span class="w">   </span><span class="k">print</span><span class="w"> </span><span class="s1">&#39;(A)&#39;</span><span class="p">,</span><span class="w"> </span><span class="n">self</span><span class="p">%</span><span class="n">mpih</span><span class="p">%</span><span class="n">myrankstr</span><span class="o">//</span><span class="s1">&#39;nasto_time_object%initialize finish&#39;</span>
+<span class="w">   </span><span class="k">endsubroutine </span><span class="n">initialize</span>
 </pre></div>
 
     </section>
