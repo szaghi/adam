@@ -10,3 +10,11 @@ src/tests/euler_cpu
 *.h5
 doc/html/
 .DS_Store
+*-energy_error.dat
+*-residuals.dat
+*-restart-proc000000.fbd
+*-restart-proc000000.h5
+*-restart.time
+*-restart.tnd
+*-restart.xdmf
+gmon.out
