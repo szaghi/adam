@@ -148,7 +148,7 @@
             <a class="list-group-item" href="../module/adam_nasto_fnl_cns_kernels.html#proc-compute_max_eigenvalues_dev">compute_max_eigenvalues_dev</a>
             <a class="list-group-item" href="../module/adam_nasto_fnl_cns_kernels.html#proc-compute_eigenvectors_dev">compute_eigenvectors_dev</a>
             <a class="list-group-item" href="../module/adam_nasto_fnl_cns_kernels.html#proc-compute_q_aux_dev">compute_q_aux_dev</a>
-            <a class="list-group-item" href="../module/adam_nasto_fnl_cns_kernels.html#proc-compute_roe_average_device">compute_roe_average_device</a>
+            <a class="list-group-item" href="../module/adam_nasto_fnl_cns_kernels.html#proc-compute_roe_average_device~2">compute_roe_average_device</a>
         </div>
       </div>
     </div>
@@ -484,7 +484,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-b~14"></span>
+              <span class="anchor" id="variable-b~16"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -499,7 +499,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-i~14"></span>
+              <span class="anchor" id="variable-i~16"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -514,7 +514,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-j~14"></span>
+              <span class="anchor" id="variable-j~15"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -529,7 +529,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-k~14"></span>
+              <span class="anchor" id="variable-k~15"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -544,7 +544,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ngc~15"></span>
+              <span class="anchor" id="variable-ngc~14"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -559,7 +559,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux_gpu~6"></span>
+              <span class="anchor" id="variable-q_aux_gpu~12"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -614,7 +614,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-sir~14"></span>
+              <span class="anchor" id="variable-sir~7"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -629,7 +629,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-b~15"></span>
+              <span class="anchor" id="variable-b~17"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -644,182 +644,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-i~15"></span>
-              integer(kind=I4P),
-            </td>
-<td>intent(in)</td>
-              <td></td>            <td>
-              
-            </td>
-            <td>::</td>
-            <td><strong>i</strong></td>
-            <td>
-<p>Cell indexes.</p>
-            </td>
-        </tr>
-        <tr>
-            <td>
-              <span class="anchor" id="variable-j~15"></span>
-              integer(kind=I4P),
-            </td>
-<td>intent(in)</td>
-              <td></td>            <td>
-              
-            </td>
-            <td>::</td>
-            <td><strong>j</strong></td>
-            <td>
-<p>Cell indexes.</p>
-            </td>
-        </tr>
-        <tr>
-            <td>
-              <span class="anchor" id="variable-k~15"></span>
-              integer(kind=I4P),
-            </td>
-<td>intent(in)</td>
-              <td></td>            <td>
-              
-            </td>
-            <td>::</td>
-            <td><strong>k</strong></td>
-            <td>
-<p>Cell indexes.</p>
-            </td>
-        </tr>
-        <tr>
-            <td>
-              <span class="anchor" id="variable-ngc~16"></span>
-              integer(kind=I4P),
-            </td>
-<td>intent(in)</td>
-              <td></td>            <td>
-              
-            </td>
-            <td>::</td>
-            <td><strong>ngc</strong></td>
-            <td>
-<p>Ghost cells number.</p>
-            </td>
-        </tr>
-        <tr>
-            <td>
-              <span class="anchor" id="variable-q_aux_gpu~7"></span>
-              real(kind=R8P),
-            </td>
-<td>intent(in)</td>
-              <td></td>            <td>
-              
-            </td>
-            <td>::</td>
-            <td><strong>q_aux_gpu</strong>(1:,1-ngc:,1-ngc:,1-ngc:,1:)</td>
-            <td>
-<p>Auxiliary variables.</p>
-            </td>
-        </tr>
-        <tr>
-            <td>
-              <span class="anchor" id="variable-f~4"></span>
-              real(kind=R8P),
-            </td>
-<td>intent(inout)</td>
-              <td></td>            <td>
-              
-            </td>
-            <td>::</td>
-            <td><strong>f</strong>(1:)</td>
-            <td>
-<p>Conservative fluxes.</p>
-            </td>
-        </tr>
-    </tbody>
-  </table>
-
-
-    </div>
-  </div>
-
-              <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-compute_max_eigenvalues_dev"></span> <h3>public  subroutine <a href='../proc/compute_max_eigenvalues_dev.html'>compute_max_eigenvalues_dev</a>(si, sir, weno_s, b, i, j, k, ngc, nv, q_aux_gpu, evmax)  
-</h3></div>
-    <div class="card-body">
-          
-  
-
-  <h4>Arguments</h4>
-      <table class="table table-striped varlist">
-    <thead>
-      <tr>
-        <th scope="col">Type</th>
-<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
-        <th scope="col"></th>
-        <th scope="col">Name</th>
-        <th scope="col"></th>
-    </thead>
-    <tbody>
-        <tr>
-            <td>
-              <span class="anchor" id="variable-si~12"></span>
-              integer(kind=I4P),
-            </td>
-<td>intent(in)</td>
-              <td></td>            <td>
-              
-            </td>
-            <td>::</td>
-            <td><strong>si</strong>(3)</td>
-            <td>
-<p>Stencil increment.</p>
-            </td>
-        </tr>
-        <tr>
-            <td>
-              <span class="anchor" id="variable-sir~15"></span>
-              real(kind=R8P),
-            </td>
-<td>intent(in)</td>
-              <td></td>            <td>
-              
-            </td>
-            <td>::</td>
-            <td><strong>sir</strong>(3)</td>
-            <td>
-<p>Stencil increment, real cast.</p>
-            </td>
-        </tr>
-        <tr>
-            <td>
-              <span class="anchor" id="variable-weno_s~5"></span>
-              integer(kind=I4P),
-            </td>
-<td>intent(in)</td>
-              <td></td>            <td>
-              
-            </td>
-            <td>::</td>
-            <td><strong>weno_s</strong></td>
-            <td>
-<p>Weno stencils number/dimension.</p>
-            </td>
-        </tr>
-        <tr>
-            <td>
-              <span class="anchor" id="variable-b~16"></span>
-              integer(kind=I4P),
-            </td>
-<td>intent(in)</td>
-              <td></td>            <td>
-              
-            </td>
-            <td>::</td>
-            <td><strong>b</strong></td>
-            <td>
-<p>Cell indexes.</p>
-            </td>
-        </tr>
-        <tr>
-            <td>
-              <span class="anchor" id="variable-i~16"></span>
+              <span class="anchor" id="variable-i~17"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -864,7 +689,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ngc~17"></span>
+              <span class="anchor" id="variable-ngc~15"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -879,7 +704,182 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nv~16"></span>
+              <span class="anchor" id="variable-q_aux_gpu~13"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>q_aux_gpu</strong>(1:,1-ngc:,1-ngc:,1-ngc:,1:)</td>
+            <td>
+<p>Auxiliary variables.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-f~3"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(inout)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>f</strong>(1:)</td>
+            <td>
+<p>Conservative fluxes.</p>
+            </td>
+        </tr>
+    </tbody>
+  </table>
+
+
+    </div>
+  </div>
+
+              <div class="card">
+    <div class="card-header codesum"><span class="anchor" id="proc-compute_max_eigenvalues_dev"></span> <h3>public  subroutine <a href='../proc/compute_max_eigenvalues_dev.html'>compute_max_eigenvalues_dev</a>(si, sir, weno_s, b, i, j, k, ngc, nv, q_aux_gpu, evmax)  
+</h3></div>
+    <div class="card-body">
+          
+  
+
+  <h4>Arguments</h4>
+      <table class="table table-striped varlist">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+<th scope="col">Intent</th><th scope="col">Optional</th>        <th scope="col">Attributes</th>
+        <th scope="col"></th>
+        <th scope="col">Name</th>
+        <th scope="col"></th>
+    </thead>
+    <tbody>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-si~6"></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>si</strong>(3)</td>
+            <td>
+<p>Stencil increment.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-sir~8"></span>
+              real(kind=R8P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>sir</strong>(3)</td>
+            <td>
+<p>Stencil increment, real cast.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-weno_s~5"></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>weno_s</strong></td>
+            <td>
+<p>Weno stencils number/dimension.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-b~18"></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>b</strong></td>
+            <td>
+<p>Cell indexes.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-i~18"></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>i</strong></td>
+            <td>
+<p>Cell indexes.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-j~17"></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>j</strong></td>
+            <td>
+<p>Cell indexes.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-k~17"></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>k</strong></td>
+            <td>
+<p>Cell indexes.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-ngc~16"></span>
+              integer(kind=I4P),
+            </td>
+<td>intent(in)</td>
+              <td></td>            <td>
+              
+            </td>
+            <td>::</td>
+            <td><strong>ngc</strong></td>
+            <td>
+<p>Ghost cells number.</p>
+            </td>
+        </tr>
+        <tr>
+            <td>
+              <span class="anchor" id="variable-nv~10"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -894,7 +894,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux_gpu~8"></span>
+              <span class="anchor" id="variable-q_aux_gpu~14"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -949,7 +949,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-si~13"></span>
+              <span class="anchor" id="variable-si~7"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -964,7 +964,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-sir~16"></span>
+              <span class="anchor" id="variable-sir~9"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -979,7 +979,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-b~17"></span>
+              <span class="anchor" id="variable-b~19"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -994,7 +994,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-i~17"></span>
+              <span class="anchor" id="variable-i~19"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1009,7 +1009,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-j~17"></span>
+              <span class="anchor" id="variable-j~18"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1024,7 +1024,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-k~17"></span>
+              <span class="anchor" id="variable-k~18"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1039,7 +1039,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ngc~18"></span>
+              <span class="anchor" id="variable-ngc~17"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1054,7 +1054,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nv~17"></span>
+              <span class="anchor" id="variable-nv~11"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1069,7 +1069,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-g~13"></span>
+              <span class="anchor" id="variable-g~10"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1084,7 +1084,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux_gpu~9"></span>
+              <span class="anchor" id="variable-q_aux_gpu~15"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1154,7 +1154,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-ni~7"></span>
+              <span class="anchor" id="variable-ni~6"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1169,7 +1169,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nj~7"></span>
+              <span class="anchor" id="variable-nj~6"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1184,7 +1184,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nk~7"></span>
+              <span class="anchor" id="variable-nk~6"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1199,7 +1199,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ngc~19"></span>
+              <span class="anchor" id="variable-ngc~18"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1214,7 +1214,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-blocks_number~7"></span>
+              <span class="anchor" id="variable-blocks_number~6"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1229,7 +1229,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-r~7"></span>
+              <span class="anchor" id="variable-r~4"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1244,7 +1244,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-cv~6"></span>
+              <span class="anchor" id="variable-cv~4"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1259,7 +1259,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-g~14"></span>
+              <span class="anchor" id="variable-g~11"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1274,7 +1274,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_gpu~2"></span>
+              <span class="anchor" id="variable-q_gpu~3"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1289,7 +1289,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux_gpu~10"></span>
+              <span class="anchor" id="variable-q_aux_gpu~16"></span>
               real(kind=R8P),
             </td>
 <td>intent(out)</td>
@@ -1310,7 +1310,7 @@ modules which it uses.
   </div>
 
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-compute_roe_average_device"></span> <h3>private  subroutine <a href='../proc/compute_roe_average_device.html'>compute_roe_average_device</a>(ngc, b, i, j, k, ip, jp, kp, g, q_aux_gpu, uu, vv, ww, h, qq, c, ci, b1, b2)  
+    <div class="card-header codesum"><span class="anchor" id="proc-compute_roe_average_device~2"></span> <h3>private  subroutine <a href='../proc/compute_roe_average_device~2.html'>compute_roe_average_device</a>(ngc, b, i, j, k, ip, jp, kp, g, q_aux_gpu, uu, vv, ww, h, qq, c, ci, b1, b2)  
 </h3></div>
     <div class="card-body">
           
@@ -1329,7 +1329,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-ngc~20"></span>
+              <span class="anchor" id="variable-ngc~19"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1344,7 +1344,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-b~19"></span>
+              <span class="anchor" id="variable-b~21"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1359,7 +1359,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-i~19"></span>
+              <span class="anchor" id="variable-i~21"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1374,7 +1374,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-j~19"></span>
+              <span class="anchor" id="variable-j~20"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1389,7 +1389,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-k~19"></span>
+              <span class="anchor" id="variable-k~20"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1449,7 +1449,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-g~15"></span>
+              <span class="anchor" id="variable-g~12"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1464,7 +1464,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux_gpu~11"></span>
+              <span class="anchor" id="variable-q_aux_gpu~17"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1554,7 +1554,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-c~7"></span>
+              <span class="anchor" id="variable-c~8"></span>
               real(kind=R8P),
             </td>
 <td>intent(out)</td>
