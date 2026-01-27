@@ -1073,7 +1073,6 @@ contains
    ! numerical methods, space operators
    subroutine compute_residuals_fd_centered(self, q_gpu, dq_gpu, s)
    !< Compute residuals of equation, space operator, centered finite difference schemes.
-   !< Directly computes curl from transposed GPU layout (b,i,j,k,v).
    class(prism_fnl_object), intent(inout) :: self               !< The equation.
    real(R8P),               intent(inout) :: q_gpu(1:,     &
                                                1-self%ngc:,&
@@ -1088,75 +1087,31 @@ contains
    integer(I4P),  optional, intent(in)    :: s                  !< Stage counter.
    integer(I4P)                           :: i,j,k,b,m          !< Counter
    real(R8P)                              :: curlD(3), curlB(3) !< Residuals components.
-   real(R8P)                              :: dqx_dy, dqx_dz, dqy_dx, dqy_dz, dqz_dx, dqz_dy !< Derivatives.
-   ! FD centered 1st derivative coefficients (up to 10th order = s=5)
-   integer(I4P), parameter :: S_MAX=5_I4P
-   real(R8P), parameter :: FD1_CC_S1(S_MAX)=[   1._R8P,   0._R8P,  0._R8P,  0._R8P,0._R8P]/2._R8P
-   real(R8P), parameter :: FD1_CC_S2(S_MAX)=[   8._R8P,  -1._R8P,  0._R8P,  0._R8P,0._R8P]/12._R8P
-   real(R8P), parameter :: FD1_CC_S3(S_MAX)=[  45._R8P,  -9._R8P,  1._R8P,  0._R8P,0._R8P]/60._R8P
-   real(R8P), parameter :: FD1_CC_S4(S_MAX)=[ 672._R8P,-168._R8P, 32._R8P, -3._R8P,0._R8P]/840._R8P
-   real(R8P), parameter :: FD1_CC_S5(S_MAX)=[2100._R8P,-600._R8P,150._R8P,-25._R8P,2._R8P]/2520._R8P
-   real(R8P), parameter :: FD1_CC(S_MAX,S_MAX)=reshape([FD1_CC_S1, FD1_CC_S2, FD1_CC_S3, FD1_CC_S4, FD1_CC_S5],[S_MAX,S_MAX])
+   real(R8P)                              :: stencil(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1),&
+                                                     1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1),&
+                                                     1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1),&
+                                                     1:3)       !< Stencil buffer for avoid non-contiguos stride access
+                                                                !< inside `!$acc routine seq`.
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
-             dxyz_gpu=>self%field_gpu%dxyz_gpu,                                                                       &
-             hs=>self%numerics%fdv_half_stencils(1),                                                                  &
-             s4=>self%numerics%fdv_half_stencils(4),                                                                  &
-             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
+   ! Note: blocks_number, ni, nj, ecc... are used as copyin, but probably they should be firstprivate; however, with
+   ! the current NVidia SDK (24.xy/25.xy) firstprivate with *associate* variables does not work.
+   associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
+             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz,   &
+             s1=>self%numerics%fdv_half_stencils(1), dxyz_gpu=>self%field_gpu%dxyz_gpu)
    if (blocks_number > 0) then
       call self%update_ghost(q_gpu=q_gpu, s=s)
       ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0)
-      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
+      !$acc& copyin(blocks_number,ni,nj,nk,ngc,var_jx,var_jy,var_jz,s1)                        &
+      !$acc& private(curlD,curlB,stencil)
       do b=1,blocks_number
       do k=1,nk
       do j=1,nj
       do i=1,ni
-         ! Compute curl(D) directly from GPU layout q_gpu(b,i,j,k,v)
-         ! curl_x = dDz/dy - dDy/dz
-         dqz_dy = 0._R8P; dqy_dz = 0._R8P
-         do m=1, hs
-            dqz_dy = dqz_dy + FD1_CC(m,hs)*(q_gpu(b,i,j+m,k,VAR_DZ) - q_gpu(b,i,j-m,k,VAR_DZ))
-            dqy_dz = dqy_dz + FD1_CC(m,hs)*(q_gpu(b,i,j,k+m,VAR_DY) - q_gpu(b,i,j,k-m,VAR_DY))
-         enddo
-         curlD(1) = dqz_dy/dxyz_gpu(b,2) - dqy_dz/dxyz_gpu(b,3)
-         ! curl_y = dDx/dz - dDz/dx
-         dqx_dz = 0._R8P; dqz_dx = 0._R8P
-         do m=1, hs
-            dqx_dz = dqx_dz + FD1_CC(m,hs)*(q_gpu(b,i,j,k+m,VAR_DX) - q_gpu(b,i,j,k-m,VAR_DX))
-            dqz_dx = dqz_dx + FD1_CC(m,hs)*(q_gpu(b,i+m,j,k,VAR_DZ) - q_gpu(b,i-m,j,k,VAR_DZ))
-         enddo
-         curlD(2) = dqx_dz/dxyz_gpu(b,3) - dqz_dx/dxyz_gpu(b,1)
-         ! curl_z = dDy/dx - dDx/dy
-         dqy_dx = 0._R8P; dqx_dy = 0._R8P
-         do m=1, hs
-            dqy_dx = dqy_dx + FD1_CC(m,hs)*(q_gpu(b,i+m,j,k,VAR_DY) - q_gpu(b,i-m,j,k,VAR_DY))
-            dqx_dy = dqx_dy + FD1_CC(m,hs)*(q_gpu(b,i,j+m,k,VAR_DX) - q_gpu(b,i,j-m,k,VAR_DX))
-         enddo
-         curlD(3) = dqy_dx/dxyz_gpu(b,1) - dqx_dy/dxyz_gpu(b,2)
-
-         ! Compute curl(B) directly from GPU layout
-         ! curl_x = dBz/dy - dBy/dz
-         dqz_dy = 0._R8P; dqy_dz = 0._R8P
-         do m=1, hs
-            dqz_dy = dqz_dy + FD1_CC(m,hs)*(q_gpu(b,i,j+m,k,VAR_BZ) - q_gpu(b,i,j-m,k,VAR_BZ))
-            dqy_dz = dqy_dz + FD1_CC(m,hs)*(q_gpu(b,i,j,k+m,VAR_BY) - q_gpu(b,i,j,k-m,VAR_BY))
-         enddo
-         curlB(1) = dqz_dy/dxyz_gpu(b,2) - dqy_dz/dxyz_gpu(b,3)
-         ! curl_y = dBx/dz - dBz/dx
-         dqx_dz = 0._R8P; dqz_dx = 0._R8P
-         do m=1, hs
-            dqx_dz = dqx_dz + FD1_CC(m,hs)*(q_gpu(b,i,j,k+m,VAR_BX) - q_gpu(b,i,j,k-m,VAR_BX))
-            dqz_dx = dqz_dx + FD1_CC(m,hs)*(q_gpu(b,i+m,j,k,VAR_BZ) - q_gpu(b,i-m,j,k,VAR_BZ))
-         enddo
-         curlB(2) = dqx_dz/dxyz_gpu(b,3) - dqz_dx/dxyz_gpu(b,1)
-         ! curl_z = dBy/dx - dBx/dy
-         dqy_dx = 0._R8P; dqx_dy = 0._R8P
-         do m=1, hs
-            dqy_dx = dqy_dx + FD1_CC(m,hs)*(q_gpu(b,i+m,j,k,VAR_BY) - q_gpu(b,i-m,j,k,VAR_BY))
-            dqx_dy = dqx_dy + FD1_CC(m,hs)*(q_gpu(b,i,j+m,k,VAR_BX) - q_gpu(b,i,j-m,k,VAR_BX))
-         enddo
-         curlB(3) = dqy_dx/dxyz_gpu(b,1) - dqx_dy/dxyz_gpu(b,2)
-
+         stencil = q_gpu(b,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,VAR_DX:VAR_DZ)
+         call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),q=stencil,curl=curlD)
+         stencil = q_gpu(b,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,VAR_BX:VAR_BZ)
+         call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),q=stencil,curl=curlB)
          dq_gpu(b,i,j,k,VAR_DX) =  curlB(1)/MU0 - q_gpu(b,i,j,k,var_Jx)
          dq_gpu(b,i,j,k,VAR_DY) =  curlB(2)/MU0 - q_gpu(b,i,j,k,var_Jy)
          dq_gpu(b,i,j,k,VAR_DZ) =  curlB(3)/MU0 - q_gpu(b,i,j,k,var_Jz)
