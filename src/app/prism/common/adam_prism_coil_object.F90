@@ -239,9 +239,6 @@ contains
    if (.not.go_on_fail_.and.error>0) &
       call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(rectangular_coils_number)')
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='time_delay', val=self%td, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(time_delay)')
-
    self%total_coils_number = self%circular_coils_number + self%rectangular_coils_number
 
    if (self%total_coils_number==0_I4P) return
@@ -249,6 +246,9 @@ contains
    call associate_adam_data(field=field)
 
    call self%allocate_coil
+
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='time_delay', val=self%td, error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(time_delay)')
 
    do i=1, self%total_coils_number
       sname = INI_SECTION_NAME//'_coil_'//trim(str(i,.true.))

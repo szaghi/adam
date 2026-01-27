@@ -26,6 +26,7 @@ use adam_prism_leapfrog_pic_object
 use adam_prism_numerics_object
 use adam_prism_physics_object
 use adam_prism_pic_object
+use adam_prism_particle_injection_object
 use adam_prism_rk_pic_object
 use adam_prism_rk_bc_object
 use adam_prism_time_object
@@ -54,19 +55,20 @@ type :: prism_common_object
    type(weno_object)           :: weno          !< WENO reconstructor.
    type(flail_object)          :: flail         !< Linear algebra methods handler.
    ! PRISM library objects
-   type(prism_io_object)                :: io              !< IO handler.
-   type(prism_numerics_object)          :: numerics        !< Numerics handler.
-   type(prism_physics_object)           :: physics         !< Fluids physiscs handler.
-   type(prism_ic_object)                :: ic              !< Initial Conditions (IC) handler.
-   type(prism_bc_object)                :: bc              !< Boundary Conditions (BC) handler.
-   type(prism_rk_bc_object)             :: rk_bc           !< RK integrator for BC.
-   type(prism_time_object)              :: time            !< Time handler.
-   type(prism_fWLayer_object)           :: fWLayer         !< fWLayer handler.
-   type(prism_coil_object)              :: coil            !< Coils handler.
-   type(prism_external_fields_object)   :: external_fields !< External fields handler.
-   type(prism_pic_object)               :: pic             !< Particle-in-Cell (PIC) handler.
-   type(prism_leapfrog_pic_object)      :: leapfrog_pic    !< Leapfrog PIC integrator.
-   type(prism_rk_pic_object)            :: rk_pic          !< RK PIC integrator.
+   type(prism_io_object)                  :: io                 !< IO handler.
+   type(prism_numerics_object)            :: numerics           !< Numerics handler.
+   type(prism_physics_object)             :: physics            !< Fluids physiscs handler.
+   type(prism_ic_object)                  :: ic                 !< Initial Conditions (IC) handler.
+   type(prism_bc_object)                  :: bc                 !< Boundary Conditions (BC) handler.
+   type(prism_rk_bc_object)               :: rk_bc              !< RK integrator for BC.
+   type(prism_time_object)                :: time               !< Time handler.
+   type(prism_fWLayer_object)             :: fWLayer            !< fWLayer handler.
+   type(prism_coil_object)                :: coil               !< Coils handler.
+   type(prism_external_fields_object)     :: external_fields    !< External fields handler.
+   type(prism_pic_object)                 :: pic                !< Particle-in-Cell (PIC) handler.
+   type(prism_particle_injection_object)  :: particle_injection !< Particle injection handler.
+   type(prism_leapfrog_pic_object)        :: leapfrog_pic       !< Leapfrog PIC integrator.
+   type(prism_rk_pic_object)              :: rk_pic             !< RK PIC integrator.
    ! grid/field data replica for easy handling
    integer(I4P), pointer :: ngc=>null()           !< Number of ghost cells.
    integer(I4P), pointer :: ni=>null()            !< Number of cells in i direction.
@@ -182,12 +184,12 @@ contains
                              do_field_init=.true.,            &
                              nv=self%physics%nv, nb=1, nodes_number=11_I8P, q=self%q) !nb = nb !nodes_number = nodes_number
    call associate_adam_data(grid=self%adam%grid, field=self%adam%field, physics=self%physics)
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) & 
+      call self%particle_injection%initialize(file_parameters=file_parameters)
    call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_blocks_reorder=.false.,q=self%q)
    call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false.,q=self%q)
    call self%amr%initialize(file_parameters=file_parameters)
-
    call self%field%compute_metrics
-
    call self%time%initialize(file_parameters=file_parameters)
    call self%ic%initialize(file_parameters=file_parameters)
    call self%fWLayer%initialize(file_parameters=file_parameters, physics=self%physics, field=self%field)
@@ -196,23 +198,23 @@ contains
    call self%slices%initialize(file_parameters=file_parameters)
    call self%external_fields%initialize(file_parameters=file_parameters)
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
-   call self%rk%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
+      call self%rk%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
-   call self%rk_bc%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field, rk=self%rk, &
+      call self%rk_bc%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field, rk=self%rk, &
                               physics=self%physics)
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) &
-   call self%leapfrog%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
+      call self%leapfrog%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_BLANES_MOAN) &
-   call self%blanesmoan%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
+      call self%blanesmoan%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_CFM) &
-   call self%cfm%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
+      call self%cfm%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
    if (self%numerics%scheme_space==NUM_SCHEME_SPACE_WENO) &
-   call self%weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
+      call self%weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) &
-      call self%leapfrog_pic%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field, pic=self%pic)
+         call self%leapfrog_pic%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field, pic=self%pic)
       if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
-      call self%rk_pic%initialize(file_parameters=file_parameters, rk=self%rk, pic=self%pic)
+         call self%rk_pic%initialize(file_parameters=file_parameters, rk=self%rk, pic=self%pic)
    endif
    call self%flail%initialize(file_parameters=file_parameters)
    call check_ngc_number

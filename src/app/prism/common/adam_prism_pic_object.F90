@@ -55,13 +55,14 @@ character(11),    parameter :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA  = 'RUNGE_KUTTA' 
 !q_pic(8) = mass
 
 type :: prism_pic_object
-   type(mpih_object)         :: mpih                      !< MPI handler.
-   integer(I4P)              :: particle_number = 0_I4P   !< Total number of particles.
-   character(len=99)         :: particle_weighting_model  !< Particle weighting model.
-   character(len=99)         :: current_weighting_model   !< Current weighting model.
-   character(len=99)         :: field_weighting_model     !< Field weighting model.
-   character(:), allocatable :: scheme_time               !< Numerical scheme for time operator [runge_kutta, leapfrog,...].
-   integer(I4P), allocatable :: neighbour_list(:,:)       !< Particle grid positions array.
+   type(mpih_object)         :: mpih                       !< MPI handler.
+   integer(I4P)              :: particle_number = 0_I4P    !< Total number of particles.
+   integer(I4P), allocatable :: neighbour_list(:,:)        !< Particle grid positions array.
+   real(R8P)                 :: neutral_fraction = 0.0_R8P !< Neutral fraction
+   character(len=99)         :: particle_weighting_model   !< Particle weighting model.
+   character(len=99)         :: current_weighting_model    !< Current weighting model.
+   character(len=99)         :: field_weighting_model      !< Field weighting model.
+   character(:), allocatable :: scheme_time                !< Numerical scheme for time operator [runge_kutta, leapfrog,...].
    !< Pointer (abstract) TBP.
    procedure(particle_weighting_interface), pass(self), pointer :: particle_weighting =>null() !< Particle weighting.
    procedure(current_weighting_interface),  pass(self), pointer :: current_weighting  =>null() !< Current weighting.
@@ -119,6 +120,7 @@ contains
    character(len=1), parameter                     :: NL=new_line('a') !< New line character.
    desc =       self%mpih%myrankstr//'PIC object description:'
    desc = desc//NL//self%mpih%myrankstr//'    Number of particles: '//trim(str(self%particle_number))
+   desc = desc//NL//self%mpih%myrankstr//'    Neutral fraction: '//trim(str(self%neutral_fraction))
    desc = desc//NL//self%mpih%myrankstr//'    Particle weighting model: '//trim(self%particle_weighting_model)
    desc = desc//NL//self%mpih%myrankstr//'    Current weighting model: '//trim(self%current_weighting_model)
    desc = desc//NL//self%mpih%myrankstr//'    Field weighting model: '//trim(self%field_weighting_model)
@@ -244,6 +246,11 @@ contains
    val=self%particle_number, error=error)
    if (.not.go_on_fail_.and.error>0) & 
    call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(particle_number)')
+
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutral_fraction', &
+   val=self%particle_number, error=error)
+   if (.not.go_on_fail_.and.error>0) & 
+   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutral_fraction)')
    endsubroutine load_from_file
 
    subroutine particle_cartesian_grid_index(self, field, q_PIC)

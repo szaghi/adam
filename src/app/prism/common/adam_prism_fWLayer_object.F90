@@ -17,8 +17,8 @@ use :: adam_field_object, only : field_object
 use :: adam_prism_parameters
 use :: adam_prism_physics_object, only : prism_physics_object
 ! third party modules
-use :: finer
-use :: penf
+use :: finer, only : file_ini
+use :: penf, only : I4P, R8P, str
 
 implicit none
 private
@@ -48,23 +48,23 @@ endtype prism_fWLayer_object
 
 contains
    ! public methods
-   pure function description(self) result(desc)
+   function description(self) result(desc)
    !< Return a pretty-formatted object description.
    class(prism_fWLayer_object), intent(in) :: self             !< Physics.
    character(len=:), allocatable           :: desc             !< Description.
    character(len=1), parameter             :: NL=new_line('a') !< New line character.
-
+   
    if (self%C == 0_I4P) then
-      desc = self%mpih%myrankstr//'No fWLayer implemented'
+      desc = self%mpih%myrankstr//'   No fWLayer implemented'
    else
-      desc = self%mpih%myrankstr//'fWLayer datas:'//NL
-      desc = desc//self%mpih%myrankstr//'  Layer cell width: '//trim(str(self%C))//NL
-      desc = desc//self%mpih%myrankstr//'  Layer on -x side: '//trim(str(self%layer(1)))//NL
-      desc = desc//self%mpih%myrankstr//'  Layer on +x side: '//trim(str(self%layer(2)))//NL
-      desc = desc//self%mpih%myrankstr//'  Layer on -y side: '//trim(str(self%layer(3)))//NL
-      desc = desc//self%mpih%myrankstr//'  Layer on +y side: '//trim(str(self%layer(4)))//NL
-      desc = desc//self%mpih%myrankstr//'  Layer on -z side: '//trim(str(self%layer(5)))//NL
-      desc = desc//self%mpih%myrankstr//'  Layer on +z side: '//trim(str(self%layer(6)))
+      desc = desc//NL//self%mpih%myrankstr//'   fWLayer datas:'
+      desc = desc//NL//self%mpih%myrankstr//'      Layer cell width: '//trim(str(self%C))
+      desc = desc//NL//self%mpih%myrankstr//'      Layer on -x side: '//trim(str(self%layer(1)))
+      desc = desc//NL//self%mpih%myrankstr//'      Layer on +x side: '//trim(str(self%layer(2)))
+      desc = desc//NL//self%mpih%myrankstr//'      Layer on -y side: '//trim(str(self%layer(3)))
+      desc = desc//NL//self%mpih%myrankstr//'      Layer on +y side: '//trim(str(self%layer(4)))
+      desc = desc//NL//self%mpih%myrankstr//'      Layer on -z side: '//trim(str(self%layer(5)))
+      desc = desc//NL//self%mpih%myrankstr//'      Layer on +z side: '//trim(str(self%layer(6)))
     endif
    endfunction description
 
@@ -81,6 +81,7 @@ contains
    real(R8P)                                  :: i_r, j_r, k_r   !< (Real) counters
    real(R8P)                                  :: ds              !< Cells distance in x, y or z.
 
+   call self%mpih%initialize(do_mpi_init=.false.)
    print '(A)', self%mpih%myrankstr//'prism_fWLayer_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters)
    print '(A)', self%description()
@@ -304,7 +305,7 @@ contains
                q(alfa_D,i,j,k,b) = MU0_SQ_I2  * ( s2*fm1*q(beta_B,i,j,k,b)*EPS0_SQ +    fp1*q(alfa_D,i,j,k,b)*MU0_SQ)
                q(beta_D,i,j,k,b) = MU0_SQ_I2  * (-s2*fm1*q(alfa_B,i,j,k,b)*EPS0_SQ +    fp1*q(beta_D,i,j,k,b)*MU0_SQ)
                q(alfa_B,i,j,k,b) = EPS0_SQ_I2 * (    fp1*q(alfa_B,i,j,k,b)*EPS0_SQ - s2*fm1*q(beta_D,i,j,k,b)*MU0_SQ)
-               q(beta_B,i,j,k,b) = EPS0_SQ_I2 * (    fp1*q(beta_B,i,j,k,b)*EPS0_SQ + s2*fm1*q(alfa_B,i,j,k,b)*MU0_SQ)
+               q(beta_B,i,j,k,b) = EPS0_SQ_I2 * (    fp1*q(beta_B,i,j,k,b)*EPS0_SQ + s2*fm1*q(alfa_D,i,j,k,b)*MU0_SQ)
 
    !                  q(alfa_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(s2*(f(n,i,j,k,b)-1._R8P)*q(beta_B,i,j,k,b) &
    !                  *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
@@ -324,3 +325,218 @@ contains
    endsubroutine apply_fWL_correction_fun
 
 endmodule adam_prism_fWLayer_object
+
+
+
+   !subroutine apply_fWL_correction(self, q)
+   !!< Apply correction if a fWL is present
+   !class(prism_cpu_object), intent(inout) :: self                    !< The equation.
+   !real(R8P),               intent(inout) :: q(1:,         &
+   !                                            1-self%ngc:,&
+   !                                            1-self%ngc:,&
+   !                                            1-self%ngc:,&
+   !                                            1:)                   !< Conservative variables.
+   !real(R8P)                              :: s2                      !< Side coefficient
+   !integer(I4P)                           :: i,j,k,b,n               !< Counters
+   !integer(I4P)                           :: alfa_D, beta_D, gamma_D !< Indici alfa beta gamma come in Barbas.
+   !integer(I4P)                           :: alfa_B, beta_B, gamma_B !< Indici alfa beta gamma come in Barbas.
+   !associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, &
+   !   f=>self%fWLayer%f, layer=>self%fWLayer%layer, C=>self%fWLayer%C)
+   !if (C>0) then
+   !   !x- side
+   !   do b=1,blocks_number
+   !      if (layer(1)) then
+   !         n = 1_I4P
+   !         s2 = 1.0_R8P
+   !         alfa_D = 2_I4P
+   !         beta_D = 3_I4P
+   !         gamma_D = 1_I4P
+   !         alfa_B = 5_I4P
+   !         beta_B = 6_I4P
+   !         gamma_B = 4_I4P
+   !         do k=1,nk
+   !            do j=1, nj
+   !               do i=1, C
+   !                  q(alfa_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(s2*(f(n,i,j,k,b)-1._R8P)*q(beta_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(beta_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(-s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(alfa_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(alfa_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P - s2*(f(n,i,j,k,b)-1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(beta_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(gamma_D,i,j,k,b) = q(gamma_D,i,j,k,b)
+!
+   !                  q(gamma_B,i,j,k,b) = q(gamma_B,i,j,k,b)
+   !               enddo
+   !            enddo
+   !         enddo
+   !      endif
+   !      !x+ side
+   !      if(layer(2)) then
+   !         n = 1_I4P
+   !         s2 = -1.0_R8P
+   !         alfa_D = 2_I4P
+   !         beta_D = 3_I4P
+   !         gamma_D = 1_I4P
+   !         alfa_B = 5_I4P
+   !         beta_B = 6_I4P
+   !         gamma_B = 4_I4P
+   !         do k=1,nk
+   !            do j=1, nj
+   !               do i=ni-C, ni
+   !                  q(alfa_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(s2*(f(n,i,j,k,b)-1._R8P)*q(beta_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(beta_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(-s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(alfa_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(alfa_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P - s2*(f(n,i,j,k,b)-1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(beta_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(gamma_D,i,j,k,b) = q(gamma_D,i,j,k,b)
+!
+   !                  q(gamma_B,i,j,k,b) = q(gamma_B,i,j,k,b)
+   !               enddo
+   !            enddo
+   !         enddo
+   !      endif
+   !      !y- side
+   !      if (layer(3)) then
+   !         n = 2_I4P
+   !         s2 = 1.0_R8P
+   !         alfa_D = 3_I4P
+   !         beta_D = 1_I4P
+   !         gamma_D = 2_I4P
+   !         alfa_B = 6_I4P
+   !         beta_B = 4_I4P
+   !         gamma_B = 5_I4P
+   !         do k=1,nk
+   !            do i=1, ni
+   !               do j=1, C
+   !                  q(alfa_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(s2*(f(n,i,j,k,b)-1._R8P)*q(beta_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(beta_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(-s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(alfa_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(alfa_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P - s2*(f(n,i,j,k,b)-1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(beta_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(gamma_D,i,j,k,b) = q(gamma_D,i,j,k,b)
+!
+   !                  q(gamma_B,i,j,k,b) = q(gamma_B,i,j,k,b)
+   !               enddo
+   !            enddo
+   !         enddo
+   !      endif
+   !      !y+ side
+   !      if (layer(4)) then
+   !         n = 2_I4P
+   !         s2 = -1.0_R8P
+   !         alfa_D = 3_I4P
+   !         beta_D = 1_I4P
+   !         gamma_D = 2_I4P
+   !         alfa_B = 6_I4P
+   !         beta_B = 4_I4P
+   !         gamma_B = 5_I4P
+   !         do k=1,nk
+   !            do i=1, ni
+   !               do j=nj-C, nj
+   !                  q(alfa_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(s2*(f(n,i,j,k,b)-1._R8P)*q(beta_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(beta_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(-s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(alfa_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(alfa_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P - s2*(f(n,i,j,k,b)-1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(beta_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(gamma_D,i,j,k,b) = q(gamma_D,i,j,k,b)
+!
+   !                  q(gamma_B,i,j,k,b) = q(gamma_B,i,j,k,b)
+   !               enddo
+   !            enddo
+   !         enddo
+   !      endif
+   !      !z- side
+   !      if (layer(5)) then
+   !         n = 3_I4P
+   !         s2 = 1.0_R8P
+   !         alfa_D = 1_I4P
+   !         beta_D = 2_I4P
+   !         gamma_D = 3_I4P
+   !         alfa_B = 4_I4P
+   !         beta_B = 5_I4P
+   !         gamma_B = 6_I4P
+   !         do i=1,ni
+   !            do j=1, nj
+   !               do k=1, C
+   !                  q(alfa_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(s2*(f(n,i,j,k,b)-1._R8P)*q(beta_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(beta_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(-s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(alfa_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(alfa_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P - s2*(f(n,i,j,k,b)-1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(beta_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(gamma_D,i,j,k,b) = q(gamma_D,i,j,k,b)
+!
+   !                  q(gamma_B,i,j,k,b) = q(gamma_B,i,j,k,b)
+   !               enddo
+   !            enddo
+   !         enddo
+   !      endif
+   !      !z+ side
+   !      if (layer(6)) then
+   !         n = 3_I4P
+   !         s2 = -1.0_R8P
+   !         alfa_D = 1_I4P
+   !         beta_D = 2_I4P
+   !         gamma_D = 3_I4P
+   !         alfa_B = 4_I4P
+   !         beta_B = 5_I4P
+   !         gamma_B = 6_I4P
+   !         do i=1,ni
+   !            do j=1, nj
+   !               do k=nk-C, nk
+   !                  q(alfa_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(s2*(f(n,i,j,k,b)-1._R8P)*q(beta_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(beta_D,i,j,k,b) = 1/(2*MU0**0.5_R8P)*(-s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P + (f(n,i,j,k,b)+1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(alfa_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(alfa_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P - s2*(f(n,i,j,k,b)-1._R8P)*q(beta_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(beta_B,i,j,k,b) = 1/(2*EPS0**0.5_R8P)*((f(n,i,j,k,b)+1._R8P)*q(beta_B,i,j,k,b) &
+   !                  *EPS0**0.5_R8P + s2*(f(n,i,j,k,b)-1._R8P)*q(alfa_D,i,j,k,b)*MU0**0.5_R8P)
+!
+   !                  q(gamma_D,i,j,k,b) = q(gamma_D,i,j,k,b)
+!
+   !                  q(gamma_B,i,j,k,b) = q(gamma_B,i,j,k,b)
+   !               enddo
+   !            enddo
+   !         enddo
+   !      endif
+   !   enddo
+   !endif
+   !endassociate
+   !endsubroutine apply_fWL_correction
