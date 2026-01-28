@@ -253,11 +253,11 @@ contains
    call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutral_fraction)')
    endsubroutine load_from_file
 
-   subroutine particle_cartesian_grid_index(self, field, q_PIC)
+   subroutine particle_cartesian_grid_index(self, field, q_pic)
    !< Compute the grid index corresponding to a particle position. Good for cartesian grids only.
    class(prism_pic_object), intent(inout) :: self                                                            !< External fields.
    type(field_object),      intent(in)    :: field                                                           !< The field.
-   real(R8P),               intent(in)    :: q_PIC(1:,1:)                                                    !< PIC variables.
+   real(R8P),               intent(in)    :: q_pic(1:,1:)                                                    !< PIC variables.
    real(R8P)                              :: n                                                               !< Particle counter
    real(R8P)                              :: i_p, j_p, k_p, b_p                                              !< Particle grid indices
 
@@ -268,9 +268,9 @@ contains
 
    !Va completato considerando la presenza di più blocchi, questo funziona per un blocco solo
    do n = 1, np
-      i_p = (q_PIC(n,1) - e_min(1)) / dx(1)
-      j_p = (q_PIC(n,2) - e_min(2)) / dy(1)
-      k_p = (q_PIC(n,3) - e_min(3)) / dz(1)
+      i_p = (q_pic(n,1) - e_min(1)) / dx(1)
+      j_p = (q_pic(n,2) - e_min(2)) / dy(1)
+      k_p = (q_pic(n,3) - e_min(3)) / dz(1)
       b_p = 1 ! Single block only for now
 
       neighbour_list(1,n) = ceiling(b_p)

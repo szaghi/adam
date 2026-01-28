@@ -29,6 +29,7 @@ character(len=10), parameter :: PURE_DRIFT_VELOCITY_DISTRIBUTION             = '
 character(len=32), parameter :: VELOCITY_RANDOM_NUMBER_GENERATOR             = 'Velocity_random_number_generator'
 character(len=33), parameter :: VELOCITY_LAYERED_NUMBER_GENERATOR            = 'Velocity_layered_number_generator'
 
+procedure(space_random_number_generator_interface), pointer :: space_rand_num_generator => null() !< Space random number generator interface
 
 type :: prism_particle_injection_object
    type(mpih_object)        :: mpih										 !< MPI handler.
@@ -49,15 +50,32 @@ type :: prism_particle_injection_object
 	logical        			 :: v_av_correction = .false.			 !< Flag to correct the average v.
 
    !< Pointer (abstract) TBP.
-   !procedure(particle_space_injection_interface),	  	 	 pass(self), pointer :: particle_space_injection 	 => null() !< Particle space injection.
+   procedure(particle_space_injection_interface), pass(self), pointer :: particle_space_injection => null() !< Particle space injection.
 	!procedure(particle_velocity_injection_interface), 	 	 pass(self), pointer :: particle_velocity_injection => null() !< Particle velocity injection.
-	!procedure(space_random_number_generator_interface), 	 pass(self), pointer :: space_rand_num_generator 	 => null() !< Space random number generator interface
-	!procedure(velocity_random_number_generator_interface), pass(self), pointer :: velocity_rand_num_generator => null() !< Space random number generator interface
+	!procedure(velocity_random_number_generator_interface), pass(self)?, pointer :: velocity_rand_num_generator => null() !< Space random number generator interface
 contains
    procedure, pass(self) :: description                   !< Return pretty-printed object description.
    procedure, pass(self) :: initialize                    !< Initialize IC.
    procedure, pass(self) :: load_from_file                !< Load config from file.
 endtype prism_particle_injection_object
+
+interface
+   subroutine particle_space_injection_interface(self, field, pic, q_pic)
+   import :: prism_particle_injection_object, field_object, prism_pic_object, I4P, R8P
+	class(prism_particle_injection_object), intent(inout) :: self 
+	type(field_object),                  	 intent(in) 	:: field 
+	type(prism_pic_object),					 	 intent(in)		:: pic
+	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)                                                         !< Number of variables.
+   endsubroutine particle_space_injection_interface
+
+	subroutine space_random_number_generator_interface(N, shuffled_list, i_numb, r_n)
+	import :: I4P, R8P
+	integer(I4P), intent(inout) :: shuffled_list(1:,1:)
+	integer(I4P), intent(in) 	 :: i_numb
+	integer(I4P), intent(in) 	 :: N 							!Numero di elementi
+	real(R8P), intent(inout) 	 :: r_n(1:) 					!Random numbers
+	endsubroutine space_random_number_generator_interface
+endinterface
 
 contains
    function description(self) result(desc)
@@ -100,24 +118,26 @@ contains
    call self%load_from_file(file_parameters=file_parameters)
    print '(A)', self%description()
 
-	!select case(self%space_distribution)
-   !case(UNIFORM_CELL_SPACE_DISTRIBUTION)
-   !   self%particle_space_injection => uniform_cell_space_injection
+	select case(self%space_distribution)
+   case(UNIFORM_CELL_SPACE_DISTRIBUTION)
+      self%particle_space_injection => uniform_cell_space_injection
    !case(UNIFORM_BOX_SPACE_DISTRIBUTION)
    !   self%particle_space_injection => uniform_box_space_injection
-   !case(UNIFORM_DOMAIN_SPACE_DISTRIBUTION)
-   !   self%particle_space_injection => uniform_domain_space_injection
-   !case default
-   !   call self%mpih%error_stop(msg=': invalid particle space injection model in prism_particle_injection_object%initialize')
-   !endselect
-	!select case(self%space_random_number_generator)
-   !case(SPACE_RANDOM_NUMBER_GENERATOR)
-   !   self%space_rand_num_generator => random_number_generator
-   !case(SPACE_LAYERED_NUMBER_GENERATOR)
-   !   self%space_rand_num_generator => layered_number_generator
-   !case default
-   !   call self%mpih%error_stop(msg=': invalid particle space random number generator in prism_particle_injection_object%initialize')
-   !endselect
+   case(UNIFORM_DOMAIN_SPACE_DISTRIBUTION)
+      self%particle_space_injection => uniform_domain_space_injection
+   case default
+      call self%mpih%error_stop &
+		(msg=': invalid particle space injection model in prism_particle_injection_object%initialize')
+   endselect
+	select case(self%space_random_number_generator)
+   case(SPACE_RANDOM_NUMBER_GENERATOR)
+      space_rand_num_generator => random_number_generator
+   case(SPACE_LAYERED_NUMBER_GENERATOR)
+      space_rand_num_generator => layered_number_generator
+   case default
+      call self%mpih%error_stop & 
+		(msg=': invalid particle space random number generator in prism_particle_injection_object%initialize')
+   endselect
 	!select case(self%velocity_distribution)
    !case(UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION)
    !   self%particle_velocity_injection => uniform_maxwellian_velocity_injection
@@ -300,4 +320,286 @@ contains
 	endselect
    endsubroutine load_from_file
 
+   subroutine uniform_domain_space_injection(self, field, pic, q_pic)
+	class(prism_particle_injection_object), intent(inout) :: self 
+	type(field_object),                  	 intent(in) 	:: field 
+	type(prism_pic_object),					 	 intent(in)		:: pic
+	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
+	real(R8P)															:: r_n(3)
+	integer(I4P)														:: n_ions
+	integer(I4P)														:: n_electrons
+	integer(I4P)														:: n_neutrals
+	real(R8P)															:: x_p, y_p, z_p
+	integer(I4P)														:: i
+	integer(I4P), allocatable										:: shuffled_list_ions(:,:)
+	integer(I4P), allocatable										:: shuffled_list_electrons(:,:)
+	integer(I4P), allocatable										:: shuffled_list_neutrals(:,:)
+	character(len=:), allocatable		                   	:: desc             
+   character(len=1), parameter  		                   	:: NL=new_line('a') 
+
+	associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, &
+      		ngc=>field%grid%ngc, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), 	 		 &
+      		np=>pic%particle_number, e_min=>field%grid%domain_emin, e_max=>field%grid%domain_emax,  		 &
+				neutral_fraction=>pic%neutral_fraction)
+
+	n_neutrals = nint(neutral_fraction*real(np,R8P))
+	n_ions = nint(real(np-n_neutrals, R8P)/2.0_R8P)
+	n_electrons = n_ions
+	n_neutrals = np - n_ions - n_electrons
+	allocate(shuffled_list_ions	  (1:3,1:n_ions))
+	allocate(shuffled_list_electrons(1:3,1:n_electrons))
+	allocate(shuffled_list_neutrals (1:3,1:n_neutrals))
+	shuffled_list_ions(:,:) 	  = 0_I4P
+	shuffled_list_electrons(:,:) = 0_I4P
+	shuffled_list_neutrals(:,:)  = 0_I4P
+
+	!if(.not.space_pairing) then
+		do i = 1, n_ions
+			call space_rand_num_generator(N=n_ions, shuffled_list=shuffled_list_ions, i_numb=i, r_n=r_n)
+			x_p = e_min(1)+r_n(1)*(e_max(1)-e_min(1)) 
+			y_p = e_min(2)+r_n(2)*(e_max(2)-e_min(2)) 
+			z_p = e_min(3)+r_n(3)*(e_max(3)-e_min(3)) 
+			q_pic(1,i) = x_p
+			q_pic(2,i) = y_p
+			q_pic(3,i) = z_p
+			q_pic(7,i) = -E_CHARGE
+			q_pic(8,i) = E_MASS
+			!Z0 = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
+			!Z1 = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
+		enddo
+		do i = 1, n_electrons
+			call space_rand_num_generator(N=n_electrons, shuffled_list=shuffled_list_electrons, i_numb=i, r_n=r_n)
+			x_p = e_min(1)+r_n(1)*(e_max(1)-e_min(1)) 
+			y_p = e_min(2)+r_n(2)*(e_max(2)-e_min(2)) 
+			z_p = e_min(3)+r_n(3)*(e_max(3)-e_min(3)) 
+			q_pic(1,i+n_ions) = x_p
+			q_pic(2,i+n_ions) = y_p
+			q_pic(3,i+n_ions) = z_p
+			q_pic(7,i+n_ions) = E_CHARGE
+			q_pic(8,i+n_ions) = E_MASS
+		enddo
+		do i = 1, n_neutrals
+			call space_rand_num_generator(N=n_neutrals, shuffled_list=shuffled_list_neutrals, i_numb=i, r_n=r_n)
+			x_p = e_min(1)+r_n(1)*(e_max(1)-e_min(1)) 
+			y_p = e_min(2)+r_n(2)*(e_max(2)-e_min(2)) 
+			z_p = e_min(3)+r_n(3)*(e_max(3)-e_min(3)) 
+			q_pic(1,i+n_ions+n_electrons) = x_p
+			q_pic(2,i+n_ions+n_electrons) = y_p
+			q_pic(3,i+n_ions+n_electrons) = z_p
+			q_pic(7,i+n_ions+n_electrons) = 0.0_R8P
+			q_pic(8,i+n_ions+n_electrons) = E_MASS
+		enddo
+	!else
+
+	!endif
+	
+	desc =       self%mpih%myrankstr//'Injected particles:'
+   desc = desc//NL//self%mpih%myrankstr//'    	Electrons number: '//trim(str(n_electrons))
+	desc = desc//NL//self%mpih%myrankstr//'    	Ions number: '//trim(str(n_ions))
+	desc = desc//NL//self%mpih%myrankstr//'    	Neutrals number: '//trim(str(n_neutrals))
+	endassociate
+	endsubroutine uniform_domain_space_injection
+
+	!subroutine uniform_box_space_injection(self, field, pic, q_pic)
+
+	!endsubroutine uniform_box_space_injection
+
+	subroutine uniform_cell_space_injection(self, field, pic, q_pic)
+	class(prism_particle_injection_object), intent(inout) :: self 
+	type(field_object),                  	 intent(in) 	:: field 
+	type(prism_pic_object),					 	 intent(in)		:: pic
+	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
+	real(R8P)															:: r_n(3)
+	integer(I4P)														:: n_ions, n_i_4c
+	integer(I4P)														:: n_electrons, n_e_4c
+	integer(I4P)														:: n_neutrals, n_n_4c
+	integer(I4P)														:: n_cells
+	real(R8P)															:: x_min, y_min, z_min
+	real(R8P)															:: x_max, y_max, z_max
+	real(R8P)															:: x_p, y_p, z_p
+	real(R8P)															:: deltax, deltay, deltaz
+	integer(I4P)														:: i, j, k, b, p, n_p
+	integer(I4P), allocatable										:: shuffled_list_ions(:,:)
+	integer(I4P), allocatable										:: shuffled_list_electrons(:,:)
+	integer(I4P), allocatable										:: shuffled_list_neutrals(:,:)
+	character(len=:), allocatable		                   	:: desc             
+   character(len=1), parameter  		                   	:: NL=new_line('a') 
+
+	associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, &
+      		ngc=>field%grid%ngc, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), 	 		 &
+      		np=>pic%particle_number, e_min=>field%grid%domain_emin, e_max=>field%grid%domain_emax,  		 &
+				neutral_fraction=>pic%neutral_fraction)
+
+	n_neutrals = nint(neutral_fraction*real(np,R8P))
+	n_ions = nint(real(np-n_neutrals, R8P)/2.0_R8P)
+	n_electrons = n_ions
+	n_neutrals = np - n_ions - n_electrons
+	n_cells = ni*nj*nk
+	n_i_4c = n_ions/n_cells
+	n_e_4c = n_i_4c
+	n_n_4c = n_neutrals/n_cells
+	allocate(shuffled_list_ions	  (1:3,1:n_i_4c))
+	allocate(shuffled_list_electrons(1:3,1:n_e_4c))
+	allocate(shuffled_list_neutrals (1:3,1:n_n_4c))
+	shuffled_list_ions(:,:) 	  = 0_I4P
+	shuffled_list_electrons(:,:) = 0_I4P
+	shuffled_list_neutrals(:,:)  = 0_I4P
+
+	!if (.not.space_pairing) then
+		p = 0_I4P
+		do b=1,blocks_number
+			deltax = dx(b)
+			deltay = dy(b)
+			deltaz = dz(b)
+			do k=1,nk
+				do j=1,nj
+					do i=1,ni
+						! Pensato per il monoblocco, eventualmente va esteso sul multiblocco
+						x_min = e_min(1) + deltax * real(i-1,R8P)
+						x_max = e_min(1) + deltax * real(i	,R8P)
+						y_min = e_min(2) + deltay * real(j-1,R8P)
+						y_max = e_min(2) + deltay * real(j	,R8P)
+						z_min = e_min(3) + deltaz * real(k-1,R8P)
+						z_max = e_min(3) + deltaz * real(k	,R8P)
+						do n_p = 1, n_i_4c
+							p = p + 1_I4P
+							call space_rand_num_generator(N=n_i_4c, &
+									shuffled_list=shuffled_list_ions, i_numb=n_p, r_n=r_n)
+							x_p = x_min+r_n(1)*(x_max-x_min) 
+							y_p = y_min+r_n(2)*(y_max-y_min) 
+							z_p = z_min+r_n(3)*(z_max-z_min) 
+							q_pic(1,p) = x_p
+							q_pic(2,p) = y_p
+							q_pic(3,p) = z_p
+							q_pic(7,p) = -E_CHARGE
+							q_pic(8,p) = E_MASS
+							!Z0 = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
+							!Z1 = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
+						enddo
+					enddo
+				enddo
+			enddo
+		enddo
+		do b=1,blocks_number
+			deltax = dx(b)
+			deltay = dy(b)
+			deltaz = dz(b)
+			do k=1,nk
+				do j=1,nj
+					do i=1,ni
+						! Pensato per il monoblocco, eventualmente va esteso sul multiblocco
+						x_min = e_min(1) + deltax * real(i-1,R8P)
+						x_max = e_min(1) + deltax * real(i	,R8P)
+						y_min = e_min(2) + deltay * real(j-1,R8P)
+						y_max = e_min(2) + deltay * real(j	,R8P)
+						z_min = e_min(3) + deltaz * real(k-1,R8P)
+						z_max = e_min(3) + deltaz * real(k	,R8P)	
+						do n_p = 1, n_e_4c
+							p = p + 1_I4P
+							call space_rand_num_generator(N=n_e_4c, & 
+									shuffled_list=shuffled_list_electrons, i_numb=n_p, r_n=r_n)
+							x_p = x_min+r_n(1)*(x_max-x_min) 
+							y_p = y_min+r_n(2)*(y_max-y_min) 
+							z_p = z_min+r_n(3)*(z_max-z_min) 
+							q_pic(1,p) = x_p
+							q_pic(2,p) = y_p
+							q_pic(3,p) = z_p
+							q_pic(7,p) = E_CHARGE
+							q_pic(8,p) = E_MASS
+						enddo
+					enddo
+				enddo
+			enddo
+		enddo
+		do b=1,blocks_number
+			deltax = dx(b)
+			deltay = dy(b)
+			deltaz = dz(b)
+			do k=1,nk
+				do j=1,nj
+					do i=1,ni
+						! Pensato per il monoblocco, eventualmente va esteso sul multiblocco
+						x_min = e_min(1) + deltax * real(i-1,R8P)
+						x_max = e_min(1) + deltax * real(i	,R8P)
+						y_min = e_min(2) + deltay * real(j-1,R8P)
+						y_max = e_min(2) + deltay * real(j	,R8P)
+						z_min = e_min(3) + deltaz * real(k-1,R8P)
+						z_max = e_min(3) + deltaz * real(k	,R8P)
+						do n_p = 1, n_n_4c
+							p = p + 1_I4P
+							call space_rand_num_generator(N=n_n_4c, &
+									shuffled_list=shuffled_list_neutrals, i_numb=n_p, r_n=r_n)
+							x_p = x_min+r_n(1)*(x_max-x_min) 
+							y_p = y_min+r_n(2)*(y_max-y_min) 
+							z_p = z_min+r_n(3)*(z_max-z_min) 
+							q_pic(1,p) = x_p
+							q_pic(2,p) = y_p
+							q_pic(3,p) = z_p
+							q_pic(7,p) = 0.0_R8P
+							q_pic(8,p) = E_MASS
+						enddo
+					enddo
+				enddo
+			enddo
+		enddo
+	!else
+
+	!endif
+	desc =       self%mpih%myrankstr//'Injected particles:'
+   desc = desc//NL//self%mpih%myrankstr//'    	Electrons number: '//trim(str(n_e_4c*n_cells))
+	desc = desc//NL//self%mpih%myrankstr//'    	Ions number: '//trim(str(n_i_4c*n_cells))
+	desc = desc//NL//self%mpih%myrankstr//'    	Neutrals number: '//trim(str(n_n_4c*n_cells))
+	endassociate
+	endsubroutine uniform_cell_space_injection
+
+	subroutine random_number_generator(N, shuffled_list, i_numb, r_n)
+	integer(I4P), intent(inout) :: shuffled_list(1:,1:)
+	integer(I4P), intent(in) 	 :: i_numb !Non utilizzato qui
+	integer(I4P), intent(in) 	 :: N !Numero di elementi Non utilizzato qui
+	real(R8P), intent(inout) 	 :: r_n(1:) !Random numbers Non utilizzato qui
+	
+	call random_number(r_n) 
+	endsubroutine random_number_generator
+
+	subroutine layered_number_generator(N, shuffled_list, i_numb, r_n)
+	integer(I4P), intent(inout) :: shuffled_list(1:,1:)
+	integer(I4P), intent(in) 	 :: i_numb
+	integer(I4P), intent(in) 	 :: N 							!Numero di elementi
+	real(R8P), intent(inout) 	 :: r_n(1:) 					!Random numbers
+	integer(I4P) 					 :: index_list(N)
+	integer(I4P) 					 :: w
+
+	if (i_numb == 1) then
+		do w = 1, N 
+			index_list(w) = w
+		enddo
+		shuffled_list(1,:) = index_list
+		shuffled_list(2,:) = fisher_yates_shuffle(index_list=index_list, nn=N)
+		shuffled_list(3,:) = fisher_yates_shuffle(index_list=index_list, nn=N)
+		r_n(1) = (real(shuffled_list(1,i_numb),R8P)-0.5_R8P)/real(N,R8P)
+		r_n(2) = (real(shuffled_list(2,i_numb),R8P)-0.5_R8P)/real(N,R8P)
+		r_n(3) = (real(shuffled_list(3,i_numb),R8P)-0.5_R8P)/real(N,R8P)
+	else
+		r_n(1) = (real(shuffled_list(1,i_numb),R8P)-0.5_R8P)/real(N,R8P)
+		r_n(2) = (real(shuffled_list(2,i_numb),R8P)-0.5_R8P)/real(N,R8P)
+		r_n(3) = (real(shuffled_list(3,i_numb),R8P)-0.5_R8P)/real(N,R8P)
+	endif
+	endsubroutine layered_number_generator
+
+	function fisher_yates_shuffle(index_list, nn) result(shuffled_list)
+	integer(I4P), intent(in)  :: nn
+	integer(I4P), intent(in)  :: index_list(nn)
+	integer(I4P)				  :: shuffled_list(nn)
+	integer(I4P) 				  :: ii, jj, tmp
+	real(R8P) 	 				  :: u
+	
+	shuffled_list = index_list
+	do ii = nn, 2, -1
+      call random_number(u)     ! u in [0,1)
+      jj = 1 + int(u*real(ii))    ! j in [1,i]
+      tmp    			   = shuffled_list(ii)
+      shuffled_list(ii) = shuffled_list(jj)
+      shuffled_list(jj) = tmp
+   enddo
+	endfunction fisher_yates_shuffle	
    endmodule adam_prism_particle_injection_object
