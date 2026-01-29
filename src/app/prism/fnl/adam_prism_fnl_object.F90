@@ -1085,13 +1085,14 @@ contains
                                                 1-self%ngc:,&
                                                 1:)             !< Residuals.
    integer(I4P),  optional, intent(in)    :: s                  !< Stage counter.
-   integer(I4P)                           :: i,j,k,b,m          !< Counter
+   integer(I4P)                           :: i,j,k,b            !< Counter
    real(R8P)                              :: curlD(3), curlB(3) !< Residuals components.
-   real(R8P)                              :: stencil(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1),&
-                                                     1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1),&
-                                                     1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1),&
-                                                     1:3)       !< Stencil buffer for avoid non-contiguos stride access
-                                                                !< inside `!$acc routine seq`.
+   real(R8P) :: qsx_y(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1))
+   real(R8P) :: qsx_z(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1))
+   real(R8P) :: qsy_x(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1))
+   real(R8P) :: qsy_z(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1))
+   real(R8P) :: qsz_x(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1))
+   real(R8P) :: qsz_y(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1))
 
    ! Note: blocks_number, ni, nj, ecc... are used as copyin, but probably they should be firstprivate; however, with
    ! the current NVidia SDK (24.xy/25.xy) firstprivate with *associate* variables does not work.
@@ -1103,15 +1104,31 @@ contains
       ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0)
       !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
       !$acc& copyin(blocks_number,ni,nj,nk,ngc,var_jx,var_jy,var_jz,s1)                        &
-      !$acc& private(curlD,curlB,stencil)
+      !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y)
       do b=1,blocks_number
       do k=1,nk
       do j=1,nj
       do i=1,ni
-         stencil = q_gpu(b,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,VAR_DX:VAR_DZ)
-         call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),q=stencil,curl=curlD)
-         stencil = q_gpu(b,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,VAR_BX:VAR_BZ)
-         call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),q=stencil,curl=curlB)
+         qsx_y=q_gpu(b,i-s1:i+s1,j,k,VAR_DY)
+         qsx_z=q_gpu(b,i-s1:i+s1,j,k,VAR_DZ)
+         qsy_x=q_gpu(b,i,j-s1:j+s1,k,VAR_DX)
+         qsy_z=q_gpu(b,i,j-s1:j+s1,k,VAR_DZ)
+         qsz_x=q_gpu(b,i,j,k-s1:k+s1,VAR_DX)
+         qsz_y=q_gpu(b,i,j,k-s1:k+s1,VAR_DY)
+         call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),          &
+                                           qsx_y=qsx_y,qsx_z=qsx_z,qsy_x=qsy_x,&
+                                           qsy_z=qsy_z,qsz_x=qsz_x,qsz_y=qsz_y,&
+                                           curl=curlD)
+         qsx_y=q_gpu(b,i-s1:i+s1,j,k,VAR_BY)
+         qsx_z=q_gpu(b,i-s1:i+s1,j,k,VAR_BZ)
+         qsy_x=q_gpu(b,i,j-s1:j+s1,k,VAR_BX)
+         qsy_z=q_gpu(b,i,j-s1:j+s1,k,VAR_BZ)
+         qsz_x=q_gpu(b,i,j,k-s1:k+s1,VAR_BX)
+         qsz_y=q_gpu(b,i,j,k-s1:k+s1,VAR_BY)
+         call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),          &
+                                           qsx_y=qsx_y,qsx_z=qsx_z,qsy_x=qsy_x,&
+                                           qsy_z=qsy_z,qsz_x=qsz_x,qsz_y=qsz_y,&
+                                           curl=curlB)
          dq_gpu(b,i,j,k,VAR_DX) =  curlB(1)/MU0 - q_gpu(b,i,j,k,var_Jx)
          dq_gpu(b,i,j,k,VAR_DY) =  curlB(2)/MU0 - q_gpu(b,i,j,k,var_Jy)
          dq_gpu(b,i,j,k,VAR_DZ) =  curlB(3)/MU0 - q_gpu(b,i,j,k,var_Jz)
@@ -1324,9 +1341,9 @@ contains
    endif
    !if (self%ib%solids_number > 0) call self%compute_phi()
    ! call self%amr_update
-   call self%compute_divergence(ivar=1,ovar=1,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
-   call self%compute_divergence(ivar=4,ovar=2,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
-   call self%compute_divergence(ivar=7,ovar=3,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
+   ! call self%compute_divergence(ivar=1,ovar=1,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
+   ! call self%compute_divergence(ivar=4,ovar=2,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
+   ! call self%compute_divergence(ivar=7,ovar=3,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
    call self%save_simulation_data
    call self%compute_energy
    call self%save_energy_error(is_to_open=.true.)
@@ -1401,13 +1418,13 @@ contains
    class(prism_fnl_object), intent(inout) :: self !< The equation.
 
    if (self%io%save_divergence_fields) then
-      call self%compute_divergence(ivar=VAR_DX,ovar=1,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
-      call self%compute_divergence(ivar=VAR_BX,ovar=2,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
+      ! call self%compute_divergence(ivar=VAR_DX,ovar=1,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
+      ! call self%compute_divergence(ivar=VAR_BX,ovar=2,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
       ! call self%compute_divergence(ivar=7,q=self%q,divergence=self%divergence(3,:,:,:,:))
    endif
    if (self%io%save_curl_fields) then
-      call self%compute_curl(ivar=VAR_DX,q_gpu=self%q_gpu,curl_gpu=self%curl_gpu(1:3,:,:,:,:))
-      call self%compute_curl(ivar=VAR_BX,q_gpu=self%q_gpu,curl_gpu=self%curl_gpu(4:6,:,:,:,:))
+      ! call self%compute_curl(ivar=VAR_DX,q_gpu=self%q_gpu,curl_gpu=self%curl_gpu(1:3,:,:,:,:))
+      ! call self%compute_curl(ivar=VAR_BX,q_gpu=self%q_gpu,curl_gpu=self%curl_gpu(4:6,:,:,:,:))
       ! call self%compute_curl(ivar=7,q=self%q,curl=self%curl(7:9,:,:,:,:))
    endif
    endsubroutine compute_auxiliary_fields
@@ -1512,7 +1529,7 @@ contains
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, buffer=>self%divergence_gpu,&
              q_gpu=>self%q_gpu)
    if (blocks_number>0) then
-      call self%compute_divergence(ivar=ivar,ovar=4,q_gpu=q_gpu,divergence_gpu=buffer)
+      ! call self%compute_divergence(ivar=ivar,ovar=4,q_gpu=q_gpu,divergence_gpu=buffer)
       do iter=1, self%flail%iterations
          ! call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
          !                                  dxyz=self%field%dxyz,                                           &
@@ -1526,7 +1543,7 @@ contains
          if (dq_max < self%flail%tolerance) exit
       enddo
       call self%mpih_gpu%print_message('FLAIL convergence reached at iteration '//trim(str(iter,.true.)))
-      call self%compute_gradient(ivar=1,q_gpu=buffer(:,:,:,:,7:7),gradient_gpu=buffer(:,:,:,:,4:6))
+      ! call self%compute_gradient(ivar=1,q_gpu=buffer(:,:,:,:,7:7),gradient_gpu=buffer(:,:,:,:,4:6))
       !$acc parallel loop independent gang vector collapse(5) DEVICEVAR(q_gpu,buffer)
       do b=1, blocks_number
          do k=1, nk

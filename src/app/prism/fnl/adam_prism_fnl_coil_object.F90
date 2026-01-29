@@ -52,7 +52,7 @@ contains
    logical                                            :: verbose_             !< Flag to activate verbose mode, local var.
    real(R8P),    allocatable                          :: j_vec_t(:,:,:,:,:)   !< Transposed j_vec.
    integer(I4P), allocatable                          :: coil_flag_t(:,:,:,:) !< Transposed coil flag.
-   integer(I4P)                                       :: nb,ngc,ni,nj,nk      !< Grid dimensions.
+   integer(I4P)                                       :: nb,ngc,ni,nj,nk,nv   !< Grid dimensions.
    integer(I4P)                                       :: i, j, k, b           !< Counter.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
@@ -63,13 +63,14 @@ contains
    call dev_assign_to_device(src=self%coil%d,         dst=self%d_gpu    )
    ! call dev_assign_to_device(src=self%coil%J_vec,     dst=self%J_vec_gpu,     transposed=.true.)
    ! call dev_assign_to_device(src=self%coil%coil_flag, dst=self%coil_flag_gpu, transposed=.true.)
+   nv  =  size(  self%coil%j_vec,     dim=1)
    ngc = -lbound(self%coil%coil_flag, dim=1) + 1
    ni  =  ubound(self%coil%coil_flag, dim=1) - ngc
    nj  =  ubound(self%coil%coil_flag, dim=2) - ngc
    nk  =  ubound(self%coil%coil_flag, dim=3) - ngc
    nb  =  size(  self%coil%coil_flag, dim=4)
-   allocate(j_vec_t(    1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:3))
-   allocate(coil_flag_t(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc    ))
+   allocate(j_vec_t(    1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nv))
+   allocate(coil_flag_t(1:nb,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc     ))
    do b=1, nb
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
@@ -131,6 +132,7 @@ contains
    integer(I4P),                 intent(in), target :: ni            !< Number of cells in i direction.
    integer(I4P),                 intent(in), target :: nj            !< Number of cells in j direction.
    integer(I4P),                 intent(in), target :: nk            !< Number of cells in k direction.
+   integer(I4P)                                     :: nv            !< J_vec variables number.
    integer(I4P)                                     :: ierr          !< Error status.
 
    call self%mpih%initialize(do_mpi_init=.false.)
@@ -142,8 +144,9 @@ contains
    self%ni            => ni
    self%nj            => nj
    self%nk            => nk
-   call dev_alloc(fptr_dev=self%j_vec_gpu,     ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,3], lbounds=[1,1-ngc,1-ngc,1-ngc,1], ierr=ierr)
-   call dev_alloc(fptr_dev=self%coil_flag_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc  ], lbounds=[1,1-ngc,1-ngc,1-ngc  ], ierr=ierr)
+   nv = size(  self%coil%j_vec, dim=1)
+   call dev_alloc(fptr_dev=self%j_vec_gpu,     ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], ierr=ierr)
+   call dev_alloc(fptr_dev=self%coil_flag_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc   ], lbounds=[1,1-ngc,1-ngc,1-ngc  ], ierr=ierr)
    call self%copy_cpu_gpu
    print '(A)', self%mpih%myrankstr//'prism_fnl_coil_object%initialize finish'
    endsubroutine initialize

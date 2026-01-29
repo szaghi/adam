@@ -7,6 +7,7 @@ use penf
 implicit none
 save
 private
+! public :: S_MAX
 ! interfaces
 public :: compute_curl_fdv_interface
 public :: compute_derivative1_fdv_interface

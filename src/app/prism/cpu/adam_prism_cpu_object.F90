@@ -203,6 +203,8 @@ contains
    call self%mpih%initialize(do_mpi_init=.true., verbose=.true.)
    call self%mpih%print_message('prism_cpu_object%initialize start')
    call self%initialize_common(field = self%adam%field, filename=filename, memory_avail=self%mpih%memory_avail)
+   print*, 'cazzo ',minval(self%coil%j_vec(4,:,:,:,1)),maxval(self%coil%j_vec(4,:,:,:,1))
+   stop
    call self%allocate_cpu
 
    ! set pointer (abstract) TBP
