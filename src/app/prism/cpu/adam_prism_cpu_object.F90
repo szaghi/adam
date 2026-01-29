@@ -203,8 +203,6 @@ contains
    call self%mpih%initialize(do_mpi_init=.true., verbose=.true.)
    call self%mpih%print_message('prism_cpu_object%initialize start')
    call self%initialize_common(field = self%adam%field, filename=filename, memory_avail=self%mpih%memory_avail)
-   print*, 'cazzo ',minval(self%coil%j_vec(4,:,:,:,1)),maxval(self%coil%j_vec(4,:,:,:,1))
-   stop
    call self%allocate_cpu
 
    ! set pointer (abstract) TBP
@@ -814,6 +812,8 @@ contains
 
    call self%ic%set_initial_conditions(physics=self%physics, field=self%field, q=self%q)
    call self%coil%set_coils(physics=self%physics, field=self%field)
+   call self%particle_injection%set_particle_initial_injection(field=self%field, pic=self%pic, q_pic=self%q_pic)
+   call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=self%pic%particle_number)
    endsubroutine set_initial_conditions
 
    subroutine update_ghost(self, q, step, s)

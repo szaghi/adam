@@ -15,6 +15,7 @@ implicit none
 private
 public :: INI_SECTION_NAME
 public :: prism_particle_injection_object
+public :: write_initial_injection_tab
 
 character(len=18), parameter :: INI_SECTION_NAME = 'particle_injection'
 
@@ -25,38 +26,42 @@ character(len=29), parameter :: SPACE_RANDOM_NUMBER_GENERATOR                = '
 character(len=30), parameter :: SPACE_LAYERED_NUMBER_GENERATOR               = 'Space_layered_number_generator'
 character(len=18), parameter :: UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION     = 'Uniform_Maxwellian'
 character(len=22), parameter :: NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION = 'Non_uniform_Maxwellian'
-character(len=10), parameter :: PURE_DRIFT_VELOCITY_DISTRIBUTION             = 'Pure_drift'
 character(len=32), parameter :: VELOCITY_RANDOM_NUMBER_GENERATOR             = 'Velocity_random_number_generator'
 character(len=33), parameter :: VELOCITY_LAYERED_NUMBER_GENERATOR            = 'Velocity_layered_number_generator'
 
-procedure(space_random_number_generator_interface), pointer :: space_rand_num_generator => null() !< Space random number generator interface
+procedure(space_random_number_generator_interface), 	 pointer :: space_rand_num_generator 	 => null() !< Space random number generator interface
+procedure(velocity_random_number_generator_interface), pointer :: velocity_rand_num_generator => null() !< Space random number generator interface
 
 type :: prism_particle_injection_object
-   type(mpih_object)        :: mpih										 !< MPI handler.
-   character(len=99)        :: space_distribution					 !< Particle space distribution type.
-	character(len=99)        :: space_random_number_generator	 !< Type of random number generator for space distribution
-	real(R8P)					 :: box_number = 0.0_R8P				 !< Number of boxes in which ensure charge neutrality
-	logical						 :: space_pairing = .false.			 !< Enable space pairing of particles
-	character(len=99)        :: velocity_distribution				 !< Particle velocity distribution type.
-	real(R8P)					 :: T=0.0_R8P								 !< Plasma temperature (uniform)
-	real(R8P)					 :: T_x=0.0_R8P							 !< Plasma temperature along x (non-uniform)
-	real(R8P)					 :: T_y=0.0_R8P							 !< Plasma temperature along y (non-uniform)
-	real(R8P)					 :: T_z=0.0_R8P							 !< Plasma temperature along z (non-uniform)
-	character(len=99)        :: velocity_random_number_generator !< Type of random number generator for space distribution
-	logical			 			 :: velocity_pairing = .false.		 !< Enable space pairing of particles
-	real(R8P)					 :: v_drift_x=0.0_R8P					 !< Plasma drift velocity along x
-	real(R8P)					 :: v_drift_y=0.0_R8P					 !< Plasma drift_velocity along y
-	real(R8P)					 :: v_drift_z=0.0_R8P					 !< Plasma drift velocity along z
-	logical        			 :: v_av_correction = .false.			 !< Flag to correct the average v.
+   type(mpih_object)    :: mpih										!< MPI handler.
+   character(len=99)    :: space_distribution					!< Particle space distribution type.
+	character(len=99)    :: space_random_number_generator		!< Type of random number generator for space distribution
+	real(R8P)				:: box_number = 0.0_R8P					!< Number of boxes in which ensure charge neutrality
+	logical					:: space_pairing = .false.				!< Enable space pairing of particles
+	character(len=99)    :: velocity_distribution				!< Particle velocity distribution type.
+	real(R8P)				:: T=0.0_R8P								!< Plasma temperature (uniform)
+	real(R8P)				:: T_x=0.0_R8P								!< Plasma temperature along x (non-uniform)
+	real(R8P)				:: T_y=0.0_R8P								!< Plasma temperature along y (non-uniform)
+	real(R8P)				:: T_z=0.0_R8P								!< Plasma temperature along z (non-uniform)
+	character(len=99)    :: velocity_random_number_generator !< Type of random number generator for space distribution
+	logical			 		:: velocity_pairing = .false.			!< Enable space pairing of particles
+	real(R8P)				:: v_drift_x=0.0_R8P						!< Plasma drift velocity along x
+	real(R8P)				:: v_drift_y=0.0_R8P						!< Plasma drift_velocity along y
+	real(R8P)				:: v_drift_z=0.0_R8P						!< Plasma drift velocity along z
+	logical        		:: v_av_correction = .false.			!< Flag to correct the average v.
 
    !< Pointer (abstract) TBP.
-   procedure(particle_space_injection_interface), pass(self), pointer :: particle_space_injection => null() !< Particle space injection.
-	!procedure(particle_velocity_injection_interface), 	 	 pass(self), pointer :: particle_velocity_injection => null() !< Particle velocity injection.
-	!procedure(velocity_random_number_generator_interface), pass(self)?, pointer :: velocity_rand_num_generator => null() !< Space random number generator interface
+   procedure(particle_space_injection_interface),	  pass(self), pointer :: particle_space_injection 	  => null() !< Particle space injection.
+	procedure(particle_velocity_injection_interface), pass(self), pointer :: particle_velocity_injection => null() !< Particle velocity injection.
 contains
-   procedure, pass(self) :: description                   !< Return pretty-printed object description.
-   procedure, pass(self) :: initialize                    !< Initialize IC.
-   procedure, pass(self) :: load_from_file                !< Load config from file.
+   procedure, pass(self) :: description    !< Return pretty-printed object description.
+   procedure, pass(self) :: initialize     !< Initialize IC.
+   procedure, pass(self) :: load_from_file !< Load config from file.
+	procedure, pass(self) :: set_particle_initial_injection
+	procedure, pass(self) :: uniform_domain_space_injection
+	procedure, pass(self) :: uniform_cell_space_injection
+	procedure, pass(self) :: uniform_maxwellian_velocity_injection
+	procedure, pass(self) :: non_uniform_maxwellian_velocity_injection
 endtype prism_particle_injection_object
 
 interface
@@ -72,9 +77,25 @@ interface
 	import :: I4P, R8P
 	integer(I4P), intent(inout) :: shuffled_list(1:,1:)
 	integer(I4P), intent(in) 	 :: i_numb
-	integer(I4P), intent(in) 	 :: N 							!Numero di elementi
-	real(R8P), intent(inout) 	 :: r_n(1:) 					!Random numbers
+	integer(I4P), intent(in) 	 :: N 		
+	real(R8P), intent(inout) 	 :: r_n(1:) 
 	endsubroutine space_random_number_generator_interface
+
+	subroutine particle_velocity_injection_interface(self, field, pic, q_pic)
+   import :: prism_particle_injection_object, field_object, prism_pic_object, I4P, R8P
+	class(prism_particle_injection_object), intent(inout) :: self 
+	type(field_object),                  	 intent(in) 	:: field 
+	type(prism_pic_object),					 	 intent(in)		:: pic
+	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)                                                         !< Number of variables.
+   endsubroutine particle_velocity_injection_interface
+
+	subroutine velocity_random_number_generator_interface(N, shuffled_list, i_numb, r_n)
+	import :: I4P, R8P
+	integer(I4P), intent(inout) :: shuffled_list(1:,1:)
+	integer(I4P), intent(in) 	 :: i_numb
+	integer(I4P), intent(in) 	 :: N 		
+	real(R8P), intent(inout) 	 :: r_n(1:) 
+	endsubroutine velocity_random_number_generator_interface
 endinterface
 
 contains
@@ -110,7 +131,7 @@ contains
    subroutine initialize(self, file_parameters)
    !< Initialize particle_injection.
    class(prism_particle_injection_object), intent(inout) :: self            !< External fields.
-   type(file_ini),          intent(in)    :: file_parameters !< Simulation parameters ini file handler.
+   type(file_ini),          					 intent(in)    :: file_parameters !< Simulation parameters ini file handler.
 
    call self%mpih%initialize(do_mpi_init=.false.)
    print '(A)', self%mpih%myrankstr//'prism_particle_injection_object%initialize start'
@@ -138,35 +159,34 @@ contains
       call self%mpih%error_stop & 
 		(msg=': invalid particle space random number generator in prism_particle_injection_object%initialize')
    endselect
-	!select case(self%velocity_distribution)
-   !case(UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION)
-   !   self%particle_velocity_injection => uniform_maxwellian_velocity_injection
-   !case(NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION)
-   !   self%particle_velocity_injection => non_uniform_maxwellian_velocity_injection
-   !!case(PURE_DRIFT_VELOCITY_DISTRIBUTION)
-   !   !NON te lo scordare, ci vorrà un if nell'inizializzazione se non hai distribuzioni complesse (userai la funzione add drift velocity che scriverai)
-   !case default
-   !   call self%mpih%error_stop(msg=': invalid particle velocity injection model in prism_particle_injection_object%initialize')
-   !endselect
-	!select case(self%velocity_random_number_generator)
-   !case(VELOCITY_RANDOM_NUMBER_GENERATOR)
-   !   self%velocity_rand_num_generator => random_number_generator
-   !case(VELOCITY_LAYERED_NUMBER_GENERATOR)
-   !   self%velocity_rand_num_generator => layered_number_generator
-   !case default
-   !   call self%mpih%error_stop(msg=': invalid particle space random number generator in prism_particle_injection_object%initialize')
-   !endselect
+	select case(self%velocity_distribution)
+   case(UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION)
+      self%particle_velocity_injection => uniform_maxwellian_velocity_injection
+   case(NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION)
+      self%particle_velocity_injection => non_uniform_maxwellian_velocity_injection
+   case default
+      call self%mpih%error_stop(msg=': invalid particle velocity injection model in prism_particle_injection_object%initialize')
+   endselect
+	select case(self%velocity_random_number_generator)
+   case(VELOCITY_RANDOM_NUMBER_GENERATOR)
+      velocity_rand_num_generator => random_number_generator
+   case(VELOCITY_LAYERED_NUMBER_GENERATOR)
+      velocity_rand_num_generator => layered_number_generator
+   case default
+      call self%mpih%error_stop &
+		(msg=': invalid particle space random number generator in prism_particle_injection_object%initialize')
+   endselect
    print '(A)', self%mpih%myrankstr//'prism_particle_injection_object%initialize finish'
    endsubroutine initialize
 
    subroutine load_from_file(self, file_parameters, go_on_fail)
    !< Load PIC configuration from file.
-	class(prism_particle_injection_object), intent(inout)   			 :: self             !< PIC object.
-	type(file_ini),          intent(in)		  			 :: file_parameters  !< File handler.
-   logical,                 intent(in), optional    :: go_on_fail      	!< Go on if load fails.
-   logical                                          :: go_on_fail_     	!< Go on if load fails.
-   integer(I4P)                                     :: error           	!< Error status.
-   character(99)                                    :: buff       		!< Option character buffer.
+	class(prism_particle_injection_object), intent(inout)   		 :: self             !< PIC object.
+	type(file_ini),          					 intent(in)		  		 :: file_parameters  !< File handler.
+   logical,                 					 intent(in), optional :: go_on_fail      	!< Go on if load fails.
+   logical                                          				 :: go_on_fail_     	!< Go on if load fails.
+   integer(I4P)                                     				 :: error           	!< Error status.
+   character(99)                                    				 :: buff       		!< Option character buffer.
 
 	go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
 
@@ -229,8 +249,6 @@ contains
       self%velocity_distribution = UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION
    case('Non_Uniform_Maxwellian', 'non_uniform_maxwellian', 'non_uniform_Maxwellian')
       self%velocity_distribution = NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION
-	case('Pure_drift', 'pure_drift', 'Drift', 'drift')
-		self%velocity_distribution = PURE_DRIFT_VELOCITY_DISTRIBUTION
 	case default
 		call self%mpih%error_stop(msg=': invalid particle velocity distribution ['//trim(adjustl(buff))//'] in  & 
       ['//INI_SECTION_NAME//'].(velocity_distribution)')
@@ -320,6 +338,25 @@ contains
 	endselect
    endsubroutine load_from_file
 
+	subroutine set_particle_initial_injection(self, field, pic, q_pic)
+	class(prism_particle_injection_object), intent(inout) :: self 
+	type(field_object),                  	 intent(in) 	:: field 
+	type(prism_pic_object),					 	 intent(inout)	:: pic
+	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
+
+	!Setta posizione spaziale delle particelle e relativa tipologia
+	call self%particle_space_injection(field=field, pic=pic, q_pic=q_pic)
+	
+	!Setta velocità iniziale delle particelle
+	call self%particle_velocity_injection(field=field, pic=pic, q_pic=q_pic)
+
+	!Definisci neighbour list
+	call pic%particle_cartesian_grid_index(field=field, q_pic=q_pic)
+
+	!Aggiungo qui successivamente interpolazione iniziale dei campi e spalmatura particelle (cariche e correnti) su griglia
+	endsubroutine
+
+
    subroutine uniform_domain_space_injection(self, field, pic, q_pic)
 	class(prism_particle_injection_object), intent(inout) :: self 
 	type(field_object),                  	 intent(in) 	:: field 
@@ -397,6 +434,7 @@ contains
    desc = desc//NL//self%mpih%myrankstr//'    	Electrons number: '//trim(str(n_electrons))
 	desc = desc//NL//self%mpih%myrankstr//'    	Ions number: '//trim(str(n_ions))
 	desc = desc//NL//self%mpih%myrankstr//'    	Neutrals number: '//trim(str(n_neutrals))
+	print '(A)', desc
 	endassociate
 	endsubroutine uniform_domain_space_injection
 
@@ -549,8 +587,256 @@ contains
    desc = desc//NL//self%mpih%myrankstr//'    	Electrons number: '//trim(str(n_e_4c*n_cells))
 	desc = desc//NL//self%mpih%myrankstr//'    	Ions number: '//trim(str(n_i_4c*n_cells))
 	desc = desc//NL//self%mpih%myrankstr//'    	Neutrals number: '//trim(str(n_n_4c*n_cells))
+	print '(A)', desc
 	endassociate
 	endsubroutine uniform_cell_space_injection
+
+	subroutine uniform_maxwellian_velocity_injection(self, field, pic, q_pic)
+	class(prism_particle_injection_object), intent(inout) :: self 
+	type(field_object),                  	 intent(in) 	:: field 
+	type(prism_pic_object),					 	 intent(in)		:: pic
+	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
+	real(R8P)															:: r_n(4)
+	integer(I4P)														:: n_ions
+	integer(I4P)														:: n_electrons
+	integer(I4P)														:: n_neutrals
+	real(R8P)															:: vx_p, vy_p, vz_p
+	real(R8P)															:: Zx, Zy, Zz
+	real(R8P)															:: v_t
+	integer(I4P)														:: i
+	integer(I4P), allocatable										:: shuffled_list_ions(:,:)
+	integer(I4P), allocatable										:: shuffled_list_electrons(:,:)
+	integer(I4P), allocatable										:: shuffled_list_neutrals(:,:)
+	character(len=:), allocatable		                   	:: desc             
+   character(len=1), parameter  		                   	:: NL=new_line('a') 
+
+	associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, &
+      		ngc=>field%grid%ngc, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), 	 		 &
+      		np=>pic%particle_number, e_min=>field%grid%domain_emin, e_max=>field%grid%domain_emax,  		 &
+				neutral_fraction=>pic%neutral_fraction, v_av_correction=>self%v_av_correction, T=>self%T, 	 &
+				v_drift_x=>self%v_drift_x, v_drift_y=>self%v_drift_y, v_drift_z=>self%v_drift_z)
+
+	n_neutrals = nint(neutral_fraction*real(np,R8P))
+	n_ions = nint(real(np-n_neutrals, R8P)/2.0_R8P)
+	n_electrons = n_ions
+	n_neutrals = np - n_ions - n_electrons
+	allocate(shuffled_list_ions	  (1:4,1:n_ions))
+	allocate(shuffled_list_electrons(1:4,1:n_electrons))
+	allocate(shuffled_list_neutrals (1:4,1:n_neutrals))
+	shuffled_list_ions(:,:) 	  = 0_I4P
+	shuffled_list_electrons(:,:) = 0_I4P
+	shuffled_list_neutrals(:,:)  = 0_I4P
+
+	!if(.not.space_pairing) then
+		do i = 1, n_ions
+			call space_rand_num_generator(N=n_ions, shuffled_list=shuffled_list_ions, i_numb=i, r_n=r_n)
+			v_t = sqrt(K_B*T/q_pic(8,i))
+			Zx = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
+			Zy = sqrt(-2.0_R8P*log(r_n(1)))*sin(2*PI*r_n(2))
+			Zz = sqrt(-2.0_R8P*log(r_n(3)))*cos(2*PI*r_n(4))
+			vx_p = v_t*Zx 
+			vy_p = v_t*Zy
+			vz_p = v_t*Zz 
+			q_pic(4,i) = vx_p
+			q_pic(5,i) = vy_p
+			q_pic(6,i) = vz_p
+		enddo
+		call add_drift_velocity(q_pic=q_pic(4,1:n_ions), v_drift=v_drift_x)
+		call add_drift_velocity(q_pic=q_pic(5,1:n_ions), v_drift=v_drift_y)
+		call add_drift_velocity(q_pic=q_pic(6,1:n_ions), v_drift=v_drift_z)
+		if (v_av_correction) then
+			call apply_vel_av_correction(q_pic=q_pic(4,1:n_ions), v_drift = v_drift_x)
+			call apply_vel_av_correction(q_pic=q_pic(5,1:n_ions), v_drift = v_drift_y)
+			call apply_vel_av_correction(q_pic=q_pic(6,1:n_ions), v_drift = v_drift_z)
+		endif
+		do i = 1, n_electrons
+			call space_rand_num_generator(N=n_electrons, shuffled_list=shuffled_list_electrons, i_numb=i, r_n=r_n)
+			v_t = sqrt(K_B*T/q_pic(8,i))
+			Zx = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
+			Zy = sqrt(-2.0_R8P*log(r_n(1)))*sin(2*PI*r_n(2))
+			Zz = sqrt(-2.0_R8P*log(r_n(3)))*cos(2*PI*r_n(4))
+			vx_p = v_t*Zx 
+			vy_p = v_t*Zy
+			vz_p = v_t*Zz 
+			q_pic(4,i+n_ions) = vx_p
+			q_pic(5,i+n_ions) = vy_p
+			q_pic(6,i+n_ions) = vz_p
+		enddo
+		call add_drift_velocity(q_pic=q_pic(4,n_ions+1:n_ions+n_electrons), v_drift=v_drift_x)
+		call add_drift_velocity(q_pic=q_pic(5,n_ions+1:n_ions+n_electrons), v_drift=v_drift_y)
+		call add_drift_velocity(q_pic=q_pic(6,n_ions+1:n_ions+n_electrons), v_drift=v_drift_z)
+		if (v_av_correction) then
+			call apply_vel_av_correction(q_pic=q_pic(4,n_ions+1:n_ions+n_electrons), v_drift = v_drift_x)
+			call apply_vel_av_correction(q_pic=q_pic(5,n_ions+1:n_ions+n_electrons), v_drift = v_drift_y)
+			call apply_vel_av_correction(q_pic=q_pic(6,n_ions+1:n_ions+n_electrons), v_drift = v_drift_z)
+		endif
+		do i = 1, n_neutrals
+			call space_rand_num_generator(N=n_neutrals, shuffled_list=shuffled_list_neutrals, i_numb=i, r_n=r_n)
+			v_t = sqrt(K_B*T/q_pic(8,i))
+			Zx = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
+			Zy = sqrt(-2.0_R8P*log(r_n(1)))*sin(2*PI*r_n(2))
+			Zz = sqrt(-2.0_R8P*log(r_n(3)))*cos(2*PI*r_n(4))
+			vx_p = v_t*Zx 
+			vy_p = v_t*Zy
+			vz_p = v_t*Zz 
+			q_pic(4,i+n_ions+n_electrons) = vx_p
+			q_pic(5,i+n_ions+n_electrons) = vy_p
+			q_pic(6,i+n_ions+n_electrons) = vz_p
+		enddo
+		call add_drift_velocity(q_pic=q_pic(4,n_ions+n_electrons+1:np), v_drift=v_drift_x)
+		call add_drift_velocity(q_pic=q_pic(5,n_ions+n_electrons+1:np), v_drift=v_drift_y)
+		call add_drift_velocity(q_pic=q_pic(6,n_ions+n_electrons+1:np), v_drift=v_drift_z)
+		if (v_av_correction) then
+			call apply_vel_av_correction(q_pic=q_pic(4,n_ions+n_electrons+1:np), v_drift = v_drift_x)
+			call apply_vel_av_correction(q_pic=q_pic(5,n_ions+n_electrons+1:np), v_drift = v_drift_y)
+			call apply_vel_av_correction(q_pic=q_pic(6,n_ions+n_electrons+1:np), v_drift = v_drift_z)
+		endif
+	!else
+
+	!endif
+	
+	!desc =       self%mpih%myrankstr//'Injected particles:'
+   !desc = desc//NL//self%mpih%myrankstr//'    	Electrons number: '//trim(str(n_electrons))
+	!desc = desc//NL//self%mpih%myrankstr//'    	Ions number: '//trim(str(n_ions))
+	!desc = desc//NL//self%mpih%myrankstr//'    	Neutrals number: '//trim(str(n_neutrals))
+	endassociate
+	endsubroutine uniform_maxwellian_velocity_injection
+
+	subroutine non_uniform_maxwellian_velocity_injection(self, field, pic, q_pic)
+	class(prism_particle_injection_object), intent(inout) :: self 
+	type(field_object),                  	 intent(in) 	:: field 
+	type(prism_pic_object),					 	 intent(in)		:: pic
+	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
+	real(R8P)															:: r_n(4)
+	integer(I4P)														:: n_ions
+	integer(I4P)														:: n_electrons
+	integer(I4P)														:: n_neutrals
+	real(R8P)															:: vx_p, vy_p, vz_p
+	real(R8P)															:: Zx, Zy, Zz
+	real(R8P)															:: v_tx, v_ty, v_tz
+	integer(I4P)														:: i
+	integer(I4P), allocatable										:: shuffled_list_ions(:,:)
+	integer(I4P), allocatable										:: shuffled_list_electrons(:,:)
+	integer(I4P), allocatable										:: shuffled_list_neutrals(:,:)
+	character(len=:), allocatable		                   	:: desc             
+   character(len=1), parameter  		                   	:: NL=new_line('a') 
+
+	associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, &
+      		ngc=>field%grid%ngc, dx=>field%dxyz(1,:), dy=>field%dxyz(2,:), dz=>field%dxyz(3,:), 	 		 &
+      		np=>pic%particle_number, e_min=>field%grid%domain_emin, e_max=>field%grid%domain_emax,  		 &
+				neutral_fraction=>pic%neutral_fraction, T_x=>self%T_x, T_y=>self%T_y, T_z=>self%T_z, 			 &
+				v_av_correction=>self%v_av_correction, v_drift_x=>self%v_drift_x, v_drift_y=>self%v_drift_y,  &
+				v_drift_z=>self%v_drift_z)
+
+	n_neutrals = nint(neutral_fraction*real(np,R8P))
+	n_ions = nint(real(np-n_neutrals, R8P)/2.0_R8P)
+	n_electrons = n_ions
+	n_neutrals = np - n_ions - n_electrons
+	allocate(shuffled_list_ions	  (1:4,1:n_ions))
+	allocate(shuffled_list_electrons(1:4,1:n_electrons))
+	allocate(shuffled_list_neutrals (1:4,1:n_neutrals))
+	shuffled_list_ions(:,:) 	  = 0_I4P
+	shuffled_list_electrons(:,:) = 0_I4P
+	shuffled_list_neutrals(:,:)  = 0_I4P
+
+	!if(.not.velocity_pairing) then
+		do i = 1, n_ions
+			call velocity_rand_num_generator(N=n_ions, shuffled_list=shuffled_list_ions, i_numb=i, r_n=r_n)
+			v_tx = sqrt(K_B*T_x/q_pic(8,i))
+			v_ty = sqrt(K_B*T_y/q_pic(8,i))
+			v_tz = sqrt(K_B*T_z/q_pic(8,i))
+			Zx = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
+			Zy = sqrt(-2.0_R8P*log(r_n(1)))*sin(2*PI*r_n(2))
+			Zz = sqrt(-2.0_R8P*log(r_n(3)))*cos(2*PI*r_n(4))
+			vx_p = v_tx*Zx 
+			vy_p = v_ty*Zy
+			vz_p = v_tz*Zz 
+			q_pic(4,i) = vx_p
+			q_pic(5,i) = vy_p
+			q_pic(6,i) = vz_p
+		enddo
+		call add_drift_velocity(q_pic=q_pic(4,1:n_ions), v_drift=v_drift_x)
+		call add_drift_velocity(q_pic=q_pic(5,1:n_ions), v_drift=v_drift_y)
+		call add_drift_velocity(q_pic=q_pic(6,1:n_ions), v_drift=v_drift_z)
+		if (v_av_correction) then
+			call apply_vel_av_correction(q_pic=q_pic(4,1:n_ions), v_drift = v_drift_x)
+			call apply_vel_av_correction(q_pic=q_pic(5,1:n_ions), v_drift = v_drift_y)
+			call apply_vel_av_correction(q_pic=q_pic(6,1:n_ions), v_drift = v_drift_z)
+		endif
+		do i = 1, n_electrons
+			call velocity_rand_num_generator(N=n_electrons, shuffled_list=shuffled_list_electrons, i_numb=i, r_n=r_n)
+			v_tx = sqrt(K_B*T_x/q_pic(8,i))
+			v_ty = sqrt(K_B*T_y/q_pic(8,i))
+			v_tz = sqrt(K_B*T_z/q_pic(8,i))
+			Zx = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
+			Zy = sqrt(-2.0_R8P*log(r_n(1)))*sin(2*PI*r_n(2))
+			Zz = sqrt(-2.0_R8P*log(r_n(3)))*cos(2*PI*r_n(4))
+			vx_p = v_tx*Zx 
+			vy_p = v_ty*Zy
+			vz_p = v_tz*Zz 
+			q_pic(4,i+n_ions) = vx_p
+			q_pic(5,i+n_ions) = vy_p
+			q_pic(6,i+n_ions) = vz_p
+		enddo
+		call add_drift_velocity(q_pic=q_pic(4,n_ions+1:n_ions+n_electrons), v_drift=v_drift_x)
+		call add_drift_velocity(q_pic=q_pic(5,n_ions+1:n_ions+n_electrons), v_drift=v_drift_y)
+		call add_drift_velocity(q_pic=q_pic(6,n_ions+1:n_ions+n_electrons), v_drift=v_drift_z)
+		if (v_av_correction) then
+			call apply_vel_av_correction(q_pic=q_pic(4,n_ions+1:n_ions+n_electrons), v_drift = v_drift_x)
+			call apply_vel_av_correction(q_pic=q_pic(5,n_ions+1:n_ions+n_electrons), v_drift = v_drift_y)
+			call apply_vel_av_correction(q_pic=q_pic(6,n_ions+1:n_ions+n_electrons), v_drift = v_drift_z)
+		endif
+		do i = 1, n_neutrals
+			call velocity_rand_num_generator(N=n_neutrals, shuffled_list=shuffled_list_neutrals, i_numb=i, r_n=r_n)
+			v_tx = sqrt(K_B*T_x/q_pic(8,i))
+			v_ty = sqrt(K_B*T_y/q_pic(8,i))
+			v_tz = sqrt(K_B*T_z/q_pic(8,i))
+			Zx = sqrt(-2.0_R8P*log(r_n(1)))*cos(2*PI*r_n(2))
+			Zy = sqrt(-2.0_R8P*log(r_n(1)))*sin(2*PI*r_n(2))
+			Zz = sqrt(-2.0_R8P*log(r_n(3)))*cos(2*PI*r_n(4))
+			vx_p = v_tx*Zx 
+			vy_p = v_ty*Zy
+			vz_p = v_tz*Zz 
+			q_pic(4,i+n_ions+n_electrons) = vx_p
+			q_pic(5,i+n_ions+n_electrons) = vy_p
+			q_pic(6,i+n_ions+n_electrons) = vz_p
+		enddo
+		call add_drift_velocity(q_pic=q_pic(4,n_ions+n_electrons+1:np), v_drift=v_drift_x)
+		call add_drift_velocity(q_pic=q_pic(5,n_ions+n_electrons+1:np), v_drift=v_drift_y)
+		call add_drift_velocity(q_pic=q_pic(6,n_ions+n_electrons+1:np), v_drift=v_drift_z)
+		if (v_av_correction) then
+			call apply_vel_av_correction(q_pic=q_pic(4,n_ions+n_electrons+1:np), v_drift = v_drift_x)
+			call apply_vel_av_correction(q_pic=q_pic(5,n_ions+n_electrons+1:np), v_drift = v_drift_y)
+			call apply_vel_av_correction(q_pic=q_pic(6,n_ions+n_electrons+1:np), v_drift = v_drift_z)
+		endif
+	!else
+
+	!endif
+	
+	!desc =       self%mpih%myrankstr//'Injected particles:'
+   !desc = desc//NL//self%mpih%myrankstr//'    	Electrons number: '//trim(str(n_electrons))
+	!desc = desc//NL//self%mpih%myrankstr//'    	Ions number: '//trim(str(n_ions))
+	!desc = desc//NL//self%mpih%myrankstr//'    	Neutrals number: '//trim(str(n_neutrals))
+	endassociate
+	endsubroutine non_uniform_maxwellian_velocity_injection
+
+	subroutine write_initial_injection_tab(filename, q_pic, np)
+	character(len=1), parameter  :: TAB = achar(9)
+	character(len=*), intent(in) :: filename
+	integer(I4P),     intent(in) :: np
+	real(R8P),        intent(in) :: q_pic(1:8, 1:np)
+	integer(I4P) 					  :: iu, i, j, ios
+	open(newunit=iu, file=trim(filename), status='replace', action='write', &
+	     form='formatted', iostat=ios)
+	if (ios /= 0) then
+	  write(*,'(a,i0)') 'write_dat_tab: errore open(), iostat=', ios
+	  error stop
+	end if
+	do i = 1, np
+	  write(iu,'(ES24.16,7(a,ES24.16))') q_pic(1,i), (TAB, q_pic(j,i), j=2,8)
+	end do
+	close(iu)
+	endsubroutine write_initial_injection_tab
 
 	subroutine random_number_generator(N, shuffled_list, i_numb, r_n)
 	integer(I4P), intent(inout) :: shuffled_list(1:,1:)
@@ -564,25 +850,29 @@ contains
 	subroutine layered_number_generator(N, shuffled_list, i_numb, r_n)
 	integer(I4P), intent(inout) :: shuffled_list(1:,1:)
 	integer(I4P), intent(in) 	 :: i_numb
-	integer(I4P), intent(in) 	 :: N 							!Numero di elementi
+	integer(I4P), intent(in) 	 :: N  		 					!Numero di elementi
 	real(R8P), intent(inout) 	 :: r_n(1:) 					!Random numbers
 	integer(I4P) 					 :: index_list(N)
-	integer(I4P) 					 :: w
+	integer(I4P) 					 :: w, h
+	integer(I4P)					 :: n_rn
 
+	n_rn = size(r_n)
 	if (i_numb == 1) then
 		do w = 1, N 
 			index_list(w) = w
 		enddo
-		shuffled_list(1,:) = index_list
-		shuffled_list(2,:) = fisher_yates_shuffle(index_list=index_list, nn=N)
-		shuffled_list(3,:) = fisher_yates_shuffle(index_list=index_list, nn=N)
-		r_n(1) = (real(shuffled_list(1,i_numb),R8P)-0.5_R8P)/real(N,R8P)
-		r_n(2) = (real(shuffled_list(2,i_numb),R8P)-0.5_R8P)/real(N,R8P)
-		r_n(3) = (real(shuffled_list(3,i_numb),R8P)-0.5_R8P)/real(N,R8P)
+		do h = 1, n_rn 
+			if (h == 1) then
+				shuffled_list(1,:) = index_list
+			else
+				shuffled_list(h,:) = fisher_yates_shuffle(index_list=index_list, nn=N)
+			endif	
+			r_n(h) = (real(shuffled_list(h,i_numb),R8P)-0.5_R8P)/real(N,R8P)
+		enddo
 	else
-		r_n(1) = (real(shuffled_list(1,i_numb),R8P)-0.5_R8P)/real(N,R8P)
-		r_n(2) = (real(shuffled_list(2,i_numb),R8P)-0.5_R8P)/real(N,R8P)
-		r_n(3) = (real(shuffled_list(3,i_numb),R8P)-0.5_R8P)/real(N,R8P)
+		do h = 1, n_rn 
+			r_n(h) = (real(shuffled_list(h,i_numb),R8P)-0.5_R8P)/real(N,R8P)
+		enddo
 	endif
 	endsubroutine layered_number_generator
 
@@ -602,4 +892,22 @@ contains
       shuffled_list(jj) = tmp
    enddo
 	endfunction fisher_yates_shuffle	
+
+	subroutine add_drift_velocity(q_pic, v_drift)
+	real(R8P), intent(inout) :: q_pic(1:)
+	real(R8P), intent(in)	 :: v_drift
+
+	q_pic(:) = q_pic(:) + v_drift
+	endsubroutine add_drift_velocity
+
+	subroutine apply_vel_av_correction(q_pic, v_drift)
+	real(R8P), intent(inout) :: q_pic(1:)
+	real(R8P), intent(in)	 :: v_drift
+	real(R8P)					 :: v_av, correction
+
+	v_av = sum(q_pic) /real(size(q_pic), kind=R8P)
+	correction = (v_drift - v_av)
+	q_pic(:) = q_pic(:) + correction
+	endsubroutine apply_vel_av_correction
+
    endmodule adam_prism_particle_injection_object

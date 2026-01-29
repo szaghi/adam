@@ -18,6 +18,7 @@ public :: EPS0_SQ_I2
 public :: C0
 public :: E_CHARGE
 public :: E_MASS
+public :: K_B
 public :: PI
 public :: EV
 public :: ER

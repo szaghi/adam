@@ -248,7 +248,7 @@ contains
    call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(particle_number)')
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutral_fraction', &
-   val=self%particle_number, error=error)
+   val=self%neutral_fraction, error=error)
    if (.not.go_on_fail_.and.error>0) & 
    call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutral_fraction)')
    endsubroutine load_from_file
