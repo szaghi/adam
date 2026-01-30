@@ -42,19 +42,19 @@ type :: prism_coil_object
    character(len=99), allocatable :: current_type(:)                       !< Current type.
    character(len=99), allocatable :: coil_sec(:)                           !< Coil representation.
    character(len=99), allocatable :: current_distribution(:)               !< Current spatial distribution.
-   real(R8P), allocatable         :: A(:)                                  !< Current amplitude (A)
-   real(R8P), allocatable         :: f(:)                                  !< Current frequency, if AC (Hz)
-   real(R8P), allocatable         :: phi(:,:,:,:,:)                        !< Distance function from the coils
-   real(R8P), allocatable         :: phase(:)                              !< Current initial phase, if AC
-   real(R8P), allocatable         :: d(:)                                  !< Coil wire diameter
-   real(R8P), allocatable         :: x_center(:), y_center(:), z_center(:) !< Coil center
-   real(R8P), allocatable         :: lx(:), ly(:)                          !< Rectangle's sizes (if rectangular coil)
-   real(R8P), allocatable         :: r_c(:)                                !< Rectangle's radius of curvature (if rectangular coil)
-   real(R8P), allocatable         :: r_coil(:)                             !< Circle's radius (if circular coil)
-   real(R8P), allocatable         :: normal(:,:)                           !< Versore normale alla spira, che identifica anche verso
-   real(R8P), pointer             :: J_vec(:,:,:,:,:)                      !< Matrice contenente versori corrente spire (se assente
+   real(R8P),         allocatable :: A(:)                                  !< Current amplitude (A)
+   real(R8P),         allocatable :: f(:)                                  !< Current frequency, if AC (Hz)
+   real(R8P),         allocatable :: phi(:,:,:,:,:)                        !< Distance function from the coils
+   real(R8P),         allocatable :: phase(:)                              !< Current initial phase, if AC
+   real(R8P),         allocatable :: d(:)                                  !< Coil wire diameter
+   real(R8P),         allocatable :: x_center(:), y_center(:), z_center(:) !< Coil center
+   real(R8P),         allocatable :: lx(:), ly(:)                          !< Rectangle's sizes (if rectangular coil)
+   real(R8P),         allocatable :: r_c(:)                                !< Rectangle's radius of curvature (if rectangular coil)
+   real(R8P),         allocatable :: r_coil(:)                             !< Circle's radius (if circular coil)
+   real(R8P),         allocatable :: normal(:,:)                           !< Versore normale alla spira, che identifica anche verso
+   real(R8P),         allocatable :: J_vec(:,:,:,:,:)                      !< Matrice contenente versori corrente spire (se assente
    real(R8P)                      :: td                                    !< Delay di accensione della spira
-   integer(I4P), pointer          :: coil_flag(:,:,:,:)                    !< Matrice contenente informazioni su quale spira pass pe
+   integer(I4P),      allocatable :: coil_flag(:,:,:,:)                    !< Matrice contenente informazioni su quale spira pass pe
    integer(I4P)                   :: circular_coils_number=0_I4P           !< Number of circular coils
    integer(I4P)                   :: rectangular_coils_number=0_I4P        !< Number of rectangular coils
    integer(I4P)                   :: total_coils_number=0_I4P              !< Number of coils

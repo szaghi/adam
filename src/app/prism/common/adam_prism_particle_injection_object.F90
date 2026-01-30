@@ -824,8 +824,10 @@ contains
 	character(len=1), parameter  :: TAB = achar(9)
 	character(len=*), intent(in) :: filename
 	integer(I4P),     intent(in) :: np
-	real(R8P),        intent(in) :: q_pic(1:8, 1:np)
-	integer(I4P) 					  :: iu, i, j, ios
+	real(R8P),        intent(in) :: q_pic(1:, 1:)
+	integer(I4P) 					  :: iu, i, j, ios, l
+
+	l = size(q_pic, dim=1)
 	open(newunit=iu, file=trim(filename), status='replace', action='write', &
 	     form='formatted', iostat=ios)
 	if (ios /= 0) then
@@ -833,7 +835,7 @@ contains
 	  error stop
 	end if
 	do i = 1, np
-	  write(iu,'(ES24.16,7(a,ES24.16))') q_pic(1,i), (TAB, q_pic(j,i), j=2,8)
+	  write(iu,'(ES24.16,7(a,ES24.16))') q_pic(1,i), (TAB, q_pic(j,i), j=2,l)
 	end do
 	close(iu)
 	endsubroutine write_initial_injection_tab

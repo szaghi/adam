@@ -814,6 +814,8 @@ contains
    call self%coil%set_coils(physics=self%physics, field=self%field)
    call self%particle_injection%set_particle_initial_injection(field=self%field, pic=self%pic, q_pic=self%q_pic)
    call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=self%pic%particle_number)
+   call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(self%pic%neighbour_list,R8P), &
+                                    np=self%pic%particle_number)
    endsubroutine set_initial_conditions
 
    subroutine update_ghost(self, q, step, s)

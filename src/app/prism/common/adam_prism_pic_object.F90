@@ -268,15 +268,16 @@ contains
 
    !Va completato considerando la presenza di più blocchi, questo funziona per un blocco solo
    do n = 1, np
-      i_p = (q_pic(n,1) - e_min(1)) / dx(1)
-      j_p = (q_pic(n,2) - e_min(2)) / dy(1)
-      k_p = (q_pic(n,3) - e_min(3)) / dz(1)
+      i_p = (q_pic(1,n) - e_min(1)) / dx(1)
+      j_p = (q_pic(2,n) - e_min(2)) / dy(1)
+      k_p = (q_pic(3,n) - e_min(3)) / dz(1)
       b_p = 1 ! Single block only for now
 
       neighbour_list(1,n) = ceiling(b_p)
       neighbour_list(2,n) = ceiling(i_p)
       neighbour_list(3,n) = ceiling(j_p)
       neighbour_list(4,n) = ceiling(k_p)
+
    enddo
    endassociate
    endsubroutine particle_cartesian_grid_index
