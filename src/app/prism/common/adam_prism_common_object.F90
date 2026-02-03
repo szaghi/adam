@@ -175,7 +175,6 @@ contains
                                  div_corr_var=self%numerics%div_corr_var,                                               &
                                  constrained_transport_D=self%numerics%constrained_transport_D,                         &
                                  constrained_transport_B=self%numerics%constrained_transport_B)
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) call self%pic%initialize(file_parameters=file_parameters)
    call self%adam%grid%initialize(file_parameters=file_parameters,bc_type=self%bc%bc_type, verbose=.true.)
    call self%adam%compute_blocks_number(memory_avail=memory_avail, fields_number=80, nb=nb, nodes_number=nodes_number)
    call self%adam%initialize(file_parameters=file_parameters, &
@@ -184,6 +183,8 @@ contains
                              do_field_init=.true.,            &
                              nv=self%physics%nv, nb=1, nodes_number=11_I8P, q=self%q) !nb = nb !nodes_number = nodes_number
    call associate_adam_data(grid=self%adam%grid, field=self%adam%field, physics=self%physics)
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) call self%pic%initialize(file_parameters=file_parameters, &
+                                                                                   field=self%field)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) & 
       call self%particle_injection%initialize(file_parameters=file_parameters)
    call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_blocks_reorder=.false.,q=self%q)

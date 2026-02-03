@@ -56,9 +56,13 @@ character(11),    parameter :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA  = 'RUNGE_KUTTA' 
 
 type :: prism_pic_object
    type(mpih_object)         :: mpih                       !< MPI handler.
-   integer(I4P)              :: particle_number = 0_I4P    !< Total number of particles.
-   integer(I4P), allocatable :: neighbour_list(:,:)        !< Particle grid positions array.
+   real(R8P)                 :: plasma_density             !< Plasma density
    real(R8P)                 :: neutral_fraction = 0.0_R8P !< Neutral fraction
+   integer(I4P)              :: particle_number  = 0_I4P   !< Total number of particles.
+	integer(I4P)				  :: n_ions = 0_I4P             !< Total ions number
+	integer(I4P)				  :: n_electrons = 0_I4P        !< Total electrons number
+	integer(I4P)				  :: n_neutrals = 0_I4P         !< Total neutrals number
+   integer(I4P), allocatable :: neighbour_list(:,:)        !< Particle grid positions array.
    character(len=99)         :: particle_weighting_model   !< Particle weighting model.
    character(len=99)         :: current_weighting_model    !< Current weighting model.
    character(len=99)         :: field_weighting_model      !< Field weighting model.
@@ -119,7 +123,7 @@ contains
    character(len=:), allocatable                   :: desc             !< Description.
    character(len=1), parameter                     :: NL=new_line('a') !< New line character.
    desc =       self%mpih%myrankstr//'PIC object description:'
-   desc = desc//NL//self%mpih%myrankstr//'    Number of particles: '//trim(str(self%particle_number))
+   desc = desc//NL//self%mpih%myrankstr//'    Input plasma density [m^(-3)]: '//trim(str(self%plasma_density))
    desc = desc//NL//self%mpih%myrankstr//'    Neutral fraction: '//trim(str(self%neutral_fraction))
    desc = desc//NL//self%mpih%myrankstr//'    Particle weighting model: '//trim(self%particle_weighting_model)
    desc = desc//NL//self%mpih%myrankstr//'    Current weighting model: '//trim(self%current_weighting_model)
@@ -127,16 +131,33 @@ contains
    desc = desc//NL//self%mpih%myrankstr//'    Numerical scheme for time operator: '//trim(self%scheme_time)
    endfunction description
 
-   subroutine initialize(self, file_parameters)
+   subroutine initialize(self, file_parameters, field)
    !< Initialize PIC.
-   class(prism_pic_object), intent(inout) :: self            !< External fields.
+   class(prism_pic_object), intent(inout) :: self            !< Pic object.
    type(file_ini),          intent(in)    :: file_parameters !< Simulation parameters ini file handler.
+   type(field_object),      intent(in) 	:: field           !< Field object
+   real(R8P)                              :: domain_volume   !< Total volume of the computational domain where plasma is
+                                                             !< present at t0
+	character(len=:),        allocatable   :: desc             
+   character(len=1),        parameter     :: NL=new_line('a') 
 
    call self%mpih%initialize(do_mpi_init=.false.)
    print '(A)', self%mpih%myrankstr//'prism_pic_object%initialize start'
 
    call self%load_from_file(file_parameters=file_parameters)
    print '(A)', self%description()
+
+   associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, &
+               e_min=>field%grid%domain_emin, e_max=>field%grid%domain_emax)
+   
+   domain_volume = (e_max(1)-e_min(1))*(e_max(2)-e_min(2))*(e_max(3)-e_min(3))
+   self%particle_number = nint(self%plasma_density*domain_volume)
+   self%n_neutrals = nint(self%neutral_fraction*real(self%particle_number,R8P))
+	self%n_ions = nint(real(self%particle_number-self%n_neutrals, R8P)/2.0_R8P)
+	self%n_electrons = self%n_ions
+	self%n_neutrals = self%particle_number - self%n_ions - self%n_electrons
+
+   endassociate
 
    allocate(self%neighbour_list(4, self%particle_number))
 
@@ -242,10 +263,10 @@ contains
       self%scheme_time = NUM_SCHEME_TIME_PIC_RUNGE_KUTTA
    endselect
 
-	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='particle_number', &
-   val=self%particle_number, error=error)
+	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='plasma_density', &
+   val=self%plasma_density, error=error)
    if (.not.go_on_fail_.and.error>0) & 
-   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(particle_number)')
+   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(plasma_density)')
 
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutral_fraction', &
    val=self%neutral_fraction, error=error)
