@@ -6,7 +6,7 @@ use :: adam_mpih_object, only : mpih_object
 use adam_field_object, only : field_object
 ! PRISM modules
 use :: adam_prism_parameters
-use :: adam_prism_pic_object, only: prism_pic_object
+use :: adam_prism_pic_object, only: prism_pic_object, PLASMA_TYPE_PROBLEM, SINGLE_PARTICLE_TYPE_PROBLEM
 ! third party modules
 use :: finer, only : file_ini
 use :: penf,  only : I4P, R8P, str
@@ -51,6 +51,11 @@ type :: prism_particle_injection_object
 	real(R8P)				:: T_n_x=0.0_R8P							!< Neutrals plasma temperature along x (non-uniform)
 	real(R8P)				:: T_n_y=0.0_R8P							!< Neutrals plasma temperature along y (non-uniform)
 	real(R8P)				:: T_n_z=0.0_R8P							!< Neutrals plasma temperature along z (non-uniform)
+	real(R8P)				:: x_position=0.0_R8P					!< x coordinate of the initial position of the particle in single particle problem
+	real(R8P)				:: y_position=0.0_R8P					!< y coordinate of the initial position of the particle in single particle problem
+	real(R8P)				:: z_position=0.0_R8P					!< z coordinate of the initial position of the particle in single particle problem
+	real(R8P)				:: charge=0.0_R8P							!< charge of the particle in single particle problem
+	real(R8P)				:: mass=0.0_R8P							!< mass of the particle in single particle problem
 	character(len=99)    :: velocity_random_number_generator !< Type of random number generator for space distribution
 	logical			 		:: velocity_pairing = .false.			!< Enable space pairing of particles
 	real(R8P)				:: v_drift_x=0.0_R8P						!< Plasma drift velocity along x
@@ -70,6 +75,7 @@ contains
 	procedure, pass(self) :: uniform_cell_space_injection
 	procedure, pass(self) :: uniform_maxwellian_velocity_injection
 	procedure, pass(self) :: non_uniform_maxwellian_velocity_injection
+	procedure, pass(self) :: single_particle_injection
 endtype prism_particle_injection_object
 
 interface
@@ -107,264 +113,322 @@ interface
 endinterface
 
 contains
-   function description(self) result(desc)
+   function description(self, pic) result(desc)
    !< Return a pretty-formatted object description.
    class(prism_particle_injection_object), intent(in) :: self             !< External fields.
+	type(prism_pic_object), 					 intent(in) :: pic				  !< PIC object
    character(len=:), allocatable                   	:: desc             !< Description.
    character(len=1), parameter                     	:: NL=new_line('a') !< New line character.
 
    desc =       self%mpih%myrankstr//'Particle injection object description:'
-   desc = desc//NL//self%mpih%myrankstr//'    	Space initial distribution: '//self%space_distribution
-	if (self%space_distribution == UNIFORM_BOX_SPACE_DISTRIBUTION) then
-		desc = desc//NL//self%mpih%myrankstr//'    	Number of boxes: '//trim(str(self%box_number))
+	if (pic%problem_type == PLASMA_TYPE_PROBLEM) then
+   	desc = desc//NL//self%mpih%myrankstr//'    	Space initial distribution: '//self%space_distribution
+		if (self%space_distribution == UNIFORM_BOX_SPACE_DISTRIBUTION) then
+			desc = desc//NL//self%mpih%myrankstr//'    	Number of boxes: '//trim(str(self%box_number))
+		endif
+		desc = desc//NL//self%mpih%myrankstr//'    	Space random number generator: '//self%space_random_number_generator
+		desc = desc//NL//self%mpih%myrankstr//'    	Space pairing: '//trim(str(self%space_pairing))
+		desc = desc//NL//self%mpih%myrankstr//'    	Velocity initial distribution: '//self%velocity_distribution
+		if (self%velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
+			desc = desc//NL//self%mpih%myrankstr//'    	Plasma  Ionic Temperature: '//trim(str(self%T_i))
+			desc = desc//NL//self%mpih%myrankstr//'    	Plasma  Electronic Temperature: '//trim(str(self%T_e))
+			desc = desc//NL//self%mpih%myrankstr//'    	Plasma  Neutrals Temperature: '//trim(str(self%T_n))
+		elseif (self%velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
+			desc = desc//NL//self%mpih%myrankstr//'    	Plasma x Ionic Temperature: '//trim(str(self%T_i_x))
+			desc = desc//NL//self%mpih%myrankstr//'    	Plasma y Ionic Temperature: '//trim(str(self%T_i_y))
+			desc = desc//NL//self%mpih%myrankstr//'    	Plasma z Ionic Temperature: '//trim(str(self%T_i_z))
+			desc = desc//NL//self%mpih%myrankstr//'    	Plasma x Electronic Temperature: '//trim(str(self%T_e_x))
+			desc = desc//NL//self%mpih%myrankstr//'    	Plasma y Electronic Temperature: '//trim(str(self%T_e_y))
+			desc = desc//NL//self%mpih%myrankstr//'    	Plasma z Electronic Temperature: '//trim(str(self%T_e_z))
+			desc = desc//NL//self%mpih%myrankstr//'    	Plasma x Neutrals Temperature: '//trim(str(self%T_n_x))
+			desc = desc//NL//self%mpih%myrankstr//'    	Plasma y Neutrals Temperature: '//trim(str(self%T_n_y))
+			desc = desc//NL//self%mpih%myrankstr//'    	Plasma z Neutrals Temperature: '//trim(str(self%T_n_z))
+		endif
+		if (self%velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION .or. &
+			self%velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
+			desc = desc//NL//self%mpih%myrankstr//'    	Velocity random number generator: '//trim(self%velocity_random_number_generator)
+			desc = desc//NL//self%mpih%myrankstr//'    	Velocity pairing: '//trim(str(self%velocity_pairing))
+		endif
+		desc = desc//NL//self%mpih%myrankstr//'    	Velocity averaging: '//trim(str(self%v_av_correction))
+	elseif (pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
+		desc = desc//NL//self%mpih%myrankstr//'    	Particle x coordinate initial position: '//trim(str(self%x_position))
+		desc = desc//NL//self%mpih%myrankstr//'    	Particle y coordinate initial position: '//trim(str(self%y_position))
+		desc = desc//NL//self%mpih%myrankstr//'    	Particle z coordinate initial position: '//trim(str(self%z_position))
+		desc = desc//NL//self%mpih%myrankstr//'    	Particle charge: '//trim(str(self%charge))
+		desc = desc//NL//self%mpih%myrankstr//'    	Particle mass: '//trim(str(self%mass))
 	endif
-	desc = desc//NL//self%mpih%myrankstr//'    	Space random number generator: '//self%space_random_number_generator
-	desc = desc//NL//self%mpih%myrankstr//'    	Space pairing: '//trim(str(self%space_pairing))
-	desc = desc//NL//self%mpih%myrankstr//'    	Velocity initial distribution: '//self%velocity_distribution
-	if (self%velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
-		desc = desc//NL//self%mpih%myrankstr//'    	Plasma  Ionic Temperature: '//trim(str(self%T_i))
-		desc = desc//NL//self%mpih%myrankstr//'    	Plasma  Electronic Temperature: '//trim(str(self%T_e))
-		desc = desc//NL//self%mpih%myrankstr//'    	Plasma  Neutrals Temperature: '//trim(str(self%T_n))
-	elseif (self%velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
-		desc = desc//NL//self%mpih%myrankstr//'    	Plasma x Ionic Temperature: '//trim(str(self%T_i_x))
-		desc = desc//NL//self%mpih%myrankstr//'    	Plasma y Ionic Temperature: '//trim(str(self%T_i_y))
-		desc = desc//NL//self%mpih%myrankstr//'    	Plasma z Ionic Temperature: '//trim(str(self%T_i_z))
-		desc = desc//NL//self%mpih%myrankstr//'    	Plasma x Electronic Temperature: '//trim(str(self%T_e_x))
-		desc = desc//NL//self%mpih%myrankstr//'    	Plasma y Electronic Temperature: '//trim(str(self%T_e_y))
-		desc = desc//NL//self%mpih%myrankstr//'    	Plasma z Electronic Temperature: '//trim(str(self%T_e_z))
-		desc = desc//NL//self%mpih%myrankstr//'    	Plasma x Neutrals Temperature: '//trim(str(self%T_n_x))
-		desc = desc//NL//self%mpih%myrankstr//'    	Plasma y Neutrals Temperature: '//trim(str(self%T_n_y))
-		desc = desc//NL//self%mpih%myrankstr//'    	Plasma z Neutrals Temperature: '//trim(str(self%T_n_z))
-	endif
-	if (self%velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION .or. &
-		self%velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
-		desc = desc//NL//self%mpih%myrankstr//'    	Velocity random number generator: '//trim(self%velocity_random_number_generator)
-		desc = desc//NL//self%mpih%myrankstr//'    	Velocity pairing: '//trim(str(self%velocity_pairing))
-	endif
-	desc = desc//NL//self%mpih%myrankstr//'    	Velocity averaging: '//trim(str(self%v_av_correction))
+	desc = desc//NL//self%mpih%myrankstr//'    	Drift velocity along x: '//trim(str(self%v_drift_x))
+	desc = desc//NL//self%mpih%myrankstr//'    	Drift velocity along y: '//trim(str(self%v_drift_y))
+	desc = desc//NL//self%mpih%myrankstr//'    	Drift velocity along z: '//trim(str(self%v_drift_z))
+
    endfunction description
 
-   subroutine initialize(self, file_parameters)
+   subroutine initialize(self, file_parameters, pic)
    !< Initialize particle_injection.
    class(prism_particle_injection_object), intent(inout) :: self            !< External fields.
    type(file_ini),          					 intent(in)    :: file_parameters !< Simulation parameters ini file handler.
+	type(prism_pic_object), 					 intent(in)		:: pic				 !< Pic object
 
    call self%mpih%initialize(do_mpi_init=.false.)
    print '(A)', self%mpih%myrankstr//'prism_particle_injection_object%initialize start'
 
-   call self%load_from_file(file_parameters=file_parameters)
-   print '(A)', self%description()
+   call self%load_from_file(file_parameters=file_parameters, pic=pic)
+   print '(A)', self%description(pic = pic)
 
-	select case(self%space_distribution)
-   case(UNIFORM_CELL_SPACE_DISTRIBUTION)
-      self%particle_space_injection => uniform_cell_space_injection
-   !case(UNIFORM_BOX_SPACE_DISTRIBUTION)
-   !   self%particle_space_injection => uniform_box_space_injection
-   case(UNIFORM_DOMAIN_SPACE_DISTRIBUTION)
-      self%particle_space_injection => uniform_domain_space_injection
-   case default
-      call self%mpih%error_stop &
-		(msg=': invalid particle space injection model in prism_particle_injection_object%initialize')
-   endselect
-	select case(self%space_random_number_generator)
-   case(SPACE_RANDOM_NUMBER_GENERATOR)
-      space_rand_num_generator => random_number_generator
-   case(SPACE_LAYERED_NUMBER_GENERATOR)
-      space_rand_num_generator => layered_number_generator
-   case default
-      call self%mpih%error_stop & 
-		(msg=': invalid particle space random number generator in prism_particle_injection_object%initialize')
-   endselect
-	select case(self%velocity_distribution)
-   case(UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION)
-      self%particle_velocity_injection => uniform_maxwellian_velocity_injection
-   case(NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION)
-      self%particle_velocity_injection => non_uniform_maxwellian_velocity_injection
-   case default
-      call self%mpih%error_stop(msg=': invalid particle velocity injection model in prism_particle_injection_object%initialize')
-   endselect
-	select case(self%velocity_random_number_generator)
-   case(VELOCITY_RANDOM_NUMBER_GENERATOR)
-      velocity_rand_num_generator => random_number_generator
-   case(VELOCITY_LAYERED_NUMBER_GENERATOR)
-      velocity_rand_num_generator => layered_number_generator
-   case default
-      call self%mpih%error_stop &
-		(msg=': invalid particle space random number generator in prism_particle_injection_object%initialize')
-   endselect
-   print '(A)', self%mpih%myrankstr//'prism_particle_injection_object%initialize finish'
+	if (pic%problem_type == PLASMA_TYPE_PROBLEM) then
+		select case(self%space_distribution)
+   	case(UNIFORM_CELL_SPACE_DISTRIBUTION)
+   	   self%particle_space_injection => uniform_cell_space_injection
+   	!case(UNIFORM_BOX_SPACE_DISTRIBUTION)
+   	!   self%particle_space_injection => uniform_box_space_injection
+   	case(UNIFORM_DOMAIN_SPACE_DISTRIBUTION)
+   	   self%particle_space_injection => uniform_domain_space_injection
+   	case default
+   	   call self%mpih%error_stop &
+			(msg=': invalid particle space injection model in prism_particle_injection_object%initialize')
+   	endselect
+		select case(self%space_random_number_generator)
+   	case(SPACE_RANDOM_NUMBER_GENERATOR)
+   	   space_rand_num_generator => random_number_generator
+   	case(SPACE_LAYERED_NUMBER_GENERATOR)
+   	   space_rand_num_generator => layered_number_generator
+   	case default
+   	   call self%mpih%error_stop & 
+			(msg=': invalid particle space random number generator in prism_particle_injection_object%initialize')
+   	endselect
+		select case(self%velocity_distribution)
+   	case(UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION)
+   	   self%particle_velocity_injection => uniform_maxwellian_velocity_injection
+   	case(NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION)
+   	   self%particle_velocity_injection => non_uniform_maxwellian_velocity_injection
+   	case default
+   	   call self%mpih%error_stop(msg=': invalid particle velocity injection model in prism_particle_injection_object%initialize')
+   	endselect
+		select case(self%velocity_random_number_generator)
+   	case(VELOCITY_RANDOM_NUMBER_GENERATOR)
+   	   velocity_rand_num_generator => random_number_generator
+   	case(VELOCITY_LAYERED_NUMBER_GENERATOR)
+   	   velocity_rand_num_generator => layered_number_generator
+   	case default
+   	   call self%mpih%error_stop &
+			(msg=': invalid particle space random number generator in prism_particle_injection_object%initialize')
+   	endselect
+   	print '(A)', self%mpih%myrankstr//'prism_particle_injection_object%initialize finish'
+	endif
    endsubroutine initialize
 
-   subroutine load_from_file(self, file_parameters, go_on_fail)
+   subroutine load_from_file(self, file_parameters, pic, go_on_fail)
    !< Load PIC configuration from file.
-	class(prism_particle_injection_object), intent(inout)   		 :: self             !< PIC object.
+	class(prism_particle_injection_object), intent(inout)   		 :: self             !< Particle injection object.
 	type(file_ini),          					 intent(in)		  		 :: file_parameters  !< File handler.
+	type(prism_pic_object), 					 intent(in)				 :: pic					!< PIC object
    logical,                 					 intent(in), optional :: go_on_fail      	!< Go on if load fails.
    logical                                          				 :: go_on_fail_     	!< Go on if load fails.
    integer(I4P)                                     				 :: error           	!< Error status.
    character(99)                                    				 :: buff       		!< Option character buffer.
 
 	go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
-
-	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='space_distribution', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(space_distribution) from file')
-   select case(trim(adjustl(buff)))
-   case('Domain_uniform', 'domain_uniform', 'domain_Uniform')
-      self%space_distribution = UNIFORM_DOMAIN_SPACE_DISTRIBUTION
-   case('Box_uniform', 'box_uniform', 'box_Uniform')
-      self%space_distribution = UNIFORM_BOX_SPACE_DISTRIBUTION
-	case('Cell_uniform', 'cell_uniform', 'cell_Uniform')
-      self%space_distribution = UNIFORM_CELL_SPACE_DISTRIBUTION
-	case default
-		call self%mpih%error_stop(msg=': invalid particle space distribution ['//trim(adjustl(buff))//'] in  & 
-      ['//INI_SECTION_NAME//'].(space_distribution)')
-	endselect
-
-	call file_parameters%get(section_name=INI_SECTION_NAME, &
-									 option_name='space_random_number_generator', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load [' & 
-												//INI_SECTION_NAME//'].(space_random_number_generator) from file')
-   select case(trim(adjustl(buff)))
-   case('Random', 'random', 'RANDOM')
-      self%space_random_number_generator = SPACE_RANDOM_NUMBER_GENERATOR
-   case('Layered', 'layered', 'LAYERED')
-      self%space_random_number_generator = SPACE_LAYERED_NUMBER_GENERATOR
-	case default
-		call self%mpih%error_stop(msg=': invalid space random number generator ['//trim(adjustl(buff))//'] in  & 
-      ['//INI_SECTION_NAME//'].(space_random_number_generator)')
-	endselect
-
-	if (self%space_distribution == UNIFORM_BOX_SPACE_DISTRIBUTION) then
-		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='box_number', &
-   	val=self%box_number, error=error)
-   	if (.not.go_on_fail_.and.error>0) & 
-   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(box_number)')
-	endif
-
-	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='space_pairing', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(space_pairing)')
-   select case(trim(adjustl(buff)))
-   case('NO', 'no', 'No', 'nO')
-      self%space_pairing = .false.
-	case('YES', 'yes', 'Yes')
-		self%space_pairing = .true.
-	case default
-		call self%mpih%error_stop(msg=': invalid space pairing flag ['//trim(adjustl(buff))//'] in  & 
-      ['//INI_SECTION_NAME//'].(space_pairing)')
-	endselect
-
-	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='velocity_distribution', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(velocity_distribution) from file')
-   select case(trim(adjustl(buff)))
-   case('Uniform_Maxwellian', 'uniform_maxwellian', 'uniform_Maxwellian', & 
-			'Maxwellian', 'maxwellian', 'Uniform', 'uniform')
-      self%velocity_distribution = UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION
-   case('Non_Uniform_Maxwellian', 'non_uniform_maxwellian', 'non_uniform_Maxwellian')
-      self%velocity_distribution = NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION
-	case default
-		call self%mpih%error_stop(msg=': invalid particle velocity distribution ['//trim(adjustl(buff))//'] in  & 
-      ['//INI_SECTION_NAME//'].(velocity_distribution)')
-	endselect
-
-	if (self%velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
-		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Ionic_temperature', &
-   	val=self%T_i, error=error)
-   	if (.not.go_on_fail_.and.error>0) & 
-   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature)')
-
-		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Electronic_temperature', &
-   	val=self%T_e, error=error)
-   	if (.not.go_on_fail_.and.error>0) & 
-   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature)')
-
-		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Neutrals_temperature', &
-   	val=self%T_n, error=error)
-   	if (.not.go_on_fail_.and.error>0) & 
-   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature)')
-
-	elseif (self%velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
-		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Ionic_temperature_x', &
-   	val=self%T_i_x, error=error)
-   	if (.not.go_on_fail_.and.error>0) & 
-   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature_x)')
-
-		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Ionic_temperature_y', &
-   	val=self%T_i_y, error=error)
-   	if (.not.go_on_fail_.and.error>0) & 
-   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature_y)')
-
-		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Ionic_temperature_z', &
-   	val=self%T_i_z, error=error)
-   	if (.not.go_on_fail_.and.error>0) & 
-   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature_z)')
-
-
-		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Electronic_temperature_x', &
-   	val=self%T_e_x, error=error)
-   	if (.not.go_on_fail_.and.error>0) & 
-   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature_x)')
-
-		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Electronic_temperature_y', &
-   	val=self%T_e_y, error=error)
-   	if (.not.go_on_fail_.and.error>0) & 
-   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature_y)')
-
-		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Electronic_temperature_z', &
-   	val=self%T_e_z, error=error)
-   	if (.not.go_on_fail_.and.error>0) & 
-   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature_z)')	
-
-
-		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Neutrals_temperature_x', &
-   	val=self%T_n_x, error=error)
-   	if (.not.go_on_fail_.and.error>0) & 
-   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature_x)')
-
-		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Neutrals_temperature_y', &
-   	val=self%T_n_y, error=error)
-   	if (.not.go_on_fail_.and.error>0) & 
-   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature_y)')
-
-		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Neutrals_temperature_z', &
-   	val=self%T_n_z, error=error)
-   	if (.not.go_on_fail_.and.error>0) & 
-   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature_z)')	
-	endif
-
-	if (self%velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION .or. &
-		self%velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
+	if (pic%problem_type == PLASMA_TYPE_PROBLEM) then
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='space_distribution', val=buff,error=error)
+   	if (.not.go_on_fail_.and.error>0) &
+   	   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(space_distribution) from file')
+   	select case(trim(adjustl(buff)))
+   	case('Domain_uniform', 'domain_uniform', 'domain_Uniform')
+   	   self%space_distribution = UNIFORM_DOMAIN_SPACE_DISTRIBUTION
+   	case('Box_uniform', 'box_uniform', 'box_Uniform')
+   	   self%space_distribution = UNIFORM_BOX_SPACE_DISTRIBUTION
+		case('Cell_uniform', 'cell_uniform', 'cell_Uniform')
+   	   self%space_distribution = UNIFORM_CELL_SPACE_DISTRIBUTION
+		case default
+			call self%mpih%error_stop(msg=': invalid particle space distribution ['//trim(adjustl(buff))//'] in  & 
+   	   ['//INI_SECTION_NAME//'].(space_distribution)')
+		endselect
 
 		call file_parameters%get(section_name=INI_SECTION_NAME, &
-										 option_name='velocity_random_number_generator', val=buff,error=error)
+										 option_name='space_random_number_generator', val=buff,error=error)
    	if (.not.go_on_fail_.and.error>0) &
    	   call self%mpih%error_stop(msg=': failed to load [' & 
-													//INI_SECTION_NAME//'].(velocity_random_number_generator) from file')
+													//INI_SECTION_NAME//'].(space_random_number_generator) from file')
    	select case(trim(adjustl(buff)))
    	case('Random', 'random', 'RANDOM')
-   	   self%velocity_random_number_generator = VELOCITY_RANDOM_NUMBER_GENERATOR
+   	   self%space_random_number_generator = SPACE_RANDOM_NUMBER_GENERATOR
    	case('Layered', 'layered', 'LAYERED')
-   	   self%velocity_random_number_generator = VELOCITY_LAYERED_NUMBER_GENERATOR
+   	   self%space_random_number_generator = SPACE_LAYERED_NUMBER_GENERATOR
 		case default
-			call self%mpih%error_stop(msg=': invalid velocity random number generator ['//trim(adjustl(buff))//'] in  & 
-   	   ['//INI_SECTION_NAME//'].(velocity_random_number_generator)')
+			call self%mpih%error_stop(msg=': invalid space random number generator ['//trim(adjustl(buff))//'] in  & 
+   	   ['//INI_SECTION_NAME//'].(space_random_number_generator)')
 		endselect
 
-		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='velocity_pairing', val=buff,error=error)
+		if (self%space_distribution == UNIFORM_BOX_SPACE_DISTRIBUTION) then
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='box_number', &
+   		val=self%box_number, error=error)
+   		if (.not.go_on_fail_.and.error>0) & 
+   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(box_number)')
+		endif
+
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='space_pairing', val=buff,error=error)
    	if (.not.go_on_fail_.and.error>0) &
-   	   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(velocity_pairing)')
+   	   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(space_pairing)')
    	select case(trim(adjustl(buff)))
    	case('NO', 'no', 'No', 'nO')
-   	   self%velocity_pairing = .false.
+   	   self%space_pairing = .false.
 		case('YES', 'yes', 'Yes')
-			self%velocity_pairing = .true.
+			self%space_pairing = .true.
 		case default
-			call self%mpih%error_stop(msg=': invalid velocity pairing flag ['//trim(adjustl(buff))//'] in  & 
-   	   ['//INI_SECTION_NAME//'].(velocity_pairing)')
+			call self%mpih%error_stop(msg=': invalid space pairing flag ['//trim(adjustl(buff))//'] in  & 
+   	   ['//INI_SECTION_NAME//'].(space_pairing)')
 		endselect
+
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='velocity_distribution', val=buff,error=error)
+   	if (.not.go_on_fail_.and.error>0) &
+   	   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(velocity_distribution) from file')
+   	select case(trim(adjustl(buff)))
+   	case('Uniform_Maxwellian', 'uniform_maxwellian', 'uniform_Maxwellian', & 
+				'Maxwellian', 'maxwellian', 'Uniform', 'uniform')
+   	   self%velocity_distribution = UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION
+   	case('Non_Uniform_Maxwellian', 'non_uniform_maxwellian', 'non_uniform_Maxwellian')
+   	   self%velocity_distribution = NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION
+		case default
+			call self%mpih%error_stop(msg=': invalid particle velocity distribution ['//trim(adjustl(buff))//'] in  & 
+   	   ['//INI_SECTION_NAME//'].(velocity_distribution)')
+		endselect
+
+		if (self%velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Ionic_temperature', &
+   		val=self%T_i, error=error)
+   		if (.not.go_on_fail_.and.error>0) & 
+   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature)')
+
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Electronic_temperature', &
+   		val=self%T_e, error=error)
+   		if (.not.go_on_fail_.and.error>0) & 
+   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature)')
+
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Neutrals_temperature', &
+   		val=self%T_n, error=error)
+   		if (.not.go_on_fail_.and.error>0) & 
+   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature)')
+
+		elseif (self%velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Ionic_temperature_x', &
+   		val=self%T_i_x, error=error)
+   		if (.not.go_on_fail_.and.error>0) & 
+   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature_x)')
+
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Ionic_temperature_y', &
+   		val=self%T_i_y, error=error)
+   		if (.not.go_on_fail_.and.error>0) & 
+   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature_y)')
+
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Ionic_temperature_z', &
+   		val=self%T_i_z, error=error)
+   		if (.not.go_on_fail_.and.error>0) & 
+   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Ionic_temperature_z)')
+
+
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Electronic_temperature_x', &
+   		val=self%T_e_x, error=error)
+   		if (.not.go_on_fail_.and.error>0) & 
+   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature_x)')
+
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Electronic_temperature_y', &
+   		val=self%T_e_y, error=error)
+   		if (.not.go_on_fail_.and.error>0) & 
+   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature_y)')
+
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Electronic_temperature_z', &
+   		val=self%T_e_z, error=error)
+   		if (.not.go_on_fail_.and.error>0) & 
+   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Electronic_temperature_z)')	
+
+
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Neutrals_temperature_x', &
+   		val=self%T_n_x, error=error)
+   		if (.not.go_on_fail_.and.error>0) & 
+   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature_x)')
+
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Neutrals_temperature_y', &
+   		val=self%T_n_y, error=error)
+   		if (.not.go_on_fail_.and.error>0) & 
+   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature_y)')
+
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='Neutrals_temperature_z', &
+   		val=self%T_n_z, error=error)
+   		if (.not.go_on_fail_.and.error>0) & 
+   		call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(Neutrals_temperature_z)')	
+		endif
+
+		if (self%velocity_distribution == UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION .or. &
+			self%velocity_distribution == NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION) then
+
+			call file_parameters%get(section_name=INI_SECTION_NAME, &
+											 option_name='velocity_random_number_generator', val=buff,error=error)
+   		if (.not.go_on_fail_.and.error>0) &
+   		   call self%mpih%error_stop(msg=': failed to load [' & 
+														//INI_SECTION_NAME//'].(velocity_random_number_generator) from file')
+   		select case(trim(adjustl(buff)))
+   		case('Random', 'random', 'RANDOM')
+   		   self%velocity_random_number_generator = VELOCITY_RANDOM_NUMBER_GENERATOR
+   		case('Layered', 'layered', 'LAYERED')
+   		   self%velocity_random_number_generator = VELOCITY_LAYERED_NUMBER_GENERATOR
+			case default
+				call self%mpih%error_stop(msg=': invalid velocity random number generator ['//trim(adjustl(buff))//'] in  & 
+   		   ['//INI_SECTION_NAME//'].(velocity_random_number_generator)')
+			endselect
+
+			call file_parameters%get(section_name=INI_SECTION_NAME, option_name='velocity_pairing', val=buff,error=error)
+   		if (.not.go_on_fail_.and.error>0) &
+   		   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(velocity_pairing)')
+   		select case(trim(adjustl(buff)))
+   		case('NO', 'no', 'No', 'nO')
+   		   self%velocity_pairing = .false.
+			case('YES', 'yes', 'Yes')
+				self%velocity_pairing = .true.
+			case default
+				call self%mpih%error_stop(msg=': invalid velocity pairing flag ['//trim(adjustl(buff))//'] in  & 
+   		   ['//INI_SECTION_NAME//'].(velocity_pairing)')
+			endselect
+		endif
+
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='v_av_correction', val=buff,error=error)
+   	if (.not.go_on_fail_.and.error>0) &
+   	   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_av_correction)')
+   	select case(trim(adjustl(buff)))
+   	case('NO', 'no', 'No', 'nO')
+   	   self%v_av_correction = .false.
+		case('YES', 'yes', 'Yes')
+			self%v_av_correction = .true.
+		case default
+			call self%mpih%error_stop(msg=': invalid velocity average correction flag ['//trim(adjustl(buff))//'] in  & 
+   	   ['//INI_SECTION_NAME//'].(v_av_correction)')
+		endselect
+	endif
+
+	if (pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='x_position', &
+   		val=self%x_position, error=error)
+   	if (.not.go_on_fail_.and.error>0) & 
+   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(x_position)')
+
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='y_position', &
+   		val=self%y_position, error=error)
+   	if (.not.go_on_fail_.and.error>0) & 
+   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(y_position)')
+
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='z_position', &
+   		val=self%z_position, error=error)
+   	if (.not.go_on_fail_.and.error>0) & 
+   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(z_position)')
+
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='charge', &
+   		val=self%charge, error=error)
+   	if (.not.go_on_fail_.and.error>0) & 
+   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(charge)')
+
+		call file_parameters%get(section_name=INI_SECTION_NAME, option_name='mass', &
+   		val=self%mass, error=error)
+   	if (.not.go_on_fail_.and.error>0) & 
+   	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(mass)')
 	endif
 
 	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='v_drift_x', &
@@ -382,18 +446,6 @@ contains
    if (.not.go_on_fail_.and.error>0) & 
    	call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_drift_z)')
 
-	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='v_av_correction', val=buff,error=error)
-   if (.not.go_on_fail_.and.error>0) &
-      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(v_av_correction)')
-   select case(trim(adjustl(buff)))
-   case('NO', 'no', 'No', 'nO')
-      self%v_av_correction = .false.
-	case('YES', 'yes', 'Yes')
-		self%v_av_correction = .true.
-	case default
-		call self%mpih%error_stop(msg=': invalid velocity average correction flag ['//trim(adjustl(buff))//'] in  & 
-      ['//INI_SECTION_NAME//'].(v_av_correction)')
-	endselect
    endsubroutine load_from_file
 
 	subroutine set_particle_initial_injection(self, field, pic, q_pic)
@@ -401,19 +453,45 @@ contains
 	type(field_object),                  	 intent(in) 	:: field 
 	type(prism_pic_object),					 	 intent(inout)	:: pic
 	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
-
-	!Setta posizione spaziale delle particelle e relativa tipologia
-	call self%particle_space_injection(field=field, pic=pic, q_pic=q_pic)
 	
-	!Setta velocità iniziale delle particelle
-	call self%particle_velocity_injection(field=field, pic=pic, q_pic=q_pic)
+	if (pic%problem_type == PLASMA_TYPE_PROBLEM) then
+		!Setta posizione spaziale delle particelle e relativa tipologia
+		call self%particle_space_injection(field=field, pic=pic, q_pic=q_pic)
+		!Setta velocità iniziale delle particelle
+		call self%particle_velocity_injection(field=field, pic=pic, q_pic=q_pic)
+		!Definisci neighbour list
+		call pic%particle_cartesian_grid_index(field=field, q_pic=q_pic)
 
+		!Aggiungo qui successivamente interpolazione iniziale dei campi e spalmatura particelle (cariche e correnti) su griglia
+
+	elseif(pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
+	!Setta posizione velocità e caratteristiche della particella
+	call self%single_particle_injection(q_pic=q_pic)
 	!Definisci neighbour list
 	call pic%particle_cartesian_grid_index(field=field, q_pic=q_pic)
 
 	!Aggiungo qui successivamente interpolazione iniziale dei campi e spalmatura particelle (cariche e correnti) su griglia
+
+	endif
 	endsubroutine
 
+	subroutine single_particle_injection(self, q_pic)
+	class(prism_particle_injection_object), intent(inout) :: self 
+	real(R8P),                           	 intent(inout) :: q_pic(1:,1:)
+
+	associate(x_p=>self%x_position, y_p=>self%y_position, z_p=>self%z_position, vx_p=>self%v_drift_x, &
+			 vy_p=>self%v_drift_y,  vz_p=>self%v_drift_z, charge=>self%charge, mass=>self%mass)
+
+	q_pic(1,1) = x_p
+	q_pic(2,1) = y_p
+	q_pic(3,1) = z_p
+	q_pic(4,1) = vx_p
+	q_pic(5,1) = vy_p
+	q_pic(6,1) = vz_p
+	q_pic(7,1) = charge
+	q_pic(8,1) = mass
+	endassociate
+	endsubroutine single_particle_injection
 
    subroutine uniform_domain_space_injection(self, field, pic, q_pic)
 	class(prism_particle_injection_object), intent(inout) :: self 

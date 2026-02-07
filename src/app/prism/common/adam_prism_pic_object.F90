@@ -20,6 +20,8 @@ public :: prism_pic_object
 !public :: particle_weighting
 !public :: current_weighting
 !public :: field_weighting
+public :: PLASMA_TYPE_PROBLEM
+public :: SINGLE_PARTICLE_TYPE_PROBLEM
 !public :: CIC_WEIGHTING_MODEL
 !public :: NGP_WEIGHTING_MODEL
 !public :: TSC_WEIGHTING_MODEL
@@ -36,14 +38,17 @@ public :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA
 !public :: zeroD_field_weighting
 !public :: oneD_field_weighting
 
-character(len=3), parameter :: INI_SECTION_NAME                 = 'PIC'         !< INI file section name for PIC configuration.
-character(len=3), parameter :: CIC_WEIGHTING_MODEL              = 'CIC'         !< CIC weighting model.
-character(len=3), parameter :: NGP_WEIGHTING_MODEL              = 'NGP'         !< NGP weighting model.
-character(len=3), parameter :: TSC_WEIGHTING_MODEL              = 'TSC'         !< TSC weighting model.
-character(len=2), parameter :: ZEROD_FIELDS_WEIGHTING_MODEL     = '0D'          !< 0D field weighting.
-character(len=2), parameter :: ONED_FIELDS_WEIGHTING_MODEL      = '1D'          !< 1D field weighting.
-character(8),     parameter :: NUM_SCHEME_TIME_PIC_LEAPFROG     = 'LEAPFROG'    !< Leapfrog numerical scheme for time operator.
-character(11),    parameter :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA  = 'RUNGE_KUTTA' !< Runge-Kutta numerical scheme for time operator.
+character(len=3 ), parameter :: INI_SECTION_NAME                 = 'PIC'             !< INI file section name for PIC configuration.
+character(len=6 ), parameter :: PLASMA_TYPE_PROBLEM              = 'plasma'          !< Analyzing physical problem involving the presence of plasma
+character(len=15), parameter :: SINGLE_PARTICLE_TYPE_PROBLEM     = 'single_particle' !< Analyzing physical problem involving the presence of a single particle
+character(len=3 ), parameter :: CIC_WEIGHTING_MODEL              = 'CIC'             !< CIC weighting model.
+character(len=3 ), parameter :: NGP_WEIGHTING_MODEL              = 'NGP'             !< NGP weighting model.
+character(len=3 ), parameter :: TSC_WEIGHTING_MODEL              = 'TSC'             !< TSC weighting model.
+character(len=2 ), parameter :: ZEROD_FIELDS_WEIGHTING_MODEL     = '0D'              !< 0D field weighting.
+character(len=2 ), parameter :: ONED_FIELDS_WEIGHTING_MODEL      = '1D'              !< 1D field weighting.
+character(len=8 ), parameter :: NUM_SCHEME_TIME_PIC_LEAPFROG     = 'LEAPFROG'        !< Leapfrog numerical scheme for time operator.
+character(len=11), parameter :: NUM_SCHEME_TIME_PIC_RUNGE_KUTTA  = 'RUNGE_KUTTA'     !< Runge-Kutta numerical scheme for time operator.
+
 ! PIC variables layout in q_pic array:
 !q_pic(1) = x
 !q_pic(2) = y
@@ -63,10 +68,11 @@ type :: prism_pic_object
 	integer(I4P)				  :: n_electrons = 0_I4P        !< Total electrons number
 	integer(I4P)				  :: n_neutrals = 0_I4P         !< Total neutrals number
    integer(I4P), allocatable :: neighbour_list(:,:)        !< Particle grid positions array.
+   character(len=99)         :: problem_type               !< Type of problem analyzed
    character(len=99)         :: particle_weighting_model   !< Particle weighting model.
    character(len=99)         :: current_weighting_model    !< Current weighting model.
    character(len=99)         :: field_weighting_model      !< Field weighting model.
-   character(:), allocatable :: scheme_time                !< Numerical scheme for time operator [runge_kutta, leapfrog,...].
+   character(len=99)         :: scheme_time                !< Numerical scheme for time operator [runge_kutta, leapfrog,...].
    !< Pointer (abstract) TBP.
    procedure(particle_weighting_interface), pass(self), pointer :: particle_weighting =>null() !< Particle weighting.
    procedure(current_weighting_interface),  pass(self), pointer :: current_weighting  =>null() !< Current weighting.
@@ -122,9 +128,12 @@ contains
    class(prism_pic_object), intent(in) :: self             !< External fields.
    character(len=:), allocatable                   :: desc             !< Description.
    character(len=1), parameter                     :: NL=new_line('a') !< New line character.
-   desc =       self%mpih%myrankstr//'PIC object description:'
-   desc = desc//NL//self%mpih%myrankstr//'    Input plasma density [m^(-3)]: '//trim(str(self%plasma_density))
-   desc = desc//NL//self%mpih%myrankstr//'    Neutral fraction: '//trim(str(self%neutral_fraction))
+   desc =            self%mpih%myrankstr//'PIC object description:'
+   desc = desc//NL//self%mpih%myrankstr//'    Problem type: '//trim(self%problem_type)
+   if (self%problem_type == PLASMA_TYPE_PROBLEM) then
+      desc = desc//NL//self%mpih%myrankstr//'    Input plasma density [m^(-3)]: '//trim(str(self%plasma_density))
+      desc = desc//NL//self%mpih%myrankstr//'    Neutral fraction: '//trim(str(self%neutral_fraction))
+   endif
    desc = desc//NL//self%mpih%myrankstr//'    Particle weighting model: '//trim(self%particle_weighting_model)
    desc = desc//NL//self%mpih%myrankstr//'    Current weighting model: '//trim(self%current_weighting_model)
    desc = desc//NL//self%mpih%myrankstr//'    Field weighting model: '//trim(self%field_weighting_model)
@@ -150,12 +159,16 @@ contains
    associate(blocks_number=>field%blocks_number, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, &
                e_min=>field%grid%domain_emin, e_max=>field%grid%domain_emax)
    
-   domain_volume = (e_max(1)-e_min(1))*(e_max(2)-e_min(2))*(e_max(3)-e_min(3))
-   self%particle_number = nint(self%plasma_density*domain_volume)
-   self%n_neutrals = nint(self%neutral_fraction*real(self%particle_number,R8P))
-	self%n_ions = nint(real(self%particle_number-self%n_neutrals, R8P)/2.0_R8P)
-	self%n_electrons = self%n_ions
-	self%n_neutrals = self%particle_number - self%n_ions - self%n_electrons
+   if (self%problem_type == PLASMA_TYPE_PROBLEM) then
+      domain_volume = (e_max(1)-e_min(1))*(e_max(2)-e_min(2))*(e_max(3)-e_min(3))
+      self%particle_number = nint(self%plasma_density*domain_volume)
+      self%n_neutrals = nint(self%neutral_fraction*real(self%particle_number,R8P))
+	   self%n_ions = nint(real(self%particle_number-self%n_neutrals, R8P)/2.0_R8P)
+	   self%n_electrons = self%n_ions
+	   self%n_neutrals = self%particle_number - self%n_ions - self%n_electrons
+   elseif (self%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
+      self%particle_number = 1_I4P
+   endif
 
    endassociate
 
@@ -263,15 +276,22 @@ contains
       self%scheme_time = NUM_SCHEME_TIME_PIC_RUNGE_KUTTA
    endselect
 
-	call file_parameters%get(section_name=INI_SECTION_NAME, option_name='plasma_density', &
-   val=self%plasma_density, error=error)
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='problem_type', &
+   val=self%problem_type, error=error)
    if (.not.go_on_fail_.and.error>0) & 
-   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(plasma_density)')
+   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(problem_type)')
 
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutral_fraction', &
-   val=self%neutral_fraction, error=error)
-   if (.not.go_on_fail_.and.error>0) & 
-   call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutral_fraction)')
+   if(self%problem_type == PLASMA_TYPE_PROBLEM) then
+	   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='plasma_density', &
+      val=self%plasma_density, error=error)
+      if (.not.go_on_fail_.and.error>0) & 
+      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(plasma_density)')
+
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='neutral_fraction', &
+      val=self%neutral_fraction, error=error)
+      if (.not.go_on_fail_.and.error>0) & 
+      call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(neutral_fraction)')
+   endif
    endsubroutine load_from_file
 
    subroutine particle_cartesian_grid_index(self, field, q_pic)
@@ -313,7 +333,11 @@ contains
    real(R8P)                              :: n, i, j, k ,b                                                   !< Particle counter
    real(R8P)                              :: i_p, j_p, k_p, b_p                                              !< Particle grid indices
    real(R8P)                              :: wx, wy, wz                                                      !< Weighting factors
+   real(R8P)                              :: dx, dy, dz                                                      !< Cell dimensions
    real(R8P)                              :: cell_coord(3)                                                   !< Cell coordinates 
+
+   !Per iniziare, azzero tutte le cariche altrimenti vado a sommare le cariche del tempo precedente
+   q(nv,:,:,:,:) = 0.0_R8P
 
    do n = 1, self%particle_number
       ! Get particle grid indices
@@ -322,8 +346,12 @@ contains
       j_p = self%neighbour_list(3,n)
       k_p = self%neighbour_list(4,n)
 
+      dx = field%dxyz(1,b_p)
+      dy = field%dxyz(2,b_p)
+      dz = field%dxyz(3,b_p)
+
       !Qua ci va sicuramente un if per le celle di confine, altrimenti darà errore quando arrivo alla frontiera
-      q(nv, i_p, j_p, k_p, b_p) = q(nv, i_p, j_p, k_p, b_p) + q_pic(7,n)
+      q(nv, i_p, j_p, k_p, b_p) = q(nv, i_p, j_p, k_p, b_p) + q_pic(7,n)/(dx*dy*dz)
       !Ok, ma va normalizzata e la carica nel vettore di stato va necessariamente azzerata a monte di ogni assegnazione
       !se scritta in questo modo
    enddo
@@ -343,6 +371,10 @@ contains
    real(R8P)                              :: cell_coord(3)                                                   !< Cell coordinates 
 
    associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
+
+   !Per iniziare, azzero tutte le cariche altrimenti vado a sommare le cariche del tempo precedente
+   q(nv,:,:,:,:) = 0.0_R8P
+
    do n = 1, self%particle_number
       ! Get particle grid indices
       b_p = self%neighbour_list(1,n)
@@ -376,7 +408,7 @@ contains
                else
                   Wz = 0.0_R8P
                end if
-               q(nv, i, j, k, b_p) = q(nv, i, j, k, b_p) + q_PIC(7,n) * Wx * Wy * Wz
+               q(nv, i, j, k, b_p) = q(nv, i, j, k, b_p) + q_pic(7,n)/(dx*dy*dz) * Wx * Wy * Wz
 
                !Ok, ma va normalizzata e la carica nel vettore di stato va necessariamente azzerata a monte di ogni assegnazione
                !se scritta in questo modo
@@ -401,6 +433,10 @@ contains
    real(R8P)                              :: cell_coord(3)                                                   !< Cell coordinates 
 
    associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
+
+   !Per iniziare, azzero tutte le cariche altrimenti vado a sommare le cariche del tempo precedente
+   q(nv,:,:,:,:) = 0.0_R8P
+
    do n = 1, self%particle_number
       ! Get particle grid indices
       b_p = self%neighbour_list(1,n)
@@ -433,7 +469,7 @@ contains
                else
                   Wy = 0.0_R8P
                end if
-               q(nv, i, j, k, b_p) = q(nv, i, j, k, b_p) + q_pic(7,n) * Wx * Wy * Wz
+               q(nv, i, j, k, b_p) = q(nv, i, j, k, b_p) + q_pic(7,n)/(dx*dy*dz) * Wx * Wy * Wz
 
                !Ok, ma va normalizzata e la carica nel vettore di stato va necessariamente azzerata a monte di ogni assegnazione
                !se scritta in questo modo
@@ -453,8 +489,12 @@ contains
    integer(I4P),            intent(in)    :: nv                                                              !< Number of variables.
    real(R8P)                              :: n, i, j, k ,b                                                   !< Particle counter
    real(R8P)                              :: i_p, j_p, k_p, b_p                                              !< Particle grid indices
+   real(R8P)                              :: dx, dy, dz                                                      !< Grid spacing
    real(R8P)                              :: wx, wy, wz                                                      !< Weighting factors
    real(R8P)                              :: cell_coord(3)                                                   !< Cell coordinates 
+
+   !Per iniziare, azzero tutte le correnti altrimenti vado a sommare le cariche del tempo precedente
+   q((nv-3):(nv-1),:,:,:,:) = 0.0_R8P
 
    do n = 1, self%particle_number
       ! Get particle grid indices
@@ -463,12 +503,17 @@ contains
       j_p = self%neighbour_list(3,n)
       k_p = self%neighbour_list(4,n)
 
+      ! Qua va capito come gestire la questione dei blocchi multipli
+      dx = field%dxyz(1,b_p)
+      dy = field%dxyz(2,b_p)
+      dz = field%dxyz(3,b_p)
+
       !Qua ci va sicuramente un if per le celle di confine, altrimenti darà errore quando arrivo alla frontiera
-      q(nv-3, i_p, j_p, k_p, b_p) = q(nv-3, i_p, j_p, k_p, b_p) + q_pic(7,n)*q_pic(4,n)
-      q(nv-2, i_p, j_p, k_p, b_p) = q(nv-2, i_p, j_p, k_p, b_p) + q_pic(7,n)*q_pic(5,n)
-      q(nv-1, i_p, j_p, k_p, b_p) = q(nv-1, i_p, j_p, k_p, b_p) + q_pic(7,n)*q_pic(6,n)
+      q(nv-3, i_p, j_p, k_p, b_p) = q(nv-3, i_p, j_p, k_p, b_p) + q_pic(7,n)/(dx*dy*dz)*q_pic(4,n)
+      q(nv-2, i_p, j_p, k_p, b_p) = q(nv-2, i_p, j_p, k_p, b_p) + q_pic(7,n)/(dx*dy*dz)*q_pic(5,n)
+      q(nv-1, i_p, j_p, k_p, b_p) = q(nv-1, i_p, j_p, k_p, b_p) + q_pic(7,n)/(dx*dy*dz)*q_pic(6,n)
       !Ok, ma va normalizzata e la carica nel vettore di stato va necessariamente azzerata a monte di ogni assegnazione
-      !se scritta in questo modo
+      !se scritta in questo modo 
    enddo
    endsubroutine NGP_current_weighting
 
@@ -486,6 +531,10 @@ contains
    real(R8P)                              :: cell_coord(3)                                                   !< Cell coordinates 
 
    associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
+
+   !Per iniziare, azzero tutte le correnti altrimenti vado a sommare le cariche del tempo precedente
+   q((nv-3):(nv-1),:,:,:,:) = 0.0_R8P
+
    do n = 1, self%particle_number
       ! Get particle grid indices
       b_p = self%neighbour_list(1,n)
@@ -519,9 +568,9 @@ contains
                else
                   Wz = 0.0_R8P
                end if
-               q(nv-3, i_p, j_p, k_p, b_p) = q(nv-3, i_p, j_p, k_p, b_p) + q_pic(7,n)*q_pic(4,n)* Wx * Wy * Wz
-               q(nv-2, i_p, j_p, k_p, b_p) = q(nv-2, i_p, j_p, k_p, b_p) + q_pic(7,n)*q_pic(5,n)* Wx * Wy * Wz
-               q(nv-1, i_p, j_p, k_p, b_p) = q(nv-1, i_p, j_p, k_p, b_p) + q_pic(7,n)*q_pic(6,n)* Wx * Wy * Wz
+               q(nv-3, i_p, j_p, k_p, b_p) = q(nv-3, i_p, j_p, k_p, b_p) + q_pic(7,n)/(dx*dy*dz)*q_pic(4,n)* Wx * Wy * Wz
+               q(nv-2, i_p, j_p, k_p, b_p) = q(nv-2, i_p, j_p, k_p, b_p) + q_pic(7,n)/(dx*dy*dz)*q_pic(5,n)* Wx * Wy * Wz
+               q(nv-1, i_p, j_p, k_p, b_p) = q(nv-1, i_p, j_p, k_p, b_p) + q_pic(7,n)/(dx*dy*dz)*q_pic(6,n)* Wx * Wy * Wz
 
                !Ok, ma va normalizzata e la carica nel vettore di stato va necessariamente azzerata a monte di ogni assegnazione
                !se scritta in questo modo
@@ -546,6 +595,10 @@ contains
    real(R8P)                              :: cell_coord(3)                                                   !< Cell coordinates 
 
    associate(x_cell=>field%x_cell, y_cell=>field%y_cell, z_cell=>field%z_cell)
+
+   !Per iniziare, azzero tutte le correnti altrimenti vado a sommare le cariche del tempo precedente
+   q((nv-3):(nv-1),:,:,:,:) = 0.0_R8P
+
    do n = 1, self%particle_number
       ! Get particle grid indices
       b_p = self%neighbour_list(1,n)
@@ -578,9 +631,9 @@ contains
                else
                   Wy = 0.0_R8P
                end if
-               q(nv-3, i_p, j_p, k_p, b_p) = q(nv-3, i_p, j_p, k_p, b_p) + q_pic(7,n)*q_pic(4,n)* Wx * Wy * Wz
-               q(nv-2, i_p, j_p, k_p, b_p) = q(nv-2, i_p, j_p, k_p, b_p) + q_pic(7,n)*q_pic(5,n)* Wx * Wy * Wz
-               q(nv-1, i_p, j_p, k_p, b_p) = q(nv-1, i_p, j_p, k_p, b_p) + q_pic(7,n)*q_pic(6,n)* Wx * Wy * Wz
+               q(nv-3, i_p, j_p, k_p, b_p) = q(nv-3, i_p, j_p, k_p, b_p) + q_pic(7,n)/(dx*dy*dz)*q_pic(4,n)* Wx * Wy * Wz
+               q(nv-2, i_p, j_p, k_p, b_p) = q(nv-2, i_p, j_p, k_p, b_p) + q_pic(7,n)/(dx*dy*dz)*q_pic(5,n)* Wx * Wy * Wz
+               q(nv-1, i_p, j_p, k_p, b_p) = q(nv-1, i_p, j_p, k_p, b_p) + q_pic(7,n)/(dx*dy*dz)*q_pic(6,n)* Wx * Wy * Wz
 
                !Ok, ma va normalizzata e la carica nel vettore di stato va necessariamente azzerata a monte di ogni assegnazione
                !se scritta in questo modo

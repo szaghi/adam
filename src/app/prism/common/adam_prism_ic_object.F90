@@ -26,16 +26,17 @@ character(len=18), parameter :: INI_SECTION_NAME="initial_conditions"     !< INI
 character(len=6),  parameter :: IC_TYPE_VACUUM="vacuum"                   !< Vacuum IC TYPE parameter.
 character(len=15), parameter :: IC_TYPE_RP="riemann-problem"              !< Riemann Problem IC TYPE parameter.   
 character(len=10), parameter :: IC_TYPE_PLANE_WAVE="plane_wave"           !< Riemann Problem IC TYPE parameter.
-character(len=10), parameter :: IC_TYPE_RMF="rmf_field"             !< Rotating Magnetic Field IC TYPE parameter.
+character(len=10), parameter :: IC_TYPE_RMF="rmf_field"                   !< Rotating Magnetic Field IC TYPE parameter.
 character(len=15), parameter :: IC_TYPE_MAGNETIC_NOZZLE="magnetic_nozzle" !< Nozzle IC TYPE parameter.
 character(len=15), parameter :: IC_TYPE_RMF_NOZZLE="rmf_magnetic_nozzle"  !< Rotating Magnetic Field Nozzle IC TYPE parameter.
+character(len=13), parameter :: IC_TYPE_UNIFORM_FIELD="uniform_field"     !< Uniform field IC type parameter
 
 type :: prism_ic_object
    !< Initial Conditions class definition, CPU backend.
    type(mpih_object)         :: mpih                 !< MPI handler.
    integer(I4P)              :: amr_iterations=1_I4P !< Number of AMR iterations imposing IC.
    character(:), allocatable :: ic_type              !< IC type.
-   integer(I4P)              :: regions_number=1_I4P !< Number of IC regions.
+   integer(I4P)              :: regions_number=0_I4P !< Number of IC regions.
    real(R8P), allocatable    :: q(:,:)               !< Primitive variables (Dx,Dy,Dz,Bx,By,Bz,Jx,Jy,Jz).
    real(R8P), allocatable    :: emin(:,:), emax(:,:) !< IC regions bounding box.
    real(R8P)                 :: kx=0.0_R8P           !< Plane wave number in x direction.
@@ -43,6 +44,12 @@ type :: prism_ic_object
    real(R8P)                 :: kz=0.0_R8P           !< Plane wave number in z direction.
    real(R8P)                 :: lambda=0.0_R8P       !< Plane wave wavelength.
    real(R8P)                 :: B0=0.0_R8P           !< Plane wave background magnetic field amplitude.
+   real(R8P)                 :: B_x=0.0_R8P          !< Unifom field value
+   real(R8P)                 :: B_y=0.0_R8P          !< Unifom field value
+   real(R8P)                 :: B_z=0.0_R8P          !< Unifom field value
+   real(R8P)                 :: D_x=0.0_R8P          !< Unifom field value
+   real(R8P)                 :: D_y=0.0_R8P          !< Unifom field value
+   real(R8P)                 :: D_z=0.0_R8P          !< Unifom field value
    real(R8P)                 :: RMF_frequency        !< Rotating magnetic field frequency.
    real(R8P)                 :: RMF_B_amplitude      !< Rotating magnetic field amplitude.
 	character(len=99)         :: RMF_rotation_axis 	  !< Rotating magnetic field rotation axis (X, Y, Z).
@@ -67,15 +74,18 @@ contains
    integer(I4P)                       :: r, v             !< Counter.
 
    desc =       self%mpih%myrankstr//'IC main data'//NL
-   desc = desc//self%mpih%myrankstr//'  regions number: '//trim(str(self%regions_number))
-   do r=1, self%regions_number
-      desc = desc//NL//self%mpih%myrankstr//'  region('//trim(str(r,.true.))//')'
-      do v=1, size(self%q, dim=1)
-         desc = desc//NL//self%mpih%myrankstr//'    q('//trim(str(v,.true.))//'): '//trim(str(self%q(v,r)))
+   desc = desc//self%mpih%myrankstr//'  IC type '//trim(self%ic_type)
+   if (self%ic_type == IC_TYPE_RP) then
+      desc = desc//self%mpih%myrankstr//'  regions number: '//trim(str(self%regions_number))
+      do r=1, self%regions_number
+         desc = desc//NL//self%mpih%myrankstr//'  region('//trim(str(r,.true.))//')'
+         do v=1, size(self%q, dim=1)
+            desc = desc//NL//self%mpih%myrankstr//'    q('//trim(str(v,.true.))//'): '//trim(str(self%q(v,r)))
+         enddo
+            desc = desc//NL//self%mpih%myrankstr//'    emin: '//trim(str(self%emin(:,r)))
+            desc = desc//NL//self%mpih%myrankstr//'    emax: '//trim(str(self%emax(:,r)))
       enddo
-         desc = desc//NL//self%mpih%myrankstr//'    emin: '//trim(str(self%emin(:,r)))
-         desc = desc//NL//self%mpih%myrankstr//'    emax: '//trim(str(self%emax(:,r)))
-   enddo
+   endif
    endfunction description
 
    subroutine initialize(self, file_parameters)
@@ -109,46 +119,48 @@ contains
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='type', val=buff_char, error=error)
    if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(type)')
    self%ic_type = trim(adjustl(buff_char))
-   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, error=error)
-   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(regions_number)')
-   if (self%regions_number>=1) then
-      allocate(   self%q(1:9, 1:self%regions_number))
-      allocate(self%emin(1:3, 1:self%regions_number))
-      allocate(self%emax(1:3, 1:self%regions_number))
-      do i=1, self%regions_number
-         sname = INI_SECTION_NAME//'_region_'//trim(str(i,.true.))
-         call file_parameters%get(section_name=sname, option_name='Dx', val=self%q(1,i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Dx)')
-         call file_parameters%get(section_name=sname, option_name='Dy', val=self%q(2,i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Dy)')
-         call file_parameters%get(section_name=sname, option_name='Dz', val=self%q(3,i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Dz)')
-         call file_parameters%get(section_name=sname, option_name='Bx', val=self%q(4,i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Bx)')
-         call file_parameters%get(section_name=sname, option_name='By', val=self%q(5,i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(By)')
-         call file_parameters%get(section_name=sname, option_name='Bz', val=self%q(6,i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Bz)')
+   if (self%ic_type == IC_TYPE_RP) then
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='regions_number', val=self%regions_number, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(regions_number)')
+      if (self%regions_number>=1) then
+         allocate(   self%q(1:9, 1:self%regions_number))
+         allocate(self%emin(1:3, 1:self%regions_number))
+         allocate(self%emax(1:3, 1:self%regions_number))
+         do i=1, self%regions_number
+            sname = INI_SECTION_NAME//'_region_'//trim(str(i,.true.))
+            call file_parameters%get(section_name=sname, option_name='Dx', val=self%q(1,i), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Dx)')
+            call file_parameters%get(section_name=sname, option_name='Dy', val=self%q(2,i), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Dy)')
+            call file_parameters%get(section_name=sname, option_name='Dz', val=self%q(3,i), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Dz)')
+            call file_parameters%get(section_name=sname, option_name='Bx', val=self%q(4,i), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Bx)')
+            call file_parameters%get(section_name=sname, option_name='By', val=self%q(5,i), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(By)')
+            call file_parameters%get(section_name=sname, option_name='Bz', val=self%q(6,i), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Bz)')
 
-         call file_parameters%get(section_name=sname, option_name='Jx', val=self%q(7,i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Jx)')
-         call file_parameters%get(section_name=sname, option_name='Jy', val=self%q(8,i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Jy)')
-         call file_parameters%get(section_name=sname, option_name='Jz', val=self%q(9,i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Jz)')
+            call file_parameters%get(section_name=sname, option_name='Jx', val=self%q(7,i), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Jx)')
+            call file_parameters%get(section_name=sname, option_name='Jy', val=self%q(8,i), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Jy)')
+            call file_parameters%get(section_name=sname, option_name='Jz', val=self%q(9,i), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Jz)')
 
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(emin_x)')
-         call file_parameters%get(section_name=sname, option_name='emin_y', val=self%emin(2,i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(emin_y)')
-         call file_parameters%get(section_name=sname, option_name='emin_z', val=self%emin(3,i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(emin_z)')
-         call file_parameters%get(section_name=sname, option_name='emax_x', val=self%emax(1,i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(emax_x)')
-         call file_parameters%get(section_name=sname, option_name='emax_y', val=self%emax(2,i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(emax_y)')
-         call file_parameters%get(section_name=sname, option_name='emax_z', val=self%emax(3,i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(emax_z)')
-      enddo
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(emin_x)')
+            call file_parameters%get(section_name=sname, option_name='emin_y', val=self%emin(2,i), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(emin_y)')
+            call file_parameters%get(section_name=sname, option_name='emin_z', val=self%emin(3,i), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(emin_z)')
+            call file_parameters%get(section_name=sname, option_name='emax_x', val=self%emax(1,i), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(emax_x)')
+            call file_parameters%get(section_name=sname, option_name='emax_y', val=self%emax(2,i), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(emax_y)')
+            call file_parameters%get(section_name=sname, option_name='emax_z', val=self%emax(3,i), error=error)
+            if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(emax_z)')
+         enddo
+      endif
    endif
    if (self%ic_type == IC_TYPE_PLANE_WAVE) then
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='kx', val=self%kx, error=error)
@@ -197,7 +209,15 @@ contains
       if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_frequency)')
       call file_parameters%get(section_name='external_fields', option_name='RMF_B_amplitude', val=self%RMF_B_amplitude, error=error)
       if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_B_amplitude)')
-  endif
+   endif
+   if (self%ic_type == IC_TYPE_UNIFORM_FIELD) then
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='B_x', val=self%B_x, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B_x)')
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='B_y', val=self%B_y, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B_y)')
+      call file_parameters%get(section_name=INI_SECTION_NAME, option_name='B_z', val=self%B_z, error=error)
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B_z)')      
+   endif
    endsubroutine load_from_file
 
    subroutine set_initial_conditions(self, physics, field, q)
@@ -287,6 +307,21 @@ contains
          enddo
    enddo
    endassociate
+   case(IC_TYPE_UNIFORM_FIELD)
+   do b=1, blocks_number
+      do k=1, nk
+         do j=1, nj
+            do i=1, ni
+               q(1,i,j,k,b) = self%D_x
+               q(2,i,j,k,b) = self%D_y
+               q(3,i,j,k,b) = self%D_z
+               q(4,i,j,k,b) = self%B_x
+               q(5,i,j,k,b) = self%B_y
+               q(6,i,j,k,b) = self%B_z
+            enddo
+         enddo
+      enddo
+   enddo
    case default
       ! to be added error print
    endselect

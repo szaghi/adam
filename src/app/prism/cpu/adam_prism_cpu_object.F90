@@ -364,6 +364,9 @@ contains
 
       endif
    endif
+   if (self%pic%problem_type == SINGLE_PARTICLE_TYPE_PROBLEM) then
+      call write_single_particle_output(filename='single_particle_output.dat', time=self%time%time, q_pic=self%q_pic)
+   endif
    endsubroutine save_simulation_data
 
    ! IC/BC/sources
@@ -377,6 +380,7 @@ contains
                                                       1:)            !< Conservative variables.
    real(R8P),               intent(in), optional :: gamma            !< RK coefficient.
    real(R8P)                                     :: current_density  !< Current density.
+   real(R8P)                                     :: current_density_o!< Current density.
    real(R8P)                                     :: g                !< Starting polynomial transitory of coils.
    real(R8P)                                     :: time_s           !< Local time.
    integer(I4P)                                  :: w_, w_c_         !< Step function coeff to avoid if in parallel regions.
@@ -430,12 +434,17 @@ contains
             q(VAR_JX,i,j,k,b) = current_density * j_vec(1,i,j,k,b)
             q(VAR_JY,i,j,k,b) = current_density * j_vec(2,i,j,k,b)
             q(VAR_JZ,i,j,k,b) = current_density * j_vec(3,i,j,k,b)
+            q(4,i,j,k,b) = 0.0_R8P
+            q(5,i,j,k,b) = 0.0_R8P
+            q(6,i,j,k,b) = 0.0_R8P
          endif
       enddo
       enddo
       enddo
       enddo
    !endif
+      current_density_o = g_ * A(1) * cos(f_ + phase(1)*PI/180.0_R8P)
+      call write_current_behavior_tab('current_density.dat', time=time_s, current_density=current_density_o)
    endif
    endassociate
    endsubroutine compute_coils_current
@@ -520,9 +529,10 @@ contains
                fec     = local_map_bc_crown(c, 9 ,crown) !da qua la faccia e quindi la normale
                fec_1_6 = fec_1_6_array(fec)
                if (bc_type == BC_EXTRAPOLATION) then
-                  do v=1, nv!(nv_c-nv_cl)
+                  do v=4, nv!(nv_c-nv_cl)
                      q(v,i,j,k,b) = q(v,i-idelta,j-jdelta,k-kdelta,b) !ni,j,k coordinate della cella da cui prendo i valori
                   enddo
+                     q(1:3,i,j,k,b) = 0.0_R8P
                elseif (bc_type == BC_NEUMANN) then
                   if (fec == 1) then
                      idelta_n = nint(abs(real(i))*idelta,kind=I4P) - 1_I4P
@@ -811,11 +821,16 @@ contains
    class(prism_cpu_object), intent(inout) :: self !< The equation.
 
    call self%ic%set_initial_conditions(physics=self%physics, field=self%field, q=self%q)
-   call self%coil%set_coils(physics=self%physics, field=self%field)
-   call self%particle_injection%set_particle_initial_injection(field=self%field, pic=self%pic, q_pic=self%q_pic)
-   call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=self%pic%particle_number)
-   call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(self%pic%neighbour_list,R8P), &
-                                    np=self%pic%particle_number)
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      call self%particle_injection%set_particle_initial_injection(field=self%field, pic=self%pic, q_pic=self%q_pic)
+      call write_initial_injection_tab(filename='particle_injection.dat', q_pic=self%q_pic, np=self%pic%particle_number)
+      call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(self%pic%neighbour_list,R8P), &
+                                       np=self%pic%particle_number)
+   endif
+   call self%coil%set_coils(physics=self%physics, field=self%field) !Lo metto dopo perchè l'interpolatore di correnti azzera
+                                                                    !tutto per poter poi fare la sommatoria al relativo tempo
+   call self%pic%current_weighting(field=self%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   call self%pic%particle_weighting(field=self%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
    endsubroutine set_initial_conditions
 
    subroutine update_ghost(self, q, step, s)
@@ -1931,18 +1946,19 @@ contains
       call self%rk%update_q(dt=self%time%dt, q=self%q)
       call self%update_q_BC(dt=self%time%dt)
    endif
-   call self%compute_coils_current(q=self%q)
-   !Forse qui ci va un'altra interpolazione delle correnti particellari, vediamo
-   call self%impose_div_free
    call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
-
+   !Aggiorno i termini sorgente di Maxwell al tempo in cui andrò a plottare i risultati
+   call self%impose_div_free
+   call self%pic%current_weighting(field=self%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   call self%pic%particle_weighting(field=self%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   call self%compute_coils_current(q=self%q)
    !call add_external_fields(self = self%external_fields, field = self%field, &
    !                        time = self%time%time, dt = self%time%dt, q = self%q)
    endsubroutine integrate_rk_ssp_pic
 
    subroutine update_q_BC(self, dt, phi)
    !< Update RK q ghost cells.
-   class(prism_cpu_object), intent(inout)    :: self             !< RK object.
+   class(prism_cpu_object), intent(inout) :: self             !< RK object.
    real(R8P),        intent(in)           :: dt               !< Current time step.
    real(R8P),        intent(in), optional :: phi(1:,          &
                                                  1-self%ngc:, &
@@ -2246,6 +2262,41 @@ contains
       enddo
    enddo
    endsubroutine decompose_fluxes_convective
+
+	subroutine write_current_behavior_tab(filename, current_density, time)
+	character(len=1), parameter  :: TAB = achar(9)
+	character(len=*), intent(in) :: filename
+	real(R8P),        intent(in) :: current_density
+   real(R8P),        intent(in) :: time
+	integer(I4P) 					  :: iu, ios
+
+	open(newunit=iu, file=trim(filename), status='unknown', action='write', &
+	     form='formatted', position='append', iostat=ios)
+	if (ios /= 0) then
+	  write(*,'(a,i0)') 'write_current_tab: errore open(), iostat=', ios
+	  error stop
+	end if
+	write(iu,'(ES24.16,a,ES24.16))') time, TAB, current_density
+	close(iu)
+	endsubroutine write_current_behavior_tab
+
+   subroutine write_single_particle_output(filename, time, q_pic)
+	character(len=1), parameter  :: TAB = achar(9)
+	character(len=*), intent(in) :: filename
+	real(R8P),        intent(in) :: q_pic(1:,1:)
+   real(R8P),        intent(in) :: time
+	integer(I4P) 					  :: iu, ios, l, j
+   
+   l = size(q_pic, dim=1)
+  	open(newunit=iu, file=trim(filename), status='unknown', action='write', &
+	     form='formatted', position='append', iostat=ios)
+	if (ios /= 0) then
+	  write(*,'(a,i0)') 'write_current_tab: errore open(), iostat=', ios
+	  error stop
+	end if
+	write(iu,'(ES24.16,8(a,ES24.16))') time, (TAB, q_pic(j,1), j=1,l)
+	close(iu) 
+   endsubroutine
 
    function crossproduct(a, b) result(cross)
    real(R8P), intent(in) :: a(3)     !< Left hand side.

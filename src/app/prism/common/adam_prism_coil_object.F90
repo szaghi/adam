@@ -1271,7 +1271,7 @@ contains
                   if (flag(i,j,k,b) == w) then
                      selectcase (current_distribution)
                      case (GAUSS_CURRENT_DISTRIBUTION)
-                        Gaussian(i,j,k,b) = gaussian_2D_ind(sigma = (d*dx(b))/6, r = dist)
+                        Gaussian(i,j,k,b) = gaussian_2D_ind(sigma = d/6, r = dist)
                      case (CONST_CURRENT_DISTRIBUTION)
                         Gaussian(i,j,k,b) = 1/(PI*d**2/4)
                      endselect
@@ -1343,7 +1343,7 @@ contains
                   if (flag(i,j,k,b) == w) then
                      selectcase (current_distribution)
                      case (GAUSS_CURRENT_DISTRIBUTION)
-                        Gaussian(i,j,k,b) = gaussian_2D_ind(sigma = (d*dx(b))/6, r = dist)
+                        Gaussian(i,j,k,b) = gaussian_2D_ind(sigma = d/6, r = dist)
                      case (CONST_CURRENT_DISTRIBUTION)
                         Gaussian(i,j,k,b) = 1/(PI*d**2/4)
                      endselect

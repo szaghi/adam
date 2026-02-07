@@ -57,7 +57,7 @@ contains
    if (self%C == 0_I4P) then
       desc = self%mpih%myrankstr//'   No fWLayer implemented'
    else
-      desc = desc//NL//self%mpih%myrankstr//'   fWLayer datas:'
+      desc = self%mpih%myrankstr//'   fWLayer datas:'
       desc = desc//NL//self%mpih%myrankstr//'      Layer cell width: '//trim(str(self%C))
       desc = desc//NL//self%mpih%myrankstr//'      Layer on -x side: '//trim(str(self%layer(1)))
       desc = desc//NL//self%mpih%myrankstr//'      Layer on +x side: '//trim(str(self%layer(2)))
