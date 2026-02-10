@@ -49,8 +49,8 @@ type :: prism_coil_object
    real(R8P),         allocatable :: d(:)                                  !< Coil wire diameter
    real(R8P),         allocatable :: x_center(:), y_center(:), z_center(:) !< Coil center
    real(R8P),         allocatable :: lx(:), ly(:)                          !< Rectangle's sizes (if rectangular coil)
-   real(R8P),         allocatable :: r_c(:)                                !< Rectangle's radius of curvature (if rectangular coil)
    real(R8P),         allocatable :: r_coil(:)                             !< Circle's radius (if circular coil)
+   real(R8P),         allocatable :: sigma(:)                              !< Gaussian current distribution sigma
    real(R8P),         allocatable :: normal(:,:)                           !< Versore normale alla spira, che identifica anche verso
    real(R8P),         allocatable :: J_vec(:,:,:,:,:)                      !< Matrice contenente versori corrente spire (se assente
    real(R8P)                      :: td                                    !< Delay di accensione della spira
@@ -90,7 +90,7 @@ contains
    allocate(self%ly                  (  0:total_coils_number)) ; self%ly = 0.0_R8P
    allocate(self%lx                  (  0:total_coils_number)) ; self%lx = 0.0_R8P
    allocate(self%d                   (  0:total_coils_number)) ; self%d = 0.0_R8P
-   allocate(self%r_c                 (  0:total_coils_number)) ; self%r_c = 0.0_R8P
+   allocate(self%sigma               (  0:total_coils_number)) ; self%sigma = 0.0_R8P
    allocate(self%normal              (3,0:total_coils_number)) ; self%normal = 0.0_R8P
    allocate(self%x_center            (  0:total_coils_number)) ; self%x_center = 0.0_R8P
    allocate(self%y_center            (  0:total_coils_number)) ; self%y_center = 0.0_R8P
@@ -133,6 +133,7 @@ contains
          desc = desc//NL//self%mpih%myrankstr//'    Amplitude: '//trim(str(self%A(r)))
          desc = desc//NL//self%mpih%myrankstr//'    requency: '//trim(str(self%f(r)))
          desc = desc//NL//self%mpih%myrankstr//'    Phase: '//trim(str(self%phase(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Sigma: '//trim(str(self%sigma(r)))
          case(COIL_TYPE_RECTANGULAR)
          !desc = desc//NL//self%mpih%myrankstr//'    Coil type: '//trim(str(self%coil_type(r)))
          !desc = desc//NL//self%mpih%myrankstr//'    Current type:'//trim(str(self%current_type(r)))
@@ -146,6 +147,7 @@ contains
          desc = desc//NL//self%mpih%myrankstr//'    Amplitude: '//trim(str(self%A(r)))
          desc = desc//NL//self%mpih%myrankstr//'    requency: '//trim(str(self%f(r)))
          desc = desc//NL//self%mpih%myrankstr//'    Phase: '//trim(str(self%phase(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Sigma: '//trim(str(self%sigma(r)))
          endselect
       enddo
    else
@@ -268,6 +270,11 @@ contains
       self%current_distribution(i) = trim(buff_char)
       self%current_distribution(i) = trim(self%current_distribution(i))
 
+      if (self%current_distribution(i) == GAUSS_CURRENT_DISTRIBUTION) then
+         call file_parameters%get(section_name=sname, option_name='sigma', val=self%sigma(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(sigma)')
+      endif
+
       select case(self%coil_type(i))
       case(COIL_TYPE_CIRCULAR)
          call file_parameters%get(section_name=sname, option_name='r_coil', val=self%r_coil(i), error=error)
@@ -312,9 +319,6 @@ contains
 
          call file_parameters%get(section_name=sname, option_name='d', val=self%d(i), error=error)
          if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(d)')
-
-         call file_parameters%get(section_name=sname, option_name='r_c', val=self%r_c(i), error=error)
-         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(r_c)')
 
          call file_parameters%get(section_name=sname, option_name='x_center', val=self%x_center(i), error=error)
          if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
@@ -423,7 +427,7 @@ contains
                x_c => self%x_center(n), y_c => self%y_center(n), z_c => self%z_center(n), &
                dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), r_coil => self%r_coil(n), &
                normal => self%normal(:,n), d => self%d(n), nb=>field%nb,current_distribution => self%current_distribution(n), &
-               x_cell => field%x_cell, y_cell => field%y_cell, z_cell => field%z_cell)
+               x_cell => field%x_cell, y_cell => field%y_cell, z_cell => field%z_cell, sigma => self%sigma(n))
 
       c_c = [ x_c, y_c, z_c ] !Vettore posizione centro spira
 
@@ -493,7 +497,7 @@ contains
             x_c => self%x_center(n), y_c => self%y_center(n), z_c => self%z_center(n),                                         &
             dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), lx => self%lx(n), ly => self%ly(n),           &
             normal => self%normal(:,n), d => self%d(n), nb =>field%nb, current_distribution => self%current_distribution(n),   &
-            x_cell => field%x_cell, y_cell => field%y_cell, z_cell => field%z_cell)
+            x_cell => field%x_cell, y_cell => field%y_cell, z_cell => field%z_cell, sigma => self%sigma(n))
    c_c = [ x_c, y_c, z_c ] !Vettore posizione centro spira
    !vertici del rettangolo, lo costruisco come se avesse normale asse z e fosse centrato nell'origine;
    !vertici in senso antiorario, partendo da in basso a sinistra; si ipotizza
@@ -662,7 +666,7 @@ contains
                   if (flag(i,j,k,b) == w) then
                      selectcase (current_distribution)
                      case (GAUSS_CURRENT_DISTRIBUTION)
-                        Gaussian(i,j,k,b) = gaussian_2D_ind(sigma = (d*dx(b))/6, r = dist)
+                        Gaussian(i,j,k,b) = gaussian_2D_ind(sigma = sigma*dx(b), r = dist)
                      case (CONST_CURRENT_DISTRIBUTION)
                         Gaussian(i,j,k,b) = 1/(d*dx(b))**2
                      endselect
@@ -728,7 +732,7 @@ contains
                   if (flag(i,j,k,b) == w) then
                      selectcase (current_distribution)
                      case (GAUSS_CURRENT_DISTRIBUTION)
-                        Gaussian(i,j,k,b) = gaussian_2D_ind(sigma = (d*dx(b))/6, r = dist)
+                        Gaussian(i,j,k,b) = gaussian_2D_ind(sigma = sigma*dx(b), r = dist)
                      case (CONST_CURRENT_DISTRIBUTION)
                         Gaussian(i,j,k,b) = 1/(d*dx(b))**2
                      endselect
@@ -796,7 +800,7 @@ contains
             x_c => self%x_center(n), y_c => self%y_center(n), z_c => self%z_center(n),                                         &
             dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), lx => self%lx(n), ly => self%ly(n),           &
             normal => self%normal(:,n), d => self%d(n), nb =>field%nb, current_distribution => self%current_distribution(n),   &
-            x_cell => field%x_cell, y_cell => field%y_cell, z_cell => field%z_cell)
+            x_cell => field%x_cell, y_cell => field%y_cell, z_cell => field%z_cell, sigma => self%sigma(n))
    c_c = [ x_c, y_c, z_c ] !Vettore posizione centro spira
    !vertici del rettangolo, lo costruisco come se avesse normale asse z e fosse centrato nell'origine;
    !vertici in senso antiorario, partendo da in basso a sinistra; si ipotizza
@@ -967,7 +971,7 @@ contains
                   if (flag(i,j,k,b) == w) then
                      selectcase (current_distribution)
                      case (GAUSS_CURRENT_DISTRIBUTION)
-                        Gaussian(i,j,k,b) = gaussian_2D_ind(sigma = (d*dx(b))/6, r = dist)
+                        Gaussian(i,j,k,b) = gaussian_2D_ind(sigma = sigma*dx(b), r = dist)
                      case (CONST_CURRENT_DISTRIBUTION)
                         Gaussian(i,j,k,b) = 1/(d*dx(b))**2
                      endselect
@@ -1033,7 +1037,7 @@ contains
                   if (flag(i,j,k,b) == w) then
                      selectcase (current_distribution)
                      case (GAUSS_CURRENT_DISTRIBUTION)
-                        Gaussian(i,j,k,b) = gaussian_2D_ind(sigma = (d*dx(b))/6, r = dist)
+                        Gaussian(i,j,k,b) = gaussian_2D_ind(sigma = sigma*dx(b), r = dist)
                      case (CONST_CURRENT_DISTRIBUTION)
                         Gaussian(i,j,k,b) = 1/(d*dx(b))**2
                      endselect
@@ -1103,7 +1107,7 @@ contains
             x_c => self%x_center(n), y_c => self%y_center(n), z_c => self%z_center(n),                                         &
             dx => field%dxyz(1,:), dy => field%dxyz(2,:), dz => field%dxyz(3,:), lx => self%lx(n), ly => self%ly(n),           &
             normal => self%normal(:,n), d => self%d(n), nb =>field%nb, current_distribution => self%current_distribution(n),   &
-            x_cell => field%x_cell, y_cell => field%y_cell, z_cell => field%z_cell)
+            x_cell => field%x_cell, y_cell => field%y_cell, z_cell => field%z_cell, sigma => self%sigma(n))
    c_c = [ x_c, y_c, z_c ] !Vettore posizione centro spira
    !vertici del rettangolo, lo costruisco come se avesse normale asse z e fosse centrato nell'origine;
    !vertici in senso antiorario, partendo da in basso a sinistra; si ipotizza

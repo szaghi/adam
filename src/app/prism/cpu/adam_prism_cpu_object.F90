@@ -43,13 +43,14 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: save_residuals       !< Save residuals history.
       procedure, pass(self) :: save_simulation_data !< Save all simulation data.
       ! IC/BC/sources
-      procedure, pass(self) :: apply_fWL_correction    !< Apply fWLayer correction (if present)
-      procedure, pass(self) :: compute_coils_current   !< Compute current coils sources.
-      procedure, pass(self) :: set_boundary_conditions !< Set boundary conditions of equation.
+      procedure, pass(self) :: apply_fWL_correction     !< Apply fWLayer correction (if present)
+      procedure, pass(self) :: compute_coils_current    !< Compute current coils sources.
+      procedure, pass(self) :: set_boundary_conditions  !< Set boundary conditions of equation.
       procedure, pass(self) :: compute_residuals_BC
       procedure, pass(self) :: update_q_BC
-      procedure, pass(self) :: set_initial_conditions  !< Set initial conditions (and coils) of equation.
-      procedure, pass(self) :: update_ghost            !< Update ghost cells and set boundary conditions.
+      procedure, pass(self) :: set_initial_conditions   !< Set initial conditions (and coils) of equation.
+      procedure, pass(self) :: update_ghost             !< Update ghost cells and set boundary conditions.
+      procedure, pass(self) :: compute_field_mean_value !< Compute field mean value.
       ! FDV operators numerical methods
       procedure, pass(self) :: compute_curl_fd        !< Compute curl of vector field by finite difference.
       procedure, pass(self) :: compute_curl_fv        !< Compute curl of vector field by finite volume.
@@ -434,9 +435,7 @@ contains
             q(VAR_JX,i,j,k,b) = current_density * j_vec(1,i,j,k,b)
             q(VAR_JY,i,j,k,b) = current_density * j_vec(2,i,j,k,b)
             q(VAR_JZ,i,j,k,b) = current_density * j_vec(3,i,j,k,b)
-            q(4,i,j,k,b) = 0.0_R8P
-            q(5,i,j,k,b) = 0.0_R8P
-            q(6,i,j,k,b) = 0.0_R8P
+            !print *, q(VAR_JX,i,j,k,b)
          endif
       enddo
       enddo
@@ -529,10 +528,9 @@ contains
                fec     = local_map_bc_crown(c, 9 ,crown) !da qua la faccia e quindi la normale
                fec_1_6 = fec_1_6_array(fec)
                if (bc_type == BC_EXTRAPOLATION) then
-                  do v=4, nv!(nv_c-nv_cl)
+                  do v=1, nv!(nv_c-nv_cl)
                      q(v,i,j,k,b) = q(v,i-idelta,j-jdelta,k-kdelta,b) !ni,j,k coordinate della cella da cui prendo i valori
                   enddo
-                     q(1:3,i,j,k,b) = 0.0_R8P
                elseif (bc_type == BC_NEUMANN) then
                   if (fec == 1) then
                      idelta_n = nint(abs(real(i))*idelta,kind=I4P) - 1_I4P
@@ -829,8 +827,10 @@ contains
    endif
    call self%coil%set_coils(physics=self%physics, field=self%field) !Lo metto dopo perchè l'interpolatore di correnti azzera
                                                                     !tutto per poter poi fare la sommatoria al relativo tempo
-   call self%pic%current_weighting(field=self%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
-   call self%pic%particle_weighting(field=self%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
+      call self%pic%current_weighting(field=self%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+      call self%pic%particle_weighting(field=self%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+   endif
    endsubroutine set_initial_conditions
 
    subroutine update_ghost(self, q, step, s)
@@ -1388,7 +1388,7 @@ contains
 
    subroutine impose_ct_correction(self, ivar)
    !< Impose Constrained Transport Correction on vectorial variable q(ivar:ivar+2).
-   !< Note that self%divergence memory is used as buffer, be carefull.
+   !< Note that self%divergence memory is used as buffer, be careful.
    class(prism_cpu_object), intent(inout) :: self      !< The equation.
    integer(I4P),            intent(in)    :: ivar      !< Variable (start) index in q.
    real(R8P)                              :: dq_max    !< Maximum residual.
@@ -2297,6 +2297,29 @@ contains
 	write(iu,'(ES24.16,8(a,ES24.16))') time, (TAB, q_pic(j,1), j=1,l)
 	close(iu) 
    endsubroutine
+
+   subroutine compute_field_mean_value(self, q, C, mean_value)
+   !< Compute mean value of the field out of the fWLayer.
+   class(prism_cpu_object), intent(in)  :: self                                      !< The object
+   real(R8P), intent(in)                :: q(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
+   integer(I4P), intent(in)             :: C                                         !< Number of fWLayer cells
+   real(R8P), intent(out)               :: mean_value                                !< Mean value of the field out of the fWLayer
+   integer(I4P)                         :: i, j, k, b                                !< Counter.
+   
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, blocks_number=>self%blocks_number, ngc=>self%ngc)
+   mean_value = 0._R8P
+   do b=1, self%blocks_number
+      do k=C, self%nk-C+1
+         do j=C, self%nj-C+1
+            do i=1, self%ni-C+1
+               mean_value = mean_value + q(i,j,k,b)
+            enddo
+         enddo
+      enddo
+   enddo
+   mean_value = mean_value / real((ni-2_I4P*C)*(nj-2_I4P*C)*(nk-2_I4P*C)*blocks_number, R8P)
+   endassociate
+   endsubroutine compute_field_mean_value
 
    function crossproduct(a, b) result(cross)
    real(R8P), intent(in) :: a(3)     !< Left hand side.

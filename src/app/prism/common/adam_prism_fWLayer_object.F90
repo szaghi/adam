@@ -97,12 +97,12 @@ contains
    C_r = real(C, R8P)
 
    if (C >0) then
-      ni_fWL(1,1)=1_I4P  ; ni_fWL(1,2)=ni-C    ; ni_fWL(1,3)=1_I4P  ; ni_fWL(1,4)=1_I4P   ; ni_fWL(1,5)=1_I4P  ; ni_fWL(1,6)=1_I4P
-      ni_fWL(2,1)=C      ; ni_fWL(2,2)=ni      ; ni_fWL(2,3)=ni     ; ni_fWL(2,4)=ni      ; ni_fWL(2,5)=ni     ; ni_fWL(2,6)=ni
-      nj_fWL(1,1)=1_I4P  ; nj_fWL(1,2)=1_I4P   ; nj_fWL(1,3)=1_I4P  ; nj_fWL(1,4)=nj-C    ; nj_fWL(1,5)=1_I4P  ; nj_fWL(1,6)=1_I4P
-      nj_fWL(2,1)=nj     ; nj_fWL(2,2)=nj      ; nj_fWL(2,3)=C      ; nj_fWL(2,4)=nj      ; nj_fWL(2,5)=nj     ; nj_fWL(2,6)=nj
-      nk_fWL(1,1)=1_I4P  ; nk_fWL(1,2)=1_I4P   ; nk_fWL(1,3)=1_I4P  ; nk_fWL(1,4)=1_I4P   ; nk_fWL(1,5)=1_I4P  ; nk_fWL(1,6)=nk-C
-      nk_fWL(2,1)=nk     ; nk_fWL(2,2)=nk      ; nk_fWL(2,3)=nk     ; nk_fWL(2,4)=nk      ; nk_fWL(2,5)=C      ; nk_fWL(2,6)=nk
+      ni_fWL(1,1)=1_I4P; ni_fWL(1,2)=ni-C+1_I4P; ni_fWL(1,3)=1_I4P; ni_fWL(1,4)=1_I4P     ; ni_fWL(1,5)=1_I4P; ni_fWL(1,6)=1_I4P
+      ni_fWL(2,1)=C    ; ni_fWL(2,2)=ni        ; ni_fWL(2,3)=ni   ; ni_fWL(2,4)=ni        ; ni_fWL(2,5)=ni   ; ni_fWL(2,6)=ni
+      nj_fWL(1,1)=1_I4P; nj_fWL(1,2)=1_I4P     ; nj_fWL(1,3)=1_I4P; nj_fWL(1,4)=nj-C+1_I4P; nj_fWL(1,5)=1_I4P; nj_fWL(1,6)=1_I4P
+      nj_fWL(2,1)=nj   ; nj_fWL(2,2)=nj        ; nj_fWL(2,3)=C    ; nj_fWL(2,4)=nj        ; nj_fWL(2,5)=nj   ; nj_fWL(2,6)=nj
+      nk_fWL(1,1)=1_I4P; nk_fWL(1,2)=1_I4P     ; nk_fWL(1,3)=1_I4P; nk_fWL(1,4)=1_I4P     ; nk_fWL(1,5)=1_I4P; nk_fWL(1,6)=nk-C+1_I4P 
+      nk_fWL(2,1)=nk   ; nk_fWL(2,2)=nk        ; nk_fWL(2,3)=nk   ; nk_fWL(2,4)=nk        ; nk_fWL(2,5)=C    ; nk_fWL(2,6)=nk
 
       n(1)      =1_I4P  ; n(2)      =1_I4P   ; n(3)      =2_I4P  ; n(4)      =2_I4P   ; n(5)      =3_I4P  ; n(6)      =3_I4P
       s2(1)     =1.0_R8P; s2(2)     =-1.0_R8P; s2(3)     =1.0_R8P; s2(4)     =-1.0_R8P; s2(5)     =1.0_R8P; s2(6)     =-1.0_R8P
@@ -135,7 +135,7 @@ contains
             ds = dx(b)
             do k=1,nk
                do j=1, nj
-                  do i=ni-C, ni
+                  do i=ni-C+1_I4P, ni
                      i_r = real(i, R8P)
                      distance = (ni-i_r)*ds+ds/2
                      self%f(1,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
@@ -161,7 +161,7 @@ contains
             ds = dy(b)
             do k=1,nk
                do i=1, ni
-                  do j=nj-C, nj
+                  do j=nj-C+1_I4P, nj
                      j_r = real(j, R8P)
                      distance = (nj-j_r)*ds+ds/2
                      self%f(2,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
@@ -187,7 +187,7 @@ contains
             ds = dz(b)
             do i=1,ni
                do j=1, nj
-                  do k=nk-C, nk
+                  do k=nk-C+1_I4P, nk
                      k_r = real(k, R8P)
                      distance = (nk-k_r)*ds+ds/2
                      self%f(3,i,j,k,b) = 1._R8P/fi*LOG10((distance)/(C_r*ds)*(10._R8P**fi-1._R8P)+1._R8P)
