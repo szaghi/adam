@@ -148,8 +148,8 @@
             <a class="list-group-item" href="../module/adam_nasto_nvf_kernels.html#proc-compute_fluxes_diffusive_cuf">compute_fluxes_diffusive_cuf</a>
             <a class="list-group-item" href="../module/adam_nasto_nvf_kernels.html#proc-compute_umax_cuf">compute_umax_cuf</a>
             <a class="list-group-item" href="../module/adam_nasto_nvf_kernels.html#proc-set_bc_q_gpu_cuf">set_bc_q_gpu_cuf</a>
-            <a class="list-group-item" href="../module/adam_nasto_nvf_kernels.html#proc-compute_fluxes_convective_device">compute_fluxes_convective_device</a>
-            <a class="list-group-item" href="../module/adam_nasto_nvf_kernels.html#proc-decompose_fluxes_convective_device~2">decompose_fluxes_convective_device</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_kernels.html#proc-compute_fluxes_convective_device~2">compute_fluxes_convective_device</a>
+            <a class="list-group-item" href="../module/adam_nasto_nvf_kernels.html#proc-decompose_fluxes_convective_device~3">decompose_fluxes_convective_device</a>
         </div>
       </div>
     </div>
@@ -175,10 +175,10 @@
         <ul class="list-group list-group-flush">
             <li class="list-group-item">
               <ul class="list-inline">
-                  <li class="list-inline-item">penf</li>
                   <li class="list-inline-item">adam_weno_nvf_kernels</li>
-                  <li class="list-inline-item"><a href='adam_nasto_nvf_cns_kernels.html'>adam_nasto_nvf_cns_kernels</a></li>
                   <li class="list-inline-item">cudafor</li>
+                  <li class="list-inline-item">penf</li>
+                  <li class="list-inline-item"><a href='adam_nasto_nvf_cns_kernels.html'>adam_nasto_nvf_cns_kernels</a></li>
               </ul>
             </li>
             <li class="list-group-item">
@@ -499,7 +499,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-dir~3"></span>
+              <span class="anchor" id="variable-dir~5"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -514,7 +514,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-blocks_number~8"></span>
+              <span class="anchor" id="variable-blocks_number~14"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -529,7 +529,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ni~7"></span>
+              <span class="anchor" id="variable-ni~13"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -544,7 +544,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nj~7"></span>
+              <span class="anchor" id="variable-nj~13"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -559,7 +559,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nk~7"></span>
+              <span class="anchor" id="variable-nk~13"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -574,7 +574,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ngc~20"></span>
+              <span class="anchor" id="variable-ngc~34"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -589,7 +589,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nv~12"></span>
+              <span class="anchor" id="variable-nv~27"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -604,7 +604,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-weno_s~6"></span>
+              <span class="anchor" id="variable-weno_s~10"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -619,7 +619,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-weno_a_gpu~3"></span>
+              <span class="anchor" id="variable-weno_a_gpu~5"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -634,7 +634,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-weno_p_gpu~3"></span>
+              <span class="anchor" id="variable-weno_p_gpu~5"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -649,7 +649,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-weno_d_gpu~3"></span>
+              <span class="anchor" id="variable-weno_d_gpu~5"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -664,7 +664,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-weno_zeps~3"></span>
+              <span class="anchor" id="variable-weno_zeps~5"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -679,7 +679,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ror_number~3"></span>
+              <span class="anchor" id="variable-ror_number~5"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -694,7 +694,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ror_schemes_gpu~3"></span>
+              <span class="anchor" id="variable-ror_schemes_gpu~5"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -709,7 +709,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ror_threshold~3"></span>
+              <span class="anchor" id="variable-ror_threshold~5"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -724,7 +724,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ror_ivar_gpu~3"></span>
+              <span class="anchor" id="variable-ror_ivar_gpu~5"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -739,7 +739,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ror_stats_gpu~3"></span>
+              <span class="anchor" id="variable-ror_stats_gpu~5"></span>
               integer(kind=I4P),
             </td>
 <td>intent(inout),</td>
@@ -754,7 +754,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-g~14"></span>
+              <span class="anchor" id="variable-g~23"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -769,7 +769,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux_gpu~20"></span>
+              <span class="anchor" id="variable-q_aux_gpu~25"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -784,7 +784,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-fluxes_gpu~3"></span>
+              <span class="anchor" id="variable-fluxes_gpu~5"></span>
               real(kind=R8P),
             </td>
 <td>intent(inout),</td>
@@ -869,7 +869,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-blocks_number~9"></span>
+              <span class="anchor" id="variable-blocks_number~15"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -884,7 +884,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ni~8"></span>
+              <span class="anchor" id="variable-ni~14"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -899,7 +899,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nj~8"></span>
+              <span class="anchor" id="variable-nj~14"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -914,7 +914,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nk~8"></span>
+              <span class="anchor" id="variable-nk~14"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -929,7 +929,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ngc~21"></span>
+              <span class="anchor" id="variable-ngc~35"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -944,7 +944,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nv~13"></span>
+              <span class="anchor" id="variable-nv~28"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -959,7 +959,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ib_eps~2"></span>
+              <span class="anchor" id="variable-ib_eps~3"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -974,7 +974,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-dx_gpu~4"></span>
+              <span class="anchor" id="variable-dx_gpu~7"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -989,7 +989,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-dy_gpu~4"></span>
+              <span class="anchor" id="variable-dy_gpu~7"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1004,7 +1004,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-dz_gpu~4"></span>
+              <span class="anchor" id="variable-dz_gpu~7"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1019,7 +1019,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-flx_gpu~4"></span>
+              <span class="anchor" id="variable-flx_gpu~6"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1034,7 +1034,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-fly_gpu~4"></span>
+              <span class="anchor" id="variable-fly_gpu~6"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1049,7 +1049,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-flz_gpu~4"></span>
+              <span class="anchor" id="variable-flz_gpu~6"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1064,7 +1064,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-phi_gpu~2"></span>
+              <span class="anchor" id="variable-phi_gpu~3"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1079,7 +1079,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-dq_gpu~4"></span>
+              <span class="anchor" id="variable-dq_gpu~5"></span>
               real(kind=R8P),
             </td>
 <td>intent(inout),</td>
@@ -1164,7 +1164,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-blocks_number~10"></span>
+              <span class="anchor" id="variable-blocks_number~16"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1179,7 +1179,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ni~9"></span>
+              <span class="anchor" id="variable-ni~15"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1194,7 +1194,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nj~9"></span>
+              <span class="anchor" id="variable-nj~15"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1209,7 +1209,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nk~9"></span>
+              <span class="anchor" id="variable-nk~15"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1224,7 +1224,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ngc~22"></span>
+              <span class="anchor" id="variable-ngc~36"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1239,7 +1239,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nv~14"></span>
+              <span class="anchor" id="variable-nv~29"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1254,7 +1254,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-mu~6"></span>
+              <span class="anchor" id="variable-mu~8"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1269,7 +1269,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-kd~5"></span>
+              <span class="anchor" id="variable-kd~6"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1284,7 +1284,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux_gpu~21"></span>
+              <span class="anchor" id="variable-q_aux_gpu~26"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1299,7 +1299,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-dx_gpu~5"></span>
+              <span class="anchor" id="variable-dx_gpu~8"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1314,7 +1314,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-dy_gpu~5"></span>
+              <span class="anchor" id="variable-dy_gpu~8"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1329,7 +1329,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-dz_gpu~5"></span>
+              <span class="anchor" id="variable-dz_gpu~8"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1344,7 +1344,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-flx_gpu~5"></span>
+              <span class="anchor" id="variable-flx_gpu~7"></span>
               real(kind=R8P),
             </td>
 <td>intent(inout),</td>
@@ -1359,7 +1359,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-fly_gpu~5"></span>
+              <span class="anchor" id="variable-fly_gpu~7"></span>
               real(kind=R8P),
             </td>
 <td>intent(inout),</td>
@@ -1374,7 +1374,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-flz_gpu~5"></span>
+              <span class="anchor" id="variable-flz_gpu~7"></span>
               real(kind=R8P),
             </td>
 <td>intent(inout),</td>
@@ -1414,7 +1414,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-ni~10"></span>
+              <span class="anchor" id="variable-ni~16"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1429,7 +1429,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nj~10"></span>
+              <span class="anchor" id="variable-nj~16"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1444,7 +1444,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nk~10"></span>
+              <span class="anchor" id="variable-nk~16"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1459,7 +1459,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ngc~23"></span>
+              <span class="anchor" id="variable-ngc~37"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1474,7 +1474,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-blocks_number~11"></span>
+              <span class="anchor" id="variable-blocks_number~17"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1489,7 +1489,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-mu~7"></span>
+              <span class="anchor" id="variable-mu~9"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1504,7 +1504,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-dx_gpu~6"></span>
+              <span class="anchor" id="variable-dx_gpu~9"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1519,7 +1519,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-dy_gpu~6"></span>
+              <span class="anchor" id="variable-dy_gpu~9"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1534,7 +1534,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-dz_gpu~6"></span>
+              <span class="anchor" id="variable-dz_gpu~9"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1549,7 +1549,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux_gpu~22"></span>
+              <span class="anchor" id="variable-q_aux_gpu~27"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1564,7 +1564,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-umax~3"></span>
+              <span class="anchor" id="variable-umax~4"></span>
               real(kind=R8P),
             </td>
 <td>intent(out)</td>
@@ -1604,7 +1604,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-bc_extrapolation~3"></span>
+              <span class="anchor" id="variable-bc_extrapolation~4"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1619,7 +1619,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-bc_inflow~3"></span>
+              <span class="anchor" id="variable-bc_inflow~4"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1634,7 +1634,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nv~15"></span>
+              <span class="anchor" id="variable-nv~30"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1649,7 +1649,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ngc~24"></span>
+              <span class="anchor" id="variable-ngc~38"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in)</td>
@@ -1664,7 +1664,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-cv~7"></span>
+              <span class="anchor" id="variable-cv~10"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1679,7 +1679,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-r~8"></span>
+              <span class="anchor" id="variable-r~11"></span>
               real(kind=R8P),
             </td>
 <td>intent(in)</td>
@@ -1694,7 +1694,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-local_map_bc_gpu"></span>
+              <span class="anchor" id="variable-local_map_bc_gpu~2"></span>
               integer(kind=I8P),
             </td>
 <td>intent(in),</td>
@@ -1709,7 +1709,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-fec_1_6_array_gpu~2"></span>
+              <span class="anchor" id="variable-fec_1_6_array_gpu~3"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -1724,7 +1724,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_bc_vars_gpu~3"></span>
+              <span class="anchor" id="variable-q_bc_vars_gpu~4"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1739,7 +1739,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_gpu~11"></span>
+              <span class="anchor" id="variable-q_gpu~12"></span>
               real(kind=R8P),
             </td>
 <td>intent(inout),</td>
@@ -1760,7 +1760,7 @@ modules which it uses.
   </div>
 
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-compute_fluxes_convective_device"></span> <h3>private  subroutine <a href='../proc/compute_fluxes_convective_device.html'>compute_fluxes_convective_device</a>(dir, si, sir, b, i, j, k, ngc, nv, weno_s, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, ror_number, ror_schemes_gpu, ror_threshold, ror_ivar_gpu, ror_stats_gpu, g, q_aux_gpu, fluxes_gpu)  
+    <div class="card-header codesum"><span class="anchor" id="proc-compute_fluxes_convective_device~2"></span> <h3>private  subroutine <a href='../proc/compute_fluxes_convective_device~2.html'>compute_fluxes_convective_device</a>(dir, si, sir, b, i, j, k, ngc, nv, weno_s, weno_a_gpu, weno_p_gpu, weno_d_gpu, weno_zeps, ror_number, ror_schemes_gpu, ror_threshold, ror_ivar_gpu, ror_stats_gpu, g, q_aux_gpu, fluxes_gpu)  
 </h3></div>
     <div class="card-body">
           
@@ -1779,7 +1779,7 @@ modules which it uses.
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-dir~4"></span>
+              <span class="anchor" id="variable-dir~6"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -1794,7 +1794,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-si~9"></span>
+              <span class="anchor" id="variable-si~20"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -1809,7 +1809,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-sir~11"></span>
+              <span class="anchor" id="variable-sir~24"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1824,7 +1824,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-b~29"></span>
+              <span class="anchor" id="variable-b~43"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -1839,7 +1839,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-i~27"></span>
+              <span class="anchor" id="variable-i~42"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -1854,7 +1854,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-j~25"></span>
+              <span class="anchor" id="variable-j~39"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -1869,7 +1869,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-k~25"></span>
+              <span class="anchor" id="variable-k~39"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -1884,7 +1884,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ngc~25"></span>
+              <span class="anchor" id="variable-ngc~39"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -1899,7 +1899,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nv~16"></span>
+              <span class="anchor" id="variable-nv~31"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -1914,7 +1914,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-weno_s~7"></span>
+              <span class="anchor" id="variable-weno_s~11"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -1929,7 +1929,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-weno_a_gpu~4"></span>
+              <span class="anchor" id="variable-weno_a_gpu~6"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1944,7 +1944,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-weno_p_gpu~4"></span>
+              <span class="anchor" id="variable-weno_p_gpu~6"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1959,7 +1959,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-weno_d_gpu~4"></span>
+              <span class="anchor" id="variable-weno_d_gpu~6"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1974,7 +1974,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-weno_zeps~4"></span>
+              <span class="anchor" id="variable-weno_zeps~6"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -1989,7 +1989,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ror_number~4"></span>
+              <span class="anchor" id="variable-ror_number~6"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -2004,7 +2004,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ror_schemes_gpu~4"></span>
+              <span class="anchor" id="variable-ror_schemes_gpu~6"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -2019,7 +2019,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ror_threshold~4"></span>
+              <span class="anchor" id="variable-ror_threshold~6"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -2034,7 +2034,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ror_ivar_gpu~4"></span>
+              <span class="anchor" id="variable-ror_ivar_gpu~6"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -2049,7 +2049,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ror_stats_gpu~4"></span>
+              <span class="anchor" id="variable-ror_stats_gpu~6"></span>
               integer(kind=I4P),
             </td>
 <td>intent(inout),</td>
@@ -2064,7 +2064,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-g~15"></span>
+              <span class="anchor" id="variable-g~24"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -2079,7 +2079,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux_gpu~23"></span>
+              <span class="anchor" id="variable-q_aux_gpu~28"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -2094,7 +2094,7 @@ modules which it uses.
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-fluxes_gpu~4"></span>
+              <span class="anchor" id="variable-fluxes_gpu~6"></span>
               real(kind=R8P),
             </td>
 <td>intent(inout),</td>
@@ -2115,7 +2115,7 @@ modules which it uses.
   </div>
 
               <div class="card">
-    <div class="card-header codesum"><span class="anchor" id="proc-decompose_fluxes_convective_device~2"></span> <h3>private  subroutine <a href='../proc/decompose_fluxes_convective_device~2.html'>decompose_fluxes_convective_device</a>(si, sir, el, weno_s, b, i, j, k, ngc, nv, g, q_aux_gpu, fmpc)  
+    <div class="card-header codesum"><span class="anchor" id="proc-decompose_fluxes_convective_device~3"></span> <h3>private  subroutine <a href='../proc/decompose_fluxes_convective_device~3.html'>decompose_fluxes_convective_device</a>(si, sir, el, weno_s, b, i, j, k, ngc, nv, g, q_aux_gpu, fmpc)  
 </h3></div>
     <div class="card-body">
           
@@ -2135,7 +2135,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
     <tbody>
         <tr>
             <td>
-              <span class="anchor" id="variable-si~10"></span>
+              <span class="anchor" id="variable-si~21"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -2150,7 +2150,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-sir~12"></span>
+              <span class="anchor" id="variable-sir~25"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -2165,7 +2165,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-el~6"></span>
+              <span class="anchor" id="variable-el~9"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -2180,7 +2180,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-weno_s~8"></span>
+              <span class="anchor" id="variable-weno_s~12"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -2195,7 +2195,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-b~30"></span>
+              <span class="anchor" id="variable-b~44"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -2210,7 +2210,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-i~28"></span>
+              <span class="anchor" id="variable-i~43"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -2225,7 +2225,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-j~26"></span>
+              <span class="anchor" id="variable-j~40"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -2240,7 +2240,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-k~26"></span>
+              <span class="anchor" id="variable-k~40"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -2255,7 +2255,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-ngc~26"></span>
+              <span class="anchor" id="variable-ngc~40"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -2270,7 +2270,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-nv~17"></span>
+              <span class="anchor" id="variable-nv~32"></span>
               integer(kind=I4P),
             </td>
 <td>intent(in),</td>
@@ -2285,7 +2285,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-g~16"></span>
+              <span class="anchor" id="variable-g~25"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -2300,7 +2300,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-q_aux_gpu~24"></span>
+              <span class="anchor" id="variable-q_aux_gpu~29"></span>
               real(kind=R8P),
             </td>
 <td>intent(in),</td>
@@ -2315,7 +2315,7 @@ Flux vector splitting by local-Lax-Friedrics (Rusanov) with projection in pseudo
         </tr>
         <tr>
             <td>
-              <span class="anchor" id="variable-fmpc~4"></span>
+              <span class="anchor" id="variable-fmpc~6"></span>
               real(kind=R8P),
             </td>
 <td>intent(inout),</td>
