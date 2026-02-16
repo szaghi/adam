@@ -37,14 +37,15 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       ! auxiliary methods
       procedure, pass(self) :: allocate_cpu !< Allocate CPU data.
       procedure, pass(self) :: initialize   !< Initialize the equation.
-      ! IB methods
-      procedure, pass(self) :: integrate_eikonal_coils !< Integrate eikonal equation for coils.
       ! IO methods
       procedure, pass(self) :: save_residuals       !< Save residuals history.
       procedure, pass(self) :: save_simulation_data !< Save all simulation data.
       ! IC/BC/sources
       procedure, pass(self) :: apply_fWL_correction     !< Apply fWLayer correction (if present)
       procedure, pass(self) :: compute_coils_current    !< Compute current coils sources.
+      procedure, pass(self) :: set_rectangular_coil_x   !< Subroutine to set a rectangular coil source with +-x normal
+      procedure, pass(self) :: set_rectangular_coil_y   !< Subroutine to set a rectangular coil source with +-y normal
+      procedure, pass(self) :: set_rectangular_coil_z   !< Subroutine to set a rectangular coil source with +-z normal
       procedure, pass(self) :: set_boundary_conditions  !< Set boundary conditions of equation.
       procedure, pass(self) :: compute_residuals_BC
       procedure, pass(self) :: update_q_BC
@@ -297,33 +298,6 @@ contains
    call self%mpih%print_message('prism_cpu_object%initialize finish')
    endsubroutine initialize
 
-   ! IB methods
-   subroutine integrate_eikonal_coils(self, q)
-   !< Integrate eikonal equation.
-   class(prism_cpu_object), intent(inout) :: self      !< The equation.
-   real(R8P),               intent(inout) :: q(1:,         &
-                                               1-self%ngc:,&
-                                               1-self%ngc:,&
-                                               1-self%ngc:,&
-                                               1:)     !< Conservative variables.
-   integer(I4P)                           :: i_eikonal !< Counter.
-
-   associate(blocks_number=>self%blocks_number, total_coils_number=>self%coil%total_coils_number)
-      if (blocks_number > 0) then
-         if (total_coils_number > 0) then
-            call self%update_ghost(q=q)
-            do i_eikonal=1, self%ib%n_eikonal
-               call self%mpih%barrier
-               call self%ib%evolve_eikonal_coils(q=q, phi=self%coil%phi, n_coils=total_coils_number)
-               call self%update_ghost(q=q)
-            enddo
-            !call self%ib%invert_eikonal_coils(q=q)
-            call self%mpih%barrier
-         endif
-      endif
-   endassociate
-   endsubroutine integrate_eikonal_coils
-
    ! IO methods
    subroutine save_residuals(self)
    !< Save residuals history.
@@ -391,7 +365,7 @@ contains
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
              time=>self%time%time, A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,              &
-             coil_flag =>self%coil%coil_flag, d=>self%coil%d, td=>self%coil%td, j_vec=>self%coil%j_vec, &
+             coil_flag =>self%coil%coil_flag, td=>self%coil%td, J_vec=>self%coil%J_vec,                 &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz,     &
              dx=>self%field%dxyz(1,1), dt=>self%time%dt)
 
@@ -423,27 +397,26 @@ contains
          w_c_ = 1_I4P - w_                                ! = 0 if td>time,            = 1                              if td<time
          g_   = w_ * g + w_c_                             ! = g if td>time,            = 1                              if td<time
          f_   = w_c_ * 2._R8P*PI*f(coil_id)*(time_s-td)   ! = 0 if td>time,            = 2._R8P*PI*f(coil_id)*(time-td) if td<time
-         current_density = g_ * A(coil_id) * cos(f_ + phase(coil_id)*PI/180.0_R8P)*j_vec(4,i,j,k,b)
-
+         current_density = g_ * A(coil_id) * cos(f_ + phase(coil_id)*PI/180.0_R8P)*J_vec(4,i,j,k,b)
          ! Lo tengo qui, ma a pensarci bene dovrebbe andare bene così come abiamo fatto (quella sfasata resta a 0)
          !f_   = w_c_ * (2._R8P*PI*f(coil_id)*(time_s-td) + phase(coil_id)*PI/180.0_R8P)
                            ! = 0 if td>time, = 2._R8P*PI*f(coil_id)*(time-td)+phase(coil_id)*PI/180.0_R8P if td<time
          !current_density = g_ * A(coil_id) * cos(f_)*j_vec(4,i,j,k,b)
 
-         ! the following if is not necessary because j_vec is zero everywhere except in coils
-         if (coil_id /= 0_I4P) then
-            q(VAR_JX,i,j,k,b) = current_density * j_vec(1,i,j,k,b)
-            q(VAR_JY,i,j,k,b) = current_density * j_vec(2,i,j,k,b)
-            q(VAR_JZ,i,j,k,b) = current_density * j_vec(3,i,j,k,b)
+         ! the following if is not necessary because J_vec is zero everywhere except in coils
+         !if (coil_id /= 0_I4P) then
+            q(VAR_JX,i,j,k,b) = current_density * J_vec(1,i,j,k,b)
+            q(VAR_JY,i,j,k,b) = current_density * J_vec(2,i,j,k,b)
+            q(VAR_JZ,i,j,k,b) = current_density * J_vec(3,i,j,k,b)
             !print *, q(VAR_JX,i,j,k,b)
-         endif
+         !endif
       enddo
       enddo
       enddo
       enddo
    !endif
-      current_density_o = g_ * A(1) * cos(f_ + phase(1)*PI/180.0_R8P)
-      call write_current_behavior_tab('current_density.dat', time=time_s, current_density=current_density_o)
+      current_density_o = g_ * A(1) * cos(2._R8P*PI*f(1)*(time_s-td)+phase(1)*PI/180.0_R8P)
+      call write_current_behavior_tab('current_density_coil_1.dat', time=time_s, current_density=current_density_o)
    endif
    endassociate
    endsubroutine compute_coils_current
@@ -817,6 +790,7 @@ contains
    subroutine set_initial_conditions(self) !DA CORREGGERE CON NV_PIC QUANDO SERVE PER BC CARICA SE MODELLO PIC ATTIVO
    !< Set initial conditions and coils on field.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
+   integer(I4P)                           :: n    !< Counter.
 
    call self%ic%set_initial_conditions(physics=self%physics, field=self%field, q=self%q)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
@@ -825,8 +799,30 @@ contains
       call write_initial_injection_tab(filename='neighbour_list.dat', q_pic=real(self%pic%neighbour_list,R8P), &
                                        np=self%pic%particle_number)
    endif
-   call self%coil%set_coils(physics=self%physics, field=self%field) !Lo metto dopo perchè l'interpolatore di correnti azzera
+   !call self%coil%set_coils(physics=self%physics, field=self%field) !Lo metto dopo perchè l'interpolatore di correnti azzera
                                                                     !tutto per poter poi fare la sommatoria al relativo tempo
+
+   do n=1, self%coil%total_coils_number
+      selectcase(self%coil%coil_type(n))
+      case(COIL_TYPE_RECTANGULAR)
+         select case(self%coil%normal(n))
+         case(NORMAL_P_X)
+            call self%set_rectangular_coil_x(n=n, verse = 1._R8P)
+         case(NORMAL_P_Y)
+            call self%set_rectangular_coil_y(n=n, verse = 1._R8P)
+         case(NORMAL_P_Z) 
+            call self%set_rectangular_coil_z(n=n, verse = 1._R8P)
+         case(NORMAL_M_X)
+            call self%set_rectangular_coil_x(n=n, verse = -1._R8P)
+         case(NORMAL_M_Y)
+            call self%set_rectangular_coil_y(n=n, verse = -1._R8P)
+         case(NORMAL_M_Z)
+            call self%set_rectangular_coil_z(n=n, verse = -1._R8P)
+         endselect
+      case(COIL_TYPE_CIRCULAR)
+      endselect
+   enddo
+
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       call self%pic%current_weighting(field=self%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
       call self%pic%particle_weighting(field=self%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
@@ -1286,12 +1282,12 @@ contains
    if (self%io%save_divergence_fields) then
       call self%compute_divergence(ivar=VAR_DX,q=self%q,divergence=self%divergence(1,:,:,:,:))
       call self%compute_divergence(ivar=VAR_BX,q=self%q,divergence=self%divergence(2,:,:,:,:))
-      ! call self%compute_divergence(ivar=7,q=self%q,divergence=self%divergence(3,:,:,:,:))
+      call self%compute_divergence(ivar=self%physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
    endif
    if (self%io%save_curl_fields) then
       call self%compute_curl(ivar=VAR_DX,q=self%q,curl=self%curl(1:3,:,:,:,:))
       call self%compute_curl(ivar=VAR_BX,q=self%q,curl=self%curl(4:6,:,:,:,:))
-      ! call self%compute_curl(ivar=7,q=self%q,curl=self%curl(7:9,:,:,:,:))
+      call self%compute_curl(ivar=self%physics%var_Jx,q=self%q,curl=self%curl(7:9,:,:,:,:))
    endif
    endsubroutine compute_auxiliary_fields
 
@@ -2263,6 +2259,308 @@ contains
    enddo
    endsubroutine decompose_fluxes_convective
 
+   subroutine set_rectangular_coil_x(self, n, verse)
+   class(prism_cpu_object),      intent(inout) :: self                     !< Cpu object.
+   integer(I4P),                 intent(in)    :: n                        !< Coil number.
+   real(R8P),                    intent(in)    :: verse                    !< Coil normal direction, +1=+x, -1=-x.
+   real(R8P),                    allocatable   :: A(:,:,:,:,:)             !< Campo vettoriale totale della spira
+   real(R8P),                    allocatable   :: J_vec_buffer(:,:,:,:,:)  !< Variabile buffer per coil%J_vec
+   real(R8P)                                   :: A_1, A_2, A_3, A_4       !< Campo vettoriale lati spira
+   real(R8P)                                   :: cell_coord(3)            !< Vettore posizione centro cella
+   real(R8P)                                   :: y_d, y_t, z_b, z_f
+   real(R8P)                                   :: F_n, W_t, W_x
+   integer(I4P)                                :: b,i,j,k                  !< Counter.
+
+   !associo per dati su posizioni delle celle e contatori
+   associate(blocks_number=>self%field%blocks_number, ni=>self%field%grid%ni, nj=>self%field%grid%nj, & 
+            nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),             &
+            lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,                &
+            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>self%field%dxyz(1,:),         &
+            dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n),          & 
+            nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  & 
+            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec)
+
+   !Fisso estremi della spira rettangolare con normale parallela a x, e centro in (x_c, y_c, z_c)
+   y_d = -lx/2 + y_c
+   y_t = +lx/2 + y_c
+   z_b = -ly/2 + z_c
+   z_f = +ly/2 + z_c
+
+   allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
+   A(:,:,:,:,:) = 0.0_R8P
+   allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
+   J_vec_buffer(:,:,:,:,:) = 0.0_R8P
+
+   do b=1, blocks_number
+      do k=1-ngc, nk+ngc
+         do j=1-ngc, nj+ngc
+            do i=1-ngc, ni+ngc
+               cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+               !Primo filo (y = y_d, tangenziale lungo z)
+               F_n = erf_function(s=cell_coord(2), mu = y_d, sigma = sigma*dy(b))
+               W_t = tangential_window(s=cell_coord(3), smin = z_b, smax = z_f, sigma = sigma*dz(b))
+               W_x = tangential_window(s=cell_coord(1), smin = x_c-sigma*dx(b), smax = x_c+sigma*dx(b), sigma=sigma*dx(b))
+               A_1 = F_n*W_t*W_x
+               !Secondo filo (z = z_f, tangenziale lungo y)
+               F_n = erf_function(s=cell_coord(3), mu = z_f, sigma = sigma*dz(b))
+               W_t = tangential_window(s=cell_coord(2), smin = y_d, smax = y_t, sigma = sigma*dy(b))
+               W_x = tangential_window(s=cell_coord(1), smin = x_c-sigma*dx(b), smax = x_c+sigma*dx(b), sigma=sigma*dx(b))
+               A_2 = -F_n*W_t*W_x
+               !Terzo filo (y = y_t, tangenziale lungo z)
+               F_n = erf_function(s=cell_coord(2), mu = y_t, sigma = sigma*dy(b))
+               W_t = tangential_window(s=cell_coord(3), smin = z_b, smax = z_f, sigma = sigma*dz(b))
+               W_x = tangential_window(s=cell_coord(1), smin = x_c-sigma*dx(b), smax = x_c+sigma*dx(b), sigma=sigma*dx(b))
+               A_3 = -F_n*W_t*W_x
+               !Quarto filo (z = z_b, tangenziale lungo y)
+               F_n = erf_function(s=cell_coord(3), mu = z_b, sigma = sigma*dz(b))
+               W_t = tangential_window(s=cell_coord(2), smin = y_d, smax = y_t, sigma = sigma*dy(b))
+               W_x = tangential_window(s=cell_coord(1), smin = x_c-sigma*dx(b), smax = x_c+sigma*dx(b), sigma=sigma*dx(b))
+               A_4 = F_n*W_t*W_x
+               !Somma dei campi vettoriali
+               A(1,i,j,k,b) = A_1 + A_2 + A_3 + A_4
+            enddo
+         enddo
+      enddo
+   enddo
+
+   call self%compute_curl(ivar=1_I4P,q=A,curl=J_vec_buffer)
+   J_vec_buffer = J_vec_buffer * verse
+
+   do b=1, blocks_number
+      do k=1-ngc, nk+ngc
+         do j=1-ngc, nj+ngc
+            do i=1-ngc, ni+ngc
+               if (J_vec_buffer(1,i,j,k,b) /= 0.0_R8P .or. J_vec_buffer(2,i,j,k,b) /= 0.0_R8P &
+                  .or. J_vec_buffer(3,i,j,k,b) /= 0.0_R8P) then
+                  coil_flag(i,j,k,b) = n
+               endif
+            enddo
+         enddo
+      enddo
+   enddo
+
+   J_vec(1:3,:,:,:,:) = J_vec(1:3,:,:,:,:) + J_vec_buffer
+   J_vec(4,:,:,:,:) = 1.0_R8P
+
+   endassociate
+   endsubroutine set_rectangular_coil_x
+
+   subroutine set_rectangular_coil_y(self, n, verse)
+   class(prism_cpu_object),      intent(inout) :: self                     !< Cpu object.
+   integer(I4P),                 intent(in)    :: n                        !< Coil number.
+   real(R8P),                    intent(in)    :: verse                    !< Coil normal direction, +1=+y, -1=-y.
+   real(R8P),                    allocatable   :: A(:,:,:,:,:)             !< Campo vettoriale totale della spira
+   real(R8P),                    allocatable   :: J_vec_buffer(:,:,:,:,:)  !< Variabile buffer per coil%J_vec
+   real(R8P)                                   :: A_1, A_2, A_3, A_4       !< Campo vettoriale lati spira
+   real(R8P)                                   :: cell_coord(3)            !< Vettore posizione centro cella
+   real(R8P)                                   :: x_l, x_r, z_b, z_f
+   real(R8P)                                   :: F_n, W_t, W_y
+   integer(I4P)                                :: b,i,j,k                  !< Counter.
+
+   !associo per dati su posizioni delle celle e contatori
+   associate(blocks_number=>self%field%blocks_number, ni=>self%field%grid%ni, nj=>self%field%grid%nj, & 
+            nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),             &
+            lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,                &
+            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>self%field%dxyz(1,:),         &
+            dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n),          & 
+            nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  & 
+            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec)
+
+   !Fisso estremi della spira rettangolare con normale parallela a y, e centro in (x_c, y_c, z_c)
+   x_l = -lx/2 + x_c
+   x_r = +lx/2 + x_c
+   z_b = -ly/2 + z_c
+   z_f = +ly/2 + z_c
+
+   allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
+   A(:,:,:,:,:) = 0.0_R8P
+   allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
+   J_vec_buffer(:,:,:,:,:) = 0.0_R8P
+
+   do b=1, blocks_number
+      do k=1-ngc, nk+ngc
+         do j=1-ngc, nj+ngc
+            do i=1-ngc, ni+ngc
+               cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+               !Primo filo (z = z_b, tangenziale lungo x)
+               F_n = erf_function(s=cell_coord(3), mu = z_b, sigma = sigma*dz(b))
+               W_t = tangential_window(s=cell_coord(1), smin = x_l, smax = x_r, sigma = sigma*dx(b))
+               W_y = tangential_window(s=cell_coord(2), smin = y_c-sigma*dy(b), smax = y_c+sigma*dy(b), sigma=sigma*dy(b))
+               A_1 = F_n*W_t*W_y
+               !Secondo filo (x = x_r, tangenziale lungo z)
+               F_n = erf_function(s=cell_coord(1), mu = x_r, sigma = sigma*dx(b))
+               W_t = tangential_window(s=cell_coord(3), smin = z_b, smax = z_f, sigma = sigma*dz(b))
+               W_y = tangential_window(s=cell_coord(2), smin = y_c-sigma*dy(b), smax = y_c+sigma*dy(b), sigma=sigma*dy(b))
+               A_2 = -F_n*W_t*W_y
+               !Terzo filo (z = z_f, tangenziale lungo x)
+               F_n = erf_function(s=cell_coord(3), mu = z_f, sigma = sigma*dz(b))
+               W_t = tangential_window(s=cell_coord(1), smin = x_l, smax = x_r, sigma = sigma*dx(b))
+               W_y = tangential_window(s=cell_coord(2), smin = y_c-sigma*dy(b), smax = y_c+sigma*dy(b), sigma=sigma*dy(b))
+               A_3 = -F_n*W_t*W_y
+               !Quarto filo (x = x_l, tangenziale lungo z)
+               F_n = erf_function(s=cell_coord(1), mu = x_l, sigma = sigma*dx(b))
+               W_t = tangential_window(s=cell_coord(3), smin = z_b, smax = z_f, sigma = sigma*dz(b))
+               W_y = tangential_window(s=cell_coord(2), smin = y_c-sigma*dy(b), smax = y_c+sigma*dy(b), sigma=sigma*dy(b))
+               A_4 = F_n*W_t*W_y
+               !Somma dei campi vettoriali
+               A(2,i,j,k,b) = A_1 + A_2 + A_3 + A_4
+            enddo
+         enddo
+      enddo
+   enddo
+
+   call self%compute_curl(ivar=1_I4P,q=A,curl=J_vec_buffer)
+   J_vec_buffer = J_vec_buffer * verse
+
+   do b=1, blocks_number
+      do k=1-ngc, nk+ngc
+         do j=1-ngc, nj+ngc
+            do i=1-ngc, ni+ngc
+               if (J_vec_buffer(1,i,j,k,b) /= 0.0_R8P .or. J_vec_buffer(2,i,j,k,b) /= 0.0_R8P &
+                  .or. J_vec_buffer(3,i,j,k,b) /= 0.0_R8P) then
+                  coil_flag(i,j,k,b) = n
+               endif
+            enddo
+         enddo
+      enddo
+   enddo
+
+   J_vec(1:3,:,:,:,:) = J_vec(1:3,:,:,:,:) + J_vec_buffer
+   J_vec(4,:,:,:,:) = 1.0_R8P
+
+   endassociate
+   endsubroutine set_rectangular_coil_y
+
+   subroutine set_rectangular_coil_z(self, n, verse)
+   class(prism_cpu_object),      intent(inout) :: self                     !< Cpu object.
+   integer(I4P),                 intent(in)    :: n                        !< Coil number.
+   real(R8P),                    intent(in)    :: verse                    !< Coil normal direction, +1=+z, -1=-z.
+   real(R8P),                    allocatable   :: A(:,:,:,:,:)             !< Campo vettoriale totale della spira, somma dei campi A_1, A_2, A_3 e A_4 
+   real(R8P),                    allocatable   :: J_vec_buffer(:,:,:,:,:)  !< Variabile buffer per il campo di corrente da assegnare alla variabile coil%J_vec 
+   real(R8P)                                   :: A_1, A_2, A_3, A_4       !< Campo vettoriale lati spira                                            
+   real(R8P)                                   :: c_c(3)                   !< Vettore posizione centro spira
+   real(R8P)                                   :: cell_coord(3)            !< Vettore posizione centro cella
+   real(R8P)                                   :: x_l, x_r, y_d, y_t
+   real(R8P)                                   :: F_n, W_t, W_z
+   integer(I4P)                                :: b,i,j,k                  !< Counter.
+
+   !associo per dati su posizioni delle celle e contatori
+   associate(blocks_number=>self%field%blocks_number, ni=>self%field%grid%ni, nj=>self%field%grid%nj, & 
+            nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),             &
+            lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,                &
+            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>self%field%dxyz(1,:),         &
+            dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n),          & 
+            nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  & 
+            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec)
+
+   !Fisso estremi della spira rettangolare con normale parallela a z, e centro in (x_c, y_c, z_c)
+   x_l = -lx/2 +x_c
+   x_r = +lx/2 +x_c
+   y_d = -ly/2 +y_c
+   y_t = +ly/2 +y_c
+
+   allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
+   A(:,:,:,:,:) = 0.0_R8P
+   allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
+   J_vec_buffer(:,:,:,:,:) = 0.0_R8P
+
+   do b=1, blocks_number
+      do k=1-ngc, nk+ngc
+         do j=1-ngc, nj+ngc
+            do i=1-ngc, ni+ngc
+               cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
+               !Primo filo
+               F_n = erf_function(s=cell_coord(2), mu = y_d, sigma = sigma*dy(b))
+               W_t = tangential_window(s=cell_coord(1), smin = x_l, smax = x_r, sigma = sigma*dx(b))
+               W_z = tangential_window(s=cell_coord(3), smin =z_c-sigma*dz(b), smax=z_c+sigma*dz(b), sigma=sigma*dz(b))
+               A_1 = F_n*W_t*W_z
+               !Secondo filo
+               F_n = erf_function(s=cell_coord(1), mu = x_r, sigma = sigma*dx(b))
+               W_t = tangential_window(s=cell_coord(2), smin = y_d, smax = y_t, sigma = sigma*dy(b))
+               W_z = tangential_window(s=cell_coord(3), smin =z_c-sigma*dz(b), smax=z_c+sigma*dz(b), sigma=sigma*dz(b))
+               A_2 = -F_n*W_t*W_z
+               !Terzo filo
+               F_n = erf_function(s=cell_coord(2), mu = y_t, sigma = sigma*dy(b))
+               W_t = tangential_window(s=cell_coord(1), smin = x_l, smax = x_r, sigma = sigma*dx(b))
+               W_z = tangential_window(s=cell_coord(3), smin =z_c-sigma*dz(b), smax=z_c+sigma*dz(b), sigma=sigma*dz(b))
+               A_3 = -F_n*W_t*W_z
+               !Quarto filo
+               F_n = erf_function(s=cell_coord(1), mu = x_l, sigma = sigma*dx(b))
+               W_t = tangential_window(s=cell_coord(2), smin = y_d, smax = y_t, sigma = sigma*dy(b))
+               W_z = tangential_window(s=cell_coord(3), smin =z_c-sigma*dz(b), smax=z_c+sigma*dz(b), sigma=sigma*dz(b))
+               A_4 = F_n*W_t*W_z
+               !Somma dei campi vettoriali
+               A(3,i,j,k,b) = A_1 + A_2+ A_3 + A_4
+            enddo
+         enddo
+      enddo
+   enddo
+   call self%compute_curl(ivar=1_I4P,q=A,curl=J_vec_buffer)
+   J_vec_buffer = J_vec_buffer * verse
+   do b=1, blocks_number
+      do k=1-ngc, nk+ngc
+         do j=1-ngc, nj+ngc
+            do i=1-ngc, ni+ngc
+               if (J_vec_buffer(1,i,j,k,b) /= 0.0_R8P .or. J_vec_buffer(2,i,j,k,b) /= 0.0_R8P &
+                  .or. J_vec_buffer(3,i,j,k,b) /= 0.0_R8P) then
+                  coil_flag(i,j,k,b) = n
+               endif
+            enddo
+         enddo
+      enddo
+   enddo
+   J_vec(1:3,:,:,:,:) = J_vec(1:3,:,:,:,:) + J_vec_buffer
+   J_vec(4,:,:,:,:) = 1.0_R8P
+   endassociate
+   endsubroutine set_rectangular_coil_z
+
+   !subroutine compute_current_density_flux(self, n)
+   !!< Subroutine to adjust current amplitude in order to match the input one
+   !class(prism_cpu_object),      intent(inout) :: self                           !< Cpu object.
+   !integer(I4P)                                :: n                              !< Coil number.
+   !real(R8P)                                   :: l1_min, l1_max, l2_min, l2_max !< Flux surface extrema
+!
+   !associate(blocks_number=>self%field%blocks_number, ni=>self%field%grid%ni, nj=>self%field%grid%nj, & 
+   !         nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),             &
+   !         lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,                &
+   !         y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>self%field%dxyz(1,:),         &
+   !         dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n),        & 
+   !         nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  & 
+   !         z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
+   !         q=>self%q)
+!
+   !!Per ora la imposto per griglia uniforme monoblocco. Vedremo come estendere il problema
+   !
+   !c_c = [ x_c, y_c, z_c ] !Vettore posizione centro spira
+!
+   !if (normal == NORMAL_P_X .or. normal == NORMAL_M_X) then
+   !   !l1_min = y_c - 
+   !   !l1_max = y_c -
+   !   !l2_min = z_c 
+   !   !l2_max = z_c 
+   !elseif (normal == NORMAL_P_Y .or. normal == NORMAL_M_Y) then
+!
+   !elseif (normal == NORMAL_P_Z .or. normal == NORMAL_M_Z) then
+!
+!
+   !endif
+   !endassociate
+   !endsubroutine compute_current_density_flux
+
+   function erf_function(s, mu, sigma) result(res)
+      real(R8P), intent(in) :: s, mu, sigma
+      real(R8P)             :: res
+
+      res = erf((s - mu)/(sigma*sqrt(2.0_R8P)))
+   endfunction erf_function
+
+   function tangential_window(s, smin, smax, sigma) result(res)
+      real(R8P), intent(in) :: s, smin, smax, sigma
+      real(R8P)             :: res
+
+      res = 0.5_R8P * (erf_function(s, smin, sigma) - erf_function(s, smax, sigma))
+   endfunction tangential_window
+
 	subroutine write_current_behavior_tab(filename, current_density, time)
 	character(len=1), parameter  :: TAB = achar(9)
 	character(len=*), intent(in) :: filename
@@ -2298,27 +2596,25 @@ contains
 	close(iu) 
    endsubroutine
 
-   subroutine compute_field_mean_value(self, q, C, mean_value)
-   !< Compute mean value of the field out of the fWLayer.
+   subroutine compute_field_mean_value(self, q, n_x, n_y, n_z, n_b, mean_value)
+   !< Compute mean value of the field in a certain region of the domain.
    class(prism_cpu_object), intent(in)  :: self                                      !< The object
    real(R8P), intent(in)                :: q(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   integer(I4P), intent(in)             :: C                                         !< Number of fWLayer cells
+   integer(I4P), intent(in)             :: n_x(2), n_y(2), n_z(2), n_b(2)            !< Number of cells in each direction and number of blocks
    real(R8P), intent(out)               :: mean_value                                !< Mean value of the field out of the fWLayer
    integer(I4P)                         :: i, j, k, b                                !< Counter.
    
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, blocks_number=>self%blocks_number, ngc=>self%ngc)
    mean_value = 0._R8P
-   do b=1, self%blocks_number
-      do k=C, self%nk-C+1
-         do j=C, self%nj-C+1
-            do i=1, self%ni-C+1
+   do b=n_b(1), n_b(2)
+      do k=n_z(1), n_z(2)
+         do j=n_y(1), n_y(2)
+            do i=n_x(1), n_x(2)
                mean_value = mean_value + q(i,j,k,b)
             enddo
          enddo
       enddo
    enddo
-   mean_value = mean_value / real((ni-2_I4P*C)*(nj-2_I4P*C)*(nk-2_I4P*C)*blocks_number, R8P)
-   endassociate
+   mean_value = mean_value / real((n_x(2)-n_x(1)+1)*(n_y(2)-n_y(1)+1)*(n_z(2)-n_z(1)+1)*(n_b(2)-n_b(1)+1), R8P)
    endsubroutine compute_field_mean_value
 
    function crossproduct(a, b) result(cross)

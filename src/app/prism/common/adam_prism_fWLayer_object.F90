@@ -101,7 +101,7 @@ contains
       ni_fWL(2,1)=C    ; ni_fWL(2,2)=ni        ; ni_fWL(2,3)=ni   ; ni_fWL(2,4)=ni        ; ni_fWL(2,5)=ni   ; ni_fWL(2,6)=ni
       nj_fWL(1,1)=1_I4P; nj_fWL(1,2)=1_I4P     ; nj_fWL(1,3)=1_I4P; nj_fWL(1,4)=nj-C+1_I4P; nj_fWL(1,5)=1_I4P; nj_fWL(1,6)=1_I4P
       nj_fWL(2,1)=nj   ; nj_fWL(2,2)=nj        ; nj_fWL(2,3)=C    ; nj_fWL(2,4)=nj        ; nj_fWL(2,5)=nj   ; nj_fWL(2,6)=nj
-      nk_fWL(1,1)=1_I4P; nk_fWL(1,2)=1_I4P     ; nk_fWL(1,3)=1_I4P; nk_fWL(1,4)=1_I4P     ; nk_fWL(1,5)=1_I4P; nk_fWL(1,6)=nk-C+1_I4P 
+      nk_fWL(1,1)=1_I4P; nk_fWL(1,2)=1_I4P ; nk_fWL(1,3)=1_I4P; nk_fWL(1,4)=1_I4P     ; nk_fWL(1,5)=1_I4P; nk_fWL(1,6)=nk-C+1_I4P 
       nk_fWL(2,1)=nk   ; nk_fWL(2,2)=nk        ; nk_fWL(2,3)=nk   ; nk_fWL(2,4)=nk        ; nk_fWL(2,5)=C    ; nk_fWL(2,6)=nk
 
       n(1)      =1_I4P  ; n(2)      =1_I4P   ; n(3)      =2_I4P  ; n(4)      =2_I4P   ; n(5)      =3_I4P  ; n(6)      =3_I4P

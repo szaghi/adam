@@ -29,8 +29,8 @@ character(len=22), parameter :: NON_UNIFORM_MAXWELLIAN_VELOCITY_DISTRIBUTION = '
 character(len=32), parameter :: VELOCITY_RANDOM_NUMBER_GENERATOR             = 'Velocity_random_number_generator'
 character(len=33), parameter :: VELOCITY_LAYERED_NUMBER_GENERATOR            = 'Velocity_layered_number_generator'
 
-procedure(space_random_number_generator_interface), 	 pointer :: space_rand_num_generator 	 => null() !< Space random number generator interface
-procedure(velocity_random_number_generator_interface), pointer :: velocity_rand_num_generator => null() !< Space random number generator interface
+procedure(space_random_number_generator_interface),    pointer :: space_rand_num_generator 	  => null() !< Space random number generator interface
+procedure(velocity_random_number_generator_interface), pointer :: velocity_rand_num_generator  => null() !< Space random number generator interface
 
 type :: prism_particle_injection_object
    type(mpih_object)    :: mpih										!< MPI handler.
