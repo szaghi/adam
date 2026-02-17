@@ -488,22 +488,27 @@ contains
    self%scheme = trim(adjustl(buff_c))
    endsubroutine load_from_file
 
-   subroutine update_q(self, dt, phi, q)
+   subroutine update_q(self, dt, phi, q, dq)
    !< Update RK q.
-   class(rk_object), intent(in)           :: self             !< RK object.
-   real(R8P),        intent(in)           :: dt               !< Current time step.
-   real(R8P),        intent(in), optional :: phi(1:,          &
-                                                 1-self%ngc:, &
-                                                 1-self%ngc:, &
-                                                 1-self%ngc:, &
-                                                 1:)          !< IB distance.
-   real(R8P),        intent(inout)        :: q(1:,          &
+   class(rk_object), intent(in)              :: self                 !< RK object.
+   real(R8P),        intent(in)              :: dt                   !< Current time step.
+   real(R8P),        intent(in), optional    :: phi(1:,          &
+                                                    1-self%ngc:, &
+                                                    1-self%ngc:, &
+                                                    1-self%ngc:, &
+                                                    1:)              !< IB distance.
+   real(R8P),        intent(inout)           :: q(1:,          &
                                                1-self%ngc:, &
                                                1-self%ngc:, &
                                                1-self%ngc:, &
-                                               1:)            !< Conservative variables.
-   integer(I4P)                           :: all_solids       !< Last phi index, all solids summary.
-   integer(I4P)                           :: i, j, k, b, v, s !< Counter.
+                                               1:)                   !< Conservative variables.
+   real(R8P),        intent(inout), optional :: dq(1:,          &
+                                                   1-self%ngc:, &
+                                                   1-self%ngc:, &
+                                                   1-self%ngc:, &
+                                                   1:)               !< Conservative variables residuals.
+   integer(I4P)                              :: all_solids           !< Last phi index, all solids summary.
+   integer(I4P)                              :: i, j, k, b, v, s     !< Counter.
 
    associate(nrk=>self%nrk, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, blocks_number=>self%blocks_number)
    if (present(phi)) then
@@ -527,12 +532,14 @@ contains
       !$omp end parallel do
    else
       !$omp parallel do collapse(6) default(firstprivate) shared(q,self)
+      if (present(dq)) dq = 0._R8P
       do s=1, nrk
          do b=1, blocks_number
             do k=1, nk
                do j=1, nj
                   do i=1, ni
                      do v=1, nv
+                        if (present(dq)) dq(v,i,j,k,b) = dq(v,i,j,k,b) + self%beta(s)*self%q_rk(v,i,j,k,b,s)
                         q(v,i,j,k,b) = q(v,i,j,k,b) + dt * self%beta(s) * self%q_rk(v,i,j,k,b,s)
                      enddo
                   enddo

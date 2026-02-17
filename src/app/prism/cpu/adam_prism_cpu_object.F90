@@ -41,17 +41,18 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: save_residuals       !< Save residuals history.
       procedure, pass(self) :: save_simulation_data !< Save all simulation data.
       ! IC/BC/sources
-      procedure, pass(self) :: apply_fWL_correction     !< Apply fWLayer correction (if present)
-      procedure, pass(self) :: compute_coils_current    !< Compute current coils sources.
-      procedure, pass(self) :: set_rectangular_coil_x   !< Subroutine to set a rectangular coil source with +-x normal
-      procedure, pass(self) :: set_rectangular_coil_y   !< Subroutine to set a rectangular coil source with +-y normal
-      procedure, pass(self) :: set_rectangular_coil_z   !< Subroutine to set a rectangular coil source with +-z normal
-      procedure, pass(self) :: set_boundary_conditions  !< Set boundary conditions of equation.
+      procedure, pass(self) :: apply_fWL_correction              !< Apply fWLayer correction (if present)
+      procedure, pass(self) :: compute_coils_current             !< Compute current coils sources.
+      procedure, pass(self) :: set_rectangular_coil_x            !< Subroutine to set a rectangular coil source with +-x normal
+      procedure, pass(self) :: set_rectangular_coil_y            !< Subroutine to set a rectangular coil source with +-y normal
+      procedure, pass(self) :: set_rectangular_coil_z            !< Subroutine to set a rectangular coil source with +-z normal
+      procedure, pass(self) :: compute_coil_current_density_flux !< Compute coil current density fluxes for Maxwell equations.
+      procedure, pass(self) :: set_boundary_conditions           !< Set boundary conditions of equation.
       procedure, pass(self) :: compute_residuals_BC
       procedure, pass(self) :: update_q_BC
-      procedure, pass(self) :: set_initial_conditions   !< Set initial conditions (and coils) of equation.
-      procedure, pass(self) :: update_ghost             !< Update ghost cells and set boundary conditions.
-      procedure, pass(self) :: compute_field_mean_value !< Compute field mean value.
+      procedure, pass(self) :: set_initial_conditions            !< Set initial conditions (and coils) of equation.
+      procedure, pass(self) :: update_ghost                      !< Update ghost cells and set boundary conditions.
+      procedure, pass(self) :: compute_field_mean_value          !< Compute field mean value.
       ! FDV operators numerical methods
       procedure, pass(self) :: compute_curl_fd        !< Compute curl of vector field by finite difference.
       procedure, pass(self) :: compute_curl_fv        !< Compute curl of vector field by finite volume.
@@ -1873,7 +1874,7 @@ contains
       endif
       call self%compute_coils_current(q=self%rk%q_rk(:,:,:,:,:,s), gamma=self%rk%gamm(s))
       call self%compute_residuals(q=self%rk%q_rk(:,:,:,:,:,s), dq=self%dq, s=s)
-      if (s==1) call self%save_residuals
+      !if (s==1) call self%save_residuals
       if (self%ib%solids_number>0) then
          call self%rk%assign_stage(s=s, q=self%dq, phi=self%ib%phi)
       else
@@ -1884,8 +1885,9 @@ contains
       call self%rk%update_q(dt=self%time%dt, phi=self%ib%phi, q=self%q)
       call self%update_q_BC(dt=self%time%dt, phi=self%ib%phi)
    else
-      call self%rk%update_q(dt=self%time%dt, q=self%q)
+      call self%rk%update_q(dt=self%time%dt, q=self%q, dq=self%dq)
       call self%update_q_BC(dt=self%time%dt)
+      call self%save_residuals
    endif
    call self%compute_coils_current(q=self%q)
    call self%impose_div_free
@@ -2343,6 +2345,7 @@ contains
    J_vec(4,:,:,:,:) = 1.0_R8P
 
    endassociate
+   call self%compute_coil_current_density_flux(n)
    endsubroutine set_rectangular_coil_x
 
    subroutine set_rectangular_coil_y(self, n, verse)
@@ -2429,6 +2432,7 @@ contains
    J_vec(4,:,:,:,:) = 1.0_R8P
 
    endassociate
+   call self%compute_coil_current_density_flux(n)
    endsubroutine set_rectangular_coil_y
 
    subroutine set_rectangular_coil_z(self, n, verse)
@@ -2512,40 +2516,87 @@ contains
    J_vec(1:3,:,:,:,:) = J_vec(1:3,:,:,:,:) + J_vec_buffer
    J_vec(4,:,:,:,:) = 1.0_R8P
    endassociate
+   call self%compute_coil_current_density_flux(n)
    endsubroutine set_rectangular_coil_z
 
-   !subroutine compute_current_density_flux(self, n)
-   !!< Subroutine to adjust current amplitude in order to match the input one
-   !class(prism_cpu_object),      intent(inout) :: self                           !< Cpu object.
-   !integer(I4P)                                :: n                              !< Coil number.
-   !real(R8P)                                   :: l1_min, l1_max, l2_min, l2_max !< Flux surface extrema
-!
-   !associate(blocks_number=>self%field%blocks_number, ni=>self%field%grid%ni, nj=>self%field%grid%nj, & 
-   !         nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),             &
-   !         lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,                &
-   !         y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>self%field%dxyz(1,:),         &
-   !         dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n),        & 
-   !         nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  & 
-   !         z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
-   !         q=>self%q)
-!
-   !!Per ora la imposto per griglia uniforme monoblocco. Vedremo come estendere il problema
-   !
-   !c_c = [ x_c, y_c, z_c ] !Vettore posizione centro spira
-!
-   !if (normal == NORMAL_P_X .or. normal == NORMAL_M_X) then
-   !   !l1_min = y_c - 
-   !   !l1_max = y_c -
-   !   !l2_min = z_c 
-   !   !l2_max = z_c 
-   !elseif (normal == NORMAL_P_Y .or. normal == NORMAL_M_Y) then
-!
-   !elseif (normal == NORMAL_P_Z .or. normal == NORMAL_M_Z) then
-!
-!
-   !endif
-   !endassociate
-   !endsubroutine compute_current_density_flux
+   subroutine compute_coil_current_density_flux(self, n)
+   !< Subroutine to adjust current amplitude in order to match the input one
+   class(prism_cpu_object),      intent(inout) :: self             !< Cpu object.
+   integer(I4P)                                :: n                !< Coil number.
+   real(R8P)                                   :: x_s, y_s, z_s    !< Flux center coordinates
+   real(R8P)                                   :: flux, correction !< Computed flux     
+   integer(I4P)                                :: i_s, j_s, k_s    !< Flux center cell coordinates
+   integer(I4P)                                :: i, j, k          !< Counter.
+
+   associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj,                       & 
+            nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),       &
+            lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,          &
+            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>self%field%dxyz(1,:),   &
+            dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n),    & 
+            nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,            & 
+            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,       &
+            e_min => self%field%grid%domain_emin, e_max => self%field%grid%domain_emax,         &
+            q=>self%q)
+
+   !Per ora la imposto per griglia uniforme monoblocco. Vedremo come estendere il problema
+   flux = 0.0_R8P
+   correction = 1.0_R8P
+
+   if (normal == NORMAL_P_X .or. normal == NORMAL_M_X) then !Valuto corrente lungo z
+
+      x_s = x_c  
+      y_s = y_c - lx/2 
+      z_s = z_c
+      i_s = ceiling((x_s - e_min(1)) / dx(1))
+      j_s = ceiling((y_s - e_min(2)) / dy(1))
+      k_s = ceiling((z_s - e_min(3)) / dz(1))
+
+      do j = j_s - nint(3.5_R8P*self%coil%sigma(n)), j_s + nint(3.5_R8P*self%coil%sigma(n))
+         do i = i_s - nint(3.5_R8P*self%coil%sigma(n)), i_s + nint(3.5_R8P*self%coil%sigma(n))
+               flux = flux + J_vec(3,i,j,k_s,1)*dx(1)*dy(1)
+         enddo
+      enddo
+   
+   elseif (normal == NORMAL_P_Y .or. normal == NORMAL_M_Y) then !Valuto corrente lungo z
+
+      x_s = x_c - lx/2 
+      y_s = y_c 
+      z_s = z_c 
+      i_s = ceiling((x_s - e_min(1)) / dx(1))
+      j_s = ceiling((y_s - e_min(2)) / dy(1))
+      k_s = ceiling((z_s - e_min(3)) / dz(1))
+
+      do j = j_s - nint(3.5_R8P*self%coil%sigma(n)), j_s + nint(3.5_R8P*self%coil%sigma(n))
+         do i = i_s - nint(3.5_R8P*self%coil%sigma(n)), i_s + nint(3.5_R8P*self%coil%sigma(n))
+               flux = flux + J_vec(3,i,j,k_s,1)*dx(1)*dy(1)
+         enddo
+      enddo
+
+   elseif (normal == NORMAL_P_Z .or. normal == NORMAL_M_Z) then !Valuto corrente lungo y
+
+      x_s = x_c - lx/2 
+      y_s = y_c 
+      z_s = z_c  
+      i_s = ceiling((x_s - e_min(1)) / dx(1))
+      j_s = ceiling((y_s - e_min(2)) / dy(1))
+      k_s = ceiling((z_s - e_min(3)) / dz(1))
+
+      do k = k_s - nint(3.5_R8P*self%coil%sigma(n)), k_s + nint(3.5_R8P*self%coil%sigma(n))
+         do i = i_s - nint(3.5_R8P*self%coil%sigma(n)), i_s + nint(3.5_R8P*self%coil%sigma(n))
+               flux = flux + J_vec(2,i,j_s,k,1)*dx(1)*dz(1)
+         enddo
+      enddo  
+        
+   endif
+
+   flux = abs(flux)*self%coil%A(n)
+   print *, 'Valore corrente pre correzione: ', flux
+   correction = (self%coil%A(n)/flux)
+   print *, 'Scaling factor ampiezza: ', correction
+   self%coil%A(n) = self%coil%A(n)*correction
+
+   endassociate
+   endsubroutine compute_coil_current_density_flux
 
    function erf_function(s, mu, sigma) result(res)
       real(R8P), intent(in) :: s, mu, sigma
