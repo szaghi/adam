@@ -1,104 +1,35 @@
 name: CI
 
-on: push
+on:
+  push:
+    branches: ["**"]
+    tags-ignore: ["**"]   # tags are handled by release.yml
+  pull_request:
 
 jobs:
-  test-deploy:
-    name: test library and apps-deploy GH doc and release assets
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    env:
-      GCC_V: 14 # gcc version
-      HDF5_V: 1.14.6 # HDF5 version
 
     steps:
 
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        ref: develop
         submodules: 'true'
 
-    - name: Install GCC
+    - name: Setup build environment
+      uses: ./.github/actions/setup-build-env
+
+    - name: Install HDF5 (parallel)
       run: |
-        sudo add-apt-repository --yes ppa:ubuntu-toolchain-r/test
-        sudo apt update
-        sudo apt install -y gcc-${GCC_V} gfortran-${GCC_V} g++-${GCC_V}
-        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-${GCC_V} 100 \
-        --slave /usr/bin/gfortran gfortran /usr/bin/gfortran-${GCC_V} \
-        --slave /usr/bin/gcov gcov /usr/bin/gcov-${GCC_V}
+        sudo apt install -y libhdf5-openmpi-dev
+        HDF5_LIB=$(find /usr/lib -name 'libhdf5.a' -path '*openmpi*' 2>/dev/null | head -1 | xargs dirname)
+        HDF5_INC=$(find /usr/include -name 'hdf5.h' -path '*openmpi*' 2>/dev/null | head -1 | xargs dirname)
+        mkdir -p lib/hdf5_github/lib lib/hdf5_github/include
+        cp "${HDF5_LIB}"/*.a lib/hdf5_github/lib/
+        cp "${HDF5_INC}"/* lib/hdf5_github/include/
+        # HDF5 >= 1.12 merged libhdf5_f90cstub into libhdf5_fortran; provide empty stub if absent
+        [ -f lib/hdf5_github/lib/libhdf5_f90cstub.a ] || ar rcs lib/hdf5_github/lib/libhdf5_f90cstub.a
 
-    - name: Install OPENMPI
-      run: |
-        sudo apt install openmpi-bin openmpi-common libopenmpi-dev
-
-    - name: Install Graphviz
-      uses: ts-graphviz/setup-graphviz@v2
-
-    - name: Install FOBIS-FORD
-      run: |
-        pip install --upgrade markdown
-        pip install --upgrade markdown-include
-        pip install --upgrade python-markdown-math
-        pip install --upgrade toposort
-        pip install --upgrade jinja2
-        pip install --upgrade pygments
-        pip install --upgrade beautifulsoup4
-        pip install --upgrade graphviz
-        pip install --upgrade tqdm
-        pip install --upgrade importlib-metadata
-        pip install --upgrade ford
-        pip install --upgrade FoBiS.py
-
-    - name: Check system
-      run: |
-        echo 'GFORTRAN'
-        gfortran --version
-        echo
-        echo 'MPIF90'
-        mpif90 --version
-        echo
-        echo 'GCOV'
-        gcov --version
-        echo
-        echo 'PYTHON'
-        python --version
-        echo
-        echo 'FOBIS'
-        FoBiS.py --version
-        echo
-        echo 'FORD'
-        ford --version
-
-    - name: Build NASTO CPU GNU
-      run: |
-        FoBiS.py build -mode nasto-cpu-gnu-github
-        LD_LIBRARY_PATH=lib/hdf5/gnu/lib/:$LD_LIBRARY_PATH exe/adam_nasto_cpu
-
-    - name: Make doc
-      run: |
-        FoBiS.py rule -ex makedoc
-
-    - name: Push doc to GH Pages
-      if: ${{ !env.ACT }}
-      uses: JamesIves/github-pages-deploy-action@v4
-      with:
-        branch: gh-pages
-        folder: doc/html
-
-    - name: Make TAR
-      run: |
-        echo "release version:" ${{ env.RELEASE }}
-        FoBiS.py rule -ex maketar
-        ls *.tar.gz
-
-    - name: Deploy Asset
-      uses: softprops/action-gh-release@v1
-      with:
-        files: |
-          *.tar.gz
-          # ./scripts/install.sh
-        tag_name: latest
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Build ADAM
+      run: FoBiS.py build -mode nasto-cpu-gnu-github

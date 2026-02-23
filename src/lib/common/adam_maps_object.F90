@@ -161,12 +161,14 @@ contains
 
    subroutine make_comm_local_maps(self)
    !< Make communication/local maps.
-   !<```comm_map_send     = [ 17, 511, 92, 3, 54, 56, 11, 12...] (block index).
+   !<```
+   !<   comm_map_send     = [ 17, 511, 92, 3, 54, 56, 11, 12...] (block index).
    !<                          |   |       |  ||       |
    !<   comm_map_send_ptr = [  0,  1,  3,  4,  4, 6, (8)]        (pointer to comm_map_send)
    !<   comm_map_recv     = [ 23, 4, 51, 69, 145, 2, 72, 16, 6]  (block index).
    !<                         |       |  ||          |       |
-   !<   comm_map_recv_prt = [ 0,  2,  3,  3,  6, 8, (9)]         (pointer to comm_map_recv)```
+   !<   comm_map_recv_prt = [ 0,  2,  3,  3,  6, 8, (9)]         (pointer to comm_map_recv)
+   !<```
    class(maps_object), intent(inout) :: self                 !< The maps.
    type(tree_node_object), pointer   :: node_ptr             !< Pointer to current node.
    integer(I8P), allocatable         :: codes_sorted(:)      !< List of (sorted) codes.

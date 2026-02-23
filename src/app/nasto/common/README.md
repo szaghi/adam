@@ -1,132 +1,456 @@
-<a name="top"></a>
+# NASTO — Common
 
-# NASTO common
+> Backend-independent physics, configuration, and I/O layer for all NASTO solvers.
 
-> ADAM for Navier-Stokes equations, common data.
+The `common/` directory provides the objects shared by every NASTO backend
+(CPU, NVF, FNL, GMP). It covers the full simulation lifecycle — configuration
+parsing, equation of state, initial and boundary conditions, time-step control,
+and I/O — without containing any backend-specific compute kernels.
 
-NASTO is an application developed on top of ADAM framework to solve compressible Navier-Stokes conservation equations. These are the sources common
-to all backends.
+## Module overview
 
-The main NASTO common documentation is contained in the following sections:
+| Source file | Module | Type | Role |
+|-------------|--------|------|------|
+| `adam_nasto_parameters.F90` | `adam_nasto_parameters` | — | Global parameter placeholder |
+| `adam_nasto_common_object.F90` | `adam_nasto_common_object` | `nasto_common_object` | Central orchestrator; extended by every backend |
+| `adam_nasto_physics_object.F90` | `adam_nasto_physics_object` | `nasto_physics_object` | Species count and variable-index management |
+| `adam_nasto_eos_object.F90` | `adam_nasto_eos_object` | `nasto_eos_object` | Ideal-gas equation of state per species |
+| `adam_nasto_bc_object.F90` | `adam_nasto_bc_object` | `nasto_bc_object` | Boundary condition types and inflow data |
+| `adam_nasto_ic_object.F90` | `adam_nasto_ic_object` | `nasto_ic_object` | Initial condition setup (uniform, vortex, Riemann) |
+| `adam_nasto_io_object.F90` | `adam_nasto_io_object` | `nasto_io_object` | Output frequency, restart, residual monitoring |
+| `adam_nasto_time_object.F90` | `adam_nasto_time_object` | `nasto_time_object` | CFL time-step control and termination criteria |
+| `adam_nasto_common_library.F90` | `adam_nasto_common_library` | — | Barrel re-export of all modules above |
 
-| [Main Features](#main-features) | [Copyrights](#copyrights) | [Install](#install) | [API Documentation](#api-documentation) |
+## Object hierarchy
 
-Go to [Top](#top)
+```mermaid
+classDiagram
+    class nasto_common_object {
+        +mpih: mpih_object
+        +adam: adam_object
+        +field: field_object*
+        +grid: grid_object*
+        +amr: amr_object
+        +ib: ib_object
+        +rk: rk_object
+        +weno: weno_object
+        +io: nasto_io_object
+        +physics: nasto_physics_object
+        +ic: nasto_ic_object
+        +bc: nasto_bc_object
+        +time: nasto_time_object
+        +q(nv,ni,nj,nk,nb)
+        +q_aux(nv_aux,ni,nj,nk,nb)
+        +allocate_common()
+        +initialize_common()
+    }
 
-# Main Features
+    class nasto_physics_object {
+        +ns: I4P
+        +nv: I4P
+        +nv_aux: I4P
+        +eos(:): nasto_eos_object
+        +conservative2primitive()
+        +primitive2conservative()
+        +initialize()
+    }
 
-NASTO common data provides the following features:
+    class nasto_eos_object {
+        +cp, cv, g, R: R8P
+        +mu, kd, dha: R8P
+        +gm1, gp1, delta, eta: R8P
+        +pressure()
+        +density()
+        +speed_of_sound()
+        +temperature()
+        +total_energy()
+        +conservative2primitive()
+    }
 
-+ *standalone* objects for easy handling all NASTO simulation setups that are not peculiar of a specific backend, e.g. the setup of initial conditions,
-  boundary conditions, simulation IO configurations, ecc...
-    + each standalone object provides helpful methods (type bound procedures) for its own specific aims as well as for easy initialization by parsing
-      input config (INI) file;
-+ all standalone objects are *collected* by a main object, namely the `nasto_common_object` that is designed to be **extended** by all specific backend
-  classes in order to obtain easily the handlers for easy simulation setup.
-    + the main common object provides helpful methods for non-backend-specific aims, e.g. IO tasks.
+    class nasto_bc_object {
+        +bc_type(6): I4P
+        +q(6,6): R8P
+        +initialize()
+    }
 
-Go to [Top](#top)
+    class nasto_ic_object {
+        +ic_type: character
+        +regions_number: I4P
+        +q(6,regions): R8P
+        +set_initial_conditions()
+    }
 
-# Copyrights
+    class nasto_io_object {
+        +output_basename: character
+        +it_save: I4P
+        +restart: logical
+        +residuals_save: I4P
+        +open_file_residuals()
+        +save_residuals()
+    }
 
-ADAM-NASTO is currently a closed project:
+    class nasto_time_object {
+        +it_max: I4P
+        +time_max: R8P
+        +CFL: R8P
+        +it, time, dt: scalars
+        +is_to_save(): logical
+        +print_progress()
+    }
 
-> Copyright (C) Di Mascio/Rossi/Salvadore/Zaghi, Inc - All Rights Reserved.
->
-> Unauthorized copying of these source files, via any medium is strictly prohibited, proprietary and confidential.
-> Written by Andrea di Mascio, Giacomo Rossi, Francesco Salvadore and Stefano Zaghi, September 2023.
+    nasto_common_object *-- nasto_physics_object
+    nasto_common_object *-- nasto_bc_object
+    nasto_common_object *-- nasto_ic_object
+    nasto_common_object *-- nasto_io_object
+    nasto_common_object *-- nasto_time_object
+    nasto_physics_object *-- nasto_eos_object
+```
 
-Future versions could be released with a more Free Open Source Software (FOSS) licence.
+---
 
-Go to [Top](#top)
+## `nasto_common_object`
 
-# Install
+The top-level base class. Every backend object (`nasto_cpu_object`,
+`nasto_nvf_object`, etc.) **extends** this type, inheriting all handlers and
+grid/field references without duplicating configuration logic.
 
-NASTO, like the ADAM framework, is provided as source files archive and it must be compiled in order to have the executable ready to be installed.
+### Data members
 
-The common sources does not provide a standalone program it being designed as library for specific backend, instead compile one of the backend provided,
-e.g. the `nvf` backend, following its own documentation.
+**ADAM SDK objects** (aggregated, not inherited):
 
-Go to [Top](#top)
+| Member | Type | Purpose |
+|--------|------|---------|
+| `mpih` | `mpih_object` | MPI communication handler |
+| `adam` | `adam_object` | Top-level ADAM framework |
+| `field` | `field_object*` | 5D field array container |
+| `grid` | `grid_object*` | Block-structured grid geometry |
+| `amr` | `amr_object` | AMR marker and refinement handler |
+| `ib` | `ib_object` | Immersed boundary method |
+| `slices` | `slices_object` | In-situ slice output |
+| `rk` | `rk_object` | Runge-Kutta temporal integrator |
+| `weno` | `weno_object` | WENO reconstruction |
 
-# API Documentation
+**NASTO handlers**:
 
-Currently, NASTO common objects are made by the following source files:
+| Member | Type | Purpose |
+|--------|------|---------|
+| `io` | `nasto_io_object` | Output and restart control |
+| `physics` | `nasto_physics_object` | Species and thermodynamics |
+| `ic` | `nasto_ic_object` | Initial condition setup |
+| `bc` | `nasto_bc_object` | Boundary conditions |
+| `time` | `nasto_time_object` | Time-step and termination |
 
-### standalone objects
+**Field arrays** (allocated with ghost cells):
 
-+ `adam_nasto_bc_object.F90`
-+ `adam_nasto_eos_object.F90`
-+ `adam_nasto_ic_object.F90`
-+ `adam_nasto_io_object.F90`
-+ `adam_nasto_physics_object.F90`
-+ `adam_nasto_schemes_object.F90`
-+ `adam_nasto_time_object.F90`
+```fortran
+real(R8P), allocatable :: q    (nv,     1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, nb)
+real(R8P), allocatable :: q_aux(nv_aux, 1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, nb)
+```
 
-### modules
+`q` holds conservative variables; `q_aux` holds primitive/auxiliary variables
+(density, velocity components, pressure, temperature, etc.).
 
-+ `adam_nasto_parameters.F90`
+### Methods
 
-### main common object
+| Procedure | Purpose |
+|-----------|---------|
+| `allocate_common()` | Allocates `q` and `q_aux` with correct ghost-cell bounds |
+| `initialize_common()` | Full startup sequence: MPI → IO → physics → grid → AMR → fields → IC → BC → time → WENO → IB |
 
-+ `adam_nasto_common_object.F90 `
+---
 
-### Standalone objects API
+## `nasto_physics_object`
 
-#### `adam_nasto_bc_object.F90`
+Manages the number of fluid species and the mapping between species and
+conservative-variable indices.
 
-This contains the definition of NASTO boundary conditions handler, e.g. the type of boundary conditions implemented, their parsing from config file,
-the allocation of the neccessary data, ecc... See [nasto BC object API documentantion](https://szaghi.github.io/adam/type/nasto_bc_object.html)
-for more details.
+### Data members
 
-#### `adam_nasto_eos_object.F90`
+| Member | Type | Default | Description |
+|--------|------|---------|-------------|
+| `ns` | `I4P` | 1 | Number of fluid species |
+| `nv` | `I4P` | 5 | Conservative variables = `ns + 4` (momentum + energy) |
+| `nv_aux` | `I4P` | 9 | Auxiliary variables = `ns + 8` |
+| `np` | `I4P` | 5 | 1D primitive variables = `ns + 4` |
+| `eos(:)` | `nasto_eos_object` | — | EOS model for each species `[1:ns]` |
 
-This contains the definition of NASTO equations of state handler, e.g. the relation between fluids state variables, fluids constants, their parsing from
-config file, the allocation of the neccessary data, ecc... It is designed to handle multi-fluids simulations.
-See [nasto EOS object API documentantion](https://szaghi.github.io/adam/type/nasto_eos_object.html) for more details.
+**Variable index offsets** (module-level, computed after `initialize()`):
 
-#### `adam_nasto_ic_object.F90`
+| Index | Meaning |
+|-------|---------|
+| `IR = ns + 1` | Bulk density in `q_aux` |
+| `IU = ns + 2` | x-velocity |
+| `IV = ns + 3` | y-velocity |
+| `IW = ns + 4` | z-velocity |
+| `IG = ns + 5` | Heat capacity ratio γ |
+| `IP = ns + 6` | Pressure |
 
-This contains the definition of NASTO intial conditions handler, e.g. the type of intial conditions implemented, their parsing from config file,
-the allocation of the neccessary data, ecc... See [nasto IC object API documentantion](https://szaghi.github.io/adam/type/nasto_ic_object.html)
-for more details.
+### Methods
 
-#### `adam_nasto_io_object.F90`
+| Procedure | Notes |
+|-----------|-------|
+| `initialize()` | Reads `ns` from INI; allocates `eos(1:ns)`; updates index offsets |
+| `conservative2primitive()` | Pure: `(ρs, ρu, ρv, ρw, ρE) → (s, u, v, w, ρ, p, γ)` |
+| `primitive2conservative()` | Pure: inverse conversion |
+| `description()` | Formatted summary string |
 
-This contains the definition of NASTO Input/Output (IO) handler, e.g. the frequency and location of IO, their parsing from config file,
-the allocation of the neccessary data, ecc... See [nasto IO object API documentantion](https://szaghi.github.io/adam/type/nasto_io_object.html)
-for more details.
+### INI configuration
 
-#### `adam_nasto_physics_object.F90`
+```ini
+[physics]
+  ns = 1          ! number of fluid species
+```
 
-This contains the definition of NASTO fluids physics, e.g. the fluid state variables transformations, their parsing from
-config file, the allocation of the neccessary data, ecc... It is designed to handle multi-fluids simulations.
-See [nasto PHYSICS object API documentantion](https://szaghi.github.io/adam/type/nasto_physics_object.html) for more details.
+---
 
-#### `adam_nasto_schemes_object.F90`
+## `nasto_eos_object`
 
-This contains the definition of NASTO numerical schemes handler, e.g. the numerical time and spatial operators, their parsing from
-config file, the allocation of the neccessary data, ecc...
-See [nasto SCHEMES object API documentantion](https://szaghi.github.io/adam/type/nasto_SCHEMES_object.html) for more details.
+Ideal-gas equation of state for a single fluid species. Stores primary
+thermodynamic properties and pre-computes derived combinations for efficiency.
 
-#### `adam_nasto_time_object.F90`
+### Data members
 
-This contains the definition of NASTO time handler, e.g. the simulation time-related setup ()maximum number of iteration, CFL limit, ec...), their parsing from
-config file, the allocation of the neccessary data, ecc...
-See [nasto TIME object API documentantion](https://szaghi.github.io/adam/type/nasto_time_object.html) for more details.
+| Member | Type | Description |
+|--------|------|-------------|
+| `cp` | `R8P` | Specific heat at constant pressure (J/kg·K) |
+| `cv` | `R8P` | Specific heat at constant volume (J/kg·K) |
+| `g` | `R8P` | Heat capacity ratio γ = cp/cv |
+| `R` | `R8P` | Gas constant = cp − cv (J/kg·K) |
+| `mu` | `R8P` | Dynamic viscosity (Pa·s) |
+| `kd` | `R8P` | Thermal diffusivity (W/m·K) |
+| `dha` | `R8P` | Enthalpy of formation (J/kg) |
+| `gm1` | `R8P` | γ − 1 (pre-computed) |
+| `gp1` | `R8P` | γ + 1 (pre-computed) |
+| `delta` | `R8P` | (γ − 1)/2 |
+| `eta` | `R8P` | 2γ/(γ − 1) |
 
-### Modules API
+### Methods
 
-#### `adam_nasto_parameters.F90`
+**Elemental state functions** (vectorise over arrays):
 
-This contains the main global parameters of NASTO.
-See [nasto parameters module API documentantion](https://szaghi.github.io/adam/module/nasto_parameters.html) for more details.
+| Procedure | Returns |
+|-----------|---------|
+| `pressure(ρ, e)` | $p = (\gamma-1)\,\rho\,e$ |
+| `density(p, c)` | $\rho = \gamma\,p/c^2$ |
+| `speed_of_sound(ρ, p)` | $c = \sqrt{\gamma\,p/\rho}$ |
+| `temperature(ρ, p)` | $T = p/(\rho R)$ |
+| `internal_energy(ρ, p)` | $e = p/[(\gamma-1)\rho]$ |
+| `total_energy(ρ, u, v, w, p)` | $E = e + \tfrac{1}{2}(u^2+v^2+w^2)$ |
+| `total_entalpy(ρ, u, v, w, p)` | $H = E + p/\rho$ |
 
-### Main common object API
+**Other methods**:
 
-#### `adam_nasto_common_object.F90`
+| Procedure | Purpose |
+|-----------|---------|
+| `compute_derivate()` | Derives `gm1`, `gp1`, `delta`, `eta` from `cp`/`cv` |
+| `conservative2primitive()` | Single-species conversion |
+| `load_from_file()` | Reads properties from INI |
+| `save_into_file()` | Writes properties back to INI |
+| `destroy()` | Resets to default state |
 
-This contains the definition of NASTO common class, a class that is used (extended) by all NASTO backends.
-See [nasto common object API documentantion](https://szaghi.github.io/adam/type/nasto_common_object.html) for more details.
+### INI configuration
 
-Go to [Top](#top)
+Section name: `physics_specie_N` where N is the species index (1-based).
+
+```ini
+[physics_specie_1]
+  cp  = 1004.5      ! J/kg·K
+  cv  = 717.5       ! J/kg·K
+  mu  = 1.8e-5      ! Pa·s
+  kd  = 0.026       ! W/m·K
+  dha = 0.0         ! J/kg  (enthalpy of formation)
+```
+
+---
+
+## `nasto_bc_object`
+
+Stores the boundary condition type for each of the six domain faces and the
+prescribed primitive-variable state for inflow boundaries.
+
+### Boundary condition types
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `BC_EXTRAPOLATION` | 1 | Zero-gradient extrapolation (outflow) |
+| `BC_INFLOW` | 2 | Supersonic inflow with prescribed (ρ, u, v, w, p) |
+| `BC_WALL_INVISCID` | 3 | Slip wall — normal velocity set to zero |
+
+Face ordering in `bc_type(6)`: x_min, x_max, y_min, y_max, z_min, z_max.
+
+### INI configuration
+
+```ini
+[bc_x_min]
+  type = inflow
+  r = 1.225       ! density (kg/m³)
+  u = 340.0       ! x-velocity (m/s)
+  v = 0.0
+  w = 0.0
+  p = 101325.0    ! pressure (Pa)
+  s = 1           ! species index
+
+[bc_x_max]
+  type = extrapolation
+
+[bc_y_min]
+  type = wall-inviscid
+
+[bc_y_max]
+  type = extrapolation
+
+[bc_z_min]
+  type = periodic
+
+[bc_z_max]
+  type = periodic
+```
+
+---
+
+## `nasto_ic_object`
+
+Sets the initial field `q` across all AMR blocks. Supports three analytical
+configurations and a flexible multi-region domain decomposition.
+
+### Initial condition types
+
+| Type string | Description |
+|-------------|-------------|
+| `uniform` | Uniform state everywhere; optional random velocity perturbation |
+| `isentropic-vortex` | Lamb-Oseen isentropic vortex superposed on a background flow |
+| `riemann-problem` | Piecewise-constant regions defined by axis-aligned bounding boxes |
+
+### Data members
+
+| Member | Description |
+|--------|-------------|
+| `ic_type` | Selected IC type string |
+| `regions_number` | Number of spatial regions |
+| `q(6, regions_number)` | Primitive state per region: (ρ, u, v, w, p, species) |
+| `emin(3, regions_number)` | Min corner (x, y, z) of each region bounding box |
+| `emax(3, regions_number)` | Max corner (x, y, z) of each region bounding box |
+| `amr_iterations` | AMR refinement passes applied after IC setup |
+
+### INI configuration
+
+```ini
+[initial_conditions]
+  type            = riemann-problem
+  regions_number  = 2
+  amr_iterations  = 3
+
+[initial_conditions_region_1]
+  r = 1.0   u = 0.0   v = 0.0   w = 0.0   p = 1.0   s = 1
+  emin_x = 0.0   emin_y = 0.0   emin_z = 0.0
+  emax_x = 10.0  emax_y = 20.0  emax_z = 20.0
+
+[initial_conditions_region_2]
+  r = 0.125   u = 0.0   v = 0.0   w = 0.0   p = 0.1   s = 1
+  emin_x = 10.0  emin_y = 0.0   emin_z = 0.0
+  emax_x = 20.0  emax_y = 20.0  emax_z = 20.0
+```
+
+---
+
+## `nasto_io_object`
+
+Controls output scheduling, restart checkpointing, and residual monitoring.
+
+### Data members
+
+| Member | Type | Default | Description |
+|--------|------|---------|-------------|
+| `output_basename` | `character` | — | Base filename for HDF5 snapshots |
+| `it_save` | `I4P` | 100 | Output frequency (iterations) |
+| `restart` | `logical` | `.false.` | Enable restart from checkpoint |
+| `restart_basename` | `character` | — | Base filename for restart files |
+| `restart_save` | `I4P` | 100 | Restart checkpoint frequency |
+| `residuals_save` | `I4P` | 10 | Residuals file write frequency |
+| `save_memory_status` | `logical` | `.false.` | Log memory usage during allocation |
+
+### Methods
+
+| Procedure | Purpose |
+|-----------|---------|
+| `initialize()` | Creates FiNeR parser; loads all IO parameters |
+| `open_file_residuals()` | Opens residuals file; writes column header |
+| `save_residuals()` | Appends iteration, time, block count, and field norms |
+| `close_file_residuals()` | Closes residuals file unit |
+| `description()` | Pure: formatted configuration summary |
+
+### INI configuration
+
+```ini
+[IO]
+  output_basename    = nasto_out
+  it_save            = 100
+  restart            = .false.
+  restart_basename   = nasto_rst
+  restart_save       = 500
+  residuals_save     = 10
+  save_memory_status = .false.
+```
+
+---
+
+## `nasto_time_object`
+
+Governs temporal integration: CFL-based time-step selection, iteration
+counting, and simulation termination.
+
+### Data members
+
+| Member | Type | Default | Description |
+|--------|------|---------|-------------|
+| `it_max` | `I4P` | −1 | Max iterations; ≤ 0 means use `time_max` instead |
+| `time_max` | `R8P` | 1.0 | Max physical time (s) |
+| `CFL` | `R8P` | 0.3 | Courant–Friedrichs–Lewy number |
+| `it` | `I4P` | 0 | Current iteration counter |
+| `time` | `R8P` | 0.0 | Current physical time |
+| `dt` | `R8P` | 0.0001 | Current time step (updated each iteration) |
+
+### Termination logic
+
+| `it_max` | Stopping criterion |
+|----------|--------------------|
+| ≤ 0 | `time ≥ time_max` |
+| > 0 | `it ≥ it_max` |
+
+Output is also forced at the final iteration regardless of `it_save` spacing.
+
+### Methods
+
+| Procedure | Purpose |
+|-----------|---------|
+| `initialize()` | Loads time parameters from INI |
+| `is_to_save() → logical` | Returns `.true.` when output should be written |
+| `print_progress()` | Prints iteration, time, dt, and % completion |
+| `description()` | Pure: formatted configuration summary |
+
+### INI configuration
+
+```ini
+[time]
+  it_max   = -1       ! use time_max as stopping criterion
+  time_max = 10.0     ! seconds
+  CFL      = 0.8
+```
+
+---
+
+## `adam_nasto_common_library`
+
+A barrel re-export module: `use adam_nasto_common_library` brings every
+module listed in the [overview table](#module-overview) into scope with a
+single statement. Backend objects use this as their sole import from `common/`.
+
+---
+
+## Copyrights
+
+NASTO is part of the ADAM framework, released under the
+[GNU Lesser General Public License v3.0](https://www.gnu.org/licenses/lgpl-3.0.html)
+(LGPLv3).
+
+> Copyright (C) Andrea Di Mascio, Federico Negro, Giacomo Rossi, Francesco Salvadore, Stefano Zaghi.
