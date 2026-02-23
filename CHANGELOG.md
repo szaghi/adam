@@ -1,4 +1,9 @@
 # Changelog
+## [v0.0.4](https://github.com/szaghi/FLAP/tree/v0.0.4) (2026-02-23)
+[Full Changelog](https://github.com/szaghi/FLAP/compare/v0.0.3...v0.0.4)
+### CI/CD
+- Trigger pages deploy on push to develop ([`8a8c6eb`](https://github.com/szaghi/FLAP/commit/8a8c6eba60b94a523c139242c32a5852de562477))
+
 ## [v0.0.3](https://github.com/szaghi/FLAP/tree/v0.0.3) (2026-02-23)
 [Full Changelog](https://github.com/szaghi/FLAP/compare/v0.0.2...v0.0.3)
 ### CI/CD
