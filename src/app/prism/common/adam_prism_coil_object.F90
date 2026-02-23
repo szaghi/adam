@@ -52,7 +52,7 @@ type :: prism_coil_object
    real(R8P),         allocatable :: lx(:), ly(:)                          !< Rectangle's sizes (if rectangular coil)
    real(R8P),         allocatable :: r_coil(:)                             !< Circle's radius (if circular coil)
    real(R8P),         allocatable :: sigma(:)                              !< Gaussian current distribution sigma
-   real(R8P),         allocatable :: J_vec(:,:,:,:,:)                      !< Matrice contenente versori corrente spire (se assente
+   real(R8P),         allocatable :: J_vec(:,:,:,:,:,:)                      !< Matrice contenente versori corrente spire (se assente
    real(R8P)                      :: td                                    !< Delay di accensione della spira
    integer(I4P),      allocatable :: coil_flag(:,:,:,:)                    !< Matrice contenente informazioni su quale spira pass pe
    integer(I4P)                   :: circular_coils_number=0_I4P           !< Number of circular coils
@@ -103,8 +103,8 @@ contains
    allocate(self%f                   (0:total_coils_number)) ; self%f = 0.0_R8P
    allocate(self%phase               (0:total_coils_number)) ; self%phase = 0.0_R8P
 
-   allocate(self%coil_flag(                        1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb)) ; self%coil_flag = 0_I4P
-   allocate(self%J_vec(    4                      ,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb)) ; self%J_vec = 0._R8P
+   allocate(self%coil_flag(1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb)) ; self%coil_flag = 0_I4P
+   allocate(self%J_vec(total_coils_number,4,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb)) ; self%J_vec = 0._R8P
 
    endassociate
    endsubroutine allocate_coil

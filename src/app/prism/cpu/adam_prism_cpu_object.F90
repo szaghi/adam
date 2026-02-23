@@ -47,6 +47,7 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: set_rectangular_coil_y            !< Subroutine to set a rectangular coil source with +-y normal
       procedure, pass(self) :: set_rectangular_coil_z            !< Subroutine to set a rectangular coil source with +-z normal
       procedure, pass(self) :: compute_coil_current_density_flux !< Compute coil current density fluxes for Maxwell equations.
+      procedure, pass(self) :: impose_div_coil_correction        !< Impose coil divergence correction.
       procedure, pass(self) :: set_boundary_conditions           !< Set boundary conditions of equation.
       procedure, pass(self) :: compute_residuals_BC
       procedure, pass(self) :: update_q_BC
@@ -362,7 +363,7 @@ contains
    integer(I4P)                                  :: w_, w_c_         !< Step function coeff to avoid if in parallel regions.
    real(R8P)                                     :: g_, f_           !< Current coefficients.
    integer(I4P)                                  :: coil_id          !< Uniq coild ID.
-   integer(I4P)                                  :: i,j,k,b          !< Counter.
+   integer(I4P)                                  :: i,j,k,b,n        !< Counter.
 
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
              time=>self%time%time, A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,              &
@@ -376,17 +377,18 @@ contains
       time_s = time
    end if
    if (self%coil%total_coils_number >= 1_I4P) then
-   !if (time >= td) then
-   !   q(VAR_JX,:,:,:,:) = 0._R8P
-   !   q(VAR_JY,:,:,:,:) = 0._R8P
-   !   q(VAR_JZ,:,:,:,:) = 0._R8P
-   !else
+      ! Azzero termini sorgenti (con il PIC questa inizializzazione non va bene, bisogna ragionarci, 
+      ! forse serve un buffer da sommare a q alla fine del ciclo su coils number)
+      q(VAR_JX,:,:,:,:) = 0._R8P
+      q(VAR_JY,:,:,:,:) = 0._R8P
+      q(VAR_JZ,:,:,:,:) = 0._R8P
       g = 10._R8P*(time_s/td)**3 - 15._R8P*(time_s/td)**4 + 6._R8P*(time_s/td)**5
+      do n=1, self%coil%total_coils_number
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
       do i=1, ni
-         coil_id = coil_flag(i,j,k,b)
+         coil_id = n
          ! use step function to avoid the following original if
          !if (time < td) then
          !   current_density = g*A(coil_id)/((d(coil_id)-dx)**2)*cos(phase(coil_id)*pi/180.0_R8P)
@@ -398,26 +400,29 @@ contains
          w_c_ = 1_I4P - w_                                ! = 0 if td>time,            = 1                              if td<time
          g_   = w_ * g + w_c_                             ! = g if td>time,            = 1                              if td<time
          f_   = w_c_ * 2._R8P*PI*f(coil_id)*(time_s-td)   ! = 0 if td>time,            = 2._R8P*PI*f(coil_id)*(time-td) if td<time
-         current_density = g_ * A(coil_id) * cos(f_ + phase(coil_id)*PI/180.0_R8P)*J_vec(4,i,j,k,b)
+         current_density = g_ * A(coil_id) * cos(f_ + phase(coil_id)*PI/180.0_R8P)
+
          ! Lo tengo qui, ma a pensarci bene dovrebbe andare bene così come abiamo fatto (quella sfasata resta a 0)
          !f_   = w_c_ * (2._R8P*PI*f(coil_id)*(time_s-td) + phase(coil_id)*PI/180.0_R8P)
                            ! = 0 if td>time, = 2._R8P*PI*f(coil_id)*(time-td)+phase(coil_id)*PI/180.0_R8P if td<time
          !current_density = g_ * A(coil_id) * cos(f_)*j_vec(4,i,j,k,b)
 
-         ! the following if is not necessary because J_vec is zero everywhere except in coils
-         !if (coil_id /= 0_I4P) then
-            q(VAR_JX,i,j,k,b) = current_density * J_vec(1,i,j,k,b)
-            q(VAR_JY,i,j,k,b) = current_density * J_vec(2,i,j,k,b)
-            q(VAR_JZ,i,j,k,b) = current_density * J_vec(3,i,j,k,b)
-            !print *, q(VAR_JX,i,j,k,b)
-         !endif
+         q(VAR_JX,i,j,k,b) = q(VAR_JX,i,j,k,b) + current_density * J_vec(n,1,i,j,k,b)
+         q(VAR_JY,i,j,k,b) = q(VAR_JY,i,j,k,b) + current_density * J_vec(n,2,i,j,k,b)
+         q(VAR_JZ,i,j,k,b) = q(VAR_JZ,i,j,k,b) + current_density * J_vec(n,3,i,j,k,b)
       enddo
       enddo
       enddo
       enddo
+   enddo
    !endif
-      current_density_o = g_ * A(1) * cos(2._R8P*PI*f(1)*(time_s-td)+phase(1)*PI/180.0_R8P)
+      current_density_o = g_ * A(1) * cos(w_c_*2._R8P*PI*f(1)*(time_s-td)+phase(1)*PI/180.0_R8P)
       call write_current_behavior_tab('current_density_coil_1.dat', time=time_s, current_density=current_density_o)
+      current_density_o = g_ * A(4) * cos(w_c_*2._R8P*PI*f(4)*(time_s-td)+phase(4)*PI/180.0_R8P)
+      !print *, cos(w_c_*2._R8P*PI*f(4)*(time_s-td)+phase(4)*PI/180.0_R8P)
+      !print *, w_c_*2._R8P*PI*f(4)*(time_s-td)
+      !print*, phase(4)*PI/180.0_R8P
+      call write_current_behavior_tab('current_density_coil_4.dat', time=time_s, current_density=current_density_o)
    endif
    endassociate
    endsubroutine compute_coils_current
@@ -1412,7 +1417,7 @@ contains
       do b=1, blocks_number
          do k=1, nk
             do j=1, nj
-               do i=1, nj
+               do i=1, ni
                   do v=1, 3
                      self%q(ivar+v-1,i,j,k,b) = self%q(ivar+v-1,i,j,k,b) + buffer(3+v,i,j,k,b)
                   enddo
@@ -2341,11 +2346,9 @@ contains
       enddo
    enddo
 
-   J_vec(1:3,:,:,:,:) = J_vec(1:3,:,:,:,:) + J_vec_buffer
-   J_vec(4,:,:,:,:) = 1.0_R8P
-
+   J_vec(n,1:3,:,:,:,:) = J_vec(n,1:3,:,:,:,:) + J_vec_buffer
    endassociate
-   call self%compute_coil_current_density_flux(n)
+   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
    endsubroutine set_rectangular_coil_x
 
    subroutine set_rectangular_coil_y(self, n, verse)
@@ -2428,11 +2431,9 @@ contains
       enddo
    enddo
 
-   J_vec(1:3,:,:,:,:) = J_vec(1:3,:,:,:,:) + J_vec_buffer
-   J_vec(4,:,:,:,:) = 1.0_R8P
-
+   J_vec(n,1:3,:,:,:,:) = J_vec(n,1:3,:,:,:,:) + J_vec_buffer
    endassociate
-   call self%compute_coil_current_density_flux(n)
+   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
    endsubroutine set_rectangular_coil_y
 
    subroutine set_rectangular_coil_z(self, n, verse)
@@ -2500,7 +2501,14 @@ contains
       enddo
    enddo
    call self%compute_curl(ivar=1_I4P,q=A,curl=J_vec_buffer)
-   J_vec_buffer = J_vec_buffer * verse
+   J_vec_buffer = J_vec_buffer * verse !* 10.0_R8P**4._R8P
+
+   !!!!!!!!!!!!!!!!!call self%compute_divergence(ivar=1_I4P,q=J_vec_buffer,divergence=self%divergence(3,:,:,:,:))
+   !!!!!!!!!!!!!!!!!print *, 'Divergenza J_vec_buffer pre Poisson: ', maxval(abs(self%divergence(3,:,:,:,:)))
+   !!!!!!!!!!!!!!!!!!call self%impose_div_coil_correction(ivar=1_I4P, q=J_vec_buffer)
+   !!!!!!!!!!!!!!!!!call self%compute_divergence(ivar=1_I4P,q=J_vec_buffer,divergence=self%divergence(3,:,:,:,:))
+   !!!!!!!!!!!!!!!!!print *, 'Divergenza J_vec_buffer post Poisson: ', maxval(abs(self%divergence(3,:,:,:,:)))
+
    do b=1, blocks_number
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
@@ -2513,16 +2521,62 @@ contains
          enddo
       enddo
    enddo
-   J_vec(1:3,:,:,:,:) = J_vec(1:3,:,:,:,:) + J_vec_buffer
-   J_vec(4,:,:,:,:) = 1.0_R8P
+   J_vec(n,1:3,:,:,:,:) = J_vec(n,1:3,:,:,:,:) + J_vec_buffer
    endassociate
-   call self%compute_coil_current_density_flux(n)
+
+   !Riscalo ampiezza per matchare valore in input
+   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
+
+   !Calcolo divergenza di J (ampiezza massima) prima della correzione alla Poisson
+   self%coil%J_vec(n,1:3,:,:,:,:) = self%coil%J_vec(n,1:3,:,:,:,:) * self%coil%A(n)
+   self%divergence(3,:,:,:,:) = 0.0_R8P
+   call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(n,1:3,:,:,:,:),divergence=self%divergence(3,:,:,:,:))
+   print *, 'Divergenza J max pre Poisson: ', maxval(abs(self%divergence(3,:,:,:,:)))
+
+   !Applico correzione alla Poisson per ridurre divergenza residua
+   call self%impose_div_coil_correction(ivar=1_I4P, q=self%coil%J_vec(n,1:3,:,:,:,:))
+   self%divergence(3,:,:,:,:) = 0.0_R8P
+   call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(n,1:3,:,:,:,:),divergence=self%divergence(3,:,:,:,:))
+   print *, 'Divergenza J max post Poisson: ', maxval(abs(self%divergence(3,:,:,:,:)))
+
+   !Riscalo J_vec a versore
+   self%coil%J_vec(n,1:3,:,:,:,:)=self%coil%J_vec(n,1:3,:,:,:,:)/self%coil%A(n)
+
+
+   !!Prove per capire se il problema è il round-off
+   !print *, 'max|J| pre  = ', maxval(abs(self%coil%J_vec(n,1:3,:,:,:,:)))
+   !J_vec_buffer = self%coil%J_vec(n,1:3,:,:,:,:)
+   !self%coil%J_vec(n,1:3,:,:,:,:)=self%coil%J_vec(n,1:3,:,:,:,:)/self%coil%A(n)*self%coil%A(n)
+   !print *, 'max|J| post = ', maxval(abs(self%coil%J_vec(n,1:3,:,:,:,:)))
+   !print *, 'max|dJ|     = ', maxval(abs( self%coil%J_vec(n,1:3,:,:,:,:) - J_vec_buffer(1:3,:,:,:,:) ))
+   !print *, 'rel err max = ', maxval(abs(self%coil%J_vec(n,1:3,:,:,:,:) - J_vec_buffer)) / &
+   !                           maxval(abs(J_vec_buffer))
+   !self%divergence(3,:,:,:,:) = 0.0_R8P
+   !call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec,divergence=self%divergence(3,:,:,:,:))
+   !print *, 'Divergenza J max post Poisson: ', maxval(abs(self%divergence(3,:,:,:,:)))
+
+
+
+   !Verifico che la corrente complessiva sia effettivamente quella richiesta (printo solo, non modifico)
+   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
+
+   !Calcolo le divergenze di J_vec e J come J = A*J_vec. Non dovrebbe cambiare nulla riseptto alla divergenza di Jmax 
+   !precedentemente calcolata e stampata (a meno di errori legati al roundoff numerico)
+   self%divergence(3,:,:,:,:) = 0.0_R8P
+   call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(n,1:3,:,:,:,:), &
+                                divergence=self%divergence(3,:,:,:,:))
+   print *, 'Divergenza finale J_vec: ', maxval(abs(self%divergence(3,:,:,:,:)))
+   self%divergence(3,:,:,:,:) = 0.0_R8P
+   call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(n,1:3,:,:,:,:)*self%coil%A(n), &
+                                divergence=self%divergence(3,:,:,:,:))
+   print *, 'Divergenza finale corrente: ', maxval(abs(self%divergence(3,:,:,:,:)))
    endsubroutine set_rectangular_coil_z
 
-   subroutine compute_coil_current_density_flux(self, n)
+   subroutine compute_coil_current_density_flux(self, n, adjust_amplitude)
    !< Subroutine to adjust current amplitude in order to match the input one
    class(prism_cpu_object),      intent(inout) :: self             !< Cpu object.
-   integer(I4P)                                :: n                !< Coil number.
+   integer(I4P), intent(in)                    :: n                !< Coil number.
+   logical, intent(in)                         :: adjust_amplitude !< If true, adjust amplitude
    real(R8P)                                   :: x_s, y_s, z_s    !< Flux center coordinates
    real(R8P)                                   :: flux, correction !< Computed flux     
    integer(I4P)                                :: i_s, j_s, k_s    !< Flux center cell coordinates
@@ -2553,7 +2607,7 @@ contains
 
       do j = j_s - nint(3.5_R8P*self%coil%sigma(n)), j_s + nint(3.5_R8P*self%coil%sigma(n))
          do i = i_s - nint(3.5_R8P*self%coil%sigma(n)), i_s + nint(3.5_R8P*self%coil%sigma(n))
-               flux = flux + J_vec(3,i,j,k_s,1)*dx(1)*dy(1)
+               flux = flux + J_vec(n,3,i,j,k_s,1)*dx(1)*dy(1)
          enddo
       enddo
    
@@ -2568,7 +2622,7 @@ contains
 
       do j = j_s - nint(3.5_R8P*self%coil%sigma(n)), j_s + nint(3.5_R8P*self%coil%sigma(n))
          do i = i_s - nint(3.5_R8P*self%coil%sigma(n)), i_s + nint(3.5_R8P*self%coil%sigma(n))
-               flux = flux + J_vec(3,i,j,k_s,1)*dx(1)*dy(1)
+               flux = flux + J_vec(n,3,i,j,k_s,1)*dx(1)*dy(1)
          enddo
       enddo
 
@@ -2583,7 +2637,7 @@ contains
 
       do k = k_s - nint(3.5_R8P*self%coil%sigma(n)), k_s + nint(3.5_R8P*self%coil%sigma(n))
          do i = i_s - nint(3.5_R8P*self%coil%sigma(n)), i_s + nint(3.5_R8P*self%coil%sigma(n))
-               flux = flux + J_vec(2,i,j_s,k,1)*dx(1)*dz(1)
+               flux = flux + J_vec(n,2,i,j_s,k,1)*dx(1)*dz(1)
          enddo
       enddo  
         
@@ -2591,12 +2645,104 @@ contains
 
    flux = abs(flux)*self%coil%A(n)
    print *, 'Valore corrente pre correzione: ', flux
-   correction = (self%coil%A(n)/flux)
-   print *, 'Scaling factor ampiezza: ', correction
-   self%coil%A(n) = self%coil%A(n)*correction
+   if (adjust_amplitude) then
+      print*, self%coil%A(n), 'Ampiezza A(n) pre correzione'
+      correction = (self%coil%A(n)/flux)
+      print *, 'Scaling factor ampiezza: ', correction   
+      self%coil%A(n) = self%coil%A(n)*correction
+      print*, self%coil%A(n), 'Ampiezza A(n) post correzione'
+   endif
 
    endassociate
    endsubroutine compute_coil_current_density_flux
+
+   subroutine impose_div_coil_correction(self, ivar, q)
+   !< Impose Constrained Transport Correction on vectorial variable q(ivar:ivar+2).
+   !< Note that self%divergence memory is used as buffer, be careful.
+   class(prism_cpu_object), intent(inout) :: self                                           !< The equation.
+   integer(I4P),            intent(in)    :: ivar                                           !< Variable (start) index in q.
+   real(R8P),               intent(inout) :: q(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)   !< Field variables.
+   real(R8P)                              :: div_buff(1, 1-self%ngc:self%ni+self%ngc, &
+                                                      1-self%ngc:self%nj+self%ngc, &
+                                                      1-self%ngc:self%nk+self%ngc, &
+                                                      1:self%nb)                            !< Buffer for divergence computation.
+   real(R8P)                              :: q_buff(3,1-self%ngc:self%ni+self%ngc, &
+                                                      1-self%ngc:self%nj+self%ngc, &
+                                                      1-self%ngc:self%nk+self%ngc, &
+                                                      1:self%nb)                            !< Buffer for variables computation.
+   real(R8P)                              :: grad_buff(3,1-self%ngc:self%ni+self%ngc, &
+                                                         1-self%ngc:self%nj+self%ngc, &
+                                                         1-self%ngc:self%nk+self%ngc, &
+                                                         1:self%nb)                         !< Buffer for gradient computation.   
+   real(R8P)                              :: dq_buff(1, 1-self%ngc:self%ni+self%ngc, &
+                                                     1-self%ngc:self%nj+self%ngc, &
+                                                     1-self%ngc:self%nk+self%ngc, &
+                                                     1:self%nb)                             !< Buffer for gradient computation.    
+   real(R8P)                              :: phi_buff(1, 1-self%ngc:self%ni+self%ngc, &
+                                                     1-self%ngc:self%nj+self%ngc, &
+                                                     1-self%ngc:self%nk+self%ngc, &
+                                                     1:self%nb)                             !< Buffer for scalar potential.                                                 
+   real(R8P)                              :: dq_max                                         !< Maximum residual.
+   integer(I4P)                           :: iter                                           !< Counter.
+   integer(I4P)                           :: i,j,k,b,v                                      !< Counter.
+
+
+
+   !Lascia perdere low memory storage x ora
+   !buffer(4,:,:,:,:) è usato come buffer per la correzione di divergenza
+   !buffer(5,:,:,:,:) per dq
+   !buffer(7,:,:,:,:) per potenziale scalare
+   !buffer(4:6,:,:,:,:) è usato come buffer per il gradiente di q
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number)!, buffer=>self%divergence)
+   div_buff (:,:,:,:,:) = 0.0_R8P
+   grad_buff(:,:,:,:,:) = 0.0_R8P
+   dq_buff  (:,:,:,:,:) = 0.0_R8P
+   phi_buff (:,:,:,:,:) = 0.0_R8P
+   q_buff   (:,:,:,:,:) = q(:,:,:,:,:)
+
+   call self%compute_divergence(ivar=ivar,q=q_buff,divergence=div_buff(1,:,:,:,:))
+   print *, ' Max divergence buffered variables: ', maxval(abs(div_buff(:,:,:,:,:)))
+   !call self%compute_divergence(ivar=ivar,q=q_buff,divergence=buffer(4,:,:,:,:))
+   !print *, ' Max divergence buffered variables 2: ', maxval(abs(buffer(4,:,:,:,:)))
+   !buffer(4,:,:,:,:) = div_buff(:,:,:,:)
+   !print *, 'Max divergence buffered variables 3: ', maxval(abs(buffer(4,:,:,:,:)))
+   if (blocks_number>0) then
+      do iter=1, self%flail%iterations
+         call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
+                                          dxyz=self%field%dxyz,                                           &
+                                          f=-div_buff,                                         &
+                                          q=phi_buff,                                          &
+                                          dq_max=dq_max,                                                  &
+                                          dq=dq_buff,                                         &
+                                          iterations_init=self%flail%iterations_init,                     &
+                                          iterations_fine=self%flail%iterations_fine,                     &
+                                          iterations_coarse=self%flail%iterations_coarse)
+         call self%compute_gradient(ivar=1,q=phi_buff,gradient=grad_buff)
+         !print *, 'valore massima correzione associata all''iterazione ', &
+         !         iter, ' - max correction: ', maxval(abs(grad_buff(:,:,:,:,:)))
+         do b=1, blocks_number
+            do k=1, nk
+               do j=1, nj
+                  do i=1, ni
+                     do v=1, 3
+                        q_buff(v,i,j,k,b) = q_buff(v,i,j,k,b) + grad_buff(v,i,j,k,b)
+                     enddo
+                  enddo
+               enddo
+            enddo
+         enddo
+         call self%compute_divergence(ivar=ivar,q=q_buff,divergence=div_buff(1,:,:,:,:))
+         !print *, 'Coil divergence correction iteration ', iter, ' - max divergence: ', maxval(abs(div_buff(:,:,:,:,:)))
+         if (maxval(abs(div_buff(:,:,:,:,:))) < self%flail%tolerance) exit
+      enddo
+      call self%mpih%print_message('Coil divergence correction converged at iteration '//trim(str(iter,.true.)))
+      q(:,:,:,:,:) = q_buff(:,:,:,:,:)
+      call self%compute_divergence(ivar=ivar,q=q,divergence=div_buff(1,:,:,:,:))
+      print *, 'Coil - max divergence (end Poisson subroutine): ', maxval(abs(div_buff(:,:,:,:,:)))
+   endif
+   endassociate
+   endsubroutine impose_div_coil_correction
 
    function erf_function(s, mu, sigma) result(res)
       real(R8P), intent(in) :: s, mu, sigma
