@@ -162,6 +162,6 @@ The aggregate entry point is `adam_gmp_library`.
 
 ## Copyrights
 
-ADAM is released under the [GNU Lesser General Public License v3.0](../../LICENSE.lgpl3.md) (LGPLv3).
+ADAM is released under the [GNU Lesser General Public License v3.0](https://www.gnu.org/licenses/lgpl-3.0) (LGPLv3).
 
 > Copyright (C) Andrea Di Mascio, Federico Negro, Giacomo Rossi, Francesco Salvadore, Stefano Zaghi.

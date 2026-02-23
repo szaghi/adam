@@ -304,7 +304,7 @@ classDiagram
 
 Overload class name with initializer function.
 
-**Module procedures**: [`new`](/api/src/third_party/MOTIOn/src/lib/motion_xh5f_file_object#new)
+**Module procedures**: [`new`](/api/src/third_party/MOTIOn/src/lib/motion_hdf5_file_object#new)
 
 ## Subroutines
 

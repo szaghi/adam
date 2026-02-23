@@ -138,7 +138,7 @@ classDiagram
 
 Assign array to scalar value with OpenMP threads.
 
-**Module procedures**: [`assign_omp_R8P_5D`](/api/src/app/chase/cpu/adam_chase_cpu_object#assign-omp-r8p-5d)
+**Module procedures**: [`assign_omp_R8P_5D`](/api/src/app/nasto/cpu/adam_nasto_cpu_object#assign-omp-r8p-5d)
 
 ## Subroutines
 
