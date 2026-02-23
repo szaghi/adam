@@ -1,4 +1,9 @@
 # Changelog
+## [v0.0.3](https://github.com/szaghi/FLAP/tree/v0.0.3) (2026-02-23)
+[Full Changelog](https://github.com/szaghi/FLAP/compare/v0.0.2...v0.0.3)
+### CI/CD
+- Remove build and install workflows, keep docs-only pipeline ([`0b3fd18`](https://github.com/szaghi/FLAP/commit/0b3fd18ff178d94669675246bb85379bcae67e8f))
+
 ## [v0.0.2](https://github.com/szaghi/FLAP/tree/v0.0.2) (2026-02-23)
 [Full Changelog](https://github.com/szaghi/FLAP/compare/v0.0.1...v0.0.2)
 ### Bug fixes
