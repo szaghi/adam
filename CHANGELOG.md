@@ -1,5 +1,6 @@
 # Changelog
-## [Unreleased]
+## [v0.0.2](https://github.com/szaghi/FLAP/tree/v0.0.2) (2026-02-23)
+[Full Changelog](https://github.com/szaghi/FLAP/compare/v0.0.1...v0.0.2)
 ### Bug fixes
 - Fix github action CI, continue ([`698d8f1`](https://github.com/szaghi/FLAP/commit/698d8f11d57ee4b85b57a7353b693e554fcc24db))
 - Resolve merge conflicts ([`c5c8dae`](https://github.com/szaghi/FLAP/commit/c5c8daec26270b0e6113ccc52eaef7d75d4b8d55))
@@ -160,6 +161,7 @@ Caricamento solutori llf hll + scheletro physics object e library ([`6889589`](h
 ### New features
 - Start to add CI based on github actions ([`21ab144`](https://github.com/szaghi/FLAP/commit/21ab144f813002a9a391065f9e24fddf7c1c70b9))
 - Start plasma research app ([`ec5ef09`](https://github.com/szaghi/FLAP/commit/ec5ef09a95feeb0adba38cae6b67512ba7f572a5))
+- Add vitepress site, github ci/cd, and release tooling ([`fbb8476`](https://github.com/szaghi/FLAP/commit/fbb847690fb55575bd0caed1f11f60317d23dea8))
 
 ### Refactoring
 - Extract q array from field object ([`19cc378`](https://github.com/szaghi/FLAP/commit/19cc3789ec1acee529c636c01afb7cfa85832f90))
