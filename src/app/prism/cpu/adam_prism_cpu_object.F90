@@ -347,83 +347,173 @@ contains
    endsubroutine save_simulation_data
 
    ! IC/BC/sources
-   subroutine compute_coils_current(self, q, gamma)
-   !< Compute current coils sources.
-   class(prism_cpu_object), intent(inout)        :: self             !< The equation.
-   real(R8P),               intent(inout)        :: q(1:,          &
-                                                      1-self%ngc:, &
-                                                      1-self%ngc:, &
-                                                      1-self%ngc:, &
-                                                      1:)            !< Conservative variables.
-   real(R8P),               intent(in), optional :: gamma            !< RK coefficient.
-   real(R8P)                                     :: current_density  !< Current density.
-   real(R8P)                                     :: current_density_o!< Current density.
-   real(R8P)                                     :: g                !< Starting polynomial transitory of coils.
-   real(R8P)                                     :: time_s           !< Local time.
-   integer(I4P)                                  :: w_, w_c_         !< Step function coeff to avoid if in parallel regions.
-   real(R8P)                                     :: g_, f_           !< Current coefficients.
-   integer(I4P)                                  :: coil_id          !< Uniq coild ID.
-   integer(I4P)                                  :: i,j,k,b,n        !< Counter.
-
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
-             time=>self%time%time, A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,              &
-             coil_flag =>self%coil%coil_flag, td=>self%coil%td, J_vec=>self%coil%J_vec,                 &
-             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz,     &
-             dx=>self%field%dxyz(1,1), dt=>self%time%dt)
-
-   if (present(gamma)) then
-      time_s = time + dt*gamma
-   else
-      time_s = time
-   end if
-   if (self%coil%total_coils_number >= 1_I4P) then
-      ! Azzero termini sorgenti (con il PIC questa inizializzazione non va bene, bisogna ragionarci, 
-      ! forse serve un buffer da sommare a q alla fine del ciclo su coils number)
-      q(VAR_JX,:,:,:,:) = 0._R8P
-      q(VAR_JY,:,:,:,:) = 0._R8P
-      q(VAR_JZ,:,:,:,:) = 0._R8P
-      g = 10._R8P*(time_s/td)**3 - 15._R8P*(time_s/td)**4 + 6._R8P*(time_s/td)**5
-      do n=1, self%coil%total_coils_number
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         coil_id = n
-         ! use step function to avoid the following original if
-         !if (time < td) then
-         !   current_density = g*A(coil_id)/((d(coil_id)-dx)**2)*cos(phase(coil_id)*pi/180.0_R8P)
-         !else
-         !   current_density = A(coil_id)/((d(coil_id)-dx)**2)*cos(2*pi*f(coil_id)*(time-td) + &
-         !   phase(coil_id)*pi/180.0_R8P)
-         !endif
-         w_   = nint(sign(1._R8P,td-time_s) + 1._R8P)/2   ! = 1 if td>time,            = 0                              if td<time
-         w_c_ = 1_I4P - w_                                ! = 0 if td>time,            = 1                              if td<time
-         g_   = w_ * g + w_c_                             ! = g if td>time,            = 1                              if td<time
-         f_   = w_c_ * 2._R8P*PI*f(coil_id)*(time_s-td)   ! = 0 if td>time,            = 2._R8P*PI*f(coil_id)*(time-td) if td<time
-         current_density = g_ * A(coil_id) * cos(f_ + phase(coil_id)*PI/180.0_R8P)
-
-         ! Lo tengo qui, ma a pensarci bene dovrebbe andare bene così come abiamo fatto (quella sfasata resta a 0)
-         !f_   = w_c_ * (2._R8P*PI*f(coil_id)*(time_s-td) + phase(coil_id)*PI/180.0_R8P)
-                           ! = 0 if td>time, = 2._R8P*PI*f(coil_id)*(time-td)+phase(coil_id)*PI/180.0_R8P if td<time
-         !current_density = g_ * A(coil_id) * cos(f_)*j_vec(4,i,j,k,b)
-
-         q(VAR_JX,i,j,k,b) = q(VAR_JX,i,j,k,b) + current_density * J_vec(n,1,i,j,k,b)
-         q(VAR_JY,i,j,k,b) = q(VAR_JY,i,j,k,b) + current_density * J_vec(n,2,i,j,k,b)
-         q(VAR_JZ,i,j,k,b) = q(VAR_JZ,i,j,k,b) + current_density * J_vec(n,3,i,j,k,b)
-      enddo
-      enddo
-      enddo
-      enddo
-   enddo
+   !subroutine compute_coils_current(self, q, gamma)
+   !!< Compute current coils sources.
+   !class(prism_cpu_object), intent(inout)        :: self             !< The equation.
+   !real(R8P),               intent(inout)        :: q(1:,          &
+   !                                                   1-self%ngc:, &
+   !                                                   1-self%ngc:, &
+   !                                                   1-self%ngc:, &
+   !                                                   1:)            !< Conservative variables.
+   !real(R8P),               intent(in), optional :: gamma            !< RK coefficient.
+   !real(R8P)                                     :: current_density  !< Current density.
+   !real(R8P)                                     :: current_density_o!< Current density.
+   !real(R8P)                                     :: g                !< Starting polynomial transitory of coils.
+   !real(R8P)                                     :: time_s           !< Local time.
+   !integer(I4P)                                  :: w_, w_c_         !< Step function coeff to avoid if in parallel regions.
+   !real(R8P)                                     :: g_, f_           !< Current coefficients.
+   !integer(I4P)                                  :: coil_id          !< Uniq coild ID.
+   !integer(I4P)                                  :: i,j,k,b,n        !< Counter.
+!
+   !associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
+   !          time=>self%time%time, A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,              &
+   !          coil_flag =>self%coil%coil_flag, td=>self%coil%td, J_vec=>self%coil%J_vec,                 &
+   !          var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz,     &
+   !          dx=>self%field%dxyz(1,1), dt=>self%time%dt)
+!
+   !if (present(gamma)) then
+   !   time_s = time + dt*gamma
+   !else
+   !   time_s = time
+   !end if
+   !if (self%coil%total_coils_number >= 1_I4P) then
+   !   ! Azzero termini sorgenti (con il PIC questa inizializzazione non va bene, bisogna ragionarci, 
+   !   ! forse serve un buffer da sommare a q alla fine del ciclo su coils number)
+   !   q(VAR_JX,:,:,:,:) = 0._R8P
+   !   q(VAR_JY,:,:,:,:) = 0._R8P
+   !   q(VAR_JZ,:,:,:,:) = 0._R8P
+   !   g = 10._R8P*(time_s/td)**3 - 15._R8P*(time_s/td)**4 + 6._R8P*(time_s/td)**5
+   !   do n=1, self%coil%total_coils_number
+   !   do b=1, blocks_number
+   !   do k=1, nk
+   !   do j=1, nj
+   !   do i=1, ni
+   !      coil_id = n
+   !      ! use step function to avoid the following original if
+   !      !if (time < td) then
+   !      !   current_density = g*A(coil_id)/((d(coil_id)-dx)**2)*cos(phase(coil_id)*pi/180.0_R8P)
+   !      !else
+   !      !   current_density = A(coil_id)/((d(coil_id)-dx)**2)*cos(2*pi*f(coil_id)*(time-td) + &
+   !      !   phase(coil_id)*pi/180.0_R8P)
+   !      !endif
+   !      w_   = nint(sign(1._R8P,td-time_s) + 1._R8P)/2   ! = 1 if td>time,            = 0                              if td<time
+   !      w_c_ = 1_I4P - w_                                ! = 0 if td>time,            = 1                              if td<time
+   !      g_   = w_ * g + w_c_                             ! = g if td>time,            = 1                              if td<time
+   !      f_   = w_c_ * 2._R8P*PI*f(coil_id)*(time_s-td)   ! = 0 if td>time,            = 2._R8P*PI*f(coil_id)*(time-td) if td<time
+   !      current_density = g_ * A(coil_id) * cos(f_ + phase(coil_id)*PI/180.0_R8P)
+!
+   !      ! Lo tengo qui, ma a pensarci bene dovrebbe andare bene così come abiamo fatto (quella sfasata resta a 0)
+   !      !f_   = w_c_ * (2._R8P*PI*f(coil_id)*(time_s-td) + phase(coil_id)*PI/180.0_R8P)
+   !                        ! = 0 if td>time, = 2._R8P*PI*f(coil_id)*(time-td)+phase(coil_id)*PI/180.0_R8P if td<time
+   !      !current_density = g_ * A(coil_id) * cos(f_)*j_vec(4,i,j,k,b)
+!
+   !      q(VAR_JX,i,j,k,b) = q(VAR_JX,i,j,k,b) + current_density * J_vec(n,1,i,j,k,b)
+   !      q(VAR_JY,i,j,k,b) = q(VAR_JY,i,j,k,b) + current_density * J_vec(n,2,i,j,k,b)
+   !      q(VAR_JZ,i,j,k,b) = q(VAR_JZ,i,j,k,b) + current_density * J_vec(n,3,i,j,k,b)
+   !   enddo
+   !   enddo
+   !   enddo
+   !   enddo
+   !enddo
+   !!endif
+   !   current_density_o = g_ * A(1) * cos(w_c_*2._R8P*PI*f(1)*(time_s-td)+phase(1)*PI/180.0_R8P)
+   !   call write_current_behavior_tab('current_density_coil_1.dat', time=time_s, current_density=current_density_o)
+   !   current_density_o = g_ * A(4) * cos(w_c_*2._R8P*PI*f(4)*(time_s-td)+phase(4)*PI/180.0_R8P)
+   !   !print *, cos(w_c_*2._R8P*PI*f(4)*(time_s-td)+phase(4)*PI/180.0_R8P)
+   !   !print *, w_c_*2._R8P*PI*f(4)*(time_s-td)
+   !   !print*, phase(4)*PI/180.0_R8P
+   !   call write_current_behavior_tab('current_density_coil_4.dat', time=time_s, current_density=current_density_o)
    !endif
-      current_density_o = g_ * A(1) * cos(w_c_*2._R8P*PI*f(1)*(time_s-td)+phase(1)*PI/180.0_R8P)
-      call write_current_behavior_tab('current_density_coil_1.dat', time=time_s, current_density=current_density_o)
-      current_density_o = g_ * A(4) * cos(w_c_*2._R8P*PI*f(4)*(time_s-td)+phase(4)*PI/180.0_R8P)
-      !print *, cos(w_c_*2._R8P*PI*f(4)*(time_s-td)+phase(4)*PI/180.0_R8P)
-      !print *, w_c_*2._R8P*PI*f(4)*(time_s-td)
-      !print*, phase(4)*PI/180.0_R8P
-      call write_current_behavior_tab('current_density_coil_4.dat', time=time_s, current_density=current_density_o)
-   endif
+   !endassociate
+   !endsubroutine compute_coils_current
+
+   subroutine compute_coils_current(self, q, gamma)
+   !< Compute current coils sources (DC/AC with smooth envelope).
+   class(prism_cpu_object), intent(inout)        :: self
+   real(R8P),               intent(inout)        :: q(1:,          &
+                                                     1-self%ngc:, &
+                                                     1-self%ngc:, &
+                                                     1-self%ngc:, &
+                                                     1:)
+   real(R8P),               intent(in), optional :: gamma
+   character(len=128)                            :: fname
+   real(R8P)                                     :: current_density
+   real(R8P)                                     :: current_density_o
+   real(R8P)                                     :: time_s
+   real(R8P)                                     :: s, g
+   real(R8P)                                     :: phi_rad, omega, theta
+   real(R8P)                                     :: f_abs
+   integer(I4P)                                  :: w_ac  ! =1 AC, =0 DC (branchless)
+   integer(I4P)                                  :: coil_id
+   integer(I4P)                                  :: i,j,k,b,n
+   real(R8P),                          parameter :: f_tol = 1.0e-30_R8P
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, blocks_number=>self%blocks_number, &
+             time=>self%time%time, dt=>self%time%dt, td=>self%coil%td,                 &
+             A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,                   &
+             J_vec=>self%coil%J_vec,                                                   &
+             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
+
+      if (present(gamma)) then
+         time_s = time + dt*gamma
+      else
+         time_s = time
+      end if
+      if (self%coil%total_coils_number >= 1_I4P) then
+
+         ! Azzero termini sorgenti (NB: col PIC potresti voler accumulare in un buffer)
+         q(var_Jx,:,:,:,:) = 0._R8P
+         q(var_Jy,:,:,:,:) = 0._R8P
+         q(var_Jz,:,:,:,:) = 0._R8P
+
+         ! Envelope C^2: clamp(s) in [0,1], g(0)=0, g(1)=1, g'(0)=g'(1)=0, g''(0)=g''(1)=0
+         if (td > 0._R8P) then
+            s = time_s / td
+         else
+            s = 1._R8P
+         end if
+         s = max(0._R8P, min(1._R8P, s))
+         g = 10._R8P*s**3 - 15._R8P*s**4 + 6._R8P*s**5
+
+         do n=1, self%coil%total_coils_number
+            coil_id = n
+
+            phi_rad = phase(coil_id) * PI / 180._R8P
+            omega   = 2._R8P * PI * f(coil_id)
+
+            ! Se f ~ 0 -> DC (w_ac=0). Se f != 0 -> AC (w_ac=1). Branchless.
+            f_abs = abs(f(coil_id))
+            w_ac  = nint( (sign(1._R8P, f_abs - f_tol) + 1._R8P) * 0.5_R8P )
+
+            ! Theta: DC -> theta = phi ; AC -> theta = omega*(t-td) + phi
+            theta = w_ac * omega * (time_s - td) + phi_rad
+
+            ! Unica formula: DC e AC
+            current_density = A(coil_id) * g * cos(theta)
+
+            do b=1, blocks_number
+               do k=1, nk
+                  do j=1, nj
+                     do i=1, ni
+                        q(var_Jx,i,j,k,b) = q(var_Jx,i,j,k,b) + current_density * J_vec(n,1,i,j,k,b)
+                        q(var_Jy,i,j,k,b) = q(var_Jy,i,j,k,b) + current_density * J_vec(n,2,i,j,k,b)
+                        q(var_Jz,i,j,k,b) = q(var_Jz,i,j,k,b) + current_density * J_vec(n,3,i,j,k,b)
+                     enddo
+                  enddo
+               enddo
+            enddo
+         enddo
+         ! Diagnostiche
+         do n = 1, self%coil%total_coils_number
+            theta = nint( (sign(1._R8P, abs(f(n)) - f_tol) + 1._R8P) * 0.5_R8P ) * (2._R8P*PI*f(n)) * (time_s - td) + &
+                    phase(n)*PI/180._R8P
+            current_density_o = A(n) * g * cos(theta)
+            write(fname,'(A,SS,I0,A)') 'current_density_coil_', n, '.dat'
+            call write_current_behavior_tab(trim(fname), time=time_s, current_density=current_density_o)
+            !call write_current_behavior_tab('current_density_coil_'//trim(adjustl(str(n))), & 
+            !                                 time=time_s, current_density=current_density_o)
+         enddo
+      endif
    endassociate
    endsubroutine compute_coils_current
 
