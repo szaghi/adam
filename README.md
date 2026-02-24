@@ -2,96 +2,92 @@
 
 # ADAM
 
-### Adaptive Mesh Refinement with Immersed Boundary
+### *A*ccelerated fluid *D*ynamics on *A*daptive *M*esh refinement grids
 
-**High-performance fluid dynamics solver for GPU computing — from laptop to exascale.**
+> fluid dynamics SDK and apps for High Performance Computing — from laptop to exascale device-accelerated superpc
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![License: LGPLv3](https://img.shields.io/badge/License-LGPLv3-blue.svg)](https://www.gnu.org/licenses/lgpl-3.0)
 
-[Quick Start](#quick-start) &nbsp;·&nbsp; [Applications](#nasto--compressible-navier-stokes) &nbsp;·&nbsp; [Installation](#installation) &nbsp;·&nbsp; [Citing ADAM](#citing-adam)
+[Full documentation](https://szaghi.github.io/adam/) — guides, application overviews, API reference
 
 </div>
 
 ---
 
-<table>
+<table border="0" cellspacing="0" cellpadding="12">
 <tr>
 <td valign="top" width="33%">
 
-**🌲 Adaptive Mesh Refinement**
+*🌲 Adaptive Mesh Refinement*
 
-Morton-order linearized octree/quadtree for efficient AMR with automatic refinement and coarsening driven by user-defined markers.
-
-</td>
-<td valign="top" width="33%">
-
-**🕸️ Immersed Boundary Method**
-
-Handle complex and moving geometries without body-fitted meshes using accurate IB techniques with eikonal-based distance fields.
+> Morton-order linearized octree/quadtree for efficient AMR with automatic refinement and coarsening driven by user-defined markers.
 
 </td>
 <td valign="top" width="33%">
 
-**⚡ Multi-backend GPU Computing**
+*🕸️ Immersed Boundary Method*
 
-CUDA Fortran (NVF), OpenACC (FNL), and OpenMP offloading (GMP) — a single source tree targeting exascale HPC from one to thousands of GPUs.
+> Handle complex and moving geometries without body-fitted meshes using accurate IB techniques with eikonal-based distance fields.
+
+</td>
+<td valign="top" width="33%">
+
+*⚡ Multi-backend GPU Computing*
+
+> CUDA Fortran (NVF), OpenACC (FNL), and OpenMP offloading (GMP) — a single source tree targeting exascale HPC from one to thousands of GPUs.
 
 </td>
 </tr>
 <tr>
 <td valign="top" width="33%">
 
-**🔓 Free and Open Source**
+*⚖️ Dual-licensed*
 
-Released under the [GNU Lesser General Public License v3.0](https://www.gnu.org/licenses/lgpl-3.0) (LGPLv3) — free to use, study, modify, and redistribute, including in proprietary software linking against the library.
-
-</td>
-<td valign="top" width="33%">
-
-**⚛️ Multiple Physics**
-
-Compressible Navier-Stokes (NASTO) and Maxwell equations (PRISM) share the same AMR, IB, and I/O infrastructure.
+> Released under [MIT](https://opensource.org/licenses/MIT) or [LGPLv3](https://www.gnu.org/licenses/lgpl-3.0) — choose the license that best fits your project. MIT for maximum simplicity; LGPLv3 for copyleft with linking exception.
 
 </td>
 <td valign="top" width="33%">
 
-**🔧 INI-driven Configuration**
+*⚛️ Physics-Agnostic*
 
-Simulations are fully configured through human-readable INI files — no recompilation needed to change physics, numerics, or grid parameters.
+> Core SDK (AMR, IB, WENO, RK, parallel I/O) is physics-agnostic, modular and reusable. New physics solvers are built on top of the ADAM SDK with minimal effort.
+
+</td>
+<td valign="top" width="33%">
+
+*🔧 INI-driven Configuration*
+
+> Simulations are fully configured through human-readable INI files — no recompilation needed to change physics, numerics, or grid parameters.
 
 </td>
 </tr>
 </table>
 
 ---
+[Why ADAM?](#why-adam%3F) &nbsp;·&nbsp; [Citing ADAM](#citing-adam) &nbsp;·&nbsp; [Quick Start](#quick-start)
 
-## A modular SDK for CFD
+## Why ADAM?
 
-### Agnostic physics equations
+### *Physics-Agnostic SDK*
 
-ADAM is designed as a **physics-agnostic SDK**: its core infrastructure — AMR, IB, WENO numerics, multi-backend GPU acceleration, and parallel I/O — is entirely decoupled from any specific set of governing equations. Solvers are built on top by composing these building blocks, so adding a new physics application requires only implementing the problem-specific terms while inheriting the full HPC stack for free. Applications already built on ADAM span a wide spectrum: from compressible Navier-Stokes flows and shock-driven phenomena to electromagnetic plasma simulations governed by Maxwell equations, with further models in development. The same INI-driven configuration system, the same restart and output formats, and the same GPU backends apply uniformly across all of them.
+> ADAM is designed as a **physics-agnostic SDK**: its core infrastructure — AMR, IB, WENO numerics, multi-backend GPU acceleration, and parallel I/O — is entirely decoupled from any specific set of governing equations. Solvers are built on top by composing these building blocks, so adding a new physics application requires only implementing the problem-specific terms while inheriting the full HPC stack for free. Applications already built on ADAM span a wide spectrum: from compressible Navier-Stokes flows and shock-driven phenomena to electromagnetic plasma simulations governed by Maxwell equations, with further models in development. The same INI-driven configuration system, the same restart and output formats, and the same GPU backends apply uniformly across all of them.
 
-### GPU-accelerated enabled and backward support for traditional HPC CPU-based architectures
+### *Device (GPU)-accelerated and backward-compatible with CPU-based HPC*
 
-ADAM runs equally well on **GPU-accelerated clusters** — exploiting CUDA Fortran, OpenACC, or OpenMP offloading across thousands of GPUs interconnected via NVLink or InfiniBand — and on **traditional CPU-based HPC clusters**, where the CPU backend with MPI and OpenMP delivers full functionality without requiring any GPU hardware. The choice of backend is a compile-time switch; the application source and input files are identical in both environments.
+> ADAM runs equally well on **GPU-accelerated clusters** — exploiting CUDA Fortran, OpenACC, or OpenMP offloading across thousands of GPUs interconnected via NVLink or InfiniBand — and on **traditional CPU-based HPC clusters**, where the CPU backend with MPI and OpenMP delivers full functionality without requiring any GPU hardware. The choice of backend is a compile-time switch; the application source and input files are identical in both environments.
 
 ## Authors
 
 - Andrea di Mascio — [andrea.dimascio@univaq.it](mailto:andrea.dimascio@univaq.it)
 - Federico Negro — [federico.negro.01@gmail.com](mailto:federico.negro.01@gmail.com)
-- Giacomo Rossi — [giacomo.rossi@amd.it](mailto:giacomo.rossi@amd.it)
+- Giacomo Rossi — [giacomo.rossi@amd.com](mailto:giacomo.rossi@amd.com)
 - Francesco Salvadore — [f.salvadore@cineca.it](mailto:f.salvadore@cineca.it)
 - Stefano Zaghi — [stefano.zaghi@cnr.it](mailto:stefano.zaghi@cnr.it)
 
 ## Copyrights
 
-ADAM is released under the [GNU Lesser General Public License v3.0](https://www.gnu.org/licenses/lgpl-3.0) (LGPLv3).
-
-## Documentation
-
-Full documentation — guides, API reference, application overviews, and test cases — is available at:
-
-**[https://szaghi.github.io/adam/](https://szaghi.github.io/adam/)**
+ADAM is dual-licensed under the [MIT License](https://opensource.org/licenses/MIT) and the [GNU Lesser General Public License v3.0](https://www.gnu.org/licenses/lgpl-3.0) (LGPLv3). You may choose either license.
 
 ## Citing ADAM
 
@@ -118,6 +114,17 @@ BibTeX entry:
   doi     = {10.1016/j.compfluid.2023.106040},
 }
 ```
+
+<div style="display:flex;gap:1rem;align-items:flex-start;">
+  <figure style="width:50%;margin:0;display:flex;flex-direction:column;">
+    <img src="./docs/pictures/3D-view-11-new.png" alt="3D view of shock–sphere interaction" style="width:100%;height:360px;object-fit:contain;">
+    <figcaption style="font-size:0.8em;color:var(--vp-c-text-2);margin-top:0.4rem;">Prospective overview of shock wave diffraction by a sphere: 3D pressure contour surfaces, 2D slice of temperature flow field with multi-level adaptive grids (side view), and 2D slice of pseudo Schlieren flow field (bottom view). (Fig. 9A, Zaghi et al. 2023)</figcaption>
+  </figure>
+  <figure style="width:50%;margin:0;display:flex;flex-direction:column;">
+    <img src="./docs/pictures/z-slice-sch-rho-grid-13.png" alt="Z-slice pseudo Schlieren and density flow fields" style="width:100%;height:360px;object-fit:contain;">
+    <figcaption style="font-size:0.8em;color:var(--vp-c-text-2);margin-top:0.4rem;">Shock wave diffraction by a sphere: density with multi-level adaptive grids (bottom) and pseudo Schlieren (top) flow fields; run #13, δ<sub>F</sub> = 0.015625. (Fig. 12, Zaghi et al. 2023)</figcaption>
+  </figure>
+</div>
 
 ## Quick start
 
@@ -243,93 +250,3 @@ FoBiS.py build -mode nasto-cpu-gnu && mpirun -np 64 exe/adam_nasto_cpu
 ```
 
 Results are written as HDF5 files, readable with ParaView or any HDF5 tool.
-
----
-
-## Installation
-
-ADAM is distributed as source and must be compiled. Dependencies come in two kinds: git submodules bundled under `src/third_party` (fetched automatically on clone), and external libraries that must be installed separately.
-
-### Obtaining the source
-
-```bash
-git clone --recurse-submodules https://github.com/szaghi/adam
-```
-
-### Compiler support
-
-| Compiler | Status |
-|----------|--------|
-| NVIDIA HPC SDK (`nvfortran`) | Supported |
-| GCC (`gfortran`) | Supported |
-| Intel oneAPI (`ifx`) | Planned |
-| AMD flang | Planned |
-
-### Building with FoBiS
-
-ADAM uses [FoBiS](https://github.com/szaghi/FoBiS) as its build system:
-
-```bash
-pip install FoBiS.py           # install build tool
-FoBiS.py build -lmodes         # list all available build targets
-FoBiS.py build -mode nasto-cpu-gnu          # CPU build (GNU)
-FoBiS.py build -mode nasto-nvf-cuda         # CUDA Fortran (NVIDIA)
-FoBiS.py build -mode prism-fnl-nvf-oac      # OpenACC (NVIDIA)
-```
-
-### Installing NVIDIA HPC SDK
-
-Download and install the latest release:
-
-```bash
-wget https://developer.download.nvidia.com/hpc-sdk/25.3/nvhpc_2025_253_Linux_x86_64_cuda_12.8.tar.gz
-tar xf nvhpc_2025_253_Linux_x86_64_cuda_12.8.tar.gz
-cd nvhpc_2025_253_Linux_x86_64_cuda_12.8/
-sudo ./install
-```
-
-Load via the module system or export manually:
-
-```bash
-module load nvhpc/25.3
-# — or —
-export PATH=/opt/nvidia/hpc_sdk/Linux_x86_64/25.3/compilers/bin:$PATH
-export PATH=/opt/nvidia/hpc_sdk/Linux_x86_64/25.3/comm_libs/mpi/bin:$PATH
-```
-
-### Installing HDF5 (with SZIP and ZLIB)
-
-ADAM uses parallel HDF5 for all I/O. Build order: SZIP → ZLIB → HDF5.
-
-**SZIP:**
-
-```bash
-git clone https://github.com/erdc/szip && cd szip
-export CC=nvc CXX=nvc++ FC=nvfortran CFLAGS='-O3' CXXFLAGS='-O3' FCFLAGS='-O3'
-./configure --prefix=/opt/szip/bin/2.1.1/nvf/25.3
-make && make check && make install && cd ..
-```
-
-**ZLIB:**
-
-```bash
-wget https://zlib.net/current/zlib.tar.gz && tar xf zlib.tar.gz && cd zlib
-export CC=nvc CFLAGS='-O3 -fPIC'
-./configure --prefix=/opt/zlib/bin/1.3.1/nvf/25.3
-make && make check && make install && cd ..
-```
-
-**HDF5:**
-
-```bash
-git clone https://github.com/HDFGroup/hdf5 && cd hdf5
-CFLAGS="-fPIC" FCFLAGS="-fPIC" \
-./configure --prefix=/opt/HDF5/bin/1.14.6/nvf/25.3 \
-  --enable-shared --enable-parallel --enable-fortran \
-  --with-szlib=/opt/szip/bin/2.1.1/nvf/25.3 \
-  --with-zlib=/opt/zlib/bin/1.3.1/nvf/25.3 \
-  CC=mpicc FC=mpif90
-make && make check && make install && cd ..
-```
-
-> **Note:** the installation prefix directories must exist before running `make install` and the user must have write permission.
