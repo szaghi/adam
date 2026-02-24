@@ -1,4 +1,9 @@
 # Changelog
+## [v0.0.7](https://github.com/szaghi/FLAP/tree/v0.0.7) (2026-02-24)
+[Full Changelog](https://github.com/szaghi/FLAP/compare/v0.0.6...v0.0.7)
+### Bug fixes
+- Correct api cross-refs and fix vitepress asset bundling ([`3193a0f`](https://github.com/szaghi/FLAP/commit/3193a0f4b730e8d0367ea7174e25b8e29e7b6ec9))
+
 ## [v0.0.6](https://github.com/szaghi/FLAP/tree/v0.0.6) (2026-02-24)
 [Full Changelog](https://github.com/szaghi/FLAP/compare/v0.0.5...v0.0.6)
 ### Miscellaneous
