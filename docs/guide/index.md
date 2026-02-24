@@ -4,9 +4,9 @@ title: About ADAM
 
 # About ADAM
 
-**ADAM** (Adaptive Mesh Refinement with Immersed Boundary) is a high-performance fluid dynamics framework written in modern Fortran for GPU-accelerated HPC simulations. It solves compressible Navier-Stokes and Maxwell equations on dynamically refined block-structured grids.
+**ADAM** (Accelerated fluid Dynamics on Adaptive Mesh refinement grids) is a high-performance fluid dynamics framework written in modern Fortran for device(GPU)-accelerated HPC simulations and traditional CPU-based superpc. It provides physics-agnostic SDK library offering AMR, IB, WENO, RK, parellel I/O, ecc... on top of which is easy to develop CFD solvers (currently a compressible Navier-Stokes solver named NASTO and an electromagnetic plasma solver named PRSIM are the principal applications developed with ADAM).
 
-The primary focus is on large-scale scientific computing: ADAM targets exascale deployments on multi-GPU clusters, where thousands of GPU nodes work in concert via MPI with node-level parallelism provided by CUDA Fortran, OpenACC, or OpenMP offloading.
+The primary focus is on large-scale scientific computing: ADAM targets exascale deployments on device-accelerated clusters, where thousands of devices (GPU) nodes work in concert via MPI with node-level parallelism provided by CUDA Fortran, OpenACC, or OpenMP offloading.
 
 ## Key capabilities
 
@@ -30,13 +30,13 @@ The primary focus is on large-scale scientific computing: ADAM targets exascale 
 
 - Andrea di Mascio — [andrea.dimascio@univaq.it](mailto:andrea.dimascio@univaq.it)
 - Federico Negro — [federico.negro.01@gmail.com](mailto:federico.negro.01@gmail.com)
-- Giacomo Rossi — [giacomo.rossi@amd.it](mailto:giacomo.rossi@amd.it)
+- Giacomo Rossi — [giacomo.rossi@amd.com](mailto:giacomo.rossi@amd.com)
 - Francesco Salvadore — [f.salvadore@cineca.it](mailto:f.salvadore@cineca.it)
 - Stefano Zaghi — [stefano.zaghi@cnr.it](mailto:stefano.zaghi@cnr.it)
 
 ## Copyrights
 
-ADAM is released under the [GNU Lesser General Public License v3.0](/license) (LGPLv3).
+ADAM is dual-licensed under the [MIT License](/license#mit) and the [GNU Lesser General Public License v3.0](/license#lgplv3) (LGPLv3). You may choose either license.
 
 > Copyright (C) Andrea Di Mascio, Federico Negro, Giacomo Rossi, Francesco Salvadore, Stefano Zaghi.
 

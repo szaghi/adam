@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: ADAM
-  text: Adaptive Mesh Refinement with Immersed Boundary
-  tagline: High-performance fluid dynamics solver for GPU computing — from laptop to exascale.
+  text: Accelerated fluid Dynamics on Adaptive Mesh refinement grids
+  tagline: fluid dynamics SDK and apps for High Performance Computing — from laptop to exascale device-accelerated superpc.
   actions:
     - theme: brand
       text: Guide
@@ -26,15 +26,14 @@ features:
   - icon: ⚡
     title: Multi-backend GPU Computing
     details: CUDA Fortran (NVF), OpenACC (FNL), and OpenMP offloading (GMP) — a single source tree targeting exascale HPC from one to thousands of GPUs.
-  - icon:
-      src: /lgplv3-logo.png
-    title: Free and Open Source
-    details: Released under the GNU Lesser General Public License v3.0 (LGPLv3) — free to use, study, modify, and redistribute, including in proprietary software linking against the library.
+  - icon: ⚖️
+    title: Dual-licensed
+    details: Released under MIT or LGPLv3 — choose the license that best fits your project. MIT for maximum simplicity; LGPLv3 for copyleft with linking exception.
     link: /license
-    linkText: View license
+    linkText: View licenses
   - icon: ⚛️
-    title: Multiple Physics
-    details: Compressible Navier-Stokes (NASTO) and Maxwell equations (PRISM) share the same AMR, IB, and I/O infrastructure.
+    title: Physics-Agnostic
+    details: core SDK (AMR, IB, WENO, RK, parellel I/O...) is physics-agnostic, modular and reusable. The end-user easily define new physics solvers on top of ADAM SDK.
   - icon: 🔧
     title: INI-driven Configuration
     details: Simulations are fully configured through human-readable INI files — no recompilation needed to change physics, numerics, or grid parameters.
@@ -42,11 +41,11 @@ features:
 
 ## A modular SDK for CFD
 
-### Agnostic physics equations
+### Physics-Agnostic SDK
 
 ADAM is designed as a **physics-agnostic SDK**: its core infrastructure — AMR, IB, WENO numerics, multi-backend GPU acceleration, and parallel I/O — is entirely decoupled from any specific set of governing equations. Solvers are built on top by composing these building blocks, so adding a new physics application requires only implementing the problem-specific terms while inheriting the full HPC stack for free. Applications already built on ADAM span a wide spectrum: from compressible Navier-Stokes flows and shock-driven phenomena to electromagnetic plasma simulations governed by Maxwell equations, with further models in development. The same INI-driven configuration system, the same restart and output formats, and the same GPU backends apply uniformly across all of them.
 
-### GPU-accelerated enabled and backward support for traditional HPC CPU-based architectures
+### Device(GPU)-accelerated enabled and backward support for traditional HPC CPU-based architectures
 
 ADAM runs equally well on **GPU-accelerated clusters** — exploiting CUDA Fortran, OpenACC, or OpenMP offloading across thousands of GPUs interconnected via NVLink or InfiniBand — and on **traditional CPU-based HPC clusters**, where the CPU backend with MPI and OpenMP delivers full functionality without requiring any GPU hardware. The choice of backend is a compile-time switch; the application source and input files are identical in both environments.
 
@@ -54,13 +53,13 @@ ADAM runs equally well on **GPU-accelerated clusters** — exploiting CUDA Fortr
 
 - Andrea di Mascio — [andrea.dimascio@univaq.it](mailto:andrea.dimascio@univaq.it)
 - Federico Negro — [federico.negro.01@gmail.com](mailto:federico.negro.01@gmail.com)
-- Giacomo Rossi — [giacomo.rossi@amd.it](mailto:giacomo.rossi@amd.it)
+- Giacomo Rossi — [giacomo.rossi@amd.com](mailto:giacomo.rossi@amd.com)
 - Francesco Salvadore — [f.salvadore@cineca.it](mailto:f.salvadore@cineca.it)
 - Stefano Zaghi — [stefano.zaghi@cnr.it](mailto:stefano.zaghi@cnr.it)
 
 ## Copyrights
 
-ADAM is released under the [GNU Lesser General Public License v3.0](/license) (LGPLv3).
+ADAM is dual-licensed under the [MIT License](/license#mit) and the [GNU Lesser General Public License v3.0](/license#lgplv3) (LGPLv3). You may choose either license.
 
 ## Citing ADAM
 
@@ -87,6 +86,17 @@ BibTeX entry:
   doi     = {10.1016/j.compfluid.2023.106040},
 }
 ```
+
+<div style="display:flex;gap:1rem;align-items:flex-start;">
+  <figure style="width:50%;margin:0;display:flex;flex-direction:column;">
+    <img src="./pictures/3D-view-11-new.png" alt="3D view of shock–sphere interaction" style="width:100%;height:360px;object-fit:contain;">
+    <figcaption style="font-size:0.8em;color:var(--vp-c-text-2);margin-top:0.4rem;">Prospective overview of shock wave diffraction by a sphere: 3D pressure contour surfaces, 2D slice of temperature flow field with multi-level adaptive grids (side view), and 2D slice of pseudo Schlieren flow field (bottom view). (Fig. 9A, Zaghi et al. 2023)</figcaption>
+  </figure>
+  <figure style="width:50%;margin:0;display:flex;flex-direction:column;">
+    <img src="./pictures/z-slice-sch-rho-grid-13.png" alt="Z-slice pseudo Schlieren and density flow fields" style="width:100%;height:360px;object-fit:contain;">
+    <figcaption style="font-size:0.8em;color:var(--vp-c-text-2);margin-top:0.4rem;">Shock wave diffraction by a sphere: density with multi-level adaptive grids (bottom) and pseudo Schlieren (top) flow fields; run #13, δ<sub>F</sub> = 0.015625. (Fig. 12, Zaghi et al. 2023)</figcaption>
+  </figure>
+</div>
 
 ## Quick start
 

@@ -4,7 +4,7 @@ import apiSidebar from '../api/_sidebar.json'
 export default withMermaid({
   title: 'ADAM Documentation',
   base: '/adam/',
-  description: 'Adaptive Mesh Refinement (AMR) with Immersed Boundary (IB) fluid dynamic solver for High Performance GPU Computing',
+  description: 'Accelerated fluid Dynamics on Adaptive Mesh refinement grids — fluid dynamics SDK and apps for High-Performance Computing — from laptop to exascale device-accelerated superpc',
   markdown: {
     math: true,
     languages: ['fortran-free-form', 'fortran-fixed-form'],

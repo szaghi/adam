@@ -42,6 +42,7 @@ The repository root structure:
 ├── exe/
 ├── fobos
 ├── LICENSE.lgpl3.md
+├── LICENSE.mit.md
 ├── README.md
 ├── scripts/
 └── src/
