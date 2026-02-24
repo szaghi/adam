@@ -75,7 +75,7 @@ PRISM physics class definition.
 
 | Name | Type | Attributes | Description |
 |------|------|------------|-------------|
-| `mpih` | type([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) |  | MPI handler. |
+| `mpih` | type([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) |  | MPI handler. |
 | `physical_model` | character(len=99) |  | Physical model. |
 | `nv` | integer(kind=[I4P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) |  | Number of variables in q vector (nv=nv_c+nv_s+nv_cl). |
 | `nv_c` | integer(kind=[I4P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) |  | Number of conservative variables in q vector. |

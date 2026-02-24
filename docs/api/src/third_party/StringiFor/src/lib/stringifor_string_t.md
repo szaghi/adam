@@ -1003,7 +1003,7 @@ Write line (record) to a connected unit.
 
  @note If the connected unit is unformatted a `new_line()` character is added at the end (if necessary) to mark the end of line.
 
- @note There is no doctests, this being tested by means of [write_file](/api/src/third_party/StringiFor/src/lib/stringifor_string_t#write-file) doctests.
+ @note There is no doctests, this being tested by means of [write_file](/api/src/third_party/StringiFor/src/lib/stringifor#write-file) doctests.
 
 ```fortran
 subroutine write_line(self, unit, form, iostat, iomsg)
@@ -1039,7 +1039,7 @@ Write lines (records) to a connected unit.
 
  @note If the connected unit is unformatted a `new_line()` character is added at the end (if necessary) to mark the end of line.
 
- @note There is no doctests, this being tested by means of [write_file](/api/src/third_party/StringiFor/src/lib/stringifor_string_t#write-file) doctests.
+ @note There is no doctests, this being tested by means of [write_file](/api/src/third_party/StringiFor/src/lib/stringifor#write-file) doctests.
 
 ```fortran
 subroutine write_lines(self, unit, form, iostat, iomsg)

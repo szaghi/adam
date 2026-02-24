@@ -43,7 +43,7 @@ CHASE IO handler class definition, CPU backend.
 
 | Name | Type | Attributes | Description |
 |------|------|------------|-------------|
-| `mpih` | type([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) |  | MPI handler. |
+| `mpih` | type([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) |  | MPI handler. |
 | `file_parameters` | type([file_ini](/api/src/third_party/FiNeR/src/lib/finer_file_ini_t#file-ini)) |  | chase input file handler. |
 | `it_save` | integer(kind=[I4P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) |  | Main output iteration save frequency. |
 | `output_basename` | character(len=:) | allocatable | Basename of output files. |

@@ -40,7 +40,7 @@ RK FNL class definition.
 | Name | Type | Attributes | Description |
 |------|------|------------|-------------|
 | `rk` | type([rk_object](/api/src/lib/common/adam_rk_object#rk-object)) | pointer | RK common handler. |
-| `mpih` | type([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) |  | MPI handler. |
+| `mpih` | type([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) |  | MPI handler. |
 | `alph_gpu` | real(kind=[R8P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) | pointer | RK alpha coefficients. |
 | `beta_gpu` | real(kind=[R8P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) | pointer | RK beta coefficients. |
 | `gamm_gpu` | real(kind=[R8P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) | pointer | RK gamma coefficients. |

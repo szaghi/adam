@@ -42,7 +42,7 @@ Field class, FNL backend.
 
 | Name | Type | Attributes | Description |
 |------|------|------------|-------------|
-| `mpih` | type([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) |  | MPI handler. |
+| `mpih` | type([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) |  | MPI handler. |
 | `maps` | type([maps_fnl_object](/api/src/lib/fnl/adam_fnl_maps_object#maps-fnl-object)) |  | Maps handler. |
 | `field` | type([field_object](/api/src/lib/common/adam_field_object#field-object)) | pointer | The field. |
 | `q_t` | real(kind=[R8P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) | allocatable | Transposed cell centered variables on CPU. |

@@ -93,7 +93,7 @@ classDiagram
 
 | Name | Type | Attributes | Description |
 |------|------|------------|-------------|
-| `mpih` | type([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) |  | MPI handler. |
+| `mpih` | type([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) |  | MPI handler. |
 | `adam` | type([adam_object](/api/src/lib/common/adam_adam_object#adam-object)) |  | ADAM. |
 | `field` | type([field_object](/api/src/lib/common/adam_field_object#field-object)) | pointer | The field. |
 | `grid` | type([grid_object](/api/src/lib/common/adam_grid_object#grid-object)) | pointer | The grid. |
@@ -141,7 +141,7 @@ classDiagram
 | `energy_B` | real(kind=[R8P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) | allocatable | Energy of field B, time history. |
 | `rms_energy_error_D` | real(kind=[R8P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) |  | RMS energy error of D field. |
 | `rms_energy_error_B` | real(kind=[R8P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) |  | RMS energy error of B field. |
-| `mpih_gpu` | type([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) |  | MPI handler, FNL backend. |
+| `mpih_gpu` | type([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) |  | MPI handler, FNL backend. |
 | `field_gpu` | type([field_fnl_object](/api/src/lib/fnl/adam_fnl_field_object#field-fnl-object)) |  | The field, FNL backend. |
 | `ib_gpu` | type([ib_fnl_object](/api/src/lib/fnl/adam_fnl_ib_object#ib-fnl-object)) |  | IB handler, FNL backend. |
 | `rk_gpu` | type([rk_fnl_object](/api/src/lib/fnl/adam_fnl_rk_object#rk-fnl-object)) |  | RK integrator, FNL backend. |

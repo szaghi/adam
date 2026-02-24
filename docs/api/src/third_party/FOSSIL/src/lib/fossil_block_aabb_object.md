@@ -63,8 +63,8 @@ subroutine compute_octants(self, octant)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | in |  | AABB. |
-| `octant` | type([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | out |  | AABB octants. |
+| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | in |  | AABB. |
+| `octant` | type([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | out |  | AABB octants. |
 
 **Call graph**
 
@@ -90,8 +90,8 @@ subroutine aabb_assign_aabb(lhs, rhs)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `lhs` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | inout |  | Left hand side. |
-| `rhs` | type([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | in |  | Right hand side. |
+| `lhs` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | inout |  | Left hand side. |
+| `rhs` | type([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | in |  | Right hand side. |
 
 ## Functions
 
@@ -111,7 +111,7 @@ function is_inside(self, point)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | in |  | AABB. |
+| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | in |  | AABB. |
 | `point` | type([vector_R8P](/api/src/third_party/VecFor/src/lib/vecfor_R8P#vector-r8p)) | in |  | Point reference. |
 
 **Call graph**
@@ -138,7 +138,7 @@ function vertex(self)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | in |  | AABB. |
+| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | in |  | AABB. |
 
 **Call graph**
 

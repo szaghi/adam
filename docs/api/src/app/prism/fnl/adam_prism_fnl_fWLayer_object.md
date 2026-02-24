@@ -35,7 +35,7 @@ PRISM fWLayer class definition.
 
 | Name | Type | Attributes | Description |
 |------|------|------------|-------------|
-| `mpih_gpu` | type([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) |  | MPI handler, FNL backend. |
+| `mpih_gpu` | type([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) |  | MPI handler, FNL backend. |
 | `f_gpu` | real(kind=[R8P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) | pointer | fWLayer function. |
 
 #### Type-Bound Procedures

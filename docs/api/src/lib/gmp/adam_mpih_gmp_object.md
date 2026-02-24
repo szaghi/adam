@@ -39,7 +39,7 @@ classDiagram
   mpih_object <|-- mpih_gmp_object
 ```
 
-**Extends**: [`mpih_object`](/api/src/lib/common/adam_mpih_object#mpih-object)
+**Extends**: [`mpih_object`](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)
 
 #### Components
 

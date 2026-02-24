@@ -80,7 +80,7 @@ ADAM class definition.
 
 | Name | Type | Attributes | Description |
 |------|------|------------|-------------|
-| `mpih` | type([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) |  | The MPI handler. |
+| `mpih` | type([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) |  | The MPI handler. |
 | `grid` | type([grid_object](/api/src/lib/common/adam_grid_object#grid-object)) |  | The grid. |
 | `tree` | type([tree_object](/api/src/lib/common/adam_tree_object#tree-object)) |  | The tree. |
 | `maps` | type([maps_object](/api/src/lib/common/adam_maps_object#maps-object)) |  | The maps. |

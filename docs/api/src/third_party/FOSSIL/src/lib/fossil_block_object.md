@@ -58,7 +58,7 @@ Cartesian block class definition.
 | `Dz` | real(kind=[R8P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) |  | Space steps. |
 | `refinement_levels` | integer(kind=[I4P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) |  | Total number of refinement levels used. |
 | `Naabb` | integer(kind=[I4P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) |  | Number of AABB in each directions, 2**refinement_levels. |
-| `aabb` | type([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | allocatable | AABB refinement blocks. |
+| `aabb` | type([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | allocatable | AABB refinement blocks. |
 | `nodes` | type([vector_R8P](/api/src/third_party/VecFor/src/lib/vecfor_R8P#vector-r8p)) | allocatable | Grid nodes. |
 | `centers` | type([vector_R8P](/api/src/third_party/VecFor/src/lib/vecfor_R8P#vector-r8p)) | allocatable | Grid centers. |
 | `distances` | real(kind=[R8P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) | allocatable | Distance of grid centers to STL surface. |

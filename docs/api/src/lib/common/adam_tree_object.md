@@ -232,7 +232,7 @@ Tree class definition.
 
 | Name | Type | Attributes | Description |
 |------|------|------------|-------------|
-| `mpih` | type([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) |  | MPI handler. |
+| `mpih` | type([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) |  | MPI handler. |
 | `grid` | type([grid_object](/api/src/lib/common/adam_grid_object#grid-object)) | pointer | Grid data. |
 | `bucket` | type([tree_bucket_object](/api/src/lib/common/adam_tree_bucket_object#tree-bucket-object)) | allocatable | Tree buckets. |
 | `buckets_number` | integer(kind=[I8P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) |  | Number of buckets used. |

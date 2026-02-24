@@ -57,7 +57,7 @@ FOSSIL Axis-Aligned Bounding Box (AABB) tree-node class.
 
 | Name | Type | Attributes | Description |
 |------|------|------------|-------------|
-| `aabb` | type([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | allocatable | AABB data. |
+| `aabb` | type([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | allocatable | AABB data. |
 
 #### Type-Bound Procedures
 
@@ -136,7 +136,7 @@ subroutine compute_octants(self, octant)
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
 | `self` | class([aabb_node_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_node_object#aabb-node-object)) | in |  | AABB. |
-| `octant` | type([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | out |  | AABB octants. |
+| `octant` | type([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | out |  | AABB octants. |
 
 **Call graph**
 

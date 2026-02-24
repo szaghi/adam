@@ -34,7 +34,7 @@ WENO FNL class definition.
 | Name | Type | Attributes | Description |
 |------|------|------------|-------------|
 | `weno` | type([weno_object](/api/src/lib/common/adam_weno_object#weno-object)) | pointer | WENO common handler. |
-| `mpih` | type([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) |  | MPI handler. |
+| `mpih` | type([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) |  | MPI handler. |
 | `a_gpu` | real(kind=[R8P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) | pointer | Optimal weights                    [1:2,0:S-1,1:S]. |
 | `p_gpu` | real(kind=[R8P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) | pointer | Polinomials coefficients           [1:2,0:S-1,0:S-1,1:S]. |
 | `d_gpu` | real(kind=[R8P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) | pointer | Smoothness indicators coefficients [0:S-1,0:S-1,0:S-1,1:S]. |

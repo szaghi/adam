@@ -88,7 +88,7 @@ subroutine abort(self, error_code, msg)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) | inout |  | MPI handler. |
+| `self` | class([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) | inout |  | MPI handler. |
 | `error_code` | integer(kind=[I4P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) | in | optional | Abort error code. |
 | `msg` | character(len=*) | in | optional | Error message. |
 
@@ -104,7 +104,7 @@ subroutine barrier(self, tictoc, timing, single)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) | inout |  | MPI handler. |
+| `self` | class([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) | inout |  | MPI handler. |
 | `tictoc` | logical | in | optional | Activate tic toc timing between 2 barrier calls. |
 | `timing` | real(kind=[R8P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) | out | optional | Current timing. |
 | `single` | logical | in | optional | Single tictoc for one-shot timing. |
@@ -156,7 +156,7 @@ subroutine error_stop(self, msg)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) | inout |  | MPI handler. |
+| `self` | class([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) | inout |  | MPI handler. |
 | `msg` | character(len=*) | in | optional | Error message. |
 
 **Call graph**
@@ -224,7 +224,7 @@ subroutine finalize(self)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) | inout |  | MPI handler. |
+| `self` | class([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) | inout |  | MPI handler. |
 
 **Call graph**
 
@@ -257,7 +257,7 @@ subroutine initialize(self, do_mpi_init, do_device_init, myrankstr_char_length, 
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) | inout |  | MPI handler. |
+| `self` | class([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) | inout |  | MPI handler. |
 | `do_mpi_init` | logical | in | optional | Flag to activate MPI init call. |
 | `do_device_init` | logical | in | optional | Flag to activate device init call (used by backends). |
 | `myrankstr_char_length` | integer(kind=[I4P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) | in | optional | MPI ID string length. |
@@ -384,7 +384,7 @@ subroutine print_message(self, msg)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) | in |  | MPI handler. |
+| `self` | class([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) | in |  | MPI handler. |
 | `msg` | character(len=*) | in |  | Message to print. |
 
 **Call graph**
@@ -528,7 +528,7 @@ subroutine tic(self)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) | inout |  | MPI handler. |
+| `self` | class([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) | inout |  | MPI handler. |
 
 ## Functions
 
@@ -548,7 +548,7 @@ function description(self) result(desc)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) | in |  | MPI handler. |
+| `self` | class([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) | in |  | MPI handler. |
 
 **Call graph**
 
@@ -619,7 +619,7 @@ function tictoc_timing(self) result(timing)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) | in |  | MPI handler. |
+| `self` | class([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) | in |  | MPI handler. |
 
 **Call graph**
 
@@ -644,7 +644,7 @@ function toc(self) result(timing)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) | inout |  | MPI handler. |
+| `self` | class([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) | inout |  | MPI handler. |
 
 **Call graph**
 

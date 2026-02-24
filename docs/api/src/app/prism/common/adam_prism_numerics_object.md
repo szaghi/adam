@@ -52,7 +52,7 @@ PRISM numerics class definition.
 
 | Name | Type | Attributes | Description |
 |------|------|------------|-------------|
-| `mpih` | type([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) |  | MPI handler. |
+| `mpih` | type([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) |  | MPI handler. |
 | `scheme_time` | character(len=:) | allocatable | Numerical scheme for time operator [runge_kutta, leapfrog,...]. |
 | `scheme_space` | character(len=:) | allocatable | Numerical scheme for space operator [weno, centered]. |
 | `fdv_order` | integer(kind=[I4P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) |  | Order of finite difference/volume schemes, general order. |

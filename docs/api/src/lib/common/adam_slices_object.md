@@ -58,7 +58,7 @@ Slices (of domain) class definition, CPU backend.
 
 | Name | Type | Attributes | Description |
 |------|------|------------|-------------|
-| `mpih` | type([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) |  | MPI handler. |
+| `mpih` | type([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) |  | MPI handler. |
 | `slices_number` | integer(kind=[I4P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) |  | Number of slices to be saved. |
 | `slice` | type([slice_object](/api/src/lib/common/adam_slices_object#slice-object)) | allocatable | Slices data. |
 

@@ -99,7 +99,7 @@ Convert string of any kind to UCS4 string.
 
 Convert number (real and integer) to string (number to string type casting).
 
-**Module procedures**: [`strf_R8P`](/api/src/third_party/PENF/src/lib/penf_stringify#strf-r8p), [`str_R8P`](/api/src/third_party/PENF/src/lib/penf_stringify#str-r8p), [`strf_R4P`](/api/src/third_party/PENF/src/lib/penf_stringify#strf-r4p), [`str_R4P`](/api/src/third_party/PENF/src/lib/penf_stringify#str-r4p), [`strf_I8P`](/api/src/third_party/PENF/src/lib/penf_stringify#strf-i8p), [`str_I8P`](/api/src/third_party/PENF/src/lib/penf_stringify#str-i8p), [`strf_I4P`](/api/src/third_party/PENF/src/lib/penf_stringify#strf-i4p), [`str_I4P`](/api/src/third_party/PENF/src/lib/penf_stringify#str-i4p), [`strf_I2P`](/api/src/third_party/PENF/src/lib/penf_stringify#strf-i2p), [`str_I2P`](/api/src/third_party/PENF/src/lib/penf_stringify#str-i2p), [`strf_I1P`](/api/src/third_party/PENF/src/lib/penf_stringify#strf-i1p), [`str_I1P`](/api/src/third_party/PENF/src/lib/penf_stringify#str-i1p), [`str_bol`](/api/src/third_party/PENF/src/lib/penf_stringify#str-bol), [`str_a_R8P`](/api/src/third_party/PENF/src/lib/penf_stringify#str-a-r8p), [`str_a_R4P`](/api/src/third_party/PENF/src/lib/penf_stringify#str-a-r4p), [`str_a_I8P`](/api/src/third_party/PENF/src/lib/penf_stringify#str-a-i8p), [`str_a_I4P`](/api/src/third_party/PENF/src/lib/penf_stringify#str-a-i4p), [`str_a_I2P`](/api/src/third_party/PENF/src/lib/penf_stringify#str-a-i2p), [`str_a_I1P`](/api/src/third_party/PENF/src/lib/penf_stringify#str-a-i1p)
+**Module procedures**: [`strf_R8P`](/api/src/third_party/PENF/src/lib/penf_stringify#strf-r8p), [`str_R8P`](/api/src/third_party/PENF/src/lib/penf_stringify#str-r8p), [`strf_R4P`](/api/src/third_party/PENF/src/lib/penf_stringify#strf-r4p), [`str_R4P`](/api/src/third_party/PENF/src/lib/penf_stringify#str-r4p), [`strf_I8P`](/api/src/third_party/PENF/src/lib/penf_stringify#strf-i8p), [`str_I8P`](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#str-i8p), [`strf_I4P`](/api/src/third_party/PENF/src/lib/penf_stringify#strf-i4p), [`str_I4P`](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#str-i4p), [`strf_I2P`](/api/src/third_party/PENF/src/lib/penf_stringify#strf-i2p), [`str_I2P`](/api/src/third_party/PENF/src/lib/penf_stringify#str-i2p), [`strf_I1P`](/api/src/third_party/PENF/src/lib/penf_stringify#strf-i1p), [`str_I1P`](/api/src/third_party/PENF/src/lib/penf_stringify#str-i1p), [`str_bol`](/api/src/third_party/PENF/src/lib/penf_stringify#str-bol), [`str_a_R8P`](/api/src/third_party/PENF/src/lib/penf_stringify#str-a-r8p), [`str_a_R4P`](/api/src/third_party/PENF/src/lib/penf_stringify#str-a-r4p), [`str_a_I8P`](/api/src/third_party/PENF/src/lib/penf_stringify#str-a-i8p), [`str_a_I4P`](/api/src/third_party/PENF/src/lib/penf_stringify#str-a-i4p), [`str_a_I2P`](/api/src/third_party/PENF/src/lib/penf_stringify#str-a-i2p), [`str_a_I1P`](/api/src/third_party/PENF/src/lib/penf_stringify#str-a-i1p)
 
 ### strz
 
@@ -170,7 +170,7 @@ Convert string of default kind to ASCII string.
 
 **Attributes**: pure
 
-**Returns**: character(kind=[ASCII](/api/src/third_party/VTKFortran/references/legacy/Lib_VTK_IO_Back_End), len=:)
+**Returns**: character(kind=[ASCII](/api/src/third_party/FACE/src/lib/face), len=:)
 
 ```fortran
 function str_ascii_default(input) result(output)
@@ -195,7 +195,7 @@ Convert string of ASCII kind to ASCII string, just for convenience in sanitize s
 
 **Attributes**: pure
 
-**Returns**: character(kind=[ASCII](/api/src/third_party/VTKFortran/references/legacy/Lib_VTK_IO_Back_End), len=:)
+**Returns**: character(kind=[ASCII](/api/src/third_party/FACE/src/lib/face), len=:)
 
 ```fortran
 function str_ascii_ascii(input) result(output)
@@ -205,7 +205,7 @@ function str_ascii_ascii(input) result(output)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `input` | character(kind=[ASCII](/api/src/third_party/VTKFortran/references/legacy/Lib_VTK_IO_Back_End), len=*) | in |  | Input string of ASCII kind. |
+| `input` | character(kind=[ASCII](/api/src/third_party/FACE/src/lib/face), len=*) | in |  | Input string of ASCII kind. |
 
 ### str_ascii_ucs4
 
@@ -220,7 +220,7 @@ Convert string of UCS4 kind to ASCII string.
 
 **Attributes**: pure
 
-**Returns**: character(kind=[ASCII](/api/src/third_party/VTKFortran/references/legacy/Lib_VTK_IO_Back_End), len=:)
+**Returns**: character(kind=[ASCII](/api/src/third_party/FACE/src/lib/face), len=:)
 
 ```fortran
 function str_ascii_ucs4(input) result(output)
@@ -230,7 +230,7 @@ function str_ascii_ucs4(input) result(output)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `input` | character(kind=[UCS4](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables), len=*) | in |  | Input string of UCS4 kind. |
+| `input` | character(kind=[UCS4](/api/src/third_party/FACE/src/lib/face), len=*) | in |  | Input string of UCS4 kind. |
 
 ### str_ucs4_default
 
@@ -245,7 +245,7 @@ Convert string of default kind to UCS4 string.
 
 **Attributes**: pure
 
-**Returns**: character(kind=[UCS4](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables), len=:)
+**Returns**: character(kind=[UCS4](/api/src/third_party/FACE/src/lib/face), len=:)
 
 ```fortran
 function str_ucs4_default(input) result(output)
@@ -270,7 +270,7 @@ Convert string of ASCII kind to UCS4 string.
 
 **Attributes**: pure
 
-**Returns**: character(kind=[UCS4](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables), len=:)
+**Returns**: character(kind=[UCS4](/api/src/third_party/FACE/src/lib/face), len=:)
 
 ```fortran
 function str_ucs4_ascii(input) result(output)
@@ -280,7 +280,7 @@ function str_ucs4_ascii(input) result(output)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `input` | character(kind=[ASCII](/api/src/third_party/VTKFortran/references/legacy/Lib_VTK_IO_Back_End), len=*) | in |  | Input string of ASCII kind. |
+| `input` | character(kind=[ASCII](/api/src/third_party/FACE/src/lib/face), len=*) | in |  | Input string of ASCII kind. |
 
 ### str_ucs4_ucs4
 
@@ -295,7 +295,7 @@ Convert string of UCS4 kind to UCS4 string, just for convenience in sanitize str
 
 **Attributes**: pure
 
-**Returns**: character(kind=[UCS4](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables), len=:)
+**Returns**: character(kind=[UCS4](/api/src/third_party/FACE/src/lib/face), len=:)
 
 ```fortran
 function str_ucs4_ucs4(input) result(output)
@@ -305,7 +305,7 @@ function str_ucs4_ucs4(input) result(output)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `input` | character(kind=[UCS4](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables), len=*) | in |  | Input string of UCS4 kind. |
+| `input` | character(kind=[UCS4](/api/src/third_party/FACE/src/lib/face), len=*) | in |  | Input string of UCS4 kind. |
 
 ### strf_R16P
 

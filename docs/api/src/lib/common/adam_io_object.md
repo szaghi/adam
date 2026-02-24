@@ -62,7 +62,7 @@ ADAM class definition.
 
 | Name | Type | Attributes | Description |
 |------|------|------------|-------------|
-| `mpih` | type([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) |  | The MPI handler. |
+| `mpih` | type([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) |  | The MPI handler. |
 | `grid` | type([grid_object](/api/src/lib/common/adam_grid_object#grid-object)) | pointer | The grid. |
 | `field` | type([field_object](/api/src/lib/common/adam_field_object#field-object)) | pointer | The field. |
 | `q1_R8P` | real(kind=[R8P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) | pointer | Auxiliary (1) vector cell centered fields [nv,ni,nj,nk,nb], kind R8P. |

@@ -54,7 +54,7 @@ ADAM, PRISM coil source definition, CPU backend.
 
 | Name | Type | Attributes | Description |
 |------|------|------------|-------------|
-| `mpih` | type([mpih_object](/api/src/lib/common/adam_mpih_object#mpih-object)) |  | MPI handler. |
+| `mpih` | type([mpih_object](/api/src/third_party/FUNDAL/src/lib/fundal_mpih_object#mpih-object)) |  | MPI handler. |
 | `coil_type` | character(len=99) | allocatable | Coil type. |
 | `current_type` | character(len=99) | allocatable | Current type. |
 | `normal` | character(len=2) | allocatable | Versore normale alla spira, che identifica anche verso |

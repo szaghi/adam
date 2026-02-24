@@ -106,7 +106,7 @@ subroutine add_facets(self, facet_id, facet, is_exclusive)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | inout |  | AABB. |
+| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | inout |  | AABB. |
 | `facet_id` | type([list_id_object](/api/src/third_party/FOSSIL/src/lib/fossil_list_id_object#list-id-object)) | inout |  | List of facets IDs. |
 | `facet` | type([facet_object](/api/src/third_party/FOSSIL/src/lib/fossil_facet_object#facet-object)) | in |  | Facets list. |
 | `is_exclusive` | logical | in | optional | Sentinel to enable/disable exclusive addition. |
@@ -139,8 +139,8 @@ subroutine compute_octants(self, octant)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | in |  | AABB. |
-| `octant` | type([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | out |  | AABB octants. |
+| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | in |  | AABB. |
+| `octant` | type([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | out |  | AABB octants. |
 
 **Call graph**
 
@@ -166,7 +166,7 @@ subroutine compute_vertices_nearby(self, facet, tolerance_to_be_identical, toler
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | in |  | AABB. |
+| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | in |  | AABB. |
 | `facet` | type([facet_object](/api/src/third_party/FOSSIL/src/lib/fossil_facet_object#facet-object)) | inout |  | Facets list. |
 | `tolerance_to_be_identical` | real(kind=[R8P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) | in |  | Tolerance to identify identical vertices. |
 | `tolerance_to_be_nearby` | real(kind=[R8P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) | in |  | Tolerance to identify nearby vertices. |
@@ -197,7 +197,7 @@ subroutine destroy(self)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | inout |  | AABB. |
+| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | inout |  | AABB. |
 
 **Call graph**
 
@@ -244,7 +244,7 @@ subroutine get_aabb_facets(self, facet, aabb_facet)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | in |  | AABB. |
+| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | in |  | AABB. |
 | `facet` | type([facet_object](/api/src/third_party/FOSSIL/src/lib/fossil_facet_object#facet-object)) | in |  | Whole facets list. |
 | `aabb_facet` | type([facet_object](/api/src/third_party/FOSSIL/src/lib/fossil_facet_object#facet-object)) | out | allocatable | AABB facets list. |
 
@@ -271,7 +271,7 @@ subroutine initialize(self, facet, bmin, bmax)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | inout |  | AABB. |
+| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | inout |  | AABB. |
 | `facet` | type([facet_object](/api/src/third_party/FOSSIL/src/lib/fossil_facet_object#facet-object)) | in | optional | Facets list. |
 | `bmin` | type([vector_R8P](/api/src/third_party/VecFor/src/lib/vecfor_R8P#vector-r8p)) | in | optional | Minimum point of AABB. |
 | `bmax` | type([vector_R8P](/api/src/third_party/VecFor/src/lib/vecfor_R8P#vector-r8p)) | in | optional | Maximum point of AABB. |
@@ -395,7 +395,7 @@ subroutine save_geometry_tecplot_ascii(self, file_unit, aabb_name)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | in |  | AABB. |
+| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | in |  | AABB. |
 | `file_unit` | integer(kind=[I4P](/api/src/third_party/PENF/src/lib/penf_global_parameters_variables)) | in |  | File unit. |
 | `aabb_name` | character(len=*) | in | optional | Name of AABB. |
 
@@ -421,7 +421,7 @@ subroutine save_facets_into_file_stl(self, facet, file_name, is_ascii)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | in |  | AABB. |
+| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | in |  | AABB. |
 | `facet` | type([facet_object](/api/src/third_party/FOSSIL/src/lib/fossil_facet_object#facet-object)) | in |  | Facets list. |
 | `file_name` | character(len=*) | in |  | File name. |
 | `is_ascii` | logical | in |  | Sentinel for file format. |
@@ -452,7 +452,7 @@ subroutine translate(self, delta)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | inout |  | AABB. |
+| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | inout |  | AABB. |
 | `delta` | type([vector_R8P](/api/src/third_party/VecFor/src/lib/vecfor_R8P#vector-r8p)) | in |  | Delta of translation. |
 
 **Call graph**
@@ -479,8 +479,8 @@ subroutine union(self, other)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | inout |  | AABB. |
-| `other` | type([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | in |  | Other AABB. |
+| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | inout |  | AABB. |
+| `other` | type([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | in |  | Other AABB. |
 
 **Call graph**
 
@@ -505,7 +505,7 @@ subroutine update_extents(self, facet)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | inout |  | AABB. |
+| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | inout |  | AABB. |
 | `facet` | type([facet_object](/api/src/third_party/FOSSIL/src/lib/fossil_facet_object#facet-object)) | in |  | Facets list. |
 
 **Call graph**
@@ -532,8 +532,8 @@ subroutine aabb_assign_aabb(lhs, rhs)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `lhs` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | inout |  | Left hand side. |
-| `rhs` | type([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | in |  | Right hand side. |
+| `lhs` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | inout |  | Left hand side. |
+| `rhs` | type([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | in |  | Right hand side. |
 
 ### compute_bb_from_facets
 
@@ -582,7 +582,7 @@ function closest_point(self, point) result(closest)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | in |  | AABB. |
+| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | in |  | AABB. |
 | `point` | type([vector_R8P](/api/src/third_party/VecFor/src/lib/vecfor_R8P#vector-r8p)) | in |  | Point reference. |
 
 **Call graph**
@@ -609,7 +609,7 @@ function distance(self, point)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | in |  | AABB. |
+| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | in |  | AABB. |
 | `point` | type([vector_R8P](/api/src/third_party/VecFor/src/lib/vecfor_R8P#vector-r8p)) | in |  | Point reference. |
 
 **Call graph**
@@ -638,7 +638,7 @@ function distance_from_facets(self, facet, point) result(distance)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | in |  | AABB. |
+| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | in |  | AABB. |
 | `facet` | type([facet_object](/api/src/third_party/FOSSIL/src/lib/fossil_facet_object#facet-object)) | in |  | Facets list. |
 | `point` | type([vector_R8P](/api/src/third_party/VecFor/src/lib/vecfor_R8P#vector-r8p)) | in |  | Point reference. |
 
@@ -669,7 +669,7 @@ function do_ray_intersect(self, ray_origin, ray_direction) result(do_intersect)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | in |  | AABB box. |
+| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | in |  | AABB box. |
 | `ray_origin` | type([vector_R8P](/api/src/third_party/VecFor/src/lib/vecfor_R8P#vector-r8p)) | in |  | Ray origin. |
 | `ray_direction` | type([vector_R8P](/api/src/third_party/VecFor/src/lib/vecfor_R8P#vector-r8p)) | in |  | Ray direction. |
 
@@ -700,7 +700,7 @@ function has_facets(self)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | in |  | AABB box. |
+| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | in |  | AABB box. |
 
 **Call graph**
 
@@ -728,7 +728,7 @@ function is_inside(self, point)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | in |  | AABB. |
+| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | in |  | AABB. |
 | `point` | type([vector_R8P](/api/src/third_party/VecFor/src/lib/vecfor_R8P#vector-r8p)) | in |  | Point reference. |
 
 **Call graph**
@@ -755,7 +755,7 @@ function median(self)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | in |  | AABB. |
+| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | in |  | AABB. |
 
 **Call graph**
 
@@ -782,7 +782,7 @@ function ray_intersections_number(self, facet, ray_origin, ray_direction) result
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | in |  | AABB. |
+| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | in |  | AABB. |
 | `facet` | type([facet_object](/api/src/third_party/FOSSIL/src/lib/fossil_facet_object#facet-object)) | in |  | Facets list. |
 | `ray_origin` | type([vector_R8P](/api/src/third_party/VecFor/src/lib/vecfor_R8P#vector-r8p)) | in |  | Ray origin. |
 | `ray_direction` | type([vector_R8P](/api/src/third_party/VecFor/src/lib/vecfor_R8P#vector-r8p)) | in |  | Ray direction. |
@@ -813,7 +813,7 @@ function vertex(self)
 
 | Name | Type | Intent | Attributes | Description |
 |------|------|--------|------------|-------------|
-| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_block_aabb_object#aabb-object)) | in |  | AABB. |
+| `self` | class([aabb_object](/api/src/third_party/FOSSIL/src/lib/fossil_aabb_object#aabb-object)) | in |  | AABB. |
 
 **Call graph**
 
