@@ -1,4 +1,12 @@
 # Changelog
+## [v0.0.6](https://github.com/szaghi/FLAP/tree/v0.0.6) (2026-02-24)
+[Full Changelog](https://github.com/szaghi/FLAP/compare/v0.0.5...v0.0.6)
+### Miscellaneous
+- Current Initial Transient edit ([`09cbe10`](https://github.com/szaghi/FLAP/commit/09cbe10d2b10f1a345608d6d880d4d4313bc7bd5))
+
+### New features
+- Add MIT license, dual-licensing docs, and rebrand ADAM acronym ([`c62749e`](https://github.com/szaghi/FLAP/commit/c62749e36b7460737ddc95b6cf67cb1426d71819))
+
 ## [v0.0.5](https://github.com/szaghi/FLAP/tree/v0.0.5) (2026-02-23)
 [Full Changelog](https://github.com/szaghi/FLAP/compare/v0.0.4...v0.0.5)
 ### Bug fixes
