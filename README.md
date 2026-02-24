@@ -15,57 +15,7 @@
 
 ---
 
-<div align="center">
-
-<div style="width: 32%; display: inline-block; vertical-align: top; text-align: left;">
-
-*🌲 Adaptive Mesh Refinement*
-
-> Morton-order linearized octree/quadtree for efficient AMR with automatic refinement and coarsening driven by user-defined markers.
-
-</div>
-
-<div style="width: 32%; display: inline-block; vertical-align: top; text-align: left;">
-
-*🕸️ Immersed Boundary Method*
-
-> Handle complex and moving geometries without body-fitted meshes using accurate IB techniques with eikonal-based distance fields.
-
-</div>
-
-<div style="width: 32%; display: inline-block; vertical-align: top; text-align: left;">
-
-*⚡ Multi-backend GPU Computing*
-
-> CUDA Fortran (NVF), OpenACC (FNL), and OpenMP offloading (GMP) — a single source tree targeting exascale HPC from one to thousands of GPUs.
-
-</div>
-
-<div style="width: 32%; display: inline-block; vertical-align: top; text-align: left;">
-
-*⚖️ Dual-licensed*
-
-> Released under [MIT](https://opensource.org/licenses/MIT) or [LGPLv3](https://www.gnu.org/licenses/lgpl-3.0) — choose the license that best fits your project. MIT for maximum simplicity; LGPLv3 for copyleft with linking exception.
-
-</div>
-
-<div style="width: 32%; display: inline-block; vertical-align: top; text-align: left;">
-
-*⚛️ Physics-Agnostic*
-
-> Core SDK (AMR, IB, WENO, RK, parallel I/O) is physics-agnostic, modular and reusable. New physics solvers are built on top of the ADAM SDK with minimal effort.
-
-</div>
-
-<div style="width: 32%; display: inline-block; vertical-align: top; text-align: left;">
-
-*🔧 INI-driven Configuration*
-
-> Simulations are fully configured through human-readable INI files — no recompilation needed to change physics, numerics, or grid parameters.
-
-</div>
-
-</div>
+![Features](./docs/hero_features.svg)
 
 ---
 [Why ADAM?](#why-adam%3F) &nbsp;·&nbsp; [Citing ADAM](#citing-adam) &nbsp;·&nbsp; [Quick Start](#quick-start)
