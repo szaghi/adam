@@ -9,6 +9,7 @@ module adam_prism_fnl_fWLayer_object
 use :: adam_field_object, only : field_object
 use :: adam_fnl_library
 ! PRISM modules
+use :: adam_prism_fWLayer_object
 use :: adam_prism_parameters
 ! third party modules
 use :: fundal
@@ -23,26 +24,57 @@ type :: prism_fnl_fwlayer_object
    !< PRISM fWLayer class definition.
    ! ADAM library objects
    type(mpih_fnl_object) :: mpih_gpu !< MPI handler, FNL backend.
+   ! PRISM library objects
+   type(prism_fwlayer_object), pointer :: fwlayer=>null() !< Fwlayer common handler.
    ! device data
    real(R8P), pointer :: f_gpu(:,:,:,:,:)=>null() !< fWLayer function.
    contains
-   ! public methods
-   procedure, pass(self) :: initialize !< Initialize object.
+      ! public methods
+      procedure, pass(self) :: copy_cpu_gpu !< Copy data from CPU to GPU.
+      procedure, pass(self) :: copy_gpu_cpu !< Copy data from GPU to CPU.
+      procedure, pass(self) :: initialize   !< Initialize object.
 endtype prism_fnl_fwlayer_object
 
 contains
    ! public methods
-   subroutine initialize(self, field)
+   subroutine copy_cpu_gpu(self, verbose)
+   !< Copy data from CPU to GPU.
+   class(prism_fnl_fwlayer_object), intent(inout)        :: self     !< The field.
+   logical,                         intent(in), optional :: verbose  !< Flag to activate verbose mode.
+   logical                                               :: verbose_ !< Flag to activate verbose mode, local var.
+
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   if (verbose_) call self%mpih_gpu%print_message('prism_fnl_fwlayer_object%copy_cpu_gpu start')
+   call dev_assign_to_device(src=self%fwlayer%f,dst=self%f_gpu,transposed=.true.)
+   if (verbose_) call self%mpih_gpu%print_message('prism_fnl_fwlayer_object%copy_cpu_gpu finish')
+   endsubroutine copy_cpu_gpu
+
+   subroutine copy_gpu_cpu(self, verbose)
+   !< Copy data from GPU to CPU.
+   class(prism_fnl_fwlayer_object), intent(inout)        :: self     !< The field.
+   logical,                         intent(in), optional :: verbose  !< Flag to activate verbose mode.
+   logical                                               :: verbose_ !< Flag to activate verbose mode, local var.
+
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   if (verbose_) call self%mpih_gpu%print_message('prism_fnl_fwlayer_object%copy_gpu_cpu start')
+   call dev_assign_from_device(src=self%f_gpu,dst=self%fwlayer%f,transposed=.true.)
+   if (verbose_) call self%mpih_gpu%print_message('prism_fnl_fwlayer_object%copy_gpu_cpu finish')
+   endsubroutine copy_gpu_cpu
+
+   subroutine initialize(self, field, fwlayer)
    !< Initialize the fWLayer.
-   class(prism_fnl_fwlayer_object), intent(inout) :: self  !< fWLayer.
-   type(field_object),              intent(in)    :: field !< Field.
-   integer(I4P)                                   :: ierr  !< Error status.
+   class(prism_fnl_fwlayer_object), intent(inout)      :: self    !< fWLayer.
+   type(field_object),              intent(in)         :: field   !< Field.
+   type(prism_fwlayer_object),      intent(in), target :: fwlayer !< Fwlayer common handler.
+   integer(I4P)                                        :: ierr    !< Error status.
 
    call self%mpih_gpu%initialize(verbose=.true.)
    associate(ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, ngc=>field%grid%ngc, nb=>field%nb)
    print '(A)', self%mpih_gpu%myrankstr//'prism_fnl_fwlayer_object%initialize start'
+   self%fwlayer => fwlayer
    call dev_alloc(fptr_dev=self%f_gpu, &
-                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,3], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
+                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,size(fwlayer%f,dim=1)], &
+                  lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
    print '(A)', self%mpih_gpu%myrankstr//'prism_fnl_fwlayer_object%initialize finish'
    endassociate
    endsubroutine initialize

@@ -39,6 +39,16 @@ type, extends(prism_common_object) :: prism_fnl_object
    real(R8P), pointer :: flz_f_gpu(:,:,:,:,:)=>null()       !< Fluxes along z at cell face.
    real(R8P), pointer :: curl_gpu(:,:,:,:,:)=>null()        !< Curl fields.
    real(R8P), pointer :: divergence_gpu(:,:,:,:,:)=>null()  !< Divergence fields.
+   ! rank 1D stencil for computations on device that contiguos memory is mandatory
+   real(R8P), allocatable :: qsx_x(:) !< X component of vector field over the x stencil.
+   real(R8P), allocatable :: qsx_y(:) !< Y component of vector field over the x stencil.
+   real(R8P), allocatable :: qsx_z(:) !< Z component of vector field over the x stencil.
+   real(R8P), allocatable :: qsy_x(:) !< X component of vector field over the y stencil.
+   real(R8P), allocatable :: qsy_Y(:) !< Y component of vector field over the y stencil.
+   real(R8P), allocatable :: qsy_z(:) !< Z component of vector field over the y stencil.
+   real(R8P), allocatable :: qsz_x(:) !< X component of vector field over the z stencil.
+   real(R8P), allocatable :: qsz_y(:) !< Y component of vector field over the z stencil.
+   real(R8P), allocatable :: qsz_z(:) !< Z component of vector field over the z stencil.
    !< Pointer (abstract) TBP.
    procedure(compute_curl_interface),       pass(self),pointer :: compute_curl       =>null()!< Compute curl of vector field.
    procedure(compute_derivative1_interface),pass(self),pointer :: compute_derivative1=>null()!< Compute derivative1 of scalar field.
@@ -196,19 +206,15 @@ endinterface
 
 contains
    ! auxiliary methods
-   subroutine allocate_gpu(self, q_gpu)
+   subroutine allocate_gpu(self)
    !< Allocate GPU data.
-   class(prism_fnl_object), intent(inout)         :: self      !< The equation.
-   real(R8P),               intent(inout), target :: q_gpu(1:,         &
-                                                           1-self%ngc:,&
-                                                           1-self%ngc:,&
-                                                           1-self%ngc:,&
-                                                           1:) !< Conservative variables.
-   integer(I4P)                                   :: ierr      !< Error status.
+   class(prism_fnl_object), intent(inout) :: self !< The equation.
+   integer(I4P)                           :: ierr !< Error status.
 
    call self%mpih%print_message('prism_fnl_object%allocate_gpu start')
-   self%q_gpu => q_gpu ! q_gpu is allocated by field_gpu%initialize
    associate(nv=>self%nv, nb=>self%nb, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk)
+   call dev_alloc(fptr_dev=self%q_gpu, &
+                  ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
    call dev_alloc(fptr_dev=self%dq_gpu, &
                   ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
    call dev_alloc(fptr_dev=self%flxyz_c_gpu, &
@@ -236,12 +242,13 @@ contains
    !< Copy data from CPU to GPU.
    class(prism_fnl_object), intent(inout) :: self !< The equation.
 
-   call self%field_gpu%copy_transpose_cpu_gpu(nv=self%nv, q_cpu=self%q,          q_gpu=self%q_gpu            )
-   call self%field_gpu%copy_transpose_cpu_gpu(nv=self%nv, q_cpu=self%curl,       q_gpu=self%curl_gpu         )
-   call self%field_gpu%copy_transpose_cpu_gpu(nv=self%nv, q_cpu=self%divergence, q_gpu=self%divergence_gpu   )
-   call self%field_gpu%copy_transpose_cpu_gpu(nv=3,       q_cpu=self%fWLayer%f,  q_gpu=self%fwlayer_gpu%f_gpu)
-   call self%field_gpu%copy_cpu_gpu(verbose=.false.)
+   call dev_assign_to_device(src=self%q         ,dst=self%q_gpu            ,transposed=.true.)
+   call dev_assign_to_device(src=self%curl      ,dst=self%curl_gpu         ,transposed=.true.)
+   call dev_assign_to_device(src=self%divergence,dst=self%divergence_gpu   ,transposed=.true.)
+   call dev_assign_to_device(src=self%fwlayer%f ,dst=self%fwlayer_gpu%f_gpu,transposed=.true.)
    call self%coil_gpu%copy_cpu_gpu
+   call self%fwlayer_gpu%copy_cpu_gpu
+   call self%field_gpu%copy_cpu_gpu(verbose=.false.)
    endsubroutine copy_cpu_gpu
 
    subroutine copy_gpu_cpu(self, compute_copy_q_aux, copy_phi)
@@ -250,11 +257,11 @@ contains
    logical,                 intent(in), optional :: compute_copy_q_aux !< Flag to compute auxiliary variables.
    logical,                 intent(in), optional :: copy_phi           !< Copy also phi.
 
-   call self%field_gpu%copy_transpose_gpu_cpu(nv=self%nv, q_gpu=self%q_gpu,             q_cpu=self%q         )
-   call self%field_gpu%copy_transpose_gpu_cpu(nv=self%nv, q_gpu=self%curl_gpu,          q_cpu=self%curl      )
-   call self%field_gpu%copy_transpose_gpu_cpu(nv=self%nv, q_gpu=self%divergence_gpu,    q_cpu=self%divergence)
-   call self%field_gpu%copy_transpose_gpu_cpu(nv=3,       q_gpu=self%fwlayer_gpu%f_gpu, q_cpu=self%fWLayer%f )
+   call dev_assign_from_device(src=self%q_gpu         ,dst=self%q         ,transposed=.true.)
+   call dev_assign_from_device(src=self%curl_gpu      ,dst=self%curl      ,transposed=.true.)
+   call dev_assign_from_device(src=self%divergence_gpu,dst=self%divergence,transposed=.true.)
    call self%coil_gpu%copy_gpu_cpu
+   call self%fwlayer_gpu%copy_gpu_cpu
    endsubroutine copy_gpu_cpu
 
    subroutine initialize(self, filename)
@@ -270,10 +277,9 @@ contains
    call self%ib_gpu%initialize(ib=self%ib, field_gpu=self%field_gpu)
    call self%rk_gpu%initialize(rk=self%rk, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk, nv=self%nv)
    call self%weno_gpu%initialize(weno=self%weno)
-   call self%allocate_gpu(q_gpu=self%field_gpu%q_gpu)
-   call self%coil_gpu%initialize(coil=self%coil,&
-                                 blocks_number=self%blocks_number,nb=self%nb,ngc=self%ngc,ni=self%ni,nj=self%nj,nk=self%nk)
-   call self%fwlayer_gpu%initialize(field=self%field)
+   call self%allocate_gpu
+   call self%coil_gpu%initialize(field=self%field, coil=self%coil)
+   call self%fwlayer_gpu%initialize(field=self%field, fwlayer=self%fwlayer)
    ! call set_sir_dev(si_gpu=self%si_gpu, sir_gpu=self%sir_gpu)
 
    ! set pointer (abstract) TBP
@@ -342,6 +348,17 @@ contains
    endselect
 
    call external_fields_initialize_dev(external_fields=self%external_fields)
+
+   ! allocate rank 1D stencil for computations on device that contiguos memory is mandatory
+   allocate(self%qsx_x(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1)))
+   allocate(self%qsx_y(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1)))
+   allocate(self%qsx_z(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1)))
+   allocate(self%qsy_x(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1)))
+   allocate(self%qsy_y(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1)))
+   allocate(self%qsy_z(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1)))
+   allocate(self%qsz_x(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1)))
+   allocate(self%qsz_y(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1)))
+   allocate(self%qsz_z(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1)))
 
    call self%mpih%print_message('prism_fnl_object%initialize finish')
    endsubroutine initialize
@@ -583,17 +600,7 @@ contains
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
              hs=>self%numerics%fdv_half_stencils(1))
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,curl_gpu,dxyz_gpu)
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      call compute_curl_fd_centered(s=hs,dxyz=dxyz_gpu(b,:),q=q_gpu(b,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,ivar:ivar+2),&
-                                    curl=curl_gpu(b,i,j,k,ivar:))
-   enddo
-   enddo
-   enddo
-   enddo
+
    endassociate
    endsubroutine compute_curl_fd
 
@@ -607,17 +614,7 @@ contains
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
              hs=>self%numerics%fdv_half_stencils(1))
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,curl_gpu,dxyz_gpu)
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      call compute_curl_fv_centered(s=hs,dxyz=dxyz_gpu(b,:),q=q_gpu(b,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,ivar:ivar+2),&
-                                    curl=curl_gpu(b,i,j,k,ivar:))
-   enddo
-   enddo
-   enddo
-   enddo
+
    endassociate
    endsubroutine compute_curl_fv
 
@@ -633,41 +630,7 @@ contains
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
              hs=>self%numerics%fdv_half_stencils(1))
-   select case(dir)
-   case(1)
-      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,dq_ds_gpu,dxyz_gpu)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative1_fd_centered(s=hs,ds=dxyz_gpu(b,dir),q=q_gpu(b,i-hs:i+hs,j,k,ivar),dq_ds=dq_ds_gpu(b,i,j,k))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(2)
-      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,dq_ds_gpu,dxyz_gpu)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative1_fd_centered(s=hs,ds=dxyz_gpu(b,dir),q=q_gpu(b,i,j-hs:j+hs,k,ivar),dq_ds=dq_ds_gpu(b,i,j,k))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(3)
-      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,dq_ds_gpu,dxyz_gpu)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative1_fd_centered(s=hs,ds=dxyz_gpu(b,dir),q=q_gpu(b,i,j,k-hs:k+hs,ivar),dq_ds=dq_ds_gpu(b,i,j,k))
-      enddo
-      enddo
-      enddo
-      enddo
-   endselect
+
    endassociate
    endsubroutine compute_derivative1_fd
 
@@ -683,41 +646,7 @@ contains
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
              hs=>self%numerics%fdv_half_stencils(1))
-   select case(dir)
-   case(1)
-      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,dq_ds_gpu,dxyz_gpu)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative1_fv_centered(s=hs,ds=dxyz_gpu(b,dir),q=q_gpu(b,i-hs:i+hs,j,k,ivar),dq_ds=dq_ds_gpu(b,i,j,k))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(2)
-      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,dq_ds_gpu,dxyz_gpu)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative1_fv_centered(s=hs,ds=dxyz_gpu(b,dir),q=q_gpu(b,i,j-hs:j+hs,k,ivar),dq_ds=dq_ds_gpu(b,i,j,k))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(3)
-      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,dq_ds_gpu,dxyz_gpu)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative1_fv_centered(s=hs,ds=dxyz_gpu(b,dir),q=q_gpu(b,i,j,k-hs:k+hs,ivar),dq_ds=dq_ds_gpu(b,i,j,k))
-      enddo
-      enddo
-      enddo
-      enddo
-   endselect
+
    endassociate
    endsubroutine compute_derivative1_fv
 
@@ -733,41 +662,7 @@ contains
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
              hs=>self%numerics%fdv_half_stencils(1))
-   select case(dir)
-   case(1)
-      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,d2q_ds2_gpu,dxyz_gpu)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative2_fd_centered(s=hs,ds=dxyz_gpu(b,dir),q=q_gpu(b,i-hs:i+hs,j,k,ivar),d2q_ds2=d2q_ds2_gpu(b,i,j,k))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(2)
-      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,d2q_ds2_gpu,dxyz_gpu)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative2_fd_centered(s=hs,ds=dxyz_gpu(b,dir),q=q_gpu(b,i,j-hs:j+hs,k,ivar),d2q_ds2=d2q_ds2_gpu(b,i,j,k))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(3)
-      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,d2q_ds2_gpu,dxyz_gpu)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative2_fd_centered(s=hs,ds=dxyz_gpu(b,dir),q=q_gpu(b,i,j,k-hs:k+hs,ivar),d2q_ds2=d2q_ds2_gpu(b,i,j,k))
-      enddo
-      enddo
-      enddo
-      enddo
-   endselect
+
    endassociate
    endsubroutine compute_derivative2_fd
 
@@ -783,41 +678,7 @@ contains
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
              hs=>self%numerics%fdv_half_stencils(1))
-   select case(dir)
-   case(1)
-      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,d2q_ds2_gpu,dxyz_gpu)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative2_fv_centered(s=hs,ds=dxyz_gpu(b,dir),q=q_gpu(b,i-hs:i+hs,j,k,ivar),d2q_ds2=d2q_ds2_gpu(b,i,j,k))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(2)
-      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,d2q_ds2_gpu,dxyz_gpu)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative2_fv_centered(s=hs,ds=dxyz_gpu(b,dir),q=q_gpu(b,i,j-hs:j+hs,k,ivar),d2q_ds2=d2q_ds2_gpu(b,i,j,k))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(3)
-      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,d2q_ds2_gpu,dxyz_gpu)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative2_fv_centered(s=hs,ds=dxyz_gpu(b,dir),q=q_gpu(b,i,j,k-hs:k+hs,ivar),d2q_ds2=d2q_ds2_gpu(b,i,j,k))
-      enddo
-      enddo
-      enddo
-      enddo
-   endselect
+
    endassociate
    endsubroutine compute_derivative2_fv
 
@@ -833,41 +694,7 @@ contains
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
              hs=>self%numerics%fdv_half_stencils(1))
-   select case(dir)
-   case(1)
-      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,d4q_ds4_gpu,dxyz_gpu)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative4_fd_centered(s=hs,ds=dxyz_gpu(b,dir),q=q_gpu(b,i-hs:i+hs,j,k,ivar),d4q_ds4=d4q_ds4_gpu(b,i,j,k))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(2)
-      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,d4q_ds4_gpu,dxyz_gpu)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative4_fd_centered(s=hs,ds=dxyz_gpu(b,dir),q=q_gpu(b,i,j-hs:j+hs,k,ivar),d4q_ds4=d4q_ds4_gpu(b,i,j,k))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(3)
-      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,d4q_ds4_gpu,dxyz_gpu)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative4_fd_centered(s=hs,ds=dxyz_gpu(b,dir),q=q_gpu(b,i,j,k-hs:k+hs,ivar),d4q_ds4=d4q_ds4_gpu(b,i,j,k))
-      enddo
-      enddo
-      enddo
-      enddo
-   endselect
+
    endassociate
    endsubroutine compute_derivative4_fd
 
@@ -881,46 +708,10 @@ contains
    real(R8P),               intent(inout) :: divergence_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
    integer(I4P)                           :: i,j,k,b,m                                              !< Counter.
    real(R8P)                              :: div_x, div_y, div_z                                    !< Partial derivatives.
-   ! FD centered 1st derivative coefficients (up to 10th order = s=5)
-   integer(I4P), parameter :: S_MAX=5_I4P
-   real(R8P), parameter :: FD1_CC_S1(S_MAX)=[   1._R8P,   0._R8P,  0._R8P,  0._R8P,0._R8P]/2._R8P
-   real(R8P), parameter :: FD1_CC_S2(S_MAX)=[   8._R8P,  -1._R8P,  0._R8P,  0._R8P,0._R8P]/12._R8P
-   real(R8P), parameter :: FD1_CC_S3(S_MAX)=[  45._R8P,  -9._R8P,  1._R8P,  0._R8P,0._R8P]/60._R8P
-   real(R8P), parameter :: FD1_CC_S4(S_MAX)=[ 672._R8P,-168._R8P, 32._R8P, -3._R8P,0._R8P]/840._R8P
-   real(R8P), parameter :: FD1_CC_S5(S_MAX)=[2100._R8P,-600._R8P,150._R8P,-25._R8P,2._R8P]/2520._R8P
-   real(R8P), parameter :: FD1_CC(S_MAX,S_MAX)=reshape([FD1_CC_S1, FD1_CC_S2, FD1_CC_S3, FD1_CC_S4, FD1_CC_S5],[S_MAX,S_MAX])
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
              hs=>self%numerics%fdv_half_stencils(1))
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,divergence_gpu,dxyz_gpu)
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      ! Compute dqx/dx directly from GPU layout q_gpu(b,i,j,k,v)
-      div_x = 0._R8P
-      do m=1, hs
-         div_x = div_x + FD1_CC(m,hs)*(q_gpu(b,i+m,j,k,ivar) - q_gpu(b,i-m,j,k,ivar))
-      enddo
-      div_x = div_x / dxyz_gpu(b,1)
-      ! Compute dqy/dy
-      div_y = 0._R8P
-      do m=1, hs
-         div_y = div_y + FD1_CC(m,hs)*(q_gpu(b,i,j+m,k,ivar+1) - q_gpu(b,i,j-m,k,ivar+1))
-      enddo
-      div_y = div_y / dxyz_gpu(b,2)
-      ! Compute dqz/dz
-      div_z = 0._R8P
-      do m=1, hs
-         div_z = div_z + FD1_CC(m,hs)*(q_gpu(b,i,j,k+m,ivar+2) - q_gpu(b,i,j,k-m,ivar+2))
-      enddo
-      div_z = div_z / dxyz_gpu(b,3)
-      ! Sum to get divergence
-      divergence_gpu(b,i,j,k,ovar) = div_x + div_y + div_z
-   enddo
-   enddo
-   enddo
-   enddo
+
    endassociate
    endsubroutine compute_divergence_fd
 
@@ -939,38 +730,7 @@ contains
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
              hs=>self%numerics%fdv_half_stencils(1))
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,divergence_gpu,dxyz_gpu) private(q_line)
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      ! Compute dqx/dx using FV reconstruction
-      do m=1-hs, 1+hs
-         q_line(m) = q_gpu(b,i-1+m,j,k,ivar)
-      enddo
-      call compute_reconstruction_r_fv_centered(s=hs,q=q_line(1-hs:hs),qr=ql)
-      call compute_reconstruction_r_fv_centered(s=hs,q=q_line(2-hs:1+hs),qr=qr)
-      div_x = (qr-ql) / dxyz_gpu(b,1)
-      ! Compute dqy/dy
-      do m=1-hs, 1+hs
-         q_line(m) = q_gpu(b,i,j-1+m,k,ivar+1)
-      enddo
-      call compute_reconstruction_r_fv_centered(s=hs,q=q_line(1-hs:hs),qr=ql)
-      call compute_reconstruction_r_fv_centered(s=hs,q=q_line(2-hs:1+hs),qr=qr)
-      div_y = (qr-ql) / dxyz_gpu(b,2)
-      ! Compute dqz/dz
-      do m=1-hs, 1+hs
-         q_line(m) = q_gpu(b,i,j,k-1+m,ivar+2)
-      enddo
-      call compute_reconstruction_r_fv_centered(s=hs,q=q_line(1-hs:hs),qr=ql)
-      call compute_reconstruction_r_fv_centered(s=hs,q=q_line(2-hs:1+hs),qr=qr)
-      div_z = (qr-ql) / dxyz_gpu(b,3)
-      ! Sum to get divergence
-      divergence_gpu(b,i,j,k,ovar) = div_x + div_y + div_z
-   enddo
-   enddo
-   enddo
-   enddo
+
    endassociate
    endsubroutine compute_divergence_fv
 
@@ -984,17 +744,7 @@ contains
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
              hs=>self%numerics%fdv_half_stencils(1))
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,gradient_gpu,dxyz_gpu)
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      call compute_gradient_fd_centered(s=hs,dxyz=dxyz_gpu(b,:),q=q_gpu(b,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,ivar),&
-                                        gradient=gradient_gpu(b,i,j,k,1:3))
-   enddo
-   enddo
-   enddo
-   enddo
+
    endassociate
    endsubroutine compute_gradient_fd
 
@@ -1008,17 +758,7 @@ contains
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
              hs=>self%numerics%fdv_half_stencils(1))
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,gradient_gpu,dxyz_gpu)
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      call compute_gradient_fv_centered(s=hs,dxyz=dxyz_gpu(b,:),q=q_gpu(b,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,ivar),&
-                                        gradient=gradient_gpu(b,i,j,k,1:3))
-   enddo
-   enddo
-   enddo
-   enddo
+
    endassociate
    endsubroutine compute_gradient_fv
 
@@ -1032,17 +772,7 @@ contains
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
              hs=>self%numerics%fdv_half_stencils(2))
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,laplacian_gpu,dxyz_gpu)
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      call compute_laplacian_fd_centered(s=hs,dxyz=dxyz_gpu(b,:),q=q_gpu(b,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,ivar),&
-                                         laplacian=laplacian_gpu(b,i,j,k))
-   enddo
-   enddo
-   enddo
-   enddo
+
    endassociate
    endsubroutine compute_laplacian_fd
 
@@ -1056,17 +786,7 @@ contains
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
              hs=>self%numerics%fdv_half_stencils(2))
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,laplacian_gpu,dxyz_gpu)
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      call compute_laplacian_fv_centered(s=hs,dxyz=dxyz_gpu(b,:),q=q_gpu(b,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,ivar),&
-                                         laplacian=laplacian_gpu(b,i,j,k))
-   enddo
-   enddo
-   enddo
-   enddo
+
    endassociate
    endsubroutine compute_laplacian_fv
 
@@ -1087,18 +807,13 @@ contains
    integer(I4P),  optional, intent(in)    :: s                  !< Stage counter.
    integer(I4P)                           :: i,j,k,b            !< Counter
    real(R8P)                              :: curlD(3), curlB(3) !< Residuals components.
-   real(R8P) :: qsx_y(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1))
-   real(R8P) :: qsx_z(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1))
-   real(R8P) :: qsy_x(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1))
-   real(R8P) :: qsy_z(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1))
-   real(R8P) :: qsz_x(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1))
-   real(R8P) :: qsz_y(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1))
 
    ! Note: blocks_number, ni, nj, ecc... are used as copyin, but probably they should be firstprivate; however, with
    ! the current NVidia SDK (24.xy/25.xy) firstprivate with *associate* variables does not work.
    associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
              var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz,   &
-             s1=>self%numerics%fdv_half_stencils(1), dxyz_gpu=>self%field_gpu%dxyz_gpu)
+             s1=>self%numerics%fdv_half_stencils(1), dxyz_gpu=>self%field_gpu%dxyz_gpu,               &
+             qsx_y=>self%qsx_y,qsx_z=>self%qsx_z,qsy_x=>self%qsy_x,qsy_z=>self%qsy_z,qsz_x=>self%qsz_x,qsz_y=>self%qsz_y)
    if (blocks_number > 0) then
       call self%update_ghost(q_gpu=q_gpu, s=s)
       ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0)
@@ -1319,6 +1034,7 @@ contains
    real(R8P)                              :: timing(1:2)      !< Tic toc timing.
    real(R8P)                              :: timing_step(1:2) !< Tic toc timing.
    integer(I4P)                           :: i                !< Counter.
+   integer(I4P)                           :: v
 
    ! initialization
    call self%initialize(filename=filename)
@@ -1339,6 +1055,18 @@ contains
       self%time%it = 0
       call self%mpih_gpu%print_message('impose initial conditions finish')
    endif
+   ! debug to be removed
+   call self%copy_gpu_cpu
+   do v=1, size(self%q,dim=1)
+      print*, 'cazzo q',v,minval(self%q(v,:,:,:,1)),maxval(self%q(1,:,:,:,1))
+   enddo
+   do v=1, size(self%coil%j_vec,dim=1)
+      print*, 'cazzo j_vec',v,minval(self%coil%j_vec(v,:,:,:,1)),maxval(self%coil%j_vec(1,:,:,:,1))
+   enddo
+   print*, 'cazzo coil_flag',minval(self%coil%coil_flag(:,:,:,1)),maxval(self%coil%coil_flag(:,:,:,1))
+   print*, 'cazzo press enter for the next step'
+   read(*,*)
+
    !if (self%ib%solids_number > 0) call self%compute_phi()
    ! call self%amr_update
    ! call self%compute_divergence(ivar=1,ovar=1,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)

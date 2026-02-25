@@ -12,7 +12,6 @@ implicit none
 private
 public :: compute_q_gradient_dev
 public :: compute_normL2_residuals_dev
-public :: copy_transpose_gpu_cpu_dev
 public :: populate_send_buffer_ghost_gpu_dev
 public :: receive_recv_buffer_ghost_gpu_dev
 public :: update_ghost_local_gpu_dev
@@ -80,41 +79,6 @@ contains
       norm(v) = norm_gpu
    enddo
    endsubroutine compute_normL2_residuals_dev
-
-   subroutine copy_transpose_gpu_cpu_dev(ni, nj, nk, ngc, nv, blocks_number, q_gpu, q_t_gpu)
-   !< Copy transposed data from GPU to CPU by CUF threads.
-   integer(I4P), intent(in)    :: ni            !< Grid cells number in I direction.
-   integer(I4P), intent(in)    :: nj            !< Grid cells number in J direction.
-   integer(I4P), intent(in)    :: nk            !< Grid cells number in K direction.
-   integer(I4P), intent(in)    :: ngc           !< Ghost cells number.
-   integer(I4P), intent(in)    :: nv            !< Number of conservative varibales.
-   integer(I4P), intent(in)    :: blocks_number !< Number of blocks.
-   real(R8P),    intent(in)    :: q_gpu(1:,    &
-                                        1-ngc:,&
-                                        1-ngc:,&
-                                        1-ngc:,&
-                                        1:)     !< Conservative variables on GPU.
-   real(R8P),    intent(inout) :: q_t_gpu(1:,    &
-                                          1-ngc:,&
-                                          1-ngc:,&
-                                          1-ngc:,&
-                                          1:)   !< Conservative (transposed) variables on GPU.
-   integer(I4P)                :: i, j, k, b, v !< Counter.
-
-   !$acc parallel loop independent DEVICEVAR(q_gpu, q_t_gpu)
-   !$omp OMPLOOP DEVICEVAR(q_gpu, q_t_gpu)
-   do k=1-ngc, nk+ngc
-      do j=1-ngc, nj+ngc
-         do i=1-ngc, ni+ngc
-            do b=1, blocks_number
-               do v=1, nv
-                  q_t_gpu(v,i,j,k,b) = q_gpu(b,i,j,k,v)
-               enddo
-            enddo
-         enddo
-      enddo
-   enddo
-   endsubroutine copy_transpose_gpu_cpu_dev
 
    subroutine populate_send_buffer_ghost_gpu_dev(ngc, comm_map_send_ghost_cell_gpu, send_buffer_ghost_gpu, q_gpu)
    !< Polulate send buffer ghost GPU.

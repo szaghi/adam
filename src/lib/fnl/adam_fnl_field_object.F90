@@ -1,4 +1,7 @@
 !< ADAM, field class definition, FNL backend.
+
+#include "fundal.H"
+
 module adam_fnl_field_object
 !< ADAM, field class definition, FNL backend.
 
@@ -20,16 +23,13 @@ type :: field_fnl_object
    type(mpih_fnl_object)       :: mpih           !< MPI handler.
    type(maps_fnl_object)       :: maps           !< Maps handler.
    type(field_object), pointer :: field=>null()  !< The field.
-   real(R8P), allocatable      :: q_t(:,:,:,:,:) !< Transposed cell centered variables on CPU.
    ! device data
-   real(R8P),    pointer :: q_gpu(:,:,:,:,:)     !< Field cell centered variables.
-   real(R8P),    pointer :: q_t_gpu(:,:,:,:,:)   !< Transposed cell centered variables on GPU.
-   integer(I4P), pointer :: fec_1_6_array_gpu(:) !< Mapping fec1-26 to fec1-6 for boundaries (GPU).
+   integer(I4P), pointer :: fec_1_6_array_gpu(:)=>null() !< Mapping fec1-26 to fec1-6 for boundaries (GPU).
    ! device data copied from field object
-   real(R8P), pointer :: x_cell_gpu(:,:) !< Cells x coordinates on GPU [nb,1-ngc:ni+ngc].
-   real(R8P), pointer :: y_cell_gpu(:,:) !< Cells y coordinates on GPU [nb,1-ngc:nj+ngc].
-   real(R8P), pointer :: z_cell_gpu(:,:) !< Cells z coordinates on GPU [nb,1-ngc:nk+ngc].
-   real(R8P), pointer :: dxyz_gpu(:,:)   !< Delta cells GPU [nb,3].
+   real(R8P), pointer :: x_cell_gpu(:,:)=>null() !< Cells x coordinates on GPU [nb,1-ngc:ni+ngc].
+   real(R8P), pointer :: y_cell_gpu(:,:)=>null() !< Cells y coordinates on GPU [nb,1-ngc:nj+ngc].
+   real(R8P), pointer :: z_cell_gpu(:,:)=>null() !< Cells z coordinates on GPU [nb,1-ngc:nk+ngc].
+   real(R8P), pointer :: dxyz_gpu(:,:)=>null()   !< Delta cells GPU [nb,3].
    ! grid/field data replica for easy handling
    integer(I4P), pointer :: ngc=>null()           !< Number of ghost cells.
    integer(I4P), pointer :: ni=>null()            !< Number of cells in i direction.
@@ -42,8 +42,8 @@ type :: field_fnl_object
       ! public methods
       procedure, pass(self) :: compute_q_gradient     !< Compute maximum gradient module of q element of a block.
       procedure, pass(self) :: copy_cpu_gpu           !< Copy data from (field_object) CPU to (field_fnl_object) GPU.
-      procedure, pass(self) :: copy_transpose_cpu_gpu !< Transpose data from GPU to CPU.
-      procedure, pass(self) :: copy_transpose_gpu_cpu !< Transpose data from GPU to CPU.
+      ! procedure, pass(self) :: copy_transpose_cpu_gpu !< Transpose data from GPU to CPU.
+      ! procedure, pass(self) :: copy_transpose_gpu_cpu !< Transpose data from GPU to CPU.
       procedure, pass(self) :: initialize             !< Initialize field.
       procedure, pass(self) :: update_ghost_local_gpu !< Update ghosts locally.
       procedure, pass(self) :: update_ghost_mpi_gpu   !< Update ghosts MPI.
@@ -86,81 +86,93 @@ contains
    if (verbose_) call self%mpih%print_message('field_fnl_object%copy_cpu_gpu finish')
    endsubroutine copy_cpu_gpu
 
-   subroutine copy_transpose_cpu_gpu(self, nv, q_cpu, q_gpu)
+   subroutine copy_transpose_cpu_gpu(self, nv, q_cpu, q_t, q_gpu)
    !< Copy transposed data from CPU to GPU.
    !< This routine is called by equation typically passing either q_gpu or q_aux_gpu.
-   class(field_fnl_object), intent(inout) :: self          !< The field.
-   integer(I4P),            intent(in)    :: nv            !< Number of varibales.
-   real(R8P),               intent(in)    :: q_cpu(1:,                    &
-                                                   1-self%field%grid%ngc:,&
-                                                   1-self%field%grid%ngc:,&
-                                                   1-self%field%grid%ngc:,&
-                                                   1:)     !< Conservative variables on CPU.
-   real(R8P),               intent(out)   :: q_gpu(1:,                    &
-                                                   1-self%field%grid%ngc:,&
-                                                   1-self%field%grid%ngc:,&
-                                                   1-self%field%grid%ngc:,&
-                                                   1:)     !< Conservative variables on GPU.
-   integer(I4P)                           :: i, j, k, b, v !< Counter.
+   class(field_fnl_object), intent(inout) :: self      !< The field.
+   integer(I4P),            intent(in)    :: nv        !< Number of varibales.
+   real(R8P),               intent(in)    :: q_cpu(1:,         &
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1:) !< Conservative variables on CPU.
+   real(R8P),               intent(inout) :: q_t(1:,         &
+                                                 1-self%ngc:,&
+                                                 1-self%ngc:,&
+                                                 1-self%ngc:,&
+                                                 1:)   !< Transposed conservative variables on CPU.
+   real(R8P),               intent(inout) :: q_gpu(1:,         &
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1:) !< Conservative variables on GPU.
+   integer(I4P)                           :: i,j,k,b,v !< Counter.
 
-   associate(blocks_number=>self%field%blocks_number, &
-             ni=>self%field%grid%ni,                  &
-             nj=>self%field%grid%nj,                  &
-             nk=>self%field%grid%nk,                  &
-             ngc=>self%field%grid%ngc,                &
-             q_t=>self%q_t)
-      do b=1, blocks_number
-         do k=1-ngc, nk+ngc
-            do j=1-ngc, nj+ngc
-               do i=1-ngc, ni+ngc
-                  do v=1, nv
-                     q_t(b,i,j,k,v) = q_cpu(v,i,j,k,b)
-                  enddo
-               enddo
-            enddo
-         enddo
-      enddo
-      call dev_memcpy_to_device(dst=q_gpu, src=q_t(1:blocks_number,:,:,:,1:nv))
+   associate(blocks_number=>self%blocks_number,ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc)
+   do b=1, blocks_number
+   do k=1-ngc, nk+ngc
+   do j=1-ngc, nj+ngc
+   do i=1-ngc, ni+ngc
+   do v=1, nv
+      q_t(b,i,j,k,v) = q_cpu(v,i,j,k,b)
+   enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   call dev_memcpy_to_device(dst=q_gpu, src=q_t)
    endassociate
    endsubroutine copy_transpose_cpu_gpu
 
-   subroutine copy_transpose_gpu_cpu(self, nv, q_gpu, q_cpu)
+   subroutine copy_transpose_gpu_cpu(self, nv, q_gpu, q_t_gpu, q_cpu)
    !< Copy transposed data from GPU to CPU.
    !< This routine is called by equation typically passing either q_gpu or q_aux_gpu.
-   class(field_fnl_object), intent(inout) :: self      !< The equation.
-   integer(I4P),            intent(in)    :: nv        !< Number of varibales.
-   real(R8P),               intent(in)    :: q_gpu(1:,                    &
-                                                   1-self%field%grid%ngc:,&
-                                                   1-self%field%grid%ngc:,&
-                                                   1-self%field%grid%ngc:,&
-                                                   1:) !< Conservative variables on GPU.
-   real(R8P),               intent(inout) :: q_cpu(1:,                    &
-                                                   1-self%field%grid%ngc:,&
-                                                   1-self%field%grid%ngc:,&
-                                                   1-self%field%grid%ngc:,&
-                                                   1:) !< Conservative variables on CPU.
+   class(field_fnl_object), intent(inout) :: self        !< The field.
+   integer(I4P),            intent(in)    :: nv          !< Number of varibales.
+   real(R8P),               intent(in)    :: q_gpu(1:,         &
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1:)   !< Conservative variables on GPU.
+   real(R8P),               intent(inout) :: q_t_gpu(1:,         &
+                                                     1-self%ngc:,&
+                                                     1-self%ngc:,&
+                                                     1-self%ngc:,&
+                                                     1:) !< Transposed conservative variables on GPU.
+   real(R8P),               intent(inout) :: q_cpu(1:,         &
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1:)   !< Conservative variables on CPU.
+   integer(I4P)                           :: i,j,k,b,v   !< Counter.
 
-   associate(blocks_number=>self%field%blocks_number, &
-             ni=>self%field%grid%ni,                  &
-             nj=>self%field%grid%nj,                  &
-             nk=>self%field%grid%nk,                  &
-             ngc=>self%field%grid%ngc,                &
-             q_t_gpu=>self%q_t_gpu)
-      call copy_transpose_gpu_cpu_dev(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=nv,blocks_number=blocks_number,q_gpu=q_gpu,q_t_gpu=q_t_gpu)
-      ! q_t_gpu has nv_aux variables which can be larger than local nv (i.e., nv or nv_aux)
-      ! q_cpu   has local nv variables which is lower than nv_aux
-      call dev_memcpy_from_device(dst=q_cpu(1:nv,:,:,:,1:blocks_number), src=q_t_gpu(1:nv,:,:,:,1:blocks_number))
+   associate(blocks_number=>self%blocks_number,ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc)
+   !$acc parallel loop independent DEVICEVAR(q_gpu, q_t_gpu)
+   !$omp OMPLOOP DEVICEVAR(q_gpu, q_t_gpu)
+   do b=1, blocks_number
+   do k=1-ngc, nk+ngc
+   do j=1-ngc, nj+ngc
+   do i=1-ngc, ni+ngc
+   do v=1, nv
+      q_t_gpu(v,i,j,k,b) = q_gpu(b,i,j,k,v)
+   enddo
+   enddo
+   enddo
+   enddo
+   enddo
+   call dev_memcpy_from_device(dst=q_cpu, src=q_t_gpu)
    endassociate
    endsubroutine copy_transpose_gpu_cpu
 
-   subroutine initialize(self, field, nv_aux, verbose)
+   subroutine initialize(self, field, nv_aux, q_gpu, verbose)
    !< Initialize field.
-   class(field_fnl_object), intent(inout)        :: self    !< The field.
-   type(field_object),      intent(in), target   :: field   !< Field variable array.
-   integer(I4P),            intent(in), optional :: nv_aux  !< Number of auxiliary variables.
-   logical,                 intent(in), optional :: verbose !< Flag to activate verbose mode.
-   integer(I4P)                                  :: nv_aux_ !< Number of auxiliary variables (local var).
-   integer(I4P)                                  :: ierr    !< Error status.
+   class(field_fnl_object), intent(inout)           :: self             !< The field.
+   type(field_object),      intent(in), target      :: field            !< Field variable array.
+   integer(I4P),            intent(in),    optional :: nv_aux           !< Number of auxiliary variables.
+   real(R8P), pointer,      intent(inout), optional :: q_gpu(:,:,:,:,:) !< Field cell centered variables.
+   logical,                 intent(in),    optional :: verbose          !< Flag to activate verbose mode.
+   integer(I4P)                                     :: nv_aux_          !< Number of auxiliary variables (local var).
+   integer(I4P)                                     :: ierr             !< Error status.
 
    call self%mpih%initialize
    call self%mpih%print_message('field_fnl_object%initialize start')
@@ -174,13 +186,10 @@ contains
    self%nv            => field%nv
    call self%maps%initialize(maps=field%maps)
    associate(nb=>field%nb, ngc=>field%grid%ngc, ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, nv=>field%nv)
-      call dev_alloc(fptr_dev=self%q_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], ierr=ierr)
+      if (present(q_gpu)) &
+         call dev_alloc(fptr_dev=q_gpu, ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], ierr=ierr)
       call dev_assign_to_device(dst=self%fec_1_6_array_gpu, src=FEC_1_6_ARRAY)
       nv_aux_ = self%field%nv ; if (present(nv_aux)) nv_aux_ = max(nv_aux_, nv_aux)
-      call allocate_variable(var=self%q_t,                                                               &
-                             ulb=reshape([1,nb,1-ngc,ni+ngc,1-ngc,nj+ngc,1-ngc,nk+ngc,1,nv_aux_],[2,5]), &
-                             msg=self%mpih%myrankstr//'field_fnl_object%initialize allocate_variable(q_t) ', verbose=verbose)
-      call dev_alloc(fptr_dev=self%q_t_gpu, ubounds=[nv_aux_,ni+ngc,nj+ngc,nk+ngc,nb], lbounds=[1,1-ngc,1-ngc,1-ngc,1], ierr=ierr)
    endassociate
    call self%copy_cpu_gpu
    call self%mpih%print_message('field_fnl_object%initialize finish')

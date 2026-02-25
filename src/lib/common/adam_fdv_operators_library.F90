@@ -86,6 +86,8 @@ real(R8P), parameter :: FD1_CC(S_MAX,S_MAX)=reshape([FD1_CC_S1, &
                                                      FD1_CC_S4, &
                                                      FD1_CC_S5],&
                                                     [S_MAX,S_MAX]) !< Finite difference derivative 1 centered coefficients.
+!$acc declare copyin(FD1_CC_S1,FD1_CC_S2,FD1_CC_S3,FD1_CC_S4,FD1_CC_S5,FD1_CC)
+
 !< Derivative of order 2
 !< | Order \(p\) | Stencil points \(m\)     | Coefficients \(c_m^{(p)}\)                                       |
 !< |-------------|--------------------------|------------------------------------------------------------------|
@@ -107,6 +109,8 @@ real(R8P), parameter :: FD2_CC(S_MAX+1,S_MAX)=reshape([FD2_CC_S1, &
                                                        FD2_CC_S4, &
                                                        FD2_CC_S5],&
                                                       [S_MAX+1,S_MAX]) !< Finite difference derivative 2 centered coefficients.
+!$acc declare copyin(FD2_CC_S1,FD2_CC_S2,FD2_CC_S3,FD2_CC_S4,FD2_CC_S5,FD2_CC)
+
 !< Derivative of order 3
 !< |Order p   | Stencil points \(m\)     | Coefficients \(c_m^{(p)}\)                                                 |
 !< |----------|--------------------------|----------------------------------------------------------------------------|
@@ -128,6 +132,8 @@ real(R8P), parameter :: FD3_CC(S_MAX,S_MAX)=reshape([FD3_CC_S1, &
                                                      FD3_CC_S4, &
                                                      FD3_CC_S5],&
                                                     [S_MAX,S_MAX]) !< Finite difference derivative 3 centered coefficients.
+!$acc declare copyin(FD3_CC_S1,FD3_CC_S2,FD3_CC_S3,FD3_CC_S4,FD3_CC_S5,FD3_CC)
+
 !< Derivative of order 4
 !< |Order p   | Stencil points \(m\)     | Coefficients \(c_m^{(p)}\)                                                 |
 !< |----------|--------------------------|----------------------------------------------------------------------------|
@@ -149,6 +155,8 @@ real(R8P), parameter :: FD4_CC(S_MAX+1,S_MAX)=reshape([FD4_CC_S1, &
                                                        FD4_CC_S4, &
                                                        FD4_CC_S5],&
                                                       [S_MAX+1,S_MAX]) !< Finite difference derivative 4 centered coefficients.
+!$acc declare copyin(FD4_CC_S1,FD4_CC_S2,FD4_CC_S3,FD4_CC_S4,FD4_CC_S5,FD4_CC)
+
 !< Derivative of order 5
 !< |Order p   | Stencil points \(m\)     | Coefficients \(c_m^{(p)}\)                                     |
 !< |----------|--------------------------|----------------------------------------------------------------|
@@ -170,6 +178,8 @@ real(R8P), parameter :: FD5_CC(S_MAX,S_MAX)=reshape([FD5_CC_S1, &
                                                      FD5_CC_S4, &
                                                      FD5_CC_S5],&
                                                     [S_MAX,S_MAX]) !< Finite difference derivative 5 centered coefficients.
+!$acc declare copyin(FD5_CC_S1,FD5_CC_S2,FD5_CC_S3,FD5_CC_S4,FD5_CC_S5,FD5_CC)
+
 !< Derivative of order 6
 !< |Order p   | Stencil points \(m\)     | Coefficients \(c_m^{(p)}\)                                     |
 !< |----------|--------------------------|----------------------------------------------------------------|
@@ -191,6 +201,7 @@ real(R8P), parameter :: FD6_CC(S_MAX+1,S_MAX)=reshape([FD6_CC_S1, &
                                                        FD6_CC_S4, &
                                                        FD6_CC_S5],&
                                                       [S_MAX+1,S_MAX]) !< Finite difference derivative 6 centered coefficients.
+!$acc declare copyin(FD6_CC_S1,FD6_CC_S2,FD6_CC_S3,FD6_CC_S4,FD6_CC_S5,FD6_CC)
 
 !< Finite Volume (volumetric averages, derivative from flux differences) centered schemes.
 !< Approximate face values \(q_{i+1/2}\) and \(q_{i-1/2}\) as:
@@ -229,6 +240,7 @@ real(R8P), parameter :: FV1_CC(S_MAX,S_MAX)=reshape([FV1_CC_S1, &
                                                      FV1_CC_S4, &
                                                      FV1_CC_S5],&
                                                     [S_MAX,S_MAX]) !< Finite volume centered reconstruction coefficients.
+!$acc declare copyin(FV1_CC_S1,FV1_CC_S2,FV1_CC_S3,FV1_CC_S4,FV1_CC_S5,FV1_CC)
 
 !< Right-upwind schemes (left-upwind are mirrored).
 !< | Order \(p\)| Stencil points \(m\)  | Coefficients \(a_m^{(p)}\) for \(q_{i+1/2}\)                   |
@@ -253,6 +265,7 @@ real(R8P), parameter :: FV1_UR(S_MAX,S_MAX)=reshape([FV1_UR_S1, &
                                                      FV1_UR_S4, &
                                                      FV1_UR_S5],&
                                                     [S_MAX,S_MAX]) !< Finite volume right-upwind reconstruction coefficients.
+!$acc declare copyin(FV1_UR_S1,FV1_UR_S2,FV1_UR_S3,FV1_UR_S4,FV1_UR_S5,FV1_UR)
 real(R8P), parameter :: FV1_UL_S1(S_MAX)=[ 1._R8P,  0._R8P,  0._R8P,   0._R8P,  0._R8P]         !< FV1UL, S1.
 real(R8P), parameter :: FV1_UL_S2(S_MAX)=[-1._R8P,  3._R8P,  0._R8P,   0._R8P,  0._R8P]/2._R8P  !< FV1UL, S2.
 real(R8P), parameter :: FV1_UL_S3(S_MAX)=[ 2._R8P, -7._R8P, 11._R8P,   0._R8P,  0._R8P]/6._R8P  !< FV1UL, S3.
@@ -264,6 +277,7 @@ real(R8P), parameter :: FV1_UL(S_MAX,S_MAX)=reshape([FV1_UL_S1, &
                                                      FV1_UL_S4, &
                                                      FV1_UL_S5],&
                                                     [S_MAX,S_MAX]) !< Finite volume left-upwind reconstruction coefficients.
+!$acc declare copyin(FV1_UL_S1,FV1_UL_S2,FV1_UL_S3,FV1_UL_S4,FV1_UL_S5,FV1_UL)
 
 interface
    pure subroutine compute_curl_fdv_interface(s,dxyz,q,curl)
@@ -369,7 +383,6 @@ contains
    real(R8P)                 :: dqx_dy, dqx_dz       !< Derivatives of qx.
    real(R8P)                 :: dqy_dx, dqy_dz       !< Derivatives of qy.
    real(R8P)                 :: dqz_dx, dqz_dy       !< Derivatives of qz.
-   !$acc routine seq
 
    call compute_derivative1_fd_centered(s=s,ds=dxyz(2),q=q(1,1      ,1-s:1+s,1      ),dq_ds=dqx_dy)
    call compute_derivative1_fd_centered(s=s,ds=dxyz(3),q=q(1,1      ,1      ,1-s:1+s),dq_ds=dqx_dz)
@@ -502,7 +515,6 @@ contains
    real(R8P),    intent(in)  :: dxyz(1:)          !< Space steps [1:3].
    real(R8P),    intent(in)  :: q(1-s:,1-s:,1-s:) !< Scalar field over the stencil [1-s:1+s,1-s:1+s,1-s:1+s].
    real(R8P),    intent(out) :: gradient(1:)      !< Gradient of q [1:3].
-   !$acc routine seq
 
    call compute_derivative1_fd_centered(s=s,ds=dxyz(1),q=q(1-s:1+s,1,1),dq_ds=gradient(1))
    call compute_derivative1_fd_centered(s=s,ds=dxyz(2),q=q(1,1-s:1+s,1),dq_ds=gradient(2))
@@ -516,7 +528,6 @@ contains
    real(R8P),    intent(in)  :: q(1-s:,1-s:,1-s:)       !< Scalar field over the stencil [1-s:1+s,1-s:1+s,1-s:1+s].
    real(R8P),    intent(out) :: laplacian               !< Laplacian of q.
    real(R8P)                 :: d2q_dx2,d2q_dy2,d2q_dz2 !< Laplacian parts.
-   !$acc routine seq
 
    call compute_derivative2_fd_centered(s=s,ds=dxyz(1),q=q(1-s:1+s,1,1),d2q_ds2=d2q_dx2)
    call compute_derivative2_fd_centered(s=s,ds=dxyz(2),q=q(1,1-s:1+s,1),d2q_ds2=d2q_dy2)
@@ -535,7 +546,6 @@ contains
    real(R8P)                 :: dqx_dy, dqx_dz       !< Derivatives of qx.
    real(R8P)                 :: dqy_dx, dqy_dz       !< Derivatives of qy.
    real(R8P)                 :: dqz_dx, dqz_dy       !< Derivatives of qz.
-   !$acc routine seq
 
    call compute_derivative1_fv_centered(s=s,ds=dxyz(2),q=q(1,1      ,1-s:1+s,1      ),dq_ds=dqx_dy)
    call compute_derivative1_fv_centered(s=s,ds=dxyz(3),q=q(1,1      ,1      ,1-s:1+s),dq_ds=dqx_dz)
@@ -642,7 +652,6 @@ contains
    real(R8P),    intent(in)  :: q(1:,1-s:,1-s:,1-s:) !< Vector field over the stencil [1:3,1-s:1+s,1-s:1+s,1-s:1+s].
    real(R8P),    intent(out) :: divergence           !< Divergence of q.
    real(R8P)                 :: div_x, div_y, div_z  !< Divergence components.
-   !$acc routine seq
 
    call compute_derivative1_fv_centered(s=s,ds=dxyz(1),q=q(1,1-s:1+s,1,1),dq_ds=div_x)
    call compute_derivative1_fv_centered(s=s,ds=dxyz(2),q=q(2,1,1-s:1+s,1),dq_ds=div_y)
@@ -656,7 +665,6 @@ contains
    real(R8P),    intent(in)  :: dxyz(1:)          !< Space steps [1:3].
    real(R8P),    intent(in)  :: q(1-s:,1-s:,1-s:) !< Scalar field over the stencil [1-s:1+s,1-s:1+s,1-s:1+s].
    real(R8P),    intent(out) :: gradient(1:)      !< Gradient of q [1:3].
-   !$acc routine seq
 
    call compute_derivative1_fv_centered(s=s,ds=dxyz(1),q=q(1-s:1+s,1,1),dq_ds=gradient(1))
    call compute_derivative1_fv_centered(s=s,ds=dxyz(2),q=q(1,1-s:1+s,1),dq_ds=gradient(2))
@@ -670,7 +678,6 @@ contains
    real(R8P),    intent(in)  :: q(1-s:,1-s:,1-s:)       !< Scalar field over the stencil [1-s:1+s,1-s:1+s,1-s:1+s].
    real(R8P),    intent(out) :: laplacian               !< Laplacian of q.
    real(R8P)                 :: d2q_dx2,d2q_dy2,d2q_dz2 !< Laplacian parts.
-   !$acc routine seq
 
    call compute_derivative2_fv_centered(s=s,ds=dxyz(1),q=q(1-s:1+s,1,1),d2q_ds2=d2q_dx2)
    call compute_derivative2_fv_centered(s=s,ds=dxyz(2),q=q(1,1-s:1+s,1),d2q_ds2=d2q_dy2)
@@ -791,6 +798,7 @@ contains
    enddo
    endsubroutine compute_reconstruction_r_fv_rupwind
 
+   ! left-upwind
    pure subroutine compute_derivative1_fv_lupwind(s,ds,q,dq_ds)
    !< Compute derivative of order 1 with finite volume left-upwind scheme.
    integer(I4P), intent(in)  :: s      !< Stencil len, accuracy order.
