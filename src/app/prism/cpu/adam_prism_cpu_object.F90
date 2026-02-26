@@ -2593,12 +2593,6 @@ contains
    call self%compute_curl(ivar=1_I4P,q=A,curl=J_vec_buffer)
    J_vec_buffer = J_vec_buffer * verse !* 10.0_R8P**4._R8P
 
-   !!!!!!!!!!!!!!!!!call self%compute_divergence(ivar=1_I4P,q=J_vec_buffer,divergence=self%divergence(3,:,:,:,:))
-   !!!!!!!!!!!!!!!!!print *, 'Divergenza J_vec_buffer pre Poisson: ', maxval(abs(self%divergence(3,:,:,:,:)))
-   !!!!!!!!!!!!!!!!!!call self%impose_div_coil_correction(ivar=1_I4P, q=J_vec_buffer)
-   !!!!!!!!!!!!!!!!!call self%compute_divergence(ivar=1_I4P,q=J_vec_buffer,divergence=self%divergence(3,:,:,:,:))
-   !!!!!!!!!!!!!!!!!print *, 'Divergenza J_vec_buffer post Poisson: ', maxval(abs(self%divergence(3,:,:,:,:)))
-
    do b=1, blocks_number
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
@@ -2617,49 +2611,49 @@ contains
    !Riscalo ampiezza per matchare valore in input
    call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
 
-   !Calcolo divergenza di J (ampiezza massima) prima della correzione alla Poisson
-   self%coil%J_vec(n,1:3,:,:,:,:) = self%coil%J_vec(n,1:3,:,:,:,:) * self%coil%A(n)
-   self%divergence(3,:,:,:,:) = 0.0_R8P
-   call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(n,1:3,:,:,:,:),divergence=self%divergence(3,:,:,:,:))
-   print *, 'Divergenza J max pre Poisson: ', maxval(abs(self%divergence(3,:,:,:,:)))
-
-   !Applico correzione alla Poisson per ridurre divergenza residua
-   call self%impose_div_coil_correction(ivar=1_I4P, q=self%coil%J_vec(n,1:3,:,:,:,:))
-   self%divergence(3,:,:,:,:) = 0.0_R8P
-   call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(n,1:3,:,:,:,:),divergence=self%divergence(3,:,:,:,:))
-   print *, 'Divergenza J max post Poisson: ', maxval(abs(self%divergence(3,:,:,:,:)))
-
-   !Riscalo J_vec a versore
-   self%coil%J_vec(n,1:3,:,:,:,:)=self%coil%J_vec(n,1:3,:,:,:,:)/self%coil%A(n)
-
-
-   !!Prove per capire se il problema è il round-off
-   !print *, 'max|J| pre  = ', maxval(abs(self%coil%J_vec(n,1:3,:,:,:,:)))
-   !J_vec_buffer = self%coil%J_vec(n,1:3,:,:,:,:)
-   !self%coil%J_vec(n,1:3,:,:,:,:)=self%coil%J_vec(n,1:3,:,:,:,:)/self%coil%A(n)*self%coil%A(n)
-   !print *, 'max|J| post = ', maxval(abs(self%coil%J_vec(n,1:3,:,:,:,:)))
-   !print *, 'max|dJ|     = ', maxval(abs( self%coil%J_vec(n,1:3,:,:,:,:) - J_vec_buffer(1:3,:,:,:,:) ))
-   !print *, 'rel err max = ', maxval(abs(self%coil%J_vec(n,1:3,:,:,:,:) - J_vec_buffer)) / &
-   !                           maxval(abs(J_vec_buffer))
+   !!Calcolo divergenza di J (ampiezza massima) prima della correzione alla Poisson
+   !self%coil%J_vec(n,1:3,:,:,:,:) = self%coil%J_vec(n,1:3,:,:,:,:) * self%coil%A(n)
    !self%divergence(3,:,:,:,:) = 0.0_R8P
-   !call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec,divergence=self%divergence(3,:,:,:,:))
+   !call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(n,1:3,:,:,:,:),divergence=self%divergence(3,:,:,:,:))
+   !print *, 'Divergenza J max pre Poisson: ', maxval(abs(self%divergence(3,:,:,:,:)))
+!
+   !!Applico correzione alla Poisson per ridurre divergenza residua
+   !call self%impose_div_coil_correction(ivar=1_I4P, q=self%coil%J_vec(n,1:3,:,:,:,:))
+   !self%divergence(3,:,:,:,:) = 0.0_R8P
+   !call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(n,1:3,:,:,:,:),divergence=self%divergence(3,:,:,:,:))
    !print *, 'Divergenza J max post Poisson: ', maxval(abs(self%divergence(3,:,:,:,:)))
-
-
-
-   !Verifico che la corrente complessiva sia effettivamente quella richiesta (printo solo, non modifico)
-   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
-
-   !Calcolo le divergenze di J_vec e J come J = A*J_vec. Non dovrebbe cambiare nulla riseptto alla divergenza di Jmax 
-   !precedentemente calcolata e stampata (a meno di errori legati al roundoff numerico)
-   self%divergence(3,:,:,:,:) = 0.0_R8P
-   call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(n,1:3,:,:,:,:), &
-                                divergence=self%divergence(3,:,:,:,:))
-   print *, 'Divergenza finale J_vec: ', maxval(abs(self%divergence(3,:,:,:,:)))
-   self%divergence(3,:,:,:,:) = 0.0_R8P
-   call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(n,1:3,:,:,:,:)*self%coil%A(n), &
-                                divergence=self%divergence(3,:,:,:,:))
-   print *, 'Divergenza finale corrente: ', maxval(abs(self%divergence(3,:,:,:,:)))
+!
+   !!Riscalo J_vec a versore
+   !self%coil%J_vec(n,1:3,:,:,:,:)=self%coil%J_vec(n,1:3,:,:,:,:)/self%coil%A(n)
+!
+!
+   !!!Prove per capire se il problema è il round-off
+   !!print *, 'max|J| pre  = ', maxval(abs(self%coil%J_vec(n,1:3,:,:,:,:)))
+   !!J_vec_buffer = self%coil%J_vec(n,1:3,:,:,:,:)
+   !!self%coil%J_vec(n,1:3,:,:,:,:)=self%coil%J_vec(n,1:3,:,:,:,:)/self%coil%A(n)*self%coil%A(n)
+   !!print *, 'max|J| post = ', maxval(abs(self%coil%J_vec(n,1:3,:,:,:,:)))
+   !!print *, 'max|dJ|     = ', maxval(abs( self%coil%J_vec(n,1:3,:,:,:,:) - J_vec_buffer(1:3,:,:,:,:) ))
+   !!print *, 'rel err max = ', maxval(abs(self%coil%J_vec(n,1:3,:,:,:,:) - J_vec_buffer)) / &
+   !!                           maxval(abs(J_vec_buffer))
+   !!self%divergence(3,:,:,:,:) = 0.0_R8P
+   !!call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec,divergence=self%divergence(3,:,:,:,:))
+   !!print *, 'Divergenza J max post Poisson: ', maxval(abs(self%divergence(3,:,:,:,:)))
+!
+!
+!
+   !!Verifico che la corrente complessiva sia effettivamente quella richiesta (printo solo, non modifico)
+   !call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
+!
+   !!Calcolo le divergenze di J_vec e J come J = A*J_vec. Non dovrebbe cambiare nulla riseptto alla divergenza di Jmax 
+   !!precedentemente calcolata e stampata (a meno di errori legati al roundoff numerico)
+   !self%divergence(3,:,:,:,:) = 0.0_R8P
+   !call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(n,1:3,:,:,:,:), &
+   !                             divergence=self%divergence(3,:,:,:,:))
+   !print *, 'Divergenza finale J_vec: ', maxval(abs(self%divergence(3,:,:,:,:)))
+   !self%divergence(3,:,:,:,:) = 0.0_R8P
+   !call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(n,1:3,:,:,:,:)*self%coil%A(n), &
+   !                             divergence=self%divergence(3,:,:,:,:))
+   !print *, 'Divergenza finale corrente: ', maxval(abs(self%divergence(3,:,:,:,:)))
    endsubroutine set_rectangular_coil_z
 
    subroutine compute_coil_current_density_flux(self, n, adjust_amplitude)
