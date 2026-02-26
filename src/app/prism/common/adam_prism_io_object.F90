@@ -28,6 +28,8 @@ type :: prism_io_object
    integer(I4P)              :: residuals_unit             !< Residuals file unit.
    integer(I4P)              :: energy_error_save=10_I4P   !< Energy error output iteration save frequency.
    integer(I4P)              :: energy_error_unit          !< Energy error hystory file unit.
+   integer(I4P)              :: energy_history_save=10_I4P !< Energy history output iteration save frequency.
+   integer(I4P)              :: energy_history_unit        !< Energy history file unit.
    ! auxiliary fields saving
    logical :: save_residual_fields  =.false. !< Flag to activate residual fields saving.
    logical :: save_curl_fields      =.false. !< Flag to activate curl fields saving.
@@ -35,10 +37,11 @@ type :: prism_io_object
    logical :: save_gradient_fields  =.false. !< Flag to activate gradient fields saving.
    logical :: save_laplacian_fields =.false. !< Flag to activate gradient fields saving.
    contains
-      procedure, pass(self) :: description       !< Return pretty-printed object description.
-      procedure, pass(self) :: initialize        !< Initialize time handler.
-      procedure, pass(self) :: load_from_file    !< Load config from file.
-      procedure, pass(self) :: save_energy_error !< Save energy error history.
+      procedure, pass(self) :: description         !< Return pretty-printed object description.
+      procedure, pass(self) :: initialize          !< Initialize time handler.
+      procedure, pass(self) :: load_from_file      !< Load config from file.
+      procedure, pass(self) :: save_energy_error   !< Save energy error history.
+      procedure, pass(self) :: save_energy_history !< Save energy history.
       ! residuals IO
       procedure, pass(self) :: close_file_residuals !< Close file for saving residuals history.
       procedure, pass(self) :: open_file_residuals  !< Open file for saving residuals history.
@@ -62,7 +65,8 @@ contains
    desc = desc//self%mpih%myrankstr//'  restart (it) save:      '//trim(str(self%restart_save))      //NL
    desc = desc//self%mpih%myrankstr//'  save memory status:     '//trim(str(self%save_memory_status))//NL
    desc = desc//self%mpih%myrankstr//'  residuals (it) save:    '//trim(str(self%residuals_save))    //NL
-   desc = desc//self%mpih%myrankstr//'  energy error (it) save: '//trim(str(self%energy_error_save))
+   !desc = desc//self%mpih%myrankstr//'  energy error (it) save: '//trim(str(self%energy_error_save)) //NL
+   desc = desc//self%mpih%myrankstr//'  energy history (it) save: '//trim(str(self%energy_history_save))
    endfunction description
 
    subroutine initialize(self, filename)
@@ -152,6 +156,41 @@ contains
       if (is_to_close_) close(self%energy_error_unit)
    endif
    endsubroutine save_energy_error
+
+   subroutine save_energy_history(self,it,time,blocks_number,energy_D,energy_B,coil_power,Poynting_flux, &
+                                    is_to_open,is_to_close)
+   !< Save energy history.
+   class(prism_io_object), intent(inout)        :: self              !< IO handler.
+   integer(I4P),           intent(in)           :: it                !< Current iteration.
+   real(R8P),              intent(in)           :: time              !< Current time.
+   integer(I4P),           intent(in)           :: blocks_number     !< Current number of blocks.
+   real(R8P),              intent(in)           :: energy_D(1:)      !< Energy history of D.
+   real(R8P),              intent(in)           :: energy_B(1:)      !< Energy history of B.
+   real(R8P),              intent(in)           :: coil_power(1:)    !< Coil power history.
+   real(R8P),              intent(in)           :: Poynting_flux(1:) !< Poynting flux history.
+   logical,                intent(in), optional :: is_to_open        !< Flag to open  file before first saving.
+   logical,                intent(in), optional :: is_to_close       !< Flag to close file after last saving.
+   logical                                      :: is_to_open_       !< Flag to open  file before first saving, local var.
+   logical                                      :: is_to_close_      !< Flag to close file after last saving, local var.
+
+   if (self%mpih%myrank==0) then
+      is_to_open_  = .false. ; if (present(is_to_open )) is_to_open_  = is_to_open
+      is_to_close_ = .false. ; if (present(is_to_close)) is_to_close_ = is_to_close
+      if (is_to_open_) then
+         open(newunit=self%energy_history_unit, file=self%output_basename//'-energy_history.dat')
+         write(self%energy_history_unit,'(A)')&
+               'VARIABLES="it" "blocks_number" "time" "D_energy [J]" "B_energy [J]" "coil_power [W]" "Poynting_flux [W]"'
+      endif
+      write(self%energy_history_unit, '(A)') trim(str(it               ))//' '//&
+                                             trim(str(blocks_number    ))//' '//&
+                                             trim(str(time             ))//' '//&
+                                             trim(str(energy_D(it)     ))//' '//&
+                                             trim(str(energy_B(it)     ))//' '//&
+                                             trim(str(coil_power(it)   ))//' '//&
+                                             trim(str(Poynting_flux(it)))
+      if (is_to_close_) close(self%energy_history_unit)
+   endif
+   endsubroutine save_energy_history
 
    ! residuals IO
    subroutine  close_file_residuals(self)

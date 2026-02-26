@@ -21,6 +21,7 @@ public :: compute_gradient_fdv_interface
 public :: compute_laplacian_fdv_interface
 ! finite difference
 public :: compute_curl_fd_centered
+public :: compute_reconstruction_r_fd_centered
 public :: compute_derivative1_fd_centered
 public :: compute_derivative2_fd_centered
 public :: compute_derivative3_fd_centered
@@ -60,6 +61,39 @@ public :: compute_reconstruction_r_fv_lupwind
 integer(I4P), parameter :: S_MAX=5_I4P !< Maximum (half) stencil length.
 
 !< Finite Difference method (pointwise values at cell centers) centered schemes.
+!< Finite Difference (point values, Lagrange interpolation) centered schemes.
+!< Pointwise nodal data: q_i = q(x_i).
+!< Approximate face values \(q_{i+1/2}\) and \(q_{i-1/2}\) as:
+!< \[
+!< q_{i+1/2} \approx \sum_{m=-(S-1)}^{S} a_m^{(p)} q_{i+m}
+!< \]
+!< \[
+!< q_{i-1/2} \approx \sum_{m=-(S-1)}^{S} a_m^{(p)} q_{i-1+m}
+!< \]
+!< with \(p = 2S\).
+!<
+!< Centered (about i+1/2) Lagrange schemes.
+!< | Order \(p\)| Stencil points \(m\)  | Coefficients \(a_m^{(p)}\) for \(q_{i+1/2}\)           |
+!< |------------|-----------------------|--------------------------------------------------------|
+!< | 2nd  (S=1) |            0,1        | 1/2     *(                 1   ,1                    ) |
+!< | 4th  (S=2) |         -1,0,1,2      | 1/16    *(            -1  ,9   ,9   ,-1              ) |
+!< | 6th  (S=3) |      -2,-1,0,1,2,3    | 1/256   *(       3  ,-25  ,150 ,150 ,-25 ,3          ) |
+!< | 8th  (S=4) |   -3,-2,-1,0,1,2,3,4  | 1/2048  *(  -5 ,49 ,-245,1225,1225,-245,49 ,-5       ) |
+!< | 10th (S=5) |-4,-3,-2,-1,0,1,2,3,4,5| 1/65536 *(35,-405,2268,-8820,39690,39690,-8820,2268,-405,35) |
+!< Coefficients are symmetric w.r.t. i+1/2, parametrize only half of the stencil coefficients.
+
+                                         !1          2          3         4         5
+real(R8P), parameter :: FD0_CC_S1(S_MAX)=[    1._R8P,   0._R8P,   0._R8P,  0._R8P,  0._R8P]/2._R8P       !< FD0C, S1.
+real(R8P), parameter :: FD0_CC_S2(S_MAX)=[    9._R8P,  -1._R8P,   0._R8P,  0._R8P,  0._R8P]/16._R8P      !< FD0C, S2.
+real(R8P), parameter :: FD0_CC_S3(S_MAX)=[  150._R8P, -25._R8P,   3._R8P,  0._R8P,  0._R8P]/256._R8P     !< FD0C, S3.
+real(R8P), parameter :: FD0_CC_S4(S_MAX)=[ 1225._R8P,-245._R8P,  49._R8P, -5._R8P,  0._R8P]/2048._R8P    !< FD0C, S4.
+real(R8P), parameter :: FD0_CC_S5(S_MAX)=[39690._R8P,-8820._R8P,2268._R8P,-405._R8P,35._R8P]/65536._R8P  !< FD0C, S5.
+real(R8P), parameter :: FD0_CC(S_MAX,S_MAX)=reshape([FD0_CC_S1, &
+                                                     FD0_CC_S2, &
+                                                     FD0_CC_S3, &
+                                                     FD0_CC_S4, &
+                                                     FD0_CC_S5],&
+                                                    [S_MAX,S_MAX]) !< Finite difference derivative 0 centered coefficients.
 !< Approximate \(\frac{d^n q}{ds^n}\) at \(x_i\) as:
 !< \[
 !< \frac{d^n q}{ds^n}\bigg|_i \approx \frac{1}{Ds^n} \sum_{m=-M}^{M} c_m^{(p)} q_{i+m}
@@ -397,6 +431,20 @@ contains
    curl(2) = dqx_dz - dqz_dx
    curl(3) = dqy_dx - dqx_dy
    endsubroutine compute_curl_fd_centered
+
+   pure subroutine compute_reconstruction_r_fd_centered(s,q,qr)
+   !< Compute reconstruction at right interface from cell center average values. Centered schemes.
+   integer(I4P), intent(in)  :: s       !< Stencil len, half of accuracy order.
+   real(R8P),    intent(in)  :: q(1-s:) !< Scalar field over the stencil [1-s:s].
+   real(R8P),    intent(out) :: qr      !< Reconstruction at right interface of field.
+   integer(I4P)              :: m       !< Counter.
+   !$acc routine seq
+
+   qr = 0.0_R8P
+   do m=1, s
+      qr = qr + FD0_CC(m,s)*(q(m) + q(1-m))
+   enddo
+   endsubroutine compute_reconstruction_r_fd_centered
 
    pure subroutine compute_derivative1_fd_centered(s,ds,q,dq_ds)
    !< Compute derivative of order 1 with finite difference centered scheme.

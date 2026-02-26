@@ -1405,45 +1405,176 @@ contains
 
    subroutine compute_energy(self)
    !< Compute energy.
-   class(prism_cpu_object), intent(inout) :: self     !< The equation.
-   real(R8P)                              :: energy_D !< Energy of D field.
-   real(R8P)                              :: energy_B !< Energy of B field.
+   class(prism_cpu_object), intent(inout) :: self          !< The equation.
+   real(R8P)                              :: energy_D      !< Energy of D field.
+   real(R8P)                              :: energy_B      !< Energy of B field.
+   real(R8P)                              :: coil_power    !< Coil power.
+   real(R8P)                              :: Poynting_flux !< Total Poynting flux from boundary.
 
    call compute_e(ivar=VAR_DX, energy=energy_D)
    call compute_e(ivar=VAR_BX, energy=energy_B)
+   call compute_coil_power(ivar=self%physics%var_Jx, coil_power=coil_power)
+   call compute_Poynting_flux(Poynting_flux=Poynting_flux)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_D, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_B, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
-   if (allocated(self%energy_D).and.allocated(self%energy_B)) then
+   call MPI_ALLREDUCE(MPI_IN_PLACE, coil_power, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, Poynting_flux, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
+   if (allocated(self%energy_D).and.allocated(self%energy_B) &
+      .and.allocated(self%coil_power).and.allocated(self%Poynting_flux)) then
       self%energy_D = [self%energy_D, energy_D]
       self%energy_B = [self%energy_B, energy_B]
+      self%coil_power = [self%coil_power, coil_power]
+      self%Poynting_flux = [self%Poynting_flux, Poynting_flux]
    else
       allocate(self%energy_D(1:self%time%it))
       allocate(self%energy_B(1:self%time%it))
+      allocate(self%coil_power(1:self%time%it))
+      allocate(self%Poynting_flux(1:self%time%it))
       self%energy_D = energy_D
       self%energy_B = energy_B
+      self%coil_power = coil_power
+      self%Poynting_flux = Poynting_flux
    endif
    contains
       subroutine compute_e(ivar, energy)
-      !< Compute energy of vector field starting from ivar.
+      !< Compute electric/magnetic energy of vector field starting from ivar.
       integer(I4P), intent(in)  :: ivar    !< Starting position of vector field.
       real(R8P),    intent(out) :: energy  !< Energy of the vector field starting from ivar.
       integer(I4P)              :: i,j,k,b !< Counter.
+      real(R8P)                 :: cost    !< Costant for the energy computation.
 
+      if (ivar==VAR_DX) then
+         cost = EPS0
+      elseif (ivar==VAR_BX) then
+         cost = MU0
+      endif
       energy = 0.0_R8P
-      associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number)
+      associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number, &
+                dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:))
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
       do i=1, ni
          energy = energy + 0.5_R8P * (self%q(ivar  ,i,j,k,b)*self%q(ivar  ,i,j,k,b) + &
                                       self%q(ivar+1,i,j,k,b)*self%q(ivar+1,i,j,k,b) + &
-                                      self%q(ivar+2,i,j,k,b)*self%q(ivar+2,i,j,k,b))
+                                      self%q(ivar+2,i,j,k,b)*self%q(ivar+2,i,j,k,b))/cost*(dx(b)*dy(b)*dz(b))
       enddo
       enddo
       enddo
       enddo
       endassociate
       endsubroutine compute_e
+
+      subroutine compute_coil_power(ivar, coil_power) !A voler essere precisi non è un'energia ma una potenza (per unità di volume)
+      !< Compute coil power of vector field starting from ivar.
+      integer(I4P), intent(in)  :: ivar        !< Starting position of vector field.
+      real(R8P),    intent(out) :: coil_power  !< Coil power of the vector field.
+      real(R8P)                 :: cost        !< Costant for the coil power computation.
+      integer(I4P)              :: i,j,k,b     !< Counter.
+      
+      coil_power = 0.0_R8P
+      associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number, &
+                coil_flag=>self%coil%coil_flag, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:))
+      do b=1, blocks_number
+      do k=1, nk
+      do j=1, nj
+      do i=1, ni
+         if (coil_flag(i,j,k,b) /= 0_I4P) then
+            coil_power = coil_power - (self%q(VAR_DX  ,i,j,k,b)*self%q(ivar  ,i,j,k,b) + &
+                                       self%q(VAR_DX+1,i,j,k,b)*self%q(ivar+1,i,j,k,b) + &
+                                       self%q(VAR_DX+2,i,j,k,b)*self%q(ivar+2,i,j,k,b))/EPS0*(dx(b)*dy(b)*dz(b))
+         endif
+      enddo
+      enddo
+      enddo
+      enddo
+      endassociate
+      endsubroutine compute_coil_power
+
+      subroutine compute_Poynting_flux(Poynting_flux)
+      !< Compute Poynting flux.
+      real(R8P),    intent(out) :: Poynting_flux  !< Power irradiated outside computational domain.
+      integer(I4P)              :: i,j,k,b,v      !< Counter.
+      real(R8P)                 :: q_boundary(6)  !< Variables at boundary for the Poynting flux computation.
+      real(R8P)                 :: n(3)           !< Boundary normal direction  
+
+      associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number, &
+                s=>self%numerics%fdv_half_stencils(1), dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:))
+      Poynting_flux = 0.0_R8P
+      !Faccia -x
+      n = [-1.0_R8P, 0.0_R8P, 0.0_R8P]
+      do b=1, blocks_number
+      do k=1, nk
+      do j=1, nj
+         do v=1, 6
+            call compute_reconstruction_r_fd_centered(s=s,q=self%q(v,1-s:s,j,k,b),qr=q_boundary(v))
+         enddo
+         Poynting_flux = Poynting_flux + dotproduct(crossproduct(q_boundary(1:3), q_boundary(4:6))/MU0,n)*(dy(b)*dz(b))
+      enddo
+      enddo
+      enddo
+      !Faccia +x
+      n = [1.0_R8P, 0.0_R8P, 0.0_R8P]
+      do b=1, blocks_number
+      do k=1, nk
+      do j=1, nj
+         do v=1, 6
+            call compute_reconstruction_r_fd_centered(s=s,q=self%q(v,ni+1-s:ni+s,j,k,b),qr=q_boundary(v))
+         enddo
+         Poynting_flux = Poynting_flux + dotproduct(crossproduct(q_boundary(1:3),q_boundary(4:6))/MU0,n)*(dy(b)*dz(b))
+      enddo
+      enddo
+      enddo
+      !Faccia -y
+      n = [0.0_R8P, -1.0_R8P, 0.0_R8P]
+      do b=1, blocks_number
+      do k=1, nk
+      do i=1, ni
+         do v=1, 6
+            call compute_reconstruction_r_fd_centered(s=s,q=self%q(v,i,1-s:s,k,b),qr=q_boundary(v))
+         enddo
+         Poynting_flux = Poynting_flux + dotproduct(crossproduct(q_boundary(1:3),q_boundary(4:6))/MU0,n)*(dx(b)*dz(b))
+      enddo
+      enddo
+      enddo
+      !Faccia +y
+      n = [0.0_R8P, 1.0_R8P, 0.0_R8P]
+      do b=1, blocks_number
+      do k=1, nk
+      do i=1, ni
+         do v=1, 6
+            call compute_reconstruction_r_fd_centered(s=s,q=self%q(v,i,nj+1-s:nj+s,k,b),qr=q_boundary(v))
+         enddo
+         Poynting_flux = Poynting_flux + dotproduct(crossproduct(q_boundary(1:3),q_boundary(4:6))/MU0,n)*(dx(b)*dz(b))
+      enddo
+      enddo
+      enddo
+      !Faccia -z
+      n = [0.0_R8P, 0.0_R8P, -1.0_R8P]
+      do b=1, blocks_number
+      do j=1, nj
+      do i=1, ni
+         do v=1, 6
+            call compute_reconstruction_r_fd_centered(s=s,q=self%q(v,i,j,1-s:s,b),qr=q_boundary(v))
+         enddo
+         Poynting_flux = Poynting_flux + dotproduct(crossproduct(q_boundary(1:3),q_boundary(4:6))/MU0,n)*(dx(b)*dy(b))
+      enddo
+      enddo
+      enddo
+      !Faccia +z
+      n = [0.0_R8P, 0.0_R8P, 1.0_R8P]
+      do b=1, blocks_number
+      do j=1, nj
+      do i=1, ni
+         do v=1, 6
+            call compute_reconstruction_r_fd_centered(s=s,q=self%q(v,i,j,nk+1-s:nk+s,b),qr=q_boundary(v))
+         enddo
+         Poynting_flux = Poynting_flux + dotproduct(crossproduct(q_boundary(1:3),q_boundary(4:6))/MU0,n)*(dx(b)*dy(b))
+      enddo
+      enddo
+      enddo
+      endassociate
+   endsubroutine compute_Poynting_flux
    endsubroutine compute_energy
 
    subroutine compute_energy_error(self)
@@ -1553,7 +1684,8 @@ contains
    call self%compute_divergence(ivar=7,q=self%q,divergence=self%divergence(3,:,:,:,:))
    call self%save_simulation_data
    call self%compute_energy
-   call self%save_energy_error(is_to_open=.true.)
+   !call self%save_energy_error(is_to_open=.true.)
+   call self%save_energy_history(is_to_open=.true.)
    call self%io%open_file_residuals(nv=self%nv)
 
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
@@ -1614,7 +1746,8 @@ contains
 
       call self%save_simulation_data
       call self%compute_energy
-      call self%save_energy_error
+      !call self%save_energy_error
+      call self%save_energy_history
 
       if (((self%time%it_max <= 0).and.(self%time%time >= self%time%time_max)).or.&
          ((self%time%it>=self%time%it_max).and.(self%time%it_max > 0))) exit integration
@@ -1622,16 +1755,17 @@ contains
       call self%mpih%barrier(tictoc=.true., timing=timing_step(2), single=.true.)
    enddo integration
    call self%mpih%barrier(tictoc=.true., timing=timing(2), single=.true.)
-   call self%compute_energy_error
+   !call self%compute_energy_error
    call self%save_simulation_data
    call self%io%close_file_residuals
-   call self%save_energy_error(is_to_close=.true.)
-   call self%mpih%print_message('Initial/final energy of D field: '//trim(str(sqrt(self%energy_D(1))))//' '//&
-                                                                     trim(str(sqrt(self%energy_D(size(self%energy_D))))))
-   call self%mpih%print_message('Initial/final energy of B field: '//trim(str(sqrt(self%energy_B(1))))//' '//&
-                                                                     trim(str(sqrt(self%energy_D(size(self%energy_B))))))
-   call self%mpih%print_message('RMS Error of D field: '//trim(str(self%rms_energy_error_D)))
-   call self%mpih%print_message('RMS Error of B field: '//trim(str(self%rms_energy_error_B)))
+   !call self%save_energy_error(is_to_close=.true.)
+   !call self%mpih%print_message('Initial/final energy of D field: '//trim(str(sqrt(self%energy_D(1))))//' '//&
+   !                                                                  trim(str(sqrt(self%energy_D(size(self%energy_D))))))
+   !call self%mpih%print_message('Initial/final energy of B field: '//trim(str(sqrt(self%energy_B(1))))//' '//&
+   !                                                                  trim(str(sqrt(self%energy_D(size(self%energy_B))))))
+   !call self%mpih%print_message('RMS Error of D field: '//trim(str(self%rms_energy_error_D)))
+   !call self%mpih%print_message('RMS Error of B field: '//trim(str(self%rms_energy_error_B)))
+   call self%save_energy_history(is_to_close=.true.)
    call self%mpih%finalize
    endsubroutine simulate
 
@@ -2897,6 +3031,15 @@ contains
    enddo
    mean_value = mean_value / real((n_x(2)-n_x(1)+1)*(n_y(2)-n_y(1)+1)*(n_z(2)-n_z(1)+1)*(n_b(2)-n_b(1)+1), R8P)
    endsubroutine compute_field_mean_value
+
+   function dotproduct(a, b) result(dot)
+   !< Compute the scalar (dot) product.
+   real(R8P), intent(in) :: a(3) !< Left hand side.
+   real(R8P), intent(in) :: b(3) !< Left hand side.
+   real(R8P)             :: dot  !< Dot product.
+
+   dot = (a(1) * b(1)) + (a(2) * b(2)) + (a(3) * b(3))
+   endfunction dotproduct
 
    function crossproduct(a, b) result(cross)
    real(R8P), intent(in) :: a(3)     !< Left hand side.

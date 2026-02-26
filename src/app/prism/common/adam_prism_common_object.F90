@@ -91,16 +91,19 @@ type :: prism_common_object
    ! auxiliary data
    real(R8P), allocatable :: energy_D(:)                !< Energy of field D, time history.
    real(R8P), allocatable :: energy_B(:)                !< Energy of field B, time history.
+   real(R8P), allocatable :: coil_power(:)              !< Power of coils, time history.
+   real(R8P), allocatable :: Poynting_flux(:)           !< Total Poynting flux from boundary, time history.
    real(R8P)              :: rms_energy_error_D=0.0_R8P !< RMS energy error of D field.
    real(R8P)              :: rms_energy_error_B=0.0_R8P !< RMS energy error of B field.
    contains
       procedure, pass(self) :: allocate_common   !< Allocate common data.
       procedure, pass(self) :: initialize_common !< Initialize the equation common data.
       ! IO methods
-      procedure, pass(self) :: load_restart_files !< Load restart files.
-      procedure, pass(self) :: save_energy_error  !< Save energy error history.
-      procedure, pass(self) :: save_restart_files !< Save restart files.
-      procedure, pass(self) :: save_xh5f          !< Save simulation data in XH5F format.
+      procedure, pass(self) :: load_restart_files  !< Load restart files.
+      procedure, pass(self) :: save_energy_error   !< Save energy error history.
+      procedure, pass(self) :: save_energy_history !< Save energy history.
+      procedure, pass(self) :: save_restart_files  !< Save restart files.
+      procedure, pass(self) :: save_xh5f           !< Save simulation data in XH5F format.
 endtype prism_common_object
 contains
    subroutine allocate_common(self)
@@ -359,12 +362,26 @@ contains
    logical,                    intent(in), optional :: is_to_close !< Flag to close file after last saving.
 
    if (self%time%is_to_save(it_save=self%io%energy_error_save)) then
-      call self%io%save_energy_error(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number,                 &
-                                     energy_D=self%energy_D,energy_B=self%energy_B,                                        &
-                                     rms_energy_error_D=self%rms_energy_error_D,rms_energy_error_B=self%rms_energy_error_B,&
+      call self%io%save_energy_error(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number,                  &
+                                     energy_D=self%energy_D,energy_B=self%energy_B,                                         &
+                                     rms_energy_error_D=self%rms_energy_error_D,rms_energy_error_B=self%rms_energy_error_B, &
                                      is_to_open=is_to_open,is_to_close=is_to_close)
    endif
    endsubroutine save_energy_error
+
+   subroutine save_energy_history(self, is_to_open, is_to_close)
+   !< Save energy history.
+   class(prism_common_object), intent(inout)        :: self        !< The equation.
+   logical,                    intent(in), optional :: is_to_open  !< Flag to open  file before first saving.
+   logical,                    intent(in), optional :: is_to_close !< Flag to close file after last saving.
+
+   if (self%time%is_to_save(it_save=self%io%energy_history_save)) then
+      call self%io%save_energy_history(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number, &
+                                       energy_D=self%energy_D,energy_B=self%energy_B,                        &
+                                       coil_power=self%coil_power,Poynting_flux=self%Poynting_flux,          &
+                                       is_to_open=is_to_open,is_to_close=is_to_close)
+   endif
+   endsubroutine save_energy_history
 
    subroutine save_restart_files(self)
    !< Save restart files.
