@@ -318,7 +318,6 @@ contains
       neighbour_list(2,n) = ceiling(i_p)
       neighbour_list(3,n) = ceiling(j_p)
       neighbour_list(4,n) = ceiling(k_p)
-
    enddo
    endassociate
    endsubroutine particle_cartesian_grid_index
@@ -731,7 +730,7 @@ contains
                             x1=x_cell(i_p,block_p), y1=q(4,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
          dBy_dx = lininterp(x2=x_cell(i_p-1,block_p), y2=q(5,i_p-1,j_p,k_p,block_p), &
                             x1=x_cell(i_p,block_p), y1=q(5,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
-         dBz_dz = lininterp(x2=x_cell(i_p-1,block_p), y2=q(6,i_p-1,j_p,k_p,block_p), &
+         dBz_dx = lininterp(x2=x_cell(i_p-1,block_p), y2=q(6,i_p-1,j_p,k_p,block_p), &
                             x1=x_cell(i_p,block_p), y1=q(6,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
       else
          dDx_dx = lininterp(x2=x_cell(i_p+1,block_p), y2=q(1,i_p+1,j_p,k_p,block_p), &
@@ -744,7 +743,7 @@ contains
                             x1=x_cell(i_p,block_p), y1=q(4,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
          dBy_dx = lininterp(x2=x_cell(i_p+1,block_p), y2=q(5,i_p+1,j_p,k_p,block_p), &
                             x1=x_cell(i_p,block_p), y1=q(5,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
-         dBz_dz = lininterp(x2=x_cell(i_p+1,block_p), y2=q(6,i_p+1,j_p,k_p,block_p), &
+         dBz_dx = lininterp(x2=x_cell(i_p+1,block_p), y2=q(6,i_p+1,j_p,k_p,block_p), &
                             x1=x_cell(i_p,block_p), y1=q(6,i_p,j_p,k_p,block_p), xp=q_pic(1,n)) 
       endif
       !y
@@ -809,7 +808,7 @@ contains
       D_p(3) = q(3,i_p,j_p,k_p,block_p) + dDz_dx + dDz_dy + dDz_dz
       B_p(1) = q(4,i_p,j_p,k_p,block_p) + dBx_dx + dBx_dy + dBx_dz
       B_p(2) = q(5,i_p,j_p,k_p,block_p) + dBy_dx + dBy_dy + dBy_dz
-      B_p(3) = q(6,i_p,j_p,k_p,block_p) + dBz_dx + dBz_dy + dBz_dz     
+      B_p(3) = q(6,i_p,j_p,k_p,block_p) + dBz_dx + dBz_dy + dBz_dz
 
       !v_p = [q_pic(n,4), q_pic(n,5), q_pic(n,6)]
       !q_p = q_PIC(n,7)

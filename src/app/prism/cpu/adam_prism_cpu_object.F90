@@ -918,12 +918,13 @@ contains
       case(COIL_TYPE_CIRCULAR)
       endselect
       call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(n,1:3,:,:,:,:),divergence=self%divergence(3,:,:,:,:))
-      print *, 'Divergenza J max della spira: ',n, ' pari a: ',maxval(abs(self%divergence(3,:,:,:,:)))
+      print *, 'Divergenza J vec della spira: ',n, ' pari a: ',maxval(abs(self%divergence(3,:,:,:,:)))
    enddo
 
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       call self%pic%current_weighting(field=self%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
       call self%pic%particle_weighting(field=self%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
+      call self%pic%field_weighting(field=self%field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
    endif
    endsubroutine set_initial_conditions
 
@@ -1413,9 +1414,15 @@ contains
    real(R8P)                              :: coil_power    !< Coil power.
    real(R8P)                              :: Poynting_flux !< Total Poynting flux from boundary.
 
+   energy_D = 0.0_R8P
+   energy_B = 0.0_R8P
+   coil_power = 0.0_R8P
+   Poynting_flux = 0.0_R8P
    call compute_e(ivar=VAR_DX, energy=energy_D)
    call compute_e(ivar=VAR_BX, energy=energy_B)
-   call compute_coil_power(ivar=self%physics%var_Jx, coil_power=coil_power)
+   if (self%coil%total_coils_number > 0_I4P) then
+      call compute_coil_power(ivar=self%physics%var_Jx, coil_power=coil_power)
+   endif
    call compute_Poynting_flux(Poynting_flux=Poynting_flux)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_D, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_B, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
@@ -1658,6 +1665,7 @@ contains
    character(*),            intent(in)    :: filename         !< Input file name.
    real(R8P)                              :: timing(1:2)      !< Tic toc timing.
    real(R8P)                              :: timing_step(1:2) !< Tic toc timing.
+   real(R8P)                              :: F_l(3)           !< Lorentz force for leapfrog preliminary integration
    integer(I4P)                           :: i                !< Counter.
 
    ! initialization
@@ -1691,17 +1699,6 @@ contains
    call self%save_divergence_history(is_to_open=.true.)
    call self%io%open_file_residuals(nv=self%nv)
 
-   if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
-      ! first time integration done apart with explicit euler scheme to iniziale leapfrog
-      call self%leapfrog%assign_step(s=1, q=self%q)
-      call self%compute_dt
-
-      !Qua ci manca il calcolo delle correnti delle particelle se PIC (e pure delle spire, a dire il vero)
-      !Probabilmente ti conviene metterle nelle condizioni iniziali per coerenza con if legato a se ho pic o meno
-      call self%compute_residuals(q=self%q, dq=self%dq)
-      self%q = self%q + self%time%dt * self%dq
-   endif
-
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       if(self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) then
          ! first time integration done apart with explicit euler scheme to iniziale leapfrog
@@ -1710,16 +1707,29 @@ contains
          !< Pic residual computation
          !Qua ci va il calcolo dei campi nelle posizioni delle particelle se PIC
          !ma devi metterlo nell'inizializzazione per coerenza
-         call self%pic%field_weighting(field=self%field, q=self%q, q_pic=self%q_pic, pic_fields=self%pic_fields, nv=self%nv)
          !< Integration of equations
          self%q_pic(1,:) = self%q_pic(1,:) + self%time%dt * self%q_pic(4,:)
          self%q_pic(2,:) = self%q_pic(2,:) + self%time%dt * self%q_pic(5,:)
          self%q_pic(3,:) = self%q_pic(3,:) + self%time%dt * self%q_pic(6,:)
          do i = 1, self%pic%particle_number
-            self%q_pic(4:6,i) = self%q_pic(4:6,i) + self%time%dt * self%q_pic(8,i) / self%q_pic(7,i) * &
-                              (self%pic_fields(1:3,i) + crossproduct(self%q_pic(4:6,i), self%pic_fields(4:6,i)))
+            F_l = crossproduct(self%q_pic(4:6,i), self%pic_fields(4:6,i))
+            self%q_pic(4,i) = self%q_pic(4,i)+self%time%dt*self%q_pic(8,i)/self%q_pic(7,i)*(self%pic_fields(1,i)+F_l(1))
+            self%q_pic(5,i) = self%q_pic(5,i)+self%time%dt*self%q_pic(8,i)/self%q_pic(7,i)*(self%pic_fields(2,i)+F_l(2))
+            self%q_pic(6,i) = self%q_pic(6,i)+self%time%dt*self%q_pic(8,i)/self%q_pic(7,i)*(self%pic_fields(3,i)+F_l(3))
+            !self%q_pic(4:6,i) = self%q_pic(4:6,i) + self%time%dt * self%q_pic(8,i) / self%q_pic(7,i) * &
+            !                  (self%pic_fields(1:3,i) + crossproduct(self%q_pic(4:6,i), self%pic_fields(4:6,i)))
          enddo
       endif
+   endif
+
+   if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
+      ! first time integration done apart with explicit euler scheme to iniziale leapfrog
+      call self%leapfrog%assign_step(s=1, q=self%q)
+      call self%compute_dt
+      !Qua c'era il calcolo delle correnti delle particelle se PIC
+      !Ora è nelle condizioni iniziali per coerenza con if legato a se ho pic o meno
+      call self%compute_residuals(q=self%q, dq=self%dq)
+      self%q = self%q + self%time%dt * self%dq
    endif
 
    ! integration
@@ -2188,6 +2198,7 @@ contains
    call self%rk_pic%update_q_pic(dt=self%time%dt, q_pic=self%q_pic)
    !Aggiorno i termini sorgente di Maxwell al tempo in cui andrò a plottare i risultati
    call self%impose_div_free
+   call self%pic%particle_cartesian_grid_index(field=self%field, q_pic=self%q_pic)
    call self%pic%current_weighting(field=self%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
    call self%pic%particle_weighting(field=self%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
    call self%compute_coils_current(q=self%q)
