@@ -96,14 +96,15 @@ type :: prism_common_object
    real(R8P)              :: rms_energy_error_D=0.0_R8P !< RMS energy error of D field.
    real(R8P)              :: rms_energy_error_B=0.0_R8P !< RMS energy error of B field.
    contains
-      procedure, pass(self) :: allocate_common   !< Allocate common data.
-      procedure, pass(self) :: initialize_common !< Initialize the equation common data.
+      procedure, pass(self) :: allocate_common         !< Allocate common data.
+      procedure, pass(self) :: initialize_common       !< Initialize the equation common data.
       ! IO methods
-      procedure, pass(self) :: load_restart_files  !< Load restart files.
-      procedure, pass(self) :: save_energy_error   !< Save energy error history.
-      procedure, pass(self) :: save_energy_history !< Save energy history.
-      procedure, pass(self) :: save_restart_files  !< Save restart files.
-      procedure, pass(self) :: save_xh5f           !< Save simulation data in XH5F format.
+      procedure, pass(self) :: load_restart_files      !< Load restart files.
+      procedure, pass(self) :: save_energy_error       !< Save energy error history.
+      procedure, pass(self) :: save_energy_history     !< Save energy history.
+      procedure, pass(self) :: save_divergence_history !< Save divergence history.
+      procedure, pass(self) :: save_restart_files      !< Save restart files.
+      procedure, pass(self) :: save_xh5f               !< Save simulation data in XH5F format.
 endtype prism_common_object
 contains
    subroutine allocate_common(self)
@@ -382,6 +383,25 @@ contains
                                        is_to_open=is_to_open,is_to_close=is_to_close)
    endif
    endsubroutine save_energy_history
+
+   subroutine save_divergence_history(self, is_to_open, is_to_close)
+   !< Save divergence history.
+   class(prism_common_object), intent(inout)        :: self        !< The equation.
+   logical,                    intent(in), optional :: is_to_open  !< Flag to open  file before first saving.
+   logical,                    intent(in), optional :: is_to_close !< Flag to close file after last saving.
+   real(R8P)                                        :: max_div_D    !< Maximum of divergence of D field.
+   real(R8P)                                        :: max_div_B    !< Maximum of divergence of B
+   real(R8P)                                        :: max_div_J    !< Maximum of divergence of J field.
+
+   if (self%time%is_to_save(it_save=self%io%divergence_history_save)) then
+      max_div_D = maxval(abs(self%divergence(1,:,:,:,:)))
+      max_div_B = maxval(abs(self%divergence(2,:,:,:,:)))
+      max_div_J = maxval(abs(self%divergence(3,:,:,:,:)))
+      call self%io%save_divergence_history(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number, &
+                                           div_D=max_div_D,div_B=max_div_B,div_J=max_div_J, &
+                                           is_to_open=is_to_open,is_to_close=is_to_close)
+   endif
+   endsubroutine save_divergence_history
 
    subroutine save_restart_files(self)
    !< Save restart files.

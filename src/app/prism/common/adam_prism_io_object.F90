@@ -16,20 +16,22 @@ character(len=2), parameter :: INI_SECTION_NAME="IO" !< INI (config) file sectio
 
 type :: prism_io_object
    !< PRISM IO handler class definition, CPU backend.
-   type(mpih_object)         :: mpih                       !< MPI handler.
-   type(file_ini)            :: file_parameters            !< Prism input file handler.
-   integer(I4P)              :: it_save=100_I4P            !< Main output iteration save frequency.
-   character(:), allocatable :: output_basename            !< Basename of output files.
-   logical                   :: restart=.false.            !< Enable restart from old output data.
-   character(:), allocatable :: restart_basename           !< Basename of restart files.
-   integer(I4P)              :: restart_save=100_I4P       !< Restart output iteration save frequency.
-   logical                   :: save_memory_status=.false. !< Enable save of memory status during allocations.
-   integer(I4P)              :: residuals_save=10_I4P      !< Residuals (norm) output iteration save frequency.
-   integer(I4P)              :: residuals_unit             !< Residuals file unit.
-   integer(I4P)              :: energy_error_save=10_I4P   !< Energy error output iteration save frequency.
-   integer(I4P)              :: energy_error_unit          !< Energy error hystory file unit.
-   integer(I4P)              :: energy_history_save=10_I4P !< Energy history output iteration save frequency.
-   integer(I4P)              :: energy_history_unit        !< Energy history file unit.
+   type(mpih_object)         :: mpih                           !< MPI handler.
+   type(file_ini)            :: file_parameters                !< Prism input file handler.
+   integer(I4P)              :: it_save=100_I4P                !< Main output iteration save frequency.
+   character(:), allocatable :: output_basename                !< Basename of output files.
+   logical                   :: restart=.false.                !< Enable restart from old output data.
+   character(:), allocatable :: restart_basename               !< Basename of restart files.
+   integer(I4P)              :: restart_save=100_I4P           !< Restart output iteration save frequency.
+   logical                   :: save_memory_status=.false.     !< Enable save of memory status during allocations.
+   integer(I4P)              :: residuals_save=10_I4P          !< Residuals (norm) output iteration save frequency.
+   integer(I4P)              :: residuals_unit                 !< Residuals file unit.
+   integer(I4P)              :: energy_error_save=10_I4P       !< Energy error output iteration save frequency.
+   integer(I4P)              :: energy_error_unit              !< Energy error hystory file unit.
+   integer(I4P)              :: energy_history_save=10_I4P     !< Energy history output iteration save frequency.
+   integer(I4P)              :: energy_history_unit            !< Energy history file unit.
+   integer(I4P)              :: divergence_history_save=10_I4P !< Divergence history output iteration save frequency.
+   integer(I4P)              :: divergence_history_unit        !< Divergence history file unit.
    ! auxiliary fields saving
    logical :: save_residual_fields  =.false. !< Flag to activate residual fields saving.
    logical :: save_curl_fields      =.false. !< Flag to activate curl fields saving.
@@ -42,6 +44,7 @@ type :: prism_io_object
       procedure, pass(self) :: load_from_file      !< Load config from file.
       procedure, pass(self) :: save_energy_error   !< Save energy error history.
       procedure, pass(self) :: save_energy_history !< Save energy history.
+      procedure, pass(self) :: save_divergence_history !< Save divergence history.
       ! residuals IO
       procedure, pass(self) :: close_file_residuals !< Close file for saving residuals history.
       procedure, pass(self) :: open_file_residuals  !< Open file for saving residuals history.
@@ -56,17 +59,18 @@ contains
    character(len=:), allocatable      :: desc             !< Description.
    character(len=1), parameter        :: NL=new_line('a') !< New line character.
 
-   desc =       self%mpih%myrankstr//'IO main data'                                                  //NL
-   desc = desc//self%mpih%myrankstr//'  file parameters:        '//self%file_parameters%filename     //NL
-   desc = desc//self%mpih%myrankstr//'  it save:                '//trim(str(self%it_save))           //NL
-   desc = desc//self%mpih%myrankstr//'  output basename:        '//self%output_basename              //NL
-   desc = desc//self%mpih%myrankstr//'  restart:                '//trim(str(self%restart))           //NL
-   desc = desc//self%mpih%myrankstr//'  restart basename:       '//self%restart_basename             //NL
-   desc = desc//self%mpih%myrankstr//'  restart (it) save:      '//trim(str(self%restart_save))      //NL
-   desc = desc//self%mpih%myrankstr//'  save memory status:     '//trim(str(self%save_memory_status))//NL
-   desc = desc//self%mpih%myrankstr//'  residuals (it) save:    '//trim(str(self%residuals_save))    //NL
+   desc =       self%mpih%myrankstr//'IO main data'                                                             //NL
+   desc = desc//self%mpih%myrankstr//'  file parameters:        '//self%file_parameters%filename                //NL
+   desc = desc//self%mpih%myrankstr//'  it save:                '//trim(str(self%it_save))                      //NL
+   desc = desc//self%mpih%myrankstr//'  output basename:        '//self%output_basename                         //NL
+   desc = desc//self%mpih%myrankstr//'  restart:                '//trim(str(self%restart))                      //NL
+   desc = desc//self%mpih%myrankstr//'  restart basename:       '//self%restart_basename                        //NL
+   desc = desc//self%mpih%myrankstr//'  restart (it) save:      '//trim(str(self%restart_save))                 //NL
+   desc = desc//self%mpih%myrankstr//'  save memory status:     '//trim(str(self%save_memory_status))           //NL
+   desc = desc//self%mpih%myrankstr//'  residuals (it) save:    '//trim(str(self%residuals_save))               //NL
    !desc = desc//self%mpih%myrankstr//'  energy error (it) save: '//trim(str(self%energy_error_save)) //NL
-   desc = desc//self%mpih%myrankstr//'  energy history (it) save: '//trim(str(self%energy_history_save))
+   desc = desc//self%mpih%myrankstr//'  energy history (it) save: '//trim(str(self%energy_history_save))        //NL
+   desc = desc//self%mpih%myrankstr//'  divergence history (it) save: '//trim(str(self%divergence_history_save))
    endfunction description
 
    subroutine initialize(self, filename)
@@ -179,7 +183,7 @@ contains
       if (is_to_open_) then
          open(newunit=self%energy_history_unit, file=self%output_basename//'-energy_history.dat')
          write(self%energy_history_unit,'(A)')&
-               'VARIABLES="it" "blocks_number" "time" "D_energy [J]" "B_energy [J]" "coil_power [W]" "Poynting_flux [W]"'
+               '%VARIABLES="it" "blocks_number" "time" "D_energy [J]" "B_energy [J]" "coil_power [W]" "Poynting_flux [W]"'
       endif
       write(self%energy_history_unit, '(A)') trim(str(it               ))//' '//&
                                              trim(str(blocks_number    ))//' '//&
@@ -191,6 +195,38 @@ contains
       if (is_to_close_) close(self%energy_history_unit)
    endif
    endsubroutine save_energy_history
+
+   subroutine save_divergence_history(self,it,time,blocks_number,div_D,div_B,div_J,is_to_open,is_to_close)
+   !< Save energy history.
+   class(prism_io_object), intent(inout)        :: self              !< IO handler.
+   integer(I4P),           intent(in)           :: it                !< Current iteration.
+   real(R8P),              intent(in)           :: time              !< Current time.
+   integer(I4P),           intent(in)           :: blocks_number     !< Current number of blocks.
+   real(R8P),              intent(in)           :: div_D             !< Energy history of B.
+   real(R8P),              intent(in)           :: div_B             !< Coil power history.
+   real(R8P),              intent(in)           :: div_J             !< Poynting flux history.
+   logical,                intent(in), optional :: is_to_open        !< Flag to open  file before first saving.
+   logical,                intent(in), optional :: is_to_close       !< Flag to close file after last saving.
+   logical                                      :: is_to_open_       !< Flag to open  file before first saving, local var.
+   logical                                      :: is_to_close_      !< Flag to close file after last saving, local var.
+
+   if (self%mpih%myrank==0) then
+      is_to_open_  = .false. ; if (present(is_to_open )) is_to_open_  = is_to_open
+      is_to_close_ = .false. ; if (present(is_to_close)) is_to_close_ = is_to_close
+      if (is_to_open_) then
+         open(newunit=self%divergence_history_unit, file=self%output_basename//'-divergence_history.dat')
+         write(self%divergence_history_unit,'(A)')&
+               '%VARIABLES="it" "blocks_number" "time" "D_divergence" "B_divergence" "J_divergence"'
+      endif
+      write(self%divergence_history_unit, '(A)') trim(str(it               ))//' '//&
+                                                 trim(str(blocks_number    ))//' '//&
+                                                 trim(str(time             ))//' '//&
+                                                 trim(str(div_D            ))//' '//&
+                                                 trim(str(div_B            ))//' '//&
+                                                 trim(str(div_J            ))
+      if (is_to_close_) close(self%divergence_history_unit)
+   endif
+   endsubroutine save_divergence_history
 
    ! residuals IO
    subroutine  close_file_residuals(self)

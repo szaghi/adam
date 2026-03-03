@@ -917,6 +917,8 @@ contains
          endselect
       case(COIL_TYPE_CIRCULAR)
       endselect
+      call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(n,1:3,:,:,:,:),divergence=self%divergence(3,:,:,:,:))
+      print *, 'Divergenza J max della spira: ',n, ' pari a: ',maxval(abs(self%divergence(3,:,:,:,:)))
    enddo
 
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
@@ -1686,6 +1688,7 @@ contains
    call self%compute_energy
    !call self%save_energy_error(is_to_open=.true.)
    call self%save_energy_history(is_to_open=.true.)
+   call self%save_divergence_history(is_to_open=.true.)
    call self%io%open_file_residuals(nv=self%nv)
 
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) then
@@ -1748,6 +1751,11 @@ contains
       call self%compute_energy
       !call self%save_energy_error
       call self%save_energy_history
+      call self%compute_divergence(ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
+      call self%compute_divergence(ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
+      call self%compute_divergence(ivar=7,q=self%q,divergence=self%divergence(3,:,:,:,:))
+      call self%save_divergence_history
+
 
       if (((self%time%it_max <= 0).and.(self%time%time >= self%time%time_max)).or.&
          ((self%time%it>=self%time%it_max).and.(self%time%it_max > 0))) exit integration
@@ -1766,6 +1774,10 @@ contains
    !call self%mpih%print_message('RMS Error of D field: '//trim(str(self%rms_energy_error_D)))
    !call self%mpih%print_message('RMS Error of B field: '//trim(str(self%rms_energy_error_B)))
    call self%save_energy_history(is_to_close=.true.)
+   call self%compute_divergence(ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
+   call self%compute_divergence(ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
+   call self%compute_divergence(ivar=7,q=self%q,divergence=self%divergence(3,:,:,:,:))
+   call self%save_divergence_history(is_to_close=.true.)
    call self%mpih%finalize
    endsubroutine simulate
 
@@ -2561,6 +2573,18 @@ contains
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
+               if (maxval(abs(J_vec_buffer(:,i,j,k,b))) < 1e-12_R8P) then
+                  J_vec_buffer(:,i,j,k,b) = 0.0_R8P
+               endif
+            enddo
+         enddo
+      enddo
+   enddo
+
+   do b=1, blocks_number
+      do k=1-ngc, nk+ngc
+         do j=1-ngc, nj+ngc
+            do i=1-ngc, ni+ngc
                if (J_vec_buffer(1,i,j,k,b) /= 0.0_R8P .or. J_vec_buffer(2,i,j,k,b) /= 0.0_R8P &
                   .or. J_vec_buffer(3,i,j,k,b) /= 0.0_R8P) then
                   coil_flag(i,j,k,b) = n
@@ -2572,7 +2596,13 @@ contains
 
    J_vec(n,1:3,:,:,:,:) = J_vec(n,1:3,:,:,:,:) + J_vec_buffer
    endassociate
-   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
+
+   if (n == 1_I4P) then
+      call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
+   else
+      self%coil%A(n) = self%coil%A(1)
+      call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
+   endif
    endsubroutine set_rectangular_coil_x
 
    subroutine set_rectangular_coil_y(self, n, verse)
@@ -2646,6 +2676,18 @@ contains
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
+               if (maxval(abs(J_vec_buffer(:,i,j,k,b))) < 1e-12_R8P) then
+                  J_vec_buffer(:,i,j,k,b) = 0.0_R8P
+               endif
+            enddo
+         enddo
+      enddo
+   enddo
+
+   do b=1, blocks_number
+      do k=1-ngc, nk+ngc
+         do j=1-ngc, nj+ngc
+            do i=1-ngc, ni+ngc
                if (J_vec_buffer(1,i,j,k,b) /= 0.0_R8P .or. J_vec_buffer(2,i,j,k,b) /= 0.0_R8P &
                   .or. J_vec_buffer(3,i,j,k,b) /= 0.0_R8P) then
                   coil_flag(i,j,k,b) = n
@@ -2657,7 +2699,12 @@ contains
 
    J_vec(n,1:3,:,:,:,:) = J_vec(n,1:3,:,:,:,:) + J_vec_buffer
    endassociate
-   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
+   if (n == 1_I4P) then
+      call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
+   else
+      self%coil%A(n) = self%coil%A(1)
+      call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
+   endif
    endsubroutine set_rectangular_coil_y
 
    subroutine set_rectangular_coil_z(self, n, verse)
@@ -2731,6 +2778,18 @@ contains
       do k=1-ngc, nk+ngc
          do j=1-ngc, nj+ngc
             do i=1-ngc, ni+ngc
+               if (maxval(abs(J_vec_buffer(:,i,j,k,b))) < 1e-12_R8P) then
+                  J_vec_buffer(:,i,j,k,b) = 0.0_R8P
+               endif
+            enddo
+         enddo
+      enddo
+   enddo
+
+   do b=1, blocks_number
+      do k=1-ngc, nk+ngc
+         do j=1-ngc, nj+ngc
+            do i=1-ngc, ni+ngc
                if (J_vec_buffer(1,i,j,k,b) /= 0.0_R8P .or. J_vec_buffer(2,i,j,k,b) /= 0.0_R8P &
                   .or. J_vec_buffer(3,i,j,k,b) /= 0.0_R8P) then
                   coil_flag(i,j,k,b) = n
@@ -2743,7 +2802,12 @@ contains
    endassociate
 
    !Riscalo ampiezza per matchare valore in input
-   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
+   if (n == 1_I4P) then
+      call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
+   else
+      self%coil%A(n) = self%coil%A(1)
+      call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
+   endif
 
    !!Calcolo divergenza di J (ampiezza massima) prima della correzione alla Poisson
    !self%coil%J_vec(n,1:3,:,:,:,:) = self%coil%J_vec(n,1:3,:,:,:,:) * self%coil%A(n)
@@ -2822,6 +2886,14 @@ contains
       i_s = ceiling((x_s - e_min(1)) / dx(1))
       j_s = ceiling((y_s - e_min(2)) / dy(1))
       k_s = ceiling((z_s - e_min(3)) / dz(1))
+      !i_s = floor( (x_s - e_min(1)) / dx(1) ) + 1_I4P
+      !j_s = floor( (y_s - e_min(2)) / dy(1) ) + 1_I4P
+      !k_s = floor( (z_s - e_min(3)) / dz(1) ) + 1_I4P
+         
+      ! Clamp su celle fisiche
+      i_s = max(1_I4P, min(ni, i_s))
+      j_s = max(1_I4P, min(nj, j_s))
+      k_s = max(1_I4P, min(nk, k_s))
 
       do j = j_s - nint(3.5_R8P*self%coil%sigma(n)), j_s + nint(3.5_R8P*self%coil%sigma(n))
          do i = i_s - nint(3.5_R8P*self%coil%sigma(n)), i_s + nint(3.5_R8P*self%coil%sigma(n))
@@ -2837,6 +2909,14 @@ contains
       i_s = ceiling((x_s - e_min(1)) / dx(1))
       j_s = ceiling((y_s - e_min(2)) / dy(1))
       k_s = ceiling((z_s - e_min(3)) / dz(1))
+      !i_s = floor( (x_s - e_min(1)) / dx(1) ) + 1_I4P
+      !j_s = floor( (y_s - e_min(2)) / dy(1) ) + 1_I4P
+      !k_s = floor( (z_s - e_min(3)) / dz(1) ) + 1_I4P
+         
+      ! Clamp su celle fisiche
+      i_s = max(1_I4P, min(ni, i_s))
+      j_s = max(1_I4P, min(nj, j_s))
+      k_s = max(1_I4P, min(nk, k_s))
 
       do j = j_s - nint(3.5_R8P*self%coil%sigma(n)), j_s + nint(3.5_R8P*self%coil%sigma(n))
          do i = i_s - nint(3.5_R8P*self%coil%sigma(n)), i_s + nint(3.5_R8P*self%coil%sigma(n))
@@ -2852,6 +2932,14 @@ contains
       i_s = ceiling((x_s - e_min(1)) / dx(1))
       j_s = ceiling((y_s - e_min(2)) / dy(1))
       k_s = ceiling((z_s - e_min(3)) / dz(1))
+      !i_s = floor( (x_s - e_min(1)) / dx(1) ) + 1_I4P
+      !j_s = floor( (y_s - e_min(2)) / dy(1) ) + 1_I4P
+      !k_s = floor( (z_s - e_min(3)) / dz(1) ) + 1_I4P
+         
+      ! Clamp su celle fisiche
+      i_s = max(1_I4P, min(ni, i_s))
+      j_s = max(1_I4P, min(nj, j_s))
+      k_s = max(1_I4P, min(nk, k_s))
 
       do k = k_s - nint(3.5_R8P*self%coil%sigma(n)), k_s + nint(3.5_R8P*self%coil%sigma(n))
          do i = i_s - nint(3.5_R8P*self%coil%sigma(n)), i_s + nint(3.5_R8P*self%coil%sigma(n))
@@ -2869,6 +2957,9 @@ contains
       print *, 'Scaling factor ampiezza: ', correction   
       self%coil%A(n) = self%coil%A(n)*correction
       print*, self%coil%A(n), 'Ampiezza A(n) post correzione'
+   else
+      print *, 'Ampiezza A(n) non corretta: ', self%coil%A(n)
+      print *, 'Valore corrente: ', flux
    endif
 
    endassociate
