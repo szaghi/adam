@@ -1713,9 +1713,9 @@ contains
          self%q_pic(3,:) = self%q_pic(3,:) + self%time%dt * self%q_pic(6,:)
          do i = 1, self%pic%particle_number
             F_l = crossproduct(self%q_pic(4:6,i), self%pic_fields(4:6,i))
-            self%q_pic(4,i) = self%q_pic(4,i)+self%time%dt*self%q_pic(8,i)/self%q_pic(7,i)*(self%pic_fields(1,i)+F_l(1))
-            self%q_pic(5,i) = self%q_pic(5,i)+self%time%dt*self%q_pic(8,i)/self%q_pic(7,i)*(self%pic_fields(2,i)+F_l(2))
-            self%q_pic(6,i) = self%q_pic(6,i)+self%time%dt*self%q_pic(8,i)/self%q_pic(7,i)*(self%pic_fields(3,i)+F_l(3))
+            self%q_pic(4,i) = self%q_pic(4,i)+self%time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(1,i)+F_l(1))
+            self%q_pic(5,i) = self%q_pic(5,i)+self%time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(2,i)+F_l(2))
+            self%q_pic(6,i) = self%q_pic(6,i)+self%time%dt*self%q_pic(7,i)/self%q_pic(8,i)*(self%pic_fields(3,i)+F_l(3))
             !self%q_pic(4:6,i) = self%q_pic(4:6,i) + self%time%dt * self%q_pic(8,i) / self%q_pic(7,i) * &
             !                  (self%pic_fields(1:3,i) + crossproduct(self%q_pic(4:6,i), self%pic_fields(4:6,i)))
          enddo

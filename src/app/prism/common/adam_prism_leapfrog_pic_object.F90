@@ -224,13 +224,13 @@ contains
    do p=1, particle_number
 
       !Integrazione vettore velocità con schema di Buneman-Boris
-      v_star(1) = q_pic_old(4,p,1) + 0.5_R8P * dt * pic_fields(1,p) * q_pic(8,p) / q_pic(7,p)
-      v_star(2) = q_pic_old(5,p,1) + 0.5_R8P * dt * pic_fields(2,p) * q_pic(8,p) / q_pic(7,p)
-      v_star(3) = q_pic_old(6,p,1) + 0.5_R8P * dt * pic_fields(3,p) * q_pic(8,p) / q_pic(7,p)
+      v_star(1) = q_pic_old(4,p,1) + dt * pic_fields(1,p) * q_pic(7,p) / q_pic(8,p)
+      v_star(2) = q_pic_old(5,p,1) + dt * pic_fields(2,p) * q_pic(7,p) / q_pic(8,p)
+      v_star(3) = q_pic_old(6,p,1) + dt * pic_fields(3,p) * q_pic(7,p) / q_pic(8,p)
                   
-      t(1) = dt / 2 * q_pic(7,p) / q_pic(8,p) * pic_fields(4,p)
-      t(2) = dt / 2 * q_pic(7,p) / q_pic(8,p) * pic_fields(5,p)
-      t(3) = dt / 2 * q_pic(7,p) / q_pic(8,p) * pic_fields(6,p)
+      t(1) = dt * q_pic(7,p) / q_pic(8,p) * pic_fields(4,p)
+      t(2) = dt * q_pic(7,p) / q_pic(8,p) * pic_fields(5,p)
+      t(3) = dt * q_pic(7,p) / q_pic(8,p) * pic_fields(6,p)
 
       w = v_star + crossproduct(v_star, t)
 
@@ -241,15 +241,16 @@ contains
       !Aggiornamento vettore di appoggio e vettore velocità
       q_pic_old(4:6,p,1) = q_pic(4:6,p) !Salvo la velocità al tempo n, che userò nell'integrazione al tempo successivo e
                                         !nell'integrazione delle posizioni delle particelle
-      q_pic_old(4:6,p,2) = v_star_star + 0.5_R8P * dt * pic_fields(1:3,p) * q_pic(8,p) / q_pic(7,p) !Integro la velocità 
+
+      q_pic_old(4:6,p,2) = v_star_star + dt * pic_fields(1:3,p) * q_pic(7,p) / q_pic(8,p) !Integro la velocità 
                                                                                                     !al tempo n+1
+
       q_pic(4:6,p)       = q_pic_old(4:6,p,2) !Velocità al tempo n+1
 
       !Aggiornamento posizioni con schema leapfrog
       do v=1, 3
+         q_pic_old(v,p,2) = q_pic_old(v,p,1) + 2._R8P * dt * q_pic_old(v+3_I4P,p,1) !Integro la posizione al tempo n+1
          q_pic_old(v,p,1) = q_pic(v,p) !Salvo la posizione al tempo n, che userò nell'integrazione al tempo successivo
-         !q_pic_old(v,p,2) = q_pic_old(v,p,1) + 2._R8P * dt * q_pic_old(v+3_I4P,p,1) !Integro la posizione al tempo n+1
-         q_pic_old(v,p,2) = q_pic_old(v,p,1) + dt * q_pic_old(v+3_I4P,p,1) !Integro la posizione al tempo n+1
          q_pic(v,p)       = q_pic_old(v,p,2) !Posizione al tempo n+1
       enddo	
    enddo
