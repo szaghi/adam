@@ -1,4 +1,24 @@
 # Changelog
+## [v0.0.8](https://github.com/szaghi/FLAP/tree/v0.0.8) (2026-03-04)
+[Full Changelog](https://github.com/szaghi/FLAP/compare/v0.0.7...v0.0.8)
+### CI/CD
+- Add CI pipeline, coverage analysis, and migrate deps to FoBiS ([`8de0269`](https://github.com/szaghi/FLAP/commit/8de026999709397bdddaef79bee5d19808bbb93d))
+
+### Documentation
+- Rebrand acronym, add dual-licensing, and modernize layout ([`4ad6927`](https://github.com/szaghi/FLAP/commit/4ad69273cc8ca059daf5eb5e973913c1d685cd0f))
+- Replace feature grid with SVG for borderless GitHub rendering ([`4b918a7`](https://github.com/szaghi/FLAP/commit/4b918a72290f14b848cb1e3ab32028899c6b5221))
+
+### Miscellaneous
+- Replace HTML table with inline-block divs for borderless layout ([`7547677`](https://github.com/szaghi/FLAP/commit/754767736a251664b90f55fb425a11b56cb95892))
+- Cleaning Poisson correction z coils ([`b99b7a5`](https://github.com/szaghi/FLAP/commit/b99b7a5c90aee95455159a1148890f0d17a69413))
+- Compute electromagnetic energy ([`96b21af`](https://github.com/szaghi/FLAP/commit/96b21afad4799e52df191b0794f890c048d5e5cd))
+- Divergence history & coil corection ([`7aad79e`](https://github.com/szaghi/FLAP/commit/7aad79e11605b9e06322adf423cd947226b4472c))
+- RK & leapfrog PIC debug pt.1 ([`85c6991`](https://github.com/szaghi/FLAP/commit/85c69918c236addd72ebbaf67318394770c9c102))
+- Leapfrog PIC debug pt.2 ([`8ad699b`](https://github.com/szaghi/FLAP/commit/8ad699be0ccb546c4cfdc82cf06c4b7926a6adf8))
+
+### Refactoring
+- Simplify gpu data management and operator stubs ([`0dd0eb1`](https://github.com/szaghi/FLAP/commit/0dd0eb1c81538722057605d4576015049de41925))
+
 ## [v0.0.7](https://github.com/szaghi/FLAP/tree/v0.0.7) (2026-02-24)
 [Full Changelog](https://github.com/szaghi/FLAP/compare/v0.0.6...v0.0.7)
 ### Bug fixes
