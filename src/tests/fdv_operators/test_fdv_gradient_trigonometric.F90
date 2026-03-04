@@ -15,7 +15,7 @@ use penf
 
 implicit none
 
-integer(I4P), parameter         :: n=100_I4P                                   !< Number of cells in each direction.
+integer(I4P), parameter         :: n=20_I4P                                    !< Number of cells in each direction.
 integer(I4P), parameter         :: gc=5_I4P                                    !< Number of ghost cells.
 real(R8P),    parameter         :: PI=4._R8P*atan(1._R8P)                      !< PI.
 real(R8P),    parameter         :: h=2_I4P*PI/n                                !< Space step.

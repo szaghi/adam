@@ -56,8 +56,9 @@ export default withMermaid({
         {
           text: 'Project',
           items: [
-            { text: 'Contributing', link: '/guide/contributing' },
-            { text: 'Changelog',    link: '/guide/changelog' },
+            { text: 'Contributing',    link: '/guide/contributing' },
+            { text: 'Changelog',       link: '/guide/changelog' },
+            { text: 'Coverage Report', link: '/guide/coverage-analysis' },
           ],
         },
       ],

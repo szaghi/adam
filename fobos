@@ -1,3 +1,27 @@
+[project]
+name       = ADAM
+version    = VERSION
+summary    = Accelerated fluid Dynamics on Adaptive Mesh refinement grids
+repository = https://github.com/szaghi/adam
+website    = https://szaghi.github.io/adam
+email      = stefano.zaghi@gmail.it
+authors    = "Andrea Di Mascio" "Federico Negro" "Giacomo Rossi" "Francesco Salvadore" "Stefano Zaghi"
+
+[dependencies]
+deps_dir   = src/third_party
+BeFoR64    = https://github.com/szaghi/BeFoR64
+FACE       = https://github.com/szaghi/FACE
+FiNeR      = https://github.com/szaghi/FiNeR
+FUNDAL     = https://github.com/szaghi/FUNDAL
+FOSSIL     = https://github.com/szaghi/FOSSIL
+FoXy       = https://github.com/Fortran-FOSS-Programmers/FoXy
+MORTIF     = https://github.com/szaghi/MORTIF
+MOTIOn     = https://github.com/szaghi/MOTIOn
+PENF       = https://github.com/szaghi/PENF
+StringiFor = https://github.com/szaghi/StringiFor
+VTKFortran = https://github.com/szaghi/VTKFortran
+VecFor     = https://github.com/szaghi/VecFor
+
 [modes]
 modes = ascot-nvf-cuda
         adam-com-gnu                          adam-com-gnu-debug
@@ -378,13 +402,45 @@ help   = Build documentation with formal + VitePress
 rule_1 = formal generate --mirror-sources --diagrams --project docs/ford.md --output docs/api
 rule_2 = cd docs && npm ci && npm run docs:build
 
+[rule-delexe]
+help = Delete exes
+rule = rm -rf exe/
+
 [rule-deldoc]
 help = Delete documentation build artifacts
 rule = rm -rf docs/.vitepress/dist/ docs/.vitepress/cache/ docs/api/
 
 [rule-cleanall]
-help = Clean all compiled objects
-rule = rm -rf exe building-errors.log
+help   = Clean the project tree
+rule_1 = FoBiS.py rule -ex deldoc
+rule_2 = FoBiS.py rule -ex delexe
+rule_3 = rm -f *.gcov
+
+[rule-build-tests-fdv]
+help   = Build FDV operators tests
+rule_1 = FoBiS.py rule -ex delexe
+rule_2 = FoBiS.py build -mode test-fdv-curl-trigonometric-gnu       -coverage
+rule_3 = FoBiS.py build -mode test-fdv-divergence-trigonometric-gnu -coverage
+rule_4 = FoBiS.py build -mode test-fdv-gradient-trigonometric-gnu   -coverage
+rule_5 = FoBiS.py build -mode test-fdv-laplacian-trigonometric-gnu  -coverage
+rule_6 = FoBiS.py build -mode test-fdv-operators-step-gnu           -coverage
+rule_7 = FoBiS.py build -mode test-fdv-operators-trigonometric-gnu  -coverage
+
+[rule-makecoverage]
+help   = Rule for performing coverage analysis
+rule_1 = FoBiS.py rule -ex build-tests-fdv
+rule_2 = ./scripts/run_tests.sh --np 1
+rule_3 = rm -f exe/obj/befor64* exe/obj/face* exe/obj/finer* exe/obj/fundal* exe/obj/fossil* exe/obj/foxy* exe/obj/mortif* exe/obj/motion* exe/obj/penf* exe/obj/stringifor* exe/obj/vtkfortran* exe/obj/vecfor*
+rule_4 = ./scripts/compute-coverage.sh
+
+[rule-makecoverage-analysis]
+help   = Rule for performing coverage analysis and saving reports in markdown
+rule_1 = FoBiS.py rule -ex build-tests-fdv
+rule_2 = ./scripts/run_tests.sh --np 1
+rule_3 = rm -f exe/obj/befor64* exe/obj/face* exe/obj/finer* exe/obj/fundal* exe/obj/fossil* exe/obj/foxy* exe/obj/mortif* exe/obj/motion* exe/obj/penf* exe/obj/stringifor* exe/obj/vtkfortran* exe/obj/vecfor*
+rule_4 = ./scripts/compute-coverage.sh
+rule_5 = FoBiS.py rule -gcov_analyzer docs/guide/ coverage-analysis
+rule_6 = rm -f *.gcov
 
 [common-variables]
 # NVIDIA

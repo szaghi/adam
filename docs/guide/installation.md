@@ -6,7 +6,7 @@ title: Installation
 
 ADAM is provided as source files and must be compiled to produce executables.
 
-ADAM has two types of dependencies: sources available as git submodules (in `src/third_party`) and external libraries that must be installed on the system.
+ADAM has two types of dependencies: source libraries fetched by FoBiS (into `src/third_party`) and external libraries that must be installed on the system.
 
 ## Supported Compilers
 
@@ -19,13 +19,27 @@ ADAM has two types of dependencies: sources available as git submodules (in `src
 
 ## Obtain ADAM
 
-Clone the repository, then initialise the submodules in a separate step:
+Clone the repository, then fetch source dependencies with FoBiS:
 
 ```bash
 git clone https://github.com/szaghi/adam
 cd adam
-git submodule update --init
+FoBiS.py fetch
 ```
+
+`FoBiS.py fetch` reads `src/third_party/.deps_config.ini` and downloads all required source libraries into `src/third_party/`.
+
+Alternatively, use the provided `install.sh` script which automates both steps:
+
+```bash
+# clone + fetch deps + build
+scripts/install.sh --download git --build fobis --mode <mode>
+
+# download a release tarball instead of cloning
+scripts/install.sh --download wget --build fobis --mode <mode> --tag v1.0.0
+```
+
+Run `scripts/install.sh --help` for the full option list.
 
 ## Compile ADAM
 
