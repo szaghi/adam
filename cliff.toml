@@ -1,12 +1,25 @@
+# cliff.toml — generic Conventional Commits changelog for any GitHub repo.
+#
+# owner/repo are auto-detected from `git remote get-url origin`.
+# Override here only when auto-detection fails (e.g. non-standard remotes):
+#
+#   [remote.github]
+#   owner = "my-org"
+#   repo  = "my-repo"
+#
+# Requires: git-cliff >= 2.0  (https://github.com/orhun/git-cliff)
+
+[remote.github]
+
 [changelog]
 header = "# Changelog\n"
 body = """
 {% if version %}\
-## [{{ version }}](https://github.com/szaghi/FLAP/tree/{{ version }}) \
-({{ timestamp | date(format="%Y-%m-%d") }})
-{% if previous.version %}\
-[Full Changelog](https://github.com/szaghi/FLAP/compare/{{ previous.version }}...{{ version }})
-{% endif %}\
+{% set base = "https://github.com/" ~ remote.github.owner ~ "/" ~ remote.github.repo -%}
+## [{{ version }}]\
+({% if previous.version %}{{ base }}/compare/{{ previous.version }}...{{ version }}\
+{% else %}{{ base }}/releases/tag/{{ version }}{% endif %}) \
+- {{ timestamp | date(format="%Y-%m-%d") }}
 {% else %}\
 ## [Unreleased]
 {% endif %}\
@@ -15,7 +28,8 @@ body = """
 {% for commit in commits %}\
 - {{ commit.message | upper_first }}\
 {% if commit.breaking %} ⚠ **BREAKING CHANGE**{% endif %} \
-([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/szaghi/FLAP/commit/{{ commit.id }}))
+([`{{ commit.id | truncate(length=7, end="") }}`]\
+({{ base }}/commit/{{ commit.id }}))
 {% endfor %}
 {% endfor %}\
 """
@@ -24,31 +38,29 @@ footer = ""
 
 [git]
 conventional_commits = true
-
-# Keep non-conventional commits too, grouped as "Miscellaneous"
 filter_unconventional = false
-
 split_commits = false
 
-# Turn #123 references into GitHub issue links
 commit_preprocessors = [
-  { pattern = '#([0-9]+)', replace = "[#$1](https://github.com/szaghi/FLAP/issues/$1)" },
+  # Optional: turn #123 into a GitHub issue link.
+  # replace uses regex substitution, not Tera — set owner/repo explicitly:
+  #   { pattern = '#([0-9]+)', replace = "[#$1](https://github.com/ORG/REPO/issues/$1)" },
 ]
 
 commit_parsers = [
-  { message = "^feat",           group = "New features" },
-  { message = "^fix",            group = "Bug fixes" },
-  { message = "^perf",           group = "Performance" },
-  { message = "^refactor",       group = "Refactoring" },
-  { message = "^docs",           group = "Documentation" },
-  { message = "^test",           group = "Testing" },
-  { message = "^build",          group = "Build system" },
-  { message = "^ci",             group = "CI/CD" },
-  # skip pure release/chore commits from the changelog body
-  { message = "^chore\\(release\\)", skip = true },
-  { message = "^chore",          group = "Miscellaneous" },
-  # catch-all for non-conventional commits
-  { message = ".*",              group = "Miscellaneous" },
+  { message = "^feat",                group = "New features"   },
+  { message = "^fix",                 group = "Bug fixes"      },
+  { message = "^perf",                group = "Performance"    },
+  { message = "^revert",              group = "Reverted"       },
+  { message = "^refactor",            group = "Refactoring"    },
+  { message = "^docs",                group = "Documentation"  },
+  { message = "^test",                group = "Testing"        },
+  { message = "^build",               group = "Build system"   },
+  { message = "^ci",                  group = "CI/CD"          },
+  { message = "^style",               skip  = true             },
+  { message = "^chore\\(release\\)",  skip  = true             },
+  { message = "^chore",               group = "Miscellaneous"  },
+  { message = ".*",                   group = "Miscellaneous"  },
 ]
 
 protect_breaking_commits = true
