@@ -52,7 +52,7 @@ type :: prism_coil_object
    real(R8P),         allocatable :: lx(:), ly(:)                          !< Rectangle's sizes (if rectangular coil)
    real(R8P),         allocatable :: r_coil(:)                             !< Circle's radius (if circular coil)
    real(R8P),         allocatable :: sigma(:)                              !< Gaussian current distribution sigma
-   real(R8P),         allocatable :: J_vec(:,:,:,:,:,:)                      !< Matrice contenente versori corrente spire (se assente
+   real(R8P),         allocatable :: J_vec(:,:,:,:,:,:)                    !< Matrice contenente versori corrente spire (se assente
    real(R8P)                      :: td                                    !< Delay di accensione della spira
    integer(I4P),      allocatable :: coil_flag(:,:,:,:)                    !< Matrice contenente informazioni su quale spira pass pe
    integer(I4P)                   :: circular_coils_number=0_I4P           !< Number of circular coils
@@ -179,7 +179,7 @@ contains
    character(99)                                  :: buff_char       !< Option character buffer.
 
    go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
-   
+
    call file_parameters%get(section_name=INI_SECTION_NAME, option_name='circular_coils_number', &
                             val=self%circular_coils_number, error=error)
    if (.not.go_on_fail_.and.error>0) &
@@ -303,10 +303,6 @@ contains
    endsubroutine load_from_file
 
 endmodule adam_prism_coil_object
-
-
-
-
 
    !subroutine set_coils(self, physics, field)
    !!< Set initial conditions on PRISM fields.
@@ -1246,7 +1242,7 @@ endmodule adam_prism_coil_object
    !   !   do k=1, nk
    !   !      do j=1, nj
    !   !         do i=1, ni
-   !   !            if (flag(i,j,k,b) == w) then! .and. self%coil_flag(i,j,k,b) == 0_I4P) then            
+   !   !            if (flag(i,j,k,b) == w) then! .and. self%coil_flag(i,j,k,b) == 0_I4P) then
    !   !               self%J_vec(1:3,i,j,k,b) = self%J_vec(1:3,i,j,k,b)+vec(flag(i,j,k,b),:)*Gaussian(i,j,k,b) !Se una cella è attraversata da più lati, sommo i contributi alla corrente
    !   !               self%J_vec(4,i,j,k,b) = 1._R8P
    !   !               !if (abs(self%J_vec(1,i,j,k,b)) < 1.0e-10_R8P) then
@@ -1573,7 +1569,7 @@ endmodule adam_prism_coil_object
    !   !   do k=1, nk
    !   !      do j=1, nj
    !   !         do i=1, ni
-   !   !            if (flag(i,j,k,b) == w) then! .and. self%coil_flag(i,j,k,b) == 0_I4P) then            
+   !   !            if (flag(i,j,k,b) == w) then! .and. self%coil_flag(i,j,k,b) == 0_I4P) then
    !   !               self%J_vec(1:3,i,j,k,b) = self%J_vec(1:3,i,j,k,b)+vec(flag(i,j,k,b),:)*Gaussian(i,j,k,b) !Se una cella è attraversata da più lati, sommo i contributi alla corrente
    !   !               self%J_vec(4,i,j,k,b) = 1._R8P
    !   !               !if (abs(self%J_vec(1,i,j,k,b)) < 1.0e-10_R8P) then
@@ -1840,7 +1836,7 @@ endmodule adam_prism_coil_object
    !         do j = 1, nj
    !            do i = 1, ni
    !               cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-   !               dist = sqrt(sq_norm(crossproduct(a=(cell_coord-V(w,:)),b=vec(w,:))))                  
+   !               dist = sqrt(sq_norm(crossproduct(a=(cell_coord-V(w,:)),b=vec(w,:))))
    !               if (w == 1) then
    !                  if ((dotproduct(a=n1,b=cell_coord)+d1 > eps .or. dotproduct(a=n2,b=cell_coord)+d2 > eps) .and. &
    !                       flag(i,j,k,b) == w) then !aggiungo secondo if per evitare sovrapposizioni tra celle per i vari lati
@@ -1885,7 +1881,7 @@ endmodule adam_prism_coil_object
    !                  if (d_int /= 0_I4P) then !Qua ci va algoritmo per indicare la sezione.
    !                     !Per alleggerire il calcolo itero sul cubo che racchiude la cella considerando
    !                     !solo una parte degli indici. Magari calcola quanti indici in funzione del rapporto
-   !                     !d/dx. La cella "centrale" è indicata dagli indici i j k b 
+   !                     !d/dx. La cella "centrale" è indicata dagli indici i j k b
    !                     do i1 = -d_int, d_int
    !                        do j1 = -d_int, d_int
    !                           do k1 = -d_int, d_int

@@ -242,10 +242,10 @@ contains
    !< Copy data from CPU to GPU.
    class(prism_fnl_object), intent(inout) :: self !< The equation.
 
-   call dev_assign_to_device(src=self%q         ,dst=self%q_gpu            ,transposed=.true.)
-   call dev_assign_to_device(src=self%curl      ,dst=self%curl_gpu         ,transposed=.true.)
-   call dev_assign_to_device(src=self%divergence,dst=self%divergence_gpu   ,transposed=.true.)
-   call dev_assign_to_device(src=self%fwlayer%f ,dst=self%fwlayer_gpu%f_gpu,transposed=.true.)
+   call dev_assign_to_device(src=self%q         ,dst=self%q_gpu            ,ij=[1,5])
+   call dev_assign_to_device(src=self%curl      ,dst=self%curl_gpu         ,ij=[1,5])
+   call dev_assign_to_device(src=self%divergence,dst=self%divergence_gpu   ,ij=[1,5])
+   call dev_assign_to_device(src=self%fwlayer%f ,dst=self%fwlayer_gpu%f_gpu,ij=[1,5])
    call self%coil_gpu%copy_cpu_gpu
    call self%fwlayer_gpu%copy_cpu_gpu
    call self%field_gpu%copy_cpu_gpu(verbose=.false.)
@@ -257,9 +257,9 @@ contains
    logical,                 intent(in), optional :: compute_copy_q_aux !< Flag to compute auxiliary variables.
    logical,                 intent(in), optional :: copy_phi           !< Copy also phi.
 
-   call dev_assign_from_device(src=self%q_gpu         ,dst=self%q         ,transposed=.true.)
-   call dev_assign_from_device(src=self%curl_gpu      ,dst=self%curl      ,transposed=.true.)
-   call dev_assign_from_device(src=self%divergence_gpu,dst=self%divergence,transposed=.true.)
+   call dev_assign_from_device(src=self%q_gpu         ,dst=self%q         ,ij=[1,5])
+   call dev_assign_from_device(src=self%curl_gpu      ,dst=self%curl      ,ij=[1,5])
+   call dev_assign_from_device(src=self%divergence_gpu,dst=self%divergence,ij=[1,5])
    call self%coil_gpu%copy_gpu_cpu
    call self%fwlayer_gpu%copy_gpu_cpu
    endsubroutine copy_gpu_cpu
@@ -542,7 +542,7 @@ contains
    class(prism_fnl_object), intent(inout) :: self !< The equation.
 
    call self%ic%set_initial_conditions(physics=self%physics, field=self%field, q=self%q)
-   call self%coil%set_coils(physics=self%physics, field=self%field)
+   ! call self%coil%set_coils(physics=self%physics, field=self%field)
    call self%copy_cpu_gpu
    endsubroutine set_initial_conditions
 

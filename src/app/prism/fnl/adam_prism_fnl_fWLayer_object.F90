@@ -45,7 +45,7 @@ contains
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call self%mpih_gpu%print_message('prism_fnl_fwlayer_object%copy_cpu_gpu start')
-   call dev_assign_to_device(src=self%fwlayer%f,dst=self%f_gpu,transposed=.true.)
+   call dev_assign_to_device(src=self%fwlayer%f,dst=self%f_gpu,ij=[1,5])
    if (verbose_) call self%mpih_gpu%print_message('prism_fnl_fwlayer_object%copy_cpu_gpu finish')
    endsubroutine copy_cpu_gpu
 
@@ -57,7 +57,7 @@ contains
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    if (verbose_) call self%mpih_gpu%print_message('prism_fnl_fwlayer_object%copy_gpu_cpu start')
-   call dev_assign_from_device(src=self%f_gpu,dst=self%fwlayer%f,transposed=.true.)
+   call dev_assign_from_device(src=self%f_gpu,dst=self%fwlayer%f,ij=[1,5])
    if (verbose_) call self%mpih_gpu%print_message('prism_fnl_fwlayer_object%copy_gpu_cpu finish')
    endsubroutine copy_gpu_cpu
 
