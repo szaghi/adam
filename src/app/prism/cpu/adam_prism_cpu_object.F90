@@ -495,9 +495,9 @@ contains
                do k=1, nk
                   do j=1, nj
                      do i=1, ni
-                        q(var_Jx,i,j,k,b) = q(var_Jx,i,j,k,b) + current_density * J_vec(n,1,i,j,k,b)
-                        q(var_Jy,i,j,k,b) = q(var_Jy,i,j,k,b) + current_density * J_vec(n,2,i,j,k,b)
-                        q(var_Jz,i,j,k,b) = q(var_Jz,i,j,k,b) + current_density * J_vec(n,3,i,j,k,b)
+                        q(var_Jx,i,j,k,b) = q(var_Jx,i,j,k,b) + current_density * J_vec(1,i,j,k,b,n)
+                        q(var_Jy,i,j,k,b) = q(var_Jy,i,j,k,b) + current_density * J_vec(2,i,j,k,b,n)
+                        q(var_Jz,i,j,k,b) = q(var_Jz,i,j,k,b) + current_density * J_vec(3,i,j,k,b,n)
                      enddo
                   enddo
                enddo
@@ -917,7 +917,7 @@ contains
          endselect
       case(COIL_TYPE_CIRCULAR)
       endselect
-      call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(n,1:3,:,:,:,:),divergence=self%divergence(3,:,:,:,:))
+      call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(1:3,:,:,:,:,n),divergence=self%divergence(3,:,:,:,:))
       print *, 'Divergenza J vec della spira: ',n, ' pari a: ',maxval(abs(self%divergence(3,:,:,:,:)))
    enddo
 
@@ -2605,15 +2605,15 @@ contains
       enddo
    enddo
 
-   J_vec(n,1:3,:,:,:,:) = J_vec(n,1:3,:,:,:,:) + J_vec_buffer
+   J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
    endassociate
 
-   if (n == 1_I4P) then
-      call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
-   else
-      self%coil%A(n) = self%coil%A(1)
-      call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
-   endif
+   !if (n == 1_I4P) then
+   !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
+   !else
+   !   self%coil%A(n) = self%coil%A(1)
+   !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
+   !endif
    endsubroutine set_rectangular_coil_x
 
    subroutine set_rectangular_coil_y(self, n, verse)
@@ -2708,14 +2708,14 @@ contains
       enddo
    enddo
 
-   J_vec(n,1:3,:,:,:,:) = J_vec(n,1:3,:,:,:,:) + J_vec_buffer
+   J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
    endassociate
-   if (n == 1_I4P) then
-      call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
-   else
-      self%coil%A(n) = self%coil%A(1)
-      call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
-   endif
+   !if (n == 1_I4P) then
+   !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
+   !else
+   !   self%coil%A(n) = self%coil%A(1)
+   !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
+   !endif
    endsubroutine set_rectangular_coil_y
 
    subroutine set_rectangular_coil_z(self, n, verse)
@@ -2809,16 +2809,16 @@ contains
          enddo
       enddo
    enddo
-   J_vec(n,1:3,:,:,:,:) = J_vec(n,1:3,:,:,:,:) + J_vec_buffer
+   J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
    endassociate
 
    !Riscalo ampiezza per matchare valore in input
-   if (n == 1_I4P) then
-      call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
-   else
-      self%coil%A(n) = self%coil%A(1)
-      call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
-   endif
+   !if (n == 1_I4P) then
+   !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
+   !else
+   !   self%coil%A(n) = self%coil%A(1)
+   !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
+   !endif
 
    !!Calcolo divergenza di J (ampiezza massima) prima della correzione alla Poisson
    !self%coil%J_vec(n,1:3,:,:,:,:) = self%coil%J_vec(n,1:3,:,:,:,:) * self%coil%A(n)
@@ -2908,7 +2908,7 @@ contains
 
       do j = j_s - nint(3.5_R8P*self%coil%sigma(n)), j_s + nint(3.5_R8P*self%coil%sigma(n))
          do i = i_s - nint(3.5_R8P*self%coil%sigma(n)), i_s + nint(3.5_R8P*self%coil%sigma(n))
-               flux = flux + J_vec(n,3,i,j,k_s,1)*dx(1)*dy(1)
+               flux = flux + J_vec(3,i,j,k_s,1,n)*dx(1)*dy(1)
          enddo
       enddo
    
@@ -2931,7 +2931,7 @@ contains
 
       do j = j_s - nint(3.5_R8P*self%coil%sigma(n)), j_s + nint(3.5_R8P*self%coil%sigma(n))
          do i = i_s - nint(3.5_R8P*self%coil%sigma(n)), i_s + nint(3.5_R8P*self%coil%sigma(n))
-               flux = flux + J_vec(n,3,i,j,k_s,1)*dx(1)*dy(1)
+               flux = flux + J_vec(3,i,j,k_s,1,n)*dx(1)*dy(1)
          enddo
       enddo
 
@@ -2954,7 +2954,7 @@ contains
 
       do k = k_s - nint(3.5_R8P*self%coil%sigma(n)), k_s + nint(3.5_R8P*self%coil%sigma(n))
          do i = i_s - nint(3.5_R8P*self%coil%sigma(n)), i_s + nint(3.5_R8P*self%coil%sigma(n))
-               flux = flux + J_vec(n,2,i,j_s,k,1)*dx(1)*dz(1)
+               flux = flux + J_vec(2,i,j_s,k,1,n)*dx(1)*dz(1)
          enddo
       enddo  
         

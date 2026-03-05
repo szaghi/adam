@@ -104,7 +104,7 @@ contains
    allocate(self%phase               (0:total_coils_number)) ; self%phase = 0.0_R8P
 
    allocate(self%coil_flag(1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb)) ; self%coil_flag = 0_I4P
-   allocate(self%J_vec(total_coils_number,4,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb)) ; self%J_vec = 0._R8P
+   allocate(self%J_vec(4,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb,total_coils_number)) ; self%J_vec = 0._R8P
 
    endassociate
    endsubroutine allocate_coil
