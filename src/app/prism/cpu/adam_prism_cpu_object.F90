@@ -24,15 +24,8 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
    real(R8P), allocatable ::   fly_f(:,:,:,:,:    ) !< Fluxes along y at cell face.
    real(R8P), allocatable ::   flz_f(:,:,:,:,:    ) !< Fluxes along z at cell face.
    !< Pointer (abstract) TBP.
-   procedure(compute_curl_interface),       pass(self),pointer :: compute_curl       =>null()!< Compute curl of vector field.
-   procedure(compute_derivative1_interface),pass(self),pointer :: compute_derivative1=>null()!< Compute derivative1 of scalar field.
-   procedure(compute_derivative2_interface),pass(self),pointer :: compute_derivative2=>null()!< Compute derivative2 of scalar field.
-   procedure(compute_derivative4_interface),pass(self),pointer :: compute_derivative4=>null()!< Compute derivative4 of scalar field.
-   procedure(compute_divergence_interface), pass(self),pointer :: compute_divergence =>null()!< Compute divergence of vector field.
-   procedure(compute_gradient_interface),   pass(self),pointer :: compute_gradient   =>null()!< Compute gradient of scalar field.
-   procedure(compute_laplacian_interface),  pass(self),pointer :: compute_laplacian  =>null()!< Compute laplacian of scalar field.
-   procedure(compute_residuals_interface),  pass(self),pointer :: compute_residuals  =>null()!< Compute residuals, space operator.
-   procedure(integrate_interface),          pass(self),pointer :: integrate          =>null()!< Integrate, time operator.
+   procedure(compute_residuals_interface), pass(self),pointer :: compute_residuals=>null()!< Compute residuals, space operator.
+   procedure(integrate_interface),         pass(self),pointer :: integrate        =>null()!< Integrate, time operator.
    contains
       ! auxiliary methods
       procedure, pass(self) :: allocate_cpu !< Allocate CPU data.
@@ -43,10 +36,6 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       ! IC/BC/sources
       procedure, pass(self) :: apply_fWL_correction              !< Apply fWLayer correction (if present)
       procedure, pass(self) :: compute_coils_current             !< Compute current coils sources.
-      procedure, pass(self) :: set_rectangular_coil_x            !< Subroutine to set a rectangular coil source with +-x normal
-      procedure, pass(self) :: set_rectangular_coil_y            !< Subroutine to set a rectangular coil source with +-y normal
-      procedure, pass(self) :: set_rectangular_coil_z            !< Subroutine to set a rectangular coil source with +-z normal
-      procedure, pass(self) :: compute_coil_current_density_flux !< Compute coil current density fluxes for Maxwell equations.
       procedure, pass(self) :: impose_div_coil_correction        !< Impose coil divergence correction.
       procedure, pass(self) :: set_boundary_conditions           !< Set boundary conditions of equation.
       procedure, pass(self) :: compute_residuals_BC
@@ -54,20 +43,6 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: set_initial_conditions            !< Set initial conditions (and coils) of equation.
       procedure, pass(self) :: update_ghost                      !< Update ghost cells and set boundary conditions.
       procedure, pass(self) :: compute_field_mean_value          !< Compute field mean value.
-      ! FDV operators numerical methods
-      procedure, pass(self) :: compute_curl_fd        !< Compute curl of vector field by finite difference.
-      procedure, pass(self) :: compute_curl_fv        !< Compute curl of vector field by finite volume.
-      procedure, pass(self) :: compute_derivative1_fd !< Compute derivative1 of scalar fields, finite difference schemes.
-      procedure, pass(self) :: compute_derivative1_fv !< Compute derivative1 of scalar fields, finite volume schemes.
-      procedure, pass(self) :: compute_derivative2_fd !< Compute derivative2 of scalar fields, finite difference schemes.
-      procedure, pass(self) :: compute_derivative2_fv !< Compute derivative2 of scalar fields, finite volume schemes.
-      procedure, pass(self) :: compute_derivative4_fd !< Compute derivative4 of scalar fields, finite difference schemes.
-      procedure, pass(self) :: compute_divergence_fd  !< Compute divergence of vector field by finite difference.
-      procedure, pass(self) :: compute_divergence_fv  !< Compute divergence of vector field by finite volume.
-      procedure, pass(self) :: compute_gradient_fd    !< Compute gradient of scalar field, finite difference schemes.
-      procedure, pass(self) :: compute_gradient_fv    !< Compute gradient of scalar field, finite volume schemes.
-      procedure, pass(self) :: compute_laplacian_fd   !< Compute laplacian of scalar field, finite difference schemes.
-      procedure, pass(self) :: compute_laplacian_fv   !< Compute laplacian of scalar field, finite volume schemes.
       ! numerical methods
       procedure, pass(self) :: compute_auxiliary_fields !< Compute auxiliary fields.
       procedure, pass(self) :: compute_dt               !< Compute time step.
@@ -79,72 +54,6 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
 endtype prism_cpu_object
 
 interface
-   subroutine compute_curl_interface(self, ivar, q, curl)
-   !< Compute curl of vector fields, div(q(ivar:ivar+2).
-   import :: prism_cpu_object, I4P, R8P
-   class(prism_cpu_object), intent(in)    :: self                                            !< The equation.
-   integer(I4P),            intent(in)    :: ivar                                            !< Start index of (vec.) variable of q.
-   real(R8P),               intent(in)    :: q(   1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: curl(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Curl.
-   endsubroutine compute_curl_interface
-
-   subroutine compute_derivative1_interface(self, dir, ivar, q, dq_ds)
-   !< Compute derivative1 of scalar fields, dq(ivar)/ds.
-   import :: prism_cpu_object, I4P, R8P
-   class(prism_cpu_object), intent(in)    :: self                                          !< The equation.
-   integer(I4P),            intent(in)    :: dir                                           !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P),            intent(in)    :: ivar                                          !< Start index of (vec.) variable of q.
-   real(R8P),               intent(in)    :: q(1:, 1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: dq_ds(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative1, dq/ds.
-   endsubroutine compute_derivative1_interface
-
-   subroutine compute_derivative2_interface(self, dir, ivar, q, d2q_ds2)
-   !< Compute derivative2 of scalar fields, d2q(ivar)/ds2.
-   import :: prism_cpu_object, I4P, R8P
-   class(prism_cpu_object), intent(in)    :: self                                            !< The equation.
-   integer(I4P),            intent(in)    :: dir                                             !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P),            intent(in)    :: ivar                                            !< Start index of (vec.) variable of q.
-   real(R8P),               intent(in)    :: q(1:,   1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: d2q_ds2(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative2, d2q/ds2.
-   endsubroutine compute_derivative2_interface
-
-   subroutine compute_derivative4_interface(self, dir, ivar, q, d4q_ds4)
-   !< Compute derivative4 of scalar fields, d4q(ivar)/ds4.
-   import :: prism_cpu_object, I4P, R8P
-   class(prism_cpu_object), intent(in)    :: self                                            !< The equation.
-   integer(I4P),            intent(in)    :: dir                                             !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P),            intent(in)    :: ivar                                            !< Start index of (vec.) variable of q.
-   real(R8P),               intent(in)    :: q(1:,   1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: d4q_ds4(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative4, d4q/ds4.
-   endsubroutine compute_derivative4_interface
-
-   subroutine compute_divergence_interface(self, ivar, q, divergence)
-   !< Compute divergence of vector fields, div(q(ivar:ivar+2).
-   import :: prism_cpu_object, I4P, R8P
-   class(prism_cpu_object), intent(in)    :: self                                               !< The equation.
-   integer(I4P),            intent(in)    :: ivar                                               !< Start index of (vec.) field of q.
-   real(R8P),               intent(in)    :: q(1:,      1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: divergence(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
-   endsubroutine compute_divergence_interface
-
-   subroutine compute_gradient_interface(self, ivar, q, gradient)
-   !< Compute gradient of scalar variable q(ivar).
-   import :: prism_cpu_object, I4P, R8P
-   class(prism_cpu_object), intent(in)    :: self                                                !< The equation.
-   integer(I4P),            intent(in)    :: ivar                                                !< Index of scalar variable of q.
-   real(R8P),               intent(in)    :: q(       1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: gradient(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Gradient.
-   endsubroutine compute_gradient_interface
-
-   subroutine compute_laplacian_interface(self, ivar, q, laplacian)
-   !< Compute laplacian of scalar variable q(ivar).
-   import :: prism_cpu_object, I4P, R8P
-   class(prism_cpu_object), intent(in)    :: self                                              !< The equation.
-   integer(I4P),            intent(in)    :: ivar                                              !< Index of scalar variable of q.
-   real(R8P),               intent(in)    :: q(     1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: laplacian(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Laplacian.
-   endsubroutine compute_laplacian_interface
-
    subroutine compute_residuals_interface(self, q, dq, s)
    !< Compute residuals of equation, space operator.
    import :: prism_cpu_object, R8P, I4P
@@ -256,28 +165,10 @@ contains
 
    select case(self%numerics%scheme_space)
    case(NUM_SCHEME_SPACE_WENO)
-      self%compute_curl        => compute_curl_fv
-      self%compute_derivative1 => compute_derivative1_fv
-      self%compute_derivative2 => compute_derivative2_fv
-      self%compute_divergence  => compute_divergence_fv
-      self%compute_gradient    => compute_gradient_fv
-      self%compute_laplacian   => compute_laplacian_fv
       self%compute_residuals   => compute_residuals_weno
    case(NUM_SCHEME_SPACE_FD_CENTERED)
-      self%compute_curl        => compute_curl_fd
-      self%compute_derivative1 => compute_derivative1_fd
-      self%compute_derivative2 => compute_derivative2_fd
-      self%compute_divergence  => compute_divergence_fd
-      self%compute_gradient    => compute_gradient_fd
-      self%compute_laplacian   => compute_laplacian_fd
       self%compute_residuals   => compute_residuals_fd_centered
    case(NUM_SCHEME_SPACE_FV_CENTERED)
-      self%compute_curl        => compute_curl_fv
-      self%compute_derivative1 => compute_derivative1_fv
-      self%compute_derivative2 => compute_derivative2_fv
-      self%compute_divergence  => compute_divergence_fv
-      self%compute_gradient    => compute_gradient_fv
-      self%compute_laplacian   => compute_laplacian_fv
       self%compute_residuals   => compute_residuals_fv_centered
    endselect
 
@@ -377,7 +268,7 @@ contains
    !   time_s = time
    !end if
    !if (self%coil%total_coils_number >= 1_I4P) then
-   !   ! Azzero termini sorgenti (con il PIC questa inizializzazione non va bene, bisogna ragionarci, 
+   !   ! Azzero termini sorgenti (con il PIC questa inizializzazione non va bene, bisogna ragionarci,
    !   ! forse serve un buffer da sommare a q alla fine del ciclo su coils number)
    !   q(VAR_JX,:,:,:,:) = 0._R8P
    !   q(VAR_JY,:,:,:,:) = 0._R8P
@@ -510,7 +401,7 @@ contains
             current_density_o = A(n) * g * cos(theta)
             write(fname,'(A,SS,I0,A)') 'current_density_coil_', n, '.dat'
             call write_current_behavior_tab(trim(fname), time=time_s, current_density=current_density_o)
-            !call write_current_behavior_tab('current_density_coil_'//trim(adjustl(str(n))), & 
+            !call write_current_behavior_tab('current_density_coil_'//trim(adjustl(str(n))), &
             !                                 time=time_s, current_density=current_density_o)
          enddo
       endif
@@ -886,7 +777,6 @@ contains
    subroutine set_initial_conditions(self) !DA CORREGGERE CON NV_PIC QUANDO SERVE PER BC CARICA SE MODELLO PIC ATTIVO
    !< Set initial conditions and coils on field.
    class(prism_cpu_object), intent(inout) :: self !< The equation.
-   integer(I4P)                           :: n    !< Counter.
 
    call self%ic%set_initial_conditions(physics=self%physics, field=self%field, q=self%q)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
@@ -898,28 +788,7 @@ contains
    !call self%coil%set_coils(physics=self%physics, field=self%field) !Lo metto dopo perchè l'interpolatore di correnti azzera
                                                                     !tutto per poter poi fare la sommatoria al relativo tempo
 
-   do n=1, self%coil%total_coils_number
-      selectcase(self%coil%coil_type(n))
-      case(COIL_TYPE_RECTANGULAR)
-         select case(self%coil%normal(n))
-         case(NORMAL_P_X)
-            call self%set_rectangular_coil_x(n=n, verse = 1._R8P)
-         case(NORMAL_P_Y)
-            call self%set_rectangular_coil_y(n=n, verse = 1._R8P)
-         case(NORMAL_P_Z) 
-            call self%set_rectangular_coil_z(n=n, verse = 1._R8P)
-         case(NORMAL_M_X)
-            call self%set_rectangular_coil_x(n=n, verse = -1._R8P)
-         case(NORMAL_M_Y)
-            call self%set_rectangular_coil_y(n=n, verse = -1._R8P)
-         case(NORMAL_M_Z)
-            call self%set_rectangular_coil_z(n=n, verse = -1._R8P)
-         endselect
-      case(COIL_TYPE_CIRCULAR)
-      endselect
-      call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(1:3,:,:,:,:,n),divergence=self%divergence(3,:,:,:,:))
-      print *, 'Divergenza J vec della spira: ',n, ' pari a: ',maxval(abs(self%divergence(3,:,:,:,:)))
-   enddo
+   call self%initialize_coils
 
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       call self%pic%current_weighting(field=self%field, q=self%q, q_pic=self%q_pic, nv=self%nv)
@@ -957,421 +826,6 @@ contains
    if (do_set_bc)       call self%apply_fWL_correction(q=q)
    if (do_set_bc)       call self%set_boundary_conditions(q=q, s=s)
    endsubroutine update_ghost
-
-   ! FDV operators numerical methods
-   subroutine compute_curl_fd(self, ivar, q, curl)
-   !< Compute curl of vector fields, div(q(ivar:ivar+2), using finite difference schemes.
-   class(prism_cpu_object), intent(in)    :: self                                            !< The equation.
-   integer(I4P),            intent(in)    :: ivar                                            !< Start index of (vec.) variable of q.
-   real(R8P),               intent(in)    :: q(   1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: curl(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Curl.
-   integer(I4P)                           :: i,j,k,b                                         !< Counter.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(1))
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      call compute_curl_fd_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),curl=curl(ivar:,i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_curl_fd
-
-   subroutine compute_curl_fv(self, ivar, q, curl)
-   !< Compute curl of vector fields, div(q(ivar:ivar+2), using finite volume schemes.
-   class(prism_cpu_object), intent(in)    :: self                                            !< The equation.
-   integer(I4P),            intent(in)    :: ivar                                            !< Start index of (vec.) variable of q.
-   real(R8P),               intent(in)    :: q(   1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: curl(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Curl.
-   integer(I4P)                           :: i,j,k,b                                         !< Counter.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(1))
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      call compute_curl_fv_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),curl=curl(ivar:,i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_curl_fv
-
-   subroutine compute_derivative1_fd(self, dir, ivar, q, dq_ds)
-   !< Compute derivative1 of scalar fields, dq(ivar)/ds, using finite difference schemes.
-   class(prism_cpu_object), intent(in)    :: self                                          !< The equation.
-   integer(I4P),            intent(in)    :: dir                                           !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P),            intent(in)    :: ivar                                          !< Start index of (vec.) variable of q.
-   real(R8P),               intent(in)    :: q(1:, 1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: dq_ds(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative1, dq/ds.
-   integer(I4P)                           :: i,j,k,b                                       !< Counter.
-   integer(I4P)                           :: is,js,ks                                      !< Stencils.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(1))
-   select case(dir)
-   case(1)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative1_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i-hs:i+hs,j,k,b),dq_ds=dq_ds(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(2)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative1_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j-hs:j+hs,k,b),dq_ds=dq_ds(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(3)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative1_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j,k-hs:k+hs,b),dq_ds=dq_ds(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   endselect
-   endassociate
-   endsubroutine compute_derivative1_fd
-
-   subroutine compute_derivative1_fv(self, dir, ivar, q, dq_ds)
-   !< Compute derivative1 of scalar fields, dq(ivar)/ds, using finite volume schemes.
-   class(prism_cpu_object), intent(in)    :: self                                          !< The equation.
-   integer(I4P),            intent(in)    :: dir                                           !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P),            intent(in)    :: ivar                                          !< Start index of (vec.) variable of q.
-   real(R8P),               intent(in)    :: q(1:, 1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: dq_ds(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative1, dq/ds.
-   integer(I4P)                           :: i,j,k,b                                       !< Counter.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(1))
-   select case(dir)
-   case(1)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative1_fv_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i-hs:i+hs,j,k,b),dq_ds=dq_ds(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(2)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative1_fv_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j-hs:j+hs,k,b),dq_ds=dq_ds(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(3)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative1_fv_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j,k-hs:k+hs,b),dq_ds=dq_ds(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   endselect
-   endassociate
-   endsubroutine compute_derivative1_fv
-
-   subroutine compute_derivative2_fd(self, dir, ivar, q, d2q_ds2)
-   !< Compute derivative2 of scalar fields, d2q(ivar)/ds2, using finite difference schemes.
-   class(prism_cpu_object), intent(in)    :: self                                            !< The equation.
-   integer(I4P),            intent(in)    :: dir                                             !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P),            intent(in)    :: ivar                                            !< Start index of (vec.) variable of q.
-   real(R8P),               intent(in)    :: q(1:,   1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: d2q_ds2(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative2, d2q/ds2.
-   integer(I4P)                           :: i,j,k,b                                         !< Counter.
-   integer(I4P)                           :: is,js,ks                                        !< Stencils.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(2))
-   select case(dir)
-   case(1)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative2_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i-hs:i+hs,j,k,b),d2q_ds2=d2q_ds2(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(2)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative2_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j-hs:j+hs,k,b),d2q_ds2=d2q_ds2(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(3)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative2_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j,k-hs:k+hs,b),d2q_ds2=d2q_ds2(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   endselect
-   endassociate
-   endsubroutine compute_derivative2_fd
-
-   subroutine compute_derivative2_fv(self, dir, ivar, q, d2q_ds2)
-   !< Compute derivative2 of scalar fields, d2q(ivar)/ds2, using finite volume schemes.
-   class(prism_cpu_object), intent(in)    :: self                                            !< The equation.
-   integer(I4P),            intent(in)    :: dir                                             !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P),            intent(in)    :: ivar                                            !< Start index of (vec.) variable of q.
-   real(R8P),               intent(in)    :: q(1:,   1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: d2q_ds2(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative2, d2q/ds2.
-   integer(I4P)                           :: i,j,k,b                                         !< Counter.
-   integer(I4P)                           :: is,js,ks                                        !< Stencils.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(2))
-   select case(dir)
-   case(1)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         ! call compute_derivative2_fv_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i-hs:i+hs,j,k,b),d2q_ds2=d2q_ds2(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(2)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         ! call compute_derivative2_fv_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j-hs:j+hs,k,b),d2q_ds2=d2q_ds2(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(3)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         ! call compute_derivative2_fv_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j,k-hs:k+hs,b),d2q_ds2=d2q_ds2(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   endselect
-   endassociate
-   endsubroutine compute_derivative2_fv
-
-   subroutine compute_derivative4_fd(self, dir, ivar, q, d4q_ds4)
-   !< Compute derivative2 of scalar fields, d4q(ivar)/ds4, using finite difference schemes.
-   class(prism_cpu_object), intent(in)    :: self                                            !< The equation.
-   integer(I4P),            intent(in)    :: dir                                             !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P),            intent(in)    :: ivar                                            !< Start index of (vec.) variable of q.
-   real(R8P),               intent(in)    :: q(1:,   1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: d4q_ds4(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative4, d4q/ds4.
-   integer(I4P)                           :: i,j,k,b                                         !< Counter.
-   integer(I4P)                           :: is,js,ks                                        !< Stencils.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencil)
-   select case(dir)
-   case(1)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative4_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i-hs:i+hs,j,k,b),d4q_ds4=d4q_ds4(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(2)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative4_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j-hs:j+hs,k,b),d4q_ds4=d4q_ds4(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(3)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative4_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j,k-hs:k+hs,b),d4q_ds4=d4q_ds4(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   endselect
-   endassociate
-   endsubroutine compute_derivative4_fd
-
-   subroutine compute_divergence_fd(self, ivar, q, divergence)
-   !< Compute divergence of vector fields, div(q(ivar:ivar+2), using finite difference schemes.
-   class(prism_cpu_object), intent(in)    :: self                                               !< The equation.
-   integer(I4P),            intent(in)    :: ivar                                               !< Start index of (vec.) field of q.
-   real(R8P),               intent(in)    :: q(1:,      1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: divergence(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
-   integer(I4P)                           :: i,j,k,b                                            !< Counter.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(1))
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      call compute_divergence_fd_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),&
-                                          divergence=divergence(i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_divergence_fd
-
-   subroutine compute_divergence_fv(self, ivar, q, divergence)
-   !< Compute divergence of vector fields, div(q(ivar:ivar+2), using finite volume schemes.
-   class(prism_cpu_object), intent(in)    :: self                                               !< The equation.
-   integer(I4P),            intent(in)    :: ivar                                               !< Start index of (vec.) field of q.
-   real(R8P),               intent(in)    :: q(1:,      1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: divergence(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
-   integer(I4P)                           :: i,j,k,b                                            !< Counter.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(1))
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      call compute_divergence_fv_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),&
-                                          divergence=divergence(i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_divergence_fv
-
-   subroutine compute_gradient_fd(self, ivar, q, gradient)
-   !< Compute gradient of scalar variable q(ivar), finite difference schemes.
-   class(prism_cpu_object), intent(in)    :: self                                                !< The equation.
-   integer(I4P),            intent(in)    :: ivar                                                !< Index of scalar variable of q.
-   real(R8P),               intent(in)    :: q(       1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: gradient(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Gradient.
-   integer(I4P)                           :: i, j, k, b                                          !< Counter.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(1))
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      call compute_gradient_fd_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),&
-                                        gradient=gradient(1:3,i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_gradient_fd
-
-   subroutine compute_gradient_fv(self, ivar, q, gradient)
-   !< Compute gradient of scalar variable q(ivar), finite volume schemes.
-   class(prism_cpu_object), intent(in)    :: self                                                !< The equation.
-   integer(I4P),            intent(in)    :: ivar                                                !< Index of scalar variable of q.
-   real(R8P),               intent(in)    :: q(       1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: gradient(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Gradient.
-   integer(I4P)                           :: i, j, k, b                                          !< Counter.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(1))
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      call compute_gradient_fv_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),&
-                                        gradient=gradient(1:3,i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_gradient_fv
-
-   subroutine compute_laplacian_fd(self, ivar, q, laplacian)
-   !< Compute laplacian of scalar variable q(ivar), finite difference schemes.
-   class(prism_cpu_object), intent(in)    :: self                                              !< The equation.
-   integer(I4P),            intent(in)    :: ivar                                              !< Index of scalar variable of q.
-   real(R8P),               intent(in)    :: q(     1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: laplacian(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Gradient.
-   integer(I4P)                           :: i, j, k, b                                        !< Counter.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(2))
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      call compute_laplacian_fd_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),laplacian=laplacian(i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_laplacian_fd
-
-   subroutine compute_laplacian_fv(self, ivar, q, laplacian)
-   !< Compute laplacian of scalar variable q(ivar), finite volume schemes.
-   class(prism_cpu_object), intent(in)    :: self                                              !< The equation.
-   integer(I4P),            intent(in)    :: ivar                                              !< Index of scalar variable of q.
-   real(R8P),               intent(in)    :: q(     1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),               intent(inout) :: laplacian(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Gradient.
-   integer(I4P)                           :: i, j, k, b                                        !< Counter.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(2))
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-     !call compute_laplacian_fv_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),laplacian=laplacian(i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_laplacian_fv
 
    ! numerical methods
    subroutine compute_auxiliary_fields(self)
@@ -1480,7 +934,7 @@ contains
       real(R8P),    intent(out) :: coil_power  !< Coil power of the vector field.
       real(R8P)                 :: cost        !< Costant for the coil power computation.
       integer(I4P)              :: i,j,k,b     !< Counter.
-      
+
       coil_power = 0.0_R8P
       associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number, &
                 coil_flag=>self%coil%coil_flag, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:))
@@ -1505,7 +959,7 @@ contains
       real(R8P),    intent(out) :: Poynting_flux  !< Power irradiated outside computational domain.
       integer(I4P)              :: i,j,k,b,v      !< Counter.
       real(R8P)                 :: q_boundary(6)  !< Variables at boundary for the Poynting flux computation.
-      real(R8P)                 :: n(3)           !< Boundary normal direction  
+      real(R8P)                 :: n(3)           !< Boundary normal direction
 
       associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number, &
                 s=>self%numerics%fdv_half_stencils(1), dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:))
@@ -1765,7 +1219,6 @@ contains
       call self%compute_divergence(ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
       call self%compute_divergence(ivar=7,q=self%q,divergence=self%divergence(3,:,:,:,:))
       call self%save_divergence_history
-
 
       if (((self%time%it_max <= 0).and.(self%time%time >= self%time%time_max)).or.&
          ((self%time%it>=self%time%it_max).and.(self%time%it_max > 0))) exit integration
@@ -2513,469 +1966,6 @@ contains
    enddo
    endsubroutine decompose_fluxes_convective
 
-   subroutine set_rectangular_coil_x(self, n, verse)
-   class(prism_cpu_object),      intent(inout) :: self                     !< Cpu object.
-   integer(I4P),                 intent(in)    :: n                        !< Coil number.
-   real(R8P),                    intent(in)    :: verse                    !< Coil normal direction, +1=+x, -1=-x.
-   real(R8P),                    allocatable   :: A(:,:,:,:,:)             !< Campo vettoriale totale della spira
-   real(R8P),                    allocatable   :: J_vec_buffer(:,:,:,:,:)  !< Variabile buffer per coil%J_vec
-   real(R8P)                                   :: A_1, A_2, A_3, A_4       !< Campo vettoriale lati spira
-   real(R8P)                                   :: cell_coord(3)            !< Vettore posizione centro cella
-   real(R8P)                                   :: y_d, y_t, z_b, z_f
-   real(R8P)                                   :: F_n, W_t, W_x
-   integer(I4P)                                :: b,i,j,k                  !< Counter.
-
-   !associo per dati su posizioni delle celle e contatori
-   associate(blocks_number=>self%field%blocks_number, ni=>self%field%grid%ni, nj=>self%field%grid%nj, & 
-            nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),             &
-            lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,                &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>self%field%dxyz(1,:),         &
-            dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n),          & 
-            nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  & 
-            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec)
-
-   !Fisso estremi della spira rettangolare con normale parallela a x, e centro in (x_c, y_c, z_c)
-   y_d = -lx/2 + y_c
-   y_t = +lx/2 + y_c
-   z_b = -ly/2 + z_c
-   z_f = +ly/2 + z_c
-
-   allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
-   A(:,:,:,:,:) = 0.0_R8P
-   allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
-   J_vec_buffer(:,:,:,:,:) = 0.0_R8P
-
-   do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-               !Primo filo (y = y_d, tangenziale lungo z)
-               F_n = erf_function(s=cell_coord(2), mu = y_d, sigma = sigma*dy(b))
-               W_t = tangential_window(s=cell_coord(3), smin = z_b, smax = z_f, sigma = sigma*dz(b))
-               W_x = tangential_window(s=cell_coord(1), smin = x_c-sigma*dx(b), smax = x_c+sigma*dx(b), sigma=sigma*dx(b))
-               A_1 = F_n*W_t*W_x
-               !Secondo filo (z = z_f, tangenziale lungo y)
-               F_n = erf_function(s=cell_coord(3), mu = z_f, sigma = sigma*dz(b))
-               W_t = tangential_window(s=cell_coord(2), smin = y_d, smax = y_t, sigma = sigma*dy(b))
-               W_x = tangential_window(s=cell_coord(1), smin = x_c-sigma*dx(b), smax = x_c+sigma*dx(b), sigma=sigma*dx(b))
-               A_2 = -F_n*W_t*W_x
-               !Terzo filo (y = y_t, tangenziale lungo z)
-               F_n = erf_function(s=cell_coord(2), mu = y_t, sigma = sigma*dy(b))
-               W_t = tangential_window(s=cell_coord(3), smin = z_b, smax = z_f, sigma = sigma*dz(b))
-               W_x = tangential_window(s=cell_coord(1), smin = x_c-sigma*dx(b), smax = x_c+sigma*dx(b), sigma=sigma*dx(b))
-               A_3 = -F_n*W_t*W_x
-               !Quarto filo (z = z_b, tangenziale lungo y)
-               F_n = erf_function(s=cell_coord(3), mu = z_b, sigma = sigma*dz(b))
-               W_t = tangential_window(s=cell_coord(2), smin = y_d, smax = y_t, sigma = sigma*dy(b))
-               W_x = tangential_window(s=cell_coord(1), smin = x_c-sigma*dx(b), smax = x_c+sigma*dx(b), sigma=sigma*dx(b))
-               A_4 = F_n*W_t*W_x
-               !Somma dei campi vettoriali
-               A(1,i,j,k,b) = A_1 + A_2 + A_3 + A_4
-            enddo
-         enddo
-      enddo
-   enddo
-
-   call self%compute_curl(ivar=1_I4P,q=A,curl=J_vec_buffer)
-   J_vec_buffer = J_vec_buffer * verse
-
-   do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               if (maxval(abs(J_vec_buffer(:,i,j,k,b))) < 1e-12_R8P) then
-                  J_vec_buffer(:,i,j,k,b) = 0.0_R8P
-               endif
-            enddo
-         enddo
-      enddo
-   enddo
-
-   do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               if (J_vec_buffer(1,i,j,k,b) /= 0.0_R8P .or. J_vec_buffer(2,i,j,k,b) /= 0.0_R8P &
-                  .or. J_vec_buffer(3,i,j,k,b) /= 0.0_R8P) then
-                  coil_flag(i,j,k,b) = n
-               endif
-            enddo
-         enddo
-      enddo
-   enddo
-
-   J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
-   endassociate
-
-   !if (n == 1_I4P) then
-   !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
-   !else
-   !   self%coil%A(n) = self%coil%A(1)
-   !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
-   !endif
-   endsubroutine set_rectangular_coil_x
-
-   subroutine set_rectangular_coil_y(self, n, verse)
-   class(prism_cpu_object),      intent(inout) :: self                     !< Cpu object.
-   integer(I4P),                 intent(in)    :: n                        !< Coil number.
-   real(R8P),                    intent(in)    :: verse                    !< Coil normal direction, +1=+y, -1=-y.
-   real(R8P),                    allocatable   :: A(:,:,:,:,:)             !< Campo vettoriale totale della spira
-   real(R8P),                    allocatable   :: J_vec_buffer(:,:,:,:,:)  !< Variabile buffer per coil%J_vec
-   real(R8P)                                   :: A_1, A_2, A_3, A_4       !< Campo vettoriale lati spira
-   real(R8P)                                   :: cell_coord(3)            !< Vettore posizione centro cella
-   real(R8P)                                   :: x_l, x_r, z_b, z_f
-   real(R8P)                                   :: F_n, W_t, W_y
-   integer(I4P)                                :: b,i,j,k                  !< Counter.
-
-   !associo per dati su posizioni delle celle e contatori
-   associate(blocks_number=>self%field%blocks_number, ni=>self%field%grid%ni, nj=>self%field%grid%nj, & 
-            nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),             &
-            lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,                &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>self%field%dxyz(1,:),         &
-            dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n),          & 
-            nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  & 
-            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec)
-
-   !Fisso estremi della spira rettangolare con normale parallela a y, e centro in (x_c, y_c, z_c)
-   x_l = -lx/2 + x_c
-   x_r = +lx/2 + x_c
-   z_b = -ly/2 + z_c
-   z_f = +ly/2 + z_c
-
-   allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
-   A(:,:,:,:,:) = 0.0_R8P
-   allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
-   J_vec_buffer(:,:,:,:,:) = 0.0_R8P
-
-   do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-               !Primo filo (z = z_b, tangenziale lungo x)
-               F_n = erf_function(s=cell_coord(3), mu = z_b, sigma = sigma*dz(b))
-               W_t = tangential_window(s=cell_coord(1), smin = x_l, smax = x_r, sigma = sigma*dx(b))
-               W_y = tangential_window(s=cell_coord(2), smin = y_c-sigma*dy(b), smax = y_c+sigma*dy(b), sigma=sigma*dy(b))
-               A_1 = F_n*W_t*W_y
-               !Secondo filo (x = x_r, tangenziale lungo z)
-               F_n = erf_function(s=cell_coord(1), mu = x_r, sigma = sigma*dx(b))
-               W_t = tangential_window(s=cell_coord(3), smin = z_b, smax = z_f, sigma = sigma*dz(b))
-               W_y = tangential_window(s=cell_coord(2), smin = y_c-sigma*dy(b), smax = y_c+sigma*dy(b), sigma=sigma*dy(b))
-               A_2 = -F_n*W_t*W_y
-               !Terzo filo (z = z_f, tangenziale lungo x)
-               F_n = erf_function(s=cell_coord(3), mu = z_f, sigma = sigma*dz(b))
-               W_t = tangential_window(s=cell_coord(1), smin = x_l, smax = x_r, sigma = sigma*dx(b))
-               W_y = tangential_window(s=cell_coord(2), smin = y_c-sigma*dy(b), smax = y_c+sigma*dy(b), sigma=sigma*dy(b))
-               A_3 = -F_n*W_t*W_y
-               !Quarto filo (x = x_l, tangenziale lungo z)
-               F_n = erf_function(s=cell_coord(1), mu = x_l, sigma = sigma*dx(b))
-               W_t = tangential_window(s=cell_coord(3), smin = z_b, smax = z_f, sigma = sigma*dz(b))
-               W_y = tangential_window(s=cell_coord(2), smin = y_c-sigma*dy(b), smax = y_c+sigma*dy(b), sigma=sigma*dy(b))
-               A_4 = F_n*W_t*W_y
-               !Somma dei campi vettoriali
-               A(2,i,j,k,b) = A_1 + A_2 + A_3 + A_4
-            enddo
-         enddo
-      enddo
-   enddo
-
-   call self%compute_curl(ivar=1_I4P,q=A,curl=J_vec_buffer)
-   J_vec_buffer = J_vec_buffer * verse
-
-   do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               if (maxval(abs(J_vec_buffer(:,i,j,k,b))) < 1e-12_R8P) then
-                  J_vec_buffer(:,i,j,k,b) = 0.0_R8P
-               endif
-            enddo
-         enddo
-      enddo
-   enddo
-
-   do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               if (J_vec_buffer(1,i,j,k,b) /= 0.0_R8P .or. J_vec_buffer(2,i,j,k,b) /= 0.0_R8P &
-                  .or. J_vec_buffer(3,i,j,k,b) /= 0.0_R8P) then
-                  coil_flag(i,j,k,b) = n
-               endif
-            enddo
-         enddo
-      enddo
-   enddo
-
-   J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
-   endassociate
-   !if (n == 1_I4P) then
-   !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
-   !else
-   !   self%coil%A(n) = self%coil%A(1)
-   !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
-   !endif
-   endsubroutine set_rectangular_coil_y
-
-   subroutine set_rectangular_coil_z(self, n, verse)
-   class(prism_cpu_object),      intent(inout) :: self                     !< Cpu object.
-   integer(I4P),                 intent(in)    :: n                        !< Coil number.
-   real(R8P),                    intent(in)    :: verse                    !< Coil normal direction, +1=+z, -1=-z.
-   real(R8P),                    allocatable   :: A(:,:,:,:,:)             !< Campo vettoriale totale della spira, somma dei campi A_1, A_2, A_3 e A_4 
-   real(R8P),                    allocatable   :: J_vec_buffer(:,:,:,:,:)  !< Variabile buffer per il campo di corrente da assegnare alla variabile coil%J_vec 
-   real(R8P)                                   :: A_1, A_2, A_3, A_4       !< Campo vettoriale lati spira                                            
-   real(R8P)                                   :: c_c(3)                   !< Vettore posizione centro spira
-   real(R8P)                                   :: cell_coord(3)            !< Vettore posizione centro cella
-   real(R8P)                                   :: x_l, x_r, y_d, y_t
-   real(R8P)                                   :: F_n, W_t, W_z
-   integer(I4P)                                :: b,i,j,k                  !< Counter.
-
-   !associo per dati su posizioni delle celle e contatori
-   associate(blocks_number=>self%field%blocks_number, ni=>self%field%grid%ni, nj=>self%field%grid%nj, & 
-            nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),             &
-            lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,                &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>self%field%dxyz(1,:),         &
-            dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n),          & 
-            nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  & 
-            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec)
-
-   !Fisso estremi della spira rettangolare con normale parallela a z, e centro in (x_c, y_c, z_c)
-   x_l = -lx/2 +x_c
-   x_r = +lx/2 +x_c
-   y_d = -ly/2 +y_c
-   y_t = +ly/2 +y_c
-
-   allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
-   A(:,:,:,:,:) = 0.0_R8P
-   allocate(J_vec_buffer(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
-   J_vec_buffer(:,:,:,:,:) = 0.0_R8P
-
-   do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               cell_coord = [x_cell(i,b), y_cell(j,b), z_cell(k,b)]
-               !Primo filo
-               F_n = erf_function(s=cell_coord(2), mu = y_d, sigma = sigma*dy(b))
-               W_t = tangential_window(s=cell_coord(1), smin = x_l, smax = x_r, sigma = sigma*dx(b))
-               W_z = tangential_window(s=cell_coord(3), smin =z_c-sigma*dz(b), smax=z_c+sigma*dz(b), sigma=sigma*dz(b))
-               A_1 = F_n*W_t*W_z
-               !Secondo filo
-               F_n = erf_function(s=cell_coord(1), mu = x_r, sigma = sigma*dx(b))
-               W_t = tangential_window(s=cell_coord(2), smin = y_d, smax = y_t, sigma = sigma*dy(b))
-               W_z = tangential_window(s=cell_coord(3), smin =z_c-sigma*dz(b), smax=z_c+sigma*dz(b), sigma=sigma*dz(b))
-               A_2 = -F_n*W_t*W_z
-               !Terzo filo
-               F_n = erf_function(s=cell_coord(2), mu = y_t, sigma = sigma*dy(b))
-               W_t = tangential_window(s=cell_coord(1), smin = x_l, smax = x_r, sigma = sigma*dx(b))
-               W_z = tangential_window(s=cell_coord(3), smin =z_c-sigma*dz(b), smax=z_c+sigma*dz(b), sigma=sigma*dz(b))
-               A_3 = -F_n*W_t*W_z
-               !Quarto filo
-               F_n = erf_function(s=cell_coord(1), mu = x_l, sigma = sigma*dx(b))
-               W_t = tangential_window(s=cell_coord(2), smin = y_d, smax = y_t, sigma = sigma*dy(b))
-               W_z = tangential_window(s=cell_coord(3), smin =z_c-sigma*dz(b), smax=z_c+sigma*dz(b), sigma=sigma*dz(b))
-               A_4 = F_n*W_t*W_z
-               !Somma dei campi vettoriali
-               A(3,i,j,k,b) = A_1 + A_2+ A_3 + A_4
-            enddo
-         enddo
-      enddo
-   enddo
-   call self%compute_curl(ivar=1_I4P,q=A,curl=J_vec_buffer)
-   J_vec_buffer = J_vec_buffer * verse !* 10.0_R8P**4._R8P
-
-   do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               if (maxval(abs(J_vec_buffer(:,i,j,k,b))) < 1e-12_R8P) then
-                  J_vec_buffer(:,i,j,k,b) = 0.0_R8P
-               endif
-            enddo
-         enddo
-      enddo
-   enddo
-
-   do b=1, blocks_number
-      do k=1-ngc, nk+ngc
-         do j=1-ngc, nj+ngc
-            do i=1-ngc, ni+ngc
-               if (J_vec_buffer(1,i,j,k,b) /= 0.0_R8P .or. J_vec_buffer(2,i,j,k,b) /= 0.0_R8P &
-                  .or. J_vec_buffer(3,i,j,k,b) /= 0.0_R8P) then
-                  coil_flag(i,j,k,b) = n
-               endif
-            enddo
-         enddo
-      enddo
-   enddo
-   J_vec(1:3,:,:,:,:,n) = J_vec(1:3,:,:,:,:,n) + J_vec_buffer
-   endassociate
-
-   !Riscalo ampiezza per matchare valore in input
-   !if (n == 1_I4P) then
-   !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.true.)
-   !else
-   !   self%coil%A(n) = self%coil%A(1)
-   !   call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
-   !endif
-
-   !!Calcolo divergenza di J (ampiezza massima) prima della correzione alla Poisson
-   !self%coil%J_vec(n,1:3,:,:,:,:) = self%coil%J_vec(n,1:3,:,:,:,:) * self%coil%A(n)
-   !self%divergence(3,:,:,:,:) = 0.0_R8P
-   !call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(n,1:3,:,:,:,:),divergence=self%divergence(3,:,:,:,:))
-   !print *, 'Divergenza J max pre Poisson: ', maxval(abs(self%divergence(3,:,:,:,:)))
-!
-   !!Applico correzione alla Poisson per ridurre divergenza residua
-   !call self%impose_div_coil_correction(ivar=1_I4P, q=self%coil%J_vec(n,1:3,:,:,:,:))
-   !self%divergence(3,:,:,:,:) = 0.0_R8P
-   !call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(n,1:3,:,:,:,:),divergence=self%divergence(3,:,:,:,:))
-   !print *, 'Divergenza J max post Poisson: ', maxval(abs(self%divergence(3,:,:,:,:)))
-!
-   !!Riscalo J_vec a versore
-   !self%coil%J_vec(n,1:3,:,:,:,:)=self%coil%J_vec(n,1:3,:,:,:,:)/self%coil%A(n)
-!
-!
-   !!!Prove per capire se il problema è il round-off
-   !!print *, 'max|J| pre  = ', maxval(abs(self%coil%J_vec(n,1:3,:,:,:,:)))
-   !!J_vec_buffer = self%coil%J_vec(n,1:3,:,:,:,:)
-   !!self%coil%J_vec(n,1:3,:,:,:,:)=self%coil%J_vec(n,1:3,:,:,:,:)/self%coil%A(n)*self%coil%A(n)
-   !!print *, 'max|J| post = ', maxval(abs(self%coil%J_vec(n,1:3,:,:,:,:)))
-   !!print *, 'max|dJ|     = ', maxval(abs( self%coil%J_vec(n,1:3,:,:,:,:) - J_vec_buffer(1:3,:,:,:,:) ))
-   !!print *, 'rel err max = ', maxval(abs(self%coil%J_vec(n,1:3,:,:,:,:) - J_vec_buffer)) / &
-   !!                           maxval(abs(J_vec_buffer))
-   !!self%divergence(3,:,:,:,:) = 0.0_R8P
-   !!call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec,divergence=self%divergence(3,:,:,:,:))
-   !!print *, 'Divergenza J max post Poisson: ', maxval(abs(self%divergence(3,:,:,:,:)))
-!
-!
-!
-   !!Verifico che la corrente complessiva sia effettivamente quella richiesta (printo solo, non modifico)
-   !call self%compute_coil_current_density_flux(n=n, adjust_amplitude=.false.)
-!
-   !!Calcolo le divergenze di J_vec e J come J = A*J_vec. Non dovrebbe cambiare nulla riseptto alla divergenza di Jmax 
-   !!precedentemente calcolata e stampata (a meno di errori legati al roundoff numerico)
-   !self%divergence(3,:,:,:,:) = 0.0_R8P
-   !call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(n,1:3,:,:,:,:), &
-   !                             divergence=self%divergence(3,:,:,:,:))
-   !print *, 'Divergenza finale J_vec: ', maxval(abs(self%divergence(3,:,:,:,:)))
-   !self%divergence(3,:,:,:,:) = 0.0_R8P
-   !call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(n,1:3,:,:,:,:)*self%coil%A(n), &
-   !                             divergence=self%divergence(3,:,:,:,:))
-   !print *, 'Divergenza finale corrente: ', maxval(abs(self%divergence(3,:,:,:,:)))
-   endsubroutine set_rectangular_coil_z
-
-   subroutine compute_coil_current_density_flux(self, n, adjust_amplitude)
-   !< Subroutine to adjust current amplitude in order to match the input one
-   class(prism_cpu_object),      intent(inout) :: self             !< Cpu object.
-   integer(I4P), intent(in)                    :: n                !< Coil number.
-   logical, intent(in)                         :: adjust_amplitude !< If true, adjust amplitude
-   real(R8P)                                   :: x_s, y_s, z_s    !< Flux center coordinates
-   real(R8P)                                   :: flux, correction !< Computed flux     
-   integer(I4P)                                :: i_s, j_s, k_s    !< Flux center cell coordinates
-   integer(I4P)                                :: i, j, k          !< Counter.
-
-   associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj,                       & 
-            nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),       &
-            lx=>self%coil%lx(n), ly=>self%coil%ly(n), coil_flag =>self%coil%coil_flag,          &
-            y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>self%field%dxyz(1,:),   &
-            dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n),    & 
-            nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,            & 
-            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,       &
-            e_min => self%field%grid%domain_emin, e_max => self%field%grid%domain_emax,         &
-            q=>self%q)
-
-   !Per ora la imposto per griglia uniforme monoblocco. Vedremo come estendere il problema
-   flux = 0.0_R8P
-   correction = 1.0_R8P
-
-   if (normal == NORMAL_P_X .or. normal == NORMAL_M_X) then !Valuto corrente lungo z
-
-      x_s = x_c  
-      y_s = y_c - lx/2 
-      z_s = z_c
-      i_s = ceiling((x_s - e_min(1)) / dx(1))
-      j_s = ceiling((y_s - e_min(2)) / dy(1))
-      k_s = ceiling((z_s - e_min(3)) / dz(1))
-      !i_s = floor( (x_s - e_min(1)) / dx(1) ) + 1_I4P
-      !j_s = floor( (y_s - e_min(2)) / dy(1) ) + 1_I4P
-      !k_s = floor( (z_s - e_min(3)) / dz(1) ) + 1_I4P
-         
-      ! Clamp su celle fisiche
-      i_s = max(1_I4P, min(ni, i_s))
-      j_s = max(1_I4P, min(nj, j_s))
-      k_s = max(1_I4P, min(nk, k_s))
-
-      do j = j_s - nint(3.5_R8P*self%coil%sigma(n)), j_s + nint(3.5_R8P*self%coil%sigma(n))
-         do i = i_s - nint(3.5_R8P*self%coil%sigma(n)), i_s + nint(3.5_R8P*self%coil%sigma(n))
-               flux = flux + J_vec(3,i,j,k_s,1,n)*dx(1)*dy(1)
-         enddo
-      enddo
-   
-   elseif (normal == NORMAL_P_Y .or. normal == NORMAL_M_Y) then !Valuto corrente lungo z
-
-      x_s = x_c - lx/2 
-      y_s = y_c 
-      z_s = z_c 
-      i_s = ceiling((x_s - e_min(1)) / dx(1))
-      j_s = ceiling((y_s - e_min(2)) / dy(1))
-      k_s = ceiling((z_s - e_min(3)) / dz(1))
-      !i_s = floor( (x_s - e_min(1)) / dx(1) ) + 1_I4P
-      !j_s = floor( (y_s - e_min(2)) / dy(1) ) + 1_I4P
-      !k_s = floor( (z_s - e_min(3)) / dz(1) ) + 1_I4P
-         
-      ! Clamp su celle fisiche
-      i_s = max(1_I4P, min(ni, i_s))
-      j_s = max(1_I4P, min(nj, j_s))
-      k_s = max(1_I4P, min(nk, k_s))
-
-      do j = j_s - nint(3.5_R8P*self%coil%sigma(n)), j_s + nint(3.5_R8P*self%coil%sigma(n))
-         do i = i_s - nint(3.5_R8P*self%coil%sigma(n)), i_s + nint(3.5_R8P*self%coil%sigma(n))
-               flux = flux + J_vec(3,i,j,k_s,1,n)*dx(1)*dy(1)
-         enddo
-      enddo
-
-   elseif (normal == NORMAL_P_Z .or. normal == NORMAL_M_Z) then !Valuto corrente lungo y
-
-      x_s = x_c - lx/2 
-      y_s = y_c 
-      z_s = z_c  
-      i_s = ceiling((x_s - e_min(1)) / dx(1))
-      j_s = ceiling((y_s - e_min(2)) / dy(1))
-      k_s = ceiling((z_s - e_min(3)) / dz(1))
-      !i_s = floor( (x_s - e_min(1)) / dx(1) ) + 1_I4P
-      !j_s = floor( (y_s - e_min(2)) / dy(1) ) + 1_I4P
-      !k_s = floor( (z_s - e_min(3)) / dz(1) ) + 1_I4P
-         
-      ! Clamp su celle fisiche
-      i_s = max(1_I4P, min(ni, i_s))
-      j_s = max(1_I4P, min(nj, j_s))
-      k_s = max(1_I4P, min(nk, k_s))
-
-      do k = k_s - nint(3.5_R8P*self%coil%sigma(n)), k_s + nint(3.5_R8P*self%coil%sigma(n))
-         do i = i_s - nint(3.5_R8P*self%coil%sigma(n)), i_s + nint(3.5_R8P*self%coil%sigma(n))
-               flux = flux + J_vec(2,i,j_s,k,1,n)*dx(1)*dz(1)
-         enddo
-      enddo  
-        
-   endif
-
-   flux = abs(flux)*self%coil%A(n)
-   print *, 'Valore corrente pre correzione: ', flux
-   if (adjust_amplitude) then
-      print*, self%coil%A(n), 'Ampiezza A(n) pre correzione'
-      correction = (self%coil%A(n)/flux)
-      print *, 'Scaling factor ampiezza: ', correction   
-      self%coil%A(n) = self%coil%A(n)*correction
-      print*, self%coil%A(n), 'Ampiezza A(n) post correzione'
-   else
-      print *, 'Ampiezza A(n) non corretta: ', self%coil%A(n)
-      print *, 'Valore corrente: ', flux
-   endif
-
-   endassociate
-   endsubroutine compute_coil_current_density_flux
-
    subroutine impose_div_coil_correction(self, ivar, q)
    !< Impose Constrained Transport Correction on vectorial variable q(ivar:ivar+2).
    !< Note that self%divergence memory is used as buffer, be careful.
@@ -2993,20 +1983,18 @@ contains
    real(R8P)                              :: grad_buff(3,1-self%ngc:self%ni+self%ngc, &
                                                          1-self%ngc:self%nj+self%ngc, &
                                                          1-self%ngc:self%nk+self%ngc, &
-                                                         1:self%nb)                         !< Buffer for gradient computation.   
+                                                         1:self%nb)                         !< Buffer for gradient computation.
    real(R8P)                              :: dq_buff(1, 1-self%ngc:self%ni+self%ngc, &
                                                      1-self%ngc:self%nj+self%ngc, &
                                                      1-self%ngc:self%nk+self%ngc, &
-                                                     1:self%nb)                             !< Buffer for gradient computation.    
+                                                     1:self%nb)                             !< Buffer for gradient computation.
    real(R8P)                              :: phi_buff(1, 1-self%ngc:self%ni+self%ngc, &
                                                      1-self%ngc:self%nj+self%ngc, &
                                                      1-self%ngc:self%nk+self%ngc, &
-                                                     1:self%nb)                             !< Buffer for scalar potential.                                                 
+                                                     1:self%nb)                             !< Buffer for scalar potential.
    real(R8P)                              :: dq_max                                         !< Maximum residual.
    integer(I4P)                           :: iter                                           !< Counter.
    integer(I4P)                           :: i,j,k,b,v                                      !< Counter.
-
-
 
    !Lascia perdere low memory storage x ora
    !buffer(4,:,:,:,:) è usato come buffer per la correzione di divergenza
@@ -3064,20 +2052,6 @@ contains
    endassociate
    endsubroutine impose_div_coil_correction
 
-   function erf_function(s, mu, sigma) result(res)
-      real(R8P), intent(in) :: s, mu, sigma
-      real(R8P)             :: res
-
-      res = erf((s - mu)/(sigma*sqrt(2.0_R8P)))
-   endfunction erf_function
-
-   function tangential_window(s, smin, smax, sigma) result(res)
-      real(R8P), intent(in) :: s, smin, smax, sigma
-      real(R8P)             :: res
-
-      res = 0.5_R8P * (erf_function(s, smin, sigma) - erf_function(s, smax, sigma))
-   endfunction tangential_window
-
 	subroutine write_current_behavior_tab(filename, current_density, time)
 	character(len=1), parameter  :: TAB = achar(9)
 	character(len=*), intent(in) :: filename
@@ -3101,7 +2075,7 @@ contains
 	real(R8P),        intent(in) :: q_pic(1:,1:)
    real(R8P),        intent(in) :: time
 	integer(I4P) 					  :: iu, ios, l, j
-   
+
    l = size(q_pic, dim=1)
   	open(newunit=iu, file=trim(filename), status='unknown', action='write', &
 	     form='formatted', position='append', iostat=ios)
@@ -3110,7 +2084,7 @@ contains
 	  error stop
 	end if
 	write(iu,'(ES24.16,8(a,ES24.16))') time, (TAB, q_pic(j,1), j=1,l)
-	close(iu) 
+	close(iu)
    endsubroutine
 
    subroutine compute_field_mean_value(self, q, n_x, n_y, n_z, n_b, mean_value)
@@ -3120,7 +2094,7 @@ contains
    integer(I4P), intent(in)             :: n_x(2), n_y(2), n_z(2), n_b(2)            !< Number of cells in each direction and number of blocks
    real(R8P), intent(out)               :: mean_value                                !< Mean value of the field out of the fWLayer
    integer(I4P)                         :: i, j, k, b                                !< Counter.
-   
+
    mean_value = 0._R8P
    do b=n_b(1), n_b(2)
       do k=n_z(1), n_z(2)
