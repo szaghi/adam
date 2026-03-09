@@ -823,7 +823,6 @@ contains
    endif
    if (do_local_update) call self%field%update_ghost_local(q=q)
                         call self%field%update_ghost_mpi(q=q, step=step)
-   if (do_set_bc)       call self%apply_fWL_correction(q=q)
    if (do_set_bc)       call self%set_boundary_conditions(q=q, s=s)
    endsubroutine update_ghost
 
@@ -1147,6 +1146,7 @@ contains
    call self%compute_divergence(ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
    call self%compute_divergence(ivar=7,q=self%q,divergence=self%divergence(3,:,:,:,:))
    call self%save_simulation_data
+   call self%update_ghost(q=self%q) ! Aggiunto da FN 
    call self%compute_energy
    !call self%save_energy_error(is_to_open=.true.)
    call self%save_energy_history(is_to_open=.true.)
@@ -1212,6 +1212,7 @@ contains
       call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
 
       call self%save_simulation_data
+      call self%update_ghost(q=self%q) ! Aggiunto da FN 
       call self%compute_energy
       !call self%save_energy_error
       call self%save_energy_history
@@ -1237,6 +1238,7 @@ contains
    !call self%mpih%print_message('RMS Error of D field: '//trim(str(self%rms_energy_error_D)))
    !call self%mpih%print_message('RMS Error of B field: '//trim(str(self%rms_energy_error_B)))
    call self%save_energy_history(is_to_close=.true.)
+   call self%update_ghost(q=self%q) ! Aggiunto da FN 
    call self%compute_divergence(ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
    call self%compute_divergence(ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
    call self%compute_divergence(ivar=7,q=self%q,divergence=self%divergence(3,:,:,:,:))
@@ -1269,6 +1271,7 @@ contains
    real(R8P)                              :: KO_Bz_x,KO_Bz_y,KO_Bz_z
    real(R8P), parameter :: sigma = 1000.01_R8P
 
+   call self%apply_fWL_correction(q=q)
    call self%update_ghost(q=q, s=s)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
              dxyz=>self%field%dxyz,                                                                                   &
@@ -1340,6 +1343,7 @@ contains
                                                                  0._R8P,1._R8P,0._R8P,&
                                                                  0._R8P,0._R8P,1._R8P],[3,3]) !< Direction versor, real.
 
+   call self%apply_fWL_correction(q=q)
    call self%update_ghost(q=q)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
              dxyz=>self%field%dxyz, flxyz_c=>self%flxyz_c, flx_f=>self%flx_f, fly_f=>self%fly_f, flz_f=>self%flz_f,   &
@@ -1432,6 +1436,7 @@ contains
                                                 1:) !< Residuals.
    integer(I4P),  optional, intent(in)    :: s !< Stage counter.
 
+   call self%apply_fWL_correction(q=q)
    call self%update_ghost(q=q)
    !call self%integrate_eikonal_coils(q=q)
    associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv=>self%nv, nv_c=>self%nv_c,blocks_number=>self%blocks_number,&

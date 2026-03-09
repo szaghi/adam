@@ -829,14 +829,15 @@ contains
    integer(I4P),               intent(in)    :: ivar                                               !< Start index of field of q.
    real(R8P),                  intent(in)    :: q(1:,      1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
    real(R8P),                  intent(inout) :: divergence(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
-   integer(I4P)                              :: i,j,k,b                                            !< Counter.
+   integer(I4P)                              :: i,j,k,b,r                                          !< Counter.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(1))
+             hs=>self%numerics%fdv_half_stencils(1), C=>self%fWLayer%C)
+   r = nint(real(C)/(real(C)+1_I4P))
    do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
+   do k=1+r*(C+hs), nk-r*(C+hs-1_I4P)
+   do j=1+r*(C+hs), nj-r*(C+hs-1_I4P)
+   do i=1+r*(C+hs), ni-r*(C+hs-1_I4P)
       call compute_divergence_fd_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),&
                                           divergence=divergence(i,j,k,b))
    enddo
@@ -852,15 +853,16 @@ contains
    integer(I4P),               intent(in)    :: ivar                                               !< Start index of field of q.
    real(R8P),                  intent(in)    :: q(1:,      1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
    real(R8P),                  intent(inout) :: divergence(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
-   integer(I4P)                              :: i,j,k,b                                            !< Counter.
+   integer(I4P)                              :: i,j,k,b,r                                          !< Counter.
 
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(1))
+   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz,&
+             hs=>self%numerics%fdv_half_stencils(1), C=>self%fWLayer%C)
+   r = nint(real(C)/(real(C)+1_I4P))
    do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      call compute_divergence_fv_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),&
+   do k=1+r*(C+hs), nk-r*(C+hs-1_I4P)
+   do j=1+r*(C+hs), nj-r*(C+hs-1_I4P)
+   do i=1+r*(C+hs), ni-r*(C+hs-1_I4P)
+      call compute_divergence_fv_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b), &
                                           divergence=divergence(i,j,k,b))
    enddo
    enddo
@@ -1054,18 +1056,19 @@ contains
       enddo
 
    endif
-
    flux = abs(flux)*self%coil%A(n)
-   print *, 'Valore corrente pre correzione: ', flux
+
    if (adjust_amplitude) then
-      print*, self%coil%A(n), 'Ampiezza A(n) pre correzione'
+      print '(A)', self%mpih%myrankstr//'Valore corrente pre correzione: '//trim(str(flux))
+      print '(A)', self%mpih%myrankstr//trim(str(self%coil%A(n)))//'Ampiezza A('//trim(str(n))//') pre correzione'
       correction = (self%coil%A(n)/flux)
-      print *, 'Scaling factor ampiezza: ', correction
+      print '(A)', self%mpih%myrankstr//'Scaling factor ampiezza: '//trim(str(correction))   
       self%coil%A(n) = self%coil%A(n)*correction
-      print*, self%coil%A(n), 'Ampiezza A(n) post correzione'
+      print '(A)', self%mpih%myrankstr//'Ampiezza A('//trim(str(n))//') post correzione'
+      print '(A)', self%mpih%myrankstr//'Valore finale corrente spira'//trim(str(n))//': '//trim(str(flux*correction))
    else
-      print *, 'Ampiezza A(n) non corretta: ', self%coil%A(n)
-      print *, 'Valore corrente: ', flux
+      print '(A)', self%mpih%myrankstr//'Ampiezza A('//trim(str(n))//') non corretta: '//trim(str(self%coil%A(n)))
+      print '(A)', self%mpih%myrankstr//'Valore finale corrente spira'//trim(str(n))//': '//trim(str(flux))
    endif
 
    endassociate
@@ -1096,7 +1099,8 @@ contains
       case(COIL_TYPE_CIRCULAR)
       endselect
       call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(1:3,:,:,:,:,n),divergence=self%divergence(3,:,:,:,:))
-      print *, 'Divergenza J vec della spira: ',n, ' pari a: ',maxval(abs(self%divergence(3,:,:,:,:)))
+      print '(A)', self%mpih%myrankstr//'Divergenza J vec della spira: ' &
+                  //trim(str(n))//' pari a: '//trim(str(maxval(abs(self%divergence(3,:,:,:,:)))))
    enddo
    endsubroutine initialize_coils
 
