@@ -1142,11 +1142,11 @@ contains
    endif
    !if (self%ib%solids_number > 0) call self%compute_phi()
    ! call self%amr_update
+   call self%update_ghost(q=self%q) ! Aggiunto da FN 
    call self%compute_divergence(ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
    call self%compute_divergence(ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
    call self%compute_divergence(ivar=7,q=self%q,divergence=self%divergence(3,:,:,:,:))
    call self%save_simulation_data
-   call self%update_ghost(q=self%q) ! Aggiunto da FN 
    call self%compute_energy
    !call self%save_energy_error(is_to_open=.true.)
    call self%save_energy_history(is_to_open=.true.)
