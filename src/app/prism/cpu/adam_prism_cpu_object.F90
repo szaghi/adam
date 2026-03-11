@@ -34,23 +34,22 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
       procedure, pass(self) :: save_residuals       !< Save residuals history.
       procedure, pass(self) :: save_simulation_data !< Save all simulation data.
       ! IC/BC/sources
-      procedure, pass(self) :: apply_fWL_correction              !< Apply fWLayer correction (if present)
-      procedure, pass(self) :: compute_coils_current             !< Compute current coils sources.
-      procedure, pass(self) :: impose_div_coil_correction        !< Impose coil divergence correction.
-      procedure, pass(self) :: set_boundary_conditions           !< Set boundary conditions of equation.
+      procedure, pass(self) :: apply_fWL_correction       !< Apply fWLayer correction (if present)
+      procedure, pass(self) :: compute_coils_current      !< Compute current coils sources.
+      procedure, pass(self) :: impose_div_coil_correction !< Impose coil divergence correction.
+      procedure, pass(self) :: set_boundary_conditions    !< Set boundary conditions of equation.
       procedure, pass(self) :: compute_residuals_BC
       procedure, pass(self) :: update_q_BC
-      procedure, pass(self) :: set_initial_conditions            !< Set initial conditions (and coils) of equation.
-      procedure, pass(self) :: update_ghost                      !< Update ghost cells and set boundary conditions.
-      procedure, pass(self) :: compute_field_mean_value          !< Compute field mean value.
+      procedure, pass(self) :: set_initial_conditions     !< Set initial conditions (and coils) of equation.
+      procedure, pass(self) :: update_ghost               !< Update ghost cells and set boundary conditions.
+      procedure, pass(self) :: compute_field_mean_value   !< Compute field mean value.
       ! numerical methods
-      procedure, pass(self) :: compute_auxiliary_fields !< Compute auxiliary fields.
-      procedure, pass(self) :: compute_dt               !< Compute time step.
-      procedure, pass(self) :: compute_energy           !< Compute energy.
-      procedure, pass(self) :: compute_energy_error     !< Compute energy error.
-      procedure, pass(self) :: impose_div_free          !< Impose divergence-free property.
-      procedure, pass(self) :: impose_ct_correction     !< Impose Constrained Transport correction on q(ivar:ivar+2).
-      procedure, pass(self) :: simulate                 !< Perform the simulation.
+      procedure, pass(self) :: compute_dt           !< Compute time step.
+      procedure, pass(self) :: compute_energy       !< Compute energy.
+      procedure, pass(self) :: compute_energy_error !< Compute energy error.
+      procedure, pass(self) :: impose_div_free      !< Impose divergence-free property.
+      procedure, pass(self) :: impose_ct_correction !< Impose Constrained Transport correction on q(ivar:ivar+2).
+      procedure, pass(self) :: simulate             !< Perform the simulation.
 endtype prism_cpu_object
 
 interface
@@ -535,7 +534,7 @@ contains
                         q(v,i,j,k,b) = q(v,i-idelta_n,j-jdelta_n,k-kdelta_n,b)
                      enddo
                   endif
-               elseif (bc_type == BC_Silver_Muller) then !Al momento scritta per funzionare solo con un secondo ordine
+               elseif (bc_type == BC_SILVER_MULLER) then !Al momento scritta per funzionare solo con un secondo ordine
                   !print *, fec
                   if (fec <= 6) then
                      select case(fec)
@@ -827,22 +826,6 @@ contains
    endsubroutine update_ghost
 
    ! numerical methods
-   subroutine compute_auxiliary_fields(self)
-   !< Compute auxiliary fields.
-   class(prism_cpu_object), intent(inout) :: self !< The equation.
-
-   if (self%io%save_divergence_fields) then
-      call self%compute_divergence(ivar=VAR_DX,q=self%q,divergence=self%divergence(1,:,:,:,:))
-      call self%compute_divergence(ivar=VAR_BX,q=self%q,divergence=self%divergence(2,:,:,:,:))
-      call self%compute_divergence(ivar=self%physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
-   endif
-   if (self%io%save_curl_fields) then
-      call self%compute_curl(ivar=VAR_DX,q=self%q,curl=self%curl(1:3,:,:,:,:))
-      call self%compute_curl(ivar=VAR_BX,q=self%q,curl=self%curl(4:6,:,:,:,:))
-      call self%compute_curl(ivar=self%physics%var_Jx,q=self%q,curl=self%curl(7:9,:,:,:,:))
-   endif
-   endsubroutine compute_auxiliary_fields
-
    subroutine compute_dt(self)
    class(prism_cpu_object), intent(inout) :: self                            !< The equation.
    real(R8P)                              :: umax                            !< Maximum speed of waves propagation (light speed).
@@ -865,17 +848,11 @@ contains
    real(R8P)                              :: energy_D      !< Energy of D field.
    real(R8P)                              :: energy_B      !< Energy of B field.
    real(R8P)                              :: coil_power    !< Coil power.
-   real(R8P)                              :: Poynting_flux !< Total Poynting flux from boundary.
+   real(R8P)                              :: poynting_flux !< Total Poynting flux from boundary.
 
-   energy_D = 0.0_R8P
-   energy_B = 0.0_R8P
-   coil_power = 0.0_R8P
-   Poynting_flux = 0.0_R8P
    call compute_e(ivar=VAR_DX, energy=energy_D)
    call compute_e(ivar=VAR_BX, energy=energy_B)
-   if (self%coil%total_coils_number > 0_I4P) then
-      call compute_coil_power(ivar=self%physics%var_Jx, coil_power=coil_power)
-   endif
+   if (self%coil%total_coils_number > 0_I4P) call compute_coil_power(ivar=self%physics%var_Jx, coil_power=coil_power)
    call compute_Poynting_flux(Poynting_flux=Poynting_flux)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_D, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_B, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
@@ -883,19 +860,19 @@ contains
    call MPI_ALLREDUCE(MPI_IN_PLACE, Poynting_flux, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
    if (allocated(self%energy_D).and.allocated(self%energy_B) &
       .and.allocated(self%coil_power).and.allocated(self%Poynting_flux)) then
-      self%energy_D = [self%energy_D, energy_D]
-      self%energy_B = [self%energy_B, energy_B]
-      self%coil_power = [self%coil_power, coil_power]
-      self%Poynting_flux = [self%Poynting_flux, Poynting_flux]
+      self%energy_D      = [self%energy_D,      energy_D     ]
+      self%energy_B      = [self%energy_B,      energy_B     ]
+      self%coil_power    = [self%coil_power,    coil_power   ]
+      self%poynting_flux = [self%poynting_flux, poynting_flux]
    else
-      allocate(self%energy_D(1:self%time%it))
-      allocate(self%energy_B(1:self%time%it))
-      allocate(self%coil_power(1:self%time%it))
-      allocate(self%Poynting_flux(1:self%time%it))
-      self%energy_D = energy_D
-      self%energy_B = energy_B
-      self%coil_power = coil_power
-      self%Poynting_flux = Poynting_flux
+      allocate(self%energy_D(     1:self%time%it))
+      allocate(self%energy_B(     1:self%time%it))
+      allocate(self%coil_power(   1:self%time%it))
+      allocate(self%poynting_flux(1:self%time%it))
+      self%energy_D      = energy_D
+      self%energy_B      = energy_B
+      self%coil_power    = coil_power
+      self%poynting_flux = poynting_flux
    endif
    contains
       subroutine compute_e(ivar, energy)
@@ -903,12 +880,12 @@ contains
       integer(I4P), intent(in)  :: ivar    !< Starting position of vector field.
       real(R8P),    intent(out) :: energy  !< Energy of the vector field starting from ivar.
       integer(I4P)              :: i,j,k,b !< Counter.
-      real(R8P)                 :: cost    !< Costant for the energy computation.
+      real(R8P)                 :: const   !< Costant for the energy computation.
 
       if (ivar==VAR_DX) then
-         cost = EPS0
+         const = EPS0
       elseif (ivar==VAR_BX) then
-         cost = MU0
+         const = MU0
       endif
       energy = 0.0_R8P
       associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number, &
@@ -919,7 +896,7 @@ contains
       do i=1, ni
          energy = energy + 0.5_R8P * (self%q(ivar  ,i,j,k,b)*self%q(ivar  ,i,j,k,b) + &
                                       self%q(ivar+1,i,j,k,b)*self%q(ivar+1,i,j,k,b) + &
-                                      self%q(ivar+2,i,j,k,b)*self%q(ivar+2,i,j,k,b))/cost*(dx(b)*dy(b)*dz(b))
+                                      self%q(ivar+2,i,j,k,b)*self%q(ivar+2,i,j,k,b))/const*(dx(b)*dy(b)*dz(b))
       enddo
       enddo
       enddo
@@ -931,7 +908,6 @@ contains
       !< Compute coil power of vector field starting from ivar.
       integer(I4P), intent(in)  :: ivar        !< Starting position of vector field.
       real(R8P),    intent(out) :: coil_power  !< Coil power of the vector field.
-      real(R8P)                 :: cost        !< Costant for the coil power computation.
       integer(I4P)              :: i,j,k,b     !< Counter.
 
       coil_power = 0.0_R8P
@@ -953,16 +929,16 @@ contains
       endassociate
       endsubroutine compute_coil_power
 
-      subroutine compute_Poynting_flux(Poynting_flux)
+      subroutine compute_Poynting_flux(poynting_flux)
       !< Compute Poynting flux.
-      real(R8P),    intent(out) :: Poynting_flux  !< Power irradiated outside computational domain.
+      real(R8P),    intent(out) :: poynting_flux  !< Power irradiated outside computational domain.
       integer(I4P)              :: i,j,k,b,v      !< Counter.
       real(R8P)                 :: q_boundary(6)  !< Variables at boundary for the Poynting flux computation.
       real(R8P)                 :: n(3)           !< Boundary normal direction
 
       associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number, &
                 s=>self%numerics%fdv_half_stencils(1), dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:))
-      Poynting_flux = 0.0_R8P
+      poynting_flux = 0.0_R8P
       !Faccia -x
       n = [-1.0_R8P, 0.0_R8P, 0.0_R8P]
       do b=1, blocks_number
@@ -1142,7 +1118,7 @@ contains
    endif
    !if (self%ib%solids_number > 0) call self%compute_phi()
    ! call self%amr_update
-   call self%update_ghost(q=self%q) ! Aggiunto da FN 
+   call self%update_ghost(q=self%q) ! Aggiunto da FN
    call self%compute_divergence(ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
    call self%compute_divergence(ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
    call self%compute_divergence(ivar=7,q=self%q,divergence=self%divergence(3,:,:,:,:))
@@ -1212,7 +1188,7 @@ contains
       call self%time%print_progress(nodes_number=self%adam%tree%nodes_number)
 
       call self%save_simulation_data
-      call self%update_ghost(q=self%q) ! Aggiunto da FN 
+      call self%update_ghost(q=self%q) ! Aggiunto da FN
       call self%compute_energy
       !call self%save_energy_error
       call self%save_energy_history
@@ -1238,7 +1214,7 @@ contains
    !call self%mpih%print_message('RMS Error of D field: '//trim(str(self%rms_energy_error_D)))
    !call self%mpih%print_message('RMS Error of B field: '//trim(str(self%rms_energy_error_B)))
    call self%save_energy_history(is_to_close=.true.)
-   call self%update_ghost(q=self%q) ! Aggiunto da FN 
+   call self%update_ghost(q=self%q) ! Aggiunto da FN
    call self%compute_divergence(ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
    call self%compute_divergence(ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
    call self%compute_divergence(ivar=7,q=self%q,divergence=self%divergence(3,:,:,:,:))

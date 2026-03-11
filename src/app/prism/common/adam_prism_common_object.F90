@@ -92,8 +92,9 @@ type :: prism_common_object
    procedure(compute_gradient_interface),   pass(self),pointer :: compute_gradient   =>null()!< Compute gradient of scalar field.
    procedure(compute_laplacian_interface),  pass(self),pointer :: compute_laplacian  =>null()!< Compute laplacian of scalar field.
    contains
-      procedure, pass(self) :: allocate_common         !< Allocate common data.
-      procedure, pass(self) :: initialize_common       !< Initialize the equation common data.
+      procedure, pass(self) :: allocate_common          !< Allocate common data.
+      procedure, pass(self) :: compute_auxiliary_fields !< Compute auxiliary fields.
+      procedure, pass(self) :: initialize_common        !< Initialize the equation common data.
       ! IO methods
       procedure, pass(self) :: load_restart_files      !< Load restart files.
       procedure, pass(self) :: save_energy_error       !< Save energy error history.
@@ -191,6 +192,7 @@ interface
    endsubroutine compute_laplacian_interface
 endinterface
 contains
+   ! public methods
    subroutine allocate_common(self)
    !< Allocate common data.
    class(prism_common_object), intent(inout) :: self !< The equation.
@@ -239,6 +241,22 @@ contains
    endif
    endassociate
    endsubroutine allocate_common
+
+   subroutine compute_auxiliary_fields(self)
+   !< Compute auxiliary fields.
+   class(prism_common_object), intent(inout) :: self !< The equation.
+
+   if (self%io%save_divergence_fields) then
+      call self%compute_divergence(ivar=VAR_DX,q=self%q,divergence=self%divergence(1,:,:,:,:))
+      call self%compute_divergence(ivar=VAR_BX,q=self%q,divergence=self%divergence(2,:,:,:,:))
+      call self%compute_divergence(ivar=self%physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
+   endif
+   if (self%io%save_curl_fields) then
+      call self%compute_curl(ivar=VAR_DX,q=self%q,curl=self%curl(1:3,:,:,:,:))
+      call self%compute_curl(ivar=VAR_BX,q=self%q,curl=self%curl(4:6,:,:,:,:))
+      call self%compute_curl(ivar=self%physics%var_Jx,q=self%q,curl=self%curl(7:9,:,:,:,:))
+   endif
+   endsubroutine compute_auxiliary_fields
 
    subroutine initialize_common(self, field, filename, memory_avail, do_mpi_init, verbose)
    !< Initialize the equation common data.
@@ -1062,7 +1080,7 @@ contains
       print '(A)', self%mpih%myrankstr//'Valore corrente pre correzione: '//trim(str(flux))
       print '(A)', self%mpih%myrankstr//trim(str(self%coil%A(n)))//'Ampiezza A('//trim(str(n))//') pre correzione'
       correction = (self%coil%A(n)/flux)
-      print '(A)', self%mpih%myrankstr//'Scaling factor ampiezza: '//trim(str(correction))   
+      print '(A)', self%mpih%myrankstr//'Scaling factor ampiezza: '//trim(str(correction))
       self%coil%A(n) = self%coil%A(n)*correction
       print '(A)', self%mpih%myrankstr//'Ampiezza A('//trim(str(n))//') post correzione'
       print '(A)', self%mpih%myrankstr//'Valore finale corrente spira'//trim(str(n))//': '//trim(str(flux*correction))

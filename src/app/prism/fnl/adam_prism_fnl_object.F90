@@ -95,20 +95,19 @@ type, extends(prism_common_object) :: prism_fnl_object
       ! procedure, pass(self) :: compute_residuals_fv_centered !< Compute residuals, centered finite volume schemes.
       ! procedure, pass(self) :: compute_residuals_weno        !< Compute residuals, WENO schemes.
       ! numerical methods, time operators
-      procedure, pass(self) :: integrate_blanesmoan_dev   !< Blanes and Moan scheme.
-      procedure, pass(self) :: integrate_cfm_dev          !< Commutator-Free Magnus scheme.
-      procedure, pass(self) :: integrate_leapfrog_dev     !< Leapfrog scheme.
-      procedure, pass(self) :: integrate_rk_ls_dev        !< RK classical low storage schemes.
-      procedure, pass(self) :: integrate_rk_ssp_dev       !< SSP RK schemes.
-      procedure, pass(self) :: integrate_rk_yoshida_dev   !< Yoshida schemes.
+      procedure, pass(self) :: integrate_blanesmoan_dev !< Blanes and Moan scheme.
+      procedure, pass(self) :: integrate_cfm_dev        !< Commutator-Free Magnus scheme.
+      procedure, pass(self) :: integrate_leapfrog_dev   !< Leapfrog scheme.
+      procedure, pass(self) :: integrate_rk_ls_dev      !< RK classical low storage schemes.
+      procedure, pass(self) :: integrate_rk_ssp_dev     !< SSP RK schemes.
+      procedure, pass(self) :: integrate_rk_yoshida_dev !< Yoshida schemes.
       ! numerical methods, miscellanea
-      procedure, pass(self) :: compute_auxiliary_fields !< Compute auxiliary fields.
-      procedure, pass(self) :: compute_dt               !< Compute time step.
-      procedure, pass(self) :: compute_energy           !< Compute energy.
-      procedure, pass(self) :: compute_energy_error     !< Compute energy error.
-      procedure, pass(self) :: impose_ct_correction     !< Impose Constrained Transport correction on q(ivar:ivar+2).
-      procedure, pass(self) :: impose_div_free          !< Impose divergence-free property.
-      procedure, pass(self) :: simulate                 !< Perform the simulation.
+      procedure, pass(self) :: compute_dt           !< Compute time step.
+      procedure, pass(self) :: compute_energy       !< Compute energy.
+      procedure, pass(self) :: compute_energy_error !< Compute energy error.
+      procedure, pass(self) :: impose_ct_correction !< Impose Constrained Transport correction on q(ivar:ivar+2).
+      procedure, pass(self) :: impose_div_free      !< Impose divergence-free property.
+      procedure, pass(self) :: simulate             !< Perform the simulation.
 endtype prism_fnl_object
 
 interface
@@ -383,7 +382,7 @@ contains
                                         blocks_number=self%blocks_number, dq_gpu=self%dq_gpu, norm=self%field%residuals)
       do v=1, self%nv
          call MPI_ALLREDUCE(MPI_IN_PLACE, self%field%residuals(v), 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih_gpu%error)
-         self%field%residuals(v) = sqrt(self%field%residuals(v))
+         self%field%residuals(v) = sqrt(self%field%residuals(v))/sqrt(real(self%ni*self%nj*self%nk, R8P))
       enddo
       if (self%mpih_gpu%myrank==0) call self%io%save_residuals(it=self%time%it, time=self%time%time, &
                                                                blocks_number=self%blocks_number, residuals=self%field%residuals)
@@ -463,21 +462,82 @@ contains
    endassociate
    endsubroutine apply_fwl_correction
 
-   subroutine compute_coils_current(self, gamma)
+   subroutine compute_coils_current(self, gamm)
    !< Compute current coils sources.
-   class(prism_fnl_object), intent(inout)        :: self   !< The equation.
-   real(R8P),               intent(in), optional :: gamma  !< RK coefficient.
-   real(R8P)                                     :: time_s !< Local time.
+   class(prism_fnl_object), intent(inout)        :: self            !< The equation.
+   real(R8P),               intent(in), optional :: gamm            !< RK coefficient.
+   real(R8P)                                     :: time_s          !< Local time.
+   real(R8P)                                     :: current_density !< Current density.
+   real(R8P)                                     :: g               !< Starting polynomial transitory of coils.
+   real(R8P)                                     :: s               !< Non dimensional time, clamp.
+   integer(I4P)                                  :: coil_id         !< Uniq coild ID.
+   integer(I4P)                                  :: i,j,k,b         !< Counter.
+   real(R8P)                                     :: phi_rad         !< Phase in rads.
+   real(R8P)                                     :: omega           !< Frequency.
+   real(R8P)                                     :: theta           !< Phase.
+   real(R8P)                                     :: f_abs           !< Absolute frequency.
+   integer(I4P)                                  :: w_ac            !< Switch AC/DC, =1 AC, =0 DC (branchless).
+   integer(I4P)                                  :: n               !< Coils number counter.
+   real(R8P), parameter                          :: f_tol=1.e-30_R8P!< Tolerance on frequency for branchless switch AC/DC.
 
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,    &
+             time=>self%time%time, dt=>self%time%dt, td=>self%coil%td,                                   &
+             A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,                                     &
+             q_gpu=>self%q_gpu, J_vec_gpu=>self%coil_gpu%J_vec_gpu,                                      &
+             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
+   time_s = time ; if (present(gamm)) time_s = time + dt*gamm
    if (self%coil%total_coils_number >= 1_I4P) then
-      time_s = self%time%time ; if (present(gamma)) time_s = self%time%time + self%time%dt*gamma
-      call compute_coils_current_dev(ni=self%ni, nj=self%nj, nk=self%nk, ngc=self%ngc, blocks_number=self%blocks_number,     &
-                                     time_s=time_s, td=self%coil%td,                                                         &
-                                     A_gpu=self%coil_gpu%A_gpu, f_gpu=self%coil_gpu%f_gpu, phase_gpu=self%coil_gpu%phase_gpu,&
-                                     coil_flag_gpu=self%coil_gpu%coil_flag_gpu, j_vec_gpu=self%coil_gpu%j_vec_gpu,           &
-                                     var_Jx=self%physics%var_Jx, var_Jy=self%physics%var_Jy, var_Jz=self%physics%var_Jz,     &
-                                     q_gpu=self%q_gpu)
+      ! Azzero termini sorgenti (NB: col PIC potresti voler accumulare in un buffer)
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu)
+      do b=1, blocks_number
+      do k=1-ngc, nk+ngc
+      do j=1-ngc, nj+ngc
+      do i=1-ngc, ni+ngc
+         q_gpu(b,i,j,k,var_Jx) = 0._R8P
+         q_gpu(b,i,j,k,var_Jy) = 0._R8P
+         q_gpu(b,i,j,k,var_Jz) = 0._R8P
+      enddo
+      enddo
+      enddo
+      enddo
+
+      ! Envelope C^2: clamp(s) in [0,1], g(0)=0, g(1)=1, g'(0)=g'(1)=0, g''(0)=g''(1)=0
+      s = 1._R8P ; if (td > 0._R8P) s = time_s / td ; s = max(0._R8P, min(1._R8P, s))
+      g = 10._R8P*s**3 - 15._R8P*s**4 + 6._R8P*s**5
+
+      do n=1, self%coil%total_coils_number
+         coil_id = n
+
+         phi_rad = phase(coil_id) * PI / 180._R8P
+         omega   = 2._R8P * PI * f(coil_id)
+
+         ! Se f ~ 0 -> DC (w_ac=0). Se f != 0 -> AC (w_ac=1). Branchless.
+         f_abs = abs(f(coil_id))
+         w_ac  = nint( (sign(1._R8P, f_abs - f_tol) + 1._R8P) * 0.5_R8P )
+
+         ! Theta: DC -> theta = phi ; AC -> theta = omega*(t-td) + phi
+         theta = w_ac * omega * (time_s - td) + phi_rad
+
+         ! Unica formula: DC e AC
+         current_density = A(coil_id) * g * cos(theta)
+
+         !$acc parallel loop independent gang vector collapse(4) &
+         !$acc DEVICEVAR(q_gpu,j_vec_gpu)                        &
+         !$acc firstprivate(current_density,n,var_jx,var_jy,var_jz)
+         do b=1, blocks_number
+         do k=1, nk
+         do j=1, nj
+         do i=1, ni
+            q_gpu(b,i,j,k,var_Jx) = q_gpu(b,i,j,k,var_Jx) + current_density * J_vec_gpu(b,i,j,k,1,n)
+            q_gpu(b,i,j,k,var_Jy) = q_gpu(b,i,j,k,var_Jy) + current_density * J_vec_gpu(b,i,j,k,2,n)
+            q_gpu(b,i,j,k,var_Jz) = q_gpu(b,i,j,k,var_Jz) + current_density * J_vec_gpu(b,i,j,k,3,n)
+         enddo
+         enddo
+         enddo
+         enddo
+      enddo
    endif
+   endassociate
    endsubroutine compute_coils_current
 
    subroutine set_boundary_conditions(self, q_gpu)
@@ -493,6 +553,8 @@ contains
    integer(I4P)                           :: jdelta                !< IJK j delta step for extrapolation.
    integer(I4P)                           :: kdelta                !< IJK k delta step for extrapolation.
    integer(I4P)                           :: bc_type               !< Boundary condition type.
+   integer(I4P)                           :: fec                   !< Boundary fec (1 to 26).
+   integer(I4P)                           :: fec_1_6               !< Boundary fec (1 to 6).
    integer(I4P)                           :: crown                 !< Crown counter.
 
    associate(local_map_bc_crown_gpu=>self%field_gpu%maps%local_map_bc_crown_gpu, &
@@ -510,6 +572,8 @@ contains
                jdelta  = local_map_bc_crown_gpu(c, 6 ,crown)
                kdelta  = local_map_bc_crown_gpu(c, 7 ,crown)
                bc_type = local_map_bc_crown_gpu(c, 8 ,crown)
+               fec     = local_map_bc_crown_gpu(c, 9 ,crown)
+               fec_1_6 = fec_1_6_array(fec)
                if (bc_type == BC_EXTRAPOLATION) then
                   do v=1, nv
                      q_gpu(b,i,j,k,v) = q_gpu(b,i-idelta,j-jdelta,k-kdelta,v)
@@ -963,19 +1027,20 @@ contains
    class(prism_fnl_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   ! call self%compute_coils_current
-   ! call self%rk%initialize_stages(q=self%q)
-   ! do s=1, self%rk%nrk
-   !    call self%compute_residuals_dev(q=self%q, dq=self%dq)
-   !    if (s==1) call self%save_residuals
-   !    if (self%ib%solids_number>0) then
-   !       call self%rk%compute_stage_ls(s=s,dt=self%time%dt,phi=self%ib%phi,dq=self%dq,q=self%q)
-   !    else
-   !       call self%rk%compute_stage_ls(s=s,dt=self%time%dt,dq=self%dq,q=self%q)
-   !    endif
-   ! enddo
-   ! call self%impose_div_free
-   ! call self%apply_fWL_correction
+   call self%compute_coils_current
+   call self%rk_gpu%initialize_stages(q_gpu=self%q_gpu)
+   do s=1, self%rk%nrk
+      call self%compute_residuals_dev(q_gpu=self%q_gpu, dq_gpu=self%dq_gpu, s=s)
+      if (s==1) call self%save_residuals
+      if (self%ib%solids_number>0) then
+         call self%rk_gpu%compute_stage_ls(s=s, dt=self%time%dt, phi_gpu=self%ib_gpu%phi_gpu, &
+                                           dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
+      else
+         call self%rk_gpu%compute_stage_ls(s=s, dt=self%time%dt, dq_gpu=self%dq_gpu, q_gpu=self%q_gpu)
+      endif
+   enddo
+   call self%impose_div_free
+   call self%apply_fwl_correction
    endsubroutine integrate_rk_ls_dev
 
    subroutine integrate_rk_ssp_dev(self)
@@ -989,7 +1054,7 @@ contains
                                    dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
    call self%rk_gpu%initialize_stages(q_gpu=self%q_gpu)
    do s=1, self%rk%nrk
-      call self%compute_coils_current(gamma=self%rk%gamm(s))
+      call self%compute_coils_current(gamm=self%rk%gamm(s))
       if (self%ib%solids_number>0) then
          call self%rk_gpu%compute_stage(s=s, dt=self%time%dt, phi_gpu=self%ib_gpu%phi_gpu)
       else
@@ -1069,17 +1134,6 @@ contains
       self%time%it = 0
       call self%mpih_gpu%print_message('impose initial conditions finish')
    endif
-   ! debug to be removed
-   call self%copy_gpu_cpu
-   do v=1, size(self%q,dim=1)
-      print*, 'cazzo q',v,minval(self%q(v,:,:,:,1)),maxval(self%q(1,:,:,:,1))
-   enddo
-   do v=1, size(self%coil%j_vec,dim=1)
-      print*, 'cazzo j_vec',v,minval(self%coil%j_vec(v,:,:,:,1)),maxval(self%coil%j_vec(1,:,:,:,1))
-   enddo
-   print*, 'cazzo coil_flag',minval(self%coil%coil_flag(:,:,:,1)),maxval(self%coil%coil_flag(:,:,:,1))
-   print*, 'cazzo press enter for the next step'
-   read(*,*)
 
    !if (self%ib%solids_number > 0) call self%compute_phi()
    ! call self%amr_update
@@ -1155,22 +1209,6 @@ contains
    endsubroutine simulate
 
    ! numerical methods, miscellanea
-   subroutine compute_auxiliary_fields(self)
-   !< Compute auxiliary fields.
-   class(prism_fnl_object), intent(inout) :: self !< The equation.
-
-   if (self%io%save_divergence_fields) then
-      ! call self%compute_divergence(ivar=VAR_DX,ovar=1,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
-      ! call self%compute_divergence(ivar=VAR_BX,ovar=2,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
-      ! call self%compute_divergence(ivar=7,q=self%q,divergence=self%divergence(3,:,:,:,:))
-   endif
-   if (self%io%save_curl_fields) then
-      ! call self%compute_curl(ivar=VAR_DX,q_gpu=self%q_gpu,curl_gpu=self%curl_gpu(1:3,:,:,:,:))
-      ! call self%compute_curl(ivar=VAR_BX,q_gpu=self%q_gpu,curl_gpu=self%curl_gpu(4:6,:,:,:,:))
-      ! call self%compute_curl(ivar=7,q=self%q,curl=self%curl(7:9,:,:,:,:))
-   endif
-   endsubroutine compute_auxiliary_fields
-
    subroutine compute_dt(self)
    !< Compute maximum time step accordingly to CFL stabilty criterion.
    class(prism_fnl_object), intent(inout) :: self     !< The equation.
@@ -1191,22 +1229,39 @@ contains
 
    subroutine compute_energy(self)
    !< Compute energy.
-   class(prism_fnl_object), intent(inout) :: self     !< The equation.
-   real(R8P)                              :: energy_D !< Energy of D field.
-   real(R8P)                              :: energy_B !< Energy of B field.
+   class(prism_fnl_object), intent(inout) :: self          !< The equation.
+   real(R8P)                              :: energy_D      !< Energy of D field.
+   real(R8P)                              :: energy_B      !< Energy of B field.
+   real(R8P)                              :: coil_power    !< Coil power.
+   real(R8P)                              :: poynting_flux !< Total Poynting flux from boundary.
 
    call compute_e(ivar=VAR_DX, ngc=self%ngc, q_gpu=self%q_gpu, energy=energy_D)
    call compute_e(ivar=VAR_BX, ngc=self%ngc, q_gpu=self%q_gpu, energy=energy_B)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, energy_D, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
-   call MPI_ALLREDUCE(MPI_IN_PLACE, energy_B, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih%error)
-   if (allocated(self%energy_D).and.allocated(self%energy_B)) then
-      self%energy_D = [self%energy_D, energy_D]
-      self%energy_B = [self%energy_B, energy_B]
+   if (self%coil%total_coils_number > 0_I4P) then
+      call compute_coil_power(ivar=self%physics%var_Jx, coil_power=coil_power)
    else
-      allocate(self%energy_D(1:self%time%it))
-      allocate(self%energy_B(1:self%time%it))
-      self%energy_D = energy_D
-      self%energy_B = energy_B
+      coil_power = 0._R8P
+   endif
+   call compute_poynting_flux(poynting_flux=poynting_flux)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, energy_D,      1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih_gpu%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, energy_B,      1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih_gpu%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, coil_power,    1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih_gpu%error)
+   call MPI_ALLREDUCE(MPI_IN_PLACE, poynting_flux, 1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih_gpu%error)
+   if (allocated(self%energy_D  ).and.allocated(self%energy_B     ).and. &
+       allocated(self%coil_power).and.allocated(self%Poynting_flux)) then
+      self%energy_D      = [self%energy_D,      energy_D     ]
+      self%energy_B      = [self%energy_B,      energy_B     ]
+      self%coil_power    = [self%coil_power,    coil_power   ]
+      self%poynting_flux = [self%poynting_flux, poynting_flux]
+   else
+      allocate(self%energy_D(     1:self%time%it))
+      allocate(self%energy_B(     1:self%time%it))
+      allocate(self%coil_power(   1:self%time%it))
+      allocate(self%poynting_flux(1:self%time%it))
+      self%energy_D      = energy_D
+      self%energy_B      = energy_B
+      self%coil_power    = coil_power
+      self%poynting_flux = poynting_flux
    endif
    contains
       subroutine compute_e(ivar, ngc, q_gpu, energy)
@@ -1219,10 +1274,17 @@ contains
                                      1-ngc:,&
                                      1:)   !< Conservative variables.
       real(R8P),    intent(out) :: energy  !< Energy of the vector field starting from ivar.
+      real(R8P)                 :: const   !< Costant for the energy computation.
       integer(I4P)              :: i,j,k,b !< Counter.
 
+      if (ivar==VAR_DX) then
+         const = EPS0
+      elseif (ivar==VAR_BX) then
+         const = MU0
+      endif
       energy = 0.0_R8P
-      associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,blocks_number=>self%blocks_number)
+      associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,blocks_number=>self%blocks_number, &
+                dx_gpu=>self%field_gpu%dxyz_gpu(:,1), dy_gpu=>self%field_gpu%dxyz_gpu(:,2), dz_gpu=>self%field_gpu%dxyz_gpu(:,3))
       !$acc parallel loop independent gang vector DEVICEVAR(q_gpu) reduction(+: energy)
       do b=1, blocks_number
       do k=1, nk
@@ -1230,13 +1292,171 @@ contains
       do i=1, ni
          energy = energy + 0.5_R8P * (q_gpu(b,i,j,k,ivar  )*q_gpu(b,i,j,k,ivar  ) + &
                                       q_gpu(b,i,j,k,ivar+1)*q_gpu(b,i,j,k,ivar+1) + &
-                                      q_gpu(b,i,j,k,ivar+2)*q_gpu(b,i,j,k,ivar+2))
+                                      q_gpu(b,i,j,k,ivar+2)*q_gpu(b,i,j,k,ivar+2))/const*(dx_gpu(b)*dy_gpu(b)*dz_gpu(b))
       enddo
       enddo
       enddo
       enddo
       endassociate
       endsubroutine compute_e
+
+      subroutine compute_coil_power(ivar, coil_power)
+      !< Compute coil power of vector field starting from ivar.
+      integer(I4P), intent(in)  :: ivar       !< Starting position of vector field.
+      real(R8P),    intent(out) :: coil_power !< Coil power of the vector field.
+      integer(I4P)              :: i,j,k,b    !< Counter.
+
+      coil_power = 0.0_R8P
+      associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,blocks_number=>self%blocks_number,&
+                q_gpu=>self%q_gpu, coil_flag_gpu=>self%coil_gpu%coil_flag_gpu,        &
+                dx_gpu=>self%field_gpu%dxyz_gpu(:,1), dy_gpu=>self%field_gpu%dxyz_gpu(:,2), dz_gpu=>self%field_gpu%dxyz_gpu(:,3))
+      !$acc parallel loop independent gang vector DEVICEVAR(q_gpu,dx_gpu,dy_gpu,dz_gpu,coil_flag_gpu) reduction(+: coil_power)
+      do b=1, blocks_number
+      do k=1, nk
+      do j=1, nj
+      do i=1, ni
+         if (coil_flag_gpu(b,i,j,k) /= 0_I4P) then
+            coil_power = coil_power - (q_gpu(b,i,j,k,VAR_DX  )*q_gpu(b,i,j,k,ivar  ) + &
+                                       q_gpu(b,i,j,k,VAR_DX+1)*q_gpu(b,i,j,k,ivar+1) + &
+                                       q_gpu(b,i,j,k,VAR_DX+2)*q_gpu(b,i,j,k,ivar+2))/EPS0*(dx_gpu(b)*dy_gpu(b)*dz_gpu(b))
+         endif
+      enddo
+      enddo
+      enddo
+      enddo
+      endassociate
+      endsubroutine compute_coil_power
+
+      subroutine compute_poynting_flux(poynting_flux)
+      !< Compute Poynting flux.
+      real(R8P), intent(out) :: poynting_flux  !< Power irradiated outside computational domain.
+      integer(I4P)           :: i,j,k,b,v      !< Counter.
+      real(R8P)              :: q_boundary(6)  !< Variables at boundary for the Poynting flux computation.
+      real(R8P)              :: n(3)           !< Boundary normal direction
+
+      associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,blocks_number=>self%blocks_number,&
+                q_gpu=>self%q_gpu, s=>self%numerics%fdv_half_stencils(1),             &
+                dx_gpu=>self%field_gpu%dxyz_gpu(:,1), dy_gpu=>self%field_gpu%dxyz_gpu(:,2), dz_gpu=>self%field_gpu%dxyz_gpu(:,3))
+      poynting_flux = 0.0_R8P
+      ! face -x
+      n = [-1.0_R8P, 0.0_R8P, 0.0_R8P]
+      !$acc parallel loop independent gang vector  &
+      !$acc& DEVICEVAR(q_gpu,dx_gpu,dy_gpu,dz_gpu) &
+      !$acc& private(n,q_boundary)                 &
+      !$acc& reduction(+: poynting_flux)
+      do b=1, blocks_number
+      do k=1, nk
+      do j=1, nj
+         do v=1, 6
+            ! call compute_reconstruction_r_fd_centered(s=s,q=self%q(v,1-s:s,j,k,b),qr=q_boundary(v))
+         enddo
+         poynting_flux = poynting_flux + dotproduct(crossproduct(q_boundary(1:3), q_boundary(4:6))/MU0,n)*(dy_gpu(b)*dz_gpu(b))
+      enddo
+      enddo
+      enddo
+      ! face +x
+      n = [1.0_R8P, 0.0_R8P, 0.0_R8P]
+      !$acc parallel loop independent gang vector  &
+      !$acc& DEVICEVAR(q_gpu,dx_gpu,dy_gpu,dz_gpu) &
+      !$acc& private(n,q_boundary)                 &
+      !$acc& reduction(+: poynting_flux)
+      do b=1, blocks_number
+      do k=1, nk
+      do j=1, nj
+         do v=1, 6
+            ! call compute_reconstruction_r_fd_centered(s=s,q=self%q(v,ni+1-s:ni+s,j,k,b),qr=q_boundary(v))
+         enddo
+         poynting_flux = poynting_flux + dotproduct(crossproduct(q_boundary(1:3),q_boundary(4:6))/MU0,n)*(dy_gpu(b)*dz_gpu(b))
+      enddo
+      enddo
+      enddo
+      ! face -y
+      n = [0.0_R8P, -1.0_R8P, 0.0_R8P]
+      !$acc parallel loop independent gang vector  &
+      !$acc& DEVICEVAR(q_gpu,dx_gpu,dy_gpu,dz_gpu) &
+      !$acc& private(n,q_boundary)                 &
+      !$acc& reduction(+: poynting_flux)
+      do b=1, blocks_number
+      do k=1, nk
+      do i=1, ni
+         do v=1, 6
+            ! call compute_reconstruction_r_fd_centered(s=s,q=self%q(v,i,1-s:s,k,b),qr=q_boundary(v))
+         enddo
+         poynting_flux = poynting_flux + dotproduct(crossproduct(q_boundary(1:3),q_boundary(4:6))/MU0,n)*(dx_gpu(b)*dz_gpu(b))
+      enddo
+      enddo
+      enddo
+      ! face +y
+      n = [0.0_R8P, 1.0_R8P, 0.0_R8P]
+      !$acc parallel loop independent gang vector  &
+      !$acc& DEVICEVAR(q_gpu,dx_gpu,dy_gpu,dz_gpu) &
+      !$acc& private(n,q_boundary)                 &
+      !$acc& reduction(+: poynting_flux)
+      do b=1, blocks_number
+      do k=1, nk
+      do i=1, ni
+         do v=1, 6
+            ! call compute_reconstruction_r_fd_centered(s=s,q=self%q(v,i,nj+1-s:nj+s,k,b),qr=q_boundary(v))
+         enddo
+         poynting_flux = poynting_flux + dotproduct(crossproduct(q_boundary(1:3),q_boundary(4:6))/MU0,n)*(dx_gpu(b)*dz_gpu(b))
+      enddo
+      enddo
+      enddo
+      ! face -z
+      n = [0.0_R8P, 0.0_R8P, -1.0_R8P]
+      !$acc parallel loop independent gang vector  &
+      !$acc& DEVICEVAR(q_gpu,dx_gpu,dy_gpu,dz_gpu) &
+      !$acc& private(n,q_boundary)                 &
+      !$acc& reduction(+: poynting_flux)
+      do b=1, blocks_number
+      do j=1, nj
+      do i=1, ni
+         do v=1, 6
+            ! call compute_reconstruction_r_fd_centered(s=s,q=self%q(v,i,j,1-s:s,b),qr=q_boundary(v))
+         enddo
+         poynting_flux = poynting_flux + dotproduct(crossproduct(q_boundary(1:3),q_boundary(4:6))/MU0,n)*(dx_gpu(b)*dy_gpu(b))
+      enddo
+      enddo
+      enddo
+      ! face +z
+      n = [0.0_R8P, 0.0_R8P, 1.0_R8P]
+      !$acc parallel loop independent gang vector  &
+      !$acc& DEVICEVAR(q_gpu,dx_gpu,dy_gpu,dz_gpu) &
+      !$acc& private(n,q_boundary)                 &
+      !$acc& reduction(+: poynting_flux)
+      do b=1, blocks_number
+      do j=1, nj
+      do i=1, ni
+         do v=1, 6
+            ! call compute_reconstruction_r_fd_centered(s=s,q=self%q(v,i,j,nk+1-s:nk+s,b),qr=q_boundary(v))
+         enddo
+         poynting_flux = poynting_flux + dotproduct(crossproduct(q_boundary(1:3),q_boundary(4:6))/MU0,n)*(dx_gpu(b)*dy_gpu(b))
+      enddo
+      enddo
+      enddo
+      endassociate
+      endsubroutine compute_poynting_flux
+
+      function dotproduct(a, b) result(dot)
+      !< Compute the scalar (dot) product.
+      real(R8P), intent(in) :: a(3) !< Left hand side.
+      real(R8P), intent(in) :: b(3) !< Left hand side.
+      real(R8P)             :: dot  !< Dot product.
+      !$acc routine seq
+
+      dot = (a(1) * b(1)) + (a(2) * b(2)) + (a(3) * b(3))
+      endfunction dotproduct
+
+      function crossproduct(a, b) result(cross)
+      real(R8P), intent(in) :: a(3)     !< Left hand side.
+      real(R8P), intent(in) :: b(3)     !< Left hand side.
+      real(R8P)             :: cross(3) !< Cross product.
+      !$acc routine seq
+
+      cross(1) = (a(2) * b(3)) - (a(3) * b(2))
+      cross(2) = (a(3) * b(1)) - (a(1) * b(3))
+      cross(3) = (a(1) * b(2)) - (a(2) * b(1))
+      endfunction crossproduct
    endsubroutine compute_energy
 
    subroutine compute_energy_error(self)
@@ -1290,7 +1510,7 @@ contains
       do b=1, blocks_number
          do k=1, nk
             do j=1, nj
-               do i=1, nj
+               do i=1, ni
                   do v=1, 3
                      q_gpu(b,i,j,k,ivar+v-1) = q_gpu(b,i,j,k,ivar+v-1) + buffer(b,i,j,k,3+v)
                   enddo

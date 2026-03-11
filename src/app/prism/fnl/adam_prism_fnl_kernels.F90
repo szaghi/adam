@@ -15,7 +15,6 @@ use :: penf, only : I4P, I8P, R8P
 
 implicit none
 private
-public :: compute_coils_current_dev
 public :: compute_div_d_b_dev
 public :: compute_fluxes_convective_dev
 public :: compute_fluxes_difference_dev
@@ -24,64 +23,6 @@ public :: set_sir_dev
 
 contains
    ! public procedures
-   subroutine compute_coils_current_dev(ni,nj,nk,ngc,blocks_number,time,a_gpu,d_gpu,f_gpu,phase_gpu,coil_flag_gpu,&
-                                        td,j_vec_gpu,dx_gpu,q_gpu)
-   !< Compute current coils sources.
-   integer(I4P), intent(in)    :: ni                                     !< Grid cells number in I direction.
-   integer(I4P), intent(in)    :: nj                                     !< Grid cells number in J direction.
-   integer(I4P), intent(in)    :: nk                                     !< Grid cells number in K direction.
-   integer(I4P), intent(in)    :: ngc                                    !< Ghost cells number.
-   integer(I4P), intent(in)    :: blocks_number                          !< Number of blocks.
-   integer(I4P), intent(in)    :: coil_flag_gpu(1:,1-ngc:,1-ngc:,1-ngc:) !< Coils ID map.
-   real(R8P),    intent(in)    :: time                                   !< Simulation time, to compute current value if AC.
-   real(R8P),    intent(in)    :: a_gpu(1:)                              !< Current amplitude (A).
-   real(R8P),    intent(in)    :: f_gpu(1:)                              !< Current frequency, if AC (Hz).
-   real(R8P),    intent(in)    :: phase_gpu(1:)                          !< Current initial phase, if AC.
-   real(R8P),    intent(in)    :: d_gpu(1:)                              !< Wire diameter.
-   real(R8P),    intent(in)    :: td                                     !< Coils transitory delay.
-   real(R8P),    intent(in)    :: j_vec_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)  !< Current J versors into coils.
-   real(R8P),    intent(in)    :: dx_gpu                                 !< Space step in x direction.
-   real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Field variables.
-   real(R8P)                   :: current_density                        !< Current density.
-   real(R8P)                   :: g                                      !< Starting polynomial transitory of coils.
-   real(R8P)                   :: w_, g_, f_                             !< Step function coeff to avoid if in parallel regions.
-   integer(I4P)                :: coil_id                                !< Uniq coild ID.
-   integer(I4P)                :: i,j,k,b                                !< Counter.
-
-   g = 10._R8P*(time/td)**3 - 15._R8P*(time/td)**4 + 6._R8P*(time/td)**5
-   !$acc parallel loop independent gang vector collapse(4)                           &
-   !$acc DEVICEVAR(coil_flag_gpu,A_gpu,f_gpu,phase_gpu,d_gpu,j_vec_gpu,q_gpu,dx_gpu) &
-   !$acc firstprivate(g,time,td)
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      coil_id = coil_flag_gpu(b,i,j,k)
-      ! use step function to avoid the following original if
-      ! if (time < td) then
-      !    current_density = g*A_gpu(coil_id)/((d_gpu(coil_id)-dx_gpu)**2)*cos(phase_gpu(coil_id)*PI/180.0_R8P)
-      ! else
-      !    current_density =   A_gpu(coil_id)/((d_gpu(coil_id)-dx_gpu)**2)*cos(2*PI*f_gpu(coil_id)*(time-td) + &
-      !                      phase_gpu(coil_id)*PI/180.0_R8P)
-      ! endif
-      w_ = 0.5_R8P * (sign(td-time,1._R8P) + 1._R8P) ! = 1 if td>time,                                  = 0 if td<time
-      g_ = w_ * g + 1._R8P - w_                      ! = g if td>time,                                  = 1 if td<time
-      f_ = w_ * 2._R8P*PI*f_gpu(coil_id)*(time-td)   ! = 2._R8P*PI*f_gpu(coil_id)*(time-td) if td>time, = 0 if td<time
-      current_density = g_ * A_gpu(coil_id) / ((d_gpu(coil_id)-dx_gpu)**2) * cos(f_ + phase_gpu(coil_id)*PI/180.0_R8P)
-      ! the following if is not necessary because j_vec is zero everywhere except in coils
-      ! if (coil_id /= 0_I4P) then
-      q_gpu(b,i,j,k,VAR_JX) = current_density * j_vec_gpu(b,i,j,k,1)
-      q_gpu(b,i,j,k,VAR_JY) = current_density * j_vec_gpu(b,i,j,k,2)
-      q_gpu(b,i,j,k,VAR_JZ) = current_density * j_vec_gpu(b,i,j,k,3)
-      ! do n=7, 9
-      !    q_gpu(b,i,j,k,n) = current_density*J_vec_gpu(b,i,j,k,n-6)
-      ! enddo
-   enddo
-   enddo
-   enddo
-   enddo
-   endsubroutine compute_coils_current_dev
-
    subroutine compute_div_d_b_dev(ni, nj, nk, ngc, blocks_number, dx_gpu, q_gpu, div_gpu)
    !< Compute div(D), div(B).
    integer(I4P), intent(in)    :: ni                                  !< Grid cells number in I direction.

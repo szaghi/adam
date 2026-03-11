@@ -18,7 +18,6 @@ use :: penf
 implicit none
 private
 public :: prism_fnl_coil_object
-public :: compute_coils_current_dev
 
 type :: prism_fnl_coil_object
    !< ADAM, PRISM coil source definition, FNL (GPU) backend.
@@ -103,53 +102,4 @@ contains
    print '(A)', self%mpih%myrankstr//'prism_fnl_coil_object%initialize finish'
    endassociate
    endsubroutine initialize
-
-   ! non TBP
-   subroutine compute_coils_current_dev(ni, nj, nk, ngc, blocks_number,                               &
-                                        time_s, td, A_gpu, f_gpu, phase_gpu, coil_flag_gpu, j_vec_gpu,&
-                                        var_Jx, var_Jy, var_Jz, q_gpu)
-   !< Compute current coils sources, device kernel.
-   integer(I4P), intent(in)    :: ni                                       !< Grid cells number in I direction.
-   integer(I4P), intent(in)    :: nj                                       !< Grid cells number in J direction.
-   integer(I4P), intent(in)    :: nk                                       !< Grid cells number in K direction.
-   integer(I4P), intent(in)    :: ngc                                      !< Ghost grid number.
-   integer(I4P), intent(in)    :: blocks_number                            !< Number of blocks.
-   real(R8P),    intent(in)    :: time_s                                   !< Local time.
-   real(R8P),    intent(in)    :: td                                       !< Delay coil start.
-   real(R8P),    intent(in)    :: A_gpu(0:)                                !< Current amplitude (A)
-   real(R8P),    intent(in)    :: f_gpu(0:)                                !< Current frequency, if AC (Hz)
-   real(R8P),    intent(in)    :: phase_gpu(0:)                            !< Current initial phase, if AC
-   real(R8P),    intent(in)    :: J_vec_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:,1:) !< Matrice contenente versori corrente spire.
-   integer(I4P), intent(in)    :: coil_flag_gpu(1:,1-ngc:,1-ngc:,1-ngc:)   !< Matrice contenente informazioni su quale spira pass.
-   integer(I4P), intent(in)    :: var_Jx, var_Jy, var_Jz                   !< Indices of current density components in q vector.
-   real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)        !< Conservative variables on GPU.
-   real(R8P)                   :: current_density                          !< Current density.
-   real(R8P)                   :: g                                        !< Starting polynomial transitory of coils.
-   integer(I4P)                :: w_, w_c_                                 !< Step function coeff to avoid if in parallel regions.
-   real(R8P)                   :: g_, f_                                   !< Current coefficients.
-   integer(I4P)                :: coil_id                                  !< Uniq coild ID.
-   integer(I4P)                :: i,j,k,b                                  !< Counter.
-
-   g = 10._R8P*(time_s/td)**3 - 15._R8P*(time_s/td)**4 + 6._R8P*(time_s/td)**5
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(q_gpu,coil_flag_gpu,A_gpu,f_gpu,phase_gpu,j_vec_gpu)
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      coil_id = coil_flag_gpu(b,i,j,k)
-
-      w_   = nint(sign(1._R8P,td-time_s) + 1._R8P)/2     ! = 1 if td>time, = 0                              if td<time
-      w_c_ = 1_I4P - w_                                  ! = 0 if td>time, = 1                              if td<time
-      g_   = w_ * g + w_c_                               ! = g if td>time, = 1                              if td<time
-      f_   = w_c_ * 2._R8P*PI*f_gpu(coil_id)*(time_s-td) ! = 0 if td>time, = 2._R8P*PI*f(coil_id)*(time-td) if td<time
-      current_density = g_ * A_gpu(coil_id) * cos(f_ + phase_gpu(coil_id)*PI/180.0_R8P)*j_vec_gpu(b,i,j,k,4,1)
-
-      q_gpu(b,i,j,k,VAR_JX) = current_density * j_vec_gpu(b,i,j,k,1,1)
-      q_gpu(b,i,j,k,VAR_JY) = current_density * j_vec_gpu(b,i,j,k,2,1)
-      q_gpu(b,i,j,k,VAR_JZ) = current_density * j_vec_gpu(b,i,j,k,3,1)
-   enddo
-   enddo
-   enddo
-   enddo
-   endsubroutine compute_coils_current_dev
 endmodule adam_prism_fnl_coil_object
