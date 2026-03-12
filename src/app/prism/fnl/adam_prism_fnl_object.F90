@@ -39,16 +39,6 @@ type, extends(prism_common_object) :: prism_fnl_object
    real(R8P), pointer :: flz_f_gpu(:,:,:,:,:)=>null()       !< Fluxes along z at cell face.
    real(R8P), pointer :: curl_gpu(:,:,:,:,:)=>null()        !< Curl fields.
    real(R8P), pointer :: divergence_gpu(:,:,:,:,:)=>null()  !< Divergence fields.
-   ! rank 1D stencil for computations on device that contiguos memory is mandatory
-   real(R8P), allocatable :: qsx_x(:) !< X component of vector field over the x stencil.
-   real(R8P), allocatable :: qsx_y(:) !< Y component of vector field over the x stencil.
-   real(R8P), allocatable :: qsx_z(:) !< Z component of vector field over the x stencil.
-   real(R8P), allocatable :: qsy_x(:) !< X component of vector field over the y stencil.
-   real(R8P), allocatable :: qsy_Y(:) !< Y component of vector field over the y stencil.
-   real(R8P), allocatable :: qsy_z(:) !< Z component of vector field over the y stencil.
-   real(R8P), allocatable :: qsz_x(:) !< X component of vector field over the z stencil.
-   real(R8P), allocatable :: qsz_y(:) !< Y component of vector field over the z stencil.
-   real(R8P), allocatable :: qsz_z(:) !< Z component of vector field over the z stencil.
    !< Pointer (abstract) TBP.
    procedure(compute_curl_interface_dev),       pass(self),pointer :: compute_curl_dev       =>null()!< Compute curl.
    procedure(compute_derivative1_interface_dev),pass(self),pointer :: compute_derivative1_dev=>null()!< Compute derivative1.
@@ -181,18 +171,10 @@ interface
    subroutine compute_residuals_interface_dev(self, q_gpu, dq_gpu, s)
    !< Compute residuals of equation, space operator.
    import :: prism_fnl_object, R8P, I4P
-   class(prism_fnl_object), intent(inout) :: self   !< The equation.
-   real(R8P),               intent(inout) :: q_gpu(1:,     &
-                                               1-self%ngc:,&
-                                               1-self%ngc:,&
-                                               1-self%ngc:,&
-                                               1:)  !< Conservative variables.
-   real(R8P),               intent(inout) :: dq_gpu(1:,     &
-                                                1-self%ngc:,&
-                                                1-self%ngc:,&
-                                                1-self%ngc:,&
-                                                1:) !< Residuals.
-   integer(I4P),  optional, intent(in)    :: s      !< Stage counter.
+   class(prism_fnl_object), intent(inout) :: self                                              !< The equation.
+   real(R8P),               intent(in)    :: q_gpu( 1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Conservative variables.
+   real(R8P),               intent(inout) :: dq_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Residuals.
+   integer(I4P),  optional, intent(in)    :: s                                                 !< Stage counter.
    endsubroutine compute_residuals_interface_dev
 
    subroutine integrate_interface_dev(self)
@@ -340,17 +322,6 @@ contains
    endselect
 
    call external_fields_initialize_dev(external_fields=self%external_fields)
-
-   ! allocate rank 1D stencil for computations on device that contiguos memory is mandatory
-   allocate(self%qsx_x(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1)))
-   allocate(self%qsx_y(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1)))
-   allocate(self%qsx_z(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1)))
-   allocate(self%qsy_x(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1)))
-   allocate(self%qsy_y(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1)))
-   allocate(self%qsy_z(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1)))
-   allocate(self%qsz_x(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1)))
-   allocate(self%qsz_y(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1)))
-   allocate(self%qsz_z(1-self%numerics%fdv_half_stencils(1):1+self%numerics%fdv_half_stencils(1)))
 
    call self%mpih%print_message('prism_fnl_object%initialize finish')
    endsubroutine initialize
@@ -922,53 +893,82 @@ contains
    ! numerical methods, space operators
    subroutine compute_residuals_fd_centered_dev(self, q_gpu, dq_gpu, s)
    !< Compute residuals of equation, space operator, centered finite difference schemes.
-   class(prism_fnl_object), intent(inout) :: self               !< The equation.
-   real(R8P),               intent(inout) :: q_gpu(1:,     &
-                                               1-self%ngc:,&
-                                               1-self%ngc:,&
-                                               1-self%ngc:,&
-                                               1:)              !< Conservative variables.
-   real(R8P),               intent(inout) :: dq_gpu(1:,     &
-                                                1-self%ngc:,&
-                                                1-self%ngc:,&
-                                                1-self%ngc:,&
-                                                1:)             !< Residuals.
-   integer(I4P),  optional, intent(in)    :: s                  !< Stage counter.
-   integer(I4P)                           :: i,j,k,b            !< Counter
-   real(R8P)                              :: curlD(3), curlB(3) !< Residuals components.
+   class(prism_fnl_object), intent(inout) :: self       !< The equation.
+   real(R8P),               intent(in)    :: q_gpu(1:,         &
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1:)  !< Conservative variables.
+   real(R8P),               intent(inout) :: dq_gpu(1:,         &
+                                                    1-self%ngc:,&
+                                                    1-self%ngc:,&
+                                                    1-self%ngc:,&
+                                                    1:) !< Residuals.
+   integer(I4P),  optional, intent(in)    :: s          !< Stage counter.
 
-   ! Note: blocks_number, ni, nj, ecc... are used as copyin, but probably they should be firstprivate; however, with
-   ! the current NVidia SDK (24.xy/25.xy) firstprivate with *associate* variables does not work.
-   associate(blocks_number=>self%blocks_number, ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, &
-             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz,   &
-             s1=>self%numerics%fdv_half_stencils(1), dxyz_gpu=>self%field_gpu%dxyz_gpu,               &
-             qsx_y=>self%qsx_y,qsx_z=>self%qsx_z,qsy_x=>self%qsy_x,qsy_z=>self%qsy_z,qsz_x=>self%qsz_x,qsz_y=>self%qsz_y)
-   if (blocks_number > 0) then
+   if (self%blocks_number > 0) then
       call self%update_ghost(q_gpu=q_gpu, s=s)
+      call compute_residuals_fd_centered_dev_kernel(ni            = self%ni                           ,&
+                                                    nj            = self%nj                           ,&
+                                                    nk            = self%nk                           ,&
+                                                    ngc           = self%ngc                          ,&
+                                                    blocks_number = self%blocks_number                ,&
+                                                    var_jx        = self%physics%var_jx               ,&
+                                                    var_jy        = self%physics%var_jy               ,&
+                                                    var_jz        = self%physics%var_jz               ,&
+                                                    s1            = self%numerics%fdv_half_stencils(1),&
+                                                    dxyz_gpu      = self%field_gpu%dxyz_gpu           ,&
+                                                    q_gpu         = q_gpu                             ,&
+                                                    dq_gpu        = dq_gpu)
+   endif
+   contains
+      subroutine compute_residuals_fd_centered_dev_kernel(ni, nj, nk, ngc, blocks_number, &
+                                                          var_Jx, var_Jy, var_Jz, s1,     &
+                                                          dxyz_gpu, q_gpu, dq_gpu)
+      !< Compute residuals of equation, space operator, centered finite difference schemes, kernel device.
+      integer(I4P), intent(in)    :: ni,nj,nk,ngc,blocks_number         !< Grids dimensions.
+      integer(I4P), intent(in)    :: var_jx,var_jy,var_jz               !< Indexes of J_vec variables.
+      integer(I4P), intent(in)    :: s1                                 !< Half FDV stencil length.
+      real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                    !< Delta cells GPU [nb,3].
+      real(R8P),    intent(in)    :: q_gpu( 1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field cell centered variables.
+      real(R8P),    intent(inout) :: dq_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Residuals.
+      integer(I4P)                :: i,j,k,b                            !< Counter
+      real(R8P)                   :: curlD(3), curlB(3)                 !< Residuals components.
+      ! rank 1D stencil for computations on device that contiguos memory is mandatory
+      real(R8P) :: qsx_x(1-s1:1+s1) !< X component of vector field over the x stencil.
+      real(R8P) :: qsx_y(1-s1:1+s1) !< Y component of vector field over the x stencil.
+      real(R8P) :: qsx_z(1-s1:1+s1) !< Z component of vector field over the x stencil.
+      real(R8P) :: qsy_x(1-s1:1+s1) !< X component of vector field over the y stencil.
+      real(R8P) :: qsy_Y(1-s1:1+s1) !< Y component of vector field over the y stencil.
+      real(R8P) :: qsy_z(1-s1:1+s1) !< Z component of vector field over the y stencil.
+      real(R8P) :: qsz_x(1-s1:1+s1) !< X component of vector field over the z stencil.
+      real(R8P) :: qsz_y(1-s1:1+s1) !< Y component of vector field over the z stencil.
+      real(R8P) :: qsz_z(1-s1:1+s1) !< Z component of vector field over the z stencil.
+
       ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0)
       !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
-      !$acc& copyin(blocks_number,ni,nj,nk,ngc,var_jx,var_jy,var_jz,s1)                        &
+      !$acc& firstprivate(var_jx,var_jy,var_jz,s1)                                             &
       !$acc& private(curlD,curlB,qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y)
       do b=1,blocks_number
       do k=1,nk
       do j=1,nj
       do i=1,ni
-         qsx_y=q_gpu(b,i-s1:i+s1,j,k,VAR_DY)
-         qsx_z=q_gpu(b,i-s1:i+s1,j,k,VAR_DZ)
-         qsy_x=q_gpu(b,i,j-s1:j+s1,k,VAR_DX)
-         qsy_z=q_gpu(b,i,j-s1:j+s1,k,VAR_DZ)
-         qsz_x=q_gpu(b,i,j,k-s1:k+s1,VAR_DX)
-         qsz_y=q_gpu(b,i,j,k-s1:k+s1,VAR_DY)
+         qsx_y = q_gpu(b,i-s1:i+s1,j,k,VAR_DY)
+         qsx_z = q_gpu(b,i-s1:i+s1,j,k,VAR_DZ)
+         qsy_x = q_gpu(b,i,j-s1:j+s1,k,VAR_DX)
+         qsy_z = q_gpu(b,i,j-s1:j+s1,k,VAR_DZ)
+         qsz_x = q_gpu(b,i,j,k-s1:k+s1,VAR_DX)
+         qsz_y = q_gpu(b,i,j,k-s1:k+s1,VAR_DY)
          call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),          &
                                            qsx_y=qsx_y,qsx_z=qsx_z,qsy_x=qsy_x,&
                                            qsy_z=qsy_z,qsz_x=qsz_x,qsz_y=qsz_y,&
                                            curl=curlD)
-         qsx_y=q_gpu(b,i-s1:i+s1,j,k,VAR_BY)
-         qsx_z=q_gpu(b,i-s1:i+s1,j,k,VAR_BZ)
-         qsy_x=q_gpu(b,i,j-s1:j+s1,k,VAR_BX)
-         qsy_z=q_gpu(b,i,j-s1:j+s1,k,VAR_BZ)
-         qsz_x=q_gpu(b,i,j,k-s1:k+s1,VAR_BX)
-         qsz_y=q_gpu(b,i,j,k-s1:k+s1,VAR_BY)
+         qsx_y = q_gpu(b,i-s1:i+s1,j,k,VAR_BY)
+         qsx_z = q_gpu(b,i-s1:i+s1,j,k,VAR_BZ)
+         qsy_x = q_gpu(b,i,j-s1:j+s1,k,VAR_BX)
+         qsy_z = q_gpu(b,i,j-s1:j+s1,k,VAR_BZ)
+         qsz_x = q_gpu(b,i,j,k-s1:k+s1,VAR_BX)
+         qsz_y = q_gpu(b,i,j,k-s1:k+s1,VAR_BY)
          call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),          &
                                            qsx_y=qsx_y,qsx_z=qsx_z,qsy_x=qsy_x,&
                                            qsy_z=qsy_z,qsz_x=qsz_x,qsz_y=qsz_y,&
@@ -983,8 +983,7 @@ contains
       enddo
       enddo
       enddo
-   endif
-   endassociate
+      endsubroutine compute_residuals_fd_centered_dev_kernel
    endsubroutine compute_residuals_fd_centered_dev
 
    ! numerical methods, time operators
