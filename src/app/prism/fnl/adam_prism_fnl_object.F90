@@ -227,11 +227,6 @@ contains
                   ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
    call dev_alloc(fptr_dev=self%divergence_gpu, &
                   ubounds=[nb,ni+ngc,nj+ngc,nk+ngc,nv], lbounds=[1,1-ngc,1-ngc,1-ngc,1], init_value=0._R8P, ierr=ierr)
-   ! call dev_alloc(fptr_dev=self%si_gpu,  ubounds=[3,3], init_value=0_I4P,  ierr=ierr)
-   ! call dev_alloc(fptr_dev=self%sir_gpu, ubounds=[3,3], init_value=0._R8P, ierr=ierr)
-   ! call dev_assign_to_device(src=ER,   dst=self%ER_GPU  )
-   ! call dev_assign_to_device(src=EL,   dst=self%EL_GPU  )
-   ! call dev_assign_to_device(src=IERL, dst=self%IERL_GPU)
    endassociate
    call self%mpih%print_message('prism_fnl_object%allocate_gpu finish')
    endsubroutine allocate_gpu
@@ -278,7 +273,6 @@ contains
    call self%allocate_gpu
    call self%coil_gpu%initialize(field=self%field, coil=self%coil)
    call self%fwlayer_gpu%initialize(field=self%field, fwlayer=self%fwlayer)
-   ! call set_sir_dev(si_gpu=self%si_gpu, sir_gpu=self%sir_gpu)
 
    ! set pointer (abstract) TBP
    if (self%physics%physical_model == EM_PHYSICAL_MODEL) then
@@ -590,57 +584,71 @@ contains
                                                    1-self%ngc:,&
                                                    1-self%ngc:,&
                                                    1-self%ngc:,1:) !< Conservative variables.
-   integer(I4P)                           :: b                     !< Counter.
-   integer(I4P)                           :: c, i, j, k, v         !< Counter.
-   integer(I4P)                           :: idelta                !< IJK i delta step for extrapolation.
-   integer(I4P)                           :: jdelta                !< IJK j delta step for extrapolation.
-   integer(I4P)                           :: kdelta                !< IJK k delta step for extrapolation.
-   integer(I4P)                           :: bc_type               !< Boundary condition type.
-   integer(I4P)                           :: fec                   !< Boundary fec (1 to 26).
-   integer(I4P)                           :: fec_1_6               !< Boundary fec (1 to 6).
    integer(I4P)                           :: crown                 !< Crown counter.
 
-   associate(local_map_bc_crown_gpu=>self%field_gpu%maps%local_map_bc_crown_gpu, &
-             nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk)
    if (associated(self%field_gpu%maps%local_map_bc_crown_gpu)) then
-      do crown=1, ngc
-         !$acc parallel loop independent gang vector DEVICEVAR(local_map_bc_crown_gpu, q_gpu)
-         do c=1, size(local_map_bc_crown_gpu, dim=1)
-            b = local_map_bc_crown_gpu(c, 1 ,crown)
-            if (b>0) then
-               i       = local_map_bc_crown_gpu(c, 2 ,crown)
-               j       = local_map_bc_crown_gpu(c, 3 ,crown)
-               k       = local_map_bc_crown_gpu(c, 4 ,crown)
-               idelta  = local_map_bc_crown_gpu(c, 5 ,crown)
-               jdelta  = local_map_bc_crown_gpu(c, 6 ,crown)
-               kdelta  = local_map_bc_crown_gpu(c, 7 ,crown)
-               bc_type = local_map_bc_crown_gpu(c, 8 ,crown)
-               fec     = local_map_bc_crown_gpu(c, 9 ,crown)
-               fec_1_6 = fec_1_6_array(fec)
-               if (bc_type == BC_EXTRAPOLATION) then
-                  do v=1, nv
-                     q_gpu(b,i,j,k,v) = q_gpu(b,i-idelta,j-jdelta,k-kdelta,v)
-                  enddo
-               elseif (bc_type == BC_NEUMANN) then
-                  do v=1, nv
-                     q_gpu(b,i,j,k,v) = q_gpu(b,i+abs(idelta)*(-2*i+1+(idelta+1)*ni),&
-                                                j+abs(jdelta)*(-2*j+1+(jdelta+1)*nj),&
-                                                k+abs(kdelta)*(-2*k+1+(kdelta+1)*nk),v)
-                  enddo
-               elseif (bc_type == BC_SILVER_MULLER) then
-                  ! to be impelmented
-               elseif (bc_type == BC_DIRICHLET) then
-                  do v=1, nv
-                     q_gpu(b,i,j,k,v) = 0._R8P
-                  enddo
-               elseif (bc_type == BC_PERIOD) then
-                  ! to be impelmented
-               endif
-            endif
-         enddo
+      do crown=1, self%ngc
+         call set_boundary_conditions_kernel(ni                     = self%ni                                   ,&
+                                             nj                     = self%nj                                   ,&
+                                             nk                     = self%nk                                   ,&
+                                             ngc                    = self%ngc                                  ,&
+                                             nv                     = self%nv                                   ,&
+                                             crown                  = crown                                     ,&
+                                             local_map_bc_crown_gpu = self%field_gpu%maps%local_map_bc_crown_gpu,&
+                                             q_gpu                  = q_gpu)
       enddo
    endif
-   endassociate
+   contains
+      subroutine set_boundary_conditions_kernel(ni, nj, nk, ngc, nv, crown, local_map_bc_crown_gpu, q_gpu)
+      !< Set boundary conditions of equation, kernel device.
+      integer(I4P), intent(in)    :: ni,nj,nk,ngc                      !< Grid dimensions.
+      integer(I4P), intent(in)    :: nv                                !< Number of conservative variables.
+      integer(I4P), intent(in)    :: crown                             !< Crown counter.
+      integer(I8P), intent(in)    :: local_map_bc_crown_gpu(:,:,:)     !< Local map for face BC ghost cells, "crown" order.
+      real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+      integer(I4P)                :: b, c, i, j, k, v                  !< Counter.
+      integer(I4P)                :: idelta                            !< IJK i delta step for extrapolation.
+      integer(I4P)                :: jdelta                            !< IJK j delta step for extrapolation.
+      integer(I4P)                :: kdelta                            !< IJK k delta step for extrapolation.
+      integer(I4P)                :: bc_type                           !< Boundary condition type.
+      integer(I4P)                :: fec                               !< Boundary fec (1 to 26).
+      integer(I4P)                :: fec_1_6                           !< Boundary fec (1 to 6).
+      !$acc parallel loop independent gang vector &
+      !$acc& DEVICEVAR(local_map_bc_crown_gpu, q_gpu) firstprivate(ni,nj,nk,nv,crown)
+      do c=1, size(local_map_bc_crown_gpu, dim=1)
+         b = local_map_bc_crown_gpu(c, 1 ,crown)
+         if (b>0) then
+            i       = local_map_bc_crown_gpu(c, 2 ,crown)
+            j       = local_map_bc_crown_gpu(c, 3 ,crown)
+            k       = local_map_bc_crown_gpu(c, 4 ,crown)
+            idelta  = local_map_bc_crown_gpu(c, 5 ,crown)
+            jdelta  = local_map_bc_crown_gpu(c, 6 ,crown)
+            kdelta  = local_map_bc_crown_gpu(c, 7 ,crown)
+            bc_type = local_map_bc_crown_gpu(c, 8 ,crown)
+            fec     = local_map_bc_crown_gpu(c, 9 ,crown)
+            fec_1_6 = fec_1_6_array(fec)
+            if (bc_type == BC_EXTRAPOLATION) then
+               do v=1, nv
+                  q_gpu(b,i,j,k,v) = q_gpu(b,i-idelta,j-jdelta,k-kdelta,v)
+               enddo
+            elseif (bc_type == BC_NEUMANN) then
+               do v=1, nv
+                  q_gpu(b,i,j,k,v) = q_gpu(b,i+abs(idelta)*(-2*i+1+(idelta+1)*ni),&
+                                             j+abs(jdelta)*(-2*j+1+(jdelta+1)*nj),&
+                                             k+abs(kdelta)*(-2*k+1+(kdelta+1)*nk),v)
+               enddo
+            elseif (bc_type == BC_SILVER_MULLER) then
+               ! to be impelmented
+            elseif (bc_type == BC_DIRICHLET) then
+               do v=1, nv
+                  q_gpu(b,i,j,k,v) = 0._R8P
+               enddo
+            elseif (bc_type == BC_PERIOD) then
+               ! to be impelmented
+            endif
+         endif
+      enddo
+      endsubroutine set_boundary_conditions_kernel
    endsubroutine set_boundary_conditions
 
    subroutine set_initial_conditions(self)
