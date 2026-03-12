@@ -1285,14 +1285,20 @@ contains
    real(R8P)                              :: coil_power    !< Coil power.
    real(R8P)                              :: poynting_flux !< Total Poynting flux from boundary.
 
-   call compute_e(ivar=VAR_DX, ngc=self%ngc, q_gpu=self%q_gpu, energy=energy_D)
-   call compute_e(ivar=VAR_BX, ngc=self%ngc, q_gpu=self%q_gpu, energy=energy_B)
+   call compute_e_dev_kernel(ni=self%ni,nj=self%nj,nk=self%nk,ngc=self%ngc,blocks_number=self%blocks_number,&
+                             ivar=VAR_DX,dxyz_gpu=self%field_gpu%dxyz_gpu,q_gpu=self%q_gpu,energy=energy_D)
+   call compute_e_dev_kernel(ni=self%ni,nj=self%nj,nk=self%nk,ngc=self%ngc,blocks_number=self%blocks_number,&
+                             ivar=VAR_BX,dxyz_gpu=self%field_gpu%dxyz_gpu,q_gpu=self%q_gpu,energy=energy_B)
    if (self%coil%total_coils_number > 0_I4P) then
-      call compute_coil_power(ivar=self%physics%var_Jx, coil_power=coil_power)
+      call compute_coil_power_dev_kernel(ni=self%ni,nj=self%nj,nk=self%nk,ngc=self%ngc,blocks_number=self%blocks_number,&
+                                         ivar=self%physics%var_Jx,coil_flag_gpu=self%coil_gpu%coil_flag_gpu,            &
+                                         dxyz_gpu=self%field_gpu%dxyz_gpu,q_gpu=self%q_gpu,coil_power=coil_power)
    else
       coil_power = 0._R8P
    endif
-   call compute_poynting_flux(poynting_flux=poynting_flux)
+   call compute_poynting_flux_dev_kernel(ni=self%ni,nj=self%nj,nk=self%nk,ngc=self%ngc,blocks_number=self%blocks_number,&
+                                         s=self%numerics%fdv_half_stencils(1),                                          &
+                                         dxyz_gpu=self%field_gpu%dxyz_gpu,q_gpu=self%q_gpu,poynting_flux=poynting_flux)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_D,      1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih_gpu%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, energy_B,      1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih_gpu%error)
    call MPI_ALLREDUCE(MPI_IN_PLACE, coil_power,    1, MPI_REAL8, MPI_SUM, MPI_COMM_WORLD, self%mpih_gpu%error)
@@ -1314,18 +1320,15 @@ contains
       self%poynting_flux = poynting_flux
    endif
    contains
-      subroutine compute_e(ivar, ngc, q_gpu, energy)
-      !< Compute energy of vector field starting from ivar.
-      integer(I4P), intent(in)  :: ivar    !< Starting position of vector field.
-      integer(I4P), intent(in)  :: ngc     !< Number of ghost cells.
-      real(R8P),    intent(in)  :: q_gpu(1:,&
-                                     1-ngc:,&
-                                     1-ngc:,&
-                                     1-ngc:,&
-                                     1:)   !< Conservative variables.
-      real(R8P),    intent(out) :: energy  !< Energy of the vector field starting from ivar.
-      real(R8P)                 :: const   !< Costant for the energy computation.
-      integer(I4P)              :: i,j,k,b !< Counter.
+      subroutine compute_e_dev_kernel(ni,nj,nk,ngc,blocks_number,ivar,dxyz_gpu,q_gpu,energy)
+      !< Compute energy of vector field starting from ivar, device kernel.
+      integer(I4P), intent(in)  :: ni,nj,nk,ngc,blocks_number        !< Grids dimensions.
+      integer(I4P), intent(in)  :: ivar                              !< Starting position of vector field.
+      real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                   !< Delta cells GPU [nb,3].
+      real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+      real(R8P),    intent(out) :: energy                            !< Energy of the vector field starting from ivar.
+      real(R8P)                 :: const                             !< Costant for the energy computation.
+      integer(I4P)              :: i,j,k,b                           !< Counter.
 
       if (ivar==VAR_DX) then
          const = EPS0
@@ -1333,183 +1336,153 @@ contains
          const = MU0
       endif
       energy = 0.0_R8P
-      associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,blocks_number=>self%blocks_number, &
-                dx_gpu=>self%field_gpu%dxyz_gpu(:,1), dy_gpu=>self%field_gpu%dxyz_gpu(:,2), dz_gpu=>self%field_gpu%dxyz_gpu(:,3))
-      !$acc parallel loop independent gang vector DEVICEVAR(q_gpu,dx_gpu,dy_gpu,dz_gpu) firstprivate(const) reduction(+: energy)
+      !$acc parallel loop independent gang vector collapse(4) &
+      !$acc& DEVICEVAR(q_gpu,dxyz_gpu) firstprivate(const) reduction(+: energy)
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
       do i=1, ni
          energy = energy + 0.5_R8P * (q_gpu(b,i,j,k,ivar  )*q_gpu(b,i,j,k,ivar  ) + &
                                       q_gpu(b,i,j,k,ivar+1)*q_gpu(b,i,j,k,ivar+1) + &
-                                      q_gpu(b,i,j,k,ivar+2)*q_gpu(b,i,j,k,ivar+2))/const*(dx_gpu(b)*dy_gpu(b)*dz_gpu(b))
+                                      q_gpu(b,i,j,k,ivar+2)*q_gpu(b,i,j,k,ivar+2))/const*(dxyz_gpu(b,1)*dxyz_gpu(b,2)*dxyz_gpu(b,3))
       enddo
       enddo
       enddo
       enddo
-      endassociate
-      endsubroutine compute_e
+      endsubroutine compute_e_dev_kernel
 
-      subroutine compute_coil_power(ivar, coil_power)
-      !< Compute coil power of vector field starting from ivar.
-      integer(I4P), intent(in)  :: ivar       !< Starting position of vector field.
-      real(R8P),    intent(out) :: coil_power !< Coil power of the vector field.
-      integer(I4P)              :: i,j,k,b    !< Counter.
+      subroutine compute_coil_power_dev_kernel(ni,nj,nk,ngc,blocks_number,ivar,dxyz_gpu,coil_flag_gpu,q_gpu,coil_power)
+      !< Compute coil power of vector field starting from ivar, device kernel.
+      integer(I4P), intent(in)  :: ni,nj,nk,ngc,blocks_number             !< Grids dimensions.
+      integer(I4P), intent(in)  :: ivar                                   !< Starting position of vector field.
+      real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                        !< Delta cells GPU [nb,3].
+      integer(I4P), intent(in)  :: coil_flag_gpu(1:,1-ngc:,1-ngc:,1-ngc:) !< Matrice contenente informazioni su quale spira pass.
+      real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)      !< Conservative variables.
+      real(R8P),    intent(out) :: coil_power                             !< Coil power of the vector field.
+      integer(I4P)              :: i,j,k,b                                !< Counter.
 
       coil_power = 0.0_R8P
-      associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,blocks_number=>self%blocks_number,&
-                q_gpu=>self%q_gpu, coil_flag_gpu=>self%coil_gpu%coil_flag_gpu,        &
-                dx_gpu=>self%field_gpu%dxyz_gpu(:,1), dy_gpu=>self%field_gpu%dxyz_gpu(:,2), dz_gpu=>self%field_gpu%dxyz_gpu(:,3))
-      !$acc parallel loop independent gang vector DEVICEVAR(q_gpu,dx_gpu,dy_gpu,dz_gpu,coil_flag_gpu) reduction(+: coil_power)
+      !$acc parallel loop independent gang vector collapse(4) &
+      !$acc& DEVICEVAR(q_gpu,dxyz_gpu,coil_flag_gpu) reduction(+: coil_power)
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
       do i=1, ni
          if (coil_flag_gpu(b,i,j,k) /= 0_I4P) then
-            coil_power = coil_power - (q_gpu(b,i,j,k,VAR_DX  )*q_gpu(b,i,j,k,ivar  ) + &
-                                       q_gpu(b,i,j,k,VAR_DX+1)*q_gpu(b,i,j,k,ivar+1) + &
-                                       q_gpu(b,i,j,k,VAR_DX+2)*q_gpu(b,i,j,k,ivar+2))/EPS0*(dx_gpu(b)*dy_gpu(b)*dz_gpu(b))
+            coil_power = coil_power-(q_gpu(b,i,j,k,VAR_DX  )*q_gpu(b,i,j,k,ivar  ) + &
+                                     q_gpu(b,i,j,k,VAR_DX+1)*q_gpu(b,i,j,k,ivar+1) + &
+                                     q_gpu(b,i,j,k,VAR_DX+2)*q_gpu(b,i,j,k,ivar+2))/EPS0*(dxyz_gpu(b,1)*dxyz_gpu(b,2)*dxyz_gpu(b,3))
          endif
       enddo
       enddo
       enddo
       enddo
-      endassociate
-      endsubroutine compute_coil_power
+      endsubroutine compute_coil_power_dev_kernel
 
-      subroutine compute_poynting_flux(poynting_flux)
-      !< Compute Poynting flux.
-      real(R8P), intent(out) :: poynting_flux             !< Power irradiated outside computational domain.
-      integer(I4P)           :: i,j,k,b,v                 !< Counter.
-      real(R8P)              :: q_boundary(6)             !< Variables at boundary for the Poynting flux computation.
-      ! real(R8P), allocatable :: q_buff(:)                 !< 1D contiguos buffer.
-      real(R8P)              :: q_buff(1-3:3)                 !< 1D contiguos buffer.
-      real(R8P)              :: n(3)                      !< Boundary normal direction
-      ! real(R8P), parameter   :: sir(3,6) = reshape([-1._R8P,1._R8P, 0._R8P,0._R8P, 0._R8P,0._R8P, &
-      !                                                0._R8P,0._R8P,-1._R8P,1._R8P, 0._R8P,0._R8P, &
-      !                                                0._R8P,0._R8P, 0._R8P,0._R8P,-1._R8P,1._R8P],&
-      !                                              [3,6]) !< Direction versor, real.
+      subroutine compute_poynting_flux_dev_kernel(ni,nj,nk,ngc,blocks_number,s,dxyz_gpu,q_gpu,poynting_flux)
+      !< Compute Poynting flux, device kernel.
+      integer(I4P), intent(in)  :: ni,nj,nk,ngc,blocks_number        !< Grids dimensions.
+      integer(I4P), intent(in)  :: s                                 !< FDV half stencil.
+      real(R8P),    intent(in)  :: dxyz_gpu(1:,1:)                   !< Delta cells GPU [nb,3].
+      real(R8P),    intent(in)  :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Conservative variables.
+      real(R8P),    intent(out) :: poynting_flux                     !< Power irradiated outside computational domain.
+      integer(I4P)              :: i,j,k,b,v                         !< Counter.
+      real(R8P)                 :: q_boundary(6)                     !< Variables at boundary for the Poynting flux computation.
+      real(R8P)                 :: q_buff(1-s:s)                     !< 1D contiguos buffer.
+      real(R8P)                 :: n(3)                              !< Boundary normal direction
 
-      associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,blocks_number=>self%blocks_number,&
-                q_gpu=>self%q_gpu, s=>self%numerics%fdv_half_stencils(1),             &
-                dx_gpu=>self%field_gpu%dxyz_gpu(:,1), dy_gpu=>self%field_gpu%dxyz_gpu(:,2), dz_gpu=>self%field_gpu%dxyz_gpu(:,3))
       poynting_flux = 0.0_R8P
-      !do s=1, 6
-      !   !$acc parallel loop independent gang vector collapse(3) &
-      !   !$acc& DEVICEVAR(q_gpu,dx_gpu,dy_gpu,dz_gpu)            &
-      !   !$acc& private(q_boundary)                              &
-      !   !$acc& reduction(+: poynting_flux)
-      !   do b=1, blocks_number
-      !   do k=1, nk
-      !   do j=1, nj
-      !      do v=1, 6
-      !         call compute_reconstruction_r_fd_centered(s=s,q=q_gpu(b,1-s:s,j,k,v),qr=q_boundary(v))
-      !      enddo
-      !      poynting_flux = poynting_flux + dotproduct(crossproduct(q_boundary(1:3), q_boundary(4:6))/MU0,n)*(dy_gpu(b)*dz_gpu(b))
-      !   enddo
-      !   enddo
-      !   enddo
-      !enddo
-
       ! face -x
       n = [-1.0_R8P, 0.0_R8P, 0.0_R8P]
-      !$acc parallel loop independent gang vector  &
-      !$acc& DEVICEVAR(q_gpu,dx_gpu,dy_gpu,dz_gpu) &
-      !$acc& private(n,q_boundary,q_buff)          &
-      !$acc& reduction(+: poynting_flux)
+      !$acc parallel loop independent gang vector collapse(3) &
+      !$acc& DEVICEVAR(q_gpu,dxyz_gpu) firstprivate(s) private(n,q_boundary,q_buff) reduction(+: poynting_flux)
       do b=1, blocks_number
       do k=1, nk
       do j=1, nj
-         q_buff(1-s:s) = q_gpu(b,1-s:s,j,k,v)
          do v=1, 6
+            q_buff(1-s:s) = q_gpu(b,1-s:s,j,k,v)
             call compute_reconstruction_r_fd_centered(s=s,q=q_buff,qr=q_boundary(v))
          enddo
-         poynting_flux = poynting_flux + dotproduct(crossproduct(q_boundary)/MU0,n)*(dy_gpu(b)*dz_gpu(b))
+         poynting_flux = poynting_flux + dotproduct(crossproduct(q_boundary)/MU0,n)*(dxyz_gpu(b,2)*dxyz_gpu(b,3))
       enddo
       enddo
       enddo
-     !! face +x
-     !n = [1.0_R8P, 0.0_R8P, 0.0_R8P]
-     !!$acc parallel loop independent gang vector  &
-     !!$acc& DEVICEVAR(q_gpu,dx_gpu,dy_gpu,dz_gpu) &
-     !!$acc& private(n,q_boundary)                 &
-     !!$acc& reduction(+: poynting_flux)
-     !do b=1, blocks_number
-     !do k=1, nk
-     !do j=1, nj
-     !   do v=1, 6
-     !      call compute_reconstruction_r_fd_centered(s=s,q=q_gpu(b,ni+1-s:ni+s,j,k,v),qr=q_boundary(v))
-     !   enddo
-     !   poynting_flux = poynting_flux + dotproduct(crossproduct(q_boundary(1:3),q_boundary(4:6))/MU0,n)*(dy_gpu(b)*dz_gpu(b))
-     !enddo
-     !enddo
-     !enddo
-     !! face -y
-     !n = [0.0_R8P, -1.0_R8P, 0.0_R8P]
-     !!$acc parallel loop independent gang vector  &
-     !!$acc& DEVICEVAR(q_gpu,dx_gpu,dy_gpu,dz_gpu) &
-     !!$acc& private(n,q_boundary)                 &
-     !!$acc& reduction(+: poynting_flux)
-     !do b=1, blocks_number
-     !do k=1, nk
-     !do i=1, ni
-     !   do v=1, 6
-     !      call compute_reconstruction_r_fd_centered(s=s,q=q_gpu(b,i,1-s:s,k,v),qr=q_boundary(v))
-     !   enddo
-     !   poynting_flux = poynting_flux + dotproduct(crossproduct(q_boundary(1:3),q_boundary(4:6))/MU0,n)*(dx_gpu(b)*dz_gpu(b))
-     !enddo
-     !enddo
-     !enddo
-     !! face +y
-     !n = [0.0_R8P, 1.0_R8P, 0.0_R8P]
-     !!$acc parallel loop independent gang vector  &
-     !!$acc& DEVICEVAR(q_gpu,dx_gpu,dy_gpu,dz_gpu) &
-     !!$acc& private(n,q_boundary)                 &
-     !!$acc& reduction(+: poynting_flux)
-     !do b=1, blocks_number
-     !do k=1, nk
-     !do i=1, ni
-     !   do v=1, 6
-     !      call compute_reconstruction_r_fd_centered(s=s,q=q_gpu(b,i,nj+1-s:nj+s,k,v),qr=q_boundary(v))
-     !   enddo
-     !   poynting_flux = poynting_flux + dotproduct(crossproduct(q_boundary(1:3),q_boundary(4:6))/MU0,n)*(dx_gpu(b)*dz_gpu(b))
-     !enddo
-     !enddo
-     !enddo
-     !! face -z
-     !n = [0.0_R8P, 0.0_R8P, -1.0_R8P]
-     !!$acc parallel loop independent gang vector  &
-     !!$acc& DEVICEVAR(q_gpu,dx_gpu,dy_gpu,dz_gpu) &
-     !!$acc& private(n,q_boundary)                 &
-     !!$acc& reduction(+: poynting_flux)
-     !do b=1, blocks_number
-     !do j=1, nj
-     !do i=1, ni
-     !   do v=1, 6
-     !      call compute_reconstruction_r_fd_centered(s=s,q=q_gpu(b,i,j,1-s:s,v),qr=q_boundary(v))
-     !   enddo
-     !   poynting_flux = poynting_flux + dotproduct(crossproduct(q_boundary(1:3),q_boundary(4:6))/MU0,n)*(dx_gpu(b)*dy_gpu(b))
-     !enddo
-     !enddo
-     !enddo
-     !! face +z
-     !n = [0.0_R8P, 0.0_R8P, 1.0_R8P]
-     !!$acc parallel loop independent gang vector  &
-     !!$acc& DEVICEVAR(q_gpu,dx_gpu,dy_gpu,dz_gpu) &
-     !!$acc& private(n,q_boundary)                 &
-     !!$acc& reduction(+: poynting_flux)
-     !do b=1, blocks_number
-     !do j=1, nj
-     !do i=1, ni
-     !   do v=1, 6
-     !      call compute_reconstruction_r_fd_centered(s=s,q=q_gpu(b,i,j,nk+1-s:nk+s,v),qr=q_boundary(v))
-     !   enddo
-     !   poynting_flux = poynting_flux + dotproduct(crossproduct(q_boundary(1:3),q_boundary(4:6))/MU0,n)*(dx_gpu(b)*dy_gpu(b))
-     !enddo
-     !enddo
-     !enddo
-      endassociate
-      endsubroutine compute_poynting_flux
+      ! face +x
+      n = [1.0_R8P, 0.0_R8P, 0.0_R8P]
+      !$acc parallel loop independent gang vector collapse(3) &
+      !$acc& DEVICEVAR(q_gpu,dxyz_gpu) firstprivate(s) private(n,q_boundary,q_buff) reduction(+: poynting_flux)
+      do b=1, blocks_number
+      do k=1, nk
+      do j=1, nj
+         do v=1, 6
+            q_buff(1-s:s) = q_gpu(b,ni+1-s:ni+s,j,k,v)
+            call compute_reconstruction_r_fd_centered(s=s,q=q_buff,qr=q_boundary(v))
+         enddo
+         poynting_flux = poynting_flux + dotproduct(crossproduct(q_boundary)/MU0,n)*(dxyz_gpu(b,2)*dxyz_gpu(b,3))
+      enddo
+      enddo
+      enddo
+      ! face -y
+      n = [0.0_R8P, -1.0_R8P, 0.0_R8P]
+      !$acc parallel loop independent gang vector collapse(3) &
+      !$acc& DEVICEVAR(q_gpu,dxyz_gpu) firstprivate(s) private(n,q_boundary,q_buff) reduction(+: poynting_flux)
+      do b=1, blocks_number
+      do k=1, nk
+      do i=1, ni
+         do v=1, 6
+            q_buff(1-s:s) = q_gpu(b,i,1-s:s,k,v)
+            call compute_reconstruction_r_fd_centered(s=s,q=q_buff,qr=q_boundary(v))
+         enddo
+         poynting_flux = poynting_flux + dotproduct(crossproduct(q_boundary)/MU0,n)*(dxyz_gpu(b,1)*dxyz_gpu(b,3))
+      enddo
+      enddo
+      enddo
+      ! face +y
+      n = [0.0_R8P, 1.0_R8P, 0.0_R8P]
+      !$acc parallel loop independent gang vector collapse(3) &
+      !$acc& DEVICEVAR(q_gpu,dxyz_gpu) firstprivate(s) private(n,q_boundary,q_buff) reduction(+: poynting_flux)
+      do b=1, blocks_number
+      do k=1, nk
+      do i=1, ni
+         do v=1, 6
+            q_buff(1-s:s) = q_gpu(b,i,nj+1-s:nj+s,k,v)
+            call compute_reconstruction_r_fd_centered(s=s,q=q_buff,qr=q_boundary(v))
+         enddo
+         poynting_flux = poynting_flux + dotproduct(crossproduct(q_boundary)/MU0,n)*(dxyz_gpu(b,1)*dxyz_gpu(b,3))
+      enddo
+      enddo
+      enddo
+      ! face -z
+      n = [0.0_R8P, 0.0_R8P, -1.0_R8P]
+      !$acc parallel loop independent gang vector collapse(3) &
+      !$acc& DEVICEVAR(q_gpu,dxyz_gpu) firstprivate(s) private(n,q_boundary,q_buff) reduction(+: poynting_flux)
+      do b=1, blocks_number
+      do j=1, nj
+      do i=1, ni
+         do v=1, 6
+            q_buff(1-s:s) = q_gpu(b,i,j,1-s:s,v)
+            call compute_reconstruction_r_fd_centered(s=s,q=q_buff,qr=q_boundary(v))
+         enddo
+         poynting_flux = poynting_flux + dotproduct(crossproduct(q_boundary)/MU0,n)*(dxyz_gpu(b,1)*dxyz_gpu(b,2))
+      enddo
+      enddo
+      enddo
+      ! face +z
+      n = [0.0_R8P, 0.0_R8P, 1.0_R8P]
+      !$acc parallel loop independent gang vector collapse(3) &
+      !$acc& DEVICEVAR(q_gpu,dxyz_gpu) firstprivate(s) private(n,q_boundary,q_buff) reduction(+: poynting_flux)
+      do b=1, blocks_number
+      do j=1, nj
+      do i=1, ni
+         do v=1, 6
+            q_buff(1-s:s) = q_gpu(b,i,j,nk+1-s:nk+s,v)
+            call compute_reconstruction_r_fd_centered(s=s,q=q_buff,qr=q_boundary(v))
+         enddo
+         poynting_flux = poynting_flux + dotproduct(crossproduct(q_boundary)/MU0,n)*(dxyz_gpu(b,1)*dxyz_gpu(b,2))
+      enddo
+      enddo
+      enddo
+      endsubroutine compute_poynting_flux_dev_kernel
 
       function dotproduct(a, b) result(dot)
       !< Compute the scalar (dot) product.
