@@ -443,20 +443,20 @@ contains
       alfa_B(1)=5_I4P   ; alfa_B(2)= 5_I4P    ; alfa_B(3)=6_I4P   ; alfa_B(4)= 6_I4P    ; alfa_B(5)=4_I4P   ; alfa_B(6)= 4_I4P
       beta_B(1)=6_I4P   ; beta_B(2)= 6_I4P    ; beta_B(3)=4_I4P   ; beta_B(4)= 4_I4P    ; beta_B(5)=5_I4P   ; beta_B(6)= 5_I4P
       do face=1, 6
-         if (layer(face)) call apply_fwl_correction_dev(blocks_number=self%blocks_number,ngc=self%ngc,&
-                                                        ni1   =  ni(1,face),                          &
-                                                        ni2   =  ni(2,face),                          &
-                                                        nj1   =  nj(1,face),                          &
-                                                        nj2   =  nj(2,face),                          &
-                                                        nk1   =  nk(1,face),                          &
-                                                        nk2   =  nk(2,face),                          &
-                                                        n     =     n(face),                          &
-                                                        s2    =    s2(face),                          &
-                                                        alfa_D=alfa_D(face),                          &
-                                                        beta_D=beta_D(face),                          &
-                                                        alfa_B=alfa_B(face),                          &
-                                                        beta_B=beta_B(face),                          &
-                                                        f_gpu=self%fwlayer_gpu%f_gpu,q_gpu=self%q_gpu)
+         if (layer(face)) call apply_fwl_correction_dev_kernel(blocks_number=self%blocks_number,ngc=self%ngc,&
+                                                               ni1   =  ni(1,face),                          &
+                                                               ni2   =  ni(2,face),                          &
+                                                               nj1   =  nj(1,face),                          &
+                                                               nj2   =  nj(2,face),                          &
+                                                               nk1   =  nk(1,face),                          &
+                                                               nk2   =  nk(2,face),                          &
+                                                               n     =     n(face),                          &
+                                                               s2    =    s2(face),                          &
+                                                               alfa_D=alfa_D(face),                          &
+                                                               beta_D=beta_D(face),                          &
+                                                               alfa_B=alfa_B(face),                          &
+                                                               beta_B=beta_B(face),                          &
+                                                               f_gpu=self%fwlayer_gpu%f_gpu,q_gpu=self%q_gpu)
       enddo
    endif
    endassociate

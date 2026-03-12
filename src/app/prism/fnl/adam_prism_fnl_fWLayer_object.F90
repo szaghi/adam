@@ -18,7 +18,7 @@ use :: penf
 implicit none
 private
 public :: prism_fnl_fwlayer_object
-public :: apply_fwl_correction_dev
+public :: apply_fwl_correction_dev_kernel
 
 type :: prism_fnl_fwlayer_object
    !< PRISM fWLayer class definition.
@@ -80,7 +80,8 @@ contains
    endsubroutine initialize
 
    ! non TBP
-   subroutine apply_fwl_correction_dev(blocks_number,ngc,ni1,ni2,nj1,nj2,nk1,nk2,n,s2,alfa_D,beta_D,alfa_B,beta_B,f_gpu,q_gpu)
+   subroutine apply_fwl_correction_dev_kernel(blocks_number,ngc,ni1,ni2,nj1,nj2,nk1,nk2,n,s2,alfa_D,beta_D,alfa_B,beta_B,&
+                                              f_gpu,q_gpu)
    !< Applay FWL correction, direction agnostic, device kernel.
    integer(I4P), intent(in)    :: blocks_number                     !< Blocks number.
    integer(I4P), intent(in)    :: ngc                               !< Number of ghost cells.
@@ -93,26 +94,22 @@ contains
    real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field variables.
    real(R8P)                   :: fm1, fp1                          !< fWLayer function values in -+ cell.
    integer(I4P)                :: b,i,j,k                           !< Counter.
-   ! parameters to be placed elsewhere...
-   real(R8P), parameter :: MU0_SQ =MU0**0.5_R8P
-   real(R8P), parameter :: MU0_SQ_I2=1._R8P/(2._R8P*MU0**0.5_R8P)
-   real(R8P), parameter :: EPS0_SQ=EPS0**0.5_R8P
-   real(R8P), parameter :: EPS0_SQ_I2=1._R8P/(2._R8P*EPS0**0.5_R8P)
 
-   !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(f_gpu,q_gpu)
+   !$acc parallel loop independent gang vector collapse(4) &
+   !$acc& DEVICEVAR(f_gpu,q_gpu) firstprivate(n,s2,alfa_D,beta_D,alfa_B,beta_B)
    do b=1,blocks_number
-      do k=nk1, nk2
-         do j=nj1, nj2
-            do i=ni1, ni2
-               fm1 = f_gpu(b,i,j,k,n) - 1._R8P
-               fp1 = f_gpu(b,i,j,k,n) + 1._R8P
-               q_gpu(b,i,j,k,alfa_D) = MU0_SQ_I2  * ( s2*fm1*q_gpu(b,i,j,k,beta_B)*EPS0_SQ +    fp1*q_gpu(b,i,j,k,alfa_D)*MU0_SQ)
-               q_gpu(b,i,j,k,beta_D) = MU0_SQ_I2  * (-s2*fm1*q_gpu(b,i,j,k,alfa_B)*EPS0_SQ +    fp1*q_gpu(b,i,j,k,beta_D)*MU0_SQ)
-               q_gpu(b,i,j,k,alfa_B) = EPS0_SQ_I2 * (    fp1*q_gpu(b,i,j,k,alfa_B)*EPS0_SQ - s2*fm1*q_gpu(b,i,j,k,beta_D)*MU0_SQ)
-               q_gpu(b,i,j,k,beta_B) = EPS0_SQ_I2 * (    fp1*q_gpu(b,i,j,k,beta_B)*EPS0_SQ + s2*fm1*q_gpu(b,i,j,k,alfa_D)*MU0_SQ)
-            enddo
-         enddo
-      enddo
+   do k=nk1, nk2
+   do j=nj1, nj2
+   do i=ni1, ni2
+      fm1 = f_gpu(b,i,j,k,n) - 1._R8P
+      fp1 = f_gpu(b,i,j,k,n) + 1._R8P
+      q_gpu(b,i,j,k,alfa_D) = MU0_SQ_I2  * ( s2*fm1*q_gpu(b,i,j,k,beta_B)*EPS0_SQ +    fp1*q_gpu(b,i,j,k,alfa_D)*MU0_SQ)
+      q_gpu(b,i,j,k,beta_D) = MU0_SQ_I2  * (-s2*fm1*q_gpu(b,i,j,k,alfa_B)*EPS0_SQ +    fp1*q_gpu(b,i,j,k,beta_D)*MU0_SQ)
+      q_gpu(b,i,j,k,alfa_B) = EPS0_SQ_I2 * (    fp1*q_gpu(b,i,j,k,alfa_B)*EPS0_SQ - s2*fm1*q_gpu(b,i,j,k,beta_D)*MU0_SQ)
+      q_gpu(b,i,j,k,beta_B) = EPS0_SQ_I2 * (    fp1*q_gpu(b,i,j,k,beta_B)*EPS0_SQ + s2*fm1*q_gpu(b,i,j,k,alfa_D)*MU0_SQ)
    enddo
-   endsubroutine apply_fwl_correction_dev
+   enddo
+   enddo
+   enddo
+   endsubroutine apply_fwl_correction_dev_kernel
 endmodule adam_prism_fnl_fWLayer_object
