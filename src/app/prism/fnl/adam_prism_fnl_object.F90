@@ -534,7 +534,7 @@ contains
    endassociate
    contains
       subroutine nullify_j_vec_vars_kernel(ni,nj,nk,ngc,blocks_number,var_jx,var_jy,var_jz,q_gpu)
-      !< Nullify J_Vec vars in q, kernel cuda.
+      !< Nullify J_Vec vars in q, devide kernel.
       integer(I4P), intent(in)    :: ni,nj,nk,ngc,blocks_number        !< Grids dimensions.
       integer(I4P), intent(in)    :: var_jx,var_jy,var_jz              !< Indexes of J_vec variables.
       real(R8P),    intent(inout) :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:) !< Field cell centered variables.
@@ -557,7 +557,7 @@ contains
       endsubroutine nullify_j_vec_vars_kernel
 
       subroutine apply_j_vec_kernel(ni,nj,nk,ngc,blocks_number,current_density,n,var_jx,var_jy,var_jz,j_vec_gpu,q_gpu)
-      !< Apply J_Vec to q, kernel cuda.
+      !< Apply J_Vec to q, device kernel.
       integer(I4P), intent(in)    :: ni,nj,nk,ngc,blocks_number               !< Grids dimensions.
       real(R8P),    intent(in)    :: current_density                          !< Current density.
       integer(I4P), intent(in)    :: n                                        !< Current coil index.
