@@ -516,18 +516,25 @@ contains
    class(prism_common_object), intent(inout)        :: self        !< The equation.
    logical,                    intent(in), optional :: is_to_open  !< Flag to open  file before first saving.
    logical,                    intent(in), optional :: is_to_close !< Flag to close file after last saving.
-   real(R8P)                                        :: max_div_D    !< Maximum of divergence of D field.
-   real(R8P)                                        :: max_div_B    !< Maximum of divergence of B
-   real(R8P)                                        :: max_div_J    !< Maximum of divergence of J field.
+   real(R8P)                                        :: max_div_D   !< Maximum of divergence of D field.
+   real(R8P)                                        :: max_div_B   !< Maximum of divergence of B
+   real(R8P)                                        :: max_div_J   !< Maximum of divergence of J field.
+   real(R8P)                                        :: r           !< Auxiliary variable to identify fWL presence
 
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, C=>self%fWLayer%C, hs=>self%numerics%fdv_half_stencils(1))
+   r = nint(real(C)/(real(C)+1_I4P))
    if (self%time%is_to_save(it_save=self%io%divergence_history_save)) then
-      max_div_D = maxval(abs(self%divergence(1,:,:,:,:)))
-      max_div_B = maxval(abs(self%divergence(2,:,:,:,:)))
-      max_div_J = maxval(abs(self%divergence(3,:,:,:,:)))
+      max_div_D = maxval(abs(self%divergence(1,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
+                                             1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
+      max_div_B = maxval(abs(self%divergence(2,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
+                                             1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
+      max_div_J = maxval(abs(self%divergence(3,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
+                                             1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
       call self%io%save_divergence_history(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number, &
                                            div_D=max_div_D,div_B=max_div_B,div_J=max_div_J, &
                                            is_to_open=is_to_open,is_to_close=is_to_close)
    endif
+   endassociate
    endsubroutine save_divergence_history
 
    subroutine save_restart_files(self)
@@ -847,15 +854,14 @@ contains
    integer(I4P),               intent(in)    :: ivar                                               !< Start index of field of q.
    real(R8P),                  intent(in)    :: q(1:,      1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
    real(R8P),                  intent(inout) :: divergence(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
-   integer(I4P)                              :: i,j,k,b,r                                          !< Counter.
+   integer(I4P)                              :: i,j,k,b                                            !< Counter.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(1), C=>self%fWLayer%C)
-   r = nint(real(C)/(real(C)+1_I4P))
+             hs=>self%numerics%fdv_half_stencils(1))
    do b=1, blocks_number
-   do k=1+r*(C+hs), nk-r*(C+hs-1_I4P)
-   do j=1+r*(C+hs), nj-r*(C+hs-1_I4P)
-   do i=1+r*(C+hs), ni-r*(C+hs-1_I4P)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
       call compute_divergence_fd_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),&
                                           divergence=divergence(i,j,k,b))
    enddo
@@ -871,15 +877,14 @@ contains
    integer(I4P),               intent(in)    :: ivar                                               !< Start index of field of q.
    real(R8P),                  intent(in)    :: q(1:,      1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
    real(R8P),                  intent(inout) :: divergence(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
-   integer(I4P)                              :: i,j,k,b,r                                          !< Counter.
+   integer(I4P)                              :: i,j,k,b                                            !< Counter.
 
    associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz,&
-             hs=>self%numerics%fdv_half_stencils(1), C=>self%fWLayer%C)
-   r = nint(real(C)/(real(C)+1_I4P))
+             hs=>self%numerics%fdv_half_stencils(1))
    do b=1, blocks_number
-   do k=1+r*(C+hs), nk-r*(C+hs-1_I4P)
-   do j=1+r*(C+hs), nj-r*(C+hs-1_I4P)
-   do i=1+r*(C+hs), ni-r*(C+hs-1_I4P)
+   do k=1, nk
+   do j=1, nj
+   do i=1, ni
       call compute_divergence_fv_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b), &
                                           divergence=divergence(i,j,k,b))
    enddo
