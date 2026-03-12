@@ -425,14 +425,14 @@ contains
             q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09']
          endselect
          q4_R8P_name = ['curlD_x','curlD_y','curlD_z','curlB_x','curlB_y','curlB_z','curlJ_x','curlJ_y','curlJ_z']
-         if (self%io%save_residual_fields) call self%adam%io%register_aux_field(q1_R8P=self%dq,q1_R8P_name=q1_R8P_name)
-         if (self%io%save_divergence_fields) call self%adam%io%register_aux_field(q2_R8P=self%divergence,q2_R8P_name=q2_R8P_name)
+         ! if (self%io%save_residual_fields) call self%adam%io%register_aux_field(q1_R8P=self%dq,q1_R8P_name=q1_R8P_name)
+         ! if (self%io%save_divergence_fields) call self%adam%io%register_aux_field(q2_R8P=self%divergence,q2_R8P_name=q2_R8P_name)
          if (self%coil%total_coils_number>0) then
             q3_R8P_name = ['j_vec_1','j_vec_2','j_vec_3','f_Gauss']
-            call self%adam%io%register_aux_field(q3_R8P=self%coil%j_vec(:,:,:,:,:,1),q3_R8P_name=q3_R8P_name)
-            call self%adam%io%register_aux_field(s1_I4P=self%coil%coil_flag,s1_I4P_name='coil_flag')
+            ! call self%adam%io%register_aux_field(q3_R8P=self%coil%j_vec(:,:,:,:,:,1),q3_R8P_name=q3_R8P_name)
+            ! call self%adam%io%register_aux_field(s1_I4P=self%coil%coil_flag,s1_I4P_name='coil_flag')
          endif
-         if (self%io%save_curl_fields) call self%adam%io%register_aux_field(q4_R8P=self%curl,q4_R8P_name=q4_R8P_name)
+         ! if (self%io%save_curl_fields) call self%adam%io%register_aux_field(q4_R8P=self%curl,q4_R8P_name=q4_R8P_name)
       elseif(self%physics%physical_model == PIC_PHYSICAL_MODEL) then
          select case(self%numerics%div_corr_var)
          case(DIV_CORR_VAR_POISS)
