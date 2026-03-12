@@ -696,12 +696,58 @@ contains
    integer(I4P),            intent(in)    :: ivar                                                !< Start index of variable of q.
    real(R8P),               intent(in)    :: q_gpu(   1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
    real(R8P),               intent(inout) :: curl_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Curl.
-   integer(I4P)                           :: i,j,k,b                                             !< Counter.
 
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz_gpu=>self%field_gpu%dxyz_gpu,&
-             hs=>self%numerics%fdv_half_stencils(1))
+   call  compute_curl_fd_dev_kernel(ni            = self%ni                           ,&
+                                    nj            = self%nj                           ,&
+                                    nk            = self%nk                           ,&
+                                    ngc           = self%ngc                          ,&
+                                    blocks_number = self%blocks_number                ,&
+                                    ivar          = ivar                              ,&
+                                    s1            = self%numerics%fdv_half_stencils(1),&
+                                    dxyz_gpu      = self%field_gpu%dxyz_gpu           ,&
+                                    q_gpu         = q_gpu                             ,&
+                                    curl_gpu      = curl_gpu)
+   contains
+      subroutine compute_curl_fd_dev_kernel(ni,nj,nk,ngc,blocks_number, &
+                                            ivar,s1,dxyz_gpu,q_gpu,curl_gpu)
+      !< Compute residuals of equation, space operator, centered finite difference schemes, kernel device.
+      integer(I4P), intent(in)    :: ni,nj,nk,ngc,blocks_number                          !< Grids dimensions.
+      integer(I4P), intent(in)    :: ivar                                                !< Start index of variable of q.
+      integer(I4P), intent(in)    :: s1                                                  !< Half FDV stencil length.
+      real(R8P),    intent(in)    :: dxyz_gpu(1:,1:)                                     !< Delta cells GPU [nb,3].
+      real(R8P),    intent(in)    :: q_gpu(1:,1-ngc:,1-ngc:,1-ngc:,1:)                   !< Field cell centered variables.
+      real(R8P),    intent(inout) :: curl_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Curl.
+      integer(I4P)                :: i,j,k,b                                             !< Counter
+      ! rank 1D stencil for computations on device that contiguos memory is mandatory
+      real(R8P) :: qsx_y(1-s1:1+s1) !< Y component of vector field over the x stencil.
+      real(R8P) :: qsx_z(1-s1:1+s1) !< Z component of vector field over the x stencil.
+      real(R8P) :: qsy_x(1-s1:1+s1) !< X component of vector field over the y stencil.
+      real(R8P) :: qsy_z(1-s1:1+s1) !< Z component of vector field over the y stencil.
+      real(R8P) :: qsz_x(1-s1:1+s1) !< X component of vector field over the z stencil.
+      real(R8P) :: qsz_y(1-s1:1+s1) !< Y component of vector field over the z stencil.
 
-   endassociate
+      !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,curl_gpu) &
+      !$acc& firstprivate(ivar,s1)                                                               &
+      !$acc& private(qsx_y,qsx_z,qsy_x,qsy_z,qsz_x,qsz_y)
+      do b=1,blocks_number
+      do k=1,nk
+      do j=1,nj
+      do i=1,ni
+         qsx_y = q_gpu(b,i-s1:i+s1,j,k,ivar+1)
+         qsx_z = q_gpu(b,i-s1:i+s1,j,k,ivar+2)
+         qsy_x = q_gpu(b,i,j-s1:j+s1,k,ivar+0)
+         qsy_z = q_gpu(b,i,j-s1:j+s1,k,ivar+2)
+         qsz_x = q_gpu(b,i,j,k-s1:k+s1,ivar+0)
+         qsz_y = q_gpu(b,i,j,k-s1:k+s1,ivar+1)
+         call compute_curl_fd_centered_dev(s=s1,dxyz=dxyz_gpu(b,1:3),          &
+                                           qsx_y=qsx_y,qsx_z=qsx_z,qsy_x=qsy_x,&
+                                           qsy_z=qsy_z,qsz_x=qsz_x,qsz_y=qsz_y,&
+                                           curl=curl_gpu(b,i,j,k,ivar:))
+      enddo
+      enddo
+      enddo
+      enddo
+      endsubroutine compute_curl_fd_dev_kernel
    endsubroutine compute_curl_fd_dev
 
    subroutine compute_curl_fv_dev(self, ivar, q_gpu, curl_gpu)
@@ -935,15 +981,12 @@ contains
       integer(I4P)                :: i,j,k,b                            !< Counter
       real(R8P)                   :: curlD(3), curlB(3)                 !< Residuals components.
       ! rank 1D stencil for computations on device that contiguos memory is mandatory
-      real(R8P) :: qsx_x(1-s1:1+s1) !< X component of vector field over the x stencil.
       real(R8P) :: qsx_y(1-s1:1+s1) !< Y component of vector field over the x stencil.
       real(R8P) :: qsx_z(1-s1:1+s1) !< Z component of vector field over the x stencil.
       real(R8P) :: qsy_x(1-s1:1+s1) !< X component of vector field over the y stencil.
-      real(R8P) :: qsy_Y(1-s1:1+s1) !< Y component of vector field over the y stencil.
       real(R8P) :: qsy_z(1-s1:1+s1) !< Z component of vector field over the y stencil.
       real(R8P) :: qsz_x(1-s1:1+s1) !< X component of vector field over the z stencil.
       real(R8P) :: qsz_y(1-s1:1+s1) !< Y component of vector field over the z stencil.
-      real(R8P) :: qsz_z(1-s1:1+s1) !< Z component of vector field over the z stencil.
 
       ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0)
       !$acc parallel loop independent gang vector collapse(4) DEVICEVAR(dxyz_gpu,q_gpu,dq_gpu) &
