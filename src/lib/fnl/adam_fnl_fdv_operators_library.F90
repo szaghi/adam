@@ -17,6 +17,7 @@ public :: compute_curl_fd_centered_dev
 public :: compute_divergence_fd_centered_dev
 public :: compute_gradient_fd_centered_dev
 public :: compute_laplacian_fd_centered_dev
+public :: compute_reconstruction_r_fd_centered_dev
 ! finite volume
 ! public :: compute_curl_fv_centered_dev
 ! public :: compute_divergence_fv_centered_dev
@@ -99,6 +100,20 @@ contains
    call compute_derivative2_fd_centered(s=s,ds=dxyz(3),q=q(1,1,1-s:1+s),d2q_ds2=d2q_dz2)
    laplacian = d2q_dx2 + d2q_dy2 + d2q_dz2
    endsubroutine compute_laplacian_fd_centered_dev
+
+   pure subroutine compute_reconstruction_r_fd_centered_dev(s,q,qr)
+   !< Compute reconstruction at right interface from cell center average values. Centered schemes.
+   integer(I4P), intent(in)  :: s                        !< Stencil len, half of accuracy order.
+   real(R8P),    intent(in)  :: q(1-FDV_S_MAX:FDV_S_MAX) !< Scalar field over the stencil [1-s:s].
+   real(R8P),    intent(out) :: qr                       !< Reconstruction at right interface of field.
+   integer(I4P)              :: m                        !< Counter.
+   !$acc routine seq
+
+   qr = 0.0_R8P
+   do m=1, s
+      qr = qr + FD0_CC(m,s)*(q(m) + q(1-m))
+   enddo
+   endsubroutine compute_reconstruction_r_fd_centered_dev
 
    ! finite volume schemes
    ! centered
