@@ -1222,83 +1222,184 @@ contains
    call self%mpih%finalize
    endsubroutine simulate
 
-   ! pointer TBP concrete implementations
-   subroutine compute_residuals_fd_centered(self, q, dq, s)
-   !< Compute residuals of equation, space operator, centered finite difference schemes.
-   class(prism_cpu_object), intent(inout) :: self               !< The equation.
-   real(R8P),               intent(inout) :: q(1:,         &
-                                               1-self%ngc:,&
-                                               1-self%ngc:,&
-                                               1-self%ngc:,&
-                                               1:)              !< Conservative variables.
-   real(R8P),               intent(inout) :: dq(1:,         &
-                                                1-self%ngc:,&
-                                                1-self%ngc:,&
-                                                1-self%ngc:,&
-                                                1:)             !< Residuals.
-   integer(I4P),  optional, intent(in)    :: s !< Stage counter.
-   integer(I4P)                           :: i,j,k,b            !< Counter
-   real(R8P)                              :: curlD(3), curlB(3) !< Residuals components.
-   real(R8P)                              :: KO_Dx_x,KO_Dx_y,KO_Dx_z
-   real(R8P)                              :: KO_Dy_x,KO_Dy_y,KO_Dy_z
-   real(R8P)                              :: KO_Dz_x,KO_Dz_y,KO_Dz_z
-   real(R8P)                              :: KO_Bx_x,KO_Bx_y,KO_Bx_z
-   real(R8P)                              :: KO_By_x,KO_By_y,KO_By_z
-   real(R8P)                              :: KO_Bz_x,KO_Bz_y,KO_Bz_z
-   real(R8P), parameter :: sigma = 1000.01_R8P
-
-   call self%apply_fWL_correction(q=q)
-   call self%update_ghost(q=q, s=s)
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
-             dxyz=>self%field%dxyz,                                                                                   &
-             s1=>self%numerics%fdv_half_stencils(1),                                                                  &
-             s4=>self%numerics%fdv_half_stencils(4),                                                                  &
-             var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
-   if (blocks_number > 0) then
-      ! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0)
-      do b=1,blocks_number
-      do k=1,nk
-      do j=1,nj
-      do i=1,ni
-         call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
-                                       q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),&
-                                       curl=curlD)
-         call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
-                                       q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),&
-                                       curl=curlB)
-
-  !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dx_x);KO_Dx_x=dxyz(1,b)**3*KO_Dx_x
-  !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dx_y);KO_Dx_y=dxyz(2,b)**3*KO_Dx_y
-  !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dx_z);KO_Dx_z=dxyz(3,b)**3*KO_Dx_z
-  !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DY,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dy_x);KO_Dy_x=dxyz(1,b)**3*KO_Dy_x
-  !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DY,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dy_y);KO_Dy_y=dxyz(2,b)**3*KO_Dy_y
-  !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DY,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dy_z);KO_Dy_z=dxyz(3,b)**3*KO_Dy_z
-  !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dz_x);KO_Dz_x=dxyz(1,b)**3*KO_Dz_x
-  !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dz_y);KO_Dz_y=dxyz(2,b)**3*KO_Dz_y
-  !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dz_z);KO_Dz_z=dxyz(3,b)**3*KO_Dz_z
-  !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bx_x);KO_Bx_x=dxyz(1,b)**3*KO_Bx_x
-  !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bx_y);KO_Bx_y=dxyz(2,b)**3*KO_Bx_y
-  !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bx_z);KO_Bx_z=dxyz(3,b)**3*KO_Bx_z
-  !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BY,i-s4:i+s4,j,k,b),d4q_ds4=KO_By_x);KO_By_x=dxyz(1,b)**3*KO_By_x
-  !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BY,i,j-s4:j+s4,k,b),d4q_ds4=KO_By_y);KO_By_y=dxyz(2,b)**3*KO_By_y
-  !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BY,i,j,k-s4:k+s4,b),d4q_ds4=KO_By_z);KO_By_z=dxyz(3,b)**3*KO_By_z
-  !call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bz_x);KO_Bz_x=dxyz(1,b)**3*KO_Bz_x
-  !call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bz_y);KO_Bz_y=dxyz(2,b)**3*KO_Bz_y
-  !call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bz_z);KO_Bz_z=dxyz(3,b)**3*KO_Bz_z
-
-         dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - q(var_Jx,i,j,k,b)!- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
-         dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - q(var_Jy,i,j,k,b)!- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
-         dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - q(var_Jz,i,j,k,b)!- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
-         dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0                   !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
-         dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0                   !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
-         dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0                   !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
-      enddo
-      enddo
-      enddo
-      enddo
-   endif
-   endassociate
-   endsubroutine compute_residuals_fd_centered
+	! pointer TBP concrete implementations
+	subroutine compute_residuals_fd_centered(self, q, dq, s)
+	!< Compute residuals of equation, space operator, centered finite difference schemes.
+	class(prism_cpu_object), intent(inout) :: self               	  	 !< The equation.
+	real(R8P),               intent(inout) :: q(1:,         &
+	                                            1-self%ngc:,&
+	                                            1-self%ngc:,&
+	                                            1-self%ngc:,&
+	                                            1:)              	  	 !< Conservative variables.
+	real(R8P),               intent(inout) :: dq(1:,         &
+	                                             1-self%ngc:,&
+	                                             1-self%ngc:,&
+	                                             1-self%ngc:,&
+	                                             1:)             	  	 !< Residuals.
+	integer(I4P),  optional, intent(in)    :: s					     	  	 !< Stage counter.
+	integer(I4P)                           :: i,j,k,b            	  	 !< Counter
+	real(R8P)                              :: curlD(3), curlB(3) 	  	 !< Residuals components.
+	real(R8P)							   		:: gradphi(3), gradpsi(3) 	 !< Residuals components.
+	real(R8P)							   		:: divergenceD, divergenceB !< Residuals components.
+	real(R8P)                              :: KO_Dx_x,KO_Dx_y,KO_Dx_z
+	real(R8P)                              :: KO_Dy_x,KO_Dy_y,KO_Dy_z
+	real(R8P)                              :: KO_Dz_x,KO_Dz_y,KO_Dz_z
+	real(R8P)                              :: KO_Bx_x,KO_Bx_y,KO_Bx_z
+	real(R8P)                              :: KO_By_x,KO_By_y,KO_By_z
+	real(R8P)                              :: KO_Bz_x,KO_Bz_y,KO_Bz_z
+	real(R8P), parameter :: sigma = 1000.01_R8P	
+	call self%apply_fWL_correction(q=q)
+	call self%update_ghost(q=q, s=s)
+	associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
+	          dxyz=>self%field%dxyz,                                                                                   &
+	          s1=>self%numerics%fdv_half_stencils(1),                                                                  &
+	          s4=>self%numerics%fdv_half_stencils(4),                                                                  &
+				 chi =>self%physics%chi, constrained_transport_D=>self%numerics%constrained_transport_D,						 &
+             constrained_transport_B=>self%numerics%constrained_transport_B,														 &
+	          var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz)
+	if (blocks_number > 0) then
+		if (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. constrained_transport_D .and. &
+		   .not.constrained_transport_B) then
+		! compute RHS dD/dt = curl(B/MU0) - grad(phi) - J, dB/dt = -curl(D/EPS0), dphi/dt = -ch^2*div(D)
+			do b=1,blocks_number
+			do k=1,nk
+			do j=1,nj
+			do i=1,ni
+		    	call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             			&
+		    	                            q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),				&
+		    	                            curl=curlD)			
+		    	call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             			&
+		    	                            q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),  			&
+		    	                            curl=curlB)			
+				call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b), 											&
+															 q=q(nv_c,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b), 					&
+															 gradient=gradphi)			
+				call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),											&
+																q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),	&
+																divergence = divergenceD)	
+				dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - gradphi(1) - q(var_Jx,i,j,k,b)	!- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
+		    	dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - gradphi(2) - q(var_Jy,i,j,k,b)	!- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
+		    	dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - gradphi(3) - q(var_Jz,i,j,k,b)	!- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
+		    	dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0                   					!- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
+		    	dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0                   					!- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
+		    	dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0                   					!- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
+				dq(nv_c,i,j,k,b)	 = -(chi*C0)**2*divergenceD
+		   enddo
+		   enddo
+		   enddo
+		   enddo
+		elseif (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. .not.constrained_transport_D .and. &
+		   		constrained_transport_B) then
+		! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0) -grad(psi), dpsi/dt = -ch^2*div(B)	
+			do b=1,blocks_number
+			do k=1,nk
+			do j=1,nj
+			do i=1,ni
+		    	call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             		 &
+		    	                            q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),			 &
+		    	                            curl=curlD)		 
+		    	call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             		 &
+		    	                            q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),  		 &
+		    	                            curl=curlB)		 
+				call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b), 										 &
+															 q=q(nv_c,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b), 				 &
+															 gradient=gradpsi)		 
+				call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),										 &
+																q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b), &
+																divergence = divergenceB)		
+				dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - q(var_Jx,i,j,k,b)	!- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
+		    	dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - q(var_Jy,i,j,k,b)	!- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
+		    	dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - q(var_Jz,i,j,k,b)	!- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
+		    	dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0 - gradpsi(1)  			!- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
+		    	dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0 - gradpsi(2)  			!- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
+		    	dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0 - gradpsi(3)  			!- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
+				dq(nv_c,i,j,k,b)	 = -(chi*C0)**2*divergenceB
+		   enddo
+		   enddo
+		   enddo
+		   enddo
+		elseif (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. constrained_transport_D .and. &
+		   		constrained_transport_B) then
+		! compute RHS dD/dt = curl(B/MU0) - grad(phi) - J, dB/dt = -curl(D/EPS0) -grad(psi),
+		!             dphi/dt = -ch^2*div(D), dpsi/dt = -ch^2*div(B)
+			do b=1,blocks_number
+			do k=1,nk
+			do j=1,nj
+			do i=1,ni
+		    	call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                               			  &
+		    	                            q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),	  			  &
+		    	                            curl=curlD)			  
+		    	call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                               			  &
+		    	                            q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),    			  &
+		    	                            curl=curlB)			  
+				call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b), 								  			  &
+															 q=q(nv_c-1_I4P,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b), 			  &
+															 gradient=gradphi)				  
+				call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b), 								  			  &
+															 q=q(nv_c,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b), 		  			  &
+															 gradient=gradpsi)			  
+				call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),								  			  &
+																q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),	  &
+																divergence = divergenceD)  
+				call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),								  			  &
+																q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),	  &
+																divergence = divergenceB)	
+				dq(VAR_DX,i,j,k,b) 		=  curlB(1)/MU0  - gradphi(1) - q(var_Jx,i,j,k,b) !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
+		    	dq(VAR_DY,i,j,k,b) 		=  curlB(2)/MU0  - gradphi(2) - q(var_Jy,i,j,k,b) !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
+		    	dq(VAR_DZ,i,j,k,b) 		=  curlB(3)/MU0  - gradphi(3) - q(var_Jz,i,j,k,b) !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
+		    	dq(VAR_BX,i,j,k,b) 		= -curlD(1)/EPS0 - gradpsi(1)  						  !- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
+		    	dq(VAR_BY,i,j,k,b) 		= -curlD(2)/EPS0 - gradpsi(2)  						  !- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
+		    	dq(VAR_BZ,i,j,k,b) 		= -curlD(3)/EPS0 - gradpsi(3)  						  !- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
+				dq(nv_c-1_I4P,i,j,k,b)	= -(chi*C0)**2*divergenceD
+				dq(nv_c,i,j,k,b)	 		= -(chi*C0)**2*divergenceB
+		   enddo
+		   enddo
+		   enddo
+		   enddo        
+		else
+		! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0)
+			do b=1,blocks_number
+			do k=1,nk
+			do j=1,nj
+			do i=1,ni
+		    	call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             &
+		    	                           q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),	&
+		    	                           curl=curlD)
+		    	call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                            	&
+		    	                           q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),  	&
+		    	                           curl=curlB)	
+				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dx_x);KO_Dx_x=dxyz(1,b)**3*KO_Dx_x
+				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dx_y);KO_Dx_y=dxyz(2,b)**3*KO_Dx_y
+				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dx_z);KO_Dx_z=dxyz(3,b)**3*KO_Dx_z
+				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DY,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dy_x);KO_Dy_x=dxyz(1,b)**3*KO_Dy_x
+				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DY,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dy_y);KO_Dy_y=dxyz(2,b)**3*KO_Dy_y
+				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DY,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dy_z);KO_Dy_z=dxyz(3,b)**3*KO_Dy_z
+				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dz_x);KO_Dz_x=dxyz(1,b)**3*KO_Dz_x
+				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dz_y);KO_Dz_y=dxyz(2,b)**3*KO_Dz_y
+				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dz_z);KO_Dz_z=dxyz(3,b)**3*KO_Dz_z
+				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bx_x);KO_Bx_x=dxyz(1,b)**3*KO_Bx_x
+				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bx_y);KO_Bx_y=dxyz(2,b)**3*KO_Bx_y
+				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bx_z);KO_Bx_z=dxyz(3,b)**3*KO_Bx_z
+				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BY,i-s4:i+s4,j,k,b),d4q_ds4=KO_By_x);KO_By_x=dxyz(1,b)**3*KO_By_x
+				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BY,i,j-s4:j+s4,k,b),d4q_ds4=KO_By_y);KO_By_y=dxyz(2,b)**3*KO_By_y
+				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BY,i,j,k-s4:k+s4,b),d4q_ds4=KO_By_z);KO_By_z=dxyz(3,b)**3*KO_By_z
+				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bz_x);KO_Bz_x=dxyz(1,b)**3*KO_Bz_x
+				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bz_y);KO_Bz_y=dxyz(2,b)**3*KO_Bz_y
+				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bz_z);KO_Bz_z=dxyz(3,b)**3*KO_Bz_z	
+		    	dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - q(var_Jx,i,j,k,b)		!- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
+		    	dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - q(var_Jy,i,j,k,b)		!- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
+		    	dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - q(var_Jz,i,j,k,b)		!- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
+		    	dq(VAR_BX,i,j,k,b) = -curlD(1)/EPS0                   		!- sigma*C0*(KO_Bx_x+KO_Bx_y+KO_Bx_z)/16._R8P
+		    	dq(VAR_BY,i,j,k,b) = -curlD(2)/EPS0                   		!- sigma*C0*(KO_By_x+KO_By_y+KO_By_z)/16._R8P
+		    	dq(VAR_BZ,i,j,k,b) = -curlD(3)/EPS0                   		!- sigma*C0*(KO_Bz_x+KO_Bz_y+KO_Bz_z)/16._R8P
+		   enddo
+		   enddo
+		   enddo
+		   enddo
+		endif
+	endif
+	endassociate
+	endsubroutine compute_residuals_fd_centered
 
    subroutine compute_residuals_fv_centered(self, q, dq, s)
    !< Compute residuals of equation, space operator, centered finite volume schemes.
