@@ -1121,7 +1121,7 @@ contains
    call self%update_ghost(q=self%q) ! Aggiunto da FN
    call self%compute_divergence(ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
    call self%compute_divergence(ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
-   call self%compute_divergence(ivar=7,q=self%q,divergence=self%divergence(3,:,:,:,:))
+   call self%compute_divergence(ivar=self%physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
    call self%save_simulation_data
    call self%compute_energy
    !call self%save_energy_error(is_to_open=.true.)
@@ -1194,7 +1194,7 @@ contains
       call self%save_energy_history
       call self%compute_divergence(ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
       call self%compute_divergence(ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
-      call self%compute_divergence(ivar=7,q=self%q,divergence=self%divergence(3,:,:,:,:))
+      call self%compute_divergence(ivar=self%physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
       call self%save_divergence_history
 
       if (((self%time%it_max <= 0).and.(self%time%time >= self%time%time_max)).or.&
@@ -1217,7 +1217,7 @@ contains
    call self%update_ghost(q=self%q) ! Aggiunto da FN
    call self%compute_divergence(ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
    call self%compute_divergence(ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
-   call self%compute_divergence(ivar=7,q=self%q,divergence=self%divergence(3,:,:,:,:))
+   call self%compute_divergence(ivar=self%physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
    call self%save_divergence_history(is_to_close=.true.)
    call self%mpih%finalize
    endsubroutine simulate
