@@ -172,7 +172,7 @@ interface
    !< Compute residuals of equation, space operator.
    import :: prism_fnl_object, R8P, I4P
    class(prism_fnl_object), intent(inout) :: self                                              !< The equation.
-   real(R8P),               intent(in)    :: q_gpu( 1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Conservative variables.
+   real(R8P),               intent(inout) :: q_gpu( 1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Conservative variables.
    real(R8P),               intent(inout) :: dq_gpu(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Residuals.
    integer(I4P),  optional, intent(in)    :: s                                                 !< Stage counter.
    endsubroutine compute_residuals_interface_dev
@@ -382,9 +382,14 @@ contains
    endsubroutine save_simulation_data
 
    ! IC/BC/sources
-   subroutine apply_fwl_correction(self)
+   subroutine apply_fwl_correction(self, q_gpu)
    !< Apply correction if a fWL is present.
    class(prism_fnl_object), intent(inout) :: self                    !< The equation.
+   real(R8P),               intent(inout) :: q_gpu(1:,         &
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1-self%ngc:,&
+                                                   1:)               !< Conservative variables.
    integer(I4P)                           :: ni(2,6),nj(2,6),nk(2,6) !< Dimensions of FWL domain.
    real(R8P)                              :: s2(6)                   !< Side coefficient.
    integer(I4P)                           :: n(6)                    !< FWL f function index.
@@ -421,15 +426,20 @@ contains
                                                                beta_D=beta_D(face),                          &
                                                                alfa_B=alfa_B(face),                          &
                                                                beta_B=beta_B(face),                          &
-                                                               f_gpu=self%fwlayer_gpu%f_gpu,q_gpu=self%q_gpu)
+                                                               f_gpu=self%fwlayer_gpu%f_gpu,q_gpu=q_gpu)
       enddo
    endif
    endassociate
    endsubroutine apply_fwl_correction
 
-   subroutine compute_coils_current(self, gamm)
+   subroutine compute_coils_current(self, q_gpu, gamm)
    !< Compute current coils sources.
-   class(prism_fnl_object), intent(inout)        :: self            !< The equation.
+   class(prism_fnl_object), intent(in)           :: self            !< The equation.
+   real(R8P),               intent(inout)        :: q_gpu(1:,         &
+                                                          1-self%ngc:,&
+                                                          1-self%ngc:,&
+                                                          1-self%ngc:,&
+                                                          1:)       !< Conservative variables.
    real(R8P),               intent(in), optional :: gamm            !< RK coefficient.
    real(R8P)                                     :: time_s          !< Local time.
    real(R8P)                                     :: current_density !< Current density.
@@ -460,7 +470,7 @@ contains
                                      var_jx        = var_jx       ,&
                                      var_jy        = var_jy       ,&
                                      var_jz        = var_jz       ,&
-                                     q_gpu         = self%q_gpu)
+                                     q_gpu         = q_gpu)
 
       ! Envelope C^2: clamp(s) in [0,1], g(0)=0, g(1)=1, g'(0)=g'(1)=0, g''(0)=g''(1)=0
       s = 1._R8P ; if (td > 0._R8P) s = time_s / td ; s = max(0._R8P, min(1._R8P, s))
@@ -493,7 +503,7 @@ contains
                                  var_jy          = var_jy                 ,&
                                  var_jz          = var_jz                 ,&
                                  j_vec_gpu       = self%coil_gpu%j_vec_gpu,&
-                                 q_gpu           = self%q_gpu)
+                                 q_gpu           = q_gpu)
       enddo
    endif
    endassociate
@@ -673,7 +683,6 @@ contains
 
    if (do_local_update) call self%field_gpu%update_ghost_local_gpu(q_gpu=q_gpu)
                         call self%field_gpu%update_ghost_mpi_gpu(q_gpu=q_gpu, step=step)
-   if (do_set_bc)       call self%apply_fwl_correction
    if (do_set_bc)       call self%set_boundary_conditions(q_gpu=q_gpu)
    endsubroutine update_ghost
 
@@ -980,7 +989,7 @@ contains
    subroutine compute_residuals_fd_centered_dev(self, q_gpu, dq_gpu, s)
    !< Compute residuals of equation, space operator, centered finite difference schemes.
    class(prism_fnl_object), intent(inout) :: self       !< The equation.
-   real(R8P),               intent(in)    :: q_gpu(1:,         &
+   real(R8P),               intent(inout) :: q_gpu(1:,         &
                                                    1-self%ngc:,&
                                                    1-self%ngc:,&
                                                    1-self%ngc:,&
@@ -993,6 +1002,7 @@ contains
    integer(I4P),  optional, intent(in)    :: s          !< Stage counter.
 
    if (self%blocks_number > 0) then
+      call self%apply_fwl_correction(q_gpu=q_gpu)
       call self%update_ghost(q_gpu=q_gpu, s=s)
       call compute_residuals_fd_centered_dev_kernel(ni            = self%ni                           ,&
                                                     nj            = self%nj                           ,&
@@ -1075,8 +1085,8 @@ contains
    class(prism_fnl_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   associate(nc=>self%blanesmoan%nc,a=>self%blanesmoan%a,b=>self%blanesmoan%b)
-   call self%compute_coils_current
+   ! associate(nc=>self%blanesmoan%nc,a=>self%blanesmoan%a,b=>self%blanesmoan%b)
+   ! call self%compute_coils_current(q_gpu=self%q_gpu)
    ! do s=1, nc
    !    call self%compute_residuals_dev(q=self%q, dq=self%dq)
    !    if (s==1) call self%save_residuals
@@ -1089,7 +1099,7 @@ contains
    !    self%q(VAR_DZ,:,:,:,:) = self%q(VAR_DZ,:,:,:,:) + a(s) * self%time%dt * self%dq(VAR_DZ,:,:,:,:)
    ! enddo
    ! call self%impose_div_free
-   endassociate
+   ! endassociate
    endsubroutine integrate_blanesmoan_dev
 
    subroutine integrate_cfm_dev(self)
@@ -1098,7 +1108,7 @@ contains
    real(R8P), parameter                   :: toll=1.0e-14_R8P !< CFM coefficients tollerance.
    integer(I4P)                           :: s,ss             !< Counter.
 
-   ! call self%compute_coils_current
+   ! call self%compute_coils_current(q_gpu=self%q_gpu)
    ! associate(dt=>self%time%dt,s_coeffs=>self%cfm%s_coeffs,e_coeffs=>self%cfm%e_coeffs)
    ! self%cfm%q = self%q
    ! call self%compute_residuals_dev(q=self%cfm%q, dq=self%cfm%dq(:,:,:,:,:,1))
@@ -1123,7 +1133,7 @@ contains
    !< Integrate equation, time operator, leapfrog scheme.
    class(prism_fnl_object), intent(inout) :: self !< The equation.
 
-   ! call self%compute_coils_current
+   ! call self%compute_coils_current(q_gpu=self%q_gpu)
    ! call self%compute_residuals_dev(q=self%q, dq=self%dq)
    ! call self%save_residuals
    ! call self%leapfrog%integrate(dt=self%time%dt, q=self%q, dq=self%dq)
@@ -1135,7 +1145,7 @@ contains
    class(prism_fnl_object), intent(inout) :: self !< The equation.
 
    !!Fai check su come si parlano questa subroutine e quella che calcola la corrente associata alle particelle
-   !call self%compute_coils_current
+   !call self%compute_coils_current(q_gpu=self%q_gpu)
 
    !! qua ci va la chiamata alla subroutine che aggiorna la neighbour list delle particelle
    !! qua ci va la chiamata alla subroutine che calcola la corrente associata alle particelle
@@ -1160,7 +1170,7 @@ contains
    class(prism_fnl_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   call self%compute_coils_current
+   call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%rk_gpu%initialize_stages(q_gpu=self%q_gpu)
    do s=1, self%rk%nrk
       call self%compute_residuals_dev(q_gpu=self%q_gpu, dq_gpu=self%dq_gpu, s=s)
@@ -1173,7 +1183,7 @@ contains
       endif
    enddo
    call self%impose_div_free
-   call self%apply_fwl_correction
+   call self%apply_fwl_correction(q_gpu=self%q_gpu)
    endsubroutine integrate_rk_ls_dev
 
    subroutine integrate_rk_ssp_dev(self)
@@ -1187,14 +1197,14 @@ contains
                                    dt=self%time%dt, time=self%time%time, q_gpu=self%q_gpu)
    call self%rk_gpu%initialize_stages(q_gpu=self%q_gpu)
    do s=1, self%rk%nrk
-      call self%compute_coils_current(gamm=self%rk%gamm(s))
       if (self%ib%solids_number>0) then
          call self%rk_gpu%compute_stage(s=s, dt=self%time%dt, phi_gpu=self%ib_gpu%phi_gpu)
       else
          call self%rk_gpu%compute_stage(s=s, dt=self%time%dt)
       endif
+      call self%compute_coils_current(q_gpu=self%rk_gpu%q_rk_gpu(:,:,:,:,:,s), gamm=self%rk%gamm(s))
       call self%compute_residuals_dev(q_gpu=self%rk_gpu%q_rk_gpu(:,:,:,:,:,s), dq_gpu=self%dq_gpu, s=s)
-      if (s==1) call self%save_residuals
+      ! if (s==1) call self%save_residuals
       if (self%ib%solids_number>0) then
          call self%rk_gpu%assign_stage(s=s, q_gpu=self%dq_gpu, phi_gpu=self%ib_gpu%phi_gpu)
       else
@@ -1203,11 +1213,12 @@ contains
    enddo
    if (self%ib%solids_number>0) then
       call self%rk_gpu%update_q(dt=self%time%dt, phi_gpu=self%ib_gpu%phi_gpu, q_gpu=self%q_gpu)
-      call self%update_rk_ghost(dt=self%time%dt, phi_gpu=self%ib_gpu%phi_gpu)
+      ! call self%update_rk_ghost(dt=self%time%dt, phi_gpu=self%ib_gpu%phi_gpu)
    else
       call self%rk_gpu%update_q(dt=self%time%dt, q_gpu=self%q_gpu)
-      call self%update_rk_ghost(dt=self%time%dt)
+      ! call self%update_rk_ghost(dt=self%time%dt)
    endif
+   call self%compute_coils_current(q_gpu=self%q_gpu)
    call self%impose_div_free
    ! call self%apply_fwl_correction  ! to be removed, probably
    if (self%external_fields%ef_type/=EF_TYPE_NONE) &
@@ -1220,7 +1231,7 @@ contains
    class(prism_fnl_object), intent(inout) :: self !< The equation.
    integer(I4P)                           :: s    !< Counter.
 
-   ! call self%compute_coils_current
+   ! call self%compute_coils_current(q_gpu=self%q_gpu)
    ! do s=1, self%rk%nrk - 1
    !    call self%compute_residuals_dev(q=self%q, dq=self%dq)
    !    if (s==1) call self%save_residuals
@@ -1268,6 +1279,7 @@ contains
       call self%mpih_gpu%print_message('impose initial conditions finish')
    endif
 
+   call self%update_ghost(q_gpu=self%q_gpu)
    !if (self%ib%solids_number > 0) call self%compute_phi()
    ! call self%amr_update
    ! call self%compute_divergence(ivar=1,ovar=1,q_gpu=self%q_gpu,divergence_gpu=self%divergence_gpu)
