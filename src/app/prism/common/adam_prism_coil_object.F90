@@ -17,6 +17,7 @@ private
 public :: INI_SECTION_NAME
 public :: COIL_TYPE_RECTANGULAR
 public :: COIL_TYPE_CIRCULAR
+public :: COIL_TYPE_SOLENOID
 public :: CURRENT_TYPE_AC
 public :: CURRENT_TYPE_DC
 public :: prism_coil_object
@@ -30,6 +31,7 @@ public :: NORMAL_M_Z
 character(len=11), parameter :: INI_SECTION_NAME="coils_input"        !< INI (config) file section name containing coils configs.
 character(len=11), parameter :: COIL_TYPE_RECTANGULAR="rectangular"   !< Rectangular shape coil.
 character(len=8),  parameter :: COIL_TYPE_CIRCULAR="circular"         !< Circular shape coil.
+character(len=8),  parameter :: COIL_TYPE_SOLENOID="solenoid"         !< Solenoid shape coil.
 character(len=10), parameter :: CURRENT_TYPE_DC="DC_current"          !< DC current.
 character(len=10), parameter :: CURRENT_TYPE_AC="AC_current"          !< AC current
 character(len=2),  parameter :: NORMAL_P_X="+x"                       !< Normal versor along positive x axis.
@@ -51,6 +53,8 @@ type :: prism_coil_object
    real(R8P),         allocatable :: x_center(:), y_center(:), z_center(:) !< Coil center
    real(R8P),         allocatable :: lx(:), ly(:)                          !< Rectangle's sizes (if rectangular coil)
    real(R8P),         allocatable :: r_coil(:)                             !< Circle's radius (if circular coil)
+   real(R8P),         allocatable :: l_solenoid(:)                         !< Solenoid length (if solenoidal coil)
+   real(R8P),         allocatable :: windings(:)                           !< Windings number (if solenoidal coil)
    real(R8P),         allocatable :: sigma(:)                              !< Gaussian current distribution sigma
    real(R8P),         allocatable :: J_vec(:,:,:,:,:,:)                    !< Matrice contenente versori corrente spire (se assente
    real(R8P)                      :: td                                    !< Delay di accensione della spira
@@ -92,6 +96,8 @@ contains
    allocate(self%r_coil              (0:total_coils_number)) ; self%r_coil = 0.0_R8P
    allocate(self%ly                  (0:total_coils_number)) ; self%ly = 0.0_R8P
    allocate(self%lx                  (0:total_coils_number)) ; self%lx = 0.0_R8P
+   allocate(self%l_solenoid          (0:total_coils_number)) ; self%l_solenoid = 0.0_R8P
+   allocate(self%windings            (0:total_coils_number)) ; self%windings = 0.0_R8P
    allocate(self%sigma               (0:total_coils_number)) ; self%sigma = 0.0_R8P
    allocate(self%x_center            (0:total_coils_number)) ; self%x_center = 0.0_R8P
    allocate(self%y_center            (0:total_coils_number)) ; self%y_center = 0.0_R8P
@@ -146,6 +152,20 @@ contains
          desc = desc//NL//self%mpih%myrankstr//'    Frequency: '//trim(str(self%f(r)))
          desc = desc//NL//self%mpih%myrankstr//'    Phase: '//trim(str(self%phase(r)))
          desc = desc//NL//self%mpih%myrankstr//'    Sigma: '//trim(str(self%sigma(r)))
+         case(COIL_TYPE_SOLENOID)
+         desc = desc//NL//self%mpih%myrankstr//'    Coil type: '//trim(self%coil_type(r))
+         desc = desc//NL//self%mpih%myrankstr//'    Current type: '//trim(self%current_type(r))
+         desc = desc//NL//self%mpih%myrankstr//'    Radius: '//trim(str(self%r_coil(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Length: '//trim(str(self%l_solenoid(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Windings: '//trim(str(self%windings(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Normal: '//trim(self%normal(r))
+         desc = desc//NL//self%mpih%myrankstr//'    X_center: '//trim(str(self%x_center(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Y_center: '//trim(str(self%y_center(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Z_center: '//trim(str(self%z_center(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Amplitude: '//trim(str(self%A(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Frequency: '//trim(str(self%f(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Phase: '//trim(str(self%phase(r)))
+         desc = desc//NL//self%mpih%myrankstr//'    Sigma: '//trim(str(self%sigma(r)))         
          endselect
       enddo
    else
@@ -236,10 +256,6 @@ contains
          self%normal(i) = trim(buff_char)
          self%normal(i) = trim(self%normal(i))
 
-         self%lx(i) = 0.0_R8P
-
-         self%ly(i) = 0.0_R8P
-
       case(COIL_TYPE_RECTANGULAR)
          call file_parameters%get(section_name=sname, option_name='lx', val=self%lx(i), error=error)
          if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(lx)')
@@ -261,8 +277,29 @@ contains
          self%normal(i) = trim(buff_char)
          self%normal(i) = trim(self%normal(i))
 
-         self%r_coil(i) = 0.0_R8P
+      case(COIL_TYPE_SOLENOID)
+         call file_parameters%get(section_name=sname, option_name='r_coil', val=self%r_coil(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(r_coil)')
 
+         call file_parameters%get(section_name=sname, option_name='l_solenoid', val=self%l_solenoid(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(l_solenoid)')
+
+         call file_parameters%get(section_name=sname, option_name='windings', val=self%windings(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(windings)')
+
+         call file_parameters%get(section_name=sname, option_name='x_center', val=self%x_center(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(x_center)')
+
+         call file_parameters%get(section_name=sname, option_name='y_center', val=self%y_center(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(y_center)')
+
+         call file_parameters%get(section_name=sname, option_name='z_center', val=self%z_center(i), error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(z_center)')
+
+         call file_parameters%get(section_name=sname, option_name='normal', val=buff_char, error=error)
+         if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(normal)')
+         self%normal(i) = trim(buff_char)
+         self%normal(i) = trim(self%normal(i))
       endselect
 
       select case(self%current_type(i))
@@ -270,10 +307,6 @@ contains
 
          call file_parameters%get(section_name=sname, option_name='Amplitude', val=self%A(i), error=error)
          if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//sname//'].(Amplitude)')
-
-         self%f(i) = 0.0_R8P
-
-         self%phase(i) = 0.0_R8P
 
       case(CURRENT_TYPE_AC)
 
