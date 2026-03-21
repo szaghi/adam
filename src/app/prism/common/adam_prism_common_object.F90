@@ -4,46 +4,30 @@ module adam_prism_common_object
 ! ADAM modules
 use adam_common_library
 ! PRISM modules
-use adam_prism_bc_object
-use adam_prism_coil_object
-use adam_prism_external_fields_object
-use adam_prism_fWLayer_object
-use adam_prism_ic_object
-use adam_prism_io_object
-use adam_prism_leapfrog_pic_object
-use adam_prism_numerics_object
-use adam_prism_physics_object
-use adam_prism_pic_object
-use adam_prism_particle_injection_object
-use adam_prism_rk_pic_object
-use adam_prism_rk_bc_object
-use adam_prism_time_object
+use :: adam_prism_bc_object
+use :: adam_prism_coil_object
+use :: adam_prism_external_fields_object
+use :: adam_prism_fWLayer_object
+use :: adam_prism_ic_object
+use :: adam_prism_leapfrog_pic_object
+use :: adam_prism_numerics_object
+use :: adam_prism_physics_object
+use :: adam_prism_pic_object
+use :: adam_prism_particle_injection_object
+use :: adam_prism_rk_pic_object
+use :: adam_prism_rk_bc_object
+use :: adam_prism_time_object
 ! third party modules
-use penf
-! use ISO_C_BINDING
+use :: motion
+use :: penf
+use :: stringifor
 
 implicit none
 private
 public :: prism_common_object
 
-type :: prism_common_object
+type, extends(equation_object) :: prism_common_object
    !< Maxwell equations system class definition, common data to all backends.
-   ! ADAM library objects
-   type(mpih_object)           :: mpih          !< MPI handler.
-   type(adam_object)           :: adam          !< ADAM.
-   type(field_object), pointer :: field=>null() !< The field.
-   type(grid_object),  pointer :: grid=>null()  !< The grid.
-   type(amr_object)            :: amr           !< AMR marker handler.
-   type(ib_object)             :: ib            !< Immersed Boundary (IB) handler.
-   type(slices_object)         :: slices        !< Slices handler.
-   type(blanesmoan_object)     :: blanesmoan    !< Blanes-Moan integrator.
-   type(cfm_object)            :: cfm           !< Commutator-Free Magnus integrator.
-   type(leapfrog_object)       :: leapfrog      !< Leapfrog integrator.
-   type(rk_object)             :: rk            !< RK integrator.
-   type(weno_object)           :: weno          !< WENO reconstructor.
-   type(flail_object)          :: flail         !< Linear algebra methods handler.
-   ! PRISM library objects
-   type(prism_io_object)                 :: io                 !< IO handler.
    type(prism_numerics_object)           :: numerics           !< Numerics handler.
    type(prism_physics_object)            :: physics            !< Fluids physiscs handler.
    type(prism_ic_object)                 :: ic                 !< Initial Conditions (IC) handler.
@@ -57,17 +41,10 @@ type :: prism_common_object
    type(prism_particle_injection_object) :: particle_injection !< Particle injection handler.
    type(prism_leapfrog_pic_object)       :: leapfrog_pic       !< Leapfrog PIC integrator.
    type(prism_rk_pic_object)             :: rk_pic             !< RK PIC integrator.
-   ! grid/field data replica for easy handling
-   integer(I4P), pointer :: ngc=>null()           !< Number of ghost cells.
-   integer(I4P), pointer :: ni=>null()            !< Number of cells in i direction.
-   integer(I4P), pointer :: nj=>null()            !< Number of cells in j direction.
-   integer(I4P), pointer :: nk=>null()            !< Number of cells in k direction.
-   integer(I4P), pointer :: nb=>null()            !< Total blocks number for MPI.
-   integer(I4P), pointer :: blocks_number=>null() !< Actual blocks number.
-   integer(I4P), pointer :: nv=>null()            !< Number of variables in q vector.
-   integer(I4P), pointer :: nv_c=>null()          !< Number of conservative variables in q vector.
-   integer(I4P), pointer :: nv_s=>null()          !< Number of source variables in q vector.
-   integer(I4P), pointer :: nv_cl=>null()         !< Number of divergence cleaning variables in q vector.
+   ! physics data replica for easy handling
+   integer(I4P), pointer :: nv_c=>null()  !< Number of conservative variables in q vector.
+   integer(I4P), pointer :: nv_s=>null()  !< Number of source variables in q vector.
+   integer(I4P), pointer :: nv_cl=>null() !< Number of divergence cleaning variables in q vector.
    ! fields data [1:nv,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb].
    real(R8P),    allocatable :: q(         :,:,:,:,:) !< Conservative cell centered variables.
    real(R8P),    allocatable :: dq(        :,:,:,:,:) !< Residuals right hand side.
@@ -83,18 +60,10 @@ type :: prism_common_object
    real(R8P), allocatable :: Poynting_flux(:)           !< Total Poynting flux from boundary, time history.
    real(R8P)              :: rms_energy_error_D=0.0_R8P !< RMS energy error of D field.
    real(R8P)              :: rms_energy_error_B=0.0_R8P !< RMS energy error of B field.
-   !< Pointer (abstract) TBP.
-   procedure(compute_curl_interface),       pass(self),pointer :: compute_curl       =>null()!< Compute curl of vector field.
-   procedure(compute_derivative1_interface),pass(self),pointer :: compute_derivative1=>null()!< Compute derivative1 of scalar field.
-   procedure(compute_derivative2_interface),pass(self),pointer :: compute_derivative2=>null()!< Compute derivative2 of scalar field.
-   procedure(compute_derivative4_interface),pass(self),pointer :: compute_derivative4=>null()!< Compute derivative4 of scalar field.
-   procedure(compute_divergence_interface), pass(self),pointer :: compute_divergence =>null()!< Compute divergence of vector field.
-   procedure(compute_gradient_interface),   pass(self),pointer :: compute_gradient   =>null()!< Compute gradient of scalar field.
-   procedure(compute_laplacian_interface),  pass(self),pointer :: compute_laplacian  =>null()!< Compute laplacian of scalar field.
    contains
       procedure, pass(self) :: allocate_common          !< Allocate common data.
       procedure, pass(self) :: compute_auxiliary_fields !< Compute auxiliary fields.
-      procedure, pass(self) :: initialize_common        !< Initialize the equation common data.
+      procedure, pass(self) :: initialize               !< Initialize the equation common data.
       ! IO methods
       procedure, pass(self) :: load_restart_files      !< Load restart files.
       procedure, pass(self) :: save_energy_error       !< Save energy error history.
@@ -102,20 +71,6 @@ type :: prism_common_object
       procedure, pass(self) :: save_divergence_history !< Save divergence history.
       procedure, pass(self) :: save_restart_files      !< Save restart files.
       procedure, pass(self) :: save_xh5f               !< Save simulation data in XH5F format.
-      ! FDV operators numerical methods
-      procedure, pass(self) :: compute_curl_fd        !< Compute curl of vector field by finite difference.
-      procedure, pass(self) :: compute_curl_fv        !< Compute curl of vector field by finite volume.
-      procedure, pass(self) :: compute_derivative1_fd !< Compute derivative1 of scalar fields, finite difference schemes.
-      procedure, pass(self) :: compute_derivative1_fv !< Compute derivative1 of scalar fields, finite volume schemes.
-      procedure, pass(self) :: compute_derivative2_fd !< Compute derivative2 of scalar fields, finite difference schemes.
-      procedure, pass(self) :: compute_derivative2_fv !< Compute derivative2 of scalar fields, finite volume schemes.
-      procedure, pass(self) :: compute_derivative4_fd !< Compute derivative4 of scalar fields, finite difference schemes.
-      procedure, pass(self) :: compute_divergence_fd  !< Compute divergence of vector field by finite difference.
-      procedure, pass(self) :: compute_divergence_fv  !< Compute divergence of vector field by finite volume.
-      procedure, pass(self) :: compute_gradient_fd    !< Compute gradient of scalar field, finite difference schemes.
-      procedure, pass(self) :: compute_gradient_fv    !< Compute gradient of scalar field, finite volume schemes.
-      procedure, pass(self) :: compute_laplacian_fd   !< Compute laplacian of scalar field, finite difference schemes.
-      procedure, pass(self) :: compute_laplacian_fv   !< Compute laplacian of scalar field, finite volume schemes.
       ! coils initialization methods
       procedure, pass(self) :: compute_coil_current_density_flux     !< Compute coil current density fluxes for Maxwell equations.
       procedure, pass(self) :: compute_solenoid_current_density_flux !< Compute solenoid current density fluxes for Maxwell equations.
@@ -131,73 +86,6 @@ type :: prism_common_object
       procedure, pass(self) :: set_solenoid_z                        !< Subroutine to set a solenoid source with +-z normal
 endtype prism_common_object
 
-interface
-   subroutine compute_curl_interface(self, ivar, q, curl)
-   !< Compute curl of vector fields, div(q(ivar:ivar+2).
-   import :: prism_common_object, I4P, R8P
-   class(prism_common_object), intent(in)    :: self                                            !< The equation.
-   integer(I4P),               intent(in)    :: ivar                                            !< Start index of variable of q.
-   real(R8P),                  intent(in)    :: q(   1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),                  intent(inout) :: curl(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Curl.
-   endsubroutine compute_curl_interface
-
-   subroutine compute_derivative1_interface(self, dir, ivar, q, dq_ds)
-   !< Compute derivative1 of scalar fields, dq(ivar)/ds.
-   import :: prism_common_object, I4P, R8P
-   class(prism_common_object), intent(in)    :: self                                         !< The equation.
-   integer(I4P),               intent(in)    :: dir                                          !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P),               intent(in)    :: ivar                                         !< Start index of (vec.) variable of q.
-   real(R8P),                  intent(in)    :: q(1:, 1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Field variables.
-   real(R8P),                  intent(inout) :: dq_ds(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Derivative1, dq/ds.
-   endsubroutine compute_derivative1_interface
-
-   subroutine compute_derivative2_interface(self, dir, ivar, q, d2q_ds2)
-   !< Compute derivative2 of scalar fields, d2q(ivar)/ds2.
-   import :: prism_common_object, I4P, R8P
-   class(prism_common_object), intent(in)    :: self                                            !< The equation.
-   integer(I4P),               intent(in)    :: dir                                             !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P),               intent(in)    :: ivar                                            !< Start index of variable of q.
-   real(R8P),                  intent(in)    :: q(1:,   1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),                  intent(inout) :: d2q_ds2(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative2, d2q/ds2.
-   endsubroutine compute_derivative2_interface
-
-   subroutine compute_derivative4_interface(self, dir, ivar, q, d4q_ds4)
-   !< Compute derivative4 of scalar fields, d4q(ivar)/ds4.
-   import :: prism_common_object, I4P, R8P
-   class(prism_common_object), intent(in)    :: self                                            !< The equation.
-   integer(I4P),               intent(in)    :: dir                                             !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P),               intent(in)    :: ivar                                            !< Start index of variable of q.
-   real(R8P),                  intent(in)    :: q(1:,   1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),                  intent(inout) :: d4q_ds4(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative4, d4q/ds4.
-   endsubroutine compute_derivative4_interface
-
-   subroutine compute_divergence_interface(self, ivar, q, divergence)
-   !< Compute divergence of vector fields, div(q(ivar:ivar+2).
-   import :: prism_common_object, I4P, R8P
-   class(prism_common_object), intent(in)    :: self                                               !< The equation.
-   integer(I4P),               intent(in)    :: ivar                                               !< Start index of field of q.
-   real(R8P),                  intent(in)    :: q(1:,      1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),                  intent(inout) :: divergence(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
-   endsubroutine compute_divergence_interface
-
-   subroutine compute_gradient_interface(self, ivar, q, gradient)
-   !< Compute gradient of scalar variable q(ivar).
-   import :: prism_common_object, I4P, R8P
-   class(prism_common_object), intent(in)    :: self                                               !< The equation.
-   integer(I4P),               intent(in)    :: ivar                                               !< Index of scalar variable of q.
-   real(R8P),                  intent(in)    :: q(       1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Field variables.
-   real(R8P),                  intent(inout) :: gradient(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Gradient.
-   endsubroutine compute_gradient_interface
-
-   subroutine compute_laplacian_interface(self, ivar, q, laplacian)
-   !< Compute laplacian of scalar variable q(ivar).
-   import :: prism_common_object, I4P, R8P
-   class(prism_common_object), intent(in)    :: self                                              !< The equation.
-   integer(I4P),               intent(in)    :: ivar                                              !< Index of scalar variable of q.
-   real(R8P),                  intent(in)    :: q(     1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),                  intent(inout) :: laplacian(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Laplacian.
-   endsubroutine compute_laplacian_interface
-endinterface
 contains
    ! public methods
    subroutine allocate_common(self)
@@ -206,6 +94,14 @@ contains
 
    associate(nv=>self%nv, ngc=>self%ngc, ni=>self%ni, nj=>self%nj, nk=>self%nk, nb=>self%nb, &
              particle_number=>self%pic%particle_number)
+   call allocate_variable(var=self%q,                &
+                          ulb=reshape([1,nv,         &
+                                       1-ngc,ni+ngc, &
+                                       1-ngc,nj+ngc, &
+                                       1-ngc,nk+ngc, &
+                                       1,nb],[2,5]), &
+                          msg=self%mpih%myrankstr//'prism_common_object%allocate_common(q) ', verbose=.true.)
+   self%dq = 0._R8P
    call allocate_variable(var=self%dq,               &
                           ulb=reshape([1,nv,         &
                                        1-ngc,ni+ngc, &
@@ -222,9 +118,11 @@ contains
                                        1,nb],[2,5]), &
                           msg=self%mpih%myrankstr//'prism_common_object%allocate_common(divergence) ', verbose=.true.)
    self%divergence = 0._R8P
-   self%divergence(4,:,:,:,:) = self%fWLayer%f(1,:,:,:,:)
-   self%divergence(5,:,:,:,:) = self%fWLayer%f(2,:,:,:,:)
-   self%divergence(6,:,:,:,:) = self%fWLayer%f(3,:,:,:,:)
+   if (allocated(self%fWLayer%f)) then
+      self%divergence(4,:,:,:,:) = self%fWLayer%f(1,:,:,:,:)
+      self%divergence(5,:,:,:,:) = self%fWLayer%f(2,:,:,:,:)
+      self%divergence(6,:,:,:,:) = self%fWLayer%f(3,:,:,:,:)
+   endif
    call allocate_variable(var=self%curl,             &
                           ulb=reshape([1,self%nv,    &
                                        1-ngc,ni+ngc, &
@@ -253,136 +151,72 @@ contains
    !< Compute auxiliary fields.
    class(prism_common_object), intent(inout) :: self !< The equation.
 
+   associate(hs=>self%numerics%fdv_half_stencil,var_jx=>self%physics%var_jx)
    if (self%io%save_divergence_fields) then
-      call self%compute_divergence(ivar=VAR_DX,q=self%q,divergence=self%divergence(1,:,:,:,:))
-      call self%compute_divergence(ivar=VAR_BX,q=self%q,divergence=self%divergence(2,:,:,:,:))
-      call self%compute_divergence(ivar=self%physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
+      call self%compute_divergence(hs=hs,ivar=VAR_DX,q=self%q,divergence=self%divergence(1,:,:,:,:))
+      call self%compute_divergence(hs=hs,ivar=VAR_BX,q=self%q,divergence=self%divergence(2,:,:,:,:))
+      call self%compute_divergence(hs=hs,ivar=var_jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
    endif
    if (self%io%save_curl_fields) then
-      call self%compute_curl(ivar=VAR_DX,q=self%q,curl=self%curl(1:3,:,:,:,:))
-      call self%compute_curl(ivar=VAR_BX,q=self%q,curl=self%curl(4:6,:,:,:,:))
-      call self%compute_curl(ivar=self%physics%var_Jx,q=self%q,curl=self%curl(7:9,:,:,:,:))
+      call self%compute_curl(hs=hs,ivar=VAR_DX,q=self%q,curl=self%curl(1:3,:,:,:,:))
+      call self%compute_curl(hs=hs,ivar=VAR_BX,q=self%q,curl=self%curl(4:6,:,:,:,:))
+      call self%compute_curl(hs=hs,ivar=var_jx,q=self%q,curl=self%curl(7:9,:,:,:,:))
    endif
+   endassociate
    endsubroutine compute_auxiliary_fields
 
-   subroutine initialize_common(self, field, filename, memory_avail, do_mpi_init, verbose)
+   subroutine initialize(self, filename, memory_avail, verbose)
    !< Initialize the equation common data.
    class(prism_common_object), intent(inout), target :: self         !< The equation.
-   type(field_object),         intent(inout)         :: field        !< The field.
    character(*),               intent(in)            :: filename     !< Input file name.
-   real(R8P),                  intent(in),value      :: memory_avail !< Memory available for single MPI process.
-   logical,                    intent(in), optional  :: do_mpi_init  !< Flag to activate MPI init call.
+   real(R8P),                  intent(in), value     :: memory_avail !< Memory available for single MPI process.
    logical,                    intent(in), optional  :: verbose      !< Trigger verbose output.
    logical                                           :: verbose_     !< Trigger verbose output, local variable.
-   integer(I8P)                                      :: nodes_number !< Allocated nodes on tree.
-   integer(I4P)                                      :: nb           !< Number of allocated blocks.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
-   call self%mpih%initialize(do_mpi_init=do_mpi_init, verbose=verbose_)
+   call self%equation_object%initialize(filename=filename, memory_avail=memory_avail, verbose=verbose_)
    if (verbose_) call self%mpih%print_message('prism_common_object%initialize start')
-   call self%io%initialize(filename=trim(filename))
    associate(file_parameters=>self%io%file_parameters)
    call self%bc%initialize(file_parameters=file_parameters)
+   call self%grid%set_bc_type(bc_type=self%bc%bc_type)
    call self%numerics%initialize(file_parameters=file_parameters)
-   call self%physics%initialize(file_parameters=file_parameters, reconstruction_vars=self%numerics%reconstruction_vars, &
-                                 div_corr_var=self%numerics%div_corr_var,                                               &
-                                 constrained_transport_D=self%numerics%constrained_transport_D,                         &
-                                 constrained_transport_B=self%numerics%constrained_transport_B)
-   call self%adam%grid%initialize(file_parameters=file_parameters,bc_type=self%bc%bc_type, verbose=.true.)
-   call self%adam%compute_blocks_number(memory_avail=memory_avail, fields_number=80, nb=nb, nodes_number=nodes_number)
-   call self%adam%initialize(file_parameters=file_parameters, &
-                             do_tree_init=.true.,             &
-                             do_maps_init=.true.,             &
-                             do_field_init=.true.,            &
-                             nv=self%physics%nv, nb=1, nodes_number=11_I8P, q=self%q) !nb = nb !nodes_number = nodes_number
-   call associate_adam_data(grid=self%adam%grid, field=self%adam%field, physics=self%physics)
-   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) call self%pic%initialize(file_parameters=file_parameters, &
-                                                                                   field=self%field)
+   call self%physics%initialize(file_parameters=file_parameters,                              &
+                                reconstruction_vars=self%numerics%reconstruction_vars,        &
+                                div_corr_var=self%numerics%div_corr_var,                      &
+                                constrained_transport_D=self%numerics%constrained_transport_D,&
+                                constrained_transport_B=self%numerics%constrained_transport_B)
+   self%nv_c   => self%physics%nv_c
+   self%nv_s   => self%physics%nv_s
+   self%nv_cl  => self%physics%nv_cl
+   !self%nv_pic => physics%nv_pic
+   if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
+      call self%pic%initialize(file_parameters=file_parameters,field=self%field)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) &
       call self%particle_injection%initialize(file_parameters=file_parameters, pic=self%pic)
-   call self%adam%refine_uniform(refinement_levels=self%adam%tree%iu_ref_levels, do_blocks_reorder=.false.,q=self%q)
-   call self%adam%prune(ijkl_prune=self%adam%tree%ijkl_prune, do_blocks_reorder=.false.,q=self%q)
-   call self%amr%initialize(file_parameters=file_parameters)
-   call self%field%compute_metrics
    call self%time%initialize(file_parameters=file_parameters)
    call self%ic%initialize(file_parameters=file_parameters)
    call self%fWLayer%initialize(file_parameters=file_parameters, physics=self%physics, field=self%field)
    call self%coil%initialize(file_parameters=file_parameters, field=self%field)
    call self%ib%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
-   call self%slices%initialize(file_parameters=file_parameters)
    call self%external_fields%initialize(file_parameters=file_parameters)
    if (self%numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
-      call self%rk%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
-   if (self%numerics%scheme_time==NUM_SCHEME_TIME_RUNGE_KUTTA) &
-      call self%rk_bc%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field, rk=self%rk, &
-                              physics=self%physics)
-   if (self%numerics%scheme_time==NUM_SCHEME_TIME_LEAPFROG) &
-      call self%leapfrog%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
-   if (self%numerics%scheme_time==NUM_SCHEME_TIME_BLANES_MOAN) &
-      call self%blanesmoan%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
-   if (self%numerics%scheme_time==NUM_SCHEME_TIME_CFM) &
-      call self%cfm%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field)
-   if (self%numerics%scheme_space==NUM_SCHEME_SPACE_WENO) &
-      call self%weno%initialize(file_parameters=file_parameters, nb=self%nb, ngc=self%ngc, ni=self%ni, nj=self%nj, nk=self%nk)
+      call self%rk_bc%initialize(file_parameters=file_parameters,&
+                                 grid=self%grid,                 &
+                                 field=self%field,               &
+                                 rk=self%rk,                     &
+                                 physics=self%physics)
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
       if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_LEAPFROG) &
          call self%leapfrog_pic%initialize(file_parameters=file_parameters, grid=self%grid, field=self%field, pic=self%pic)
       if (self%pic%scheme_time==NUM_SCHEME_TIME_PIC_RUNGE_KUTTA) &
          call self%rk_pic%initialize(file_parameters=file_parameters, rk=self%rk, pic=self%pic)
    endif
-   call self%flail%initialize(file_parameters=file_parameters)
    call check_ngc_number
    call self%allocate_common
    call io_initialize
-
-   select case(self%numerics%scheme_space)
-   case(NUM_SCHEME_SPACE_WENO)
-      self%compute_curl        => compute_curl_fv
-      self%compute_derivative1 => compute_derivative1_fv
-      self%compute_derivative2 => compute_derivative2_fv
-      self%compute_divergence  => compute_divergence_fv
-      self%compute_gradient    => compute_gradient_fv
-      self%compute_laplacian   => compute_laplacian_fv
-   case(NUM_SCHEME_SPACE_FD_CENTERED)
-      self%compute_curl        => compute_curl_fd
-      self%compute_derivative1 => compute_derivative1_fd
-      self%compute_derivative2 => compute_derivative2_fd
-      self%compute_divergence  => compute_divergence_fd
-      self%compute_gradient    => compute_gradient_fd
-      self%compute_laplacian   => compute_laplacian_fd
-   case(NUM_SCHEME_SPACE_FV_CENTERED)
-      self%compute_curl        => compute_curl_fv
-      self%compute_derivative1 => compute_derivative1_fv
-      self%compute_derivative2 => compute_derivative2_fv
-      self%compute_divergence  => compute_divergence_fv
-      self%compute_gradient    => compute_gradient_fv
-      self%compute_laplacian   => compute_laplacian_fv
-   endselect
-
    endassociate
    if (verbose_) call self%mpih%print_message('prism_common_object%initialize finish')
    contains
-      subroutine associate_adam_data(grid, field, physics)
-      !< Associate objects data to equation for easy handling.
-      type(grid_object),          intent(in), target :: grid    !< The grid.
-      type(field_object),         intent(in), target :: field   !< The field.
-      type(prism_physics_object), intent(in), target :: physics !< The physics.
-
-      self%grid          => grid
-      self%field         => field
-      self%blocks_number => field%blocks_number
-      self%ni            => field%grid%ni
-      self%nj            => field%grid%nj
-      self%nk            => field%grid%nk
-      self%ngc           => field%grid%ngc
-      self%nb            => field%nb
-      self%nv            => physics%nv
-      self%nv_c          => physics%nv_c
-      self%nv_s          => physics%nv_s
-      self%nv_cl         => physics%nv_cl
-      !self%nv_pic        => physics%nv_pic
-      endsubroutine associate_adam_data
-
       subroutine check_ngc_number
       !< Check if the number of ghost cells is consistent with the numerical schemes used, if not an error is echoed and
       !< the simulation is stop.
@@ -405,7 +239,6 @@ contains
       character(7),  allocatable :: q4_R8P_name(:) !< Variables names buffer.
       integer(I4P)               :: c              !< Counter.
 
-      call self%adam%io%initialize(grid=self%adam%grid, field=self%adam%field)
       if (self%physics%physical_model == EM_PHYSICAL_MODEL) then
          select case(self%numerics%div_corr_var)
          case(DIV_CORR_VAR_POISS)
@@ -432,14 +265,14 @@ contains
             q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09']
          endselect
          q4_R8P_name = ['curlD_x','curlD_y','curlD_z','curlB_x','curlB_y','curlB_z','curlJ_x','curlJ_y','curlJ_z']
-         ! if (self%io%save_residual_fields) call self%adam%io%register_aux_field(q1_R8P=self%dq,q1_R8P_name=q1_R8P_name)
-         ! if (self%io%save_divergence_fields) call self%adam%io%register_aux_field(q2_R8P=self%divergence,q2_R8P_name=q2_R8P_name)
+         ! if (self%io%save_residual_fields) call self%io%register_aux_field(q1_R8P=self%dq,q1_R8P_name=q1_R8P_name)
+         ! if (self%io%save_divergence_fields) call self%io%register_aux_field(q2_R8P=self%divergence,q2_R8P_name=q2_R8P_name)
          if (self%coil%total_coils_number>0) then
             q3_R8P_name = ['j_vec_1','j_vec_2','j_vec_3','f_Gauss']
-            ! call self%adam%io%register_aux_field(q3_R8P=self%coil%j_vec(:,:,:,:,:,1),q3_R8P_name=q3_R8P_name)
-            ! call self%adam%io%register_aux_field(s1_I4P=self%coil%coil_flag,s1_I4P_name='coil_flag')
+            ! call self%io%register_aux_field(q3_R8P=self%coil%j_vec(:,:,:,:,:,1),q3_R8P_name=q3_R8P_name)
+            ! call self%io%register_aux_field(s1_I4P=self%coil%coil_flag,s1_I4P_name='coil_flag')
          endif
-         ! if (self%io%save_curl_fields) call self%adam%io%register_aux_field(q4_R8P=self%curl,q4_R8P_name=q4_R8P_name)
+         ! if (self%io%save_curl_fields) call self%io%register_aux_field(q4_R8P=self%curl,q4_R8P_name=q4_R8P_name)
       elseif(self%physics%physical_model == PIC_PHYSICAL_MODEL) then
          select case(self%numerics%div_corr_var)
          case(DIV_CORR_VAR_POISS)
@@ -467,17 +300,17 @@ contains
             q2_R8P_name = ['div_D','div_B','div_J','fWL_x','fWL_y','fWL_z','div07','div08','div09','div10']
          endselect
          q4_R8P_name = ['curlD_x','curlD_y','curlD_z','curlB_x','curlB_y','curlB_z','curlJ_x','curlJ_y','curlJ_z']
-         if (self%io%save_residual_fields) call self%adam%io%register_aux_field(q1_R8P=self%dq,q1_R8P_name=q1_R8P_name)
-         if (self%io%save_divergence_fields) call self%adam%io%register_aux_field(q2_R8P=self%divergence,q2_R8P_name=q2_R8P_name)
+         ! if (self%io%save_residual_fields) call self%io%register_aux_field(q1_R8P=self%dq,q1_R8P_name=q1_R8P_name)
+         ! if (self%io%save_divergence_fields) call self%io%register_aux_field(q2_R8P=self%divergence,q2_R8P_name=q2_R8P_name)
          if (self%coil%total_coils_number>0) then
             q3_R8P_name = ['j_vec_1','j_vec_2','j_vec_3','f_Gauss']
-            call self%adam%io%register_aux_field(q3_R8P=self%coil%j_vec(:,:,:,:,:,1),q3_R8P_name=q3_R8P_name)
-            call self%adam%io%register_aux_field(s1_I4P=self%coil%coil_flag,s1_I4P_name='coil_flag')
+            ! call self%io%register_aux_field(q3_R8P=self%coil%j_vec(:,:,:,:,:,1),q3_R8P_name=q3_R8P_name)
+            ! call self%io%register_aux_field(s1_I4P=self%coil%coil_flag,s1_I4P_name='coil_flag')
          endif
-         if (self%io%save_curl_fields) call self%adam%io%register_aux_field(q4_R8P=self%curl,q4_R8P_name=q4_R8P_name)
+         ! if (self%io%save_curl_fields) call self%io%register_aux_field(q4_R8P=self%curl,q4_R8P_name=q4_R8P_name)
       endif
       endsubroutine io_initialize
-   endsubroutine initialize_common
+   endsubroutine initialize
 
    ! IO methods
    subroutine load_restart_files(self, t, time)
@@ -489,6 +322,32 @@ contains
    call self%adam%load_restart_files(basename=self%io%restart_basename, t=t, time=time, q=self%q)
    call self%adam%make_comm_local_maps_ghost_bc
    endsubroutine load_restart_files
+
+   subroutine save_divergence_history(self, is_to_open, is_to_close)
+   !< Save divergence history.
+   class(prism_common_object), intent(inout)        :: self        !< The equation.
+   logical,                    intent(in), optional :: is_to_open  !< Flag to open  file before first saving.
+   logical,                    intent(in), optional :: is_to_close !< Flag to close file after last saving.
+   real(R8P)                                        :: max_div_D   !< Maximum of divergence of D field.
+   real(R8P)                                        :: max_div_B   !< Maximum of divergence of B
+   real(R8P)                                        :: max_div_J   !< Maximum of divergence of J field.
+   real(R8P)                                        :: r           !< Auxiliary variable to identify fWL presence
+
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, C=>self%fWLayer%C, hs=>self%numerics%fdv_half_stencils(1))
+   r = nint(real(C)/(real(C)+1_I4P))
+   if (self%time%is_to_save(it_save=self%io%divergence_history_save)) then
+      max_div_D = maxval(abs(self%divergence(1,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
+                                             1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
+      max_div_B = maxval(abs(self%divergence(2,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
+                                             1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
+      max_div_J = maxval(abs(self%divergence(3,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
+                                             1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
+      call self%io%save_divergence_history(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number, &
+                                           div_D=max_div_D,div_B=max_div_B,div_J=max_div_J, &
+                                           is_to_open=is_to_open,is_to_close=is_to_close)
+   endif
+   endassociate
+   endsubroutine save_divergence_history
 
    subroutine save_energy_error(self, is_to_open, is_to_close)
    !< Save energy error history.
@@ -518,32 +377,6 @@ contains
    endif
    endsubroutine save_energy_history
 
-   subroutine save_divergence_history(self, is_to_open, is_to_close)
-   !< Save divergence history.
-   class(prism_common_object), intent(inout)        :: self        !< The equation.
-   logical,                    intent(in), optional :: is_to_open  !< Flag to open  file before first saving.
-   logical,                    intent(in), optional :: is_to_close !< Flag to close file after last saving.
-   real(R8P)                                        :: max_div_D   !< Maximum of divergence of D field.
-   real(R8P)                                        :: max_div_B   !< Maximum of divergence of B
-   real(R8P)                                        :: max_div_J   !< Maximum of divergence of J field.
-   real(R8P)                                        :: r           !< Auxiliary variable to identify fWL presence
-
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, C=>self%fWLayer%C, hs=>self%numerics%fdv_half_stencils(1))
-   r = nint(real(C)/(real(C)+1_I4P))
-   if (self%time%is_to_save(it_save=self%io%divergence_history_save)) then
-      max_div_D = maxval(abs(self%divergence(1,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
-                                             1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
-      max_div_B = maxval(abs(self%divergence(2,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
-                                             1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
-      max_div_J = maxval(abs(self%divergence(3,1+r*(C+hs):ni-r*(C+hs-1_I4P),1+r*(C+hs):nj-r*(C+hs-1_I4P), &
-                                             1+r*(C+hs):nk-r*(C+hs-1_I4P),:)))
-      call self%io%save_divergence_history(it=self%time%it,time=self%time%time,blocks_number=self%blocks_number, &
-                                           div_D=max_div_D,div_B=max_div_B,div_J=max_div_J, &
-                                           is_to_open=is_to_open,is_to_close=is_to_close)
-   endif
-   endassociate
-   endsubroutine save_divergence_history
-
    subroutine save_restart_files(self)
    !< Save restart files.
    class(prism_common_object), intent(inout) :: self !< The equation.
@@ -562,434 +395,73 @@ contains
    character(*),               intent(in), optional :: output_basename  !< Output basename.
    logical,                    intent(in), optional :: with_ghost       !< Flag to save ghost cells.
    character(:), allocatable                        :: output_basename_ !< Output basename, local var.
+   logical                                          :: with_ghost_      !< Flag to save ghost cells, local var.
+   type(xh5f_file_object)                           :: xh5f             !< XH5F file handler.
+   integer(I4P)                                     :: ngc              !< Ghost cells saved.
+   integer(I4P)                                     :: ijk(2,3)         !< Blocks extents.
+   integer(I8P)                                     :: nijk(3)          !< Blocks dimensions.
+   type(string), allocatable                        :: q_name(:)        !< Q-vector variables names [nv].
+   character(:), allocatable                        :: bn               !< Block name.
+   integer(I4P)                                     :: b, c, v          !< Counter.
 
    call self%mpih%barrier(tictoc=.true.)
    call self%mpih%print_message('save HDF5 files t: '//trim(str(self%time%it,.true.))//', time: '//&
                                 trim(str(self%time%time,.true.)))
+
    output_basename_ = trim(self%io%output_basename)//'-'//trim(strz(self%time%it,9))
+   with_ghost_      = .false. ; if (present(with_ghost      )) with_ghost_       = with_ghost
+
    if (present(output_basename)) output_basename_ = trim(output_basename)
-   call self%adam%io%save_xh5f(basename=trim(output_basename_), &
-                               q=self%q, q_name=self%q_name,    &
-                               with_ghost=with_ghost,           &
-                               with_cell_morton=.true.,         &
-                               t=self%time%it, time=self%time%time)
+
+   ! call self%save_q_xh5f(basename=trim(output_basename_), &
+   !                       q=self%q, q_name=self%q_name,    &
+   !                       with_ghost=with_ghost,           &
+   !                       with_cell_morton=.true.,         &
+   !                       t=self%time%it, time=self%time%time)
+
+   ngc = 0_I4P ; if (with_ghost_) ngc = self%grid%ngc
+   associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
+   ijk(:,1) = [1-ngc,ni+ngc]
+   ijk(:,2) = [1-ngc,nj+ngc]
+   ijk(:,3) = [1-ngc,nk+ngc]
+   nijk = [ijk(2,1)-ijk(1,1)+1, &
+           ijk(2,2)-ijk(1,2)+1, &
+           ijk(2,3)-ijk(1,3)+1]
+   endassociate
+   call self%open_file_xh5f(basename=trim(output_basename_), xh5f=xh5f)
+   do b=1, self%field%blocks_number
+      bn = 'block_'//trim(strz(b,9))//'-proc'//trim(strz(self%mpih%myrank,6))
+      call self%open_block_xh5f(xh5f=xh5f, b=b, nijk=nijk, t=self%time%it, time=self%time%time)
+
+      allocate(q_name(size(self%q, dim=1)))
+      do v=1, size(self%q, dim=1)
+         q_name(v) = trim(adjustl(self%q_name(v)))
+      enddo
+      call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, q=self%q(:,:,:,:,b), q_name=q_name)
+      deallocate(q_name)
+      if (self%coil%total_coils_number>0) then
+         allocate(q_name(1))
+         q_name(1) = 'coil_flag'
+         call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, q=self%coil%coil_flag(:,:,:,b), q_name=q_name(1))
+         deallocate(q_name)
+
+         allocate(q_name(4))
+         do c=1, self%coil%total_coils_number
+            q_name(1) = 'coil_'//trim(strz(c,2))//'j_vec_1'
+            q_name(2) = 'coil_'//trim(strz(c,2))//'j_vec_2'
+            q_name(3) = 'coil_'//trim(strz(c,2))//'j_vec_3'
+            q_name(4) = 'coil_'//trim(strz(c,2))//'f_Gauss'
+            call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, q=self%coil%j_vec(:,:,:,:,b,c), q_name=q_name)
+         enddo
+         deallocate(q_name)
+      endif
+
+      call self%close_block_xh5f(xh5f=xh5f)
+   enddo
+   call self%close_file_xh5f(xh5f=xh5f)
+
    call self%mpih%barrier(tictoc=.true.)
    endsubroutine save_xh5f
-
-   ! FDV operators numerical methods
-   subroutine compute_curl_fd(self, ivar, q, curl)
-   !< Compute curl of vector fields, div(q(ivar:ivar+2), using finite difference schemes.
-   class(prism_common_object), intent(in)    :: self                                            !< The equation.
-   integer(I4P),               intent(in)    :: ivar                                            !< Start index of variable of q.
-   real(R8P),                  intent(in)    :: q(   1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),                  intent(inout) :: curl(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Curl.
-   integer(I4P)                              :: i,j,k,b                                         !< Counter.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(1))
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      call compute_curl_fd_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),curl=curl(ivar:,i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_curl_fd
-
-   subroutine compute_curl_fv(self, ivar, q, curl)
-   !< Compute curl of vector fields, div(q(ivar:ivar+2), using finite volume schemes.
-   class(prism_common_object), intent(in)    :: self                                            !< The equation.
-   integer(I4P),               intent(in)    :: ivar                                            !< Start index of variable of q.
-   real(R8P),                  intent(in)    :: q(   1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),                  intent(inout) :: curl(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Curl.
-   integer(I4P)                              :: i,j,k,b                                         !< Counter.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(1))
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      call compute_curl_fv_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),curl=curl(ivar:,i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_curl_fv
-
-   subroutine compute_derivative1_fd(self, dir, ivar, q, dq_ds)
-   !< Compute derivative1 of scalar fields, dq(ivar)/ds, using finite difference schemes.
-   class(prism_common_object), intent(in)    :: self                                         !< The equation.
-   integer(I4P),               intent(in)    :: dir                                          !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P),               intent(in)    :: ivar                                         !< Start index of (vec.) variable of q.
-   real(R8P),                  intent(in)    :: q(1:, 1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Field variables.
-   real(R8P),                  intent(inout) :: dq_ds(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Derivative1, dq/ds.
-   integer(I4P)                              :: i,j,k,b                                      !< Counter.
-   integer(I4P)                              :: is,js,ks                                     !< Stencils.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(1))
-   select case(dir)
-   case(1)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative1_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i-hs:i+hs,j,k,b),dq_ds=dq_ds(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(2)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative1_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j-hs:j+hs,k,b),dq_ds=dq_ds(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(3)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative1_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j,k-hs:k+hs,b),dq_ds=dq_ds(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   endselect
-   endassociate
-   endsubroutine compute_derivative1_fd
-
-   subroutine compute_derivative1_fv(self, dir, ivar, q, dq_ds)
-   !< Compute derivative1 of scalar fields, dq(ivar)/ds, using finite volume schemes.
-   class(prism_common_object), intent(in)    :: self                                         !< The equation.
-   integer(I4P),               intent(in)    :: dir                                          !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P),               intent(in)    :: ivar                                         !< Start index of (vec.) variable of q.
-   real(R8P),                  intent(in)    :: q(1:, 1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Field variables.
-   real(R8P),                  intent(inout) :: dq_ds(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Derivative1, dq/ds.
-   integer(I4P)                              :: i,j,k,b                                      !< Counter.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(1))
-   select case(dir)
-   case(1)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative1_fv_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i-hs:i+hs,j,k,b),dq_ds=dq_ds(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(2)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative1_fv_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j-hs:j+hs,k,b),dq_ds=dq_ds(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(3)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative1_fv_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j,k-hs:k+hs,b),dq_ds=dq_ds(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   endselect
-   endassociate
-   endsubroutine compute_derivative1_fv
-
-   subroutine compute_derivative2_fd(self, dir, ivar, q, d2q_ds2)
-   !< Compute derivative2 of scalar fields, d2q(ivar)/ds2, using finite difference schemes.
-   class(prism_common_object), intent(in)    :: self                                           !< The equation.
-   integer(I4P),               intent(in)    :: dir                                            !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P),               intent(in)    :: ivar                                           !< Start index of (vec.) variable of q.
-   real(R8P),                  intent(in)    :: q(1:,   1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Field variables.
-   real(R8P),                  intent(inout) :: d2q_ds2(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Derivative2, d2q/ds2.
-   integer(I4P)                              :: i,j,k,b                                        !< Counter.
-   integer(I4P)                              :: is,js,ks                                       !< Stencils.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(2))
-   select case(dir)
-   case(1)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative2_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i-hs:i+hs,j,k,b),d2q_ds2=d2q_ds2(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(2)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative2_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j-hs:j+hs,k,b),d2q_ds2=d2q_ds2(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(3)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative2_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j,k-hs:k+hs,b),d2q_ds2=d2q_ds2(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   endselect
-   endassociate
-   endsubroutine compute_derivative2_fd
-
-   subroutine compute_derivative2_fv(self, dir, ivar, q, d2q_ds2)
-   !< Compute derivative2 of scalar fields, d2q(ivar)/ds2, using finite volume schemes.
-   class(prism_common_object), intent(in)    :: self                                            !< The equation.
-   integer(I4P),               intent(in)    :: dir                                             !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P),               intent(in)    :: ivar                                            !< Start index of variable of q.
-   real(R8P),                  intent(in)    :: q(1:,   1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),                  intent(inout) :: d2q_ds2(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative2, d2q/ds2.
-   integer(I4P)                              :: i,j,k,b                                         !< Counter.
-   integer(I4P)                              :: is,js,ks                                        !< Stencils.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(2))
-   select case(dir)
-   case(1)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         ! call compute_derivative2_fv_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i-hs:i+hs,j,k,b),d2q_ds2=d2q_ds2(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(2)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         ! call compute_derivative2_fv_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j-hs:j+hs,k,b),d2q_ds2=d2q_ds2(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(3)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         ! call compute_derivative2_fv_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j,k-hs:k+hs,b),d2q_ds2=d2q_ds2(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   endselect
-   endassociate
-   endsubroutine compute_derivative2_fv
-
-   subroutine compute_derivative4_fd(self, dir, ivar, q, d4q_ds4)
-   !< Compute derivative2 of scalar fields, d4q(ivar)/ds4, using finite difference schemes.
-   class(prism_common_object), intent(in)    :: self                                            !< The equation.
-   integer(I4P),               intent(in)    :: dir                                             !< Direction, 1=X, 2=Y, 3=Z.
-   integer(I4P),               intent(in)    :: ivar                                            !< Start index of variable of q.
-   real(R8P),                  intent(in)    :: q(1:,   1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),                  intent(inout) :: d4q_ds4(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Derivative4, d4q/ds4.
-   integer(I4P)                              :: i,j,k,b                                         !< Counter.
-   integer(I4P)                              :: is,js,ks                                        !< Stencils.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencil)
-   select case(dir)
-   case(1)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative4_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i-hs:i+hs,j,k,b),d4q_ds4=d4q_ds4(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(2)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative4_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j-hs:j+hs,k,b),d4q_ds4=d4q_ds4(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   case(3)
-      do b=1, blocks_number
-      do k=1, nk
-      do j=1, nj
-      do i=1, ni
-         call compute_derivative4_fd_centered(s=hs,ds=dxyz(dir,b),q=q(ivar,i,j,k-hs:k+hs,b),d4q_ds4=d4q_ds4(i,j,k,b))
-      enddo
-      enddo
-      enddo
-      enddo
-   endselect
-   endassociate
-   endsubroutine compute_derivative4_fd
-
-   subroutine compute_divergence_fd(self, ivar, q, divergence)
-   !< Compute divergence of vector fields, div(q(ivar:ivar+2), using finite difference schemes.
-   class(prism_common_object), intent(in)    :: self                                               !< The equation.
-   integer(I4P),               intent(in)    :: ivar                                               !< Start index of field of q.
-   real(R8P),                  intent(in)    :: q(1:,      1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),                  intent(inout) :: divergence(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
-   integer(I4P)                              :: i,j,k,b                                            !< Counter.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(1))
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      call compute_divergence_fd_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),&
-                                          divergence=divergence(i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_divergence_fd
-
-   subroutine compute_divergence_fv(self, ivar, q, divergence)
-   !< Compute divergence of vector fields, div(q(ivar:ivar+2), using finite volume schemes.
-   class(prism_common_object), intent(in)    :: self                                               !< The equation.
-   integer(I4P),               intent(in)    :: ivar                                               !< Start index of field of q.
-   real(R8P),                  intent(in)    :: q(1:,      1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),                  intent(inout) :: divergence(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Divergence.
-   integer(I4P)                              :: i,j,k,b                                            !< Counter.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz,&
-             hs=>self%numerics%fdv_half_stencils(1))
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      call compute_divergence_fv_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar:ivar+2,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b), &
-                                          divergence=divergence(i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_divergence_fv
-
-   subroutine compute_gradient_fd(self, ivar, q, gradient)
-   !< Compute gradient of scalar variable q(ivar), finite difference schemes.
-   class(prism_common_object), intent(in)    :: self                                               !< The equation.
-   integer(I4P),               intent(in)    :: ivar                                               !< Index of scalar variable of q.
-   real(R8P),                  intent(in)    :: q(       1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Field variables.
-   real(R8P),                  intent(inout) :: gradient(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Gradient.
-   integer(I4P)                              :: i, j, k, b                                         !< Counter.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(1))
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      call compute_gradient_fd_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),&
-                                        gradient=gradient(1:3,i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_gradient_fd
-
-   subroutine compute_gradient_fv(self, ivar, q, gradient)
-   !< Compute gradient of scalar variable q(ivar), finite volume schemes.
-   class(prism_common_object), intent(in)    :: self                                               !< The equation.
-   integer(I4P),               intent(in)    :: ivar                                               !< Index of scalar variable of q.
-   real(R8P),                  intent(in)    :: q(       1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Field variables.
-   real(R8P),                  intent(inout) :: gradient(1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:)!< Gradient.
-   integer(I4P)                              :: i, j, k, b                                         !< Counter.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(1))
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      call compute_gradient_fv_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),&
-                                        gradient=gradient(1:3,i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_gradient_fv
-
-   subroutine compute_laplacian_fd(self, ivar, q, laplacian)
-   !< Compute laplacian of scalar variable q(ivar), finite difference schemes.
-   class(prism_common_object), intent(in)    :: self                                              !< The equation.
-   integer(I4P),               intent(in)    :: ivar                                              !< Index of scalar variable of q.
-   real(R8P),                  intent(in)    :: q(     1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),                  intent(inout) :: laplacian(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Gradient.
-   integer(I4P)                              :: i, j, k, b                                        !< Counter.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(2))
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-      call compute_laplacian_fd_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),laplacian=laplacian(i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_laplacian_fd
-
-   subroutine compute_laplacian_fv(self, ivar, q, laplacian)
-   !< Compute laplacian of scalar variable q(ivar), finite volume schemes.
-   class(prism_common_object), intent(in)    :: self                                              !< The equation.
-   integer(I4P),               intent(in)    :: ivar                                              !< Index of scalar variable of q.
-   real(R8P),                  intent(in)    :: q(     1:,1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Field variables.
-   real(R8P),                  intent(inout) :: laplacian(1-self%ngc:,1-self%ngc:,1-self%ngc:,1:) !< Gradient.
-   integer(I4P)                              :: i, j, k, b                                        !< Counter.
-
-   associate(ni=>self%ni,nj=>self%nj,nk=>self%nk,ngc=>self%ngc,blocks_number=>self%blocks_number,dxyz=>self%field%dxyz, &
-             hs=>self%numerics%fdv_half_stencils(2))
-   do b=1, blocks_number
-   do k=1, nk
-   do j=1, nj
-   do i=1, ni
-     !call compute_laplacian_fv_centered(s=hs,dxyz=dxyz(:,b),q=q(ivar,i-hs:i+hs,j-hs:j+hs,k-hs:k+hs,b),laplacian=laplacian(i,j,k,b))
-   enddo
-   enddo
-   enddo
-   enddo
-   endassociate
-   endsubroutine compute_laplacian_fv
 
    ! coils initialization methods
    subroutine compute_coil_current_density_flux(self, n, adjust_amplitude)
@@ -1282,7 +754,8 @@ contains
             call self%set_solenoid_z(n=n, verse = -1._R8P)
          endselect
       endselect
-      call self%compute_divergence(ivar=1_I4P,q=self%coil%J_vec(1:3,:,:,:,:,n),divergence=self%divergence(3,:,:,:,:))
+      call self%compute_divergence(hs=self%numerics%fdv_half_stencil,ivar=1_I4P,q=self%coil%J_vec(1:3,:,:,:,:,n),&
+                                   divergence=self%divergence(3,:,:,:,:))
       print '(A)', self%mpih%myrankstr//'Divergenza J vec della spira: ' &
                   //trim(str(n))//' pari a: '//trim(str(maxval(abs(self%divergence(3,:,:,:,:)))))
    enddo
@@ -1307,7 +780,8 @@ contains
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>self%field%dxyz(1,:),         &
             dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n),          &
             nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  &
-            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec)
+            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
+            hs=>self%numerics%fdv_half_stencil)
 
    !Fisso estremi della spira rettangolare con normale parallela a x, e centro in (x_c, y_c, z_c)
    y_d = -lx/2 + y_c
@@ -1352,7 +826,7 @@ contains
       enddo
    enddo
 
-   call self%compute_curl(ivar=1_I4P,q=A,curl=J_vec_buffer)
+   call self%compute_curl(hs=hs, ivar=1_I4P,q=A,curl=J_vec_buffer)
    J_vec_buffer = J_vec_buffer * verse
 
    do b=1, blocks_number
@@ -1410,7 +884,8 @@ contains
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>self%field%dxyz(1,:),         &
             dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n),          &
             nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  &
-            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec)
+            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
+            hs=>self%numerics%fdv_half_stencil)
 
    !Fisso estremi della spira rettangolare con normale parallela a y, e centro in (x_c, y_c, z_c)
    x_l = -lx/2 + x_c
@@ -1455,7 +930,7 @@ contains
       enddo
    enddo
 
-   call self%compute_curl(ivar=1_I4P,q=A,curl=J_vec_buffer)
+   call self%compute_curl(hs=hs,ivar=1_I4P,q=A,curl=J_vec_buffer)
    J_vec_buffer = J_vec_buffer * verse
 
    do b=1, blocks_number
@@ -1513,7 +988,8 @@ contains
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), dx=>self%field%dxyz(1,:),         &
             dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:), normal=>self%coil%normal(n),          &
             nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  &
-            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec)
+            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
+            hs=>self%numerics%fdv_half_stencil)
 
    !Fisso estremi della spira rettangolare con normale parallela a z, e centro in (x_c, y_c, z_c)
    x_l = -lx/2 +x_c
@@ -1557,7 +1033,7 @@ contains
          enddo
       enddo
    enddo
-   call self%compute_curl(ivar=1_I4P,q=A,curl=J_vec_buffer)
+   call self%compute_curl(hs=hs, ivar=1_I4P,q=A,curl=J_vec_buffer)
    J_vec_buffer = J_vec_buffer * verse !* 10.0_R8P**4._R8P
 
    do b=1, blocks_number
@@ -1657,7 +1133,7 @@ contains
              coil_flag=>self%coil%coil_flag, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:),      &
              dz=>self%field%dxyz(3,:), nb=>self%field%nb, x_cell=>self%field%x_cell,                  &
              y_cell=>self%field%y_cell, z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n),         &
-             J_vec=>self%coil%J_vec)
+             J_vec=>self%coil%J_vec, hs=>self%numerics%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
@@ -1684,7 +1160,7 @@ contains
       enddo
    enddo
 
-   call self%compute_curl(ivar=1_I4P, q=A, curl=J_vec_buffer)
+   call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
    J_vec_buffer = J_vec_buffer * verse
 
    do b=1, blocks_number
@@ -1742,7 +1218,7 @@ contains
              coil_flag=>self%coil%coil_flag, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:),      &
              dz=>self%field%dxyz(3,:), nb=>self%field%nb, x_cell=>self%field%x_cell,                  &
              y_cell=>self%field%y_cell, z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n),         &
-             J_vec=>self%coil%J_vec)
+             J_vec=>self%coil%J_vec, hs=>self%numerics%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
@@ -1769,7 +1245,7 @@ contains
       enddo
    enddo
 
-   call self%compute_curl(ivar=1_I4P, q=A, curl=J_vec_buffer)
+   call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
    J_vec_buffer = J_vec_buffer * verse
 
    do b=1, blocks_number
@@ -1828,7 +1304,7 @@ contains
              coil_flag=>self%coil%coil_flag, dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:),      &
              dz=>self%field%dxyz(3,:), nb=>self%field%nb, x_cell=>self%field%x_cell,                  &
              y_cell=>self%field%y_cell, z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n),         &
-             J_vec=>self%coil%J_vec)
+             J_vec=>self%coil%J_vec, hs=>self%numerics%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
@@ -1855,7 +1331,7 @@ contains
       enddo
    enddo
 
-   call self%compute_curl(ivar=1_I4P, q=A, curl=J_vec_buffer)
+   call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
    J_vec_buffer = J_vec_buffer * verse
 
    do b=1, blocks_number
@@ -1911,10 +1387,11 @@ contains
    associate(blocks_number=>self%field%blocks_number, ni=>self%field%grid%ni, nj=>self%field%grid%nj, &
             nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),             &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n),      &
-            l_sol=>self%coil%l_solenoid(n), coil_flag=>self%coil%coil_flag,                            &
+            l_sol=>self%coil%l_solenoid(n), coil_flag=>self%coil%coil_flag,                           &
             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),             &
             nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  &
-            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec)
+            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
+            hs=>self%numerics%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
@@ -1941,7 +1418,7 @@ contains
       enddo
    enddo
 
-   call self%compute_curl(ivar=1_I4P, q=A, curl=J_vec_buffer)
+   call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
    J_vec_buffer = J_vec_buffer * verse
 
    do b=1, blocks_number
@@ -1995,10 +1472,11 @@ contains
    associate(blocks_number=>self%field%blocks_number, ni=>self%field%grid%ni, nj=>self%field%grid%nj, &
             nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),             &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n),      &
-            l_sol=>self%coil%l_solenoid(n), coil_flag=>self%coil%coil_flag,                            &
+            l_sol=>self%coil%l_solenoid(n), coil_flag=>self%coil%coil_flag,                           &
             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),             &
             nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  &
-            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec)
+            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
+            hs=>self%numerics%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
@@ -2025,7 +1503,7 @@ contains
       enddo
    enddo
 
-   call self%compute_curl(ivar=1_I4P, q=A, curl=J_vec_buffer)
+   call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
    J_vec_buffer = J_vec_buffer * verse
 
    do b=1, blocks_number
@@ -2079,10 +1557,11 @@ contains
    associate(blocks_number=>self%field%blocks_number, ni=>self%field%grid%ni, nj=>self%field%grid%nj, &
             nk=>self%field%grid%nk, ngc=>self%field%grid%ngc, x_c=>self%coil%x_center(n),             &
             y_c=>self%coil%y_center(n), z_c=>self%coil%z_center(n), r_coil=>self%coil%r_coil(n),      &
-            l_sol=>self%coil%l_solenoid(n), coil_flag=>self%coil%coil_flag,                            &
+            l_sol=>self%coil%l_solenoid(n), coil_flag=>self%coil%coil_flag,                           &
             dx=>self%field%dxyz(1,:), dy=>self%field%dxyz(2,:), dz=>self%field%dxyz(3,:),             &
             nb=>self%field%nb, x_cell=>self%field%x_cell, y_cell=>self%field%y_cell,                  &
-            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec)
+            z_cell=>self%field%z_cell, sigma=>self%coil%sigma(n), J_vec=>self%coil%J_vec,             &
+            hs=>self%numerics%fdv_half_stencil)
 
    allocate(A(1:3,1-ngc:ni+ngc,1-ngc:nj+ngc,1-ngc:nk+ngc,1:nb))
    A(:,:,:,:,:) = 0.0_R8P
@@ -2109,7 +1588,7 @@ contains
       enddo
    enddo
 
-   call self%compute_curl(ivar=1_I4P, q=A, curl=J_vec_buffer)
+   call self%compute_curl(hs=hs, ivar=1_I4P, q=A, curl=J_vec_buffer)
    J_vec_buffer = J_vec_buffer * verse
 
    do b=1, blocks_number

@@ -118,13 +118,13 @@ contains
    logical                                   :: verbose_               !< Trigger verbose output, local variable.
    integer(I4P)                              :: myrankstr_char_length_ !< MPI ID string length, local variable.
    integer(C_LONG)                           :: mem_free, mem_total    !< CPU memory.
+   logical                                   :: is_initialized         !< Flag to check if MPI has been inizialied.
 
    verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    myrankstr_char_length_ = 5 ; if (present(myrankstr_char_length)) myrankstr_char_length_ = myrankstr_char_length
 
-   if (present(do_mpi_init)) then
-      if (do_mpi_init) call MPI_INIT(self%error)
-   endif
+   call MPI_INITIALIZED(is_initialized, self%error)
+   if (.not.is_initialized) call MPI_INIT(self%error)
    call MPI_COMM_SIZE(MPI_COMM_WORLD, self%procs_number, self%error)
    call MPI_COMM_RANK(MPI_COMM_WORLD, self%myrank, self%error)
    self%myrankstr = '[mpi-'//trim(strz(self%myrank,myrankstr_char_length_))//']'
@@ -132,7 +132,7 @@ contains
    call get_memory_info(mem_free=mem_free, mem_total=mem_total)
    self%memory_avail = real(mem_total, R8P)/1e6/self%procs_number
    if (allocated(self%req_send_recv)) deallocate(self%req_send_recv) ; allocate(self%req_send_recv(0:self%procs_number*2-1))
-   if (verbose_) then 
+   if (verbose_) then
       print '(A)', self%description()
       call self%print_message('mpih_object%initialize finish')
    endif

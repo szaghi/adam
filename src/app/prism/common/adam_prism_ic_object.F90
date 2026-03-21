@@ -24,7 +24,7 @@ public :: prism_ic_object
 
 character(len=18), parameter :: INI_SECTION_NAME="initial_conditions"     !< INI (config) file section name containing IC configs.
 character(len=6),  parameter :: IC_TYPE_VACUUM="vacuum"                   !< Vacuum IC TYPE parameter.
-character(len=15), parameter :: IC_TYPE_RP="riemann-problem"              !< Riemann Problem IC TYPE parameter.   
+character(len=15), parameter :: IC_TYPE_RP="riemann-problem"              !< Riemann Problem IC TYPE parameter.
 character(len=10), parameter :: IC_TYPE_PLANE_WAVE="plane_wave"           !< Riemann Problem IC TYPE parameter.
 character(len=10), parameter :: IC_TYPE_RMF="rmf_field"                   !< Rotating Magnetic Field IC TYPE parameter.
 character(len=15), parameter :: IC_TYPE_MAGNETIC_NOZZLE="magnetic_nozzle" !< Nozzle IC TYPE parameter.
@@ -172,8 +172,8 @@ contains
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='lambda', val=self%lambda, error=error)
       if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(lambda)')
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='B0', val=self%B0, error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B0)')        
-   endif 
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B0)')
+   endif
    if (self%ic_type == IC_TYPE_RMF) then
       call file_parameters%get(section_name='external_fields', option_name='RMF_frequency', val=self%RMF_frequency, error=error)
       if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(RMF_frequency)')
@@ -216,7 +216,7 @@ contains
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='B_y', val=self%B_y, error=error)
       if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B_y)')
       call file_parameters%get(section_name=INI_SECTION_NAME, option_name='B_z', val=self%B_z, error=error)
-      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B_z)')      
+      if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(B_z)')
    endif
    endsubroutine load_from_file
 
@@ -232,7 +232,7 @@ contains
                                                    1:)                  !< Field cell centered variables.
       real(R8P)                                 :: x_cell(1-field%grid%ngc:field%grid%ni+field%grid%ngc), &
                                                    y_cell(1-field%grid%ngc:field%grid%nj+field%grid%ngc), &
-                                                   z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc) 
+                                                   z_cell(1-field%grid%ngc:field%grid%nk+field%grid%ngc)
                                                                         !< Vettori posizione centro celle del blocco b
       integer(I4P)                              :: b, i, j, k, ri, var  !< Counter.
 	   real(R8P) 										   :: B_r, B_theta 			!< Radial and azimuthal components of the rotating magnetic field
@@ -282,7 +282,7 @@ contains
          enddo
       enddo
    case(IC_TYPE_RMF) !rotating magnetic field initial conditions
-   associate(alpha=>self%alpha, beta=>self%beta, gamma=>self%gamma)	
+   associate(alpha=>self%alpha, beta=>self%beta, gamma=>self%gamma)
    do b = 1, blocks_number
 		call field%grid%cell_xyz(coordinates = field%coordinates(:,b), x_cell = x_cell, y_cell = y_cell, z_cell = z_cell)
          do i = 1, ni
@@ -292,7 +292,7 @@ contains
                   x = cell_coord(alpha)
                   y = cell_coord(beta)
                   r = sqrt(x*x + y*y)
-                  theta = atan2(y, x)                   
+                  theta = atan2(y, x)
                   omega = 2.0_R8P*PI*self%RMF_frequency
                   phase = -theta !+omega*time1 se la vuoi rendere analitica come termine sorgente
                   B_r     = self%RMF_B_amplitude*cos(phase)

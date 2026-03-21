@@ -76,6 +76,8 @@ implicit none
 private
 public :: field_object
 
+character(len=5), parameter :: INI_SECTION_NAME="field" !< INI (config) file section name containing configs.
+
 type :: field_object
    !< Field class definition.
    ! ADAM objects
@@ -138,12 +140,13 @@ type :: field_object
       procedure, pass(self) :: update_ghost_local            !< Update ghosts locally.
       procedure, pass(self) :: update_ghost_mpi              !< Update ghosts MPI.
       ! private methods
-      procedure, pass(self), private :: derefine1D !< Derefine blocks, 1D.
-      procedure, pass(self), private :: derefine2D !< Derefine blocks, 2D.
-      procedure, pass(self), private :: derefine3D !< Derefine blocks, 3D.
-      procedure, pass(self), private :: refine1D   !< Refine blocks, 1D.
-      procedure, pass(self), private :: refine2D   !< Refine blocks, 2D.
-      procedure, pass(self), private :: refine3D   !< Refine blocks, 3D.
+      procedure, pass(self), private :: derefine1D         !< Derefine blocks, 1D.
+      procedure, pass(self), private :: derefine2D         !< Derefine blocks, 2D.
+      procedure, pass(self), private :: derefine3D         !< Derefine blocks, 3D.
+      procedure, pass(self), private :: refine1D           !< Refine blocks, 1D.
+      procedure, pass(self), private :: refine2D           !< Refine blocks, 2D.
+      procedure, pass(self), private :: refine3D           !< Refine blocks, 3D.
+      procedure, pass(self), private :: update_coordinates !< Update coordinates using the updated data in maps.
 endtype field_object
 
 contains
@@ -247,6 +250,7 @@ contains
    class(field_object), intent(in) :: self             !< The field.
    character(len=:), allocatable   :: desc             !< Description.
    character(len=1), parameter     :: NL=new_line('a') !< New line character.
+   integer(I4P)                    :: b                !< Counter.
 
    desc =       self%mpih%myrankstr//'field main data'                                                      //NL
    desc = desc//self%mpih%myrankstr//'  field variables number (nv):     '//trim(str(self%nv              ))//NL
@@ -255,6 +259,10 @@ contains
    desc = desc//self%mpih%myrankstr//'  blocks number:                   '//trim(str(self%blocks_number   ))//NL
    desc = desc//self%mpih%myrankstr//'  block weight:                    '//trim(str(self%block_weight    ))//NL
    desc = desc//self%mpih%myrankstr//'  block weigh pic                  '//trim(str(self%block_weight_pic))
+   do b=1, self%blocks_number
+   desc = desc//NL//self%mpih%myrankstr//'  coordinates b='//trim(strz(b,9)) //'             '//trim(str(self%coordinates(:,b)))
+   desc = desc//NL//self%mpih%myrankstr//'  dxyz        b='//trim(strz(b,9)) //'             '//trim(str(self%dxyz       (:,b)))
+   enddo
    endfunction description
 
    function do_caxis_intersect(self, b, caxis_origin, caxis_direction, caxis_block_indexes) result(do_intersect)
@@ -380,102 +388,100 @@ contains
       endsubroutine check_slab
    endfunction do_ray_intersect
 
-   subroutine initialize(self, grid, maps, file_parameters, nv, nv_pic, nb, np, q)
+   subroutine initialize(self, grid, maps, nb, file_parameters, verbose)
    !< Initialize field.
-   class(field_object),    intent(inout)           :: self            !< The field.
-   type(grid_object),      intent(in), target      :: grid            !< The grid.
-   type(maps_object),      intent(in), target      :: maps            !< The maps.
-   type(file_ini),         intent(inout), optional :: file_parameters !< INI file handler.
-   integer(I4P),           intent(in),    optional :: nv              !< Number of field variables.
-   integer(I4P),           intent(in),    optional :: nv_pic          !< Number of PIC variables.
-   integer(I4P),           intent(in),    optional :: nb              !< Number of all blocks that can be stored.
-   integer(I4P),           intent(in),    optional :: np              !< Number of all particles that can be stored in each block.
-   real(R8P), allocatable, intent(inout), optional :: q(:,:,:,:,:)    !< Field cell centered variables.
+   class(field_object),    intent(inout)        :: self            !< The field.
+   type(grid_object),      intent(in), target   :: grid            !< The grid.
+   type(maps_object),      intent(in), target   :: maps            !< The maps.
+   type(file_ini),         intent(inout)        :: file_parameters !< INI file handler.
+   integer(I4P),           intent(in)           :: nb              !< Number of all blocks that can be stored.
+   logical,                intent(in), optional :: verbose         !< Trigger verbose output.
+   logical                                      :: verbose_        !< Trigger verbose output, local variable.
 
-   call self%mpih%initialize
-   call self%mpih%print_message('field_object%initialize start')
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   call self%mpih%initialize(verbose=verbose_)
+   if (verbose_) call self%mpih%print_message('field_object%initialize start')
    self%grid => grid
    self%maps => maps
-   if (present(file_parameters)) call self%load_from_ini_file(file_parameters)
-   ! parameters explicitely passed ovveride ones file-passed
-   if (present(nv))     self%nv     = nv
-   if (present(nv_pic)) self%nv_pic = nv_pic
-   if (present(nb))     self%nb     = nb
-   if (present(np))     self%np     = np
+   self%nb = nb
+   call self%load_from_ini_file(file_parameters)
    self%block_weight = (self%grid%ngc+self%grid%ni+self%grid%ngc)* &
                        (self%grid%ngc+self%grid%nj+self%grid%ngc)* &
                        (self%grid%ngc+self%grid%nk+self%grid%ngc)*self%nv
    if (self%nb>0) then
       call allocate_variable(var=self%code, ulb=[1,self%nb],&
-                             msg=self%mpih%myrankstr//'field_object%initialize(code) ', verbose=.true.)
+                             msg=self%mpih%myrankstr//'field_object%initialize(code) ', verbose=verbose_)
       self%code    = -2_I8P
       self%code(1) = -1_I8P ! first block is assumed to be ADAM
       call allocate_variable(var=self%coordinates, ulb=reshape([1,4, 1,self%nb],[2,2]), &
-                             msg=self%mpih%myrankstr//'field_object%initialize(coordinates) ', verbose=.true.)
+                             msg=self%mpih%myrankstr//'field_object%initialize(coordinates) ', verbose=verbose_)
       call allocate_variable(var=self%particles_number, ulb=[1,self%nb],&
-                             msg=self%mpih%myrankstr//'field_object%initialize(particles_number) ', verbose=.true.)
+                             msg=self%mpih%myrankstr//'field_object%initialize(particles_number) ', verbose=verbose_)
       call allocate_variable(var=self%emin, ulb=reshape([1,3, 1,self%nb],[2,2]), &
-                             msg=self%mpih%myrankstr//'field_object%initialize(emin) ', verbose=.true.)
+                             msg=self%mpih%myrankstr//'field_object%initialize(emin) ', verbose=verbose_)
       call allocate_variable(var=self%emax, ulb=reshape([1,3, 1,self%nb],[2,2]), &
-                             msg=self%mpih%myrankstr//'field_object%initialize(emax) ', verbose=.true.)
+                             msg=self%mpih%myrankstr//'field_object%initialize(emax) ', verbose=verbose_)
       self%emin(:,1) = self%grid%domain_emin
       self%emax(:,1) = self%grid%domain_emax
       call allocate_variable(var=self%dxyz, ulb=reshape([1,3, 1,self%nb],[2,2]), &
-                             msg=self%mpih%myrankstr//'field_object%initialize(dxyz) ', verbose=.true.)
+                             msg=self%mpih%myrankstr//'field_object%initialize(dxyz) ', verbose=verbose_)
       call allocate_variable(var=self%x_cell,                                         &
                              ulb=reshape([1-self%grid%ngc,self%grid%ni+self%grid%ngc, &
                                           1,self%nb],[2,2]),                          &
-                             msg=self%mpih%myrankstr//'field_object%initialize(x_cell) ', verbose=.true.)
+                             msg=self%mpih%myrankstr//'field_object%initialize(x_cell) ', verbose=verbose_)
       call allocate_variable(var=self%y_cell,                                         &
                              ulb=reshape([1-self%grid%ngc,self%grid%nj+self%grid%ngc, &
                                           1,self%nb],[2,2]),                          &
-                             msg=self%mpih%myrankstr//'field_object%initialize(y_cell) ', verbose=.true.)
+                             msg=self%mpih%myrankstr//'field_object%initialize(y_cell) ', verbose=verbose_)
       call allocate_variable(var=self%z_cell,                                         &
                              ulb=reshape([1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
                                           1,self%nb],[2,2]),                          &
-                             msg=self%mpih%myrankstr//'field_object%initialize(z_cell) ', verbose=.true.)
+                             msg=self%mpih%myrankstr//'field_object%initialize(z_cell) ', verbose=verbose_)
       call allocate_variable(var=self%x_node,                                         &
                              ulb=reshape([0-self%grid%ngc,self%grid%ni+self%grid%ngc, &
                                           1,self%nb],[2,2]),                          &
-                             msg=self%mpih%myrankstr//'field_object%initialize(x_node) ', verbose=.true.)
+                             msg=self%mpih%myrankstr//'field_object%initialize(x_node) ', verbose=verbose_)
       call allocate_variable(var=self%y_node,                                         &
                              ulb=reshape([0-self%grid%ngc,self%grid%nj+self%grid%ngc, &
                                           1,self%nb],[2,2]),                          &
-                             msg=self%mpih%myrankstr//'field_object%initialize(y_node) ', verbose=.true.)
+                             msg=self%mpih%myrankstr//'field_object%initialize(y_node) ', verbose=verbose_)
       call allocate_variable(var=self%z_node,                                         &
                              ulb=reshape([0-self%grid%ngc,self%grid%nk+self%grid%ngc, &
                                           1,self%nb],[2,2]),                          &
-                             msg=self%mpih%myrankstr//'field_object%initialize(z_node) ', verbose=.true.)
-      if (present(q)) then
-         call allocate_variable(var=q,                                                   &
-                                ulb=reshape([1,self%nv,                                  &
-                                             1-self%grid%ngc,self%grid%ni+self%grid%ngc, &
-                                             1-self%grid%ngc,self%grid%nj+self%grid%ngc, &
-                                             1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
-                                             1,self%nb],[2,5]),                          &
-                                msg=self%mpih%myrankstr//'field_object%initialize(q) ', verbose=.true.)
-      endif
+                             msg=self%mpih%myrankstr//'field_object%initialize(z_node) ', verbose=verbose_)
+      ! if (present(q)) then
+      !    call allocate_variable(var=q,                                                   &
+      !                           ulb=reshape([1,self%nv,                                  &
+      !                                        1-self%grid%ngc,self%grid%ni+self%grid%ngc, &
+      !                                        1-self%grid%ngc,self%grid%nj+self%grid%ngc, &
+      !                                        1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
+      !                                        1,self%nb],[2,5]),                          &
+      !                           msg=self%mpih%myrankstr//'field_object%initialize(q) ', verbose=verbose_)
+      ! endif
       call allocate_variable(var=self%q_work,                                         &
                              ulb=reshape([1,self%nv,                                  &
                                           1-self%grid%ngc,self%grid%ni+self%grid%ngc, &
                                           1-self%grid%ngc,self%grid%nj+self%grid%ngc, &
                                           1-self%grid%ngc,self%grid%nk+self%grid%ngc, &
                                           1,self%nb],[2,5]),                          &
-                             msg=self%mpih%myrankstr//'field_object%initialize(q_work) ', verbose=.true.)
+                             msg=self%mpih%myrankstr//'field_object%initialize(q_work) ', verbose=verbose_)
       call allocate_variable(var=self%residuals, &
                              ulb=[1,self%nv],    &
-                             msg=self%mpih%myrankstr//'field_object%initialize(residuals) ', verbose=.true.)
+                             msg=self%mpih%myrankstr//'field_object%initialize(residuals) ', verbose=verbose_)
       self%q_work    = 0._R8P
       self%residuals = 0._R8P
       self%block_weight_pic = 0_I4P
    endif
    call allocate_variable(var=self%blocks_numbers, ulb=[0,self%mpih%procs_number-1], &
-                          msg=self%mpih%myrankstr//'field_object%initialize(blocks_numbers) ', verbose=.true.)
+                          msg=self%mpih%myrankstr//'field_object%initialize(blocks_numbers) ', verbose=verbose_)
    self%ngc => grid%ngc
    self%ni  => grid%ni
    self%nj  => grid%nj
    self%nk  => grid%nk
-   call self%mpih%print_message('field_object%initialize finish')
+   call self%update_coordinates
+   call self%compute_metrics
+   if (verbose_) print '(A)', self%description()
+   if (verbose_) call self%mpih%print_message('field_object%initialize finish')
    endsubroutine initialize
 
    subroutine load_blocks(self, basename, q)
@@ -536,16 +542,19 @@ contains
    endif
    endsubroutine load_blocks
 
-   subroutine load_from_ini_file(self, file_parameters)
+   subroutine load_from_ini_file(self, file_parameters, go_on_fail)
    !< Load object data from INI file.
-   class(field_object), intent(inout) :: self            !< The field.
-   type(file_ini),      intent(inout) :: file_parameters !< INI file handler.
-   integer(I4P)                       :: buff_I4P        !< I4P buffer.
+   class(field_object), intent(inout)        :: self            !< The field.
+   type(file_ini),      intent(inout)        :: file_parameters !< INI file handler.
+   logical,             intent(in), optional :: go_on_fail      !< Go on if load fails.
+   logical                                   :: go_on_fail_     !< Go on if load fails.
+   integer(I4P)                              :: error           !< Error status.
+   integer(I4P)                              :: buff_I4P        !< I4P buffer.
 
-   call file_parameters%get(section_name='field', option_name='nv',     val=buff_I4P) ; self%nv     = buff_I4P
-   call file_parameters%get(section_name='field', option_name='nb',     val=buff_I4P) ; self%nb     = buff_I4P
-   call file_parameters%get(section_name='field', option_name='nv_pic', val=buff_I4P) ; self%nv_pic = buff_I4P
-   call file_parameters%get(section_name='field', option_name='np',     val=buff_I4P) ; self%np     = buff_I4P
+   go_on_fail_ = .false. ; if (present(go_on_fail)) go_on_fail_ = go_on_fail
+   call file_parameters%get(section_name=INI_SECTION_NAME, option_name='nv', val=buff_I4P, error=error)
+   if (.not.go_on_fail_.and.error>0) call self%mpih%error_stop(msg=': failed to load ['//INI_SECTION_NAME//'].(nv)')
+   self%nv = buff_I4P
    endsubroutine load_from_ini_file
 
    subroutine mark_sphere(self, center, radius, threshold)
@@ -732,7 +741,7 @@ contains
    enddo
    self%blocks_number = n_keep  + recv_size / bwt
    q(:,:,:,:,1:self%blocks_number) = self%q_work(:,:,:,:,1:self%blocks_number)
-   self%coordinates(:, 1:self%blocks_number) = self%maps%tree%block_coordinates
+   call self%update_coordinates
    self%code(1:self%blocks_number) = self%maps%tree%block_code
    call self%compute_metrics
    endassociate
@@ -1321,4 +1330,12 @@ contains
    endif
    endassociate
    endsubroutine refine3D
+
+   subroutine update_coordinates(self)
+   !< Update coordinates using the updated data in maps (that in turn is updated by tree).
+   class(field_object), intent(inout) :: self !< The field.
+
+   print*, 'cazzo tree coordinates',allocated(self%maps%tree%block_coordinates)
+   if (self%blocks_number>0) self%coordinates(:, 1:self%blocks_number) = self%maps%tree%block_coordinates
+   endsubroutine update_coordinates
 endmodule adam_field_object

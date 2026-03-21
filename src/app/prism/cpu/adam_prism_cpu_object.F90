@@ -3,12 +3,12 @@ module adam_prism_cpu_object
 !< ADAM, PRISM (Plasma Research usIng Simulation Methods) equations system class definition, CPU backend.
 
 ! ADAM modules
-use adam_common_library
+use :: adam_common_library
 ! PRISM modules
-use adam_prism_common_library
+use :: adam_prism_common_library
 ! third party modules
-use penf
-use mpi
+use :: penf
+use :: mpi
 
 implicit none
 private
@@ -28,8 +28,8 @@ type, extends(prism_common_object) :: prism_cpu_object !commentate procedure AMR
    procedure(integrate_interface),         pass(self),pointer :: integrate        =>null()!< Integrate, time operator.
    contains
       ! auxiliary methods
-      procedure, pass(self) :: allocate_cpu !< Allocate CPU data.
-      procedure, pass(self) :: initialize   !< Initialize the equation.
+      procedure, pass(self) :: allocate_cpu     !< Allocate CPU data.
+      procedure, pass(self) :: initialize_prism !< Initialize PRSIM equation.
       ! IO methods
       procedure, pass(self) :: save_residuals       !< Save residuals history.
       procedure, pass(self) :: save_simulation_data !< Save all simulation data.
@@ -107,14 +107,14 @@ contains
    call self%mpih%print_message('prism_cpu_object%allocate_cpu finish')
    endsubroutine allocate_cpu
 
-   subroutine initialize(self, filename)
-   !< Initialize the equation.
+   subroutine initialize_prism(self, filename)
+   !< Initialize PRSIM equation.
    class(prism_cpu_object), intent(inout) :: self     !< The equation.
    character(*),            intent(in)    :: filename !< Input file name.
 
-   call self%mpih%initialize(do_mpi_init=.true., verbose=.true.)
+   call self%mpih%initialize(verbose=.true.)
    call self%mpih%print_message('prism_cpu_object%initialize start')
-   call self%initialize_common(field = self%adam%field, filename=filename, memory_avail=self%mpih%memory_avail)
+   call self%prism_common_object%initialize(filename=filename,memory_avail=self%mpih%memory_avail,verbose=.true.)
    call self%allocate_cpu
 
    ! set pointer (abstract) TBP
@@ -188,7 +188,7 @@ contains
 
    print '(A)', self%mpih%description()
    call self%mpih%print_message('prism_cpu_object%initialize finish')
-   endsubroutine initialize
+   endsubroutine initialize_prism
 
    ! IO methods
    subroutine save_residuals(self)
@@ -237,86 +237,6 @@ contains
    endsubroutine save_simulation_data
 
    ! IC/BC/sources
-   !subroutine compute_coils_current(self, q, gamma)
-   !!< Compute current coils sources.
-   !class(prism_cpu_object), intent(inout)        :: self             !< The equation.
-   !real(R8P),               intent(inout)        :: q(1:,          &
-   !                                                   1-self%ngc:, &
-   !                                                   1-self%ngc:, &
-   !                                                   1-self%ngc:, &
-   !                                                   1:)            !< Conservative variables.
-   !real(R8P),               intent(in), optional :: gamma            !< RK coefficient.
-   !real(R8P)                                     :: current_density  !< Current density.
-   !real(R8P)                                     :: current_density_o!< Current density.
-   !real(R8P)                                     :: g                !< Starting polynomial transitory of coils.
-   !real(R8P)                                     :: time_s           !< Local time.
-   !integer(I4P)                                  :: w_, w_c_         !< Step function coeff to avoid if in parallel regions.
-   !real(R8P)                                     :: g_, f_           !< Current coefficients.
-   !integer(I4P)                                  :: coil_id          !< Uniq coild ID.
-   !integer(I4P)                                  :: i,j,k,b,n        !< Counter.
-!
-   !associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,   &
-   !          time=>self%time%time, A=>self%coil%A, f=>self%coil%f, phase=>self%coil%phase,              &
-   !          coil_flag =>self%coil%coil_flag, td=>self%coil%td, J_vec=>self%coil%J_vec,                 &
-   !          var_Jx=>self%physics%var_Jx, var_Jy=>self%physics%var_Jy, var_Jz=>self%physics%var_Jz,     &
-   !          dx=>self%field%dxyz(1,1), dt=>self%time%dt)
-!
-   !if (present(gamma)) then
-   !   time_s = time + dt*gamma
-   !else
-   !   time_s = time
-   !end if
-   !if (self%coil%total_coils_number >= 1_I4P) then
-   !   ! Azzero termini sorgenti (con il PIC questa inizializzazione non va bene, bisogna ragionarci,
-   !   ! forse serve un buffer da sommare a q alla fine del ciclo su coils number)
-   !   q(VAR_JX,:,:,:,:) = 0._R8P
-   !   q(VAR_JY,:,:,:,:) = 0._R8P
-   !   q(VAR_JZ,:,:,:,:) = 0._R8P
-   !   g = 10._R8P*(time_s/td)**3 - 15._R8P*(time_s/td)**4 + 6._R8P*(time_s/td)**5
-   !   do n=1, self%coil%total_coils_number
-   !   do b=1, blocks_number
-   !   do k=1, nk
-   !   do j=1, nj
-   !   do i=1, ni
-   !      coil_id = n
-   !      ! use step function to avoid the following original if
-   !      !if (time < td) then
-   !      !   current_density = g*A(coil_id)/((d(coil_id)-dx)**2)*cos(phase(coil_id)*pi/180.0_R8P)
-   !      !else
-   !      !   current_density = A(coil_id)/((d(coil_id)-dx)**2)*cos(2*pi*f(coil_id)*(time-td) + &
-   !      !   phase(coil_id)*pi/180.0_R8P)
-   !      !endif
-   !      w_   = nint(sign(1._R8P,td-time_s) + 1._R8P)/2   ! = 1 if td>time,            = 0                              if td<time
-   !      w_c_ = 1_I4P - w_                                ! = 0 if td>time,            = 1                              if td<time
-   !      g_   = w_ * g + w_c_                             ! = g if td>time,            = 1                              if td<time
-   !      f_   = w_c_ * 2._R8P*PI*f(coil_id)*(time_s-td)   ! = 0 if td>time,            = 2._R8P*PI*f(coil_id)*(time-td) if td<time
-   !      current_density = g_ * A(coil_id) * cos(f_ + phase(coil_id)*PI/180.0_R8P)
-!
-   !      ! Lo tengo qui, ma a pensarci bene dovrebbe andare bene così come abiamo fatto (quella sfasata resta a 0)
-   !      !f_   = w_c_ * (2._R8P*PI*f(coil_id)*(time_s-td) + phase(coil_id)*PI/180.0_R8P)
-   !                        ! = 0 if td>time, = 2._R8P*PI*f(coil_id)*(time-td)+phase(coil_id)*PI/180.0_R8P if td<time
-   !      !current_density = g_ * A(coil_id) * cos(f_)*j_vec(4,i,j,k,b)
-!
-   !      q(VAR_JX,i,j,k,b) = q(VAR_JX,i,j,k,b) + current_density * J_vec(n,1,i,j,k,b)
-   !      q(VAR_JY,i,j,k,b) = q(VAR_JY,i,j,k,b) + current_density * J_vec(n,2,i,j,k,b)
-   !      q(VAR_JZ,i,j,k,b) = q(VAR_JZ,i,j,k,b) + current_density * J_vec(n,3,i,j,k,b)
-   !   enddo
-   !   enddo
-   !   enddo
-   !   enddo
-   !enddo
-   !!endif
-   !   current_density_o = g_ * A(1) * cos(w_c_*2._R8P*PI*f(1)*(time_s-td)+phase(1)*PI/180.0_R8P)
-   !   call write_current_behavior_tab('current_density_coil_1.dat', time=time_s, current_density=current_density_o)
-   !   current_density_o = g_ * A(4) * cos(w_c_*2._R8P*PI*f(4)*(time_s-td)+phase(4)*PI/180.0_R8P)
-   !   !print *, cos(w_c_*2._R8P*PI*f(4)*(time_s-td)+phase(4)*PI/180.0_R8P)
-   !   !print *, w_c_*2._R8P*PI*f(4)*(time_s-td)
-   !   !print*, phase(4)*PI/180.0_R8P
-   !   call write_current_behavior_tab('current_density_coil_4.dat', time=time_s, current_density=current_density_o)
-   !endif
-   !endassociate
-   !endsubroutine compute_coils_current
-
    subroutine compute_coils_current(self, q, gamma)
    !< Compute current coils sources (DC/AC with smooth envelope).
    class(prism_cpu_object), intent(inout)        :: self
@@ -787,6 +707,7 @@ contains
    !call self%coil%set_coils(physics=self%physics, field=self%field) !Lo metto dopo perchè l'interpolatore di correnti azzera
                                                                     !tutto per poter poi fare la sommatoria al relativo tempo
 
+  call self%field%compute_metrics
    call self%initialize_coils
 
    if (self%physics%physical_model == PIC_PHYSICAL_MODEL) then
@@ -1056,8 +977,9 @@ contains
    integer(I4P)                           :: iter      !< Counter.
    integer(I4P)                           :: i,j,k,b,v !< Counter.
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, buffer=>self%divergence)
-   call self%compute_divergence(ivar=ivar,q=self%q,divergence=buffer(4,:,:,:,:))
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number, buffer=>self%divergence, &
+             hs=>self%numerics%fdv_half_stencil)
+   call self%compute_divergence(hs=hs,ivar=ivar,q=self%q,divergence=buffer(4,:,:,:,:))
    if (blocks_number>0) then
       do iter=1, self%flail%iterations
          call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
@@ -1072,7 +994,7 @@ contains
          if (dq_max < self%flail%tolerance) exit
       enddo
       call self%mpih%print_message('FLAIL convergence reached at iteration '//trim(str(iter,.true.)))
-      call self%compute_gradient(ivar=1,q=buffer(7:7,:,:,:,:),gradient=buffer(4:6,:,:,:,:))
+      call self%compute_gradient(hs=hs,ivar=1,q=buffer(7:7,:,:,:,:),gradient=buffer(4:6,:,:,:,:))
       do b=1, blocks_number
          do k=1, nk
             do j=1, nj
@@ -1098,7 +1020,7 @@ contains
    integer(I4P)                           :: i                !< Counter.
 
    ! initialization
-   call self%initialize(filename=filename)
+   call self%initialize_prism(filename=filename)
    if (self%io%restart) then
       call self%mpih%print_message('restart simulation from "'//trim(self%io%restart_basename)//'" files')
       call self%load_restart_files(t=self%time%it, time=self%time%time)
@@ -1112,6 +1034,7 @@ contains
          !call self%amr_update
       enddo
       call self%set_initial_conditions
+      call self%adam%make_comm_local_maps_ghost_bc
       self%time%time = 0._R8P
       self%time%it = 0
       call self%mpih%print_message('impose initial conditions finish')
@@ -1119,9 +1042,11 @@ contains
    !if (self%ib%solids_number > 0) call self%compute_phi()
    ! call self%amr_update
    call self%update_ghost(q=self%q) ! Aggiunto da FN
-   call self%compute_divergence(ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
-   call self%compute_divergence(ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
-   call self%compute_divergence(ivar=self%physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
+
+   associate(hs=>self%numerics%fdv_half_stencil)
+   call self%compute_divergence(hs=hs,ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
+   call self%compute_divergence(hs=hs,ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
+   call self%compute_divergence(hs=hs,ivar=self%physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
    call self%save_simulation_data
    call self%compute_energy
    !call self%save_energy_error(is_to_open=.true.)
@@ -1192,9 +1117,9 @@ contains
       call self%compute_energy
       !call self%save_energy_error
       call self%save_energy_history
-      call self%compute_divergence(ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
-      call self%compute_divergence(ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
-      call self%compute_divergence(ivar=self%physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
+      call self%compute_divergence(hs=hs,ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
+      call self%compute_divergence(hs=hs,ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
+      call self%compute_divergence(hs=hs,ivar=self%physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
       call self%save_divergence_history
 
       if (((self%time%it_max <= 0).and.(self%time%time >= self%time%time_max)).or.&
@@ -1215,9 +1140,10 @@ contains
    !call self%mpih%print_message('RMS Error of B field: '//trim(str(self%rms_energy_error_B)))
    call self%save_energy_history(is_to_close=.true.)
    call self%update_ghost(q=self%q) ! Aggiunto da FN
-   call self%compute_divergence(ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
-   call self%compute_divergence(ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
-   call self%compute_divergence(ivar=self%physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
+   call self%compute_divergence(hs=hs,ivar=1,q=self%q,divergence=self%divergence(1,:,:,:,:))
+   call self%compute_divergence(hs=hs,ivar=4,q=self%q,divergence=self%divergence(2,:,:,:,:))
+   call self%compute_divergence(hs=hs,ivar=self%physics%var_Jx,q=self%q,divergence=self%divergence(3,:,:,:,:))
+   endassociate
    call self%save_divergence_history(is_to_close=.true.)
    call self%mpih%finalize
    endsubroutine simulate
@@ -1247,7 +1173,7 @@ contains
 	real(R8P)                              :: KO_Bx_x,KO_Bx_y,KO_Bx_z
 	real(R8P)                              :: KO_By_x,KO_By_y,KO_By_z
 	real(R8P)                              :: KO_Bz_x,KO_Bz_y,KO_Bz_z
-	real(R8P), parameter :: sigma = 1000.01_R8P	
+	real(R8P), parameter :: sigma = 1000.01_R8P
 	call self%apply_fWL_correction(q=q)
 	call self%update_ghost(q=q, s=s)
 	associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, nv_c=>self%nv_c,blocks_number=>self%blocks_number, &
@@ -1267,16 +1193,16 @@ contains
 			do i=1,ni
 		    	call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             			&
 		    	                            q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),				&
-		    	                            curl=curlD)			
+		    	                            curl=curlD)
 		    	call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             			&
 		    	                            q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),  			&
-		    	                            curl=curlB)			
+		    	                            curl=curlB)
 				call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b), 											&
 															 q=q(nv_c,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b), 					&
-															 gradient=gradphi)			
+															 gradient=gradphi)
 				call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),											&
 																q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),	&
-																divergence = divergenceD)	
+																divergence = divergenceD)
 				dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - gradphi(1) - q(var_Jx,i,j,k,b)	!- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
 		    	dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - gradphi(2) - q(var_Jy,i,j,k,b)	!- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
 		    	dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - gradphi(3) - q(var_Jz,i,j,k,b)	!- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
@@ -1290,23 +1216,23 @@ contains
 		   enddo
 		elseif (self%numerics%div_corr_var == DIV_CORR_VAR_HYPER .and. .not.constrained_transport_D .and. &
 		   		constrained_transport_B) then
-		! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0) -grad(psi), dpsi/dt = -ch^2*div(B)	
+		! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0) -grad(psi), dpsi/dt = -ch^2*div(B)
 			do b=1,blocks_number
 			do k=1,nk
 			do j=1,nj
 			do i=1,ni
 		    	call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             		 &
 		    	                            q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),			 &
-		    	                            curl=curlD)		 
+		    	                            curl=curlD)
 		    	call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                             		 &
 		    	                            q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),  		 &
-		    	                            curl=curlB)		 
+		    	                            curl=curlB)
 				call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b), 										 &
 															 q=q(nv_c,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b), 				 &
-															 gradient=gradpsi)		 
+															 gradient=gradpsi)
 				call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),										 &
 																q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b), &
-																divergence = divergenceB)		
+																divergence = divergenceB)
 				dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - q(var_Jx,i,j,k,b)	!- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
 		    	dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - q(var_Jy,i,j,k,b)	!- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
 		    	dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - q(var_Jz,i,j,k,b)	!- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
@@ -1328,22 +1254,22 @@ contains
 			do i=1,ni
 		    	call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                               			  &
 		    	                            q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),	  			  &
-		    	                            curl=curlD)			  
+		    	                            curl=curlD)
 		    	call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                               			  &
 		    	                            q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),    			  &
-		    	                            curl=curlB)			  
+		    	                            curl=curlB)
 				call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b), 								  			  &
 															 q=q(nv_c-1_I4P,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b), 			  &
-															 gradient=gradphi)				  
+															 gradient=gradphi)
 				call compute_gradient_fd_centered(s=s1,dxyz=dxyz(1:3,b), 								  			  &
 															 q=q(nv_c,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b), 		  			  &
-															 gradient=gradpsi)			  
+															 gradient=gradpsi)
 				call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),								  			  &
 																q=q(VAR_DX:VAR_DZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),	  &
-																divergence = divergenceD)  
+																divergence = divergenceD)
 				call compute_divergence_fd_centered(s=s1,dxyz=dxyz(1:3,b),								  			  &
 																q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),	  &
-																divergence = divergenceB)	
+																divergence = divergenceB)
 				dq(VAR_DX,i,j,k,b) 		=  curlB(1)/MU0  - gradphi(1) - q(var_Jx,i,j,k,b) !- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
 		    	dq(VAR_DY,i,j,k,b) 		=  curlB(2)/MU0  - gradphi(2) - q(var_Jy,i,j,k,b) !- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
 		    	dq(VAR_DZ,i,j,k,b) 		=  curlB(3)/MU0  - gradphi(3) - q(var_Jz,i,j,k,b) !- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
@@ -1355,7 +1281,7 @@ contains
 		   enddo
 		   enddo
 		   enddo
-		   enddo        
+		   enddo
 		else
 		! compute RHS dD/dt = curl(B/MU0) - J, dB/dt = -curl(D/EPS0)
 			do b=1,blocks_number
@@ -1367,7 +1293,7 @@ contains
 		    	                           curl=curlD)
 		    	call compute_curl_fd_centered(s=s1,dxyz=dxyz(1:3,b),                            	&
 		    	                           q=q(VAR_BX:VAR_BZ,i-s1:i+s1,j-s1:j+s1,k-s1:k+s1,b),  	&
-		    	                           curl=curlB)	
+		    	                           curl=curlB)
 				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_DX,i-s4:i+s4,j,k,b),d4q_ds4=KO_Dx_x);KO_Dx_x=dxyz(1,b)**3*KO_Dx_x
 				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_DX,i,j-s4:j+s4,k,b),d4q_ds4=KO_Dx_y);KO_Dx_y=dxyz(2,b)**3*KO_Dx_y
 				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_DX,i,j,k-s4:k+s4,b),d4q_ds4=KO_Dx_z);KO_Dx_z=dxyz(3,b)**3*KO_Dx_z
@@ -1385,7 +1311,7 @@ contains
 				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BY,i,j,k-s4:k+s4,b),d4q_ds4=KO_By_z);KO_By_z=dxyz(3,b)**3*KO_By_z
 				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(1,b),q=q(VAR_BZ,i-s4:i+s4,j,k,b),d4q_ds4=KO_Bz_x);KO_Bz_x=dxyz(1,b)**3*KO_Bz_x
 				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(2,b),q=q(VAR_BZ,i,j-s4:j+s4,k,b),d4q_ds4=KO_Bz_y);KO_Bz_y=dxyz(2,b)**3*KO_Bz_y
-				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bz_z);KO_Bz_z=dxyz(3,b)**3*KO_Bz_z	
+				!call compute_derivative4_fd_centered(s=s4,ds=dxyz(3,b),q=q(VAR_BZ,i,j,k-s4:k+s4,b),d4q_ds4=KO_Bz_z);KO_Bz_z=dxyz(3,b)**3*KO_Bz_z
 		    	dq(VAR_DX,i,j,k,b) =  curlB(1)/MU0 - q(var_Jx,i,j,k,b)		!- sigma*C0*(KO_Dx_x+KO_Dx_y+KO_Dx_z)/16._R8P
 		    	dq(VAR_DY,i,j,k,b) =  curlB(2)/MU0 - q(var_Jy,i,j,k,b)		!- sigma*C0*(KO_Dy_x+KO_Dy_y+KO_Dy_z)/16._R8P
 		    	dq(VAR_DZ,i,j,k,b) =  curlB(3)/MU0 - q(var_Jz,i,j,k,b)		!- sigma*C0*(KO_Dz_x+KO_Dz_y+KO_Dz_z)/16._R8P
@@ -2084,14 +2010,15 @@ contains
    !buffer(7,:,:,:,:) per potenziale scalare
    !buffer(4:6,:,:,:,:) è usato come buffer per il gradiente di q
 
-   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number)!, buffer=>self%divergence)
+   associate(ni=>self%ni, nj=>self%nj, nk=>self%nk, ngc=>self%ngc, blocks_number=>self%blocks_number,&
+             hs=>self%numerics%fdv_half_stencil)
    div_buff (:,:,:,:,:) = 0.0_R8P
    grad_buff(:,:,:,:,:) = 0.0_R8P
    dq_buff  (:,:,:,:,:) = 0.0_R8P
    phi_buff (:,:,:,:,:) = 0.0_R8P
    q_buff   (:,:,:,:,:) = q(:,:,:,:,:)
 
-   call self%compute_divergence(ivar=ivar,q=q_buff,divergence=div_buff(1,:,:,:,:))
+   call self%compute_divergence(hs=hs,ivar=ivar,q=q_buff,divergence=div_buff(1,:,:,:,:))
    print *, ' Max divergence buffered variables: ', maxval(abs(div_buff(:,:,:,:,:)))
    !call self%compute_divergence(ivar=ivar,q=q_buff,divergence=buffer(4,:,:,:,:))
    !print *, ' Max divergence buffered variables 2: ', maxval(abs(buffer(4,:,:,:,:)))
@@ -2101,14 +2028,14 @@ contains
       do iter=1, self%flail%iterations
          call compute_smoothing_multigrid(ni=ni,nj=nj,nk=nk,ngc=ngc,nv=1_I4P,blocks_number=blocks_number, &
                                           dxyz=self%field%dxyz,                                           &
-                                          f=-div_buff,                                         &
-                                          q=phi_buff,                                          &
+                                          f=-div_buff,                                                    &
+                                          q=phi_buff,                                                     &
                                           dq_max=dq_max,                                                  &
-                                          dq=dq_buff,                                         &
+                                          dq=dq_buff,                                                     &
                                           iterations_init=self%flail%iterations_init,                     &
                                           iterations_fine=self%flail%iterations_fine,                     &
                                           iterations_coarse=self%flail%iterations_coarse)
-         call self%compute_gradient(ivar=1,q=phi_buff,gradient=grad_buff)
+         call self%compute_gradient(hs=hs,ivar=1,q=phi_buff,gradient=grad_buff)
          !print *, 'valore massima correzione associata all''iterazione ', &
          !         iter, ' - max correction: ', maxval(abs(grad_buff(:,:,:,:,:)))
          do b=1, blocks_number
@@ -2122,13 +2049,13 @@ contains
                enddo
             enddo
          enddo
-         call self%compute_divergence(ivar=ivar,q=q_buff,divergence=div_buff(1,:,:,:,:))
+         call self%compute_divergence(hs=hs,ivar=ivar,q=q_buff,divergence=div_buff(1,:,:,:,:))
          !print *, 'Coil divergence correction iteration ', iter, ' - max divergence: ', maxval(abs(div_buff(:,:,:,:,:)))
          if (maxval(abs(div_buff(:,:,:,:,:))) < self%flail%tolerance) exit
       enddo
       call self%mpih%print_message('Coil divergence correction converged at iteration '//trim(str(iter,.true.)))
       q(:,:,:,:,:) = q_buff(:,:,:,:,:)
-      call self%compute_divergence(ivar=ivar,q=q,divergence=div_buff(1,:,:,:,:))
+      call self%compute_divergence(hs=hs,ivar=ivar,q=q,divergence=div_buff(1,:,:,:,:))
       print *, 'Coil - max divergence (end Poisson subroutine): ', maxval(abs(div_buff(:,:,:,:,:)))
    endif
    endassociate

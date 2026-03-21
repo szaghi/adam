@@ -81,7 +81,6 @@ type :: prism_physics_object
    real(R8P)                   :: EL_D(7,7,3)            !< Left eigenvectors with D divergence cleaning.
    real(R8P)                   :: EL_B(7,7,3)            !< Left eigenvectors with B divergence cleaning.
    real(R8P)                   :: EL_D_B(8,8,3)          !< Left eigenvectors with D and B divergence cleaning.
-
    contains
       ! public methods
       procedure, pass(self) :: description    !< Return pretty-printed object description.
@@ -398,51 +397,6 @@ contains
    elseif (self%physical_model == EM_PHYSICAL_MODEL) then
       self%nv_pic = 0_I4P
    end if
-
-   !print*, 'cazzo'
-   !print*, self%erw(1,:,1)
-   !print*, self%erw(2,:,1)
-   !print*, self%erw(3,:,1)
-   !print*, self%erw(4,:,1)
-   !print*, self%erw(5,:,1)
-   !print*, self%erw(6,:,1)
-   !print*, self%erw(7,:,1)
-   !print*, self%erw(1,:,2)
-   !print*, self%erw(2,:,2)
-   !print*, self%erw(3,:,2)
-   !print*, self%erw(4,:,2)
-   !print*, self%erw(5,:,2)
-   !print*, self%erw(6,:,2)
-   !print*, self%erw(7,:,2)
-   !print*, self%erw(1,:,3)
-   !print*, self%erw(2,:,3)
-   !print*, self%erw(3,:,3)
-   !print*, self%erw(4,:,3)
-   !print*, self%erw(5,:,3)
-   !print*, self%erw(6,:,3)
-   !print*, self%erw(7,:,3)
-!
-   !print*, self%elw(1,:,1)
-   !print*, self%elw(2,:,1)
-   !print*, self%elw(3,:,1)
-   !print*, self%elw(4,:,1)
-   !print*, self%elw(5,:,1)
-   !print*, self%elw(6,:,1)
-   !print*, self%elw(7,:,1)
-   !print*, self%elw(1,:,2)
-   !print*, self%elw(2,:,2)
-   !print*, self%elw(3,:,2)
-   !print*, self%elw(4,:,2)
-   !print*, self%elw(5,:,2)
-   !print*, self%elw(6,:,2)
-   !print*, self%elw(7,:,2)
-   !print*, self%elw(1,:,3)
-   !print*, self%elw(2,:,3)
-   !print*, self%elw(3,:,3)
-   !print*, self%elw(4,:,3)
-   !print*, self%elw(5,:,3)
-   !print*, self%elw(6,:,3)
-   !print*, self%elw(7,:,3)
 
    print '(A)', self%description()
    print '(A)', self%mpih%myrankstr//'prism_physics_object%initialize finish'

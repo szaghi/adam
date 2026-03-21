@@ -190,30 +190,27 @@ type :: tree_object
    ! type(surface_stl_object)  :: surface_stl !< STL surface.
    contains
       ! public methods
-      procedure, pass(self) :: adapt                        !< Adapt tree accordingly to refine/derefine necessity.
-      procedure, pass(self) :: codes                        !< Return the list of (sorted) codes actually stored in the tree.
-      ! procedure, pass(self) :: compute_surface_stl_distance !< Compute signed distance of nodes from a STL surface.
-      procedure, pass(self) :: description                  !< Return pretty-printed object description.
-      procedure, pass(self) :: get_closest_block            !< Get the closest block to a given point.
-      procedure, pass(self) :: get_closest_cells            !< Get the closest cells to a given point.
-      procedure, pass(self) :: hash                         !< Hash the key.
-      procedure, pass(self) :: has_code                     !< Check if the code is present in the tree.
-      procedure, pass(self) :: initialize                   !< Initialize the tree.
-      procedure, pass(self) :: load_nodes                   !< Load nodes data, used for restart.
-      procedure, pass(self) :: load_from_ini_file           !< Load object data from INI file.
-      ! procedure, pass(self) :: load_surface_stl             !< Load surface from STL file.
-      procedure, pass(self) :: loop                         !< Sentinel while-loop on nodes returning the code.
-      procedure, pass(self) :: mark_all_nodes               !< Mark all nodes to be refined, derefined, ecc.
-      procedure, pass(self) :: mark_sphere                  !< Mark nodes to be refined/derefined by sphere distance.
-      ! procedure, pass(self) :: mark_surface_stl             !< Mark all nodes inside a surface defined by STL triangulation.
-      procedure, nopass     :: max_cell_delta               !< Return the maximum cell delta given a comparison distance.
-      procedure, pass(self) :: node                         !< Return a pointer to a node.
-      procedure, pass(self) :: prime_buckets_number         !< Return the buckets number as nearest prime number given nodes number.
-      procedure, pass(self) :: prune                        !< Prune nodes.
-      procedure, pass(self) :: resize                       !< Resize the tree.
-      procedure, pass(self) :: save_nodes                   !< Save nodes data, used for restart.
-      procedure, pass(self) :: traverse                     !< Traverse tree calling the iterator procedure.
-      procedure, pass(self) :: update_blocks_coordinates    !< Update blocks coordinates of redistributed nodes.
+      procedure, pass(self) :: adapt                     !< Adapt tree accordingly to refine/derefine necessity.
+      procedure, pass(self) :: codes                     !< Return the list of (sorted) codes actually stored in the tree.
+      procedure, pass(self) :: description               !< Return pretty-printed object description.
+      procedure, pass(self) :: get_closest_block         !< Get the closest block to a given point.
+      procedure, pass(self) :: get_closest_cells         !< Get the closest cells to a given point.
+      procedure, pass(self) :: hash                      !< Hash the key.
+      procedure, pass(self) :: has_code                  !< Check if the code is present in the tree.
+      procedure, pass(self) :: initialize                !< Initialize the tree.
+      procedure, pass(self) :: load_nodes                !< Load nodes data, used for restart.
+      procedure, pass(self) :: load_from_ini_file        !< Load object data from INI file.
+      procedure, pass(self) :: loop                      !< Sentinel while-loop on nodes returning the code.
+      procedure, pass(self) :: mark_all_nodes            !< Mark all nodes to be refined, derefined, ecc.
+      procedure, pass(self) :: mark_sphere               !< Mark nodes to be refined/derefined by sphere distance.
+      procedure, nopass     :: max_cell_delta            !< Return the maximum cell delta given a comparison distance.
+      procedure, pass(self) :: node                      !< Return a pointer to a node.
+      procedure, pass(self) :: prime_buckets_number      !< Return the buckets number as nearest prime number given nodes number.
+      procedure, pass(self) :: prune                     !< Prune nodes.
+      procedure, pass(self) :: resize                    !< Resize the tree.
+      procedure, pass(self) :: save_nodes                !< Save nodes data, used for restart.
+      procedure, pass(self) :: traverse                  !< Traverse tree calling the iterator procedure.
+      procedure, pass(self) :: update_blocks_coordinates !< Update blocks coordinates of redistributed nodes.
       ! MPI methods
       procedure, pass(self) :: import_refinements_needed !< Import refinements needed status changed externally.
       procedure, pass(self) :: mpi_redistribute          !< Redistribute nodes to MPI processes, load balancing.
@@ -404,89 +401,6 @@ contains
       endsubroutine swap_element
    endfunction codes
 
-  !subroutine compute_surface_stl_distance(self, surface_stl, from_cell, cell_distance)
-  !!< Compute signed distance of blocks/cells from a STL surface.
-  !!<
-  !!< Distance from blocks are computed for all blocks, there is not need to exchange data between processes.
-  !!< On the contrary, distance from cells is computed only for my blocks, each process must pass the distance
-  !!< to each field.
-  !class(tree_object),       intent(inout)         :: self                   !< The tree.
-  !type(surface_stl_object), intent(in)            :: surface_stl            !< STL surface.
-  !logical,                  intent(in),  optional :: from_cell              !< Distance from cells instead of blocks.
-  !real(R8P), allocatable,   intent(out), optional :: cell_distance(:,:,:,:) !< Distance from cells.
-  !logical                                         :: from_cell_             !< Distance from cells instead of blocks, local var.
-  !type(tree_node_object), pointer                 :: node_ptr               !< Pointer to current node.
-  !real(R8P)                                       :: block_center(3)        !< block center coordinates.
-  !real(R8P)                                       :: distance(0:8)          !< Distances between block and sphere.
-  !integer(I4P)                                    :: i,j,k,l                !< Counter.
-  !real(R8P)                                       :: emin(3), emax(3)       !< Node extents.
-  !type(vector_R8P)                                :: point(0:8)             !< Vector point coordinates.
-  !real(R8P), allocatable                          :: x_cell(:)              !< X cell coordinates.
-  !real(R8P), allocatable                          :: y_cell(:)              !< Y cell coordinates.
-  !real(R8P), allocatable                          :: z_cell(:)              !< Z cell coordinates.
-  !
-  !from_cell_ = .false. ; if (present(from_cell)) from_cell_ = from_cell
-  !associate(ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk, ngc=>self%grid%ngc)
-  !if (from_cell_.and.present(cell_distance)) then
-  !   ! compute distance from cell, distance from blocks must be already computed
-  !   allocate(cell_distance(1-ngc:ni+ngc, 1-ngc:nj+ngc, 1-ngc:nk+ngc, 1:self%my_nodes_number))
-  !   ! cell_distance = huge(0._R8P)
-  !   cell_distance = 10._R8P
-  !   allocate(x_cell(1-ngc:ni+ngc))
-  !   allocate(y_cell(1-ngc:nj+ngc))
-  !   allocate(z_cell(1-ngc:nk+ngc))
-  !   do while(self%loop(node_ptr=node_ptr))
-  !      if (node_ptr%myrank==self%mpih%myrank) then
-  !         if (node_ptr%surface_stl_distance<epsilon(0._R8P)) then
-  !            ! compute cell distance only in blocks where is STL surface
-  !            call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
-  !            call self%grid%compute_metrics(coordinates=[i,j,k,l], x_cell=x_cell, y_cell=y_cell, z_cell=z_cell)
-  !            do k=1-ngc, nk+ngc
-  !               do j=1-ngc, nj+ngc
-  !                  do i=1-ngc, ni+ngc
-  !                     point(0) = x_cell(i) * ex_R8P + y_cell(j) * ey_R8P + z_cell(k) * ez_R8P
-  !                     cell_distance(i,j,k,node_ptr%block_index) = surface_stl%distance(point=point(0),   &
-  !                                                                                      is_signed=.true., &
-  !                                                                                      sign_algorithm='ray_intersections')
-  !                  enddo
-  !               enddo
-  !            enddo
-  !         endif
-  !      endif
-  !   enddo
-  !else
-  !   do while(self%loop(node_ptr=node_ptr))
-  !      if (node_ptr%myrank==self%mpih%myrank) then
-  !         if (node_ptr%surface_stl_distance<huge(0._R8P)/2._R8P) cycle ! distance already computed for this node
-  !         call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
-  !         call self%grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax)
-  !         block_center = (emax + emin) / 2._R8P
-  !         point(0) = block_center(1) * ex_R8P +  block_center(2) * ey_R8P + block_center(3) * ez_R8P
-  !         point(1) =         emin(1) * ex_R8P +          emin(2) * ey_R8P +         emin(3) * ez_R8P
-  !         point(2) =         emax(1) * ex_R8P +          emin(2) * ey_R8P +         emin(3) * ez_R8P
-  !         point(3) =         emin(1) * ex_R8P +          emax(2) * ey_R8P +         emin(3) * ez_R8P
-  !         point(4) =         emax(1) * ex_R8P +          emax(2) * ey_R8P +         emin(3) * ez_R8P
-  !         point(5) =         emin(1) * ex_R8P +          emin(2) * ey_R8P +         emax(3) * ez_R8P
-  !         point(6) =         emax(1) * ex_R8P +          emin(2) * ey_R8P +         emax(3) * ez_R8P
-  !         point(7) =         emin(1) * ex_R8P +          emax(2) * ey_R8P +         emax(3) * ez_R8P
-  !         point(8) =         emax(1) * ex_R8P +          emax(2) * ey_R8P +         emax(3) * ez_R8P
-  !         distance(0) = surface_stl%distance(point=point(0), is_signed=.true., sign_algorithm='ray_intersections')
-  !         distance(1) = surface_stl%distance(point=point(1), is_signed=.true., sign_algorithm='ray_intersections')
-  !         distance(2) = surface_stl%distance(point=point(2), is_signed=.true., sign_algorithm='ray_intersections')
-  !         distance(3) = surface_stl%distance(point=point(3), is_signed=.true., sign_algorithm='ray_intersections')
-  !         distance(4) = surface_stl%distance(point=point(4), is_signed=.true., sign_algorithm='ray_intersections')
-  !         distance(5) = surface_stl%distance(point=point(5), is_signed=.true., sign_algorithm='ray_intersections')
-  !         distance(6) = surface_stl%distance(point=point(6), is_signed=.true., sign_algorithm='ray_intersections')
-  !         distance(7) = surface_stl%distance(point=point(7), is_signed=.true., sign_algorithm='ray_intersections')
-  !         distance(8) = surface_stl%distance(point=point(8), is_signed=.true., sign_algorithm='ray_intersections')
-  !         if (maxval(distance(0:8),dim=1)*minval(distance(0:8),dim=1) < 0._R8P) distance(0) = 0._R8P
-  !         node_ptr%surface_stl_distance = distance(0)
-  !      endif
-  !   enddo
-  !endif
-  !endassociate
-  !endsubroutine compute_surface_stl_distance
-
    pure function description(self) result(desc)
    !< Return a pretty-formatted object description.
    class(tree_object), intent(in) :: self             !< The tree.
@@ -616,65 +530,38 @@ contains
    bucket = modulo(code, int(self%buckets_number, I8P)) + 1
    endfunction hash
 
-   subroutine initialize(self, grid, file_parameters, max_load, nodes_number, buckets_number, ratio, max_level, add_adam, &
-                         iu_ref_levels, i_prune, j_prune, k_prune, l_prune)
+   subroutine initialize(self, grid, file_parameters, nodes_number, buckets_number, add_adam, verbose, ratio, max_level)
    !< Initialize the tree.
    class(tree_object), intent(inout)           :: self            !< The tree.
    type(grid_object),  intent(in), target      :: grid            !< Grid data.
    type(file_ini),     intent(inout), optional :: file_parameters !< INI file handler.
-   real(R8P),          intent(in),    optional :: max_load        !< Maximum load of tree buckets.
    integer(I8P),       intent(in),    optional :: nodes_number    !< Nodes number to be stored in the tree.
-   integer(I8P),       intent(in),    optional :: buckets_number  !< Number of buckets for initialize the tree.
+   integer(I8P),       intent(in),    optional :: buckets_number  !< Buckets number.
+   logical,            intent(in),    optional :: add_adam        !< Add ADAM node, the ancestor of all nodes.
+   logical,            intent(in),    optional :: verbose         !< Trigger verbose output.
    integer(I4P),       intent(in),    optional :: ratio           !< Refinement ratio.
    integer(I4P),       intent(in),    optional :: max_level       !< Maximum refinement level.
-   integer(I4P),       intent(in),    optional :: iu_ref_levels   !< Uniform initial refinement.
-   integer(I4P),       intent(in),    optional :: i_prune         !< Pruning along x.
-   integer(I4P),       intent(in),    optional :: j_prune         !< Pruning along y.
-   integer(I4P),       intent(in),    optional :: k_prune         !< Pruning along z.
-   integer(I4P),       intent(in),    optional :: l_prune         !< Pruning level.
-   logical,            intent(in),    optional :: add_adam        !< Add ADAM node, the ancestor of all nodes.
    logical                                     :: add_adam_       !< Add ADAM node, the ancestor of all nodes, local var.
+   logical                                     :: verbose_        !< Trigger verbose output, local variable.
 
-   call self%mpih%initialize(do_mpi_init=.false.)
-   call self%mpih%print_message('tree_object%initialize start')
-   self%grid => grid
-   if (present(file_parameters)) call self%load_from_ini_file(file_parameters)
-
-   ! parameters explicitely passed ovveride ones file-passed
    add_adam_ = .true. ; if (present(add_adam)) add_adam_ = add_adam
-   ! tree data
-   if (present(max_load)) self%max_load = max_load
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   call self%mpih%initialize(verbose=verbose_)
+   if (verbose_) call self%mpih%print_message('tree_object%initialize start')
+   self%grid => grid
+   call self%load_from_ini_file(file_parameters)
    if (present(nodes_number)) then
       self%buckets_number = self%prime_buckets_number(nodes_number=nodes_number)
    else
       self%buckets_number = TREE_BUCKETS_NUMBER_DEF ; if (present(buckets_number)) self%buckets_number = buckets_number
    endif
    allocate(self%bucket(1:self%buckets_number))
-   ! allocate(self%bucket(1:4133))
-   if (present(ratio)) then
-      if (ratio==8_I8P.or.ratio==4_I8P) then
-         self%ratio = ratio
-      else
-         write(stderr, '(A)') self%mpih%myrankstr//'ADAM-ERROR: tree ratio must be 8 o 4'
-         call MPI_FINALIZE(self%mpih%error)
-         stop
-      endif
-   endif
-   if (present(max_level)) self%max_level = max_level
    self%is_initialized_ = .true.
    if (add_adam_) call self%add_node(code=-1_I8P) ! add ADAM node, the ancestor of all nodes
-
-   if(present(iu_ref_levels)) self%iu_ref_levels = iu_ref_levels
-   if(present(i_prune)) self%ijkl_prune(1)       = i_prune
-   if(present(j_prune)) self%ijkl_prune(2)       = j_prune
-   if(present(k_prune)) self%ijkl_prune(3)       = k_prune
-   if(present(l_prune)) self%ijkl_prune(4)       = l_prune
-
    call self%mpi_redistribute
-
    call self%make_neighborhood
-   print '(A)', self%description()
-   call self%mpih%print_message('tree_object%initialize finish')
+   if (verbose_) print '(A)', self%description()
+   if (verbose_) call self%mpih%print_message('tree_object%initialize finish')
    endsubroutine initialize
 
    subroutine load_nodes(self, file_name)
@@ -726,21 +613,6 @@ contains
    call file_parameters%get(section_name='amr', option_name='k_prune'      , val=buff_I4P) ; self%ijkl_prune(3) = buff_I4P
    call file_parameters%get(section_name='amr', option_name='l_prune'      , val=buff_I4P) ; self%ijkl_prune(4) = buff_I4P
    endsubroutine load_from_ini_file
-
-  !subroutine load_surface_stl(self, file_name)
-  !!< Load surface from STL file and compute signed distance of nodes from it.
-  !class(tree_object), intent(inout) :: self      !< The tree.
-  !character(*),       intent(in)    :: file_name !< STL file name.
-  !type(file_stl_object)             :: file_stl  !< STL file handler.
-  !
-  !call self%mpih%print_message('tree_object%load_surface_stl from file '//trim(adjustl(file_name)))
-  !call file_stl%load_from_file(facet=self%surface_stl%facet, file_name=trim(adjustl(file_name)), guess_format=.true.)
-  !call self%surface_stl%analize(aabb_refinement_levels=3)
-  !call self%surface_stl%sanitize
-  !call self%mpih%print_message('tree_object%load_surface_stl compute distance from STL surface')
-  !call self%compute_surface_stl_distance(surface_stl=self%surface_stl)
-  !call self%mpih%print_message('tree_object%load_surface_stl from file '//trim(adjustl(file_name))//' completed')
-  !endsubroutine load_surface_stl
 
    function loop(self, code, node_ptr) result(again)
    !< Sentinel while-loop on nodes returning the code (for tree looping).
@@ -903,38 +775,6 @@ contains
       endfunction sphere_distance
    endsubroutine mark_sphere
 
-  !subroutine mark_surface_stl(self, surface_stl, threshold)
-  !!< Mark all nodes inside a surface defined by STL triangulation.
-  !class(tree_object),       intent(inout)        :: self             !< The tree.
-  !type(surface_stl_object), intent(in)           :: surface_stl      !< STL surface.
-  !real(R8P),                intent(in), optional :: threshold        !< Threshold for sphere proximity.
-  !real(R8P)                                      :: threshold_       !< Threshold for sphere proximity, local var.
-  !type(tree_node_object), pointer                :: node_ptr         !< Pointer to current node.
-  !real(R8P)                                      :: block_diagonal   !< block diagonal.
-  !real(R8P)                                      :: max_delta        !< Max cell delta.
-  !integer(I4P)                                   :: i,j,k,l          !< Counter.
-  !real(R8P)                                      :: emin(3), emax(3) !< Node extents.
-  !
-  !threshold_ = 2.2_R8P ; if (present(threshold)) threshold_ = threshold
-  !do while(self%loop(node_ptr=node_ptr))
-  !   if (node_ptr%myrank==self%mpih%myrank) then
-  !      call self%morton_to_coordinates(code=node_ptr%code, i=i, j=j, k=k, l=l)
-  !      call self%grid%compute_metrics(coordinates=[i,j,k,l], emin=emin, emax=emax)
-  !      block_diagonal = sqrt((emax(1) - emin(1))**2 + &
-  !                            (emax(2) - emin(2))**2 + &
-  !                            (emax(3) - emin(3))**2)
-  !      associate (ni=>self%grid%ni, nj=>self%grid%nj, nk=>self%grid%nk)
-  !         max_delta = self%max_cell_delta(distance=node_ptr%surface_stl_distance)
-  !         if (block_diagonal/min(ni,nj,nk) > max_delta) then
-  !            node_ptr%refinement_needed = TO_BE_REFINED
-  !         elseif (block_diagonal/min(ni,nj,nk) * threshold_ < max_delta) then
-  !            node_ptr%refinement_needed = TO_BE_DEREFINED
-  !         endif
-  !      endassociate
-  !   endif
-  !enddo
-  !endsubroutine mark_surface_stl
-
    function node(self, code) result(p)
    !< Return a pointer to a node in the tree.
    class(tree_object), intent(in)  :: self !< The tree.
@@ -1008,7 +848,7 @@ contains
    if (self%is_initialized_) then
       if (present(max_load)) self%max_load = max_load
       if (self%nodes_number > int((1._R8P/self%max_load)*nodes_number, I4P)) return ! new size too small, cannot previous nodes
-      call swap%initialize(grid=self%grid, max_load=self%max_load, nodes_number=nodes_number, ratio=self%ratio, add_adam=.false.)
+      call swap%initialize(grid=self%grid, nodes_number=nodes_number, add_adam=.false., ratio=self%ratio, max_level=self%max_level)
       do while(self%loop(node_ptr=node_ptr)) ! re-hash all codes
          call swap%add_node(code=node_ptr%code,                           &
                             refinement_needed=node_ptr%refinement_needed, &

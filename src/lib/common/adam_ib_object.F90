@@ -2,11 +2,13 @@
 module adam_ib_object
 !< ADAM, IB class definition, CPU backend.
 
-use adam_field_object, only : field_object
-use adam_grid_object, only : grid_object
-use adam_mpih_object, only : mpih_object
-use finer
-use penf
+! ADAM modules
+use :: adam_field_object, only : field_object
+use :: adam_grid_object, only : grid_object
+use :: adam_mpih_object, only : mpih_object
+! third party modules
+use :: finer
+use :: penf
 
 implicit none
 private

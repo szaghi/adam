@@ -134,14 +134,17 @@ contains
    call self%mpi_gather_nodes_data(node_member='block_index')
    endsubroutine blocks_reorder
 
-   subroutine initialize(self, grid, tree)
+   subroutine initialize(self, grid, tree, verbose)
    !< Initialize maps.
-   class(maps_object), intent(inout)      :: self !< The maps.
-   type(grid_object),  intent(in), target :: grid !< The grid.
-   type(tree_object),  intent(in), target :: tree !< The tree.
+   class(maps_object), intent(inout)        :: self     !< The maps.
+   type(grid_object),  intent(in), target   :: grid     !< The grid.
+   type(tree_object),  intent(in), target   :: tree     !< The tree.
+   logical,            intent(in), optional :: verbose  !< Trigger verbose output.
+   logical                                  :: verbose_ !< Trigger verbose output, local variable.
 
-   call self%mpih%initialize
-   call self%mpih%print_message('maps_object%initialize start')
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
+   call self%mpih%initialize(verbose=verbose_)
+   if (verbose_) call self%mpih%print_message('maps_object%initialize start')
    self%grid => grid
    self%tree => tree
    allocate(self%comm_map_n_send(0:self%mpih%procs_number-1))
@@ -156,7 +159,8 @@ contains
    allocate(self%comm_map_n_recv_ghost(0:self%mpih%procs_number-1))
    allocate(self%comm_map_send_ptr_ghost(0:self%mpih%procs_number))
    allocate(self%comm_map_recv_ptr_ghost(0:self%mpih%procs_number))
-   call self%mpih%print_message('maps_object%initialize finish')
+   call self%make_comm_local_maps
+   if (verbose_) call self%mpih%print_message('maps_object%initialize finish')
    endsubroutine initialize
 
    subroutine make_comm_local_maps(self)

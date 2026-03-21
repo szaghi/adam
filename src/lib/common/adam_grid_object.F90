@@ -245,41 +245,26 @@ contains
    endassociate
    endfunction get_closest_block
 
-   subroutine initialize(self, file_parameters, ni, nj, nk, ngc, emin, emax, bc_type, verbose)
+   subroutine initialize(self, file_parameters, verbose)
    !< Initialize field.
-   class(grid_object), intent(inout)           :: self            !< The grid.
-   type(file_ini),     intent(inout)           :: file_parameters !< INI file handler.
-   integer(I4P),       intent(in),    optional :: ni              !< Number of cells in X direction.
-   integer(I4P),       intent(in),    optional :: nj              !< Number of cells in Y direction.
-   integer(I4P),       intent(in),    optional :: nk              !< Number of cells in Z direction.
-   integer(I4P),       intent(in),    optional :: ngc             !< Number of ghost cells.
-   real(R8P),          intent(in),    optional :: emin(3)         !< Coordinates of minium abscissa.
-   real(R8P),          intent(in),    optional :: emax(3)         !< Coordinates of maxium abscissa.
-   integer(I4P),       intent(in),    optional :: bc_type(6)      !< Type of boundary conditions in the 6 faces of grid.
-   logical,            intent(in),    optional :: verbose         !< Flag to activate verbose output.
-   integer(I4P)                                :: i, j, k, l      !< Counter.
-   integer(I4P)                                :: nijk(3)         !< Cells number.
-   integer(I4P)                                :: ratio           !< AMR ratio.
+   !< Note: bc_type is not initialized, must be set separately by equation app.
+   class(grid_object), intent(inout)        :: self            !< The grid.
+   type(file_ini),     intent(inout)        :: file_parameters !< INI file handler.
+   logical,            intent(in), optional :: verbose         !< Flag to activate verbose output.
+   logical                                  :: verbose_        !< Trigger verbose output, local variable.
+   integer(I4P)                             :: i, j, k, l      !< Counter.
+   integer(I4P)                             :: nijk(3)         !< Cells number.
+   integer(I4P)                             :: ratio           !< AMR ratio.
 
+   verbose_ = .false. ; if (present(verbose)) verbose_ = verbose
    call self%mpih%initialize
-   call self%mpih%print_message('grid_object%initialize start')
+   if (verbose_) call self%mpih%print_message('grid_object%initialize start')
    call self%load_from_ini_file(file_parameters)
    call file_parameters%get(section_name='amr', option_name='ratio', val=ratio)
 
-   ! parameters explicitely passed ovveride ones file-passed
-   if (present(emin)) self%domain_emin = emin
-   if (present(emax)) self%domain_emax = emax
-   if (present(ni))  self%ni = ni
-   if (present(nj))  self%nj = nj
-   if (present(nk))  self%nk = nk
-   if (present(ngc)) self%ngc = ngc
-   if (present(bc_type)) self%bc_type = bc_type
    self%block_weight = (self%ngc+self%ni+self%ngc) * (self%ngc+self%nj+self%ngc) * (self%ngc+self%nk+self%ngc)
 
    call self%compute_weight_neighbor
-   if (any(self%bc_type(1:2)==BC_PERIODIC)) self%is_ijk_periodic(1) = .true.
-   if (any(self%bc_type(3:4)==BC_PERIODIC)) self%is_ijk_periodic(2) = .true.
-   if (any(self%bc_type(5:6)==BC_PERIODIC)) self%is_ijk_periodic(3) = .true.
 
    nijk = [self%ni, self%nj, self%nk]
    allocate(self%block_dxyz(3,                           0:MAX_REF_LEVELS))
@@ -313,10 +298,8 @@ contains
          self%lin_space_z(k,l) = k * self%cell_dxyz(3,l)
       enddo
    enddo
-   if (present(verbose)) then
-      if (verbose) print '(A)', self%description()
-   endif
-   call self%mpih%print_message('grid_object%initialize finish')
+   if (verbose_) print '(A)', self%description()
+   if (verbose_) call self%mpih%print_message('grid_object%initialize finish')
    endsubroutine initialize
 
    subroutine load_from_ini_file(self, file_parameters, go_on_fail)
@@ -394,5 +377,8 @@ contains
    integer(I4P),       intent(in)    :: bc_type(6) !< Type of boundary conditions in the 6 faces of grid.
 
    self%bc_type = bc_type
+   if (any(self%bc_type(1:2)==BC_PERIODIC)) self%is_ijk_periodic(1) = .true.
+   if (any(self%bc_type(3:4)==BC_PERIODIC)) self%is_ijk_periodic(2) = .true.
+   if (any(self%bc_type(5:6)==BC_PERIODIC)) self%is_ijk_periodic(3) = .true.
    endsubroutine set_bc_type
 endmodule adam_grid_object

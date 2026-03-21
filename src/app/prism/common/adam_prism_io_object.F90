@@ -39,11 +39,12 @@ type :: prism_io_object
    logical :: save_gradient_fields  =.false. !< Flag to activate gradient fields saving.
    logical :: save_laplacian_fields =.false. !< Flag to activate gradient fields saving.
    contains
-      procedure, pass(self) :: description         !< Return pretty-printed object description.
-      procedure, pass(self) :: initialize          !< Initialize time handler.
-      procedure, pass(self) :: load_from_file      !< Load config from file.
-      procedure, pass(self) :: save_energy_error   !< Save energy error history.
-      procedure, pass(self) :: save_energy_history !< Save energy history.
+      ! public methods
+      procedure, pass(self) :: description             !< Return pretty-printed object description.
+      procedure, pass(self) :: initialize              !< Initialize time handler.
+      procedure, pass(self) :: load_from_file          !< Load config from file.
+      procedure, pass(self) :: save_energy_error       !< Save energy error history.
+      procedure, pass(self) :: save_energy_history     !< Save energy history.
       procedure, pass(self) :: save_divergence_history !< Save divergence history.
       ! residuals IO
       procedure, pass(self) :: close_file_residuals !< Close file for saving residuals history.

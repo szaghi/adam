@@ -53,7 +53,7 @@ contains
    class(prism_fWLayer_object), intent(in) :: self             !< Physics.
    character(len=:), allocatable           :: desc             !< Description.
    character(len=1), parameter             :: NL=new_line('a') !< New line character.
-   
+
    if (self%C == 0_I4P) then
       desc = self%mpih%myrankstr//'   No fWLayer implemented'
    else
@@ -85,6 +85,7 @@ contains
    print '(A)', self%mpih%myrankstr//'prism_fWLayer_object%initialize start'
    call self%load_from_file(file_parameters=file_parameters)
    print '(A)', self%description()
+   if (self%C == 0_I4P) return
 
    !Inizializzo funzione f nelle celle dello strato
    associate(ni=>field%grid%ni, nj=>field%grid%nj, nk=>field%grid%nk, blocks_number=>field%blocks_number,     &
@@ -101,7 +102,7 @@ contains
       ni_fWL(2,1)=C    ; ni_fWL(2,2)=ni        ; ni_fWL(2,3)=ni   ; ni_fWL(2,4)=ni        ; ni_fWL(2,5)=ni   ; ni_fWL(2,6)=ni
       nj_fWL(1,1)=1_I4P; nj_fWL(1,2)=1_I4P     ; nj_fWL(1,3)=1_I4P; nj_fWL(1,4)=nj-C+1_I4P; nj_fWL(1,5)=1_I4P; nj_fWL(1,6)=1_I4P
       nj_fWL(2,1)=nj   ; nj_fWL(2,2)=nj        ; nj_fWL(2,3)=C    ; nj_fWL(2,4)=nj        ; nj_fWL(2,5)=nj   ; nj_fWL(2,6)=nj
-      nk_fWL(1,1)=1_I4P; nk_fWL(1,2)=1_I4P ; nk_fWL(1,3)=1_I4P; nk_fWL(1,4)=1_I4P     ; nk_fWL(1,5)=1_I4P; nk_fWL(1,6)=nk-C+1_I4P 
+      nk_fWL(1,1)=1_I4P; nk_fWL(1,2)=1_I4P ; nk_fWL(1,3)=1_I4P; nk_fWL(1,4)=1_I4P     ; nk_fWL(1,5)=1_I4P; nk_fWL(1,6)=nk-C+1_I4P
       nk_fWL(2,1)=nk   ; nk_fWL(2,2)=nk        ; nk_fWL(2,3)=nk   ; nk_fWL(2,4)=nk        ; nk_fWL(2,5)=C    ; nk_fWL(2,6)=nk
 
       n(1)      =1_I4P  ; n(2)      =1_I4P   ; n(3)      =2_I4P  ; n(4)      =2_I4P   ; n(5)      =3_I4P  ; n(6)      =3_I4P
@@ -325,8 +326,6 @@ contains
    endsubroutine apply_fWL_correction_fun
 
 endmodule adam_prism_fWLayer_object
-
-
 
    !subroutine apply_fWL_correction(self, q)
    !!< Apply correction if a fWL is present
