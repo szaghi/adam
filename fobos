@@ -439,7 +439,7 @@ rule_1 = FoBiS.py rule -ex build-tests-fdv
 rule_2 = ./scripts/run_tests.sh --np 1
 rule_3 = rm -f exe/obj/befor64* exe/obj/face* exe/obj/finer* exe/obj/fundal* exe/obj/fossil* exe/obj/foxy* exe/obj/mortif* exe/obj/motion* exe/obj/penf* exe/obj/stringifor* exe/obj/vtkfortran* exe/obj/vecfor*
 rule_4 = ./scripts/compute-coverage.sh
-rule_5 = FoBiS.py rule -gcov_analyzer docs/guide/ coverage-analysis
+rule_5 = FoBiS.py rule -gcov_analyzer docs/guide/
 rule_6 = rm -f *.gcov
 
 [common-variables]
