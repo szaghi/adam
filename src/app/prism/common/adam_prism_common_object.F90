@@ -439,6 +439,7 @@ contains
       enddo
       call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, q=self%q(:,:,:,:,b), q_name=q_name)
       deallocate(q_name)
+
       if (self%coil%total_coils_number>0) then
          allocate(q_name(1))
          q_name(1) = 'coil_flag'
@@ -456,6 +457,14 @@ contains
          deallocate(q_name)
       endif
 
+      if (self%fWLayer%C>0) then
+         allocate(q_name(3))
+         q_name(1) = 'fWLayer_x'
+         q_name(2) = 'fWLayer_y'
+         q_name(3) = 'fWLayer_z'
+         call self%io%save_field(xh5f=xh5f, block_name=bn, ijk=ijk, nijk=nijk, q=self%fWLayer%f(:,:,:,:,b), q_name=q_name)
+         deallocate(q_name)
+      endif
       call self%close_block_xh5f(xh5f=xh5f)
    enddo
    call self%close_file_xh5f(xh5f=xh5f)
